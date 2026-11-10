@@ -90,7 +90,7 @@ pub fn drawn_nothing_here(name: &str) -> bool {
 }
 
 /// The remaster's own boxes, in the order the page shows them.
-pub const FEATURES: [Feature; 22] = [
+pub const FEATURES: [Feature; 23] = [
     Feature {
         name: names::REMASTER_SHADOWS,
         caption: "Shadows",
@@ -192,6 +192,12 @@ pub const FEATURES: [Feature; 22] = [
         name: names::REMASTER_FLOWERS,
         caption: "Flowers and pebbles",
         note: "Flowers grow in the grass and pebbles lie on bare ground.",
+        at_first: true,
+    },
+    Feature {
+        name: names::REMASTER_SWAY,
+        caption: "Tree sway",
+        note: "An art pack's trees sway in the wind.",
         at_first: true,
     },
     Feature {
@@ -391,6 +397,7 @@ mod tests {
             names::REMASTER_SHADOWS,
             names::REMASTER_SKY,
             names::REMASTER_BOUNCE,
+            names::REMASTER_SWAY,
         ] {
             assert!(ticked_at_first(on), "{on}");
         }
@@ -404,7 +411,7 @@ mod tests {
         ] {
             assert!(!ticked_at_first(later), "{later}");
         }
-        assert_eq!(FEATURES.iter().filter(|f| f.at_first).count(), 16);
+        assert_eq!(FEATURES.iter().filter(|f| f.at_first).count(), 17);
     }
 
     /// Every line the player reads names the remaster by the one name, and the stored option

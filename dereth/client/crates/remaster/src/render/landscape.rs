@@ -1,6 +1,7 @@
 //! What the remaster adds to the landscape past retail's own pictures, each on its own switch:
 //! the color grade by kind of day; the air over the land, the sky's light in the shade and a low
-//! fog lit by the sun, on every frame outdoors; the grass field; flowers and pebbles.
+//! fog lit by the sun, on every frame outdoors; the grass field; flowers and pebbles; an art pack's
+//! trees swaying in the wind.
 
 /// Which of the landscape's additions are drawn. All off is the frame as it was drawn before any
 /// of them.
@@ -16,6 +17,8 @@ pub struct LandscapeSettings {
     pub grass: bool,
     /// Flowers in clusters over grassland, and pebbles on bare ground and along the roads.
     pub flowers: bool,
+    /// An art pack's trees bending in the wind; off, they stand still.
+    pub sway: bool,
 }
 
 impl super::Renderer {

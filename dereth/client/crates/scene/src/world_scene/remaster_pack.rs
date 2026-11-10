@@ -335,11 +335,22 @@ impl PackAssets {
         mesh.sphere = Some((centre, radius));
         mesh.sort_center = centre;
         // How deep in the crown each vertex lies goes in the length of its tangent's last value,
-        // whose sign is all anything else reads of it.
-        if let Some(crown) = Crown::of_model(model) {
+        // whose sign is all anything else reads of it; how far the wind bends a growing model's
+        // vertex goes in that length's whole part ([`bend_in_tangent`]).
+        let crown = Crown::of_model(model);
+        let top = if model.foliage {
+            mesh.vertices
+                .iter()
+                .fold(0.0f32, |t, v| t.max(v.position[2]))
+        } else {
+            0.0
+        };
+        if crown.is_some() || top > 0.0 {
             let mut tangents = dereth_remaster::assets::tangents(&mesh);
             for (t, v) in tangents.iter_mut().zip(&mesh.vertices) {
-                t[3] *= 1.0 + crown.deep(Vec3::from(v.position));
+                let p = Vec3::from(v.position);
+                let deep = crown.as_ref().map_or(0.0, |c| c.deep(p));
+                t[3] *= bend_in_tangent(deep, bend(p.z, top));
             }
             mesh.tangents = tangents;
         }
@@ -902,6 +913,29 @@ impl Crown {
     }
 }
 
+/// How far the wind bends a growing model at its top, a share of its height, at a wind of a
+/// meter a second.
+const BEND_AT_TOP: f32 = 0.02;
+
+/// How far the wind bends the vertex `z` meters up a growing model `top` meters tall, meters at a
+/// wind of a meter a second: nothing at its foot or below, rising with the square of the height,
+/// so the trunk stays put at the ground and the crown sways.
+fn bend(z: f32, top: f32) -> f32 {
+    if top <= 0.0 || z <= 0.0 {
+        return 0.0;
+    }
+    let h = (z / top).min(1.0);
+    h * h * top * BEND_AT_TOP
+}
+
+/// A tangent's last value's length carrying how deep in the crown a vertex lies (`deep`, 0 to 1)
+/// and how far the wind bends it (`bend`, meters at a meter a second): `1 + deep` plus twice the
+/// bend in whole millimeters. The G-buffer takes the bend out again before anything else reads
+/// the length.
+fn bend_in_tangent(deep: f32, bend: f32) -> f32 {
+    1.0 + deep.clamp(0.0, 1.0) + 2.0 * (bend * 1000.0).round()
+}
+
 #[cfg(test)]
 mod tests {
     //! Behaviour: none (experimental)
@@ -1016,6 +1050,33 @@ mod tests {
             {
                 assert_eq!([t[0], t[1], t[2]], [s[1], s[0], 0]);
             }
+        }
+    }
+
+    /// A growing model bends nothing at its foot or below and most at its top, and the bend
+    /// and the crown's depth both come back out of the tangent's length as the G-buffer reads
+    /// them: the bend as whole millimeters, the depth to within a 255th.
+    #[test]
+    fn a_trees_bend_rises_to_its_top_and_rides_in_its_tangent() {
+        assert_eq!(bend(0.0, 30.0), 0.0);
+        assert_eq!(bend(-1.0, 30.0), 0.0);
+        assert!((bend(30.0, 30.0) - 30.0 * BEND_AT_TOP).abs() < 1e-6);
+        assert!((bend(15.0, 30.0) - 30.0 * BEND_AT_TOP / 4.0).abs() < 1e-6);
+        assert_eq!(bend(10.0, 0.0), 0.0, "not growing: no bend");
+        for (deep, b) in [(0.0, 0.0), (1.0, 0.0), (0.0, 0.6), (1.0, 0.6), (0.37, 2.5)] {
+            let a = bend_in_tangent(deep, b);
+            // The G-buffer's arithmetic.
+            let q = ((a - 1.0) / 2.0 + 1e-3).floor();
+            let back = (a - 1.0 - 2.0 * q).clamp(0.0, 1.0);
+            assert!(
+                (q / 1000.0 - b).abs() < 1e-3,
+                "bend {b} came back {}",
+                q / 1000.0
+            );
+            assert!(
+                (back - deep).abs() < 1.0 / 255.0,
+                "depth {deep} came back {back}"
+            );
         }
     }
 }

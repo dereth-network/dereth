@@ -9,6 +9,7 @@
 #![allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
 
 mod instances;
+mod sway;
 
 use dereth_gfx::{Backend, Device, DeviceDesc};
 

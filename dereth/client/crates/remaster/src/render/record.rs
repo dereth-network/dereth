@@ -9,7 +9,7 @@ use dereth_gfx::{
 
 use super::light::{
     air_drawn, drawn_linear, frame_rows, frame_rows_seen, light_rows, pack_lit, set_rows,
-    sky_projection,
+    sky_projection, swaying,
 };
 use super::scene::{Bucket, CULLED_BUCKETS, GROUP_BUCKETS, NONE};
 use super::{push_words, Pipelines, Renderer, Targets, BUCKET_CAPACITY};
@@ -246,12 +246,15 @@ impl Renderer {
             && frame.landscape
             && !frame.sky.is_empty()
             && !drawn.inside;
-        let rows = air_drawn(
-            pack_lit(
-                drawn_linear(frame_rows(&frame, gamma, mode, render), self.post.linear()),
-                self.pack_look || self.landscape.air,
+        let rows = swaying(
+            air_drawn(
+                pack_lit(
+                    drawn_linear(frame_rows(&frame, gamma, mode, render), self.post.linear()),
+                    self.pack_look || self.landscape.air,
+                ),
+                air,
             ),
-            air,
+            self.landscape.sway,
         )
         .bytes();
         bytes += put(&mut self.constants, &mut self.gfx, rows.clone())?;

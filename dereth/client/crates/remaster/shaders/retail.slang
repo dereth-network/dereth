@@ -36,6 +36,9 @@ public static const uint FRAME_EXTENT = 20;
 public static const uint FRAME_LIFT = 22;
 // The hue an art pack's leaves are pulled toward, in turns (x), and how far (y, 0 not at all).
 public static const uint FRAME_FOLIAGE = 23;
+// The wind an art pack's trees sway in: xy its push east and north, meters a second; z the
+// weather's clock within its period, seconds.
+public static const uint FRAME_WIND = 24;
 
 // `c` in hue (turns), saturation and value.
 float3 hsv_of(float3 c)

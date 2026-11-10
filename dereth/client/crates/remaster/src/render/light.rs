@@ -135,7 +135,18 @@ pub fn frame_rows_seen(
     r.f([0.0; 4]);
     r.f(lift_row(frame));
     r.f([frame.foliage[0], frame.foliage[1], 0.0, 0.0]);
+    r.f(wind_row(frame));
     r
+}
+
+/// The wind an art pack's trees sway in: its push east and north, meters a second, and the
+/// weather's clock within its period, seconds.
+#[must_use]
+pub fn wind_row(frame: &FrameDelta) -> [f32; 4] {
+    let w = super::weather::wind(frame.clock);
+    #[allow(clippy::cast_possible_truncation)] // a wrapped clock
+    let clock = frame.clock.rem_euclid(super::weather::TIME_PERIOD) as f32;
+    [w[0], w[1], clock, 0.0]
 }
 
 /// Where the near ground gives way to the far, meters from the eye, and 1 while a far ground is
@@ -190,6 +201,20 @@ pub fn drawn_linear(mut rows: Rows, linear: bool) -> Rows {
 pub fn pack_lit(mut rows: Rows, lit: bool) -> Rows {
     if let Some(r) = rows.0.get_mut(FRAME_POST) {
         r[1] = if lit { 1.0f32 } else { 0.0 }.to_bits();
+    }
+    rows
+}
+
+/// The frame constants' row of the wind an art pack's trees sway in.
+pub const FRAME_WIND: usize = 24;
+
+/// `rows` with the wind an art pack's trees sway in stilled, unless they `sway`: off, they stand
+/// as they were made.
+#[must_use]
+pub fn swaying(mut rows: Rows, sway: bool) -> Rows {
+    if let (false, Some(r)) = (sway, rows.0.get_mut(FRAME_WIND)) {
+        r[0] = 0;
+        r[1] = 0;
     }
     rows
 }
@@ -383,19 +408,20 @@ mod tests {
         assert_eq!(lifted(&f, [0.0; 2], at(600.0)), 0.0);
     }
 
-    /// The frame's constants are 24 rows, with the ground's ambient its color's bytes times its
+    /// The frame's constants are 25 rows, with the ground's ambient its color's bytes times its
     /// level, the fog off when the frame has none, the colors in display values unless the frame
     /// is drawn linear, nothing lifted while no ground is drawn over retail's, and no pull on an
-    /// art pack's leaves until the look gives one.
+    /// art pack's leaves until the look gives one, and the wind last.
     #[test]
-    fn the_frames_constants_are_twenty_four_rows() {
+    fn the_frames_constants_are_twenty_five_rows() {
         let mut f = FrameDelta::default();
         f.light.ambient_color = [255, 128, 0];
         f.light.ambient_level = 0.5;
         f.camera.projection = Mat4::IDENTITY;
         f.camera.view = Mat4::IDENTITY;
         let r = frame_rows(&f, 0.0, LightMode::Vertex, (640, 480));
-        assert_eq!(r.0.len(), 24);
+        assert_eq!(r.0.len(), 25);
+        assert_eq!(r.0[24].map(f32::from_bits), wind_row(&f));
         assert_eq!(r.0[22], [0; 4], "no ground drawn over retail's");
         assert_eq!(r.0[23], [0; 4], "no pull on an art pack's leaves");
         let row = |i: usize| r.0[i].map(f32::from_bits);
@@ -407,6 +433,21 @@ mod tests {
         let linear = drawn_linear(r.clone(), true);
         assert_eq!(linear.0[FRAME_POST][0], 1.0f32.to_bits());
         assert_eq!(drawn_linear(linear, false), r);
+    }
+
+    /// With the trees' sway off the frame's wind is still, its clock kept; on, it is as it blows.
+    #[test]
+    fn the_sway_off_stills_the_wind_the_trees_bend_in() {
+        let f = FrameDelta {
+            clock: 40.0,
+            ..FrameDelta::default()
+        };
+        let r = frame_rows(&f, 0.0, LightMode::Vertex, (640, 480));
+        let wind = wind_row(&f);
+        assert!(wind[0] != 0.0 || wind[1] != 0.0, "a wind blows: {wind:?}");
+        assert_eq!(swaying(r.clone(), true), r);
+        let still = swaying(r, false).0[FRAME_WIND].map(f32::from_bits);
+        assert_eq!(still, [0.0, 0.0, wind[2], wind[3]]);
     }
 
     /// The sky is seen with the far plane four times as far: a point twice the world's far

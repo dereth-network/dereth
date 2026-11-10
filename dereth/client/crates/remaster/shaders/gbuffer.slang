@@ -111,6 +111,44 @@ Item item_at(uint i)
     return it;
 }
 
+static const float SWAY_TAU = 6.2831853;
+// The sway's motions, each a whole number of cycles in the weather's clock's period (1200 s), so
+// the clock's wrap moves nothing: the slow swing (about 5 s), the gusts that roll across the land
+// (about 20 s), a sideways rock (about 4 s) and the leaves' flutter (about 1 s).
+static const float SWAY_SWING = SWAY_TAU * 229.0 / 1200.0;
+static const float SWAY_GUST = SWAY_TAU * 61.0 / 1200.0;
+static const float SWAY_ROCK = SWAY_TAU * 311.0 / 1200.0;
+static const float SWAY_FLUTTER = SWAY_TAU * 1259.0 / 1200.0;
+
+// How far the wind moves the vertex at `pos` of a growing model standing at `origin` (both the
+// frame's space), which bends `bend` meters at a wind of a meter a second; a cut-out leaf
+// (`leaf`) flutters as well. The model leans with the wind, further in a gust, and swings about
+// that lean; trees apart swing apart.
+float3 swayed(float bend, float3 origin, float3 pos, bool leaf)
+{
+    float4 w = row(push.frame, FRAME_WIND);
+    float strength = length(w.xy);
+    if (strength < 1e-4)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+    float2 along = w.xy / strength;
+    float2 across = float2(-along.y, along.x);
+    float t = w.z;
+    float phase = dot(origin.xy, float2(0.173, 0.131));
+    float gust = 0.5 + 0.5 * sin(t * SWAY_GUST - dot(origin.xy, float2(0.021, 0.017)));
+    float swing = sin(t * SWAY_SWING + phase);
+    float rock = sin(t * SWAY_ROCK + phase * 1.7);
+    float reach = bend * strength;
+    float3 d = float3(along * reach * (0.4 + 0.35 * gust + 0.25 * swing) + across * reach * 0.12 * rock, 0.0);
+    if (leaf)
+    {
+        float f = sin(t * SWAY_FLUTTER + dot(pos, float3(1.7, 1.3, 2.1)));
+        d += float3(across * 0.05, 0.03) * strength * min(reach * 4.0, 1.0) * f;
+    }
+    return d;
+}
+
 [shader("vertex")]
 Varyings vs_main(uint vertex : SV_VertexID
 #ifndef DERETH_DXIL
@@ -143,6 +181,19 @@ Varyings vs_main(uint vertex : SV_VertexID
     // Drawn standing on the ground as it is drawn.
     float3 origin = instance_origin(push.instances, push.blocks, it.instance);
     p.z += lifted(push.frame, push.instances, it.instance, origin);
+    // An art pack's growing model carries how far the wind bends each vertex, whole millimeters,
+    // in its tangent's last value's length, above how deep in the crown the vertex lies: taken
+    // out here, and the model swayed by it, its scale applied.
+    float wa = abs(r2.w);
+    float bent = floor((wa - 1.0) * 0.5 + 1e-3);
+    float deep = clamp(wa - 1.0 - 2.0 * bent, 0.0, 1.0);
+    r2.w = (r2.w < 0.0 ? -1.0 : 1.0) * (1.0 + deep);
+    if (bent > 0.5)
+    {
+        uint4 mb = row_u(push.materials, it.material * 2);
+        float s = length(row(push.instances, at).xyz);
+        p.xyz += swayed(bent * 0.001 * s, origin, p.xyz, (mb.y & PACK_FOLIAGE) != 0);
+    }
     float3 nrm = scale.w > 0.5 ? normal * scale.xyz : normal;
     float3 N = normalize((row(push.instances, at) * nrm.x + row(push.instances, at + 1) * nrm.y
                           + row(push.instances, at + 2) * nrm.z).xyz);
