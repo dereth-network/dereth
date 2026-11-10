@@ -338,45 +338,146 @@ fn thousand_a_level(top: i32) -> yalain_world::levels::LevelTable {
     }
 }
 
-/// Experience enough for level 52 takes a character that is no hero to level 50 and no further,
-/// its total still counted in full; made a hero, its next award brings the levels it had earned;
-/// a hero all along goes straight there.
-/// Behaviour: server.experience.a-non-hero-stops-at-level-fifty
-#[test]
-fn a_character_that_is_no_hero_stops_at_level_fifty_until_it_is_one() {
-    use yalain_world::progress::{award, q, Award};
-    use yalain_world::{focus, quals};
-    let mut h = Harness::new();
-    let (_, me) = h.player_in_world("one", "Kestrel");
+/// A character in the world, under a table of a thousand experience a level to level 60: its
+/// connection.
+fn at_a_thousand_a_level(h: &mut Harness, me: u64) -> yalain_net::ConnId {
     h.run(20);
     h.server.levels = thousand_a_level(60);
-    let world = *h
-        .server
+    *h.server
         .players
         .iter()
         .find(|(_, p)| p.character == me)
         .map(|(w, _)| w)
-        .expect("in the world");
-    let read = |h: &Harness| {
-        let p = h.server.players.get(&world).expect("in the world");
-        (
-            quals::int(&p.qualities, q::LEVEL).unwrap_or(0),
-            quals::long(&p.qualities, q::TOTAL_XP).unwrap_or(0),
-        )
-    };
-    let had = read(&h).1;
+        .expect("in the world")
+}
+
+/// Its level and its total experience.
+fn level_and_total(h: &Harness, world: yalain_net::ConnId) -> (i32, u64) {
+    use yalain_world::progress::q;
+    let p = h.server.players.get(&world).expect("in the world");
+    (
+        yalain_world::quals::int(&p.qualities, q::LEVEL).unwrap_or(0),
+        yalain_world::quals::long(&p.qualities, q::TOTAL_XP).unwrap_or(0),
+    )
+}
+
+/// Experience enough for level 52 takes a character that is no hero to level 50 and no further,
+/// that award counted in full; at level 50 it gains nothing more, its total and its level as they
+/// were and no text told; made a hero, it gains again and takes the levels its total gives.
+/// Behaviour: server.experience.a-non-hero-stops-at-level-fifty
+#[test]
+fn a_character_that_is_no_hero_gains_nothing_at_level_fifty_until_it_is_one() {
+    use yalain_world::progress::{award, Award};
+    use yalain_world::{focus, quals};
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Kestrel");
+    let world = at_a_thousand_a_level(&mut h, me);
+    let had = level_and_total(&h, world).1;
     award(&mut h.server, &mut h.net, world, 51_000, Award::Step);
     assert_eq!(
-        read(&h),
+        level_and_total(&h, world),
         (50, had + 51_000),
-        "stopped at 50, all of it kept"
+        "stopped at 50, that award kept"
     );
+    h.run(2);
+    let from = h.bots[b].inbox.len();
+    award(&mut h.server, &mut h.net, world, 1_000, Award::Part);
     award(&mut h.server, &mut h.net, world, 1_000, Award::Step);
-    assert_eq!(read(&h), (50, had + 52_000), "still 50");
+    h.run(2);
+    assert_eq!(
+        level_and_total(&h, world),
+        (50, had + 51_000),
+        "at 50, nothing gained"
+    );
+    let progress: Vec<_> = h
+        .texts(b, from)
+        .into_iter()
+        .filter(|(kind, _)| *kind == yalain_world::progress::TEXT_KIND)
+        .collect();
+    assert!(progress.is_empty(), "nothing told of it: {progress:?}");
     let p = h.server.players.get_mut(&world).expect("in the world");
     quals::set_bool(&mut p.qualities, focus::HERO, true);
-    award(&mut h.server, &mut h.net, world, 1, Award::Step);
-    assert_eq!(read(&h).0, 53, "a hero has what it earned");
+    award(&mut h.server, &mut h.net, world, 1_000, Award::Step);
+    assert_eq!(
+        level_and_total(&h, world),
+        (53, had + 52_000),
+        "a hero gains, and has the levels its total gives"
+    );
+}
+
+/// A character that is no hero at level 50 still pays its vitae back by what an award was worth,
+/// though it gains none of it: vitae rises by one for each whole debt the award covers, and the
+/// rest is taken off what is still to earn.
+/// Behaviour: server.experience.a-non-hero-stops-at-level-fifty
+#[test]
+fn a_non_hero_at_level_fifty_still_pays_its_vitae_back_by_what_an_award_was_worth() {
+    use yalain_world::death::vitae_q;
+    use yalain_world::progress::{award, Award};
+    use yalain_world::quals;
+    let mut h = Harness::new();
+    let (_, me) = h.player_in_world("one", "Kestrel");
+    let world = at_a_thousand_a_level(&mut h, me);
+    award(&mut h.server, &mut h.net, world, 51_000, Award::Step);
+    let total = level_and_total(&h, world);
+    assert_eq!(total.0, 50);
+    let p = h.server.players.get_mut(&world).expect("in the world");
+    quals::set_float(&mut p.qualities, vitae_q::VITAE, 90.0);
+    quals::set_long(&mut p.qualities, vitae_q::XP_TO_RAISE, 500);
+    award(&mut h.server, &mut h.net, world, 400, Award::Part);
+    let p = &h.server.players[&world];
+    assert_eq!(
+        (
+            quals::float(&p.qualities, vitae_q::VITAE),
+            quals::long(&p.qualities, vitae_q::XP_TO_RAISE)
+        ),
+        (Some(90.0), Some(100)),
+        "worth 400 of a debt of 500: 100 still to earn"
+    );
+    award(&mut h.server, &mut h.net, world, 150, Award::Part);
+    let p = &h.server.players[&world];
+    assert!(
+        quals::float(&p.qualities, vitae_q::VITAE).is_some_and(|v| v > 90.0),
+        "the debt covered, vitae rises"
+    );
+    assert_eq!(level_and_total(&h, world), total, "and nothing gained");
+}
+
+/// A character that is no hero at level 50 passes nothing up to its patron, as it gains nothing;
+/// made a hero, its next part passes a share up.
+/// Behaviour: server.experience.a-non-hero-stops-at-level-fifty
+#[test]
+fn a_non_hero_at_level_fifty_passes_nothing_up_to_its_patron() {
+    use yalain_world::allegiance::Node;
+    use yalain_world::progress::{award, Award};
+    use yalain_world::{focus, quals};
+    const PATRON: u64 = 0x2130_0000_0000_0FFF;
+    let mut h = Harness::new();
+    let (_, me) = h.player_in_world("one", "Kestrel");
+    let world = at_a_thousand_a_level(&mut h, me);
+    award(&mut h.server, &mut h.net, world, 51_000, Award::Step);
+    assert_eq!(level_and_total(&h, world).0, 50);
+    h.server.allegiances.loaded = true;
+    h.server.allegiances.nodes.insert(PATRON, Node::default());
+    h.server.allegiances.nodes.insert(
+        me,
+        Node {
+            patron: PATRON,
+            ..Node::default()
+        },
+    );
+    award(&mut h.server, &mut h.net, world, 4_000, Award::Part);
+    award(&mut h.server, &mut h.net, world, 4_000, Award::Share);
+    assert_eq!(
+        h.server.allegiances.nodes[&me].passed, 0,
+        "nothing passed up"
+    );
+    let p = h.server.players.get_mut(&world).expect("in the world");
+    quals::set_bool(&mut p.qualities, focus::HERO, true);
+    award(&mut h.server, &mut h.net, world, 4_000, Award::Part);
+    assert_eq!(
+        h.server.allegiances.nodes[&me].passed, 1_000,
+        "a hero's part passes a quarter up"
+    );
 }
 
 /// An hour-long effect that doubles what kills pay at full spellcraft: the install's own (a

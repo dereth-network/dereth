@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Characters at level 50 who aren't heroes no longer gain experience.
 - World: creatures with no recorded loot now drop all six talismans.
 - World: creatures and ways in for four dungeons no recording reached, from players' maps.
 - World: each city's nexus now teaches its recall once the continent's act is done.

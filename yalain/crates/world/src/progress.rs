@@ -232,7 +232,9 @@ pub fn award<S: Store>(
 /// Award a player experience and focus (a part of a kill, or a fellow's share of one). A part's
 /// text names both: to a hero, "You have gained %1 experience points and %2 Focus points!" (or
 /// "You have gained %2 Focus points!" for a part worth no experience), its new focus sent next; to
-/// anyone else the plain text, the focus named in it and not gained.
+/// anyone else the plain text, the focus named in it and not gained. A character that is no hero
+/// and is at the level it rises no further than gains no experience: what the award was worth
+/// still pays its vitae back, and nothing is told, counted or passed up to its patron.
 pub fn award_with_focus<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -249,6 +251,10 @@ pub fn award_with_focus<S: Store>(
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
+    let worth = amount;
+    let topped = !crate::focus::is_hero(&p.qualities)
+        && crate::examine::level_of(&p.qualities) >= crate::levels::NOT_A_HEROS_TOP;
+    let amount = if topped { 0 } else { amount };
     let gains_focus = focus > 0 && crate::focus::is_hero(&p.qualities);
     if matches!(why, Award::Part | Award::Given) && (amount > 0 || gains_focus) {
         let t = match (gains_focus, amount > 0) {
@@ -275,7 +281,7 @@ pub fn award_with_focus<S: Store>(
         return;
     };
     let character = p.character;
-    pay_vitae(s.vitae_costs.as_slice(), p, net, world, amount);
+    pay_vitae(s.vitae_costs.as_slice(), p, net, world, worth);
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
@@ -310,6 +316,7 @@ pub fn award_with_focus<S: Store>(
     }
     match why {
         Award::Part | Award::Step | Award::Share | Award::Allegiance | Award::Given => {}
+        Award::Quest(_) if topped => {}
         Award::Quest(name) => say(
             net,
             world,

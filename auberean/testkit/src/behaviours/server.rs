@@ -4830,12 +4830,12 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.experience.a-non-hero-stops-at-level-fifty",
-        says: "A character that is no hero rises no further than level 50, whatever its experience; \
-               its total keeps counting, and it takes the levels it earned at its next award as a \
-               hero.",
+        says: "A character that is no hero rises no further than level 50, and at level 50 gains no \
+               experience: nothing is counted, told or passed up to its patron, though what an \
+               award was worth still pays its vitae back. Made a hero, it gains again.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-NONHERO-LEVEL-TOP"),
-        station: "yalain-testkit::cpu::play::experience::a_character_that_is_no_hero_stops_at_level_fifty_until_it_is_one",
+        station: "yalain-testkit::cpu::play::experience::a_character_that_is_no_hero_gains_nothing_at_level_fifty_until_it_is_one",
         tier: Tier::Cpu,
     },
     behaviour! {
