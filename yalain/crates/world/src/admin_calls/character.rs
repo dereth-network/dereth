@@ -93,9 +93,7 @@ pub(super) fn call<S: Store>(cx: &mut Cx<'_, S>, f: u32, a: &Args<'_>) -> Option
         function::SKILL_RAISE | function::SKILL_FORCE => skill_raise(cx, a, f),
         function::SKILL_CREDITS => skill_credits(cx, a),
         function::SKILL_TIMERS => skill_timers(cx),
-        function::SKILL_RESET => {
-            vec!["This server resets a skill's training only as a player untrains it.".to_owned()]
-        }
+        function::SKILL_RESET => skill_reset(cx, a),
         function::HERO_SHOW => hero_show(cx),
         function::HERO_SET => hero_set(cx, a),
         function::HERO_FOCUS => hero_focus(cx, a, false),
@@ -518,6 +516,21 @@ fn skill_credits<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
     }
     crate::world::keep_player(cx.s, cx.world);
     vec![format!("You hold {c} skill credits.")]
+}
+
+/// `/skill reset`: the target's skills reset as a reset it used would, granted or not, and the hour
+/// in which it may reset them again itself starts now.
+fn skill_reset<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
+    let w = match cx.player(a.long(0).unwrap_or(0)) {
+        Ok(w) => w,
+        Err(why) => return vec![why],
+    };
+    let now = cx.net.game_time(cx.clock.local);
+    skills::force_reset(cx.s, cx.net, w, now);
+    let name = cx.name_of(w);
+    vec![format!(
+        "{name}'s skills are reset; for an hour they may reset them again with /skills reset."
+    )]
 }
 
 fn skill_timers<S: Store>(cx: &mut Cx<'_, S>) -> Vec<String> {

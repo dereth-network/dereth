@@ -72,6 +72,7 @@ mod resting;
 mod resurrections;
 mod rules;
 mod sequences;
+mod skill_resets;
 mod skills;
 mod specials;
 mod stack_numbers;

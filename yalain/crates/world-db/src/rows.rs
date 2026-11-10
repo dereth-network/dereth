@@ -721,7 +721,8 @@ pub struct Popup {
 }
 
 /// `[[effect_rule]]`: what the world says of an effect where its own data says nothing: what a ward
-/// keeps off, the share of its player's vitae it takes, the effect an immunity leaves as it ends.
+/// keeps off, the share of its player's vitae it takes, the effect an immunity leaves as it ends,
+/// the complete reset of skills it grants.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EffectRule {
     /// The effect, by its saved state.
@@ -732,6 +733,8 @@ pub struct EffectRule {
     pub vitae_restore: Option<yalain_content::effect_rules::VitaeRestore>,
     /// The effect is an immunity under way, which leaves this one (by its saved state) as it ends.
     pub then: Option<u32>,
+    /// The kind of skills a complete reset it grants gives back.
+    pub reset: Option<yalain_content::effect_rules::Reset>,
     pub prov: Prov,
 }
 
@@ -1518,6 +1521,7 @@ pub const FIELDS: [(&str, &[&str]); 52] = [
             "vitae_share",
             "vitae_restore",
             "then",
+            "reset",
             "prov",
         ],
     ),
@@ -2344,11 +2348,25 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 f.bad("then", "an immunity leaves another effect than itself");
                 return None;
             }
-            if ward.is_none() && vitae_share.is_none() && vitae_restore.is_none() && then.is_none()
+            let reset = match f.word(
+                "reset",
+                yalain_content::effect_rules::Reset::from_word,
+                "skills or hero-skills",
+            ) {
+                Some(Some(r)) => Some(r),
+                Some(None) => return None,
+                None => None,
+            };
+            if ward.is_none()
+                && vitae_share.is_none()
+                && vitae_restore.is_none()
+                && then.is_none()
+                && reset.is_none()
             {
                 f.bad(
-                    "ward, vitae_share, vitae_restore, then",
-                    "a rule names a ward, a share of vitae, vitae given back or what an immunity leaves",
+                    "ward, vitae_share, vitae_restore, then, reset",
+                    "a rule names a ward, a share of vitae, vitae given back, what an immunity leaves \
+                     or a reset it grants",
                 );
                 return None;
             }
@@ -2358,6 +2376,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 vitae_share,
                 vitae_restore,
                 then,
+                reset,
                 prov: f.req_prov()?,
             })
         }

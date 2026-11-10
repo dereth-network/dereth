@@ -563,6 +563,103 @@ fn the_state_and_object_calls_act() {
     assert!(answers(&h, me, from)[0].contains("no template"));
 }
 
+/// An admin grants a player a reset of its skills by setting the quality that holds them
+/// (`/edit`), and the player may then use it; `/skill reset` resets a player's skills with no reset
+/// held, its credits back, and starts the hour in which it may reset again itself.
+/// Behaviour: server.admin.skill-resets-granted-and-forced
+#[test]
+fn an_admin_grants_a_skill_reset_and_forces_one() {
+    use yalain_world::skills::reset;
+    const EDIT: u32 = 0x8201_005F;
+    const SKILL_RESET: u32 = 0x8201_0128;
+    const SELL_BACK_ALL: u32 = 0x8212_0040;
+    const SKILL: u32 = 15;
+    let mut h = Harness::new();
+    let mut skills = std::collections::HashMap::new();
+    skills.insert(
+        SKILL,
+        yalain_world::skills::SkillDef {
+            id: SKILL,
+            name: (0xA860_7CEC, 0x2500_085B),
+            cost: 2,
+            flags: 0x1,
+            ..yalain_world::skills::SkillDef::default()
+        },
+    );
+    h.server.skill_table.skills = skills;
+    let (me, _) = admin_in_world(&mut h, "one", "Elara");
+    let (player, id) = h.player_in_world("two", "Bran");
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == id)
+        .expect("in")
+        .0;
+    let train = |h: &mut Harness| {
+        let p = h.server.players.get_mut(&world).expect("in");
+        p.play.credits = 0;
+        p.play.skills = vec![yalain_world::state::SkillState {
+            skill: SKILL,
+            granted: 0,
+            mask: 0x3,
+            cost: 2,
+            children: 0,
+            dependents: 0,
+            spent: 0,
+        }];
+    };
+    let holds = |h: &Harness| {
+        h.server.players[&world]
+            .play
+            .skills
+            .iter()
+            .any(|s| s.skill == SKILL)
+    };
+    train(&mut h);
+    send(&mut h, player, SELL_BACK_ALL, &[]);
+    assert!(holds(&h), "granted none");
+    let from = h.bots[me].inbox.len();
+    send(
+        &mut h,
+        me,
+        EDIT,
+        &[
+            Arg::LongInt(id),
+            text(&reset::SKILLS_HELD.to_string()),
+            text("1"),
+        ],
+    );
+    assert_eq!(answers(&h, me, from), ["Bran's quality 9800 is 1."]);
+    send(&mut h, player, SELL_BACK_ALL, &[]);
+    assert!(!holds(&h), "the granted reset used");
+    assert_eq!(h.server.players[&world].play.credits, 2);
+
+    let p = h.server.players.get_mut(&world).expect("in");
+    quals::set_timestamp(&mut p.qualities, reset::SKILLS_LAST, -1.0e9);
+    train(&mut h);
+    let from = h.bots[me].inbox.len();
+    let shown = h.bots[player].inbox.len();
+    send(&mut h, me, SKILL_RESET, &[Arg::LongInt(id)]);
+    assert_eq!(
+        answers(&h, me, from),
+        ["Bran's skills are reset; for an hour they may reset them again with /skills reset."]
+    );
+    assert!(!holds(&h), "reset with none held");
+    assert_eq!(
+        h.texts(player, shown),
+        [(reset::SHOWN_AS, reset::SKILLS_DONE.0)]
+    );
+    assert_eq!(
+        quals::int(&h.server.players[&world].qualities, reset::SKILLS_HELD),
+        Some(0),
+        "none spent"
+    );
+    train(&mut h);
+    send(&mut h, player, SELL_BACK_ALL, &[]);
+    assert!(!holds(&h), "again within the hour it started");
+}
+
 /// `/generate` makes the number asked for, one if the number is not a count, and at most a hundred
 /// however many are asked for.
 /// Behaviour: server.admin.generate-makes-at-most-a-hundred

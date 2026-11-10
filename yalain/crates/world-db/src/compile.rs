@@ -1228,6 +1228,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 if let Some(then) = r.then {
                     t.effect_rules.immunities.insert(r.effect, then);
                 }
+                if let Some(reset) = r.reset {
+                    t.effect_rules.resets.insert(r.effect, reset);
+                }
             }
             Row::Mine(r) => {
                 let m = &r.mine;

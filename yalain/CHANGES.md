@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- /skills reset and /heroskills reset now work for players granted a reset.
 - New admin channel, so a program on the same computer can use the console.
 - New experience, loot and respawn rate settings.
 - Portal storm numbers can now be set in the config or by admins while running.

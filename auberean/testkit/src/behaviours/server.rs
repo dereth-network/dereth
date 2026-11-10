@@ -527,6 +527,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.admin.skill-resets-granted-and-forced",
+        says: "An admin grants a player a reset of its skills by setting the quality that holds \
+               them, and the player may then use it; an admin's /skill reset resets a player's \
+               skills with none held and starts the hour in which it may reset again itself.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-SKILL-RESET"),
+        station: "yalain-testkit::cpu::operator::admin_calls::an_admin_grants_a_skill_reset_and_forces_one",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.admin.suffix-shown-after-the-name",
         says: "A suffix goes after a player's name, before the mark for its grammar, for every client \
                that knows it and for good; empty, it comes off. Nothing that reads as that mark or \
@@ -13007,12 +13017,44 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.skills.a-held-reset-untrains-every-bought-skill",
+        says: "A player holding a reset of its skills that asks to sell them all back has every \
+               skill it bought untrained, their credits back, and every point of experience in \
+               its skills (its starting skills' too, kept at their given level) back at once to \
+               spend; its hero skills are untouched and an untraining under way ends with it. \
+               The reset is used up and the player told so.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SKILL-RESETS"),
+        station: "yalain-testkit::cpu::play::skill_resets::a_held_reset_untrains_every_bought_skill_and_gives_back_its_credits_and_all_the_experience",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.a-hero-reset-is-its-own",
+        says: "Resets of skills and of hero skills are held apart: a reset of hero skills \
+               untrains the hero skills alone, their hero skill credits and experience back, and \
+               a reset of one kind never serves for the other.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SKILL-RESET-HERO"),
+        station: "yalain-testkit::cpu::play::skill_resets::a_hero_skills_reset_untrains_the_hero_skills_alone_and_is_held_apart",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.skills.a-perk-goes-once-a-week",
         says: "A perk is untrained no sooner than a week after the last perk was; a skill that is \
                no perk neither waits for that week nor begins it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PERK-WEEK"),
         station: "yalain-testkit::cpu::play::untraining::a_perk_is_untrained_no_sooner_than_a_week_after_the_last",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.a-reset-may-be-used-again-for-an-hour",
+        says: "For an hour of game time after a player uses a reset it may reset that kind of \
+               skills again as often as it likes without another; the hour runs from the reset \
+               used, and after it a player holding none is refused.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SKILL-RESET-HOUR"),
+        station: "yalain-testkit::cpu::play::skill_resets::for_an_hour_after_a_reset_another_needs_none_and_after_it_one_is_needed_again",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -13092,6 +13134,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SKILL-TABLE"),
         station: "yalain-testkit::cpu::play::skills::a_tables_level_and_raise_cost_follow_the_library",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.an-effect-grants-a-reset",
+        says: "An effect a world's rule names as granting a reset of skills or of hero skills \
+               gives its player one more of that kind, keeps no record, and tells the player it \
+               may reset and by which command.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SKILL-RESET-GRANT"),
+        station: "yalain-testkit::cpu::play::skill_resets::an_effect_granting_a_reset_gives_one_more_and_tells_the_player",
         tier: Tier::Cpu,
     },
     behaviour! {

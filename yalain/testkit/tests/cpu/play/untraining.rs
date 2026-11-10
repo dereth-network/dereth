@@ -104,8 +104,8 @@ fn a_skill_with_no_experience_in_it_is_untrained_at_once_and_its_credits_come_ba
 }
 
 /// Asking to sell back all skills, all hero skills or all craft skills at once is refused, each in
-/// the install's own words (a reset is only for a player granted one, and this server grants none);
-/// the skill and its credits stay.
+/// the install's own words, to a player holding no reset (a reset is only for a player granted
+/// one); the skill and its credits stay.
 /// Behaviour: server.skills.selling-back-all-refused-without-a-reset
 #[test]
 fn selling_back_every_skill_at_once_is_refused_and_nothing_is_untrained() {

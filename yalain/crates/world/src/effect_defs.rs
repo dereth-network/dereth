@@ -156,7 +156,7 @@ mod watcher_flag {
 }
 
 /// What a ward keeps off, where its own data names nothing: the world's `[[effect_rule]]` rows.
-pub use yalain_content::effect_rules::{EffectRules, VitaeRestore, Ward};
+pub use yalain_content::effect_rules::{EffectRules, Reset, VitaeRestore, Ward};
 
 /// The kind of an effect a world's row makes a ward: its chance the same at any spellcraft.
 #[must_use]
@@ -320,6 +320,8 @@ pub enum Kind {
     /// Gives back these points of vitae, once, never above full: to its player and, where it
     /// reaches them, the player's fellows in the world.
     VitaeRestore(VitaeRestore),
+    /// Grants its player one complete reset of this kind of its skills, once.
+    Reset(Reset),
     /// Anything else (kept as a record only).
     Other,
 }
@@ -371,6 +373,7 @@ impl EffectDef {
                     | Kind::VitalTransfer { .. }
                     | Kind::VitaeTap(_)
                     | Kind::VitaeRestore(_)
+                    | Kind::Reset(_)
             )
     }
 
@@ -842,7 +845,7 @@ impl EffectTable {
     /// The definitions of these saved states and of the effects they add in turn (a state that
     /// does not read is left out), each the world's `rules` name (by saved state) an immunity
     /// leaving the effect they name, a ward keeping off what it names, a tap of its share of vitae,
-    /// or vitae given back.
+    /// vitae given back, or a complete reset of skills granted.
     #[must_use]
     pub fn read(
         lib: &Library,
@@ -869,6 +872,9 @@ impl EffectTable {
                 }
                 if let Some(restore) = rules.vitae_restores.get(&s) {
                     d.kind = Kind::VitaeRestore(*restore);
+                }
+                if let Some(reset) = rules.resets.get(&s) {
+                    d.kind = Kind::Reset(*reset);
                 }
                 if let Some(text) = EffectDef::description_of(lib, &g) {
                     t.descriptions.insert(s, text);

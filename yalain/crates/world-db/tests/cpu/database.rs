@@ -2699,6 +2699,37 @@ fn an_effect_rule_row_may_take_a_share_of_vitae_with_or_without_a_ward() {
     assert!(read(&files).is_ok(), "the whole of it");
 }
 
+/// Behaviour: server.skills.an-effect-grants-a-reset
+#[test]
+fn an_effect_rule_row_may_name_the_reset_of_skills_an_effect_grants() {
+    use yalain_content::effect_rules::Reset;
+    let mut files = fixture();
+    files.insert(
+        "town/server/effects.toml".into(),
+        "[[effect_rule]]\neffect = 0x6F001911\nreset = \"skills\"\nprov = { from = \"authored\" }\n\n\
+         [[effect_rule]]\neffect = 0x6F001912\nreset = \"hero-skills\"\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.effect_rules.resets,
+        std::collections::BTreeMap::from([
+            (0x6F00_1911, Reset::Skills),
+            (0x6F00_1912, Reset::HeroSkills)
+        ])
+    );
+    for word in ["\"craft-skills\"", "\"Skills\"", "1"] {
+        files.insert(
+            "town/server/effects.toml".into(),
+            format!(
+                "[[effect_rule]]\neffect = 0x6F001911\nreset = {word}\nprov = {{ from = \"authored\" }}\n"
+            ),
+        );
+        assert!(read(&files).is_err(), "{word}");
+    }
+}
+
 /// Behaviour: server.effects.immunities-as-rows-say
 #[test]
 fn an_effect_rule_row_may_name_what_an_immunity_leaves_as_it_ends() {

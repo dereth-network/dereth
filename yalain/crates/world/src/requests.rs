@@ -201,7 +201,7 @@ pub fn call<S: Store>(
         crate::skills::function::SELL_BACK_ALL
         | crate::skills::function::SELL_BACK_ALL_HERO
         | crate::skills::function::SELL_BACK_ALL_CRAFT => {
-            crate::skills::sell_back_all(net, world, f);
+            crate::skills::sell_back_all(s, net, world, f, clock);
         }
         crate::death::player_fn::RESURRECT => crate::death::resurrect(s, net, world, clock),
         crate::resurrections::function::DECLINE => crate::resurrections::declined(s, world),

@@ -485,6 +485,42 @@ fn a_charm_without_a_use_behavior_acts_at_once_and_goes_one_off_its_stack() {
     );
 }
 
+/// An item whose use grants a reset of skills gives its user one more reset held, told so; nothing
+/// is kept as a record.
+/// Behaviour: server.skills.an-effect-grants-a-reset
+#[test]
+fn an_item_whose_effect_grants_a_reset_gives_its_user_one() {
+    use yalain_world::effect_defs::Reset;
+    use yalain_world::skills::reset;
+    const GRANTER: u32 = 0x4700_7E50;
+    const GRANT: u32 = 0x6F00_7E51;
+    let mut h = world();
+    let mut granter = Props::default();
+    granter.set("Item_UsageAction", Prop::Word(0x1F));
+    template(&mut h, GRANTER, granter);
+    let d = def(GRANT, Kind::Reset(Reset::Skills), None);
+    h.server.effect_table.effects.insert(d.state, d);
+    h.server.item_uses.insert(
+        GRANTER,
+        vec![UsageEffect {
+            state: GRANT,
+            spellcraft: 1.0,
+        }],
+    );
+    let (b, me, world) = in_world(&mut h);
+    let item = give(&mut h, world, GRANTER, 1);
+    let from = send_use(&mut h, b, me, item, 0.5);
+    assert_eq!(
+        h.texts(b, from),
+        [(reset::SHOWN_AS, reset::SKILLS_GRANTED.0)]
+    );
+    assert_eq!(
+        yalain_world::quals::int(&h.server.players[&world].qualities, reset::SKILLS_HELD),
+        Some(1)
+    );
+    assert!(records_from(&h, world, item).is_empty());
+}
+
 /// An egg (an item not destroyed on use) is kept; its mount, an effect of no duration, is a record
 /// that never runs out and goes at logout, and its speed is sent.
 /// Behaviour: server.items.an-effect-without-a-duration-lasts-until-taken-off

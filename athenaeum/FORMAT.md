@@ -852,6 +852,7 @@ What an effect of the install does where its own data says nothing. One row per 
 | `vitae_share` | | the share of its player's vitae it takes when it is put on, above 0 and at most 1 |
 | `vitae_restore` | | `{ points, fellows }`, the vitae it gives back when it is put on |
 | `then` | | the effect is an immunity under way and leaves this effect as it ends |
+| `reset` | | `skills` or `hero-skills`: putting it on grants its player one complete reset of that kind, which `/skills reset` or `/heroskills reset` uses |
 | `prov` | required | where it came from |
 
 #### `[[points_bonus]]`

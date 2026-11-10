@@ -1,6 +1,6 @@
 //! What the world database says of effects where their own data says nothing: what a ward keeps
-//! off, the share of its holder's vitae an effect takes or the vitae it gives back, and what an
-//! immunity leaves as it ends.
+//! off, the share of its holder's vitae an effect takes or the vitae it gives back, what an
+//! immunity leaves as it ends, and the complete reset of skills an effect grants.
 
 use std::collections::BTreeMap;
 
@@ -23,6 +23,26 @@ pub struct VitaeRestore {
     pub fellows: bool,
 }
 
+/// Which of its skills a complete reset gives a player back: those bought with skill credits, or
+/// its hero skills.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Reset {
+    Skills,
+    HeroSkills,
+}
+
+impl Reset {
+    /// The word a world's rows name it by.
+    #[must_use]
+    pub fn from_word(w: &str) -> Option<Self> {
+        match w {
+            "skills" => Some(Self::Skills),
+            "hero-skills" => Some(Self::HeroSkills),
+            _ => None,
+        }
+    }
+}
+
 /// The world's effect rules, by the effect's saved state.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EffectRules {
@@ -34,4 +54,7 @@ pub struct EffectRules {
     /// The effects that are an immunity under way: hidden from their holder, each leaves this
     /// effect as it ends (the ward that keeps its kind off).
     pub immunities: BTreeMap<u32, u32>,
+    /// The effects that grant their player one complete reset of a kind of its skills when they
+    /// are put on.
+    pub resets: BTreeMap<u32, Reset>,
 }
