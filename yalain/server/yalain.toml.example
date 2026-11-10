@@ -66,6 +66,13 @@ status_address = ""
 # server and holds its console. Leave it off for a server run as a service.
 stop_at_console_end = false
 
+# default: false (--admin-channel)
+# Take console commands from a program on this computer, for a server run as a service with no
+# one at its console: listen on loopback and write the address and a new secret to
+# admin-channel.json in this file's folder, readable by the server's own user alone (SETUP.md,
+# section 6.4). Empyrean's is on by default; Yalain's is off unless set.
+admin_channel = false
+
 # default: "off" (--update)
 # Which new releases the server installs by itself: "off", "patch" (patch releases of this minor
 # version, which change no database or configuration) or "minor" (also minor releases, with their
@@ -308,6 +315,42 @@ min_character_age_seconds = 0
 # nobody else needs. A hub that keeps none is told this one, once; after that the hub's holds,
 # moved on its operator page or with @dn admin global. SETUP.md, section 8.4, says more.
 global_room = "general"
+
+# ----------------------------------------------------------------------------------------------
+[portal_storms]
+# Portal storms move players out of a crowded landblock: past the threshold a storm brews, then is
+# imminent, then sends players away to a landblock two away (SETUP.md, section 3.11). An admin's
+# /stormthresh and /stormnumstormed change these while the world runs. Empyrean's brew_seconds and
+# imminent_seconds are not settings here: the storm's course is the 2017 worlds'.
+
+# default: 40 (--portal-storm-threshold)
+# How many players a landblock holds before a storm brews there. 0: no storms.
+threshold = 40
+
+# default: 5 (--portal-storm-fewest-sent; Yalain only)
+# The fewest players a storm sends away. It sends more when the landblock holds more past the
+# threshold.
+fewest_sent = 5
+
+# ----------------------------------------------------------------------------------------------
+[rates]
+# The game rates (Yalain only; SETUP.md, section 3.11): each a multiple of what the game gives, 1
+# for the 2017 worlds' own. /status names any that aren't 1.
+
+# default: 1 (--experience-rate)
+# Multiplies the experience players earn from kills and quests, 0 to 100. What vassals pass up to
+# a patron follows from what they earn; an admin's award is the number given.
+experience = 1.0
+
+# default: 1 (--loot-rate)
+# Multiplies how many treasure items creatures and chests draw, 0 to 100. A part of one is a chance
+# of one more. Fixed drops and quest items are drawn as they are.
+loot = 1.0
+
+# default: 1 (--respawn-rate)
+# How many times faster camps replace their dead creatures and taken items, above 0 to 100: 2
+# brings them back in half the time.
+respawn = 1.0
 
 # ----------------------------------------------------------------------------------------------
 [dat_overlay]

@@ -193,7 +193,7 @@ fn xp_add<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
         Err(why) => return vec![why],
     };
     let amount = a.long(1).unwrap_or(0);
-    progress::award(cx.s, cx.net, w, amount, Award::Part);
+    progress::award(cx.s, cx.net, w, amount, Award::Given);
     let name = cx.name_of(w);
     crate::world::keep_player(cx.s, w);
     vec![format!("{name} is awarded {amount} experience.")]

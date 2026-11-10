@@ -9026,6 +9026,55 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.operator.admin-channel-console",
+        says: "With its secret, a program on the admin channel is told the hello (the server, its \
+               version and the world), then the console's last lines and each line as the console \
+               shows it, log lines among them; each line it sends is a console command, and a \
+               line too long ends the connection.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-CHANNEL-CONSOLE"),
+        station: "yalain::bin.yalain::admin_channel::tests::with_the_secret_a_program_reads_the_console_and_its_lines_reach_the_console",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.admin-channel-file",
+        says: "The admin channel writes its loopback address, a new secret and the server's \
+               process to admin-channel.json in the server's folder, readable by the server's own \
+               user alone, and removes it when it stops.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-CHANNEL-FILE"),
+        station: "yalain::bin.yalain::admin_channel::tests::the_channel_writes_where_it_listens_and_a_new_secret_in_the_servers_folder_and_removes_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.admin-channel-runs-console-commands",
+        says: "With --admin-channel the executable's console commands run from a program that \
+               gives the channel's secret, answered over the channel as at the console, though \
+               the console's own input has ended; the file goes when the server stops.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-CHANNEL-LIVE"),
+        station: "yalain::live::configured::a_program_runs_console_commands_over_the_admin_channel_and_its_file_goes_at_the_stop",
+        tier: Tier::Live,
+    },
+    behaviour! {
+        id: "server.operator.admin-channel-secret-first",
+        says: "An admin channel connection whose first line is not the secret is closed without a \
+               word, and at most four programs are connected at once.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-CHANNEL-SECRET"),
+        station: "yalain::bin.yalain::admin_channel::tests::only_the_secret_opens_the_channel_and_to_at_most_four_programs_at_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.admin-channel-setting",
+        says: "Empyrean's [server] admin_channel turns the admin channel on, in the configuration \
+               file's folder; left out, it is off.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-CHANNEL-SETTING"),
+        station: "yalain::bin.yalain::config::tests::the_admin_channel_key_turns_the_channel_on_in_the_files_folder",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.admin-commands-said-in-game",
         says: "A character of an admin's account says the moderation commands in game after an at sign, \
                aloud or into a room: the command runs, is answered in its chat window and heard by nobody; \
@@ -9189,6 +9238,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.operator.experience-rate",
+        says: "The operator's experience rate multiplies the experience a player earns (a quest \
+               step's, a quest's, a part of a kill, a fellow's share), rounded to the nearest; \
+               what vassals pass up and an admin's award are the numbers given, and a world that \
+               sets none pays the game's own.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-OPERATOR-EXPERIENCE-RATE"),
+        station: "yalain-testkit::cpu::operator::rates::the_experience_rate_multiplies_what_a_player_earns_and_not_what_is_given",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.exported-characters-carry-their-build",
         says: "A character written to a file carries its build in a recipe's own words, readable \
                without the server's encodings: its level (or experience past a level's), money, \
@@ -9208,6 +9268,25 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-GAG"),
         station: "yalain-testkit::cpu::operator::moderation::a_gagged_character_is_heard_by_nobody_for_five_minutes_in_the_world",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.game-rate-settings",
+        says: "The operator's [rates] experience, loot and respawn are the rates the world plays \
+               at, 1 each when not given; a rate that is no number, below 0 or above 100, or a \
+               respawn rate of 0, stops the server at its start.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-OPERATOR-RATE-SETTINGS"),
+        station: "yalain::bin.yalain::config::tests::the_rates_section_sets_the_experience_loot_and_respawn_rates",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.game-rates-on-the-status-endpoint",
+        says: "The status endpoint names the operator's game rates that aren't 1, each by name, \
+               and none for a world that plays at the game's own.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STATUS-RATES"),
+        station: "yalain::bin.yalain::status::tests::the_status_endpoint_names_the_game_rates_that_are_not_one",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -9238,6 +9317,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-IMPORT-BOUND"),
         station: "yalain-testkit::cpu::operator::characters::an_imported_characters_bound_items_stay_bound_to_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.loot-rate",
+        says: "The operator's loot rate multiplies how many items a creature's or chest's \
+               treasure profile draws, a part of one a chance of one more, and a corpse holds no \
+               more than it can; at 1 the draw is the profile's and no die is cast for the rate.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-OPERATOR-LOOT-RATE"),
+        station: "yalain-testkit::cpu::operator::rates::the_loot_rate_multiplies_the_treasure_a_creature_draws",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -9300,6 +9389,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-REFER-HOST-LIVE"),
         station: "yalain::live::referral::a_player_on_the_host_enters_a_world_that_refers_others_elsewhere",
         tier: Tier::Live,
+    },
+    behaviour! {
+        id: "server.operator.portal-storm-settings",
+        says: "The operator's [portal_storms] threshold and fewest_sent are the portal storms' \
+               numbers from the world's start, 40 players and 5 sent away when not given; a \
+               threshold of 0 brews no storm.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-OPERATOR-STORM-SETTINGS"),
+        station: "yalain-testkit::cpu::play::storms::a_world_set_to_no_storms_warns_no_crowd_and_one_set_to_nothing_keeps_forty",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.operator.ports-taken-said-with-its-own-exit-code",
@@ -9508,6 +9607,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-HUB-REPORT"),
         station: "yalain::live::hub::the_server_reports_itself_to_a_hub_as_an_auberean_world_with_the_characters_in_it",
         tier: Tier::Live,
+    },
+    behaviour! {
+        id: "server.operator.respawn-rate",
+        says: "The operator's respawn rate divides a camp's period, for a dead creature's \
+               replacement and an item taken from where it lay; a world that sets none keeps the \
+               camp's own.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-OPERATOR-RESPAWN-RATE"),
+        station: "yalain-testkit::cpu::operator::rates::the_respawn_rate_divides_a_camps_period",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.operator.saves-spread-one-a-tick",

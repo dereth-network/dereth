@@ -42,6 +42,14 @@ yalain --dats <install folder> [options]
                         262144 (default 65536, the retail servers' rate)
   --motd TEXT           a message shown to each player as its character enters the world
                         (`\\n` starts a new line)
+  --portal-storm-threshold N  the players a landblock holds for a portal storm to brew there
+                        (default 40); 0 for no storms
+  --portal-storm-fewest-sent N  the fewest players a storm sends away (default 5; more when
+                        the landblock holds more past the threshold)
+  --experience-rate X   multiply the experience players earn, 0 to 100 (default 1)
+  --loot-rate X         multiply the treasure creatures and chests draw, 0 to 100 (default 1)
+  --respawn-rate X      how many times faster camps replace their creatures and items, above
+                        0 to 100 (default 1)
   --add-character A:N:R:S  make character N on account A of race R and sex S (4096 or 8192),
                         with a middling physique, then carry on; a missing account is made on
                         an open world only
@@ -84,6 +92,9 @@ yalain --dats <install folder> [options]
                         number
   --seconds S           stop after S seconds (default: run until stopped)
   --verbose             log at the debug level (every connection event, and more)
+  --admin-channel       take console commands from a program on this computer: listen on
+                        loopback and write where, with a new secret, to admin-channel.json in
+                        the server's folder, as Empyrean's admin channel (default: off)
   --stop-at-console-end stop, keeping everyone in the world, when the console's input ends:
                         for a program that runs the server and holds its console (by
                         default the end of the input ends only the console)

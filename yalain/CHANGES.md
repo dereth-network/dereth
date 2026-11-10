@@ -6,12 +6,15 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- New admin channel, so a program on the same computer can use the console.
+- New experience, loot and respawn rate settings.
+- Portal storm numbers can now be set in the config or by admins while running.
+- Admins can now move a player's quests with /qst.
 - A character can no longer train a second class.
 - /status now names the world release and what the server doesn't handle yet.
 - Deleted characters are now removed after their hour even if nobody logs in.
 - /uninscribe now takes an inscription off, for whoever wrote it.
 - A store's page now updates when a shopper levels up or finishes a quest.
-- Admins can now set portal storm numbers and move a player's quests with /qst.
 - More game content now comes only from the world database; see the release notes.
 - Fixed items on the ground or in corpses keeping an effect's look after it ended.
 - World: the Crystalabra gives its user and fellows back 2% vitae.

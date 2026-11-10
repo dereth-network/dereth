@@ -708,6 +708,7 @@ pub fn roll_loot<S: Store>(
             .and_then(|m| usize::try_from(m).ok())
             .unwrap_or(MOST_ITEMS);
         let count = count.clamp(min.min(max), max);
+        let count = crate::rates::loot_count(&mut s.rng, s.cfg.rates.loot, count);
         let level = c.stats.level;
         let base = crate::treasure::base_of(level, c.stats.loot_quality);
         let race = crate::treasure_pools::race_of(s, killer);

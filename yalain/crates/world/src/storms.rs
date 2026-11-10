@@ -20,6 +20,10 @@
 //! could see, never 39 or more without; about 40 is read), how many are sent away beyond the least
 //! (5; 2017's storms sent 5 to 28), who (by lot), and where in the landblock two away (cell 1,
 //! 4 m in, as 3 of 3 seen).
+//!
+//! **The operator's numbers.** The threshold and the least are [`Settings`], 40 and 5 unless the
+//! operator gives others; a threshold of 0 brews no storm anywhere. An admin's call changes them
+//! while the world runs.
 
 use std::collections::BTreeMap;
 
@@ -52,11 +56,34 @@ pub const IMMINENT_UNTIL: u32 = 10;
 pub const STORM_AT: u32 = 11;
 pub const OVER_AT: u32 = 12;
 
+/// The players a landblock must hold for a storm to brew, unless the operator gives another.
+pub const THRESHOLD: usize = 40;
+/// The fewest players a storm sends away, unless the operator gives another.
+pub const LEAST: usize = 5;
+
+/// The operator's numbers for the storms, as the world starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Settings {
+    /// The players a landblock must hold for a storm to brew; 0 for no storms.
+    pub threshold: usize,
+    /// The fewest players a storm sends away.
+    pub least: usize,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            threshold: THRESHOLD,
+            least: LEAST,
+        }
+    }
+}
+
 /// The world's storms: the settings, the next tick, and each landblock's storm by the ticks since it
 /// began brewing.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Storms {
-    /// The players a landblock must hold for a storm to brew.
+    /// The players a landblock must hold for a storm to brew (0: none brews).
     pub threshold: usize,
     /// The least number of players a storm sends away.
     pub least: usize,
@@ -66,9 +93,17 @@ pub struct Storms {
 
 impl Default for Storms {
     fn default() -> Self {
+        Self::with(Settings::default())
+    }
+}
+
+impl Storms {
+    /// The storms of a world started with these numbers.
+    #[must_use]
+    pub fn with(settings: Settings) -> Self {
         Self {
-            threshold: 40,
-            least: 5,
+            threshold: settings.threshold,
+            least: settings.least,
             next: None,
             brewing: BTreeMap::new(),
         }
@@ -136,8 +171,11 @@ pub fn look<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
         Some(t) if now < t => return,
         Some(t) => s.storms.next = Some(t + TICK),
     }
-    let crowds = crowds(s);
     let threshold = s.storms.threshold;
+    if threshold == 0 {
+        return;
+    }
+    let crowds = crowds(s);
     for (block, players) in &crowds {
         if players.len() >= threshold && !s.storms.brewing.contains_key(block) {
             s.storms.brewing.insert(*block, 0);

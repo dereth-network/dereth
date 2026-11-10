@@ -59,6 +59,14 @@
 //!                         262144 (default 65536, the retail servers' rate)
 //!   --motd TEXT           a message shown to each player as its character enters the world
 //!                         (`\n` starts a new line)
+//!   --portal-storm-threshold N  the players a landblock holds for a portal storm to brew there
+//!                         (default 40); 0 for no storms
+//!   --portal-storm-fewest-sent N  the fewest players a storm sends away (default 5; more when
+//!                         the landblock holds more past the threshold)
+//!   --experience-rate X   multiply the experience players earn, 0 to 100 (default 1)
+//!   --loot-rate X         multiply the treasure creatures and chests draw, 0 to 100 (default 1)
+//!   --respawn-rate X      how many times faster camps replace their creatures and items, above
+//!                         0 to 100 (default 1)
 //!   --add-character A:N:R:S  make character N on account A of race R and sex S (4096 or 8192),
 //!                         with a middling physique, then carry on; a missing account is made on
 //!                         an open world only
@@ -110,6 +118,10 @@
 //!                         number
 //!   --seconds S           stop after S seconds (default: run until stopped)
 //!   --verbose             log at the debug level (every connection event, and more)
+//!   --admin-channel       take console commands from a program on this computer: listen on
+//!                         loopback and write where, with a new secret, to admin-channel.json in
+//!                         the server's folder, as Empyrean's admin channel (the `admin_channel`
+//!                         module; default: off)
 //!   --stop-at-console-end stop, keeping everyone in the world, when the console's input ends:
 //!                         for a program that runs the server and holds its console (by
 //!                         default the end of the input ends only the console)
@@ -186,6 +198,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddrV4};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+mod admin_channel;
 mod characters;
 mod config;
 mod console;
@@ -254,6 +267,10 @@ struct Options {
     unlimited_addresses: Vec<IpAddr>,
     /// The message of the day (`--motd`).
     motd: String,
+    /// The portal storms' numbers (`--portal-storm-threshold`, `--portal-storm-fewest-sent`).
+    storms: yalain_world::storms::Settings,
+    /// The game rates (`--experience-rate`, `--loot-rate`, `--respawn-rate`).
+    rates: yalain_world::rates::Rates,
     /// Where the status endpoint listens (`--status`; none: off).
     status: Option<std::net::SocketAddr>,
     /// Answer the status ping on the login port (not `--no-status-ping`), within these limits
@@ -286,6 +303,10 @@ struct Options {
     verbose: bool,
     /// Stop, keeping everyone, when the console's input ends (`--stop-at-console-end`).
     stop_at_console_end: bool,
+    /// Take console commands from a program on this computer (`--admin-channel`).
+    admin_channel: bool,
+    /// The server's folder: the configuration file's, else the working folder (empty).
+    folder: PathBuf,
     /// The WebSocket endpoint (`--websocket` and the options after it).
     websocket: WebSocketSettings,
     /// The updater's settings (`--update`, `--update-check-hours`, `--update-warning-seconds`,
@@ -331,7 +352,13 @@ fn read_options(mut args: Vec<String>) -> Result<(Options, Vec<String>, Option<P
         all = from_file;
     }
     all.extend(args);
-    Ok((parse_from(all)?, notes, found))
+    let mut o = parse_from(all)?;
+    o.folder = found
+        .as_deref()
+        .and_then(Path::parent)
+        .filter(|p| !p.as_os_str().is_empty())
+        .map_or(cwd, Path::to_path_buf);
+    Ok((o, notes, found))
 }
 
 /// Logging from here on, at the debug level when `verbose`.
@@ -343,6 +370,7 @@ fn start_logging(verbose: bool) {
             tracing::Level::INFO
         })
         .with_ansi(false)
+        .with_writer(admin_channel::Console)
         .init();
     // A panic's place and its calls go where the operator reads, whichever thread it is on.
     std::panic::set_hook(Box::new(|info| {
@@ -389,6 +417,8 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
         max_sessions_per_address: None,
         unlimited_addresses: Vec::new(),
         motd: String::new(),
+        storms: yalain_world::storms::Settings::default(),
+        rates: yalain_world::rates::Rates::default(),
         status: None,
         status_ping: true,
         status_ping_limits: yalain_net::status_ping::Limits::default(),
@@ -411,6 +441,8 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
         seconds: None,
         verbose: false,
         stop_at_console_end: false,
+        admin_channel: false,
+        folder: PathBuf::new(),
         websocket: WebSocketSettings::default(),
         update: update::Settings::default(),
         update_trial: None,
@@ -524,6 +556,26 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
                     .map_err(|e| format!("--unlimited-sessions-from: {e}"))?,
             ),
             "--motd" => o.motd = value()?.replace("\\n", "\n"),
+            "--portal-storm-threshold" => {
+                o.storms.threshold = value()?
+                    .parse()
+                    .map_err(|e| format!("--portal-storm-threshold: {e}"))?;
+            }
+            "--portal-storm-fewest-sent" => {
+                o.storms.least = value()?
+                    .parse()
+                    .map_err(|e| format!("--portal-storm-fewest-sent: {e}"))?;
+            }
+            "--experience-rate" | "--loot-rate" | "--respawn-rate" => {
+                let name = a.trim_start_matches("--").trim_end_matches("-rate");
+                let rate =
+                    yalain_world::rates::read(name, &value()?).map_err(|e| format!("{a}: {e}"))?;
+                match name {
+                    "experience" => o.rates.experience = rate,
+                    "loot" => o.rates.loot = rate,
+                    _ => o.rates.respawn = rate,
+                }
+            }
             "--status" => {
                 o.status = Some(value()?.parse().map_err(|e| format!("--status: {e}"))?);
             }
@@ -615,6 +667,7 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
             }
             "--verbose" => o.verbose = true,
             "--stop-at-console-end" => o.stop_at_console_end = true,
+            "--admin-channel" => o.admin_channel = true,
             "--websocket" => o.websocket.enabled = true,
             "--websocket-listen" => o.websocket.listen = value()?,
             "--websocket-tls-certificate" => o.websocket.tls_certificate = value()?,
@@ -924,6 +977,8 @@ fn run<S: Store>(
         max_sessions_per_address: o.max_sessions_per_address,
         unlimited_addresses: o.unlimited_addresses.clone(),
         motd: o.motd.clone(),
+        storms: o.storms,
+        rates: o.rates,
         ..ServerConfig::default()
     };
     let advertise = if o.referral {
@@ -1145,6 +1200,32 @@ fn run<S: Store>(
         o.friends.then(|| friends::listen_at(o.bind, o.login_port)),
     )?;
     let typed = console::lines();
+    // The admin channel's lines, read as the console's are; never in the updater's health check,
+    // which must leave the running server's file alone.
+    let (channel_lines, from_channel) = std::sync::mpsc::channel();
+    let channel = if o.admin_channel && o.update_trial.is_none() {
+        let hello = serde_json::json!({
+            "hello": "yalain",
+            "version": env!("CARGO_PKG_VERSION"),
+            "world": o.world_name,
+        });
+        match admin_channel::start(&o.folder, channel_lines, hello) {
+            Ok(c) => {
+                tracing::info!(
+                    "admin channel: on loopback at {}, written to {}",
+                    c.local_addr(),
+                    c.file().display()
+                );
+                Some(c)
+            }
+            Err(e) => {
+                tracing::warn!("admin channel not started: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
     let mut reloading: Option<console::Job<(PathBuf, WorldTables)>> = None;
     // The console's commands that act on the world, run at the loop's next clock.
     let mut pending: Vec<console::Command> = Vec::new();
@@ -1184,7 +1265,10 @@ fn run<S: Store>(
             loop {
                 let line = match typed.try_recv() {
                     Ok(line) => line,
-                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                    Err(std::sync::mpsc::TryRecvError::Empty) => match from_channel.try_recv() {
+                        Ok(line) => line,
+                        Err(_) => break,
+                    },
                     Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                         if console_open {
                             console_open = false;
@@ -1198,7 +1282,10 @@ fn run<S: Store>(
                             );
                             }
                         }
-                        break;
+                        match from_channel.try_recv() {
+                            Ok(line) => line,
+                            Err(_) => break,
+                        }
                     }
                 };
                 let Some(c) = console::parse(&line) else {
@@ -1490,6 +1577,10 @@ fn run<S: Store>(
     if let Some(s) = status {
         s.stop();
     }
+    // A server started in this one's place writes its own.
+    if let Some(c) = channel {
+        c.shutdown();
+    }
     for (what, n) in server.unhandled.counts() {
         tracing::info!("not handled yet: {what} x{n}");
     }
@@ -1640,6 +1731,7 @@ fn snapshot<S: Store>(
         connections: net.connection_count(),
         saves_failing: server.saves.failing(),
         world_step: server.step_timer.figures().clone(),
+        rates: server.cfg.rates.changed(),
     }
 }
 
@@ -2279,7 +2371,7 @@ fn main() -> std::process::ExitCode {
         }
         Err(e) => {
             eprintln!("yalain: {e}");
-            eprintln!("usage: yalain --dats <install folder> [--bind IP] [--login-port P] [--world-port P] [--advertise IP] [--data FILE | --memory] [--world-name NAME] [--listed-accounts] [--banned-names FILE] [--add-account NAME:TICKET] [--secret-cost N] [--save-interval S] [--shutdown-interval S] [--watchdog S] [--max-sessions N] [--max-sessions-per-address N] [--unlimited-sessions-from IP] [--download-rate N] [--motd TEXT] [--status IP:PORT] [--no-status-ping] [--status-ping-hellos N] [--status-ping-asks N] [--status-ping-replies N] [--config FILE] [--add-character ACCOUNT:NAME:RACE:SEX] [--place ACCOUNT:NAME:CELL:X:Y:Z:HEADING] [--money ACCOUNT:NAME:AMOUNT] [--make-character FILE] [--world-db DIR|pinned] [--world-base DIR] [--dat-overlay DIR] [--no-dat-overlay-patching] [--dat-overlay-records-per-minute N] [--enable-dat-patching] [--no-referral] [--no-echo] [--game-time S] [--hold-clock] [--hub URL --hub-slug SLUG --hub-key-file FILE [--federation] [--global-room ROOM]] [--no-friends] [--seconds S] [--verbose] [--stop-at-console-end] [--update off|patch|minor] [--update-check-hours H] [--update-warning-seconds S] [--update-source URL]");
+            eprintln!("usage: yalain --dats <install folder> [--bind IP] [--login-port P] [--world-port P] [--advertise IP] [--data FILE | --memory] [--world-name NAME] [--listed-accounts] [--banned-names FILE] [--add-account NAME:TICKET] [--secret-cost N] [--save-interval S] [--shutdown-interval S] [--watchdog S] [--max-sessions N] [--max-sessions-per-address N] [--unlimited-sessions-from IP] [--download-rate N] [--motd TEXT] [--portal-storm-threshold N] [--portal-storm-fewest-sent N] [--experience-rate X] [--loot-rate X] [--respawn-rate X] [--status IP:PORT] [--no-status-ping] [--status-ping-hellos N] [--status-ping-asks N] [--status-ping-replies N] [--config FILE] [--add-character ACCOUNT:NAME:RACE:SEX] [--place ACCOUNT:NAME:CELL:X:Y:Z:HEADING] [--money ACCOUNT:NAME:AMOUNT] [--make-character FILE] [--world-db DIR|pinned] [--world-base DIR] [--dat-overlay DIR] [--no-dat-overlay-patching] [--dat-overlay-records-per-minute N] [--enable-dat-patching] [--no-referral] [--no-echo] [--game-time S] [--hold-clock] [--hub URL --hub-slug SLUG --hub-key-file FILE [--federation] [--global-room ROOM]] [--no-friends] [--seconds S] [--verbose] [--stop-at-console-end] [--admin-channel] [--update off|patch|minor] [--update-check-hours H] [--update-warning-seconds S] [--update-source URL]");
             eprintln!("       yalain world check|release|fetch|compile ...");
             eprintln!(
                 "       yalain update --check|--apply [--config FILE] [--policy off|patch|minor]"

@@ -89,6 +89,7 @@ const KEYS: &[(&str, &str, Takes)] = &[
         "stop_at_console_end",
         Takes::Flag("--stop-at-console-end"),
     ),
+    ("server", "admin_channel", Takes::Flag("--admin-channel")),
     ("server.network", "host", Takes::Value("--bind")),
     ("server.network", "port", Takes::Value("--login-port")),
     ("server.network", "world_port", Takes::Value("--world-port")),
@@ -234,6 +235,19 @@ const KEYS: &[(&str, &str, Takes)] = &[
     ),
     ("database", "shard_db_path", Takes::Path("--data")),
     ("database", "in_memory", Takes::Flag("--memory")),
+    (
+        "portal_storms",
+        "threshold",
+        Takes::Whole("--portal-storm-threshold"),
+    ),
+    (
+        "portal_storms",
+        "fewest_sent",
+        Takes::Whole("--portal-storm-fewest-sent"),
+    ),
+    ("rates", "experience", Takes::Value("--experience-rate")),
+    ("rates", "loot", Takes::Value("--loot-rate")),
+    ("rates", "respawn", Takes::Value("--respawn-rate")),
     ("federation", "enabled", Takes::Hub),
     ("federation", "listed", Takes::Hub),
     ("federation", "hub_url", Takes::Hub),
@@ -274,7 +288,6 @@ pub const EMPYREAN_ONLY: &[&str] = &[
     "server.status_public_url",
     "server.publish_portals",
     "server.interactive_console",
-    "server.admin_channel",
     "server.source_url",
     "server.preloaded_landblocks",
     "server.network.default_session_timeout",
@@ -286,6 +299,8 @@ pub const EMPYREAN_ONLY: &[&str] = &[
     "offline",
     "dat_overlay.bytes_per_second",
     "federation.store_path",
+    "portal_storms.brew_seconds",
+    "portal_storms.imminent_seconds",
     "era",
 ];
 
@@ -300,6 +315,8 @@ const SECTIONS: &[&str] = &[
     "status",
     "database",
     "federation",
+    "portal_storms",
+    "rates",
     "testing",
 ];
 
@@ -1054,6 +1071,129 @@ mod tests {
             assert!(e.contains("--download-rate"), "{e}");
         }
         assert!(rate(1 << 40).is_err(), "more than a rate can be");
+    }
+
+    /// `[portal_storms] threshold` and `fewest_sent` set the storms' numbers the world starts with,
+    /// 40 and 5 when not given; Empyrean's `brew_seconds` and `imminent_seconds` are warned about
+    /// and left out, and a number below none stops the server at its start.
+    /// Behaviour: server.operator.portal-storm-settings
+    #[test]
+    fn the_portal_storms_section_sets_the_threshold_and_the_fewest_sent_away() {
+        use yalain_world::storms::Settings;
+        let folder = Path::new("/srv");
+        let read = |text: &str| {
+            let (args, warnings) = arguments(text, folder).expect("reads");
+            (crate::parse_from(args).map(|o| o.storms), warnings)
+        };
+        let (got, warnings) =
+            read("[portal_storms]\nthreshold = 30\nfewest_sent = 2\nbrew_seconds = 60\n");
+        assert_eq!(
+            got,
+            Ok(Settings {
+                threshold: 30,
+                least: 2
+            })
+        );
+        assert_eq!(
+            warnings,
+            ["portal_storms.brew_seconds: Empyrean's setting, which Yalain does not have; ignored"]
+        );
+        assert_eq!(
+            read("[portal_storms]\nthreshold = 0\n").0,
+            Ok(Settings {
+                threshold: 0,
+                least: 5
+            }),
+            "none"
+        );
+        let unset = crate::parse_from(Vec::<String>::new())
+            .expect("parses")
+            .storms;
+        assert_eq!(
+            unset,
+            Settings {
+                threshold: 40,
+                least: 5
+            }
+        );
+        assert_eq!(unset, Settings::default());
+        for refused in ["threshold = -1", "fewest_sent = -1"] {
+            let e = read(&format!("[portal_storms]\n{refused}\n"))
+                .0
+                .expect_err("refused");
+            assert!(e.contains("--portal-storm-"), "{e}");
+        }
+    }
+
+    /// `[rates] experience`, `loot` and `respawn` set the game rates the world plays at, 1 each when
+    /// not given; a rate that is no number, below 0 or above 100 (or 0 for respawn) stops the
+    /// server at its start.
+    /// Behaviour: server.operator.game-rate-settings
+    #[test]
+    fn the_rates_section_sets_the_experience_loot_and_respawn_rates() {
+        use yalain_world::rates::Rates;
+        let folder = Path::new("/srv");
+        let read = |text: &str| {
+            let (args, warnings) = arguments(text, folder).expect("reads");
+            assert!(warnings.is_empty(), "{warnings:?}");
+            crate::parse_from(args).map(|o| o.rates)
+        };
+        assert_eq!(
+            read("[rates]\nexperience = 2.5\nloot = 0\nrespawn = 3\n"),
+            Ok(Rates {
+                experience: 2.5,
+                loot: 0.0,
+                respawn: 3.0
+            })
+        );
+        assert_eq!(read(""), Ok(Rates::default()));
+        assert_eq!(
+            Rates::default(),
+            Rates {
+                experience: 1.0,
+                loot: 1.0,
+                respawn: 1.0
+            }
+        );
+        for refused in [
+            "experience = -1",
+            "loot = 100.5",
+            "respawn = 0",
+            "experience = \"lots\"",
+            "loot = nan",
+        ] {
+            let e = read(&format!("[rates]\n{refused}\n")).expect_err(refused);
+            assert!(e.contains("-rate"), "{e}");
+        }
+    }
+
+    /// `[server] admin_channel`, Empyrean's key, turns the admin channel on; false or left out it is
+    /// off. The channel's folder is the configuration file's.
+    /// Behaviour: server.operator.admin-channel-setting
+    #[test]
+    fn the_admin_channel_key_turns_the_channel_on_in_the_files_folder() {
+        let on = |text: &str| {
+            let (args, warnings) = arguments(text, Path::new("/srv")).expect("reads");
+            assert!(warnings.is_empty(), "{warnings:?}");
+            crate::parse_from(args).expect("parses").admin_channel
+        };
+        assert!(on("[server]\nadmin_channel = true\n"));
+        assert!(!on("[server]\nadmin_channel = false\n"));
+        assert!(!on(""), "off unless set");
+        let dir =
+            std::env::temp_dir().join(format!("yalain-config-channel-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let file = dir.join("mine.toml");
+        std::fs::write(&file, "[server]\nadmin_channel = true\n").expect("written");
+        let (o, _, _) = crate::read_options(vec![
+            "--config".to_owned(),
+            file.to_string_lossy().into_owned(),
+        ])
+        .expect("reads");
+        assert!(o.admin_channel);
+        assert_eq!(o.folder, dir, "the file's folder");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// `--config` names the file and is taken out of the arguments; without it, `yalain.toml` in

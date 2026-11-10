@@ -1,21 +1,34 @@
 //! Portal storms: a crowded landblock is warned every 11 s, brewing, imminent, the storm sending
 //! some of its players away, and subsided; a brewing storm the crowd thins out of is called off.
-//! Fixture: the test world with its threshold made two players and its least one.
+//! Fixture: the test world started with the operator's threshold of two players and least of one.
 
 use auberean_protocol::ServerMessage;
-use yalain_testkit::Harness;
+use yalain_store::MemoryStore;
+use yalain_testkit::{test_rules, Harness};
 use yalain_world::calls::{self, Node, Value};
 use yalain_world::places::function as trip;
-use yalain_world::storms::{intensity, TELEPORTED, TICK, WARNING};
+use yalain_world::storms::{intensity, Settings, TELEPORTED, TICK, WARNING};
+use yalain_world::ServerConfig;
 
 const SHOW_TEXT: u32 = 0x8205_0011;
 
 /// Three players: two in the test hall, a third moved to another landblock; the storms' threshold
-/// two players, the least sent away one. Returns the harness and the clients.
+/// two players, the least sent away one, as the operator set them. Returns the harness and the
+/// clients.
 fn crowd() -> (Harness, [usize; 3]) {
-    let mut h = Harness::new();
-    h.server.storms.threshold = 2;
-    h.server.storms.least = 1;
+    crowd_with(Settings {
+        threshold: 2,
+        least: 1,
+    })
+}
+
+/// [`crowd`], in a world started with these storm settings.
+fn crowd_with(storms: Settings) -> (Harness, [usize; 3]) {
+    let cfg = ServerConfig {
+        storms,
+        ..ServerConfig::default()
+    };
+    let mut h = Harness::with(cfg, MemoryStore::default(), test_rules());
     let (a, _) = h.player_in_world("one", "Elara");
     let (b, _) = h.player_in_world("two", "Bran");
     let (c, far) = h.player_in_world("three", "Cora");
@@ -149,8 +162,11 @@ fn a_crowded_landblock_brews_a_portal_storm_that_sends_players_away() {
 fn a_brewing_storm_the_crowd_thins_out_of_is_called_off() {
     let (mut h, [a, b, _]) = crowd();
     let from = h.bots[a].inbox.len();
+    let mut n = 0;
     while warnings(&h, a, from).is_empty() {
         h.step();
+        n += 1;
+        assert!(n < 1000, "a warning within a tick or two");
     }
     ticks(&mut h, 2);
     let leaving = h
@@ -176,5 +192,25 @@ fn a_brewing_storm_the_crowd_thins_out_of_is_called_off() {
     assert!(
         warnings(&h, b, left_from).is_empty(),
         "the one gone hears nothing"
+    );
+}
+
+/// A world whose operator set no storms (a threshold of 0) warns no crowded landblock, however long
+/// it is crowded; a world that sets nothing brews at 40 players and sends away at least 5.
+/// Behaviour: server.operator.portal-storm-settings
+#[test]
+fn a_world_set_to_no_storms_warns_no_crowd_and_one_set_to_nothing_keeps_forty() {
+    let (mut h, [a, b, _]) = crowd_with(Settings {
+        threshold: 0,
+        least: 1,
+    });
+    let from = [a, b].map(|x| h.bots[x].inbox.len());
+    ticks(&mut h, 14);
+    assert!(warnings(&h, a, from[0]).is_empty(), "no storm");
+    assert!(warnings(&h, b, from[1]).is_empty(), "no storm");
+    let unset = Harness::new();
+    assert_eq!(
+        (unset.server.storms.threshold, unset.server.storms.least),
+        (40, 5)
     );
 }

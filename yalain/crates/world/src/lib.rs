@@ -64,6 +64,7 @@
 //! - [`guard`]: a panic in the world stops it, whole.
 //! - [`step_timer`]: how long the world works from one step to the next, by stage, and a warning
 //!   when that passes the step.
+//! - [`rates`]: the operator's experience, loot and respawn rates.
 
 pub mod admin;
 pub mod admin_calls;
@@ -127,6 +128,7 @@ pub mod profile;
 pub mod progress;
 pub mod quals;
 pub mod quests;
+pub mod rates;
 pub mod ratings;
 pub mod reach;
 pub mod regen;
@@ -197,7 +199,7 @@ pub enum AccountPolicy {
 }
 
 /// The server's settings.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ServerConfig {
     /// The world's name, shown at login.
     pub world_name: String,
@@ -244,6 +246,10 @@ pub struct ServerConfig {
     /// The operator's message of the day, shown to each player as its character enters the
     /// world, in one notice (empty: none).
     pub motd: String,
+    /// The portal storms' threshold and the fewest a storm sends away, as the world starts.
+    pub storms: storms::Settings,
+    /// The operator's experience, loot and respawn rates (1 each unless given).
+    pub rates: rates::Rates,
 }
 
 impl Default for ServerConfig {
@@ -268,6 +274,8 @@ impl Default for ServerConfig {
             max_sessions_per_address: None,
             unlimited_addresses: Vec::new(),
             motd: String::new(),
+            storms: storms::Settings::default(),
+            rates: rates::Rates::default(),
         }
     }
 }
@@ -762,6 +770,7 @@ impl<S: Store> Server<S> {
     /// The store will not set them aside: a world without them could give an id a kept item holds.
     pub fn new(cfg: ServerConfig, mut store: S, rules: CharGenRules) -> StoreResult<Self> {
         let cfg_seed = cfg.seed;
+        let storms = storms::Storms::with(cfg.storms);
         let mut things = things::Things::default();
         let first = store.reserve_thing_numbers(things::ID_BLOCK)?;
         things.add_block(first, things::ID_BLOCK);
@@ -839,7 +848,7 @@ impl<S: Store> Server<S> {
             person_packages: std::collections::HashSet::new(),
             lifestone_packages: std::collections::HashSet::new(),
             knife_packages: std::collections::HashSet::new(),
-            storms: storms::Storms::default(),
+            storms,
             shrine_packages: std::collections::HashSet::new(),
             shrine_kingdoms: HashMap::new(),
             kingdom_skills: kingdom_skills::KingdomSkills::default(),

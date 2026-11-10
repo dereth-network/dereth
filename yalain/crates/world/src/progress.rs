@@ -94,6 +94,17 @@ pub enum Award {
     Share,
     /// What vassals earned for their patron (its text is the allegiance's).
     Allegiance,
+    /// An admin's award, told as a part of a kill is.
+    Given,
+}
+
+impl Award {
+    /// Is it earned in play, and so at the operator's experience rate ([`crate::rates`])? What
+    /// vassals pass up follows from what they earned, and an admin gives the number given.
+    #[must_use]
+    pub fn is_earned(self) -> bool {
+        !matches!(self, Self::Allegiance | Self::Given)
+    }
 }
 
 /// A string reference.
@@ -230,11 +241,16 @@ pub fn award_with_focus<S: Store>(
     focus: i32,
     why: Award,
 ) {
+    let amount = if why.is_earned() {
+        crate::rates::experience(s.cfg.rates.experience, amount)
+    } else {
+        amount
+    };
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
     let gains_focus = focus > 0 && crate::focus::is_hero(&p.qualities);
-    if why == Award::Part && (amount > 0 || gains_focus) {
+    if matches!(why, Award::Part | Award::Given) && (amount > 0 || gains_focus) {
         let t = match (gains_focus, amount > 0) {
             (false, _) => text::GAINED,
             (true, true) => text::GAINED_FOCUS,
@@ -286,14 +302,14 @@ pub fn award_with_focus<S: Store>(
     if now > was {
         level_up(s, net, world, was, now);
     }
-    if amount > 0 && matches!(why, Award::Part | Award::Share) {
+    if amount > 0 && matches!(why, Award::Part | Award::Share | Award::Given) {
         crate::allegiance::earned(s, net, character, amount);
     }
     if now > was {
         crate::allegiance::level_reached(s, net, character);
     }
     match why {
-        Award::Part | Award::Step | Award::Share | Award::Allegiance => {}
+        Award::Part | Award::Step | Award::Share | Award::Allegiance | Award::Given => {}
         Award::Quest(name) => say(
             net,
             world,

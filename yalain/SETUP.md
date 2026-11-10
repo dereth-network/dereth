@@ -192,6 +192,8 @@ to others.
 | `--unlimited-sessions-from <ip>` | an address the per-address limit does not hold back; may be given many times (section 3.7) |
 | `--download-rate <n>` | the bytes a second a client is sent a large data download at, 4096 to 262144 (default 65536, the retail servers' rate: about two minutes over the largest record) |
 | `--motd <text>` | a message shown to each player as its character enters the world; `\n` starts a new line (default: none) |
+| `--portal-storm-threshold <n>`, `--portal-storm-fewest-sent <n>` | the players a landblock holds for a portal storm to brew (default 40; 0 for none), and the fewest a storm sends away (default 5; section 3.11) |
+| `--experience-rate <x>`, `--loot-rate <x>`, `--respawn-rate <x>` | multiply the experience players earn, the treasure creatures and chests draw, and how fast camps replace their creatures (default 1 each; section 3.11) |
 | `--status <ip>:<port>` | serve the status endpoint at this address (default: off; section 3.8) |
 | `--websocket` and the `--websocket-…` options | also take WebSocket connections, for clients in a browser (default: off; section 4.1) |
 | `--config <file>` | read the options from this configuration file (section 3.6) |
@@ -201,6 +203,7 @@ to others.
 | `--verbose` | log at the debug level (section 7) |
 | `--seconds <s>` | stop after that many seconds |
 | `--stop-at-console-end` | stop, saving everyone, when the console's input ends (section 3.3) |
+| `--admin-channel` | take console commands from a program on this computer (default: off; section 6.4) |
 | `--update <policy>`, `--update-check-hours <h>`, `--update-warning-seconds <s>`, `--update-source <url>` | which new releases the server installs by itself, and how (section 3.10) |
 | `--no-status-ping`, `--status-ping-hellos <n>`, `--status-ping-asks <n>`, `--status-ping-replies <n>` | turn the status ping off, or set its limits (section 3.9) |
 
@@ -364,6 +367,7 @@ shard_db_path = "yalain.sqlite"
 | `[server] log_level` | `--verbose` | `debug` (or `trace`) logs at the debug level; others at `info` |
 | `[server] status_address` | `--status` | empty: off |
 | `[server] stop_at_console_end` | `--stop-at-console-end` | Yalain only |
+| `[server] admin_channel` | `--admin-channel` | default `false` (Empyrean's is `true`; section 6.4) |
 | `[server] update` | `--update` | default `"off"`; `"patch"` or `"minor"` (section 3.10) |
 | `[server] update_check_hours` | `--update-check-hours` | default 6 |
 | `[server] update_warning_seconds` | `--update-warning-seconds` | default 300 |
@@ -396,6 +400,9 @@ shard_db_path = "yalain.sqlite"
 | `[federation] key_file` | `--hub-key-file` | default `network.key` |
 | `[federation] min_character_age_seconds` | `--min-character-age` | 0: seconds a character must have played before it sends to the network |
 | `[federation] global_room` | `--global-room` | `general` (the default), `trade`, `lfg`, `roleplay`, or empty for none (section 8.4) |
+| `[portal_storms] threshold` | `--portal-storm-threshold` | default 40; 0: no storms (section 3.11) |
+| `[portal_storms] fewest_sent` | `--portal-storm-fewest-sent` | Yalain only; default 5 |
+| `[rates] experience`, `loot`, `respawn` | `--experience-rate`, `--loot-rate`, `--respawn-rate` | Yalain only; default 1 each, 0 to 100 (respawn above 0; section 3.11) |
 | `[dat_overlay] path` | `--dat-overlay` | empty: the world's own `overlay` folder |
 | `[dat_overlay] patching` | `--no-dat-overlay-patching` when false | `true`: a client that keeps overlays is sent the world's records |
 | `[dat_overlay] records_per_minute` | `--dat-overlay-records-per-minute` | 60000; 0 for the original servers' 1,000 a minute, shared |
@@ -405,7 +412,7 @@ shard_db_path = "yalain.sqlite"
 
 A relative path is read from the file's folder, not the working folder. Empyrean's keys that
 Yalain has no setting for (its world pack and content overlay, its engine's caches and preloaded
-landblocks, its WebSocket endpoint, its admin channel, the era, and the rest) are logged as warnings and ignored, so a file copied from an Empyrean world reads;
+landblocks, its WebSocket endpoint, the era, the portal storms' `brew_seconds` and `imminent_seconds`, and the rest) are logged as warnings and ignored, so a file copied from an Empyrean world reads;
 so is any key the server does not know.
 
 The command line is read after the file, so an option given in both takes the command line's
@@ -439,8 +446,10 @@ With `--status <ip>:<port>` (for example `--status 127.0.0.1:9100`), the server 
   `connections`, `saves_failing` (true while the database will not take saves: watch this one) and
   `websocket_url` (section 4.1; `null` with the endpoint off), `world_database` (the world served:
   its `key` and `era`, the `release` it is, the `base` release it lies over and the world whose
-  `overlay` is read, each `null` when there is none) and `not_handled` (what clients asked for that
-  the server doesn't do yet: the `requests` met, and each kind's count in `kinds`).
+  `overlay` is read, each `null` when there is none), `not_handled` (what clients asked for that
+  the server doesn't do yet: the `requests` met, and each kind's count in `kinds`) and `rates` (the
+  game rates that aren't 1, by name, such as `{"experience": 2.0}`; empty when none is set,
+  section 3.11).
 
 **If saves fail** (the disk is full, the file is read-only or another program has it locked), nothing is
 lost while the server runs: it holds what it could not write and tries again every five seconds. The log
@@ -569,6 +578,46 @@ database, and start it.
 
 **A world the launcher hosts** keeps `update = "off"`: the launcher updates it, and refuses to start
 it otherwise.
+
+### 3.11 Game settings
+
+These change how the game plays for everyone. Each one's default is how the 2017 worlds played, so
+a world that sets none plays as they did.
+
+**Portal storms.** A landblock that holds too many players brews a portal storm: its players are
+warned, then warned it is imminent, and about two minutes on the storm sends some of them to a
+landblock two away. A storm brews at 40 players and sends away at least 5, and more when the
+landblock holds more past the threshold:
+
+```toml
+[portal_storms]
+threshold = 40      # players a landblock holds for a storm to brew; 0 for no storms
+fewest_sent = 5     # the fewest a storm sends away
+```
+
+An admin's `/stormthresh <n>` and `/stormnumstormed <n>` set the same two numbers while the world
+runs, until it stops.
+
+**Rates.** Three multipliers, each 1 unless set:
+
+```toml
+[rates]
+experience = 1.0   # the experience players earn
+loot = 1.0         # how many treasure items creatures and chests draw
+respawn = 1.0      # how many times faster camps bring back their creatures and items
+```
+
+- `experience` multiplies what a player earns from kills (its own part and a fellow's share) and
+  from quests, rounded to the nearest. What vassals pass up to a patron grows with what they earn;
+  an admin's `/xp add` gives the number given.
+- `loot` multiplies how many items a creature's or chest's treasure draws; a part of one is a chance
+  of one more (at 1.5, a creature that leaves two leaves three). A creature's fixed drops and quest
+  items are drawn as they are, and a corpse holds at most 21 items.
+- `respawn` divides a camp's wait: at 2, a dead creature's replacement, or an item taken from where
+  it lay, comes back in half the time.
+
+Each is 0 to 100 (`respawn` above 0); anything else stops the server at its start. The status
+endpoint's `rates` names any that aren't 1 (section 3.8).
 
 ---
 
@@ -965,6 +1014,31 @@ the words before the tag are for people and may change; the tags do not.
 - `[ports-taken]` comes when another program holds one of the server's ports (a login or world
   UDP port, or the friends service's TCP port): the server stops before it starts, with **exit
   code 3**, so a program can try other ports. Every other failure at start exits with 1.
+
+### 6.4 The admin channel
+
+A server run as a service has no one at its console. The admin channel lets a program on the same
+computer use the console instead, in the form of Empyrean's. It is off unless you turn it on:
+
+```toml
+[server]
+admin_channel = true
+```
+
+The server then listens on loopback, on a port the system picks, and writes where and a new random
+secret to `admin-channel.json` in its folder (the configuration file's, else the working folder):
+`{"address": "127.0.0.1:<port>", "secret": "<64 hexadecimal digits>", "pid": <process>}`. On Linux
+and macOS only the server's own user can read the file; on Windows it has the folder's permissions,
+so keep the folder to the server's account and its administrators. The file goes when the server
+stops; one a server that crashed left names a process that is no longer there.
+
+A program connects to that address and sends the secret as its first line, within five seconds;
+anything else closes the connection without a word. After that, each line it sends is a console
+command, as if typed at the console, and it reads JSON, one object a line: first
+`{"hello": "yalain", "version": "...", "world": "..."}`, then the console's last 200 lines, then each
+line as the console shows it, `{"line": "..."}` (answers and log lines alike; section 6.3's tags
+read the same). At most four programs are connected at once, a line over 4,096 bytes ends the
+connection, and a program that doesn't read its lines quickly enough is dropped.
 
 ---
 

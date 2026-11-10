@@ -532,6 +532,7 @@ fn profile_fill<S: Store>(s: &mut Server<S>, kind: &Kind) -> Vec<(u32, Option<(u
         return Vec::new();
     };
     let count = s.rng.weighted(p.counts.iter().copied()).unwrap_or(0);
+    let count = crate::rates::loot_count(&mut s.rng, s.cfg.rates.loot, count);
     let mut out = Vec::new();
     while out.len() < count && !p.items.is_empty() {
         #[allow(clippy::cast_precision_loss)]

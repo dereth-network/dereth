@@ -975,6 +975,38 @@ fn a_chests_draw_is_treasure_of_the_level_its_row_names() {
     );
 }
 
+/// A chest's profile draws at the operator's loot rate: none of its gems at 0, twice its one or two
+/// at 2; its extra (the crystal) is drawn as it is.
+/// Behaviour: server.operator.loot-rate
+#[test]
+fn a_chests_draw_is_at_the_operators_loot_rate() {
+    let opened = |rate: f64| {
+        let mut h = hall(SMALL, false, false);
+        h.server.cfg.rates.loot = rate;
+        let (a, me) = h.player_in_world("one", "Elara");
+        h.run(10);
+        send_use(&mut h, a, me, CHEST, 0, 1.6);
+        let c = h.server.chests.by_id[&CHEST].contents.clone();
+        let of = |template: u32| {
+            c.iter()
+                .filter(|i| {
+                    h.server
+                        .things
+                        .get(**i)
+                        .is_some_and(|t| t.template == template)
+                })
+                .count()
+        };
+        (of(GEM), of(CRYSTAL))
+    };
+    assert_eq!(opened(0.0), (0, 1));
+    let (gems, crystals) = opened(2.0);
+    assert!([2, 4].contains(&gems), "{gems}");
+    assert_eq!(crystals, 1);
+    let (gems, _) = opened(1.0);
+    assert!([1, 2].contains(&gems), "{gems}");
+}
+
 /// A hidden quest of one phase, as a chest's own quest is, its id and its name in the install.
 const CHEST_QUEST: u32 = 0x8000_02CE;
 

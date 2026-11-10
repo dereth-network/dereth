@@ -8,9 +8,10 @@
 //! last step; and over the last minute's steps, the last, mean, 99th percentile and worst step's
 //! work, and each stage's mean and worst); the world database it serves (`world_database`: its key
 //! and era, the release it is, the release it lies over and the world whose overlay the install is
-//! read through, each null when there is none); and what clients asked for that the server doesn't
-//! do yet (`not_handled`: the requests met, and each kind's count). It has no authentication: it
-//! is meant for loopback or a private network.
+//! read through, each null when there is none); what clients asked for that the server doesn't
+//! do yet (`not_handled`: the requests met, and each kind's count); and the operator's game rates
+//! that aren't 1 (`rates`, by name; empty when the game plays at its own). It has no
+//! authentication: it is meant for loopback or a private network.
 //!
 //! A web page may read it from a page origin the WebSocket endpoint admits
 //! (`server.websocket.allowed_origins`), so that it can find the endpoint: the answer then carries
@@ -29,7 +30,7 @@ use std::time::Duration;
 use dereth_server_websocket::settings::cors_header;
 
 /// What `/status` says.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Snapshot {
     pub world_name: String,
     /// Whole seconds since the server started.
@@ -53,6 +54,8 @@ pub struct Snapshot {
     pub world: crate::world::Served,
     /// The requests met that the server doesn't handle, and each kind's count.
     pub not_handled: (u64, Arc<BTreeMap<String, u64>>),
+    /// The operator's game rates that aren't 1, by name.
+    pub rates: Vec<(&'static str, f64)>,
 }
 
 impl Snapshot {
@@ -78,6 +81,11 @@ impl Snapshot {
                 "requests": self.not_handled.0,
                 "kinds": *self.not_handled.1,
             },
+            "rates": self
+                .rates
+                .iter()
+                .map(|(name, rate)| ((*name).to_owned(), serde_json::json!(rate)))
+                .collect::<serde_json::Map<_, _>>(),
         })
         .to_string()
     }
@@ -411,6 +419,35 @@ mod tests {
         let names: Vec<&String> = r["stages"].as_object().expect("by stage").keys().collect();
         assert_eq!(names.len(), Stage::ALL.len());
         e.stop();
+    }
+
+    /// `/status` names the operator's game rates that aren't 1, each by name, and none (an empty
+    /// object) for a world that plays at the game's own.
+    /// Behaviour: server.operator.game-rates-on-the-status-endpoint
+    #[test]
+    fn the_status_endpoint_names_the_game_rates_that_are_not_one() {
+        let rates = |snapshot: Snapshot| {
+            let e = Endpoint::start(SocketAddr::from(([127, 0, 0, 1], 0)), snapshot, Vec::new())
+                .expect("listens");
+            let text = get(e.addr(), "/status");
+            e.stop();
+            let body = text.split("\r\n\r\n").nth(1).expect("a body").to_owned();
+            let v: serde_json::Value = serde_json::from_str(&body).expect("JSON");
+            v["rates"].clone()
+        };
+        let set = yalain_world::rates::Rates {
+            experience: 2.0,
+            loot: 1.0,
+            respawn: 0.5,
+        };
+        assert_eq!(
+            rates(Snapshot {
+                rates: set.changed(),
+                ..Snapshot::default()
+            }),
+            serde_json::json!({ "experience": 2.0, "respawn": 0.5 })
+        );
+        assert_eq!(rates(Snapshot::default()), serde_json::json!({}));
     }
 
     /// `/status` names the world database served (its key and era, its release, the release it

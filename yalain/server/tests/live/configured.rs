@@ -9,11 +9,16 @@
 //!
 //! A real start describes what the server's rules and a world's rows make, asked through an
 //! operator's own recipe. Fixture: the built executable, the install and the authored world.
+//!
+//! The executable's admin channel: a program on this computer reads the channel's file, gives its
+//! secret and runs console commands over it, with the console's own input already ended, as a
+//! service's is, and with it still open. Fixture: the built executable, the install and the
+//! authored world, in a scratch folder.
 
-use std::io::{Read as _, Write as _};
+use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, UdpSocket};
 use std::path::Path;
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
 use yalain_testkit::authored::{self, Portal};
@@ -370,4 +375,107 @@ fn a_real_start_describes_everything_a_worlds_rows_make() {
     assert!(!named.is_empty());
     let log = answered(&named, "yalain-live-catalog-rows");
     assert!(all_made(&log, &named), "{log}");
+}
+
+/// The executable with its admin channel on, serving the authored world in memory from `dir`,
+/// its console's input as given (held open while the child is, when piped).
+fn start_with_admin_channel(dir: &Path, login: u16, console: Stdio) -> Child {
+    let install = auberean_dat::testing::require_target_install();
+    let log = std::fs::File::create(dir.join("server.log")).expect("the server's log");
+    Command::new(env!("CARGO_BIN_EXE_yalain"))
+        .arg("--dats")
+        .arg(&install)
+        .args(["--memory", "--login-port", &login.to_string()])
+        .args(["--world-port", &(login + 2).to_string()])
+        .arg("--world-db")
+        .arg(authored::database_dir())
+        .args(["--seconds", &LIFE.to_string(), "--admin-channel"])
+        .current_dir(dir)
+        .stdin(console)
+        .stdout(log.try_clone().expect("the log twice"))
+        .stderr(log)
+        .spawn()
+        .expect("the server starts")
+}
+
+/// The channel's file in `dir`, once the server has written it.
+fn channel_file(dir: &Path) -> serde_json::Value {
+    let until = Instant::now() + crate::network::HANG;
+    loop {
+        if let Ok(text) = std::fs::read_to_string(dir.join("admin-channel.json")) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+                return v;
+            }
+        }
+        assert!(Instant::now() < until, "the channel's file never came");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// The lines the channel sends until one whose `line` holds `text`.
+fn until_line(reader: &mut BufReader<TcpStream>, text: &str) -> String {
+    loop {
+        let mut line = String::new();
+        let n = reader.read_line(&mut line).expect("a line");
+        assert!(n > 0, "the channel closed before {text:?}");
+        let v: serde_json::Value = serde_json::from_str(&line).expect("JSON");
+        if let Some(l) = v["line"].as_str() {
+            if l.contains(text) {
+                return l.to_owned();
+            }
+        }
+    }
+}
+
+/// With `--admin-channel` the executable writes the channel's loopback address, a secret and its
+/// own process to `admin-channel.json` in its folder; a program that gives the secret is told the
+/// hello and runs console commands, each answered over the channel as at the console, whether the
+/// console's own input has ended or is still open; `stop-now` stops the server, and the file goes
+/// with it.
+/// Behaviour: server.operator.admin-channel-runs-console-commands
+#[test]
+fn a_program_runs_console_commands_over_the_admin_channel_and_its_file_goes_at_the_stop() {
+    commands_over_the_channel("yalain-live-admin-channel", Stdio::null);
+    commands_over_the_channel("yalain-live-admin-channel-console", Stdio::piped);
+}
+
+/// The program's commands over the channel of a server whose console's input is `console`'s.
+fn commands_over_the_channel(name: &str, console: fn() -> Stdio) {
+    let dir = scratch(name);
+    let (_, mut server, ()) = serving(&dir, |port| {
+        (start_with_admin_channel(&dir, port, console()), ())
+    });
+    let file = channel_file(&dir);
+    assert_eq!(file["pid"], server.0.id());
+    let address = file["address"].as_str().expect("an address");
+    assert!(address.starts_with("127.0.0.1:"), "{address}");
+    let mut s = TcpStream::connect(address).expect("connect");
+    s.set_read_timeout(Some(crate::network::HANG))
+        .expect("a guard");
+    writeln!(s, "{}", file["secret"].as_str().expect("a secret")).expect("the secret");
+    let mut reader = BufReader::new(s.try_clone().expect("a reader"));
+    let mut hello = String::new();
+    reader.read_line(&mut hello).expect("the hello");
+    let hello: serde_json::Value = serde_json::from_str(&hello).expect("JSON");
+    assert_eq!(hello["hello"], "yalain");
+    assert_eq!(hello["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(hello["world"], "Local World");
+    writeln!(s, "help").expect("a command");
+    until_line(&mut reader, "[ok help]");
+    writeln!(s, "no-such-command").expect("a command");
+    until_line(&mut reader, "[refused no-such-command]");
+    writeln!(s, "stop-now").expect("a command");
+    let until_exit = Instant::now() + crate::network::HANG;
+    let exit = loop {
+        if let Some(exit) = server.0.try_wait().expect("the server's state") {
+            break exit;
+        }
+        assert!(Instant::now() < until_exit, "the server never stopped");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert!(exit.success(), "{exit:?}");
+    assert!(
+        !dir.join("admin-channel.json").exists(),
+        "the file goes with the server"
+    );
 }
