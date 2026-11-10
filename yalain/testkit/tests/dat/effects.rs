@@ -57,6 +57,21 @@ fn the_effects_read_as_the_data_defines_them() {
     );
 }
 
+/// The mark the turrets' guards put on reads as the data defines it: a record of four hours, gone at
+/// logout and at a teleport; Aunmauri's Courage ends at neither.
+/// Behaviour: server.effects.ends-at-teleport
+#[test]
+fn the_mark_lasts_four_hours_and_ends_at_logout_and_at_a_teleport() {
+    let p = Portal::open();
+    let t = p.effects(&[0x6F00_1F31, 0x6F00_1DF7]);
+    let mark = t.get(0x6F00_1F31).expect("the mark");
+    assert!(mark.lasts());
+    assert_eq!(mark.duration.at(1.0), Some(14_400.0));
+    assert!(mark.ends_at_logout && mark.ends_at_teleport);
+    let courage = t.get(0x6F00_1DF7).expect("Courage");
+    assert!(!courage.ends_at_logout && !courage.ends_at_teleport);
+}
+
 /// The Arwic mines' sword recipe reads as the data defines it: twenty iron in its one slot, two
 /// cycles of its animation, one outcome making the sword, moving the quest on, using up the iron
 /// and showing its text; the starting knife's recipe takes nothing and waits three hours; and the

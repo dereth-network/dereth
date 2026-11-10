@@ -164,7 +164,8 @@ pub struct Tables {
     /// and what every new character is given.
     pub items: yalain_content::item_rows::ItemRows,
     /// What the world says of creatures' behavior: whom concealing effects spare or make hated,
-    /// who heals its kin, who never attacks first, shooters' rhythms.
+    /// who heals its kin, who never attacks first, shooters' rhythms, who marks the players it sees,
+    /// who takes on only those it hates.
     pub creatures: yalain_content::creature_rows::CreatureRows,
     /// What the compile left out or could not serve, and why.
     pub warnings: Vec<Problem>,
@@ -1216,6 +1217,12 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 if cx.template(l, "template", r.template) {
                     if let Some(rhythm) = r.rhythm {
                         t.creatures.rhythms.insert(r.template, rhythm);
+                    }
+                    if let Some(mark) = &r.marks {
+                        t.creatures.marks.insert(r.template, mark.clone());
+                    }
+                    if r.only_hated {
+                        t.creatures.only_hated.insert(r.template);
                     }
                 }
             }

@@ -46,6 +46,7 @@ fn def(state: u32, kind: Kind) -> EffectDef {
         external_flags: 0,
         internal_flags: 0x140_0413,
         ends_at_logout: false,
+        ends_at_teleport: false,
         enum_value: 1,
         eq_class: 0,
         name: None,

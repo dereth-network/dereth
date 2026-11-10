@@ -2218,6 +2218,27 @@ pub fn resurrected<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Conn
     stop
 }
 
+/// A player is taken somewhere: the records of effects that end at a teleport go, as it goes into
+/// portal space (2017: the two trips a player holding such a record took ended them in the tick it
+/// was told of its teleport, both records at the second).
+pub fn teleported<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    let gone: Vec<u32> = s.players.get(&world).map_or_else(Vec::new, |p| {
+        p.play
+            .effects
+            .iter()
+            .filter(|e| {
+                s.effect_table
+                    .get(e.state)
+                    .is_some_and(|d| d.ends_at_teleport)
+            })
+            .map(|e| e.eid)
+            .collect()
+    });
+    for eid in gone {
+        remove(s, net, world, eid);
+    }
+}
+
 /// The effect registry a session start carries: the records, the id counter, each class's top
 /// effect, the records by category, the qualities and appearances the top effects apply.
 #[must_use]

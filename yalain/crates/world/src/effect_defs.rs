@@ -364,6 +364,9 @@ pub struct EffectDef {
     pub name: Option<(u32, u32)>,
     /// Does it end when its holder leaves the world (its records gone at logout)?
     pub ends_at_logout: bool,
+    /// Does it end when its holder is taken somewhere (its records gone as it goes into portal
+    /// space)?
+    pub ends_at_teleport: bool,
 }
 
 impl EffectDef {
@@ -480,6 +483,7 @@ impl EffectDef {
             eq_class: 0,
             name: None,
             ends_at_logout: false,
+            ends_at_teleport: false,
         }
     }
 
@@ -834,6 +838,7 @@ impl EffectDef {
                     _ => None,
                 }),
             ends_at_logout: word("m_removeOnLogout").unwrap_or(0) != 0,
+            ends_at_teleport: word("m_removeOnTeleport").unwrap_or(0) != 0,
         })
     }
 }

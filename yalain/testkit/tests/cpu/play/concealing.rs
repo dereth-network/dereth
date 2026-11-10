@@ -307,16 +307,9 @@ fn an_effect_that_names_no_class_does_nothing() {
     use yalain_world::ai::regard;
     const CHAOS_WARD: u32 = 0x6F00_1DEA;
     const SHRETH_ALERT: u32 = 0x6F00_1F2C;
-    const ULTRA_INTRUDER: u32 = 0x6F00_1F31;
     const RABBIT_DISGUISE: u32 = 0x6F00_20C0;
     const SAFE_PASSAGE: u32 = 0x6F00_1D2C;
-    for state in [
-        CHAOS_WARD,
-        SHRETH_ALERT,
-        ULTRA_INTRUDER,
-        RABBIT_DISGUISE,
-        SAFE_PASSAGE,
-    ] {
+    for state in [CHAOS_WARD, SHRETH_ALERT, RABBIT_DISGUISE, SAFE_PASSAGE] {
         let mut h = Harness::new();
         h.server.catalog = yalain_testkit::test_catalog();
         h.player_in_world("one", "Elara");

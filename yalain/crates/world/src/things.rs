@@ -116,6 +116,9 @@ pub struct Creature {
     pub weapon_count: u16,
     /// The route it walks at rest, when its camp names one, and where it is on it.
     pub patrol: Option<crate::ai::Patrol>,
+    /// The players (character ids) within its perception at its last step, for a creature that
+    /// marks those that come within it.
+    pub in_sight: Vec<u64>,
 }
 
 /// A corpse's state: who killed what, what it holds, when it goes.

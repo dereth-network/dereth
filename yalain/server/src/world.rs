@@ -334,8 +334,8 @@ fn check_cmd(args: &[String]) -> Result<(), String> {
 /// keeping off an effect or an effect an immunity leaves, the install holds no saved state of, or a
 /// skill to train the install has not, a `[[treasure_look]]` naming a
 /// table the install has not, a `[[treasure_potion]]`, a `[[treasure_family]]` or an
-/// `[[item_use]]` naming an effect the install has not, and a `[[concealing]]` naming an effect
-/// the install has not.
+/// `[[item_use]]` naming an effect the install has not, and a `[[concealing]]` or a `[[creature]]`'s
+/// mark naming an effect the install has not.
 ///
 /// # Errors
 /// The install's library does not read.
@@ -477,6 +477,21 @@ pub fn install_problems(p: &data::Portal, db: &rows::Database) -> Result<Vec<Pro
                         r.effect
                     ),
                 ));
+            }
+        }
+        if let rows::Row::Creature(r) = &l.row {
+            if let Some(mark) = &r.marks {
+                let read = data::effect_table(p, &[mark.effect], &Default::default())?;
+                if !read.effects.contains_key(&mark.effect) {
+                    out.push(Problem::new(
+                        &l.file,
+                        l.line,
+                        format!(
+                            "[[creature]] {:#010x}: marks {:#010x}: the install holds no such effect",
+                            r.template, mark.effect
+                        ),
+                    ));
+                }
             }
         }
         if let rows::Row::PointsBonus(r) = &l.row {

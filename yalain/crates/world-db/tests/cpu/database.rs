@@ -4396,6 +4396,58 @@ fn a_worlds_creature_rows_read_compile_and_are_held_to_their_shape() {
     );
 }
 
+/// A creature's row may give the effect its creatures put on a player that comes within their
+/// perception, with their lines for that by race (one with no race for any other), and that they take
+/// on only the players they hate, with no rhythm; lines with no mark, two for one race, a race no
+/// player is of and a row that gives none of these are refused.
+#[test]
+fn a_creatures_row_reads_its_mark_and_whom_it_takes_on() {
+    use yalain_content::creature_rows::Mark;
+    const ROWS: &str = "[[creature]]\ntemplate = 0x47002224\nmarks = 0x6F001F31\n\
+        mark_lines = [{ race = 2, line = { table = 0x2500261D, string = 0x4DE50D1C } }, \
+        { line = { table = 0x2500261D, string = 0x8BF6E13F } }]\nprov = { from = \"authored\" }\n\n\
+        [[creature]]\ntemplate = 0x4700115B\nonly_hated = true\nprov = { from = \"authored\" }\n";
+    let mut files = fixture();
+    files.insert("town/server/creatures.toml".into(), ROWS.into());
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let c = &t.creatures;
+    let mark = c.marks.get(&0x4700_2224).expect("a mark");
+    assert_eq!(
+        *mark,
+        Mark {
+            effect: 0x6F00_1F31,
+            lines: vec![
+                (Some(2), (0x4DE5_0D1C, 0x2500_261D)),
+                (None, (0x8BF6_E13F, 0x2500_261D)),
+            ],
+        }
+    );
+    assert_eq!(mark.line_for(2), Some((0x4DE5_0D1C, 0x2500_261D)));
+    assert_eq!(
+        mark.line_for(16),
+        Some((0x8BF6_E13F, 0x2500_261D)),
+        "any other"
+    );
+    assert!(c.only_hated.contains(&0x4700_115B) && !c.only_hated.contains(&0x4700_2224));
+    assert!(c.rhythms.is_empty());
+    for (from, to) in [
+        ("marks = 0x6F001F31\n", ""),
+        ("{ line = {", "{ race = 2, line = {"),
+        ("race = 2", "race = 3"),
+        ("only_hated = true", "only_hated = false"),
+        ("only_hated = true", "only_hated = 1"),
+        ("string = 0x8BF6E13F", "string = 0x8BF6E13F, how = 1"),
+    ] {
+        let mut files = fixture();
+        files.insert(
+            "town/server/creatures.toml".into(),
+            ROWS.replacen(from, to, 1),
+        );
+        assert!(read(&files).is_err(), "{to:?} for {from:?}");
+    }
+}
+
 #[test]
 fn plant_rows_compile_to_species_and_crosses() {
     let mut files = fixture();

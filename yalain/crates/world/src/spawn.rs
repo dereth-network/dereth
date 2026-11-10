@@ -361,6 +361,7 @@ pub fn make<S: Store>(
         weapon_count: 1,
         patrol,
         actions: 0,
+        in_sight: Vec::new(),
     });
     s.things.insert(t);
     crate::arms::arm(s, id);

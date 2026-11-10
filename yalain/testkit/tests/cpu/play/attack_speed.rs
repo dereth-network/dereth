@@ -59,6 +59,7 @@ pub(super) fn speeded(h: &mut Harness, class: u32, value: f32, multiplies: bool)
         external_flags: 0,
         internal_flags: 0x1100_0003,
         ends_at_logout: false,
+        ends_at_teleport: false,
         enum_value: 0,
         eq_class: class,
         name: None,

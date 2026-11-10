@@ -912,6 +912,7 @@ pub fn test_effects() -> yalain_world::effect_defs::EffectTable {
         external_flags: 0,
         internal_flags: REMOVED_ON_DEATH,
         ends_at_logout: false,
+        ends_at_teleport: false,
         enum_value: 0,
         eq_class: 0,
         name: None,
@@ -1216,6 +1217,7 @@ pub fn creature_effects() -> Vec<yalain_world::effect_defs::EffectDef> {
         external_flags: 0,
         internal_flags: 0x340_0713,
         ends_at_logout: false,
+        ends_at_teleport: false,
         enum_value,
         eq_class,
         name: None,
@@ -1461,6 +1463,7 @@ pub fn plain_effect(state: u32) -> yalain_world::effect_defs::EffectDef {
         external_flags: 0,
         internal_flags: 0,
         ends_at_logout: false,
+        ends_at_teleport: false,
         enum_value: 0,
         eq_class: 0,
         name: None,
@@ -2141,12 +2144,46 @@ pub fn test_item_rows() -> yalain_content::item_rows::ItemRows {
     }
 }
 
-/// The test world's creature rows, as the world's rows give them: the 27 concealing rows (23
+/// The effect the patrolling guards of the turrets' base put on a player they see, and the turrets
+/// that take on only its holders, of the class it makes hate its holder.
+pub const MARK: u32 = 0x6F00_1F31;
+pub const MARKED_ONLY: u32 = 0x4700_2C40;
+pub const MARK_HATED_BY: u32 = 0x75;
+
+/// The guards that mark the players they see, and the lines they say as they do, by race: of a
+/// human, a Lugian, a Tumerok, a Drudge and an Empyrean.
+pub const MARKERS: [u32; 14] = [
+    0x4700_278F,
+    0x4700_2791,
+    0x4700_2792,
+    0x4700_2794,
+    0x4700_2795,
+    0x4700_2796,
+    0x4700_2797,
+    0x4700_2798,
+    0x4700_2799,
+    0x4700_279A,
+    0x4700_279B,
+    0x4700_279C,
+    0x4700_279D,
+    0x4700_279E,
+];
+pub const MARK_LINES: [(u32, u32); 5] = [
+    (1, 0xC9EA_911E),
+    (2, 0x4DE5_0D1C),
+    (4, 0xCBF7_8EB2),
+    (8, 0xCB63_9BF8),
+    (16, 0xF5F6_899E),
+];
+pub const MARK_TABLE: u32 = 0x2500_261D;
+
+/// The test world's creature rows, as the world's rows give them: the 28 concealing rows (24
 /// effects, four of them for two classes each), the five healers' behavior tables, the five friend
-/// tables that never attack a player first, and the start area's six shooters' rhythms.
+/// tables that never attack a player first, the start area's six shooters' rhythms, the 14 guards
+/// that mark the players they see and the one turret that takes on only those marked.
 #[must_use]
 pub fn test_creature_rows() -> yalain_content::creature_rows::CreatureRows {
-    use yalain_content::creature_rows::{CreatureRows, Regard, Rhythm};
+    use yalain_content::creature_rows::{CreatureRows, Mark, Regard, Rhythm};
     const SPARES: [(u32, Option<u32>); 12] = [
         (0x6F00_1C46, Some(0x17)),
         (0x6F00_1D4A, Some(0x1D)),
@@ -2161,7 +2198,7 @@ pub fn test_creature_rows() -> yalain_content::creature_rows::CreatureRows {
         (0x6F00_204B, Some(0x45)),
         (0x6F00_204B, Some(0x44)),
     ];
-    const HATES: [(u32, Option<u32>); 15] = [
+    const HATES: [(u32, Option<u32>); 16] = [
         (0x6F00_1D4C, Some(0x16)),
         (0x7000_0703, Some(0x16)),
         (0x6F00_1EE8, Some(0x0E)),
@@ -2177,6 +2214,7 @@ pub fn test_creature_rows() -> yalain_content::creature_rows::CreatureRows {
         (0x6F00_1C77, Some(0x43)),
         (0x6F00_1C78, Some(0x45)),
         (0x6F00_1C78, Some(0x44)),
+        (MARK, Some(MARK_HATED_BY)),
     ];
     let rhythm = |gap, windup| Rhythm { gap, windup };
     let concealing = SPARES
@@ -2210,6 +2248,23 @@ pub fn test_creature_rows() -> yalain_content::creature_rows::CreatureRows {
         ]
         .into_iter()
         .collect(),
+        marks: MARKERS
+            .into_iter()
+            .map(|t| {
+                let lines = MARK_LINES
+                    .iter()
+                    .map(|(race, string)| (Some(*race), (*string, MARK_TABLE)))
+                    .collect();
+                (
+                    t,
+                    Mark {
+                        effect: MARK,
+                        lines,
+                    },
+                )
+            })
+            .collect(),
+        only_hated: [MARKED_ONLY].into_iter().collect(),
     }
 }
 

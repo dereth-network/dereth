@@ -142,6 +142,7 @@ fn granting(skill: u32) -> EffectDef {
         external_flags: 0,
         internal_flags: 0x4140_0013,
         ends_at_logout: false,
+        ends_at_teleport: false,
         enum_value: 3068,
         eq_class: 0,
         name: Some((0xA860_7CEC, EFFECT_TABLE)),

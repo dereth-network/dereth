@@ -1894,6 +1894,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
     ]
     .into_iter()
     .filter_map(|(field, none)| none.then_some(field))
+    .chain(yalain_world::creature_rows::fields_missing(&creature_rows))
     .collect();
     let no_wards = effect_rules.wards.is_empty();
     // The numbers treasure draws by: the world's rows, 2017's for each kind it gives none of.

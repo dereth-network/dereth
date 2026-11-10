@@ -821,6 +821,7 @@ fn a_portals_effects_are_put_on_as_the_player_comes_out() {
             external_flags: 0,
             internal_flags: 0,
             ends_at_logout: false,
+            ends_at_teleport: false,
             enum_value: 0,
             eq_class: 0,
             name: None,

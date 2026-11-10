@@ -817,12 +817,16 @@ What the world says of the creatures of a friend table.
 
 #### `[[creature]]`
 
-What the world says of the creatures of a template: its shooting rhythm.
+What the world says of the creatures of a template: its shooting rhythm, the mark it puts on the
+players it sees, and whether it takes on only the players it hates. A row gives at least one of these.
 
 | field | | meaning |
 |---|---|---|
 | `template` | required | the template |
 | `shot_gap`, `windup` | | the gap between its shots, and the time from the start of a shot until the missile leaves, in seconds above 0, the two together |
+| `marks` | | an effect (its saved state) it puts on each player that comes within its perception, once each time the player comes in |
+| `mark_lines` | | with `marks`: the line it says aloud as it marks, naming the player, `{ race, line }`, one to a race (no race: any other), `line` a string reference `{ table, string }` |
+| `only_hated` | | true: it takes on only a player a concealing effect makes it hate, and gives up on one that no longer holds the effect |
 | `prov` | required | where it came from |
 
 A world with no rows of `[[concealing]]`, `[[npc_table]]`, `[[friend_table]]` or `[[creature]]`

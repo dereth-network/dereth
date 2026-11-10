@@ -28,7 +28,8 @@
 //! [`NEAR`] of it, at most once in [`NEAR_AGAIN`]; one with idle lines says one every
 //! [`IDLE_EVERY`] while a player is within [`IDLE_HEARD`], and one whose idle lines are broadcast
 //! one every [`BROADCAST_EVERY`], a player near or not. A creature with fighting lines says one as
-//! it goes after a player, and one with dying lines one as it dies.
+//! it goes after a player, and one with dying lines one as it dies. A creature that marks the
+//! players coming within its perception says its line for each, aloud, naming that player.
 //!
 //! **How.** A tell reaches the player, naming the speaker; a saying is heard by every client that
 //! knows the speaker; an emote is text in the player's chat window, which names the speaker
@@ -193,25 +194,58 @@ pub fn say<S: Store>(
                 .map(|p| crate::player::world_name(&p.name, p.sex));
             broadcast(s, net, speaker, words, named.as_deref());
         }
-        How::Say => {
-            for (conn, p) in &s.players {
-                if *conn != world && !p.known.contains_key(&speaker.id) {
-                    continue;
-                }
-                let text = text_for(words, &crate::player::world_name(&p.name, p.sex));
-                let Ok(args) = ScriptArgs::from_values(&[Arg::Int(0), chat::text_arg(text)]) else {
-                    continue;
-                };
-                let m = ServerMessage::CellObjectCall(ObjectCall {
-                    object: speaker.stamp,
-                    call: ClientCall {
-                        function: FunctionId(chat::function::SAYING),
-                        args: Some(args),
-                    },
-                });
-                net.send(*conn, queue::EVENT, BlobKind::UNORDERED, m.encode());
-            }
+        How::Say => aloud(s, net, world, speaker, words, None),
+    }
+}
+
+/// A speaker says a line of a player aloud: every client that knows the speaker, and the player's,
+/// reads it naming that player.
+pub fn say_of<S: Store>(
+    s: &Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    speaker: &Speaker,
+    words: &Words,
+) {
+    let Some(named) = s
+        .players
+        .get(&world)
+        .map(|p| crate::player::world_name(&p.name, p.sex))
+    else {
+        return;
+    };
+    aloud(s, net, world, speaker, words, Some(&named));
+}
+
+/// A saying heard by every client that knows the speaker, and the player of `world`'s: naming
+/// `named`, else each hearer itself.
+fn aloud<S: Store>(
+    s: &Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    speaker: &Speaker,
+    words: &Words,
+    named: Option<&str>,
+) {
+    for (conn, p) in &s.players {
+        if *conn != world && !p.known.contains_key(&speaker.id) {
+            continue;
         }
+        let text = match named {
+            Some(n) => text_for(words, n),
+            None => text_for(words, &crate::player::world_name(&p.name, p.sex)),
+        };
+        let Ok(args) = ScriptArgs::from_values(&[Arg::Int(0), chat::text_arg(text)]) else {
+            continue;
+        };
+        let m = ServerMessage::CellObjectCall(ObjectCall {
+            object: speaker.stamp,
+            call: ClientCall {
+                function: FunctionId(chat::function::SAYING),
+                args: Some(args),
+            },
+        });
+        net.send(*conn, queue::EVENT, BlobKind::UNORDERED, m.encode());
     }
 }
 

@@ -3190,6 +3190,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.creatures.marks-players-coming-in-sight",
+        says: "A creature whose row marks players puts its effect on each player that comes within its \
+               perception and says its line for the player's race aloud, naming that player to all who \
+               hear; once each time the player comes in, again only after it has left and come back.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-MARKS"),
+        station: "yalain-testkit::cpu::play::marks::a_player_coming_within_a_markers_perception_is_marked_and_named_by_its_line_for_its_race",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.missiles-arrive-after-flight",
         says: "A creature's missile arrives after the creature's windup and its flight at 35 \
                m/s.",
@@ -3234,6 +3244,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-AI-NOTICE"),
         station: "yalain-testkit::cpu::play::creatures::a_creature_notices_a_player_within_its_perception_and_comes_at_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.only-the-hated",
+        says: "A creature whose row says it takes on only the players it hates takes on a player a \
+               concealing effect makes it hate, and no other: not one that strikes it, not one a \
+               creature near it goes after; it gives up on one that holds the effect no more.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-ONLY-HATED"),
+        station: "yalain-testkit::cpu::play::marks::a_hated_only_turret_leaves_an_unmarked_player_alone_whoever_fights_it",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -3438,8 +3458,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.creatures.turrets-roused-by-their-guards",
-        says: "A turret never shoots first; once a creature near it fights, it shoots the nearest \
-               player in reach from where it stands.",
+        says: "A turret no row says takes on only the hated never shoots first; once a creature \
+               near it fights, it shoots the nearest player in reach from where it stands.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-TURRETS"),
         station: "yalain-testkit::cpu::play::barrels_and_turrets::a_turret_shoots_from_where_it_stands_once_a_creature_near_it_fights",
@@ -4062,6 +4082,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-ENDS-AT-LOGOUT-READ"),
         station: "yalain-testkit::dat::effects::the_effects_that_end_at_logout_read_as_the_data_marks_them",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.effects.ends-at-teleport",
+        says: "A record of an effect whose definition says it ends at a teleport goes as its holder \
+               goes into portal space, told gone in that tick.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ENDS-AT-TELEPORT"),
+        station: "yalain-testkit::cpu::play::marks::a_teleport_takes_the_mark_off_and_the_turret_gives_up",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.effects.ends-told",

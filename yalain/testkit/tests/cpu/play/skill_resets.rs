@@ -275,6 +275,7 @@ fn an_effect_granting_a_reset_gives_one_more_and_tells_the_player() {
                 external_flags: 0,
                 internal_flags: 0,
                 ends_at_logout: false,
+                ends_at_teleport: false,
                 enum_value: 0,
                 eq_class: 0,
                 name: None,

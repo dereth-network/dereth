@@ -678,11 +678,14 @@ pub struct FriendTable {
 
 /// `[[creature]]`: what the world says of the creatures of a template: its shooting rhythm, the
 /// gap between its shots times its shot's time scale and its windup before a missile leaves at the
-/// creatures' median time scale, in seconds.
+/// creatures' median time scale, in seconds; the effect it puts on a player that comes within its
+/// perception, with its lines for that by race; whether it takes on only the players it hates.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Creature {
     pub template: u32,
     pub rhythm: Option<yalain_content::creature_rows::Rhythm>,
+    pub marks: Option<yalain_content::creature_rows::Mark>,
+    pub only_hated: bool,
     pub prov: Prov,
 }
 
@@ -1610,7 +1613,18 @@ pub const FIELDS: [(&str, &[&str]); 52] = [
     ("concealing", &["effect", "class", "regard", "prov"]),
     ("npc_table", &["name", "heals_kin", "prov"]),
     ("friend_table", &["table", "attacks_first", "prov"]),
-    ("creature", &["template", "shot_gap", "windup", "prov"]),
+    (
+        "creature",
+        &[
+            "template",
+            "shot_gap",
+            "windup",
+            "marks",
+            "mark_lines",
+            "only_hated",
+            "prov",
+        ],
+    ),
     (
         "plant",
         &["plant", "seed", "pollen", "name", "harvest", "prov"],
@@ -2566,6 +2580,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                     f.bad("shot_gap, windup", "a time is a number of seconds above 0");
                     return None;
                 }
+                (None, None) => None,
                 _ => {
                     f.bad(
                         "shot_gap, windup",
@@ -2574,9 +2589,37 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                     return None;
                 }
             };
+            let marks = f.id("marks");
+            let lines = f.mark_lines()?;
+            let marks = match (marks, lines) {
+                (Some(effect), lines) => {
+                    Some(yalain_content::creature_rows::Mark { effect, lines })
+                }
+                (None, lines) if lines.is_empty() => None,
+                (None, _) => {
+                    f.bad(
+                        "mark_lines",
+                        "lines for a mark need the effect it puts on (marks)",
+                    );
+                    return None;
+                }
+            };
+            let only_hated = match f.t.get("only_hated") {
+                Some(_) => f.bool("only_hated")?,
+                None => false,
+            };
+            if rhythm.is_none() && marks.is_none() && !only_hated {
+                f.bad(
+                    "shot_gap, windup, marks, only_hated",
+                    "a creature's row gives its rhythm, a mark or only_hated",
+                );
+                return None;
+            }
             Row::Creature(Creature {
                 template,
                 rhythm,
+                marks,
+                only_hated,
                 prov: f.req_prov()?,
             })
         }
@@ -4315,6 +4358,46 @@ impl<'a> Fields<'a> {
                 "transforms",
                 "{ seconds, fx, behavior, text, name }: its seconds from 0, the appearances and the behavior played meanwhile, the text the hero is told ({ table, string }) and the variable its name fills, which needs the text",
             );
+        }
+        read
+    }
+
+    /// `[[creature]]`'s `mark_lines`: `{ race, line }`, a line said of a player of one race marked
+    /// (or, with no race, of any other), `line` a string reference `{ table, string }`; none when
+    /// left out. `None` when one is wrong.
+    fn mark_lines(&mut self) -> Option<Vec<yalain_content::creature_rows::MarkLine>> {
+        let Some(v) = self.get("mark_lines") else {
+            return Some(Vec::new());
+        };
+        let races = [1, 2, 4, 8, 16];
+        let read = v.as_array().and_then(|a| {
+            a.iter()
+                .map(|e| {
+                    let t = e.as_table()?;
+                    if t.keys().any(|k| !["race", "line"].contains(&k.as_str())) {
+                        return None;
+                    }
+                    let race = match t.get("race") {
+                        Some(r) => Some(as_u32(r).filter(|r| races.contains(r))?),
+                        None => None,
+                    };
+                    let l = t.get("line")?.as_table().filter(|l| l.len() == 2)?;
+                    Some((race, (as_u32(l.get("string")?)?, as_u32(l.get("table")?)?)))
+                })
+                .collect::<Option<Vec<_>>>()
+        });
+        let one_each = read.as_ref().is_some_and(|lines| {
+            lines
+                .iter()
+                .enumerate()
+                .all(|(i, (r, _))| lines[..i].iter().all(|(q, _)| q != r))
+        });
+        if !one_each {
+            self.bad(
+                "mark_lines",
+                "{ race, line }: a race (1, 2, 4, 8 or 16, or none for any other) and a string reference { table, string }, one line to a race",
+            );
+            return None;
         }
         read
     }

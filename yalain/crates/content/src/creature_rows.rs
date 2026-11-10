@@ -1,8 +1,9 @@
 //! What the world database says of creatures' behavior: whom a concealing effect spares or makes
 //! hated, which behavior tables heal their kin, which friend tables never attack a player first,
-//! and a shooter's rhythm by its template.
+//! a shooter's rhythm by its template, the creatures that mark the players they see, and those that
+//! take on only the players they hate.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// What a concealing effect makes creatures of a class make of its holder.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +43,32 @@ pub struct Rhythm {
     pub windup: f32,
 }
 
+/// A line said of a player marked: the race it is for (none: any other) and the string reference
+/// (string id, table).
+pub type MarkLine = (Option<u32>, (u32, u32));
+
+/// What a kind of creature does to a player that comes within its perception: the effect it puts on
+/// the player (its saved state), and the line it says of the player as it does, by the player's race.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Mark {
+    pub effect: u32,
+    /// The lines, each for one race (1 human, 2 Lugian, 4 Tumerok, 8 Drudge, 16 Empyrean) or, with
+    /// none, for any race no other line is for: a string reference (string id, table).
+    pub lines: Vec<MarkLine>,
+}
+
+impl Mark {
+    /// The line said of a player of a race: its race's, else the one for any race.
+    #[must_use]
+    pub fn line_for(&self, race: u32) -> Option<(u32, u32)> {
+        self.lines
+            .iter()
+            .find(|(r, _)| *r == Some(race))
+            .or_else(|| self.lines.iter().find(|(r, _)| r.is_none()))
+            .map(|(_, line)| *line)
+    }
+}
+
 /// The world's creature rows.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CreatureRows {
@@ -54,6 +81,10 @@ pub struct CreatureRows {
     pub attacks_first: BTreeMap<u32, bool>,
     /// The shooting rhythms of creatures' templates.
     pub rhythms: BTreeMap<u32, Rhythm>,
+    /// What creatures of a template do to the players that come within their perception.
+    pub marks: BTreeMap<u32, Mark>,
+    /// The templates whose creatures take on only a player a concealing effect makes them hate.
+    pub only_hated: BTreeSet<u32>,
 }
 
 impl CreatureRows {

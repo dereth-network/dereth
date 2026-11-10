@@ -45,6 +45,7 @@ fn raises(state: u32, skill: u32, by: f32) -> EffectDef {
         eq_class: 0,
         name: None,
         ends_at_logout: false,
+        ends_at_teleport: false,
     }
 }
 

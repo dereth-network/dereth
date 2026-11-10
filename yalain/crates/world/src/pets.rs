@@ -704,6 +704,7 @@ fn summon_kind<S: Store>(
         weapon_count: 1,
         patrol: None,
         actions: 0,
+        in_sight: Vec::new(),
     });
     let holds = held_auras(s, &t);
     s.things.insert(t);

@@ -557,6 +557,7 @@ fn with_immunity(h: &mut Harness) {
         external_flags: 0,
         internal_flags: yalain_world::effect_defs::HARMFUL,
         ends_at_logout: false,
+        ends_at_teleport: false,
         enum_value: 0,
         eq_class: class,
         name: None,

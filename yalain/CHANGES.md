@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Guards can now mark players for turrets, which shoot only the marked.
 - World rows can now train a skill and wait for a finished act.
 - Fixed the broker's message when a character has too many consignments.
 - Only a plant's planter can now water, fertilize or pollinate it.

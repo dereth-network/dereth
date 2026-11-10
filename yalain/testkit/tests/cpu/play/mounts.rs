@@ -80,6 +80,7 @@ fn mount_def(state: u32, speed: f32, duration: Option<f32>, fx: u32) -> EffectDe
         external_flags: 0x9,
         internal_flags: REMOVED_ON_DEATH,
         ends_at_logout: false,
+        ends_at_teleport: false,
         enum_value: 2777,
         eq_class: 19,
         name: None,

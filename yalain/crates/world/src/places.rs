@@ -1839,6 +1839,7 @@ fn through_door<S: Store>(
         BlobKind::PRIVATE,
         &crate::chat::show_text(8, teleporting),
     );
+    crate::effects::teleported(s, net, world);
     send(net, world, BlobKind::PRIVATE, &animation_frozen(true));
     send(
         net,
@@ -1885,6 +1886,7 @@ pub(crate) fn shard_portal_space<S: Store>(s: &mut Server<S>, net: &mut ServerNe
         BlobKind::PRIVATE,
         &crate::chat::show_text(8, teleporting),
     );
+    crate::effects::teleported(s, net, world);
     send(net, world, BlobKind::PRIVATE, &animation_frozen(true));
     send(
         net,
@@ -1939,6 +1941,7 @@ fn goes_into_portal_space<S: Store>(
     teleport_fx: bool,
 ) {
     walk_cut_short(s, net, world);
+    crate::effects::teleported(s, net, world);
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };

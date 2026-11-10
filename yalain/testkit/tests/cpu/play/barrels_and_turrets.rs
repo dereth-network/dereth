@@ -10,8 +10,9 @@ use yalain_testkit::{test_template, Harness};
 use yalain_world::things::Mode;
 
 const BARREL: u32 = 0x4700_26C2;
-const TURRET: u32 = 0x4700_2C40;
-const GUARD: u32 = 0x4700_2794;
+/// A turret and a guard no row names: the turret takes on any player, the guard marks none.
+const TURRET: u32 = 0x4700_7C40;
+const GUARD: u32 = 0x4700_7794;
 const MISSILE: u32 = 1863;
 
 /// A template with no level that never moves: a barrel (`turns` false) or a turret.

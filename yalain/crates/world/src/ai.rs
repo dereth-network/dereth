@@ -21,6 +21,15 @@
 //!   one that spares it doesn't take it on, come to its kin's fight with it, or turn to it, unless
 //!   it has hurt the creature; one that hates it is taken on even by a creature that never attacks
 //!   first ([`regard`]).
+//! - **Marking.** A creature whose row marks players puts its effect on each player that comes
+//!   within its perception, saying its line for the player's race aloud, naming it, as it does: once
+//!   each time the player comes in, whether the creature rests or fights (2017: the patrolling guards
+//!   that marked players for the turrets named each of six players as it came within their 10 m, and
+//!   again only after it had left and come back; one stood 20 s within and was named once).
+//! - **Only the hated.** A creature whose row says it takes on only the players it hates fights no
+//!   one else: not one that strikes it, not one its kin or another creature near it fights, and it
+//!   turns from one that holds its hate no more (2017: the turrets that shot only marked players,
+//!   159 of 159 shots after a mark, none in 2,329 seconds of unmarked players within 60 m of them).
 //! - **Giving up.** When the player has been beyond its perception radius for a second (2017's gave
 //!   up a median 1.17 s after the player left the radius, at a distance beyond it about the same
 //!   for every radius), or is gone, it takes its peaceful mode and runs home; it is not made whole
@@ -127,6 +136,68 @@ fn class_of<S: Store>(s: &Server<S>, id: u64) -> Option<u32> {
         .get(t.template)?
         .props
         .word(yalain_content::props::creature_property::SUPER_CLASS)
+}
+
+/// Does a creature take on only the players it hates (its template's row says so)?
+fn only_hated<S: Store>(s: &Server<S>, id: u64) -> bool {
+    s.things
+        .get(id)
+        .is_some_and(|t| s.creature_rows.only_hated.contains(&t.template))
+}
+
+/// May a creature take on a player: any, unless it takes on only those it hates?
+fn may_take_on<S: Store>(s: &Server<S>, id: u64, p: &crate::world::Player) -> bool {
+    !only_hated(s, id) || regard(&s.creature_rows, p, class_of(s, id)) == Some(Regard::Hates)
+}
+
+/// A creature whose row marks players marks each player that has come within its perception since
+/// its last step: its effect put on the player, cast by it, then its line for the player's race
+/// said aloud, naming the player (2017: the mark's record came first, the line in the same tick, 3
+/// of 3). A player not in the world, in portal space, dead or protected is not seen.
+fn marks<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    id: u64,
+    at: &StoredPosition,
+    perception: f32,
+    clock: Clock,
+) {
+    let Some(template) = s.things.get(id).map(|t| t.template) else {
+        return;
+    };
+    let Some(mark) = s.creature_rows.marks.get(&template).cloned() else {
+        return;
+    };
+    let within: Vec<(ConnId, u64, u32)> = s
+        .players
+        .iter()
+        .filter(|(_, p)| fightable(p) && p.admin.attackable == Attackable::Normal)
+        .filter(|(_, p)| presence::distance(at, &p.position).is_some_and(|d| d <= perception))
+        .map(|(w, p)| (*w, p.character, p.race))
+        .collect();
+    let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) else {
+        return;
+    };
+    let was = std::mem::replace(&mut c.in_sight, within.iter().map(|e| e.1).collect());
+    #[allow(clippy::cast_precision_loss)]
+    let spellcraft = c.stats.level.max(1) as f32;
+    for (world, character, race) in within {
+        if was.contains(&character) {
+            continue;
+        }
+        let cast = crate::effects::Cast {
+            caster: id,
+            spellcraft,
+            ..crate::effects::Cast::default()
+        };
+        crate::effects::apply(s, net, world, mark.effect, cast, clock);
+        if let (Some((string, table)), Some(speaker)) =
+            (mark.line_for(race), crate::talk::thing_speaker(s, id))
+        {
+            let words = yalain_content::talk::Words::Ref(string, table);
+            crate::talk::say_of(s, net, world, &speaker, &words);
+        }
+    }
 }
 
 /// How long a player must have been beyond a creature's perception radius for it to give up, in
@@ -418,9 +489,16 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
     if !c.stats.fights {
         return;
     }
+    if c.mode != Mode::Dead && !s.creature_rows.marks.is_empty() {
+        marks(s, net, id, &at, perception, clock);
+    }
+    let Some(c) = s.things.get(id).and_then(|t| t.creature.as_ref()) else {
+        return;
+    };
     let run = RUN_SPEED * c.stats.scale * speed_scale(s, id);
-    let attacks_first =
-        c.stats.attacks_first && s.creature_rows.may_attack_first(c.stats.friend_table);
+    let attacks_first = c.stats.attacks_first
+        && s.creature_rows.may_attack_first(c.stats.friend_table)
+        && !only_hated(s, id);
     let (mode, home) = (c.mode, c.home);
     let leash = leash(c);
     let (joining, next_look) = (c.joining, c.next_look);
@@ -488,7 +566,8 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                             p.position,
                             crate::combat::is_dead(p)
                                 || p.trip.is_some()
-                                || crate::effects::protected(p),
+                                || crate::effects::protected(p)
+                                || !may_take_on(s, id, p),
                         )
                     })
             });
@@ -765,7 +844,7 @@ fn reconsider<S: Store>(
         .players
         .values()
         .filter_map(|p| presence::distance(at, &p.position).map(|d| (p, d)))
-        .filter(|(p, d)| *d <= perception && fightable(p))
+        .filter(|(p, d)| *d <= perception && fightable(p) && may_take_on(s, id, p))
         .filter(|(p, _)| {
             regard(&s.creature_rows, p, class) != Some(Regard::Spares)
                 || harm.iter().any(|(q, h)| *q == p.character && *h > 0)
@@ -905,7 +984,8 @@ fn shoots_in_place<S: Store>(
 
 /// Creatures that turn but never move (turrets), resting within reach of a creature that goes after
 /// a player, each take on the nearest player within their missile's reach; each one roused rouses
-/// those near it in turn.
+/// those near it in turn. One that takes on only the players it hates takes on no other
+/// ([`engage`]).
 fn rouse_turrets<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock) {
     let Some(at) = s.things.get(id).and_then(|t| t.at) else {
         return;
@@ -982,8 +1062,17 @@ fn call_kin<S: Store>(s: &mut Server<S>, id: u64, player: u64, now: f64) {
     }
 }
 
-/// A creature takes on a player: its combat mode, how it fights, when it first attacks.
+/// A creature takes on a player: its combat mode, how it fights, when it first attacks. One that
+/// takes on only the players it hates takes on no other, nor a pet.
 fn engage<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, player: u64, clock: Clock) {
+    if only_hated(s, id)
+        && !s
+            .players
+            .values()
+            .any(|p| p.character == player && may_take_on(s, id, p))
+    {
+        return;
+    }
     let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) else {
         return;
     };
@@ -1052,6 +1141,7 @@ fn give_up_or_turn<S: Store>(
                 && p.trip.is_none()
                 && !crate::combat::is_dead(p)
                 && !crate::effects::protected(p)
+                && may_take_on(s, id, p)
         })
         .filter_map(|p| presence::distance(at, &p.position).map(|d| (d, p.character)))
         .filter(|(d, _)| *d <= perception)
