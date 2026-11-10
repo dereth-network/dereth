@@ -211,6 +211,11 @@ fn world(rows: bool) -> Harness {
         .effect_table
         .effects
         .insert(EFFECT, granting(SKILL));
+    // Its table holds its line, as the install's does.
+    h.server
+        .effect_table
+        .lines
+        .insert(EFFECT, (learned::LINE, EFFECT_TABLE));
     h
 }
 
@@ -385,7 +390,7 @@ fn a_step_gated_by_an_act_runs_once_the_act_is_whole_and_its_effect_trains_the_s
     assert_eq!(said.len(), 1, "the effect's line alone");
     assert_eq!(
         (said[0].string_id, said[0].table),
-        (learned::TEXT.0, EFFECT_TABLE)
+        (learned::LINE, EFFECT_TABLE)
     );
     assert_eq!(
         var(&said[0], learned::EFFECT_VAR),
@@ -463,4 +468,41 @@ fn an_effect_that_trains_a_skill_gives_nothing_to_a_player_holding_it() {
         .effects
         .insert(EFFECT, granting(SKILL + 1));
     assert!(!on(&mut h));
+}
+
+/// An effect that trains a skill whose own table holds no line trains it and tells no line, the
+/// skill and its appearance told as ever.
+/// Behaviour: server.skills.an-effect-trains-a-skill-for-good
+#[test]
+fn an_effect_that_trains_a_skill_with_no_line_of_its_table_tells_none() {
+    let mut h = world(false);
+    h.server.effect_table.lines.clear();
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let w = world_of(&h, me);
+    let from = h.bots[b].inbox.len();
+    let clock = h.clock();
+    assert!(effects::apply_on(
+        &mut h.server,
+        &mut h.net,
+        On::Player(w),
+        EFFECT,
+        Cast {
+            caster: me,
+            spellcraft: 1.0,
+            giver: Some((PERSON, Some(PERSON_NAME))),
+            ..Cast::default()
+        },
+        clock,
+    ));
+    h.run(5);
+    assert_eq!(
+        held_skill(&h, me),
+        Some((1, mask::TRAINED | mask::CANNOT_RAISE, 0))
+    );
+    assert_eq!(
+        grant_order(&h, b, from),
+        (vec!["repository", "skill"], true),
+        "no line"
+    );
 }

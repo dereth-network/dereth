@@ -67,6 +67,7 @@ mod quest_uses;
 mod quests;
 mod ratings;
 mod recalls;
+mod recipe_lines;
 mod regeneration;
 mod reported_places;
 mod resting;

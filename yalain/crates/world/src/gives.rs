@@ -411,22 +411,19 @@ fn takes<S: Store>(
         let count = row.counts.get(n).copied().unwrap_or(1).max(1);
         crate::inventory::give_from(s, net, world, *item, count, given.target);
     }
+    let mut told = Vec::new();
     for e in &row.effects {
-        crate::effects::apply(
-            s,
-            net,
-            world,
-            *e,
-            crate::effects::Cast {
-                caster: speaker.id,
-                spellcraft: 1.0,
-                giver: Some((speaker.id, speaker.name)),
-                ..crate::effects::Cast::default()
-            },
-            clock,
-        );
+        let cast = crate::effects::Cast {
+            caster: speaker.id,
+            spellcraft: 1.0,
+            giver: Some((speaker.id, speaker.name)),
+            ..crate::effects::Cast::default()
+        };
+        told.extend(crate::effects::recipe_line(&s.effect_table, *e, cast));
+        crate::effects::apply(s, net, world, *e, cast, clock);
     }
-    if let Some(text) = row.text {
+    // A text one of its effects told already is not told again.
+    if let Some(text) = row.text.filter(|t| !told.contains(t)) {
         progress::private(net, world, &crate::chat::show_text(2, progress::text(text)));
     }
     for item in &row.gives {

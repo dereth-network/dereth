@@ -3938,6 +3938,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.effects.a-recipe-taught-tells-its-own-tables-line",
+        says: "A recipe an effect teaches, given by someone, is told with the line of the effect's \
+               own table naming the effect and who gave it, or with nothing where that table holds \
+               no line; a step's or a give's text that is the same line is told once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-EFFECT-OWN-LINE"),
+        station: "yalain-testkit::cpu::play::recipe_lines::a_recipe_taught_at_a_give_tells_the_line_of_its_effects_own_table",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.effects.buff-record-runs-out",
         says: "A buff puts a record on its target at the skill's hook, with its own id, its \
                timeout and spellcraft at the skill's rating, timed; the player's speed sent when \
@@ -4158,6 +4168,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-EFFECTS-KEPT"),
         station: "yalain-testkit::cpu::play::effects::an_effect_still_running_comes_back_in_the_session_start_and_runs_out_on_the_games_clock",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.lines-read-from-their-own-tables",
+        says: "The line each effect's application tells reads at start from the table of its own \
+               name in the English file, where that table holds one; an effect whose table holds \
+               none has no line of its own.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-EFFECT-OWN-LINE-READ"),
+        station: "yalain::bin.yalain::data::tests::each_effects_line_reads_from_its_own_table_where_the_install_holds_one",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -4494,8 +4514,9 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.equip.worn-effects-come-on-and-off",
         says: "An item worn puts its effects on its wearer just before the answer, each a record \
-               held until it comes off, with a line saying the effect applies; taken off, its \
-               effects go just before that answer.",
+               held until it comes off, with the line of the effect's own table, or where that \
+               holds none a line saying the effect applies; taken off, its effects go just before \
+               that answer.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-WORN-EFFECTS"),
         station: "yalain-testkit::cpu::play::worn_effects::a_worn_item_puts_its_effects_on_before_the_answer_and_takes_them_off_before_the_take_off",
@@ -13344,7 +13365,8 @@ pub static ROWS: &[Behaviour] = &[
         says: "An effect a world's rule names a skill for trains its player that skill for good \
                when it is put on: trained at level 1 by the grant, unraisable, costing nothing, told \
                as the repository, the skill's information, the effect's line of its own table \
-               naming the effect and who gave it, and its appearance; a player who holds the skill \
+               naming the effect and who gave it (none where that table holds none), and its \
+               appearance; a player who holds the skill \
                gains nothing and is told nothing, and a rule naming a skill the install lacks is a \
                problem.",
         since: RETAIL,

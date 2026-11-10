@@ -1168,6 +1168,11 @@ pub fn test_effects() -> yalain_world::effect_defs::EffectTable {
     for d in creature_effects() {
         t.effects.insert(d.state, d);
     }
+    // Of their names' tables only the mines' recipe's holds its application's line.
+    t.lines.insert(
+        GRANT_MINES_RECIPE,
+        (yalain_world::effects::learned::LINE, 0x2500_1070),
+    );
     t
 }
 

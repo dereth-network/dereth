@@ -233,12 +233,39 @@ pub const TICK_FIRST: f64 = 5.6;
 pub const TICK_LEAST: f64 = 3.5;
 pub const TICK_MOST: f64 = 7.5;
 
-/// A recipe learned from an effect with a name: its text (type 2, the effect's name and the
-/// giver's as variables).
+/// What an effect's application tells (type 2, the effect's name and the giver's as variables):
+/// the line of the effect's own table, each table's under the one string id (a recipe or a skill
+/// granted, an item's effect put on; 2017: 79 of 79 such lines in the effect's own table). An
+/// item's effect whose table holds none says "The `<effect>` applies to you." (183 of 183 worn).
 pub mod learned {
-    pub const TEXT: (u32, u32) = (0xA727_FC98, 0x2500_1070);
+    pub const LINE: u32 = 0xA727_FC98;
+    pub const APPLIES: (u32, u32) = (LINE, 0x2500_0CE5);
     pub const EFFECT_VAR: u32 = 0xB69B_365C;
     pub const GIVER_VAR: u32 = 0x9FD3_465E;
+}
+
+/// The line a recipe granted by an effect tells: its own table's, for an effect with a name that
+/// someone gave (2017: each of the 46 such lines named who gave it), and none where its table holds
+/// none (15 of 15 such grants told nothing).
+#[must_use]
+pub fn recipe_line(table: &EffectTable, state: u32, cast: Cast) -> Option<(u32, u32)> {
+    let def = table.get(state)?;
+    if !matches!(def.kind, Kind::GrantRecipe(_)) || def.name.is_none() || cast.giver.is_none() {
+        return None;
+    }
+    table.line(state)
+}
+
+/// An effect's application told: its line, naming the effect and who gave it.
+fn applied(line: (u32, u32), effect: (u32, u32), giver: Option<(u32, u32)>) -> ServerMessage {
+    let mut vars = vec![progress::nested(
+        learned::EFFECT_VAR,
+        progress::text(effect),
+    )];
+    if let Some(g) = giver {
+        vars.push(progress::nested(learned::GIVER_VAR, progress::text(g)));
+    }
+    crate::chat::show_text(2, progress::text_with(line, vars))
 }
 
 /// The quality of damage added to a player's hits (an integer, 295).
@@ -813,16 +840,10 @@ pub fn apply_on<S: Store>(
             if def.fx != 0 {
                 show_fx(s, net, world, def.fx);
             }
-            if let (Some(name), Some((_, giver))) = (def.name, cast.giver) {
-                let mut vars = vec![progress::nested(learned::EFFECT_VAR, progress::text(name))];
-                if let Some(g) = giver {
-                    vars.push(progress::nested(learned::GIVER_VAR, progress::text(g)));
-                }
-                progress::private(
-                    net,
-                    world,
-                    &crate::chat::show_text(2, progress::text_with(learned::TEXT, vars)),
-                );
+            if let (Some(name), Some(line)) = (def.name, recipe_line(&s.effect_table, state, cast))
+            {
+                let giver = cast.giver.and_then(|(_, g)| g);
+                progress::private(net, world, &applied(line, name, giver));
             }
             true
         }
@@ -856,19 +877,16 @@ pub fn apply_on<S: Store>(
             true
         }
         // A skill trained is told as 2017's were: the repository and the skill, then the effect's
-        // own line of its table naming the effect and who gave it, then its appearance. A player who
-        // holds the skill already gains nothing and is told nothing.
+        // own line of its table naming the effect and who gave it (none if its table holds none),
+        // then its appearance. A player who holds the skill already gains nothing and is told
+        // nothing.
         (Kind::GrantSkill(skill), On::Player(world)) => {
             if !crate::skills::trained_for_good(s, net, world, *skill) {
                 return false;
             }
-            if let Some(name) = def.name {
-                let mut vars = vec![progress::nested(learned::EFFECT_VAR, progress::text(name))];
-                if let Some((_, Some(g))) = cast.giver {
-                    vars.push(progress::nested(learned::GIVER_VAR, progress::text(g)));
-                }
-                let line = progress::text_with((learned::TEXT.0, name.1), vars);
-                progress::private(net, world, &crate::chat::show_text(2, line));
+            if let (Some(name), Some(line)) = (def.name, s.effect_table.line(state)) {
+                let giver = cast.giver.and_then(|(_, g)| g);
+                progress::private(net, world, &applied(line, name, giver));
             }
             if def.fx != 0 {
                 show_fx(s, net, world, def.fx);
@@ -3267,8 +3285,9 @@ pub fn show_fxs<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId,
 /// each that its client is shown (2017: an instrument's own appearance effects, never shown,
 /// sent nothing in 21 of 21 wields) a record of its own, cast by the item at its spellcraft and
 /// from it, held until the item comes off (flags [`WORN`]); then, for an effect a death does not
-/// end, "The `<effect>` applies to you." naming the item (2017: 176 of 200 such records; 276 of 277
-/// of the others had none); its appearance shown when no other record shows it. Returns the ids.
+/// end, the line of its own table naming the item, or "The `<effect>` applies to you." where its
+/// table holds none (2017: 176 of 200 such records; 276 of 277 of the others had none); its
+/// appearance shown when no other record shows it. Returns the ids.
 pub fn put_on_worn<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -3305,18 +3324,8 @@ pub fn put_on_worn<S: Store>(
         };
         ids.push(eid);
         if let (false, Some(effect)) = (def.removed_on_death(), def.name) {
-            let mut vars = vec![progress::nested(
-                learned::EFFECT_VAR,
-                progress::text(effect),
-            )];
-            if let Some(n) = name {
-                vars.push(progress::nested(learned::GIVER_VAR, progress::text(n)));
-            }
-            progress::private(
-                net,
-                world,
-                &crate::chat::show_text(2, progress::text_with(learned::TEXT, vars)),
-            );
+            let line = s.effect_table.line(*state).unwrap_or(learned::APPLIES);
+            progress::private(net, world, &applied(line, effect, name));
         }
         if def.fx != 0 && shows_once(s, On::Player(world), def.fx) {
             show_fx_on(s, net, On::Player(world), def.fx);

@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Fixed the wrong message when a recipe is taught or an item's effect comes on.
 - Fixed some magic potions from corpses having no effect, name or worth.
 - Gems from corpses now sell for their full worth.
 - Quest steps can now happen by chance.

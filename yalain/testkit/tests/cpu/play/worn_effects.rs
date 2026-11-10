@@ -6,10 +6,12 @@
 //! (a soulbound weapon's named bonus, an instrument's unseen appearance, a crafted regeneration
 //! bonus).
 
+use auberean_script::native_object::{TextInfo, VariableValue};
 use yalain_content::{Prop, Props};
 use yalain_net::ConnId;
 use yalain_testkit::play::{server_call, use_of};
 use yalain_testkit::{Harness, WORN_HEALTH_RATE_EFFECT};
+use yalain_world::calls::Node;
 use yalain_world::effect_defs::{EffectDef, Kind, Scale};
 use yalain_world::effects::{self, function as effect_fn, learned, WORN};
 use yalain_world::equip::function as equip_fn;
@@ -180,7 +182,7 @@ fn a_worn_item_puts_its_effects_on_before_the_answer_and_takes_them_off_before_t
         "the records, the named one's text, then the answer"
     );
     let texts = h.texts(b, from);
-    assert_eq!(texts, [(2, learned::TEXT.0)], "one text, of kind 2");
+    assert_eq!(texts, [(2, learned::LINE)], "one text, of kind 2");
     let ids: Vec<u32> = records(&h, world).iter().map(|e| e.eid).collect();
 
     let from = use_it(&mut h, b, me, chest);
@@ -200,6 +202,60 @@ fn a_worn_item_puts_its_effects_on_before_the_answer_and_takes_them_off_before_t
         .collect();
     assert_eq!(removed, ids, "each of its records");
     assert!(records(&h, world).is_empty(), "nothing left on");
+}
+
+/// The texts a client was shown since `from`.
+fn shown(h: &Harness, b: usize, from: usize) -> Vec<TextInfo> {
+    h.calls(b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == SHOW_TEXT)
+        .filter_map(|(_, v)| {
+            v.iter().find_map(|x| match x.root() {
+                Some(Node::TextInfo(t)) => Some(t.clone()),
+                _ => None,
+            })
+        })
+        .collect()
+}
+
+/// A text's variable that holds another text: its string and table.
+fn var(t: &TextInfo, id: u32) -> Option<(u32, u32)> {
+    t.variables.iter().find_map(|v| match &v.value {
+        VariableValue::Nested(n) if v.id == id => Some((n.string_id, n.table)),
+        _ => None,
+    })
+}
+
+/// The line a worn effect tells, naming the effect and the chest: "The <effect> applies to you."
+/// where the effect's own table holds no line (2017: 182 of 182), and the line of its own table
+/// where it holds one (an emblem's, 1 of 1).
+/// Behaviour: server.equip.worn-effects-come-on-and-off
+#[test]
+fn a_worn_effect_tells_its_own_tables_line_or_else_that_it_applies() {
+    let (mut h, b, me, _) = wearer();
+    let from = h.bots[b].inbox.len();
+    h.arm(b, me, CHEST);
+    let said = shown(&h, b, from);
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert_eq!((said[0].string_id, said[0].table), learned::APPLIES);
+    assert_eq!(var(&said[0], learned::EFFECT_VAR), Some(NAMED_NAME));
+    assert_eq!(var(&said[0], learned::GIVER_VAR), Some(CHEST_NAME));
+
+    let (mut h, b, me, _) = wearer();
+    h.server
+        .effect_table
+        .lines
+        .insert(NAMED, (learned::LINE, NAMED_NAME.1));
+    let from = h.bots[b].inbox.len();
+    h.arm(b, me, CHEST);
+    let said = shown(&h, b, from);
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert_eq!(
+        (said[0].string_id, said[0].table),
+        (learned::LINE, NAMED_NAME.1),
+        "its own table's"
+    );
+    assert_eq!(var(&said[0], learned::GIVER_VAR), Some(CHEST_NAME));
 }
 
 /// A sword whose template names an effect when wielded: wielded, its record comes on before the

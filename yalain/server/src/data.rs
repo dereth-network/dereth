@@ -577,7 +577,9 @@ fn state_graph(p: &Portal, lib: &Library, id: u32) -> Option<Graph> {
 }
 
 /// The effects' definitions of these saved states, and of the effects they add, with what the
-/// world's rules (by saved state) say of them: what wards keep off, what taps vitae.
+/// world's rules (by saved state) say of them: what wards keep off, what taps vitae; and the line
+/// each one's application tells, where its own table in the English file holds one (none without
+/// that file).
 ///
 /// # Errors
 /// The library does not read.
@@ -587,12 +589,28 @@ pub fn effect_table(
     rules: &yalain_world::effect_defs::EffectRules,
 ) -> Result<yalain_world::effect_defs::EffectTable, String> {
     let lib = library(p)?;
-    Ok(yalain_world::effect_defs::EffectTable::read(
+    let mut t = yalain_world::effect_defs::EffectTable::read(
         lib,
         states,
         &|id| state_graph(p, lib, id),
         rules,
-    ))
+    );
+    if let Some(english) = p.english() {
+        t.read_lines(&mut |string, table| {
+            english
+                .read(table)
+                .ok()
+                .and_then(|bytes| {
+                    auberean_assets::decode::<auberean_assets::strings::StringTable>(
+                        table, &bytes, &p.ctx,
+                    )
+                    .ok()
+                })
+                .and_then(|t| t.entry(string).cloned())
+                .is_some_and(|e| e.strings.iter().flatten().any(|s| !s.is_empty()))
+        });
+    }
+    Ok(t)
 }
 
 /// The effects each item template's profile lists, read from the effects' saved states (the
@@ -2462,6 +2480,45 @@ mod tests {
         let problems = crate::world::install_problems(&p, &db).expect("checks");
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(problems[0].message.contains("skill 99999"), "{problems:?}");
+    }
+
+    /// The line each effect's application tells reads from its own name's table in the English
+    /// file, where that table holds one: the recipes the Arwic mines, a Ulkas geyser and Orlen
+    /// teach, the Hero Shrine's pure mana, a city's recall and an emblem worn each have their own;
+    /// a soulbound weapon's recipe, a Drudge crafter's and a butcher's, the Darkfoe Aura worn, and a
+    /// recipe effect named only in words have none.
+    /// Behaviour: server.effects.lines-read-from-their-own-tables
+    #[test]
+    fn each_effects_line_reads_from_its_own_table_where_the_install_holds_one() {
+        use yalain_world::effect_defs::EffectRules;
+        use yalain_world::effects::learned::LINE;
+        let dir = auberean_dat::testing::require_target_install();
+        let p = Portal::open(&dir, None).expect("opens");
+        let own = [
+            (0x6F00_19EF, 0x2500_1070),
+            (0x6F00_1DA7, 0x2500_10DF),
+            (0x6F00_1DA3, 0x2500_10DB),
+            (0x6F00_1C60, 0x2500_2BD7),
+            (0x6F00_1A98, 0x2500_10AA),
+            (0x6F00_1D77, 0x2500_2C12),
+        ];
+        let none = [
+            0x6F00_1F47,
+            0x6F00_0E9E,
+            0x6F00_1B0D,
+            0x7000_070E,
+            0x6F00_1B04,
+        ];
+        let states: Vec<u32> = own.iter().map(|(e, _)| *e).chain(none).collect();
+        let t = effect_table(&p, &states, &EffectRules::default()).expect("the effects");
+        for (effect, table) in own {
+            assert_eq!(t.get(effect).and_then(|d| d.name).map(|n| n.1), Some(table));
+            assert_eq!(t.line(effect), Some((LINE, table)), "{effect:08X}");
+        }
+        for effect in none {
+            assert!(t.get(effect).is_some(), "{effect:08X} read");
+            assert_eq!(t.line(effect), None, "{effect:08X}");
+        }
     }
 
     /// An `[[item_use]]` row may name only effects the install holds: a training hall potion's

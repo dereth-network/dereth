@@ -849,6 +849,9 @@ pub struct EffectTable {
     pub effects: HashMap<u32, EffectDef>,
     /// What an effect's description says (string id, table), by saved state, where it has one.
     pub descriptions: HashMap<u32, (u32, u32)>,
+    /// The line an effect's application tells (string id, table), by saved state: the line of
+    /// its own name's table, where that table holds one ([`EffectTable::read_lines`]).
+    pub lines: HashMap<u32, (u32, u32)>,
 }
 
 impl EffectTable {
@@ -914,6 +917,25 @@ impl EffectTable {
     #[must_use]
     pub fn get(&self, state: u32) -> Option<&EffectDef> {
         self.effects.get(&state)
+    }
+
+    /// Each named effect's line, where `holds(string, table)` says the table of its name holds the
+    /// application's line (each table asked once).
+    pub fn read_lines(&mut self, holds: &mut dyn FnMut(u32, u32) -> bool) {
+        let mut asked: HashMap<u32, bool> = HashMap::new();
+        for (state, d) in &self.effects {
+            let Some((_, table)) = d.name else { continue };
+            let line = (crate::effects::learned::LINE, table);
+            if *asked.entry(table).or_insert_with(|| holds(line.0, line.1)) {
+                self.lines.insert(*state, line);
+            }
+        }
+    }
+
+    /// The line an effect's application tells, of its own table, if the install holds one.
+    #[must_use]
+    pub fn line(&self, state: u32) -> Option<(u32, u32)> {
+        self.lines.get(&state).copied()
     }
 }
 
