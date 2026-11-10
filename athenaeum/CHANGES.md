@@ -7,6 +7,7 @@ Add a line under **Unreleased** when a change lands that a world builder would n
 see, not how it was done.
 
 ## Unreleased
+- Reads the world rows Yalain added since the last release.
 
 ## 0.1.5 (2026-11-09)
 - Moving a camp moves its spots too.
