@@ -1,14 +1,17 @@
 //! What treasure a creature leaves is worth: its own value drawn from its world's values for the
-//! creature's level, and none for a rare or a trump of the tarot, which keep their template's.
+//! creature's level, and none for a rare, a trump of the tarot or a gem, which keep their template's.
 
 use yalain_content::{Prop, Props};
 use yalain_testkit::{Harness, TEST_ITEM};
 use yalain_world::things::Thing;
 
-/// Two item templates made for these tests: a rare, and a trump (of a package taken as a trump's).
+/// Three item templates made for these tests: a rare, a trump (of a package taken as a trump's) and
+/// a gem (of a package taken as a gem's).
 const RARE_ITEM: u32 = 0x4700_2109;
 const TRUMP_ITEM: u32 = 0x4700_210A;
 const TRUMP_PACKAGE: u32 = 0x777;
+const GEM_ITEM: u32 = 0x4700_210B;
+const GEM_PACKAGE: u32 = 0x778;
 
 /// The test world with its creature: the level 2 beetle, whose profile leaves one test item.
 fn world() -> (Harness, Thing) {
@@ -105,6 +108,83 @@ fn a_rare_and_a_trump_left_as_treasure_carry_no_value_of_their_own() {
     assert!(!yalain_world::death::keeps_template_value(
         &h.server, TEST_ITEM
     ));
+}
+
+/// A gem left as treasure carries no own value, so selling one pays its template's, whether it is
+/// drawn from its profile's items or from a treasure pool, in a world that gives values and in one
+/// that gives none alike; the profile's other treasure draws its own (2017: none of the 64 gems
+/// recorded dropped carried one).
+/// Behaviour: server.loot.treasure-value-none-for-gems
+#[test]
+fn a_gem_left_as_treasure_carries_no_value_of_its_own() {
+    use yalain_content::pools::{Draws, Entry, Pool, Pools, Target, OPEN_ABOVE};
+    let (mut h, mut creature) = world();
+    h.server.catalog.insert(yalain_testkit::test_template(
+        GEM_ITEM,
+        GEM_PACKAGE,
+        Props::default(),
+    ));
+    h.server.treasure.gems.insert(GEM_PACKAGE);
+    assert!(yalain_world::death::keeps_template_value(
+        &h.server, GEM_ITEM
+    ));
+    let every = |to: Target| Entry {
+        to,
+        weight: 1.0,
+        least: 0,
+        most: OPEN_ABOVE,
+    };
+    let pools = Pools {
+        pools: [(
+            "GP_Test".to_string(),
+            Pool {
+                name: "GP_Test".into(),
+                entries: vec![every(Target::Template(GEM_ITEM))],
+                ..Pool::default()
+            },
+        )]
+        .into(),
+        profiles: [(
+            yalain_testkit::TEST_PROFILE_NAME.to_string(),
+            Draws {
+                draws: vec![every(Target::Pool("GP_Test".into()))],
+                rare: None,
+            },
+        )]
+        .into(),
+    };
+    for values in [[(2, vec![7])].into(), std::collections::BTreeMap::new()] {
+        h.server.loot.values = values;
+        for pooled in [false, true] {
+            h.server.loot.pools = if pooled {
+                pools.clone()
+            } else {
+                Pools::default()
+            };
+            h.server.loot.profiles[0].items = vec![(GEM_ITEM, 1), (TEST_ITEM, 1)];
+            if let Some(c) = creature.creature.as_mut() {
+                c.stats.level = 2;
+            }
+            let drawn: Vec<(u32, Option<u32>)> = (0..40)
+                .flat_map(|_| yalain_world::death::roll_loot(&mut h.server, &creature, 0))
+                .collect();
+            let gems: Vec<_> = drawn.iter().filter(|(t, _)| *t == GEM_ITEM).collect();
+            assert!(!gems.is_empty(), "pooled {pooled}: gems are drawn");
+            assert!(
+                gems.iter().all(|(_, v)| *v == Some(0)),
+                "pooled {pooled}: treasure with no value of its own: {gems:?}"
+            );
+            if !pooled {
+                assert!(
+                    drawn
+                        .iter()
+                        .filter(|(t, _)| *t == TEST_ITEM)
+                        .all(|(_, v)| v.is_some_and(|v| v > 0)),
+                    "the other item draws its own: {drawn:?}"
+                );
+            }
+        }
+    }
 }
 
 /// In a world that gives treasure no values, a creature's treasure is worth one of the server's own

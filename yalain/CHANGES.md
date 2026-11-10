@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Gems from corpses now sell for their full worth.
 - Quest steps can now happen by chance.
 - Guards can now mark players for turrets, which shoot only the marked.
 - World rows can now train a skill and wait for a finished act.

@@ -7544,6 +7544,24 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.treasure-value-gems-read-from-the-install",
+        says: "The server knows gems by their package, as the install has them, and each gem's \
+               template carries the value it sells for.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-GEM-KINDS"),
+        station: "yalain::bin.yalain::data::tests::the_gems_are_read_from_the_install",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.treasure-value-none-for-gems",
+        says: "A gem left as treasure carries no value of its own, so selling one pays its \
+               template's, whether it is drawn from a profile's items or a treasure pool.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-VALUE-GEMS"),
+        station: "yalain-testkit::cpu::play::treasure_values::a_gem_left_as_treasure_carries_no_value_of_its_own",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.treasure-value-none-for-trumps-and-rares",
         says: "A rare and a trump of the tarot left as treasure carry no value of their own, so \
                selling one pays its template's, whether or not the world gives values; other \

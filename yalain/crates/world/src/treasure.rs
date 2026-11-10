@@ -122,6 +122,8 @@ pub const SHIELDS: [&str; 1] = ["ShieldTemplate"];
 pub const JEWELRY: [&str; 1] = ["JewelryTemplate"];
 /// The script package of the treasure potions.
 pub const POTIONS: [&str; 1] = ["PotionMagic"];
+/// The script package of gems.
+pub const GEMS: [&str; 1] = ["GemTemplate"];
 /// The script package of the Tesserae.
 pub const TESSERAE: &str = "HeroSkillCreditToken";
 /// The script packages of the tarot's trumps: the greater, and the lesser of each suit.
@@ -135,8 +137,8 @@ pub const TRUMPS: [&str; 5] = [
 /// The property that makes an item a rare.
 pub const RARE: &str = "Item_IsRareItem";
 
-/// What treasure reads from the install: the packages of the catalog's treasure equipment and
-/// potions, and the game's Arcane Lore table.
+/// What treasure reads from the install: the packages of the catalog's treasure equipment,
+/// potions, trumps and gems, and the game's Arcane Lore table.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Kinds {
     pub equipment: std::collections::HashSet<u32>,
@@ -146,6 +148,8 @@ pub struct Kinds {
     pub potions: std::collections::HashSet<u32>,
     /// The packages of the tarot's trumps.
     pub trumps: std::collections::HashSet<u32>,
+    /// The packages of gems.
+    pub gems: std::collections::HashSet<u32>,
     /// Each potion effect's name table and the strength of the color it gives its potion.
     pub potion_looks: std::collections::HashMap<u32, (u32, f32)>,
     /// The game's Arcane Lore table ([`ARCANE_LORE_TABLE`]).

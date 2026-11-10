@@ -623,11 +623,14 @@ pub fn dead_create(t: &Thing) -> CreateObject {
 }
 
 /// Whether a treasure item of a template is worth its template's value, with none of its own: a
-/// rare, or a trump of the tarot.
+/// rare, a trump of the tarot, or a gem.
 #[must_use]
 pub fn keeps_template_value<S: Store>(s: &Server<S>, template: u32) -> bool {
     s.catalog.get(template).is_some_and(|t| {
-        t.props.flag(crate::treasure::RARE) || s.treasure.trumps.contains(&t.description.package)
+        let package = t.description.package;
+        t.props.flag(crate::treasure::RARE)
+            || s.treasure.trumps.contains(&package)
+            || s.treasure.gems.contains(&package)
     })
 }
 

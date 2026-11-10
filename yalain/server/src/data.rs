@@ -977,8 +977,9 @@ pub fn catalog_packages_from(
         .collect())
 }
 
-/// The packages of the catalog's treasure equipment (not its instruments), its shields and treasure
-/// potions, each treasure potion effect's name table and color, and the game's Arcane Lore table.
+/// The packages of the catalog's treasure equipment (not its instruments), its shields, treasure
+/// potions, trumps and gems, each treasure potion effect's name table and color, and the game's
+/// Arcane Lore table.
 ///
 /// # Errors
 /// The library or the Arcane Lore table does not read.
@@ -1010,6 +1011,7 @@ pub fn treasure(
         jewelry: catalog_packages_from(p, catalog, &treasure::JEWELRY)?,
         potions: catalog_packages_from(p, catalog, &treasure::POTIONS)?,
         trumps: catalog_packages_from(p, catalog, &treasure::TRUMPS)?,
+        gems: catalog_packages_from(p, catalog, &treasure::GEMS)?,
         potion_looks,
         lore: lore_table(p, treasure::ARCANE_LORE_TABLE)?,
     })
@@ -2622,6 +2624,59 @@ mod tests {
         assert!(!kinds.trumps.contains(&package(SWORD)));
         assert!(rare(RARE), "a rare");
         assert!(!rare(LESSER) && !rare(SWORD));
+    }
+
+    /// Gems are read from the install by their package, a small one and a large alike; no weapon,
+    /// trump or rare is one, and each gem's template carries the value it sells for.
+    /// Behaviour: server.loot.treasure-value-gems-read-from-the-install
+    #[test]
+    fn the_gems_are_read_from_the_install() {
+        const LARGE_EMERALD: u32 = 0x4700_103C;
+        const SMALL_MALACHITE: u32 = 0x4700_1052;
+        const LESSER: u32 = 0x4700_134C;
+        const RARE: u32 = 0x4700_1919;
+        const SWORD: u32 = 0x4700_051C;
+        let (dat, _) = tallied(&DatName::Portal);
+        let p = Portal::over(dat, Vec::new(), None).expect("a context");
+        let mut loot = LootTable::default();
+        loot.pools.pools.insert(
+            "GP_Test".into(),
+            yalain_content::pools::Pool {
+                name: "GP_Test".into(),
+                entries: [LARGE_EMERALD, SMALL_MALACHITE, LESSER, RARE, SWORD]
+                    .into_iter()
+                    .map(|t| yalain_content::pools::Entry {
+                        to: yalain_content::pools::Target::Template(t),
+                        weight: 1.0,
+                        least: 0,
+                        most: yalain_content::pools::OPEN_ABOVE,
+                    })
+                    .collect(),
+                ..Default::default()
+            },
+        );
+        let (c, _) = catalog(
+            &p,
+            &SpawnTable::default(),
+            &loot,
+            &[],
+            &TreasureTables::default(),
+            yalain_testkit::test_worn_looks(),
+        )
+        .expect("the catalog");
+        let kinds = treasure(&p, &c, &TreasureTables::default()).expect("the treasure kinds");
+        let package = |t: u32| c.templates[&t].description.package;
+        assert!(kinds.gems.contains(&package(LARGE_EMERALD)), "a large gem");
+        assert!(
+            kinds.gems.contains(&package(SMALL_MALACHITE)),
+            "a small gem"
+        );
+        for t in [LESSER, RARE, SWORD] {
+            assert!(!kinds.gems.contains(&package(t)), "{t:#010x} is no gem");
+        }
+        let value = |t: u32| c.templates[&t].props.int("Item_Value");
+        assert_eq!(value(LARGE_EMERALD), Some(6_000));
+        assert_eq!(value(SMALL_MALACHITE), Some(50));
     }
 
     /// The catalog holds every template a treasure pool names, though no camp or profile names it, so
