@@ -9,6 +9,7 @@ pub mod event_manager;
 pub mod guid_manager;
 pub mod house_manager;
 pub mod landblock_manager;
+pub mod launch_base;
 pub mod player_manager;
 pub mod property_manager;
 pub mod quest_manager;

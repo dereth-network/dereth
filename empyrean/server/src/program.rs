@@ -241,11 +241,18 @@ pub fn main(options: &Options) -> ExitCode {
 
     // `DDDManager.Initialize()` fills state that lives in `World`, so it runs on the world thread as
     // soon as the world exists (below); the log line keeps ACE's position in the start-up sequence.
-    // Not ACE: a world with a data overlay patches clients that keep overlays (V437).
+    // Not ACE: a world with a data overlay patches clients that keep overlays (V437). A world on a
+    // later 1999 portal file also patches such a client on the earlier one up to it (V520), but
+    // builds what that takes when the first such client asks, not here.
     let ddd_patching = config.ddd.enable_dat_patching
         || (!config.dat_overlay.path.trim().is_empty() && config.dat_overlay.patching);
     if ddd_patching {
         log::info!("Initializing DDDManager...");
+    } else if let Some(step) = empyrean_world::managers::launch_base::of_world(&dats) {
+        log::info!(
+            "DAT Patching Disabled, but for clients on {}, which are patched up to this world's",
+            step.from.name
+        );
     } else {
         log::info!("DAT Patching Disabled...");
     }

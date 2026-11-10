@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+- Launch worlds now accept players on the retail CD's 1999 data files.
 
 ## 0.3.13 (2026-11-10)
 - Dereth players download a world's own data much faster.

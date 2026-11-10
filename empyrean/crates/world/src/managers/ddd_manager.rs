@@ -93,6 +93,27 @@ fn init_iterations(
     dat_database_type: DatDatabaseType,
     dat_database: &DatDatabase,
 ) {
+    let file_count = init_iterations_of(state, dat_database_type, dat_database, |_, _| true);
+    let precache_compressed_dat_files = ConfigManager::config().ddd.precache_compressed_dat_files;
+    log::info!(
+        "Iterations for {:?} initialized. Iterations.Count={} | FileCount={} | DatFileSizes.Count={}{}",
+        dat_database_type,
+        state.iterations[&dat_database_type].len(),
+        file_count,
+        state.dat_file_sizes[&dat_database_type].len(),
+        if precache_compressed_dat_files { " | precached Compressed files" } else { "" }
+    );
+}
+
+/// Not ACE (V520): [`init_iterations`] for the files `wanted` takes alone, given each file's id
+/// and the iteration that brought it: every iteration of the file is listed, and only those files
+/// under theirs, sized and compressed. Answers how many it took.
+pub fn init_iterations_of(
+    state: &mut DddManagerState,
+    dat_database_type: DatDatabaseType,
+    dat_database: &DatDatabase,
+    wanted: impl Fn(u32, u32) -> bool,
+) -> usize {
     state.iterations.entry(dat_database_type).or_default();
     state.dat_file_sizes.entry(dat_database_type).or_default();
     state
@@ -125,6 +146,9 @@ fn init_iterations(
     let mut file_count = 0;
     for file_name in dat_database.all_files() {
         let file_iter = dat_database.file_iteration(file_name).unwrap_or_default();
+        if !wanted(file_name, file_iter) {
+            continue;
+        }
 
         state
             .iterations
@@ -202,14 +226,7 @@ fn init_iterations(
                 });
         }
     }
-    log::info!(
-        "Iterations for {:?} initialized. Iterations.Count={} | FileCount={} | DatFileSizes.Count={}{}",
-        dat_database_type,
-        state.iterations[&dat_database_type].len(),
-        file_count,
-        state.dat_file_sizes[&dat_database_type].len(),
-        if precache_compressed_dat_files { " | precached Compressed files" } else { "" }
-    );
+    file_count
 }
 
 /// `(int)array.Length`.

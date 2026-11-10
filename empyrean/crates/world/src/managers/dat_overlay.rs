@@ -128,6 +128,9 @@ pub struct ClientBases<'a> {
     /// It checks a base the manifest names by its records itself, so a file of its laid out
     /// otherwise may still be the base.
     pub checks_records: bool,
+    /// Not ACE (V520): it holds the earlier portal file of a step up to this world's, and is
+    /// patched up to the world's file beneath the world's overlay.
+    pub step: Option<&'static crate::managers::launch_base::BaseStep>,
 }
 
 impl<'a> ClientBases<'a> {
@@ -137,6 +140,7 @@ impl<'a> ClientBases<'a> {
         Self {
             bases: &response.overlay_bases,
             checks_records: response.flags & proto::DddInterrogationResponse::FLAG_RECORDS != 0,
+            step: None,
         }
     }
 
@@ -169,6 +173,10 @@ pub fn base_mismatch(dats: &DatManager, client: &ClientBases<'_>) -> Option<Stri
         let layer = d.overlay()?;
         let held = client.held(db);
         if held.is_some_and(|h| base_layouts(d, layer).contains(&h)) {
+            continue;
+        }
+        // The client is patched up to the base first (V520).
+        if db == DatDatabaseType::Portal && client.step.is_some() {
             continue;
         }
         if client.checks_records && held.is_some() && layer.manifest().base_records.is_some() {
@@ -207,12 +215,34 @@ pub fn deletions(dats: &DatManager) -> HashMap<(DatDatabaseType, u32), Vec<(u32,
 
 /// The world's overlay manifest, for `client`. Each file's base is named by the layout the client
 /// holds when that is one of the base's, else by the overlay's own; its records are named only to
-/// a client that checks them.
+/// a client that checks them. For a client patched up to the world's portal file first (V520),
+/// the portal's base is the client's earlier file, and the step's records and revisions are the
+/// overlay's too.
 #[must_use]
 pub fn manifest(dats: &DatManager, client: &ClientBases<'_>) -> proto::DddOverlayManifest {
     let mut files = Vec::new();
     let mut total: u64 = 0;
-    for db in overlaid(dats) {
+    let overlaid = overlaid(dats);
+    // A world with an overlay over its other files alone: the step is the portal's overlay.
+    let portal_only_stepped = !overlaid.is_empty() && !overlaid.contains(&DatDatabaseType::Portal);
+    if let Some(step) = client.step.filter(|_| portal_only_stepped) {
+        let (dat_file_type, dat_file_id) = wire_pair(DatDatabaseType::Portal);
+        let records = step.manifest_records(dats);
+        total += records.iter().map(|r| u64::from(r.size)).sum::<u64>();
+        files.push(proto::OverlayFileManifest {
+            dat_file_type,
+            dat_file_id,
+            base_name: "portal.dat".to_owned(),
+            base_fingerprint: step.from.fingerprint,
+            base_records: client.checks_records.then_some(step.from.records),
+            base_iterations: step.from.iteration,
+            exact_iterations: false,
+            revisions: step.revisions().collect(),
+            records,
+            tombstones: Vec::new(),
+        });
+    }
+    for db in overlaid {
         let Some(d) = database(dats, db) else {
             continue;
         };
@@ -221,6 +251,9 @@ pub fn manifest(dats: &DatManager, client: &ClientBases<'_>) -> proto::DddOverla
         };
         let m = layer.manifest();
         let (dat_file_type, dat_file_id) = wire_pair(db);
+        let step = client.step.filter(|_| db == DatDatabaseType::Portal);
+        let stepped = step.map(|s| s.manifest_records(dats)).unwrap_or_default();
+        total += stepped.iter().map(|r| u64::from(r.size)).sum::<u64>();
         let records = layer
             .records()
             .map(|(id, e)| {
@@ -237,19 +270,37 @@ pub fn manifest(dats: &DatManager, client: &ClientBases<'_>) -> proto::DddOverla
                     sha256,
                 }
             })
-            .collect();
+            .collect::<Vec<_>>();
+        let (base_fingerprint, base_records, base_iterations, revisions, records) = match step {
+            Some(step) => (
+                step.from.fingerprint,
+                Some(step.from.records),
+                step.from.iteration,
+                step.revisions()
+                    .chain(layer.own_iterations().iter().copied())
+                    .collect(),
+                stepped.into_iter().chain(records).collect(),
+            ),
+            None => (
+                client
+                    .held(db)
+                    .filter(|h| base_layouts(d, layer).contains(h))
+                    .unwrap_or(m.base_fingerprint),
+                m.base_records,
+                m.base_iterations,
+                layer.own_iterations().to_vec(),
+                records,
+            ),
+        };
         files.push(proto::OverlayFileManifest {
             dat_file_type,
             dat_file_id,
             base_name: m.base_name.clone(),
-            base_fingerprint: client
-                .held(db)
-                .filter(|h| base_layouts(d, layer).contains(h))
-                .unwrap_or(m.base_fingerprint),
-            base_records: m.base_records.filter(|_| client.checks_records),
-            base_iterations: m.base_iterations,
+            base_fingerprint,
+            base_records: base_records.filter(|_| client.checks_records),
+            base_iterations,
             exact_iterations: m.exact_iterations,
-            revisions: layer.own_iterations().to_vec(),
+            revisions,
             records,
             tombstones: layer
                 .tombstones()

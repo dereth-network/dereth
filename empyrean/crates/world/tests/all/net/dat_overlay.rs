@@ -1,4 +1,4 @@
-//! Divergence: V437, V438
+//! Divergence: V437, V438, V520
 //! A world served as base data files with a data overlay over them: a client that keeps overlays
 //! (the overlay flag and its bases in `DDD_InterrogationResponseMessage`, `0xF7E6`) is sent the
 //! overlay manifest (`0xF7EC`), then a `DDD_BeginDDDMessage` (`0xF7E7`) whose revisions download
@@ -11,9 +11,13 @@
 //! whose world is otherwise never patched, a client that keeps overlays is patched too. A client
 //! keeping a folder for each world at an address that answers for another world is told this
 //! world's name and asked again, once, so two worlds taking turns at one address each keep their
-//! data and going back to one sends nothing.
+//! data and going back to one sends nothing. A Launch world on the October 31, 1999 portal file
+//! patches a client on the retail CD's portal file up to its own first, so clients on either end
+//! with the same data; with no overlay, it builds what that takes only when the first such client
+//! asks. A client a Launch world does not patch is told the files the world plays.
 //! Fixture: the retail dats (`DERETH_TEST_DAT_DIR`), the February 2005 dats
-//! (`DERETH_TEST_PRETOD_DAT_DIR`) and an overlay written in a scratch folder.
+//! (`DERETH_TEST_PRETOD_DAT_DIR`), the 1999 captures (`DERETH_TEST_DAT_CAPTURES_DIR`) and an
+//! overlay written in a scratch folder.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -157,11 +161,26 @@ fn response(store: &RetailDatStore, keeps_overlays: bool) -> DddInterrogationRes
     }
 }
 
-/// A server on `dats`, one client connected and interrogated, and its answer sent.
+/// A server on `dats`, one client connected and interrogated, and its answer sent. Its patch
+/// state is built at start, as the server builds it, unless the world is on a later 1999 portal
+/// file with no overlay, which builds what it needs when a client on the earlier file asks.
 fn exchange(dats: &Arc<DatManager>, answer: &DddInterrogationResponse) -> (TestServer, ClientId) {
+    let plain = dats.portal_dat().overlay().is_none() && dats.cell_dat().overlay().is_none();
+    let at_start = !plain || empyrean_world::managers::launch_base::of_world(dats).is_none();
+    exchange_with(dats, answer, at_start)
+}
+
+/// [`exchange`], its patch state built at start or not as `at_start` says.
+fn exchange_with(
+    dats: &Arc<DatManager>,
+    answer: &DddInterrogationResponse,
+    at_start: bool,
+) -> (TestServer, ClientId) {
     let mut ts = TestServer::with_setup(Arc::clone(dats), |w| {
-        let d = Arc::clone(&w.dats);
-        empyrean_world::managers::ddd_manager::initialize(&mut w.ddd_manager, &d);
+        if at_start {
+            let d = Arc::clone(&w.dats);
+            empyrean_world::managers::ddd_manager::initialize(&mut w.ddd_manager, &d);
+        }
     });
     ts.auth()
         .create_account(
@@ -957,4 +976,343 @@ fn two_worlds_taking_turns_at_one_address_each_keep_their_data_and_going_back_se
         2,
         "not asked a third time"
     );
+}
+
+/// The 1999 files of the captures (`DERETH_TEST_DAT_CAPTURES_DIR`): the retail CD's folder (its
+/// portal and cell files) and a folder holding the October 31 portal file beside the CD's cell
+/// file, linked into `scratch`.
+fn files_of_1999(scratch: &Path) -> (std::path::PathBuf, std::path::PathBuf) {
+    let captures = dereth_dat::testing::dat_captures_or_fail();
+    let find = |capture: &str, name: &str| {
+        captures
+            .iter()
+            .find(|(c, n, _)| c == capture && n.eq_ignore_ascii_case(name))
+            .map(|(_, _, p)| p.clone())
+            .unwrap_or_else(|| panic!("the captures hold no {capture}/{name}"))
+    };
+    let cd = find("1999-10-09", "portal.dat")
+        .parent()
+        .expect("its folder")
+        .to_path_buf();
+    let later = scratch.join("1999-10-31");
+    std::fs::create_dir_all(&later).expect("a folder");
+    for (from, name) in [
+        (find("1999-10-31", "portal.dat"), "portal.dat"),
+        (find("1999-10-09", "cell.dat"), "cell.dat"),
+    ] {
+        let to = later.join(name);
+        if std::fs::hard_link(&from, &to).is_err() {
+            std::fs::copy(&from, &to).expect("a copy");
+        }
+    }
+    (cd, later)
+}
+
+/// A client's files over the 1999 folder `dir`, its language file the later set's.
+fn client_of_1999(dir: &Path) -> RetailDatStore {
+    RetailDatStore::open_classic_with_modern(dir, &dereth_dat::testing::dat_dir())
+        .expect("the 1999 files with the later files beside them")
+}
+
+/// A Launch world's overlay over `server`'s portal file: the picture [`ADDED`], `bytes`, in one
+/// revision past it.
+fn launch_world(server: &RetailDatStore, dir: &Path, bytes: &[u8]) -> OverlayDir {
+    let out = OverlayDir::new(dir).expect("an overlay folder");
+    let file = server.portal().base();
+    let revision = revision(&file);
+    let mut w = OverlayWriter::open_or_create(
+        &out.container(ModernDat::Portal),
+        &file,
+        "portal.dat",
+        WORLD,
+        0,
+    )
+    .expect("the overlay");
+    w.put(ADDED, bytes, 3, revision, 0).expect("put");
+    w.add_iteration(revision, 0).expect("the revision");
+    w.flush(0).expect("flushed");
+    out
+}
+
+/// What a client keeping its folders in `root` reads after a turn: its files with the world's
+/// folder laid over them.
+fn after_turn(base: &RetailDatStore, root: &Path, world: &str) -> RetailDatStore {
+    use dereth_client_runtime::world_overlay as wo;
+    let dir = OverlayDir::new(&wo::world_folder(root, world)).expect("the world's folder");
+    let (laid, refused) = wo::lay_folder(base.clone(), Some(&dir), &Default::default());
+    assert_eq!(refused, None);
+    laid
+}
+
+/// Whether two clients read the same portal and cell files: every record of `world` (the
+/// world's own files), byte for byte, and the same iterations.
+fn reads_the_same(a: &RetailDatStore, b: &RetailDatStore, world: &RetailDatStore) {
+    // A file read through no overlay keeps its iterations in its header.
+    let iterations = |f: &DatFile| {
+        f.iteration_list()
+            .unwrap_or_else(|_| dereth_dat::overlay::base_iterations(f))
+    };
+    assert_eq!(
+        iterations(a.portal()),
+        iterations(b.portal()),
+        "the same portal iterations"
+    );
+    assert_eq!(
+        iterations(a.cell()),
+        iterations(b.cell()),
+        "the same cell iterations"
+    );
+    let ids: Vec<DataId> = world.portal().base().iter_ids().collect();
+    assert!(ids.len() > 17_000, "{} records", ids.len());
+    for id in ids.into_iter().chain([ADDED]) {
+        let want = world.read_portal(id).ok();
+        assert_eq!(a.read_portal(id).ok(), want, "{id:?}");
+        assert_eq!(b.read_portal(id).ok(), want, "{id:?}");
+    }
+}
+
+/// A Launch world on the October 31, 1999 portal file, with an overlay over it, patches a Dereth
+/// client on the retail CD's portal file of October 9 up to its own (the records the later file
+/// adds or changes, in the three revisions between the files) and then with the world's overlay,
+/// and a client on the October 31 file with the overlay alone: both then read the same records
+/// with the same iterations, and log in again to nothing. A client changing its files between
+/// the two is patched afresh each way, and what it kept for the other files is never read over
+/// these.
+#[test]
+fn a_launch_world_patches_a_client_on_either_1999_portal_file_to_the_same_data() {
+    use dereth_client_runtime::world_overlay as wo;
+    let scratch = dereth_dat::testing::ScratchDir::new("server-launch-base").expect("scratch");
+    let (cd, later) = files_of_1999(scratch.path());
+    let era = dereth_primitives::ContainerEra::Classic;
+    let server = RetailDatStore::open_classic_dir(&later).expect("the world's files");
+    let overlay = launch_world(
+        &server,
+        &scratch.path().join("overlay"),
+        b"a launch picture",
+    );
+    let dats = overlaid(&later, overlay.path(), era);
+    let world = server
+        .clone()
+        .with_overlay(&overlay, Some(WORLD))
+        .expect("the world as it reads");
+    let (on_cd, on_later) = (client_of_1999(&cd), client_of_1999(&later));
+    let step = empyrean_world::managers::launch_base::CD_TO_OCTOBER_31;
+    let stepped = step.added.len() + step.changed.len();
+
+    // The manifest names the client's own file as the portal's base, and the step's records and
+    // revisions as the overlay's.
+    let answer = dereth_client_runtime::app::ddd_interrogation_response(&on_cd, 0, true, None);
+    let (ts, id) = exchange(&dats, &answer);
+    let m = &ts.received::<DddOverlayManifest>(id)[0];
+    let portal = m
+        .files
+        .iter()
+        .find(|f| (f.dat_file_type, f.dat_file_id) == (0, 1))
+        .expect("the portal's part");
+    assert_eq!(
+        (
+            portal.base_fingerprint,
+            portal.base_records,
+            portal.base_iterations
+        ),
+        (step.from.fingerprint, Some(step.from.records), 102)
+    );
+    let next = revision(&server.portal().base());
+    assert_eq!(portal.revisions, [103, 104, 105, next]);
+    assert_eq!(portal.records.len(), stepped + 1);
+    drop(ts);
+
+    let cd_root = scratch.path().join("cd-client/127.0.0.1-9000");
+    let turn = take_a_turn(&dats, &on_cd, &cd_root);
+    assert_eq!(turn.records, stepped + 1, "{turn:?}");
+    let later_root = scratch.path().join("later-client/127.0.0.1-9000");
+    let turn = take_a_turn(&dats, &on_later, &later_root);
+    assert_eq!(turn.records, 1, "{turn:?}");
+    let (a, b) = (
+        after_turn(&on_cd, &cd_root, WORLD),
+        after_turn(&on_later, &later_root, WORLD),
+    );
+    reads_the_same(&a, &b, &world);
+    for (files, root) in [(&on_cd, &cd_root), (&on_later, &later_root)] {
+        assert_eq!(take_a_turn(&dats, files, root).records, 0, "nothing again");
+    }
+
+    // One client changing its files: each way, patched afresh and never read over the others.
+    for (files, records) in [(&on_later, 1), (&on_cd, stepped + 1), (&on_later, 1)] {
+        let turn = take_a_turn(&dats, files, &cd_root);
+        assert_eq!(turn.records, records, "{turn:?}");
+        let dir = OverlayDir::new(&wo::world_folder(&cd_root, WORLD)).expect("its folder");
+        let other = if std::ptr::eq(files, &on_cd) {
+            &on_later
+        } else {
+            &on_cd
+        };
+        assert!(
+            other.clone().with_overlay(&dir, Some(WORLD)).is_err(),
+            "what it keeps is for these files alone"
+        );
+        reads_the_same(&after_turn(files, &cd_root, WORLD), &b, &world);
+    }
+}
+
+/// A Launch world on the October 31, 1999 portal file with no overlay patches a Dereth client on
+/// the retail CD's portal file up to its own, and the client then reads the world's files; a
+/// client on the October 31 file is sent nothing, and one that keeps no overlays is told which
+/// files the world plays, as before.
+#[test]
+fn a_launch_world_without_an_overlay_patches_a_client_on_the_retail_cds_portal_file_up_to_it() {
+    let scratch = dereth_dat::testing::ScratchDir::new("server-launch-plain").expect("scratch");
+    let (cd, later) = files_of_1999(scratch.path());
+    let era = dereth_primitives::ContainerEra::Classic;
+    let server = RetailDatStore::open_classic_dir(&later).expect("the world's files");
+    let dats = DatManager::initialize(Arc::new(
+        RealDats::open_era(&later, era).expect("the world's files"),
+    ))
+    .expect("the world's dats");
+    let (on_cd, on_later) = (client_of_1999(&cd), client_of_1999(&later));
+    let step = empyrean_world::managers::launch_base::CD_TO_OCTOBER_31;
+
+    let root = scratch.path().join("cd-client/127.0.0.1-9000");
+    let turn = take_a_turn(&dats, &on_cd, &root);
+    assert_eq!(
+        turn.records,
+        step.added.len() + step.changed.len(),
+        "{turn:?}"
+    );
+    let world = dereth_client_runtime::world_overlay::last_world(&root)
+        .unwrap_or_else(|| "127.0.0.1:9000".to_owned());
+    let a = after_turn(&on_cd, &root, &world);
+    assert_eq!(
+        a.portal().iteration_list().expect("its iterations"),
+        (1..=105).collect::<Vec<_>>()
+    );
+    for id in server.portal().iter_ids() {
+        assert_eq!(
+            a.read_portal(id).ok(),
+            server.read_portal(id).ok(),
+            "{id:?}"
+        );
+    }
+    assert_eq!(
+        take_a_turn(&dats, &on_cd, &root).records,
+        0,
+        "nothing again"
+    );
+
+    let other = scratch.path().join("later-client/127.0.0.1-9000");
+    assert_eq!(take_a_turn(&dats, &on_later, &other).records, 0);
+
+    let (ts, id) = exchange(&dats, &response(&on_cd, false));
+    assert!(booted_saying(&ts, id).contains("the October 31, 1999 portal.dat"));
+}
+
+/// What `id` was booted saying.
+fn booted_saying(ts: &TestServer, id: ClientId) -> String {
+    let boot = ts
+        .received_raw(id)
+        .iter()
+        .find(|m| m.opcode == 0xF7DC)
+        .expect("the boot");
+    String::from_utf8_lossy(&boot.body).into_owned()
+}
+
+/// A Launch world on the October 31, 1999 portal file with no overlay builds nothing for patching
+/// at start, nor for a client on its own file or one it boots: it builds what the patch needs
+/// when the first client on the retail CD's portal file asks, a few dozen records, and that client
+/// is sent exactly what it would have been sent had the whole patch state been built at start.
+#[test]
+fn a_launch_world_without_an_overlay_builds_its_patch_only_for_the_first_client_on_the_retail_cds_file(
+) {
+    let scratch = dereth_dat::testing::ScratchDir::new("server-launch-lazy").expect("scratch");
+    let (cd, later) = files_of_1999(scratch.path());
+    let era = dereth_primitives::ContainerEra::Classic;
+    let dats = DatManager::initialize(Arc::new(
+        RealDats::open_era(&later, era).expect("the world's files"),
+    ))
+    .expect("the world's dats");
+    let (on_cd, on_later) = (client_of_1999(&cd), client_of_1999(&later));
+    let step = empyrean_world::managers::launch_base::CD_TO_OCTOBER_31;
+
+    for answer in [
+        response(&on_later, true),
+        response(&on_later, false),
+        response(&on_cd, false),
+    ] {
+        let (ts, _) = exchange(&dats, &answer);
+        assert!(ts.world.ddd_manager.iterations.is_empty(), "nothing built");
+    }
+
+    let answer = response(&on_cd, true);
+    let patched = |at_start: bool| {
+        let (mut ts, id) = exchange_with(&dats, &answer, at_start);
+        let begin = ts.received::<DddBeginDdd>(id);
+        assert_eq!(begin.len(), 1, "patched");
+        let expected: usize = begin[0]
+            .revisions
+            .iter()
+            .map(|r| r.ids_to_download.len())
+            .sum();
+        ts.run_until(30.0, |ts| ts.received::<DddData>(id).len() >= expected);
+        let data = ts.received::<DddData>(id);
+        let sized = ts
+            .world
+            .ddd_manager
+            .dat_file_sizes
+            .values()
+            .map(std::collections::HashMap::len)
+            .sum::<usize>();
+        (begin, data, sized)
+    };
+    let (begin, data, sized) = patched(false);
+    assert_eq!(data.len(), step.added.len() + step.changed.len());
+    assert!(sized <= data.len() + 16, "{sized} records sized");
+    let (full_begin, full_data, full_sized) = patched(true);
+    assert!(full_sized > 100_000, "{full_sized}");
+    assert_eq!((begin, data), (full_begin, full_data));
+}
+
+/// A client whose files are not a Launch world's is told the files the world plays: a world on
+/// the retail CD's files names them, one on the October 31, 1999 portal file names it and the CD's
+/// cell file, and on a world with an overlay a client on the files it was made against that keeps
+/// no overlays is told to play it with Dereth. A world on the February 2005 files says what it
+/// said before.
+#[test]
+fn a_client_on_other_files_than_a_launch_worlds_is_told_the_worlds_own() {
+    use empyrean_world::network::handlers::ddd_handler::{
+        other_files_reason, PRE_TOD_OTHER_CLIENT_REASON,
+    };
+    let scratch = dereth_dat::testing::ScratchDir::new("server-launch-boot").expect("scratch");
+    let (cd, later) = files_of_1999(scratch.path());
+    let era = dereth_primitives::ContainerEra::Classic;
+    let world = |dir: &Path| {
+        DatManager::initialize(Arc::new(RealDats::open_era(dir, era).expect("the files")))
+            .expect("the world's dats")
+    };
+    let (on_cd, on_later) = (client_of_1999(&cd), client_of_1999(&later));
+
+    let (ts, id) = exchange(&world(&cd), &response(&on_later, false));
+    assert!(booted_saying(&ts, id).contains(&other_files_reason("the retail CD's data files")));
+    let (ts, id) = exchange(&world(&later), &response(&on_cd, false));
+    assert!(booted_saying(&ts, id).contains(&other_files_reason(
+        "the October 31, 1999 portal.dat and the retail CD's cell.dat"
+    )));
+
+    let server = RetailDatStore::open_classic_dir(&later).expect("the world's files");
+    let overlay = launch_world(&server, &scratch.path().join("overlay"), b"a picture");
+    let dats = overlaid(&later, overlay.path(), era);
+    let (ts, id) = exchange(&dats, &response(&on_later, false));
+    assert!(booted_saying(&ts, id).contains("Play it with Dereth"));
+    let (ts, id) = exchange(&dats, &response(&on_cd, false));
+    assert!(booted_saying(&ts, id).contains(&other_files_reason(
+        "the October 31, 1999 portal.dat and the retail CD's cell.dat"
+    )));
+
+    let old_dir = dereth_dat::testing::classic_dat_dir().unwrap_or_else(|| {
+        panic!(
+            "{}",
+            dereth_dat::testing::classic_shortfall().unwrap_or_default()
+        )
+    });
+    let (ts, id) = exchange(&world(&old_dir), &response(&on_later, false));
+    assert!(booted_saying(&ts, id).contains(PRE_TOD_OTHER_CLIENT_REASON));
 }

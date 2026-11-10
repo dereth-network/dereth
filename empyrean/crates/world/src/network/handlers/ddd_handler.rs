@@ -12,6 +12,7 @@ use empyrean_net::{GameMessageGroup, SessionId, SessionTerminationReason};
 use crate::managers::bulk_patch;
 use crate::managers::dat_overlay;
 use crate::managers::ddd_manager::{self, dat_file_type, HI_FI_STRING_AS_INT};
+use crate::managers::launch_base;
 use crate::managers::property_manager;
 use crate::network::game_event::events::game_event_communication_transient_string::game_event_communication_transient_string;
 use crate::network::game_event::events::game_event_popup_string::game_event_popup_string;
@@ -106,6 +107,13 @@ fn set_dat_warn(w: &mut World, session: SessionId, which: DatWarn) {
 pub const PRE_TOD_OTHER_CLIENT_REASON: &str =
     " because this world plays the February 2005 data files, and your client's are not those files";
 
+/// Not ACE: why a client whose data files are not those of a world on 1999 files is booted, the
+/// world's `files` named (the account-booted message puts it after "because").
+#[must_use]
+pub fn other_files_reason(files: &str) -> String {
+    format!(" because this world plays {files}, and your client's are not those files")
+}
+
 /// Not ACE: why a client holding other base data files than a world's data overlay was made
 /// against is booted (the account-booted message puts it after "because").
 pub const OVERLAY_OTHER_BASE_REASON: &str = "this world's data overlay was made against other data files than your client's. Install the data files the world names";
@@ -180,10 +188,23 @@ pub fn ddd_interrogation_response_with(
         && empyrean_common::config_manager::ConfigManager::config()
             .dat_overlay
             .patching;
-    let client_bases = extension
+    let mut client_bases = extension
         .as_ref()
         .map(dat_overlay::ClientBases::of)
         .unwrap_or_default();
+    // DIVERGE (V520): a client that keeps overlays and holds the earlier portal file of a step up
+    // to this world's is patched up to the world's file, beneath the world's overlay when it has
+    // one and patches it.
+    let step = extension
+        .as_ref()
+        .and_then(|r| launch_base::for_client(&dats, r))
+        .filter(|_| !overlay_world || overlay_patching);
+    client_bases.step = step;
+    // What the step's patch needs is built when the first client on its earlier file asks, on a
+    // world that patches no other client.
+    if let Some(step) = step {
+        launch_base::prepare(step, &dats, &mut w.ddd_manager);
+    }
     if overlay_patching {
         if let Some(why) = dat_overlay::base_mismatch(&dats, &client_bases) {
             log::info!(
@@ -254,7 +275,8 @@ pub fn ddd_interrogation_response_with(
     let pre_tod = dats.portal_dat().container_era() == dereth_primitives::ContainerEra::Classic;
     // DIVERGE (V437): a client that keeps overlays is patched to a world with a data overlay,
     // before Throne of Destiny too (the overlay carries its own iteration list).
-    let enable_dat_patching = (enable_dat_patching && !pre_tod) || overlay_patching;
+    let enable_dat_patching =
+        (enable_dat_patching && !pre_tod) || overlay_patching || step.is_some();
     let portal_iteration = dats.portal_dat().iteration();
     let cell_iteration = dats.cell_dat().iteration();
     let language_iteration = dats.language_dat().iteration();
@@ -392,12 +414,31 @@ pub fn ddd_interrogation_response_with(
     }
     log::info!("{log_msg}");
 
-    if pre_tod && !overlay_patching && (client_has_extra_iterations || client_is_missing_iterations)
+    if pre_tod
+        && !overlay_patching
+        && step.is_none()
+        && (client_has_extra_iterations || client_is_missing_iterations)
     {
         // DIVERGE: a client whose files are not the February 2005 set a world plays is told
         // which files the world plays, rather than that its own are newer than expected or
-        // incomplete.
-        let boot = game_message_boot_account(Some(PRE_TOD_OTHER_CLIENT_REASON));
+        // incomplete. On a world on 1999 files, they are the world's own, and a client keeping no
+        // overlays that holds the files the world's overlay was made against is told which client
+        // the world patches (V437).
+        let reason = match launch_base::world_files(&dats) {
+            None => PRE_TOD_OTHER_CLIENT_REASON.to_owned(),
+            Some(_)
+                if extension.is_none()
+                    && launch_base::holds_overlay_base(
+                        &dats,
+                        client_portal_dat_int_set.iterations,
+                        client_cell_dat_int_set.iterations,
+                    ) =>
+            {
+                format!(" because {OVERLAY_NOT_KEPT_REASON}")
+            }
+            Some(files) => other_files_reason(&files),
+        };
+        let boot = game_message_boot_account(Some(&reason));
         let reason = if client_has_extra_iterations {
             SessionTerminationReason::DATsNewerThanServer
         } else {
@@ -439,7 +480,16 @@ pub fn ddd_interrogation_response_with(
         );
         let total_missing_iterations = r.total_missing_iterations;
         let mut total_file_size = r.total_file_size;
-        let missing_iterations = r.iterations;
+        let mut missing_iterations = r.iterations;
+        // DIVERGE (V520): the step's records, in its last revision.
+        if let Some(step) = step {
+            total_file_size = total_file_size.wrapping_add(launch_base::add_to_patch(
+                step,
+                &dats,
+                &w.ddd_manager,
+                &mut missing_iterations,
+            ));
+        }
         let patch_status_message = if overlay_world {
             // DIVERGE (V437, V438): the manifest ahead of the patch, the world's cell records in
             // it, and the overlay's deletions purged.
