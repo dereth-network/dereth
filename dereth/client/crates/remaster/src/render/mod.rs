@@ -72,7 +72,7 @@ pub struct Targets {
     pub depth: Texture,
     pub color: Texture,
     /// The outdoor surfaces' depth, kept when the viewer stands inside, before the interior
-    /// clears it.
+    /// clears it; outdoors, the depth before the grass, which the frame's depth is made from.
     pub outdoor_depth: Texture,
     /// Each one's index in the table, in the order above.
     pub index: [u32; 7],

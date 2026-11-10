@@ -650,6 +650,21 @@ impl RemasterGround {
         Vec3::new(at.x - eye.x, at.y - eye.y, at.z - eye.z)
     }
 
+    /// The most the drawn ground's fine relief rises over [`Self::ground_at`]: its bumps, and its
+    /// terraces where they are drawn. Nought while the offset is not drawn.
+    pub(crate) fn fine_relief(&self) -> f32 {
+        if !self.active {
+            return 0.0;
+        }
+        let k = &self.knobs;
+        let terraces = if k.on(Knob::Terraces) {
+            k.get(Knob::TerraceCap)
+        } else {
+            0.0
+        };
+        k.get(Knob::Micro) + terraces
+    }
+
     /// The drawn ground's height at render-space `(x, y)`, without its fine relief: retail's,
     /// with the near offset (or the far one, by the distance from the eye), the water's bed and
     /// the floor of its banks. `None` before the world's vertices are read.
@@ -806,6 +821,13 @@ impl super::WorldScene {
     #[must_use]
     pub fn remaster_ground_at(&self, x: f32, y: f32) -> Option<f32> {
         self.draw.remaster_ground.ground_at(x, y)
+    }
+
+    /// The most the remaster's ground's fine relief rises over
+    /// [`Self::remaster_ground_at`], which a ring under a selection is laid over.
+    #[must_use]
+    pub fn remaster_fine_relief(&self) -> f32 {
+        self.draw.remaster_ground.fine_relief()
     }
 
     /// How far a thing at render-space `at` is drawn above where physics puts it, on the

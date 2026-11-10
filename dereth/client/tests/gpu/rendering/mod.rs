@@ -25,6 +25,7 @@ mod landscape_draw_distance;
 mod lighting;
 mod mip_deferral;
 mod names_behind_the_world;
+mod names_on_the_drawn_ground;
 mod object_draw_distance;
 mod object_modes;
 mod object_part_submission;

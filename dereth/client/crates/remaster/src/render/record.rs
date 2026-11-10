@@ -1238,6 +1238,12 @@ impl Plan {
             super::forest::ForestPass::record_draw(f, r, &t)?;
         }
         if let Some(g) = &self.grass {
+            // Outdoors, the depth before the grass is kept for the frame's own: what the
+            // interface lays over the world (names, the ring under the selection) stands in front
+            // of the blades.
+            if !self.inside {
+                r.copy_texture(t.depth, t.outdoor_depth)?;
+            }
             g.record_draw(r, &t)?;
         }
         if self.inside {
@@ -1631,6 +1637,12 @@ impl Plan {
             .post
             .as_ref()
             .map_or((t.color, t.index[5]), super::post::PostPlan::output);
+        // The frame's depth: the world's, without the grass outdoors.
+        let (depth_kept, depth_kept_index) = if self.grass.is_some() && !self.inside {
+            (t.outdoor_depth, t.index[6])
+        } else {
+            (t.depth, t.index[4])
+        };
 
         // 5. The composite into the frame.
         r.timestamp("composite");
@@ -1648,7 +1660,7 @@ impl Plan {
                 }),
                 touches: &[
                     Touch::Texture(shown, Use::Sampled),
-                    Touch::Texture(t.depth, Use::Sampled),
+                    Touch::Texture(depth_kept, Use::Sampled),
                 ],
                 area: Some(self.area),
             },
@@ -1663,7 +1675,7 @@ impl Plan {
                     0,
                     &push_words(&[
                         shown_index,
-                        t.index[4],
+                        depth_kept_index,
                         u32::try_from(self.area.x).unwrap_or(0),
                         u32::try_from(self.area.y).unwrap_or(0),
                         depth_scale[0].to_bits(),

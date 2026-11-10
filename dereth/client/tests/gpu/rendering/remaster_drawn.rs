@@ -426,7 +426,8 @@ fn the_targeting_ring_lies_on_the_ground_as_the_remaster_draws_it() {
         scale: 1.0,
         turn: 0.0,
     };
-    let lift = dereth_scene::world_scene::MARKER_LIFT;
+    // Laid just over the ground, and over the most its fine relief rises.
+    let lift = dereth_scene::world_scene::MARKER_LIFT + shot.scene.remaster_fine_relief();
     let drawn = shot.scene.ground_marker_corners(&marker);
     assert!(!drawn.is_empty(), "the object stands in the world");
     let eye = shot.scene.camera.position;

@@ -1966,6 +1966,7 @@ impl SceneDraw {
             .as_ref()
             .map_or(0.1, |s| s.selection_sphere.center.z * parts.scale.z);
         let p = localtoglobal(&object.frame, Vec3::new(0.0, 0.0, height));
+        let p = Vec3::new(p.x, p.y, p.z + self.drawn_lift(ws, id));
         let (x, y, _) = self.screen_point(ws, viewport, p)?;
         Some((
             dereth_primitives::num::to_i32_f64(f64::from(x)),
@@ -1975,8 +1976,9 @@ impl SceneDraw {
 
     /// Where the point a name over `id` stands on is on screen, in pixels, and its depth as the
     /// world is drawn: over its drawn origin at a height that does not follow its animation
-    /// ([`WorldState::name_top`]), seen from where the camera is this frame. `None` behind the
-    /// camera or for an object not drawn.
+    /// ([`WorldState::name_top`]), raised with the body where the ground is drawn off where
+    /// physics puts it ([`Self::drawn_lift`]), seen from where the camera is this frame. `None`
+    /// behind the camera or for an object not drawn.
     ///
     /// No depth for an object outdoors seen from a room: the outdoors is drawn before the room's
     /// depth is cleared and its openings stamped back nearer, so the world keeps no depth of its
@@ -1988,12 +1990,33 @@ impl SceneDraw {
         id: ObjectId,
         viewport: (u32, u32),
     ) -> Option<(f32, f32, Option<f32>)> {
-        let (x, y, depth) = self.screen_point(ws, viewport, ws.name_top(id)?)?;
+        let top = ws.name_top(id)?;
+        let top = Vec3::new(top.x, top.y, top.z + self.drawn_lift(ws, id));
+        let (x, y, depth) = self.screen_point(ws, viewport, top)?;
         let outdoors_from_a_room = ws.viewer_cell().is_some()
             && ws
                 .server_object_draw_cell(id)
                 .is_some_and(dereth_physics::landdefs::is_outdoors);
         Some((x, y, (!outdoors_from_a_room).then_some(depth)))
+    }
+
+    /// How far `id` is drawn above where physics puts it: outdoors, by the offset of the ground
+    /// the remaster draws under it, as its body is drawn; nought elsewhere, and for an object not
+    /// in the world.
+    pub(crate) fn drawn_lift(&self, ws: &WorldState, id: ObjectId) -> f32 {
+        #[cfg(feature = "remaster")]
+        if self.remaster_ground.active {
+            if let Some(o) = ws.objects.get(&id) {
+                if ws
+                    .object_draw_cell(o)
+                    .is_some_and(dereth_physics::landdefs::is_outdoors)
+                {
+                    return self.remaster_ground.shift_at(o.frame.origin);
+                }
+            }
+        }
+        let _ = (ws, id);
+        0.0
     }
 
     /// Where the render-space point `p` stands on screen, in pixels, and its depth as the world's
@@ -2052,7 +2075,10 @@ impl SceneDraw {
                     s.selection_sphere.radius * parts.scale.z,
                 )
             });
-        let world_center = localtoglobal(&object.frame, center);
+        // The body as it is drawn: raised with the drawn ground it stands on.
+        let mut frame = object.frame;
+        frame.origin.z += self.drawn_lift(ws, id);
+        let world_center = localtoglobal(&frame, center);
         let view = self.view_params(ws, viewport.0, viewport.1);
         let eye = self.eye_transform(ws, &view);
         let cone = ViewPoly::full_screen(eye.width, eye.height, &eye);
@@ -2088,7 +2114,7 @@ impl SceneDraw {
             );
             let matrix = dereth_render::camera::projection(&view) * view.view;
             let project = |p| {
-                let p = localtoglobal(&object.frame, p);
+                let p = localtoglobal(&frame, p);
                 let q = matrix * glam::Vec4::new(p.x, p.z, p.y, 1.0);
                 if q.w < 0.0002 {
                     return None;

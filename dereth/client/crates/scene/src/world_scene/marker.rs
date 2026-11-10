@@ -82,7 +82,8 @@ impl super::WorldScene {
 
 impl SceneDraw {
     /// The corners `marker` is laid with under its object: on the terrain under it outdoors,
-    /// following the land's shape (the remaster's ground as it is drawn, while it draws one), or
+    /// following the land's shape (the remaster's ground as it is drawn, over the most its fine
+    /// relief rises, while it draws one), or
     /// level with the object on a floor indoors. `None` for an object not in the world.
     pub(crate) fn ground_marker_corners(
         &self,
@@ -110,9 +111,11 @@ impl SceneDraw {
             .filter(|p| dereth_physics::landdefs::is_outdoors(p.cell));
         let world = ws.character.as_ref().map(|c| &c.world);
         // Where the remaster draws the ground with its visual offset, the ring lies on the ground
-        // as it is drawn.
+        // as it is drawn, over its fine relief.
         #[cfg(feature = "remaster")]
         let drawn = self.remaster_ground.active;
+        #[cfg(feature = "remaster")]
+        let relief = self.remaster_ground.fine_relief();
         #[cfg(not(feature = "remaster"))]
         let drawn = false;
         let center = object.frame.origin;
@@ -123,7 +126,8 @@ impl SceneDraw {
                 return Some(
                     self.remaster_ground
                         .ground_at(center.x + dx, center.y + dy)?
-                        - center.z,
+                        - center.z
+                        + relief,
                 );
             }
             let _ = (drawn, center);

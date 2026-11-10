@@ -27,8 +27,8 @@ use dereth_protocol::types::{physicsdesc::flags, PhysicsDesc};
 use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
-const W: u32 = 1280;
-const H: u32 = 720;
+pub(crate) const W: u32 = 1280;
+pub(crate) const H: u32 = 720;
 const FPS: f64 = 60.0;
 /// The runner's frames kept, and every this many of them in the strip.
 const SHOWN: usize = 24;
@@ -197,7 +197,7 @@ fn anchor(scene: &WorldScene, id: ObjectId) -> Option<(f32, f32, dereth_horizon:
 }
 
 /// The names of `subjects` as the interface's frame has them, from the world as it stands.
-fn nameplates(scene: &WorldScene, subjects: &[&Subject]) -> Vec<Nameplate> {
+pub(crate) fn nameplates(scene: &WorldScene, subjects: &[&Subject]) -> Vec<Nameplate> {
     let eye = scene.camera.frame().origin;
     subjects
         .iter()
@@ -221,15 +221,15 @@ fn nameplates(scene: &WorldScene, subjects: &[&Subject]) -> Vec<Nameplate> {
 }
 
 /// What the interface draws for `state` this frame.
-struct Interface {
-    art: Arc<dereth_horizon::art::Art>,
+pub(crate) struct Interface {
+    pub(crate) art: Arc<dereth_horizon::art::Art>,
     ui: dereth_horizon::ui::HorizonUi,
-    list: DrawList,
+    pub(crate) list: DrawList,
     input: dereth_horizon::ui::input::InputFrame,
 }
 
 impl Interface {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let art = Arc::new(dereth_horizon::art::Art::new(Arc::new(
             dereth_horizon::pieces::Pieces::built_in().expect("the pieces built in"),
         )));
@@ -241,7 +241,7 @@ impl Interface {
         }
     }
 
-    fn frame(&mut self, nameplates: Vec<Nameplate>) {
+    pub(crate) fn frame(&mut self, nameplates: Vec<Nameplate>) {
         let state = GameState {
             in_world: true,
             connected: true,
@@ -264,7 +264,7 @@ impl Interface {
 
     /// What stands over the world moved to where the world is drawn this frame, as the shell
     /// moves it before the overlay is made.
-    fn follow(&mut self, scene: &WorldScene) {
+    pub(crate) fn follow(&mut self, scene: &WorldScene) {
         use dereth_horizon::draw::Spot;
         self.list.follow(|id, anchor| match anchor {
             dereth_horizon::draw::Anchor::Top => scene
