@@ -2724,14 +2724,16 @@ pub fn attuned_by_effect<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> b
     })
 }
 
-/// A message about an item to all who see it: its holder alone unless it is in hand.
+/// A message about an item to all who know it: its holder, if a player holds it, and every other
+/// client that knows it (one that sees it lying, or in a corpse), each taking its stamps in turn.
 fn tell_of_item<S: Store>(s: &mut Server<S>, net: &mut ServerNet, item: u64, m: &ServerMessage) {
     let Some(t) = s.things.get(item) else {
         return;
     };
     let holder = t.wielded.or(t.container).map(|(holder, _)| holder);
-    if let Some(world) = holder.and_then(|h| crate::social::world_of(s, h)) {
-        crate::inventory::to_holder(s, net, world, item, m);
+    match holder.and_then(|h| crate::social::world_of(s, h)) {
+        Some(world) => crate::inventory::to_holder(s, net, world, item, m),
+        None => crate::inventory::to_knowers(s, net, item, m),
     }
 }
 

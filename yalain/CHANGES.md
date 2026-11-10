@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Fixed items on the ground or in corpses keeping an effect's look after it ended.
 - World: the Crystalabra gives its user and fellows back 2% vitae.
 - World: pollinated plants now give seeds for most pollens.
 - World: Shi Kahuawa now sends players to the duel and gives the dust a later quest needs.
