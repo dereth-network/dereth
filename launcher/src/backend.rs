@@ -595,6 +595,11 @@ pub enum LaunchOutcome {
     NeedPassword {
         message: String,
     },
+    /// The data files the choice names are no longer in the Library: the world's page opens for
+    /// the player to choose others.
+    ChooseSet {
+        message: String,
+    },
     Error {
         message: String,
     },
@@ -1555,6 +1560,20 @@ impl Backend {
         let dereth = choice.client == ClientKind::Dereth;
         let dat_set_id = dereth.then(|| choice.dat_set_id.clone()).flatten();
         let classic_set_id = dereth.then(|| choice.classic_set_id.clone()).flatten();
+        // A combination saved with a set the player has since removed (and not added again, which
+        // would have taken its place) is not started on another: the player chooses.
+        let gone = |id: &Option<String>| {
+            id.as_deref()
+                .is_some_and(|id| self.state.dat_set(id).is_none())
+        };
+        if gone(&dat_set_id) || gone(&classic_set_id) {
+            return LaunchOutcome::ChooseSet {
+                message: format!(
+                    "The data files you last played {} with are no longer in your Library. Choose others.",
+                    world.name
+                ),
+            };
+        }
         let path_of = |id: Option<&str>, kind: SetKind| {
             id.and_then(|id| self.state.dat_set(id))
                 .filter(|s| s.kind == kind)
@@ -1932,7 +1951,7 @@ impl Backend {
     /// A set of Auberean's realm's is the player's own folder, only ever forgotten.
     pub fn delete_set(&mut self, id: &str) -> Result<(), String> {
         if self.state.auberean_set(id).is_some() {
-            self.state.auberean.dat_sets.retain(|d| d.id != id);
+            self.state.remove_set(id);
             self.save();
             return Ok(());
         }
@@ -1944,7 +1963,7 @@ impl Backend {
                     .map_err(|e| format!("Could not delete {}: {e}", set.path.display()))?;
             }
         }
-        self.state.dat_sets.retain(|d| d.id != id);
+        self.state.remove_set(id);
         self.save();
         Ok(())
     }
@@ -4643,6 +4662,83 @@ mod tests {
             matches!(&out, LaunchOutcome::Error { message } if message.contains("Modern")),
             "{out:?}"
         );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Play Again's combination, saved with a set the player removed and then added again from the
+    /// same folder, names the set added again, which has another id now.
+    #[test]
+    fn play_again_follows_its_data_files_when_they_are_removed_and_added_again() {
+        let (mut b, dir) = backend("play-again-readd");
+        let mine = dir.join("mine");
+        write_dat_set(&mine, Iterations::END_OF_RETAIL);
+        // Another set, of other files.
+        let other = dir.join("other");
+        write_dat_set(
+            &other,
+            Iterations {
+                portal: Some(2000),
+                ..Iterations::END_OF_RETAIL
+            },
+        );
+        let find = b.read_folder(&mine, Game::Dereth);
+        b.add_folder(find);
+        let id = b
+            .state
+            .dat_sets
+            .iter()
+            .find(|s| s.path == mine)
+            .unwrap()
+            .id
+            .clone();
+        b.state.record_recent(Recent {
+            world_slug: "eulmore".into(),
+            account: "player".into(),
+            client: ClientKind::Dereth,
+            dat_set_id: Some(id.clone()),
+            classic_set_id: None,
+            last_played: 10,
+        });
+        b.delete_set(&id).unwrap();
+        // Another folder takes the freed place first, so the set added again has another id.
+        let find = b.read_folder(&other, Game::Dereth);
+        b.add_folder(find);
+        let find = b.read_folder(&mine, Game::Dereth);
+        b.add_folder(find);
+        let again = b
+            .state
+            .dat_sets
+            .iter()
+            .find(|s| s.path == mine)
+            .unwrap()
+            .id
+            .clone();
+        assert_ne!(again, id, "the set added again is a new entry");
+        assert_eq!(
+            b.state.recent[0].dat_set_id.as_deref(),
+            Some(again.as_str())
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A combination whose data files are gone from the Library opens its world's page to choose
+    /// others, rather than failing to start.
+    #[test]
+    fn a_combination_whose_data_files_are_gone_asks_for_others() {
+        let (mut b, dir) = backend("play-again-gone");
+        let out = b.launch(Choice {
+            dat_set_id: Some("removed-long-ago".into()),
+            ..choice(Some("pw"))
+        });
+        assert!(
+            matches!(&out, LaunchOutcome::ChooseSet { message } if message.contains("no longer in your Library")),
+            "{out:?}"
+        );
+        let out = b.launch(Choice {
+            classic_set_id: Some("gone-pair".into()),
+            ..choice(Some("pw"))
+        });
+        assert!(matches!(out, LaunchOutcome::ChooseSet { .. }), "{out:?}");
         let _ = std::fs::remove_dir_all(dir);
     }
 

@@ -154,7 +154,10 @@ pub fn add_find(s: &mut LauncherState, find: FolderFind) {
         }
         let sets = s.sets_mut(game);
         sets.retain(|d| !same(d));
+        let id = set.id.clone();
         sets.push(set);
+        // A set removed before and added again is the same set to what was saved with it.
+        s.reclaim(&id);
     }
 }
 
@@ -236,6 +239,56 @@ mod tests {
         assert_eq!(s.retail.as_ref().unwrap().path, b);
         let _ = std::fs::remove_dir_all(&a);
         let _ = std::fs::remove_dir_all(&b);
+    }
+
+    /// A set removed and added again with the same files takes its place in what was saved with
+    /// it, and one with other files does not.
+    #[test]
+    fn a_set_added_again_with_the_same_files_takes_the_removed_ones_place() {
+        let (a, b) = (tmp("lib-again-a"), tmp("lib-again-b"));
+        fake_set(&a, Iterations::END_OF_RETAIL);
+        let older = Iterations {
+            portal: Some(2000),
+            ..Iterations::END_OF_RETAIL
+        };
+        fake_set(&b, older);
+        let mut s = LauncherState::default();
+        let find = read_folder(&a, &s);
+        add_find(&mut s, find);
+        let id = s.dat_sets[0].id.clone();
+        s.favourites.push(crate::state::Favourite {
+            id: "f1".into(),
+            name: None,
+            world_slug: "w".into(),
+            account: "p".into(),
+            client: crate::install::ClientKind::Dereth,
+            dat_set_id: Some(id.clone()),
+            classic_set_id: None,
+        });
+        s.remove_set(&id);
+        assert_eq!(s.forgotten_sets.len(), 1);
+        // Other files are another set: what was saved stays as it was.
+        let find = read_folder(&b, &s);
+        add_find(&mut s, find);
+        assert_eq!(s.favourites[0].dat_set_id.as_deref(), Some(id.as_str()));
+        // The same files, from another folder, are the set removed.
+        let copy = tmp("lib-again-copy");
+        fake_set(&copy, Iterations::END_OF_RETAIL);
+        let find = read_folder(&copy, &s);
+        add_find(&mut s, find);
+        let again = s
+            .dat_sets
+            .iter()
+            .find(|d| d.path == copy)
+            .unwrap()
+            .id
+            .clone();
+        assert_ne!(again, id);
+        assert_eq!(s.favourites[0].dat_set_id.as_deref(), Some(again.as_str()));
+        assert!(s.forgotten_sets.is_empty(), "taken once");
+        for d in [a, b, copy] {
+            let _ = std::fs::remove_dir_all(d);
+        }
     }
 
     #[test]

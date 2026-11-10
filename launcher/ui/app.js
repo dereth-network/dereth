@@ -2104,6 +2104,9 @@ async function play(choice) {
     render();
   } else if (out.kind === "need_password") {
     await openWorld(choice.world_slug, out.message, { ...choice, password: "" });
+  } else if (out.kind === "choose_set") {
+    // Its page starts on the sets there are, for the player to choose and play.
+    await openWorld(choice.world_slug, out.message, { ...choice, password: "" });
   } else {
     toast(out.message, true);
   }

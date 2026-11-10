@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Fixed Play Again failing to start after its data files were removed and added again.
 - Launcher: a new first run, and the Library downloads the data files for you.
 - The map shows the lifestones, portals, shops and houses you have found, and those Empyrean worlds publish.
 - Remaster: wet ground in the rain no longer turns nearly black.

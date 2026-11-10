@@ -364,6 +364,12 @@ export function webBackend({ call, start, params, log, scale }) {
     // The data files.
     const st = await state();
     const pathOf = (id) => [...st.dat_sets, ...(st.auberean?.dat_sets ?? [])].find((s) => s.id === id)?.path ?? null;
+    // A combination saved with a set since removed (and not kept again, which would have taken its
+    // place) is not started on another: its page opens for the player to choose.
+    const gone = (id) => !!id && !String(id).startsWith('__') && !pathOf(id);
+    if (gone(choice.dat_set_id) || gone(choice.classic_set_id)) {
+      return { kind: 'choose_set', message: `The data files you last played ${page.world.name} with are no longer in your Library. Choose others.` };
+    }
     let dats;
     if (choice.dat_set_id === '__http') {
       dats = { mode: 'http' };

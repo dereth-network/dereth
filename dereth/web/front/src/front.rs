@@ -653,7 +653,8 @@ impl Front {
             });
             if files.is_empty() {
                 if let Some(i) = existing {
-                    self.state.dat_sets.remove(i);
+                    let id = self.state.dat_sets[i].id.clone();
+                    self.state.remove_set(&id);
                 }
                 continue;
             }
@@ -680,6 +681,8 @@ impl Front {
                         last_patched_by_server: None,
                         created_by_launcher: true,
                     });
+                    // A set removed before and kept again is the same set to what was saved.
+                    self.state.reclaim(&id);
                     ids.push(id);
                 }
             }
@@ -728,6 +731,7 @@ impl Front {
             last_patched_by_server: None,
             created_by_launcher: true,
         });
+        self.state.reclaim(&id);
         vec![id]
     }
 
@@ -761,8 +765,17 @@ impl Front {
     /// Forget every set kept in the browser's folder `folder`.
     pub fn remove_sets(&mut self, folder: &str) {
         let path = PathBuf::from(folder);
-        self.state.dat_sets.retain(|s| s.path != path);
-        self.state.auberean.dat_sets.retain(|s| s.path != path);
+        let ids: Vec<String> = self
+            .state
+            .dat_sets
+            .iter()
+            .chain(&self.state.auberean.dat_sets)
+            .filter(|s| s.path == path)
+            .map(|s| s.id.clone())
+            .collect();
+        for id in ids {
+            self.state.remove_set(&id);
+        }
     }
 }
 
