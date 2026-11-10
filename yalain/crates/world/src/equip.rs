@@ -833,7 +833,6 @@ fn take_off_to<S: Store>(
     crate::inventory::to_holder(s, net, world, item, &m);
     if let Some(t) = s.things.get_mut(item) {
         t.wielded = None;
-        t.container = Some((player, slot));
     }
     crate::world::keep_player(s, world);
     true
@@ -1195,7 +1194,6 @@ fn put_away<S: Store>(
     }
     if let Some(t) = s.things.get_mut(item) {
         t.wielded = None;
-        t.container = Some((player, slot));
         t.own.hand = location;
     }
     crate::world::keep_player(s, world);

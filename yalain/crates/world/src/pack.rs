@@ -36,6 +36,7 @@ use yalain_store::Store;
 
 use crate::calls::{Node, Value};
 use crate::graph::{list, tag, Builder, Slot};
+use crate::holding::{self, Place, To};
 use crate::inventory::{self as inv, move_done, move_graph, q, Move};
 use crate::state::Held;
 use crate::{progress, session, Clock, Server, Timer};
@@ -126,11 +127,19 @@ fn quantity_shown<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnI
     inv::to_holder(s, net, world, item, &m);
 }
 
-fn destroyed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, item: u64) {
+/// An item merged into a stack or turned into money is gone, out of where it was: its client forgets
+/// it.
+fn destroyed<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    item: u64,
+    from: Place,
+) {
     if let Some(p) = s.players.get_mut(&world) {
         p.known.remove(&item);
     }
-    let instance = s.things.remove(item).map_or(0, |t| t.instance);
+    let instance = holding::destroy_item(s, item, from).map_or(0, |t| t.instance);
     let gone = ServerMessage::ForgetObject(ObjectOnly(ObjectStamp {
         id: item,
         instance_stamp: instance,
@@ -251,7 +260,7 @@ pub fn reorganize<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnI
             }
         }
         quantity_shown(s, net, world, stack);
-        destroyed(s, net, world, h.id);
+        destroyed(s, net, world, h.id, Place::Pack(player));
         finish(s, world, held);
         return;
     }
@@ -278,9 +287,6 @@ pub fn reorganize<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnI
         ..answer
     };
     progress::private(net, world, &reorganize_done(&m));
-    if let Some(t) = s.things.get_mut(h.id) {
-        t.container = Some((player, slot));
-    }
     contained_again(s, net, world, h.id, player);
     finish(s, world, held);
 }
@@ -308,24 +314,20 @@ fn split<S: Store>(
     let Some(new) = inv::split_off(s, h.id, moved) else {
         return;
     };
-    let player = answer.target;
-    inv::insert_at(held, slot);
-    held.push(Held {
-        id: new,
-        template: h.template,
-        slot,
-        location: 0,
-        quantity: moved,
-    });
+    let to = To::Pack(world, holding::Slot::At(slot));
+    if holding::move_item(s, new, Place::Nowhere, to).is_err() {
+        return;
+    }
     let left = h.quantity.max(1) - moved;
-    if let Some(x) = held.iter_mut().find(|x| x.id == h.id) {
-        x.quantity = left;
+    // The pack as the new stack left it, the old one smaller.
+    if let Some(p) = s.players.get_mut(&world) {
+        if let Some(x) = p.play.items.iter_mut().find(|x| x.id == h.id) {
+            x.quantity = left;
+        }
+        held.clone_from(&p.play.items);
     }
     if let Some(t) = s.things.get_mut(h.id) {
         t.quantity = left;
-    }
-    if let Some(t) = s.things.get_mut(new) {
-        t.container = Some((player, slot));
     }
     let contained = inv::contain_stamp(s, new);
     net.send(
@@ -511,13 +513,15 @@ fn into_money_bag<S: Store>(
         quantity_shown(s, net, world, item);
         progress::private(net, world, &done(0));
     } else {
-        p.play.items.retain(|x| x.id != item);
-        inv::close_up(&mut p.play.items);
         let gone =
             session::call(inv::function::DISCRETE_DESTROY, &[Arg::LongInt(item)]).expect("packs");
         progress::private(net, world, &gone);
         progress::private(net, world, &done(0));
-        destroyed(s, net, world, item);
+        let me = p.character;
+        destroyed(s, net, world, item, Place::Pack(me));
+        if let Some(p) = s.players.get_mut(&world) {
+            inv::close_up(&mut p.play.items);
+        }
     }
     crate::world::keep_player(s, world);
 }
@@ -749,7 +753,12 @@ pub fn took_all<S: Store>(
         .unwrap_or_default();
     let (mut taken, mut left) = (Vec::new(), Vec::new());
     let mut last_error = 0;
+    let from = Place::Contents(container);
     for item in contents {
+        // One item, one holder: what has left the container since is not taken.
+        if holding::place_of(s, item) != Some(from) {
+            continue;
+        }
         let Some((quantity, template, look)) = s
             .things
             .get(item)
@@ -801,7 +810,7 @@ pub fn took_all<S: Store>(
                 t.quantity = total;
             }
             quantity_shown(s, net, world, stack);
-            destroyed(s, net, world, item);
+            destroyed(s, net, world, item, from);
         } else {
             let full = s
                 .players
@@ -812,21 +821,10 @@ pub fn took_all<S: Store>(
                 left.push(item);
                 continue;
             }
-            let Some(p) = s.players.get_mut(&world) else {
-                return;
+            let to = To::Pack(world, holding::Slot::Room);
+            let Ok(slot) = holding::move_item(s, item, from, to) else {
+                continue;
             };
-            let slot = inv::room_for_one(&mut p.play.items);
-            p.play.items.push(Held {
-                id: item,
-                template,
-                slot,
-                location: 0,
-                quantity,
-            });
-            if let Some(t) = s.things.get_mut(item) {
-                t.container = Some((player, slot));
-                t.at = None;
-            }
             let contained = inv::contain_stamp(s, item);
             net.send(
                 world,
@@ -844,9 +842,6 @@ pub fn took_all<S: Store>(
             contained_again(s, net, world, item, player);
         }
         taken.push(item);
-        if let Some(c) = s.things.get_mut(container).and_then(|t| t.corpse.as_mut()) {
-            c.contents.retain(|x| *x != item);
-        }
         crate::quests::took(s, net, world, template, clock);
     }
     let done = take_all_done(0, last_error, container, &taken, &left, player);

@@ -43,10 +43,9 @@ fn corpse_of(h: &mut Harness, me: u64, template: u32, n: usize) -> (u64, Vec<u64
     let mut c = Thing::of(id, &t, Kind::Corpse);
     c.at = Some(h.server.players[&world_of(h, me)].position);
     let items: Vec<u64> = (0..n)
-        .map(|i| {
+        .map(|_| {
             let item = inventory::make_item(&mut h.server, template, 1, 0).expect("made");
-            h.server.things.get_mut(item).expect("item").container =
-                Some((id, u32::try_from(i).unwrap_or(0)));
+            h.server.things.get_mut(item).expect("item").container = Some(id);
             item
         })
         .collect();
@@ -102,7 +101,7 @@ fn hold(h: &mut Harness, who: u64, template: u32, quantity: u32) -> u64 {
         quantity,
     });
     if let Some(t) = h.server.things.get_mut(id) {
-        t.container = Some((who, slot));
+        t.container = Some(who);
     }
     id
 }
@@ -126,6 +125,42 @@ fn an_item_taken_by_two_from_one_corpse_goes_to_one_of_them() {
         1,
         "one holder of one item"
     );
+}
+
+/// An item moves only from where it is: out of the corpse into one pack, every record of its place
+/// with it; asked again from the corpse, or out of a pack that does not hold it, nothing changes.
+/// Behaviour: server.inventory.one-item-one-holder
+#[test]
+fn an_item_moved_from_where_it_no_longer_is_stays_where_it_is() {
+    use yalain_world::holding::{self, Place, Slot, To};
+    let (mut h, (_, ida), (_, idb)) = players();
+    let (c, items) = corpse(&mut h, ida, 1);
+    let item = items[0];
+    let (wa, wb) = (world_of(&h, ida), world_of(&h, idb));
+    let from = Place::Contents(c);
+    holding::move_item(&mut h.server, item, from, To::Pack(wa, Slot::Room)).expect("there");
+    let contents = |h: &Harness| {
+        h.server
+            .things
+            .get(c)
+            .and_then(|t| t.corpse.as_ref())
+            .map(|k| k.contents.clone())
+    };
+    let wherever = |h: &Harness| {
+        (
+            holding::place_of(&h.server, item),
+            h.server.things.get(item).and_then(|t| t.container),
+            contents(h),
+            holds(h, ida, item),
+            holds(h, idb, item),
+        )
+    };
+    let moved = (Some(Place::Pack(ida)), Some(ida), Some(Vec::new()), 1, 0);
+    assert_eq!(wherever(&h), moved);
+    assert!(holding::move_item(&mut h.server, item, from, To::Pack(wb, Slot::Room)).is_err());
+    assert!(holding::destroy_item(&mut h.server, item, Place::Pack(idb)).is_err());
+    assert!(holding::move_item(&mut h.server, item, Place::Ground, To::Nowhere).is_err());
+    assert_eq!(wherever(&h), moved, "nothing changed");
 }
 
 /// Only the player who has a corpse open closes it: another naming it from anywhere neither ends

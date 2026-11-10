@@ -5958,9 +5958,10 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.inventory.conservation",
         says: "Over random scripts of takes, trades, drops, stacks moved, money moved, \
-               deaths, log-offs, stops and crashes, every item is held exactly once across \
-               every record, and what players have is what they were given, less at a stop \
-               only what lay on the ground or in a corpse.",
+               corpses rotting, deaths, log-offs, stops and crashes, every item is held exactly \
+               once across every record, the store's among them, every record of where an item \
+               is agrees with the others, and what players have is what they were given, less at \
+               a stop only what lay on the ground or in a corpse.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-CONSERVATION"),
         station: "yalain-testkit::cpu::play::conservation::every_item_is_held_once_and_nothing_is_made_or_lost_over_random_scripts",

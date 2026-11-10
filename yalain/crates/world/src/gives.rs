@@ -625,10 +625,14 @@ pub fn keep<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, giv
         crate::world::keep_player(s, world);
         return;
     }
-    p.play.items.remove(i);
-    crate::inventory::close_up(&mut p.play.items);
-    p.known.remove(&given.item);
-    let instance = s.things.remove(given.item).map_or(0, |t| t.instance);
+    let Ok(gone) = crate::holding::destroy_held(s, world, given.item) else {
+        return;
+    };
+    let instance = gone.map_or(0, |t| t.instance);
+    if let Some(p) = s.players.get_mut(&world) {
+        crate::inventory::close_up(&mut p.play.items);
+        p.known.remove(&given.item);
+    }
     let gone = ServerMessage::ForgetObject(ObjectOnly(ObjectStamp {
         id: given.item,
         instance_stamp: instance,

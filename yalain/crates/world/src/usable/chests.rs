@@ -42,6 +42,7 @@ use auberean_script::args::Arg;
 use yalain_net::{BlobKind, ConnId, ServerNet};
 use yalain_store::{Store, StoredPosition};
 
+use crate::holding::{self, Place, To};
 use crate::inventory::{function, id_list, look, q};
 use crate::places::{self, Use};
 use crate::{presence, progress, session, Clock, Server, Timer};
@@ -201,7 +202,7 @@ pub fn contents<S: Store>(s: &Server<S>, id: u64) -> Option<Vec<u64>> {
         c.contents
             .iter()
             .copied()
-            .filter(|i| s.things.get(*i).and_then(|t| t.container).map(|c| c.0) == Some(id))
+            .filter(|i| s.things.get(*i).and_then(|t| t.container) == Some(id))
             .collect(),
     )
 }
@@ -573,7 +574,7 @@ fn open<S: Store>(
         .map(|c| c.contents.clone())
         .unwrap_or_default();
     for item in left {
-        if s.things.get(item).and_then(|t| t.container).map(|c| c.0) != Some(id) {
+        if holding::place_of(s, item) != Some(Place::Contents(id)) {
             continue;
         }
         let m = ServerMessage::VisualObjectCall(ObjectCall {
@@ -592,31 +593,28 @@ fn open<S: Store>(
                 net.send(*conn, queue::EVENT, BlobKind::VISUAL, bytes.clone());
             }
         }
-        s.things.remove(item);
+        let _ = holding::destroy_item(s, item, Place::Contents(id));
     }
     let paid = s
         .chests
         .by_id
         .get_mut(&id)
         .is_some_and(|c| std::mem::take(&mut c.paid));
-    let mut contents = Vec::new();
-    for (slot, (template, own)) in fill(s, kind, paid).into_iter().enumerate() {
+    // What it held before is gone or elsewhere: it is filled anew, in its order.
+    s.chests.by_id.entry(id).or_default().contents.clear();
+    for (template, own) in fill(s, kind, paid) {
         let value = own.map_or(0, |(value, _)| value);
         if let Some(item) = crate::inventory::make_item(s, template, 1, value) {
             if let Some((_, level)) = own {
                 crate::treasure::endow(s, item, level, None);
             }
-            if let Some(t) = s.things.get_mut(item) {
-                t.container = Some((id, u32::try_from(slot).unwrap_or(0)));
-            }
-            contents.push(item);
+            let _ = holding::move_item(s, item, Place::Nowhere, To::Contents(id));
         }
     }
     mode(s, net, id, look::OPEN_MODE);
     let c = s.chests.by_id.entry(id).or_default();
     c.phase = Phase::Opening;
     c.generation = c.generation.wrapping_add(1);
-    c.contents = contents;
     c.waiting = Some(waiting);
     let generation = c.generation;
     let opens = moving(s, id, look::CLOSED_MODE, look::OPEN_MODE, UNKNOWN_MOVES.0);
@@ -720,12 +718,13 @@ pub(crate) fn release<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64)
         let Some(t) = s.things.get(item) else {
             continue;
         };
-        if t.container.map(|c| c.0) != Some(id) {
+        // Its list went with it: what it held is its own still.
+        if holding::place_of(s, item) != Some(Place::Kept(id)) {
             continue;
         }
         let instance = t.instance;
         presence::thing_gone(s, net, item, instance);
-        s.things.remove(item);
+        let _ = holding::destroy_item(s, item, Place::Kept(id));
     }
 }
 

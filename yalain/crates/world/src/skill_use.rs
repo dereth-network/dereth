@@ -785,12 +785,13 @@ fn item_aim<S: Store>(s: &Server<S>, me: u64, u: &Usage, target: u64) -> Result<
         .filter(|t| t.kind == crate::things::Kind::Item)
         .ok_or(refusal::NOT_THIS_ITEM)?;
     let in_hand = t.wielded.is_some_and(|(holder, _)| holder == me);
-    let in_pack = t.container.is_some_and(|(holder, _)| holder == me);
+    let in_pack = t.container == Some(me);
     if !in_hand && !in_pack {
         let another = t
             .wielded
+            .map(|(holder, _)| holder)
             .or(t.container)
-            .is_some_and(|(holder, _)| crate::social::world_of(s, holder).is_some());
+            .is_some_and(|holder| crate::social::world_of(s, holder).is_some());
         return Err(if another {
             refusal::NOT_ANOTHERS_ITEM
         } else {

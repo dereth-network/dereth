@@ -124,9 +124,14 @@ pub fn arm<S: Store>(s: &mut Server<S>, creature: u64) {
         let place = place_of(&name, Some(&tpl.props), second);
         let id = s.things.new_id();
         let mut t = Thing::of(id, &tpl, Kind::Item);
-        t.container = Some((creature, 0));
         t.wielded = Some((creature, place));
         s.things.insert(t);
+        let _ = crate::holding::move_item(
+            s,
+            id,
+            crate::holding::Place::Nowhere,
+            crate::holding::To::Kept(creature),
+        );
         held.push(id);
     }
     if let Some(c) = s.things.get_mut(creature).and_then(|t| t.creature.as_mut()) {
@@ -441,7 +446,12 @@ pub fn put_away<S: Store>(s: &mut Server<S>, net: &mut ServerNet, creature: u64)
 pub fn take_out<S: Store>(s: &mut Server<S>, weapons: &[u64]) -> Vec<(u64, u16)> {
     weapons
         .iter()
-        .filter_map(|w| s.things.remove(*w).map(|t| (*w, t.instance)))
+        .filter_map(|w| {
+            let held = s.things.get(*w).and_then(|t| t.container)?;
+            crate::holding::destroy_item(s, *w, crate::holding::Place::Kept(held))
+                .ok()
+                .map(|t| (*w, t.instance))
+        })
         .collect()
 }
 

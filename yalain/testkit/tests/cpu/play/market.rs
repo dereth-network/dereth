@@ -140,6 +140,7 @@ fn an_item_put_up_with_a_broker_is_bought_by_another_player_and_its_price_collec
         location: 0,
         quantity: 32,
     });
+    h.server.things.get_mut(gem).expect("made").container = Some(ida);
     let from = h.bots[a].inbox.len();
     h.ask(
         a,
@@ -226,6 +227,7 @@ fn put_up_a_made_item(h: &mut Harness, a: usize, ida: u64) -> u64 {
         location: 0,
         quantity: 1,
     });
+    h.server.things.get_mut(sword).expect("made").container = Some(ida);
     h.ask(
         a,
         function::SELL,
@@ -297,6 +299,7 @@ fn part_of_a_stack_put_up_with_a_broker_keeps_the_stacks_numbers() {
         location: 0,
         quantity: 5,
     });
+    h.server.things.get_mut(stack).expect("made").container = Some(ida);
     h.ask(
         a,
         function::SELL,
@@ -653,6 +656,7 @@ fn a_brokers_dealings_need_reach_and_room() {
             location: 0,
             quantity: 8,
         });
+    h.server.things.get_mut(gem).expect("made").container = Some(ida);
     let sell = [
         Arg::Int(STORE),
         Arg::Int(100),
@@ -1022,6 +1026,7 @@ fn sold(h: &mut Harness, a: usize, ida: u64, item: u64) -> (i32, Option<u32>, bo
             location: 0,
             quantity: 1,
         });
+        h.server.things.get_mut(item).expect("made").container = Some(ida);
     }
     let from = h.bots[a].inbox.len();
     h.ask(
@@ -1164,6 +1169,7 @@ fn a_character_at_its_most_consignments_is_refused_and_told() {
         location: 0,
         quantity: 1000,
     });
+    h.server.things.get_mut(gem).expect("made").container = Some(ida);
     let sell = [
         Arg::Int(STORE),
         Arg::Int(1),
@@ -1502,7 +1508,7 @@ fn a_sale_past_its_time_leaves_its_store_and_is_not_bought() {
     assert_eq!(h.server.market.list[0].sold, 0);
     assert_eq!(
         h.server.things.get(sword).and_then(|t| t.container),
-        Some((BROKER, 1)),
+        Some(BROKER),
         "still its broker's"
     );
 }
@@ -1646,7 +1652,7 @@ fn a_sale_past_its_time_is_written_by_nothing_and_comes_back_whole_after_a_crash
     assert_eq!(record(&mut h), kept, "nothing written");
     assert_eq!(
         h.server.things.get(sword).and_then(|t| t.container),
-        Some((BROKER, 1))
+        Some(BROKER)
     );
     h.ask(
         b,
@@ -1753,6 +1759,7 @@ fn put_up_a_made_item_again(h: &mut Harness, a: usize, ida: u64) {
         location: 0,
         quantity: 1,
     });
+    h.server.things.get_mut(sword).expect("made").container = Some(ida);
     h.ask(
         a,
         function::SELL,
@@ -1807,6 +1814,7 @@ fn a_seller_on_its_consignments_page_sees_a_sale_as_it_is_bought() {
         location: 0,
         quantity: 1,
     });
+    h.server.things.get_mut(again).expect("made").container = Some(ida);
     h.ask(
         a,
         function::SELL,
@@ -2031,6 +2039,7 @@ fn a_gone_characters_consignments_go_with_it_and_a_buyers_item_stays() {
         location: 0,
         quantity: 1,
     });
+    h.server.things.get_mut(kept).expect("made").container = Some(ida);
     h.ask(
         a,
         function::SELL,
@@ -2157,6 +2166,7 @@ fn hold_gems(h: &mut Harness, id: u64, n: u32) -> u64 {
         location: 0,
         quantity: n,
     });
+    h.server.things.get_mut(gems).expect("made").container = Some(id);
     gems
 }
 

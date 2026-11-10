@@ -563,7 +563,7 @@ fn profile_bytes<S: Store>(
         // An item in another player's pack is seen by no one until it is offered.
         let another_holds = t.kind == crate::things::Kind::Item
             && t.container
-                .is_some_and(|(c, _)| c != me.character && crate::social::world_of(s, c).is_some());
+                .is_some_and(|c| c != me.character && crate::social::world_of(s, c).is_some());
         if another_holds && !me.known.contains_key(&req.object) {
             s.unhandled.note("examining an item another player holds");
             return None;

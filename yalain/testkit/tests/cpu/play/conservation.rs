@@ -1,8 +1,9 @@
-//! Conservation: a random script of takes, trades, drops, stacks split and merged, money moved, effects
-//! put on items, deaths, log-offs, stops and crashes, from fixed seeds. After every action each item is held exactly once
-//! across every record, in the world and in the store, and what a player has is neither more nor
-//! less than it was given: a stop loses only what lay on the ground or in a corpse; a crash, at most
-//! what the store had not taken.
+//! Conservation: a random script of takes, trades, drops, stacks split and merged, money moved,
+//! effects put on items, corpses rotting, deaths, log-offs, stops and crashes, from fixed seeds.
+//! After every action each item is held exactly once across every record, in the world and in the
+//! store, every record of where an item is agrees with the others, and what a player has is neither
+//! more nor less than it was given: a stop loses only what lay on the ground or in a corpse; a
+//! crash, at most what the store had not taken; a corpse rotting, only what it held.
 
 use std::collections::BTreeMap;
 
@@ -11,6 +12,7 @@ use auberean_protocol::{queue, ClientMessage};
 use auberean_script::args::Arg;
 use yalain_content::{Prop, Props};
 use yalain_net::ConnId;
+use yalain_store::Store as _;
 use yalain_testkit::play::use_of;
 use yalain_testkit::{test_rules, test_template, Harness, TEST_ITEM};
 use yalain_world::graph::{tag, Builder, Slot};
@@ -233,14 +235,14 @@ pub(super) fn census(s: &mut Script) -> Census {
             continue;
         }
         match (t.container, t.at) {
-            (Some((owner, _)), _) if in_corpses.get(&t.id) == Some(&owner) => {
+            (Some(owner), _) if in_corpses.get(&t.id) == Some(&owner) => {
                 c.places
                     .entry(t.id)
                     .or_default()
                     .push(format!("the corpse {owner:#x}"));
                 c.count(t.template, t.quantity, true);
             }
-            (Some((owner, _)), _) => {
+            (Some(owner), _) => {
                 if !c.places.contains_key(&t.id) {
                     c.wrong.push(format!(
                         "{:#x} says {owner:#x} holds it: nothing does",
@@ -266,7 +268,55 @@ pub(super) fn census(s: &mut Script) -> Census {
             }
         }
     }
+    // What the store keeps, as a crash would bring it back: each item in one character's pack.
+    let mut kept: BTreeMap<u64, Vec<u64>> = BTreeMap::new();
+    for (_, id) in &s.who {
+        let Some(st) = h.server.store.world_state(*id).expect("reads") else {
+            continue;
+        };
+        for x in PlayState::from_bytes(&st.play).expect("reads").items {
+            kept.entry(x.id).or_default().push(*id);
+        }
+    }
+    for (item, by) in kept.iter().filter(|(_, by)| by.len() > 1) {
+        c.wrong.push(format!("{item:#x} kept by each of {by:x?}"));
+    }
+    // Every copy of an item's place agrees: a pack's item names that pack (its slot there is the
+    // pack's alone to keep).
+    for (_, id) in &s.who {
+        let Some(w) = world_of(h, *id) else {
+            continue;
+        };
+        for x in &h.server.players[&w].play.items {
+            let Some(t) = h.server.things.get(x.id) else {
+                continue;
+            };
+            if t.container != Some(*id) || t.template != x.template {
+                c.wrong.push(format!(
+                    "{:#x} at slot {} of {id:#x}, its own record {:x?}",
+                    x.id, x.slot, t.container
+                ));
+            }
+        }
+    }
+    let mut listed: BTreeMap<u64, usize> = BTreeMap::new();
+    for t in &things {
+        for i in t.corpse.iter().flat_map(|k| &k.contents) {
+            *listed.entry(*i).or_default() += 1;
+        }
+    }
+    for (item, n) in listed.iter().filter(|(_, n)| **n > 1) {
+        c.wrong.push(format!("{item:#x} listed by {n} corpses"));
+    }
     for (item, corpse) in &in_corpses {
+        if let Some(t) = h.server.things.get(*item) {
+            if t.container != Some(*corpse) {
+                c.wrong.push(format!(
+                    "{corpse:#x} lists {item:#x}, its own record {:x?}",
+                    t.container
+                ));
+            }
+        }
         if !h.server.things.by_id.contains_key(item) {
             c.wrong
                 .push(format!("{corpse:#x} lists {item:#x}, not in the world"));
@@ -505,11 +555,10 @@ pub(super) fn act(s: &mut Script) -> String {
             c.at = Some(s.h.server.players[&w].position);
             let count = 1 + s.dice.below(4);
             let items: Vec<u64> = (0..count)
-                .map(|k| {
+                .map(|_| {
                     let item =
                         inventory::make_item(&mut s.h.server, TEST_ITEM, 1, 0).expect("made");
-                    s.h.server.things.get_mut(item).expect("made").container =
-                        Some((id, u32::try_from(k).unwrap_or(0)));
+                    s.h.server.things.get_mut(item).expect("made").container = Some(id);
                     item
                 })
                 .collect();
@@ -788,6 +837,38 @@ pub(super) fn act(s: &mut Script) -> String {
             );
             format!("{me:#x} uses a skill on {target:#x}")
         }
+        23 => match s.dice.pick(&corpses(s)) {
+            // A corpse's time is up, a take from it perhaps under way: what it lists goes with it,
+            // and nothing else.
+            Some(c) => {
+                let mut lost = Census::default();
+                let listed =
+                    s.h.server
+                        .things
+                        .get(c)
+                        .and_then(|t| t.corpse.as_ref())
+                        .map(|k| k.contents.clone())
+                        .unwrap_or_default();
+                for item in listed {
+                    if let Some(t) = s.h.server.things.get(item) {
+                        lost.count(t.template, t.quantity, true);
+                    }
+                }
+                if let Some(k) = s.h.server.things.get_mut(c).and_then(|t| t.corpse.as_mut()) {
+                    k.expires = 0.0;
+                }
+                let now = s.h.now.0;
+                yalain_world::death::expire_corpses(&mut s.h.server, &mut s.h.net, now);
+                if s.h.server.things.get(c).is_none() {
+                    s.wealth -= lost.wealth;
+                    s.gems -= lost.gems;
+                    format!("{c:#x} rots")
+                } else {
+                    format!("{c:#x} is open, and stays")
+                }
+            }
+            None => "no corpse to rot".into(),
+        },
         _ => {
             // Let what is under way finish.
             let seconds = 0.5 * (1 + s.dice.below(6)) as f64;

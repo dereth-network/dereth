@@ -99,6 +99,7 @@ pub mod follow;
 pub mod gives;
 pub mod graph;
 pub mod guard;
+pub mod holding;
 pub mod inventory;
 pub mod item_use;
 pub mod kingdom_skills;
@@ -538,8 +539,8 @@ pub trait Ground: std::fmt::Debug {
 pub enum Timer {
     /// The next step of a player's trip through portal space.
     Trip { world: ConnId, step: places::Step },
-    /// A player's taking of an item is through.
-    Take { world: ConnId, item: u64 },
+    /// A player's taking of an item out of a corpse or a chest (`from`) is through.
+    Take { world: ConnId, item: u64, from: u64 },
     /// A player's taking of everything in a container is through.
     TakeAll { world: ConnId, container: u64 },
     /// A dead creature's corpse appears.
@@ -952,7 +953,9 @@ impl<S: Store> Server<S> {
             self.saves.piece_begins();
             match t {
                 Timer::Trip { world, step } => places::step(self, net, world, step, clock),
-                Timer::Take { world, item } => inventory::taken(self, net, world, item, clock),
+                Timer::Take { world, item, from } => {
+                    inventory::taken(self, net, world, item, from, clock);
+                }
                 Timer::TakeAll { world, container } => {
                     pack::took_all(self, net, world, container, clock);
                 }

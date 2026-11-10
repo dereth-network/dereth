@@ -2730,7 +2730,7 @@ fn tell_of_item<S: Store>(s: &mut Server<S>, net: &mut ServerNet, item: u64, m: 
     let Some(t) = s.things.get(item) else {
         return;
     };
-    let holder = t.wielded.or(t.container).map(|(holder, _)| holder);
+    let holder = t.wielded.map(|(holder, _)| holder).or(t.container);
     match holder.and_then(|h| crate::social::world_of(s, h)) {
         Some(world) => crate::inventory::to_holder(s, net, world, item, m),
         None => crate::inventory::to_knowers(s, net, item, m),

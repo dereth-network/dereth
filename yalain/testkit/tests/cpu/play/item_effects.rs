@@ -511,7 +511,7 @@ fn a_skill_aimed_at_an_item_is_refused_elsewhere() {
             quantity: 1,
         });
         if let Some(t) = h.server.things.get_mut(id) {
-            t.container = Some((me, slot));
+            t.container = Some(me);
         }
     };
     mine(&mut h, ring, RING);
@@ -592,7 +592,7 @@ fn an_effect_ending_on_an_item_in_an_open_corpse_is_told_to_its_viewer() {
         .items
         .retain(|x| x.id != sword);
     let t = h.server.things.get_mut(sword).expect("it");
-    (t.wielded, t.container) = (None, Some((corpse, 0)));
+    (t.wielded, t.container) = (None, Some(corpse));
     let use_it = yalain_testkit::play::use_of(corpse, me);
     h.ask(b, yalain_world::requests::function::USE, &[use_it], 5);
     assert_eq!(h.server.players[&w].open_container, Some(corpse));

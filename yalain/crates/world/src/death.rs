@@ -826,9 +826,6 @@ pub fn corpse_appears<S: Store>(
             if value.is_some() {
                 crate::treasure::endow(s, item, level, quality);
             }
-            if let Some(t) = s.things.get_mut(item) {
-                t.container = Some((id, u32::try_from(contents.len()).unwrap_or(0)));
-            }
             contents.push(item);
         }
     }
@@ -853,7 +850,6 @@ pub fn corpse_appears<S: Store>(
     corpse.corpse = Some(Corpse {
         killer,
         originator: creature,
-        contents,
         expires: clock.local.0 + lasts,
         rot,
         creature: dead.template,
@@ -870,6 +866,15 @@ pub fn corpse_appears<S: Store>(
     let create = ServerMessage::CreateObject(corpse_create(&corpse));
     let at = corpse.at;
     s.things.insert(corpse);
+    // What it holds goes in, in the order it was drawn.
+    for item in contents {
+        let _ = crate::holding::move_item(
+            s,
+            item,
+            crate::holding::Place::Nowhere,
+            crate::holding::To::Contents(id),
+        );
+    }
     if let Some(at) = at {
         let viewers: Vec<_> = s
             .players
@@ -1050,9 +1055,11 @@ pub fn vanish<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
             net.send_ephemeral(*conn, queue::EVENT, seen.position_stream, leave.clone());
         }
     }
+    // What it held goes with it (its list gone with it, each is its own still), and nothing it
+    // lists that is elsewhere now.
     if let Some(c) = t.corpse {
         for item in c.contents {
-            s.things.remove(item);
+            let _ = crate::holding::destroy_item(s, item, crate::holding::Place::Kept(id));
         }
     }
 }

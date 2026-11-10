@@ -195,8 +195,10 @@ pub struct Thing {
     pub facts: Facts,
     /// Its place, when it stands in the world.
     pub at: Option<StoredPosition>,
-    /// The object holding it, and its slot there.
-    pub container: Option<(u64, u32)>,
+    /// The object holding it (a player's character, a corpse, a chest, a creature, a broker). Its
+    /// slot there is the holder's to keep: a pack's in its list of what it holds, a corpse's or a
+    /// chest's the item's place in its contents. It changes only through [`crate::holding`].
+    pub container: Option<u64>,
     /// The player wielding or wearing it, and where.
     pub wielded: Option<(u64, u32)>,
     pub instance: u16,

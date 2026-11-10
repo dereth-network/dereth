@@ -635,10 +635,9 @@ fn opened_corpse(h: &mut Harness, world: ConnId, me: u64, n: usize) -> (u64, Vec
     let mut corpse = Thing::of(id, &t, Kind::Corpse);
     corpse.at = Some(h.server.players[&world].position);
     let items: Vec<u64> = (0..n)
-        .map(|i| {
+        .map(|_| {
             let item = inventory::make_item(&mut h.server, TEST_ITEM, 1, 0).expect("made");
-            h.server.things.get_mut(item).expect("item").container =
-                Some((id, u32::try_from(i).unwrap_or(0)));
+            h.server.things.get_mut(item).expect("item").container = Some(id);
             item
         })
         .collect();

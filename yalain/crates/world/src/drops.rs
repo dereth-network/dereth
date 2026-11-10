@@ -24,6 +24,7 @@ use yalain_net::{ConnId, LocalTime, ServerNet};
 use yalain_store::{Store, StoredPosition};
 
 use crate::calls::{Node, Value};
+use crate::holding::{self, Place, To};
 use crate::inventory::{move_done, q, Move, MOVE_DESC, MOVE_DESC_SLOTS};
 use crate::{progress, Clock, Server, Timer};
 
@@ -278,7 +279,10 @@ fn put_down<S: Store>(
         },
         action: b,
     });
-    p.play.items.retain(|h| h.id != m.item);
+    // Out of the pack, in its hand.
+    if holding::move_item(s, m.item, Place::Pack(me), To::Nowhere).is_err() {
+        return;
+    }
     crate::combat::to_all_seeing(s, net, me, &behave);
     let left = ServerMessage::UpdateInstanceIdVisual(VisualQuality {
         object: crate::inventory::visual(s, m.item),
@@ -286,9 +290,6 @@ fn put_down<S: Store>(
         value: 0,
     });
     crate::inventory::to_holder(s, net, world, m.item, &left);
-    if let Some(t) = s.things.get_mut(m.item) {
-        t.container = None;
-    }
     s.after(
         clock,
         putting_down_seconds(race, sex),
@@ -316,24 +317,8 @@ pub(crate) fn left<S: Store>(s: &mut Server<S>, world: ConnId) {
         _ => true,
     });
     for (slot, item) in pending {
-        let Some(me) = s.players.get(&world).map(|p| p.character) else {
-            return;
-        };
-        let Some(t) = s.things.get_mut(item) else {
-            continue;
-        };
-        t.container = Some((me, slot));
-        let (template, quantity) = (t.template, t.quantity);
-        if let Some(p) = s.players.get_mut(&world) {
-            crate::inventory::insert_at(&mut p.play.items, slot);
-            p.play.items.push(crate::state::Held {
-                id: item,
-                template,
-                slot,
-                location: 0,
-                quantity,
-            });
-        }
+        let to = To::Pack(world, holding::Slot::At(slot));
+        let _ = holding::move_item(s, item, Place::Nowhere, to);
     }
 }
 
@@ -379,10 +364,12 @@ pub fn put<S: Store>(
     };
     let place = landing(&p.position, reach(p.race, p.sex) * height);
     let item = asked.item;
-    let Some(t) = s.things.get_mut(item) else {
+    if holding::move_item(s, item, Place::Nowhere, To::Ground(place)).is_err() {
+        return;
+    }
+    let Some(t) = s.things.get(item) else {
         return;
     };
-    t.container = None;
     let done = Move {
         actual_from_slot: slot.cast_signed(),
         played_anim: true,

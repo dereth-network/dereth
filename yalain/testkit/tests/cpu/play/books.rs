@@ -37,7 +37,7 @@ fn a_book_used_from_the_pack_is_opened_then_the_use_answered() {
         quantity: 1,
     });
     if let Some(t) = h.server.things.get_mut(book) {
-        t.container = Some((id, 0));
+        t.container = Some(id);
     }
     let from = h.bots[b].inbox.len();
     h.ask(
@@ -85,7 +85,7 @@ fn held(h: &mut Harness, id: u64, template: u32) -> u64 {
         quantity: 1,
     });
     if let Some(t) = h.server.things.get_mut(item) {
-        t.container = Some((id, 0));
+        t.container = Some(id);
     }
     item
 }

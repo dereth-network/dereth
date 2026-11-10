@@ -36,9 +36,9 @@ use yalain_net::{BlobKind, ConnId, ServerNet};
 use yalain_store::Store;
 
 use crate::calls::{Node, Value};
+use crate::holding::{self, Place, To};
 use crate::inventory::{self, Move};
 use crate::social::{self, name_text, name_var, show, world_of, NOTICE, REFUSED};
-use crate::state::Held;
 use crate::{progress, session, Clock, Server};
 
 /// The trade's calls.
@@ -761,12 +761,8 @@ fn give<S: Store>(
     let whole = n >= held.quantity;
     let template = held.template;
     let look = s.things.get(item).map_or(0, |x| x.description.look);
-    let moved = if whole {
-        if let Some(p) = s.players.get_mut(&gw) {
-            p.play.items.retain(|h| h.id != item);
-            inventory::close_up(&mut p.play.items);
-        }
-        item
+    let (moved, from) = if whole {
+        (item, Place::Pack(giver))
     } else {
         let Some(new) = inventory::split_off(s, item, n) else {
             return;
@@ -787,27 +783,18 @@ fn give<S: Store>(
             value: i32::try_from(left).unwrap_or(i32::MAX),
         });
         inventory::to_holder(s, net, gw, item, &m);
-        new
+        (new, Place::Nowhere)
     };
     // Into the receiver's pack at its first slot, the rest moved down; into the first bag with room
     // when the pack itself is full.
-    let mut slot = 0;
-    if let Some(p) = s.players.get_mut(&rw) {
-        slot = inventory::room_for_one(&mut p.play.items);
-        p.play.items.insert(
-            0,
-            Held {
-                id: moved,
-                template,
-                slot,
-                location: 0,
-                quantity: n.min(held.quantity),
-            },
-        );
-    }
-    if let Some(x) = s.things.get_mut(moved) {
-        x.container = Some((receiver, slot));
-        x.at = None;
+    let to = To::Pack(rw, holding::Slot::Room);
+    let Ok(slot) = holding::move_item(s, moved, from, to) else {
+        return;
+    };
+    if whole {
+        if let Some(p) = s.players.get_mut(&gw) {
+            inventory::close_up(&mut p.play.items);
+        }
     }
     let m = Move {
         move_type: MOVE_TYPE,

@@ -55,7 +55,7 @@ fn hold(h: &mut Harness, character: u64, template: u32, quantity: u32) -> u64 {
         quantity,
     });
     if let Some(t) = h.server.things.get_mut(id) {
-        t.container = Some((character, slot));
+        t.container = Some(character);
     }
     id
 }
@@ -204,7 +204,7 @@ fn an_item_traded_into_a_full_pack_goes_to_the_first_bag_with_room() {
     assert_eq!(held[42].0, bow, "at the front of the first bag");
     assert_eq!(held[43].0, was_in_the_bag, "what was there moved up");
     let t = h.server.things.get(bow).expect("in the world");
-    assert_eq!(t.container, Some((bid, 42)));
+    assert_eq!(t.container, Some(bid));
     let (_, told) = h
         .calls(b, from)
         .into_iter()

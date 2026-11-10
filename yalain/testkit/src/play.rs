@@ -199,7 +199,7 @@ impl<S: Store> Harness<S> {
             quantity: 1,
         });
         if let Some(t) = self.server.things.get_mut(id) {
-            t.container = Some((character, slot));
+            t.container = Some(character);
         }
         self.bots[b].send(
             true,

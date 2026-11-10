@@ -69,8 +69,8 @@ use yalain_store::Store;
 use crate::call_limit::Bucket;
 use crate::calls::Value;
 use crate::graph::{hash, list, tag, Builder, Slot};
+use crate::holding::{self, Place, To};
 use crate::inventory::{self, Move};
-use crate::state::Held;
 use crate::{progress, session, store, Clock, Server};
 
 /// The market's calls.
@@ -316,11 +316,11 @@ pub fn ensure<S: Store>(s: &mut Server<S>) -> bool {
             if let Some(t) = s.catalog.get(c.template).cloned() {
                 let mut x = crate::things::Thing::of(c.item, &t, crate::things::Kind::Item);
                 x.quantity = c.offered.saturating_sub(c.sold).max(1);
-                x.container = Some((c.keeper, 1));
                 if let Some(kept) = read.item_states.iter().find(|k| k.id == c.item) {
                     kept.restore(&mut x);
                 }
                 s.things.insert(x);
+                let _ = holding::move_item(s, c.item, Place::Nowhere, To::Kept(c.keeper));
             }
         }
     }
@@ -1053,7 +1053,7 @@ pub fn sell<S: Store>(
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let charge = ((f64::from(quantity) * f64::from(price) * CHARGE).ceil() as u32).max(1);
     let money = store::money(&p.qualities);
-    if price <= 0.0 || money < charge {
+    if price <= 0.0 || money < charge || holding::place_of(s, item) != Some(Place::Pack(me)) {
         return;
     }
     let Some(p) = s.players.get_mut(&world) else {
@@ -1064,8 +1064,10 @@ pub fn sell<S: Store>(
     progress::send_int(net, world, store::MONEY, left.cast_signed());
     // The item leaves the pack (a part of a stack goes as a new item).
     let consigned = if quantity >= held.quantity {
-        p.play.items.retain(|h| h.id != item);
-        inventory::close_up(&mut p.play.items);
+        let _ = holding::move_item(s, item, Place::Pack(me), To::Kept(keeper));
+        if let Some(p) = s.players.get_mut(&world) {
+            inventory::close_up(&mut p.play.items);
+        }
         item
     } else {
         if let Some(h) = p.play.items.iter_mut().find(|h| h.id == item) {
@@ -1075,13 +1077,13 @@ pub fn sell<S: Store>(
             t.quantity -= quantity;
         }
         match inventory::split_off(s, item, quantity) {
-            Some(n) => n,
+            Some(n) => {
+                let _ = holding::move_item(s, n, Place::Nowhere, To::Kept(keeper));
+                n
+            }
             None => return,
         }
     };
-    if let Some(t) = s.things.get_mut(consigned) {
-        t.container = Some((keeper, 1));
-    }
     let m = Move {
         move_type: MOVE_IN,
         item,
@@ -1212,8 +1214,11 @@ pub fn restock<S: Store>(
     crate::quals::set_int(&mut p.qualities, store::MONEY, left_money.cast_signed());
     progress::send_int(net, world, store::MONEY, left_money.cast_signed());
     if all_taken {
-        p.play.items.retain(|h| h.id != item);
-        inventory::close_up(&mut p.play.items);
+        // Out of the pack, to be gone in a moment.
+        let _ = holding::move_item(s, item, Place::Pack(me), To::Nowhere);
+        if let Some(p) = s.players.get_mut(&world) {
+            inventory::close_up(&mut p.play.items);
+        }
     } else if let Some(h) = p.play.items.iter_mut().find(|h| h.id == item) {
         h.quantity -= quantity;
     }
@@ -1360,7 +1365,7 @@ pub fn collect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
                     .find(|k| k.id == c.item)
                     .cloned()
             });
-        s.things.remove(c.item);
+        let _ = holding::destroy_item(s, c.item, Place::Kept(c.keeper));
         if let Some(stamp) = stamp {
             net.send(
                 world,
@@ -1474,7 +1479,8 @@ pub fn purchase<S: Store>(
     }
     // An item its template no longer makes isn't in the world to be bought, and one past its time
     // isn't on sale.
-    if left == 0 || s.things.get(item).is_none() || c.expired(s.game_now) {
+    if left == 0 || holding::place_of(s, item) != Some(Place::Kept(keeper)) || c.expired(s.game_now)
+    {
         progress::private(
             net,
             world,
@@ -1519,23 +1525,8 @@ pub fn purchase<S: Store>(
     s.market.list[i].sold = c.offered;
     // The item moves from the broker into the buyer's pack.
     let me = p.character;
-    if let Some(t) = s.things.get_mut(item) {
-        t.container = None;
-    }
-    let mut slot = 0;
-    if let Some(p) = s.players.get_mut(&world) {
-        slot = inventory::room_for_one(&mut p.play.items);
-        p.play.items.push(Held {
-            id: item,
-            template: c.template,
-            slot,
-            location: 0,
-            quantity: left,
-        });
-        if let Some(t) = s.things.get_mut(item) {
-            t.container = Some((me, slot));
-        }
-    }
+    let to = To::Pack(world, holding::Slot::Room);
+    let slot = holding::move_item(s, item, Place::Kept(keeper), to).unwrap_or(0);
     let stamp = inventory::contain_stamp(s, item);
     net.send(
         world,

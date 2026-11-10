@@ -435,16 +435,16 @@ fn use_thing<S: Store>(
         }
         crate::things::Kind::Corpse => crate::inventory::open(s, net, world, u.item),
         crate::things::Kind::Item => match t.container {
-            Some((c, _)) if crate::inventory::open_corpse_of(s, world) == Some(c) => {
+            Some(c) if crate::inventory::open_corpse_of(s, world) == Some(c) => {
                 // A take its quest keeps from the player is refused at once.
                 if let Some(why) = take_refused(s, world, t.template, clock) {
                     let no = use_refused(&u, 0, None, -1.0, why);
                     send(net, world, BlobKind::PRIVATE, &no);
                     return;
                 }
-                crate::inventory::take(s, net, world, u.item, clock);
+                crate::inventory::take(s, net, world, u.item, c, clock);
             }
-            Some((c, _)) if c == me => use_held(s, net, world, u, clock),
+            Some(c) if c == me => use_held(s, net, world, u, clock),
             _ => s.unhandled.note("using an item out of reach"),
         },
         crate::things::Kind::Node => crate::mining::begin(s, net, world, u, clock),

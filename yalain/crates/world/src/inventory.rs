@@ -43,6 +43,7 @@ use yalain_net::{BlobKind, ConnId, ServerNet};
 use yalain_store::Store;
 
 use crate::graph::{list, tag, Builder, Slot};
+use crate::holding::{self, Place, To};
 use crate::progress;
 use crate::state::Held;
 use crate::things::{Kind, Thing};
@@ -521,7 +522,7 @@ pub fn item_create(t: &Thing) -> CreateObject {
         d.numbers,
     );
     weenie.numbers[0] = i32::try_from(t.quantity).unwrap_or(1);
-    if let Some((owner, _)) = t.container {
+    if let Some(owner) = t.container {
         weenie.mask |= WeenieDesc::OBJECT_BITS[0];
         weenie.objects[0] = owner;
     }
@@ -870,22 +871,10 @@ pub(crate) fn room_for_one(held: &mut [Held]) -> u32 {
     slot
 }
 
-/// Put an item into a player's pack (kept with the player). Returns its slot.
-fn hold<S: Store>(s: &mut Server<S>, world: ConnId, item: u64) -> Option<u32> {
-    let p = s.players.get_mut(&world)?;
-    let slot = room_for_one(&mut p.play.items);
-    let owner = p.character;
-    let t = s.things.get_mut(item)?;
-    t.container = Some((owner, slot));
-    t.at = None;
-    p.play.items.push(Held {
-        id: item,
-        template: t.template,
-        slot,
-        location: 0,
-        quantity: t.quantity,
-    });
-    Some(slot)
+/// Put an item into a player's pack from where it is expected to be (kept with the player).
+/// Returns its slot; none when the item is elsewhere.
+fn hold<S: Store>(s: &mut Server<S>, world: ConnId, item: u64, from: Place) -> Option<u32> {
+    holding::move_item(s, item, from, To::Pack(world, holding::Slot::Room)).ok()
 }
 
 pub(crate) fn knows<S: Store>(s: &mut Server<S>, world: ConnId, id: u64) {
@@ -1282,6 +1271,9 @@ fn left_the_ground(item: u64, instance: u16, stamp: u16) -> ServerMessage {
 
 /// An item lying in the world is gone from it: whoever knows it is told, and forgets it.
 pub(crate) fn gone_from_where_it_lay<S: Store>(s: &mut Server<S>, net: &mut ServerNet, item: u64) {
+    if holding::place_of(s, item) != Some(Place::Ground) {
+        return;
+    }
     let Some((instance, stamp)) = s.things.get(item).map(|t| (t.instance, t.position_stamp)) else {
         return;
     };
@@ -1292,7 +1284,7 @@ pub(crate) fn gone_from_where_it_lay<S: Store>(s: &mut Server<S>, net: &mut Serv
     }));
     crate::presence::to_thing_knowers(s, net, item, BlobKind::UNORDERED, &gone);
     crate::presence::leaves(s, net, item, &left_the_ground(item, instance, stamp));
-    s.things.remove(item);
+    let _ = holding::destroy_item(s, item, Place::Ground);
     for p in s.players.values_mut() {
         p.known.remove(&item);
     }
@@ -1309,10 +1301,7 @@ pub fn picked_up<S: Store>(
     item: u64,
     clock: Clock,
 ) {
-    let lying = s
-        .things
-        .get(item)
-        .is_some_and(|t| t.container.is_none() && t.at.is_some());
+    let lying = holding::place_of(s, item) == Some(Place::Ground);
     let Some(player) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
@@ -1369,7 +1358,7 @@ pub fn picked_up<S: Store>(
             pickup_refused(s, net, world, item, refused::CONTAINER_FULL);
             return;
         }
-        let Some(slot) = hold(s, world, item) else {
+        let Some(slot) = hold(s, world, item, Place::Ground) else {
             return;
         };
         let contained = contain_stamp(s, item);
@@ -1408,7 +1397,7 @@ fn arrive<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u
         .is_some_and(|p| pack_full(&p.play.items));
     m.overflow |= past_room;
     m.used_overflow = past_room;
-    let Some(slot) = hold(s, world, id) else {
+    let Some(slot) = hold(s, world, id, Place::Nowhere) else {
         return;
     };
     let stamp = contain_stamp(s, id);
@@ -1684,13 +1673,15 @@ pub fn close_request<S: Store>(
     }
 }
 
-/// A player takes an item out of the corpse it has open: it plays its taking behavior and the item
-/// leaves the corpse; the rest when the behavior is through.
+/// A player takes an item out of the corpse (or chest) it has open: it plays its taking behavior
+/// and the item is told to leave the corpse; it moves when the behavior is through, if it is still
+/// there.
 pub fn take<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
     item: u64,
+    from: u64,
     clock: Clock,
 ) {
     s.next_context = s.next_context.wrapping_add(1);
@@ -1728,7 +1719,7 @@ pub fn take<S: Store>(
         value: 0,
     });
     to_holder(s, net, world, item, &left);
-    s.after(clock, TAKING_SECONDS, Timer::Take { world, item });
+    s.after(clock, TAKING_SECONDS, Timer::Take { world, item, from });
 }
 
 /// The taking behavior is through: the item is the player's.
@@ -1737,23 +1728,17 @@ pub fn taken<S: Store>(
     net: &mut ServerNet,
     world: ConnId,
     item: u64,
+    corpse: u64,
     clock: Clock,
 ) {
     let Some(player) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
-    let Some((corpse, from_slot)) = s.things.get(item).and_then(|t| t.container) else {
-        return;
-    };
     // Someone else may have got it meanwhile (the corpse closed and opened by another): one item,
     // one holder. It leaves the corpse only for a pack with room.
-    let there = s
-        .things
-        .get(corpse)
-        .and_then(|t| t.corpse.as_ref())
-        .map(|c| c.contents.clone())
-        .or_else(|| crate::usable::chests::contents(s, corpse))
-        .is_some_and(|c| c.contains(&item));
+    let from = Place::Contents(corpse);
+    let there = holding::place_of(s, item) == Some(from);
+    let from_slot = holding::slot_in(s, corpse, item).unwrap_or(0);
     let quantity = s.things.get(item).map_or(1, |t| t.quantity.max(1));
     let stack = stack_for(s, world, item, quantity).filter(|_| there);
     let full = stack.is_none()
@@ -1780,14 +1765,11 @@ pub fn taken<S: Store>(
         progress::private(net, world, &move_done(&m));
         return;
     }
-    if let Some(c) = s.things.get_mut(corpse).and_then(|t| t.corpse.as_mut()) {
-        c.contents.retain(|x| *x != item);
-    }
     if let Some((stack, _, had)) = stack {
         joined_stack(s, net, world, item, corpse, from_slot, (stack, had), clock);
         return;
     }
-    let Some(slot) = hold(s, world, item) else {
+    let Some(slot) = hold(s, world, item, from) else {
         return;
     };
     let stamp = contain_stamp(s, item);
@@ -1859,6 +1841,10 @@ fn joined_stack<S: Store>(
     }) else {
         return;
     };
+    // Out of the corpse and the world before the stack grows by it.
+    if holding::destroy_item(s, item, Place::Contents(from)).is_err() {
+        return;
+    }
     let m = Move {
         move_type: move_type::TAKE,
         item,
@@ -1906,7 +1892,6 @@ fn joined_stack<S: Store>(
         other_stamp: 0,
     }));
     crate::presence::to_thing_knowers(s, net, item, BlobKind::UNORDERED, &gone);
-    s.things.remove(item);
     for p in s.players.values_mut() {
         p.known.remove(&item);
     }
@@ -1959,6 +1944,9 @@ pub fn transmute_all<S: Store>(
         .get(&world)
         .is_some_and(|p| pack_full(&p.play.items));
     for (slot, item) in contents.iter().enumerate() {
+        if holding::place_of(s, *item) != Some(Place::Contents(corpse)) {
+            continue;
+        }
         // A quest item, or one worth nothing, is not turned into money: it stays in the corpse.
         let kept = s.things.get(*item).is_none_or(|t| {
             let worth = if t.value > 0 {
@@ -2023,9 +2011,6 @@ pub fn transmute_all<S: Store>(
             session::call(function::DISCRETE_DESTROY, &[Arg::LongInt(*item)]).expect("packs");
         progress::private(net, world, &gone);
     }
-    if let Some(c) = s.things.get_mut(corpse).and_then(|t| t.corpse.as_mut()) {
-        c.contents.retain(|x| refused.contains(x));
-    }
     // An item kept back is told by the error, and by the answer's status too when nothing was
     // turned into money.
     let error = if refused.is_empty() { 0 } else { NOT_FOR_MONEY };
@@ -2075,7 +2060,7 @@ pub fn transmute_all<S: Store>(
             });
             to_holder(s, net, world, *item, &left);
         }
-        if let Some(t) = s.things.remove(*item) {
+        if let Ok(t) = holding::destroy_item(s, *item, Place::Contents(corpse)) {
             let gone = ServerMessage::ForgetObject(ObjectOnly(ObjectStamp {
                 id: t.id,
                 instance_stamp: t.instance,
@@ -2188,7 +2173,8 @@ pub fn enter<S: Store>(s: &mut Server<S>, world: ConnId) -> Vec<u64> {
         item.visual = 2;
         item.position_stamp = 0;
         item.quantity = h.quantity;
-        item.container = Some((owner, h.slot));
+        // Its pack lists it already: it comes back where it was kept.
+        item.container = Some(owner);
         if let Some(k) = k {
             k.restore(&mut item);
             item.timed.retain(|e| e.until > s.game_now);
@@ -2222,16 +2208,22 @@ pub fn take_from_pack<S: Store>(
     world: ConnId,
     template: u32,
 ) -> bool {
-    let Some(p) = s.players.get_mut(&world) else {
+    let Some(item) = s
+        .players
+        .get(&world)
+        .and_then(|p| p.play.items.iter().find(|h| h.template == template))
+        .map(|h| h.id)
+    else {
         return false;
     };
-    let Some(i) = p.play.items.iter().position(|h| h.template == template) else {
+    let Ok(gone) = holding::destroy_held(s, world, item) else {
         return false;
     };
-    let item = p.play.items.remove(i).id;
-    close_up(&mut p.play.items);
-    p.known.remove(&item);
-    let instance = s.things.remove(item).map_or(0, |t| t.instance);
+    let instance = gone.map_or(0, |t| t.instance);
+    if let Some(p) = s.players.get_mut(&world) {
+        close_up(&mut p.play.items);
+        p.known.remove(&item);
+    }
     let gone = session::call(function::DISCRETE_DESTROY, &[Arg::LongInt(item)]).expect("packs");
     progress::private(net, world, &gone);
     let forget = ServerMessage::ForgetObject(ObjectOnly(ObjectStamp {
@@ -2256,16 +2248,14 @@ pub fn take_item<S: Store>(
     // What it put on its wearer goes with it.
     let stopped = crate::effects::take_off_worn(s, net, world, item);
     crate::effects::stop_fx(s, net, world, &stopped);
-    let Some(p) = s.players.get_mut(&world) else {
+    let Ok(gone) = holding::destroy_held(s, world, item) else {
         return false;
     };
-    let Some(i) = p.play.items.iter().position(|h| h.id == item) else {
-        return false;
-    };
-    p.play.items.remove(i);
-    close_up(&mut p.play.items);
-    p.known.remove(&item);
-    let instance = s.things.remove(item).map_or(0, |t| t.instance);
+    let instance = gone.map_or(0, |t| t.instance);
+    if let Some(p) = s.players.get_mut(&world) {
+        close_up(&mut p.play.items);
+        p.known.remove(&item);
+    }
     let gone = session::call(function::DISCRETE_DESTROY, &[Arg::LongInt(item)]).expect("packs");
     progress::private(net, world, &gone);
     let forget = ServerMessage::ForgetObject(ObjectOnly(ObjectStamp {

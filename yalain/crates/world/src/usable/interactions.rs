@@ -217,7 +217,7 @@ fn held_by<S: Store>(s: &Server<S>, id: u64, player: u64) -> bool {
         let Some(t) = s.things.get(at) else {
             return false;
         };
-        let Some((holder, _)) = t.container.or(t.wielded) else {
+        let Some(holder) = t.container.or(t.wielded.map(|(holder, _)| holder)) else {
             return false;
         };
         if holder == player {

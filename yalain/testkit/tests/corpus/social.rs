@@ -155,7 +155,7 @@ fn hold(h: &mut Harness, id: u64, template: u32, quantity: u32) -> u64 {
         quantity,
     });
     if let Some(t) = h.server.things.get_mut(item) {
-        t.container = Some((id, slot));
+        t.container = Some(id);
     }
     item
 }
