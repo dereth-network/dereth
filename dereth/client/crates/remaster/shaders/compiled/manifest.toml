@@ -53,7 +53,7 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 "stamp.slang" = "cfe7256b6f29949bfe07445fdf7b0709182a98e876278988cc33f956c9f20b5d"
 "terrain.slang" = "1fb7c0356ba111a8b471ec0566bc43d8e15547045507165a1614faf73bec48f4"
 "upscale_inputs.slang" = "d4dc35c7557112a0115d15f99b13026f0b8a0181ed02527d47cd746fa257b9c3"
-"water.slang" = "37e620ec0196cdd349ae06868ae85a3757be1cc564006f7c5edebe8085353d9f"
+"water.slang" = "8385757ba612674aecd044ca43999d90e7b1bdbef17f374e3b4d5604e7204c85"
 "weather.slang" = "3eff45f79a0a5d3afe7a5264b9bca9c757833e632275b9adb7a49b1857a93ad3"
 
 [blobs]
@@ -142,8 +142,8 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 "dxil/terrain.fs_main.dxil" = { sha256 = "d4395837e705277ca07be84eab5f2635fc9f272da8fd6b64fa0d6a1673668b47", bytes = 16116 }
 "dxil/terrain.vs_main.dxil" = { sha256 = "88585d60b37580276fa31a04c0753ba5fe60351aa4bb0e0d40ff1f4c119d7b00", bytes = 8868 }
 "dxil/upscale_inputs.cs_main.dxil" = { sha256 = "f413edd2561714e9f65299a488321d454aea3ab31451602ea2fd3a330ab21d43", bytes = 5420 }
-"dxil/water.fs_main.dxil" = { sha256 = "91e63db1b3c0151bd65b7591cc5dd41a27d4f407c2bd5eee3b99fd37acc52740", bytes = 47204 }
-"dxil/water.fs_traced.dxil" = { sha256 = "ff7e8a55fbb3c1cd09366f48fac9a1a91ae4b4110b1a0006757481d6d565b987", bytes = 76928 }
+"dxil/water.fs_main.dxil" = { sha256 = "091841c2c01febb1548193e90243cc8778eb2344ff9e30acb531645ed6531f32", bytes = 47640 }
+"dxil/water.fs_traced.dxil" = { sha256 = "b98c310a973f86331a5d7feb586bf31d0b887348353a44b8067e2370c9a27278", bytes = 77360 }
 "spirv/air.fs_air.spv" = { sha256 = "0ff205989a39ef71f062d6806e769bfb6d80e9240ee91d31e7ba895cd28f6a30", bytes = 59688 }
 "spirv/ao.fs_gather.spv" = { sha256 = "574028873074e5e2f241387524b2e669db2c97756f3b2a2f0849c482029ff2a4", bytes = 12076 }
 "spirv/ao.fs_gtao.spv" = { sha256 = "7d8a29613b1840346cbe5326297c587c8a752efe24140500846158c035aa833b", bytes = 33540 }
@@ -229,5 +229,5 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 "spirv/terrain.fs_main.spv" = { sha256 = "e0d12f78d59ee0cba275f7756e5895dbc954e05182f094ad6d6b8ce2a644fe40", bytes = 60984 }
 "spirv/terrain.vs_main.spv" = { sha256 = "b024c4f65001ee3ea4633cf2842f2772d55250250e1f331619f509ec8ed44836", bytes = 15464 }
 "spirv/upscale_inputs.cs_main.spv" = { sha256 = "e58124466c547a949ffecedc91f27d34aa2442256258479cd72d43c74cb9e323", bytes = 11424 }
-"spirv/water.fs_main.spv" = { sha256 = "452135c6e79fdabbd82297753ad4ebdea421d060a437c60e4e649eb99ccf03ec", bytes = 237884 }
-"spirv/water.fs_traced.spv" = { sha256 = "22b5db36567cf9967a742ba66a9da4337397ac040f59e335f4c3919bd8fdd589", bytes = 385012 }
+"spirv/water.fs_main.spv" = { sha256 = "ddc522ac3b8b243bb13adcf50ab0bc92e537b78c5247f403144acdaa44d3fb86", bytes = 239548 }
+"spirv/water.fs_traced.spv" = { sha256 = "82bd95708287f5604b6469ae534d59bb8671f1a5b618bf866cc9551c7b8d0a3c", bytes = 386660 }

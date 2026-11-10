@@ -533,11 +533,14 @@ fn the_water_covers_a_body_standing_in_it_below_its_surface() {
 const TREE_BANK: &str = "dereth report 1; loc 0xA9B5001C [83.963875 82.829918 27.904999] \
                          -0.645227 0.000000 0.000000 -0.763991";
 
-/// The lake's bank by the tree, the camera behind the body once it has stood a second in the
-/// water, the ground as the player draws it, the waves still and no rings, the water drawn or not
-/// as `on` says.
-fn bank_seen(store: &Arc<RetailDatStore>, on: bool) -> RemasterCapture {
-    let report = VisualReport::parse(TREE_BANK).expect("the report reads");
+/// The same tree seen across the lake from about twenty meters off, the body standing in the water.
+const TREE_ACROSS: &str = "dereth report 1; loc 0xA9B50024 [94.0 76.5 27.9] 0.6088 0.0 0.0 0.7934";
+
+/// The place `line` reports, the camera behind the body once it has stood a second in the water,
+/// the ground as the player draws it, the waves still and no rings, the water drawn or not as `on`
+/// says.
+fn bank_seen(store: &Arc<RetailDatStore>, line: &str, on: bool) -> RemasterCapture {
+    let report = VisualReport::parse(line).expect("the report reads");
     let st = report_station(&report, Some(3));
     let mut gpu = device();
     let mut shot = Shot::open(store, &mut gpu, &st);
@@ -587,16 +590,9 @@ fn bank_seen(store: &Arc<RetailDatStore>, on: bool) -> RemasterCapture {
     capture
 }
 
-/// **The water is drawn over what stands below its level only where the water is drawn**: on the
-/// lake's bank, where a tree stands on dry ground lower than the lake's level, the body standing in
-/// the water beside it, every pixel of the tree and of everything else but the body is drawn the
-/// same with the water as without it: no disc of water round the tree's foot.
-#[test]
-fn what_stands_on_dry_ground_below_the_waters_level_is_not_covered_by_it() {
-    let _gpu = crate::common::gpu_lock();
-    let store = crate::common::dats();
-    let with = bank_seen(&store, true);
-    let without = bank_seen(&store, false);
+/// What stands in `with` and `without` (neither the ground, the sky nor the body) and how much of
+/// it the water changed.
+fn covered(with: &RemasterCapture, without: &RemasterCapture) -> (usize, usize) {
     let (mut objects, mut covered) = (0usize, 0usize);
     for i in 0..with.kind.len() {
         let (class, kind) = (without.class[i], without.kind[i]);
@@ -608,9 +604,43 @@ fn what_stands_on_dry_ground_below_the_waters_level_is_not_covered_by_it() {
         let differs = (0..3).any(|k| with.color[i * 4 + k].abs_diff(without.color[i * 4 + k]) > 2);
         covered += usize::from(differs);
     }
+    (objects, covered)
+}
+
+/// **The water is drawn over what stands below its level only where the water is drawn**: on the
+/// lake's bank, where a tree stands on dry ground lower than the lake's level, the body standing in
+/// the water beside it, every pixel of the tree and of everything else but the body is drawn the
+/// same with the water as without it: no disc of water round the tree's foot.
+#[test]
+fn what_stands_on_dry_ground_below_the_waters_level_is_not_covered_by_it() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let with = bank_seen(&store, TREE_BANK, true);
+    let without = bank_seen(&store, TREE_BANK, false);
+    let (objects, covered) = covered(&with, &without);
     eprintln!("the bank: {covered} of {objects} pixels of what stands there drawn otherwise with the water");
     assert!(objects > 2_000, "the tree is in the picture: {objects}");
     assert!(covered * 200 <= objects, "covered: {covered} of {objects}");
+}
+
+/// **Seen low across the water, what stands on the dry bank is not covered either**: from the
+/// lake, the tree on its bank some twenty meters off, where the ground the remaster draws along
+/// the bank stands higher than retail's and the line of sight meets it meters short of where
+/// retail's would lie, the tree and everything else but the body are drawn the same with the
+/// water as without it, all but one pixel in two thousand.
+#[test]
+fn what_stands_on_the_dry_bank_seen_across_the_water_is_not_covered_by_it() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let with = bank_seen(&store, TREE_ACROSS, true);
+    let without = bank_seen(&store, TREE_ACROSS, false);
+    let (objects, covered) = covered(&with, &without);
+    eprintln!("across the water: {covered} of {objects} pixels of what stands there drawn otherwise with the water");
+    assert!(objects > 2_000, "the tree is in the picture: {objects}");
+    assert!(
+        covered * 2_000 <= objects,
+        "covered: {covered} of {objects}"
+    );
 }
 
 /// The shore's frame at `size`, with the camera carried `back` metres back along its view and

@@ -847,19 +847,26 @@ float water_share(float2 p)
     return share;
 }
 
-// Whether the picture draws water on the ground under `surface`, a point on the water's level: 1
-// where the ground it shows there is water, 0 where it is land, and -1 where it does not show that
-// ground. The ground is drawn water where retail's blend says so, which the corners' share only
-// approaches along a shore. Where something stands in front of that ground (the body the line of
-// sight met, most often), the first ground the picture shows below it in its column stands for it,
-// so long as it lies near.
-int drawn_water_under(float3 surface)
+// Whether the picture draws water on the ground under `surface`, where the line of sight to
+// `world` crosses the water's level: 1 where the ground it shows there is water, 0 where it is
+// land, and -1 where it does not show that ground; where it is water, `top` is the height its
+// surface is drawn at, which over a bank is the ground itself rather than the water's level. The
+// ground is drawn water where retail's blend says so, which the corners' share only approaches
+// along a shore. The ground under the surface is looked for down the picture's column from the
+// surface: past what stands behind the surface (the body the line of sight met, most often) and
+// any water beyond it, to the first ground that lies near under it. Dry ground the picture shows
+// between the surface and `world` is land too: the line of sight passes over it after it leaves
+// the water. The drawn ground is not retail's: it rises along a bank, and seen low across the
+// water a fraction of a meter of height moves it meters along the line of sight, so its place is
+// found in the picture rather than from retail's height.
+int drawn_water_under(float3 surface, float3 world, out float top)
 {
+    top = surface.z;
     uint heights = row_u(push.water, WATER_LAND).x;
     float2 g = row(push.water, WATER_GLOBAL).xy;
     float3 ground = float3(surface.xy, min(land_height(heights, surface.xy + g), surface.z));
     float w;
-    float2 at_px = screen_of(ground, w);
+    float2 at_px = screen_of(surface, w);
     float2 e = extent();
     if (w <= 0.0 || any(at_px < 0.0) || at_px.x >= e.x || at_px.y >= e.y)
     {
@@ -867,9 +874,11 @@ int drawn_water_under(float3 surface)
     }
     float3 eye = row(push.frame, FRAME_EYE).xyz;
     float near = max(1.5, 0.05 * distance(eye, ground));
+    float reach = distance(eye.xy, ground.xy);
+    float stands = distance(eye.xy, world.xy);
     int2 q = int2(at_px);
     int step = max(int(e.y) / 270, 1);
-    for (int k = 0; k < 48; k++)
+    for (int k = 0; k < 64; k++)
     {
         if (q.y >= int(e.y))
         {
@@ -882,14 +891,29 @@ int drawn_water_under(float3 surface)
         }
         if (cls == CLASS_GROUND)
         {
-            // The ground shown must be the ground under the surface, not some ground past it or
-            // short of it.
             float3 shown = world_at(float2(q) + 0.5, at(push.outdoor_depth, q).x);
-            if (distance(shown.xy, ground.xy) > near)
+            if (distance(shown.xy, ground.xy) <= near)
             {
+                if (kind_at(q) != KIND_WATER)
+                {
+                    return 0;
+                }
+                // The bed's depth under the surface, where it is lowered; the deepest step stands
+                // for any depth past it.
+                uint under = uint(at(push.material, q).w * 255.0 + 0.5);
+                top = under < 255 ? shown.z + float(under) * BED_STEP : surface.z;
+                return 1;
+            }
+            float from_eye = distance(eye.xy, shown.xy);
+            if (from_eye < reach)
+            {
+                // Ground short of the surface: the ground under it is hidden.
                 return -1;
             }
-            return kind_at(q) == KIND_WATER ? 1 : 0;
+            if (from_eye < stands && kind_at(q) != KIND_WATER)
+            {
+                return 0;
+            }
         }
         q.y += step;
     }
@@ -899,7 +923,9 @@ int drawn_water_under(float3 surface)
 // Where the line of sight to `world`, a point of something standing in the water, crosses the
 // water's surface above it: false where it does not stand below the water, or the eye is under
 // the water, or the water is not drawn there: the ground the picture shows under the crossing is
-// land, or, where the picture does not show it, the corners there are not water.
+// land, or, where the picture does not show it, the corners there are not water. Where the water
+// there is drawn as a film over the ground rather than at its level, it is under it only below
+// that film.
 bool under_water(float3 world, out float3 surface)
 {
     surface = world;
@@ -925,8 +951,21 @@ bool under_water(float3 world, out float3 surface)
         return false;
     }
     surface = eye + (world - eye) * ((eye.z - level) / (eye.z - world.z));
-    int drawn = drawn_water_under(surface);
-    return drawn < 0 ? water_share(surface.xy + g) > 0.5 : drawn > 0;
+    float top;
+    int drawn = drawn_water_under(surface, world, top);
+    if (drawn < 0)
+    {
+        return water_share(surface.xy + g) > 0.5;
+    }
+    if (drawn == 0 || world.z >= top - 0.005)
+    {
+        return false;
+    }
+    if (top < level)
+    {
+        surface = eye + (world - eye) * ((eye.z - top) / (eye.z - world.z));
+    }
+    return true;
 }
 
 // What lies far off the way `dir` goes from `from`, past `t0` meters: the land, then the sky.

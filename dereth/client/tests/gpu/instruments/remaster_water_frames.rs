@@ -49,8 +49,11 @@ const PILLAR: &str = "dereth report 1; loc 0xA9B50015 [65.766556 103.075867 27.5
 /// The lake's bank by a tree, the body standing in the water beside it.
 const TREE: &str = "dereth report 1; loc 0xA9B5001C [83.963875 82.829918 27.904999] -0.645227                     0.000000 0.000000 -0.763991";
 
+/// The same tree seen across the lake from some twenty meters off, the body standing in the water.
+const TREE_ACROSS: &str = "dereth report 1; loc 0xA9B50024 [94.0 76.5 27.9] 0.6088 0.0 0.0 0.7934";
+
 /// Every view: its name, then how it is drawn.
-const SCENES: [&str; 16] = [
+const SCENES: [&str; 17] = [
     "lake-up",
     "lake-level",
     "lake-down",
@@ -67,6 +70,7 @@ const SCENES: [&str; 16] = [
     "shore-night",
     "pillar-night",
     "tree-bank",
+    "tree-across",
 ];
 
 /// Where a view is drawn from.
@@ -164,6 +168,14 @@ fn view(name: &str) -> View {
         // A tree on the dry bank of the lake, the body in the water beside it, in the afternoon.
         "tree-bank" => View::Rainy {
             line: TREE,
+            back: 0.0,
+            up: 0.0,
+            pitch: 0.0,
+            hour: 0.55,
+        },
+        // The same tree from the lake, seen low across the water.
+        "tree-across" => View::Rainy {
+            line: TREE_ACROSS,
             back: 0.0,
             up: 0.0,
             pitch: 0.0,
@@ -373,7 +385,7 @@ fn capture_the_remasters_water() {
         for _ in 0..24 {
             shot.step_held(&mut gpu);
         }
-        if name.starts_with("wade") || name.ends_with("night") || name == "tree-bank" {
+        if name.starts_with("wade") || name.ends_with("night") || name.starts_with("tree") {
             // The body stands in the water once the world has moved on a second.
             for _ in 0..30 {
                 shot.step_by(&mut gpu, 1.0 / 30.0);

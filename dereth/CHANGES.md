@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Remaster: no more ring of water around the foot of a tree on a lake's bank.
 - Remaster: far mountains no longer flicker, with or without ray-traced shadows.
 - Remaster: rain no longer leaves a gray haze over trees.
 - Fixed Play Again failing to start after its data files were removed and added again.
