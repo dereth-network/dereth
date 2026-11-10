@@ -188,7 +188,8 @@ mod tests {
         assert_eq!((w.slug.as_str(), w.relayed), ("ac1999", true));
         assert!(w.accepts("dereth-0.4", None));
         assert!(!w.accepts("acclient-6096", Some("1802")));
-        assert_eq!(choices::required_set_for(&w), SetKind::Original);
+        assert_eq!(choices::required_set_for(&w), SetKind::Classic);
+        assert!(choices::plays_launch_pair(&w));
         let said = describe(&w);
         assert_eq!(said.era.as_deref(), Some("launch"));
         assert_eq!(

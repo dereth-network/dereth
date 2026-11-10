@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that a player would notice. 
 not how it was done.
 
 ## Unreleased
+- Launcher: a new first run, and the Library downloads the data files for you.
 
 ## 0.1.7 (2026-11-10)
 - Updates shared with Yalain; nothing changes in play.

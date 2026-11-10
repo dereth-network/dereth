@@ -8,8 +8,11 @@
 // The module's numbering is this order.
 //
 // The origin's private file system holds:
-//   sets/<name>/       one data set the player added: any of the six files
-//   auberean/sets/<name>/  one data set of Asheron's Call 2's: its files, by the names its modules say
+//   sets/<name>/       one data set the player added: any of the six files (a folder holding
+//                      `.incomplete` is a set still being got from the archive, and not offered)
+//   auberean/sets/<name>/  one data set of Asheron's Call 2's: its files, by the names its modules
+//                      say (`.incomplete` there too)
+//   downloads/         the archives of a set being got, kept until each is unpacked
 //   dats/              the files an earlier version of this page kept (read as a set like the rest)
 //   overlays/<folder>/ one world's overlay: overlay_portal.dat, overlay_cell.dat, ... (the folder
 //                      is the world's address, as the desktop client names its per-server folder)
@@ -174,7 +177,7 @@ function close(handles) {
     }
   }
 }
-function releaseHeld() {
+export function releaseHeld() {
   close(held);
   held = [];
 }
@@ -311,11 +314,11 @@ globalThis.derethProbeRead = (file, offset, buf) => {
   return h.read(buf, { at: offset }) === buf.length;
 };
 
-// Read the set kept in folder `path` into the launcher's state with `add` (the module's reading of
-// one game's sets): answers its sets' ids.
-async function readSet(add, path) {
+// Hold the data files in folder `path` open for `read(names, sizes)`, which reads them through
+// `derethProbeRead` by their place in `names`: answers what it answers.
+export async function probeFolder(path, read) {
   const dir = await folderOrNull(path);
-  if (!dir) return [];
+  if (!dir) return read([], []);
   const names = [];
   const sizes = [];
   probing = [];
@@ -328,12 +331,21 @@ async function readSet(add, path) {
       names.push(name);
       sizes.push(h.getSize());
     }
-    return add(path, names, sizes);
+    return read(names, sizes);
   } finally {
     close(probing);
     probing = [];
   }
 }
+
+// Read the set kept in folder `path` into the launcher's state with `add` (the module's reading of
+// one game's sets): answers its sets' ids.
+export function readSet(add, path) {
+  return probeFolder(path, (names, sizes) => add(path, names, sizes));
+}
+
+// The name of the file that marks a set's folder as still being got.
+export const INCOMPLETE = '.incomplete';
 
 // Every set kept in this browser, read: the folders under `sets/`, and `dats/` from before.
 // Folders the launcher's state already knows are not read again unless `again`. Answers
@@ -345,6 +357,7 @@ export async function scanSets(dereth, known, again = false) {
     let any = false;
     for await (const [name, entry] of dir.entries()) {
       if (entry.kind !== 'file') continue;
+      if (name === INCOMPLETE) return;
       if (NAMES.includes(name)) any = true;
       bytes += (await entry.getFile()).size;
     }
@@ -376,6 +389,7 @@ export async function scanAubereanSets(dereth, known, again = false) {
     let any = false;
     for await (const [file, f] of entry.entries()) {
       if (f.kind !== 'file') continue;
+      if (file === INCOMPLETE) { any = false; break; }
       if (names.includes(file)) any = true;
       bytes += (await f.getFile()).size;
     }

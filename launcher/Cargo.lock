@@ -905,6 +905,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "dereth-datfetch"
+version = "0.0.0"
+dependencies = [
+ "aes",
+ "base64 0.23.1",
+ "crc32fast",
+ "flate2",
+ "lzma-rust2",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "dereth-input"
 version = "0.0.0"
 dependencies = [
@@ -923,6 +937,7 @@ dependencies = [
  "dereth-assets",
  "dereth-client-contract",
  "dereth-dat",
+ "dereth-datfetch",
  "dereth-input",
  "dereth-plugin-api",
  "dereth-plugin-package",
@@ -942,6 +957,7 @@ version = "0.5.4"
 dependencies = [
  "auberean-friends",
  "ctrlc",
+ "dereth-datfetch",
  "dereth-launch",
  "dereth-plugin-package",
  "dereth-plugin-template",
@@ -2561,6 +2577,12 @@ name = "log"
 version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
+
+[[package]]
+name = "lzma-rust2"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fde178a3caf126c440fa15628147772d8ee590a39477d711353fbe2e58a73a5b"
 
 [[package]]
 name = "markup5ever"

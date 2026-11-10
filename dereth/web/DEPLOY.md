@@ -45,7 +45,7 @@ Publish the whole `www/` folder, `pkg/` and `assets/` included:
 | `pkg/horizon/fonts.json`, `pkg/horizon/manifest.json` | about 2.4 MB and 39 kB | about 0.35 MB |
 | `assets/background/dereth/*.webp` (ten paintings), `assets/background/auberean/*.webp` (six), `assets/backgrounds.json` | about 7 MB | the same (WebP is compressed) |
 | `assets/fonts/Cinzel-var.ttf`, `EBGaramond-var.ttf`, `OFL-Cinzel.txt`, `OFL-EBGaramond.txt`; `assets/emblem/dereth.webp`, `network.webp`; `assets/portal/*.webp` | about 1.1 MB | about 0.6 MB |
-| `index.html`, `play.js`, `host.js`, `backend.js`, `front-worker.js`, `play-worker.js`, `auberean-worker.js`, `game-loop.js`, `datfiles.js`, `plugin-io.js`, `audio-worklet.js`, `app.js`, `style.css`, `launcher.html`, `web.css` | about 400 kB | about 115 kB |
+| `index.html`, `play.js`, `host.js`, `backend.js`, `front-worker.js`, `play-worker.js`, `auberean-worker.js`, `game-loop.js`, `datfiles.js`, `fetchdats.js`, `plugin-io.js`, `audio-worklet.js`, `app.js`, `style.css`, `launcher.html`, `web.css` | about 400 kB | about 115 kB |
 
 No file is larger than 25 MiB, the most Cloudflare Pages serves as one file; the packaging refuses
 a bundle with a larger one. Each game's module is a file of its own for that reason too.
@@ -246,8 +246,10 @@ broken web build is seen before a release.
   - the page's inline styles (`style-src 'self' 'unsafe-inline'`);
   - the cursor images, which the page makes as `data:` URLs (`img-src 'self' data:`);
   - the connections: the server's `wss://` URL and its status address, the plugin sources
-    (Dereth's, `https://plugins.dereth.network`, and any other `https:` host a player adds), and
-    `ws://127.0.0.1:*` for players who use `dereth-web-relay`.
+    (Dereth's, `https://plugins.dereth.network`, and any other `https:` host a player adds), the
+    community archive's host for a data set the player asks the Library to download
+    (`https://g.api.mega.co.nz`, its API, and `https://*.userstorage.mega.co.nz`, its download
+    servers), and `ws://127.0.0.1:*` for players who use `dereth-web-relay`.
 
 `www/_headers` sets these on Cloudflare Pages (other hosts ignore it; set the same headers in
 their own configuration):
@@ -257,7 +259,7 @@ their own configuration):
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
   Cache-Control: no-cache
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss: https: https://plugins.dereth.network ws://127.0.0.1:* ws://localhost:*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss: https: https://plugins.dereth.network https://g.api.mega.co.nz https://*.userstorage.mega.co.nz ws://127.0.0.1:* ws://localhost:*
 ```
 
 ## Browsers
@@ -475,6 +477,31 @@ later files beside it for the interface.
 
 The files are never uploaded, and a deployment never hosts them. The dev runner's `--dat-dir` (and
 `--classic-dat-dir`) stands in for this on a developer's machine, on loopback only.
+
+### Downloading a set for the player
+
+A player without the files can have the Library download a set, as the desktop launcher's does:
+End of Retail (`client_portal.dat`, `client_cell_1.dat` and `client_local_English.dat`), and
+Infiltration's and Launch's pairs (`portal.dat` and `cell.dat`), or Asheron's Call 2's End of
+Retail in Auberean's realm. The front page's worker downloads them from the community's archive,
+the files [ACCPP](https://www.accpp.net/manual-installation) keeps on the file host MEGA, straight
+from the player's browser: nothing passes through the deployment.
+
+- **What it costs.** End of Retail is 508 MB to download and its files take 1.28 GB; until it is
+  unpacked the archive is kept beside them, 1.78 GB at the most. Infiltration is 142 MB to download
+  and 493 MB of files, Launch 45 MB and 145 MB, and Asheron's Call 2's End of Retail 2.3 GB and
+  3.5 GB. The page asks the browser to keep its storage (persistent storage) and checks there is
+  room before it starts.
+- **How.** The worker asks MEGA's API where each archive is, downloads it into `downloads/` in the
+  origin-private file system, decrypts it as it arrives, checks it against the MAC its link
+  carries, unpacks the files into the set's folder (`sets/<id>/`, or `auberean/sets/<id>/`), and
+  checks each by its size and SHA-256 and then by the iterations it reports, as the launcher
+  matches a set. Only then is the set offered; a folder still being written holds `.incomplete`
+  and is passed over. A download that stops goes on from where it stopped the next time.
+- **When it cannot.** MEGA limits how much a connection without an account may download in a
+  while, and a link may die or change. The Library then says what happened and offers the guide to
+  getting the files by hand.
+- **The links** are a list in `core/datfetch/sources.json`, built into the launcher's module.
 
 ## A world's overlay
 

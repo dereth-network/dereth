@@ -22,6 +22,8 @@ dereth-web-store.workspace = true
 dereth-client-net = { workspace = true, default-features = true }
 dereth-client-runtime.workspace = true
 dereth-dat.workspace = true
+# The Library's downloads: the steps of getting a data set from the community's archive.
+dereth-datfetch.workspace = true
 dereth-primitives.workspace = true
 serde_json.workspace = true
 

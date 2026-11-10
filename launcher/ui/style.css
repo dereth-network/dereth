@@ -650,6 +650,13 @@ table.worlds tr.detail td { white-space: normal; padding-top: 0; }
 }
 .bar.sweep > i { width: 33%; animation: sweep 2s linear infinite alternate; }
 @keyframes sweep { from { transform: translateX(0); } to { transform: translateX(200%); } }
+/* A Library kind's buttons, right-aligned under its sets, and what a Download folds out below them:
+   its explainer, or how the download goes. */
+.set-btns { margin: 8px 0 4px; }
+.set-explain { margin: 4px 0 10px; padding: 8px 10px; background: var(--well); }
+.set-explain p { margin: 0 0 6px; }
+.set-explain .bar { margin: 4px 0; }
+.set-explain .sub { margin-bottom: 6px; }
 .status .line { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--text); }
 .status .line span { flex: 1; }
 .status .line.error { color: #ef8a7c; }
@@ -788,7 +795,7 @@ h2.fold-head:hover { color: #fff; }
 /* The Library's folding: a group's heading, and a section within it, smaller and set in. */
 .library-page h2.lib-sub { margin: 10px 0 6px 16px; font-size: 12px; }
 .library-page .lib-sub-body { margin-left: 16px; }
-.library-page .lib-explain { display: flex; align-items: center; gap: 12px; }
+.library-page .lib-explain { display: flex; align-items: center; gap: 12px; margin-left: 16px; }
 .library-page .lib-explain > p { margin-right: auto; }
 .plugin.open { background: rgba(181, 138, 60, 0.12); border-radius: var(--radius-small); }
 .plugin.open > .plugin-row { border-bottom-color: transparent; }

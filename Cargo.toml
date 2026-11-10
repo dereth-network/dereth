@@ -83,6 +83,9 @@ members = [
     # The friends stream: the protocol between an Asheron's Call 2 client and its world's friends
     # service, which the client, the server and the retail client's stand-in friends library speak.
     "core/auberean-friends",
+    # Getting the player a base data set from the community's archive: its public links, the
+    # transfer's decryption and checks, the archives' unpacking and the files' verification.
+    "core/datfetch",
     # dereth/: the products (MIT). `dereth-client`, the 3D client, with its own crates under
     # dereth/client/crates/ (drawing, the scene, the client shell, the modern UI, the device input,
     # the clipboard and the console); the headless client; and the test kit.
@@ -246,6 +249,7 @@ dereth-clipboard = { path = "dereth/client/crates/clipboard" }
 dereth-console = { path = "dereth/client/crates/console" }
 dereth-corpus = { path = "tools/corpus" }
 dereth-dat = { path = "core/dat" }
+dereth-datfetch = { path = "core/datfetch" }
 dereth-desktop = { path = "dereth/desktop" }
 dereth-headless = { path = "dereth/headless" }
 dereth-gltf = { path = "core/gltf" }

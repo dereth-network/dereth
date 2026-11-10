@@ -37,6 +37,8 @@ thread_local! {
     static FRONT: RefCell<Front> = RefCell::new(Front::default());
     /// The front page's plugin sources and the plugins installed from them.
     static SHELF: RefCell<PageShelf> = RefCell::new(PageShelf::default());
+    /// The data set the Library is downloading, while the worker gets it.
+    static GET_DATS: RefCell<Option<crate::getdats::GetDats>> = const { RefCell::new(None) };
 }
 
 /// A file of a data set the worker is reading, by its place in the worker's list.
@@ -681,4 +683,166 @@ pub fn overlay_blocklist() -> Vec<String> {
 #[wasm_bindgen(js_name = setOverlayBlocked)]
 pub fn set_overlay_blocked(key: &str, blocked: bool) -> Result<(), JsError> {
     settings::set_blocked(key, blocked).map_err(js_err)
+}
+
+// ---- the Library's downloads: a data set from the community's archive ------------------------
+
+fn with_get_dats<T>(f: impl FnOnce(&mut crate::getdats::GetDats) -> T) -> Result<T, JsError> {
+    GET_DATS.with(|g| {
+        g.borrow_mut()
+            .as_mut()
+            .map(f)
+            .ok_or_else(|| JsError::new("no data set is being downloaded"))
+    })
+}
+
+/// The data sets on offer, as JSON (`crate::getdats::offers`).
+#[wasm_bindgen(js_name = getDatsOffers)]
+#[must_use]
+pub fn get_dats_offers() -> String {
+    crate::getdats::offers()
+}
+
+/// Begin getting set `id`; `kept[i]` is how many bytes of its archive `i` the worker keeps from a
+/// try before.
+///
+/// # Errors
+/// No such set is on offer.
+#[wasm_bindgen(js_name = getDatsBegin)]
+pub fn get_dats_begin(id: &str, kept: Vec<f64>) -> Result<(), JsError> {
+    let kept: Vec<u64> = kept.into_iter().map(whole).collect();
+    let g = crate::getdats::GetDats::begin(id, &kept).map_err(|e| JsError::new(&e))?;
+    GET_DATS.with(|s| *s.borrow_mut() = Some(g));
+    Ok(())
+}
+
+/// Stop getting the set; what is kept stays kept.
+#[wasm_bindgen(js_name = getDatsEnd)]
+pub fn get_dats_end() {
+    GET_DATS.with(|s| *s.borrow_mut() = None);
+}
+
+/// The next step, as JSON.
+///
+/// # Errors
+/// No set is being got.
+#[wasm_bindgen(js_name = getDatsNext)]
+pub fn get_dats_next() -> Result<String, JsError> {
+    with_get_dats(crate::getdats::GetDats::step)
+}
+
+/// How far it is, as JSON; `null` when no set is being got.
+#[wasm_bindgen(js_name = getDatsProgress)]
+#[must_use]
+pub fn get_dats_progress() -> Option<String> {
+    with_get_dats(|g| g.progress()).ok()
+}
+
+/// The archive host's answer to an `api` step: its body, or the error that stopped it.
+///
+/// # Errors
+/// No set is being got.
+#[wasm_bindgen(js_name = getDatsApiReply)]
+pub fn get_dats_api_reply(body: Option<String>, error: Option<String>) -> Result<(), JsError> {
+    with_get_dats(|g| g.api_reply(body.as_deref(), error.as_deref()))
+}
+
+/// What a connection of a `download` step does next, as JSON.
+///
+/// # Errors
+/// No set is being got.
+#[wasm_bindgen(js_name = getDatsNextRange)]
+pub fn get_dats_next_range() -> Result<String, JsError> {
+    with_get_dats(crate::getdats::GetDats::next_range)
+}
+
+/// A piece of range `id`'s response, decrypted in place. Answers what to write in the archive now,
+/// each `[offset, bytes]`, or `null` to stop this connection.
+///
+/// # Errors
+/// No set is being got.
+#[wasm_bindgen(js_name = getDatsRangePiece)]
+pub fn get_dats_range_piece(id: u32, bytes: &mut [u8]) -> Result<Option<js_sys::Array>, JsError> {
+    let id = usize::try_from(id).unwrap_or(usize::MAX);
+    let writes = with_get_dats(|g| g.range_piece(id, bytes))?;
+    Ok(writes.map(|writes| {
+        let out = js_sys::Array::new();
+        for (offset, bytes) in writes {
+            let w = js_sys::Array::new();
+            // An archive is under 2^53 bytes, so its offset is exact as a JavaScript number.
+            #[allow(clippy::cast_precision_loss)]
+            w.push(&JsValue::from_f64(offset as f64));
+            w.push(&js_sys::Uint8Array::from(bytes.as_slice()).into());
+            out.push(&w);
+        }
+        out
+    }))
+}
+
+/// Range `id` ended: the HTTP status it answered (200 when it ran to its end), or the error that
+/// stopped it.
+///
+/// # Errors
+/// No set is being got.
+#[wasm_bindgen(js_name = getDatsRangeEnded)]
+pub fn get_dats_range_ended(id: u32, status: u16, error: Option<String>) -> Result<(), JsError> {
+    let id = usize::try_from(id).unwrap_or(usize::MAX);
+    with_get_dats(|g| g.range_ended(id, status, error.as_deref()))
+}
+
+/// The bytes a `read` step asked for. Answers what to write now: each `[file, offset, bytes]`.
+///
+/// # Errors
+/// No set is being got.
+#[wasm_bindgen(js_name = getDatsRead)]
+pub fn get_dats_read(bytes: &[u8]) -> Result<js_sys::Array, JsError> {
+    let writes = with_get_dats(|g| g.read(bytes))?;
+    let out = js_sys::Array::new();
+    for (file, offset, bytes) in writes {
+        let w = js_sys::Array::new();
+        w.push(&JsValue::from_str(&file));
+        #[allow(clippy::cast_precision_loss)]
+        w.push(&JsValue::from_f64(offset as f64));
+        w.push(&js_sys::Uint8Array::from(bytes.as_slice()).into());
+        out.push(&w);
+    }
+    Ok(out)
+}
+
+/// A `prepare` or `remove` step is done.
+///
+/// # Errors
+/// No set is being got.
+#[wasm_bindgen(js_name = getDatsDone)]
+pub fn get_dats_done() -> Result<(), JsError> {
+    with_get_dats(crate::getdats::GetDats::done)
+}
+
+/// The last check of a set got whole: its files (`names[i]`, of `sizes[i]` bytes, read through the
+/// worker's probe file `i`) report the iterations the set is listed with. Answers why not, or
+/// nothing.
+///
+/// # Errors
+/// No set is being got.
+#[wasm_bindgen(js_name = getDatsCheck)]
+pub fn get_dats_check(names: Vec<String>, sizes: Vec<f64>) -> Result<Option<String>, JsError> {
+    let files = names
+        .into_iter()
+        .zip(sizes)
+        .enumerate()
+        .map(|(i, (name, size))| {
+            let storage: Box<dyn dereth_dat::DatStorage> =
+                Box::new(ProbeFile(u32::try_from(i).unwrap_or(u32::MAX)));
+            (name, whole(size), storage)
+        })
+        .collect();
+    with_get_dats(|g| g.check(files).err())
+}
+
+/// The answer to the archive host's proof-of-work challenge (its `X-Hashcash` header), to send back
+/// in the same header; `None` for a challenge it does not understand.
+#[wasm_bindgen(js_name = getDatsHashcash)]
+#[must_use]
+pub fn get_dats_hashcash(challenge: &str) -> Option<String> {
+    dereth_datfetch::mega::hashcash(challenge)
 }

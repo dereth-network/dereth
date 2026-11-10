@@ -8,7 +8,8 @@
 //! **Depends on** `dereth-launch` (the launcher's logic), `dereth-web-store` (the client's own
 //! files and a world's overlay in browser storage), `dereth-client-net` and
 //! `dereth-client-runtime` (how the client names a world's overlay, and reads its blocklist),
-//! `dereth-dat`, `dereth-primitives` and `serde_json`. The WebAssembly build adds `wasm-bindgen`
+//! `dereth-dat`, `dereth-primitives` and `serde_json`, and `dereth-datfetch` for the Library's
+//! downloads ([`getdats`]). The WebAssembly build adds `wasm-bindgen`
 //! and `js-sys`. **Used by** the worker under `dereth/web/www/`, which loads it.
 //!
 //! **Must never** hold either game: the game's own crates stay out of its tree, which is what keeps
@@ -18,6 +19,7 @@
 //! platform-neutral and tested on the host.
 
 pub mod front;
+pub mod getdats;
 pub mod plugin_sources;
 pub mod server_url;
 

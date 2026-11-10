@@ -142,18 +142,9 @@ export function startHost({ call, start, params, log, scale }) {
       'foot.version': (version) => `Dereth ${version}`,
       'worlds.unavailable': (error) => `${error} Add a world by its address.`,
       'worlds.stale': (error, from) => `${error} Showing the list from ${from}.`,
-      'library.no-modern': 'No Modern data files yet. Add the client_*.dat files.',
-      'library.no-classic': 'No Classic data files yet. Add portal.dat and cell.dat.',
-      'library.no-auberean': 'No data sets yet. Add portal.dat, cell_1.dat and local_English.dat, and highres.dat when you have it.',
+      'library.add': 'Add Files',
       'find.none': 'No data files among these.',
       'accounts.note': 'Your browser\'s password manager keeps the passwords.',
-      'first-run.then': 'Then come back and choose the files.',
-      'first-run.choose': 'Choose files',
-      'first-run.never': 'We never download or host these files. They stay in this browser.',
-      'first-run.other': 'Choose other files',
-      'first-run.yes': 'Yes - choose the files',
-      'first-run.no': 'No - how do I get them?',
-      'first-run.why': 'The Dereth client needs the game\'s data (.dat) files, which we cannot ship. They are read in this browser and never uploaded.',
     },
 
     // A world's address: a browser takes what it can connect to.
@@ -323,12 +314,9 @@ export function startHost({ call, start, params, log, scale }) {
     const { ui } = page;
     if (what === 'world' && arg) return decodeURIComponent(arg);
     if (what === 'worlds' && arg) ui.expanded = decodeURIComponent(arg);
-    if (what === 'first-run') {
-      ui.firstRun.step = arg === 'guide' ? 'guide' : 'ask';
-      ui.firstRun.dismissed = false;
-    }
+    if (what === 'first-run') ui.firstRun.dismissed = { dereth: false, auberean: false };
     if (what === 'interface') ui.iface.dismissed = false;
-    if (what !== 'first-run' && what !== 'interface') ui.firstRun.dismissed = true;
+    if (what !== 'first-run' && what !== 'interface') ui.firstRun.dismissed = { dereth: true, auberean: true };
     ui.screen = what;
     return null;
   }
@@ -338,12 +326,12 @@ export function startHost({ call, start, params, log, scale }) {
     window.launcherHost = host;
     await loadPage();
     // The dev runner's files need no first start.
-    if (params.get('dats') === 'http') page.ui.firstRun.dismissed = true;
+    if (params.get('dats') === 'http') page.ui.firstRun.dismissed = { dereth: true, auberean: true };
     const linked = await backend.begin().catch((e) => {
       log(`front page: ${e?.message ?? e}`);
       return null;
     });
-    if (linked) page.ui.firstRun.dismissed = true;
+    if (linked) page.ui.firstRun.dismissed = { dereth: true, auberean: true };
     const direct = location.hash ? jump() : null;
     // A linked world opens in its own game's realm, from the page's first look.
     const world = linked ?? direct;

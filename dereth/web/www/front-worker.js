@@ -9,6 +9,7 @@ import {
   FULL, NAMES, holdOverlay, listOverlays, releaseFiles, removeOverlay, removeSet, removeSetFiles,
   scanAubereanSets, scanSets, storeAubereanSet, storeSet,
 } from './datfiles.js';
+import * as getDats from './fetchdats.js';
 
 const log = (text) => postMessage({ log: String(text) });
 
@@ -282,6 +283,11 @@ const calls = {
   aubereanSetProblem: (names) => dereth.frontAubereanSetProblem(names),
   storeAubereanSet: (name, files) => storeAubereanSet(dereth, name, files),
   aubereanCheck: () => JSON.parse(dereth.frontAubereanCheck()),
+  // The Library's downloads: a data set from the community's archive (fetchdats.js says how).
+  getDatsOffers: () => getDats.offers(dereth),
+  getDatsStart: (id) => getDats.start(dereth, id),
+  getDatsStatus: () => getDats.status(),
+  getDatsCancel: () => getDats.cancel(),
   plugins: () => JSON.parse(dereth.frontPlugins()),
   pluginRefresh: () => inTurn(refreshPlugins),
   pluginAddSource: (url) => inTurn(() => addSource(url)),

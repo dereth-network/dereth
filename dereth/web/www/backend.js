@@ -60,6 +60,8 @@ export function webBackend({ call, start, params, log, scale }) {
     playing: false,
     // The last snapshot, the answer while a client runs.
     snapshot: null,
+    // The Library's downloads: the sets on offer, and how the last one went until it is cleared.
+    downloads: { offers: [], status: null, guide: '' },
   };
 
   const save = async () => keep(STATE_KEY, await call('state'));
@@ -192,6 +194,7 @@ export function webBackend({ call, start, params, log, scale }) {
       list_error: web.list.error,
       list_fetched_at: web.list.fetched,
       plugins: { ...(await call('plugins')), local: web.kept.added },
+      downloads: web.downloads,
       interface: await call('interface'),
       running: [],
       job: web.job,
@@ -282,6 +285,14 @@ export function webBackend({ call, start, params, log, scale }) {
       delete web.connect[`${slug}#used`];
       keep(CONNECT_KEY, web.connect);
       await save();
+    },
+    // The Library's downloads, as the desktop launcher's: one at a time, in the worker.
+    get_dats: async ({ id }) => getDats(id),
+    cancel_get_dats: async () => {
+      await call('getDatsCancel');
+    },
+    clear_get_dats: () => {
+      if (!going(web.downloads.status)) web.downloads.status = null;
     },
     set_default_set: async ({ id }) => {
       await call('setDefaultSet', id);
@@ -537,6 +548,47 @@ export function webBackend({ call, start, params, log, scale }) {
 
   // The sets, the world updates and the plugins kept in the browser's private storage, how much of
   // the browser's allowance they use, and whether the browser keeps them.
+  // ---- the Library's downloads ----------------------------------------------------------------
+
+  const going = (s) => !!s && !['done', 'failed', 'cancelled', 'idle'].includes(s.stage);
+  // The worker's status, as the desktop launcher's says it.
+  const shownStatus = (s) => (s.stage === 'idle' ? null : {
+    id: s.id, label: s.label, stage: s.stage, archive: s.archive ?? 1, archives: s.archives ?? 1,
+    done: s.done ?? 0, total: s.total ?? 0, ...(s.message ? { message: s.message } : {}),
+  });
+
+  async function readOffers() {
+    try {
+      const o = await call('getDatsOffers');
+      web.downloads.offers = o.sets;
+      web.downloads.guide = o.guide;
+    } catch (e) {
+      log(`the archive's sets: ${e?.message ?? e}`);
+    }
+  }
+
+  // Start downloading set `id`, and follow it in the worker until it ends; a set that came in
+  // whole joins the Library.
+  async function getDats(id) {
+    if (going(web.downloads.status)) throw new Error('Another download is still going.');
+    await persist();
+    web.downloads.status = shownStatus(await call('getDatsStart', id));
+    (async () => {
+      while (going(web.downloads.status)) {
+        await new Promise((resolve) => { setTimeout(resolve, 500); });
+        try {
+          web.downloads.status = shownStatus(await call('getDatsStatus'));
+        } catch {
+          // The worker is busy with a play; ask again.
+        }
+      }
+      if (web.downloads.status?.stage === 'done') {
+        await save();
+        await readKept();
+      }
+    })();
+  }
+
   async function readKept() {
     const st = await state();
     const sets = await call('scanSets', st.dat_sets.map((s) => s.path), false);
@@ -548,6 +600,7 @@ export function webBackend({ call, start, params, log, scale }) {
       storage: await call('storage'),
       added: await call('addedPlugins'),
     };
+    await readOffers();
   }
 
   // Ask the browser to keep the page's files: only a page the player acted on may ask.

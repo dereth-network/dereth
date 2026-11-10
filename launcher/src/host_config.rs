@@ -8,9 +8,9 @@
 //! its era. A world whose configuration names a world database of its own keeps it.
 //!
 //! The era also chooses the game data the world is drawn from, by the client's own rule
-//! ([`dereth_launch::eras::required_set`]): Launch plays the 1999 pair, another era before Throne
-//! of Destiny the Classic files, any other the Modern ones. So the world and the players' clients
-//! never disagree.
+//! ([`dereth_launch::eras::required_set`]): an era before Throne of Destiny the Classic pair whose
+//! iterations are the era's (Launch the 1999 pair, Infiltration one from after September 2004),
+//! any other the Modern files. So the world, its server and the players' clients never disagree.
 
 use dereth_launch::datset::{self, DatRole, SetKind};
 use serde::{Deserialize, Serialize};
@@ -428,27 +428,26 @@ impl Federation {
 }
 
 /// Whether the folder `dats` holds the data files a world of `era` is drawn from, by the client's
-/// rule: the Classic pair (`portal.dat` and `cell.dat`) for an era before Throne of Destiny, the
-/// Modern files for any other.
+/// rule: for an era before Throne of Destiny the Classic pair (`portal.dat` and `cell.dat`) whose
+/// iterations the era's server takes ([`dereth_primitives::EraId::expected_dats`]), the Modern
+/// files for any other.
 ///
 /// # Errors
 /// What to choose instead, in words for a person.
 pub fn check_game_data(era: &str, dats: &Path) -> Result<(), String> {
     match dereth_launch::eras::required_set(Some(era)) {
-        SetKind::Original => {
+        SetKind::Classic => {
             let files = datset::scan_classic_dir(dats);
-            if datset::is_classic_pair(&files) && SetKind::of_pair(&files) == SetKind::Original {
+            let want = era.trim().to_ascii_lowercase();
+            if datset::is_classic_pair(&files)
+                && datset::pair_era(&files).is_some_and(|e| e.name() == want)
+            {
                 Ok(())
-            } else {
+            } else if want == "launch" {
                 Err(format!(
                     "{} is drawn from the 1999 data files: choose a folder whose portal.dat and cell.dat are from 1999.",
                     dereth_launch::eras::label(Some(era))
                 ))
-            }
-        }
-        SetKind::Classic => {
-            if datset::is_classic_pair(&datset::scan_classic_dir(dats)) {
-                Ok(())
             } else {
                 Err(format!(
                     "{} is drawn on the land from before Throne of Destiny: choose Classic data files (portal.dat and cell.dat) for it.",
@@ -1484,9 +1483,10 @@ mod tests {
         check_game_data("launch", &original).unwrap();
         let later = check_game_data("launch", &classic).unwrap_err();
         assert!(later.contains("1999 data files"), "{later}");
+        let older = check_game_data("infiltration", &original).unwrap_err();
         assert!(
-            check_game_data("infiltration", &original).is_ok(),
-            "a pair is a pair"
+            older.contains("Classic data files"),
+            "the server takes no 1999 pair for Infiltration: {older}"
         );
     }
 

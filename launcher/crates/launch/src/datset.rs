@@ -1,11 +1,12 @@
-//! Dat sets: a folder of the game's data files, Modern, Classic or Original ([`SetKind`]), or
-//! Asheron's Call 2's.
+//! Dat sets: a folder of the game's data files, Modern or Classic ([`SetKind`]), or Asheron's
+//! Call 2's.
 //!
 //! A Modern set is the four later files, identified by what a world compares. A Classic set is the
-//! pair from before Throne of Destiny, `portal.dat` and `cell.dat`, known by being the pair; an
-//! Original set is the same pair from 1999, known by the iterations its files carry. One folder
-//! may hold a Modern set beside either: the names never collide, and the launcher lists them as
-//! two sets. An Asheron's Call 2 set is that game's four files, read as
+//! pair from before Throne of Destiny, `portal.dat` and `cell.dat`, known by being the pair; which
+//! year's pair it is, and so which era's world it can draw ([`pair_era`]), is told by the
+//! iterations its files carry: the 1999 pair is Launch's, a pair from after September 2004
+//! Infiltration's. One folder may hold a Modern set beside a Classic one: the names never collide,
+//! and the launcher lists them as two sets. An Asheron's Call 2 set is that game's four files, read as
 //! [`crate::auberean::scan_dir`] reads them, in the same roles.
 //!
 //! **Identity is iterations, not file hashes.** Two correct end-of-retail sets can hash differently:
@@ -17,6 +18,8 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
+
+use dereth_primitives::EraId;
 
 use crate::dat::{read_dat, read_dat_from, ContainerEra, DatError, DatInfo, DatKind};
 
@@ -35,7 +38,7 @@ pub struct Iterations {
 }
 
 /// Which of the four files.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DatRole {
     Portal,
@@ -213,44 +216,42 @@ pub enum SetKind {
     Modern,
     /// The files from before Throne of Destiny, `portal.dat` and `cell.dat`, which always come as
     /// a pair: the world of an era before it, and the classic interface and looks for any other.
+    /// Any year's pair, the 1999 one included: [`pair_era`] tells them apart. A set saved when the
+    /// 1999 pair was a kind of its own (`original`) is one of these.
+    #[serde(alias = "original")]
     Classic,
     /// Asheron's Call 2's files: `portal.dat`, `cell_1.dat`, `local_English.dat` and
     /// `highres.dat`, in the same four roles. Kept in Auberean's realm's own library, never offered
     /// to a world of Asheron's Call.
     Auberean,
-    /// The same pair as the game launched with it in 1999 (`portal.dat` and `cell.dat` whose
-    /// iterations are the 1999 files'): the world of the Launch era.
-    Original,
 }
 
 impl SetKind {
-    /// Whether the set is a `portal.dat` and `cell.dat` pair: Classic or Original.
+    /// Whether the set is a `portal.dat` and `cell.dat` pair.
     #[must_use]
     pub fn is_pair(self) -> bool {
-        matches!(self, SetKind::Classic | SetKind::Original)
+        self == SetKind::Classic
     }
+}
 
-    /// The kind of a whole pair whose files report `files`: Original when they are the 1999
-    /// files, Classic otherwise.
-    #[must_use]
-    pub fn of_pair(files: &[DatFileState]) -> SetKind {
-        let it = |role: DatRole| {
-            files
-                .iter()
-                .find(|f| f.role == role)
-                .and_then(|f| f.iterations)
-        };
-        let launch = dereth_primitives::EraId::Launch.expected_dats();
-        if launch.admits(
+/// The era whose world a pair reporting `files` is the files of, by their iterations
+/// ([`EraId::expected_dats`]): Launch for the 1999 pair, Infiltration for one from after
+/// September 2004. `None` for another year's pair, or a pair whose files tell nothing.
+#[must_use]
+pub fn pair_era(files: &[DatFileState]) -> Option<EraId> {
+    let it = |role: DatRole| {
+        files
+            .iter()
+            .find(|f| f.role == role)
+            .and_then(|f| f.iterations)
+    };
+    [EraId::Launch, EraId::Infiltration].into_iter().find(|e| {
+        e.expected_dats().admits(
             ContainerEra::Classic,
             it(DatRole::Portal),
             it(DatRole::Cell),
-        ) {
-            SetKind::Original
-        } else {
-            SetKind::Classic
-        }
-    }
+        )
+    })
 }
 
 /// The two files of a Classic set, by the role each plays: the portal file and the cell file.
@@ -262,7 +263,8 @@ pub const CLASSIC_FILES: [(DatRole, &str); 2] =
 pub struct DatSet {
     pub id: String,
     pub path: PathBuf,
-    /// Modern, Classic or Original. Each kind has its own default ([`DatOrigin::Shared`]).
+    /// Modern or Classic (or Asheron's Call 2's). Each kind has its own default
+    /// ([`DatOrigin::Shared`]).
     #[serde(default)]
     pub kind: SetKind,
     pub origin: DatOrigin,
@@ -296,6 +298,16 @@ impl DatSet {
         self.files.iter().map(|f| f.size).sum()
     }
 
+    /// For a Classic set, the era whose world its pair is ([`pair_era`]).
+    #[must_use]
+    pub fn pair_era(&self) -> Option<EraId> {
+        if self.kind.is_pair() {
+            pair_era(&self.files)
+        } else {
+            None
+        }
+    }
+
     /// The world this set belongs to, if it is a private copy.
     pub fn owner_world(&self) -> Option<&str> {
         match &self.origin {
@@ -312,7 +324,7 @@ impl DatSet {
     /// world wrote to the set; `now` is recorded as the time it did.
     pub fn refresh(&mut self, now: u64) -> bool {
         match self.kind {
-            SetKind::Classic | SetKind::Original => {
+            SetKind::Classic => {
                 self.files = scan_classic_dir(&self.path);
                 return false;
             }
@@ -476,7 +488,7 @@ fn reading(
 pub fn role_of(kind: SetKind, name: &str) -> Option<DatRole> {
     let lower = name.to_ascii_lowercase();
     match kind {
-        SetKind::Classic | SetKind::Original => CLASSIC_FILES
+        SetKind::Classic => CLASSIC_FILES
             .iter()
             .find(|(_, n)| *n == lower)
             .map(|(r, _)| *r),
@@ -506,7 +518,7 @@ pub fn file_in_storage(
     let role = role_of(kind, name)?;
     let era = match kind {
         SetKind::Modern => ContainerEra::Modern,
-        SetKind::Classic | SetKind::Original => ContainerEra::Classic,
+        SetKind::Classic => ContainerEra::Classic,
         SetKind::Auberean => return crate::auberean::file_in_storage(name, size, storage),
     };
     let (iterations, error) = reading(role, era, read_dat_from(name, storage));
@@ -535,6 +547,30 @@ fn kind_matches(role: DatRole, kind: DatKind) -> bool {
 pub(crate) mod tests {
     use super::*;
     use crate::dat::testdat::eor;
+
+    /// A set saved when the 1999 pair was a kind of its own reads back as a Classic set, and its
+    /// pair still reads as Launch's by its iterations.
+    #[test]
+    fn a_set_saved_as_the_1999_kind_reads_as_a_classic_set_of_launchs_pair() {
+        let d = tmp("datset-original");
+        crate::testing::write_classic_set(&d, 105, 67);
+        let saved = serde_json::json!({
+            "id": "o1",
+            "path": d,
+            "kind": "original",
+            "origin": { "kind": "unassigned" },
+            "files": scan_classic_dir(&d),
+        });
+        let set: DatSet = serde_json::from_value(saved).unwrap();
+        assert_eq!(set.kind, SetKind::Classic);
+        assert_eq!(set.pair_era(), Some(EraId::Launch));
+        assert_eq!(serde_json::to_value(set.kind).unwrap(), "classic");
+        crate::testing::write_classic_set(&d, 2112, 1593);
+        assert_eq!(pair_era(&scan_classic_dir(&d)), Some(EraId::Infiltration));
+        crate::testing::write_classic_set(&d, 124, 108);
+        assert_eq!(pair_era(&scan_classic_dir(&d)), None, "August 2000");
+        let _ = std::fs::remove_dir_all(&d);
+    }
 
     /// A folder holding a synthetic set with the given counts.
     pub fn fake_set(dir: &Path, it: Iterations) {

@@ -19,6 +19,7 @@ mod client_bundle;
 mod component_archive;
 mod components;
 mod discord;
+mod downloads;
 mod host_config;
 mod host_publication;
 mod host_runtime;
@@ -411,6 +412,22 @@ async fn pick_folder(
 #[tauri::command]
 fn add_folder(b: State<'_, Shared>, find: FolderFind) {
     lock(&b).add_folder(find);
+}
+
+/// Download a data set from the community's archive into the library.
+#[tauri::command]
+fn get_dats(b: State<'_, Shared>, id: String) -> Cmd<()> {
+    Backend::get_dats(b.inner(), std::sync::Arc::new(downloads::Https::new()), &id)
+}
+
+#[tauri::command]
+fn cancel_get_dats(b: State<'_, Shared>) {
+    lock(&b).cancel_get_dats();
+}
+
+#[tauri::command]
+fn clear_get_dats(b: State<'_, Shared>) {
+    lock(&b).clear_get_dats();
 }
 
 #[tauri::command]
@@ -1097,6 +1114,9 @@ fn main() {
             add_art_source,
             remove_art_source,
             install_art_pack,
+            get_dats,
+            cancel_get_dats,
+            clear_get_dats,
             update_art_pack,
             remove_art_pack,
             set_art_pack_on,
@@ -1245,7 +1265,7 @@ mod tests {
         // One Library for both realms, each with its own retail client and data sets.
         let library = page_function("library");
         assert!(library.contains("const r = ac2Realm ? s.auberean?.retail : s.retail;"));
-        assert!(library.contains("The *.dat files from an install."));
+        assert!(library.contains(r#"kindBody("auberean", s.auberean?.dat_sets ?? []"#));
         // Play lists the realm's own combinations, and plays them with the realm's clients.
         assert!(page_function("homeEntries").contains("inRealm(worldBy(e.world_slug))"));
         assert!(page_function("home").contains("clientOf(sel.client, game)"));
@@ -1279,12 +1299,14 @@ mod tests {
         assert!(page.contains(
             r#"serverBy(edit.id)?.game === "auberean" ? "save_yalain_host" : "save_host""#
         ));
+        // Only the interface's question is Dereth's; each realm has its first run.
         let pull = page_function("pull");
         assert_eq!(
             pull.matches(r#"ui.realm === "dereth" && "#).count(),
-            2,
+            1,
             "{pull}"
         );
+        assert!(pull.contains("!ui.firstRun.dismissed[ui.realm]"), "{pull}");
         // A world's page says nothing of its friends service: the launch asks it, and that decides
         // the clients' friends options.
         assert!(!page.contains("probe_auberean_friends"));
@@ -1414,7 +1436,6 @@ mod tests {
             "\"sets\"",
             "\"sets.modern\"",
             "\"sets.classic\"",
-            "\"sets.original\"",
             "\"art\"",
             "\"art.installed\"",
             "\"art.available\"",
@@ -1480,6 +1501,48 @@ mod tests {
     }
 
     /// The text of the page's function `name`, up to the next top-level function.
+    /// Each realm's first run says what its client loads and opens the Library; the Library gives
+    /// each kind of set its own lines, Add Folder and a Download for each set on offer, whose
+    /// explainer folds out under them, and AC1's retail row points at the community's guide.
+    #[test]
+    fn the_first_run_opens_the_library_where_each_kind_of_set_can_be_added_or_downloaded() {
+        let first = page_function("firstRun");
+        assert!(first.contains("loads original Asheron's Call${ac2Realm ? \" 2\" : \"\"} data files. Let's get you set up..."));
+        assert!(first.contains(r#"data-act="fr-library">Open Library"#));
+        let library = page_function("library");
+        for line in [
+            "The data files from a modern, post-ToD install.",
+            "No modern data files yet.",
+            "The data files from a pre-ToD install.",
+            "No classic data files yet.",
+            "No data files yet.",
+            "No retail client chosen. Show me where",
+        ] {
+            assert!(library.contains(line), "{line}");
+        }
+        assert!(!library.contains("1999"), "one Classic kind");
+        assert!(library.contains(r#"${ac2Realm ? "" : `<button class="btn" data-url="${GUIDE}">Open Community Guide</button>`}"#));
+        let buttons = page_function("setButtons");
+        assert!(buttons.contains(r#"say("library.add", "Add Folder")"#));
+        assert!(buttons.contains(">Download ${esc(o.label)}</button>"));
+        assert!(buttons.contains("Dereth Network will try to fetch a community archive of the requested data files and verify them."));
+        assert!(buttons
+            .contains(">Download</button><button class=\"btn\" data-get-never>Nevermind</button>"));
+        // Every set the archive offers has its kind's place, in both realms.
+        let offers = dereth_launch::downloads::offers(&dereth_datfetch::Catalogue::built_in());
+        let labels: Vec<_> = offers.iter().map(|o| (o.kind, o.label.as_str())).collect();
+        use dereth_launch::SetKind::{Auberean, Classic, Modern};
+        assert_eq!(
+            labels,
+            [
+                (Modern, "End of Retail"),
+                (Classic, "Infiltration"),
+                (Classic, "Launch"),
+                (Auberean, "End of Retail")
+            ]
+        );
+    }
+
     fn page_function(name: &str) -> &'static str {
         let page = include_str!("../ui/app.js");
         let at = page

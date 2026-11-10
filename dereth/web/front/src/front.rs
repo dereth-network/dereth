@@ -647,9 +647,7 @@ impl Front {
             }
         }
         let mut ids = Vec::new();
-        // A pair from 1999 is its own kind, which a Launch world needs.
-        let pair = SetKind::of_pair(&classic);
-        for (kind, files) in [(SetKind::Modern, modern), (pair, classic)] {
+        for (kind, files) in [(SetKind::Modern, modern), (SetKind::Classic, classic)] {
             let existing = self.state.dat_sets.iter().position(|s| {
                 s.path == path && (s.kind == kind || s.kind.is_pair() && kind.is_pair())
             });

@@ -45,7 +45,10 @@ const ui = {
   folded: { favorites: false, custom: false, online: false, offline: true },   // the Worlds list's closed sections
   addServer: null,         // the Worlds list's "add a world" form, while it is open: { name, host, port, emulator, ruleset, error }
   world: null,             // the world page: { view, form, notice }
-  firstRun: { step: "ask", find: null, dismissed: false },
+  // The first start of each realm, until it is left for the Library or the realm has data files.
+  firstRun: { dismissed: { dereth: false, auberean: false } },
+  // The set on offer whose Download explainer is folded out in the Library.
+  libGet: null,
   // The interface question: the interface picked so far (null: the one already saved, else the
   // first offered), whether it was opened from the Library, and whether the first start's question
   // was set aside after its answer could not be saved.
@@ -130,11 +133,27 @@ function installName(i) {
   if (i.version) return `${family} ${i.version}`;
   return i.kind === "dereth" ? family : `${family} (unknown build)`;
 }
+// Whether `n` lies in the range `[lo, hi]`, both ends included.
+const inRange = (r, n) => n != null && n >= r[0] && n <= r[1];
+// The era whose world a Classic pair is, by its files' iterations (the backend's table of eras):
+// Launch for the 1999 pair, Infiltration for one from after September 2004; `null` for another
+// year's.
+function pairEra(s) {
+  const it = setIterations(s);
+  return (ui.snap?.eras ?? []).find((e) => e.pair && inRange(e.pair.portal, it.portal) && inRange(e.pair.cell, it.cell)) ?? null;
+}
+// A Classic pair's name: the era it is the files of, else Classic.
+const pairWord = (s) => pairEra(s)?.label.replace(/ \(.*\)$/, "") ?? "Classic";
+// Whether a world is drawn from Launch's pair, the 1999 files, as the backend's rule says: its era
+// is Launch, or it names that pair as its base.
+const playsLaunchPair = (world) => world.world_base === "original" || (world.world_base !== "modern" && world.era === "launch");
+// Whether the Classic set `s` is a pair a world of era `era` is drawn from.
+const pairSuits = (era, s) => !era?.pair || pairEra(s)?.name === era.name;
 function setName(s) {
   if (!s) return "No data files";
-  if (s.kind === "classic" || s.kind === "original") {
+  if (s.kind === "classic") {
     const it = setIterations(s);
-    return `${s.kind === "original" ? "1999" : "Classic"}  ${it.portal ?? "-"}/${it.cell ?? "-"}`;
+    return `${pairWord(s)}  ${it.portal ?? "-"}/${it.cell ?? "-"}`;
   }
   if (s.kind === "auberean") {
     const it = setIterations(s);
@@ -226,8 +245,12 @@ async function pull() {
     console.error(e);
     return;
   }
-  // A count's age grows every second; only its look is drawn, so only its look is compared.
-  const json = JSON.stringify(snap, (key, value) => (key === "players_age" ? countLook(value) : value));
+  // A count's age grows every second; only its look is drawn, so only its look is compared. A
+  // download's bytes change on every pull while it goes: its own line is redrawn for them, not the
+  // page, so a page being scrolled is left alone.
+  const status = snap.downloads?.status;
+  const look = status ? { ...snap, downloads: { ...snap.downloads, status: { ...status, done: 0, total: 0 } } } : snap;
+  const json = JSON.stringify(look, (key, value) => (key === "players_age" ? countLook(value) : value));
   if (!ui.snap) openRealm(snap);
   ui.snap = snap;
   // The first start asks which interface the Dereth client plays in, before anything else, while
@@ -237,12 +260,16 @@ async function pull() {
     ui.iface = { ...ui.iface, pick: null, fromLibrary: false };
     lastSnap = "";
   }
-  if (ui.realm === "dereth" && ui.screen === "home" && snap.state.dat_sets.length === 0 && !ui.firstRun.dismissed) {
+  const realmSets = ui.realm === "auberean" ? snap.state.auberean?.dat_sets ?? [] : snap.state.dat_sets;
+  if (ui.screen === "home" && realmSets.length === 0 && !ui.firstRun.dismissed[ui.realm]) {
     ui.screen = "first-run";
     lastSnap = "";
   }
   if (snap.join_waiting) await takeJoin();
-  if (json === lastSnap) return;
+  if (json === lastSnap) {
+    paintDownload();
+    return;
+  }
   lastSnap = json;
   render();
 }
@@ -783,8 +810,8 @@ function freePorts(game = "dereth") {
   return { port };
 }
 
-// The Library's data sets of one kind, `modern`, `classic` or `original` (the 1999 pair), which a
-// world of an era that plays that kind may be given; `auberean`, Auberean's realm's own.
+// The Library's data sets of one kind, `modern` or `classic` (any year's pair), which a world of an
+// era that plays that kind may be given; `auberean`, Auberean's realm's own.
 const librarySets = (kind) => (kind === "auberean" ? ui.snap.state.auberean?.dat_sets ?? [] : ui.snap.state.dat_sets ?? [])
   .filter((s) => (s.kind ?? "modern") === kind && s.origin.kind !== "world");
 // Auberean's realm's default data set: the one its programs are given unless another is chosen.
@@ -845,15 +872,16 @@ function newServerDraft() {
 }
 
 // The game data a world plays: one of the Library's sets of the kind its era is drawn from, as
-// the client's rule says (`needs`): the 1999 pair for Launch, Classic for another era before Throne
-// of Destiny, else Modern. A Yalain world (`game` auberean) plays one of Auberean's realm's sets.
+// the client's rule says (`needs`): for an era before Throne of Destiny the Classic pair whose
+// iterations are the era's (Launch the 1999 pair), else Modern. A Yalain world (`game` auberean)
+// plays one of Auberean's realm's sets.
 function datsField(id, s, locked, game = "dereth") {
   const era = eraOf(s.era);
   const kind = game === "auberean" ? "auberean" : era?.needs ?? "modern";
-  const sets = librarySets(kind);
+  const sets = librarySets(kind).filter((set) => kind !== "classic" || pairSuits(era, set));
   // Only when there is nothing to choose does the screen say anything: which files to add.
   const missing = kind === "auberean" ? "You have no Asheron's Call 2 game files yet. Add them in the Library."
-    : kind === "original" ? `${esc((era?.label ?? "This era").replace(/ \(.*\)$/, ""))} needs the 1999 game files. Add them in the Library.`
+    : kind === "classic" && era?.name === "launch" ? `${esc(era.label.replace(/ \(.*\)$/, ""))} needs the 1999 game files. Add them in the Library.`
     : kind === "classic" ? `${esc((era?.label ?? "This era").replace(/ \(.*\)$/, ""))} needs the 2005 game files. Add them in the Library.`
     : "You have no end-of-retail game files yet. Add them in the Library.";
   if (!sets.length && !locked) return `<div class="pair"><span class="warn small">${missing}</span><button class="btn" data-go="library">Library</button></div>`;
@@ -1843,7 +1871,9 @@ async function openWorld(slug, notice, preset) {
   // kind, where a world's own copy may be the only one) the first there is.
   const fallback = sets.find((s) => s.origin.kind === "shared") ?? sets[0];
   const set = [preset?.dat_set_id, p.dat_set_id].find(validSet) ?? fallback?.id ?? more.find((s) => s.fallback)?.id ?? null;
-  const classicDefault = view.classic_sets.find((s) => s.origin.kind === "shared");
+  // The Classic sets come default first; a world drawn from a pair takes the first there is.
+  const classicDefault = view.classic_sets.find((s) => s.origin.kind === "shared")
+    ?? (requiredKind(view.world) === "classic" ? view.classic_sets[0] : null);
   const classic = [preset?.classic_set_id, p.classic_set_id].find(validClassic) ?? classicDefault?.id ?? null;
   const acct = view.accounts.find((a) => a.username === account);
   ui.world = {
@@ -1905,7 +1935,8 @@ function formChoice() {
 // Destiny, the Modern files for any other, and for an era nobody has named.
 function requiredKind(world) {
   // A world that names the set it is drawn from needs that one, whatever its era.
-  if (["modern", "classic", "original"].includes(world.world_base)) return world.world_base;
+  if (["modern", "classic"].includes(world.world_base)) return world.world_base;
+  if (world.world_base === "original") return "classic";
   return ui.snap.eras.find((e) => e.name === world.era)?.needs ?? "modern";
 }
 
@@ -1994,25 +2025,25 @@ function worldPage() {
   const classicOpts = none(f.classic_set_id) + w.view.classic_sets.map((s) => option(s, f.classic_set_id)).join("");
   const eraName = eraText(world);
   const dataNote = world.era_state === "checking" || world.era_state === "unknown"
-    ? "This world has not said its era yet. It needs Modern data files, and Classic ones too if it plays an era before Throne of Destiny."
+    ? "Unknown era. Modern data files are required; add Classic ones too in case this world plays an era before Throne of Destiny."
     : world.world_base === "modern" && world.dats.custom
-    ? `${world.name} plays ${eraName} over its own Modern data files. Classic ones are optional, for the classic interface and looks.`
-    : needs === "original"
-    ? `${eraName} needs the 1999 data files, which its world is drawn from, and Modern ones beside them for the interface.`
+    ? `${world.name} plays ${eraName} with custom Modern data files. Classic data files enable the classic user interface.`
+    : needs === "classic" && playsLaunchPair(world)
+    ? `${eraName} needs Classic data files; iterations 102/67. Modern data files are used for the end of retail interface.`
     : needs === "classic"
-    ? `${eraName} is before Throne of Destiny: it needs Classic data files, which its world is drawn from, and Modern ones beside them for the interface.`
-    : `${eraName} needs Modern data files. Classic ones are optional, for the classic interface and looks.`;
+    ? `${eraName} needs Classic data files; iterations 2112/1593. Modern data files are used for the end of retail interface.`
+    : `${eraName} needs Modern data files. Classic data files enable the classic interface.`;
   const missing = f.client === "dereth" && !hasRequiredSet();
   // A world that plays with its own files, and none of the player's sets is them: where they come
   // from, and the way to point at them.
   const ownFiles = world.dats.custom && w.view.dat_sets.length === 0 && f.client === "dereth"
-    ? `<p class="note warn">${esc(w.view.refused_sets?.[0]?.why ?? world.dats.custom.license_note ?? "This world plays with data files of its own.")}
+    ? `<p class="note warn">${esc(w.view.refused_sets?.[0]?.why ?? world.dats.custom.license_note ?? "This world plays on custom data files.")}
          ${world.dats.custom.url ? `<button type="button" class="btn" data-url="${esc(world.dats.custom.url)}">Where to get them</button>` : ""}</p>`
     : "";
   const dataRow = f.client === "retail"
     ? `<label class="lab">DATA</label><div class="plain">The data files beside the retail client <span class="muted small">${esc(ui.snap.state.retail?.path ?? "")}</span></div>`
     : `<label class="lab" for="dats">MODERN DATA</label><select id="dats" class="field">${setOpts}</select>
-       <label class="lab" for="classic">${needs === "original" ? "1999 DATA" : "CLASSIC DATA"}</label><select id="classic" class="field">${classicOpts}</select>
+       <label class="lab" for="classic">CLASSIC DATA</label><select id="classic" class="field">${classicOpts}</select>
        <p class="note ${missing ? "warn" : "muted"}">${esc(dataNote)}</p>${ownFiles}`;
   const remembers = ui.snap.vault_name === "memory only" ? "Remember until the launcher closes" : "Save password securely";
   // Asheron's Call 2: the client, and the data files it plays (the retail client its own).
@@ -2050,7 +2081,7 @@ function worldPage() {
                 placeholder="${f.remembered && !f.password ? "saved" : ""}" value="${esc(f.password)}">
               <label class="check"><input type="checkbox" id="remember" ${f.remember ? "checked" : ""}>${esc(remembers)}</label></div>`}
             <p class="note warn" id="world-note" ${note ? "" : "hidden"}>${esc(note)}</p>
-            ${isAc2 ? ac2Client : `${offered("client_choice") ? `<label class="lab">CLIENT</label>${clientRow ?? `<div class="pair">${clientBtn("dereth")}${needs === "original" ? "" : clientBtn("retail")}${clientNote}</div>`}` : ""}
+            ${isAc2 ? ac2Client : `${offered("client_choice") ? `<label class="lab">CLIENT</label>${clientRow ?? `<div class="pair">${clientBtn("dereth")}${playsLaunchPair(world) ? "" : clientBtn("retail")}${clientNote}</div>`}` : ""}
             ${dataRow}`}
             ${host.worldRows?.(w.view) ?? ""}
           </div>
@@ -2130,8 +2161,9 @@ function library() {
         <div class="sub">${esc(r.path)}${warn ? ` <span class="warn">— ${esc(warn)}</span>` : ""}</div></div>
         <div class="btns"><button class="btn" data-act="verify-retail">Verify</button><button class="btn" data-act="choose-retail">Change</button><button class="btn" data-act="forget-retail">Remove</button></div></div>`;
   } else {
-    retail = `<div class="row static"><div class="grow"><div class="sub">No retail client set. Choose the folder that holds ${ac2Realm ? "ac2client.exe" : "acclient.exe"}.</div></div>
-        <div class="btns"><button class="btn" data-act="choose-retail">Choose folder</button></div></div>`;
+    // Asheron's Call's points at the community's guide to installing it; Asheron's Call 2 has none.
+    retail = `<div class="row static"><div class="grow"><div class="sub">No retail client chosen. Show me where ${ac2Realm ? "ac2client.exe" : "acclient.exe"} is.</div></div>
+        <div class="btns"><button class="btn" data-act="choose-retail">Choose Folder</button>${ac2Realm ? "" : `<button class="btn" data-url="${GUIDE}">Open Community Guide</button>`}</div></div>`;
   }
   const d = ui.snap.dereth;
   const own = ac2Realm
@@ -2148,7 +2180,7 @@ function library() {
     + libFold(ac2Realm ? "clients.auberean" : "clients.dereth", ac2Realm ? "AUBEREAN" : "DERETH", `<div class="list">${own}</div>`, { sub: true }));
   const setRow = (d) => {
     const size = d.files.reduce((n, f) => n + (f.size ?? 0), 0);
-    const pairBroken = (d.kind === "classic" || d.kind === "original") && !(d.files.some((f) => f.role === "portal") && d.files.some((f) => f.role === "cell"));
+    const pairBroken = d.kind === "classic" && !(d.files.some((f) => f.role === "portal") && d.files.some((f) => f.role === "cell"));
     const facts = [d.created_by_launcher ? gb(size) : d.files.every((f) => f.read_only) ? "read-only" : null, d.last_patched_by_server && "patched by its world", d.files.some((f) => f.error) && "some files unreadable", pairBroken && "portal.dat or cell.dat is missing"].filter(Boolean);
     const isDefault = d.origin.kind === "shared";
     const defaultBtn = isDefault ? `<span class="tag">DEFAULT</span>`
@@ -2157,23 +2189,15 @@ function library() {
         <div class="sub">${esc(d.shown_path ?? d.path)}</div></div>
         <div class="btns">${defaultBtn}${d.origin.kind === "world" ? `<button class="btn" data-reset-set="${esc(d.id)}">Reset</button>` : ""}<button class="btn" data-delete-set="${esc(d.id)}">${d.created_by_launcher ? "Delete" : "Remove"}</button></div></div>`;
   };
+  // Each kind: its sets, or a line saying there are none, then its buttons and what they fold out.
+  const kindBody = (kind, rows, none) => `<div class="list">${rows.map(setRow).join("") || `<p class="muted">${none}</p>`}</div>${setButtons(kind)}`;
   let sets;
   if (ac2Realm) {
-    const all = (s.auberean?.dat_sets ?? []).map(setRow).join("")
-      || `<p class="muted">${say("library.no-auberean", "No data sets yet. Add a folder that holds portal.dat, cell_1.dat and local_English.dat.")}</p>`;
-    sets = libFold("sets", "DATA SETS", `<p class="muted small">The *.dat files from an install.</p><div class="list">${all}</div>`);
+    sets = libFold("sets", "DATA SETS", kindBody("auberean", s.auberean?.dat_sets ?? [], say("library.no-auberean", "No data files yet.")));
   } else {
-    const isPair = (d) => d.kind === "classic" || d.kind === "original";
-    const modern = s.dat_sets.filter((d) => !isPair(d)).map(setRow).join("")
-      || `<p class="muted">${say("library.no-modern", "No Modern data files yet. Add a folder that holds the client_*.dat files.")}</p>`;
-    const classic = s.dat_sets.filter((d) => d.kind === "classic").map(setRow).join("")
-      || `<p class="muted">${say("library.no-classic", "No Classic data files yet. Add a folder that holds portal.dat and cell.dat.")}</p>`;
-    const original = s.dat_sets.filter((d) => d.kind === "original").map(setRow).join("")
-      || `<p class="muted">${say("library.no-original", "No 1999 data files yet. Add a folder that holds the 1999 portal.dat and cell.dat.")}</p>`;
     sets = libFold("sets", "DATA SETS",
-      libFold("sets.modern", "MODERN", `<p class="muted small">The files from a modern install: client_*.dat.</p><div class="list">${modern}</div>`, { sub: true })
-      + libFold("sets.classic", "CLASSIC", `<p class="muted small">The files from older installs: portal.dat and cell.dat.</p><div class="list">${classic}</div>`, { sub: true })
-      + libFold("sets.original", "1999", `<p class="muted small">The files the game launched with in 1999, for the Launch era.</p><div class="list">${original}</div>`, { sub: true }));
+      libFold("sets.modern", "MODERN", `<p class="muted small">The data files from a modern, post-ToD install.</p>${kindBody("modern", s.dat_sets.filter((d) => d.kind === "modern"), say("library.no-modern", "No modern data files yet."))}`, { sub: true })
+      + libFold("sets.classic", "CLASSIC", `<p class="muted small">The data files from a pre-ToD install.</p>${kindBody("classic", s.dat_sets.filter((d) => d.kind === "classic"), say("library.no-classic", "No classic data files yet."))}`, { sub: true }));
   }
 
   // The launcher's own settings: the interface every world starts in, its updates and Discord.
@@ -2193,7 +2217,7 @@ function library() {
   }
   return `<div class="column wide" style="height:100%">
       ${pending}
-      <section class="panel grow"><header><h1>LIBRARY</h1><button class="btn" data-act="add-dats">+ Add data files</button></header>
+      <section class="panel grow"><header><h1>LIBRARY</h1></header>
         <div class="scroll library-page">${clients}
           ${sets}
           ${!ac2Realm && ui.snap.art ? artPacks() : ""}
@@ -2305,6 +2329,70 @@ async function addArtSource(confirmed) {
 
 // What a folder holds. `purpose` says what it was chosen for: the retail client, or data files (in
 // which case any client in it is not taken).
+// ----- the Library's downloads ---------------------------------------------------------------------
+
+// The data sets the Library can download from the community's archive, and how the last download
+// went (`ui.snap.downloads`, from either backend), with the explainer a Download button folds out.
+const GETTING = ["asking", "downloading", "checking", "unpacking"];
+const downloads = () => ui.snap.downloads ?? { offers: [], status: null, guide: GUIDE };
+const downloadGoing = () => GETTING.includes(downloads().status?.stage);
+
+// How a download is going, in words.
+function downloadSaid(s) {
+  const part = s.archives > 1 ? ` (part ${s.archive} of ${s.archives})` : "";
+  switch (s.stage) {
+    case "asking": return `Finding ${s.label}${part}...`;
+    case "downloading": return `Downloading ${s.label}${part}...`;
+    case "checking": return `Checking ${s.label}${part}...`;
+    case "unpacking": return `Unpacking ${s.label}${part}...`;
+    case "done": return `${s.label} is downloaded and checked.${s.message ? ` ${s.message}` : ""}`;
+    case "cancelled": return "Stopped. What was downloaded is kept for next time.";
+    default: return `Couldn't download ${s.label}${s.message ? `: ${s.message.replace(/[.!?]?$/, ".")}` : "."}`;
+  }
+}
+
+// A kind's buttons under its sets, right-aligned: Add Folder, and Download for each set on offer
+// of that kind. Under them, in line, the explainer a Download folds out, or how its download goes.
+function setButtons(kind) {
+  const offers = downloads().offers.filter((o) => o.kind === kind);
+  const going = downloadGoing();
+  const buttons = `<div class="btns end set-btns"><button class="btn" data-act="add-dats">${say("library.add", "Add Folder")}</button>`
+    + offers.map((o) => `<button class="btn" data-get-ask="${esc(o.id)}" title="${esc(mb(o.download))}" ${going ? "disabled" : ""}>Download ${esc(o.label)}</button>`).join("")
+    + `</div>`;
+  const s = downloads().status;
+  const mine = s && offers.some((o) => o.id === s.id) ? s : null;
+  const asked = offers.find((o) => o.id === ui.libGet);
+  let below = "";
+  if (mine) {
+    const live = GETTING.includes(mine.stage);
+    const bar = live ? `<div class="get-bar">${progressBar([mine.done, mine.total])}</div>` : "";
+    const btns = live ? `<button class="btn" data-get-cancel>Cancel</button>`
+      : mine.stage === "failed" ? `<button class="btn" data-get-start="${esc(mine.id)}" ${going ? "disabled" : ""}>Try Again</button><button class="btn" data-url="${esc(downloads().guide || GUIDE)}">Open Community Guide</button><button class="btn" data-get-clear>Dismiss</button>`
+      : `<button class="btn" data-get-clear>OK</button>`;
+    below = `<div class="set-explain" ${live ? `data-get-live="${esc(mine.id)}"` : ""}><p class="${mine.stage === "failed" ? "warn" : "muted"}">${esc(downloadSaid(mine))}</p>${bar}<div class="btns end">${btns}</div></div>`;
+  } else if (asked) {
+    below = `<div class="set-explain"><p class="muted">Dereth Network will try to fetch a community archive of the requested data files and verify them.</p>
+      <div class="btns end"><button class="btn" data-get-start="${esc(asked.id)}" ${going ? "disabled" : ""}>Download</button><button class="btn" data-get-never>Nevermind</button></div></div>`;
+  }
+  return buttons + below;
+}
+
+// The line of the download that is going, brought up to date in place: its words and its bar.
+function paintDownload() {
+  const s = downloads().status;
+  if (!s || !GETTING.includes(s.stage)) return;
+  const line = [...document.querySelectorAll("[data-get-live]")].find((el) => el.dataset.getLive === s.id);
+  if (!line) return;
+  const said = line.querySelector("p");
+  if (said && said.textContent !== downloadSaid(s)) said.textContent = downloadSaid(s);
+  const bar = line.querySelector(".get-bar");
+  const drawn = progressBar([s.done, s.total]);
+  if (bar && bar.dataset.drawn !== drawn) {
+    bar.innerHTML = drawn;
+    bar.dataset.drawn = drawn;
+  }
+}
+
 function findSummary(f, purpose) {
   if (!retailHere()) purpose = "dats";
   const ac2Find = f.game === "auberean";
@@ -2330,7 +2418,7 @@ function findSummary(f, purpose) {
   }
   if (f.classic) {
     const it = setIterations(f.classic);
-    lines.push(`<p><span class="good">${f.classic.kind === "original" ? "1999" : "CLASSIC"}</span> — portal ${it.portal ?? "-"}, cell ${it.cell ?? "-"}</p>`);
+    lines.push(`<p><span class="good">CLASSIC</span> — ${esc(pairWord(f.classic))}, portal ${it.portal ?? "-"}, cell ${it.cell ?? "-"}</p>`);
   }
   if (!f.dats && !f.classic && !f.error) {
     lines.push(`<p class="warn">${say("find.none", "No data files in this folder.")}</p>`);
@@ -2596,30 +2684,14 @@ async function addPluginSource(confirmed) {
 
 // ----- first run -----------------------------------------------------------------------------------
 
+// The first start of a game's realm with no data files: what the client loads, and the way to the
+// Library, which gets them.
 function firstRun() {
-  const fr = ui.firstRun;
-  let body;
-  if (fr.step === "guide") {
-    body = `<header><h1>GETTING THE GAME FILES</h1></header>
-      <p>The community guide explains how to install Asheron's Call and get the final data files.</p>
-      <div class="btns" style="margin:10px 0 16px"><button class="btn" data-url="${GUIDE}">Open community guide</button></div>
-      <div class="btns" style="justify-content:space-between"><span>${say("first-run.then", "Then come back and point us at the folder.")}</span><button class="btn" data-act="fr-choose">${say("first-run.choose", "Choose folder")}</button></div>
-      <p class="muted" style="margin-top:16px">${say("first-run.never", "We never download or host these files. We only check them.")}</p>
-      <div class="btns"><button class="btn" data-act="fr-skip">Skip for now</button></div>`;
-  } else if (fr.step === "found") {
-    const f = fr.find;
-    body = `<header><h1>${esc(f.folder)}</h1></header>${findSummary(f, "both")}
-      <div class="btns" style="margin-top:10px"><button class="btn" data-act="fr-continue" ${f.retail || f.dats || f.classic ? "" : "disabled"}>Continue</button>
-        <button class="btn" data-act="fr-choose">${say("first-run.other", "Choose another folder")}</button>
-        ${f.dats && !isEndOfRetail(setIterations(f.dats)) ? `<button class="btn" data-url="${GUIDE}">Open community guide</button>` : ""}</div>`;
-  } else {
-    body = `<header><h1>WELCOME TO DERETH</h1></header>
-      <p style="font-size:21px">${retailHere() ? "Do you already have Asheron's Call installed?" : "Do you already have Asheron's Call's data files?"}</p>
-      <div class="btns" style="margin:12px 0"><button class="btn" data-act="fr-choose">${say("first-run.yes", "Yes - show me the folder")}</button><button class="btn" data-act="fr-guide">${say("first-run.no", "No - how do I get it?")}</button></div>
-      <p class="muted">${say("first-run.why", "The Dereth client needs the game's data (.dat) files, which we cannot ship. Either way, we will check what you have.")}</p>
-      <div class="btns"><button class="btn" data-act="fr-skip">Skip for now</button></div>`;
-  }
-  return `<div class="column wide"><section class="panel">${body}</section></div>`;
+  const ac2Realm = realmGame() === "auberean";
+  const game = ac2Realm ? "Auberean" : "Dereth";
+  return `<div class="column wide"><section class="panel"><header><h1>WELCOME TO ${game.toUpperCase()}</h1></header>
+      <p style="font-size:21px">${game} loads original Asheron's Call${ac2Realm ? " 2" : ""} data files. Let's get you set up...</p>
+      <div class="btns" style="margin:12px 0"><button class="btn" data-act="fr-library">Open Library</button></div></section></div>`;
 }
 
 // ----- the interface ------------------------------------------------------------------------------
@@ -2711,7 +2783,7 @@ function interfacePage() {
       <header>${back}<h1>${fromLibrary ? "INTERFACE" : "CHOOSE YOUR INTERFACE"}</h1></header>
       <p style="font-size:21px">Which interface would you like to play Dereth in?</p>
       <div class="ifaces" role="radiogroup" aria-label="Interface">${cards}</div>
-      ${noClassic ? `<p class="small warn">There are no Classic data files yet: add portal.dat and cell.dat in the Library before playing in the classic interface.</p>` : ""}
+      ${noClassic ? `<p class="small warn">There are no Classic data files yet. Add them in the Library to enable the classic interface.</p>` : ""}
       <p class="muted small">Every world starts in it. Change it for one world in the game's options, or under Settings in the Library.</p>
       <div class="btns end" style="margin-top:12px">${fromLibrary ? `<button class="btn" data-act="iface-cancel">Cancel</button>` : ""}
         <button class="btn" data-act="iface-save">${fromLibrary ? "Save" : "Continue"}</button></div>
@@ -2748,7 +2820,7 @@ async function saveInterface() {
 // ----- events -------------------------------------------------------------------------------------
 
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-ath-open],[data-ath-export],[data-ath-publish],[data-ath-row],[data-ath-confirm-delete],[data-ath-delete],[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-ly-confirm-delete],[data-ly-delete],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-dismiss-update],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-show-password],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop],[data-lib-fold],[data-art-row],[data-art-move],[data-art-update],[data-art-remove],[data-art-install],[data-art-source-remove],[data-plugin-install],[data-plugin-update],[data-plugin-remove],[data-plugin-source-remove],[data-plugin-open],[data-plugin-folder-remove],[data-plugin-row],[data-plugin-fold],[data-realm-pick],[data-world-fav]");
+  const t = ev.target.closest("[data-ath-open],[data-ath-export],[data-ath-publish],[data-ath-row],[data-ath-confirm-delete],[data-ath-delete],[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-ly-confirm-delete],[data-ly-delete],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-dismiss-update],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-get-ask],[data-get-never],[data-get-start],[data-get-cancel],[data-get-clear],[data-remember],[data-forget-account],[data-show-password],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop],[data-lib-fold],[data-art-row],[data-art-move],[data-art-update],[data-art-remove],[data-art-install],[data-art-source-remove],[data-plugin-install],[data-plugin-update],[data-plugin-remove],[data-plugin-source-remove],[data-plugin-open],[data-plugin-folder-remove],[data-plugin-row],[data-plugin-fold],[data-realm-pick],[data-world-fav]");
   if (!t) return;
   if (t.dataset.stop !== undefined && !ev.target.closest("[data-act]")) return;
   // A form's own submit button submits it (below).
@@ -2790,7 +2862,10 @@ document.addEventListener("click", async (ev) => {
   if (d.go) {
     ui.screen = d.go;
     ui.shownPasswords = {};
-    if (d.go === "home") ui.firstRun.dismissed = ui.firstRun.dismissed || ui.snap.state.dat_sets.length > 0;
+    if (d.go === "home") {
+      const kept = (realmGame() === "auberean" ? ui.snap.state.auberean?.dat_sets ?? [] : ui.snap.state.dat_sets).length > 0;
+      ui.firstRun.dismissed[realmGame()] ||= kept;
+    }
     if (d.go === "server" || d.go === "make" || (d.go === "home" && ui.realm !== "dereth")) checkComponents(false);
     if (d.go === "server") lastLook = 0;
     render();
@@ -2891,6 +2966,12 @@ document.addEventListener("click", async (ev) => {
   if (d.defaultSet) { await act("set_default_set", { id: d.defaultSet }); return; }
   if (d.resetSet) { await act("reset_set", { id: d.resetSet }); return; }
   if (d.deleteSet) { await act("delete_set", { id: d.deleteSet }); return; }
+  // The Library's downloads: a Download folds out its explainer, which Nevermind folds back.
+  if (d.getAsk !== undefined) { ui.libGet = ui.libGet === d.getAsk ? null : d.getAsk; render(); return; }
+  if (d.getNever !== undefined) { ui.libGet = null; render(); return; }
+  if (d.getStart) { ui.libGet = null; await act("get_dats", { id: d.getStart }); return; }
+  if (d.getCancel !== undefined) { await act("cancel_get_dats"); return; }
+  if (d.getClear !== undefined) { await act("clear_get_dats"); return; }
   if (d.pluginInstall) { await pluginFetch("install_plugin", { source: d.pluginInstall, id: d.pluginId }); return; }
   if (d.pluginUpdate) { await pluginFetch("update_plugin", { id: d.pluginUpdate }); return; }
   if (d.pluginRemove) { await act("remove_plugin", { id: d.pluginRemove }); return; }
@@ -3041,13 +3122,11 @@ document.addEventListener("click", async (ev) => {
       render();
       break;
     }
-    case "fr-guide": ui.firstRun.step = "guide"; render(); break;
+
     case "iface-change": ui.iface = { ...ui.iface, pick: null, fromLibrary: true }; ui.screen = "interface"; render(); break;
     case "iface-cancel": ui.iface = { ...ui.iface, pick: null, fromLibrary: false }; ui.screen = "library"; render(); break;
     case "iface-save": await saveInterface(); break;
-    case "fr-skip": ui.firstRun.dismissed = true; ui.screen = "home"; render(); break;
-    case "fr-choose": { const f = await act("pick_folder", { title: retailHere() ? "Choose your Asheron's Call folder" : "Choose the folder that holds the four .dat files" }); if (f) { ui.firstRun.find = f; ui.firstRun.step = "found"; render(); } break; }
-    case "fr-continue": { const f = ui.firstRun.find; ui.firstRun = { ...ui.firstRun, step: "ask", find: null, dismissed: true }; ui.screen = "home"; await act("add_folder", { find: f }); render(); break; }
+    case "fr-library": ui.firstRun.dismissed[realmGame()] = true; ui.screen = "library"; render(); break;
   }
 });
 
@@ -3431,7 +3510,10 @@ async function watchLibrary() {
       ui.world.view = view;
       const more = host.moreSets?.(view.world) ?? [];
       if (![...view.dat_sets, ...more].some((s) => s.id === ui.world.form.dat_set_id)) ui.world.form.dat_set_id = view.dat_sets[0]?.id ?? null;
-      if (!view.classic_sets.some((s) => s.id === ui.world.form.classic_set_id)) ui.world.form.classic_set_id = view.classic_sets.find((s) => s.origin.kind === "shared")?.id ?? null;
+      if (!view.classic_sets.some((s) => s.id === ui.world.form.classic_set_id)) {
+        ui.world.form.classic_set_id = (view.classic_sets.find((s) => s.origin.kind === "shared")
+          ?? (requiredKind(view.world) === "classic" ? view.classic_sets[0] : null))?.id ?? null;
+      }
       render();
     }
   }
@@ -3630,7 +3712,7 @@ async function setRealm(realm, from) {
   if (ui.screen === "world") ui.screen = "worlds";
   if (["server-page", "server-settings", "local-page"].includes(ui.screen)) ui.screen = "server";
   // Dereth's first start asks about Dereth's game files and interface; Auberean's realm opens on Play.
-  if (realm !== "dereth" && ["first-run", "interface"].includes(ui.screen)) ui.screen = "home";
+  if (realm !== "dereth" && ui.screen === "interface") ui.screen = "home";
   if (realm !== "dereth" && ui.screen === "plugins") ui.screen = "home";
   const main = document.getElementById("main");
   if (still()) { render(); return; }
@@ -3740,7 +3822,7 @@ function turnPainting(from) {
 // open), `#ac2=home|playing|accounts|accounts-shown|library|server|servers|settings|<slug>`
 // (Auberean's realm),
 // `#library`, `#library=add`,
-// `#accounts`, `#first-run`, `#first-run=guide` and `#interface` (the first start's question) open that
+// `#accounts`, `#first-run` and `#interface` (the first start's question) open that
 // screen directly, for looking at designs.
 async function demoJump() {
   const [what, arg] = location.hash.slice(1).split("=");
@@ -3873,8 +3955,11 @@ async function demoJump() {
     ui.addFind = { purpose: "retail", find: f };
     ui.screen = "library";
   }
+  // `#library=ask-<set>` a Download's explainer folded out, `#library=get-<set>` that set downloading.
+  else if (what === "library" && arg?.startsWith("ask-")) { ui.libGet = arg.slice(4); ui.screen = "library"; }
+  else if (what === "library" && arg?.startsWith("get-")) { await api("get_dats", { id: arg.slice(4) }); ui.screen = "library"; }
   else if (what === "interface") ui.screen = "interface";
-  else if (what === "first-run") { ui.screen = "first-run"; ui.firstRun.step = arg || "ask"; if (arg === "found") ui.firstRun.find = await api("pick_folder", {}); }
+  else if (what === "first-run") ui.screen = "first-run";
   else if (what === "notice") { await api("create_private_copy", { slug: "coldeve" }); toast("Launching Eulmore...", false); }
   else ui.screen = what;
   render();

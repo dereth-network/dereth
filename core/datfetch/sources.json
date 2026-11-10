@@ -1,0 +1,188 @@
+{
+  "version": 1,
+  "guide": "https://www.accpp.net/manual-installation",
+  "sets": [
+    {
+      "id": "end-of-retail",
+      "label": "End of Retail",
+      "kind": "modern",
+      "page": "https://www.accpp.net/manual-installation",
+      "iterations": { "portal": 2072, "cell": 982, "local": 994 },
+      "archives": [
+        {
+          "format": "zip",
+          "size": 507898112,
+          "mirrors": [
+            {
+              "link": "https://mega.nz/folder/L1MniCKJ#1dQCCFPc2ddcFILa_JGeZw/file/X0ciAbpK",
+              "key": "TqS0Lj1XAzenUSTJ_fN1JZ3fV7-M0J4euh4nnvsVuZE"
+            },
+            { "link": "https://mega.nz/file/Q98n0BiR#p5IugPS8ZkQ7uX2A_LdN3Un2_wMX4gZBHowgs1Qomng" }
+          ],
+          "files": [
+            {
+              "name": "client_portal.dat",
+              "size": 926941184,
+              "sha256": "dc6e500ba22e6b186db7171e3f3345238b6444c85d798adc85e550973b8d12e4"
+            },
+            {
+              "name": "client_cell_1.dat",
+              "size": 348127232,
+              "sha256": "6db0abf00fbceed62c3f1ee842ee7c1f423d732bed77a5b7c102ee89a52ab99e"
+            },
+            {
+              "name": "client_local_English.dat",
+              "size": 1048576,
+              "sha256": "e85c820280c88fac7df6c8043f5e24596e9c8774193af4123d756546f78fb2bb"
+            }
+          ]
+        },
+        {
+          "format": "7z",
+          "size": 54808779,
+          "optional": true,
+          "mirrors": [
+            {
+              "link": "https://mega.nz/folder/L1MniCKJ#1dQCCFPc2ddcFILa_JGeZw/file/L90GRQqY",
+              "key": "wPbOyK4e4vdu7mtHqF_nxNdOCw8MpFTqQQGFPL3V2nE"
+            }
+          ],
+          "files": [
+            {
+              "name": "client_highres.dat",
+              "size": 133169152,
+              "sha256": "503e0828d14f2f9ccbc31431e1055ac188464bf4b499de37f4c3d5b2d9f3e727"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "infiltration",
+      "label": "Infiltration",
+      "kind": "classic",
+      "page": "https://www.accpp.net/archive",
+      "iterations": { "portal": 2112, "cell": 1593 },
+      "archives": [
+        {
+          "format": "7z",
+          "size": 108160039,
+          "mirrors": [
+            {
+              "link": "https://mega.nz/folder/L1MniCKJ#1dQCCFPc2ddcFILa_JGeZw/file/79ExVK4R",
+              "key": "zFlJxwSWD99p_yrlNat_XLRh3ufPMB2CRl1ul-6Ne9I"
+            }
+          ],
+          "files": [
+            {
+              "name": "portal.dat",
+              "size": 285212672,
+              "sha256": "2ffa13bfa37f0816dd2175c80c43f0f5e04921329ddb2e475199eb5f67b1e91e"
+            }
+          ]
+        },
+        {
+          "format": "7z",
+          "size": 33566695,
+          "mirrors": [
+            {
+              "link": "https://mega.nz/folder/L1MniCKJ#1dQCCFPc2ddcFILa_JGeZw/file/X09jhRqL",
+              "key": "8eODEod38mmKp9ZmVw6MfZa0kBcUEjbfjW-59J3EvQY"
+            }
+          ],
+          "files": [
+            {
+              "name": "cell.dat",
+              "size": 207618048,
+              "sha256": "179de62ee3d2459d655c0650f099a533aa18efe6c60c7f5140825bc315fc15a4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "launch",
+      "label": "Launch",
+      "kind": "classic",
+      "page": "https://www.accpp.net/archive",
+      "iterations": { "portal": 102, "cell": 67 },
+      "archives": [
+        {
+          "format": "7z",
+          "size": 37390169,
+          "mirrors": [
+            {
+              "link": "https://mega.nz/folder/L1MniCKJ#1dQCCFPc2ddcFILa_JGeZw/file/Pl9lQZzQ",
+              "key": "AdoKsw60aWZOdqnPIc1rm7F1R-DkiiZJkBfaWATbC9E"
+            }
+          ],
+          "files": [
+            {
+              "name": "portal.dat",
+              "size": 99614720,
+              "sha256": "195e6fbb6d1cb9c849b2f4732c29509b5f20f67038a1d0763041387287c1975a"
+            }
+          ]
+        },
+        {
+          "format": "7z",
+          "size": 7695832,
+          "mirrors": [
+            {
+              "link": "https://mega.nz/folder/L1MniCKJ#1dQCCFPc2ddcFILa_JGeZw/file/P90ERSQY",
+              "key": "SBe4vJggQD8OJmp31EzAhoZx7rItnj9a0fCQr6XjSm8"
+            }
+          ],
+          "files": [
+            {
+              "name": "cell.dat",
+              "size": 45088768,
+              "sha256": "111855655c7b1daec563a96476e29cf10f17a8252a50f6102f1245146e0870b8"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "auberean-end-of-retail",
+      "label": "End of Retail",
+      "kind": "auberean",
+      "page": "https://www.accpp.net/archive",
+      "iterations": { "portal": 137, "cell": 7, "local": 9, "highres": 7 },
+      "archives": [
+        {
+          "format": "zip",
+          "size": 2304333839,
+          "mirrors": [
+            {
+              "link": "https://mega.nz/folder/L1MniCKJ#1dQCCFPc2ddcFILa_JGeZw/file/a1EwxbBI",
+              "key": "7gdAYt5ZMzbYfzXNNEIwrqadWRsskG6oaKhCm5C_6F4"
+            }
+          ],
+          "files": [
+            {
+              "name": "portal.dat",
+              "size": 1560281088,
+              "sha256": "d2161c83e662f8009a1733ebb9cb5004f4079dc4feeec0211963178eb6999c7c"
+            },
+            {
+              "name": "cell_1.dat",
+              "size": 220200960,
+              "sha256": "49aa87ab218153b38acd763cf8beea5adef171db2836a1a5623c1f32331bf5fa"
+            },
+            {
+              "name": "local_English.dat",
+              "size": 67108864,
+              "sha256": "821851e8995a046780b7eab1b9b212fe774a51ade0a4d1fcc23d69a5f607b2b3"
+            },
+            {
+              "name": "highres.dat",
+              "size": 1676673024,
+              "sha256": "ff74aab435bed14e746fe133f0a1efdd571834aa1deb04c0e3e84c5a446bec42"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

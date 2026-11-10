@@ -33,8 +33,9 @@
   const eras = [
     { name: "eor", label: "End of Retail", needs: "modern", features: table((n) => n !== "spell_research" && n !== "swear_xp_cost" && n !== "creation_skill_bonus_as_experience") },
     { name: "infiltration", label: "Infiltration (February 2005)", needs: "classic", features: table((n) => (SECOND.includes(n) && n !== "creation_skill_bonus_as_experience") || ["trade", "housing", "apartments", "tinkering", "cantrips", "chess", "swear_xp_cost"].includes(n)) },
-    { name: "launch", label: "Launch (1999)", needs: "original", features: table((n) => n === "spell_research" || n === "swear_xp_cost" || n === "creation_skill_bonus_as_experience") },
+    { name: "launch", label: "Launch (1999)", needs: "classic", pair: { portal: [102, 123], cell: [67, 107] }, features: table((n) => n === "spell_research" || n === "swear_xp_cost" || n === "creation_skill_bonus_as_experience") },
   ];
+  eras[1].pair = { portal: [2021, 4294967295], cell: [1537, 4294967295] };
   const features = NAMES.map((name) => {
     const special = { pre_order_items_and_rares: "Pre-order items and rares", swear_xp_cost: "Swearing costs experience", assessed_armor_and_ratings: "Assessing shows armor and ratings", creation_credit_carry_over: "Unspent skill credits kept", pk_lite: "PK Lite", lifestone_recall: "Lifestone recall and @die", pk_arena_recalls: "PK arena recalls", player_corpse_hour_minimum: "Player corpses last an hour", component_burn_skill_discount: "Skill lowers component burn", war_and_life_projectile_criticals: "War and Life Magic criticals", war_magic_skill_damage_bonus: "War Magic skill damage bonus", transfer_overflow_reduces_source: "Transfers cost less on overflow", item_enchantment_redirection: "Item spells on worn items", corpse_permissions: "Corpse permits", corpse_location_notices: "Corpse location on death", chat_log: "@log", corpse_command: "@corpse", allegiance_messages: "Allegiance MOTD and broadcasts", allegiance_oath_confirmation: "Oaths need the patron's yes", appraisal_without_skills: "Appraising needs no skill", allegiance_officers_and_bans: "Allegiance officers and bans" }[name];
     const words = name.replace(/_/g, " ");
@@ -128,6 +129,55 @@
     ],
     settings: { allow_play_anyway: false, auto_update: true, discord_presence: true, update_components: true, realm },
     custom_worlds: [{ slug: "custom-1", name: "My test world", host: "127.0.0.1", port: 9000, ruleset: "PvE" }],
+  };
+  // `?fresh` starts as a first run does: no retail client and no data files in either realm.
+  const freshLibrary = new URLSearchParams(location.search).has("fresh");
+  if (freshLibrary) {
+    state.retail = null;
+    state.dat_sets = [];
+    state.favourites = [];
+    state.recent = [];
+    state.world_prefs = {};
+    state.auberean = { dat_sets: [], retail: null };
+  }
+  // The Library's downloads, as the backend's: the sets the community's archive offers, and one
+  // download at a time that goes through its stages and adds its set when it is done.
+  const OFFERS = [
+    { id: "end-of-retail", label: "End of Retail", game: "dereth", kind: "modern", download: 507898112, size: 1276116992, peak: 1784015104 },
+    { id: "infiltration", label: "Infiltration", game: "dereth", kind: "classic", download: 141726734, size: 492830720, peak: 600990759 },
+    { id: "launch", label: "Launch", game: "dereth", kind: "classic", download: 45109438, size: 144703488, peak: 152399320 },
+    { id: "auberean-end-of-retail", label: "End of Retail", game: "auberean", kind: "auberean", download: 2304333839, size: 3524263936, peak: 5828597775 },
+  ];
+  let download = null;
+  const getDats = (id) => {
+    if (download && !["done", "failed", "cancelled"].includes(download.stage)) throw "Another download is still going.";
+    const o = OFFERS.find((x) => x.id === id);
+    const archives = o.kind === "classic" ? 2 : 1;
+    download = { id, label: o.label, stage: "asking", archive: 1, archives, done: 0, total: 0 };
+    // `?download=slow` keeps it going long enough to look at.
+    const step = new URLSearchParams(location.search).get("download") === "slow" ? o.download / 400 : o.download / 12;
+    const t = setInterval(() => {
+      const d = download;
+      if (d.stage === "cancelled") { clearInterval(t); return; }
+      // `?download=fail` meets the archive's download limit, as a busy day can.
+      if (new URLSearchParams(location.search).get("download") === "fail") {
+        clearInterval(t);
+        Object.assign(d, { stage: "failed", message: "the archive's download limit for this connection is spent; try again in a few hours" });
+        return;
+      }
+      if (d.stage === "asking") { d.stage = "downloading"; d.total = o.download; return; }
+      if (d.stage === "downloading") { d.done = Math.min(d.total, d.done + step); if (d.done >= d.total) { d.stage = "checking"; d.done = 0; } return; }
+      if (d.stage === "checking") { d.stage = "unpacking"; return; }
+      clearInterval(t);
+      d.stage = "done";
+      const path = `C:\\Users\\you\\AppData\\Local\\Dereth\\launcher\\library\\${id}`;
+      const pair = id === "launch" ? [105, 67] : [2112, 1593];
+      const set = o.kind === "modern" ? { id: `d-${id}`, kind: "modern", path, origin: { kind: state.dat_sets.some((s) => s.kind === "modern" && s.origin.kind === "shared") ? "unassigned" : "shared" }, files: files(EOR, false), created_by_launcher: true }
+        : o.kind === "classic" ? { id: `c-${id}`, kind: "classic", path, origin: { kind: state.dat_sets.some((s) => s.kind === "classic" && s.origin.kind === "shared") ? "unassigned" : "shared" }, files: classicFiles(false).map((f) => ({ ...f, iterations: f.role === "portal" ? pair[0] : pair[1] })), created_by_launcher: true }
+        : null;
+      if (set) state.dat_sets.push(set);
+      else addFind({ game: "auberean", dats: { id: `a-${id}`, kind: "auberean", path, origin: { kind: "unassigned" }, files: ac2Files(AC2_EOR), created_by_launcher: true } });
+    }, 500);
   };
   // The kept passwords, by world and account; shardfall's player's is one an earlier launcher made up.
   const vault = new Map([["eulmore/player", "hunter2"], ["achard/player2", "hunter2"], ["lumenvale/player", "hunter2"], ["shardfall/player", "Vx3kQ9-rT2mLpZ8aWc4bNd"], ["shardfall/alt1", "hunter2"]]);
@@ -437,7 +487,7 @@
       const needs = eras.find((e) => e.name === settings.era)?.needs ?? "modern";
       if (h.plays.dat_overlay && (settings.era !== h.settings.era || settings.dats !== h.settings.dats)) { h.message = "The Lyceum world this world plays was built for its era and game data, so those stay as they are."; return; }
       if (settings.federation?.enabled && !h.plays.network_key) { h.message = "Save the world's key before linking it to the Dereth Network."; return; }
-      if (!state.dat_sets.some((s) => s.path === settings.dats && s.kind === needs)) { h.message = needs === "original" ? "Launch (1999) is drawn from the 1999 data files: choose a folder whose portal.dat and cell.dat are from 1999." : needs === "classic" ? "Infiltration (February 2005) is drawn on the land from before Throne of Destiny: choose Classic data files (portal.dat and cell.dat) for it." : "End of Retail plays the Modern data files (client_portal.dat and the rest): choose those for it."; return; }
+      if (!state.dat_sets.some((s) => s.path === settings.dats && s.kind === needs)) { h.message = settings.era === "launch" ? "Launch (1999) is drawn from the 1999 data files: choose a folder whose portal.dat and cell.dat are from 1999." : needs === "classic" ? "Infiltration (February 2005) is drawn on the land from before Throne of Destiny: choose Classic data files (portal.dat and cell.dat) for it." : "End of Retail plays the Modern data files (client_portal.dat and the rest): choose those for it."; return; }
       if (settings.era !== h.settings.era && h.plays.database === "era") {
         h.plays.pack = { infiltration: "world.pack.infiltration", launch: "world.pack.launch" }[settings.era] ?? "world.pack";
         h.plays.base = h.plays.era_bases.find((b) => b.era === settings.era) ?? null;
@@ -624,7 +674,11 @@
       plugins: pluginsView(),
       art: artView(),
       art_progress: null,
+      downloads: { offers: OFFERS, status: download && { ...download }, guide: "https://www.accpp.net/manual-installation" },
     }),
+    get_dats: ({ id }) => { getDats(id); },
+    cancel_get_dats: () => { if (download) download.stage = "cancelled"; },
+    clear_get_dats: () => { if (download && ["done", "failed", "cancelled"].includes(download.stage)) download = null; },
     refresh: () => {},
     // As the backend: the updates the setting lets apply are applied, and the rest are told.
     refresh_plugins: () => {
@@ -700,7 +754,7 @@
       const last = state.world_prefs[slug]?.client;
       return {
         world: w, clients, dat_sets: setsFor(w),
-        classic_sets: state.dat_sets.filter((s) => s.kind === "classic"),
+        classic_sets: state.dat_sets.filter((s) => s.kind === "classic" && (s.files.find((f) => f.role === "portal")?.iterations < 2000) === (w.era === "launch")),
         requires: eras.find((e) => e.name === w.era)?.needs ?? "modern",
         default_client: (last && clients.some((c) => c.kind === last) ? last : (clients.find((c) => c.accepted) ?? clients[0])?.kind) ?? null,
         offers_private_copy: needsPrivate(w) && !w.dats.custom && !state.dat_sets.some((s) => s.origin.kind === "world" && s.origin.slug === slug),

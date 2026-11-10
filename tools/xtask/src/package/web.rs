@@ -98,6 +98,7 @@ pub const FILES: &[&str] = &[
     "audio-worklet.js",
     "backend.js",
     "datfiles.js",
+    "fetchdats.js",
     "front-worker.js",
     "game-loop.js",
     "host.js",

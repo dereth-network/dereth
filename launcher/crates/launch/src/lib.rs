@@ -12,7 +12,8 @@
 //! (`dereth-plugin-api`), for the client's plugin API version and plugins' versions, the
 //! plugin template (`dereth-plugin-template`), for which folders of a plugin repository hold its
 //! plugins, and Asheron's Call 2's friends stream (`auberean-friends`), for the greeting that asks
-//! a world whether it serves its friends service and for the friends ticket. **Used by** the launcher's window, the Tauri app in `launcher` (a
+//! a world whether it serves its friends service and for the friends ticket, and the community
+//! archive's fetching crate (`dereth-datfetch`), for the data sets the Library downloads. **Used by** the launcher's window, the Tauri app in `launcher` (a
 //! workspace of its own), and the web client's front page (`dereth-web-front`).
 //!
 //! **Must never** reach for a window, a web view, a GPU or the network, or name a platform API:
@@ -42,6 +43,7 @@
 //! | [`launch`] | the command line per client and server, a form of it that is safe to log, and what the client is told about the world |
 //! | [`copy`] | a private dat set, copied from the shared one |
 //! | [`discord`] | what Discord shows while a game the launcher started is running, and the frames that say it to the Discord app |
+//! | [`downloads`] | the data sets the Library downloads from the community's archive, and the last check of one |
 //! | [`state`] | `launcher-state.json`: the retail client, sets, accounts, favourites, per-world choices |
 //! | [`folders`] | where the state and the private sets live on each system, and the one-time move there |
 //! | [`interface`] | the interface every world starts in until the player changes it there in game, asked for once |
@@ -81,6 +83,7 @@ pub mod defaults;
 pub mod desktop;
 pub mod direct;
 pub mod discord;
+pub mod downloads;
 pub mod eras;
 pub mod folders;
 pub mod hubstatus;

@@ -10,9 +10,11 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use dereth_datfetch::Catalogue;
 use dereth_launch::check::RunningClient;
 use dereth_launch::choices::{self, ClientOption};
 use dereth_launch::datset::{scan_dir, DatOrigin, DatSet, SetKind};
@@ -351,6 +353,24 @@ pub struct Snapshot {
     pub art: dereth_launch::art::ArtView,
     /// The art pack being fetched, when one is.
     pub art_progress: Option<ArtProgress>,
+    /// The data sets the Library can download, and the last download's status.
+    pub downloads: DownloadsView,
+}
+
+/// The data sets the Library downloads, the list built in, read once.
+fn catalogue() -> &'static Catalogue {
+    static LIST: std::sync::OnceLock<Catalogue> = std::sync::OnceLock::new();
+    LIST.get_or_init(Catalogue::built_in)
+}
+
+/// The Library's downloads: the sets on offer, and how the last one went, until the player clears
+/// it.
+#[derive(Debug, Clone, Serialize)]
+pub struct DownloadsView {
+    pub offers: Vec<dereth_launch::downloads::Offer>,
+    pub status: Option<crate::downloads::Status>,
+    /// Where a player reads how to get the files by hand.
+    pub guide: String,
 }
 
 /// An art pack being fetched, as the page shows it.
@@ -506,12 +526,14 @@ pub struct WorldView {
     pub default_client: Option<ClientKind>,
     /// The Modern sets the Dereth client may be given here.
     pub dat_sets: Vec<DatSet>,
-    /// The pairs the Dereth client may be given here: the Original sets on a world drawn from the
-    /// 1999 files, the Classic sets on any other.
+    /// The pairs the Dereth client may be given here: the Classic sets whose iterations suit the
+    /// world, Launch's 1999 pair on a world drawn from it and any other year's elsewhere.
     pub classic_sets: Vec<DatSet>,
     /// Which kind of set the world is drawn from. A Modern set is always needed besides; a
     /// Classic one is optional when this is Modern.
     pub requires: SetKind,
+    /// The world is drawn from Launch's Classic pair, the 1999 files.
+    pub launch_pair: bool,
     pub offers_private_copy: bool,
     pub accounts: Vec<Account>,
     pub prefs: WorldPrefs,
@@ -725,6 +747,9 @@ pub struct Backend {
     plugins: Shelf,
     art: dereth_launch::art::Shelf,
     art_progress: Option<ArtProgress>,
+    /// The last data set download's status, and the flag that stops one going.
+    download: Option<crate::downloads::Status>,
+    download_cancel: Arc<AtomicBool>,
     /// The plugin author's tool this launcher ships with, which it keeps a copy of in the folders
     /// Make Your Own wrote in; `None` when there is none to copy.
     tool: Option<PathBuf>,
@@ -836,6 +861,8 @@ impl Backend {
             plugins,
             art,
             art_progress: None,
+            download: None,
+            download_cancel: Arc::new(AtomicBool::new(false)),
             folders,
             state,
             dereth,
@@ -974,6 +1001,11 @@ impl Backend {
             plugins: self.plugins.view(),
             art: self.art.view(),
             art_progress: self.art_progress.clone(),
+            downloads: DownloadsView {
+                offers: dereth_launch::downloads::offers(catalogue()),
+                status: self.download.clone(),
+                guide: catalogue().guide.clone(),
+            },
         }
     }
 
@@ -1412,6 +1444,7 @@ impl Backend {
                 dat_sets: Vec::new(),
                 classic_sets: Vec::new(),
                 requires: choices::required_set_for(&world),
+                launch_pair: false,
                 offers_private_copy: choices::offers_retail_copy(
                     &self.state,
                     &self.with_hosted_facts(world.clone()),
@@ -1437,6 +1470,7 @@ impl Backend {
             dat_sets: choices::dat_sets_for(&self.state, &world),
             classic_sets: choices::classic_sets_for(&self.state, &world),
             requires: choices::required_set_for(&world),
+            launch_pair: choices::plays_launch_pair(&world),
             offers_private_copy: choices::offers_private_copy(&self.state, &world),
             accounts: self.state.accounts_for(slug).cloned().collect(),
             prefs,
@@ -1524,6 +1558,7 @@ impl Backend {
         let path_of = |id: Option<&str>, kind: SetKind| {
             id.and_then(|id| self.state.dat_set(id))
                 .filter(|s| s.kind == kind)
+                .filter(|s| kind != SetKind::Classic || choices::pair_suits(&world, s))
                 .map(|s| s.path.clone())
         };
         // A world that ships its own files is never started on another world's: the chosen set
@@ -1570,14 +1605,14 @@ impl Backend {
         let extra_args = hosted.as_ref().map_or_else(Vec::new, |h| h.args.clone());
         let (dat_dir, classic_dat_dir) = if let Some(hosted) = hosted.filter(|_| dereth) {
             let modern = path_of(dat_set_id.as_deref(), SetKind::Modern);
-            let classic = path_of(classic_set_id.as_deref(), choices::pair_kind_for(&world));
+            let classic = path_of(classic_set_id.as_deref(), SetKind::Classic);
             match hosted.client_dats(modern.as_deref(), classic.as_deref()) {
                 Ok(d) => (Some(d.dat_dir), d.classic_dat_dir),
                 Err(e) => return err(e),
             }
         } else if dereth {
             let modern = path_of(dat_set_id.as_deref(), SetKind::Modern);
-            let classic = path_of(classic_set_id.as_deref(), choices::pair_kind_for(&world));
+            let classic = path_of(classic_set_id.as_deref(), SetKind::Classic);
             match choices::dat_dirs_for(&world, modern.as_deref(), classic.as_deref()) {
                 Ok(d) => (Some(d.dat_dir), d.classic_dat_dir),
                 Err(e) => return err(e.to_string()),
@@ -1777,6 +1812,120 @@ impl Backend {
     pub fn forget_retail(&mut self, game: Game) {
         *self.state.retail_mut(game) = None;
         self.save();
+    }
+
+    // ----- the Library's downloads ---------------------------------------------------------------
+
+    /// Download data set `id` from the community's archive into the library, in a thread, through
+    /// `net`; the snapshot says how it goes, and the set joins the Library when it is in and
+    /// checked. One at a time.
+    ///
+    /// # Errors
+    /// Another download is going, the set is not on offer, or it is in the Library already.
+    pub fn get_dats(
+        shared: &Shared,
+        net: Arc<dyn crate::downloads::Net>,
+        id: &str,
+    ) -> Result<(), String> {
+        Self::start_get_dats(shared, net, catalogue(), id).map(drop)
+    }
+
+    /// [`Self::get_dats`] from `catalogue`, answering the thread that does it.
+    pub(crate) fn start_get_dats(
+        shared: &Shared,
+        net: Arc<dyn crate::downloads::Net>,
+        catalogue: &Catalogue,
+        id: &str,
+    ) -> Result<std::thread::JoinHandle<()>, String> {
+        let (source, kind, place, cancel) = {
+            let mut b = lock(shared);
+            if b.download
+                .as_ref()
+                .is_some_and(crate::downloads::Status::going)
+            {
+                return Err("Another download is still going.".into());
+            }
+            let (source, kind) = crate::downloads::source(catalogue, id)
+                .ok_or_else(|| format!("{id} is not a set the archive offers."))?;
+            let place = crate::downloads::Place::in_library(&b.library_dir(), &source.id);
+            let game = dereth_launch::downloads::kind_of(source).0;
+            if b.state.sets(game).iter().any(|s| s.path == place.set) {
+                return Err(format!("{} is in your Library already.", source.label));
+            }
+            b.download = Some(crate::downloads::Status::starting(source));
+            b.download_cancel.store(false, Ordering::Relaxed);
+            (source.clone(), kind, place, b.download_cancel.clone())
+        };
+        let shared = shared.clone();
+        Ok(std::thread::spawn(move || {
+            let progress_to = shared.clone();
+            let report = move |p| {
+                if let Some(s) = lock(&progress_to).download.as_mut() {
+                    s.at(p);
+                }
+            };
+            let end = crate::downloads::run(&source, kind, &place, net.as_ref(), &cancel, &report);
+            let mut b = lock(&shared);
+            let end = match end {
+                crate::downloads::End::Done(note) => match b.add_downloaded(kind, &place.set) {
+                    crate::downloads::End::Done(_) => crate::downloads::End::Done(note),
+                    other => other,
+                },
+                other => other,
+            };
+            if let Some(s) = b.download.as_mut() {
+                match end {
+                    crate::downloads::End::Done(note) => {
+                        s.stage = "done";
+                        s.message = note;
+                    }
+                    crate::downloads::End::Cancelled => s.stage = "cancelled",
+                    crate::downloads::End::Failed(why) => {
+                        eprintln!("dereth-launcher: downloading {} failed: {why}", s.label);
+                        s.stage = "failed";
+                        s.message = Some(why);
+                    }
+                }
+            }
+        }))
+    }
+
+    /// The set a download left whole in `dir`, added to the Library as one the launcher made.
+    fn add_downloaded(&mut self, kind: SetKind, dir: &Path) -> crate::downloads::End {
+        let mut find = if kind == SetKind::Auberean {
+            dereth_launch::auberean::read_folder(dir, &self.state)
+        } else {
+            library::read_folder(dir, &self.state)
+        };
+        find.retail = None;
+        for set in find.dats.iter_mut().chain(find.classic.iter_mut()) {
+            set.created_by_launcher = true;
+        }
+        if find.dats.is_none() && find.classic.is_none() {
+            return crate::downloads::End::Failed(
+                find.error
+                    .unwrap_or_else(|| "the files did not read as a set".into()),
+            );
+        }
+        library::add_find(&mut self.state, find);
+        self.save();
+        crate::downloads::End::Done(None)
+    }
+
+    /// Stop the download that is going; what it downloaded is kept for the next try.
+    pub fn cancel_get_dats(&mut self) {
+        self.download_cancel.store(true, Ordering::Relaxed);
+    }
+
+    /// Forget how the last download went, once it is over.
+    pub fn clear_get_dats(&mut self) {
+        if !self
+            .download
+            .as_ref()
+            .is_some_and(crate::downloads::Status::going)
+        {
+            self.download = None;
+        }
     }
 
     /// Forget a set; delete its files too when the launcher made them, and only inside the library.
@@ -4528,7 +4677,7 @@ mod tests {
             ..choice(Some("pw"))
         });
         assert!(
-            matches!(&out, LaunchOutcome::Error { message } if message.contains("1999 data files")),
+            matches!(&out, LaunchOutcome::Error { message } if message.contains("Launch data files")),
             "{out:?}"
         );
         let original = dir.join("nov1999");
@@ -4536,7 +4685,8 @@ mod tests {
         let find = b.read_folder(&original, Game::Dereth);
         b.add_folder(find);
         let view = b.world_view("eulmore").unwrap();
-        assert_eq!(view.requires, SetKind::Original);
+        assert_eq!(view.requires, SetKind::Classic);
+        assert!(view.launch_pair);
         assert_eq!(view.classic_sets.len(), 1);
         assert_eq!(view.classic_sets[0].path, original);
         let _ = std::fs::remove_dir_all(dir);

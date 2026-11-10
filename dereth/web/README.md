@@ -10,7 +10,8 @@ module of its own, fetched only when a world of that game is played.
   address, choose your data files, and play.
 - **Your own data files.** You pick your four `client_*.dat` files, plus the older `portal.dat`
   and `cell.dat` for the classic interface and early-era worlds. The page reads them on your
-  machine and can keep a copy in the browser's private storage. Nothing is uploaded.
+  machine and can keep a copy in the browser's private storage. Nothing is uploaded. A player
+  without them can have the Library download a set from the community's archive.
 - **All three interfaces:** Horizon, modern and classic.
 - **World updates.** A world that patches its data files keeps its patch in the browser, one
   overlay per world, and never writes your files.
@@ -38,6 +39,7 @@ address parameters, and how each of the above works. `cargo xtask web` builds it
 | `www/play-worker.js`, `www/auberean-worker.js` | each game's worker: loads its module and opens its data files, one for each play |
 | `www/game-loop.js` | what both games' workers do: carries the WebSocket, runs a frame per animation frame, plays the sound, takes the page's input |
 | `www/datfiles.js` | reads the data files: picked files, the browser's copy, or the dev runner's |
+| `www/fetchdats.js` | the Library's downloads: gets a data set from the community's archive into the browser's storage |
 | `www/audio-worklet.js` | plays the sound the worker mixes |
 | `www/_headers` | the headers a host sends with the page |
 | `src/browser.rs` | Dereth's module's bindings the worker calls |

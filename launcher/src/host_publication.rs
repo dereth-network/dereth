@@ -1066,7 +1066,7 @@ impl PlayInputs {
             ..dereth_launch::World::default()
         };
         let (modern, classic) = match choices::required_set_for(&world) {
-            SetKind::Classic | SetKind::Original => (modern, Some(self.dats.as_path())),
+            SetKind::Classic => (modern, Some(self.dats.as_path())),
             SetKind::Modern | SetKind::Auberean => (Some(self.dats.as_path()), classic),
         };
         choices::dat_dirs_for(&world, modern, classic).map_err(|e| e.to_string())

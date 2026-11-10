@@ -153,7 +153,15 @@ pub fn describe(world: &World) -> WorldLaunch {
     let some = |v: Option<&str>| v.filter(|s| !s.is_empty()).map(str::to_owned);
     WorldLaunch {
         set: crate::choices::required_set_for(world),
-        world_base: some(world.world_base.as_deref()),
+        // The client knows two bases, the later files and the older pair: a world that names the
+        // 1999 pair (as one written when it was a kind of its own does) names the older pair.
+        world_base: some(world.world_base.as_deref()).map(|b| {
+            if b.eq_ignore_ascii_case("original") {
+                "classic".to_owned()
+            } else {
+                b
+            }
+        }),
         era: some(world.era.as_deref()),
         era_features: era_feature_bits(world).map(|b| b.to_string()),
         logon_version: some(world.logon_version.as_deref()),
@@ -370,6 +378,17 @@ mod tests {
             art_packs: Vec::new(),
             interface: None,
         }
+    }
+
+    /// The client knows the later files and the older pair: a world naming the 1999 pair as its
+    /// base names the older pair.
+    #[test]
+    fn a_world_naming_the_1999_pair_as_its_base_tells_the_client_the_older_pair() {
+        let mut w = world(Emulator::Empyrean);
+        w.world_base = Some("original".into());
+        assert_eq!(describe(&w).world_base.as_deref(), Some("classic"));
+        w.world_base = Some("modern".into());
+        assert_eq!(describe(&w).world_base.as_deref(), Some("modern"));
     }
 
     #[test]

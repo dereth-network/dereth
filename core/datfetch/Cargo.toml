@@ -1,0 +1,37 @@
+[package]
+name = "dereth-datfetch"
+description = "Getting a base data set from the community's archive for the player, with no network and no files in it: the archive's public links, the transfer's decryption and checks, unpacking, and the files' verification."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# The list of data sets and where each is kept is a JSON document, updatable without a release.
+serde.workspace = true
+serde_json.workspace = true
+# The archive host's keys and attributes are base64 (its URL-safe alphabet).
+base64.workspace = true
+# The archive host encrypts every file: AES-128 in counter mode, with a CBC-MAC over chunks.
+aes = "0.8"
+# The files each data set must end as, by their SHA-256.
+sha2.workspace = true
+# The archives' own per-member checksum.
+crc32fast = "1"
+# Zip members are deflated; raw deflate, fed as the bytes come.
+flate2.workspace = true
+# 7z members are LZMA or LZMA2; its push decoders take the bytes as they come.
+lzma-rust2 = { version = "0.21", default-features = false, features = ["std"] }
+
+[features]
+# A file kept as the archive's host keeps one, for a front end's tests.
+testing = []
+
+[dev-dependencies]
+# Small archives made in the tests, by writers other than this crate's readers.
+zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+sevenz-rust2 = { version = "0.23", default-features = false, features = ["compress"] }
+
+[lints]
+workspace = true

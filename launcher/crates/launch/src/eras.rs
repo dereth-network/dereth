@@ -21,8 +21,19 @@ pub struct EraInfo {
     pub label: &'static str,
     /// Which data set the era's world is drawn from.
     pub needs: SetKind,
+    /// For an era drawn from a Classic set, the iterations its pair's files carry, each a range
+    /// with both ends included: which Classic sets its worlds are offered.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pair: Option<PairIterations>,
     /// The era's table: every system, on or off.
     pub features: BTreeMap<&'static str, bool>,
+}
+
+/// The iterations an era's Classic pair carries ([`dereth_primitives::ExpectedDats`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct PairIterations {
+    pub portal: (u32, u32),
+    pub cell: (u32, u32),
 }
 
 /// One system, as the launcher names it.
@@ -88,6 +99,7 @@ pub fn eras() -> Vec<EraInfo> {
             name: e.name(),
             label: era_label(e),
             needs: needs(e),
+            pair: pair_iterations(e),
             features: e.features().iter().collect(),
         })
         .collect()
@@ -144,17 +156,25 @@ pub fn features() -> Vec<FeatureInfo> {
 
 fn needs(era: EraId) -> SetKind {
     match era.container_era() {
-        // Launch is drawn from the 1999 pair, the other eras before Throne of Destiny from the
-        // later one.
-        ContainerEra::Classic if era == EraId::Launch => SetKind::Original,
         ContainerEra::Classic => SetKind::Classic,
-        _ => SetKind::Modern,
+        ContainerEra::Modern => SetKind::Modern,
     }
 }
 
-/// The data set a world's world is drawn from: the Original set for Launch, the Classic set for
-/// another era before Throne of Destiny, the Modern set for any other, and for no era (or one this
-/// build does not know), which the client plays as the end of retail.
+fn pair_iterations(era: EraId) -> Option<PairIterations> {
+    let d = era.expected_dats();
+    if d.container != ContainerEra::Classic {
+        return None;
+    }
+    Some(PairIterations {
+        portal: d.portal.unwrap_or((0, u32::MAX)),
+        cell: d.cell.unwrap_or((0, u32::MAX)),
+    })
+}
+
+/// The data set a world's world is drawn from: the Classic set for an era before Throne of Destiny
+/// (Launch's the 1999 pair, [`crate::datset::pair_era`]), the Modern set for any other, and for no
+/// era (or one this build does not know), which the client plays as the end of retail.
 pub fn required_set(era: Option<&str>) -> SetKind {
     era.and_then(EraId::parse).map_or(SetKind::Modern, needs)
 }
@@ -195,7 +215,10 @@ mod tests {
         );
         assert_eq!(e[0].needs, SetKind::Modern);
         assert_eq!(e[1].needs, SetKind::Classic);
-        assert_eq!(e[2].needs, SetKind::Original);
+        assert_eq!(e[2].needs, SetKind::Classic);
+        assert_eq!(e[0].pair, None);
+        assert_eq!(e[2].pair.map(|p| p.portal), Some((102, 123)));
+        assert_eq!(e[1].pair.map(|p| p.cell), Some((1537, u32::MAX)));
         assert!(!e[2].features["trade"]);
         assert!(e[2].features["spell_research"]);
         assert!(e[1].features["trade"]);
@@ -216,9 +239,8 @@ mod tests {
     }
 
     #[test]
-    fn launch_needs_the_original_set_a_later_pre_tod_era_the_classic_set_and_others_the_modern_one()
-    {
-        assert_eq!(required_set(Some("launch")), SetKind::Original);
+    fn an_era_before_throne_of_destiny_needs_the_classic_set_and_others_the_modern_one() {
+        assert_eq!(required_set(Some("launch")), SetKind::Classic);
         assert_eq!(required_set(Some("infiltration")), SetKind::Classic);
         assert_eq!(required_set(Some("Infiltration ")), SetKind::Classic);
         assert_eq!(required_set(Some("eor")), SetKind::Modern);
