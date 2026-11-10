@@ -6,6 +6,8 @@ Add a line under **Unreleased** when a change lands that a player would notice. 
 not how it was done.
 
 ## Unreleased
+
+## 0.1.7 (2026-11-10)
 - Updates shared with Yalain; nothing changes in play.
 
 ## 0.1.6 (2026-11-09)
