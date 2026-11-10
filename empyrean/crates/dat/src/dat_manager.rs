@@ -301,18 +301,11 @@ impl DatManager {
             }
         }
 
-        // DIVERGE: a dat set from before Throne of Destiny is compared with the February 2005
+        // DIVERGE: a dat set from before Throne of Destiny is compared with its own era's
         // iterations (it has no language or high-resolution file of its own: the portal file
         // answers language reads).
         let pre_tod = source.container_era() == ContainerEra::Classic;
-        let (expected_cell, expected_portal) = if pre_tod {
-            pre_tod_iterations(
-                source.header_iteration(DatDatabaseType::Portal),
-                source.header_iteration(DatDatabaseType::Cell),
-            )
-        } else {
-            (ITERATION_CELL, ITERATION_PORTAL)
-        };
+        let (expected_cell, expected_portal) = expected_iterations(source.as_ref());
 
         let cell_dat =
             CellDatDatabase::new(DatDatabase::new(DatDatabaseType::Cell, Arc::clone(&source)));
@@ -406,6 +399,24 @@ fn log_opened(db: &DatDatabase, expected: i32) {
     if let Some(warning) = iteration_warning(db, expected) {
         log::warn!("{warning}");
     }
+}
+
+/// Not ACE: the iterations the cell and portal files of `source` are compared with when the
+/// server opens them, cell then portal. A pair from before Throne of Destiny is judged by its
+/// files' own header iterations; under a data overlay those are the base's the overlay records,
+/// since the files then report the overlay's revisions on top.
+#[must_use]
+pub fn expected_iterations(source: &dyn DatSource) -> (i32, i32) {
+    if source.container_era() != ContainerEra::Classic {
+        return (ITERATION_CELL, ITERATION_PORTAL);
+    }
+    let own = |db| {
+        source.overlay(db).map_or_else(
+            || source.header_iteration(db),
+            |layer| Some(layer.manifest().base_iterations),
+        )
+    };
+    pre_tod_iterations(own(DatDatabaseType::Portal), own(DatDatabaseType::Cell))
 }
 
 /// The iterations a pair from before Throne of Destiny is compared with, cell then portal: its own

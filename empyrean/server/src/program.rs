@@ -1320,9 +1320,13 @@ fn start_status_endpoint(
     match status_endpoint::start(addr, allowed_origins, portals, snapshot) {
         Ok(endpoint) => {
             log::info!(
-                "Status endpoint: http://{}/status and /health{}",
+                "Status endpoint: http://{}/status{}",
                 endpoint.local_addr(),
-                if publishing { " and /portals" } else { "" }
+                if publishing {
+                    ", /health, /portals and /places"
+                } else {
+                    " and /health"
+                }
             );
             Some(endpoint)
         }
