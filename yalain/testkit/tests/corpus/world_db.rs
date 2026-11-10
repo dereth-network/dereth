@@ -4902,12 +4902,16 @@ fn the_loot_draw_holds_items_and_value_a_corpse_inside_2017s_intervals() {
 
 /// The world's treasure numbers, words, looks, potions and enchantments, its rows' or the server's
 /// own for each kind it gives none of, draw the seeded drops exactly as they were recorded: the world's treasure
-/// rows are 2017's.
+/// rows are 2017's. The weights for droppers with a loot quality override, which the server's own
+/// numbers leave out, are 2017's for those droppers where the world gives them.
 /// Behaviour: server.loot.treasure-numbers-from-rows
 #[test]
 fn the_worlds_treasure_numbers_draw_the_seeded_drops_as_recorded() {
     let t = &compiled().tables;
-    let (tables, fell_back) = yalain_world::treasure::TreasureTables::with_rows(&t.treasure);
+    let (mut tables, fell_back) = yalain_world::treasure::TreasureTables::with_rows(&t.treasure);
+    if let Some(w) = tables.rules.above_base_override.take() {
+        assert_eq!(w, [148.0, 183.0, 60.0], "2017's override drops");
+    }
     println!("the world's treasure numbers, the server's own for: {fell_back:?}");
     let p = yalain_testkit::authored::Portal::open();
     yalain_testkit::treasure_drops::seeded_drops(&p, tables).hold_recorded();

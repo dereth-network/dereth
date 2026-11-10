@@ -3725,6 +3725,10 @@ fn treasure_rows(t: &yalain_content::treasure_tables::TreasureTables) -> String 
         r.look.round_from,
         r.look.round_tenths,
     );
+    if let Some(w) = &r.above_base_override {
+        let at = out.find("most_level").expect("its rules row");
+        out.insert_str(at, &format!("above_base_override = {}\n", floats(w)));
+    }
     for sort in Sort::ALL {
         let s = t.sort(sort);
         let _ = write!(
@@ -3926,6 +3930,7 @@ fn a_worlds_treasure_rows_replace_the_kinds_they_give_whole() {
     let mut own = defaults.clone();
     own.rules.most_level = 40;
     own.rules.above_base = vec![0.0, 1.0];
+    own.rules.above_base_override = Some(vec![148.0, 183.0, 60.0]);
     own.weapon.vigor[0].most = 2;
     own.shield.slot_chance = 0.25;
     own.jewelry.counts = vec![yalain_content::treasure_tables::CountBand {
@@ -3964,6 +3969,14 @@ fn treasure_rows_that_break_their_rules_are_problems() {
         (
             good.replace("above_base = [436.0, 519.0, 220.0, 39.0]", "above_base = [0.0, 0.0]"),
             "above_base: weights",
+        ),
+        (
+            good.replace("most_level = 50", "above_base_override = [0.0, -1.0]\nmost_level = 50"),
+            "above_base_override: weights",
+        ),
+        (
+            good.replace("most_level = 50", "above_base_override = 3\nmost_level = 50"),
+            "above_base_override",
         ),
         (
             good.replace("potion_tiers = [0, 16, 30, 40, 45]", "potion_tiers = [0, 16, 30, 45, 40]"),

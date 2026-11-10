@@ -2346,11 +2346,11 @@ fn a_treasure_items_own_properties_follow_its_droppers_level() {
     let mut seen = [false; 4];
     let (mut low, mut high) = (100.0f32, 0.0f32);
     for _ in 0..2000 {
-        let l = min_level(&mut rng, rules, 20);
+        let l = min_level(&mut rng, rules, 20, false);
         assert!((20..=23).contains(&l), "{l}");
         seen[usize::try_from(l - 20).unwrap()] = true;
-        assert!(min_level(&mut rng, rules, 49) <= 50);
-        assert_eq!(min_level(&mut rng, rules, 60), 50);
+        assert!(min_level(&mut rng, rules, 49, false) <= 50);
+        assert_eq!(min_level(&mut rng, rules, 60, false), 50);
         assert_eq!(arcane_lore(&mut rng, rules, &table, 51), None);
         let lore =
             arcane_lore(&mut rng, rules, &table, 57).expect("a base of 57 always draws above 50");
@@ -2373,6 +2373,65 @@ fn a_treasure_items_own_properties_follow_its_droppers_level() {
         (40..=120).contains(&some),
         "about two in five above 50: {some}"
     );
+}
+
+/// A world's own weights for droppers whose loot base is their loot quality override are what their
+/// equipment's least level draws by: with 2017's (the base plus 0, 1 or 2, by 148, 183 and 60) a
+/// level 43 creature of quality 440 never drops the base plus 3 and drops the rest about that
+/// often; a creature with no override still draws the world's other weights, plus 3 among them; a
+/// world without them draws every dropper by those.
+/// Behaviour: server.loot.treasure-override-least-level
+#[test]
+fn droppers_with_a_loot_quality_override_draw_their_least_level_by_their_own_weights() {
+    use yalain_content::treasure_tables::ABOVE_BASE;
+    use yalain_content::{Prop, Props};
+    const SWORD: u32 = 0x4700_7003;
+    const DROPS: u32 = 3000;
+    let world = |weights: Option<Vec<f32>>| {
+        let mut h = Harness::new();
+        h.server.catalog = yalain_testkit::test_catalog();
+        let mut props = Props::default();
+        props
+            .set("Weapon_Damage", Prop::Int(10))
+            .set("Weapon_Variance", Prop::Float(0.25));
+        h.server
+            .catalog
+            .insert(yalain_testkit::test_template(SWORD, 0x200, props));
+        h.server.treasure.equipment.insert(0x200);
+        h.server.treasure_tables.rules.above_base_override = weights;
+        h
+    };
+    // How many of a level 43 creature's drops stood at its base plus 0, 1, 2 and 3.
+    let drops = |h: &mut Harness, quality: Option<i64>| {
+        let base = yalain_world::treasure::base_of(43, quality);
+        let mut n = [0u32; 4];
+        for _ in 0..DROPS {
+            let sword =
+                yalain_world::inventory::make_item(&mut h.server, SWORD, 1, 9).expect("made");
+            yalain_world::treasure::endow(&mut h.server, sword, 43, quality);
+            let least = h.server.things.get(sword).expect("made").own.min_level;
+            let above = least.expect("a least level of its own") - base;
+            n[usize::try_from(above).expect("at or above the base")] += 1;
+        }
+        n
+    };
+    let near = |got: [u32; 4], weights: &[f32]| {
+        let sum: f32 = weights.iter().sum();
+        (0..4).all(|i| {
+            let want = f64::from(weights.get(i).copied().unwrap_or(0.0) / sum);
+            (f64::from(got[i]) / f64::from(DROPS) - want).abs() < 0.03
+        })
+    };
+    let ours = vec![148.0, 183.0, 60.0];
+    let mut with = world(Some(ours.clone()));
+    let overridden = drops(&mut with, Some(440));
+    assert_eq!(overridden[3], 0, "no base plus 3: {overridden:?}");
+    assert!(near(overridden, &ours), "{overridden:?}");
+    let plain = drops(&mut with, None);
+    assert!(plain[3] > 0 && near(plain, &ABOVE_BASE), "{plain:?}");
+    let mut without = world(None);
+    let today = drops(&mut without, Some(440));
+    assert!(today[3] > 0 && near(today, &ABOVE_BASE), "{today:?}");
 }
 
 /// A world's treasure numbers are the ones its drops draw by: with tables of its own, a weapon's

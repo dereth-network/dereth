@@ -120,8 +120,7 @@ fn export(t: &TreasureTables) -> Value {
                 })
         })
         .collect();
-    json!({
-        "rules": {
+    let mut rules = json!({
             "above_base": ns(&r.above_base),
             "most_level": r.most_level,
             "lore": {"above": r.lore.above, "from": r.lore.from, "to": r.lore.to},
@@ -133,7 +132,12 @@ fn export(t: &TreasureTables) -> Value {
                 "round_from": n(r.look.round_from),
                 "round_tenths": r.look.round_tenths,
             },
-        },
+    });
+    if let Some(w) = &r.above_base_override {
+        rules["above_base_override"] = ns(w);
+    }
+    json!({
+        "rules": rules,
         "sorts": sorts,
         "words": words,
         "looks": t.looks.iter().map(|l| json!({
@@ -268,6 +272,7 @@ fn import(v: &Value) -> TreasureTables {
     TreasureTables {
         rules: Rules {
             above_base: fs(&r["above_base"]),
+            above_base_override: r.get("above_base_override").map(fs),
             most_level: i(&r["most_level"]),
             lore: LoreRule {
                 above: i(&r["lore"]["above"]),

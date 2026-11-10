@@ -13,7 +13,9 @@
 //! dropped weapons, armor and shields examined whose templates set none showed their own, none of
 //! 41 lutes and flutes; below a base of 48, 1,214 of 1,256 at the base plus 0 to 3; from a base of
 //! 50, 533 of 533 at 50; no Arcane Lore at a base of 51 or below, 0 of 1,616, and a share and a
-//! value growing with the base above it.)
+//! value growing with the base above it.) A world may give droppers whose base is their loot
+//! quality override weights of their own for that least level (2017: 393 such drops at a base of 46
+//! or below, from 63 creatures, at the base plus 0 to 2 and none at plus 3).
 //!
 //! **Its numbers.** A template's damage and armor are placeholders, so a treasure weapon, shield or
 //! piece of armor gets its own by its item level (its least level, or its dropper's base from level
@@ -525,18 +527,24 @@ pub fn lore_at(table: &crate::craft::LevelMap, level: f32) -> Option<i32> {
     (lore > 0).then_some(lore)
 }
 
-/// The loot base of a creature: its loot quality override in tens, else its level.
-#[must_use]
-pub fn base_of(level: i32, quality: Option<i64>) -> i32 {
+/// A creature's loot quality override in tens, when it has one.
+fn override_base(quality: Option<i64>) -> Option<i32> {
     quality
         .filter(|q| *q > 0)
         .and_then(|q| i32::try_from(q / 10).ok())
-        .unwrap_or(level)
 }
 
-/// A treasure item's own least level, from its dropper's base.
-pub fn min_level(rng: &mut Rng, rules: &Rules, base: i32) -> i32 {
-    let above = rng.weighted(rules.above_base.iter().copied()).unwrap_or(0);
+/// The loot base of a creature: its loot quality override in tens, else its level.
+#[must_use]
+pub fn base_of(level: i32, quality: Option<i64>) -> i32 {
+    override_base(quality).unwrap_or(level)
+}
+
+/// A treasure item's own least level, from its dropper's base, drawn by the weights for a base
+/// that is a loot quality override when `overridden`.
+pub fn min_level(rng: &mut Rng, rules: &Rules, base: i32, overridden: bool) -> i32 {
+    let weights = rules.above_base_of(overridden).iter().copied();
+    let above = rng.weighted(weights).unwrap_or(0);
     (base + i32::try_from(above).unwrap_or(0)).clamp(1, rules.most_level.max(1))
 }
 
@@ -589,11 +597,12 @@ pub fn endow<S: yalain_store::Store>(
         return;
     };
     let base = base_of(level, quality);
+    let overridden = override_base(quality).is_some();
     let mut own = Own::default();
     let rules = &s.treasure_tables.rules;
     if s.treasure.equipment.contains(&package) {
         own.look = draw_look(&mut s.rng, &s.treasure_tables, template);
-        let least = min_level(&mut s.rng, rules, base);
+        let least = min_level(&mut s.rng, rules, base, overridden);
         own.min_level = Some(least);
         own.arcane_lore = arcane_lore(&mut s.rng, rules, &s.treasure.lore, base);
         let value = s.things.get(item).map_or(0, |t| t.value);
@@ -620,7 +629,7 @@ pub fn endow<S: yalain_store::Store>(
     } else if s.treasure.jewelry.contains(&package) {
         // Enchanted or plain by its dropper, with a least level only if enchanted (2017: 73 of 73
         // with a least level had one effect, 120 of 120 with none had none).
-        let least = min_level(&mut s.rng, rules, base);
+        let least = min_level(&mut s.rng, rules, base, overridden);
         if put_enchantments(s, item, &mut own, Sort::Jewelry, least.max(base)) {
             own.min_level = Some(least);
             own.arcane_lore =

@@ -7387,11 +7387,23 @@ pub static ROWS: &[Behaviour] = &[
                vigor bands, delays and slot chance, the words before names, the looks, the \
                potions and the families of enchantments, each kind taken whole, the server's own for a kind it gives none of, and \
                all four sorts or none. The base world's rows draw the seeded drops exactly as the \
-               server's own numbers did.",
+               server's own numbers did, but for its weights for droppers with a loot quality \
+               override, which are 2017's for those droppers.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-NUMBER-ROWS"),
         station: "yalain-testkit::corpus::world_db::the_worlds_treasure_numbers_draw_the_seeded_drops_as_recorded",
         tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.loot.treasure-override-least-level",
+        says: "A world may give its own weights for the least level of equipment dropped by a \
+               creature whose loot base is its loot quality override; that creature draws by them, \
+               any other by the world's usual ones, and a world without them draws all alike. \
+               2017's override drops stood at the base plus 0 to 2, never 3.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-OVERRIDE-LEAST"),
+        station: "yalain-testkit::cpu::play::fights::droppers_with_a_loot_quality_override_draw_their_least_level_by_their_own_weights",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.loot.treasure-own-properties",

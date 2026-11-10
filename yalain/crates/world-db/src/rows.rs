@@ -1547,6 +1547,7 @@ pub const FIELDS: [(&str, &[&str]); 52] = [
         "treasure_rules",
         &[
             "above_base",
+            "above_base_override",
             "most_level",
             "lore",
             "potion_tiers",
@@ -4026,6 +4027,13 @@ impl<'a> Fields<'a> {
         let above_base = self.req_floats("above_base")?;
         let ok = weights_ok(&above_base);
         let above_base = self.held("above_base", above_base, ok, WEIGHTS)?;
+        let above_base_override = if self.t.contains_key("above_base_override") {
+            let w = self.req_floats("above_base_override")?;
+            let ok = weights_ok(&w);
+            Some(self.held("above_base_override", w, ok, WEIGHTS)?)
+        } else {
+            None
+        };
         let most_level = self.req("most_level", "a whole number", toml::Value::as_integer)?;
         let most_level = i32::try_from(most_level).ok().filter(|l| *l >= 1);
         let most_level =
@@ -4079,6 +4087,7 @@ impl<'a> Fields<'a> {
         )?;
         Some(Rules {
             above_base,
+            above_base_override,
             most_level,
             lore,
             potion_tiers,

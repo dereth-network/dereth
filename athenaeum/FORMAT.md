@@ -512,6 +512,7 @@ server's own.
 | field | | meaning |
 |---|---|---|
 | `above_base` | | weights of an item's own least level standing 0, 1, 2, ... above its dropper's base |
+| `above_base_override` | optional | the same for a dropper whose base is its loot quality override; left out, `above_base` |
 | `most_level` | | the highest least level an item's own may be |
 | `lore` | | `{ above, from, to }`: an item needs lore to use only when its dropper's base is above `above` |
 | `potion_tiers` | | the least dropper level of each of a treasure potion's five tiers |

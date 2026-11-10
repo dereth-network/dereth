@@ -237,6 +237,9 @@ pub struct LookRule {
 pub struct Rules {
     /// How often an item's own least level stands 0, 1, 2 ... above its dropper's base.
     pub above_base: Vec<f32>,
+    /// The same when the dropper's base is its loot quality override; `above_base` when none is
+    /// given.
+    pub above_base_override: Option<Vec<f32>>,
     /// The highest least level an item's own may be.
     pub most_level: i32,
     pub lore: LoreRule,
@@ -248,6 +251,16 @@ pub struct Rules {
 }
 
 impl Rules {
+    /// The weights an item's own least level stands above its dropper's base by, for a dropper
+    /// whose base is its loot quality override or not.
+    #[must_use]
+    pub fn above_base_of(&self, overridden: bool) -> &[f32] {
+        match &self.above_base_override {
+            Some(w) if overridden => w,
+            _ => &self.above_base,
+        }
+    }
+
     /// The tier (0 the lowest) of a treasure potion dropped by a creature of this level.
     #[must_use]
     pub fn potion_tier(&self, level: i32) -> usize {
@@ -492,6 +505,7 @@ impl TreasureTables {
         Self {
             rules: Rules {
                 above_base: ABOVE_BASE.to_vec(),
+                above_base_override: None,
                 most_level: MOST_LEVEL,
                 lore: LoreRule {
                     above: 51,
