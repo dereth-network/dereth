@@ -725,6 +725,7 @@ fn a_quest_steps_effects_come_after_its_gifts_and_before_its_update() {
         xp_share: 0.0,
         to: None,
         transforms: None,
+        chance: None,
     };
     let world = *h
         .server

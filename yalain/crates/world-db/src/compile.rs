@@ -1074,6 +1074,8 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     xp_share: s.xp_share.unwrap_or(0.0) as f32,
                     to,
                     transforms: s.transforms.clone(),
+                    #[allow(clippy::cast_possible_truncation)]
+                    chance: s.chance.map(|c| c as f32),
                 });
             }
             Row::Give(g) => {

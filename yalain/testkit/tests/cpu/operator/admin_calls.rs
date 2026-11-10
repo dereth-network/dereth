@@ -1717,6 +1717,7 @@ fn a_quest_an_admin_takes_off_a_player_takes_its_subquests_too() {
                 xp_share: 0.0,
                 to: None,
                 transforms: None,
+                chance: None,
             })
             .to_vec(),
         gives: Vec::new(),

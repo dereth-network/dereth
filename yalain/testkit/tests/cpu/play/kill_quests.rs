@@ -487,6 +487,7 @@ fn a_kills_step_runs_first_and_its_quest_is_not_moved_again_by_the_effect() {
         xp_share: 0.0,
         to: None,
         transforms: None,
+        chance: None,
     });
     let from = h.bots[b].inbox.len();
     kill(&mut h, me, &[INCREMENT]);
@@ -620,6 +621,7 @@ fn giving_step() -> Step {
         xp_share: 0.0,
         to: None,
         transforms: None,
+        chance: None,
     }
 }
 
@@ -725,6 +727,7 @@ fn an_item_acquired_moves_the_quest_its_template_names() {
         xp_share: 0.0,
         to: None,
         transforms: None,
+        chance: None,
     });
     let from = h.bots[b].inbox.len();
     take(&mut h);
@@ -759,6 +762,7 @@ fn an_item_acquired_moves_the_quest_its_template_names() {
         xp_share: 0.0,
         to: None,
         transforms: None,
+        chance: None,
     });
     h.server.quests.steps.retain(|st| st.quest != QUEST);
     holds(&mut h, me, status::UNDERWAY, 2);
@@ -810,6 +814,7 @@ fn a_kills_step_that_leads_somewhere_sends_the_killer() {
         levels: None,
         xp_share: 0.0,
         transforms: None,
+        chance: None,
     };
     h.server.quests.steps = vec![step(1, Some(place)), step(2, None)];
     for p in h.server.players.values_mut() {
@@ -867,6 +872,7 @@ pub(super) fn leading_step(template: u32, needs: u32, to: yalain_content::quests
         levels: None,
         xp_share: 0.0,
         transforms: None,
+        chance: None,
     }
 }
 
@@ -1067,6 +1073,7 @@ fn a_kills_step_sends_the_killer_to_a_free_room_of_its_row() {
         levels: None,
         xp_share: 0.0,
         transforms: None,
+        chance: None,
     }];
     for p in h.server.players.values_mut() {
         p.play.quests.push(QuestState {
@@ -1257,6 +1264,7 @@ fn a_named_camps_creature_goes_by_its_name_and_only_its_kill_moves_the_camps_ste
         xp_share: 0.0,
         to: None,
         transforms: None,
+        chance: None,
     });
     let from = h.bots[b].inbox.len();
     slay(&mut h, other, me);
@@ -1282,5 +1290,105 @@ fn a_named_camps_creature_goes_by_its_name_and_only_its_kill_moves_the_camps_ste
     assert!(
         corpses.contains(&yalain_world::death::corpse_name(Some(NAMED))),
         "{corpses:?}"
+    );
+}
+
+/// The item a chance step gives: one the test world's catalog holds.
+const GEM: u32 = yalain_testkit::TEST_ITEM;
+
+/// A step on the beetle's kill, its quest at its first phase, that moves no quest and gives the gem,
+/// by this chance.
+fn chance_step(template: u32, chance: f32) -> Step {
+    Step {
+        quest: QUEST,
+        needs: 1,
+        trigger: Trigger::Kill(template),
+        tell: None,
+        update: Update::Nothing,
+        xp: 0,
+        gives: vec![GEM],
+        counts: Vec::new(),
+        effects: Vec::new(),
+        text: None,
+        placed: "authored for a test".into(),
+        requires: Vec::new(),
+        takes: Vec::new(),
+        races: Vec::new(),
+        effects_last: false,
+        wants: None,
+        fellows: false,
+        levels: None,
+        xp_share: 0.0,
+        to: None,
+        transforms: None,
+        chance: Some(chance),
+    }
+}
+
+/// How many of the gem a character holds.
+fn gems(h: &Harness, who: u64) -> u32 {
+    h.server
+        .players
+        .values()
+        .find(|p| p.character == who)
+        .expect("in the world")
+        .play
+        .items
+        .iter()
+        .filter(|i| i.template == GEM)
+        .map(|i| i.quantity.max(1))
+        .sum()
+}
+
+/// **A step with a chance runs only when its chance comes up**: of sixty kills at its phase,
+/// each able to run it, some give the gem and some give nothing, and none moves the quest.
+/// Behaviour: server.quests.a-step-runs-by-its-chance
+#[test]
+fn a_kills_step_with_a_chance_runs_on_some_kills_and_not_on_others() {
+    let (mut h, _b, me) = world(quest(5));
+    holds(&mut h, me, status::UNDERWAY, 1);
+    let template = kill(&mut h, me, &[]);
+    assert_eq!(gems(&h, me), 0);
+    h.server.quests.steps.push(chance_step(template, 0.5));
+    for _ in 0..60 {
+        kill(&mut h, me, &[]);
+    }
+    let given = gems(&h, me);
+    assert!(
+        (15..=45).contains(&given),
+        "about half of 60 kills give the gem, not {given}"
+    );
+    assert_eq!(phase(&h, me), 1, "the step moves no quest");
+}
+
+/// **A step whose chance does not come up is passed over as though it could not run**: the
+/// kill's own effect then moves the quest the step would have kept it from moving; when it comes up
+/// (a chance of 1), the step runs and the effect moves that quest no further.
+/// Behaviour: server.quests.a-step-runs-by-its-chance
+#[test]
+fn a_step_whose_chance_does_not_come_up_leaves_the_kill_to_move_its_quest() {
+    let (mut h, _b, me) = world(quest(5));
+    holds(&mut h, me, status::UNDERWAY, 1);
+    let template = kill(&mut h, me, &[]);
+    h.server
+        .quests
+        .steps
+        .push(chance_step(template, f32::MIN_POSITIVE));
+    kill(&mut h, me, &[INCREMENT]);
+    assert_eq!(
+        gems(&h, me),
+        0,
+        "a chance that never comes up gives nothing"
+    );
+    assert_eq!(phase(&h, me), 2, "the kill's effect moves the quest");
+    holds(&mut h, me, status::UNDERWAY, 1);
+    h.server.quests.steps.pop();
+    h.server.quests.steps.push(chance_step(template, 1.0));
+    kill(&mut h, me, &[INCREMENT]);
+    assert_eq!(gems(&h, me), 1, "a chance of 1 always comes up");
+    assert_eq!(
+        phase(&h, me),
+        1,
+        "the step moved the quest, so the effect does not"
     );
 }

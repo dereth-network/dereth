@@ -12294,6 +12294,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-step-runs-by-its-chance",
+        says: "A step with a chance runs, each time it may, only when the chance comes up; one \
+               that does not is passed over as though it could not run, so what the same moment \
+               would do without it still happens. A step with none runs every time.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STEP-CHANCE"),
+        station: "yalain-testkit::cpu::play::kill_quests::a_kills_step_with_a_chance_runs_on_some_kills_and_not_on_others",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-step-waits-for-its-act-whole",
         says: "A quest step whose `requires` names an act runs only for a player holding the act \
                whole, seven of its scenes, its hidden ones aside; short of that the person used \

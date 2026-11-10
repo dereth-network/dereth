@@ -2540,6 +2540,51 @@ fn a_give_s_step_may_want_a_count_and_no_other_step_may() {
     );
 }
 
+/// Behaviour: server.quests.a-step-runs-by-its-chance
+#[test]
+fn a_steps_chance_is_read_compiled_and_kept_above_0_and_at_most_1() {
+    let use_ = yalain_content::quests::Trigger::Use(0x4700_33D0);
+    let with = |chance: &str| {
+        let mut files = fixture();
+        edit(
+            &mut files,
+            "town/server/quests/40000088.toml",
+            "needs = 0\ntrigger = { use = 0x470033D0 }\n",
+            &format!("needs = 0\ntrigger = {{ use = 0x470033D0 }}\nchance = {chance}\n"),
+        );
+        files
+    };
+    let files = with("0.67");
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let chance = t
+        .quests
+        .steps
+        .iter()
+        .find(|s| s.trigger == use_)
+        .and_then(|s| s.chance);
+    assert_eq!(chance, Some(0.67));
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+        t.quests,
+        "it reads back as written"
+    );
+    let plain = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert!(
+        plain.quests.steps.iter().all(|s| s.chance.is_none()),
+        "a step naming none runs every time"
+    );
+    for bad in ["0.0", "1.5", "-0.2"] {
+        let messages: Vec<String> = check(&with(bad)).iter().map(ToString::to_string).collect();
+        assert!(
+            messages
+                .iter()
+                .any(|m| m.contains("chance") && m.contains("above 0, at most 1")),
+            "{bad}: {messages:?}"
+        );
+    }
+}
+
 /// Behaviour: server.quests.cancel-waits-as-rows-say
 #[test]
 fn a_quest_row_may_name_its_wait_after_a_cancel() {

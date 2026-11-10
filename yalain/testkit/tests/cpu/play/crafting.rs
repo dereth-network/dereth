@@ -664,6 +664,7 @@ fn a_step_with_its_effects_last_tells_the_update_before_the_recipe() {
             xp_share: 0.0,
             to: None,
             transforms: None,
+            chance: None,
         };
         let from = h.bots[b].inbox.len();
         let clock = h.clock();
@@ -1366,6 +1367,7 @@ fn a_quest_given_runs_the_step_waiting_on_it_and_one_withheld_runs_none() {
                 xp_share: 0.0,
                 to: None,
                 transforms: None,
+                chance: None,
             }],
             gives: Vec::new(),
             rooms: Vec::new(),

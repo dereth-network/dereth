@@ -115,6 +115,7 @@ fn step(quest: u32, needs: u32, trigger: Trigger, update: Update) -> Step {
         xp_share: 0.0,
         to: None,
         transforms: None,
+        chance: None,
     }
 }
 

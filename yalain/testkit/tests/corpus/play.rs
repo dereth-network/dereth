@@ -296,6 +296,7 @@ fn a_day_of_heals_and_crafts() -> Vec<ServerMessage> {
         xp_share: 0.0,
         to: None,
         transforms: None,
+        chance: None,
     };
     let clock = h.clock();
     yalain_world::quests::run(&mut h.server, &mut h.net, world, &step, None, clock);
@@ -672,6 +673,7 @@ fn a_visit() -> Vec<ServerMessage> {
             xp_share: 0.0,
             to: None,
             transforms: None,
+            chance: None,
         }],
         gives: Vec::new(),
         rooms: Vec::new(),

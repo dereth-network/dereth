@@ -366,6 +366,7 @@ What moves a quest on, in its quest's file.
 | `fellows` | | true: the update is made for each of the player's fellows in the world as well |
 | `wants` | | for a give, exactly how many of the item it wants: any other count is refused and handed back |
 | `transforms` | | a give's step that makes its player a hero: `{ seconds, fx, behavior, text, name }` |
+| `chance` | | above 0 and at most 1: the chance it runs each time it may; left out, every time |
 | `prov` | required | where it came from |
 
 | `trigger` | moves the quest when the player |

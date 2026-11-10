@@ -26,9 +26,9 @@
 //!   use on an object makes the update on arrival), its effects (saved states joined by `,`), the text shown after them
 //!   (`string:table`), whether its update is made for the player's fellows too (0/1), and for a
 //!   give how many of the item it wants (empty for whatever is given), the levels it is for
-//!   (`LEAST:MOST`), the share of a level it pays, and for a give that makes its player a hero, the
+//!   (`LEAST:MOST`), the share of a level it pays, for a give that makes its player a hero, the
 //!   transformation (`SECONDS:FX/FX...:BEHAVIOR:STRING:TABLE:NAME`, hex but the seconds, empty
-//!   parts for none);
+//!   parts for none), and the chance it runs when it may (empty: always);
 //! - `give`: what a person or an object does with an item given it that moves no quest: the template
 //!   given to, the item's template (empty: any item), how many of it it wants (empty: whatever is
 //!   given), the items given back (templates joined by `,`, a count after `x`), its effects (saved
@@ -284,6 +284,8 @@ pub struct Step {
     pub xp_share: f32,
     /// For a give, it makes its player a hero, after this transformation.
     pub transforms: Option<Transformation>,
+    /// The chance it runs each time it may, above 0 and at most 1 (none: every time).
+    pub chance: Option<f32>,
 }
 
 /// A give's step that makes its player a hero: the gift kept at once and these appearances and
@@ -602,7 +604,7 @@ impl QuestTable {
             });
             let _ = writeln!(
                 out,
-                "step\t{:08X}\t{}\t{trigger}\t{}\t{update}\t{}\t{gives}\t{}\t{requires}\t{takes}\t{to}\t{effects}\t{text}\t{}\t{}\t{}\t{}\t{}",
+                "step\t{:08X}\t{}\t{trigger}\t{}\t{update}\t{}\t{gives}\t{}\t{requires}\t{takes}\t{to}\t{effects}\t{text}\t{}\t{}\t{}\t{}\t{}\t{}",
                 s.quest,
                 s.needs,
                 s.tell.as_ref().map(Words::to_text).unwrap_or_default(),
@@ -616,6 +618,7 @@ impl QuestTable {
                 s.transforms
                     .as_ref()
                     .map_or_else(String::new, Transformation::word),
+                s.chance.map_or_else(String::new, |c| c.to_string()),
             );
         }
         for g in &self.gives {
@@ -773,7 +776,7 @@ impl QuestTable {
                         _ => None,
                     },
                 }),
-                "step" if (9..=19).contains(&c.len()) => {
+                "step" if (9..=20).contains(&c.len()) => {
                     let (kind, tpl) = c[3]
                         .split_once(':')
                         .ok_or_else(|| at(format!("a trigger is kind:template, not {}", c[3])))?;
@@ -912,6 +915,15 @@ impl QuestTable {
                                 .map_err(|_| at(format!("a share {}", col(17))))?
                         },
                         transforms: optional(col(18), Transformation::of_word).map_err(at)?,
+                        chance: if col(19).is_empty() {
+                            None
+                        } else {
+                            Some(
+                                col(19)
+                                    .parse()
+                                    .map_err(|_| at(format!("a chance {}", col(19))))?,
+                            )
+                        },
                     });
                 }
                 "give" if c.len() == 10 => {

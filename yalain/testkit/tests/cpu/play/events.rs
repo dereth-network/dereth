@@ -69,6 +69,7 @@ fn step() -> Step {
         xp_share: 0.0,
         to: None,
         transforms: None,
+        chance: None,
     }
 }
 

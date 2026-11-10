@@ -304,6 +304,7 @@ fn a_step_says_its_line_then_the_lines_heard_with_its_update_in_order() {
             levels: None,
             xp_share: 0.0,
             transforms: None,
+            chance: None,
         }],
         gives: Vec::new(),
         rooms: Vec::new(),

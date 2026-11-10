@@ -717,6 +717,8 @@ fn run_triggered<S: Store>(
     let used = matches!(trigger, Trigger::Use(_));
     // A use runs one step of the server's errands: the person's next comes at the next use.
     let mut errand_ran = false;
+    // A step whose chance did not come up stays out of the rest of this trigger's steps.
+    let mut missed: Vec<Step> = Vec::new();
     loop {
         // Reckoned at each step: one given (now under way) blocks the rest.
         let blocked = several.len() >= 2 && person_blocks(s, world, &several, clock.unix);
@@ -729,6 +731,7 @@ fn run_triggered<S: Store>(
                 && !seen.contains(&st.quest)
                 && !(blocked && st.needs == 0 && several.contains(&st.quest))
                 && !(errand_done && errand(st.quest))
+                && !missed.contains(st)
                 && may_run(s, world, st, clock.unix)
         };
         // A use moves on a quest under way before it gives one.
@@ -753,6 +756,11 @@ fn run_triggered<S: Store>(
                 .collect();
             let i = s.rng.below(may.len());
             step = may[i].clone();
+        }
+        // A step with a chance runs only when it comes up.
+        if step.chance.is_some_and(|c| !s.rng.chance(c)) {
+            missed.push(step);
+            continue;
         }
         moved.push(step.quest);
         errand_ran |= errand(step.quest);

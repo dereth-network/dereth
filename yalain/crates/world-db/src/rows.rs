@@ -519,6 +519,8 @@ pub struct Step {
     pub xp_share: Option<f64>,
     /// For a give, it makes its player a hero, after this transformation.
     pub transforms: Option<yalain_content::quests::Transformation>,
+    /// The chance it runs each time it may, above 0 and at most 1 (none: every time).
+    pub chance: Option<f64>,
     pub prov: Prov,
 }
 
@@ -1398,6 +1400,7 @@ pub const FIELDS: [(&str, &[&str]); 52] = [
             "most_level",
             "xp_share",
             "transforms",
+            "chance",
             "prov",
         ],
     ),
@@ -2114,6 +2117,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                     Some(_) => Some(f.transformation()?),
                     None => None,
                 },
+                chance: f.share("chance"),
                 prov: f.req_prov()?,
             })
         }
