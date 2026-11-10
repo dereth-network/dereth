@@ -1123,6 +1123,29 @@ impl<T: Transport> Session<T> {
         self.send_bare(&dereth_protocol::admin::DddEndDdd);
     }
 
+    /// `0xF7EE` on queue 5: the patch stream was not taken or not finished, and the server sends
+    /// what `pending` names as `0xF7E2`s, or the whole offer when it names nothing (client
+    /// divergence CD-bulk-patch). A long list goes as several messages of
+    /// [`dereth_protocol::admin::DddBulkDecline::MOST`] each. It has no row in the master opcode
+    /// table, so it is framed here rather than by [`outbound::build`].
+    pub fn send_ddd_bulk_decline(&mut self, pending: &[(u32, u32, u32)]) {
+        use dereth_protocol::admin::DddBulkDecline;
+        let mut send = |pending: &[(u32, u32, u32)]| {
+            let decline = DddBulkDecline {
+                pending: pending.to_vec(),
+            };
+            if let Ok(blob) = dereth_protocol::write_blob(&decline) {
+                self.transmit(NetQueue::ClientCache, false, &blob);
+            }
+        };
+        if pending.is_empty() {
+            send(&[]);
+        }
+        for part in pending.chunks(DddBulkDecline::MOST) {
+            send(part);
+        }
+    }
+
     /// The cache's async get from other sources -- ask the server for one resource the dat
     /// files do not hold, as `0xF7E3 DDD_RequestDataMessage` on queue 5.
     ///

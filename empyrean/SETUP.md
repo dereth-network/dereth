@@ -232,6 +232,11 @@ The server listens on **two UDP ports**: `port` and `port + 1` (9000 and 9001 by
 both, inbound, for UDP. Nothing else needs to be open to players; the status endpoint in
 particular should not be.
 
+A world with a data overlay also listens on **TCP** `port` (or `[dat_overlay] bulk_port`), where
+the Dereth client takes its data patch as one stream. Open it, inbound, for TCP; a client that
+cannot reach it is patched over UDP instead, only more slowly. `[dat_overlay] bulk = false` turns
+it off.
+
 With the WebSocket endpoint on ([4.7](#47-websocket-browser-clients)), open its TCP port too when
 it serves `wss://` itself. Behind a reverse proxy, open only the proxy's port (443), and keep the
 endpoint on loopback or a private address that only the proxy can reach.
@@ -564,7 +569,8 @@ Launchers made for ACE servers work the same way: add a server with the host and
 - On the same machine, the address is `127.0.0.1`.
 - On a home network, use the server's LAN address.
 - Over the internet, use your public address or a DNS name, and forward UDP `port` and `port + 1`
-  on your router to the server.
+  on your router to the server, and TCP `port` for a world with a data overlay
+  ([3.5](#35-firewall)).
 
 The first login with a new name creates the account (when auto-creation is on), as in
 [4.2](#42-accounts-and-your-admin-account).

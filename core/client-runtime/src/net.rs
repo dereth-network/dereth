@@ -380,6 +380,13 @@ impl ClientNetwork {
         self.handshake_addr
     }
 
+    /// A replay's stand-in for the server's address, which a live connection learns from the
+    /// server's first packet.
+    #[cfg(test)]
+    pub(crate) fn set_handshake_addr(&mut self, addr: SocketAddr) {
+        self.handshake_addr = Some(addr);
+    }
+
     #[must_use]
     pub fn error(&self) -> Option<NetErrorCode> {
         self.error

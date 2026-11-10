@@ -136,6 +136,20 @@ server's patch logic works unchanged. A server that knows the extension can do m
   manifest names each base by the client's own fingerprint when that is one of these. A cell
   revision downloads its records in the patch itself instead of purging them for the client to ask
   for one by one, and purges only the overlay's whole-landblock deletions.
+- **The patch as one TCP stream.** Bit 3 of the flag word asks for it; the desktop client sets it
+  whenever it keeps an overlay, and a server that knows no stream ignores it. A server that offers
+  one sends **`0xF7ED`** (server to client, queue 5, after `0xF7E7`) in place of the records'
+  `0xF7E2`s: a port (dword), a 16-byte single-use token, the record count (dword) and the bytes
+  (qword). The client connects over TCP to that port at the game server's own address, from the
+  address its session plays from, and sends `DBLK`, the version (a dword, 1) and the token; the
+  server answers with each record as a `0xF7E2` body (without its opcode) behind a dword length,
+  in the order the patch names them, then a length of 0. A server may close the connection before
+  reading anything (too many streams open, or a token it does not know), and the client then falls
+  back. **`0xF7EE`** (client to server, queue 5) declines: a packed list of the records still
+  wanted (type dword, id dword, record id), which the server sends as `0xF7E2`s, each once however
+  the list is split; an empty list declines the whole offer. The client declines whole an offer it
+  did not ask for or cannot open, and with what is pending a stream that breaks, stalls or ends
+  early. A server that sees no connection within 30 seconds sends the whole offer as `0xF7E2`s.
 
 ## 6. Where reimplementations differ
 

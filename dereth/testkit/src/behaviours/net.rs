@@ -401,6 +401,57 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "net.dat-patch.a-broken-bulk-stream-is-declined-with-what-is-pending-and-completes-the-old-way",
+        says: "A patch stream that breaks part way is declined, once what it brought is applied, with \
+               exactly the records still pending, on the patch's own queue and split into several \
+               declines when the list is long; those come the old way and the patch completes \
+               with every record in the overlay.",
+        since: THIS_CLIENT,
+        divergence: "CD-bulk-patch",
+        evidence: Evidence::Private("AC-EVID-BULK-PATCH-BROKEN-STREAM"),
+        station: "dereth-client-runtime::lib::app::tests::bulk_patch::a_stream_that_breaks_is_declined_with_what_is_pending_and_the_patch_completes_the_old_way",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "net.dat-patch.a-bulk-stream-brings-every-record-and-tells-its-end-from-a-break",
+        says: "A patch stream opens with its magic, version and token, then brings every record the \
+               server sends, in order, and ends at a length of 0.",
+        since: THIS_CLIENT,
+        divergence: "CD-bulk-patch",
+        evidence: Evidence::Private("AC-EVID-BULK-PATCH-STREAM"),
+        station: "dereth-client-runtime::lib::bulk_patch::stream::tests::a_stream_brings_every_record_in_order_after_its_hello_then_ends",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "net.dat-patch.a-bulk-stream-holds-a-bounded-number-of-bytes-for-the-frame-loop",
+        says: "The records a patch stream has read and the frame loop has not yet applied are bounded \
+               by their bytes: past the bound the stream waits, and goes on as they are applied.",
+        since: THIS_CLIENT,
+        divergence: "CD-bulk-patch",
+        evidence: Evidence::Private("AC-EVID-BULK-PATCH-BOUNDED"),
+        station: "dereth-client-runtime::lib::bulk_patch::stream::tests::a_stream_holds_no_more_bytes_than_its_bound_until_the_frame_loop_drains_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "net.dat-patch.a-bulk-stream-nobody-answers-fails-so-the-patch-falls-back",
+        says: "A patch stream whose port is refused, or that a firewall keeps from opening, fails at \
+               once, so the patch comes the old way.",
+        since: THIS_CLIENT,
+        divergence: "CD-bulk-patch",
+        evidence: Evidence::Private("AC-EVID-BULK-PATCH-REFUSED"),
+        station: "dereth-client-runtime::lib::bulk_patch::stream::tests::a_stream_refused_or_blocked_fails_at_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "net.dat-patch.a-bulk-stream-the-client-stops-reading-closes",
+        says: "A patch stream the client stops reading stops its reader and closes its connection.",
+        since: THIS_CLIENT,
+        divergence: "CD-bulk-patch",
+        evidence: Evidence::Private("AC-EVID-BULK-PATCH-DROPPED"),
+        station: "dereth-client-runtime::lib::bulk_patch::stream::tests::a_stream_dropped_by_the_client_stops_its_reader_and_closes_the_connection",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "net.dat-patch.a-deletion-the-manifest-names-hides-that-record-alone",
         says: "A deletion the world's overlay manifest names hides that one record, where a \
                shard's purge of the cell file takes a whole landblock; the installed file keeps it.",
@@ -438,6 +489,29 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD-031",
         evidence: Evidence::Private("AC-EVID-DAT-OVERLAY-HASHES"),
         station: "dereth-client::dat::net::dat_patch_apply::a_record_whose_bytes_are_not_the_manifests_is_refused",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "net.dat-patch.a-server-that-never-offers-a-stream-sees-only-the-flag",
+        says: "A server that never offers a patch stream (ACE as recorded, GDLE, an Empyrean with the \
+               stream off or from before it) patches a client that asks for one exactly as it \
+               patches one that does not: what the client sends differs by the flag alone, the \
+               patch ends the same, and no stream is opened.",
+        since: THIS_CLIENT,
+        divergence: "CD-bulk-patch",
+        evidence: Evidence::Private("AC-EVID-BULK-PATCH-NEVER-OFFERED"),
+        station: "dereth-client-runtime::lib::app::tests::bulk_patch::a_server_that_never_offers_a_stream_sees_only_the_flag_and_patches_as_before",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "net.dat-patch.an-offer-not-asked-for-or-unusable-is-declined-whole",
+        says: "A patch stream offered when the client did not ask (--no-bulk-patch, the browser), or \
+               naming no port it can reach, is declined whole at once; a second offer while one is \
+               read is left; an offer that does not read is dropped and the patch goes on.",
+        since: THIS_CLIENT,
+        divergence: "CD-bulk-patch",
+        evidence: Evidence::Private("AC-EVID-BULK-PATCH-DECLINED"),
+        station: "dereth-client-runtime::lib::app::tests::bulk_patch::an_offer_not_asked_for_or_unusable_is_declined_whole_and_a_malformed_one_is_dropped",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -481,6 +555,17 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-DDD-PATCH-REREAD"),
         station: "dereth-client-shell::lib::front_end::patch_reread_tests::the_classic_interface_draws_a_portal_record_patched_after_it_was_built",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "net.dat-patch.every-way-a-bulk-stream-fails-is-a-failure-the-patch-falls-back-from",
+        says: "A patch stream cut part way, closed early or at once, carrying a record too large or a \
+               length its body does not fill, stalled, or trickling, fails, keeping the records that \
+               came before, so the rest come the old way.",
+        since: THIS_CLIENT,
+        divergence: "CD-bulk-patch",
+        evidence: Evidence::Private("AC-EVID-BULK-PATCH-FAILURES"),
+        station: "dereth-client-runtime::lib::bulk_patch::stream::tests::every_way_a_stream_can_fail_ends_it_as_failed_with_what_came_before",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "net.dat-patch.the-iteration-list-counts-as-delivered",

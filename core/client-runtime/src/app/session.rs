@@ -729,12 +729,27 @@ impl<S: Shell> App<S> {
                     // The lists are those of the world whose overlay the files read through, and
                     // the answer names it (the overlay extension, client divergence CD-031).
                     let world = crate::world_overlay::laid_world(&self.store);
-                    let response = ddd_interrogation_response(
+                    let mut response = ddd_interrogation_response(
                         &self.store,
                         interrogation.product_id,
                         self.ddd.keeps_overlay(),
                         world.as_deref(),
                     );
+                    // This client's own (CD-bulk-patch): it asks for the patch as a TCP stream,
+                    // in a flag the overlay extension already carries, which a server that knows
+                    // no stream ignores. The browser's client never asks.
+                    // A stream of an earlier exchange is done with.
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        self.bulk = None;
+                    }
+                    self.bulk_asked = cfg!(not(target_arch = "wasm32"))
+                        && self.cfg.bulk_patch
+                        && self.ddd.keeps_overlay();
+                    if self.bulk_asked {
+                        response.flags |=
+                            dereth_protocol::admin::DddInterrogationResponse::FLAG_BULK;
+                    }
                     tracing::debug!(
                         "0xF7E6 answering with {} iteration list(s): {:?}",
                         response.iters_with_keys.len(),
@@ -843,6 +858,20 @@ impl<S: Shell> App<S> {
                             // The per-frame step's `0xF7E4` arm only marks the asynchronous get
                             // failed: the pending download stays pending, and no byte is written.
                             self.ddd.on_error(e);
+                            None
+                        }
+                        // CD-bulk-patch: the records come down a TCP stream at the server's
+                        // address, and the frame loop applies them as `0xF7E2`s. An offer that
+                        // was not asked for, or cannot be opened, is declined whole; one that
+                        // comes while a stream is read is left alone.
+                        dereth_client_net::client_session::DddEvent::BulkOffer(offer) => {
+                            on_bulk_offer(
+                                #[cfg(not(target_arch = "wasm32"))]
+                                &mut self.bulk,
+                                self.bulk_asked,
+                                &mut link.net,
+                                offer,
+                            );
                             None
                         }
                     };
@@ -998,6 +1027,57 @@ impl<S: Shell> App<S> {
                 self.script = EnterWorldScript::Done;
             }
         }
+    }
+
+    /// CD-bulk-patch: the records the patch stream has brought since the last frame, up to a frame's
+    /// worth, as the `0xF7E2` events they stand for. Once a stream has ended and every record it
+    /// brought is applied, one that broke, or ended with records still pending, is declined, and
+    /// the server sends what is pending as `0xF7E2`s.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) fn take_bulk_records(
+        &mut self,
+    ) -> Vec<dereth_client_net::client_session::SessionEvent> {
+        use dereth_client_net::client_session::{DddEvent, SessionEvent};
+        /// The record bytes a frame applies at most.
+        const FRAME_BYTES: usize = 32 << 20;
+        let Some(download) = self.bulk.as_mut() else {
+            return Vec::new();
+        };
+        let records = download.drain(FRAME_BYTES);
+        if !records.is_empty() {
+            return records
+                .into_iter()
+                .map(|d| SessionEvent::Ddd(DddEvent::Data(d)))
+                .collect();
+        }
+        let Some(end) = download.ended().cloned() else {
+            return Vec::new();
+        };
+        let (n, bytes, secs) = download.progress();
+        self.bulk = None;
+        let pending = self.ddd.pending_wire();
+        #[allow(clippy::cast_precision_loss)] // Megabytes for a log line.
+        let mib = bytes as f64 / 1_048_576.0;
+        match end {
+            Ok(()) if pending.is_empty() => tracing::info!(
+                "the patch stream brought {n} records, {mib:.1} MiB in {secs:.1} s ({:.1} MiB/s)",
+                mib / secs.max(1e-3)
+            ),
+            Ok(()) => tracing::warn!(
+                "the patch stream ended with {} records still pending; they come as 0xF7E2s",
+                pending.len()
+            ),
+            Err(e) => tracing::warn!(
+                "the patch stream broke after {n} records ({e}); the {} still pending come as 0xF7E2s",
+                pending.len()
+            ),
+        }
+        if !pending.is_empty() {
+            if let Some(link) = self.link.as_mut() {
+                link.net.session.send_ddd_bulk_decline(&pending);
+            }
+        }
+        Vec::new()
     }
 
     /// End the session over `refusal`, the world's data the client did not take: the server is
@@ -1571,6 +1651,57 @@ pub fn character_set_from_login(
 /// A product-id bit test loads the high-resolution dat when mask `0x4` is set.
 /// `dereth_protocol::admin::DddInterrogation::PRODUCT_HIGHRES` is the same bit on the wire side.
 pub const PRODUCT_HIGHRES: u32 = 4;
+
+/// `0xF7ED`, the patch offered as a TCP stream at the server's address (CD-bulk-patch): `bulk` is
+/// the stream being read, and `asked` whether this exchange asked for one.
+fn on_bulk_offer(
+    #[cfg(not(target_arch = "wasm32"))] bulk: &mut Option<crate::bulk_patch::BulkDownload>,
+    asked: bool,
+    net: &mut crate::net::ClientNetwork,
+    offer: &dereth_protocol::admin::DddBulkOffer,
+) {
+    use crate::bulk_patch::{offer_choice, OfferChoice};
+    let can_stream = cfg!(not(target_arch = "wasm32"));
+    #[cfg(not(target_arch = "wasm32"))]
+    let reading = bulk.is_some();
+    #[cfg(target_arch = "wasm32")]
+    let (reading, _) = (false, offer);
+    match offer_choice(can_stream, asked, reading) {
+        OfferChoice::Ignore => {
+            tracing::warn!("a second patch stream was offered while one is read; it is left");
+        }
+        OfferChoice::Decline => {
+            tracing::info!("a patch stream was offered and not asked for; declined");
+            net.session.send_ddd_bulk_decline(&[]);
+        }
+        OfferChoice::Take => {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let at = net
+                    .handshake_addr()
+                    .zip(u16::try_from(offer.port).ok().filter(|&p| p != 0))
+                    .map(|(a, port)| std::net::SocketAddr::new(a.ip(), port));
+                match at.map(|at| (at, crate::bulk_patch::BulkDownload::start(at, offer.token))) {
+                    Some((at, Ok(download))) => {
+                        tracing::info!(
+                            "the patch comes as a stream from {at}: {} records, {} kB",
+                            offer.records,
+                            offer.bytes / 1024
+                        );
+                        *bulk = Some(download);
+                    }
+                    _ => {
+                        tracing::warn!(
+                            "the patch stream on port {} cannot be opened; it comes as 0xF7E2s",
+                            offer.port
+                        );
+                        net.session.send_ddd_bulk_decline(&[]);
+                    }
+                }
+            }
+        }
+    }
+}
 
 ///
 /// `keeps_overlay` is whether the client keeps the world's records in an overlay this run

@@ -198,12 +198,18 @@ impl Exchange {
             client_language: 1,
             iters_with_keys: vec![list(0, 1, 102), list(1, 2, 67)],
             iters_without_keys: Vec::new(),
-            flags: DddInterrogationResponse::FLAG_OVERLAY,
+            flags: ANSWER_FLAGS.get(),
             overlay_bases: vec![base(0, 1, 1), base(1, 2, 2)],
         })
         .unwrap();
         self.client.send(NetQueue::ClientCache, &answer);
     }
+}
+
+thread_local! {
+    /// The flags Dereth's answer carries in this test's exchange.
+    static ANSWER_FLAGS: std::cell::Cell<u32> =
+        const { std::cell::Cell::new(DddInterrogationResponse::FLAG_OVERLAY) };
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -486,6 +492,20 @@ fn the_recorded_synthetic_session_is_what_the_relay_sends_today() {
     let want = std::fs::read_to_string(FIXTURE).expect("the recorded session");
     let got = session().transcript;
     assert!(got == want, "the exchange changed; see {FIXTURE}");
+}
+
+/// A Dereth client that asks for its patch as a TCP stream is served exactly as one that does not:
+/// the relay offers none, and every message each way is the recorded session's.
+#[test]
+fn a_client_asking_for_the_patch_as_a_stream_is_served_as_before() {
+    ANSWER_FLAGS.set(DddInterrogationResponse::FLAG_OVERLAY | DddInterrogationResponse::FLAG_BULK);
+    let x = session();
+    let want = std::fs::read_to_string(FIXTURE).expect("the recorded session");
+    assert!(x.transcript == want, "the exchange changed");
+    assert!(
+        x.received.iter().all(|m| m.opcode != 0xF7ED),
+        "no stream is offered"
+    );
 }
 
 #[test]

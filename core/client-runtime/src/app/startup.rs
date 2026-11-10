@@ -363,6 +363,9 @@ impl<S: Shell> App<S> {
             audio: None,
             host_state: HostState::default(),
             pending_ddd: Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            bulk: None,
+            bulk_asked: false,
             ddd,
             ddd_invalidation: None,
             store_generation: 0,

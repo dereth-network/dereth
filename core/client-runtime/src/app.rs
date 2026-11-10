@@ -965,6 +965,11 @@ pub struct App<S: Shell> {
     pub host_state: HostState,
     /// DDD events seen since the last `build_host_state`, waiting for the screen.
     pub pending_ddd: Vec<dereth_client_contract::pregame::DddEvent>,
+    /// The patch stream being read, when the server offered one (CD-bulk-patch).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub bulk: Option<crate::bulk_patch::BulkDownload>,
+    /// Whether this exchange's `0xF7E6` asked for the patch as a stream (CD-bulk-patch).
+    pub bulk_asked: bool,
     /// The shared asset cache's DDD patch state, and the writers it patches through.
     ///
     /// Aimed at [`crate::config::Config::dat_dir`], which in a normal run is the retail

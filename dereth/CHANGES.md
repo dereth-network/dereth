@@ -15,10 +15,10 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ## Unreleased
 - New Admin plugin: an administrator's commands in a window.
 - Plugins: a hotkey's key can be changed with /plugin key.
-
 - Fixed the paper doll and character previews showing patched items in their old look.
 - Horizon: new Status Bar Colors and Large Status Bar Numbers options.
 - Remaster: names and selection rings no longer sink into the grass.
+- A world's own data now downloads much faster from Empyrean worlds.
 
 ## 0.4.16 (2026-11-09)
 - Web: a link to an Asheron's Call 2 world now opens it in Auberean.

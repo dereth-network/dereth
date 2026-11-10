@@ -441,6 +441,7 @@ fn a_scripted_entry_with_no_interface_waits_for_the_data_files_to_be_updated() {
     );
 }
 
+mod bulk_patch;
 mod world_refusal;
 
 /// A frame drawn while the window is not the active one is paced as a background frame while Slow

@@ -2,6 +2,7 @@
 //! `managers`: module list generated from the ACE folder of the same name.
 
 pub mod allegiance_manager;
+pub mod bulk_patch;
 pub mod dat_overlay;
 pub mod ddd_manager;
 pub mod event_manager;

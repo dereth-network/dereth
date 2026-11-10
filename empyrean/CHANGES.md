@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+- Dereth players download a world's own data much faster.
 
 ## 0.3.12 (2026-11-09)
 - Launch: missiles fly slower, or faster with Use Fast Missiles, and arc lower at long range.

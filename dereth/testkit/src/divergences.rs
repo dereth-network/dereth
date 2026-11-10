@@ -454,6 +454,14 @@ pub static DIVERGENCES: &[Divergence] = &[
               it smooth; one who wants the lighter load in the background keeps the default.",
     },
     Divergence {
+        id: "CD-bulk-patch",
+        title: "The patch can come as one TCP stream",
+        change: "Answering a server's update exchange with an overlay of its own, the desktop                  client asks for the patch as a stream (a flag in its answer, which a server that                  knows none ignores). A server that offers one (Empyrean) names a port and a                  single-use token; the client reads every record from a TCP connection to that                  port at the server's address, as fast as the connection carries them, and                  applies each as the record message it stands for, checked against the overlay                  manifest as before. An offer it did not ask for, or cannot open, is declined                  whole; a stream that breaks, stalls or ends early is declined with the records                  still pending, which the server then sends the old way. The browser's client and                  --no-bulk-patch never ask. The final client had no such stream.",
+        why: "The update exchange's own messages need a fixed rate the slowest client can keep \
+              up with; past it the client's lost-packet list overflows and the patch stops. A \
+              stream paced by TCP takes a large world's data in a fraction of the time.",
+    },
+    Divergence {
         id: "CD-chat-links",
         title: "Web addresses in chat are links",
         change: "An http or https address in any chat line, in every interface, is a link: \

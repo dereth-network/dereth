@@ -177,7 +177,7 @@ replaces; Empyrean's own are marked `(Empyrean only)`. The main ones:
 | `server.source_url` | empty (the repository the build came from) | Where players are told the source is (see [License](#license)). |
 | `[server.websocket]` | off | The WebSocket endpoint for browser clients (SETUP.md section 4.7). |
 | `database.shard_db_path`, `auth_db_path` | `./shard.db`, `./auth.db` | The SQLite files that replace ACE's `ace_shard` and `ace_auth`. |
-| `[dat_overlay]` | off | A world's own data files, served to Dereth clients as an overlay, with patching rates. |
+| `[dat_overlay]` | off | A world's own data files, served to Dereth clients as an overlay: over one TCP stream when the client can reach it (`bulk`, `bulk_port`), else at the patching rates. |
 | `[status]` | on | The status ping on the game port, which launchers use, and its rate limits. |
 | `[federation]` | off | The link to the Dereth Network, for cross-world tells, friends and chat. |
 | `[era]` | `profile = "eor"` | The era and its systems (above). `max_characters_per_account` sets the characters an account may hold. |
