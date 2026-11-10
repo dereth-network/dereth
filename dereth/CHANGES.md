@@ -13,6 +13,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+
+## 0.4.17 (2026-11-10)
 - New Admin plugin: an administrator's commands in a window.
 - Plugins: a hotkey's key can be changed with /plugin key.
 - Fixed the paper doll and character previews showing patched items in their old look.
