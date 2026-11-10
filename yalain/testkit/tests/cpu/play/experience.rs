@@ -73,6 +73,8 @@ fn world(death_xp: i64) -> (Harness, usize, u64, [u64; 3]) {
             effect: 0,
             assist: None,
             next_tend: 0.0,
+            asked_tend: false,
+            asked_buff: false,
             missed: false,
             closing: None,
             vigor: None,

@@ -140,6 +140,8 @@ fn world(hero: bool, above: i32) -> (Harness, usize, u64, [u64; 3]) {
             effect: 0,
             assist: None,
             next_tend: 0.0,
+            asked_tend: false,
+            asked_buff: false,
             missed: false,
             closing: None,
             vigor: None,

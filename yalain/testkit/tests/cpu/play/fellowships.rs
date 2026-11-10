@@ -692,6 +692,8 @@ fn a_group_creature_two_fellows_killed_pays_them_by_who_hurt_it() {
             effect: 0,
             assist: None,
             next_tend: 0.0,
+            asked_tend: false,
+            asked_buff: false,
             missed: false,
             closing: None,
             vigor: None,

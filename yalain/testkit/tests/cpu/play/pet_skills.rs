@@ -1,20 +1,22 @@
 //! What a pet's skills do beyond its blows: the aura a spirit holds, what a strike leaves on the
-//! creature it reaches, and a hive firing what makes another pet. Fixture: a summoning skill, a pet
+//! creature it reaches, a hive firing what makes another pet, and the buffs and tending it gives its
+//! owner, by itself and as the pet window's heal and buff orders ask. Fixture: a summoning skill, a pet
 //! effect and a template whose skills name an aura, target effects or a summoning, shaped as the
 //! data defines them, the numbers made up; a player who trained it, and the test world's beetles.
 
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
-use yalain_content::{PetKind, Prop, Props};
+use yalain_content::{PetKind, PetTends, PetWhom, Prop, Props};
 use yalain_testkit::play::server_call;
 use yalain_testkit::{test_template, Harness};
 use yalain_world::calls::Value;
-use yalain_world::effect_defs::{Aura, EffectDef, Kind, Scale, HARMFUL};
+use yalain_world::effect_defs::{vital, Aura, EffectDef, Kind, Scale, HARMFUL};
 use yalain_world::effects::{self, function as effect_fn, On};
 use yalain_world::fellowship::{Fellow, Fellowship, Vitals};
 use yalain_world::pets::function;
 use yalain_world::player::quality;
 use yalain_world::quals;
+use yalain_world::regen::rate::PEACE_HEALTH;
 use yalain_world::skills::{Hook, SkillDef, Usage};
 use yalain_world::state::SkillState;
 use yalain_world::world::Player;
@@ -1539,4 +1541,187 @@ fn a_pets_attack_used_where_it_stands_falls_around_it_and_its_user_effect_goes_o
             if e.action.skill == BLAST && e.action.hooks.iter().any(|k| k.target == other))
     });
     assert!(!blasted_other, "the player at peace untouched");
+}
+
+const HEAL: u32 = 0x7000_06D8;
+const TENDS_EVERY: f64 = 30.0;
+
+/// The pet's kind tends (whom) with a heal of 100 health, each half minute, below three quarters.
+fn tending(h: &mut Harness, whom: PetWhom) {
+    let heal = def(
+        HEAL,
+        Kind::InstantVital {
+            flags: vital::HEALTH,
+            change: Scale(vec![(0.0, 100.0)]),
+        },
+    );
+    h.server.effect_table.effects.insert(HEAL, heal);
+    if let Some(k) = h.server.pets.kinds.get_mut(&PET_EFFECT) {
+        k.tends = Some(PetTends {
+            whom,
+            effect: HEAL,
+            every: TENDS_EVERY,
+            below: 0.75,
+        });
+    }
+}
+
+/// The player's health, of its greatest, with nothing of its own coming back.
+fn hurt(h: &mut Harness, me: u64, n: i32, of: i32) {
+    let p = player(h, me);
+    quals::set_float(&mut p.qualities, PEACE_HEALTH, 0.0);
+    quals::set_int(&mut p.qualities, quality::HEALTH_MAX, of);
+    quals::set_int(&mut p.qualities, quality::HEALTH, n);
+}
+
+fn health(h: &mut Harness, me: u64) -> i32 {
+    quals::int(&player(h, me).qualities, quality::HEALTH).unwrap_or(0)
+}
+
+/// An order of the pet window's taken: where what the owner was told since begins.
+fn ask(h: &mut Harness, b: usize, f: u32) -> usize {
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(true, queue::WEENIE, &server_call(f, &[]));
+    h.run(5);
+    from
+}
+
+fn seconds(h: &mut Harness, n: usize) {
+    for _ in 0..n {
+        h.step_by(1.0);
+    }
+}
+
+/// The heal order has a pet that tends its owner tend it at once, though it is hurt too little for
+/// the pet to by itself, with no answer; ordered again while the pet waits for its next turn, it
+/// tends when that turn comes, and once only.
+/// Behaviour: server.pets.heal-order
+#[test]
+fn the_heal_order_has_a_tending_pet_tend_its_owner_now_or_once_its_wait_is_over() {
+    let mut h = Harness::new();
+    with_pet(&mut h, 0, 1096, None);
+    tending(&mut h, PetWhom::Owner);
+    let (b, me) = summoner(&mut h);
+    hurt(&mut h, me, 900, 1000);
+    summon(&mut h, b);
+    seconds(&mut h, 2);
+    assert_eq!(health(&mut h, me), 900, "hurt too little to tend by itself");
+    let from = ask(&mut h, b, function::HEAL);
+    assert_eq!(health(&mut h, me), 1000, "tended at once");
+    assert!(h.texts(b, from).is_empty(), "no answer");
+    hurt(&mut h, me, 900, 1000);
+    ask(&mut h, b, function::HEAL);
+    assert_eq!(health(&mut h, me), 900, "waiting");
+    seconds(&mut h, 27);
+    assert_eq!(health(&mut h, me), 900, "still waiting");
+    seconds(&mut h, 5);
+    assert_eq!(health(&mut h, me), 1000, "tended as its turn came");
+    hurt(&mut h, me, 900, 1000);
+    seconds(&mut h, 70);
+    assert_eq!(health(&mut h, me), 900, "once only");
+}
+
+/// The heal order reaches no pet that tends no one, nor one that tends only its owner's other pets;
+/// neither tends its owner then or later.
+/// Behaviour: server.pets.heal-order
+#[test]
+fn the_heal_order_is_ignored_by_a_pet_that_does_not_tend_its_owner() {
+    for whom in [None, Some(PetWhom::OwnersPets)] {
+        let mut h = Harness::new();
+        with_pet(&mut h, 0, 1096, None);
+        if let Some(whom) = whom {
+            tending(&mut h, whom);
+        }
+        let (b, me) = summoner(&mut h);
+        hurt(&mut h, me, 900, 1000);
+        let pet = summon(&mut h, b);
+        seconds(&mut h, 2);
+        let waits = h.server.pets.by_id[&pet].next_tend;
+        let from = ask(&mut h, b, function::HEAL);
+        assert!(h.texts(b, from).is_empty(), "{whom:?}: no answer");
+        seconds(&mut h, 40);
+        assert_eq!(health(&mut h, me), 900, "{whom:?}");
+        assert_eq!(h.server.pets.by_id[&pet].next_tend, waits, "{whom:?}");
+    }
+}
+
+/// The buff order has a pet that keeps a buff on its owner put it on again at once, though its owner
+/// still holds it, told as the pet's use of its skill and with no answer; ordered again before the
+/// pet's next swing, it puts it on as that swing comes, and once only.
+/// Behaviour: server.pets.buff-order
+#[test]
+fn the_buff_order_has_a_pet_put_its_buff_on_its_owner_again_now_or_once_its_wait_is_over() {
+    let mut h = Harness::new();
+    with_pet(&mut h, 0, 1096, Some(buff_skill(0x130_0100, 10.0)));
+    with_buff(&mut h, false);
+    let (b, me) = summoner(&mut h);
+    let pet = summon(&mut h, b);
+    seconds(&mut h, 2);
+    assert_eq!(buffed(&mut h, me).len(), 1, "kept up");
+    let level = level_of(&h, pet);
+    let from = ask(&mut h, b, function::BUFF);
+    assert_eq!(
+        buffed(&mut h, me),
+        vec![(pet, level); 2],
+        "on again at once"
+    );
+    assert_eq!(pets_stories(&h, b, from, pet), 1, "told as its use");
+    assert!(h.texts(b, from).is_empty(), "no answer");
+    ask(&mut h, b, function::BUFF);
+    assert_eq!(buffed(&mut h, me).len(), 2, "waiting for its next swing");
+    seconds(&mut h, 2);
+    assert_eq!(buffed(&mut h, me).len(), 3, "on as its swing came");
+    seconds(&mut h, 20);
+    assert_eq!(buffed(&mut h, me).len(), 3, "once only");
+}
+
+/// The buff order reaches no pet whose buff is on itself alone, nor one with no buff: its owner gets
+/// nothing, and the pet nothing more on itself.
+/// Behaviour: server.pets.buff-order
+#[test]
+fn the_buff_order_is_ignored_by_a_pet_that_keeps_no_buff_on_its_owner() {
+    for skill in [Some(buff_skill(0x30_0001, 10.0)), None] {
+        let mut h = Harness::new();
+        let on_itself = skill.is_some();
+        with_pet(&mut h, 0, 1096, skill);
+        with_buff(&mut h, false);
+        let (b, me) = summoner(&mut h);
+        let pet = summon(&mut h, b);
+        seconds(&mut h, 2);
+        let own = |h: &Harness| {
+            effects::records_of(&h.server, On::Creature(pet))
+                .iter()
+                .filter(|e| e.state == BUFF)
+                .count()
+        };
+        assert_eq!(own(&h), usize::from(on_itself));
+        let from = ask(&mut h, b, function::BUFF);
+        seconds(&mut h, 5);
+        assert!(buffed(&mut h, me).is_empty(), "on itself: {on_itself}");
+        assert_eq!(own(&h), usize::from(on_itself), "on itself: {on_itself}");
+        assert_eq!(pets_stories(&h, b, from, pet), 0, "on itself: {on_itself}");
+        assert!(h.texts(b, from).is_empty(), "no answer");
+    }
+}
+
+/// An owner with no pets ordering a heal or a buff is told nothing and nothing changes.
+/// Behaviour: server.pets.heal-order
+/// Behaviour: server.pets.buff-order
+#[test]
+fn the_heal_and_buff_orders_with_no_pets_do_nothing() {
+    let mut h = Harness::new();
+    with_pet(&mut h, 0, 1096, Some(buff_skill(0x130_0100, 10.0)));
+    with_buff(&mut h, false);
+    tending(&mut h, PetWhom::Owner);
+    let (b, me) = summoner(&mut h);
+    hurt(&mut h, me, 900, 1000);
+    let unhandled = h.server.unhandled.counts().clone();
+    for f in [function::HEAL, function::BUFF] {
+        let from = ask(&mut h, b, f);
+        seconds(&mut h, 2);
+        assert!(h.world_messages(b, from).is_empty(), "{f:#x}: nothing told");
+    }
+    assert_eq!(health(&mut h, me), 900);
+    assert!(buffed(&mut h, me).is_empty());
+    assert_eq!(h.server.unhandled.counts(), &unhandled, "both are answered");
 }

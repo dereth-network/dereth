@@ -104,6 +104,8 @@ fn calls() -> Vec<u32> {
         pets::function::MODE,
         pets::function::DIE,
         pets::function::NAME,
+        pets::function::HEAL,
+        pets::function::BUFF,
         session::request::GAME_OPTIONS,
         session::request::SHORTCUT,
         session::request::WINDOW_SETTINGS,

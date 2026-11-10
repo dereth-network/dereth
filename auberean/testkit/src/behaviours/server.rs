@@ -10163,6 +10163,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.buff-order",
+        says: "The pet window's buff order has every pet that keeps a buff on its owner put it on \
+               again, though its owner still holds it, at once or as its next swing comes, once; a \
+               pet that keeps no buff on its owner takes no notice, and nothing is answered. This \
+               server's own: no recorded session holds the order.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-BUFF-ORDER"),
+        station: "yalain-testkit::cpu::play::pet_skills::the_buff_order_has_a_pet_put_its_buff_on_its_owner_again_now_or_once_its_wait_is_over",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.called-back",
         says: "A pet called back drops its fight and is at peace until it is with its owner again; \
                the order has no answer.",
@@ -10285,6 +10296,17 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PETS-FOLLOW"),
         station: "yalain-testkit::cpu::play::pets::a_pet_follows_its_owner_and_is_put_beside_it_when_far",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.heal-order",
+        says: "The pet window's heal order has every pet that tends its owner tend it, whatever its \
+               health, at once or as its next turn to tend comes, once; a pet that doesn't tend its \
+               owner takes no notice, and nothing is answered. This server's own: no recorded \
+               session holds the order.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-HEAL-ORDER"),
+        station: "yalain-testkit::cpu::play::pet_skills::the_heal_order_has_a_tending_pet_tend_its_owner_now_or_once_its_wait_is_over",
         tier: Tier::Cpu,
     },
     behaviour! {

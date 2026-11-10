@@ -210,7 +210,9 @@ pub fn call<S: Store>(
         | crate::pets::function::RETURN
         | crate::pets::function::MODE
         | crate::pets::function::DIE
-        | crate::pets::function::NAME => crate::pets::request(s, net, world, f, &values, clock),
+        | crate::pets::function::NAME
+        | crate::pets::function::HEAL
+        | crate::pets::function::BUFF => crate::pets::request(s, net, world, f, &values, clock),
         _ => s.unhandled.note(format!("script call {f:#010x}")),
     }
 }
