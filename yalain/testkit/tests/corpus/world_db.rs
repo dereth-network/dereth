@@ -5417,6 +5417,158 @@ fn the_hierophant_temple_opens_by_the_talismans_and_its_last_guardian_ends_seskr
     assert_eq!(quest_state(&h, QUEST).map(|q| q.0), Some(status::COMPLETED));
 }
 
+/// Knorr's people for its connectors: Captain Trammel, Elite Legionary Otonku and Legionary
+/// Brigadier Maekarn.
+const TRAMMEL: u32 = 0x4700_30EB;
+const OTONKU: u32 = 0x4700_30ED;
+const MAEKARN: u32 = 0x4700_30EF;
+
+/// A Knorr kill task as the world walks it: a use of its giver gives it, each kill of the creature
+/// whose death the install names for it, which a camp places, moves it a phase on to the phase its
+/// giver takes it back at, and a use of the giver there ends it. The kills it took.
+fn kill_task_walked(
+    h: &mut Harness,
+    (b, me): (usize, u64),
+    t: &Tables,
+    install: &DatInstall<'_>,
+    (quest, creature): (u32, u32),
+) -> u32 {
+    use yalain_content::quests::{Trigger, Update};
+    use yalain_world::quests::status;
+    let giver = t
+        .quests
+        .steps
+        .iter()
+        .find_map(|s| match s.trigger {
+            Trigger::Use(p) if s.quest == quest && s.needs == 0 && s.update == Update::Bestow => {
+                Some(p)
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("{quest:08X} has a giver"));
+    let end = t
+        .quests
+        .steps
+        .iter()
+        .find(|s| {
+            s.quest == quest && s.update == Update::Complete && s.trigger == Trigger::Use(giver)
+        })
+        .unwrap_or_else(|| panic!("{giver:08X} takes {quest:08X} back"))
+        .needs;
+    assert!(
+        t.spawns
+            .camps
+            .iter()
+            .any(|c| c.templates.iter().any(|(m, _)| *m == creature)),
+        "{creature:08X} is camped"
+    );
+    let o = placed(t, giver);
+    use_person(h, b, me, t, o);
+    assert_eq!(
+        state_of(h, quest),
+        Some((status::UNDERWAY, 1)),
+        "{quest:08X} given"
+    );
+    let mut kills = 0;
+    while kills < 40 && state_of(h, quest).is_some_and(|q| q.1 < end) {
+        killed_as(h, me, creature, install);
+        kills += 1;
+    }
+    assert_eq!(
+        state_of(h, quest),
+        Some((status::UNDERWAY, end)),
+        "{quest:08X} after {kills} kills of {creature:08X}"
+    );
+    use_person(h, b, me, t, o);
+    assert_eq!(
+        state_of(h, quest).map(|q| q.0),
+        Some(status::COMPLETED),
+        "{quest:08X} ended"
+    );
+    kills
+}
+
+/// **Knorr's Connector C walks through**: Captain Trammel gives it only once all six of the
+/// region's third kill tasks are done, each given, counted to 15 kills and taken back by its own
+/// giver; Elite Legionary Otonku ends it.
+/// Behaviour: server.quests.knorr-connector-c-walk-through
+#[test]
+fn knorr_connector_c_follows_its_six_kill_tasks_and_otonku_ends_it() {
+    use yalain_world::quests::status;
+    const CONNECTOR: u32 = 0x8000_01C1;
+    // Each task, and the creature whose death counts for it.
+    const TASKS: [(u32, u32); 6] = [
+        (0x8000_01F9, 0x4700_27DA),
+        (0x8000_01FA, 0x4700_2BDB),
+        (0x8000_01FB, 0x4700_2A3C),
+        (0x8000_01FC, 0x4700_2BA6),
+        (0x8000_01FD, 0x4700_2767),
+        (0x8000_01FE, 0x4700_2BFC),
+    ];
+    let t = &compiled().tables;
+    let install = dat_install();
+    let (mut h, b, me) = served(t);
+    h.server.quest_ids = quest_ids();
+    set_level(&mut h, 70);
+    let trammel = placed(t, TRAMMEL);
+    for task in TASKS {
+        use_person(&mut h, b, me, t, trammel);
+        assert_eq!(state_of(&h, CONNECTOR), None, "not before {:08X}", task.0);
+        assert_eq!(kill_task_walked(&mut h, (b, me), t, &install, task), 15);
+    }
+    use_person(&mut h, b, me, t, trammel);
+    assert_eq!(state_of(&h, CONNECTOR), Some((status::UNDERWAY, 1)));
+    use_person(&mut h, b, me, t, placed(t, OTONKU));
+    assert_eq!(
+        state_of(&h, CONNECTOR).map(|q| q.0),
+        Some(status::COMPLETED)
+    );
+}
+
+/// **Knorr's Connector D walks through**: Elite Legionary Otonku gives it, and with it the Aerie
+/// Report, only once the four high camp kill tasks are done, each given, counted to 20 kills and
+/// taken back by its own giver; the report given to Legionary Brigadier Maekarn ends it.
+/// Behaviour: server.quests.knorr-connector-d-walk-through
+#[test]
+fn knorr_connector_d_follows_its_four_kill_tasks_and_its_report_to_maekarn_ends_it() {
+    use yalain_world::quests::status;
+    const CONNECTOR: u32 = 0x8000_01C2;
+    const REPORT: u32 = 0x4700_15A7;
+    const TASKS: [(u32, u32); 4] = [
+        (0x8000_01FF, 0x4700_2552),
+        (0x8000_0200, 0x4700_29E0),
+        (0x8000_0202, 0x4700_28D0),
+        (0x8000_0203, 0x4700_28EC),
+    ];
+    let t = &compiled().tables;
+    let install = dat_install();
+    let portal = yalain_testkit::authored::Portal::open();
+    let (mut h, b, me) = served(t);
+    h.server.quest_ids = quest_ids();
+    set_level(&mut h, 70);
+    let otonku = placed(t, OTONKU);
+    let report_held = |h: &Harness| {
+        h.server
+            .players
+            .values()
+            .any(|p| p.play.items.iter().any(|i| i.template == REPORT))
+    };
+    for task in TASKS {
+        use_person(&mut h, b, me, t, otonku);
+        assert_eq!(state_of(&h, CONNECTOR), None, "not before {:08X}", task.0);
+        assert_eq!(kill_task_walked(&mut h, (b, me), t, &install, task), 20);
+    }
+    use_person(&mut h, b, me, t, otonku);
+    assert_eq!(state_of(&h, CONNECTOR), Some((status::UNDERWAY, 1)));
+    assert!(report_held(&h), "the report given");
+    hand_in(&mut h, &portal, REPORT, MAEKARN);
+    assert_eq!(
+        state_of(&h, CONNECTOR).map(|q| q.0),
+        Some(status::COMPLETED)
+    );
+    assert!(!report_held(&h), "the report taken");
+}
+
 /// The pinned release, packaged again from its files' layout alone, is the pin's archive byte for
 /// byte, as a full read packages it; and the database under test counts the same either way.
 /// Behaviour: server.world-db.release-packaged-from-its-layout

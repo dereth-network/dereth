@@ -12812,6 +12812,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.knorr-connector-c-walk-through",
+        says: "Captain Trammel gives Knorr's Connector C only once the region's six third kill tasks are done, each given by its own giver, moved a phase by each of 15 kills of the creature the install names for it and taken back by that giver; Elite Legionary Otonku ends it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-KNORR-CONNECTOR-C"),
+        station: "yalain-testkit::corpus::world_db::knorr_connector_c_follows_its_six_kill_tasks_and_otonku_ends_it",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.knorr-connector-d-walk-through",
+        says: "Elite Legionary Otonku gives Knorr's Connector D and the Aerie Report only once the four high camp kill tasks are done, each given by its own giver, moved a phase by each of 20 kills of the creature the install names for it and taken back by that giver; the report given to Legionary Brigadier Maekarn ends it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-KNORR-CONNECTOR-D"),
+        station: "yalain-testkit::corpus::world_db::knorr_connector_d_follows_its_four_kill_tasks_and_its_report_to_maekarn_ends_it",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.least-level-from-the-setup",
         says: "A quest's least level is the one its setup names unless its row names another, and its \
                setup also says whether it is for heroes alone and which quest it requires at which \
