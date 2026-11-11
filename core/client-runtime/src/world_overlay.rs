@@ -14,7 +14,9 @@
 //!   run starts on that world's folder; when the server names another world during the data
 //!   patch, that world's folder is used from then on, made when it is new. A server folder of an
 //!   earlier client, which held one world's overlay itself, is moved into that world's folder the
-//!   first time.
+//!   first time. A client that reaches its world through a relay on this computer is told the
+//!   world's own server (`--overlay-address`), and its folder is that server's, not the relay's:
+//!   the relay's port changes from run to run, and the world's overlay is kept across them.
 //! - **Which world.** The containers name the world they belong to, and a folder whose
 //!   containers name another world than the one it is for is refused.
 //! - **The blocklist.** `overlay-blocklist.txt` beside the preferences file, one world name a
@@ -171,8 +173,27 @@ pub fn address_folder(cfg: &Config) -> Option<PathBuf> {
     Some(
         host_files::cache_dir()?
             .join("overlays")
-            .join(folder_name(&cfg.host, cfg.port)),
+            .join(server_folder_name(cfg)),
     )
+}
+
+/// The name of the run's server folder: that of the server its world's overlay is kept under
+/// ([`server_address`]).
+#[must_use]
+pub fn server_folder_name(cfg: &Config) -> String {
+    let (host, port) = server_address(cfg);
+    folder_name(host, port)
+}
+
+/// The server the run keeps its world's overlay under: the world's own, when the client reaches
+/// it through a relay (`--overlay-address`), else the address it connects to.
+#[must_use]
+pub fn server_address(cfg: &Config) -> (&str, u32) {
+    cfg.overlay_address
+        .as_ref()
+        .map_or((cfg.host.as_str(), cfg.port), |(host, port)| {
+            (host.as_str(), *port)
+        })
 }
 
 /// The per-server folder's name: the host and port, with anything a file name cannot hold made
@@ -294,10 +315,12 @@ pub fn adopt_single_world(root: &Path) -> Option<String> {
     Some(world)
 }
 
-/// The name the client knows the world by before the world names itself: its server's address.
+/// The name the client knows the world by before the world names itself: its server's address
+/// ([`server_address`]).
 #[must_use]
 pub fn address_key(cfg: &Config) -> String {
-    format!("{}:{}", cfg.host, cfg.port)
+    let (host, port) = server_address(cfg);
+    format!("{host}:{port}")
 }
 
 /// Where the blocklist is.
@@ -502,6 +525,31 @@ mod tests {
             b.into_iter().collect::<Vec<_>>(),
             vec!["another".to_owned(), "bad world".to_owned()]
         );
+    }
+
+    /// Behaviour: none (tooling: where the overlay folder is for a world reached through a relay)
+    #[test]
+    fn a_world_reached_through_a_relay_keeps_its_servers_folder_whatever_the_relays_port() {
+        let at = |port: u32, server: Option<(&str, u32)>| Config {
+            host: "127.0.0.1".into(),
+            port,
+            overlay_address: server.map(|(h, p)| (h.to_owned(), p)),
+            ..Config::default()
+        };
+        let server = Some(("ac1999.example", 9110));
+        let (first, second) = (at(9400, server), at(9402, server));
+        assert_eq!(server_folder_name(&first), "ac1999.example-9110");
+        assert_eq!(server_folder_name(&second), "ac1999.example-9110");
+        assert_eq!(address_folder(&first), address_folder(&second));
+        assert_eq!(address_key(&first), "ac1999.example:9110");
+        assert_eq!(address_key(&second), address_key(&first));
+
+        let direct = at(9400, None);
+        assert_eq!(server_folder_name(&direct), "127.0.0.1-9400");
+        assert_eq!(address_key(&direct), "127.0.0.1:9400");
+        assert_ne!(address_folder(&direct), address_folder(&first));
+        assert!(address_folder(&direct)
+            .is_none_or(|f| f.ends_with(Path::new("overlays").join("127.0.0.1-9400"))));
     }
 
     /// Behaviour: none (tooling: the name of a world's folder)

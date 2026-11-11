@@ -9,7 +9,7 @@
 //!
 //! | client | form |
 //! |---|---|
-//! | Dereth | `dereth-client.exe -a <account> -v <password> -h <host> -p <port> --dat-dir <dir> [--classic-dat-dir <dir>] [--world-status <url>] [--world-base <set>] [--era <era>] [--era-features <version>:<bits>] [--logon-version <string>] [--world-profile <name>]` |
+//! | Dereth | `dereth-client.exe -a <account> -v <password> -h <host> -p <port> --dat-dir <dir> [--classic-dat-dir <dir>] [--overlay-address <host>:<port>] [--world-status <url>] [--world-base <set>] [--era <era>] [--era-features <version>:<bits>] [--logon-version <string>] [--world-profile <name>]` |
 //! | retail, ACE or Empyrean | `acclient.exe -a <account> -v <password> -h <host>:<port>` |
 //! | retail, GDLE | `acclient.exe -h <host> -p <port> -a <account>:<password>` |
 //!
@@ -25,6 +25,8 @@
 //! ([`crate::known`]) also names the set its world is drawn from, the logon version its server
 //! accepts and the rules its client played by. A world whose status the launcher may read is
 //! named by its status's address, where the client finds what the server publishes of its world.
+//! A world played through a relay on this computer names its server's own address too, which the
+//! client keeps the world's files under while it connects to the relay.
 
 use std::path::PathBuf;
 
@@ -225,6 +227,12 @@ pub fn plan(req: &LaunchRequest<'_>) -> Result<LaunchPlan, PlanError> {
                 args.extend([
                     plain("--classic-dat-dir"),
                     plain(classic.display().to_string()),
+                ]);
+            }
+            if let Some(server) = &req.world.upstream {
+                args.extend([
+                    plain("--overlay-address"),
+                    plain(format!("{}:{}", server.address, server.port)),
                 ]);
             }
             args.extend(
@@ -826,6 +834,56 @@ mod tests {
             Some(dereth_primitives::ContainerEra::Modern)
         );
         assert_eq!(cfg.era, Some(EraId::Infiltration));
+    }
+
+    /// Two launches through relays on different ports keep the world's files in one folder, the
+    /// world's server's, while each client connects to its own relay; a world reached directly
+    /// keeps them under the address it connects to.
+    #[test]
+    fn a_world_played_through_a_relay_keeps_one_overlay_folder_whatever_the_relays_port() {
+        use dereth_client_runtime::world_overlay;
+        let i = inst(ClientKind::Dereth);
+        let client = |w: &World| {
+            dereth_client_runtime::config::Config::from_args_and_prefs_with(
+                &plan(&req(w, &i)).unwrap().argv("pw"),
+                &dereth_client_runtime::config::Preferences::default(),
+            )
+            .unwrap()
+        };
+        let relayed = crate::relayed::RELAYED_WORLDS[0].to_world();
+        let first = client(&crate::relayed::on_relay(relayed.clone(), 9400));
+        let second = client(&crate::relayed::on_relay(relayed, 9402));
+        assert_eq!(
+            [
+                (first.host.as_str(), first.port),
+                (second.host.as_str(), second.port)
+            ],
+            [("127.0.0.1", 9400), ("127.0.0.1", 9402)],
+            "each connects to its relay"
+        );
+        assert_eq!(
+            world_overlay::server_folder_name(&first),
+            "ac1999.cobradragon.com-9110"
+        );
+        assert_eq!(
+            world_overlay::server_folder_name(&second),
+            world_overlay::server_folder_name(&first)
+        );
+        assert_eq!(
+            world_overlay::address_folder(&second),
+            world_overlay::address_folder(&first)
+        );
+
+        let direct = client(&world(Emulator::Ace));
+        assert_eq!(direct.overlay_address, None);
+        assert_eq!(
+            world_overlay::server_folder_name(&direct),
+            "eulmore.example-19000"
+        );
+        let retail = inst(ClientKind::Retail);
+        let relayed = crate::relayed::on_relay(crate::relayed::RELAYED_WORLDS[0].to_world(), 9400);
+        let argv = plan(&req(&relayed, &retail)).unwrap().argv("pw");
+        assert!(!argv.iter().any(|a| a.starts_with("--")), "{argv:?}");
     }
 
     #[test]

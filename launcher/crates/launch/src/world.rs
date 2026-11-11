@@ -361,6 +361,12 @@ pub struct World {
     /// runs ([`crate::relayed`]).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub relayed: bool,
+    /// For a world a launch plays through a relay, the server's own address, once the relay's
+    /// has taken its place in [`Self::endpoint`] ([`crate::relayed::on_relay`]): the Dereth
+    /// client keeps the world's files under it, whatever port the relay has. `None` for any
+    /// other world, and for a relayed one before its launch.
+    #[serde(skip)]
+    pub upstream: Option<Endpoint>,
 }
 
 /// The logon version string every emulator requires today.

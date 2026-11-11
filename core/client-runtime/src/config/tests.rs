@@ -174,6 +174,17 @@ fn the_classic_dat_dir_switch_names_where_the_older_files_are_and_is_optional() 
     assert_eq!(parse(&[]).expect("parses").classic_dat_dir, None);
     let c = parse(&["--overlay-dat-dir", "worlds/one"]).expect("parses");
     assert_eq!(c.overlay_dat_dir, Some(PathBuf::from("worlds/one")));
+    assert_eq!(c.overlay_address, None);
+    let c = parse(&["--overlay-address", "ac1999.example:9110"]).expect("parses");
+    assert_eq!(c.overlay_address, Some(("ac1999.example".to_owned(), 9110)));
+    for bad in [
+        "ac1999.example",
+        ":9110",
+        "ac1999.example:",
+        "ac1999.example:70000",
+    ] {
+        assert!(parse(&["--overlay-address", bad]).is_err(), "{bad}");
+    }
     let c = parse(&["--world-base", "Modern"]).expect("parses");
     assert_eq!(c.world_base, Some(dereth_primitives::ContainerEra::Modern));
     let c = parse(&["--world-base", "classic"]).expect("parses");

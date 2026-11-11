@@ -305,6 +305,11 @@ pub struct Config {
     /// `None`: a folder per server in the per-user cache, with one folder in it for each world the
     /// server has served ([`crate::world_overlay::overlay_dir`]).
     pub overlay_dat_dir: Option<PathBuf>,
+    /// `--overlay-address <host>:<port>`: the server a world's overlay is kept under when the
+    /// client reaches the world at another address, a relay on this computer whose port changes
+    /// from run to run. Only the folder follows from it: the client connects to [`Self::host`] and
+    /// [`Self::port`] as ever. `None`: the address it connects to.
+    pub overlay_address: Option<(String, u32)>,
     /// `--object-visuals <world|legacy|modern>`: the era whose look the world's objects draw
     /// with, over `[Render] Objects` (which it also sets, so the options page shows it). `None`:
     /// the switch was not given and the preference stands; `Some(None)`: the world's own.
@@ -659,6 +664,7 @@ impl Default for Config {
             art_pack_unticked: false,
             classic_dat_dir: None,
             overlay_dat_dir: None,
+            overlay_address: None,
             world_base: None,
             era: None,
             era_features: dereth_primitives::EraFeatureOverrides::default(),
@@ -820,6 +826,12 @@ const REBUILD_SWITCHES: &[Switch] = &[
     // Where the world's overlay is kept.
     Switch {
         long: "overlay-dat-dir",
+        short: None,
+        arity: Arity::Required,
+    },
+    // The server the world's overlay is kept under, when the client reaches it through a relay.
+    Switch {
+        long: "overlay-address",
         short: None,
         arity: Arity::Required,
     },
@@ -1743,6 +1755,15 @@ impl Config {
             "dat-dir" => self.dat_dir = PathBuf::from(v),
             "classic-dat-dir" => self.classic_dat_dir = Some(PathBuf::from(v)),
             "overlay-dat-dir" => self.overlay_dat_dir = Some(PathBuf::from(v)),
+            "overlay-address" => {
+                let bad = || ConfigError::new(format!("bad --overlay-address {v:?} (host:port)"));
+                let (host, port) = v.trim().rsplit_once(':').ok_or_else(bad)?;
+                let port = port.parse::<u16>().map_err(|_| bad())?;
+                if host.is_empty() {
+                    return Err(bad());
+                }
+                self.overlay_address = Some((host.to_owned(), u32::from(port)));
+            }
             "world-base" => {
                 self.world_base = Some(match v.trim().to_ascii_lowercase().as_str() {
                     "modern" => dereth_primitives::ContainerEra::Modern,
