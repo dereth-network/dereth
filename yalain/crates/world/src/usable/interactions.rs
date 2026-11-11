@@ -433,7 +433,7 @@ fn carry_out<S: Store>(
     if crate::plants::not_planted_by(s, world, u.target) {
         let m = places::use_answer_on(u, FLAGS_KEPT, distance, 0);
         progress::private(net, world, &m);
-        crate::plants::left_alone(s, net, world);
+        crate::plants::left_alone(s, net, world, u.target);
         return;
     }
     let trigger = Trigger::UseOn(item, target);

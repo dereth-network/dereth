@@ -3,9 +3,12 @@
 //! its needs grow, a watering can and a bag of fertilizer each lower theirs by a level, and a need
 //! past either end withers it; pollen brushes onto it once; examined it shows its needs, its pollen
 //! and when it is ripe; only its planter cares for it; harvested by its planter when ripe it gives
-//! its plant and a pollen, or the seeds of a known cross; it leaves the world with its planter.
+//! its plant and a pollen, or the seeds of a known cross; it leaves the world with its planter. A
+//! species of its own plants several from one seed, needs no care, ripens at its own time and
+//! speaks from its own table, its harvest coming to hand as an item taken.
 //! Fixture: the test hall, its start a Berimphur garden; the Berimphur seed, plant, plant item and
-//! pollen, the Hennacin pollen, the Siennan seed, a watering can and a bag of fertilizer.
+//! pollen, the Hennacin pollen, the Siennan seed, a watering can and a bag of fertilizer; and a
+//! crop's seed, the crop, its sheaf and a quest of five phases.
 
 use auberean_protocol::types::{IconLayer, PartGroupDesc, VisualDesc};
 use auberean_protocol::{queue, ServerMessage};
@@ -787,9 +790,11 @@ fn examining_a_plant_shows_its_needs_its_pollen_and_when_it_is_ripe() {
         r
     };
     let growing = |water: i32| plants::Growing {
-        water,
-        fertilizer: 5,
-        pollen: text::NO_POLLEN,
+        needs: Some(plants::Needs {
+            water,
+            fertilizer: 5,
+            pollen: text::NO_POLLEN,
+        }),
         ripe_game: p.ripe_game,
     };
     let vitals = yalain_world::examine::Vitals {
@@ -807,7 +812,9 @@ fn examining_a_plant_shows_its_needs_its_pollen_and_when_it_is_ripe() {
         vitals,
         armor: 100,
     };
-    let want = |g: Option<plants::Growing>| plants::profile_of(0x3FF, &shown, g).packed(&request);
+    let want = |g: Option<plants::Growing>| {
+        plants::profile_of(0x3FF, &shown, g, plants::DYE_LINES).packed(&request)
+    };
     assert_eq!(last_profile(&h, a, from), Some(want(Some(growing(5)))));
     let (can, _) = held(&h, world, CAN).expect("a can");
     let from = h.bots[a].inbox.len();
@@ -951,4 +958,362 @@ fn a_world_without_plant_or_plant_cross_rows_has_none_and_names_the_kinds_it_lac
     assert_eq!(plants::kinds_missing(&rows), ["plant_cross"]);
     assert_eq!(rows.sown_by(SEED), Some(one));
     assert_eq!(rows.sown_by(SIENNAN_SEED), None, "no other species");
+}
+
+// A species of its own: a seed that plants four crops, which need no care, ripen in five minutes
+// and speak from their own table, under a quest the seed's use moves and the harvest's taking moves
+// again.
+const CROP_SEED: u32 = 0x4700_F161;
+const CROP: u32 = 0x4700_F162;
+const SHEAF: u32 = 0x4700_F163;
+const CROP_TABLE: u32 = 0x2500_F164;
+const CROP_LINES: plants::Texts = plants::Texts {
+    table: CROP_TABLE,
+    maturity_in: 0xA0BE_B96C,
+    mature: 0x9D26_22AC,
+    harvest: 0x39D2_1C3D,
+};
+const CROP_NAME: (u32, u32) = (0xA860_7CEC, CROP_TABLE);
+const CROP_QUEST: u32 = 0x4000_0F16;
+const CROP_RIPE: f64 = 300.0;
+
+/// The garden, with the crop's seed (naming a summoning effect no install holds and the quest's
+/// advance to its third phase, used only with the quest under way), the crop, its sheaf, its
+/// species row, the quest of five phases, and a step: taking a sheaf at the third phase moves it to
+/// the fourth.
+fn crop_garden() -> Harness {
+    use yalain_content::quests::{QuestDef, Step, Trigger, Update};
+    let mut h = garden();
+    let mut seed = h.server.catalog.get(SEED).expect("the seed").props.clone();
+    seed.set(
+        "Usage_Effect1",
+        Prop::Text("Eff_ChainSummonCropsTest".into()),
+    )
+    .set(
+        "Usage_Effect2",
+        Prop::Text("Eff_AdvanceQuestCropTestPhase3".into()),
+    )
+    .set("Usage_RequiredQuest", Prop::Word(CROP_QUEST))
+    .set("Usage_RequiredQuestStatus", Prop::Word(0x1000_0000));
+    let mut crop = h
+        .server
+        .catalog
+        .get(PLANT)
+        .expect("the plant")
+        .props
+        .clone();
+    crop.set("GameplayStatistics_MaxHealth", Prop::Int(3000))
+        .set("GameplayStatistics_MaxVigor", Prop::Int(3000));
+    let mut crop_template = yalain_testkit::test_template(CROP, 0x283E, crop);
+    crop_template.description.name = Some(CROP_NAME);
+    crop_template.facts.name = Some(CROP_NAME);
+    h.server.catalog.insert(crop_template);
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(CROP_SEED, 0x280F, seed));
+    h.server.catalog.insert(yalain_testkit::test_template(
+        SHEAF,
+        0x1005,
+        Props::default(),
+    ));
+    h.server.plants.kinds.species.insert(
+        CROP,
+        plants::Species {
+            count: 4,
+            ripe: CROP_RIPE,
+            tended: false,
+            texts: Some(CROP_LINES),
+            ..plants::Species::new(CROP, CROP_SEED, None, SHEAF, 0)
+        },
+    );
+    h.server.quests.quests.push(QuestDef {
+        id: CROP_QUEST,
+        ..super::kill_quests::quest(5)
+    });
+    h.server
+        .quest_ids
+        .insert("QuestCropTest".into(), CROP_QUEST);
+    h.server.quests.steps.push(Step {
+        quest: CROP_QUEST,
+        needs: 3,
+        trigger: Trigger::Take(SHEAF),
+        tell: None,
+        update: Update::Advance(4),
+        xp: 0,
+        gives: Vec::new(),
+        counts: Vec::new(),
+        effects: Vec::new(),
+        text: None,
+        placed: "authored for a test".into(),
+        requires: Vec::new(),
+        takes: Vec::new(),
+        races: Vec::new(),
+        effects_last: false,
+        effects_quiet: false,
+        wants: None,
+        fellows: false,
+        levels: None,
+        xp_share: 0.0,
+        to: None,
+        transforms: None,
+        chance: None,
+    });
+    h
+}
+
+/// Put the crop's quest under way for a player at a phase.
+fn crop_quest_at(h: &mut Harness, world: ConnId, phase: u32) {
+    let p = h.server.players.get_mut(&world).expect("in the world");
+    p.play.quests.retain(|q| q.quest != CROP_QUEST);
+    p.play.quests.push(yalain_world::state::QuestState {
+        quest: CROP_QUEST,
+        status: yalain_world::quests::status::UNDERWAY,
+        phase,
+        started: 0,
+        updated: 0,
+    });
+}
+
+fn crop_phase(h: &Harness, world: ConnId) -> u32 {
+    yalain_world::quests::phase_of(&h.server.players[&world].play.quests, CROP_QUEST)
+}
+
+/// The crops standing, in the order they were made.
+fn crops(h: &Harness) -> Vec<u64> {
+    h.server
+        .plants
+        .by_id
+        .values()
+        .filter(|p| p.species.plant == CROP)
+        .map(|p| p.id)
+        .collect()
+}
+
+/// The texts a client was shown as a plant's since `from`: each string and its table.
+fn plant_lines(h: &Harness, b: usize, from: usize) -> Vec<(u32, u32)> {
+    h.calls(b, from)
+        .iter()
+        .filter(|(f, _)| *f == yalain_world::session::function::SHOW_TEXT)
+        .filter(|(_, v)| v.contains(&Value::Int(text::SHOWN_AS)))
+        .filter_map(|(_, v)| {
+            v.iter().find_map(|x| match x.root() {
+                Some(Node::TextInfo(t)) => Some((t.string_id, t.table)),
+                _ => None,
+            })
+        })
+        .collect()
+}
+
+/// Plant the crop's seed where the player stands, with its quest at the second phase: the crops.
+fn crops_planted(h: &mut Harness, b: usize, me: u64, world: ConnId) -> Vec<u64> {
+    crop_quest_at(h, world, 2);
+    let (seed, _) = held(h, world, CROP_SEED).expect("the crop's seed");
+    send_use(h, b, me, seed, 0);
+    run_for(h, 2.1);
+    crops(h)
+}
+
+/// A seed whose species plants several (four) stands each when its planting has played out, two
+/// meters from the planter, the first 45 degrees to the left of straight ahead and the last 45 to
+/// the right, the others evenly between, all facing as the planter faces; the planter is told of
+/// each as a pet, the seed is spent, the use answered as any planting's, and the quest the seed's
+/// template names for its use (an advance to the third phase) moves. Used with its quest not under
+/// way, it is refused and kept, and nothing stands.
+/// Behaviour: server.plants.several-from-one-seed
+#[test]
+fn a_seed_of_a_species_planting_four_stands_each_two_meters_off_spread_across_the_planters_heading()
+{
+    let mut h = crop_garden();
+    let (a, me, world) = gardener(&mut h, "one", &[(CROP_SEED, 2)]);
+    let (seed, _) = held(&h, world, CROP_SEED).expect("seeds");
+    // Its quest not under way: refused, kept.
+    let from = h.bots[a].inbox.len();
+    send_use(&mut h, a, me, seed, 0);
+    run_for(&mut h, 2.5);
+    assert_eq!(
+        answers(&h, a, from).first().map(|x| x.0),
+        Some(item_use::refusal::LACKING_QUEST)
+    );
+    assert_eq!(held(&h, world, CROP_SEED).map(|x| x.1), Some(2), "kept");
+    assert!(crops(&h).is_empty(), "nothing stands");
+    run_for(&mut h, 3.0);
+    let from = h.bots[a].inbox.len();
+    let made = crops_planted(&mut h, a, me, world);
+    assert_eq!(made.len(), 4, "four from one seed");
+    let added = h
+        .calls(a, from)
+        .iter()
+        .filter(|(f, v)| {
+            *f == pets::function::ADD && made.iter().any(|c| v.contains(&Value::Long(*c)))
+        })
+        .count();
+    assert_eq!(added, 4, "each told as a pet");
+    assert_eq!(
+        answers(&h, a, from),
+        [(0, 9021, item_use::text::USE.0)],
+        "answered as a planting"
+    );
+    assert_eq!(
+        held(&h, world, CROP_SEED).map(|x| x.1),
+        Some(1),
+        "one spent"
+    );
+    assert_eq!(crop_phase(&h, world), 3, "its quest moved");
+    let mut offs: Vec<f32> = made
+        .iter()
+        .map(|c| {
+            let t = h.server.things.get(*c).expect("a thing of the world");
+            assert_eq!(t.kind, yalain_world::things::Kind::Plant);
+            assert_eq!(t.summoner, Some(me));
+            assert_eq!(t.max_health, 3000, "its template's health");
+            let at = t.at.expect("standing");
+            assert_eq!(at.cell, HALL);
+            assert_eq!(at.rotation, [1.0, 0.0, 0.0, 0.0], "facing as the planter");
+            let (dx, dy) = (at.origin[0] - GARDEN[0], at.origin[1] - GARDEN[1]);
+            assert!(
+                ((dx * dx + dy * dy).sqrt() - 2.0).abs() < 1e-3,
+                "two meters"
+            );
+            // Facing north: off the heading to the left is toward the west.
+            dereth_primitives::num::math::atan2f(-dx, dy).to_degrees()
+        })
+        .collect();
+    offs.sort_by(f32::total_cmp);
+    for (got, want) in offs.iter().zip([-45.0, -15.0, 15.0, 45.0]) {
+        assert!((got - want).abs() < 0.05, "{offs:?}");
+    }
+    assert_eq!(plants::off_heading(0, 1), 0.0, "one alone: straight ahead");
+}
+
+/// A plant of a species that needs no care ripens at its own time (five minutes), never needs
+/// water or fertilizer, never withers untended, and keeps its own look; harvested before it is ripe
+/// or by another, it says so from its own table; ripe, its planter's harvest says its own line,
+/// takes it away and gives its plant item, which comes to hand as an item taken does and moves the
+/// quest its taking moves.
+/// Behaviour: server.plants.a-species-of-its-own
+#[test]
+fn a_plant_needing_no_care_ripens_at_its_own_time_and_its_harvest_comes_to_hand_as_taken() {
+    let mut h = crop_garden();
+    let (a, me, world) = gardener(&mut h, "one", &[(CROP_SEED, 1)]);
+    let start = h.now.0;
+    let made = crops_planted(&mut h, a, me, world);
+    let crop = made[0];
+    let from = h.bots[a].inbox.len();
+    // Two hundred seconds: past a dye plant's ripening, and long past its death untended.
+    let left = 200.0 - (h.now.0 - start);
+    run_for(&mut h, left);
+    assert_eq!(crops(&h).len(), 4, "none withered");
+    let p = &h.server.plants.by_id[&crop];
+    assert_eq!(
+        (p.water, p.fertilizer),
+        (plants::NEW_NEED, plants::NEW_NEED),
+        "no needs grew"
+    );
+    assert!(
+        made.iter().all(|c| looks(&h, a, from, *c).is_empty()),
+        "its own look kept"
+    );
+    let from = h.bots[a].inbox.len();
+    send_use(&mut h, a, me, crop, 0);
+    run_for(&mut h, 2.0);
+    assert_eq!(plant_lines(&h, a, from), [(text::NOT_MATURE, CROP_TABLE)]);
+    assert!(h.server.plants.by_id.contains_key(&crop), "it stays");
+    // Another player: left alone, from the crop's table.
+    let (b, you) = h.player_in_world("two", "two");
+    h.run(10);
+    let your_world = world_of(&h, you);
+    stand(&mut h, your_world, [1.0, 0.0]);
+    let from = h.bots[b].inbox.len();
+    send_use(&mut h, b, you, crop, 0);
+    run_for(&mut h, 2.0);
+    assert_eq!(plant_lines(&h, b, from), [(text::NOT_YOURS, CROP_TABLE)]);
+    // Ripe at five minutes.
+    let left = CROP_RIPE + 1.0 - (h.now.0 - start);
+    run_for(&mut h, left);
+    let from = h.bots[a].inbox.len();
+    send_use(&mut h, a, me, crop, 0);
+    run_for(&mut h, 2.0);
+    assert_eq!(plant_lines(&h, a, from), [(CROP_LINES.harvest, CROP_TABLE)]);
+    assert!(h.server.things.get(crop).is_none(), "gone");
+    assert_eq!(held(&h, world, SHEAF).map(|x| x.1), Some(1), "its sheaf");
+    assert_eq!(crop_phase(&h, world), 4, "its taking moved the quest");
+    for c in &made[1..] {
+        send_use(&mut h, a, me, *c, 0);
+        run_for(&mut h, 2.5);
+    }
+    assert!(crops(&h).is_empty(), "each harvested");
+    let sheaves: u32 = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .filter(|i| i.template == SHEAF)
+        .map(|i| i.quantity.max(1))
+        .sum();
+    assert_eq!(sheaves, 4, "a sheaf each");
+    assert_eq!(crop_phase(&h, world), 4, "moved once");
+}
+
+/// Examined, a growing plant that needs no care shows only the countdown to its ripening under its
+/// own table's label; ripe, its own table's ripe line.
+/// Behaviour: server.plants.examined-without-needs
+#[test]
+fn examining_a_plant_needing_no_care_shows_only_its_countdown_from_its_own_table() {
+    let mut h = crop_garden();
+    let (a, me, world) = gardener(&mut h, "one", &[(CROP_SEED, 1)]);
+    let crop = crops_planted(&mut h, a, me, world)[0];
+    let p = h.server.plants.by_id[&crop].clone();
+    let early = p.ripe_game - (h.server.game_now + CROP_RIPE);
+    assert!(
+        (-0.2..=0.0).contains(&early),
+        "ripe five minutes after planting"
+    );
+    let request = {
+        let mut r = Vec::new();
+        for w in [0x4000_0002u32, 0] {
+            r.extend(w.to_le_bytes());
+        }
+        r.extend(crop.to_le_bytes());
+        r.extend(0x3FFu32.to_le_bytes());
+        r
+    };
+    let shown = plants::Shown {
+        name: Some(CROP_NAME),
+        level: 1,
+        kingdom: 0,
+        vitals: yalain_world::examine::Vitals {
+            health: 3000,
+            max_health: 3000,
+            vigor: 3000,
+            max_vigor: 3000,
+            pk_damage: 0,
+            pk_vigor_loss: 0,
+        },
+        armor: 100,
+    };
+    let lines = (CROP_TABLE, CROP_LINES.maturity_in, CROP_LINES.mature);
+    let want = |g| plants::profile_of(0x3FF, &shown, g, lines).packed(&request);
+    let from = h.bots[a].inbox.len();
+    h.ask(
+        a,
+        yalain_world::requests::function::EXAMINE,
+        &[about(crop)],
+        3,
+    );
+    let growing = plants::Growing {
+        needs: None,
+        ripe_game: p.ripe_game,
+    };
+    assert_eq!(last_profile(&h, a, from), Some(want(Some(growing))));
+    let bytes = last_profile(&h, a, from).expect("a profile");
+    let has = |id: u32| bytes.windows(4).any(|w| w == id.to_le_bytes());
+    assert!(!has(text::WATER) && !has(text::POLLEN), "no needs shown");
+    run_for(&mut h, CROP_RIPE);
+    let from = h.bots[a].inbox.len();
+    h.ask(
+        a,
+        yalain_world::requests::function::EXAMINE,
+        &[about(crop)],
+        3,
+    );
+    assert_eq!(last_profile(&h, a, from), Some(want(None)));
 }

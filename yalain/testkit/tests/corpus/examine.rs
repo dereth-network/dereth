@@ -1427,9 +1427,11 @@ fn dye_plant_profiles_are_built_as_2017_built_them() {
                 countdown,
             ) {
                 (Some(water), Some(fertilizer), Some(pollen), Some(ripe_game)) => Some(Growing {
-                    water,
-                    fertilizer,
-                    pollen,
+                    needs: Some(plants::Needs {
+                        water,
+                        fertilizer,
+                        pollen,
+                    }),
                     ripe_game,
                 }),
                 _ => None,
@@ -1457,7 +1459,8 @@ fn dye_plant_profiles_are_built_as_2017_built_them() {
                     .and_then(|a| i32::try_from(a).ok())
                     .unwrap_or(0),
             };
-            let ours = plants::profile_of(req.asked, &shown, growing).packed(&bytes[..len]);
+            let ours = plants::profile_of(req.asked, &shown, growing, plants::DYE_LINES)
+                .packed(&bytes[..len]);
             if ours == *bytes {
                 built += 1;
             } else {

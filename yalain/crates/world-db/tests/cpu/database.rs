@@ -4811,6 +4811,48 @@ fn plant_rows_compile_to_species_and_crosses() {
 }
 
 #[test]
+fn a_plant_row_reads_how_many_one_seed_plants_its_ripening_its_care_and_its_lines() {
+    let mut files = fixture();
+    let rows = "[[plant]]\nplant = 0x47002224\nseed = 0x4700115B\nharvest = 0x470020BB\n\
+                count = 4\nripe = 300.0\ntended = false\n\
+                texts = { table = 0x25002B42, maturity_in = 0xA0BEB96C, mature = 0x9D2622AC, \
+                harvest = 0x39D21C3D }\nprov = { from = \"authored\" }\n\n\
+                [[plant]]\nplant = 0x470020B9\nseed = 0x470033D0\nharvest = 0x47000001\n\
+                prov = { from = \"authored\" }\n";
+    files.insert("town/server/plants.toml".into(), rows.to_string());
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let t = compile(&merged, &Fake::new()).unwrap();
+    let own = t.plants.sown_by(0x4700_115B).expect("a seed");
+    assert_eq!((own.count, own.ripe, own.tended), (4, 300.0, false));
+    assert_eq!(
+        own.texts,
+        Some(yalain_content::plants::Texts {
+            table: 0x2500_2B42,
+            maturity_in: 0xA0BE_B96C,
+            mature: 0x9D26_22AC,
+            harvest: 0x39D2_1C3D,
+        })
+    );
+    // Left out: one a seed, the dye plants' ripening, care and lines.
+    let dye = t.plants.sown_by(0x4700_33D0).expect("a seed");
+    assert_eq!(
+        (dye.count, dye.ripe, dye.tended, dye.texts),
+        (1, yalain_content::plants::RIPE_SECONDS, true, None)
+    );
+    for (from, to) in [
+        ("count = 4", "count = 0"),
+        ("ripe = 300.0", "ripe = 0.0"),
+        ("tended = false", "tended = 0"),
+        ("mature = 0x9D2622AC, ", ""),
+        ("harvest = 0x39D21C3D }", "harvest = 0x39D21C3D, said = 1 }"),
+    ] {
+        assert!(rows.contains(from), "{from}");
+        files.insert("town/server/plants.toml".into(), rows.replacen(from, to, 1));
+        assert!(read(&files).is_err(), "{from} to {to}");
+    }
+}
+
+#[test]
 fn worn_rows_compile_to_each_templates_looks_in_their_order() {
     let mut files = fixture();
     let row = |template: &str, races: &str, sexes: &str, look: &str| {

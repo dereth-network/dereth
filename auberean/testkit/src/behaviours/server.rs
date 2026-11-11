@@ -11852,6 +11852,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.plants.a-species-of-its-own",
+        says: "A plant of a species that needs no care ripens at its row's time, never needs water or \
+               fertilizer, never withers and keeps its own look; its lines (not ripe, not its user's, \
+               its harvest) come from its own table; ripe, its planter's harvest gives its plant item, \
+               which comes to hand as an item taken does and moves the quests that taking moves.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PLANTS-OWN-SPECIES"),
+        station: "yalain-testkit::cpu::play::dye_plants::a_plant_needing_no_care_ripens_at_its_own_time_and_its_harvest_comes_to_hand_as_taken",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.plants.cared-for-by-their-planter",
         says: "A watering can, a bag of fertilizer or a pollen used on another player's dye plant \
                plays its use, and is answered when it has played out with the item kept (316), \
@@ -11891,6 +11902,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-DYE-PLANT-PROFILE"),
         station: "yalain-testkit::cpu::play::dye_plants::examining_a_plant_shows_its_needs_its_pollen_and_when_it_is_ripe",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.plants.examined-without-needs",
+        says: "Examined, a growing plant that needs no care shows only the countdown to its ripening \
+               under its own table's label, and once ripe its own table's ripe line.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PLANTS-OWN-EXAMINED"),
+        station: "yalain-testkit::cpu::play::dye_plants::examining_a_plant_needing_no_care_shows_only_its_countdown_from_its_own_table",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -11998,6 +12018,18 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-DYE-PLANT-POLLEN"),
         station: "yalain-testkit::cpu::play::dye_plants::pollen_brushes_onto_a_plant_once_and_is_blown_away_from_one_already_pollinated",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.plants.several-from-one-seed",
+        says: "A seed whose species plants several stands each when its planting has played out, two \
+               meters from the planter, spread evenly from 45 degrees one side of straight ahead to 45 \
+               the other, all facing as the planter faces, each told as a pet; the seed is spent, the \
+               use answered as a planting, and the quests its template names for its use move. With \
+               the quest its use needs not under way it is refused and kept.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PLANTS-SEVERAL"),
+        station: "yalain-testkit::cpu::play::dye_plants::a_seed_of_a_species_planting_four_stands_each_two_meters_off_spread_across_the_planters_heading",
         tier: Tier::Cpu,
     },
     behaviour! {

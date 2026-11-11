@@ -822,8 +822,9 @@ pub struct Refining {
     pub prov: Prov,
 }
 
-/// `[[plant]]`: a species of dye plant: the plant its seed plants, the seed, its pollen and the
-/// pollen's name among the plants' texts, and the plant item a harvest gives.
+/// `[[plant]]`: a species of plant: the plant its seed plants, the seed, its pollen and the pollen's
+/// name among the plants' texts, the plant item a harvest gives, how many one seed plants, when they
+/// are ripe, whether they need care, and where their lines are.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Plant {
     pub species: yalain_content::plants::Species,
@@ -1705,7 +1706,10 @@ pub const FIELDS: [(&str, &[&str]); 54] = [
     ),
     (
         "plant",
-        &["plant", "seed", "pollen", "name", "harvest", "prov"],
+        &[
+            "plant", "seed", "pollen", "name", "harvest", "count", "ripe", "tended", "texts",
+            "prov",
+        ],
     ),
     (
         "plant_cross",
@@ -2888,13 +2892,28 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             let name = f.id("name");
             let both = pollen.is_some() == name.is_some();
             let name = f.held("name", name, both, "a pollen and its name, or neither")?;
+            let harvest = f.req_id("harvest")?;
+            let count = f.u32("count").unwrap_or(1);
+            let count = f.held("count", count, count > 0, "above 0")?;
+            let ripe = f
+                .float("ripe")
+                .unwrap_or(yalain_content::plants::RIPE_SECONDS);
+            let ripe = f.held("ripe", ripe, ripe > 0.0, "above 0")?;
+            let tended = f.bool("tended").unwrap_or(true);
+            let texts = f.plant_texts();
             Row::Plant(Plant {
                 species: yalain_content::plants::Species {
-                    plant,
-                    seed,
-                    pollen,
-                    harvest: f.req_id("harvest")?,
-                    name: name.unwrap_or(0),
+                    count,
+                    ripe,
+                    tended,
+                    texts,
+                    ..yalain_content::plants::Species::new(
+                        plant,
+                        seed,
+                        pollen,
+                        harvest,
+                        name.unwrap_or(0),
+                    )
                 },
                 prov: f.req_prov()?,
             })
@@ -4173,6 +4192,28 @@ impl<'a> Fields<'a> {
                 "tends",
                 "{ whom = \"owner\" or \"owners-pets\", effect, every, below }",
             );
+        }
+        read
+    }
+
+    /// `{ table, maturity_in, mature, harvest }`: where a plant's lines are.
+    fn plant_texts(&mut self) -> Option<yalain_content::plants::Texts> {
+        let v = self.get("texts")?;
+        let read = v.as_table().and_then(|t| {
+            let id = |k: &str| t.get(k).and_then(as_u32);
+            let known = t
+                .keys()
+                .all(|k| ["table", "maturity_in", "mature", "harvest"].contains(&k.as_str()));
+            known.then_some(())?;
+            Some(yalain_content::plants::Texts {
+                table: id("table")?,
+                maturity_in: id("maturity_in")?,
+                mature: id("mature")?,
+                harvest: id("harvest")?,
+            })
+        });
+        if read.is_none() {
+            self.bad("texts", "{ table, maturity_in, mature, harvest }");
         }
         read
     }

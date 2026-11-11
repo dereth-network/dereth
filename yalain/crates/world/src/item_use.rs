@@ -972,8 +972,12 @@ fn carry_out<S: Store>(
             progress::private(net, world, &m);
         }
     }
-    // A seed's plant stands.
-    crate::plants::sow(s, net, world, template, clock);
+    // A seed's plants stand, and the quests its template names for its use move with them.
+    if !crate::plants::sow(s, net, world, template, clock).is_empty() {
+        for e in crate::quests::named_for_use(s, &t.props) {
+            crate::quests::moves(s, net, world, e, true, clock);
+        }
+    }
     let spent = spends(&s.item_rows, t.id, &t.props);
     if spent {
         crate::craft::use_up(s, net, world, u.item, 1);

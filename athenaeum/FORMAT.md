@@ -721,7 +721,7 @@ What a refining recipe yields.
 
 #### `[[plant]]`
 
-A species of dye plant. One row per plant.
+A species of plant a seed plants: a dye plant, or one of its own. One row per plant.
 
 | field | | meaning |
 |---|---|---|
@@ -730,6 +730,10 @@ A species of dye plant. One row per plant.
 | `pollen` | | the template of the pollen a ripe plant gives; with `name` or not at all |
 | `name` | | the pollen's name among the plants' texts (its string id) |
 | `harvest` | required | the template of the plant item a ripe plant gives |
+| `count` | | how many plants one seed plants, spread across the planter's heading; 1 when left out |
+| `ripe` | | seconds from its planting until it is ripe, above 0; 180 when left out |
+| `tended` | | false: it needs no water or fertilizer, never withers and keeps its own look until harvested; true when left out |
+| `texts` | | `{ table, maturity_in, mature, harvest }`: the string table of its lines, holding the dye plants' lines for a plant not yet ripe and one its user did not plant under their ids, and the ids of its examination's countdown label, its line once ripe and its harvest's line; the dye plants' when left out |
 | `prov` | required | where it came from |
 
 #### `[[plant_cross]]`
