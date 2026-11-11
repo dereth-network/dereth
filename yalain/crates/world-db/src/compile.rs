@@ -1349,6 +1349,24 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     t.items.start_items.insert(r.template, r.count);
                 }
             }
+            Row::Interaction(r) => {
+                use yalain_content::item_rows::On;
+                let on = match r.on {
+                    On::Template(x) => cx.template(l, "on", x),
+                    On::Class(_) => true,
+                };
+                let known = cx.template(l, "item", r.item) & on & cx.template(l, "gives", r.gives);
+                if known {
+                    t.items
+                        .interactions
+                        .push(yalain_content::item_rows::Interaction {
+                            item: r.item,
+                            on: r.on,
+                            gives: r.gives,
+                            count: r.count,
+                        });
+                }
+            }
             Row::Concealing(r) => {
                 t.creatures.concealing.insert((r.effect, r.class), r.regard);
             }

@@ -3705,6 +3705,96 @@ fn item_use_book_and_start_item_rows_compile_and_bad_ones_are_problems() {
 }
 
 #[test]
+fn interaction_rows_compile_and_bad_ones_are_problems() {
+    use yalain_content::item_rows::{Interaction, On};
+    let mut files = fixture();
+    files.insert(
+        "town/server/items.toml".into(),
+        "[[interaction]]\nkey = \"by-class\"\nitem = 0x4700115B\non_class = 4441\ngives = 0x47002224\nprov = { from = \"authored\" }\n\n\
+         [[interaction]]\nkey = \"by-template\"\nitem = 0x4700115B\non = 0x47002224\ngives = 0x47002224\ncount = 2\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    let db = read(&files).unwrap();
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&db).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.items.interactions,
+        [
+            Interaction {
+                item: 0x4700_115B,
+                on: On::Class(4441),
+                gives: 0x4700_2224,
+                count: 1,
+            },
+            Interaction {
+                item: 0x4700_115B,
+                on: On::Template(0x4700_2224),
+                gives: 0x4700_2224,
+                count: 2,
+            },
+        ],
+        "in the rows' order, one when the count is left out"
+    );
+    assert!(
+        t.items.given().any(|g| g == 0x4700_2224),
+        "what they give is made"
+    );
+
+    // A template the install lacks is a problem, the item's, what it is used on or what it gives.
+    for field in [
+        "item = 0x47009999\non_class = 4441\ngives = 0x47002224",
+        "item = 0x4700115B\non = 0x47009999\ngives = 0x47002224",
+        "item = 0x4700115B\non_class = 4441\ngives = 0x47009999",
+    ] {
+        let mut lost = fixture();
+        lost.insert(
+            "town/server/items.toml".into(),
+            format!("[[interaction]]\nkey = \"lost\"\n{field}\nprov = {{ from = \"authored\" }}\n"),
+        );
+        let problems = compile(&merge(&read(&lost).unwrap()).unwrap(), &Fake::new()).unwrap_err();
+        assert!(
+            problems.iter().any(|p| p
+                .to_string()
+                .contains("template 47009999 is not in the install")),
+            "{field}: {problems:?}"
+        );
+    }
+
+    // One row a key.
+    let mut twice = files.clone();
+    twice.insert(
+        "town/server/more.toml".into(),
+        "[[interaction]]\nkey = \"by-class\"\nitem = 0x4700115B\non_class = 4442\ngives = 0x47002224\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert!(
+        check(&twice)
+            .iter()
+            .any(|p| p.message.contains("set twice")),
+        "{:?}",
+        check(&twice)
+    );
+
+    // Their shapes.
+    for bad in [
+        "key = \"x\"\nitem = 0x4700115B\ngives = 0x47002224",
+        "key = \"x\"\nitem = 0x4700115B\non = 0x47002224\non_class = 4441\ngives = 0x47002224",
+        "key = \"x\"\nitem = 0x4700115B\non_class = 4441",
+        "key = \"x\"\non_class = 4441\ngives = 0x47002224",
+        "item = 0x4700115B\non_class = 4441\ngives = 0x47002224",
+        "key = \"x\"\nitem = 0x4700115B\non_class = 4441\ngives = 0x47002224\ncount = 0",
+        "key = \"x\"\nitem = 0x4700115B\non_class = 4441\ngives = [0x47002224]",
+    ] {
+        let mut f = fixture();
+        f.insert(
+            "town/server/items.toml".into(),
+            format!("[[interaction]]\n{bad}\nprov = {{ from = \"authored\" }}\n"),
+        );
+        assert!(read(&f).is_err(), "{bad}");
+    }
+}
+
+#[test]
 fn points_bonus_rows_and_kingdom_requirements_compile_and_bad_ones_are_problems() {
     use yalain_content::kingdoms::{kingdom, PointsBonus};
     let mut files = fixture();

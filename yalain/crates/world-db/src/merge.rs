@@ -136,6 +136,7 @@ pub fn item(l: &Located) -> Option<Item> {
         Row::StartItem(r) => Item::StartItem {
             template: r.template,
         },
+        Row::Interaction(r) => Item::Interaction { key: r.key.clone() },
         Row::Concealing(r) => Item::Concealing {
             effect: r.effect,
             class: r.class,
@@ -212,6 +213,7 @@ fn value(row: &Row) -> String {
         Row::ItemUse(x) => x.prov = crate::rows::Prov::default(),
         Row::Book(x) => x.prov = crate::rows::Prov::default(),
         Row::StartItem(x) => x.prov = crate::rows::Prov::default(),
+        Row::Interaction(x) => x.prov = crate::rows::Prov::default(),
         Row::Concealing(x) => x.prov = crate::rows::Prov::default(),
         Row::NpcTable(x) => x.prov = crate::rows::Prov::default(),
         Row::FriendTable(x) => x.prov = crate::rows::Prov::default(),

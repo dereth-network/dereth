@@ -42,7 +42,7 @@
 //! <pack>/server/treasure_looks.toml    [[treasure_look]]
 //! <pack>/server/treasure_potions.toml  [[treasure_potion]]
 //! <pack>/server/treasure_families.toml [[treasure_family]]
-//! <pack>/server/items.toml       [[item_use]], [[book]], [[start_item]]
+//! <pack>/server/items.toml       [[item_use]], [[book]], [[start_item]], [[interaction]]
 //! <pack>/server/creatures.toml   [[concealing]], [[npc_table]], [[friend_table]], [[creature]]
 //! <pack>/server/routes.toml       [[route]]
 //! <pack>/server/areas.toml        [[area]]

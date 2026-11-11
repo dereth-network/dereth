@@ -52,7 +52,7 @@ world.lock                         ids given to authored rows, kept across build
 <pack>/server/treasure_looks.toml  [[treasure_look]]
 <pack>/server/treasure_potions.toml [[treasure_potion]]
 <pack>/server/treasure_families.toml [[treasure_family]]
-<pack>/server/items.toml           [[item_use]], [[book]], [[start_item]]
+<pack>/server/items.toml           [[item_use]], [[book]], [[start_item]], [[interaction]]
 <pack>/server/creatures.toml       [[concealing]], [[npc_table]], [[friend_table]], [[creature]]
 ```
 
@@ -950,6 +950,22 @@ What every new character is given as it first enters, beside its race's starting
 | field | | meaning |
 |---|---|---|
 | `template` | required | the item's template |
+| `count` | | above 0; 1 when left out |
+| `prov` | required | where it came from |
+
+#### `[[interaction]]`
+
+What an item used on another makes, where the item's interaction table lets it be used so and the
+table's outcome names nothing made: an emblem used on a weapon it is imprinted from. The user is given
+it after the quest steps the use triggers and before the item is used up. A use takes the row for the
+item that names the target's template, else the first that names a class the target counts in.
+
+| field | | meaning |
+|---|---|---|
+| `key` | required | lowercase letters, digits and hyphens |
+| `item` | required | the template of the item used |
+| `on`, `on_class` | one of them | what it is used on: a template, or a class (a script package, by number) the item's table names, any template of which counts |
+| `gives` | required | the template of what it makes |
 | `count` | | above 0; 1 when left out |
 | `prov` | required | where it came from |
 

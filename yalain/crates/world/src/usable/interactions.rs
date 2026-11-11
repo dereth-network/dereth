@@ -36,6 +36,12 @@
 //! script package, and an object of any template whose package is it or derives from it is one
 //! (the cans, bags and pollens name the dye plants' class, the Requiescat the weapons'). An object
 //! the user holds is used on where the user stands.
+//!
+//! **What it makes.** Where the world's `[[interaction]]` rows say what an item used so makes (the
+//! table's outcome names nothing made), the use carried out gives its user that item, after the
+//! quest steps it triggers and before the item is used up: the row for the item that names the
+//! target's template, else the first whose class the target counts in (an emblem used on a held
+//! sword of the swords' class makes that weapon's emblem).
 
 use std::collections::HashMap;
 
@@ -92,6 +98,8 @@ pub struct Interaction {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Interactions {
     pub tables: HashMap<u32, Vec<Interaction>>,
+    /// The templates each class a table names counts in it, by the class.
+    pub members: HashMap<u32, Vec<u32>>,
 }
 
 /// The outcome's flags: the item it was used with is destroyed.
@@ -109,11 +117,22 @@ impl Interactions {
     ) -> Self {
         let mut out = Self::default();
         for &state in states {
-            if let Some(list) = graph(state).and_then(|g| table_of(lib, &g, templates)) {
+            if let Some((list, classes)) = graph(state).and_then(|g| table_of(lib, &g, templates)) {
                 out.tables.insert(state, list);
+                for (class, members) in classes {
+                    out.members.insert(class, members);
+                }
             }
         }
         out
+    }
+
+    /// Does a template count in a class a table names?
+    #[must_use]
+    pub fn counts_in(&self, class: u32, template: u32) -> bool {
+        self.members
+            .get(&class)
+            .is_some_and(|m| m.contains(&template))
     }
 
     /// The interaction an item of a template (its properties given) has with objects of another.
@@ -126,7 +145,10 @@ impl Interactions {
     }
 }
 
-fn table_of(lib: &Library, g: &Graph, templates: &[(u32, u32)]) -> Option<Vec<Interaction>> {
+/// A table's interactions, and the templates of each class it names.
+type Table = (Vec<Interaction>, Vec<(u32, Vec<u32>)>);
+
+fn table_of(lib: &Library, g: &Graph, templates: &[(u32, u32)]) -> Option<Table> {
     let nav = Nav::new(lib, g);
     let root = nav.object(g.root()?).ok()?;
     let words = |ti: &PackedObject, field: &str| -> Vec<u32> {
@@ -147,17 +169,21 @@ fn table_of(lib: &Library, g: &Graph, templates: &[(u32, u32)]) -> Option<Vec<In
             })
     };
     let mut out = Vec::new();
+    let mut members = Vec::new();
     for ti in nav.list(root, "m_listTargetInteractions").ok()? {
         let mut targets = words(ti, "m_hashValidTargets");
-        let classes = words(ti, "m_hashValidTargetClasses");
-        if !classes.is_empty() {
-            for &(template, package) in templates {
-                if !targets.contains(&template)
-                    && classes.iter().any(|c| lib.derives_from(package, *c))
-                {
-                    targets.push(template);
+        for c in words(ti, "m_hashValidTargetClasses") {
+            let of: Vec<u32> = templates
+                .iter()
+                .filter(|(_, package)| lib.derives_from(*package, c))
+                .map(|(template, _)| *template)
+                .collect();
+            for &t in &of {
+                if !targets.contains(&t) {
+                    targets.push(t);
                 }
             }
+            members.push((c, of));
         }
         let outcome = nav
             .list(ti, "m_listSuccessOutcomes")
@@ -183,7 +209,7 @@ fn table_of(lib: &Library, g: &Graph, templates: &[(u32, u32)]) -> Option<Vec<In
             uses_up: flags & DESTROYS_ITEM != 0,
         });
     }
-    Some(out)
+    Some((out, members))
 }
 
 /// The template, place and name (a string reference) of an object an item is used on.
@@ -412,6 +438,13 @@ fn carry_out<S: Store>(
     }
     let trigger = Trigger::UseOn(item, target);
     crate::quests::triggered(s, net, world, trigger, None, clock);
+    let made = s
+        .item_rows
+        .made_by(item, target, |c| s.interactions.counts_in(c, target))
+        .map(|r| (r.gives, r.count));
+    if let Some((gives, count)) = made {
+        crate::inventory::give(s, net, world, gives, count);
+    }
     let item_name = s.things.get(u.item).and_then(|t| t.facts.name);
     if how.uses_up {
         crate::craft::use_up(s, net, world, u.item, 1);

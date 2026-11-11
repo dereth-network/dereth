@@ -2146,6 +2146,7 @@ pub fn test_item_rows() -> yalain_content::item_rows::ItemRows {
         .into_iter()
         .collect(),
         start_items: [(0x4700_06CD, 1)].into_iter().collect(),
+        interactions: Vec::new(),
     }
 }
 

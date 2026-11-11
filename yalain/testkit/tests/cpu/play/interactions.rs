@@ -689,3 +689,140 @@ fn an_item_put_down_while_its_use_plays_does_nothing() {
     assert!(answers(&h, a, fa).is_empty(), "no answer of it done");
     assert!(h.server.things.get(pollen).is_some(), "still in the world");
 }
+
+const BLANK_TEMPLATE: u32 = 0x4700_15BC;
+const BLANK_TABLE: u32 = 0x6F00_125E;
+const SWORD_TEMPLATE: u32 = 0x4700_0846;
+const DAGGER_TEMPLATE: u32 = 0x4700_0847;
+const BOW_TEMPLATE: u32 = 0x4700_0848;
+const SWORD_EMBLEM: u32 = 0x4700_15D1;
+const DAGGER_EMBLEM: u32 = 0x4700_15B8;
+const SWORDS: u32 = 4441;
+const BOWS: u32 = 4205;
+const IMPRINTED: (u32, u32) = (0x0E50_4022, 0x2500_1FE8);
+
+/// The hall with a blank emblem whose table names the swords' class (two weapons count in it) and
+/// the bows' (one), each used up with its own text, held 3 m from its target; rows make the swords'
+/// emblem of the swords' class, and another emblem of the dagger itself.
+fn forge() -> Harness {
+    use yalain_content::item_rows::{Interaction as Made, On};
+    let mut h = hall();
+    let mut blank = Props::default();
+    blank.set(interactions::TABLE, Prop::Word(BLANK_TABLE));
+    for (t, p) in [
+        (BLANK_TEMPLATE, blank),
+        (SWORD_TEMPLATE, Props::default()),
+        (DAGGER_TEMPLATE, Props::default()),
+        (BOW_TEMPLATE, Props::default()),
+        (SWORD_EMBLEM, Props::default()),
+        (DAGGER_EMBLEM, Props::default()),
+    ] {
+        h.server
+            .catalog
+            .insert(yalain_testkit::test_template(t, 0x1B34, p));
+    }
+    let entry = |targets: Vec<u32>| Interaction {
+        targets,
+        reach: 3.0,
+        behavior: None,
+        message: Some(IMPRINTED),
+        uses_up: true,
+    };
+    h.server.interactions.tables.insert(
+        BLANK_TABLE,
+        vec![
+            entry(vec![SWORD_TEMPLATE, DAGGER_TEMPLATE]),
+            entry(vec![BOW_TEMPLATE]),
+        ],
+    );
+    h.server
+        .interactions
+        .members
+        .insert(SWORDS, vec![SWORD_TEMPLATE, DAGGER_TEMPLATE]);
+    h.server
+        .interactions
+        .members
+        .insert(BOWS, vec![BOW_TEMPLATE]);
+    h.server.item_rows.interactions = vec![
+        Made {
+            item: BLANK_TEMPLATE,
+            on: On::Class(SWORDS),
+            gives: SWORD_EMBLEM,
+            count: 1,
+        },
+        Made {
+            item: BLANK_TEMPLATE,
+            on: On::Template(DAGGER_TEMPLATE),
+            gives: DAGGER_EMBLEM,
+            count: 1,
+        },
+    ];
+    h
+}
+
+/// An emblem used on a sword in its user's pack is imprinted from it: the world's row for the
+/// sword's class gives its user the swords' emblem, the blank is used up, the sword kept, and the
+/// use is answered with the table's own text; on the dagger, of the same class, the row naming the
+/// dagger itself comes first; on a bow, whose class no row names, the blank is used up as its table
+/// says and nothing is made.
+/// Behaviour: server.interactions.an-item-used-on-another-makes-what-its-row-gives
+#[test]
+fn an_emblem_used_on_a_held_weapon_makes_what_the_row_for_the_weapon_or_its_class_gives() {
+    let mut h = forge();
+    let (a, me, world, blank) = holding(&mut h, "one", BLANK_TEMPLATE);
+    for t in [SWORD_TEMPLATE, DAGGER_TEMPLATE, BOW_TEMPLATE] {
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, t, 1);
+    }
+    h.run(3);
+    let sword = held(&h, world, SWORD_TEMPLATE).expect("given");
+    let from = h.bots[a].inbox.len();
+    send_use(&mut h, a, me, blank, sword);
+    assert_eq!(
+        answers(&h, a, from),
+        [(0, interactions::FLAGS_USED_UP, IMPRINTED.0)]
+    );
+    assert!(
+        held(&h, world, SWORD_EMBLEM).is_some(),
+        "the swords' emblem"
+    );
+    assert_eq!(held(&h, world, BLANK_TEMPLATE), None, "the blank used up");
+    assert_eq!(
+        held(&h, world, SWORD_TEMPLATE),
+        Some(sword),
+        "the sword kept"
+    );
+
+    yalain_world::inventory::give(&mut h.server, &mut h.net, world, BLANK_TEMPLATE, 1);
+    h.run(3);
+    let blank = held(&h, world, BLANK_TEMPLATE).expect("given");
+    let dagger = held(&h, world, DAGGER_TEMPLATE).expect("given");
+    send_use(&mut h, a, me, blank, dagger);
+    assert!(
+        held(&h, world, DAGGER_EMBLEM).is_some(),
+        "the dagger's own row"
+    );
+    let swords = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .filter(|i| i.template == SWORD_EMBLEM)
+        .count();
+    assert_eq!(swords, 1, "not its class's as well");
+
+    yalain_world::inventory::give(&mut h.server, &mut h.net, world, BLANK_TEMPLATE, 1);
+    h.run(3);
+    let blank = held(&h, world, BLANK_TEMPLATE).expect("given");
+    let bow = held(&h, world, BOW_TEMPLATE).expect("given");
+    let before = h.server.players[&world].play.items.len();
+    let from = h.bots[a].inbox.len();
+    send_use(&mut h, a, me, blank, bow);
+    assert_eq!(
+        answers(&h, a, from),
+        [(0, interactions::FLAGS_USED_UP, IMPRINTED.0)]
+    );
+    assert_eq!(
+        h.server.players[&world].play.items.len(),
+        before - 1,
+        "the blank gone, nothing made"
+    );
+}

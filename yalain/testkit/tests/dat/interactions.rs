@@ -76,6 +76,27 @@ fn a_table_naming_a_class_counts_the_templates_of_that_class() {
     );
 }
 
+const BLANK_EMBLEM: u32 = 0x4700_15BC;
+const AXES: u32 = 4184;
+const BOWS: u32 = 4205;
+
+/// The blank emblem's table names the weapons' classes one by one: an axe counts in the axes' class
+/// and not the bows', and the emblem used on it is used up with the axes' text.
+/// Behaviour: server.interactions.an-item-used-on-another-makes-what-its-row-gives
+#[test]
+fn a_tables_classes_count_their_own_templates_alone() {
+    let p = Portal::open();
+    let targets = [(AXE, p.template(AXE).description.package)];
+    let t = p.interactions(&[BLANK_EMBLEM], &targets);
+    assert!(t.counts_in(AXES, AXE));
+    assert!(!t.counts_in(BOWS, AXE));
+    let on = t
+        .between(&p.template(BLANK_EMBLEM).props, AXE)
+        .expect("the axe");
+    assert!(on.uses_up);
+    assert_eq!(on.message, Some((0x401B_5816, 0x2500_1FE8)));
+}
+
 /// The kinds of placed objects that answer a use as a person does are the script library's person
 /// kind: an immobile person (the Diving Board), a kingdom stone, the Cauldron of Tanacha, a person
 /// (the Orb of Insight); the faction shrines are a kind of their own, and portals and lifestones are

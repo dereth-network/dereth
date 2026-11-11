@@ -5906,6 +5906,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.interactions.an-item-used-on-another-makes-what-its-row-gives",
+        says: "An item used on another its interaction table names, where the world's rows say what that makes, gives its user the item of the row naming the target's template, else of the first naming a class the target counts in, before it is used up; the target is kept and the use answered with the table's own text; with no row, nothing is made.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-INTERACTION-MAKES"),
+        station: "yalain-testkit::cpu::play::interactions::an_emblem_used_on_a_held_weapon_makes_what_the_row_for_the_weapon_or_its_class_gives",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.a-gift-runs-past-a-full-pack",
         says: "An item given to a pack holding all its room is held all the same, and its move says \
                it took a place past the room; an item from a person may always take one.",

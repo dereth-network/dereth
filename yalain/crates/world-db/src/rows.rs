@@ -660,6 +660,7 @@ pub enum Row {
     ItemUse(ItemUse),
     Book(Book),
     StartItem(StartItem),
+    Interaction(Interaction),
     MapRecipes(MapRecipes),
     Spellbinding(Spellbinding),
     Refining(Refining),
@@ -1037,6 +1038,19 @@ pub struct StartItem {
     pub prov: Prov,
 }
 
+/// `[[interaction]]`: what an item used on another makes, where the item's interaction table lets
+/// it be used so and the table's outcome names nothing made: the item used, what it is used on (a
+/// template, or a class the table names), and what it gives the user, how many.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Interaction {
+    pub key: String,
+    pub item: u32,
+    pub on: yalain_content::item_rows::On,
+    pub gives: u32,
+    pub count: u32,
+    pub prov: Prov,
+}
+
 /// `[[tool]]`: what a gathering tool yields when it was not made (a made one's yield is its own).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tool {
@@ -1146,6 +1160,7 @@ impl Row {
             Self::ItemUse(_) => "item_use",
             Self::Book(_) => "book",
             Self::StartItem(_) => "start_item",
+            Self::Interaction(_) => "interaction",
             Self::MapRecipes(_) => "map_recipes",
             Self::Spellbinding(_) => "spellbinding",
             Self::Refining(_) => "refining",
@@ -1205,6 +1220,7 @@ impl Row {
             Self::ItemUse(r) => Some(&r.prov),
             Self::Book(r) => Some(&r.prov),
             Self::StartItem(r) => Some(&r.prov),
+            Self::Interaction(r) => Some(&r.prov),
             Self::MapRecipes(r) => Some(&r.prov),
             Self::Spellbinding(r) => Some(&r.prov),
             Self::Refining(r) => Some(&r.prov),
@@ -1221,7 +1237,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 53] = [
+pub const KINDS: [&str; 54] = [
     "object",
     "camp",
     "loot",
@@ -1265,6 +1281,7 @@ pub const KINDS: [&str; 53] = [
     "item_use",
     "book",
     "start_item",
+    "interaction",
     "map_recipes",
     "spellbinding",
     "refining",
@@ -1278,7 +1295,7 @@ pub const KINDS: [&str; 53] = [
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 53] = [
+pub const FIELDS: [(&str, &[&str]); 54] = [
     (
         "object",
         &[
@@ -1658,6 +1675,10 @@ pub const FIELDS: [(&str, &[&str]); 53] = [
     ),
     ("book", &["template", "table", "picture", "prov"]),
     ("start_item", &["template", "count", "prov"]),
+    (
+        "interaction",
+        &["key", "item", "on", "on_class", "gives", "count", "prov"],
+    ),
     (
         "map_recipes",
         &["region", "drawn", "found", "recipes", "wait", "prov"],
@@ -2494,6 +2515,30 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             let count = f.held("count", count, count > 0, "above 0")?;
             Row::StartItem(StartItem {
                 template,
+                count,
+                prov: f.req_prov()?,
+            })
+        }
+        "interaction" => {
+            use yalain_content::item_rows::On;
+            let key = f.req_symbol("key")?;
+            let item = f.req_id("item")?;
+            let on = match (f.id("on"), f.u32("on_class")) {
+                (Some(t), None) => On::Template(t),
+                (None, Some(c)) => On::Class(c),
+                _ => {
+                    f.bad("on", "one of on or on_class");
+                    return None;
+                }
+            };
+            let gives = f.req_id("gives")?;
+            let count = f.u32("count").unwrap_or(1);
+            let count = f.held("count", count, count > 0, "above 0")?;
+            Row::Interaction(Interaction {
+                key,
+                item,
+                on,
+                gives,
                 count,
                 prov: f.req_prov()?,
             })

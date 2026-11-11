@@ -122,7 +122,7 @@ impl Dialect for Ac2 {
          treasure_value <level>, treasure_rules, treasure_sort <sort>, treasure_word <sort> <word>, \
          treasure_look <template>, treasure_potion <kind>, \
          treasure_family <sort> <order>, item_use <template>, book <template>, \
-         start_item <template>, concealing <effect> <class|any>, npc_table <name>, \
+         start_item <template>, interaction <key>, concealing <effect> <class|any>, npc_table <name>, \
          friend_table <table>, creature <template>, or landblock <XXYY>";
     const NAMES_BASE: bool = true;
     type Kind = Kind;
@@ -232,6 +232,8 @@ pub enum Item {
     Book { template: u32 },
     /// What every new character is given as it first enters, by the template.
     StartItem { template: u32 },
+    /// What an item used on another makes, by its key.
+    Interaction { key: String },
     /// A region's surveyor's map recipes, by the region's key.
     MapRecipes { region: String },
     /// The totem spellbinding makes of a sort of item, by the sort's name.
@@ -371,6 +373,7 @@ impl Item {
             ["start_item", template] => Self::StartItem {
                 template: number(template)?,
             },
+            ["interaction", key] => Self::Interaction { key: symbol(key)? },
             ["map_recipes", region] => Self::MapRecipes {
                 region: symbol(region)?,
             },
@@ -471,6 +474,7 @@ impl fmt::Display for Item {
             Self::ItemUse { template } => write!(f, "item_use {template:#010x}"),
             Self::Book { template } => write!(f, "book {template:#010x}"),
             Self::StartItem { template } => write!(f, "start_item {template:#010x}"),
+            Self::Interaction { key } => write!(f, "interaction {key}"),
             Self::MapRecipes { region } => write!(f, "map_recipes {region}"),
             Self::Spellbinding { sort } => write!(f, "spellbinding {sort}"),
             Self::Refining { recipe } => write!(f, "refining {recipe}"),
