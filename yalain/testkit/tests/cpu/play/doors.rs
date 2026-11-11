@@ -366,6 +366,46 @@ fn a_locked_door_opens_to_a_plain_use_from_behind() {
     assert_eq!(seen(&h, a, fa), ["passable", "opening"]);
 }
 
+/// A locked door the world numbers (no id of its own) is known by where it stands and what it is:
+/// it refuses a plain use from its front and opens to its key, as one with an id does.
+/// Behaviour: server.places.locked-door-opens-to-its-key
+#[test]
+fn a_locked_door_the_world_numbers_refuses_a_plain_use_and_opens_to_its_key() {
+    let mut h = hall(60.0, 239.0);
+    h.server.content.objects[0].object = None;
+    let id = yalain_world::presence::content_id(&h.server.content.objects, 0);
+    h.server
+        .locks
+        .placed
+        .insert((0x0299_0109, DOOR_TEMPLATE), Lock { key: Some(KEY_ID) });
+    let (a, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let world = *h.server.players.keys().next().expect("in");
+    yalain_world::inventory::give(&mut h.server, &mut h.net, world, KEY, 1);
+    h.run(3);
+    let key = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .find(|i| i.template == KEY)
+        .map(|i| i.id)
+        .expect("a key");
+    let fa = h.bots[a].inbox.len();
+    send_use(&mut h, a, me, id, 0, 0.5);
+    assert_eq!(seen(&h, a, fa), [format!("done {}", refusal::LOCKED)]);
+    let fa = h.bots[a].inbox.len();
+    send_use(&mut h, a, me, key, id, 2.8);
+    assert_eq!(
+        seen(&h, a, fa),
+        ["key gone".to_string(), "done 0 2317692F".into()],
+        "its key opens it, used up"
+    );
+    assert!(
+        h.server.doors.by_id.get(&id).is_some_and(|d| d.unlocked),
+        "unlocked"
+    );
+}
+
 /// A door between a creature's camp and where characters start: across the hall at x = 62, facing
 /// east (toward the camp, whose one creature stands at 66, 241), and a creature of `template` that
 /// notices a player within 20 m and hardly hurts it.

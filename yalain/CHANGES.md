@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Worlds can now have locked doors whose key takes a player somewhere.
 - Worlds can now have seeds that plant several crops, which need no watering.
 - Recipes taught by using an item can now be crafted.
 - Worlds can now say what an item used on another item makes.

@@ -9,6 +9,13 @@
 //! flash. While another player's trip through the vault is under way a use is refused at once; a
 //! trip that would come within five seconds of the vault's last is refused as its use ends. The
 //! glyph is kept on every refusal.
+//!
+//! **Locked portal doors.** A portal that stands as a door, or a door that leads somewhere, locked,
+//! is a vault its key opens, with a door's answers: used bare it is locked, from wherever the
+//! player stands (its lock is a portal's, not a door's), and another key is the wrong one. A player
+//! its quest keeps out is refused at once. Its own trips wait three seconds between them. On
+//! arrival its key is used up unless the key's kind keeps it, and what the door's kind names for its
+//! use moves its user's quests.
 
 use std::collections::HashMap;
 
@@ -27,6 +34,12 @@ pub const OPENS_AFTER: f64 = 2.58;
 
 /// How long a vault waits between trips, in seconds.
 pub const BETWEEN_TRIPS: f64 = 5.0;
+
+/// The script package every portal door derives from.
+pub const PORTAL_DOOR: &str = "PortalDoorTemplate";
+
+/// How long a locked portal door waits between trips, in seconds (its kind's time between uses).
+pub const DOOR_BETWEEN_TRIPS: f64 = 3.0;
 
 /// Why a vault refuses, as the use's answer says, and each refusal's control flags.
 pub mod refusal {
@@ -57,7 +70,27 @@ pub type VaultTrips = HashMap<u64, Trips>;
 pub fn vault<S: Store>(s: &Server<S>, id: u64) -> Option<Option<u32>> {
     let i = presence::content_by_id(&s.content.objects, id)?;
     s.content.objects[i].destination?;
-    s.locks.of(id).map(|l| l.key)
+    crate::usable::lock_of(s, id).map(|l| l.key)
+}
+
+/// Is a vault a portal door (a locked one, its key's to carry its user through): of a portal
+/// door's kind, or of a door's that leads somewhere?
+#[must_use]
+pub fn portal_door<S: Store>(s: &Server<S>, id: u64) -> bool {
+    presence::content_by_id(&s.content.objects, id).is_some_and(|i| {
+        let package = s.content.objects[i].description.package;
+        s.portal_door_packages.contains(&package) || s.doors.packages.contains_key(&package)
+    })
+}
+
+/// How far a player stands from a vault.
+fn distance_to<S: Store>(s: &Server<S>, from: &yalain_store::StoredPosition, id: u64) -> f32 {
+    presence::content_by_id(&s.content.objects, id)
+        .and_then(|i| {
+            let o = &s.content.objects[i];
+            places::reach(from, o.cell, o.origin)
+        })
+        .unwrap_or(0.0)
 }
 
 /// The vault flashes for everyone who sees it.
@@ -77,7 +110,8 @@ fn refuse(net: &mut ServerNet, world: ConnId, u: &Use, why: u32, flags: u32) {
     progress::private(net, world, &m);
 }
 
-/// A vault used bare, or walked into: it needs its glyph, and flashes.
+/// A vault used bare, or walked into: it needs its glyph, and flashes; a locked portal door is
+/// locked.
 pub fn needs_glyph<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -85,6 +119,14 @@ pub fn needs_glyph<S: Store>(
     u: &Use,
     vault: u64,
 ) {
+    if portal_door(s, vault) {
+        let distance = distance_to(s, &u.from, vault);
+        let why = crate::usable::doors::refusal::LOCKED;
+        let flags = crate::usable::doors::refusal_flags(why);
+        let m = places::use_refused(u, 0, flags, distance, why);
+        progress::private(net, world, &m);
+        return;
+    }
     refuse(
         net,
         world,
@@ -108,6 +150,18 @@ pub fn glyph_at_vault<S: Store>(
     let Some(key) = vault(s, vault_id) else {
         return;
     };
+    let door = portal_door(s, vault_id);
+    if door {
+        let gate = presence::content_by_id(&s.content.objects, vault_id)
+            .and_then(|i| places::quest_keeps_out(s, world, &s.content.objects[i], clock));
+        if let Some(why) = gate {
+            let distance = distance_to(s, &u.from, vault_id);
+            let flags = Some(places::USE_FLAGS_QUEST_KEEPS_OUT);
+            let m = places::use_refused(&u, 0, flags, distance, why);
+            progress::private(net, world, &m);
+            return;
+        }
+    }
     let busy = s
         .vault_trips
         .get(&vault_id)
@@ -122,7 +176,14 @@ pub fn glyph_at_vault<S: Store>(
         .get(u.item)
         .and_then(|t| crate::usable::doors::key_id(s, t.template));
     if key.is_none() || glyph != key {
-        needs_glyph(s, net, world, &u, vault_id);
+        if door {
+            let distance = distance_to(s, &u.from, vault_id);
+            let why = crate::usable::doors::refusal::WRONG_KEY;
+            let m = places::use_refused(&u, 0, None, distance, why);
+            progress::private(net, world, &m);
+        } else {
+            needs_glyph(s, net, world, &u, vault_id);
+        }
         return;
     }
     let Some(i) = presence::content_by_id(&s.content.objects, vault_id) else {
@@ -201,8 +262,13 @@ pub fn opens<S: Store>(
         return true;
     }
     let now = clock.local.0;
+    let between = if portal_door(s, u.target) {
+        DOOR_BETWEEN_TRIPS
+    } else {
+        BETWEEN_TRIPS
+    };
     let trips = s.vault_trips.entry(u.target).or_default();
-    if trips.last.is_some_and(|t| now - t < BETWEEN_TRIPS) {
+    if trips.last.is_some_and(|t| now - t < between) {
         trips.under_way = None;
         if let Some(p) = s.players.get_mut(&world) {
             p.trip = None;
@@ -223,18 +289,51 @@ pub fn opens<S: Store>(
     true
 }
 
-/// The trip through a vault has arrived: the glyph is used up, and the use is told it fit.
-/// Returns the use to answer.
-pub fn arrived<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, u: &Use) -> Use {
+/// The trip through a vault has arrived: the glyph is used up (a portal door's key unless its
+/// kind keeps it, and what the door's kind names for its use comes on its user), and the use is
+/// told it fit. Returns the use to answer.
+pub fn arrived<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    u: &Use,
+    clock: Clock,
+) -> Use {
     if vault(s, u.target).is_none() {
         return u.clone();
     }
     if let Some(t) = s.vault_trips.get_mut(&u.target) {
         t.under_way = None;
     }
-    let name = presence::content_by_id(&s.content.objects, u.target)
-        .and_then(|i| s.content.objects[i].description.name);
+    let found = presence::content_by_id(&s.content.objects, u.target);
+    let name = found.and_then(|i| s.content.objects[i].description.name);
     let told = crate::usable::doors::fits_answer(s, u, u.item, name);
-    crate::craft::use_up(s, net, world, u.item, 1);
+    let door = portal_door(s, u.target);
+    if !door || !key_kept(s, u.item) {
+        crate::craft::use_up(s, net, world, u.item, 1);
+    }
+    if let Some(template) = found
+        .filter(|_| door)
+        .map(|i| s.content.objects[i].template)
+    {
+        crate::usable::chests::effects_on_user(s, net, world, (u.target, template), clock);
+    }
     told
 }
+
+/// Does a key's kind keep it when it opens its lock (its template says it is not used up)? A key
+/// is used up unless it says so.
+fn key_kept<S: Store>(s: &Server<S>, key: u64) -> bool {
+    s.things
+        .get(key)
+        .and_then(|t| s.catalog.get(t.template))
+        .is_some_and(|t| {
+            matches!(
+                t.props.get(DESTROYED_ON_USE),
+                Some(yalain_content::Prop::Bool(false))
+            )
+        })
+}
+
+/// The property of an item's kind that says whether a use uses it up.
+const DESTROYED_ON_USE: &str = "Item_IsDestroyOnUse";

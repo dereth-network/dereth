@@ -306,13 +306,14 @@ fn refused_by_its_quest<S: Store>(
     true
 }
 
-/// What a chest's kind names for its use comes on its opener: an effect the install holds as it
-/// holds any item's, and one it names only by what it does to a quest moves that quest.
-fn effects_on_opener<S: Store>(
+/// What an object's kind names for its use comes on its user (a chest's opener, a portal door's
+/// key's user): an effect the install holds as it holds any item's, and one it names only by what
+/// it does to a quest moves that quest.
+pub(crate) fn effects_on_user<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
-    (chest, template): (u64, u32),
+    (object, template): (u64, u32),
     clock: Clock,
 ) {
     let Some(me) = s.players.get(&world).map(|p| p.character) else {
@@ -339,7 +340,7 @@ fn effects_on_opener<S: Store>(
         crate::quests::moves(s, net, world, e, true, clock);
     }
     for e in states {
-        crate::item_use::put_on(s, net, world, me, chest, e, clock);
+        crate::item_use::put_on(s, net, world, me, object, e, clock);
     }
 }
 
@@ -572,7 +573,7 @@ fn open<S: Store>(
     waiting: Waiting,
     clock: Clock,
 ) {
-    effects_on_opener(s, net, waiting.world, (id, kind.template), clock);
+    effects_on_user(s, net, waiting.world, (id, kind.template), clock);
     flash(s, net, id);
     let left = s
         .chests

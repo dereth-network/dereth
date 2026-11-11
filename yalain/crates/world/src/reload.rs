@@ -132,6 +132,7 @@ pub struct PlacedKinds {
     pub doors: HashMap<u32, crate::usable::doors::Kind>,
     pub doors_through_locks: HashSet<u32>,
     pub chests: HashSet<u32>,
+    pub portal_doors: HashSet<u32>,
 }
 
 /// The tables a reload looks at, by the name it reports them under.
@@ -358,6 +359,7 @@ impl<S: Store> Server<S> {
                 .creatures_through_locks
                 .extend(k.doors_through_locks);
             self.chests.packages.extend(k.chests);
+            self.portal_door_packages.extend(k.portal_doors);
         }
 
         // Veins stand in the world as nodes, not among the placed objects.

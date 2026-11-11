@@ -890,6 +890,7 @@ struct Play {
     doors: std::collections::HashMap<u32, yalain_world::usable::doors::Kind>,
     doors_through_locks: std::collections::HashSet<u32>,
     chests: std::collections::HashSet<u32>,
+    portal_doors: std::collections::HashSet<u32>,
     treasure: yalain_world::treasure::Kinds,
     treasure_tables: yalain_world::treasure::TreasureTables,
     tesserae: std::collections::HashSet<u32>,
@@ -1108,6 +1109,7 @@ fn run<S: Store>(
     server.doors.packages = play.doors;
     server.doors.creatures_through_locks = play.doors_through_locks;
     server.chests.packages = play.chests;
+    server.portal_door_packages = play.portal_doors;
     server.treasure = play.treasure;
     server.treasure_tables = play.treasure_tables;
     server.tesserae = play.tesserae;
@@ -2195,10 +2197,16 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             data::packages_deriving_from(portal, &content, &yalain_world::places::CANNOT_BE_USED)?;
         let (doors, doors_through_locks) = data::door_packages(portal, &content)?;
         let chests = data::chest_packages(portal, &content)?;
+        let portal_doors = data::packages_deriving_from(
+            portal,
+            &content,
+            &[yalain_world::usable::vaults::PORTAL_DOOR],
+        )?;
         tracing::info!(
             doors = doors.len(),
             chests = chests.len(),
-            "the doors' and chests' kinds read"
+            portal_doors = portal_doors.len(),
+            "the doors', chests' and portal doors' kinds read"
         );
         let treasure = data::treasure(portal, &catalog, &treasure_tables)?;
         let tesserae =
@@ -2283,6 +2291,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             doors,
             doors_through_locks,
             chests,
+            portal_doors,
             treasure,
             treasure_tables,
             tesserae,
@@ -2351,6 +2360,7 @@ fn reload_world(
             doors: p.doors,
             doors_through_locks: p.doors_through_locks,
             chests: p.chests,
+            portal_doors: p.portal_doors,
         }),
         ground: Some(Box::new(p.ground)),
         patch: yalain_world::world_patch::WorldPatch::of(&p.files),

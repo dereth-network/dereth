@@ -492,7 +492,7 @@ fn take_refused<S: Store>(
 /// Why using an object of the world (a portal) is refused, if its quest keeps the player out: the
 /// quest its placed instance needs, else its template's (2017: the generic portals, whose
 /// templates need none, refused 40 times at 13 placed instances).
-fn quest_keeps_out<S: Store>(
+pub(crate) fn quest_keeps_out<S: Store>(
     s: &Server<S>,
     world: ConnId,
     o: &yalain_content::ContentObject,
@@ -2568,7 +2568,7 @@ fn arrive<S: Store>(
     if let Some(u) = trip.used.as_ref().filter(|u| u.target != 0) {
         // An item used on an object: the use answered, as the object's work is done (a vault's
         // glyph used up first).
-        let u = &crate::usable::vaults::arrived(s, net, world, u);
+        let u = &crate::usable::vaults::arrived(s, net, world, u, clock);
         let distance = presence::content_by_id(&s.content.objects, u.target)
             .and_then(|i| {
                 let o = &s.content.objects[i];

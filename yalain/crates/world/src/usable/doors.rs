@@ -294,7 +294,7 @@ pub fn waiting_on<S: Store>(s: &Server<S>, world: ConnId) -> bool {
 /// Is a door locked to a player standing at a place: locked, not unlocked by its key since it last
 /// closed, and the player in front of it?
 fn locked<S: Store>(s: &Server<S>, id: u64, at: &StoredPosition) -> bool {
-    s.locks.of(id).is_some()
+    crate::usable::lock_of(s, id).is_some()
         && !s.doors.by_id.get(&id).is_some_and(|d| d.unlocked)
         && door(s, id).is_some_and(|(_, d)| in_front(&d, at))
 }
@@ -494,7 +494,7 @@ pub fn key_at_door<S: Store>(
         return;
     }
     let key = s.things.get(u.item).map(|t| (t.id, t.template));
-    let wanted = s.locks.of(id).and_then(|l| l.key);
+    let wanted = crate::usable::lock_of(s, id).and_then(|l| l.key);
     let fits = key.is_some_and(|(_, template)| wanted.is_some() && key_id(s, template) == wanted);
     if !fits {
         refuse(s, net, world, &u, refusal::WRONG_KEY);

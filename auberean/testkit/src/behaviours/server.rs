@@ -11525,6 +11525,43 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.locked-portal-door-carries-its-keys-user",
+        says: "A locked portal door's key used on it plays its use; the door flashes and the player goes \
+               through portal space to where it leads, where the key is used up unless its kind keeps it \
+               and the use is answered that it fits; its trips wait three seconds between them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOCKED-PORTAL-DOOR"),
+        station: "yalain-testkit::cpu::play::portal_doors::a_locked_portal_doors_key_carries_its_user_through_and_is_used_up",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.locked-portal-door-kept-by-its-quest",
+        says: "A locked portal door whose kind keeps out a player without its quest refuses that player's \
+               key at once with the quest's refusal; the key is kept.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOCKED-PORTAL-DOOR-QUEST"),
+        station: "yalain-testkit::cpu::play::portal_doors::a_locked_portal_door_its_quest_keeps_out_refuses_its_key_at_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.locked-portal-door-moves-its-users-quests",
+        says: "What a locked portal door's kind names for its use moves the quests of the player its key \
+               carries through.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOCKED-PORTAL-DOOR-EFFECTS"),
+        station: "yalain-testkit::cpu::play::portal_doors::a_locked_portal_doors_kind_moves_its_users_quest_on_the_trip",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.locked-portal-door-refuses-a-plain-use",
+        says: "A locked portal door used bare is refused as locked from either side, with no flash, and a \
+               key of another lock as the wrong key; the player is not moved.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOCKED-PORTAL-DOOR-REFUSALS"),
+        station: "yalain-testkit::cpu::play::portal_doors::a_locked_portal_door_used_bare_is_locked_from_either_side",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.monarch-only",
         says: "A placed object for monarchs alone is refused at once wherever the player stands, with no walk, to anyone but the head of an allegiance.",
         since: RETAIL,

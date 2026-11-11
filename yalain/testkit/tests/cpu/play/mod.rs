@@ -65,6 +65,7 @@ mod pet_skills;
 mod pets;
 mod player_fights;
 mod popups;
+mod portal_doors;
 mod quest_uses;
 mod quests;
 mod ratings;

@@ -210,8 +210,8 @@ A person or an object of the world, in its landblock's file.
 | `to` | | the place using it takes a player to; a person says its line for a use as it does |
 | `landings` | | a lifestone's recall spots: `{ cell, at, heading, seen }` |
 | `scene` | | a door's scene: the `[[scene]]` a player plays on the way to `to`, in place of portal space |
-| `locked` | statics | a locked door: from its front a plain use is refused and only its key opens it (it locks again as it closes); from behind it opens |
-| `lock` | | a locked door's key id: the id a key must carry to open it; none known: no key does |
+| `locked` | statics | a locked door: from its front a plain use is refused and only its key opens it (it locks again as it closes); from behind it opens. Locked with `to`, a portal takes a player only on its key, refusing a plain use from every side: the key of a portal door (a door, or a portal that stands as one) is used up unless its kind keeps it, and what the door's kind names for its use moves its user's quests; a vault's glyph is used up. A static is locked with an `id` or without one |
+| `lock` | | a locked door's or portal's key id: the id a key must carry to open it; none known: no key does |
 | `route`, `route_start`, `route_direction` | people | the `[[route]]` a person walks (`key`, or `pack:key`), the waypoint it sets out toward (from 0) and `forward` or `backward` |
 | `recall`, `summon` | statics | a portal a player who used it may recall to (`recall = true`) and summon a portal to (`summon = true`); left out, neither |
 | `requires` | statics | the quest a player must hold to use it: `{ quest = Q, done = true }` (completed), `{ quest = Q, underway = true }` (under way at any phase), `{ quest = Q, phase = N }` (under way at that phase) or `{ quest = Q, had = true }` (failed, completed or under way); a use or a walk-in it keeps out is refused at once |

@@ -9,7 +9,8 @@
 //!   conjures a resource node.
 //! - [`interactions`]: an item used on an object its template's interaction table names (a hoard's
 //!   key on its stockpile) is carried out at once.
-//! - [`vaults`]: a vault takes a player to its dungeon only on its glyph, which is used up.
+//! - [`vaults`]: a vault takes a player to its dungeon only on its glyph, which is used up; a
+//!   locked portal door carries a player through only on its key.
 //! - [`shrines`]: a faction shrine records the player's kingdom rating.
 //! - [`portals`]: a portal a player summons to its lifestone or its last portal's place, which
 //!   anyone may use while it stands.
@@ -21,3 +22,25 @@ pub mod maps;
 pub mod portals;
 pub mod shrines;
 pub mod vaults;
+
+use yalain_store::Store;
+
+use crate::{presence, Server};
+
+/// The lock of a placed object, if it is locked: one with a world id of its own by that id, one the
+/// server numbers by its cell and template.
+#[must_use]
+pub fn lock_of<S: Store>(s: &Server<S>, id: u64) -> Option<yalain_content::Lock> {
+    if let Some(l) = s.locks.of(id) {
+        return Some(*l);
+    }
+    if s.locks.placed.is_empty() {
+        return None;
+    }
+    let i = presence::content_by_id(&s.content.objects, id)?;
+    let o = &s.content.objects[i];
+    if s.placed.database_id(o).is_some() {
+        return None;
+    }
+    s.locks.of_placed(o.cell, o.template).copied()
+}

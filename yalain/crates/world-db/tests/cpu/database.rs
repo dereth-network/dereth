@@ -1422,6 +1422,44 @@ fn a_locked_doors_key_id_is_kept_by_its_id_and_only_a_static_is_locked() {
 }
 
 #[test]
+fn a_locked_static_with_no_id_of_its_own_is_kept_by_its_cell_and_template() {
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/landblocks/77B7.toml",
+        "id = 0x4077B70000000001\n",
+        "",
+    );
+    edit(
+        &mut files,
+        "town/server/landblocks/77B7.toml",
+        "to = \"inn\"\n",
+        "to = \"inn\"\nlocked = true\nlock = 0x40000090\n",
+    );
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let t = compile(&merged, &Fake::new()).unwrap();
+    let gate = t
+        .content
+        .objects
+        .iter()
+        .find(|o| o.object.is_none() && o.template == 0x4700_115B)
+        .unwrap();
+    assert!(gate.destination.is_some(), "it leads somewhere");
+    assert_eq!(
+        t.locks
+            .of_placed(gate.cell, gate.template)
+            .and_then(|l| l.key),
+        Some(0x4000_0090)
+    );
+    assert!(t.locks.objects.is_empty());
+    assert!(
+        !t.warnings.iter().any(|w| w.to_string().contains("locked:")),
+        "{:?}",
+        t.warnings
+    );
+}
+
+#[test]
 fn a_weapon_row_names_the_template_of_a_creatures_weapon_and_must_name_one_installed() {
     let mut files = fixture();
     files.insert(

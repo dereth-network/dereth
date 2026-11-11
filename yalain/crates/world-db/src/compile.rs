@@ -765,13 +765,24 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     );
                 }
                 if o.locked {
+                    let lock = yalain_content::Lock { key: o.lock };
                     match (o.kind, o.id) {
                         (ObjectKind::Static, Some(id)) => {
-                            t.locks
-                                .objects
-                                .insert(id, yalain_content::Lock { key: o.lock });
+                            t.locks.objects.insert(id, lock);
                         }
-                        _ => cx.warn(l, "locked: only a static object (one with an id) is locked"),
+                        (ObjectKind::Static, None) => {
+                            // One the server numbers is known by where it stands and what it is.
+                            let cell = o.cell.unwrap_or_else(|| outdoor_cell(lb, o.at.x, o.at.y));
+                            if t.locks.placed.insert((cell, o.template), lock).is_some() {
+                                cx.warn(
+                                    l,
+                                    "locked: another locked object of its template stands in its cell, and one lock holds both",
+                                );
+                            }
+                        }
+                        (ObjectKind::Npc, _) => {
+                            cx.warn(l, "locked: only a static object is locked")
+                        }
                     }
                 }
                 objects_at.insert((l.pack.clone(), o.key.clone(), lb), t.content.objects.len());
