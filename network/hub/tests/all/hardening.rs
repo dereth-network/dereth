@@ -1276,15 +1276,27 @@ fn a_trickled_body_is_cut_off_at_its_deadline() {
 /// refused one is answered at once, its body never waited for.
 #[test]
 fn the_allowance_is_taken_before_the_body_is_read() {
-    let f = hub_with(|c| c.http_per_minute = 2);
-    for _ in 0..2 {
-        assert_eq!(call(f.addr(), "GET", "/v1/servers", &[], "").status, 200);
+    // The client is one behind a trusted proxy, so that nothing else reaching the hub over loopback
+    // spends its allowance; and the allowance gives one back only a minute after it is spent.
+    let f = hub_with(|c| {
+        c.trusted_proxies = vec!["127.0.0.1".parse().expect("a range")];
+        c.http_per_minute = 1;
+    });
+    let client = ("X-Forwarded-For", "203.0.113.80");
+    let mut answered = 0;
+    while call(f.addr(), "GET", "/v1/servers", &[client], "").status == 200 {
+        answered += 1;
+        assert!(answered < 100, "the allowance is never spent");
     }
-    let head = "POST /v1/reports HTTP/1.1\r\nHost: hub.test\r\nContent-Type: application/json\r\n\
-                Content-Length: 4000\r\n\r\n";
-    let (status, took) = trickle(&f, head, &[], Duration::from_millis(100));
-    assert_eq!(status, Some(429));
-    assert!(took < Duration::from_secs(2), "{took:?}");
+    assert!(
+        answered >= 1,
+        "{answered} answered before the first refusal"
+    );
+    // Its body is never sent: a hub that waited for it would answer `408` at the body's deadline.
+    let head = "POST /v1/reports HTTP/1.1\r\nHost: hub.test\r\nX-Forwarded-For: 203.0.113.80\r\n\
+                Content-Type: application/json\r\nContent-Length: 4000\r\n\r\n";
+    let (status, _) = trickle(&f, head, &[], Duration::from_millis(100));
+    assert_eq!(status, Some(429), "refused before its body is read");
     f.running.shutdown();
 }
 

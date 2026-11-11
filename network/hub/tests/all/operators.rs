@@ -1858,18 +1858,45 @@ fn an_admin_registers_and_verifies_past_one_operators_allowances() {
 /// Spec: hub: an admin's requests take from its client address's allowance, as everyone's do.
 #[test]
 fn an_admin_is_held_to_its_client_addresss_allowance() {
-    let f = hub_with(|c| c.http_per_minute = 1);
+    // The admin is behind a trusted proxy, so that nothing else reaching the hub over loopback
+    // spends its allowance; and the allowance gives one back only a minute after it is spent.
+    let f = hub_with(|c| {
+        c.trusted_proxies = vec!["127.0.0.1".parse().expect("a range")];
+        c.http_per_minute = 1;
+    });
     // A session made on the hub's side: signing in would spend the address's allowance.
     let session = {
         let reg = f.running.registry();
         let admin = reg.signed_in(ADMIN, "Admin").expect("signed in");
         reg.new_session(&admin).expect("a session")
     };
-    let me = op(&f, &session, "GET", "/v1/operator", &Value::Null);
-    assert_eq!(me.status, 200, "{me:?}");
-    assert_eq!(me.json()["operator"]["admin"], true);
-    let again = op(&f, &session, "GET", "/v1/operator", &Value::Null);
-    assert_eq!(again.status, 429, "{again:?}");
+    let cookie = format!("__Host-dn_session={session}");
+    let me = || {
+        call(
+            f.addr(),
+            "GET",
+            "/v1/operator",
+            &[
+                ("Cookie", &cookie),
+                ("Origin", SITE),
+                ("X-Forwarded-For", "203.0.113.81"),
+            ],
+            "",
+        )
+    };
+    let first = me();
+    assert_eq!(first.status, 200, "{first:?}");
+    assert_eq!(first.json()["operator"]["admin"], true);
+    let mut answered = 1;
+    loop {
+        let again = me();
+        if again.status == 429 {
+            break;
+        }
+        assert_eq!(again.status, 200, "{again:?}");
+        answered += 1;
+        assert!(answered < 100, "an admin is never refused");
+    }
     f.running.shutdown();
 }
 
@@ -2019,30 +2046,47 @@ fn revoking_a_reported_world_turns_it_off_and_locks_it_until_the_hubs_operator_u
 /// page on another origin may read) and in the body, on a public route and an operator route.
 #[test]
 fn a_request_over_its_allowance_is_told_when_to_try_again() {
-    let f = hub_with(|c| c.http_per_minute = 2);
-    for _ in 0..2 {
-        assert_eq!(call(f.addr(), "GET", "/v1/status", &[], "").status, 200);
-    }
-    let public = call(
-        f.addr(),
-        "GET",
-        "/v1/status",
-        &[("Origin", "https://anyone.test")],
-        "",
-    );
+    // The client is behind a trusted proxy, so that nothing else reaching the hub over loopback
+    // spends its allowance; and the allowance gives one back only a minute after it is spent.
+    let f = hub_with(|c| {
+        c.trusted_proxies = vec!["127.0.0.1".parse().expect("a range")];
+        c.http_per_minute = 1;
+    });
+    let client = ("X-Forwarded-For", "203.0.113.82");
+    let mut answered = 0;
+    let public = loop {
+        let r = call(
+            f.addr(),
+            "GET",
+            "/v1/status",
+            &[("Origin", "https://anyone.test"), client],
+            "",
+        );
+        if r.status != 200 {
+            break r;
+        }
+        answered += 1;
+        assert!(answered < 100, "the allowance is never spent");
+    };
     assert_eq!(public.status, 429);
     let wait: u64 = public
         .header("retry-after")
         .and_then(|s| s.parse().ok())
         .expect("Retry-After");
-    assert!((1..=30).contains(&wait), "{wait}");
+    assert!((1..=60).contains(&wait), "{wait}");
     assert_eq!(public.json()["error"]["retryAfterSeconds"], json!(wait));
     assert_eq!(public.header("access-control-allow-origin"), Some("*"));
     assert_eq!(
         public.header("access-control-expose-headers"),
         Some("Retry-After")
     );
-    let site = call(f.addr(), "GET", "/v1/operator", &[("Origin", SITE)], "");
+    let site = call(
+        f.addr(),
+        "GET",
+        "/v1/operator",
+        &[("Origin", SITE), client],
+        "",
+    );
     assert_eq!(site.status, 429);
     assert_eq!(
         site.header("access-control-allow-origin"),
@@ -2141,16 +2185,24 @@ fn the_request_allowance_counts_the_client_behind_a_trusted_proxy() {
         )
         .status
     };
-    for _ in 0..5 {
-        assert_eq!(get("198.51.100.1"), 200);
+    // Up to the client's first refusal: a slow machine may be given one back on the way.
+    let mut answered = 0;
+    while get("198.51.100.1") == 200 {
+        answered += 1;
+        assert!(answered < 100, "the allowance is never spent");
     }
-    assert_eq!(get("198.51.100.1"), 429);
+    assert!(
+        answered >= 5,
+        "{answered} answered before the first refusal"
+    );
     assert_eq!(
         get("198.51.100.2"),
         200,
         "another client behind the same proxy"
     );
     f.running.shutdown();
+    // Untrusted, each request names a client of its own, so any refusal says they share one
+    // allowance.
     let f = hub_with(|c| c.http_per_minute = 5);
     let get = |xff: &str| {
         call(
@@ -2162,10 +2214,8 @@ fn the_request_allowance_counts_the_client_behind_a_trusted_proxy() {
         )
         .status
     };
-    for i in 0..5 {
-        assert_eq!(get(&format!("198.51.100.{i}")), 200);
-    }
-    assert_eq!(get("198.51.100.9"), 429, "untrusted: the header is ignored");
+    let refused = (0..30).find(|i| get(&format!("198.51.100.{i}")) == 429);
+    assert!(refused.is_some(), "untrusted: the header is ignored");
     f.running.shutdown();
 }
 

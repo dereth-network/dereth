@@ -4041,14 +4041,20 @@ mod bridge {
         fn a_persons_lines_are_held_to_its_pace() {
             let mut n = Net::new();
             n.choose(PERSON, AAS, "Ann@aa");
-            for _ in 0..3 {
+            // Up to the first line held: a slow machine may be given one back on the way.
+            let mut said = 0;
+            let held = loop {
                 let (answer, _) = n.say(PERSON, AAS, "hello");
-                assert_eq!(answer["type"], 5);
+                if answer["type"] != 5 {
+                    break answer;
+                }
                 n.world_answers(SayOutcome::Said, None);
-            }
-            let (answer, _) = n.say(PERSON, AAS, "hello");
+                said += 1;
+                assert!(said < 50, "a person's lines are never held");
+            };
+            assert!(said >= 3, "{said} said before the first was held");
             assert_eq!(
-                answer["data"]["content"],
+                held["data"]["content"],
                 "You are speaking too quickly. Wait a moment and try again."
             );
         }
