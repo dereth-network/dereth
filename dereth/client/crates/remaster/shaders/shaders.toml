@@ -290,6 +290,12 @@ source = "water.slang"
 entry = "fs_traced"
 stage = "fragment"
 
+# One step of the water's wake near the eye.
+[[entry]]
+source = "water.slang"
+entry = "cs_wake"
+stage = "compute"
+
 # Where instances stand and how far they are lifted onto the drawn ground, as the G-buffer places
 # them: for the checks.
 [[entry]]

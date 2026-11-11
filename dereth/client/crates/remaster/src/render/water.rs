@@ -1,6 +1,8 @@
 //! The water pass: the water drawn over the resolved world, where the ground is water, with its
 //! ripples, the rings round the bodies standing in it, its reflection and the sun's glint; and, on
-//! a rainy day, the puddles flat ground gathers, as their own switch.
+//! a rainy day, the puddles flat ground gathers, as their own switch. Near the eye the water is
+//! simulated ([`super::wake`]), so the bodies wading in it leave a wake; the rings stand in for it
+//! elsewhere.
 //!
 //! The reflection is traced through the scene's acceleration structures where the device traces
 //! rays and the reflections are asked to be traced; otherwise, on the water nearest the eye, it is
@@ -17,8 +19,9 @@
 //! never after.
 
 use dereth_gfx::{
-    BufferUsage, ColorAttachment, ColorTarget, Cull, Device, Format, GraphicsDesc, Load, Pipeline,
-    RasterPass, Recorder, Rect, SamplerDesc, Texture, TextureDesc, TextureUsage, Touch, Use,
+    Buffer, BufferDesc, BufferUsage, ColorAttachment, ColorTarget, ComputeDesc, Cull, Device,
+    Format, GraphicsDesc, Load, Location, Pipeline, RasterPass, Recorder, Rect, SamplerDesc,
+    Texture, TextureDesc, TextureUsage, Touch, Use,
 };
 use glam::Vec3;
 
@@ -27,6 +30,7 @@ use super::light::Rows;
 use super::ripples;
 use super::rt::RtPlan;
 use super::scene::NONE;
+use super::wake::{self, Wake};
 use super::{push_words, shader, PerFrame, Targets};
 use crate::scene::FrameDelta;
 use crate::shaders::Entry;
@@ -43,6 +47,9 @@ pub struct WaterSettings {
     pub waves: f32,
     /// Whether the bodies standing in the water ring it.
     pub rings: bool,
+    /// Whether the water near the eye is simulated, so the bodies wading in it leave a wake of
+    /// ripples there; off, the rings alone.
+    pub wake: bool,
     /// To check the reflection: each water pixel shows what its reflection found, red a surface
     /// it met, green the land, blue the sky.
     pub check: bool,
@@ -65,6 +72,7 @@ impl Default for WaterSettings {
             puddles: false,
             waves: 1.0,
             rings: true,
+            wake: true,
             check: false,
             absorption: 1.0,
             traced: false,
@@ -149,6 +157,11 @@ const WADERS_WITHIN: f32 = 60.0;
 const CLOCK_PERIOD: f64 = 3600.0;
 /// A landscape block's side, meters.
 const BLOCK: f64 = 192.0;
+/// The constants' row the wake's start at, after the rings', and its steps' after its kernel's.
+const WAKE_ROW: usize = 33 + 2 * RINGS;
+const WAKE_STEPS_ROW: usize = WAKE_ROW + 2 + wake::KERNEL_ROWS;
+/// The bytes of the wake's cells: four floats each.
+const WAKE_BYTES: u64 = (wake::SIDE as u64) * (wake::SIDE as u64) * 16;
 
 /// The copy of the resolved world the pass reads, made again when the scene's colors change size
 /// or format.
@@ -185,10 +198,26 @@ pub struct WaterPass {
     /// The rings the bodies have sent out, the oldest first, and when each body last sent one.
     rings: Vec<Ring>,
     sent: Vec<(crate::scene::ObjectKey, f64)>,
+    /// The wake near the eye: its state, its step's pipeline, its kernel's rows, its two sets of
+    /// cells and their indices while it runs, and which of them holds the water as it stands.
+    wake: Wake,
+    wake_pipeline: Pipeline,
+    wake_kernel: Option<[[u32; 4]; wake::KERNEL_ROWS]>,
+    wake_cells: Option<[(Buffer, u32); 2]>,
+    wake_current: usize,
+}
+
+/// The wake's steps of one frame: its step's pipeline, each step's cells read and written with
+/// their indices, in order, and the cells the water is drawn from.
+#[derive(Debug, Clone)]
+struct WakeSteps {
+    pipeline: Pipeline,
+    steps: Vec<[(Buffer, u32); 2]>,
+    drawn: Buffer,
 }
 
 /// One frame of the pass, as [`WaterPass::prepare`] made it.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct WaterPlan {
     pipeline: Pipeline,
     copy: Copy,
@@ -203,6 +232,7 @@ pub struct WaterPlan {
     shore: Option<dereth_gfx::Buffer>,
     probe: Option<[Texture; 6]>,
     planar: Option<Texture>,
+    wake: Option<WakeSteps>,
 }
 
 /// What the water reads besides the frame's targets, as the frame has it.
@@ -276,6 +306,10 @@ impl WaterPass {
             lod_bias: 0.0,
         })?;
         let wrap = gfx.bind_sampler(wrap)?;
+        let wake_pipeline = gfx.create_compute_pipeline(&ComputeDesc {
+            label: "remaster water wake",
+            shader: shader(Entry::WaterCsWake),
+        })?;
         Ok(Self {
             pipelines,
             traced,
@@ -294,6 +328,11 @@ impl WaterPass {
             last_clock: 0.0,
             rings: Vec::new(),
             sent: Vec::new(),
+            wake: Wake::default(),
+            wake_pipeline,
+            wake_kernel: None,
+            wake_cells: None,
+            wake_current: 0,
         })
     }
 
@@ -404,6 +443,28 @@ impl WaterPass {
                 gfx.destroy_texture(texture);
             }
         }
+        // The wake runs where the water is drawn and the drawn ground says where it lies.
+        let wakes = s.on && s.wake && inputs.heights.is_some() && inputs.shore.is_some();
+        let wake_plan = if wakes {
+            let near: Vec<_> = bodies.iter().map(|(k, at, _)| (*k, *at)).collect();
+            Some(self.wake.plan(&wake::Stir {
+                clock: frame.clock,
+                global: [
+                    f64::from(frame.origin[0]) * BLOCK,
+                    f64::from(frame.origin[1]) * BLOCK,
+                ],
+                eye: frame.camera.eye,
+                bodies: &near,
+            }))
+        } else {
+            self.wake = Wake::default();
+            if let Some(cells) = self.wake_cells.take() {
+                for (b, _) in cells {
+                    gfx.destroy_buffer(b);
+                }
+            }
+            None
+        };
         if !s.runs() {
             return Ok(None);
         }
@@ -559,6 +620,7 @@ impl WaterPass {
                 rows.0.push([r.strength, 0.0, 0.0, 0.0].map(f32::to_bits));
             }
         }
+        let wake = self.wake_rows(gfx, &mut rows, wake_plan)?;
         self.constants.write(gfx, &rows.bytes())?;
         Ok(Some(WaterPlan {
             pipeline,
@@ -572,6 +634,75 @@ impl WaterPass {
             shore: inputs.shore.map(|h| h.1),
             probe: inputs.probe.map(|(f, _)| f.map(|t| t.0)),
             planar: inputs.planar.map(|p| p.0),
+            wake,
+        }))
+    }
+
+    /// The wake's rows, after the rings': the cells the water is drawn from and the square they
+    /// hold, the kernel, and each of the frame's steps; and the steps to record. Its cells are
+    /// made the first time it runs.
+    fn wake_rows(
+        &mut self,
+        gfx: &mut Device,
+        rows: &mut Rows,
+        plan: Option<wake::WakePlan>,
+    ) -> Result<Option<WakeSteps>, dereth_gfx::Error> {
+        rows.0.resize(WAKE_ROW, [0; 4]);
+        let Some(plan) = plan else {
+            rows.0.push([NONE, 0, 0, 0]);
+            rows.0.push([0; 4]);
+            return Ok(None);
+        };
+        let cells = match self.wake_cells {
+            Some(c) => c,
+            None => {
+                let mut make = |label| -> Result<(Buffer, u32), dereth_gfx::Error> {
+                    let b = gfx.create_buffer(&BufferDesc {
+                        label,
+                        size: WAKE_BYTES,
+                        usage: BufferUsage::STORAGE,
+                        location: Location::Gpu,
+                    })?;
+                    Ok((b, gfx.bind_buffer(b)?))
+                };
+                let c = [
+                    make("remaster water wake a")?,
+                    make("remaster water wake b")?,
+                ];
+                self.wake_cells = Some(c);
+                self.wake_current = 0;
+                c
+            }
+        };
+        let mut steps = Vec::with_capacity(plan.steps.len());
+        for _ in &plan.steps {
+            let from = self.wake_current;
+            steps.push([cells[from], cells[1 - from]]);
+            self.wake_current = 1 - from;
+        }
+        let drawn = cells[self.wake_current];
+        match plan.square {
+            Some((first, corner)) => {
+                #[allow(clippy::cast_sign_loss)] // signed world cells, as the shader reads them
+                rows.0.push([drawn.1, first[0] as u32, first[1] as u32, 0]);
+                rows.0
+                    .push([corner[0], corner[1], 0.0, 0.0].map(f32::to_bits));
+            }
+            None => {
+                rows.0.push([NONE, 0, 0, 0]);
+                rows.0.push([0; 4]);
+            }
+        }
+        let kernel = *self.wake_kernel.get_or_insert_with(wake::kernel_rows);
+        rows.0.extend(kernel);
+        debug_assert_eq!(rows.0.len(), WAKE_STEPS_ROW);
+        for step in &plan.steps {
+            rows.0.extend(step);
+        }
+        Ok(Some(WakeSteps {
+            pipeline: self.wake_pipeline,
+            steps,
+            drawn: drawn.0,
         }))
     }
 }
@@ -594,6 +725,34 @@ impl WaterPlan {
         sun_visibility: (u32, Option<Texture>),
         drawn: Option<&DrawnPlan>,
     ) -> Result<(), dereth_gfx::Error> {
+        if let Some(w) = self.wake.as_ref().filter(|w| !w.steps.is_empty()) {
+            r.timestamp("water wake");
+            let reads: Vec<Touch> = self
+                .heights
+                .iter()
+                .chain(&self.shore)
+                .map(|b| Touch::Buffer(*b, Use::StorageRead))
+                .collect();
+            for (k, [from, to]) in w.steps.iter().enumerate() {
+                let mut touches = reads.clone();
+                touches.push(Touch::Buffer(from.0, Use::StorageRead));
+                touches.push(Touch::Buffer(to.0, Use::StorageWrite));
+                // The water pass's own words, the wake's last: the cells read and written, and
+                // which step it is.
+                let mut words = [NONE; 16];
+                words[0] = frame;
+                words[1] = self.constants;
+                words[13] = from.1;
+                words[14] = to.1;
+                words[15] = u32::try_from(k).unwrap_or(0);
+                r.compute(&touches, |c| {
+                    c.set_pipeline(w.pipeline)?;
+                    c.push(0, &push_words(&words))?;
+                    c.dispatch(wake::SIDE / 16, wake::SIDE / 16, 1);
+                    Ok(())
+                })?;
+            }
+        }
         r.timestamp(if self.traced { "water traced" } else { "water" });
         r.copy_texture(t.color, self.copy.texture)?;
         let mut touches = vec![
@@ -624,6 +783,9 @@ impl WaterPlan {
         }
         if let Some(p) = self.planar {
             touches.push(Touch::Texture(p, Use::Sampled));
+        }
+        if let Some(w) = &self.wake {
+            touches.push(Touch::Buffer(w.drawn, Use::StorageRead));
         }
         let (drawn_constants, words) = drawn.map_or((NONE, NONE), |d| {
             let (constants, words, buffers) = d.terrain_inputs();

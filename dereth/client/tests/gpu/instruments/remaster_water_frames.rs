@@ -1,8 +1,9 @@
 //! The remaster's water at the views its reflections and its wading are judged from: a lake with
 //! the camera tilted up toward the sky, level, and down until no sky shows; the same lake from far
 //! off; puddles at the viewer's feet on a rainy day; a body standing in a pond, seen from above and
-//! from beside it; and a strip of frames as the body walks through the pond. Each is written as a
-//! picture, with the remaster's time on the device and the water pass's share of it printed.
+//! from beside it; a strip of frames as the body walks through the pond, and through a river. Each
+//! is written as a picture, with the remaster's time on the device and the water pass's share of
+//! it printed, and for a walk the wake's share as the body walks.
 //!
 //! Fixture: the retail dats (`DERETH_TEST_DAT_DIR`) and a hardware device.
 //!
@@ -15,6 +16,9 @@
 //! - `DERETH_ART_PACK`: the art pack the remaster's pack boxes draw (default none).
 //! - `DERETH_WATER_CHECK`: set, each water pixel shows what its reflection found instead: red a
 //!   surface, green the land, blue the sky.
+//! - `DERETH_WATER_WAKE`: `off` draws the water with no wake, the rings alone.
+//! - `DERETH_WATER_EVERY_FRAME`: set, a walk is three seconds long and each of its frames is also
+//!   written as `<view>-<tag>-NNN.png`, for a video.
 
 #![cfg(gpu)]
 #![cfg(feature = "remaster")]
@@ -43,6 +47,11 @@ const POND: &str = "dereth report 1; loc 0xA8B60012 [55.615215 30.300829 27.5549
                     yaw -2.9129736 pitch -0.6300002 cell 0xA8B60012; time 0.5; clock \
                     306486600.0; weather auto";
 
+/// The river south of Holtburg, a body standing in it, the camera over it as over the pond's.
+const RIVER: &str = "dereth report 1; loc 0xAAB50023 [110.0 70.0 27.554998] 0.069254 0.000000 \
+                     0.000000 -0.997599; camera 0xAAB5 [108.9 74.72 32.59] yaw -2.9129736 \
+                     pitch -0.6300002 cell 0xAAB50023; time 0.5; clock 306486600.0; weather auto";
+
 /// The pillar on the bank of the lake, the body standing in the water before it.
 const PILLAR: &str = "dereth report 1; loc 0xA9B50015 [65.766556 103.075867 27.554998] -0.561041                       0.000000 0.000000 -0.827788";
 
@@ -53,7 +62,7 @@ const TREE: &str = "dereth report 1; loc 0xA9B5001C [83.963875 82.829918 27.9049
 const TREE_ACROSS: &str = "dereth report 1; loc 0xA9B50024 [94.0 76.5 27.9] 0.6088 0.0 0.0 0.7934";
 
 /// Every view: its name, then how it is drawn.
-const SCENES: [&str; 17] = [
+const SCENES: [&str; 19] = [
     "lake-up",
     "lake-level",
     "lake-down",
@@ -66,6 +75,8 @@ const SCENES: [&str; 17] = [
     "wade-walk",
     "wade-deep",
     "wade-deep-walk",
+    "wade-river",
+    "wade-river-walk",
     "login-river",
     "shore-night",
     "pillar-night",
@@ -182,6 +193,7 @@ fn view(name: &str) -> View {
             hour: 0.55,
         },
         "wade-up" => report(POND, 0.0, -3.0, 0.75),
+        "wade-river" | "wade-river-walk" => report(RIVER, 0.0, 0.0, 0.0),
         "wade-deep" | "wade-deep-walk" => View::Walked {
             line: LAKE,
             ahead: 30.0,
@@ -371,6 +383,13 @@ fn capture_the_remasters_water() {
         shot.scene.draw.cfg.render.fidelity =
             FidelityPreferences::parse_switch(&boxes).expect("the boxes read");
         shot.poll(&mut gpu);
+        if env("DERETH_WATER_WAKE").is_some_and(|v| v == "off") {
+            let w = shot.scene.draw.remaster_water();
+            shot.scene.draw.set_remaster_water(
+                dereth_scene::world_scene::RemasterWater { wake: false, ..w },
+                &mut gpu,
+            );
+        }
         if env("DERETH_WATER_CHECK").is_some() {
             // What each water pixel's reflection found: red a surface, green the land, blue
             // the sky.
@@ -398,18 +417,40 @@ fn capture_the_remasters_water() {
             }
         };
         if name.ends_with("walk") {
-            // A strip down the page: a frame every tenth of a second as the body walks.
+            // A strip down the page: a frame every tenth of a second as the body walks; and the
+            // wake's time on the device as it walks, where the held frames would show none.
+            let every = env("DERETH_WATER_EVERY_FRAME").is_some();
             let mut strip = Vec::new();
             let mut frames = 0;
+            let (mut wake, mut walked) = (0.0, 0u32);
             shot.input.forward = true;
-            for k in 0..24 {
+            for k in 0..if every { 90 } else { 24 } {
                 shot.step_by(&mut gpu, 1.0 / 30.0);
-                if k % 3 == 2 {
-                    strip.extend(capture(&mut gpu));
-                    frames += 1;
+                let rgba = (every || k % 3 == 2).then(|| capture(&mut gpu));
+                if k >= 2 && rgba.is_some() {
+                    let t = shot.scene.draw.remaster_timings(&mut gpu);
+                    wake += t
+                        .iter()
+                        .filter(|p| p.0.contains("water wake"))
+                        .map(|p| p.1)
+                        .sum::<f64>();
+                    walked += 1;
+                }
+                if let Some(rgba) = rgba {
+                    if every {
+                        write(&format!("{name}-{k:03}"), &rgba, size.1);
+                    }
+                    if k % 3 == 2 && k < 24 {
+                        strip.extend(rgba);
+                        frames += 1;
+                    }
                 }
             }
-            println!("{name}: {}", timings(&mut shot, &mut gpu));
+            println!(
+                "{name}: the wake {:.3} ms a frame as the body walks; {}",
+                wake / f64::from(walked.max(1)),
+                timings(&mut shot, &mut gpu)
+            );
             write(name, &strip, size.1 * frames);
         } else {
             let rgba = capture(&mut gpu);

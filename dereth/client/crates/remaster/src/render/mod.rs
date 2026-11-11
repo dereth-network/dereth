@@ -42,6 +42,7 @@ pub mod sky;
 pub mod sky_probe;
 pub mod terrain;
 pub mod upscale;
+pub mod wake;
 pub mod water;
 pub mod weather;
 

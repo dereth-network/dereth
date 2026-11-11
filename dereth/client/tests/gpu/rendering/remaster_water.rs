@@ -2,6 +2,7 @@
 //! what it reflects the same however the camera turns; drawn over a body standing in it, below
 //! its surface; the trees and pillars
 //! standing in it meeting it, near and far; rings round a body walking in it from the first step;
+//! a wake behind a body walking through it, held still with the clock;
 //! its ripples and its color over a lowered bed; its reflections traced over its own level; and
 //! the puddles of a rainy day as a switch of their own, changing nothing but themselves.
 //!
@@ -527,6 +528,145 @@ fn the_water_covers_a_body_standing_in_it_below_its_surface() {
     );
     assert!(above > 300, "the body stands out of the water: {above}");
     assert!(changed * 50 <= above, "left above: {changed} of {above}");
+}
+
+/// The pond's frames as a body walks through it, the camera held over it, the ground as the
+/// player draws it, the waves still and no rings, the wake as `wake` says: each step a thirtieth
+/// of a second, then two more with the clock held.
+fn wading_through(
+    store: &Arc<RetailDatStore>,
+    wake: bool,
+    frames: usize,
+) -> (Vec<RemasterCapture>, [RemasterCapture; 2]) {
+    let report = VisualReport::parse(POND).expect("the report reads");
+    let st = report_station(&report, Some(3));
+    let mut gpu = device();
+    let mut shot = Shot::open(store, &mut gpu, &st);
+    shot.apply_report(&report);
+    shot.poll(&mut gpu);
+    shot.scene.draw.set_remaster_water(
+        RemasterWater {
+            rings: false,
+            waves: 0.0,
+            wake,
+            ..water()
+        },
+        &mut gpu,
+    );
+    shot.scene
+        .draw
+        .set_remaster_terrain(RemasterTerrain::player(), &mut gpu);
+    shot.scene
+        .draw
+        .set_remaster(true, store, &mut gpu)
+        .expect("the remaster starts");
+    shot.scene
+        .draw
+        .set_remaster_light(RemasterLight::Pixel, &mut gpu);
+    shot.step_held(&mut gpu);
+    shot.scene.wait_for_remaster_ground();
+    shot.input.forward = true;
+    let capture = |shot: &mut Shot, gpu: &mut Gpu| {
+        shot.scene
+            .draw
+            .remaster_capture(gpu)
+            .expect("the remaster drew")
+    };
+    let mut walked = Vec::new();
+    for _ in 0..frames {
+        shot.step_by(&mut gpu, 1.0 / 30.0);
+        walked.push(capture(&mut shot, &mut gpu));
+    }
+    shot.input.forward = false;
+    shot.step_held(&mut gpu);
+    let held = capture(&mut shot, &mut gpu);
+    shot.step_held(&mut gpu);
+    let again = capture(&mut shot, &mut gpu);
+    shot.scene
+        .draw
+        .set_remaster(false, store, &mut gpu)
+        .expect("the remaster stops");
+    drop(shot);
+    drop(gpu);
+    let errors = dereth_render::vulkan::take_validation_errors();
+    assert!(errors.is_empty(), "the validation layer: {errors:#?}");
+    (walked, [held, again])
+}
+
+/// Where the body stands in `c`, east and north, the middle of its pixels; and how many it has.
+fn body_in(c: &RemasterCapture) -> (glam::Vec2, usize) {
+    let inv = glam::Mat4::from_cols_array(&c.view_projection).inverse();
+    let (mut sum, mut n) = (glam::Vec2::ZERO, 0usize);
+    for i in 0..c.kind.len() {
+        if c.kind[i] == CHARACTER {
+            sum += place_of(c, &inv, i).truncate();
+            n += 1;
+        }
+    }
+    #[allow(clippy::cast_precision_loss)] // a few thousand pixels
+    (sum / n.max(1) as f32, n)
+}
+
+/// **A body walking through still water leaves a wake behind it**: in the still pond (no wind
+/// ripples, no rings), a body walks forward from where it stood; the water where it started, now
+/// behind it, differs by thousands of pixels from the same frame drawn with no wake, water far
+/// from its way does not, and with the clock held the wake holds still.
+#[test]
+fn a_body_walking_through_still_water_leaves_a_wake_behind_it() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let frames = 45;
+    let (with, held) = wading_through(&store, true, frames);
+    let (without, _) = wading_through(&store, false, frames);
+    let (a, b) = (&with[frames - 1], &without[frames - 1]);
+    // Where the body stood: the report's place, in the frame's space by the camera held at the
+    // report's.
+    let report = VisualReport::parse(POND).expect("the report reads");
+    let (loc, cam) = (
+        report.loc.expect("a place").frame.origin,
+        report.camera.expect("a camera").origin,
+    );
+    let start = glam::Vec3::from(b.eye).truncate() + glam::Vec2::new(loc.x - cam.x, loc.y - cam.y);
+    let (end, seen) = body_in(a);
+    eprintln!(
+        "pond: the body from {start} to {end} ({seen} pixels; {} at the first frame)",
+        body_in(&with[0]).1
+    );
+    assert!(seen > 100, "the body is in view: {seen} pixels");
+    assert!(
+        end.distance(start) > 2.0,
+        "the body walked away: {start} to {end}"
+    );
+    let inv = glam::Mat4::from_cols_array(&b.view_projection).inverse();
+    let (mut behind, mut stirred, mut far) = (0usize, 0usize, 0usize);
+    for i in 0..b.kind.len() {
+        if b.kind[i] != WATER {
+            continue;
+        }
+        let p = surface_of(b, &inv, i).truncate();
+        let differs = (0..3).any(|k| a.color[i * 4 + k].abs_diff(b.color[i * 4 + k]) > 2);
+        if p.distance(start) < 1.5 && p.distance(end) > 1.0 {
+            behind += 1;
+            stirred += usize::from(differs);
+        } else if p.distance(start) > 14.0 && p.distance(end) > 14.0 {
+            far += usize::from(differs);
+        }
+    }
+    // Held, a frame differs from the one before by no more than the last bit of a color.
+    let still = (0..held[0].color.len())
+        .filter(|i| held[0].color[*i].abs_diff(held[1].color[*i]) > 1)
+        .count();
+    eprintln!(
+        "pond: {stirred} of {behind} water pixels where it started stirred, {far} more than 14 m \
+         from its way; {still} channels changed with the clock held"
+    );
+    assert!(behind > 1_000, "where it started is in view: {behind}");
+    assert!(
+        stirred > 2_000 && stirred * 4 > behind,
+        "a wake where it started: {stirred} of {behind}"
+    );
+    assert_eq!(far, 0, "the wake reaches only so far");
+    assert_eq!(still, 0, "a held clock holds the wake still");
 }
 
 /// The lake's bank by a tree, the body standing in the water beside it.
