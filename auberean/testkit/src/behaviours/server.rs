@@ -2680,7 +2680,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.craft.workshop-effect-indoors",
-        says: "Indoors a workshop's effect neither comes nor goes.",
+        says: "Indoors the effect of a workshop standing outdoors neither comes nor goes.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-WORKSHOP-INDOORS"),
         station: "yalain-testkit::cpu::play::workshops::indoors_a_workshops_effect_neither_comes_nor_goes",
@@ -2711,11 +2711,27 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.workshop-indoors-reaches-its-rooms",
+        says: "A workshop standing indoors puts its effect on a player within its reach in its own room or one its doorways join or it sees, none on one behind a wall, and takes it off beyond its reach and outdoors.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WORKSHOP-INDOOR-REACH"),
+        station: "yalain-testkit::cpu::play::workshops::a_workshop_indoors_reaches_players_within_its_reach_in_the_rooms_it_joins",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.workshops-from-their-templates",
         says: "A placed object whose template names an effect for players nearby is a workshop, standing where it was placed.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-WORKSHOP-TEMPLATES"),
         station: "yalain-testkit::cpu::play::workshops::a_placed_object_whose_template_names_an_effect_is_a_workshop",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.workshops-indoors-from-their-templates",
+        says: "A workshop placed in an interior cell reaches as far as its template says, 8 m where it says nothing, in its own landblock alone and no land cell outdoors.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WORKSHOP-INDOOR-TEMPLATES"),
+        station: "yalain-testkit::cpu::play::workshops::a_workshop_placed_indoors_reaches_as_far_as_its_template_says",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -263,3 +263,157 @@ fn a_placed_object_whose_template_names_an_effect_is_a_workshop() {
     );
     assert!(w.reaching((x + 2, y)).is_empty());
 }
+
+/// Three rooms of the workshop's landblock: the workshop's own, with a doorway to the outdoors and
+/// one to the next room; the next room; and a room beside the workshop's, behind a wall, with its
+/// own doorway to the outdoors.
+const ROOM: u32 = 0x5766_0110;
+const NEXT_ROOM: u32 = 0x5766_0111;
+const WALLED_ROOM: u32 = 0x5766_0112;
+const FORGE_AT: [f32; 3] = [50.0, 50.0, 5.0];
+
+/// A player in the world outdoors, a workshop standing in a room of its landblock, reaching 8 m;
+/// its world connection.
+fn near_a_workshop_indoors() -> (Harness, usize, yalain_net::ConnId) {
+    let (mut h, b, world) = near_a_workshop();
+    let mut w = Workshops::default();
+    w.place_indoors(workshops::IndoorWorkshop {
+        id: WORKSHOP,
+        cell: ROOM,
+        origin: FORGE_AT,
+        effect: FORGING,
+        reach: 8.0,
+    });
+    h.server.workshops = w;
+    h.server.ground = Some(Box::new(
+        yalain_testkit::TestGround::default()
+            .with_room(
+                ROOM,
+                &[yalain_world::reported::OUTDOORS, NEXT_ROOM],
+                &[NEXT_ROOM],
+            )
+            .with_room(NEXT_ROOM, &[ROOM], &[ROOM])
+            .with_room(WALLED_ROOM, &[yalain_world::reported::OUTDOORS], &[]),
+    ));
+    (h, b, world)
+}
+
+/// Report the player at a point of a room of the workshop's landblock.
+fn walk_in(h: &mut Harness, b: usize, cell: u32, x: f32, y: f32) {
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &yalain_testkit::play::report(
+            cell,
+            Vec3::new(x, y, FORGE_AT[2]),
+            0,
+            yalain_world::world::IDLE_MOTION,
+            0,
+        ),
+    );
+    h.run(4);
+}
+
+/// A workshop standing indoors puts its effect on a player within its reach in its own room or one
+/// its doorways join, none on one behind a wall, and takes it off beyond its reach and outdoors.
+/// Behaviour: server.craft.workshop-indoors-reaches-its-rooms
+#[test]
+fn a_workshop_indoors_reaches_players_within_its_reach_in_the_rooms_it_joins() {
+    let (mut h, b, world) = near_a_workshop_indoors();
+    walk_in(&mut h, b, WALLED_ROOM, 50.0, 56.0);
+    assert_eq!(h.server.players[&world].position.cell, WALLED_ROOM);
+    assert!(records(&h, world).is_empty(), "6 m off, behind a wall");
+    walk(&mut h, b, 50.0, 50.0, false);
+    assert!(records(&h, world).is_empty(), "outdoors above it");
+    let from = h.bots[b].inbox.len();
+    walk_in(&mut h, b, ROOM, 50.0, 55.0);
+    let r = records(&h, world);
+    assert_eq!(r.len(), 1, "5 m off in its room");
+    assert_eq!(
+        (r[0].caster, r[0].item, r[0].flags, r[0].categories),
+        (WORKSHOP, WORKSHOP, 81, 1)
+    );
+    walk_in(&mut h, b, NEXT_ROOM, 50.0, 57.5);
+    assert_eq!(h.server.players[&world].position.cell, NEXT_ROOM);
+    assert_eq!(records(&h, world).len(), 1, "7.5 m off in the next room");
+    assert_eq!(calls_of(&h, b, from, effects::function::ADD).len(), 1);
+    walk_in(&mut h, b, NEXT_ROOM, 50.0, 58.5);
+    assert!(records(&h, world).is_empty(), "8.5 m off");
+    walk_in(&mut h, b, ROOM, 50.0, 54.0);
+    assert_eq!(records(&h, world).len(), 1, "back within");
+    walk(&mut h, b, 50.0, 54.0, false);
+    assert!(records(&h, world).is_empty(), "outdoors");
+}
+
+/// A placed workshop in an interior cell reaches as far as its template says, 8 m where it says
+/// nothing, in its own landblock alone and no land cell outdoors.
+/// Behaviour: server.craft.workshops-indoors-from-their-templates
+#[test]
+fn a_workshop_placed_indoors_reaches_as_far_as_its_template_says() {
+    let (mut h, _, _) = near_a_workshop();
+    let template = |id: u32, reach: Option<f32>| {
+        let mut props = yalain_content::Props::default();
+        props.set(
+            workshops::EFFECT_PROPERTY,
+            yalain_content::Prop::Word(FORGING),
+        );
+        if let Some(r) = reach {
+            props.set(workshops::REACH_PROPERTY, yalain_content::Prop::Float(r));
+        }
+        yalain_testkit::test_template(id, 0xA21, props)
+    };
+    h.server.catalog.insert(template(0x4700_7003, Some(10.0)));
+    h.server.catalog.insert(template(0x4700_7004, None));
+    let placed = |id: u64, template: u32, origin: [f32; 3]| yalain_content::ContentObject {
+        object: Some(id),
+        template,
+        description: yalain_content::Description {
+            name_text: None,
+            package: 0xA21,
+            look: 0x1F00_0100,
+            enter_fx: 0,
+            scale: None,
+            name: None,
+            numbers: [0; 6],
+            source: "authored for a test".into(),
+        },
+        cell: ROOM,
+        origin,
+        rotation: [1.0, 0.0, 0.0, 0.0],
+        kind: yalain_content::Kind::Static,
+        label: String::new(),
+        placed: String::new(),
+        destination: None,
+        facts: yalain_content::Facts::default(),
+        walks: None,
+        gate: None,
+    };
+    let w = Workshops::of(
+        &[
+            placed(WORKSHOP, 0x4700_7003, FORGE_AT),
+            placed(WORKSHOP + 1, 0x4700_7004, [100.0, 50.0, 5.0]),
+        ],
+        &h.server.catalog,
+    );
+    let at = |cell: u32, x: f32| yalain_store::StoredPosition {
+        cell,
+        origin: [x, 50.0, 5.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let reached = |p: &yalain_store::StoredPosition| -> Vec<(u64, u32, f32)> {
+        w.reaching_indoors(None, p)
+            .iter()
+            .map(|k| (k.id, k.effect, k.reach))
+            .collect()
+    };
+    assert_eq!(reached(&at(ROOM, 59.5)), [(WORKSHOP, FORGING, 10.0)]);
+    assert!(reached(&at(ROOM, 60.5)).is_empty(), "beyond its 10 m");
+    assert_eq!(reached(&at(ROOM, 92.5)), [(WORKSHOP + 1, FORGING, 8.0)]);
+    assert!(reached(&at(ROOM, 91.5)).is_empty(), "beyond 8 m");
+    assert!(
+        reached(&at(0x5767_0110, 50.0)).is_empty(),
+        "another landblock's room"
+    );
+    let land = yalain_world::presence::land_cell(ROOM, FORGE_AT);
+    assert!(w.reaching(land).is_empty(), "no land cell outdoors");
+}

@@ -7,8 +7,15 @@
 //! spellcraft 1, shown in the client's effects panel. A recipe that needs the effect is refused
 //! without it ("You must be near a Crafting Workshop to craft this item.", the recipe's own text).
 //!
-//! Indoors nothing changes: a player who walks into a building keeps what it had, and is looked at
-//! again when it comes out, unless it has gone to another part of the world altogether.
+//! Indoors nothing changes for a workshop standing outdoors: a player who walks into a building
+//! keeps what it had, and is looked at again when it comes out, unless it has gone to another part
+//! of the world altogether.
+//!
+//! **A workshop standing indoors** (in a dungeon's room) reaches only players indoors in its own
+//! landblock: in its own cell or one its cell's doorways join or it sees, and within its template's
+//! reach of it, by straight-line distance ([`REACH_PROPERTY`], else [`INDOOR_REACH`]). Its record
+//! comes on as a player comes within that reach and goes as the player leaves it, or goes outdoors.
+//! No recording shows a workshop indoors: this is the server's own rule.
 
 use std::collections::HashMap;
 
@@ -21,6 +28,14 @@ use crate::{presence, Clock, Server};
 
 /// The property of a template naming the effect its objects put on players nearby.
 pub const EFFECT_PROPERTY: &str = "ForgeEffect";
+
+/// The property of a template naming how far, in meters, its effect reaches: what an indoor
+/// workshop goes by (outdoors, the land cells around decide).
+pub const REACH_PROPERTY: &str = "ForgeEffectRadius";
+
+/// How far an indoor workshop whose template names no reach reaches, in meters: what 13 of the 14
+/// templates with a workshop's effect name.
+pub const INDOOR_REACH: f32 = 8.0;
 
 /// A workshop's record: held until taken off, gone at logout (2017: flags 81 and categories 1 on
 /// all 534 records).
@@ -35,11 +50,24 @@ pub struct Workshop {
     pub effect: u32,
 }
 
-/// The world's workshops, by the land cells each reaches.
+/// A workshop standing indoors: its object, its interior cell and place in the cell's landblock,
+/// the effect it puts on, how far it reaches in meters.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct IndoorWorkshop {
+    pub id: u64,
+    pub cell: u32,
+    pub origin: [f32; 3],
+    pub effect: u32,
+    pub reach: f32,
+}
+
+/// The world's workshops: those outdoors by the land cells each reaches, those indoors by
+/// themselves.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Workshops {
     by_cell: HashMap<(i64, i64), Vec<Workshop>>,
     land_cells: HashMap<u64, (i64, i64)>,
+    indoors: Vec<IndoorWorkshop>,
 }
 
 impl Workshops {
@@ -48,18 +76,28 @@ impl Workshops {
     pub fn of(objects: &[ContentObject], catalog: &Catalog) -> Self {
         let mut w = Self::default();
         for (i, o) in objects.iter().enumerate() {
-            let Some(effect) = catalog
-                .get(o.template)
-                .and_then(|t| t.props.word(EFFECT_PROPERTY))
-                .filter(|e| *e != 0)
-            else {
+            let Some(template) = catalog.get(o.template) else {
                 continue;
             };
-            w.place(
-                presence::content_id(objects, i),
-                presence::land_cell(o.cell, o.origin),
-                effect,
-            );
+            let Some(effect) = template.props.word(EFFECT_PROPERTY).filter(|e| *e != 0) else {
+                continue;
+            };
+            let id = presence::content_id(objects, i);
+            if presence::indoors(o.cell) {
+                w.place_indoors(IndoorWorkshop {
+                    id,
+                    cell: o.cell,
+                    origin: o.origin,
+                    effect,
+                    reach: template
+                        .props
+                        .float(REACH_PROPERTY)
+                        .filter(|r| *r > 0.0)
+                        .unwrap_or(INDOOR_REACH),
+                });
+            } else {
+                w.place(id, presence::land_cell(o.cell, o.origin), effect);
+            }
         }
         w
     }
@@ -82,6 +120,48 @@ impl Workshops {
         }
     }
 
+    /// A workshop stands indoors.
+    pub fn place_indoors(&mut self, workshop: IndoorWorkshop) {
+        self.indoors.push(workshop);
+    }
+
+    /// The indoor workshops reaching a player at a place indoors, with what `ground` knows of the
+    /// rooms (nothing known: any cell of the landblock).
+    #[must_use]
+    pub fn reaching_indoors(
+        &self,
+        ground: Option<&dyn crate::Ground>,
+        at: &yalain_store::StoredPosition,
+    ) -> Vec<IndoorWorkshop> {
+        if !presence::indoors(at.cell) {
+            return Vec::new();
+        }
+        self.indoors
+            .iter()
+            .filter(|w| w.cell >> 16 == at.cell >> 16)
+            .filter(|w| crate::reported::way_in(ground, w.cell, at.cell))
+            .filter(|w| {
+                let there = yalain_store::StoredPosition {
+                    cell: w.cell,
+                    origin: w.origin,
+                    rotation: [1.0, 0.0, 0.0, 0.0],
+                };
+                presence::distance(at, &there).is_some_and(|d| d <= w.reach)
+            })
+            .copied()
+            .collect()
+    }
+
+    /// Is this object one of the world's workshops?
+    fn is_workshop(&self, id: u64) -> bool {
+        self.land_cells.contains_key(&id) || self.is_indoors(id)
+    }
+
+    /// Is this object a workshop standing indoors?
+    fn is_indoors(&self, id: u64) -> bool {
+        self.indoors.iter().any(|w| w.id == id)
+    }
+
     /// The workshops reaching a land cell.
     #[must_use]
     pub fn reaching(&self, land_cell: (i64, i64)) -> &[Workshop] {
@@ -91,7 +171,7 @@ impl Workshops {
     /// Is there no workshop at all?
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.land_cells.is_empty()
+        self.land_cells.is_empty() && self.indoors.is_empty()
     }
 
     /// Is a workshop's record to stay on a player indoors in this land cell's landblock: is the
@@ -118,21 +198,30 @@ pub fn moved<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, cl
     let cell = p.position.cell;
     let land_cell = presence::land_cell(cell, p.position.origin);
     let indoors = presence::indoors(cell);
-    let reaching: Vec<Workshop> = if indoors {
-        Vec::new()
+    let reaching: Vec<(u64, u32)> = if indoors {
+        s.workshops
+            .reaching_indoors(s.ground.as_deref(), &p.position)
+            .iter()
+            .map(|w| (w.id, w.effect))
+            .collect()
     } else {
-        s.workshops.reaching(land_cell).to_vec()
+        s.workshops
+            .reaching(land_cell)
+            .iter()
+            .map(|w| (w.id, w.effect))
+            .collect()
     };
     let gone: Vec<u32> = p
         .play
         .effects
         .iter()
-        .filter(|e| e.flags == RECORD_FLAGS && s.workshops.land_cells.contains_key(&e.caster))
+        .filter(|e| e.flags == RECORD_FLAGS && s.workshops.is_workshop(e.caster))
         .filter(|e| {
-            if indoors {
+            let reached = reaching.iter().any(|(id, _)| *id == e.caster);
+            if indoors && !s.workshops.is_indoors(e.caster) {
                 !s.workshops.in_landblocks_around(e.caster, land_cell)
             } else {
-                !reaching.iter().any(|w| w.id == e.caster)
+                !reached
             }
         })
         .map(|e| e.eid)
@@ -147,11 +236,11 @@ pub fn moved<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, cl
     for eid in gone {
         effects::remove(s, net, world, eid);
     }
-    for w in reaching {
-        if held.contains(&w.id) {
+    for (id, effect) in reaching {
+        if held.contains(&id) {
             continue;
         }
-        let Some(def) = s.effect_table.get(w.effect).cloned() else {
+        let Some(def) = s.effect_table.get(effect).cloned() else {
             continue;
         };
         effects::add_quietly(
@@ -160,9 +249,9 @@ pub fn moved<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, cl
             On::Player(world),
             &def,
             Cast {
-                caster: w.id,
+                caster: id,
                 spellcraft: 1.0,
-                item: w.id,
+                item: id,
                 ..Cast::default()
             },
             Shape {
