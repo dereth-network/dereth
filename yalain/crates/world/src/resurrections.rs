@@ -187,9 +187,11 @@ pub fn rises<S: Store>(
     crate::world::keep_player(s, world);
 }
 
-/// A raised player may move, unless it has died again by now.
+/// A raised player may move: the freeze its death put on is lifted, even if it has died again by
+/// now, so that each freeze it was given is lifted once (a new death freezes it again as its corpse
+/// is made).
 pub fn raised_moves<S: Store>(s: &Server<S>, net: &mut ServerNet, world: ConnId) {
-    if s.players.get(&world).is_some_and(|p| p.dying.is_none()) {
+    if s.players.contains_key(&world) {
         progress::private(net, world, &session::movement_frozen(false));
     }
 }

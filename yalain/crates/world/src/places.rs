@@ -2199,7 +2199,9 @@ fn recalled_to<S: Store>(s: &Server<S>, u: &Use) -> bool {
 
 /// Where a dead player returns: the lifestone it is bound to; never bound, beside the nearest
 /// lifestone the world has in its landblock or one beside it (authored: 2017 shows no unbound
-/// death); else where it fell.
+/// death), on the ground there, not at the height it fell from; else where it fell. Outdoors the
+/// ground is the land's height where it lands, inside the lifestone's own (2017: 136 of 137 returns
+/// were placed at the height their client then stood at).
 #[must_use]
 pub fn resurrection_place<S: Store>(s: &Server<S>, world: ConnId) -> StoredPosition {
     let Some(p) = s.players.get(&world) else {
@@ -2228,7 +2230,14 @@ pub fn resurrection_place_of<S: Store>(
         .filter(|o| is_lifestone(s, o.description.package))
         .filter_map(|o| reach(&fell, o.cell, o.origin).map(|d| (d, o)))
         .min_by(|a, b| a.0.total_cmp(&b.0))
-        .map_or(fell, |(_, o)| beside(o.cell, o.origin, &fell))
+        .map_or(fell, |(_, o)| {
+            let mut at = beside(o.cell, o.origin, &fell);
+            at.origin[2] = (!presence::indoors(at.cell))
+                .then(|| s.ground.as_ref()?.height(at.cell, at.origin))
+                .flatten()
+                .unwrap_or(o.origin[2]);
+            at
+        })
 }
 
 /// A dead player goes through portal space to where it returns (its effects, frozen, portal

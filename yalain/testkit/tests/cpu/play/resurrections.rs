@@ -303,6 +303,51 @@ fn a_player_taking_an_offer_up_gets_up_where_it_fell_holding_what_it_held() {
         .any(|(f, v)| *f == MOVEMENT_FROZEN && matches!(v.first(), Some(Value::Int(0)))));
 }
 
+/// A raised player that dies again before it may move is still freed of its first death's freeze,
+/// as its client counts each freeze until it is lifted: its second death freezes it again only as
+/// its corpse is made.
+/// Behaviour: server.resurrection.rises-where-it-fell
+#[test]
+fn a_raised_player_dying_again_at_once_is_still_freed_of_its_first_deaths_freeze() {
+    let mut h = Harness::new();
+    with_raising(&mut h);
+    let (a, _) = caster(&mut h, "one", "Elara");
+    let (b, dead) = in_world(&mut h, "two", "Babyfare");
+    let from = h.bots[b].inbox.len();
+    let corpse = killed(&mut h, dead);
+    raise(&mut h, a, corpse);
+    ask(&mut h, b, RESURRECT);
+    assert!(player(&mut h, dead).dying.is_none(), "up");
+    let world = h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == dead)
+        .map(|(c, _)| *c)
+        .expect("in the world");
+    let clock = h.clock();
+    yalain_world::death::player_dies(&mut h.server, &mut h.net, world, None, clock);
+    let freezes = |h: &Harness| -> Vec<bool> {
+        h.calls(b, from)
+            .into_iter()
+            .filter(|(f, _)| *f == MOVEMENT_FROZEN)
+            .map(|(_, v)| v.first() != Some(&Value::Int(0)))
+            .collect()
+    };
+    wait(&mut h, 3.0);
+    assert_eq!(
+        freezes(&h),
+        vec![true, false],
+        "the first death's freeze lifted"
+    );
+    wait(&mut h, 8.0);
+    assert_eq!(
+        freezes(&h),
+        vec![true, false, true],
+        "the second death's made as its corpse is"
+    );
+}
+
 /// An offer turned down is gone: the player stays dead, and its own request takes it to its lifestone
 /// as ever, not up where it fell.
 /// Behaviour: server.resurrection.turned-down

@@ -783,6 +783,74 @@ fn a_character_never_bound_comes_back_where_it_fell_with_no_lifestone_near() {
     assert!(yalain_world::quals::int(&p.qualities, HEALTH).unwrap_or(0) > 0);
 }
 
+/// A lifestone of the world's, with the plain lifestone package, at a place.
+fn stone_at(cell: u32, origin: [f32; 3]) -> yalain_content::ContentObject {
+    yalain_content::ContentObject {
+        object: Some(0x4002_9900_0000_0057),
+        template: 0x4700_113A,
+        description: yalain_content::Description {
+            name_text: None,
+            package: 0x1A00,
+            look: 0x1F00_0ED5,
+            enter_fx: 0,
+            scale: None,
+            name: None,
+            numbers: [0; 6],
+            source: "authored for a test".into(),
+        },
+        cell,
+        origin,
+        rotation: [1.0, 0.0, 0.0, 0.0],
+        kind: yalain_content::Kind::Static,
+        label: String::new(),
+        placed: "authored for a test".into(),
+        destination: None,
+        facts: yalain_content::Facts::default(),
+        walks: None,
+        gate: None,
+    }
+}
+
+/// A player never bound comes back beside the nearest lifestone on the ground there, not at the
+/// height it fell from: outdoors at the land's height where it lands, even from a landblock beside
+/// it on a hill; inside at the lifestone's own height.
+/// Behaviour: server.death.unbound-return-on-the-ground
+#[test]
+fn a_player_never_bound_comes_back_on_the_ground_beside_the_nearest_lifestone() {
+    let mut h = Harness::new();
+    h.server.lifestone_packages.insert(0x1A00);
+    // The ground rises a meter for every five east.
+    h.server.ground = Some(Box::new(yalain_testkit::Slope));
+    let outside = stone_at(0x3C73_0017, [57.63, 120.51, 145.22]);
+    h.server.content.objects = vec![outside];
+    let fell = yalain_store::StoredPosition {
+        cell: 0x3B74_0006,
+        origin: [19.29, 116.45, 154.43],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let at = yalain_world::places::resurrection_place_of(&h.server, &[], fell);
+    assert_eq!(at.cell, 0x3C73_0017, "beside the lifestone");
+    assert!(
+        (at.origin[2] - at.origin[0] * 0.2).abs() < 1e-4,
+        "on the land where it lands: {:?}",
+        at.origin
+    );
+
+    let inside = stone_at(0x0299_0109, [60.0, 241.0, -44.6]);
+    h.server.content.objects = vec![inside];
+    let fell = yalain_store::StoredPosition {
+        cell: 0x0299_0109,
+        origin: [50.0, 241.0, -30.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let at = yalain_world::places::resurrection_place_of(&h.server, &[], fell);
+    assert!(
+        (at.origin[2] - -44.6).abs() < 1e-4,
+        "inside, at the lifestone's height: {:?}",
+        at.origin
+    );
+}
+
 /// A character alive at its entry is not brought back: nothing of a return is sent.
 /// Behaviour: server.death.back-at-entry
 #[test]

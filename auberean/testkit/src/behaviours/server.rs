@@ -3928,6 +3928,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.death.unbound-return-on-the-ground",
+        says: "A player never bound comes back beside the nearest lifestone on the ground there, \
+               not at the height it fell from: outdoors at the land's height, inside at the \
+               lifestone's own.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-UNBOUND-RETURN-ON-THE-GROUND"),
+        station: "yalain-testkit::cpu::play::dying::a_player_never_bound_comes_back_on_the_ground_beside_the_nearest_lifestone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.death.unfair-part-held-back",
         says: "The part of a kill of a damager the creature could not reach is held back alone, \
                and the player it was for (the damager, or its pet's owner) told once \"You receive \
