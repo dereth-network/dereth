@@ -7,9 +7,10 @@
 //! to vitals heals or hurts at once (health: the one changed tells it as a story, then its health;
 //! vigor: its vigor alone); a quest moved on (or failed), a recipe learned or forgotten happen at
 //! once; a teleport is no record, its player sent to its place when its time is up; a
-//! combination looks at the target's effects and adds what it adds; any other effect that lasts
-//! is added as a record. A player's ids count on from the last one it was given, across its
-//! sessions.
+//! combination looks at the target's effects and adds what it adds; a chain of other effects puts
+//! each on at once, in its order, as each does itself (its own appearance, if it names one, played
+//! first); any other effect that lasts is added as a record. A player's ids count on from the last
+//! one it was given, across its sessions.
 //!
 //! **A record** stays on its own clock: a new one never replaces or refreshes an older one, each
 //! running out at its cast time plus its timeout, when its client is told it is gone, up to the
@@ -923,6 +924,16 @@ pub fn apply_on<S: Store>(
             combine(s, net, on, &def, c, cast, clock);
             true
         }
+        (Kind::Instants(_), _) => {
+            if def.fx != 0 {
+                show_fx_on(s, net, on, def.fx);
+            }
+            let mut did = false;
+            for each in chained(&s.effect_table, state) {
+                did |= apply_on(s, net, on, each, cast, clock);
+            }
+            did
+        }
         (
             Kind::Other
             | Kind::Immunity { .. }
@@ -937,6 +948,31 @@ pub fn apply_on<S: Store>(
             true
         }
     }
+}
+
+/// The effects a chain of them puts on, in its order: a chain held in it by its own (each chain
+/// once, so a chain that holds itself ends).
+#[must_use]
+pub fn chained(table: &EffectTable, state: u32) -> Vec<u32> {
+    fn walk(table: &EffectTable, state: u32, seen: &mut Vec<u32>, out: &mut Vec<u32>) {
+        if seen.contains(&state) {
+            return;
+        }
+        seen.push(state);
+        let Some(Kind::Instants(list)) = table.get(state).map(|d| &d.kind) else {
+            return;
+        };
+        for &each in list {
+            if matches!(table.get(each).map(|d| &d.kind), Some(Kind::Instants(_))) {
+                walk(table, each, seen, out);
+            } else {
+                out.push(each);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(table, state, &mut Vec::new(), &mut out);
+    out
 }
 
 /// Does a ward its target holds keep this effect off (one of its classes, or one of the effects it
@@ -2539,6 +2575,7 @@ pub fn toggled_on<S: Store>(
             | Kind::Recall(_)
             | Kind::Resurrect { .. }
             | Kind::Combo(_)
+            | Kind::Instants(_)
     );
     if !record || warded(s, On::Player(world), &def) {
         return None;

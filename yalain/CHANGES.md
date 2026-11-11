@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Item, quest and crafting effects that chain others now put each of them on.
 - Bosses' corpses now hold their own quest items.
 - Quest steps can now wait for a hidden timer to run out.
 - Workshops inside dungeons now work for players standing near them.

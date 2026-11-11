@@ -8,24 +8,25 @@
 //!
 //! **Kinds**, by the package an effect derives from: an instant change to vitals (health, vigor or
 //! focus, by its flags); a change to vitals every second it runs; a change to qualities (added to
-//! them, or multiplying them, by its flags); a chain of such changes; a quest moved on; a recipe
-//! learned or forgotten; a combination that adds one effect or another as the target has an
-//! effect of some type or not; an aura, held by its user, that puts its pulsed effects on the
-//! players around it every so often; a pet summoned, of a class, for a lifetime or for good; a
-//! teleport, which sends its target to its place when its time is up; a recall, which is its
-//! skill's ([`crate::skill_use`]): to a place its user keeps (a link), to one of a list of named
-//! places, or to its allegiance's hall; a taunt, which changes a creature's mind about its caster
-//! once ([`crate::ai`]), by the low end of the range its data gives over spellcraft; a resurrection,
-//! which offers a dead player a return ([`crate::resurrections`]). Where a world's rules say what an
-//! effect does that its own data doesn't, the rule's kind: among them a skill trained for good
-//! ([`crate::skills::trained_for_good`]).
+//! them, or multiplying them, by its flags); a chain of such changes; a chain of other effects,
+//! each put on at once in its turn as it does itself (one an item's use, a quest or a recipe puts
+//! on); a quest moved on; a recipe learned or forgotten; a combination that adds one effect or
+//! another as the target has an effect of some type or not; an aura, held by its user, that puts
+//! its pulsed effects on the players around it every so often; a pet summoned, of a class, for a
+//! lifetime or for good; a teleport, which sends its target to its place when its time is up; a
+//! recall, which is its skill's ([`crate::skill_use`]): to a place its user keeps (a link), to one
+//! of a list of named places, or to its allegiance's hall; a taunt, which changes a creature's mind
+//! about its caster once ([`crate::ai`]), by the low end of the range its data gives over
+//! spellcraft; a resurrection, which offers a dead player a return ([`crate::resurrections`]).
+//! Where a world's rules say what an effect does that its own data doesn't, the rule's kind: among
+//! them a skill trained for good ([`crate::skills::trained_for_good`]).
 //!
 //! **A combination** looks for the target's effects of its types (or classes): found, it adds its
 //! effect for that case at the cast's spellcraft adjusted by its own amount, gives its user the
 //! effect it gives back, and takes off the oldest of the effects found or all of them, as its
 //! flags say; not found, the other effect and adjustment.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use auberean_script::graph::{Graph, PackedObject};
 use auberean_script::library::Library;
@@ -269,6 +270,8 @@ pub enum Kind {
     },
     /// Several changes to qualities at once.
     Chained(Vec<EffectDef>),
+    /// Other effects, by their saved states, each put on at once in this order, as it does itself.
+    Instants(Vec<u32>),
     /// A weapon's: its hits harm creatures of these superclasses by its spellcraft times the number
     /// with each.
     Slayer(Vec<(u32, f32)>),
@@ -382,6 +385,7 @@ impl EffectDef {
                     | Kind::VitaeRestore(_)
                     | Kind::Reset(_)
                     | Kind::GrantSkill(_)
+                    | Kind::Instants(_)
             )
     }
 
@@ -401,6 +405,7 @@ impl EffectDef {
             Kind::Aura(a) => a.pulsed.clone(),
             Kind::Counter { effect, .. } | Kind::Reply { effect, .. } => vec![*effect],
             Kind::Immunity { then } => vec![*then],
+            Kind::Instants(list) => list.clone(),
             _ => Vec::new(),
         }
     }
@@ -715,6 +720,8 @@ impl EffectDef {
                 });
             }
             Kind::Chained(held)
+        } else if is("ChainedInstantEffect") {
+            Kind::Instants(nav.states(o, "m_listEffect").unwrap_or_default())
         } else if is("SlayerEffect") {
             let classes = nav
                 .field(o, "m_SlayerHash")
@@ -843,6 +850,24 @@ impl EffectDef {
     }
 }
 
+/// The effects whose chains a start keeps ([`EffectTable::keep_chains_of`]): what items' uses (the
+/// install's and the world's rows'), quests and recipes' outcomes put on.
+#[must_use]
+pub fn chain_roots(
+    uses: &crate::item_use::ItemUses,
+    rows: &yalain_content::item_rows::ItemRows,
+    quests: &yalain_content::quests::QuestTable,
+    craft: &crate::craft::Crafting,
+) -> Vec<u32> {
+    uses.values()
+        .flatten()
+        .map(|e| e.state)
+        .chain(rows.states())
+        .chain(quests.effect_states())
+        .chain(craft.outcome_effects())
+        .collect()
+}
+
 /// The effects the world puts on players, by saved state.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EffectTable {
@@ -917,6 +942,28 @@ impl EffectTable {
     #[must_use]
     pub fn get(&self, state: u32) -> Option<&EffectDef> {
         self.effects.get(&state)
+    }
+
+    /// Keep the chains of other effects that these effects are or lead to (what they add in turn,
+    /// the chains they hold); every other chain reads as an effect that does nothing. A start keeps
+    /// those items' uses, quests and recipes' outcomes put on: the finishing chains skills'
+    /// combinations add stay as they were, since no recording shows one applying.
+    pub fn keep_chains_of(&mut self, roots: impl IntoIterator<Item = u32>) {
+        let mut kept = HashSet::new();
+        let mut todo: Vec<u32> = roots.into_iter().collect();
+        while let Some(s) = todo.pop() {
+            if !kept.insert(s) {
+                continue;
+            }
+            if let Some(d) = self.effects.get(&s) {
+                todo.extend(d.adds());
+            }
+        }
+        for (s, d) in &mut self.effects {
+            if matches!(d.kind, Kind::Instants(_)) && !kept.contains(s) {
+                d.kind = Kind::Other;
+            }
+        }
     }
 
     /// Each named effect's line, where `holds(string, table)` says the table of its name holds the

@@ -11,6 +11,7 @@ mod barrels_and_turrets;
 mod binding;
 mod books;
 mod butchery;
+mod chained_effects;
 mod chests;
 mod combinations;
 mod concealing;

@@ -1999,18 +1999,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
                 (b.profile, yields)
             })
             .collect();
-        let actions: Vec<yalain_world::craft::Action> = craft
-            .recipes
-            .values()
-            .flat_map(|r| r.checks.iter())
-            .flat_map(|c| c.outcomes.iter())
-            .flat_map(|o| o.actions.iter().cloned())
-            .collect();
-        states.extend(actions.iter().filter_map(|a| match a {
-            yalain_world::craft::Action::Effect { state, .. }
-            | yalain_world::craft::Action::ItemEffect { state, .. } => Some(*state),
-            _ => None,
-        }));
+        states.extend(craft.outcome_effects());
         let effects = data::effect_table(portal, &states, &effect_rules)?;
         tracing::info!(
             effects = effects.effects.len(),
@@ -2134,7 +2123,12 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         // What treasure weapons, armor and shields carry and put on what they hit.
         states.extend(treasure_tables.states());
         mounts.note_items(&item_uses);
-        let effects = data::effect_table(portal, &states, &effect_rules)?;
+        let mut effects = data::effect_table(portal, &states, &effect_rules)?;
+        // The chains of other effects that items' uses, quests and recipes' outcomes put on do what
+        // they hold; the finishing chains of skills' combinations stay as they were.
+        effects.keep_chains_of(yalain_world::effect_defs::chain_roots(
+            &item_uses, &item_rows, &quests, &craft,
+        ));
         tracing::info!(
             templates = item_uses.len(),
             effects = effects.effects.len(),
@@ -2701,6 +2695,25 @@ mod real_start_tests {
         h.run(5);
         let world = *h.server.players.keys().next().expect("in the world");
         (h, b, me, world)
+    }
+
+    /// As a start reads them, the chains of other effects quests put on are kept (an order's chain of
+    /// the Burun war), and the finishing chains skills' combinations add read as effects that do
+    /// nothing (Unravel Magic's).
+    /// Behaviour: server.effects.a-chain-puts-on-each-of-its-effects
+    #[test]
+    fn a_start_keeps_the_chains_quests_put_on_and_not_the_combinations_finishers() {
+        use yalain_world::effect_defs::Kind;
+        let (h, _, _, _) = started();
+        let t = &h.server.effect_table;
+        assert!(
+            matches!(t.get(0x6F00_0DEE).map(|d| &d.kind), Some(Kind::Instants(_))),
+            "a quest's chain"
+        );
+        assert!(
+            matches!(t.get(0x6F00_10D8).map(|d| &d.kind), Some(Kind::Other)),
+            "a combination's finisher"
+        );
     }
 
     /// Step up to the placed object of a template: its id.

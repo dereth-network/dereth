@@ -3984,6 +3984,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.effects.a-chain-puts-on-each-of-its-effects",
+        says: "A chain of other effects that an item's use, a quest or a recipe's outcome leads to puts each on at once, in its order, as each does itself, a chain held in it in its place and each chain once; its own appearance plays; a chain of effects the server doesn't know, or one only a skill's combination adds, does nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHAIN-PUTS-ON"),
+        station: "yalain-testkit::cpu::play::chained_effects::a_chain_of_effects_puts_each_on_in_its_order_and_plays_its_appearance",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.a-chain-reads-as-its-data-says",
+        says: "A chain of other effects reads as the data defines it: its effects in its order, each read with it; a start keeps those a recipe's outcome puts on, and reads a skill combination's finisher as nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHAIN-READ"),
+        station: "yalain-testkit::dat::effects::a_chain_of_effects_reads_its_effects_in_order_and_they_read_with_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.effects.a-quiet-rows-effects-tell-no-line",
         says: "A step or a give whose row keeps its effects quiet grants what they grant (a recipe, \
                a skill) and tells none of their own lines; its own text is still told. A row that \

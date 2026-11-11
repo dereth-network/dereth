@@ -567,6 +567,21 @@ pub struct Crafting {
 }
 
 impl Crafting {
+    /// The effects its recipes' outcomes put on, on their makers or their products.
+    #[must_use]
+    pub fn outcome_effects(&self) -> Vec<u32> {
+        self.recipes
+            .values()
+            .flat_map(|r| r.checks.iter())
+            .flat_map(|c| c.outcomes.iter())
+            .flat_map(|o| o.actions.iter())
+            .filter_map(|a| match a {
+                Action::Effect { state, .. } | Action::ItemEffect { state, .. } => Some(*state),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// The recipes and craft skills of these saved states (a state that does not read is left
     /// out; a recipe's craft skill is read with it).
     #[must_use]

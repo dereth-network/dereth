@@ -679,6 +679,64 @@ fn the_effects_of_items_uses_read_from_their_names() {
     );
 }
 
+/// A chain of other effects reads as the data defines it: the chain of the Atlan weapon recipes holds
+/// sixteen grants, in its order, each read with it as the recipe it teaches.
+/// Behaviour: server.effects.a-chain-reads-as-its-data-says
+#[test]
+fn a_chain_of_effects_reads_its_effects_in_order_and_they_read_with_it() {
+    let p = Portal::open();
+    let t = p.effects(&[0x6F00_1CAC]);
+    let Kind::Instants(list) = &t.get(0x6F00_1CAC).expect("the chain").kind else {
+        panic!("a chain of other effects")
+    };
+    let grants: Vec<u32> = (0..16).map(|i| 0x6F00_1CAD + 2 * i).collect();
+    assert_eq!(*list, grants);
+    let recipes: Vec<u32> = grants
+        .iter()
+        .map(|g| match t.get(*g).map(|d| &d.kind) {
+            Some(Kind::GrantRecipe(r)) => *r,
+            other => panic!("{g:08X}: {other:?}"),
+        })
+        .collect();
+    assert_eq!(recipes[0], 0x6F00_1CAE, "the first weapon's recipe");
+    assert_eq!(recipes.len(), 16);
+}
+
+/// The chains a start keeps, read from the data: the Atlan weapon recipe's outcome puts on the chain
+/// that takes the weapons' recipes away and the one teaching the imbues, and both stay chains; the
+/// finishing chain a skill's combination adds (Unravel Magic's) reads as nothing.
+/// Behaviour: server.effects.a-chain-reads-as-its-data-says
+#[test]
+fn a_recipes_outcome_chains_are_kept_and_a_combinations_finisher_is_not() {
+    use yalain_world::effect_defs::chain_roots;
+    let p = Portal::open();
+    let craft = p.crafting(&[], &[0x6F00_1CAE]);
+    let crafted = craft.outcome_effects();
+    for chain in [0x6F00_1CCE, 0x6F00_1CDF] {
+        assert!(
+            crafted.contains(&chain),
+            "{chain:08X} among the outcome's effects"
+        );
+    }
+    let mut t = p.effects(&[0x6F00_1CCE, 0x6F00_1CDF, 0x6F00_10D8]);
+    t.keep_chains_of(chain_roots(
+        &yalain_world::item_use::ItemUses::new(),
+        &yalain_content::item_rows::ItemRows::default(),
+        &yalain_content::quests::QuestTable::default(),
+        &craft,
+    ));
+    for chain in [0x6F00_1CCE, 0x6F00_1CDF] {
+        assert!(
+            matches!(t.get(chain).map(|d| &d.kind), Some(Kind::Instants(_))),
+            "{chain:08X} kept"
+        );
+    }
+    assert!(matches!(
+        t.get(0x6F00_10D8).map(|d| &d.kind),
+        Some(Kind::Other)
+    ));
+}
+
 /// The effects that give a player its regeneration rates read as the data defines them: Robustify
 /// at a rating of 50 adds 0.08 to the combat health rate and doubles the peace health rate; a
 /// crafted item's bonus adds 0.08 to the combat health rate; a life-regeneration jewel adds 0.07 to it and
