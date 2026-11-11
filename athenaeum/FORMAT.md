@@ -359,6 +359,7 @@ What moves a quest on, in its quest's file.
 | `least_level`, `most_level` | | the levels it runs for |
 | `gives`, `counts` | | templates it gives, and how many of each in order (1 when left out) |
 | `effects`, `text`, `effects_last` | | the effects it puts on the player, by their saved states; a text shown after them; `effects_last = true` tells the quest's update before them |
+| `effects_quiet` | | true: its effects tell none of their own lines (a recipe or a skill they grant is granted in silence); its `text` is still told. Only with `effects` |
 | `requires` | | other quests it needs (`{ quest, phase }`, `{ quest, done = true }`, `{ quest, free = true }`), an event that must be on (`{ event = "key" }`), acts that must be whole (`{ act = A }`: seven of the act's scenes held, its hidden ones aside; a scene of the act must be served) and one kingdom (`{ kingdom = "order" }`: `neutral`, `shadow`, `order` or `dominion`) |
 | `takes` | | templates of items taken from the player's pack, which the player must hold |
 | `to` | | a place it takes the player to, through portal space |
@@ -395,6 +396,7 @@ template given to.
 | `wants` | | exactly how many of it: any other count is refused, the stack handed back |
 | `gives`, `counts` | | what it gives in its place, from the person, and how many of each |
 | `effects`, `text` | | what it puts on the player, cast by the person, and a text after them |
+| `effects_quiet` | | true: its effects tell none of their own lines; its `text` is still told. Only with `effects` |
 | `fx` | | what the person or the object plays as it takes the item |
 | `requires` | | as a step's; not met, the item is refused |
 | `prov` | required | where it came from |

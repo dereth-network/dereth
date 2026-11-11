@@ -3005,6 +3005,78 @@ fn a_give_moving_no_quest_compiles_and_reads_back_as_written() {
     );
 }
 
+/// A step's or a give's `effects_quiet` is read, compiled and kept through the quest table's text;
+/// a world that says nothing keeps every row's effects telling their lines, and a row with no
+/// effects to keep quiet is a problem.
+/// Behaviour: server.effects.a-quiet-rows-effects-tell-no-line
+#[test]
+fn a_steps_or_a_gives_quiet_effects_are_read_compiled_and_need_effects() {
+    let plain = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert!(
+        plain.quests.steps.iter().all(|s| !s.effects_quiet),
+        "a world that says nothing: no step quiet"
+    );
+    let use_ = yalain_content::quests::Trigger::Use(0x4700_33D0);
+    let step = |extra: &str| {
+        let mut files = fixture();
+        edit(
+            &mut files,
+            "town/server/quests/40000088.toml",
+            "needs = 0\ntrigger = { use = 0x470033D0 }\n",
+            &format!("needs = 0\ntrigger = {{ use = 0x470033D0 }}\n{extra}"),
+        );
+        files
+    };
+    let files = step("effects = [0x6F0019F0]\neffects_quiet = true\n");
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let quiet = t
+        .quests
+        .steps
+        .iter()
+        .find(|s| s.trigger == use_)
+        .map(|s| s.effects_quiet);
+    assert_eq!(quiet, Some(true));
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+        t.quests,
+        "it reads back as written"
+    );
+
+    let mut files = fixture();
+    files.insert(
+        "town/server/gives/470033D0.toml".into(),
+        GIVE_ROW.replace("fx = ", "effects_quiet = true\nfx = "),
+    );
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert!(t.quests.gives[0].effects_quiet);
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+        t.quests,
+        "it reads back as written"
+    );
+    let mut files = fixture();
+    files.insert("town/server/gives/470033D0.toml".into(), GIVE_ROW.into());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert!(!t.quests.gives[0].effects_quiet, "a give that says nothing");
+
+    let quiet_problem = |files: &Files| {
+        check(files)
+            .iter()
+            .map(ToString::to_string)
+            .any(|m| m.contains("effects_quiet") && m.contains("only a row with effects"))
+    };
+    assert!(quiet_problem(&step("effects_quiet = true\n")), "a step");
+    let mut files = fixture();
+    files.insert(
+        "town/server/gives/470033D0.toml".into(),
+        GIVE_ROW.replace("effects = [0x6F0019F0]\n", "effects_quiet = true\n"),
+    );
+    assert!(quiet_problem(&files), "a give");
+    assert!(read(&step("effects = [0x6F0019F0]\neffects_quiet = 1\n")).is_err());
+}
+
 /// Behaviour: server.gives.row-wants-a-count
 #[test]
 fn a_give_moving_no_quest_is_checked_for_what_it_wants_and_names() {

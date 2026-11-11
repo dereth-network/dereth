@@ -76,6 +76,7 @@ fn a_give_rows_gift_and_a_death_spawn_are_named_with_the_other_rows() {
             counts: Vec::new(),
             effects: Vec::new(),
             text: None,
+            effects_quiet: false,
             fx: None,
             requires: Vec::new(),
             placed: "authored for a test".into(),

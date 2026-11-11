@@ -246,11 +246,15 @@ pub mod learned {
 
 /// The line a recipe granted by an effect tells: its own table's, for an effect with a name that
 /// someone gave (2017: each of the 46 such lines named who gave it), and none where its table holds
-/// none (15 of 15 such grants told nothing).
+/// none (15 of 15 such grants told nothing) or where it is cast quiet.
 #[must_use]
 pub fn recipe_line(table: &EffectTable, state: u32, cast: Cast) -> Option<(u32, u32)> {
     let def = table.get(state)?;
-    if !matches!(def.kind, Kind::GrantRecipe(_)) || def.name.is_none() || cast.giver.is_none() {
+    if !matches!(def.kind, Kind::GrantRecipe(_))
+        || def.name.is_none()
+        || cast.giver.is_none()
+        || cast.quiet
+    {
         return None;
     }
     table.line(state)
@@ -407,7 +411,8 @@ pub fn next_eid(p: &mut crate::world::Player) -> u32 {
 }
 
 /// How an effect is cast: by whom, at what spellcraft, as a fight's effect or not, from which
-/// skill and item, and who gave it (its id and name, for the texts that name the giver).
+/// skill and item, who gave it (its id and name, for the texts that name the giver), and whether
+/// it tells its own line.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Cast {
     pub caster: u64,
@@ -419,6 +424,9 @@ pub struct Cast {
     /// It answers another effect, and so is not answered in turn: two holders can't go back and
     /// forth.
     pub answers: bool,
+    /// It tells no line of its own: a recipe or a skill it grants is granted in silence (a step's
+    /// or a give's `effects_quiet`).
+    pub quiet: bool,
 }
 
 /// The class priority of a record.
@@ -877,14 +885,15 @@ pub fn apply_on<S: Store>(
             true
         }
         // A skill trained is told as 2017's were: the repository and the skill, then the effect's
-        // own line of its table naming the effect and who gave it (none if its table holds none),
-        // then its appearance. A player who holds the skill already gains nothing and is told
-        // nothing.
+        // own line of its table naming the effect and who gave it (none if its table holds none,
+        // or if it is cast quiet), then its appearance. A player who holds the skill already gains
+        // nothing and is told nothing.
         (Kind::GrantSkill(skill), On::Player(world)) => {
             if !crate::skills::trained_for_good(s, net, world, *skill) {
                 return false;
             }
-            if let (Some(name), Some(line)) = (def.name, s.effect_table.line(state)) {
+            let line = s.effect_table.line(state).filter(|_| !cast.quiet);
+            if let (Some(name), Some(line)) = (def.name, line) {
                 let giver = cast.giver.and_then(|(_, g)| g);
                 progress::private(net, world, &applied(line, name, giver));
             }
@@ -1936,6 +1945,7 @@ fn immunity_ended<S: Store>(
         item: ended.item,
         giver: None,
         answers: true,
+        quiet: false,
     };
     add_on(s, net, on, &def, cast, Shape::TIMED, clock);
 }

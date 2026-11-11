@@ -906,6 +906,7 @@ pub fn quest_mine_done<S: Store>(
             to: None,
             races: Vec::new(),
             effects_last: false,
+            effects_quiet: false,
             wants: None,
             fellows: false,
             levels: None,

@@ -417,6 +417,7 @@ fn takes<S: Store>(
             caster: speaker.id,
             spellcraft: 1.0,
             giver: Some((speaker.id, speaker.name)),
+            quiet: row.effects_quiet,
             ..crate::effects::Cast::default()
         };
         told.extend(crate::effects::recipe_line(&s.effect_table, *e, cast));

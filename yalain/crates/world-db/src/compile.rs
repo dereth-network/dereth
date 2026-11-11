@@ -1066,6 +1066,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     takes: s.takes.clone(),
                     races: s.races.clone(),
                     effects_last: s.effects_last,
+                    effects_quiet: s.effects_quiet,
                     fellows: s.fellows,
                     wants: s.wants,
                     levels: (s.least_level.is_some() || s.most_level.is_some())
@@ -1094,6 +1095,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     counts: g.counts.clone(),
                     effects: g.effects.clone(),
                     text: g.text.map(|r| (r.string, r.table)),
+                    effects_quiet: g.effects_quiet,
                     fx: g.fx,
                     requires: g
                         .requires

@@ -1490,8 +1490,8 @@ fn for_fellows<S: Store>(
 }
 
 /// A step's effects on the player (a reward, a recipe learned), cast by the player itself, then
-/// what they say (a text one of them told already is not told again); a step that transforms its
-/// player makes it a hero first.
+/// what they say (a text one of them told already is not told again; none of their own lines for a
+/// step whose effects are quiet); a step that transforms its player makes it a hero first.
 fn step_effects<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1510,6 +1510,7 @@ fn step_effects<S: Store>(
             caster: me,
             spellcraft: 1.0,
             giver: who,
+            quiet: step.effects_quiet,
             ..crate::effects::Cast::default()
         };
         told.extend(crate::effects::recipe_line(&s.effect_table, *e, cast));

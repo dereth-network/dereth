@@ -105,6 +105,7 @@ fn step(quest: u32, needs: u32, trigger: Trigger, update: Update) -> Step {
         takes: Vec::new(),
         races: Vec::new(),
         effects_last: false,
+        effects_quiet: false,
         wants: None,
         fellows: false,
         levels: None,

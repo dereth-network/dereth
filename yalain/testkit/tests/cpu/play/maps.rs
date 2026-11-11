@@ -443,6 +443,7 @@ fn a_map_found_at_its_place_moves_on_the_quest_it_is_part_of() {
         to: None,
         races: Vec::new(),
         effects_last: false,
+        effects_quiet: false,
         wants: None,
         fellows: false,
         levels: None,

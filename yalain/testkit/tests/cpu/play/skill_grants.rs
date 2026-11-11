@@ -123,6 +123,7 @@ fn grant_step() -> Step {
         takes: Vec::new(),
         races: Vec::new(),
         effects_last: false,
+        effects_quiet: false,
         wants: None,
         fellows: false,
         levels: None,
@@ -496,6 +497,31 @@ fn an_effect_that_trains_a_skill_with_no_line_of_its_table_tells_none() {
         clock,
     ));
     h.run(5);
+    assert_eq!(
+        held_skill(&h, me),
+        Some((1, mask::TRAINED | mask::CANNOT_RAISE, 0))
+    );
+    assert_eq!(
+        grant_order(&h, b, from),
+        (vec!["repository", "skill"], true),
+        "no line"
+    );
+}
+
+/// A step whose effects are kept quiet trains the skill and tells no line, though the effect's
+/// table holds one; the skill and its appearance are told as ever.
+/// Behaviour: server.effects.a-quiet-rows-effects-tell-no-line
+#[test]
+fn a_quiet_steps_skill_is_trained_without_its_effects_line() {
+    let mut h = world(true);
+    h.server.quests.steps[0].effects_quiet = true;
+    for (step, _) in &mut h.server.story.step_acts {
+        step.effects_quiet = true;
+    }
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    holding(&mut h, me, &SCENES[..7]);
+    let from = use_it(&mut h, b, me);
     assert_eq!(
         held_skill(&h, me),
         Some((1, mask::TRAINED | mask::CANNOT_RAISE, 0))

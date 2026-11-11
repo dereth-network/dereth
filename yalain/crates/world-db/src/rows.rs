@@ -508,6 +508,8 @@ pub struct Step {
     pub races: Vec<u32>,
     /// Its effects come after its update, not before it.
     pub effects_last: bool,
+    /// Its effects tell no line of their own; its text is still told.
+    pub effects_quiet: bool,
     /// Its update is made for each of the player's fellows as well.
     pub fellows: bool,
     /// For a give, exactly how many of the item it wants (none: whatever is given).
@@ -541,6 +543,8 @@ pub struct Give {
     /// The effects it puts on the player (their saved states), and a text shown after them.
     pub effects: Vec<u32>,
     pub text: Option<StrRef>,
+    /// Its effects tell no line of their own; its text is still told.
+    pub effects_quiet: bool,
     /// What the person or the object plays as it takes the item.
     pub fx: Option<u32>,
     /// The quests it requires.
@@ -1394,6 +1398,7 @@ pub const FIELDS: [(&str, &[&str]); 52] = [
             "to",
             "races",
             "effects_last",
+            "effects_quiet",
             "fellows",
             "wants",
             "least_level",
@@ -1407,7 +1412,17 @@ pub const FIELDS: [(&str, &[&str]); 52] = [
     (
         "give",
         &[
-            "key", "to", "item", "wants", "gives", "counts", "effects", "text", "fx", "requires",
+            "key",
+            "to",
+            "item",
+            "wants",
+            "gives",
+            "counts",
+            "effects",
+            "text",
+            "effects_quiet",
+            "fx",
+            "requires",
             "prov",
         ],
     ),
@@ -2108,6 +2123,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 to: f.symbol("to"),
                 races: f.ids("races"),
                 effects_last: f.bool("effects_last").unwrap_or(false),
+                effects_quiet: f.bool("effects_quiet").unwrap_or(false),
                 fellows: f.bool("fellows").unwrap_or(false),
                 wants: f.u32("wants"),
                 least_level: f.int("least_level").and_then(|v| i32::try_from(v).ok()),
@@ -2136,6 +2152,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 counts: f.ids("counts"),
                 effects: f.ids("effects"),
                 text: f.strref("text"),
+                effects_quiet: f.bool("effects_quiet").unwrap_or(false),
                 fx: f.id("fx"),
                 requires,
                 kingdom,

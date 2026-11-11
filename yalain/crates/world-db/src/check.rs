@@ -294,6 +294,10 @@ fn placed(key: &str, here: u16) -> (String, u16) {
     }
 }
 
+/// A step or a give that keeps its effects' lines quiet with no effects to keep quiet.
+const QUIET_WITHOUT_EFFECTS: &str =
+    "effects_quiet: only a row with effects keeps their lines quiet";
+
 /// The checks after reading: keys unique in their scope, references that resolve, provenance.
 #[must_use]
 #[allow(clippy::too_many_lines)]
@@ -470,6 +474,9 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                         problems.push(at("wants: a count of at least 1".into()));
                     }
                 }
+                if r.effects_quiet && r.effects.is_empty() {
+                    problems.push(at(QUIET_WITHOUT_EFFECTS.into()));
+                }
                 if r.transforms.is_some() && !matches!(r.trigger, Trigger::Give(..)) {
                     problems.push(at(
                         "transforms: only a give's step transforms its player".into()
@@ -528,6 +535,9 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                 }
                 if r.counts.len() > r.gives.len() {
                     problems.push(at("counts: a count for each item given".into()));
+                }
+                if r.effects_quiet && r.effects.is_empty() {
+                    problems.push(at(QUIET_WITHOUT_EFFECTS.into()));
                 }
             }
             Row::Talk(r) => check_talk(r, l, &objects, &mut |m| problems.push(at(m))),

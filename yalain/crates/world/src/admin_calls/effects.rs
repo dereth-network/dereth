@@ -58,6 +58,7 @@ fn add<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
         item: 0,
         giver: None,
         answers: false,
+        quiet: false,
     };
     if effects::apply_on(cx.s, cx.net, on, state, cast, cx.clock) {
         vec![format!("Effect {state:08X} is on.")]

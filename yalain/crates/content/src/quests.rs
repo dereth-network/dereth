@@ -272,6 +272,9 @@ pub struct Step {
     pub races: Vec<u32>,
     /// Its effects come after its update, not before it.
     pub effects_last: bool,
+    /// Its effects tell no line of their own (a recipe or a skill they grant is granted in silence);
+    /// its text is still told.
+    pub effects_quiet: bool,
     /// Its update is made for each of the player's fellows as well (a hoard's key opens the hoard
     /// to the whole fellowship).
     pub fellows: bool,
@@ -363,6 +366,8 @@ pub struct Give {
     /// The effects it puts on the player (their saved states), and a text shown after them.
     pub effects: Vec<u32>,
     pub text: Option<(u32, u32)>,
+    /// Its effects tell no line of their own; its text is still told.
+    pub effects_quiet: bool,
     /// What the person or the object plays as it takes the item.
     pub fx: Option<u32>,
     /// The quests it requires, at a phase or done.
@@ -604,7 +609,7 @@ impl QuestTable {
             });
             let _ = writeln!(
                 out,
-                "step\t{:08X}\t{}\t{trigger}\t{}\t{update}\t{}\t{gives}\t{}\t{requires}\t{takes}\t{to}\t{effects}\t{text}\t{}\t{}\t{}\t{}\t{}\t{}",
+                "step\t{:08X}\t{}\t{trigger}\t{}\t{update}\t{}\t{gives}\t{}\t{requires}\t{takes}\t{to}\t{effects}\t{text}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 s.quest,
                 s.needs,
                 s.tell.as_ref().map(Words::to_text).unwrap_or_default(),
@@ -619,6 +624,7 @@ impl QuestTable {
                     .as_ref()
                     .map_or_else(String::new, Transformation::word),
                 s.chance.map_or_else(String::new, |c| c.to_string()),
+                u8::from(s.effects_quiet),
             );
         }
         for g in &self.gives {
@@ -650,13 +656,14 @@ impl QuestTable {
                 .join(",");
             let _ = writeln!(
                 out,
-                "give\t{:08X}\t{}\t{}\t{gives}\t{effects}\t{}\t{}\t{requires}\t{}",
+                "give\t{:08X}\t{}\t{}\t{gives}\t{effects}\t{}\t{}\t{requires}\t{}\t{}",
                 g.to,
                 g.item.map_or_else(String::new, |i| format!("{i:08X}")),
                 g.wants.map_or_else(String::new, |n| n.to_string()),
                 g.text.map_or_else(String::new, r),
                 g.fx.map_or_else(String::new, |f| format!("{f:08X}")),
                 g.placed,
+                u8::from(g.effects_quiet),
             );
         }
         for row in &self.rooms {
@@ -776,7 +783,7 @@ impl QuestTable {
                         _ => None,
                     },
                 }),
-                "step" if (9..=20).contains(&c.len()) => {
+                "step" if (9..=21).contains(&c.len()) => {
                     let (kind, tpl) = c[3]
                         .split_once(':')
                         .ok_or_else(|| at(format!("a trigger is kind:template, not {}", c[3])))?;
@@ -894,6 +901,7 @@ impl QuestTable {
                         to,
                         races: Vec::new(),
                         effects_last: false,
+                        effects_quiet: col(20) == "1",
                         fellows: col(14) == "1",
                         wants: if col(15).is_empty() {
                             None
@@ -926,7 +934,7 @@ impl QuestTable {
                         },
                     });
                 }
-                "give" if c.len() == 10 => {
+                "give" if (10..=11).contains(&c.len()) => {
                     let gifts: Vec<(u32, u32)> = c[4]
                         .split(',')
                         .filter(|x| !x.is_empty())
@@ -953,6 +961,7 @@ impl QuestTable {
                             .collect::<Result<_, _>>()
                             .map_err(at)?,
                         text: optional(c[6], pair).map_err(at)?,
+                        effects_quiet: c.get(10) == Some(&"1"),
                         fx: optional(c[7], hex).map_err(at)?,
                         requires: requirements(c[8]).map_err(at)?,
                         placed: c[9].to_string(),
@@ -985,6 +994,7 @@ mod tests {
             counts: Vec::new(),
             effects: vec![0x6F00_1DEF],
             text: None,
+            effects_quiet: false,
             fx: None,
             requires: Vec::new(),
             placed: "authored for a test".into(),

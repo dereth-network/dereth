@@ -358,6 +358,7 @@ fn mount<S: Store>(
         item: u.item,
         giver: None,
         answers: false,
+        quiet: false,
     };
     let Some(eid) = effects::add_quietly(s, net, On::Player(world), &def, cast, shape, clock)
     else {

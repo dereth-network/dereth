@@ -1,8 +1,9 @@
 //! What a recipe taught by an effect tells: the line of the effect's own table, naming the effect
 //! and who gave it, or nothing where that table holds no line; a step's or a give's text that is
-//! the same line is told once. Fixture: a geyser that teaches a recipe at a give, as the Ulkas
-//! geysers did, and quest steps run by a person, with effects modeled on the install's (one whose
-//! table holds its line, one whose table holds none).
+//! the same line is told once; none of the effect's own lines where the row keeps its effects
+//! quiet. Fixture: a geyser that teaches a recipe at a give, as the Ulkas geysers did, and quest
+//! steps run by a person, with effects modeled on the install's (one whose table holds its line,
+//! one whose table holds none).
 
 use auberean_protocol::queue;
 use auberean_script::native_object::{TextInfo, VariableValue};
@@ -126,6 +127,7 @@ fn dip(text: Option<(u32, u32)>) -> Give {
         counts: Vec::new(),
         effects: vec![TAUGHT],
         text,
+        effects_quiet: false,
         fx: None,
         requires: Vec::new(),
         placed: "authored for a test".into(),
@@ -150,6 +152,7 @@ fn step(effect: u32, text: Option<(u32, u32)>) -> Step {
         takes: Vec::new(),
         races: Vec::new(),
         effects_last: false,
+        effects_quiet: false,
         wants: None,
         fellows: false,
         levels: None,
@@ -366,4 +369,63 @@ fn a_steps_recipe_tells_its_own_tables_line_or_nothing_and_a_text_that_is_it_onc
         .map(|t| (t.string_id, t.table))
         .collect();
     assert_eq!(said, [line, other], "the line, then the step's own text");
+}
+
+/// The step, its effects kept quiet.
+fn quiet(mut s: Step) -> Step {
+    s.effects_quiet = true;
+    s
+}
+
+/// A step whose effects are kept quiet teaches its recipe and tells none of their lines, though its
+/// effect's table holds one (2017: the Hero Shrine's three recipes, 15 grants at 5 uses, none told
+/// in the effect's table); its own text is still told, even where it is that line, and the same
+/// step not kept quiet tells the line.
+/// Behaviour: server.effects.a-quiet-rows-effects-tell-no-line
+#[test]
+fn a_quiet_steps_recipe_is_taught_in_silence_and_its_text_still_told() {
+    let (mut h, b, _, world) = world(None);
+    let from = run_step(&mut h, b, world, &quiet(step(TAUGHT, None)));
+    assert!(taught(&h, b, from, TAUGHT_RECIPE), "the recipe taught");
+    assert!(shown(&h, b, from).is_empty(), "nothing told");
+
+    let line = (learned::LINE, TAUGHT_TABLE);
+    let other = (0x912E_FF1D, TAUGHT_TABLE);
+    for text in [other, line] {
+        let from = run_step(&mut h, b, world, &quiet(step(TAUGHT, Some(text))));
+        let said: Vec<(u32, u32)> = shown(&h, b, from)
+            .iter()
+            .map(|t| (t.string_id, t.table))
+            .collect();
+        assert_eq!(said, [text], "the step's own text alone");
+    }
+
+    let from = run_step(&mut h, b, world, &step(TAUGHT, None));
+    let said: Vec<(u32, u32)> = shown(&h, b, from)
+        .iter()
+        .map(|t| (t.string_id, t.table))
+        .collect();
+    assert_eq!(said, [line], "not kept quiet: the effect's line");
+}
+
+/// A give whose effects are kept quiet teaches its recipe and tells nothing; its text is still
+/// told (2017: Elysa's Initiation recipe at its give, 1 of 1 told nothing in the effect's table).
+/// Behaviour: server.effects.a-quiet-rows-effects-tell-no-line
+#[test]
+fn a_quiet_gives_recipe_is_taught_in_silence_and_its_text_still_told() {
+    let (mut h, b, me, w) = world(None);
+    h.server.quests.gives[0].effects_quiet = true;
+    let from = dip_alembic(&mut h, b, me, w);
+    assert!(taught(&h, b, from, TAUGHT_RECIPE), "the recipe taught");
+    assert!(shown(&h, b, from).is_empty(), "nothing told");
+
+    let other = (0x912E_FF1D, TAUGHT_TABLE);
+    let (mut h, b, me, w) = world(Some(other));
+    h.server.quests.gives[0].effects_quiet = true;
+    let from = dip_alembic(&mut h, b, me, w);
+    let said: Vec<(u32, u32)> = shown(&h, b, from)
+        .iter()
+        .map(|t| (t.string_id, t.table))
+        .collect();
+    assert_eq!(said, [other], "the give's own text alone");
 }

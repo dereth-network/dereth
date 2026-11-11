@@ -3938,6 +3938,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.effects.a-quiet-rows-effects-tell-no-line",
+        says: "A step or a give whose row keeps its effects quiet grants what they grant (a recipe, \
+               a skill) and tells none of their own lines; its own text is still told. A row that \
+               says nothing tells them as ever.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUIET-EFFECT-LINES"),
+        station: "yalain-testkit::cpu::play::recipe_lines::a_quiet_steps_recipe_is_taught_in_silence_and_its_text_still_told",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.effects.a-recipe-taught-tells-its-own-tables-line",
         says: "A recipe an effect teaches, given by someone, is told with the line of the effect's \
                own table naming the effect and who gave it, or with nothing where that table holds \
