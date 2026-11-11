@@ -3782,6 +3782,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.data.world-recipes-sent-to-retail",
+        says: "A retail client never asks for a recipe's record, and leaves a taught recipe it holds no record of off its crafting page; so the world's own recipes go to it as it logs in, before its characters: the download's begin names their ids under one iteration of the portal file for that set of records (another when they change), each record follows as the file would hold it, and its list waits until it has stored them. A client listing that iteration, a client that keeps overlays (it asks), and a world with none are sent none. Our choice: only with the operator's retail patching on, since a client that opens its files read-only stops at a record it can't store.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-WORLD-RECIPES-TO-RETAIL"),
+        station: "yalain-testkit::cpu::entry::data_download::a_retail_client_is_sent_the_worlds_recipes_as_it_logs_in_when_the_operator_patches_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.data.world-recipes-served",
         says: "A client asking for the record of a recipe the world defines is sent it from the portal file's place, as that file would hold it, where the server's files lack a record of that id; one they hold is sent in its place, and an id neither holds is refused.",
         since: RETAIL,

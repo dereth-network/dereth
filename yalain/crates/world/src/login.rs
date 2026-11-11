@@ -607,7 +607,8 @@ fn admit<S: Store>(
     );
 }
 
-/// Answer a client that told of its data and lacks nothing of the world's: the script library if
+/// Answer a client that told of its data and lacks nothing of the world's overlay: the world's
+/// recipes if it's a retail client the operator patches that lacks them, the script library if
 /// it's an admin's that lacks that, else the end of the download and its characters.
 fn answer_held<S: Store>(
     s: &mut Server<S>,
@@ -616,6 +617,29 @@ fn answer_held<S: Store>(
     held: &auberean_protocol::login::DataHeld,
     clock: Clock,
 ) {
+    let retail = !s.overlay_clients.contains_key(&conn);
+    if let Some(d) = crate::recipe_download::of(&s.crafting.records)
+        .filter(|_| retail && s.cfg.dat_overlay.enable_dat_patching)
+        .filter(|d| {
+            !crate::world_patch::holds(&held.files, crate::download::PORTAL_FILE, d.iteration)
+        })
+    {
+        tracing::info!(
+            ?conn,
+            recipes = d.records.len(),
+            iteration = d.iteration,
+            "sending a retail client the world's recipes"
+        );
+        send(net, conn, queue::DATABASE, BlobKind::LOGIN, &d.begins);
+        for record in &d.records {
+            send(net, conn, queue::DATABASE, BlobKind::LOGIN, record);
+        }
+        s.storing_recipes.insert(
+            conn,
+            crate::recipe_download::with_iteration(held, d.iteration),
+        );
+        return;
+    }
     let admin = s.sessions.get(&conn).is_some_and(|x| x.account.admin);
     if let Some((begins, records)) = s
         .admin_library
@@ -1286,6 +1310,11 @@ pub(crate) fn message<S: Store>(
                 answer_held(s, net, conn, &held, clock);
                 return;
             }
+            // It has stored the world's recipes: on with them held.
+            if let Some(held) = s.storing_recipes.remove(&conn) {
+                answer_held(s, net, conn, &held, clock);
+                return;
+            }
             // It has stored the library it was sent; its characters follow.
             if s.storing_library.remove(&conn) {
                 tracing::info!(?conn, "an admin's client has stored the script library");
@@ -1374,6 +1403,7 @@ pub(crate) fn closed<S: Store>(
         return;
     }
     s.storing_library.remove(&conn);
+    s.storing_recipes.remove(&conn);
     s.overlay_clients.remove(&conn);
     s.patches.closed(conn);
     if let Some(session) = s.sessions.remove(&conn) {

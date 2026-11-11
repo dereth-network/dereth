@@ -10,8 +10,9 @@
 //! are kept: the rest (a quest moved on, a line of its own) were the install recipe's.
 //!
 //! The recipe made is read into crafting as an install recipe is, and its record (the saved state
-//! as a data file stores it) is served to a client that asks for it: a client's own files hold no
-//! record by its id, and its crafting page reads a recipe from its record.
+//! as a data file stores it) is served to a client that asks for it, and sent to a retail client
+//! as it logs in ([`crate::recipe_download`]): a client's own files hold no record by its id, and
+//! its crafting page reads a recipe from its record.
 
 use std::collections::{BTreeMap, BTreeSet};
 

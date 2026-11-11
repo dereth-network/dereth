@@ -7,7 +7,8 @@
 //! - A record the server's file holds is sent whole, as that file stores it, compressed when that
 //!   makes it smaller; a landblock brings its landblock information right after it, unasked.
 //! - A recipe the world defines ([`crate::recipe_rows`]) is served as the portal file would hold
-//!   it: no install holds it, and a client's crafting page reads a recipe from its record.
+//!   it: no install holds it, and a client's crafting page reads a recipe from its record. (A
+//!   retail client never asks for one: it is sent them at login, [`crate::recipe_download`].)
 //! - A record the server does not hold is refused with the kind, the id and error 1.
 //!
 //! Answering never holds up the world. A very long record is compressed as the server starts

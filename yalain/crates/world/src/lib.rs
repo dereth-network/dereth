@@ -134,6 +134,7 @@ pub mod quests;
 pub mod rates;
 pub mod ratings;
 pub mod reach;
+pub mod recipe_download;
 pub mod recipe_rows;
 pub mod regen;
 pub mod reload;
@@ -328,6 +329,9 @@ pub struct Server<S: Store> {
     /// and the logins waiting for it to be stored before they see their characters.
     pub admin_library: Option<admin_library::AdminLibrary>,
     pub storing_library: std::collections::HashSet<ConnId>,
+    /// The logins sent the world's recipes, waiting for them to be stored: what each told of its
+    /// data, with their iteration ([`recipe_download`]).
+    pub storing_recipes: HashMap<ConnId, auberean_protocol::login::DataHeld>,
     /// The world's overlay as clients are patched to it, when it has one; the clients that said
     /// they keep overlays, and those being patched.
     pub world_patch: Option<std::sync::Arc<world_patch::WorldPatch>>,
@@ -799,6 +803,7 @@ impl<S: Store> Server<S> {
             admin_rooms: admin_calls::Rooms::default(),
             admin_library: None,
             storing_library: std::collections::HashSet::new(),
+            storing_recipes: HashMap::new(),
             world_patch: None,
             overlay_clients: HashMap::new(),
             patches: world_patch::Patches::default(),
