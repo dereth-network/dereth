@@ -13,6 +13,7 @@ use auberean_physics::land::{cell_of, land_cell_id, Land};
 use auberean_physics::mesh::Trees;
 use auberean_physics::motion::MotionInput;
 use auberean_primitives::{DataId, Quat, Vec3};
+use auberean_world::look::Look;
 use auberean_world::math::Mat4;
 use auberean_world::records::{RegionSet, WorldRecords};
 use dereth_primitives::{Frame, LandblockId, Position};
@@ -60,6 +61,22 @@ fn shrink(pic: &auberean_gpu::Picture, k: u32) -> (u32, u32, Vec<u8>) {
     (w, h, out)
 }
 
+/// `look` with every key of each appearance table in `values` set to its value, on the whole
+/// object and on each part group: a creature's material picked by its appearance value.
+fn set_appearance(look: &mut Look, values: &[(u32, f32)]) {
+    let groups =
+        std::iter::once(&mut look.global).chain(look.groups.entries.iter_mut().map(|(_, g)| g));
+    for g in groups {
+        for (table, keys) in &mut g.appearance.entries {
+            if let Some((_, v)) = values.iter().find(|(t, _)| t == table) {
+                for key in &mut keys.entries {
+                    key.1 = *v;
+                }
+            }
+        }
+    }
+}
+
 pub fn run(a: &Args, records: &WorldRecords, region: &RegionSet) -> Result<(), String> {
     let seconds = a.walk.unwrap_or(4.0);
     let out_dir = a.out.clone();
@@ -82,8 +99,10 @@ pub fn run(a: &Args, records: &WorldRecords, region: &RegionSet) -> Result<(), S
 
     // The body: its figure, its collision and its motion values.
     let recs = CachedRecords::new(records);
-    let mut figure =
-        Figure::assemble(&recs, HUMAN_MALE).ok_or("the human male does not put together")?;
+    let visual = a.figure.map_or(HUMAN_MALE, DataId);
+    let mut look = Look::of_record(&recs, visual).map_err(|e| format!("{visual:?}: {e:?}"))?;
+    set_appearance(&mut look, &a.appearance);
+    let mut figure = Figure::from_look(&recs, &look).ok_or("the figure does not put together")?;
     let setup = figure.parts[0].setup.clone();
     let md: MotionDesc = records.get(PLAYER_MOTION).ok_or("no motion description")?;
     let ground = motion_values(&md, EARTH, figure.mode).ok_or("no ground motion values")?;
@@ -295,4 +314,37 @@ pub fn run(a: &Args, records: &WorldRecords, region: &RegionSet) -> Result<(), S
         crate::write_png(&out_dir.join("walk-strip.png"), &pic)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (a developer tool's option)
+    use super::*;
+    use auberean_world::look::Keyed;
+
+    #[test]
+    fn an_appearance_value_sets_every_key_of_its_table_on_the_object_and_its_groups() {
+        let table = |entries: Vec<(u32, f32)>| Keyed::stored(4, entries);
+        let mut look = Look::default();
+        look.global.appearance = Keyed::stored(4, vec![(0x2000_0439, table(vec![(2, 0.0)]))]);
+        let mut group = look.global.clone();
+        group.appearance = Keyed::stored(
+            4,
+            vec![
+                (0x2000_0439, table(vec![(2, 0.1), (3, 0.2)])),
+                (0x2000_0001, table(vec![(7, 0.3)])),
+            ],
+        );
+        look.groups = Keyed::stored(4, vec![(0x4000_0001, group)]);
+        set_appearance(&mut look, &[(0x2000_0439, 0.5)]);
+        let value = |g: &auberean_world::look::Group, t: u32, k: u32| {
+            g.appearance.get(t).and_then(|keys| keys.get(k)).copied()
+        };
+        assert_eq!(value(&look.global, 0x2000_0439, 2), Some(0.5));
+        let g = look.groups.get(0x4000_0001).expect("the group");
+        assert_eq!(value(g, 0x2000_0439, 2), Some(0.5));
+        assert_eq!(value(g, 0x2000_0439, 3), Some(0.5));
+        // Another table is left as it was.
+        assert_eq!(value(g, 0x2000_0001, 7), Some(0.3));
+    }
 }
