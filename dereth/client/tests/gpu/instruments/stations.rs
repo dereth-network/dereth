@@ -2054,6 +2054,45 @@ impl Shot {
         self.stream.world.update_visible_object_list();
     }
 
+    /// Have the objects the station is sent read the data files from here on, as the client's
+    /// own do: an object can only be held by one created after this.
+    pub(crate) fn read_data_files(&mut self) {
+        self.stream.set_store(Arc::clone(&self.store));
+    }
+
+    /// Create an object of `setup`, `id` its own, held by object `holder` at its holding location
+    /// `location`, as the server creates a wielded item, from the next step on (see
+    /// [`Self::read_data_files`]).
+    pub(crate) fn create_held(&mut self, id: u32, setup: u32, holder: u32, location: u32) {
+        use dereth_protocol::types::{physicsdesc::flags, ObjDesc, PhysicsDesc, PublicWeenieDesc};
+        let payload = dereth_protocol::objects::ObjectCreatePayload {
+            id: dereth_primitives::ObjectId(id),
+            objdesc: ObjDesc::default(),
+            physicsdesc: PhysicsDesc {
+                bitfield: flags::SETUP | flags::PARENT | flags::ANIMFRAME,
+                setup_id: Some(setup),
+                parent: Some((dereth_primitives::ObjectId(holder), location)),
+                animframe_id: Some(location),
+                timestamps: dereth_protocol::types::PhysicsTimestamps {
+                    instance: 1,
+                    ..dereth_protocol::types::PhysicsTimestamps::default()
+                },
+                ..PhysicsDesc::default()
+            },
+            wdesc: PublicWeenieDesc::default(),
+        };
+        let body =
+            dereth_protocol::write_body(&dereth_protocol::objects::ItemCreateObject(payload))
+                .expect("encode");
+        self.stream.apply_event(
+            &dereth_client_net::client_session::SessionEvent::WorldObject {
+                opcode: dereth_protocol::Opcode::ITEM_CREATE_OBJECT,
+                body,
+            },
+            LocalTime(self.now),
+        );
+    }
+
     /// Apply the scene's own preferences poll, as the application does once a frame.
     pub(crate) fn poll(&mut self, gpu: &mut Gpu) {
         self.scene

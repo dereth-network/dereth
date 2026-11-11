@@ -145,6 +145,8 @@ pub enum Knob {
     WaterDepth,
     /// How far from the shore the bed reaches that depth.
     WaterShelf,
+    /// The deepest under the water's surface a body standing in the water is drawn.
+    WaterSink,
     /// The ripples' size.
     RippleScale,
     /// How fast the ripples move.
@@ -287,7 +289,7 @@ const fn switch(
 }
 
 /// How many knobs there are.
-pub const KNOB_COUNT: usize = 103;
+pub const KNOB_COUNT: usize = 104;
 
 /// Every knob, in [`Knob`]'s order.
 pub const KNOBS: [KnobSpec; KNOB_COUNT] = [
@@ -354,9 +356,10 @@ pub const KNOBS: [KnobSpec; KNOB_COUNT] = [
     num(Knob::RockGround, "rock_ground", 0.0, (0.0, 31.0), "type", "slope", "the terrain type whose material rock is drawn with: 0 barren rock"),
     switch(Knob::Water, "water", true, "water", "the water drawn as water, with ripples, reflections and a bed seen through it: off lays retail's water picture as the ground"),
     num(Knob::WaterColor, "water_color", 1.0, (0.0, 2.0), "", "water", "the water's own color, as a share of retail's water picture under the same light"),
-    num(Knob::WaterClarity, "water_clarity", 1.6, (0.1, 20.0), "m", "water", "how far the eye sees into the water: the bed fades into the water's own color over about this much of it"),
+    num(Knob::WaterClarity, "water_clarity", 1.0, (0.1, 20.0), "m", "water", "how far the eye sees into the water: the bed fades into the water's own color over about this much of it"),
     num(Knob::WaterDepth, "water_depth", 2.5, (0.0, 10.0), "m", "water", "the deepest the bed under the water lies below its surface"),
     num(Knob::WaterShelf, "water_shelf", 30.0, (1.0, 200.0), "m", "water", "how far from the shore the bed reaches that depth"),
+    num(Knob::WaterSink, "water_sink", 1.0, (0.0, 2.0), "m", "water", "the deepest under the water's surface a body standing in the water is drawn, standing on the bed where the bed is shallower (with the water not drawn, on the bed however deep it lies): 0 draws it where retail stands it"),
     num(Knob::RippleScale, "ripple_scale", 1.0, (0.2, 5.0), "", "water", "the ripples' size: 2 twice as large"),
     num(Knob::RippleSpeed, "ripple_speed", 1.0, (0.0, 4.0), "", "water", "how fast the ripples move: 0 holds them still"),
     num(Knob::RippleStrength, "ripple_strength", 1.0, (0.0, 3.0), "", "water", "how much the ripples bend the surface and break up its reflections"),

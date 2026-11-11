@@ -13,7 +13,7 @@
 //! remaster mixes the two by its distance from the eye frame by frame.
 
 use std::collections::HashMap;
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex, PoisonError};
 
 use dereth_assets::Decode as _;
 use dereth_dat::{DbType, RetailDatStore};
@@ -27,12 +27,43 @@ use dereth_terrain::land::drawn::{
 pub(crate) const WORLD_SIDE: usize = 2041;
 /// The height above a model's base its footprint is taken from: what meets the ground.
 const FOOT: f32 = 2.5;
+/// The least a model rises over its base to stand on the bed of the water it stands in, meters:
+/// taller than a deck, a dock's post, a stepping stone or a lily pad, which keep where retail
+/// places them.
+const STANDS_TALL: f32 = 1.5;
 /// How far above a body's feet the camera that follows it pivots, meters: about its eyes.
 const CAMERA_PIVOT: f32 = 1.6;
 /// How far apart the camera's line from that pivot is tried against the drawn ground, meters.
 const BOOM_STEP: f32 = 0.25;
 /// The most blocks whose offset is worked out in one frame.
 const FIELDS_A_FRAME: usize = 6;
+
+/// Where the ground's shift for `object` is taken (render space): where it stands, or for an
+/// object held by another, where the body holding it stands (through holders held in turn), so
+/// what is held is drawn raised or sunk with the body holding it and stays in its hand, however
+/// high the hand holds it.
+pub(crate) fn stance(
+    ws: &dereth_client_runtime::world_state::WorldState,
+    object: &dereth_client_runtime::world_state::WorldObject,
+) -> Vec3 {
+    let mut o = object;
+    // A holder chain no longer than the objects there are: a malformed cycle ends.
+    for _ in 0..=ws.objects.len() {
+        let Some((holder, _)) = o.sim.parent else {
+            return o.frame.origin;
+        };
+        if ws.player_object == Some(holder) {
+            if let Some(c) = ws.character.as_ref() {
+                return c.render_frame().origin;
+            }
+        }
+        match ws.objects.get(&holder) {
+            Some(h) => o = h,
+            None => return o.frame.origin,
+        }
+    }
+    object.frame.origin
+}
 /// The most bodies the fine relief is leveled under.
 pub(crate) const LEVELED_BODIES: usize = 32;
 /// How far from the eye a body's ground is leveled, meters: past it the fine relief is too small
@@ -118,12 +149,8 @@ fn read_world(store: &RetailDatStore, table: &[f32; 256]) -> World {
 /// A model's footprint in its own space: the box, east and north, of its vertices within
 /// [`FOOT`] of its base; `None` for a model with none there.
 fn footprint(store: &RetailDatStore, id: DataId) -> Option<[f32; 4]> {
-    let gfxobj = |id: DataId| -> Option<dereth_assets::GfxObj> {
-        let bytes = store.read_typed(DbType::GfxObj, id).ok()?;
-        dereth_assets::GfxObj::decode_payload_in(store.era_of(id), id, &bytes).ok()
-    };
     let mut boxed: Option<[f32; 4]> = None;
-    let mut take = |p: Vec3| {
+    model_points(store, id, |p| {
         if p.z > FOOT {
             return;
         }
@@ -132,6 +159,25 @@ fn footprint(store: &RetailDatStore, id: DataId) -> Option<[f32; 4]> {
         b[1] = b[1].min(p.y);
         b[2] = b[2].max(p.x);
         b[3] = b[3].max(p.y);
+    })?;
+    boxed
+}
+
+/// Whether a model stands tall: its top at least [`STANDS_TALL`] over its base. A tree, a reed
+/// bed, a pillar or a pole standing in the water is drawn standing on its bed; a deck over the
+/// water, a dock's post, a stepping stone or a lily pad, which a body may stand on or which lies
+/// on the water, is left where retail places it.
+fn stands_tall(store: &RetailDatStore, id: DataId) -> bool {
+    let mut top = f32::MIN;
+    model_points(store, id, |p| top = top.max(p.z)).is_some() && top >= STANDS_TALL
+}
+
+/// Each vertex of a model in its own space, its parts at rest, handed to `take`; `None` for a
+/// model that does not read.
+fn model_points(store: &RetailDatStore, id: DataId, mut take: impl FnMut(Vec3)) -> Option<()> {
+    let gfxobj = |id: DataId| -> Option<dereth_assets::GfxObj> {
+        let bytes = store.read_typed(DbType::GfxObj, id).ok()?;
+        dereth_assets::GfxObj::decode_payload_in(store.era_of(id), id, &bytes).ok()
     };
     match id.0 >> 24 {
         0x01 => {
@@ -161,7 +207,7 @@ fn footprint(store: &RetailDatStore, id: DataId) -> Option<[f32; 4]> {
         }
         _ => return None,
     }
-    boxed
+    Some(())
 }
 
 /// The footprint `fp` of an object placed at `frame` in block `(bx, by)`, with `margin` round it,
@@ -214,10 +260,16 @@ pub(crate) struct RemasterGround {
     next_tile: u64,
     pins: HashMap<(i32, i32), Arc<Vec<Pin>>>,
     footprints: HashMap<DataId, Option<[f32; 4]>>,
+    /// Whether each model a placement standing in the water draws stands tall (see
+    /// [`stands_tall`]).
+    tall: Mutex<HashMap<DataId, bool>>,
     /// Bumped whenever the offsets are thrown away for new knobs.
     field_generation: u64,
     /// Whether the offset is drawn this frame.
     pub(crate) active: bool,
+    /// Whether the water is drawn over the bed: off, a body in the water stands on its bed however
+    /// deep it lies.
+    pub(crate) water_shown: bool,
     /// Where render space's origin lies in the world, meters east and north.
     pub(crate) global: (f32, f32),
     /// The viewer's block.
@@ -523,9 +575,17 @@ impl RemasterGround {
 
     /// How far a thing standing at global `(x, y)` and height `z` is drawn above where physics
     /// puts it, `far` of the way given way to the far ground: the offset averaged over its
-    /// stance, faded out as it stands higher over retail's ground; and never under the drawn
-    /// ground there, the water's bed and the floor of its banks included.
-    fn shift(&self, world: &World, (x, y, z): (f32, f32, f32), far: f32) -> f32 {
+    /// stance, faded out as it stands higher over retail's ground; never under the drawn ground
+    /// there, the water's bed and the floor of its banks included; and, for a thing that wades
+    /// in water at most `wades` meters under its surface, drawn standing on the bed of the water
+    /// it stands in, that deep at most (see [`drawn::wade`]).
+    fn shift(
+        &self,
+        world: &World,
+        (x, y, z): (f32, f32, f32),
+        far: f32,
+        wades: Option<f32>,
+    ) -> f32 {
         let p = Point::at(world, x, y);
         let keep = self.keep(z - p.retail);
         if keep <= 0.0 {
@@ -536,12 +596,30 @@ impl RemasterGround {
         } else {
             0.0
         };
-        let ground = drawn::drawn_at(&p, x, y, near, far, self.water().as_ref(), &self.knobs);
-        drawn::shift(z, ground, keep)
+        let water = self.water();
+        let ground = drawn::drawn_at(&p, x, y, near, far, water.as_ref(), &self.knobs);
+        let shifted = drawn::shift(z, ground, keep);
+        match (water, wades) {
+            (Some(w), Some(most)) => {
+                let sunk = drawn::wade(
+                    z + shifted,
+                    z - p.retail,
+                    ground.height,
+                    w.shore.level(x, y),
+                    w.shore.distance(x, y, 0.0),
+                    most,
+                );
+                shifted + keep * sunk
+            }
+            _ => shifted,
+        }
     }
 
     /// How far a thing standing at render-space `at` is drawn above where physics puts it, given
-    /// way to the far ground with its distance from the eye. Nought while the offset is not drawn.
+    /// way to the far ground with its distance from the eye, and standing on the bed of the
+    /// water it stands in: while the water is drawn, no deeper under its surface than the knobs'
+    /// sink, so a body wading out into deep water keeps its head over it. Nought while the offset
+    /// is not drawn.
     pub(crate) fn shift_at(&self, at: Vec3) -> f32 {
         if !self.active || !self.knobs.on(Knob::BodyShift) {
             return 0.0;
@@ -555,27 +633,64 @@ impl RemasterGround {
         let dist =
             ((at.x - eye.x).powi(2) + (at.y - eye.y).powi(2) + (retail - eye.z).powi(2)).sqrt();
         let far = drawn::morph(dist, &self.knobs);
-        self.shift(world, (x, y, at.z), far)
+        let most = if self.water_shown {
+            self.knobs.get(Knob::WaterSink)
+        } else {
+            f32::INFINITY
+        };
+        self.shift(world, (x, y, at.z), far, Some(most))
+    }
+
+    /// How far server object `o` is drawn above where physics puts it: outdoors, as a body
+    /// standing where it stands ([`stance`]) is; nought indoors.
+    pub(crate) fn object_lift(
+        &self,
+        ws: &dereth_client_runtime::world_state::WorldState,
+        o: &dereth_client_runtime::world_state::WorldObject,
+    ) -> f32 {
+        if ws
+            .object_draw_cell(o)
+            .is_some_and(dereth_physics::landdefs::is_outdoors)
+        {
+            self.shift_at(stance(ws, o))
+        } else {
+            0.0
+        }
     }
 
     /// How far a piece of scenery standing at global `(x, y)` and height `z` is drawn above where
-    /// it stands: on the near ground, and on the far ground. The remaster mixes the two by the
-    /// piece's distance from the eye as the ground mixes them. Nought while the offset is not
-    /// drawn.
-    pub(crate) fn lifts(&self, x: f32, y: f32, z: f32) -> [f32; 2] {
+    /// it stands: on the near ground, and on the far ground, standing on the bed of the water it
+    /// stands in where it `wades`. The remaster mixes the two by the piece's distance from the eye
+    /// as the ground mixes them. Nought while the offset is not drawn.
+    pub(crate) fn lifts(&self, x: f32, y: f32, z: f32, wades: bool) -> [f32; 2] {
         if !self.active || !self.knobs.on(Knob::BodyShift) {
             return [0.0; 2];
         }
         let Some(world) = self.world.as_ref() else {
             return [0.0; 2];
         };
-        let near = self.shift(world, (x, y, z), 0.0);
+        let wades = wades.then_some(f32::INFINITY);
+        let near = self.shift(world, (x, y, z), 0.0, wades);
         let far = if self.knobs.on(Knob::Far) {
-            self.shift(world, (x, y, z), 1.0)
+            self.shift(world, (x, y, z), 1.0, wades)
         } else {
             near
         };
         [near, far]
+    }
+
+    /// Whether a placement of model `id` standing at global `(x, y)` is drawn standing on the bed
+    /// of the water it stands in: a model that stands tall (see [`stands_tall`]), standing in
+    /// the water while its bed is drawn.
+    pub(crate) fn wades(&self, store: Option<&RetailDatStore>, id: DataId, x: f32, y: f32) -> bool {
+        let (Some(store), Some(water)) = (store, self.water()) else {
+            return false;
+        };
+        if !self.active || water.shore.distance(x, y, 0.0) <= 0.0 {
+            return false;
+        }
+        let mut tall = self.tall.lock().unwrap_or_else(PoisonError::into_inner);
+        *tall.entry(id).or_insert_with(|| stands_tall(store, id))
     }
 
     /// A number for what block `block`'s scenery is lifted by: it changes whenever the offsets
@@ -588,6 +703,14 @@ impl RemasterGround {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         self.field_generation.hash(&mut h);
         self.knobs.on(Knob::Far).hash(&mut h);
+        for k in [
+            Knob::Water,
+            Knob::WaterDepth,
+            Knob::WaterShelf,
+            Knob::WaterSink,
+        ] {
+            self.knobs.get(k).to_bits().hash(&mut h);
+        }
         for x in block.0 - 1..=block.0 + 1 {
             for y in block.1 - 1..=block.1 + 1 {
                 self.near_tile((x, y)).map(|t| t.generation).hash(&mut h);
@@ -837,12 +960,24 @@ impl super::WorldScene {
         self.draw.remaster_ground.shift_at(at)
     }
 
-    /// How far a piece of scenery standing at render-space `at` is drawn above it on the
-    /// remaster's ground, near and far (see [`RemasterGround::lifts`]).
+    /// How far a placement of model `id` standing at render-space `at` is drawn above it on
+    /// the remaster's ground, near and far (see [`RemasterGround::lifts`]), standing on the bed of
+    /// the water it stands in where it stands tall.
     #[must_use]
-    pub fn remaster_lifts_at(&self, at: Vec3) -> [f32; 2] {
+    pub fn remaster_lifts_at(&self, id: DataId, at: Vec3) -> [f32; 2] {
         let g = &self.draw.remaster_ground;
-        g.lifts(at.x + g.global.0, at.y + g.global.1, at.z)
+        let (x, y) = (at.x + g.global.0, at.y + g.global.1);
+        let wades = g.wades(self.draw.remaster_view.borrow().store.as_ref(), id, x, y);
+        g.lifts(x, y, at.z, wades)
+    }
+
+    /// How far server object `id` is drawn above where physics puts it on the remaster's
+    /// ground, as the remaster is handed it; `None` for an object not in the world.
+    #[cfg(feature = "test-support")]
+    #[must_use]
+    pub fn remaster_object_lift(&self, id: dereth_primitives::ObjectId) -> Option<f32> {
+        let o = self.world.objects.get(&id)?;
+        Some(self.draw.remaster_ground.object_lift(&self.world, o))
     }
 
     /// The remaster's ground's knobs.

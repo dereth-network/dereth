@@ -487,7 +487,8 @@ fn block_delta(
                 at.0 as f32 * dereth_terrain::land::drawn::BLOCK_METERS + p.frame.origin.x,
                 at.1 as f32 * dereth_terrain::land::drawn::BLOCK_METERS + p.frame.origin.y,
             );
-            placed.lifts = ground.lifts(x, y, p.frame.origin.z);
+            let wades = !p.building && ground.wades(store, p.id, x, y);
+            placed.lifts = ground.lifts(x, y, p.frame.origin.z, wades);
             placed
         })
         .collect();
@@ -505,7 +506,7 @@ fn block_delta(
             &block.terrain,
             covers,
             &buildings,
-            &|x, y, z| ground.lifts(x, y, z),
+            &|x, y, z| ground.lifts(x, y, z, false),
         ));
     }
     rm::Block {
@@ -565,7 +566,7 @@ fn block_lamps(
                 // LINT-OK: hashing the bits of a position. Not a float conversion.
                 seed: p.x.to_bits() ^ p.y.to_bits().rotate_left(11) ^ p.z.to_bits().rotate_left(22),
                 position: p,
-                lifts: ground.lifts(x, y, p.z),
+                lifts: ground.lifts(x, y, p.z, false),
                 color: l.source.color,
                 intensity: l.source.intensity,
                 falloff: l.source.falloff,
@@ -739,13 +740,7 @@ fn moving(draw: &SceneDraw, ws: &WorldState, sent: &HashMap<rm::ObjectKey, u64>)
             &driver.part_array.parts,
             (&d.part_levels, &d.part_draw_pos),
             ws.object_draw_cell(o).map_or(0, |c| c.0),
-            (
-                o.drawn,
-                lift(
-                    ws.object_draw_cell(o).is_some_and(is_outdoors),
-                    o.frame.origin,
-                ),
-            ),
+            (o.drawn, draw.remaster_ground.object_lift(ws, o)),
         ));
     }
     if let Some(c) = ws.character.as_ref() {

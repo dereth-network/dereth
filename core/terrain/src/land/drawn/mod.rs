@@ -436,6 +436,36 @@ pub fn shift(z: f32, ground: Drawn, keep: f32) -> f32 {
     moved + keep * (ground.height - (z + moved)).max(0.0)
 }
 
+/// How far over retail's ground a thing may stand and still be drawn wholly on the bed of the
+/// water, meters: a body on a slope stands a few centimeters over the ground at its feet.
+pub const WADE_FROM: f32 = 0.04;
+/// How far over retail's ground a thing stands before it is no longer drawn standing on the bed
+/// of the water, meters: it stands on the bed while it stands on retail's ground, or sunk into it
+/// as retail sinks what stands in its water, and fades out from [`WADE_FROM`] up to this, under
+/// the deck of the lowest dock.
+pub const WADE_ABOVE: f32 = 0.25;
+
+/// How far a thing drawn at height `z`, `inside` meters inside the water (negative outside it),
+/// and standing `above` meters over retail's ground there (negative where retail sinks it into
+/// its water), is drawn lower still so that it stands on the water's bed, where the water's level
+/// there is `level` and the drawn ground under it, the bed, is `ground`: down to the bed, but no
+/// more than `most` meters under the level, fading out as the thing stands higher over retail's
+/// ground, from [`WADE_FROM`] over it and gone [`WADE_ABOVE`] over it. Nought for a thing out of
+/// the water or already as deep. The bed shelves out from the water's edge, so the sink does
+/// too. Taken from retail's ground rather than the water's level, a body walking from the water
+/// up a bank inside the water's edge stays on the bed. Physics never sees it.
+#[must_use]
+pub fn wade(z: f32, above: f32, ground: f32, level: f32, inside: f32, most: f32) -> f32 {
+    if inside <= 0.0 || most <= 0.0 {
+        return 0.0;
+    }
+    let deepest = (level - most).max(ground);
+    if z <= deepest {
+        return 0.0;
+    }
+    (deepest - z) * (1.0 - smoothstep(WADE_FROM, WADE_ABOVE, above))
+}
+
 /// How far a point `distance` meters from the eye has given way to the far ground: 0 near, 1 far.
 #[must_use]
 pub fn morph(distance: f32, knobs: &Knobs) -> f32 {

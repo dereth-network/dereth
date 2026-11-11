@@ -484,7 +484,7 @@ fn wading_seen(store: &Arc<RetailDatStore>, on: bool, frames: usize) -> Vec<Rema
 const CHARACTER: u8 = 2;
 
 /// **The water covers a body standing in it below its surface, and leaves it above**: in the
-/// pond, a body standing in the water (retail sinks it most of a metre), seen from beside it,
+/// pond, a body standing in the water (on its bed, a shin deep), seen from beside it,
 /// has its pixels below the water's surface drawn as water over it, and its pixels well above
 /// the surface as they are drawn with no water at all.
 #[test]
@@ -522,7 +522,7 @@ fn the_water_covers_a_body_standing_in_it_below_its_surface() {
         "pond: water at {level:.2}; {covered} of {below} body pixels below it covered, \
          {changed} of {above} above it changed"
     );
-    assert!(below > 300, "the body stands in the water: {below}");
+    assert!(below > 150, "the body stands in the water: {below}");
     assert!(
         covered * 10 >= below * 9,
         "covered below: {covered} of {below}"
@@ -968,14 +968,15 @@ fn place_of(c: &RemasterCapture, inv: &glam::Mat4, i: usize) -> glam::Vec3 {
 /// What the water shows where the objects within `reach` metres stand in it.
 #[derive(Debug, Default, Clone, Copy)]
 struct Bases {
-    /// The bases: an object's lowest pixel in its column, with water at most four pixels under
-    /// it and nothing of an object between, that stands where the water is (within half a metre
-    /// and a hundredth of the distance of it).
+    /// The bases: an object's lowest pixel over the water's surface in its column, with water
+    /// (or the object sunk under the surface) at most four pixels under it and nothing of an
+    /// object over the surface between, that stands where the water is (within half a metre and
+    /// a hundredth of the distance of it).
     bases: usize,
     /// The pixels between a base and the water under it that are the sky, or nothing drawn
     /// (black).
     gaps: usize,
-    /// The two water pixels under each base.
+    /// The two water pixels under each base (none where the object goes on under the surface).
     ring: usize,
     /// Of those, the ones whose reflection found the sky (as the same frame's check view says),
     /// under a solid object and under a plant's cut-out leaves: a sky-colored band between an
@@ -995,7 +996,19 @@ fn bases(c: &RemasterCapture, check: &RemasterCapture, reach: f32) -> Bases {
     let inv = glam::Mat4::from_cols_array(&c.view_projection).inverse();
     let eye = glam::Vec3::from(c.eye);
     let (w, n) = (c.width as usize, c.class.len());
-    let object = |i: usize| c.class[i] == OBJECT_LIT && c.kind[i] != WATER;
+    // The water's level: where the water pixels' surface lies, the middle of them.
+    let mut levels: Vec<f32> = (0..n)
+        .filter(|i| c.kind[*i] == WATER)
+        .map(|i| surface_of(c, &inv, i).z)
+        .collect();
+    levels.sort_by(f32::total_cmp);
+    let level = levels.get(levels.len() / 2).copied().unwrap_or(f32::MIN);
+    // What stands in the water is drawn sunk into it: the part of it under the surface is the
+    // water's, and it meets the water where it comes out of it.
+    let lit = |i: usize| c.class[i] == OBJECT_LIT && c.kind[i] != WATER;
+    let sunk = |i: usize| lit(i) && place_of(c, &inv, i).z < level - 0.05;
+    let object = |i: usize| lit(i) && !sunk(i);
+    let wet = |i: usize| c.kind[i] == WATER || sunk(i);
     let sky = |i: usize| c.class[i] == 0 || c.class[i] == 5 || c.depth[i] >= 1.0;
     let unlit = |i: usize| c.color[i * 4..i * 4 + 3].iter().all(|v| *v <= 2);
     let mut out = Bases::default();
@@ -1005,7 +1018,7 @@ fn bases(c: &RemasterCapture, check: &RemasterCapture, reach: f32) -> Bases {
         }
         let Some(r) = (1..=4)
             .take_while(|r| i + r * w < n && !object(i + r * w))
-            .find(|r| c.kind[i + r * w] == WATER)
+            .find(|r| wet(i + r * w))
         else {
             continue;
         };
@@ -1040,8 +1053,8 @@ fn bases(c: &RemasterCapture, check: &RemasterCapture, reach: f32) -> Bases {
 /// **The trees and pillars standing in the water meet it, near and far**: at the shore, from
 /// where the camera stands and from forty metres farther back and four higher, with the ground
 /// drawn on retail's grid from its splats and drawn as the player draws it (its bed lowered under
-/// the water), the bases of the trees and pillars standing in the water meet it with no sky or
-/// black pixel between, and the water just under them reflects them: under a pillar never the
+/// the water, and what stands in it sunk into it), the trees and pillars standing in the water
+/// meet it where they come out of it with no sky or black pixel between, and the water just under them reflects them: under a pillar never the
 /// sky, under a tree's cut-out leaves the sky at most a quarter of it, through the gaps between
 /// the leaves.
 #[test]

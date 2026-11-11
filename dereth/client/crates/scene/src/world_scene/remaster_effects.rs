@@ -25,6 +25,7 @@ impl SceneDraw {
     /// it is turned on.
     pub fn set_remaster_water(&mut self, settings: RemasterWater, gpu: &mut Gpu) {
         self.remaster_view.get_mut().water = settings;
+        self.remaster_ground.water_shown = settings.on;
         if let Some(r) = remaster(gpu) {
             r.renderer().set_water(settings);
         }

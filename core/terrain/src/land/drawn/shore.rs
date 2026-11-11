@@ -229,15 +229,16 @@ pub fn held(field: &[[f32; 2]]) -> Vec<[f32; 2]> {
 }
 
 /// The made-up depth of the bed below the water's surface `inside` meters inside the water: none
-/// at its edge, falling away steepest there and leveling out at `depth` meters `shelf` meters in.
-/// The shaders' own arithmetic.
+/// at its edge, shelving gently out from it so the shallows stay shallow for a few meters,
+/// steepest halfway out and leveling out at `depth` meters `shelf` meters in. The shaders' own
+/// arithmetic.
 #[must_use]
 pub fn bed_depth(inside: f32, depth: f32, shelf: f32) -> f32 {
     if inside <= 0.0 {
         return 0.0;
     }
-    let t = 1.0 - (inside / shelf.max(1e-3)).min(1.0);
-    depth * (1.0 - t * t)
+    let t = (inside / shelf.max(1e-3)).min(1.0);
+    depth * t * t * (3.0 - 2.0 * t)
 }
 
 /// The lowest the land `inside` meters inside the water (negative outside it) is drawn, where the

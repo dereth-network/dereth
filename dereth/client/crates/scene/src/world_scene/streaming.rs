@@ -2007,12 +2007,7 @@ impl SceneDraw {
         #[cfg(feature = "remaster")]
         if self.remaster_ground.active {
             if let Some(o) = ws.objects.get(&id) {
-                if ws
-                    .object_draw_cell(o)
-                    .is_some_and(dereth_physics::landdefs::is_outdoors)
-                {
-                    return self.remaster_ground.shift_at(o.frame.origin);
-                }
+                return self.remaster_ground.object_lift(ws, o);
             }
         }
         let _ = (ws, id);

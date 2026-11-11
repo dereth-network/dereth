@@ -13,6 +13,12 @@
 //! - **What stands on the ground stands on it as drawn.** The targeting ring lies on it; the
 //!   particles outdoors are drawn lifted onto it; the far trees' impostor cards stand on its mesh,
 //!   near the switch and far out.
+//! - **What stands in the water stands on its bed.** A body standing in the shallows and a
+//!   pillar standing in them are drawn standing on the bed drawn under the water, while physics
+//!   places the body where retail does; a lily pad lies on the water, and a body on a boardwalk
+//!   over the water, the boardwalk and its posts are drawn where they stand. Out where the water
+//!   is deep a body keeps its head over it while the water is drawn, and stands on the bed while
+//!   it is not. What a body holds is drawn in its hand as the body is drawn sunk.
 //!
 //! Fixture: the retail dats (`DERETH_TEST_DAT_DIR`) and a hardware Vulkan 1.3 device.
 //!
@@ -823,4 +829,335 @@ fn mesh_trees_stand_on_the_drawn_ground_near_and_just_before_the_switch() {
         near.mean < near.mean_unlifted && before.mean < before.mean_unlifted,
         "the lift brings them onto the ground"
     );
+}
+
+/// The lake's shallows where a player stood: the body a little under the water's surface, a
+/// stone pillar standing in the water a meter off.
+const SHALLOWS: &str = "dereth report 1; loc 0xA9B50015 [59.258690 104.685966 27.904999] \
+                        0.723986 0.000000 0.000000 -0.689815; time 0.5; clock 306486600.0; \
+                        weather clear";
+/// The pillar's model and where it stands in the shallows' block.
+const PILLAR: (u32, [f32; 3]) = (0x0200_03CA, [60.11, 103.55, 27.9]);
+/// A lily pad's model, as the lake lays them on its surface farther along, set on the water
+/// beside the pillar.
+const LILY_PAD: (u32, [f32; 3]) = (0x0200_03D2, [61.0, 105.5, 28.0]);
+/// The same lake out where it is deep, the body standing in it.
+const DEEP: &str = "dereth report 1; loc 0xA9B5001E [85.0 125.0 27.1] 1.0 0.0 0.0 0.0; time 0.5; \
+                    clock 306486600.0; weather clear";
+/// A boardwalk over the same lake, a little over the water, a body standing on its deck.
+const BOARDWALK: &str = "dereth report 1; loc 0xABB50007 [8.40 147.43 28.35] 0.723986 0.000000 \
+                         0.000000 -0.689815; time 0.5; clock 306486600.0; weather clear";
+/// One of the boardwalk's planks, and one of the posts it stands on in the water: their models
+/// and where they stand in the boardwalk's block.
+const PLANK: (u32, [f32; 3]) = (0x0100_104C, [8.40, 147.43, 28.077]);
+const DOCK_POST: (u32, [f32; 3]) = (0x0200_03B4, [0.2, 136.9, 27.55]);
+
+/// What [`wading_at`] found.
+#[derive(Debug)]
+struct Wading {
+    /// Where physics puts the body (its cell's frame).
+    placed: dereth_primitives::Position,
+    /// Where the scene draws its feet, and the drawn ground under them (render space).
+    feet: f32,
+    ground: f32,
+    /// How far each placement asked for is drawn above where it stands, near and far, and the
+    /// drawn ground under it.
+    lifts: Vec<([f32; 2], f32)>,
+}
+
+/// The place `line` reports with every piece of the ground drawn, the water drawn where `water`
+/// and bodies sunk at most `sink` meters under it, the body standing a second; and the
+/// placements `things` (model, and where it stands block-local in the body's block).
+fn wading_at(
+    store: &Arc<RetailDatStore>,
+    line: &str,
+    water: bool,
+    sink: f32,
+    things: &[(u32, [f32; 3])],
+) -> Wading {
+    let report = VisualReport::parse(line).expect("the report reads");
+    let station = report_station(&report, Some(3));
+    let (mut gpu, mut shot) = opened(store, &station, Some(&report), every_piece());
+    let mut knobs = shot.scene.remaster_ground_knobs().clone();
+    knobs.set(Knob::WaterSink, sink);
+    shot.scene.set_remaster_ground_knobs(knobs);
+    let w = shot.scene.draw.remaster_water();
+    shot.scene.draw.set_remaster_water(
+        dereth_scene::world_scene::RemasterWater { on: water, ..w },
+        &mut gpu,
+    );
+    for _ in 0..30 {
+        shot.step_by(&mut gpu, 1.0 / 30.0);
+    }
+    shot.step_held(&mut gpu);
+    let c = shot.scene.character.as_ref().expect("a body");
+    let (placed, body) = (c.position(), c.render_frame().origin);
+    let feet = body.z + shot.scene.remaster_shift_at(body);
+    let ground = shot
+        .scene
+        .remaster_ground_at(body.x, body.y)
+        .expect("the drawn ground");
+    let local = placed.frame.origin;
+    let lifts = things
+        .iter()
+        .map(|(model, at)| {
+            let thing = dereth_primitives::Vec3::new(
+                body.x + at[0] - local.x,
+                body.y + at[1] - local.y,
+                at[2],
+            );
+            let lifts = shot
+                .scene
+                .remaster_lifts_at(dereth_primitives::DataId(*model), thing);
+            let under = shot
+                .scene
+                .remaster_ground_at(thing.x, thing.y)
+                .expect("the drawn ground");
+            (lifts, under)
+        })
+        .collect();
+    drop(shot);
+    drop(gpu);
+    let errors = dereth_render::vulkan::take_validation_errors();
+    assert!(errors.is_empty(), "the validation layer: {errors:#?}");
+    Wading {
+        placed,
+        feet,
+        ground,
+        lifts,
+    }
+}
+
+/// **What stands in the water is drawn standing on its bed, what lies on it or stands on a deck
+/// over it is not**: in the lake's shallows, where retail stands a body a hand's breadth under
+/// the water's surface, the body standing in it is drawn with its feet on the bed drawn under
+/// the water, and the stone pillar beside it stands on the bed too, while a lily pad beside it
+/// lies on the water; drawn with no sink, the body stands where retail stands it. Out where the
+/// lake is deep, a body is drawn the sink's depth under the surface while the water is drawn,
+/// and on the bed far under that while it is not. On a boardwalk over the lake a body, the
+/// boardwalk's planks and the posts it stands on are drawn where they stand. Physics places the
+/// body the same either way.
+#[test]
+fn what_stands_in_water_is_drawn_on_its_bed_and_what_lies_on_it_or_on_a_deck_is_not() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let level = 28.0;
+    let sink = Knobs::default().get(Knob::WaterSink);
+    assert!(sink > 0.5, "a body wades in the water: {sink}");
+    let shallows = wading_at(&store, SHALLOWS, true, sink, &[PILLAR, LILY_PAD]);
+    let unsunk = wading_at(&store, SHALLOWS, true, 0.0, &[PILLAR]);
+    let deep = wading_at(&store, DEEP, true, sink, &[]);
+    let dry = wading_at(&store, DEEP, false, sink, &[]);
+    let deck = wading_at(&store, BOARDWALK, true, sink, &[PLANK, DOCK_POST]);
+    println!(
+        "shallows: {shallows:?}\nno sink: {unsunk:?}\ndeep: {deep:?}\nwater not drawn: \
+         {dry:?}\nboardwalk: {deck:?}"
+    );
+    assert_eq!(
+        shallows.placed, unsunk.placed,
+        "physics places the body the same"
+    );
+    assert_eq!(deep.placed, dry.placed, "physics places the body the same");
+    let z = shallows.placed.frame.origin.z;
+    assert!(
+        z > level - 0.2 && z < level,
+        "retail stands the body a little under the surface: {z}"
+    );
+    assert!(
+        shallows.ground < z - 0.1 && shallows.ground > level - sink,
+        "the bed lies under the body, shallower than the sink: {}",
+        shallows.ground
+    );
+    assert!(
+        (shallows.feet - shallows.ground).abs() < 0.03,
+        "the body's feet drawn on the bed: {} for {}",
+        shallows.feet,
+        shallows.ground
+    );
+    assert!(
+        (unsunk.feet - z).abs() < 0.05,
+        "with no sink, the feet drawn where physics puts them: {} for {z}",
+        unsunk.feet
+    );
+    let (pillar, under) = shallows.lifts[0];
+    let base = PILLAR.1[2];
+    assert!(under < base - 0.1, "the bed lies under the pillar: {under}");
+    for lift in pillar {
+        assert!(
+            (base + lift - under).abs() < 0.03,
+            "the pillar drawn on the bed: lifted {pillar:?} from {base} onto {under}"
+        );
+    }
+    let (pad, _) = shallows.lifts[1];
+    assert!(
+        pad.iter().all(|l| l.abs() < 0.01),
+        "the lily pad lies on the water: {pad:?}"
+    );
+    assert!(
+        deep.ground < level - sink - 0.3,
+        "out in the lake, the bed lies deeper than the sink: {}",
+        deep.ground
+    );
+    assert!(
+        (deep.feet - (level - sink)).abs() < 0.03,
+        "with the water drawn, the body the sink's depth under it: {}",
+        deep.feet
+    );
+    assert!(
+        (dry.feet - dry.ground).abs() < 0.03,
+        "with the water not drawn, the body on the bed: {} for {}",
+        dry.feet,
+        dry.ground
+    );
+    let on_deck = deck.placed.frame.origin.z;
+    assert!(
+        on_deck > level + 0.2,
+        "the body stands on the deck: {on_deck}"
+    );
+    assert!(
+        deck.feet > on_deck - 0.02,
+        "a body on the deck drawn on it: {} for {on_deck}",
+        deck.feet
+    );
+    for ((lift, _), what) in deck.lifts.iter().zip(["plank", "post"]) {
+        assert!(
+            lift.iter().all(|l| *l > -0.02),
+            "the boardwalk's {what} drawn where it stands: {lift:?}"
+        );
+    }
+}
+
+/// A human (its setup and motion table) and the sword it holds in its right hand, created as a
+/// server would create them.
+const HOLDER: (u32, u32, u32) = (0x8300_07A0, 0x0200_0001, 0x0900_0001);
+const HELD: (u32, u32) = (0x8300_07A1, 0x0200_1713);
+const RIGHT_HAND: u32 = 1;
+
+/// **What a body holds is drawn in its hand while the body stands sunk on the bed**: a human
+/// standing in the lake's shallows, holding a sword in its right hand high over the water, is
+/// drawn standing on the bed under the water, and the sword is drawn lowered with it, as far as
+/// the body, so it stays in the hand.
+#[test]
+fn what_a_body_holds_stays_in_its_hand_while_it_stands_sunk_on_the_bed() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let report = VisualReport::parse(SHALLOWS).expect("the report reads");
+    let station = report_station(&report, Some(3));
+    let (mut gpu, mut shot) = opened(&store, &station, Some(&report), every_piece());
+    shot.read_data_files();
+    shot.create_object(
+        HOLDER.0,
+        (HOLDER.1, Some(HOLDER.2)),
+        0xA9B5,
+        (60.5, 106.0),
+        0.0,
+    );
+    shot.step_held(&mut gpu);
+    shot.create_held(HELD.0, HELD.1, HOLDER.0, RIGHT_HAND);
+    for _ in 0..30 {
+        shot.step_by(&mut gpu, 1.0 / 30.0);
+    }
+    let holder = dereth_primitives::ObjectId(HOLDER.0);
+    let held = dereth_primitives::ObjectId(HELD.0);
+    let at = |id, what: &str| {
+        shot.scene
+            .objects
+            .get(&id)
+            .map(|o| (o.drawn, o.frame.origin))
+            .unwrap_or_else(|| panic!("the {what} is in the world"))
+    };
+    let ((holder_drawn, feet), (held_drawn, hand)) = (at(holder, "holder"), at(held, "sword"));
+    let lifts = (
+        shot.scene.remaster_object_lift(holder).expect("the holder"),
+        shot.scene.remaster_object_lift(held).expect("the sword"),
+    );
+    let ground = shot
+        .scene
+        .remaster_ground_at(feet.x, feet.y)
+        .expect("the drawn ground");
+    drop(shot);
+    drop(gpu);
+    println!(
+        "the holder at {feet:?} lifted {}, the drawn ground under it at {ground}; the sword at \
+         {hand:?} lifted {}",
+        lifts.0, lifts.1
+    );
+    assert!(holder_drawn && held_drawn, "both are drawn");
+    assert!(
+        hand.z > 28.25,
+        "the sword is held over the water: {}",
+        hand.z
+    );
+    assert!(
+        lifts.0 < -0.1 && (feet.z + lifts.0 - ground).abs() < 0.03,
+        "the holder is drawn on the bed: lifted {} from {} onto {ground}",
+        lifts.0,
+        feet.z
+    );
+    assert!(
+        (lifts.1 - lifts.0).abs() < 1e-4,
+        "the sword is drawn lowered with its holder: {} against {}",
+        lifts.1,
+        lifts.0
+    );
+}
+
+/// The strip of land between two waters inside the lake's edge, the body standing in the water
+/// facing north across it, over cells of the water retail sinks a body into by different depths
+/// and a lily pad lying on it a few centimeters over its level.
+const STRIP: &str = "dereth report 1; loc 0xA9B50008 [11.774128 187.334106 27.554998] 1.0 0.0 0.0 \
+                     0.0; time 0.5; clock 306486600.0; weather clear";
+
+/// **A body walking on the bed is drawn moving smoothly over it**: walking north across the strip
+/// inside the lake's edge, where physics sinks the body into the water by one depth and then
+/// another and stands it on a lily pad a few centimeters over the water between, the body is
+/// drawn on the bed all the way, within a couple of centimeters of it, its feet never moving more
+/// than a few centimeters up or down from one frame to the next.
+#[test]
+fn a_body_walking_on_the_bed_is_drawn_moving_smoothly_over_it() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let report = VisualReport::parse(STRIP).expect("the report reads");
+    let station = report_station(&report, Some(3));
+    let (mut gpu, mut shot) = opened(&store, &station, Some(&report), every_piece());
+    for _ in 0..30 {
+        shot.step_by(&mut gpu, 1.0 / 30.0);
+    }
+    shot.input.forward = true;
+    // Each frame: where physics stands the body, where its feet are drawn, and the drawn ground.
+    let mut walk = Vec::new();
+    for _ in 0..90 {
+        shot.step_by(&mut gpu, 1.0 / 30.0);
+        let c = shot.scene.character.as_ref().expect("a body");
+        let body = c.render_frame().origin;
+        let ground = shot
+            .scene
+            .remaster_ground_at(body.x, body.y)
+            .expect("the drawn ground");
+        walk.push((body, body.z + shot.scene.remaster_shift_at(body), ground));
+    }
+    drop(shot);
+    drop(gpu);
+    let heights: Vec<f32> = walk.iter().map(|w| w.0.z).collect();
+    let (low, high) = heights
+        .iter()
+        .fold((f32::MAX, f32::MIN), |(l, h), z| (l.min(*z), h.max(*z)));
+    let steepest = walk
+        .windows(2)
+        .map(|w| (w[1].1 - w[0].1).abs())
+        .fold(0.0f32, f32::max);
+    let off_bed = walk
+        .iter()
+        .map(|w| (w.1 - w.2).abs())
+        .fold(0.0f32, f32::max);
+    println!(
+        "physics stood the body from {low} to {high}; its feet moved at most {steepest} in a \
+         frame, and stood at most {off_bed} off the bed"
+    );
+    assert!(
+        high - low > 0.3,
+        "the walk crosses from the water onto land and back: {low} to {high}"
+    );
+    assert!(steepest < 0.05, "a step of {steepest} in a frame");
+    assert!(off_bed < 0.03, "the feet {off_bed} off the bed");
 }

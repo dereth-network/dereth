@@ -122,7 +122,16 @@ static const float MOST_SLOPE = 0.6;
 static const float RIPPLES_CALM = 120.0;
 // How far the eye sees into the water, meters: what is seen through it fades into its own color
 // over about this much of it.
-static const float CLARITY = 1.6;
+static const float CLARITY = 1.0;
+// How deep the water is before it reflects all it reflects and takes at least its share of its
+// own color, meters: both come in from its edge.
+static const float SHALLOW = 0.1;
+// The least share of its own color water that deep takes however clear it is, so clear shallows
+// still read as water.
+static const float FILM = 0.45;
+// How much more steeply the line of sight runs once it enters the water: water's refractive
+// index over the air's.
+static const float REFRACTION = 1.33;
 // The landscape's vertices: a cell's side, meters, and how many a side; the drawn ground's
 // constants' rows of its terrain's colors, each type's, and the water's types.
 static const float CELL = 24.0;
@@ -1933,8 +1942,9 @@ float4 shade<R : IReflection>(float4 position, R reflection)
     if (water && (under > 0.0 || (push.drawn != NONE && row(push.drawn, D_BED).x > 0.5)))
     {
         // Only as the water deepens from its edge, so a film of water over the bank shows the wet
-        // ground rather than a pale rim of sky.
-        reflects = smoothstep(0.0, 0.3, under);
+        // ground rather than a pale rim of sky; whole a hand's breadth deep, so clear shallows
+        // still show their surface.
+        reflects = smoothstep(0.0, SHALLOW, under);
     }
     if (water && under > 0.0 && absorption > 0.0 && push.drawn != NONE)
     {
@@ -1950,8 +1960,16 @@ float4 shade<R : IReflection>(float4 position, R reflection)
         float3 light = clamp((own + 0.003) / (albedo + 0.003), 0.0, 6.0);
         float3 body = air_frame(push.frame) ? hue * light : lerp(own, hue * light, fog_factor(push.frame, dist));
         // Light reaching the bed and back up, faded by the water it passes through: red first.
-        float through = length(bed - world);
-        float3 keep = exp(-float3(1.3, 1.0, 0.82) / CLARITY * absorption * (through + through * v.z));
+        // Down to the bed it runs through the water's depth; back up, along the line of sight as
+        // the surface bends it entering the water, steeper than the line above it, so seen low
+        // across the water it runs through at most half as much again as its depth, not the
+        // length of the unbent line.
+        float deep = max(world.z - bed.z, 0.0);
+        float bent_up = sqrt(1.0 - (1.0 - cosine * cosine) / (REFRACTION * REFRACTION));
+        float through = deep / max(bent_up, 0.05);
+        float3 keep = exp(-float3(1.3, 1.0, 0.82) / CLARITY * absorption * (through + deep));
+        // However clear, it takes a share of its own color, coming in from its edge.
+        keep = min(keep, 1.0 - FILM * saturate(absorption) * smoothstep(0.0, SHALLOW, deep));
         own = own * keep + body * (1.0 - keep);
     }
     float3 c;

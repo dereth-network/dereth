@@ -278,15 +278,17 @@ float shore_distance(float2 p, float foot)
     return s + shore_wander(p, foot);
 }
 
-// The bed's depth below the water's surface `inside` meters inside the water.
+// The bed's depth below the water's surface `inside` meters inside the water: none at its edge,
+// shelving gently out from it, so the shallows stay shallow for a few meters, steepest halfway
+// out and leveling off at `depth` meters `shelf` meters in.
 float bed_depth(float inside, float depth, float shelf)
 {
     if (inside <= 0.0)
     {
         return 0.0;
     }
-    float t = 1.0 - min(inside / max(shelf, 1e-3), 1.0);
-    return depth * (1.0 - t * t);
+    float t = min(inside / max(shelf, 1e-3), 1.0);
+    return depth * t * t * (3.0 - 2.0 * t);
 }
 
 float shore_floor(float level, float inside)
