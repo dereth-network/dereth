@@ -17,6 +17,11 @@
 //! where [`Recorder::build_tlas`] is called, from instances given by the processor or written by
 //! a shader into a buffer ([`Recorder::build_tlas_from`]). A build is followed by a barrier that
 //! makes it visible to every later shader and build; it waits for every earlier use.
+//!
+//! **Structures whose vertices move.** One made by [`Device::create_blas_refitted`] is fitted
+//! again to where its vertices are now by [`Device::refit_blas`], at the head of the next
+//! recording, in place: its triangles stay, nothing is made, and a refit costs the device a
+//! fraction of a build.
 
 use ash::vk;
 use gpu_allocator::vulkan::Allocation;
@@ -100,10 +105,12 @@ pub(crate) struct AccelEntry {
 }
 
 pub(crate) enum AccelKind {
-    /// A bottom-level structure: its geometries, and the scratch its build needs.
+    /// A bottom-level structure: its geometries, the scratch its build needs, and the scratch a
+    /// refit needs where it may be refitted.
     Bottom {
         geometries: Vec<BlasGeometry>,
         scratch: u64,
+        refit: Option<u64>,
         built: bool,
     },
     /// A top-level structure: how many instances it holds at most, the buffer its instances are
@@ -144,6 +151,17 @@ fn triangles(
         } else {
             vk::GeometryFlagsKHR::empty()
         })
+}
+
+/// How a bottom-level structure is built: one refitted as its vertices move is built fast and
+/// allows refits; one built once is built to trace fast.
+fn bottom_flags(refitted: bool) -> vk::BuildAccelerationStructureFlagsKHR {
+    if refitted {
+        vk::BuildAccelerationStructureFlagsKHR::ALLOW_UPDATE
+            | vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_BUILD
+    } else {
+        vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE
+    }
 }
 
 /// The geometry description of `count` instances at `address`.
@@ -271,6 +289,52 @@ impl Device {
     /// [`Error::Unsupported`] without ray queries; [`Error::Invalid`] for no geometry; any
     /// failure of the driver or the allocator.
     pub fn create_blas(&mut self, label: &str, geometries: &[BlasGeometry]) -> Result<Blas, Error> {
+        self.make_blas(label, geometries, false)
+    }
+
+    /// Make a bottom-level structure of `geometries` whose vertices move, built at the head of
+    /// the next recording and refitted to them by each [`Self::refit_blas`].
+    ///
+    /// # Errors
+    /// As [`Self::create_blas`].
+    pub fn create_blas_refitted(
+        &mut self,
+        label: &str,
+        geometries: &[BlasGeometry],
+    ) -> Result<Blas, Error> {
+        self.make_blas(label, geometries, true)
+    }
+
+    /// Fit `b` again to where its vertices are now, at the head of the next recording, in place.
+    /// Its geometries' counts and buffers are those it was made with.
+    ///
+    /// # Errors
+    /// [`Error::Unsupported`] without ray queries; [`Error::Invalid`] for a structure the device
+    /// does not hold, or one not made to be refitted.
+    pub fn refit_blas(&mut self, b: Blas) -> Result<(), Error> {
+        let rt = self.rt_mut()?;
+        match rt.accels.get(b.0).map(|e| &e.kind) {
+            Some(AccelKind::Bottom { refit: Some(_), .. }) => {}
+            Some(AccelKind::Bottom { .. }) => {
+                return Err(Error::Invalid(format!(
+                    "bottom-level structure {} was not made to be refitted",
+                    b.0
+                )))
+            }
+            _ => return Err(Error::Invalid(format!("no bottom-level structure {}", b.0))),
+        }
+        if !rt.pending.contains(&b.0) {
+            rt.pending.push(b.0);
+        }
+        Ok(())
+    }
+
+    fn make_blas(
+        &mut self,
+        label: &str,
+        geometries: &[BlasGeometry],
+        refitted: bool,
+    ) -> Result<Blas, Error> {
         self.rt()?;
         if geometries.is_empty() {
             return Err(Error::Invalid(
@@ -281,7 +345,7 @@ impl Device {
         let counts: Vec<u32> = geometries.iter().map(|g| g.triangles).collect();
         let info = vk::AccelerationStructureBuildGeometryInfoKHR::default()
             .ty(vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL)
-            .flags(vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE)
+            .flags(bottom_flags(refitted))
             .mode(vk::BuildAccelerationStructureModeKHR::BUILD)
             .geometries(&descs);
         let mut sizes = vk::AccelerationStructureBuildSizesInfoKHR::default();
@@ -310,6 +374,7 @@ impl Device {
             kind: AccelKind::Bottom {
                 geometries: geometries.to_vec(),
                 scratch: sizes.build_scratch_size,
+                refit: refitted.then_some(sizes.update_scratch_size),
                 built: false,
             },
         });
@@ -560,13 +625,7 @@ impl Device {
         }
         let pending = std::mem::take(&mut rt.pending);
         let align = rt.scratch_align;
-        // Each build's geometries, with their buffers' addresses, and its scratch's place.
-        let mut builds: Vec<(
-            u32,
-            Vec<vk::AccelerationStructureGeometryKHR<'static>>,
-            Vec<vk::AccelerationStructureBuildRangeInfoKHR>,
-            u64,
-        )> = Vec::new();
+        let mut builds: Vec<PendingBuild> = Vec::new();
         let mut scratch_total = 0u64;
         for id in pending {
             let Some(e) = self.rt.as_ref().and_then(|rt| rt.accels.get(id)) else {
@@ -575,12 +634,16 @@ impl Device {
             let AccelKind::Bottom {
                 geometries,
                 scratch,
-                ..
+                refit,
+                built,
             } = &e.kind
             else {
                 continue;
             };
-            let (geometries, scratch) = (geometries.clone(), *scratch);
+            // Refitted once it has been built; built whole the first time.
+            let update = refit.filter(|_| *built);
+            let (geometries, scratch) = (geometries.clone(), update.unwrap_or(*scratch));
+            let (refitted, update) = (refit.is_some(), update.is_some());
             let mut descs = Vec::with_capacity(geometries.len());
             let mut ranges = Vec::with_capacity(geometries.len());
             let mut ok = true;
@@ -607,7 +670,7 @@ impl Device {
             }
             let offset = scratch_total.next_multiple_of(align);
             scratch_total = offset + scratch;
-            builds.push((id, descs, ranges, offset));
+            builds.push((id, descs, ranges, offset, refitted, update));
         }
         if builds.is_empty() {
             return;
@@ -626,13 +689,22 @@ impl Device {
         let base = scratch.2.next_multiple_of(align);
         let infos: Vec<_> = builds
             .iter()
-            .filter_map(|(id, descs, _, offset)| {
+            .filter_map(|(id, descs, _, offset, refitted, update)| {
                 let e = self.rt.as_ref()?.accels.get(*id)?;
+                let (mode, source) = if *update {
+                    (vk::BuildAccelerationStructureModeKHR::UPDATE, e.accel)
+                } else {
+                    (
+                        vk::BuildAccelerationStructureModeKHR::BUILD,
+                        vk::AccelerationStructureKHR::null(),
+                    )
+                };
                 Some(
                     vk::AccelerationStructureBuildGeometryInfoKHR::default()
                         .ty(vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL)
-                        .flags(vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE)
-                        .mode(vk::BuildAccelerationStructureModeKHR::BUILD)
+                        .flags(bottom_flags(*refitted))
+                        .mode(mode)
+                        .src_acceleration_structure(source)
                         .dst_acceleration_structure(e.accel)
                         .geometries(descs)
                         .scratch_data(vk::DeviceOrHostAddressKHR {
@@ -666,6 +738,17 @@ impl Device {
             .push((at, Garbage::Raw(scratch.0, Some(scratch.1))));
     }
 }
+
+/// One bottom-level build: the structure, its geometries with their buffers' addresses and their
+/// ranges, its scratch's place, whether it is made to be refitted, and whether this is a refit.
+type PendingBuild = (
+    u32,
+    Vec<vk::AccelerationStructureGeometryKHR<'static>>,
+    Vec<vk::AccelerationStructureBuildRangeInfoKHR>,
+    u64,
+    bool,
+    bool,
+);
 
 /// Every earlier use of what a build writes or reads (the structures, their scratch, their
 /// inputs) is done before it.

@@ -2093,6 +2093,45 @@ impl Shot {
         );
     }
 
+    /// Delete object `id`, as the server would once it is out of the viewer's range, from the
+    /// next step on.
+    pub(crate) fn delete_object(&mut self, id: u32) {
+        let body = dereth_protocol::write_body(&dereth_protocol::objects::ItemDeleteObject {
+            id: dereth_primitives::ObjectId(id),
+            instance_sequence: 1,
+        })
+        .expect("encode");
+        self.stream.apply_event(
+            &dereth_client_net::client_session::SessionEvent::WorldObject {
+                opcode: dereth_protocol::Opcode::ITEM_DELETE_OBJECT,
+                body,
+            },
+            LocalTime(self.now),
+        );
+        self.stream.world.update_visible_object_list();
+    }
+
+    /// Stand the body at `(x, y)` on the ground, the station's block's own coordinates (a place
+    /// past its edge is in the block there), facing `yaw` radians from north.
+    pub(crate) fn place_body(&mut self, block: u16, (x, y): (f32, f32), ground: f32, yaw: f32) {
+        let (bx, by) = ((x / 192.0).floor(), (y / 192.0).floor());
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // LINT-OK: a run of a few blocks at most, inside the map
+        let next = ((i32::from(block >> 8) + bx as i32) << 8
+            | (i32::from(block & 0xFF) + by as i32)) as u32;
+        let (lx, ly) = (x - bx * 192.0, y - by * 192.0);
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // LINT-OK: a block-local position, 0..192, to its outdoor cell's index
+        let cell = (next << 16) | ((lx / 24.0) as u32 * 8 + (ly / 24.0) as u32 + 1);
+        let q = Quat::new(math::cosf(yaw * 0.5), 0.0, 0.0, math::sinf(yaw * 0.5));
+        if let Some(c) = self.scene.character.as_mut() {
+            c.teleport(Position::new(
+                CellId(cell),
+                Frame::new(Vec3::new(lx, ly, ground), q),
+            ));
+        }
+    }
+
     /// Apply the scene's own preferences poll, as the application does once a frame.
     pub(crate) fn poll(&mut self, gpu: &mut Gpu) {
         self.scene

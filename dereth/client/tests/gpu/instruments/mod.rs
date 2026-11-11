@@ -12,6 +12,7 @@ mod remaster_water_frames;
 mod scenery_edge_frames;
 mod shore_frames;
 mod skinned_body_frames;
+mod skinned_crowd_frames;
 mod smooth_animation_frames;
 mod smooth_movement_frames;
 pub(crate) mod stations;

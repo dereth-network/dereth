@@ -31,10 +31,12 @@ struct Entry {
 }
 
 enum Kind {
-    /// Its geometries, the scratch its build needs and whether it has been built.
+    /// Its geometries, the scratch its build needs, the scratch a refit needs where it may be
+    /// refitted, and whether it has been built.
     Bottom {
         geometries: Vec<BlasGeometry>,
         scratch: u64,
+        refit: Option<u64>,
         built: bool,
     },
     /// How many instances it holds at most, its scratch, and its index in the table.
@@ -127,13 +129,25 @@ fn triangles(g: &BlasGeometry, vertices: u64, indices: u64) -> D3D12_RAYTRACING_
     }
 }
 
-/// What a bottom-level build of `descs` is told.
+/// How a bottom-level structure is built: one refitted as its vertices move is built fast and
+/// allows refits; one built once is built to trace fast.
+fn bottom_flags(refitted: bool) -> D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS {
+    if refitted {
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE
+            | D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD
+    } else {
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE
+    }
+}
+
+/// What a bottom-level build of `descs` is told, under `flags`.
 fn bottom_inputs(
     descs: &[D3D12_RAYTRACING_GEOMETRY_DESC],
+    flags: D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS,
 ) -> D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS {
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS {
         Type: D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL,
-        Flags: D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE,
+        Flags: flags,
         NumDescs: u32::try_from(descs.len()).unwrap_or(u32::MAX),
         DescsLayout: D3D12_ELEMENTS_LAYOUT_ARRAY,
         Anonymous: D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS_0 {
@@ -160,10 +174,23 @@ fn sizes(
     device: &ID3D12Device5,
     inputs: &D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS,
 ) -> (u64, u64) {
+    let (bytes, scratch, _) = sizes_and_refit(device, inputs);
+    (bytes, scratch)
+}
+
+/// [`sizes`], and the scratch a refit needs.
+fn sizes_and_refit(
+    device: &ID3D12Device5,
+    inputs: &D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS,
+) -> (u64, u64, u64) {
     let mut info = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO::default();
     // SAFETY: a pure query on live locals.
     unsafe { device.GetRaytracingAccelerationStructurePrebuildInfo(inputs, &mut info) };
-    (info.ResultDataMaxSizeInBytes, info.ScratchDataSizeInBytes)
+    (
+        info.ResultDataMaxSizeInBytes,
+        info.ScratchDataSizeInBytes,
+        info.UpdateScratchDataSizeInBytes,
+    )
 }
 
 fn no_rays() -> Error {
@@ -202,10 +229,51 @@ impl Device {
     /// # Errors
     /// [`Error::Unsupported`] without ray tracing; [`Error::Invalid`] for no geometry; any
     /// failure of the runtime.
-    pub fn create_blas(
+    pub fn create_blas(&mut self, label: &str, geometries: &[BlasGeometry]) -> Result<Blas, Error> {
+        self.make_blas(label, geometries, false)
+    }
+
+    /// Make a bottom-level structure of `geometries` whose vertices move, built at the head of
+    /// the next recording and refitted to them by each [`Self::refit_blas`].
+    ///
+    /// # Errors
+    /// As [`Self::create_blas`].
+    pub fn create_blas_refitted(
+        &mut self,
+        label: &str,
+        geometries: &[BlasGeometry],
+    ) -> Result<Blas, Error> {
+        self.make_blas(label, geometries, true)
+    }
+
+    /// Fit `b` again to where its vertices are now, at the head of the next recording, in place.
+    ///
+    /// # Errors
+    /// [`Error::Unsupported`] without ray tracing; [`Error::Invalid`] for one it does not hold, or
+    /// one not made to be refitted.
+    pub fn refit_blas(&mut self, b: Blas) -> Result<(), Error> {
+        let rt = self.rt_mut()?;
+        match rt.accels.get(b.0).map(|e| &e.kind) {
+            Some(Kind::Bottom { refit: Some(_), .. }) => {}
+            Some(Kind::Bottom { .. }) => {
+                return Err(Error::Invalid(format!(
+                    "bottom-level structure {} was not made to be refitted",
+                    b.0
+                )))
+            }
+            _ => return Err(Error::Invalid(format!("no bottom-level structure {}", b.0))),
+        }
+        if !rt.pending.contains(&b.0) {
+            rt.pending.push(b.0);
+        }
+        Ok(())
+    }
+
+    fn make_blas(
         &mut self,
         _label: &str,
         geometries: &[BlasGeometry],
+        refitted: bool,
     ) -> Result<Blas, Error> {
         self.rt()?;
         if geometries.is_empty() {
@@ -215,7 +283,8 @@ impl Device {
         }
         let descs: Vec<_> = geometries.iter().map(|g| triangles(g, 0, 0)).collect();
         let rt = self.rt_mut()?;
-        let (bytes, scratch) = sizes(&rt.device, &bottom_inputs(&descs));
+        let (bytes, scratch, refit) =
+            sizes_and_refit(&rt.device, &bottom_inputs(&descs, bottom_flags(refitted)));
         let resource = committed(
             &rt.device,
             bytes,
@@ -227,6 +296,7 @@ impl Device {
             kind: Kind::Bottom {
                 geometries: geometries.to_vec(),
                 scratch,
+                refit: refitted.then_some(refit),
                 built: false,
             },
         });
@@ -405,12 +475,16 @@ impl Device {
             let Kind::Bottom {
                 geometries,
                 scratch,
-                ..
+                refit,
+                built,
             } = &e.kind
             else {
                 continue;
             };
-            let (geometries, scratch) = (geometries.clone(), *scratch);
+            // Refitted once it has been built; built whole the first time.
+            let update = refit.filter(|_| *built);
+            let (geometries, scratch) = (geometries.clone(), update.unwrap_or(*scratch));
+            let (refitted, update) = (refit.is_some(), update.is_some());
             // SAFETY: a pure query on a live resource.
             let dest = unsafe { e.resource.GetGPUVirtualAddress() };
             let mut descs = Vec::with_capacity(geometries.len());
@@ -444,7 +518,7 @@ impl Device {
             }
             let offset = scratch_total.next_multiple_of(align);
             scratch_total = offset + scratch;
-            builds.push((id, descs, dest, offset));
+            builds.push((id, descs, dest, offset, refitted, update));
         }
         put(list, &barriers);
         if builds.is_empty() {
@@ -466,11 +540,16 @@ impl Device {
         };
         // SAFETY: a pure query on a live resource.
         let base = unsafe { scratch.GetGPUVirtualAddress() };
-        for (id, descs, dest, offset) in &builds {
+        for (id, descs, dest, offset, refitted, update) in &builds {
+            let mut flags = bottom_flags(*refitted);
+            if *update {
+                flags |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE;
+            }
             let desc = D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC {
                 DestAccelerationStructureData: *dest,
-                Inputs: bottom_inputs(descs),
-                SourceAccelerationStructureData: 0,
+                Inputs: bottom_inputs(descs, flags),
+                // A refit reads the structure it writes, in place.
+                SourceAccelerationStructureData: if *update { *dest } else { 0 },
                 ScratchAccelerationStructureData: base + offset,
             };
             // SAFETY: every structure, buffer and address is live; the scratch ranges do not

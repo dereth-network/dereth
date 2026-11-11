@@ -15,9 +15,9 @@
 //! - A bottom-level structure per distinct mesh run: a mesh's first vertex and the subsets the
 //!   G-buffer draws opaque or alpha-tested (blended and additive ones left out), one geometry
 //!   each, opaque unless alpha-tested. A skinned body's mesh is posed every frame, so its
-//!   structure is made again every frame ([`RtPass::set_posed`]). It is built at the head of the
-//!   frame's recording, before that frame's posing, so it holds the body as the last frame posed
-//!   it: a frame behind the G-buffer.
+//!   structure is refitted to it every frame, in place ([`RtPass::set_posed`]): made once, as
+//!   the body comes, and fitted again at the head of each frame's recording, before that frame's
+//!   posing, so it holds the body as the last frame posed it: a frame behind the G-buffer.
 //! - The statics' entries and rows, made again only when what is resident changes.
 //! - The objects' entries and rows, every frame.
 
@@ -71,8 +71,13 @@ struct Held {
     address: u64,
     /// The last frame an object placed it.
     seen: u64,
-    /// The frame it was made.
+    /// The frame it was last made or refitted.
     made_at: u64,
+    /// Whether it is refitted as its mesh is posed, and the vertices' and indices' buffers it
+    /// reads: a pool that grew has moved to a new buffer, and what was made over the old one is
+    /// made again.
+    refitted: bool,
+    buffers: (Buffer, Buffer),
 }
 
 #[derive(Debug)]
@@ -100,8 +105,10 @@ pub struct RtCounts {
     /// Bytes the device holds for the structures.
     pub bytes: u64,
     /// Bottom-level structures made since the pass was: it stops rising once the scene settles,
-    /// but for the skinned bodies', made again every frame.
+    /// and a skinned body's is made once, as it comes.
     pub made: u64,
+    /// Refits of the skinned bodies' structures since the pass was: one a body a frame.
+    pub refits: u64,
 }
 
 /// One entry of the instances' pass, and its geometry rows.
@@ -122,10 +129,11 @@ pub struct RtPass {
     grounds: BTreeMap<BlockId, GroundHeld>,
     /// The statics' entries and rows, and the scene's generation they were made at.
     generation: Option<u64>,
-    /// Bottom-level structures made since the pass was.
+    /// Bottom-level structures made since the pass was, and refits of them.
     made: u64,
+    refits: u64,
     static_keys: BTreeSet<BlasKey>,
-    /// The first vertex of each mesh posed this frame, whose structure is made again.
+    /// The first vertex of each mesh posed this frame, whose structure is refitted.
     posed: BTreeSet<u32>,
     static_count: u32,
     static_rows: u32,
@@ -186,6 +194,7 @@ impl RtPass {
             grounds: BTreeMap::new(),
             generation: None,
             made: 0,
+            refits: 0,
             static_keys: BTreeSet::new(),
             posed: BTreeSet::new(),
             static_count: 0,
@@ -238,8 +247,8 @@ impl RtPass {
         self.last = None;
     }
 
-    /// The meshes posed this frame, by their first vertex: their structures are made again
-    /// rather than kept.
+    /// The meshes posed this frame, by their first vertex: their structures are refitted to them
+    /// rather than kept as they stand.
     pub fn set_posed(&mut self, first_vertices: BTreeSet<u32>) {
         self.posed = first_vertices;
     }
@@ -356,6 +365,7 @@ impl RtPass {
             rows: self.static_rows + u32::try_from(object_rows.len() / 4).unwrap_or(u32::MAX),
             bytes: gfx.stats().acceleration_bytes,
             made: self.made,
+            refits: self.refits,
         };
         let plan = RtPlan {
             pipeline,
@@ -468,12 +478,24 @@ impl RtPass {
         key: &BlasKey,
         vertex_count: u32,
     ) -> Result<u64, dereth_gfx::Error> {
+        let posed = self.posed.contains(&key.0);
+        let buffers = (scene.vertices.buffer, scene.indices.buffer);
         if let Some(h) = self.blas.get_mut(key) {
-            let stale = self.posed.contains(&key.0) && h.made_at != self.frame;
-            if !stale {
+            let stale = posed && h.made_at != self.frame;
+            if stale && h.refitted && h.buffers != buffers {
+                // Its pools moved: made again over their new buffers.
+                h.refitted = false;
+            } else if stale && h.refitted {
+                gfx.refit_blas(h.blas)?;
+                self.refits += 1;
+                h.made_at = self.frame;
+            }
+            if !stale || h.refitted {
                 h.seen = self.frame;
                 return Ok(h.address);
             }
+            // A mesh first held as it stands and now posed, or whose pools moved: made again, to
+            // be refitted.
             if let Some(h) = self.blas.remove(key) {
                 gfx.destroy_blas(h.blas);
             }
@@ -493,7 +515,11 @@ impl RtPass {
                 opaque: *opaque,
             })
             .collect();
-        let blas = gfx.create_blas("remaster mesh", &geometries)?;
+        let blas = if posed {
+            gfx.create_blas_refitted("remaster posed mesh", &geometries)?
+        } else {
+            gfx.create_blas("remaster mesh", &geometries)?
+        };
         self.made += 1;
         let address = gfx.blas_address(blas)?;
         self.blas.insert(
@@ -503,6 +529,8 @@ impl RtPass {
                 address,
                 seen: self.frame,
                 made_at: self.frame,
+                refitted: posed,
+                buffers,
             },
         );
         Ok(address)

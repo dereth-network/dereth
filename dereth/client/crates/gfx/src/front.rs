@@ -547,6 +547,36 @@ impl Device {
         }
     }
 
+    /// Make a bottom-level structure of `geometries` whose vertices move, built at the head of the
+    /// next recording and refitted to them by each [`Self::refit_blas`].
+    ///
+    /// # Errors
+    /// See [`crate::device::Device::create_blas_refitted`].
+    pub fn create_blas_refitted(
+        &mut self,
+        label: &str,
+        geometries: &[crate::rt::BlasGeometry],
+    ) -> Result<crate::rt::Blas, Error> {
+        match &mut self.b {
+            Dev::Vk(d) => d.create_blas_refitted(label, geometries),
+            #[cfg(windows)]
+            Dev::Dx(d) => d.create_blas_refitted(label, geometries),
+        }
+    }
+
+    /// Fit a bottom-level structure made by [`Self::create_blas_refitted`] again to where its
+    /// vertices are now, at the head of the next recording, in place.
+    ///
+    /// # Errors
+    /// See [`crate::device::Device::refit_blas`].
+    pub fn refit_blas(&mut self, b: crate::rt::Blas) -> Result<(), Error> {
+        match &mut self.b {
+            Dev::Vk(d) => d.refit_blas(b),
+            #[cfg(windows)]
+            Dev::Dx(d) => d.refit_blas(b),
+        }
+    }
+
     /// Destroy a bottom-level structure once the work recorded so far is done with it.
     pub fn destroy_blas(&mut self, b: crate::rt::Blas) {
         match &mut self.b {

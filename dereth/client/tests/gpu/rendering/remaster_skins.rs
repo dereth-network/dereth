@@ -1,6 +1,7 @@
 //! An art pack's skinned body as the remaster draws it, in place of the parts it follows: drawn,
 //! moving with the parts as the body runs, posed on the device as on the processor, its motion
-//! vectors following its limbs, and the traced structures holding it as it is posed.
+//! vectors following its limbs, and the traced structures holding it as it is posed, fitted to it
+//! each frame without being made again.
 //!
 //! The body is made in the test ([`mannequin`]): smooth tubes over the human's legs, arms and
 //! trunk, run through its parts' places at rest, each vertex following the part its stretch of
@@ -364,11 +365,13 @@ struct Run {
 /// Every 4th pixel a side is checked for the traced structures.
 const STEP: u32 = 4;
 
-/// One moment of a run: the frame, and when asked, its motion picture and its rays.
+/// One moment of a run: the frame, and when asked, its motion picture, its rays and what its
+/// acceleration structures held.
 struct Moment {
     rgba: Vec<u8>,
     motion: Option<dereth_scene::world_scene::RemasterPostPicture>,
     rays: Option<Vec<(f32, u32)>>,
+    acceleration: Option<dereth_scene::world_scene::RemasterAcceleration>,
 }
 
 /// Frames after the run starts that are kept: a stride and more, every frame.
@@ -490,7 +493,16 @@ fn run(store: &Arc<RetailDatStore>, pack: &Arc<ArtPack>, how: Run) -> Option<Vec
                     .remaster_acceleration_check(&mut gpu, STEP, BODY)
                     .expect("the structures were built")
             });
-            out.push(Moment { rgba, motion, rays });
+            let acceleration = how
+                .traced
+                .then(|| scene.draw.remaster_acceleration(&mut gpu))
+                .flatten();
+            out.push(Moment {
+                rgba,
+                motion,
+                rays,
+                acceleration,
+            });
         }
     }
     scene
@@ -773,5 +785,36 @@ fn the_traced_structures_hold_a_skinned_body_as_it_is_posed() {
                 k + 1
             );
         }
+    }
+}
+
+/// **A skinned body's traced structure is fitted to it each frame, not made again**: running with
+/// the structures kept, each kept frame refits one structure (the viewer's body, the only one
+/// posed) and makes none.
+#[test]
+fn a_skinned_bodys_traced_structure_is_refitted_each_frame_not_made_again() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let pack = in_memory(&mannequin(&store));
+    let Some(moments) = run(
+        &store,
+        &pack,
+        Run {
+            bodies: true,
+            device: true,
+            motion: None,
+            traced: true,
+        },
+    ) else {
+        return;
+    };
+    for (k, w) in moments.windows(2).enumerate() {
+        let (a, b) = (
+            w[0].acceleration.expect("the structures' counts"),
+            w[1].acceleration.expect("the structures' counts"),
+        );
+        eprintln!("frame {}: made {} refits {}", k + 1, b.made, b.refits);
+        assert_eq!(b.refits, a.refits + 1, "frame {}: one refit", k + 1);
+        assert_eq!(b.made, a.made, "frame {}: nothing made", k + 1);
     }
 }
