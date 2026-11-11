@@ -829,7 +829,8 @@ fn a_player_never_bound_comes_back_on_the_ground_beside_the_nearest_lifestone() 
         rotation: [1.0, 0.0, 0.0, 0.0],
     };
     let at = yalain_world::places::resurrection_place_of(&h.server, &[], fell);
-    assert_eq!(at.cell, 0x3C73_0017, "beside the lifestone");
+    // South of it, from another landblock: in the land cell below the stone's.
+    assert_eq!(at.cell, 0x3C73_0016, "beside the lifestone");
     assert!(
         (at.origin[2] - at.origin[0] * 0.2).abs() < 1e-4,
         "on the land where it lands: {:?}",
@@ -848,6 +849,37 @@ fn a_player_never_bound_comes_back_on_the_ground_beside_the_nearest_lifestone() 
         (at.origin[2] - -44.6).abs() < 1e-4,
         "inside, at the lifestone's height: {:?}",
         at.origin
+    );
+}
+
+/// A player never bound who fell inside, below a lifestone on the land of the same landblock, comes
+/// back in the land cell its place beside the stone lies in: not the cell it fell in, nor the
+/// stone's own when the place lies across a land cell's edge from it.
+/// Behaviour: server.places.beside-lies-in-its-own-cell
+#[test]
+fn a_return_beside_an_outdoor_lifestone_lies_in_the_land_cell_under_it_from_a_fall_inside() {
+    let mut h = Harness::new();
+    h.server.lifestone_packages.insert(0x1A00);
+    h.server.ground = Some(Box::new(yalain_testkit::Slope));
+    // In the land cell from 40 to 60 m east, a meter from its west edge.
+    h.server.content.objects = vec![stone_at(0x3C73_0017, [41.0, 120.5, 8.2])];
+    let fell = yalain_store::StoredPosition {
+        cell: 0x3C73_0105,
+        origin: [30.0, 120.5, -20.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let at = yalain_world::places::resurrection_place_of(&h.server, &[], fell);
+    assert_eq!(
+        at.cell, 0x3C73_000F,
+        "the land cell from 20 to 40 m east: {at:?}"
+    );
+    assert!(
+        (at.origin[0] - 36.5).abs() < 1e-4 && (at.origin[1] - 120.5).abs() < 1e-4,
+        "toward where it fell: {at:?}"
+    );
+    assert!(
+        (at.origin[2] - 36.5 * 0.2).abs() < 1e-4,
+        "on the land: {at:?}"
     );
 }
 

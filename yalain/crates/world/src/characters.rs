@@ -570,7 +570,7 @@ pub fn place<S: Store>(s: &mut Server<S>, who: &str, to: &Destination) -> Result
                 .and_then(|w| s.players.get(&w))
                 .ok_or_else(|| format!("{other} is not in the world"))?;
             (
-                crate::places::beside(o.position.cell, o.position.origin, &o.position),
+                crate::places::beside_on_ground(s, o.position.cell, o.position.origin, &o.position),
                 o.name.clone(),
             )
         }
@@ -893,7 +893,7 @@ pub fn teleport<S: Store>(
                 return Err(format!("{name} cannot be sent to itself"));
             }
             (
-                crate::places::beside(o.position.cell, o.position.origin, &from),
+                crate::places::beside_on_ground(s, o.position.cell, o.position.origin, &from),
                 o.name.clone(),
             )
         }

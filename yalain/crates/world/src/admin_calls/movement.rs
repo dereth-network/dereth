@@ -120,7 +120,12 @@ fn destination<S: Store>(cx: &Cx<'_, S>, words: &[String]) -> Result<StoredPosit
             cx.s.players
                 .get(&cx.world)
                 .map_or(p.position, |me| me.position);
-        return Ok(places::beside(p.position.cell, p.position.origin, &from));
+        return Ok(places::beside_on_ground(
+            cx.s,
+            p.position.cell,
+            p.position.origin,
+            &from,
+        ));
     }
     Err(format!("The world knows no place or character {named}."))
 }

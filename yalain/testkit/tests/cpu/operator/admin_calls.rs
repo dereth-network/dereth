@@ -563,6 +563,54 @@ fn the_state_and_object_calls_act() {
     assert!(answers(&h, me, from)[0].contains("no template"));
 }
 
+/// An admin on the land teleported to a player inside, in the same landblock, comes out beside it in
+/// its cell and at its height, not in the admin's own land cell or at the admin's height.
+/// Behaviour: server.places.beside-lies-in-its-own-cell
+#[test]
+fn an_admin_teleported_to_a_player_inside_comes_out_in_its_cell() {
+    let mut h = Harness::new();
+    let (me, id) = admin_in_world(&mut h, "one", "Elara");
+    let (_, other) = h.player_in_world("two", "Sir Kara");
+    h.run(10);
+    let inside = yalain_store::StoredPosition {
+        cell: 0x3C73_0105,
+        origin: [60.0, 130.0, -40.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    for p in h.server.players.values_mut() {
+        p.position = if p.character == other {
+            inside
+        } else {
+            yalain_store::StoredPosition {
+                cell: 0x3C73_0017,
+                origin: [50.0, 120.0, 10.0],
+                rotation: [1.0, 0.0, 0.0, 0.0],
+            }
+        };
+    }
+    send(&mut h, me, 0x8201_0058, &[text(""), text("Sir Kara")]);
+    h.run_to(yalain_net::LocalTime(h.now.0 + 3.0));
+    let p = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == id)
+        .expect("in");
+    assert!(p.trip.is_none(), "arrived");
+    assert_eq!(p.position.cell, inside.cell, "its cell: {:?}", p.position);
+    let d = ((p.position.origin[0] - 60.0).powi(2) + (p.position.origin[1] - 130.0).powi(2)).sqrt();
+    assert!(
+        (d - yalain_world::places::BESIDE_LIFESTONE).abs() < 0.01,
+        "beside it: {:?}",
+        p.position
+    );
+    assert!(
+        (p.position.origin[2] - -40.0).abs() < 1e-4,
+        "at its height: {:?}",
+        p.position
+    );
+}
+
 /// An admin grants a player a reset of its skills by setting the quality that holds them
 /// (`/edit`), and the player may then use it; `/skill reset` resets a player's skills with no reset
 /// held, its credits back, and starts the hour in which it may reset again itself.

@@ -792,6 +792,75 @@ fn a_teleported_character_goes_through_portal_space_to_where_it_was_sent() {
     }
 }
 
+/// A character teleported or placed at the console beside another standing on the land near its
+/// landblock's south edge, from another landblock, comes out on the ground in the land cell its
+/// place lies in: across the edge, in the landblock to the south, not in the other's cell.
+/// Behaviour: server.places.beside-lies-in-its-own-cell
+#[test]
+fn a_character_sent_beside_another_lies_in_the_land_cell_under_its_place() {
+    let mut h = world();
+    h.server.ground = Some(Box::new(yalain_testkit::Slope));
+    let (_, me) = h.player_in_world("one", "Hand Of Doom");
+    let (_, other) = h.player_in_world("two", "Sir Kara");
+    h.run(5);
+    for p in h.server.players.values_mut() {
+        p.position = StoredPosition {
+            cell: if p.character == other {
+                0x3C73_0019
+            } else {
+                0x5050_0001
+            },
+            origin: [70.0, 2.0, 5.0],
+            rotation: [1.0, 0.0, 0.0, 0.0],
+        };
+    }
+    let south = |at: StoredPosition| {
+        assert_eq!(
+            at.cell, 0x3C72_0020,
+            "the land cell south of the edge: {at:?}"
+        );
+        assert!(
+            (at.origin[0] - 70.0).abs() < 1e-4 && (at.origin[1] - 157.5).abs() < 1e-4,
+            "in that landblock's own frame: {at:?}"
+        );
+        assert!((at.origin[2] - 14.0).abs() < 1e-4, "on the land: {at:?}");
+    };
+    let clock = h.clock();
+    characters::teleport(
+        &mut h.server,
+        &mut h.net,
+        clock,
+        "Hand Of Doom",
+        &Destination::Character("Sir Kara".into()),
+    )
+    .expect("sent");
+    h.run_to(yalain_net::LocalTime(h.now.0 + 3.0));
+    let p = h
+        .server
+        .players
+        .get(&world_of(&h, me))
+        .expect("in the world");
+    assert!(p.trip.is_none(), "arrived");
+    south(p.position);
+
+    let unix = h.unix;
+    characters::make(&mut h.server, &recipe("Freshly"), unix).expect("made");
+    characters::place(
+        &mut h.server,
+        "Freshly",
+        &Destination::Character("Sir Kara".into()),
+    )
+    .expect("placed beside");
+    let fresh = id_of(&mut h, "Freshly");
+    let st = h
+        .server
+        .store
+        .world_state(fresh)
+        .expect("reads")
+        .expect("kept");
+    south(st.position.expect("a place"));
+}
+
 /// A name with spaces, quoted or written as the rest of the line, reaches the character it names:
 /// a gag of `"Sir Kara"` gags Sir Kara, and the words of a line keep a quoted name whole.
 /// Behaviour: server.operator.names-with-spaces-at-the-console

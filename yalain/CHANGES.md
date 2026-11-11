@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Fixed returning or being moved beside someone in the wrong place in the same area.
 - Fixed unbound players resurrecting in midair beside a lifestone.
 - Fixed players being unable to move after resurrecting.
 - Players can no longer walk through walls or closed doors.

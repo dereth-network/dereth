@@ -11081,6 +11081,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.beside-lies-in-its-own-cell",
+        says: "The place beside a target (a lifestone a player never bound returns to, a \
+               character an operator or admin sends one to) is in the cell it lies in, never the \
+               mover's: on the land the land cell under it, across a cell's or landblock's edge if \
+               it falls there, on the ground; inside the target's own cell, at its height.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-BESIDE-ITS-OWN-CELL"),
+        station: "yalain-testkit::cpu::play::dying::a_return_beside_an_outdoor_lifestone_lies_in_the_land_cell_under_it_from_a_fall_inside",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.bind-plays-its-behavior",
         says: "Binding to a lifestone plays the player's binding behavior for about a second \
                before it is stopped, so it is seen.",

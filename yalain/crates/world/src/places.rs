@@ -2048,12 +2048,16 @@ pub fn bind_ends<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
     to_all_knowing(s, net, id, &stop);
 }
 
-/// The place beside a lifestone where a recall lands: `BESIDE_LIFESTONE` meters from it toward
-/// where the player stood (or south of it), facing it, at the player's height.
+/// The place beside a target (a lifestone, a character) where a mover lands: `BESIDE_LIFESTONE`
+/// meters from it toward where the mover stood when in its landblock (else south of it), facing
+/// it, at the target's height. Its cell is the one it lies in, never the mover's: outdoors the
+/// land cell under it, in the landblock it falls in; inside the target's own (2017: each of 3,130
+/// arrivals on the land was placed in the land cell under it, and none of the 9 returns from
+/// another land cell of the same landblock kept the cell it left).
 #[must_use]
-pub fn beside(cell: u32, stone: [f32; 3], player: &StoredPosition) -> StoredPosition {
-    let (dx, dy) = if player.cell >> 16 == cell >> 16 {
-        (player.origin[0] - stone[0], player.origin[1] - stone[1])
+pub fn beside(cell: u32, target: [f32; 3], from: &StoredPosition) -> StoredPosition {
+    let (dx, dy) = if from.cell >> 16 == cell >> 16 {
+        (from.origin[0] - target[0], from.origin[1] - target[1])
     } else {
         (0.0, -1.0)
     };
@@ -2063,24 +2067,43 @@ pub fn beside(cell: u32, stone: [f32; 3], player: &StoredPosition) -> StoredPosi
     } else {
         (0.0, -1.0)
     };
-    let origin = [
-        stone[0] + ux * BESIDE_LIFESTONE,
-        stone[1] + uy * BESIDE_LIFESTONE,
-        player.origin[2],
-    ];
-    // Facing the stone: degrees clockwise from north (+y), from the landing back to it.
+    let (x, y) = (
+        target[0] + ux * BESIDE_LIFESTONE,
+        target[1] + uy * BESIDE_LIFESTONE,
+    );
+    let (cell, x, y) = if presence::indoors(cell) {
+        (cell, x, y)
+    } else {
+        crate::spawn::outdoor(cell >> 16, x, y)
+    };
+    // Facing the target: degrees clockwise from north (+y), from the landing back to it.
     let deg = math::atan2f(-ux, -uy).to_degrees().rem_euclid(360.0);
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let byte = u8::try_from((deg * 255.0 / 360.0) as u32 % 256).unwrap_or(0);
     StoredPosition {
-        cell: if player.cell >> 16 == cell >> 16 {
-            player.cell
-        } else {
-            cell
-        },
-        origin,
+        cell,
+        origin: [x, y, target[2]],
         rotation: crate::world::rotation_of_heading(byte),
     }
+}
+
+/// [`beside`], on the ground there: outdoors at the land's height where it lands (when the ground
+/// is known), else at the target's own height.
+#[must_use]
+pub fn beside_on_ground<S: Store>(
+    s: &Server<S>,
+    cell: u32,
+    target: [f32; 3],
+    from: &StoredPosition,
+) -> StoredPosition {
+    let mut at = beside(cell, target, from);
+    if let Some(z) = (!presence::indoors(at.cell))
+        .then(|| s.ground.as_ref()?.height(at.cell, at.origin))
+        .flatten()
+    {
+        at.origin[2] = z;
+    }
+    at
 }
 
 /// A recall takes the player into portal space toward the place it lands (its powering up and
@@ -2230,14 +2253,7 @@ pub fn resurrection_place_of<S: Store>(
         .filter(|o| is_lifestone(s, o.description.package))
         .filter_map(|o| reach(&fell, o.cell, o.origin).map(|d| (d, o)))
         .min_by(|a, b| a.0.total_cmp(&b.0))
-        .map_or(fell, |(_, o)| {
-            let mut at = beside(o.cell, o.origin, &fell);
-            at.origin[2] = (!presence::indoors(at.cell))
-                .then(|| s.ground.as_ref()?.height(at.cell, at.origin))
-                .flatten()
-                .unwrap_or(o.origin[2]);
-            at
-        })
+        .map_or(fell, |(_, o)| beside_on_ground(s, o.cell, o.origin, &fell))
 }
 
 /// A dead player goes through portal space to where it returns (its effects, frozen, portal
