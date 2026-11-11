@@ -930,11 +930,24 @@ impl<S: Store> Server<S> {
         self
     }
 
-    /// Stand what the world database places among the walls creatures meet.
+    /// Stand what the world database places among the walls creatures meet, and its doors among
+    /// those players' bodies meet, open as they stand now.
     pub fn stand_placed(&mut self) {
         let rows = walls_standing(self);
+        let doors = usable::doors::places(self);
+        let open: Vec<u64> = self
+            .doors
+            .by_id
+            .iter()
+            .filter(|(_, d)| usable::doors::passable(d.phase))
+            .map(|(id, _)| *id)
+            .collect();
         if let Some(w) = self.walls.as_mut() {
             w.set_standing(rows);
+            w.set_doors(doors);
+            for id in open {
+                w.set_door_open(id, true);
+            }
         }
     }
 

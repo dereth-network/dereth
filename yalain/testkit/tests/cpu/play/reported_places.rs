@@ -479,3 +479,23 @@ fn a_trips_end_and_a_place_told_back_are_taken_and_the_reckoning_starts_there() 
     }
     assert_eq!(force, 1);
 }
+
+/// A player's body that misses a report falls behind from then: its client is to be told where the
+/// body stands two seconds after that first miss, however many it misses after; a report reached in
+/// between, or a place given, puts it level again.
+/// Behaviour: server.places.a-body-behind-is-told-back-after-two-seconds
+#[test]
+fn a_body_behind_is_told_back_two_seconds_after_the_first_report_it_missed() {
+    use yalain_world::walls::{Following, PULLED_BACK_AFTER};
+    let mut f = Following::default();
+    assert_eq!(f.pull_back_at(), None, "level to begin with");
+    f.missed(10.0);
+    f.missed(10.2);
+    f.missed(11.9);
+    assert_eq!(f.pull_back_at(), Some(10.0 + PULLED_BACK_AFTER));
+    assert!((PULLED_BACK_AFTER - 2.0).abs() < f64::EPSILON);
+    f.reached();
+    assert_eq!(f.pull_back_at(), None, "level again");
+    f.missed(20.0);
+    assert_eq!(f.pull_back_at(), Some(22.0));
+}

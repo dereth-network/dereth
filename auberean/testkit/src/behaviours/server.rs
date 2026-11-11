@@ -10833,6 +10833,35 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.a-body-behind-is-told-back-after-two-seconds",
+        says: "A player's body that misses a report its client sent is behind from then: two seconds \
+               after that first miss, with none reached since, its client is to be told where the body \
+               stands; a report reached or a place given in between puts it level again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MOVE-TWO-SECONDS-2017"),
+        station: "yalain-testkit::dat::walls::a_player_reporting_through_a_building_is_held_at_it_and_told_back_after_two_seconds",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.places.a-body-follows-its-reports",
+        says: "A player's body on the server is carried to each place its client reports through the \
+               world's walls, and stands exactly there when it reaches it; a place over 50 m off is not \
+               followed, and one in a cell the walls hold no record of is not judged.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MOVE-SERVER-BODY-2017"),
+        station: "yalain-testkit::dat::walls::a_players_body_reaches_each_report_over_open_ground_and_stands_there",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.places.a-body-is-held-up-where-reports-go-through",
+        says: "A player's body is held up by a building or rock its client's reports go through, and \
+               stays where it stopped.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MOVE-BODY-HELD"),
+        station: "yalain-testkit::dat::walls::a_players_body_is_held_up_at_a_building_its_reports_go_through",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.places.a-chest-its-opener-left-opens-again",
         says: "A chest whose opener leaves the world, open or still opening, is shut for the next to \
                open. Our own rule: no recording shows a chest its opener left behind.",
@@ -10859,6 +10888,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-CHEST-USE-EFFECT"),
         station: "yalain-testkit::cpu::play::chests::a_chest_that_completes_its_own_quest_opens_once",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.a-closed-door-holds-a-players-body",
+        says: "A closed door across a player's way holds its body on the near side, and its client is \
+               told back there; an open one lets it through.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MOVE-DOORS"),
+        station: "yalain-testkit::dat::walls::a_closed_door_holds_a_players_body_and_an_open_one_lets_it_through",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.places.a-door-plays-its-scene",
@@ -11530,6 +11568,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-RECALL-FAILS"),
         station: "yalain-testkit::cpu::play::specials::a_recall_never_bound_plays_and_fails",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.recorded-reports-followed-by-a-body",
+        says: "The reports of a player's place recorded in January 2017, followed by a body of the \
+               player's own through the install's walls, are reached but for at most 159 of 1,806,692, \
+               and the bodies would send at most 10 corrections where the 2017 servers sent 600.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MOVE-BODY-REPLAY"),
+        station: "yalain-testkit::corpus::invariants::every_2017_report_of_a_players_place_is_followed_by_a_body_of_its_own",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.places.recorded-reports-pass-the-checks",

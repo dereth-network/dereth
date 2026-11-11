@@ -20,6 +20,20 @@
 //!   stopped at a later one: the searches waiting take turns, and a new one goes behind them, so
 //!   each is answered in the end.
 //!
+//! - **A player's body** follows what its client reports: from where it stands, it is carried to each
+//!   reported place through the transition, in legs of about a tick's run, each leg through the air
+//!   or, where that is held up, along the ground with its step heights. It reaches the place when it
+//!   ends within [`FOLLOWS_ACROSS`] meters of it across and [`FOLLOWS_UP`] up or down, and is then
+//!   set there exactly, so small differences between this physics and the client's never add up.
+//!   Where it is held up it stays where it stopped. A place further than [`FOLLOWS_FARTHEST`]
+//!   meters is not followed at all. A place in a cell the walls cannot read is not judged. A body
+//!   that can move no way at all, standing in something, is put where it fits nearest. One that
+//!   does not reach a place well above or below it goes again at the higher end's height, as its arc
+//!   would. A closed door holds a player's body as it holds a creature: a way through its plane
+//!   near its middle is not taken while it is shut.
+//!   [`Following`] keeps how long a body has gone without reaching a report: after
+//!   [`PULLED_BACK_AFTER`] seconds its client is to be told where the body is.
+//!
 //! - **What a world places** stands among the walls as it stands in a client's world: its look's
 //!   shape at its own scale, solid or not as its description says ([`Standing`]). What moves, comes
 //!   and goes or is seen by some players only is left out: a door is met where it stands
@@ -275,6 +289,17 @@ impl Walker {
 pub fn walker(records: &WorldRecords, description: &yalain_content::Description) -> Option<Walker> {
     let visual = |did: u32| records.visual(DataId(did)).map(|v| (*v).clone());
     let (setup, scale) = yalain_content::look_setup(description.look, &visual)?;
+    Some(Walker {
+        ethereality: Some(ethereality_of(description)),
+        flies: hover_of(records, description.look),
+        ..setup_walker(records, setup, scale)?
+    })
+}
+
+/// The body a setup gives at a scale: its first two collision spheres and its step heights, passing
+/// through what any new mover does; none for a setup with no spheres.
+#[must_use]
+pub fn setup_walker(records: &WorldRecords, setup: u32, scale: f32) -> Option<Walker> {
     let s = records.setup(DataId(setup))?;
     let spheres: Vec<[f32; 4]> = s
         .spheres
@@ -287,8 +312,8 @@ pub fn walker(records: &WorldRecords, description: &yalain_content::Description)
         step_up: s.step_up_height,
         step_down: s.step_down_height,
         scale,
-        ethereality: Some(ethereality_of(description)),
-        flies: hover_of(records, description.look),
+        ethereality: None,
+        flies: None,
     })
 }
 
@@ -343,6 +368,76 @@ pub const LONGEST_WAY: (f32, f32) = (3.0, 5.0);
 /// How near a lattice point a step must end to reach it, in meters.
 const ON_POINT: f32 = 0.3;
 
+/// How near a place its client reported a player's body must end to have reached it, across and up
+/// or down, in meters.
+pub const FOLLOWS_ACROSS: f32 = 0.5;
+pub const FOLLOWS_UP: f32 = 1.0;
+
+/// The longest leg of a player's body's way to a reported place, in meters: about what a player
+/// running moves in a physics tick of a tenth of a second.
+const FOLLOW_LEG: f32 = 0.7;
+
+/// How far from a leg's end a move through the air may stop and still be taken without trying the
+/// ground, in meters.
+const FOLLOW_CLOSE: f32 = 0.05;
+
+/// How many times a follow puts a body that goes nowhere where it fits nearest.
+const FITS: u8 = 1;
+
+/// How far up or down a reported place must be, in meters, for a follow that does not reach it to
+/// go again at the higher end's height.
+const HIGHER_END: f32 = 0.5;
+
+/// A door a player's body meets: how far along it from its middle, and how high above its foot, a
+/// way through its plane is held up, in meters; and how near its plane a body stands in its doorway
+/// already (the reach creatures meet doors with).
+pub const DOOR_SIDE: f32 = 2.0;
+pub const DOOR_HEIGHT: f32 = 3.0;
+const DOOR_IN_IT: f32 = 0.05;
+
+/// The farthest a player's body is carried to a reported place, in meters: a place further off is
+/// not followed.
+pub const FOLLOWS_FARTHEST: f32 = 50.0;
+
+/// How long a player's body goes without reaching a place its client reported before the client is
+/// told where its body is, in seconds.
+pub const PULLED_BACK_AFTER: f64 = 2.0;
+
+/// Where a player's body went on its way to a reported place.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Followed {
+    /// Where the body stands now: the place reported when it reached it.
+    pub at: StoredPosition,
+    pub reached: bool,
+    /// The moves through the transition it took.
+    pub moves: u32,
+}
+
+/// How long a player's body has gone without reaching what its client reports.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Following {
+    behind_since: Option<f64>,
+}
+
+impl Following {
+    /// The body reached a report, or was put somewhere.
+    pub fn reached(&mut self) {
+        self.behind_since = None;
+    }
+
+    /// The body did not reach a report that arrived at `now`.
+    pub fn missed(&mut self, now: f64) {
+        self.behind_since.get_or_insert(now);
+    }
+
+    /// When the client is to be told where its body is: [`PULLED_BACK_AFTER`] seconds after the
+    /// first report the body has not reached since it last reached one; none while it keeps up.
+    #[must_use]
+    pub fn pull_back_at(&self) -> Option<f64> {
+        self.behind_since.map(|t| t + PULLED_BACK_AFTER)
+    }
+}
+
 /// A node of a block's graph of cells: an interior cell's low word, or the outdoors.
 const OUTSIDE: u16 = 0;
 
@@ -375,6 +470,13 @@ pub struct Walls {
     /// Each template's body, and the bodies stepped (by template and scale).
     pub walkers: HashMap<u32, Walker>,
     bodies: HashMap<(u32, u32), Body>,
+    /// The body every player is given, and each player's, by its id.
+    pub player_walker: Walker,
+    players: HashMap<u64, Body>,
+    /// The doors players' bodies meet, by id: where each stands and whether it is open; and their
+    /// ids by block.
+    doors: HashMap<u64, (StoredPosition, bool)>,
+    doors_by_block: HashMap<u32, Vec<u64>>,
     /// What the world places, by the block whose reading stands it, each with its entry once it
     /// stands.
     standing: BTreeMap<(u8, u8), Vec<Kept>>,
@@ -442,6 +544,10 @@ impl Walls {
             graphs: HashMap::new(),
             walkers: HashMap::new(),
             bodies: HashMap::new(),
+            player_walker: Walker::of_size(ANY_WALKER.0, ANY_WALKER.1),
+            players: HashMap::new(),
+            doors: HashMap::new(),
+            doors_by_block: HashMap::new(),
             standing: BTreeMap::new(),
             searching: VecDeque::new(),
             pass: 0,
@@ -508,6 +614,12 @@ impl Walls {
     pub fn read_place(&mut self, cell: u32) {
         let (x, y) = block_of(cell);
         self.read_block(x, y);
+    }
+
+    /// Read what a place needs, if it is not read yet: its block, and the blocks around it for a
+    /// place outdoors or a cell seen from outside.
+    pub fn read_around(&mut self, cell: u32) {
+        self.need(cell);
     }
 
     /// How many blocks have been read.
@@ -730,6 +842,165 @@ impl Walls {
             .get(&template)
             .and_then(|w| w.flies)
             .map(|h| h.at_rest)
+    }
+
+    /// Put player `id`'s body at `at` at once: as it enters the world, at a trip's end, where a report
+    /// it reached was, or where its client was told it is.
+    pub fn place_player(&mut self, id: u64, at: &StoredPosition) {
+        let p = position(at, 0.0);
+        if let Some(body) = self.players.get_mut(&id) {
+            body.place(p, 0.0);
+            return;
+        }
+        let w = &self.player_walker;
+        let config = BodyConfig {
+            spheres: w
+                .spheres
+                .iter()
+                .map(|s| Sphere::new(Vec3::new(s[0], s[1], s[2]), s[3]))
+                .collect(),
+            step_up: w.step_up,
+            step_down: w.step_down,
+            scale: w.scale,
+            ground: auberean_assets::animation::MotionParams::default(),
+            air: auberean_assets::animation::MotionParams::default(),
+        };
+        let mut b = Body::new(config, p, 0.0);
+        b.is_player = true;
+        self.players.insert(id, b);
+    }
+
+    /// Where player `id`'s body stands; none before it is put anywhere.
+    #[must_use]
+    pub fn player_at(&self, id: u64) -> Option<StoredPosition> {
+        self.players.get(&id).map(|b| stored(&b.position))
+    }
+
+    /// Player `id` has left: its body goes.
+    pub fn forget_player(&mut self, id: u64) {
+        if let Some(body) = self.players.remove(&id) {
+            if let Some(entry) = body.key() {
+                self.world.remove(entry);
+            }
+        }
+    }
+
+    /// Carry player `id`'s body from where it stands to `to`, a place its client reported; none when
+    /// it has no body yet or the walls cannot read the cell of either place, so cannot judge. A
+    /// closed door between the two holds it where it stands.
+    pub fn follow_player(&mut self, id: u64, to: &StoredPosition) -> Option<Followed> {
+        let from = self.players.get(&id)?.position;
+        self.need(from.cell.0);
+        self.need(to.cell);
+        if !self.knows(from.cell.0) || !self.knows(to.cell) {
+            return None;
+        }
+        let target = position(to, 0.0);
+        let d = auberean_physics::geom::offset(&from, &target);
+        let length = (d.x * d.x + d.y * d.y + d.z * d.z).sqrt();
+        if length > FOLLOWS_FARTHEST || self.door_between(&stored(&from), to) {
+            return Some(Followed {
+                at: stored(&from),
+                reached: false,
+                moves: 0,
+            });
+        }
+        let (land, world) = (&self.land, &mut self.world);
+        let body = self.players.get_mut(&id)?;
+        let mut moves = 0;
+        let mut fits = 0;
+        let mut at = sweep(body, land, world, from, d, &mut moves, &mut fits);
+        let there = |at: &Position| {
+            let o = auberean_physics::geom::offset(&target, at);
+            (o.x * o.x + o.y * o.y).sqrt() <= FOLLOWS_ACROSS && o.z.abs() <= FOLLOWS_UP
+        };
+        let mut reached = there(&at);
+        if !reached && d.z.abs() > HIGHER_END {
+            // Up or down as it goes, the straight way can cut an edge the body's arc clears: it goes
+            // again at the higher end's height, rising first or coming down last.
+            let over = if d.z > 0.0 {
+                Vec3::new(0.0, 0.0, d.z)
+            } else {
+                Vec3::new(d.x, d.y, 0.0)
+            };
+            let mid = sweep(body, land, world, from, over, &mut moves, &mut fits);
+            let rest = auberean_physics::geom::offset(&mid, &target);
+            let again = sweep(body, land, world, mid, rest, &mut moves, &mut fits);
+            if there(&again) {
+                at = again;
+                reached = true;
+            }
+        }
+        if reached {
+            at = target;
+        }
+        body.place(at, 0.0);
+        // A body stands in the world only for its move: it is no wall to anyone else's.
+        if let Some(entry) = body.key() {
+            let nowhere = Position::new(CellId(0), Frame::new(Vec3::ZERO, Quat::IDENTITY));
+            world.place(land, entry, nowhere);
+        }
+        Some(Followed {
+            at: stored(&at),
+            reached,
+            moves,
+        })
+    }
+
+    /// The doors a player's body meets, by their ids and where they stand, in place of those it met
+    /// before; each closed until [`Walls::set_door_open`] says otherwise.
+    pub fn set_doors(&mut self, doors: Vec<(u64, StoredPosition)>) {
+        self.doors.clear();
+        self.doors_by_block.clear();
+        for (id, at) in doors {
+            self.doors_by_block
+                .entry(at.cell >> 16)
+                .or_default()
+                .push(id);
+            self.doors.insert(id, (at, false));
+        }
+    }
+
+    /// Door `id` turns passable (`open`) or solid.
+    pub fn set_door_open(&mut self, id: u64, open: bool) {
+        if let Some(d) = self.doors.get_mut(&id) {
+            d.1 = open;
+        }
+    }
+
+    /// Whether the straight way from `from` to `to` goes through a closed door: across its plane
+    /// within [`DOOR_SIDE`] of its middle and [`DOOR_HEIGHT`] of its foot, from a place not already
+    /// in its doorway.
+    fn door_between(&self, from: &StoredPosition, to: &StoredPosition) -> bool {
+        let mut blocks = vec![from.cell >> 16];
+        if to.cell >> 16 != from.cell >> 16 {
+            blocks.push(to.cell >> 16);
+        }
+        blocks
+            .iter()
+            .filter_map(|b| self.doors_by_block.get(b))
+            .flatten()
+            .filter_map(|id| self.doors.get(id))
+            .filter(|(at, open)| !*open && (at.origin[2] - from.origin[2]).abs() <= DOOR_HEIGHT)
+            .any(|(door, _)| {
+                let (ax, ay) = in_door_frame(door, from);
+                let (bx, by) = in_door_frame(door, to);
+                if ay.abs() < DOOR_IN_IT || (ay > 0.0) == (by > 0.0) {
+                    return false;
+                }
+                let share = ay / (ay - by);
+                (ax + share * (bx - ax)).abs() <= DOOR_SIDE
+            })
+    }
+
+    /// Whether the walls hold a place's cell: its interior cell, or outdoors its block.
+    fn knows(&self, cell: u32) -> bool {
+        if indoors(cell) {
+            self.land.cell(CellId(cell)).is_some()
+        } else {
+            let (x, y) = block_of(cell);
+            self.land.block(x, y).is_some()
+        }
     }
 
     /// A step: a walk's, or a search's in legs of the length given, which never puts the body where
@@ -1431,6 +1702,86 @@ fn fall(
         }
     }
     (None, moves)
+}
+
+/// Carry `body` from `from` by `d` in legs of at most [`FOLLOW_LEG`], each through the air or, where
+/// that stops short, along the ground, whichever ends nearer the leg's end; where it ends. A leg that
+/// goes nowhere either way finds the body standing in something, as a place set exactly can leave it:
+/// up to [`FITS`] times a follow, it is put where it fits nearest and tries the leg again from there.
+fn sweep(
+    body: &mut Body,
+    land: &Land,
+    world: &mut World,
+    from: Position,
+    d: Vec3,
+    moves: &mut u32,
+    fits: &mut u8,
+) -> Position {
+    let length = (d.x * d.x + d.y * d.y + d.z * d.z).sqrt();
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let legs = (length / FOLLOW_LEG).ceil().max(1.0) as u32;
+    let mut at = from;
+    for i in 1..=legs {
+        #[allow(clippy::cast_precision_loss)]
+        let share = i as f32 / legs as f32;
+        let aim = Vec3::new(d.x * share, d.y * share, d.z * share);
+        let miss = |p: &Position| {
+            let o = auberean_physics::geom::offset(&from, p);
+            let (x, y, z) = (aim.x - o.x, aim.y - o.y, aim.z - o.z);
+            (x * x + y * y + z * z).sqrt()
+        };
+        let mut one = |body: &mut Body, world: &mut World, at: Position| {
+            let here = auberean_physics::geom::offset(&from, &at);
+            let leg = Vec3::new(aim.x - here.x, aim.y - here.y, aim.z - here.z);
+            *moves += 1;
+            let mut best = fly(body, land, world, at, leg, 0.0);
+            if miss(&best) > FOLLOW_CLOSE {
+                *moves += 1;
+                let walked = walk(body, land, world, at, leg);
+                if miss(&walked) < miss(&best) {
+                    best = walked;
+                }
+            }
+            best
+        };
+        let mut next = one(body, world, at);
+        if next == at && miss(&at) > FOLLOW_CLOSE && *fits < FITS {
+            *fits += 1;
+            body.place(at, 0.0);
+            let ok = body.set_position_simple(land, world, at, true);
+            if ok == auberean_physics::body::placing::error::OK {
+                let placed = body.position;
+                next = one(body, world, placed);
+            }
+        }
+        at = next;
+    }
+    at
+}
+
+/// A place in a door's frame: along the door, and out of its front.
+fn in_door_frame(door: &StoredPosition, at: &StoredPosition) -> (f32, f32) {
+    let [w, _, _, z] = door.rotation;
+    let heading = 2.0 * math::atan2f(z, w);
+    let (dbx, dby) = block_of(door.cell);
+    let (abx, aby) = block_of(at.cell);
+    let dx = (f32::from(abx) - f32::from(dbx)) * 160.0 + at.origin[0] - door.origin[0];
+    let dy = (f32::from(aby) - f32::from(dby)) * 160.0 + at.origin[1] - door.origin[1];
+    let (sin, cos) = (math::sinf(heading), math::cosf(heading));
+    (cos * dx + sin * dy, -sin * dx + cos * dy)
+}
+
+/// One move of `body` from `start` by `d` along the ground, its step heights carrying it up and down;
+/// where it ends, on the ground or not.
+fn walk(body: &mut Body, land: &Land, world: &mut World, start: Position, d: Vec3) -> Position {
+    body.place(start, 0.0);
+    body.velocity = Vec3::ZERO;
+    body.contact = true;
+    body.on_walkable = true;
+    body.contact_plane = None;
+    body.sliding_normal = None;
+    body.move_through(land, world, d, 0.0);
+    body.position
 }
 
 /// One move of `body` from `start` by `d`; none when it went nowhere or left the ground.

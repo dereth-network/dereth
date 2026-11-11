@@ -1,15 +1,19 @@
 //! Creatures' steps against the September 2013 world's walls: the human training hall (copy
-//! 0x0298), its rooms and doorways.
+//! 0x0298), its rooms and doorways. And a player's body on the server following what its client
+//! reports through the same walls: the open ground outdoors at landblock 0x6FA9, the building north
+//! of it, and the hall's rock.
 
 use auberean_assets::Context;
 use auberean_dat::locate::{install_dats, DatName};
 use auberean_dat::DatFile;
+use auberean_physics::geom::point_to_local;
 use auberean_physics::land::Land;
 use auberean_world::records::WorldRecords;
 use dereth_primitives::num::math;
+use dereth_primitives::{CellId, Vec3};
 use yalain_store::StoredPosition;
 use yalain_testkit::{Harness, TEST_CREATURE};
-use yalain_world::walls::{RecordBlocks, Standing, Walker, Walls};
+use yalain_world::walls::{setup_walker, RecordBlocks, Standing, Walker, Walls, FOLLOWS_FARTHEST};
 
 /// The install's world records, opened anew.
 fn records() -> WorldRecords {
@@ -1359,5 +1363,389 @@ fn a_camps_creature_is_made_in_the_cell_that_holds_its_spot() {
         assert_eq!(at.origin, origin, "at the spot");
         let w = h.server.walls.as_ref().expect("the walls");
         assert!(inside(w, &at), "{named:08X}: the cell holds it");
+    }
+}
+
+// A player's body following what its client reports.
+
+/// The human male's setup, whose body players are given.
+const HUMAN_SETUP: u32 = 0x0400_0029;
+
+const PLAYER: u64 = 0x2130_0000_0000_0001;
+
+/// The walls, players given the human's body.
+fn player_walls() -> Walls {
+    let mut w = walls();
+    w.player_walker = setup_walker(&records(), HUMAN_SETUP, 1.0).expect("the human's body");
+    w
+}
+
+/// A place on the ground of landblock 0x6FA9.
+fn on_ground(w: &mut Walls, x: f32, y: f32) -> StoredPosition {
+    let (cell, x, y) = yalain_world::spawn::outdoor(0x6FA9, x, y);
+    w.read_place(cell);
+    let z = w
+        .land()
+        .ground(CellId(cell).landblock(), Vec3::new(x, y, 0.0))
+        .expect("the ground")
+        .0;
+    StoredPosition {
+        cell,
+        origin: [x, y, z],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    }
+}
+
+/// A body following its client's reports north over the open ground, one every 0.7 m, reaches each
+/// and stands exactly where it was reported.
+/// Behaviour: server.places.a-body-follows-its-reports
+#[test]
+fn a_players_body_reaches_each_report_over_open_ground_and_stands_there() {
+    let mut w = player_walls();
+    let start = on_ground(&mut w, 45.24, 90.51);
+    w.place_player(PLAYER, &start);
+    for k in 1..=10u8 {
+        let to = on_ground(&mut w, 45.24, 90.51 + 0.7 * f32::from(k));
+        let f = w.follow_player(PLAYER, &to).expect("judged");
+        assert!(f.reached, "report {k}: {to:?}, the body at {:?}", f.at);
+        assert_eq!(
+            w.player_at(PLAYER).map(|p| (p.cell, p.origin)),
+            Some((to.cell, to.origin))
+        );
+    }
+}
+
+/// Reports going on north through the building leave the body held up at it: from there on it
+/// reaches none, and stands south of where the reports went.
+/// Behaviour: server.places.a-body-is-held-up-where-reports-go-through
+#[test]
+fn a_players_body_is_held_up_at_a_building_its_reports_go_through() {
+    let mut w = player_walls();
+    let start = on_ground(&mut w, 45.24, 90.51);
+    w.place_player(PLAYER, &start);
+    let mut missed = 0;
+    let mut last = start;
+    for k in 1..=60u8 {
+        last = on_ground(&mut w, 45.24, 90.51 + 1.0 * f32::from(k));
+        let f = w.follow_player(PLAYER, &last).expect("judged");
+        if !f.reached {
+            missed += 1;
+        } else {
+            assert_eq!(missed, 0, "a report reached after one missed, at {k}");
+        }
+    }
+    assert!(missed > 0, "the building held it up");
+    let at = w.player_at(PLAYER).expect("a body");
+    assert!(
+        at.cell >> 16 == 0x6FA9 && at.origin[1] < last.origin[1] - 1.0,
+        "south of the last report: {at:?} against {last:?}"
+    );
+}
+
+/// A report in the next room, the hall's rock between, is not reached: the body stays in its room,
+/// inside it.
+/// Behaviour: server.places.a-body-is-held-up-where-reports-go-through
+#[test]
+fn a_players_body_does_not_go_through_rock_into_the_next_room() {
+    let mut w = player_walls();
+    let start = hall(0x010C, 16.0, 428.0, -43.1);
+    let there = hall(0x010D, 6.0, 431.0, -43.5);
+    w.place_player(PLAYER, &start);
+    let f = w.follow_player(PLAYER, &there).expect("judged");
+    assert!(!f.reached, "through the rock: {:?}", f.at);
+    assert_ne!(f.at.cell, there.cell, "still in its room");
+    let cell = w.land().cell(CellId(f.at.cell)).expect("a room");
+    let p = Vec3::new(f.at.origin[0], f.at.origin[1], f.at.origin[2] + 0.5);
+    assert!(
+        cell.cell_bsp
+            .as_ref()
+            .is_some_and(|t| t.point_inside_cell_bsp(point_to_local(&cell.frame, p))),
+        "inside the room it names: {:?}",
+        f.at
+    );
+}
+
+/// A report further than a body is carried is not followed: no move is tried, and the body stays.
+/// One in a cell the walls hold no record of is not judged at all.
+/// Behaviour: server.places.a-body-follows-its-reports
+#[test]
+fn a_report_too_far_is_not_followed_and_one_in_no_known_cell_is_not_judged() {
+    let mut w = player_walls();
+    let start = on_ground(&mut w, 45.24, 90.51);
+    w.place_player(PLAYER, &start);
+    let far = on_ground(&mut w, 45.24, 90.51 + FOLLOWS_FARTHEST + 5.0);
+    let f = w.follow_player(PLAYER, &far).expect("judged");
+    assert!(!f.reached);
+    assert_eq!(f.moves, 0);
+    assert_eq!(w.player_at(PLAYER).map(|p| p.origin), Some(start.origin));
+    let nowhere = hall(0xFFF0, 16.0, 428.0, -43.1);
+    assert_eq!(w.follow_player(PLAYER, &nowhere), None);
+    assert_eq!(w.follow_player(PLAYER + 1, &start), None, "no body yet");
+}
+
+// A player's reports on the real path: its body follows them through the walls and doors.
+
+const DOOR: u64 = 0x4002_9900_0000_0071;
+const DOOR_TEMPLATE: u32 = 0x4700_0FCE;
+const DOOR_PACKAGE: u32 = 0x0EB2;
+const USE: u32 = 0x8216_0016;
+
+/// A use of an item (on an object, or on nothing), as the client asks for it.
+fn use_of(item: u64, me: u64, on: u64) -> auberean_script::args::Arg {
+    use yalain_world::graph::{Builder, Slot};
+    let mut b = Builder::new();
+    b.object(
+        0x245,
+        &[
+            Slot::Ref(None),
+            Slot::Ref(None),
+            Slot::Long(item),
+            Slot::Ref(None),
+            Slot::Int(0),
+            Slot::Long(me),
+            Slot::Int((-1.0f32).to_bits()),
+            Slot::Long(on),
+            Slot::Int(0),
+            Slot::Long(0),
+            Slot::Int(0),
+            Slot::Ref(None),
+            Slot::Int(0),
+            Slot::Int(316),
+            Slot::Int(0),
+            Slot::Int(0),
+        ],
+    );
+    auberean_script::args::Arg::Object(b.graph())
+}
+
+/// The harness holding reports, with the walls and, when `door` says where across the way north
+/// from the start, a plain door there facing north; one player standing at the start on the open
+/// ground of 0x6FA9, at force stamp 0.
+fn held_player(door: Option<f32>) -> (Harness, usize, u64, yalain_net::ConnId, StoredPosition) {
+    let mut h = Harness::new();
+    h.server.cfg.holds_reports = true;
+    h.server.catalog = yalain_testkit::test_catalog();
+    let mut w = player_walls();
+    let start = on_ground(&mut w, 45.24, 90.51);
+    if let Some(y) = door {
+        let at = on_ground(&mut w, 45.24, y);
+        h.server.content = yalain_content::ContentPack {
+            objects: vec![yalain_content::ContentObject {
+                object: Some(DOOR),
+                template: DOOR_TEMPLATE,
+                description: yalain_content::Description {
+                    name_text: None,
+                    package: DOOR_PACKAGE,
+                    look: 0x1F00_0FCE,
+                    enter_fx: 0,
+                    scale: None,
+                    name: Some((0x1C06_0001, 0x2500_0001)),
+                    numbers: [0; 6],
+                    source: "authored for a test".into(),
+                },
+                cell: at.cell,
+                origin: at.origin,
+                rotation: [1.0, 0.0, 0.0, 0.0],
+                kind: yalain_content::Kind::Static,
+                label: String::new(),
+                placed: "authored for a test".into(),
+                destination: None,
+                facts: yalain_content::Facts::default(),
+                walks: None,
+                gate: None,
+            }],
+            ..yalain_content::ContentPack::default()
+        };
+        h.server
+            .doors
+            .packages
+            .insert(DOOR_PACKAGE, yalain_world::usable::doors::Kind::Plain);
+    }
+    h.server.walls = Some(w);
+    h.server.stand_placed();
+    let (a, me) = h.player_in_world("one", "Elara");
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in the world")
+        .0;
+    if let Some(p) = h.server.players.get_mut(&world) {
+        p.position = start;
+    }
+    h.run(10);
+    (h, a, me, world, start)
+}
+
+fn run_for(h: &mut Harness, seconds: f64) {
+    let t = h.now.0 + seconds;
+    while h.now.0 < t {
+        h.step();
+    }
+}
+
+/// Report a place on the ground of 0x6FA9 at the force stamp given, and let a quarter second pass.
+fn report_at(h: &mut Harness, a: usize, y: f32, force: u16) -> StoredPosition {
+    report_at_x(h, a, 45.24, y, force)
+}
+
+/// Report a place on the ground of 0x6FA9, as [`report_at`], at `x` across.
+fn report_at_x(h: &mut Harness, a: usize, x: f32, y: f32, force: u16) -> StoredPosition {
+    let to = {
+        let w = h.server.walls.as_mut().expect("the walls");
+        on_ground(w, x, y)
+    };
+    let mut m = yalain_testkit::play::report(
+        to.cell,
+        auberean_primitives::Vec3::new(to.origin[0], to.origin[1], to.origin[2]),
+        0,
+        yalain_world::world::IDLE_MOTION,
+        0,
+    );
+    if let auberean_protocol::ClientMessage::Position(p) = &mut m {
+        p.force_position_stamp = force;
+    }
+    h.bots[a].send(true, auberean_protocol::queue::WEENIE, &m);
+    run_for(h, 0.25);
+    to
+}
+
+/// The places the player's client was told with a new force stamp since `from`.
+fn told_back(h: &Harness, a: usize, me: u64, from: usize) -> Vec<(u16, [f32; 3])> {
+    h.world_messages(a, from)
+        .iter()
+        .filter_map(|m| match m {
+            auberean_protocol::ServerMessage::Position(p) if p.sender.id == me => {
+                Some((p.force_position_stamp, [p.origin.x, p.origin.y, p.origin.z]))
+            }
+            _ => None,
+        })
+        .filter(|(f, _)| *f > 0)
+        .collect()
+}
+
+/// A player whose reports go on north through the building: the server takes them up to the
+/// building and none past it, the player standing where its body was held up (sliding along the
+/// wall), and two seconds after
+/// the first report not reached its client is told that place; from there its reports are taken
+/// again.
+/// Behaviour: server.places.a-body-behind-is-told-back-after-two-seconds
+#[test]
+fn a_player_reporting_through_a_building_is_held_at_it_and_told_back_after_two_seconds() {
+    let (mut h, a, me, world, _) = held_player(None);
+    let from = h.bots[a].inbox.len();
+    let mut first_miss = None;
+    for k in 1..=70u8 {
+        let y = 90.51 + f32::from(k);
+        let to = report_at(&mut h, a, y, 0);
+        let at = h.server.players[&world].position;
+        if at.origin != to.origin && first_miss.is_none() {
+            first_miss = Some(h.now.0);
+        }
+        if first_miss.is_some() {
+            assert_ne!(at.origin, to.origin, "no report past the building taken");
+        }
+        if h.server.players[&world].force_position_stamp > 0 {
+            break;
+        }
+    }
+    let missed_at = first_miss.expect("the building held the body up");
+    let told = told_back(&h, a, me, from);
+    let p = &h.server.players[&world];
+    assert_eq!(p.force_position_stamp, 1, "told back once");
+    assert_eq!(told.len(), 1, "{told:?}");
+    assert_eq!(told[0].1, p.position.origin, "told where its body stands");
+    let waited = h.now.0 - missed_at;
+    assert!(
+        (2.0..2.6).contains(&waited),
+        "two seconds after the first miss: {waited}"
+    );
+    // From the place told back, a report back south is taken.
+    let (x, back) = (p.position.origin[0], p.position.origin[1] - 1.0);
+    let to = report_at_x(&mut h, a, x, back, 1);
+    assert_eq!(h.server.players[&world].position.origin, to.origin);
+}
+
+/// A client that goes quiet after a report its body could not reach is told where it stands two
+/// seconds on all the same, by the world's own step.
+/// Behaviour: server.places.a-body-behind-is-told-back-after-two-seconds
+#[test]
+fn a_silent_client_behind_is_told_back_when_its_two_seconds_are_up() {
+    let (mut h, a, me, world, start) = held_player(None);
+    let from = h.bots[a].inbox.len();
+    // Straight into the building, further than a step but within reach.
+    let _ = report_at(&mut h, a, 90.51 + 45.0, 0);
+    let held = h.server.players[&world].position;
+    assert!(
+        held.origin[1] < start.origin[1] + 45.0 - 1.0,
+        "held short: {held:?}"
+    );
+    assert_eq!(h.server.players[&world].force_position_stamp, 0);
+    run_for(&mut h, 1.5);
+    assert_eq!(h.server.players[&world].force_position_stamp, 0, "not yet");
+    run_for(&mut h, 0.75);
+    assert_eq!(h.server.players[&world].force_position_stamp, 1);
+    assert_eq!(told_back(&h, a, me, from).len(), 1);
+}
+
+/// Reports that come late and bunched along the open ground are each reached, however long the
+/// client was quiet before them: no one is told back.
+/// Behaviour: server.places.a-body-follows-its-reports
+#[test]
+fn reports_late_and_bunched_over_open_ground_are_all_taken() {
+    let (mut h, a, _, world, _) = held_player(None);
+    for k in 1..=6u8 {
+        let to = report_at(&mut h, a, 90.51 + 0.7 * f32::from(k), 0);
+        assert_eq!(h.server.players[&world].position.origin, to.origin);
+    }
+    run_for(&mut h, 3.0);
+    for k in 7..=12u8 {
+        // Three at once, then the next.
+        let y = 90.51 + 0.7 * f32::from(k);
+        let to = report_at(&mut h, a, y, 0);
+        assert_eq!(h.server.players[&world].position.origin, to.origin);
+    }
+    assert_eq!(h.server.players[&world].force_position_stamp, 0);
+}
+
+/// A closed door across the way holds the body on its near side, and the client is told back
+/// there; once the player has opened it the same way north is taken.
+/// Behaviour: server.places.a-closed-door-holds-a-players-body
+#[test]
+fn a_closed_door_holds_a_players_body_and_an_open_one_lets_it_through() {
+    let door_y = 93.0;
+    let (mut h, a, me, world, _) = held_player(Some(door_y));
+    // Through the closed door: held on the near side, then told back.
+    let mut y = 90.51;
+    while y < door_y + 3.0 {
+        y += 0.7;
+        let _ = report_at(&mut h, a, y, 0);
+        assert!(
+            h.server.players[&world].position.origin[1] < door_y,
+            "on the near side: {:?}",
+            h.server.players[&world].position
+        );
+    }
+    run_for(&mut h, 2.5);
+    assert_eq!(
+        h.server.players[&world].force_position_stamp, 1,
+        "told back"
+    );
+    // Opened from where it stands, the door lets the next reports through.
+    h.bots[a].send(
+        true,
+        auberean_protocol::queue::WEENIE,
+        &yalain_testkit::play::server_call(USE, &[use_of(DOOR, me, 0)]),
+    );
+    run_for(&mut h, 1.0);
+    let mut y = h.server.players[&world].position.origin[1];
+    while y < door_y + 3.0 {
+        y += 0.7;
+        let to = report_at(&mut h, a, y, 1);
+        assert_eq!(
+            h.server.players[&world].position.origin, to.origin,
+            "through the open door"
+        );
     }
 }

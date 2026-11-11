@@ -246,6 +246,24 @@ pub fn door<S: Store>(s: &Server<S>, id: u64) -> Option<(Kind, StoredPosition)> 
     ))
 }
 
+/// Every door of the world, by its id, and where it stands.
+#[must_use]
+pub fn places<S: Store>(s: &Server<S>) -> Vec<(u64, StoredPosition)> {
+    (0..s.content.objects.len())
+        .filter_map(|i| {
+            let id = presence::content_id(&s.content.objects, i);
+            door(s, id).map(|(_, at)| (id, at))
+        })
+        .collect()
+}
+
+/// Whether a door in a phase lets bodies through: from the moment it starts to open until it starts
+/// to close.
+#[must_use]
+pub const fn passable(phase: Phase) -> bool {
+    matches!(phase, Phase::Opening | Phase::Open)
+}
+
 /// Is a place in front of a door (on the side its facing points to)?
 #[must_use]
 pub fn in_front(door: &StoredPosition, at: &StoredPosition) -> bool {
@@ -702,6 +720,9 @@ pub(crate) fn key_kept<S: Store>(s: &Server<S>, world: ConnId, key: Option<u64>)
 
 /// Tell everyone who sees a door it turns passable or solid and plays a mode.
 fn moving<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, physics: i32, m: u32) {
+    if let Some(w) = s.walls.as_mut() {
+        w.set_door_open(id, physics == quality::PASSABLE);
+    }
     let q = ServerMessage::UpdateIntVisual(VisualQuality {
         object: places::object_stamp(s, id),
         quality: quality::PHYSICS,

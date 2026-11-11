@@ -184,6 +184,7 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
     crate::mining::expire(s, net, now);
     crate::regen::step(s, net, now);
     crate::talk::step(s, net, clock);
+    crate::world::pull_back_due(s, net, clock);
     s.step_timer.lap(Stage::Step);
 }
 

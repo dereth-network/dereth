@@ -5,6 +5,7 @@ mod chat;
 mod client_sends;
 mod content;
 mod examine;
+mod instruments;
 mod invariants;
 mod keeping;
 mod play;

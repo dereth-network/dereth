@@ -1260,8 +1260,12 @@ pub fn land_ground(
         inner: yalain_world::walls::RecordBlocks::new(records, region),
         spent: std::time::Duration::ZERO,
     };
+    let human = yalain_world::walls::setup_walker(blocks.inner.records(), HUMAN_SETUP, 1.0);
     let mut walls = yalain_world::walls::Walls::new(land.clone(), world, Box::new(blocks));
     walls.walkers = walkers;
+    if let Some(h) = human {
+        walls.player_walker = h;
+    }
     Ok((
         LandGround {
             known: yalain_world::reported::Known { land, rooms },
@@ -1270,6 +1274,10 @@ pub fn land_ground(
         walls,
     ))
 }
+
+/// The human male's setup, whose collision spheres and step heights every player's body takes on
+/// the server (a bigger race passes where it would, a little leniently).
+const HUMAN_SETUP: u32 = 0x0400_0029;
 
 /// The bodies of the templates whose looks give one: their setups' collision spheres and step
 /// heights, at the looks' scale.

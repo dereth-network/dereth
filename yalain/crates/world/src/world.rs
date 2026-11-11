@@ -20,6 +20,15 @@
 //! report from the corrected place, at its stamp, in 515). Reports that have not heard of the new
 //! stamp are not taken. A land cell its point does not lie in is no place at all.
 //!
+//! **The player's body.** Where the server knows the world's walls, it keeps a body for each player
+//! and carries it to each place the client reports, through the walls and closed doors as the
+//! client's own body goes. A place the body reaches is taken. One it cannot reach is not: the
+//! player stands where the body stopped, for everything the server judges and for everyone who sees
+//! it. Two seconds after the first report the body could not reach, with none reached since, the
+//! client is told where its player stands, as for a place too far (2017: the servers' own bodies
+//! of their players corrected them this way, about two seconds after falling behind). A player the
+//! server put somewhere else since (a trip's end, a place told back) has its body put there first.
+//!
 //! **Options.** The client sends its options as they change; the server keeps them for the next
 //! session start, up to what a character keeps ([`crate::options`]).
 //!
@@ -50,6 +59,7 @@ use crate::presence::{self, Seen};
 use crate::reported::Travel;
 use crate::session::{self, request, SessionStart};
 use crate::uploads::{self, Value};
+use crate::walls::Following;
 use crate::{Clock, Server};
 
 /// The effect a character arrives in the world with, and the one it leaves the portal with.
@@ -90,6 +100,8 @@ pub struct Player {
     pub force_position_stamp: u16,
     /// The reckoning of its reports since its last place was taken or given.
     pub travel: Travel,
+    /// How long its body on the server has gone without reaching a place its client reported.
+    pub behind: Following,
     /// When it was last told where it stands after a place it reported was refused.
     pub told_back: f64,
     pub position: StoredPosition,
@@ -477,6 +489,7 @@ pub fn enter<S: Store>(
         teleport_stamp: 0,
         force_position_stamp: 0,
         travel: Travel::placed(clock.local.0),
+        behind: Following::default(),
         told_back: f64::NEG_INFINITY,
         view_brought: f64::NEG_INFINITY,
         view_owed: false,
@@ -871,6 +884,9 @@ pub fn leave<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
         crate::gives::left(s, net, world);
         crate::usable::chests::left(s, net, world);
         crate::usable::vaults::left(s, world);
+        if let Some(w) = s.walls.as_mut() {
+            w.forget_player(id);
+        }
     }
     if let Some(mut p) = s.players.remove(&world) {
         presence::depart(s, net, &p);
@@ -1275,6 +1291,8 @@ fn moved<S: Store>(
         }
         return;
     }
+    // Where the player's body stopped, short of a report it could not reach.
+    let mut held: Option<StoredPosition> = None;
     if s.cfg.holds_reports && !p.admin_character {
         let reported = StoredPosition {
             cell: c.cell,
@@ -1307,39 +1325,72 @@ fn moved<S: Store>(
             return;
         }
         p.travel.take(meters, now);
+        if let Some(w) = s.walls.as_mut() {
+            let id = p.character;
+            if w.player_at(id)
+                .is_none_or(|b| b.cell != p.position.cell || b.origin != p.position.origin)
+            {
+                // Put somewhere since: the body goes there first.
+                w.place_player(id, &p.position);
+                p.behind.reached();
+            }
+            match w.follow_player(id, &reported) {
+                None => {
+                    // Not judged where the walls lack the cell: the body goes with the report.
+                    w.place_player(id, &reported);
+                    p.behind.reached();
+                }
+                Some(f) if f.reached => p.behind.reached(),
+                Some(f) => {
+                    tracing::debug!(
+                        ?world,
+                        cell = format_args!("{:08X}", c.cell),
+                        "a place the player's body did not reach"
+                    );
+                    p.behind.missed(now);
+                    held = Some(f.at);
+                }
+            }
+            if p.behind.pull_back_at().is_some_and(|due| now >= due) {
+                if let Some(at) = held {
+                    p.position.cell = at.cell;
+                    p.position.origin = at.origin;
+                }
+                pull_back(p, net, world, time, now);
+                return;
+            }
+        }
     }
-    if c.cell != p.position.cell {
-        tracing::debug!(
-            ?world,
-            cell = format_args!("{:08X}", c.cell),
-            "into a new cell"
-        );
+    let (cell, origin) = held.map_or((c.cell, [c.origin.x, c.origin.y, c.origin.z]), |h| {
+        (h.cell, h.origin)
+    });
+    if cell != p.position.cell {
+        tracing::debug!(?world, cell = format_args!("{cell:08X}"), "into a new cell");
     }
     let before = p.position;
     #[allow(clippy::cast_possible_truncation)]
     let heading = (c.heading_motion >> 24) as u8;
     p.position = StoredPosition {
-        cell: c.cell,
-        origin: [c.origin.x, c.origin.y, c.origin.z],
+        cell,
+        origin,
         rotation: rotation_of_heading(heading),
     };
     p.heading_motion = c.heading_motion;
     let mut m = p.next_position(time, ON_GROUND);
-    let new_cell = c.cell != before.cell;
-    if c.flags & position_flags::JUMP != 0 && !new_cell {
+    let new_cell = cell != before.cell;
+    if c.flags & position_flags::JUMP != 0 && !new_cell && held.is_none() {
         m.flags |= position_flags::JUMP;
         m.velocity = c.jump_velocity;
     }
     let jumped = c.flags & position_flags::JUMP != 0;
     presence::tell_position(s, net, world, &m, s.cfg.echo_positions, new_cell);
-    let moved_view = c.cell >> 16 != before.cell >> 16
-        || (presence::indoors(c.cell) && c.cell != before.cell)
-        || presence::land_cell(c.cell, [c.origin.x, c.origin.y, c.origin.z])
-            != presence::land_cell(before.cell, before.origin);
+    let moved_view = cell >> 16 != before.cell >> 16
+        || (presence::indoors(cell) && cell != before.cell)
+        || presence::land_cell(cell, origin) != presence::land_cell(before.cell, before.origin);
     if moved_view {
         presence::view_moved(s, net, world, clock);
     }
-    if c.cell >> 16 != before.cell >> 16 {
+    if cell >> 16 != before.cell >> 16 {
         crate::kingdoms::check(s, net, world);
     }
     crate::places::arrived(s, net, world, clock);
@@ -1356,6 +1407,32 @@ fn moved<S: Store>(
     crate::social::moved(s, net, world, clock);
     crate::mounts::moved(s, world, clock);
     crate::workshops::moved(s, net, world, clock);
+}
+
+/// Tell a player's client where its player stands, its reports since not taken: the force-position
+/// stamp moves on.
+fn pull_back(p: &mut Player, net: &mut ServerNet, world: ConnId, time: f64, now: f64) {
+    p.force_position_stamp = p.force_position_stamp.wrapping_add(1);
+    p.told_back = now;
+    p.behind.reached();
+    let m = p.next_position(time, ON_GROUND);
+    let told = ServerMessage::Position(m).encode();
+    net.send_ephemeral(world, queue::EVENT, p.position_stream, told);
+}
+
+/// Every player whose body has gone two seconds without reaching a report, its client silent since,
+/// is told where it stands.
+pub fn pull_back_due<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
+    if !s.cfg.holds_reports || s.walls.is_none() {
+        return;
+    }
+    let now = clock.local.0;
+    let time = net.game_time(clock.local);
+    for (world, p) in &mut s.players {
+        if p.behind.pull_back_at().is_some_and(|due| now >= due) {
+            pull_back(p, net, *world, time, now);
+        }
+    }
 }
 
 /// Keep an option the client sends. Returns whether the call was one the server keeps.
