@@ -15363,6 +15363,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.world.mapped-dungeon-ways-in",
+        says: "Each of the four ways in that players' maps and the list of destinations place leads \
+               into its dungeon, a way out stands beside its landing and leads back near the \
+               portal, and every creature spot the maps give stands in one of its dungeon's own \
+               cells, where each kind its camp makes moves.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-TELEPADS"),
+        station: "yalain-testkit::corpus::world_db::the_mapped_dungeons_ways_in_and_out_lead_both_ways",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.world.objects-around-the-player",
         says: "The objects of the world in the player's view are made for it as it enters: \
                indoors those of its own landblock in the cells its cell sees, outdoors those \

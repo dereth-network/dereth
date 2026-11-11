@@ -5170,32 +5170,59 @@ fn the_heros_transformation_and_the_vitae_tap_read_as_the_server_starts_them() {
 }
 
 /// **Creatures' behavior as 2017's**: the world's creature rows are 2017's entry for entry, and
-/// the test world's: 27 concealing rows of 23 effects, the five healers' behavior tables, the five
-/// friend tables that never attack a player first, and the six shooters' rhythms of the start area.
+/// the test world's: 28 concealing rows of 24 effects, the five healers' behavior tables, the five
+/// friend tables that never attack a player first, the six shooters' rhythms of the start area, the
+/// 14 guards that mark the players they see and the one turret that takes on only the marked.
 /// Behaviour: server.creatures.behavior-rows-as-2017
 #[test]
 fn the_worlds_creature_rows_are_2017s_entry_for_entry() {
     let rows = &compiled().tables.creatures;
-    assert_eq!(rows.concealing.len(), 27);
+    assert_eq!(rows.concealing.len(), 28);
     let effects: std::collections::BTreeSet<u32> =
         rows.concealing.keys().map(|(e, _)| *e).collect();
-    assert_eq!(effects.len(), 23);
+    assert_eq!(effects.len(), 24);
     assert_eq!(
         (
             rows.heals_kin.len(),
             rows.attacks_first.len(),
-            rows.rhythms.len()
+            rows.rhythms.len(),
+            rows.marks.len(),
+            rows.only_hated.len()
         ),
-        (5, 5, 6)
+        (5, 5, 6, 14, 1)
     );
-    // The test world also holds the guards' marks, the turret that takes on only the marked and
-    // the mark's concealing row, which this world does not carry yet.
-    let mut want = yalain_testkit::test_creature_rows();
-    want.marks.clear();
-    want.only_hated.clear();
-    want.concealing
-        .retain(|(effect, _), _| *effect != 0x6F00_1F31);
-    assert_eq!(*rows, want);
+    assert_eq!(*rows, yalain_testkit::test_creature_rows());
+}
+
+/// **The marked alone are shot**: the world's 14 marking guards each put on the mark, whose row makes
+/// the turret's class hate its holder; the turret, of that class and of a friend table that never
+/// attacks first, takes on only those it hates, and each guard sees as far as its own data says.
+/// Behaviour: server.creatures.only-the-hated
+#[test]
+fn the_worlds_hated_only_turret_is_of_the_class_its_mark_makes_hate() {
+    use yalain_content::creature_rows::Regard;
+    use yalain_testkit::{MARK, MARKED_ONLY, MARKERS, MARK_HATED_BY};
+    let rows = &compiled().tables.creatures;
+    let portal = yalain_testkit::authored::Portal::open();
+    let turret = portal.template(MARKED_ONLY);
+    assert_eq!(
+        (
+            turret.props.word("AI_AISuperClass"),
+            turret.props.word("AI_LoveTable")
+        ),
+        (Some(MARK_HATED_BY), Some(0x23))
+    );
+    assert_eq!(rows.attacks_first.get(&0x23), Some(&false));
+    assert_eq!(
+        rows.concealing.get(&(MARK, Some(MARK_HATED_BY))),
+        Some(&Regard::Hates)
+    );
+    assert!(rows.only_hated.contains(&MARKED_ONLY));
+    for m in MARKERS {
+        assert_eq!(rows.marks.get(&m).map(|k| k.effect), Some(MARK), "{m:#x}");
+        let seen = portal.template(m).props.float("AI_PerceptionRadius");
+        assert!(matches!(seen, Some(r) if r == 10.0 || r == 15.0), "{m:#x}");
+    }
 }
 
 /// **Thorsten Cragstone's Olthoi hunts walk through**: a use of him gives each of his five hunts
@@ -5417,4 +5444,271 @@ fn the_pinned_release_packaged_from_its_layout_alone_is_the_pins_archive() {
         rows::read_layout(&under_test).map_err(|p| yalain_world_db::report(&p)),
         Ok(full.layout())
     );
+}
+
+/// **The ways into the mapped dungeons go both ways**: each of the four portals the players' maps and
+/// the list of destinations place leads into its dungeon, a way out stands within 4 m of its landing
+/// and leads back near the portal, and every creature spot those maps give stands in one of its
+/// dungeon's own cells, where each kind its camp makes moves at its own size.
+/// Behaviour: server.world.mapped-dungeon-ways-in
+#[test]
+fn the_mapped_dungeons_ways_in_and_out_lead_both_ways() {
+    use dereth_primitives::num::math;
+    use yalain_store::StoredPosition;
+    use yalain_world::usable::doors;
+    use yalain_world::usable::maps::ground_distance;
+    use yalain_world_db::rows::Row;
+    const PACK: &str = "acmaps-camps";
+    // Each dungeon a way in is placed for, and how near its portal the way out leads back: the
+    // lair's leads to the surface end the list of destinations gives, 27 m from the portal recorded
+    // there.
+    const DUNGEONS: [(u32, f32); 4] = [
+        (0x04B0, 30.0),
+        (0x07BA, 10.0),
+        (0x07C1, 10.0),
+        (0x06FC, 10.0),
+    ];
+    let c = compiled();
+    let t = &c.tables;
+    let at = |cell: u32, origin: [f32; 3], rotation: [f32; 4]| StoredPosition {
+        cell,
+        origin,
+        rotation,
+    };
+    for (block, back_within) in DUNGEONS {
+        let way_in = t
+            .content
+            .objects
+            .iter()
+            .find(|o| {
+                o.cell >> 16 != block
+                    && o.destination
+                        .as_ref()
+                        .is_some_and(|d| d.cell >> 16 == block)
+            })
+            .unwrap_or_else(|| panic!("a way into {block:04X}"));
+        let landing = way_in.destination.as_ref().expect("its landing");
+        let out = t
+            .content
+            .objects
+            .iter()
+            .find(|o| {
+                o.cell >> 16 == block
+                    && o.destination
+                        .as_ref()
+                        .is_some_and(|d| d.cell >> 16 != block)
+            })
+            .unwrap_or_else(|| panic!("a way out of {block:04X}"));
+        let near_landing = ground_distance(
+            &at(out.cell, out.origin, out.rotation),
+            &at(landing.cell, landing.origin, landing.rotation),
+        );
+        assert!(near_landing < 4.0, "{block:04X}: {near_landing}");
+        let back = out.destination.as_ref().expect("its destination");
+        assert_eq!(back.cell >> 16, way_in.cell >> 16, "{block:04X}");
+        let near_portal = ground_distance(
+            &at(back.cell, back.origin, back.rotation),
+            &at(way_in.cell, way_in.origin, way_in.rotation),
+        );
+        assert!(near_portal < back_within, "{block:04X}: {near_portal}");
+    }
+    // The maps' camps, as the world plays them.
+    let keys: std::collections::BTreeSet<&str> = c
+        .merged
+        .rows
+        .iter()
+        .filter(|l| l.pack == PACK)
+        .filter_map(|l| match &l.row {
+            Row::Camp(camp) => Some(camp.key.as_str()),
+            _ => None,
+        })
+        .collect();
+    let camps: Vec<_> = t
+        .spawns
+        .camps
+        .iter()
+        .filter(|camp| keys.contains(camp.id.split('@').next().unwrap_or_default()))
+        .collect();
+    let blocks: std::collections::BTreeSet<u32> = camps.iter().map(|c| c.cell >> 16).collect();
+    assert_eq!(
+        blocks.iter().copied().collect::<Vec<_>>(),
+        [0x06FC, 0x4592, 0x76AE, 0x99C4],
+        "the maps' camps are in their four dungeons"
+    );
+    // The walls as the world stands them in those dungeons, with each camp's creatures' bodies.
+    let portal = yalain_testkit::authored::Portal::open();
+    let mut h = Harness::new();
+    let lib = portal.library();
+    let door = lib.package_id(doors::PACKAGE).expect("the doors' package");
+    h.server.content.objects = t
+        .content
+        .objects
+        .iter()
+        .filter(|o| blocks.contains(&(o.cell >> 16)))
+        .cloned()
+        .collect();
+    for o in &h.server.content.objects {
+        h.server.catalog.insert(portal.template(o.template));
+        let p = o.description.package;
+        if lib.derives_from(p, door) {
+            let kind = doors::Kind::of_package(&lib.package_name(p));
+            h.server.doors.packages.insert(p, kind);
+        }
+    }
+    let records = super::invariants::world_records();
+    let region = records.region().expect("the region");
+    let mut world = auberean_physics::world::World::new();
+    if let Some(list) = records.get::<auberean_assets::property::PropertyList>(0x3400_0000) {
+        world.set_property_list(list);
+    }
+    let mut bodies = std::collections::HashMap::new();
+    for (template, _) in camps.iter().flat_map(|c| c.templates.iter()) {
+        let made = as_installed(&portal, *template);
+        let walker = yalain_world::walls::walker(&records, &made.description)
+            .unwrap_or_else(|| panic!("{template:08X} has a body"));
+        let stats = yalain_content::CreatureStats::from_props(&made.props)
+            .unwrap_or_else(|| panic!("{template:08X} is a creature"));
+        bodies.insert(*template, (walker, stats.scale));
+    }
+    let mut walls = yalain_world::walls::Walls::new(
+        std::sync::Arc::new(auberean_physics::land::Land::new()),
+        world,
+        Box::new(yalain_world::walls::RecordBlocks::new(records, region)),
+    );
+    walls.walkers = bodies.iter().map(|(t, (w, _))| (*t, w.clone())).collect();
+    walls.set_standing(yalain_world::walls_standing(&h.server));
+    let ways: Vec<[f32; 2]> = (0..8u8)
+        .map(|k| {
+            let a = f32::from(k) * std::f32::consts::TAU / 8.0;
+            [math::sinf(a), math::cosf(a)]
+        })
+        .collect();
+    for camp in camps {
+        assert!(!camp.spots.is_empty(), "{} has its spots", camp.id);
+        for &(cell, origin) in &camp.spots {
+            let here = at(cell, origin, [1.0, 0.0, 0.0, 0.0]);
+            assert_eq!(cell >> 16, camp.cell >> 16, "{}: {cell:08X}", camp.id);
+            assert!(cell & 0xFFFF >= 0x100, "{}: {cell:08X} is a room", camp.id);
+            walls.read_place(cell);
+            let room = walls
+                .land()
+                .cell(dereth_primitives::CellId(cell))
+                .unwrap_or_else(|| panic!("{}: {cell:08X} reads", camp.id));
+            let point = dereth_primitives::Vec3::new(origin[0], origin[1], origin[2] + 0.5);
+            let local = auberean_physics::geom::point_to_local(&room.frame, point);
+            assert!(
+                room.cell_bsp
+                    .as_ref()
+                    .is_some_and(|b| b.point_inside_cell_bsp(local)),
+                "{}: {origin:?} is inside {cell:08X}",
+                camp.id
+            );
+            for (template, _) in &camp.templates {
+                let scale = bodies[template].1;
+                let moved = ways
+                    .iter()
+                    .filter_map(|d| walls.step(*template, scale, &here, *d))
+                    .map(|s| s.moved)
+                    .fold(0.0f32, f32::max);
+                assert!(
+                    moved >= 0.5,
+                    "{}: {template:08X} at {cell:08X} {origin:?} moves {moved}",
+                    camp.id
+                );
+            }
+        }
+    }
+}
+
+/// **The hero initiation's recipes in silence**: the world keeps the effects of two rows quiet,
+/// the Hero Shrine's step and Elysa's Initiation give, each a recipe whose own table holds its
+/// line; run as the world serves it, the shrine's step teaches its three recipes and tells none of
+/// their lines (2017: 15 grants at 5 uses, none told).
+/// Behaviour: server.effects.a-quiet-rows-effects-tell-no-line
+#[test]
+fn the_hero_initiations_recipes_are_taught_without_their_lines() {
+    use yalain_world::effect_defs::Kind as EffectKind;
+    use yalain_world::effects::learned::LINE;
+    let t = &compiled().tables;
+    let mut quiet: Vec<(u32, &[u32])> = t
+        .quests
+        .steps
+        .iter()
+        .filter(|s| s.effects_quiet)
+        .map(|s| (s.quest, s.effects.as_slice()))
+        .collect();
+    quiet.sort_unstable();
+    let shrine: &[u32] = &[0x6F00_1C60, 0x6F00_1C62, 0x6F00_1C5E];
+    assert_eq!(
+        quiet,
+        [(0x4000_024A, &[0x6F00_1C5D][..]), (0x4000_0268, shrine)],
+        "the two rows"
+    );
+    assert!(t.quests.gives.iter().all(|g| !g.effects_quiet));
+    let step = t
+        .quests
+        .steps
+        .iter()
+        .find(|s| s.quest == 0x4000_0268)
+        .expect("the shrine's step")
+        .clone();
+
+    let (mut h, b, me) = served(t);
+    h.server.effect_table = effects_read(shrine, &t.effect_rules);
+    let mut recipes = Vec::new();
+    for e in shrine {
+        let d = h.server.effect_table.get(*e).expect("read");
+        let (EffectKind::GrantRecipe(recipe), Some((_, table))) = (&d.kind, d.name) else {
+            panic!("{e:08X} grants a named recipe");
+        };
+        recipes.push(*recipe);
+        // Its own table holds its line, as the start reads it.
+        h.server.effect_table.lines.insert(*e, (LINE, table));
+    }
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in the world")
+        .0;
+    // Used, as the shrine's: it names who gave the recipes.
+    let i = t
+        .content
+        .objects
+        .iter()
+        .position(|o| o.template == 0x4700_3049)
+        .expect("the shrine placed");
+    let shrine_id = yalain_world::presence::content_id(&t.content.objects, i);
+    let by = Some((shrine_id, t.content.objects[i].description.name));
+    let from = h.bots[b].inbox.len();
+    let clock = h.clock();
+    yalain_world::quests::run(&mut h.server, &mut h.net, world, &step, by, clock);
+    h.run(2);
+    let calls = h.calls(b, from);
+    let taught: Vec<u32> = calls
+        .iter()
+        .filter(|(f, _)| *f == yalain_world::craft::function::ADD_RECIPE)
+        .filter_map(|(_, v)| {
+            v.iter().find_map(|x| match x {
+                yalain_world::calls::Value::Int(r) => Some(*r),
+                _ => None,
+            })
+        })
+        .collect();
+    for r in &recipes {
+        assert!(taught.contains(r), "{r:08X} taught: {taught:08X?}");
+    }
+    // What it does tell is the quest's own completion (2017's too, at each use).
+    let lines: Vec<(u32, u32)> = calls
+        .iter()
+        .filter(|(f, _)| *f == yalain_world::session::function::SHOW_TEXT)
+        .flat_map(|(_, v)| v.iter())
+        .filter_map(|x| match x.root() {
+            Some(yalain_world::calls::Node::TextInfo(t)) => Some((t.string_id, t.table)),
+            _ => None,
+        })
+        .filter(|(string, _)| *string == LINE)
+        .collect();
+    assert_eq!(lines, [], "no effect's line told");
 }

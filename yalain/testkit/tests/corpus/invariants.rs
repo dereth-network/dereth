@@ -144,29 +144,30 @@ fn recorded_reports_of_a_players_place_hold_their_land_cells() {
     assert_eq!(wrong_cell, 0);
 }
 
-/// The land as the walls read it and the install's rooms, as a world's checks see them.
-fn known_world() -> (yalain_world::walls::Walls, yalain_world::reported::Known) {
+/// The install's world records, opened anew.
+pub(crate) fn world_records() -> auberean_world::records::WorldRecords {
     use auberean_dat::locate::{install_dats, DatName};
     use auberean_dat::DatFile;
-    use auberean_world::records::WorldRecords;
 
     let dir = auberean_dat::testing::require_target_install();
-    let open_records = || {
-        let mut files: Vec<(DatName, DatFile)> = install_dats(&dir)
-            .expect("list the install")
-            .into_iter()
-            .map(|(n, p)| (n, DatFile::open(&p).expect("open")))
-            .collect();
-        let mut take = |name: &DatName| {
-            let k = files.iter().position(|(n, _)| n == name)?;
-            Some(files.swap_remove(k).1)
-        };
-        let portal = take(&DatName::Portal).expect("a portal file");
-        let cell = take(&DatName::Cell(1)).expect("a cell file");
-        let ctx = auberean_assets::Context::from_portal(&portal).expect("the property list");
-        WorldRecords::new(portal, cell, None, ctx)
+    let mut files: Vec<(DatName, DatFile)> = install_dats(&dir)
+        .expect("list the install")
+        .into_iter()
+        .map(|(n, p)| (n, DatFile::open(&p).expect("open")))
+        .collect();
+    let mut take = |name: &DatName| {
+        let k = files.iter().position(|(n, _)| n == name)?;
+        Some(files.swap_remove(k).1)
     };
-    let records = open_records();
+    let portal = take(&DatName::Portal).expect("a portal file");
+    let cell = take(&DatName::Cell(1)).expect("a cell file");
+    let ctx = auberean_assets::Context::from_portal(&portal).expect("the property list");
+    auberean_world::records::WorldRecords::new(portal, cell, None, ctx)
+}
+
+/// The land as the walls read it and the install's rooms, as a world's checks see them.
+fn known_world() -> (yalain_world::walls::Walls, yalain_world::reported::Known) {
+    let records = world_records();
     let rooms = yalain_world::reported::Rooms::read(&records);
     let region = records.region().expect("the region");
     let land = std::sync::Arc::new(auberean_physics::land::Land::new());

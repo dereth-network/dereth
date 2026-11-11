@@ -6,6 +6,11 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- World: creatures with no recorded loot now drop all six talismans.
+- World: creatures and ways in for four dungeons no recording reached, from players' maps.
+- World: each city's nexus now teaches its recall once the continent's act is done.
+- World: players can now become heroes: the initiation's gems drop from bloodstones.
+- World: creatures with a set loot quality no longer drop items three levels above it.
 - Fixed returning or being moved beside someone in the wrong place in the same area.
 - Fixed unbound players resurrecting in midair beside a lifestone.
 - Fixed players being unable to move after resurrecting.
