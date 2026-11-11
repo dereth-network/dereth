@@ -478,7 +478,9 @@ itself, are the store template's in the install.
 #### `[[loot]]`
 
 What a dead creature leaves, by its death-loot profile. A creature's trophies are its template's
-and are not rows.
+and are not rows. The same rows fill a chest from its generator profile at each opening, and a
+corpse a creature's template names in place of the common one from the profile that corpse names,
+beside the creature's own loot.
 
 | field | | meaning |
 |---|---|---|

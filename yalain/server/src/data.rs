@@ -2818,6 +2818,53 @@ mod tests {
         assert!(!c.templates.contains_key(&ITEM), "named by nothing else");
     }
 
+    /// The catalog holds the corpse a camp's creature leaves in place of the common one, with the
+    /// generator profile that corpse names, though no camp or profile names the corpse itself.
+    /// Behaviour: server.loot.corpse-profile-in-the-catalog
+    #[test]
+    fn the_catalog_holds_the_corpse_a_creature_names_with_its_profile() {
+        const CREATURE: u32 = 0x4700_2CE8;
+        const CORPSE: u32 = 0x4700_0F85;
+        let (dat, _) = tallied(&DatName::Portal);
+        let p = Portal::over(dat, Vec::new(), None).expect("a context");
+        let mut camp = yalain_testkit::test_camp(1);
+        camp.templates = vec![(CREATURE, 1)];
+        let spawns = SpawnTable { camps: vec![camp] };
+        let (c, _) = catalog(
+            &p,
+            &spawns,
+            &LootTable::default(),
+            &[],
+            &TreasureTables::default(),
+            yalain_testkit::test_worn_looks(),
+        )
+        .expect("the catalog");
+        let named = c
+            .get(CREATURE)
+            .and_then(|t| t.props.word(yalain_world::death::CORPSE_OVERRIDE));
+        assert_eq!(named, Some(CORPSE), "the creature names its corpse");
+        let profile = c
+            .get(CORPSE)
+            .and_then(|t| t.props.word(yalain_world::death::GENERATOR_PROFILE))
+            .expect("the corpse, with its profile");
+        assert!(
+            c.profile_name(profile)
+                .is_some_and(|n| n.starts_with("GP_Corpse")),
+            "{profile:#x} {:?}",
+            c.profile_name(profile)
+        );
+        let (c, _) = catalog(
+            &p,
+            &SpawnTable::default(),
+            &LootTable::default(),
+            &[],
+            &TreasureTables::default(),
+            yalain_testkit::test_worn_looks(),
+        )
+        .expect("the catalog");
+        assert!(!c.templates.contains_key(&CORPSE), "named by nothing else");
+    }
+
     /// Every enchantment treasure may carry, and what it puts on what it hits, reads from the data
     /// files, and what an item shows of it has a name.
     /// Behaviour: server.loot.treasure-enchantments

@@ -89,10 +89,15 @@ pub fn by_the_rows(rows: Rows<'_>) -> Vec<u32> {
         .collect()
 }
 
-/// What a described template names in its turn: what a creature's body yields, what a node gives.
+/// What a described template names in its turn: what a creature's body yields, the corpse it
+/// leaves in place of the common one, what a node gives.
 #[must_use]
 pub fn by_a_template(props: &Props) -> Vec<u32> {
     let trophies = yalain_content::CreatureStats::from_props(props)
         .map_or_else(Vec::new, |s| s.trophies.iter().map(|(t, _)| *t).collect());
-    trophies.into_iter().chain(props.word(NODE_GIVES)).collect()
+    trophies
+        .into_iter()
+        .chain(props.word(crate::death::CORPSE_OVERRIDE))
+        .chain(props.word(NODE_GIVES))
+        .collect()
 }

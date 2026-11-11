@@ -100,6 +100,11 @@ use crate::{quals, session, Clock, Server, Timer};
 pub const CORPSE_TEMPLATE: u32 = 0x4700_0539;
 pub const CORPSE_PACKAGE: u32 = 0x182;
 
+/// The property naming the corpse a creature's template leaves in place of the common one, and the
+/// one naming what a container's template is filled from.
+pub const CORPSE_OVERRIDE: &str = "NPC_CorpseOverrideEntity";
+pub const GENERATOR_PROFILE: &str = "GeneratorProfile";
+
 /// The corpse's name ("Corpse of %1") and its variable.
 pub const CORPSE_NAME: (u32, u32) = (0x509A_8FF6, 0x2500_0011);
 pub const CORPSE_OF: u32 = 0xE4EA_98E6;
@@ -687,9 +692,10 @@ fn fixed<S: Store>(s: &mut Server<S>, level: i32, template: u32) -> (u32, Option
 }
 
 /// What a dead creature leaves: its fixed drops, its profile's extras, the profile's draw (from its
-/// items, or its pools for its killer: [`crate::treasure_pools`]), and its death treasures. Each
-/// item is its template and, for treasure (those drawn from the profile, and a treasure potion
-/// wherever it comes from: [`fixed`]), its own value ([`treasure_value`]); none for the rest.
+/// items, or its pools for its killer: [`crate::treasure_pools`]), its death treasures, and what its
+/// own corpse holds ([`corpse_profile`]). Each item is its template and, for treasure (those drawn
+/// from the profile, and a treasure potion wherever it comes from: [`fixed`]), its own value
+/// ([`treasure_value`]); none for the rest.
 pub fn roll_loot<S: Store>(
     s: &mut Server<S>,
     creature: &Thing,
@@ -758,11 +764,31 @@ pub fn roll_loot<S: Store>(
         out.extend(crate::treasure_pools::rare(s, profile_name, base, race).map(|t| (t, None)));
     }
     let treasures = death_treasures(s, creature);
-    out.truncate(MOST_ITEMS.saturating_sub(treasures.len()));
-    for t in treasures {
+    let own = corpse_profile(s, creature);
+    out.truncate(MOST_ITEMS.saturating_sub(treasures.len() + own.len()));
+    for t in treasures.into_iter().chain(own) {
         out.push(fixed(s, level, t));
     }
     out
+}
+
+/// What a creature's corpse holds by its own kind: a template that names its own corpse in place of
+/// the common one, where that corpse's template names a generator profile, has the profile's row
+/// drawn into its corpse as a chest's is at an opening (a boss's quest item lies on its corpse, as
+/// players' guides tell of the bosses whose corpses name one), after all the creature leaves itself.
+/// Like the death treasures it is kept whatever the creature leaves, and none of it is treasure.
+/// Nothing is drawn for a creature whose corpse names no profile, or whose profile has no row.
+fn corpse_profile<S: Store>(s: &mut Server<S>, creature: &Thing) -> Vec<u32> {
+    let profile = s
+        .catalog
+        .get(creature.template)
+        .and_then(|t| t.props.word(CORPSE_OVERRIDE))
+        .and_then(|c| s.catalog.get(c))
+        .and_then(|c| c.props.word(GENERATOR_PROFILE));
+    crate::usable::chests::profile_fill(s, profile, None)
+        .into_iter()
+        .map(|(t, _)| t)
+        .collect()
 }
 
 /// The death treasures a creature leaves: each of its template's and its camp's rolled once at its

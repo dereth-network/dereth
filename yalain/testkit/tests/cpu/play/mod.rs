@@ -15,6 +15,7 @@ mod chests;
 mod combinations;
 mod concealing;
 mod conservation;
+mod corpse_profiles;
 mod corpse_rights;
 mod corpse_rot;
 mod crafting;

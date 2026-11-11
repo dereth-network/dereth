@@ -501,7 +501,7 @@ pub fn key_at_chest<S: Store>(
 /// the worth and level it holds of its own, if its profile's row says; and, at an opening its key
 /// paid for, its death treasures, which its size never pushes out.
 fn fill<S: Store>(s: &mut Server<S>, kind: &Kind, paid: bool) -> Vec<(u32, Option<(u32, i32)>)> {
-    let mut out = profile_fill(s, kind);
+    let mut out = profile_fill(s, kind.profile, kind.most);
     if paid {
         let rows: Vec<(u32, f32)> = s
             .loot
@@ -521,10 +521,16 @@ fn fill<S: Store>(s: &mut Server<S>, kind: &Kind, paid: bool) -> Vec<(u32, Optio
     out
 }
 
-/// What a chest's profile puts in it at an opening.
-fn profile_fill<S: Store>(s: &mut Server<S>, kind: &Kind) -> Vec<(u32, Option<(u32, i32)>)> {
-    let Some(p) = kind
-        .profile
+/// What a generator profile puts in what it fills (a chest at an opening, a corpse whose kind names
+/// one as it is made): its row's draw, then its extras at their chances, at most `most`; each drawn
+/// piece with the worth and level its row gives a chest's treasure. Nothing for a profile with no
+/// row.
+pub(crate) fn profile_fill<S: Store>(
+    s: &mut Server<S>,
+    profile: Option<u32>,
+    most: Option<usize>,
+) -> Vec<(u32, Option<(u32, i32)>)> {
+    let Some(p) = profile
         .and_then(|v| s.catalog.profile_name(v))
         .and_then(|n| s.loot.profile(n))
         .cloned()
@@ -551,7 +557,7 @@ fn profile_fill<S: Store>(s: &mut Server<S>, kind: &Kind) -> Vec<(u32, Option<(u
             out.push((*t, None));
         }
     }
-    out.truncate(kind.most.unwrap_or(usize::MAX));
+    out.truncate(most.unwrap_or(usize::MAX));
     out
 }
 
