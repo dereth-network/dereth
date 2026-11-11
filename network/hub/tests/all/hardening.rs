@@ -641,10 +641,8 @@ fn a_worlds_note_of_who_verified_it_loses_its_hidden_characters() {
     f.running.shutdown();
 }
 
-/// A stand-in for the system's resolver that takes `wait` for each name, finds `found` for it,
-/// and counts its lookups.
+/// A stand-in for the system's resolver that finds `found` for each name, and counts its lookups.
 fn lookup(
-    wait: Duration,
     found: &str,
 ) -> (
     dereth_network_hub::resolver::Lookup,
@@ -655,17 +653,69 @@ fn lookup(
     let found: std::net::IpAddr = found.parse().expect("an address");
     let lookup = dereth_network_hub::resolver::Lookup(std::sync::Arc::new(move |_name| {
         counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        std::thread::sleep(wait);
         Ok(vec![found])
     }));
     (lookup, calls)
+}
+
+/// Holds every lookup of a [`held_lookup`] until it is let go, or dropped.
+#[derive(Default)]
+struct Held(std::sync::Arc<(std::sync::Mutex<bool>, std::sync::Condvar)>);
+
+impl Held {
+    fn let_go(&self) {
+        let (gone, let_go) = &*self.0;
+        *gone
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+        let_go.notify_all();
+    }
+
+    /// What `ask` answers while every lookup is held: one that waited for a lookup would never
+    /// answer. Two minutes without an answer only stops a hang, and fails.
+    fn answers<T: Send>(&self, ask: impl FnOnce() -> T + Send) -> T {
+        std::thread::scope(|s| {
+            let (tx, rx) = std::sync::mpsc::channel();
+            s.spawn(move || {
+                let _ = tx.send(ask());
+            });
+            let answer = rx.recv_timeout(Duration::from_secs(120));
+            if answer.is_err() {
+                self.let_go();
+            }
+            answer.expect("answered while the lookup was held")
+        })
+    }
+}
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        self.let_go();
+    }
+}
+
+/// A stand-in for the system's resolver that finds `found` for each name only once its [`Held`]
+/// lets go.
+fn held_lookup(found: &str) -> (dereth_network_hub::resolver::Lookup, Held) {
+    let held = Held::default();
+    let hold = std::sync::Arc::clone(&held.0);
+    let found: std::net::IpAddr = found.parse().expect("an address");
+    let lookup = dereth_network_hub::resolver::Lookup(std::sync::Arc::new(move |_name| {
+        let (gone, let_go) = &*hold;
+        let mut gone = gone.lock().expect("the hold");
+        while !*gone {
+            gone = let_go.wait(gone).expect("the hold");
+        }
+        Ok(vec![found])
+    }));
+    (lookup, held)
 }
 
 /// Spec: hub: a world's verification call looks nothing up until its key is the world's or an
 /// open claim's.
 #[test]
 fn a_verification_call_without_a_valid_key_looks_nothing_up() {
-    let (stand_in, calls) = lookup(Duration::ZERO, "127.0.0.1");
+    let (stand_in, calls) = lookup("127.0.0.1");
     let f = hub_with(move |c| c.lookup = stand_in);
     let ann = sign_in(&f, "1901");
     // The hub's operator registers it (nothing is looked up) and hands it to Ann, who asks for a
@@ -713,7 +763,8 @@ fn a_verification_call_without_a_valid_key_looks_nothing_up() {
 /// yet.
 #[test]
 fn a_slow_name_server_holds_no_call_past_the_deadline() {
-    let (stand_in, _) = lookup(Duration::from_secs(10), "127.0.0.1");
+    // A name server that never answers while the test holds it.
+    let (stand_in, held) = held_lookup("127.0.0.1");
     let f = hub_with(move |c| {
         c.lookup = stand_in;
         c.resolve_deadline = Duration::from_millis(100);
@@ -721,8 +772,7 @@ fn a_slow_name_server_holds_no_call_past_the_deadline() {
     });
     let ann = sign_in(&f, "1911");
     let (key, token) = register(&f, &ann, "slowdns", "slow.example");
-    let started = std::time::Instant::now();
-    let a = game_verify(&f, "slowdns", &key, &token, &[]);
+    let a = held.answers(|| game_verify(&f, "slowdns", &key, &token, &[]));
     assert_eq!(
         (a.status, a.reason()),
         (422, "not_resolved".to_owned()),
@@ -734,36 +784,34 @@ fn a_slow_name_server_holds_no_call_past_the_deadline() {
             .is_some_and(|m| m.starts_with("slow.example did not resolve in time")),
         "{a:?}"
     );
-    // Well short of the 10 s lookup, with room for a slow machine.
-    assert!(started.elapsed() < Duration::from_secs(5));
+    held.let_go();
     f.running.shutdown();
 
     // A lookup well inside its deadline is still never waited on by /v1/resolve.
-    let (stand_in, _) = lookup(Duration::from_secs(3), "1.1.1.1");
+    let (stand_in, held) = held_lookup("1.1.1.1");
     let f = hub_with(move |c| {
         c.lookup = stand_in;
-        c.resolve_deadline = Duration::from_secs(10);
+        c.resolve_deadline = Duration::from_secs(3_600);
     });
     f.running
         .registry()
         .register(&Registration::from_json(&world("slowres", "slower.example")).expect("valid"))
         .expect("registered");
-    let started = std::time::Instant::now();
-    let r = call(f.addr(), "GET", "/v1/resolve/slowres", &[], "");
-    // Short of the 3 s lookup: the answer did not wait for it.
-    assert!(started.elapsed() < Duration::from_millis(2500));
+    let r = held.answers(|| call(f.addr(), "GET", "/v1/resolve/slowres", &[], ""));
     assert_eq!(r.status, 200, "{r:?}");
     assert_eq!(r.json()["resolution"]["source"], "unknown");
     assert_eq!(r.json()["resolution"]["addresses"], json!([]));
     assert_eq!(r.json()["endpoint"]["address"], "slower.example");
-    // Once the lookup has finished, the next answer has its addresses.
-    let until = std::time::Instant::now() + Duration::from_secs(10);
+    // Once the lookup has finished, the next answer has its addresses. The guard only stops a
+    // hang.
+    held.let_go();
+    let until = std::time::Instant::now() + Duration::from_secs(60);
     let r = loop {
         let r = call(f.addr(), "GET", "/v1/resolve/slowres", &[], "");
         if r.json()["resolution"]["source"] == "dns" || std::time::Instant::now() > until {
             break r;
         }
-        std::thread::sleep(Duration::from_millis(200));
+        std::thread::sleep(Duration::from_millis(50));
     };
     assert_eq!(r.json()["resolution"]["source"], "dns", "{r:?}");
     assert_eq!(r.json()["endpoint"]["address"], "1.1.1.1");
@@ -1215,8 +1263,9 @@ fn letters(n: usize) -> String {
 }
 
 /// Writes `head` to a fresh connection to the hub, then `body` a byte at a time, `every` apart,
-/// until the hub answers or closes: its answer's status, and how long it took.
-fn trickle(f: &Fixture, head: &str, body: &[u8], every: Duration) -> (Option<u16>, Duration) {
+/// until the hub answers or closes: its answer's status, and how many bytes of `body` were sent.
+/// Twenty seconds without an answer only stops a hang.
+fn trickle(f: &Fixture, head: &str, body: &[u8], every: Duration) -> (Option<u16>, usize) {
     use std::io::{Read as _, Write as _};
     let mut s = std::net::TcpStream::connect(f.addr()).expect("connect");
     let started = std::time::Instant::now();
@@ -1247,7 +1296,7 @@ fn trickle(f: &Fixture, head: &str, body: &[u8], every: Duration) -> (Option<u16
         .ok()
         .and_then(|a| a.split(' ').nth(1))
         .and_then(|c| c.parse().ok());
-    (status, started.elapsed())
+    (status, sent)
 }
 
 /// Spec: hub: a request's body arrives within its deadline in all, however it trickles in, or
@@ -1261,14 +1310,13 @@ fn a_trickled_body_is_cut_off_at_its_deadline() {
          Content-Length: {}\r\n\r\n",
         body.len()
     );
-    // The whole body would take nearly ten seconds; the cut comes at the deadline, well inside five.
-    let (status, took) = trickle(&f, &head, body, Duration::from_millis(150));
+    // The whole body takes nearly ten seconds however fast the machine: it is cut off on the way.
+    let (status, sent) = trickle(&f, &head, body, Duration::from_millis(150));
     assert_eq!(status, Some(408));
-    assert!(took < Duration::from_secs(5), "{took:?}");
+    assert!(sent < body.len(), "{sent} of {} bytes sent", body.len());
     // A body that never comes is cut off at the same deadline.
-    let (status, took) = trickle(&f, &head, &[], Duration::from_millis(100));
+    let (status, _) = trickle(&f, &head, &[], Duration::from_millis(100));
     assert_eq!(status, Some(408));
-    assert!(took < Duration::from_secs(5), "{took:?}");
     f.running.shutdown();
 }
 
@@ -1681,9 +1729,8 @@ fn a_body_is_json_exactly_and_never_chunked() {
     let chunked =
         "POST /v1/reports HTTP/1.1\r\nHost: hub.test\r\nContent-Type: application/json\r\n\
                    Transfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n";
-    let (status, took) = trickle(&f, chunked, &[], Duration::from_millis(100));
+    let (status, _) = trickle(&f, chunked, &[], Duration::from_millis(100));
     assert_eq!(status, Some(411));
-    assert!(took < Duration::from_secs(2), "{took:?}");
     f.running.shutdown();
 }
 

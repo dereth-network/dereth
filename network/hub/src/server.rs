@@ -817,8 +817,16 @@ impl Running {
             .unwrap_or_default()
     }
 
-    /// Stops listening, closes every link and waits for the threads.
-    pub fn shutdown(mut self) {
+    /// Stops listening, closes every link and waits for the threads, as dropping it does.
+    pub fn shutdown(self) {
+        drop(self);
+    }
+}
+
+impl Drop for Running {
+    /// A hub stops when it is dropped: nothing it started, its calls to Discord among them, goes
+    /// on without it.
+    fn drop(&mut self) {
         self.shared.stop.store(true, Ordering::SeqCst);
         for t in self.threads.drain(..) {
             let _ = t.join();
@@ -2532,6 +2540,41 @@ mod tests {
         )
         .expect("a registry");
         start_with(config, registry).expect("the hub starts")
+    }
+
+    /// Spec: hub: a hub stops when it is dropped: none of its threads, its calls to Discord among
+    /// them, goes on without it.
+    #[test]
+    fn a_dropped_hub_leaves_nothing_running() {
+        // Discord at an address nobody answers, so the hub goes on asking it.
+        let nowhere = TcpListener::bind("127.0.0.1:0")
+            .and_then(|l| l.local_addr())
+            .expect("an address");
+        let api = format!("http://{nowhere}/api");
+        let hub = running(|c| {
+            c.public_url = Some("https://hub.test".into());
+            c.site_origins = vec!["https://site.test".into()];
+            c.discord = Some(crate::discord::Discord {
+                client_id: "app".into(),
+                client_secret: "secret".into(),
+                authorize: "https://discord.test/oauth2/authorize".into(),
+                api: api.clone(),
+                rule: |_| true,
+            });
+            c.broker = Some(crate::broker::Broker {
+                api: api.clone(),
+                ..crate::broker::Broker::new("token".into())
+            });
+        });
+        assert!(
+            hub.threads
+                .iter()
+                .any(|t| t.thread().name() == Some("hub-interactions")),
+            "the hub asks Discord on a thread of its own"
+        );
+        let shared = Arc::downgrade(&hub.shared);
+        drop(hub);
+        assert!(shared.upgrade().is_none(), "a thread of the hub's goes on");
     }
 
     /// Writes `bytes` to a fresh connection to `hub`: its answer's status.

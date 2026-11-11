@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use dereth_network_hub::broker::{Broker, BrokerError, Rest};
+use dereth_network_hub::discord::{any_address, Discord};
 use dereth_network_hub::registry::{Registration, Registry};
 use dereth_network_hub::server::{start_with, HubConfig, Running};
 use serde_json::{json, Value};
@@ -52,22 +53,41 @@ fn folder(name: &str) -> std::path::PathBuf {
     dir
 }
 
-/// A hub over the registry file `db`, with `broker`, and no sign-in, its registry first as
-/// `prepare` leaves it.
-fn hub_on(db: &str, broker: Broker, prepare: impl FnOnce(&Registry)) -> Running {
+/// A hub over the registry file `db`, with `broker`, its registry first as `prepare` leaves it,
+/// and a session of its admin's: sign-in is on, with nobody to sign in through, so that the admin
+/// can see what the broker knows.
+fn hub_on(db: &str, broker: Broker, prepare: impl FnOnce(&Registry)) -> (Running, String) {
     let registry = Registry::open(db, "dereth.network", Box::new(std::time::SystemTime::now))
         .expect("a registry");
     prepare(&registry);
-    start_with(
+    let running = start_with(
         HubConfig {
             listen: "127.0.0.1:0".parse().expect("an address"),
             db: db.to_owned(),
+            public_url: Some("https://hub.test".into()),
+            site_origins: vec![super::operators::SITE.into()],
+            discord: Some(Discord {
+                client_id: "app".into(),
+                client_secret: "the-secret".into(),
+                authorize: "https://discord.test/oauth2/authorize".into(),
+                api: broker.api.clone(),
+                rule: any_address,
+            }),
+            admins: vec![super::operators::ADMIN.into()],
             broker: Some(broker),
             ..HubConfig::default()
         },
         registry,
     )
-    .expect("the hub starts")
+    .expect("the hub starts");
+    let session = {
+        let r = running.registry();
+        let admin = r
+            .signed_in(super::operators::ADMIN, "Admin")
+            .expect("signed in");
+        r.new_session(&admin).expect("a session")
+    };
+    (running, session)
 }
 
 /// Waits, up to 30 seconds, for `ready` to give something.
@@ -479,7 +499,9 @@ mod bridge {
     };
     use serde_json::{json, Value};
 
-    use super::super::operators::{answer, call, hub_with, op, sign_in, Fixture, Got, Stub, ADMIN};
+    use super::super::operators::{
+        answer, call, hub_with, op, sign_in, Fixture, Got, Stub, ADMIN, SITE,
+    };
     use super::{broker_for, folder, hub_on, within, Output, BOT_TOKEN};
 
     /// How long a test waits for something the hub does on its own threads.
@@ -1208,6 +1230,27 @@ mod bridge {
         })
     }
 
+    /// Waits until the hub at `addr` knows the webhook its mirror in `channel` says through, as
+    /// its admin's session `admin` sees it: a line said before then is held back, not carried.
+    fn webhook_known(addr: std::net::SocketAddr, admin: &str, channel: &str) {
+        let cookie = format!("__Host-dn_session={admin}");
+        within("the hub's webhook", || {
+            let r = call(
+                addr,
+                "GET",
+                "/v1/admin/discord",
+                &[("Cookie", &cookie), ("Origin", SITE)],
+                "",
+            );
+            assert_eq!(r.status, 200, "{r:?}");
+            r.json()["mirrors"]
+                .as_array()?
+                .iter()
+                .any(|m| m["channel"] == channel && m["webhook"].is_string())
+                .then_some(())
+        });
+    }
+
     /// Registers each of `slugs` on the network of the hub `running`: their keys.
     fn register_on(running: &Running, slugs: &[&str]) -> Vec<String> {
         let r = running.registry();
@@ -1243,9 +1286,10 @@ mod bridge {
             r.set_discord_avatar(Some("https://hub.test/dereth.png"), None)
                 .expect("set");
         };
-        let running = hub_on(":memory:", broker_for(&stub), prepare);
+        let (running, admin) = hub_on(":memory:", broker_for(&stub), prepare);
         let keys = register_on(&running, &["aa", "bb"]);
         let hook = hook_in(&d, CHANNEL);
+        webhook_known(running.local_addr(), &admin, CHANNEL);
         assert_eq!(
             (hook.by.as_str(), hook.name.as_str()),
             (BOT, "Dereth Network"),
@@ -1300,11 +1344,12 @@ mod bridge {
             .lock()
             .expect("the stand-in")
             .count("GET", &format!("/api/channels/{CHANNEL}/webhooks"));
-        let running = hub_on(":memory:", broker_for(&stub), prepare);
+        let (running, admin) = hub_on(":memory:", broker_for(&stub), prepare);
         within("the webhook looked for again", || {
             let d = d.lock().expect("the stand-in");
             (d.count("GET", &format!("/api/channels/{CHANNEL}/webhooks")) > looked).then_some(())
         });
+        webhook_known(running.local_addr(), &admin, CHANNEL);
         let keys = register_on(&running, &["aa"]);
         let mut aa = link_at(
             &running.local_addr().to_string(),
@@ -1338,6 +1383,7 @@ mod bridge {
         server_with_channel(&d, &[]);
         let (f, admin) = hub_mirroring_global(&stub);
         hook_in(&d, CHANNEL);
+        webhook_known(f.addr(), &admin, CHANNEL);
         let mut aa = world(&f, "aa", &["global"]);
         let mut bb = world(&f, "bb", &["global"]);
         let hook = d.lock().expect("the stand-in").hook_path(CHANNEL);
@@ -1433,7 +1479,7 @@ mod bridge {
         );
         text_channel(&d, guild_a, chan_a, json!([]));
         text_channel(&d, guild_b, chan_b, json!([]));
-        let (f, _admin) = hub_mirroring_global(&stub);
+        let (f, admin) = hub_mirroring_global(&stub);
         let key_a = register(&f, "aa");
         let key_b = register(&f, "bb");
         let (session_a, session_b) = (sign_in(&f, owner_a), sign_in(&f, owner_b));
@@ -1453,7 +1499,7 @@ mod bridge {
             assert_eq!(r.status, 200, "{r:?}");
         }
         for c in [CHANNEL, chan_a, chan_b] {
-            hook_in(&d, c);
+            webhook_known(f.addr(), &admin, c);
         }
         let mut aa = link(&f, "aa", &key_a, &["global"]);
         let mut bb = link(&f, "bb", &key_b, &["global"]);
@@ -1560,6 +1606,8 @@ mod bridge {
         );
 
         hook_in(&d, CHANNEL);
+
+        webhook_known(f.addr(), &admin, CHANNEL);
         let mut aa = world(&f, "aa", &["global"]);
         assert_eq!(say(&mut aa, "r1", "global", "Ann@aa", "plain"), Outcome::Ok);
         said_in_channel(&d, CHANNEL, 1);
@@ -1650,6 +1698,7 @@ mod bridge {
         );
         assert_eq!(set.status, 200, "{set:?}");
         hook_in(&d, CHANNEL);
+        webhook_known(f.addr(), &admin, CHANNEL);
         let mut aa = world(&f, "aa", &[]);
         let mut bb = world(&f, "bb", &[]);
         let channel = |l: &mut Link, id: &str, op: &str, by: &str, who: Option<&str>| {
@@ -1845,6 +1894,8 @@ mod bridge {
         );
 
         let hook = hook_in(&d, ours);
+
+        webhook_known(f.addr(), &admin, ours);
         let mut aa = link(&f, "aa", &key, &["general"]);
         let mut bb = link(&f, "bb", &other_key, &["general"]);
         assert_eq!(
@@ -1989,6 +2040,8 @@ mod bridge {
         assert_eq!(into("roleplay", roleplay).status, 200);
         assert_eq!(into("general", general).status, 200);
         hook_in(&d, roleplay);
+        let admin = sign_in(&f, ADMIN);
+        webhook_known(f.addr(), &admin, roleplay);
 
         let mut aa = link(&f, "aa", &key, &["global", "general"]);
         assert_eq!(
@@ -2179,6 +2232,7 @@ mod bridge {
             (&json!("aa"), &json!("global"), &json!(channel))
         );
         hook_in(&d, channel);
+        webhook_known(f.addr(), &admin, channel);
         let mut aa = link(&f, "aa", &key, &["global"]);
         assert_eq!(
             say(&mut aa, "r1", "global", "Ann@aa", "before"),
@@ -2442,7 +2496,9 @@ mod bridge {
                 .expect("an address");
             at.split_whitespace().next().expect("an address").to_owned()
         };
-        hook_in(&d, CHANNEL);
+        let made = hook_in(&d, CHANNEL);
+        // The hub logs a webhook it made once its lines go through it.
+        out.says(&format!("made the Discord webhook {} ", made.id));
         let mut aa = link_at(&addr, "aa", &keys[0], &["global", "trade"]);
         let mut bb = link_at(&addr, "bb", &keys[1], &["global"]);
         assert_eq!(

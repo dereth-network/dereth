@@ -784,32 +784,30 @@ fn keep_webhook(service: &Service, to: &str, channel: &str) -> Result<(), Broker
         .filter(|h| h["type"] == 1 && h["user"]["id"].as_str() == Some(bot.as_str()))
         .filter_map(Webhook::of)
         .min_by_key(|h| h.id.parse::<u64>().unwrap_or(u64::MAX));
-    let hook = match ours {
+    let (hook, said) = match ours {
         Some(hook) => {
-            if known.as_deref() != Some(hook.id.as_str()) {
-                log(
-                    "info",
-                    &format!(
-                        "the Discord webhook {} mirrors {to} into the channel {channel} again",
-                        hook.id
-                    ),
-                );
-            }
-            hook
+            let said = (known.as_deref() != Some(hook.id.as_str())).then(|| {
+                format!(
+                    "the Discord webhook {} mirrors {to} into the channel {channel} again",
+                    hook.id
+                )
+            });
+            (hook, said)
         }
         None => {
             let hook = service.rest.create_webhook(channel, WEBHOOK_NAME)?;
-            log(
-                "info",
-                &format!(
-                    "made the Discord webhook {} for {to} in the channel {channel}",
-                    hook.id
-                ),
+            let said = format!(
+                "made the Discord webhook {} for {to} in the channel {channel}",
+                hook.id
             );
-            hook
+            (hook, Some(said))
         }
     };
+    // Logged once the lines can go through it.
     lock(&service.bridge.hooks).insert(channel.to_owned(), hook);
+    if let Some(said) = said {
+        log("info", &said);
+    }
     Ok(())
 }
 
