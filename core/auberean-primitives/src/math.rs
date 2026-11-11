@@ -55,6 +55,19 @@ pub struct Frame {
     pub rotation: Quat,
 }
 
+impl Frame {
+    /// Whether this is a frame at all: no part of its origin or rotation is not a number, and
+    /// its rotation's square length is 1 to within 0.0002.
+    // D2-13157
+    #[must_use]
+    pub fn is_valid(&self) -> bool {
+        let (o, q) = (self.origin, self.rotation);
+        let parts = [o.x, o.y, o.z, q.w, q.x, q.y, q.z];
+        let n = q.w * q.w + q.x * q.x + q.y * q.y + q.z * q.z;
+        !parts.iter().any(|v| v.is_nan()) && !n.is_nan() && (n - 1.0).abs() < 0.0002
+    }
+}
+
 /// An axis-aligned box: its least and greatest corners.
 // D2-13221, D2-02067
 #[derive(Clone, Copy, Debug, PartialEq, Default)]

@@ -23,9 +23,7 @@ use crate::{Context, Decode, Encode};
 
 mod value;
 
-pub use value::{
-    format_g, frame_is_valid, PropertyValue, StringInfo, StringVariable, ValueKind, VariableValue,
-};
+pub use value::{format_g, PropertyValue, StringInfo, StringVariable, ValueKind, VariableValue};
 
 /// The enum mapping (in the master id map) whose value [`MASTER_PROPERTY_VALUE`] names the
 /// property list.

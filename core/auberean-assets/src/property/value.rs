@@ -409,7 +409,7 @@ impl PropertyValue {
             Self::Package(v) => *v != u32::MAX,
             Self::String(s) => !s.is_empty(),
             Self::StringInfo { info, token_name } => info.table.0 != 0 && !token_name.is_empty(),
-            Self::Position(p) => cell_is_valid(p.cell.0) && frame_is_valid(&p.frame),
+            Self::Position(p) => cell_is_valid(p.cell.0) && p.frame.is_valid(),
             _ => true,
         }
     }
@@ -494,17 +494,6 @@ impl PropertyValue {
             _ => {}
         }
     }
-}
-
-/// Whether a frame is a valid one: every component a number and the rotation of unit length
-/// (within [`SAME_FLOAT`]).
-// D2-13157
-#[must_use]
-pub fn frame_is_valid(f: &auberean_primitives::Frame) -> bool {
-    let q = &f.rotation;
-    let parts = [f.origin.x, f.origin.y, f.origin.z, q.w, q.x, q.y, q.z];
-    let len = q.w * q.w + q.x * q.x + q.y * q.y + q.z * q.z;
-    !parts.iter().any(|v| v.is_nan()) && !len.is_nan() && (len - 1.0).abs() < SAME_FLOAT
 }
 
 /// C's `%.<p>g`: the shorter of `%e` and `%f` at `p` significant digits, trailing zeros removed,

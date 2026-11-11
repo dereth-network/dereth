@@ -28,6 +28,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "protocol.position.a-frame-that-is-not-one-does-not-read",
+        says: "A position whose frame has a part that is not a number, or a rotation whose square \
+               length is more than 0.0002 from 1, does not read, and neither does the message \
+               holding it: an object's place, the player's own, a missile's, a description's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PROTOCOL-POSITION-VALID"),
+        station: "auberean-protocol::cpu::positions::a_position_whose_frame_is_not_a_frame_leaves_its_message_unread",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "protocol.qualities.the-header-names-the-tables-that-hold-entries",
         says: "Every player's qualities the 2005, 2013 and 2017 servers sent carry the header the \
                client works out from them (the description's bit, and the bit of each table holding \

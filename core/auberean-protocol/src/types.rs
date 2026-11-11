@@ -50,7 +50,8 @@ impl Field for ObjectStamp {
 }
 
 /// A place: a cell and a frame in its landblock's space (origin, then the rotation scalar
-/// first).
+/// first). One whose frame is not valid ([`Frame::is_valid`]: a part not a number, or a rotation
+/// not of unit length) does not read, so neither does the message holding it.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Placement {
     pub cell: u32,
@@ -58,9 +59,10 @@ pub struct Placement {
 }
 
 impl Field for Placement {
-    // D2-13186, D2-13167
+    // D2-13186, D2-13167, D2-13158
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         let cell = r.u32()?;
+        let at = r.pos();
         let origin = r.vec3()?;
         let rotation = Quat {
             w: r.f32()?,
@@ -68,10 +70,14 @@ impl Field for Placement {
             y: r.f32()?,
             z: r.f32()?,
         };
-        Ok(Self {
-            cell,
-            frame: Frame { origin, rotation },
-        })
+        let frame = Frame { origin, rotation };
+        if !frame.is_valid() {
+            return Err(crate::wire::DecodeError::Invalid {
+                offset: at,
+                what: "frame",
+            });
+        }
+        Ok(Self { cell, frame })
     }
     // D2-13185, D2-13166
     fn write(&self, w: &mut Writer) {

@@ -2,6 +2,7 @@
 //! built in memory.
 
 mod descriptions;
+mod positions;
 mod round_trip;
 mod table;
 mod text;
