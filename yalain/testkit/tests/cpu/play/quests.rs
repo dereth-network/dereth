@@ -1218,6 +1218,120 @@ fn a_step_that_requires_a_quest_free_waits_for_that_quests_wait() {
     assert_eq!(updates(&h, b, from), vec![0x1000_0000], "its wait is over");
 }
 
+/// A step may wait on a hidden timer having run out: the timer given with the quest, the step
+/// holds back while its time runs and runs once it has run out, the timer told at no point.
+/// Behaviour: server.quests.a-step-waits-for-a-timer-to-run-out
+#[test]
+fn a_step_that_requires_a_quest_failed_waits_for_a_hidden_timer_to_run_out() {
+    let timer = QuestDef {
+        duration: 60.0,
+        hidden: true,
+        ..quest(NEXT_QUEST, 0, -999)
+    };
+    let mut h = explorer_world(
+        vec![quest(HALL_QUEST, 0, -999), timer],
+        vec![
+            step(
+                HALL_QUEST,
+                0,
+                Trigger::Use(EXPLORER_TEMPLATE),
+                Update::Bestow,
+            ),
+            step(NEXT_QUEST, 0, Trigger::Given(HALL_QUEST), Update::Bestow),
+            Step {
+                requires: vec![(NEXT_QUEST, Need::Failed)],
+                ..step(
+                    HALL_QUEST,
+                    1,
+                    Trigger::Use(EXPLORER_TEMPLATE),
+                    Update::Complete,
+                )
+            },
+        ],
+    );
+    let (b, me) = h.player_in_world("one", "Elara");
+    let asked = h.now.0;
+    let from = use_explorer(&mut h, b, me);
+    assert_eq!(
+        updates(&h, b, from),
+        vec![0x1000_0000],
+        "the quest alone told"
+    );
+    assert_eq!(held(&h, NEXT_QUEST), Some((status::UNDERWAY, 1)));
+    let from = use_explorer(&mut h, b, me);
+    assert!(updates(&h, b, from).is_empty(), "its time is running");
+    let from = h.bots[b].inbox.len();
+    h.run_to(yalain_net::LocalTime(asked + 64.0));
+    assert_eq!(held(&h, NEXT_QUEST), Some((status::FAILED, 0)));
+    assert!(updates(&h, b, from).is_empty(), "its running out untold");
+    let from = use_explorer(&mut h, b, me);
+    assert_eq!(updates(&h, b, from), vec![0x3000_0000], "run out: done");
+    assert_eq!(held(&h, HALL_QUEST), Some((status::COMPLETED, 0)));
+}
+
+/// A step requiring a quest failed runs only with it failed: not with it never had, under way or
+/// done, nor with a failure of a giving before the step's own quest was given.
+/// Behaviour: server.quests.a-step-requires-a-quest-failed
+#[test]
+fn a_step_that_requires_a_quest_failed_needs_a_failure_since_its_own_quest_was_given() {
+    let mut h = explorer_world(
+        vec![quest(HALL_QUEST, 0, -999), quest(NEXT_QUEST, 0, -999)],
+        vec![Step {
+            requires: vec![(NEXT_QUEST, Need::Failed)],
+            ..step(
+                HALL_QUEST,
+                1,
+                Trigger::Use(EXPLORER_TEMPLATE),
+                Update::Complete,
+            )
+        }],
+    );
+    let (b, me) = h.player_in_world("one", "Elara");
+    let now = h.unix;
+    let set = |h: &mut Harness, other: Option<(u32, i64)>| {
+        for p in h.server.players.values_mut() {
+            p.play.quests.clear();
+            p.play.quests.push(QuestState {
+                quest: HALL_QUEST,
+                status: status::UNDERWAY,
+                phase: 1,
+                started: now - 100,
+                updated: now - 100,
+            });
+            if let Some((st, started)) = other {
+                p.play.quests.push(QuestState {
+                    quest: NEXT_QUEST,
+                    status: st,
+                    phase: u32::from(st == status::UNDERWAY),
+                    started,
+                    updated: now - 10,
+                });
+            }
+        }
+    };
+    for (other, why) in [
+        (None, "never had"),
+        (Some((status::UNDERWAY, now - 50)), "under way"),
+        (Some((status::COMPLETED, now - 50)), "done"),
+        (Some((status::CANCELLED, now - 50)), "cancelled"),
+        (
+            Some((status::FAILED, now - 200)),
+            "failed in an earlier run",
+        ),
+    ] {
+        set(&mut h, other);
+        let from = use_explorer(&mut h, b, me);
+        assert!(updates(&h, b, from).is_empty(), "{why}");
+    }
+    set(&mut h, Some((status::FAILED, now - 100)));
+    let from = use_explorer(&mut h, b, me);
+    assert_eq!(
+        updates(&h, b, from),
+        vec![0x3000_0000],
+        "failed in this run"
+    );
+}
+
 /// A step may fail its quest: a quest under way fails, told as a failure, and with no wait of its
 /// own is given again by the next use.
 /// Behaviour: server.quests.a-step-may-fail-its-quest

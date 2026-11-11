@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Quest steps can now wait for a hidden timer to run out.
 - Workshops inside dungeons now work for players standing near them.
 - Refining now yields as much as players measured in retail at every skill level.
 - `world compile` now builds a world's overlay of clearings and shop titles.

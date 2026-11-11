@@ -2834,6 +2834,61 @@ fn a_steps_requires_may_name_an_act_and_the_act_must_have_scenes() {
     );
 }
 
+/// A step's or a give's `requires` may name a quest failed, read back as written; failed beside
+/// another status, or not true, is not a requirement.
+/// Behaviour: server.quests.a-step-requires-a-quest-failed
+#[test]
+fn a_requires_may_name_a_quest_failed() {
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "update = \"bestow\"\n",
+        "update = \"bestow\"\nrequires = [{ quest = 0x40000016, failed = true }]\n",
+    );
+    files.insert(
+        "town/server/gives/470033D0.toml".into(),
+        "[[give]]\nkey = \"gem\"\nto = 0x470033D0\nitem = 0x470020BB\n\
+         requires = [{ quest = 0x40000016, failed = true }]\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let step = t
+        .quests
+        .steps
+        .iter()
+        .find(|s| s.trigger == Trigger::Use(0x4700_33D0))
+        .expect("the step");
+    assert_eq!(step.requires, [(0x4000_0016, Need::Failed)]);
+    let give = t
+        .quests
+        .gives
+        .iter()
+        .find(|g| g.to == 0x4700_33D0)
+        .expect("the give");
+    assert_eq!(give.requires, [(0x4000_0016, Need::Failed)]);
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+        t.quests,
+        "it reads back as written"
+    );
+    for bad in [
+        "requires = [{ quest = 0x40000016, failed = true, done = true }]",
+        "requires = [{ quest = 0x40000016, failed = false }]",
+        "requires = [{ quest = 0x40000016, failed = 1 }]",
+    ] {
+        let mut f = files.clone();
+        edit(
+            &mut f,
+            "town/server/quests/40000088.toml",
+            "requires = [{ quest = 0x40000016, failed = true }]",
+            bad,
+        );
+        assert!(read(&f).is_err() || !check(&f).is_empty(), "{bad}");
+    }
+}
+
 /// Behaviour: server.skills.an-effect-grants-a-reset
 #[test]
 fn an_effect_rule_row_may_name_the_reset_of_skills_an_effect_grants() {

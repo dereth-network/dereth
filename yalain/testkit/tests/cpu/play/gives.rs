@@ -1700,6 +1700,41 @@ fn a_give_requiring_a_phase_runs_at_it_and_a_step_comes_first() {
     assert!(!holds(&h, me, ashes.0));
 }
 
+/// A give that requires a quest failed runs only with it failed; under way, the item is refused
+/// and handed back.
+///
+/// Behaviour: server.quests.a-step-requires-a-quest-failed
+#[test]
+fn a_give_requiring_a_quest_failed_runs_only_once_it_has_failed() {
+    const TIMER: u32 = 0x4000_7777;
+    let mut h = world();
+    h.server.quests.gives.push(Give {
+        requires: vec![(TIMER, Need::Failed)],
+        ..taking(Some(ASHES))
+    });
+    h.server
+        .talk
+        .lines
+        .push(taking_line(Some(ASHES), TAKING_LINE, 0));
+    let (b, me) = player(&mut h, "one", "Elara");
+    let ashes = hold(&mut h, me, ASHES, 1);
+    at_phase(&mut h, TIMER, 1);
+    let (lines, _) = give_ashes(&mut h, b, me, ashes, 1);
+    assert_eq!(lines, vec![PLAIN_REFUSAL], "under way");
+    assert!(holds(&h, me, ashes.0), "handed back");
+    for p in h.server.players.values_mut() {
+        for q in &mut p.play.quests {
+            if q.quest == TIMER {
+                q.status = yalain_world::quests::status::FAILED;
+                q.phase = 0;
+            }
+        }
+    }
+    let (lines, _) = give_ashes(&mut h, b, me, ashes, 1);
+    assert_eq!(lines, vec![TAKING_LINE], "failed");
+    assert!(!holds(&h, me, ashes.0));
+}
+
 /// A give's effects go on the player, the person the caster, then its text.
 ///
 /// Behaviour: server.gives.row-keeps-and-gives

@@ -479,6 +479,25 @@ pub fn done(held: &[QuestState], quest: u32) -> bool {
         .any(|q| q.quest == quest && q.status == status::COMPLETED)
 }
 
+/// Has a quest of a player's failed (a step failed it, or its time ran out), not given again since:
+/// while `during` is under way, a failure of a giving that came after that quest's own (a timer
+/// given in an earlier run of it does not count).
+#[must_use]
+pub fn failed_during(held: &[QuestState], quest: u32, during: Option<u32>) -> bool {
+    let Some(f) = held
+        .iter()
+        .find(|q| q.quest == quest && q.status == status::FAILED)
+    else {
+        return false;
+    };
+    during
+        .and_then(|d| {
+            held.iter()
+                .find(|q| q.quest == d && q.status == status::UNDERWAY)
+        })
+        .is_none_or(|own| f.started >= own.started)
+}
+
 /// May a step run for a player now: its quest at the phase it needs (to be given: not under way,
 /// its wait to be taken again over, the player of its least level), the quests it requires where
 /// it requires them, and the items it takes held.
@@ -555,6 +574,7 @@ fn may_run_at_any_level<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_u
                     .quest(*q)
                     .is_none_or(|d| given_again(d, held, now_unix))
         }
+        Need::Failed => failed_during(held, *q, Some(st.quest)),
     });
     requires
         && st
@@ -1308,6 +1328,7 @@ pub fn give_for<S: Store>(
                 Need::Phase(n) => phase_of(held, *q) == *n,
                 Need::Done => done(held, *q),
                 Need::Free => phase_of(held, *q) == 0,
+                Need::Failed => failed_during(held, *q, None),
             })
     };
     let rows: Vec<&yalain_content::quests::Give> = s

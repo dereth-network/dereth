@@ -12487,6 +12487,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-step-requires-a-quest-failed",
+        says: "A step may require another quest failed, its failure (a step's, or its time run out) of a giving since the step's own quest was given: never had, under way, done or cancelled, it holds the step back.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STEP-REQUIRES-FAILED"),
+        station: "yalain-testkit::cpu::play::quests::a_step_that_requires_a_quest_failed_needs_a_failure_since_its_own_quest_was_given",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-step-requires-a-quest-free",
         says: "A step may require another quest free to be given: never had, or its wait \
                over.",
@@ -12503,6 +12511,14 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-STEP-CHANCE"),
         station: "yalain-testkit::cpu::play::kill_quests::a_kills_step_with_a_chance_runs_on_some_kills_and_not_on_others",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.a-step-waits-for-a-timer-to-run-out",
+        says: "A step requiring a hidden timer quest failed holds back while the timer's time runs and runs once it has run out, the timer told at no point.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STEP-TIMER-RUN-OUT"),
+        station: "yalain-testkit::cpu::play::quests::a_step_that_requires_a_quest_failed_waits_for_a_hidden_timer_to_run_out",
         tier: Tier::Cpu,
     },
     behaviour! {

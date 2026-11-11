@@ -473,12 +473,14 @@ pub enum Trigger {
     Given(u32),
 }
 
-/// What a step requires of another quest: under way at a phase, done, or free to be given.
+/// What a step requires of another quest: under way at a phase, done, free to be given, or failed
+/// (its time run out).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Need {
     Phase(u32),
     Done,
     Free,
+    Failed,
 }
 
 /// The update a step makes.
@@ -3965,8 +3967,8 @@ impl<'a> Fields<'a> {
         )
     }
 
-    /// A step's or a give's `requires`: other quests (`{ quest, phase }`, `{ quest, done = true }`
-    /// or `{ quest, free = true }`); `{ kingdom = "word" }`, the one kingdom it is for, a word of
+    /// A step's or a give's `requires`: other quests (`{ quest, phase }`, `{ quest, done = true }`,
+    /// `{ quest, free = true }` or `{ quest, failed = true }`); `{ kingdom = "word" }`, the one kingdom it is for, a word of
     /// [`yalain_content::kingdoms::kingdom::WORDS`]; and, for a step (`events`),
     /// `{ event = "key" }`, an `[[event]]` that must be on, and `{ act = A }`, an act that must be
     /// whole.
@@ -3980,13 +3982,13 @@ impl<'a> Fields<'a> {
         }
         let (what, keys): (&str, &[&str]) = if events {
             (
-                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { event }, { act } or { kingdom } (neutral, shadow, order or dominion)",
-                &["quest", "phase", "done", "free", "event", "act", "kingdom"],
+                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { quest, failed = true }, { event }, { act } or { kingdom } (neutral, shadow, order or dominion)",
+                &["quest", "phase", "done", "free", "failed", "event", "act", "kingdom"],
             )
         } else {
             (
-                "a list of { quest, phase }, { quest, done = true }, { quest, free = true } or { kingdom } (neutral, shadow, order or dominion)",
-                &["quest", "phase", "done", "free", "kingdom"],
+                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { quest, failed = true } or { kingdom } (neutral, shadow, order or dominion)",
+                &["quest", "phase", "done", "free", "failed", "kingdom"],
             )
         };
         let all = self.list_of(name, what, keys, |t| {
@@ -4006,10 +4008,17 @@ impl<'a> Fields<'a> {
                 return (t.len() == 1).then(|| as_u32(a)).flatten().map(Req::Act);
             }
             let quest = as_u32(t.get("quest")?)?;
-            let need = match (t.get("phase"), t.get("done"), t.get("free")) {
-                (Some(p), None, None) => Need::Phase(as_u32(p)?),
-                (None, Some(d), None) if d.as_bool() == Some(true) => Need::Done,
-                (None, None, Some(f)) if f.as_bool() == Some(true) => Need::Free,
+            let true_ = |v: &toml::Value| v.as_bool() == Some(true);
+            let need = match (
+                t.get("phase"),
+                t.get("done"),
+                t.get("free"),
+                t.get("failed"),
+            ) {
+                (Some(p), None, None, None) => Need::Phase(as_u32(p)?),
+                (None, Some(d), None, None) if true_(d) => Need::Done,
+                (None, None, Some(f), None) if true_(f) => Need::Free,
+                (None, None, None, Some(f)) if true_(f) => Need::Failed,
                 _ => return None,
             };
             Some(Req::Quest(quest, need))

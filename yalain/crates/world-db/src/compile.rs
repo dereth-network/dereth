@@ -1198,6 +1198,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                                     Need::Phase(p) => TableNeed::Phase(*p),
                                     Need::Done => TableNeed::Done,
                                     Need::Free => TableNeed::Free,
+                                    Need::Failed => TableNeed::Failed,
                                 },
                             )
                         })
@@ -1246,6 +1247,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                                     Need::Phase(p) => TableNeed::Phase(*p),
                                     Need::Done => TableNeed::Done,
                                     Need::Free => TableNeed::Free,
+                                    Need::Failed => TableNeed::Failed,
                                 },
                             )
                         })
