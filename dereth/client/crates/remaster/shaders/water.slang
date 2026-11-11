@@ -1748,9 +1748,10 @@ bool mirrored(float3 from, float3 dir, out float3 color)
     {
         return false;
     }
-    // The mirrored view sees the reflected ray's mirror image, which runs on down from `from`:
-    // where it stands some way along, so a surface bent by its ripples looks a little aside.
-    float3 q = from + float3(dir.xy, -dir.z) * 10.0;
+    // The mirrored view's transform mirrors what it is given, so a point some way along the
+    // reflected ray lands where its mirror image is seen: a surface bent by its ripples looks a
+    // little aside.
+    float3 q = from + dir * 10.0;
     float4 c = transform(push.water, WATER_PLANAR + 1, float4(q, 1.0));
     if (c.w <= 0.0)
     {
