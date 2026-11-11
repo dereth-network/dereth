@@ -2,7 +2,8 @@
 //! what it reflects the same however the camera turns; drawn over a body standing in it, below
 //! its surface; the trees and pillars
 //! standing in it meeting it, near and far; rings round a body walking in it from the first step;
-//! a wake behind a body walking through it, held still with the clock;
+//! a wake behind a body walking through it, held still with the clock; froth at its legs as it
+//! walks, settling once it stands;
 //! its ripples and its color over a lowered bed; its reflections traced over its own level; and
 //! the puddles of a rainy day as a switch of their own, changing nothing but themselves.
 //!
@@ -21,7 +22,7 @@ use dereth_render::device::{DeviceConfig, Gpu};
 use dereth_scene::world_scene::{RemasterCapture, RemasterLight, RemasterTerrain, RemasterWater};
 
 use crate::instruments::remaster_frames;
-use crate::instruments::stations::{report_station, Place, Shot, Station};
+use crate::instruments::stations::{report_station, Clock, Place, Shot, Station};
 
 const W: u32 = 640;
 const H: u32 = 480;
@@ -532,14 +533,20 @@ fn the_water_covers_a_body_standing_in_it_below_its_surface() {
 
 /// The pond's frames as a body walks through it, the camera held over it, the ground as the
 /// player draws it, the waves still and no rings, the wake as `wake` says: each step a thirtieth
-/// of a second, then two more with the clock held.
+/// of a second; then `stand` more steps standing still, and two more with the clock held. At the
+/// report's time, or at `clock` where it is given; from the place `line` reports, where it is
+/// given.
 fn wading_through(
     store: &Arc<RetailDatStore>,
     wake: bool,
     frames: usize,
+    (stand, clock, line): (usize, Option<Clock>, Option<&str>),
 ) -> (Vec<RemasterCapture>, [RemasterCapture; 2]) {
-    let report = VisualReport::parse(POND).expect("the report reads");
-    let st = report_station(&report, Some(3));
+    let report = VisualReport::parse(line.unwrap_or(POND)).expect("the report reads");
+    let mut st = report_station(&report, Some(3));
+    if let Some(c) = clock {
+        st.clock = c;
+    }
     let mut gpu = device();
     let mut shot = Shot::open(store, &mut gpu, &st);
     shot.apply_report(&report);
@@ -578,6 +585,9 @@ fn wading_through(
         walked.push(capture(&mut shot, &mut gpu));
     }
     shot.input.forward = false;
+    for _ in 0..stand {
+        shot.step_by(&mut gpu, 1.0 / 30.0);
+    }
     shot.step_held(&mut gpu);
     let held = capture(&mut shot, &mut gpu);
     shot.step_held(&mut gpu);
@@ -616,8 +626,8 @@ fn a_body_walking_through_still_water_leaves_a_wake_behind_it() {
     let _gpu = crate::common::gpu_lock();
     let store = crate::common::dats();
     let frames = 45;
-    let (with, held) = wading_through(&store, true, frames);
-    let (without, _) = wading_through(&store, false, frames);
+    let (with, held) = wading_through(&store, true, frames, (0, None, None));
+    let (without, _) = wading_through(&store, false, frames, (0, None, None));
     let (a, b) = (&with[frames - 1], &without[frames - 1]);
     // Where the body stood: the report's place, in the frame's space by the camera held at the
     // report's.
@@ -667,6 +677,45 @@ fn a_body_walking_through_still_water_leaves_a_wake_behind_it() {
     );
     assert_eq!(far, 0, "the wake reaches only so far");
     assert_eq!(still, 0, "a held clock holds the wake still");
+}
+
+/// The water pixels of `c` within `reach` meters of where the body stands that are drawn brighter
+/// than in `calm`, the same frame drawn with no wake: froth.
+fn froth_round_body(c: &RemasterCapture, calm: &RemasterCapture, reach: f32) -> usize {
+    let inv = glam::Mat4::from_cols_array(&c.view_projection).inverse();
+    let (body, _) = body_in(c);
+    let light = |f: &RemasterCapture, i: usize| -> u32 {
+        (0..3).map(|k| u32::from(f.color[i * 4 + k])).sum()
+    };
+    (0..c.kind.len())
+        .filter(|i| c.kind[*i] == WATER && calm.kind[*i] == WATER)
+        .filter(|i| surface_of(c, &inv, *i).truncate().distance(body) < reach)
+        .filter(|i| light(c, *i) > light(calm, *i) + 30)
+        .count()
+}
+
+/// The lake's shallows where a player stood, a little under the water's surface.
+const SHALLOWS: &str = "dereth report 1; loc 0xA9B50015 [59.258690 104.685966 27.904999]                         0.723986 0.000000 0.000000 -0.689815";
+
+/// **The water froths at a body's legs as it walks, and settles once it stands**: in the lake's
+/// shallows on a rainy night, the waves still, a body walking forward has froth round its legs,
+/// water drawn brighter than with no wake; standing still for three seconds after, little of it
+/// is left.
+#[test]
+fn the_water_froths_at_a_bodys_legs_as_it_walks_and_settles_once_it_stands() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let frames = 30;
+    let night = (90, Some(Clock::Rainy(0.126)), Some(SHALLOWS));
+    let (walked, [stood, _]) = wading_through(&store, true, frames, night);
+    let (calm_walked, [calm_stood, _]) = wading_through(&store, false, frames, night);
+    let (moving, still) = (
+        froth_round_body(&walked[frames - 1], &calm_walked[frames - 1], 1.0),
+        froth_round_body(&stood, &calm_stood, 1.0),
+    );
+    eprintln!("pond: {moving} froth pixels round the legs walking, {still} standing");
+    assert!(moving > 200, "froth as it walks: {moving}");
+    assert!(still * 4 <= moving, "settled standing: {still} of {moving}");
 }
 
 /// The lake's bank by a tree, the body standing in the water beside it.

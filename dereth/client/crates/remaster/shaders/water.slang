@@ -16,7 +16,8 @@
 //   behind it. Near the eye the wake is simulated instead (`cs_wake`): what the bodies stir
 //   spreads as ripples that cross, turn back from the shore and die away, a bow wave runs before a
 //   body moving, the water about its legs is sheltered from the ripples, and it froths where it
-//   laps them. The rings stay where it is not simulated.
+//   laps them as it moves, settling once it stands still. The rings stay where it is not
+//   simulated.
 // - **The reflection**, where the device traces rays (`fs_traced`), is the scene itself: the ray
 //   is traced through the scene's acceleration structures, and what it meets is lit as the resolve
 //   lights it, whether it is on screen or not. Elsewhere (`fs_main`), on the water nearest the eye
@@ -838,7 +839,8 @@ float water_level(uint heights, float2 p)
 // sway, so faint rings spread from them as from anything standing in water; they shelter the water
 // about them from the wind's ripples; and moving, they heap it up ahead of them and draw it down
 // behind, the faster the more. Beside its heights each cell keeps that shelter, and the line where
-// the water meets the legs, which laps them as the water there rises and falls.
+// the water meets the legs of a moving body, which laps them as the water there rises and falls
+// and settles away once the body stands still.
 //
 // The cells are four floats each: the height now and a step ago, meters; the shelter; the line.
 
@@ -861,6 +863,12 @@ static const float SWAY = 0.45;
 static const float SWAYS = 9.0;
 static const float SWAYS_TOO = 13.0;
 static const float SHELTER = 0.9;
+// How the froth at a body's legs comes and goes: the pace, meters a second, it starts to froth at
+// and the pace it froths wholly at; and how long, seconds, it takes to settle once the body stands
+// still.
+static const float FROTH_FROM = 0.15;
+static const float FROTH_FULL = 1.5;
+static const float FROTH_SETTLES = 0.3;
 // A moving body's bow: how far ahead of it and behind it the water is heaped and drawn down,
 // meters; how wide the heap is, meters; how much it heaps a step at a run, meters; the speed that
 // counts as a run, meters a second; and a step, seconds.
@@ -896,6 +904,18 @@ float2 wake_held(int2 w, int2 first, int2 before)
         return float2(0.0, 0.0);
     }
     return asfloat(buffers[NonUniformResourceIndex(push.wake_from)].Load2(wake_place(w)));
+}
+
+// The line where the water met the legs at world cell `w`, as the step before left it: none
+// outside the square being stepped, and where the square the step before held, `before`, did not
+// reach.
+float wake_line_held(int2 w, int2 first, int2 before)
+{
+    if (!wake_within(w, first) || !wake_within(w, before))
+    {
+        return 0.0;
+    }
+    return asfloat(buffers[NonUniformResourceIndex(push.wake_from)].Load(wake_place(w) + 12));
 }
 
 // How far legs whose feet stand at height `feet` stand in water at level `level`: not at all with
@@ -1016,12 +1036,16 @@ void cs_wake(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint inde
         float r = length(q - to.xy);
         float there = wet(to.z, level) * min(to.w, 1.0);
         shelter = max(shelter, there * exp(-(r / SHELTER) * (r / SHELTER)));
-        // The line laps the legs: wider and brighter as the water there rises, narrower as it
-        // falls.
+        // The line laps the legs as the body moves through the water: wider and brighter as the
+        // water there rises, narrower as it falls; none while it stands still.
         float lap = clamp(0.5 + now.x * 30.0, 0.15, 1.5);
         float d = (r - LEGS * 1.1) / (0.04 + 0.04 * lap);
-        line = max(line, there * lap * exp(-d * d));
+        float pace = length(to.xy - from.xy) / WAKE_STEP;
+        float stirred = smoothstep(FROTH_FROM, FROTH_FULL, pace);
+        line = max(line, there * lap * stirred * exp(-d * d));
     }
+    // What the line held settles away once the body stops.
+    line = max(line, wake_line_held(w, first, cells.zw) * exp(-WAKE_STEP / FROTH_SETTLES));
     // Toward the square's edges the ripples are taken up.
     float2 f = float2(rel);
     float edge = min(min(f.x, f.y), min(float(WAKE_SIDE - 1) - f.x, float(WAKE_SIDE - 1) - f.y));
