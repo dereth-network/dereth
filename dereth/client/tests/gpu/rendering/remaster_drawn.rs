@@ -347,6 +347,16 @@ fn a_still_view_of_the_drawn_ground_draws_the_same_frame_again() {
         .pop()
         .expect("the town");
     let (mut gpu, mut shot) = opened(&store, &station, None, every_piece());
+    // The far trees come to the device a few models a frame, and a tree stands once its model's
+    // pictures have come: the view is still once every far tree's have.
+    for _ in 0..400 {
+        shot.step_held(&mut gpu);
+        let s = shot.scene.draw.remaster_forest_stats(&mut gpu);
+        if s.is_none_or(|s| s.wanted > 0 && s.pictures >= s.wanted) {
+            break;
+        }
+    }
+    shot.step_held(&mut gpu);
     let a = shot.scene.draw.remaster_capture(&mut gpu).expect("drew");
     shot.step_held(&mut gpu);
     let b = shot.scene.draw.remaster_capture(&mut gpu).expect("drew");
