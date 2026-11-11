@@ -3075,3 +3075,443 @@ fn the_crystalabra_gives_its_user_and_fellows_two_points_of_vitae() {
         vitae(&h, fellow)
     );
 }
+
+mod world_recipes {
+    //! The recipes a world defines, made from the September 2013 data's own: what they take, make
+    //! and use up, their records, and making them.
+
+    use auberean_protocol::{queue, ServerMessage};
+    use auberean_script::args::Arg;
+    use auberean_script::graph::Graph;
+    use auberean_script::library::Elem;
+    use auberean_script::native_object::{Item, NativeObject};
+    use yalain_content::crafts::{Recipe, RecipeIngredient};
+    use yalain_testkit::authored::Portal;
+    use yalain_testkit::play::server_call;
+    use yalain_testkit::Harness;
+    use yalain_world::calls::{self, Value};
+    use yalain_world::craft::{error, function, Action, Crafting};
+
+    /// An install quest recipe of three slots, one item each: the seal fragments fused.
+    const FUSE: u32 = 0x6F00_02BE;
+    /// Its craft skill (the quest recipes) and its category.
+    const QUEST_RECIPES: u32 = 0x6F00_06A0;
+    const FUSE_CATEGORY: u32 = 690;
+    /// Templates the rows take and make, none of them any install recipe's.
+    const GEAR: u32 = 0x4700_1600;
+    const PUMP: u32 = 0x4700_1609;
+    const COG: u32 = 0x4700_1608;
+    const JOINT: u32 = 0x4700_161B;
+    const ROD: u32 = 0x4700_161A;
+    const UNIT: u32 = 0x4700_1605;
+    const SYSTEM: u32 = 0x4700_1601;
+    const DEVICE: u32 = 0x4700_1606;
+    /// String references a row names: a template's name, and another for its slot.
+    const NAME: (u32, u32) = (0x00DD_730E, 0x2500_2007);
+    const SLOT_NAME: (u32, u32) = (0x2FF0_3B27, 0x2500_2007);
+
+    /// The rows' ids, which no record of the install holds.
+    const THREE: u32 = 0x6F7E_0001;
+    const TWO: u32 = 0x6F7E_0002;
+    const FOUR: u32 = 0x6F7E_0003;
+    const NO_LIKE: u32 = 0x6F7E_0004;
+
+    fn slot(items: &[u32], count: u32) -> RecipeIngredient {
+        RecipeIngredient {
+            items: items.to_vec(),
+            count,
+            name: None,
+        }
+    }
+
+    fn row(recipe: u32, ingredients: Vec<RecipeIngredient>, product: u32) -> Recipe {
+        Recipe {
+            recipe,
+            like: FUSE,
+            name: NAME,
+            description: None,
+            ingredients,
+            product,
+            count: 1,
+            skill: None,
+            category: None,
+        }
+    }
+
+    /// The test world's crafting with these rows, made as a start makes them: the rows not made.
+    fn with_rows(p: &Portal, rows: Vec<Recipe>) -> (Crafting, Vec<(u32, String)>) {
+        let mut c = p.crafting(&[], &[FUSE]);
+        let mut crafts = yalain_testkit::test_crafts();
+        crafts.recipes = rows.into_iter().map(|r| (r.recipe, r)).collect();
+        c.take_world_crafts(&crafts);
+        let refused = p.world_recipes(&mut c);
+        (c, refused)
+    }
+
+    /// What a recipe's outcomes do, each outcome's actions in order: made (template, count), used
+    /// up (slot, count), or anything else by its kind.
+    fn outcomes(c: &Crafting, recipe: u32) -> Vec<Vec<String>> {
+        c.recipes[&recipe]
+            .checks
+            .iter()
+            .flat_map(|ch| &ch.outcomes)
+            .map(|o| {
+                o.actions
+                    .iter()
+                    .map(|a| match a {
+                        Action::Produce {
+                            template, quantity, ..
+                        } => format!("make {template:08X} x{quantity}"),
+                        Action::Destroy {
+                            ordinal, quantity, ..
+                        } => format!("use {ordinal} x{quantity}"),
+                        Action::Other => "other".into(),
+                        other => format!("{other:?}"),
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// A row's recipe is the install recipe it names with its own slots and product: the fragments'
+    /// fusing made over takes the row's three parts, two systems or four slots (one of two
+    /// templates, one of three items), one slot each as the row lists them, makes the row's product
+    /// and uses up each slot, its craft skill the install recipe's, its category the row's where it
+    /// names one; the install recipe's quest effect and line are gone. Its record reads back to the
+    /// same recipe and carries the row's name and the slot's. A row whose id the install holds, or
+    /// whose recipe to make it from does not exist, is not made.
+    /// Behaviour: server.craft.world-recipes-made
+    #[test]
+    fn a_world_recipe_is_the_install_recipe_it_names_with_its_rows_slots_and_product() {
+        use yalain_world::start::Nav;
+        let p = Portal::open();
+        let mut two = row(TWO, vec![slot(&[SYSTEM], 1), slot(&[UNIT], 1)], DEVICE);
+        two.category = Some(605);
+        let mut four = row(
+            FOUR,
+            vec![
+                slot(&[GEAR, PUMP], 1),
+                slot(&[COG], 3),
+                slot(&[JOINT], 1),
+                slot(&[ROD], 1),
+            ],
+            SYSTEM,
+        );
+        four.ingredients[0].name = Some(SLOT_NAME);
+        four.count = 2;
+        let mut no_like = row(NO_LIKE, vec![slot(&[GEAR], 1)], SYSTEM);
+        no_like.like = 0x6F7E_FFFF;
+        let held = row(FUSE + 1, vec![slot(&[GEAR], 1)], SYSTEM);
+        let (c, refused) = with_rows(
+            &p,
+            vec![
+                row(
+                    THREE,
+                    vec![slot(&[GEAR], 1), slot(&[PUMP], 1), slot(&[COG], 1)],
+                    SYSTEM,
+                ),
+                two,
+                four,
+                no_like,
+                held,
+            ],
+        );
+        let refused: Vec<u32> = refused.into_iter().map(|(id, _)| id).collect();
+        assert_eq!(refused, [FUSE + 1, NO_LIKE]);
+        assert!(!c.recipes.contains_key(&NO_LIKE));
+        let fuse = &c.recipes[&FUSE];
+        for (id, slots, category) in [
+            (
+                THREE,
+                vec![(vec![GEAR], 1), (vec![PUMP], 1), (vec![COG], 1)],
+                FUSE_CATEGORY,
+            ),
+            (TWO, vec![(vec![SYSTEM], 1), (vec![UNIT], 1)], 605),
+            (
+                FOUR,
+                vec![
+                    (vec![GEAR, PUMP], 1),
+                    (vec![COG], 3),
+                    (vec![JOINT], 1),
+                    (vec![ROD], 1),
+                ],
+                FUSE_CATEGORY,
+            ),
+        ] {
+            let r = &c.recipes[&id];
+            assert_eq!(r.skill, QUEST_RECIPES);
+            assert_eq!(r.category, category, "{id:08X}");
+            assert_eq!(
+                (r.animation, r.cycles, r.difficulty, r.cost),
+                (fuse.animation, fuse.cycles, fuse.difficulty, fuse.cost)
+            );
+            let got: Vec<(u32, Vec<u32>, u32)> = r
+                .ingredients
+                .iter()
+                .map(|i| {
+                    let mut items = i.items.clone();
+                    items.sort_unstable();
+                    (i.ordinal, items, i.quantity)
+                })
+                .collect();
+            let want: Vec<(u32, Vec<u32>, u32)> = (1..)
+                .zip(&slots)
+                .map(|(o, (items, n))| {
+                    let mut items = items.clone();
+                    items.sort_unstable();
+                    (o, items, *n)
+                })
+                .collect();
+            assert_eq!(got, want, "{id:08X}");
+            assert!(r.ingredients.iter().all(|i| i.classes.is_empty()));
+            let product = if id == TWO { DEVICE } else { SYSTEM };
+            let made = if id == FOUR { 2 } else { 1 };
+            let mut want = vec![format!("make {product:08X} x{made}"), "other".into()];
+            want.extend((1..).zip(&slots).map(|(o, (_, n))| format!("use {o} x{n}")));
+            assert_eq!(outcomes(&c, id), [want], "{id:08X}");
+        }
+        // The install recipe itself is as it was: its quest effect and line are its own.
+        assert!(outcomes(&c, FUSE)[0]
+            .iter()
+            .any(|a| a.starts_with("Effect")));
+        assert!(outcomes(&c, FUSE)[0].iter().any(|a| a.starts_with("Text")));
+        // The records: each a saved state the library reads whole, the same recipe again, holding
+        // nothing of the actions left out.
+        let lib = p.library();
+        for id in [THREE, TWO, FOUR] {
+            let st: auberean_assets::script::ScriptState =
+                auberean_assets::decode(id, &c.records[&id], &auberean_assets::Context::empty())
+                    .expect("a saved state's record");
+            assert_eq!(lib.package_name(st.package), "Recipe");
+            let g = Graph::decode(&st.graph, &lib).expect("the graph reads whole");
+            // Nothing of the actions left out stays in the record, reached or not.
+            let kinds: Vec<String> = g
+                .entries
+                .iter()
+                .filter_map(|e| match &e.body {
+                    auberean_script::graph::Body::Object(o) => {
+                        Some(lib.package_name(o.package_id()))
+                    }
+                    _ => None,
+                })
+                .collect();
+            for gone in ["PlayerEffectRecipeAction", "TextRecipeAction"] {
+                assert!(!kinds.iter().any(|k| k == gone), "{id:08X}: {gone}");
+            }
+            let again = yalain_world::craft::RecipeDef::from_state(id, &lib, &g).expect("a recipe");
+            let r = &c.recipes[&id];
+            assert_eq!(
+                (
+                    &again.ingredients,
+                    &again.checks,
+                    again.skill,
+                    again.category
+                ),
+                (&r.ingredients, &r.checks, r.skill, r.category)
+            );
+            let nav = Nav::new(&lib, &g);
+            let root = nav.object(g.root().expect("a root")).expect("the root");
+            let text = |o, name: &str| match nav.native(nav.field(o, name).expect(name)) {
+                Ok(NativeObject::TextInfo(t)) => (t.string_id, t.table, t.literal.is_none()),
+                other => panic!("{name}: {other:?}"),
+            };
+            assert_eq!(text(root, "m_siName"), (NAME.0, NAME.1, true));
+            assert_eq!(text(root, "m_siDesc"), (0, 0, true));
+            let slots = nav.list(root, "m_ingredients").expect("the slots");
+            let first = if id == FOUR { SLOT_NAME } else { (0, 0) };
+            assert_eq!(text(slots[0], "m_siDesc"), (first.0, first.1, true));
+            assert_eq!(
+                nav.field(root, "m_maxNumIngredients").expect("its most"),
+                u32::try_from(r.ingredients.len()).expect("few")
+            );
+        }
+    }
+
+    fn calls_of(h: &Harness, b: usize, from: usize) -> Vec<(u32, Vec<Value>)> {
+        h.world_messages(b, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::PlayerCall(c) => Some((
+                    c.function.0,
+                    c.args
+                        .as_ref()
+                        .and_then(|a| calls::values(&a.0).ok())
+                        .unwrap_or_default(),
+                )),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn add_ingredient(h: &mut Harness, b: usize, recipe: u32, slot: u32, item: u64) -> u32 {
+        let from = h.bots[b].inbox.len();
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(
+                function::ADD_INGREDIENT,
+                &[
+                    Arg::Int(0),
+                    Arg::LongInt(item),
+                    Arg::Int(slot),
+                    Arg::Int(recipe),
+                ],
+            ),
+        );
+        h.run(4);
+        let got = calls_of(h, b, from);
+        let (_, v) = got
+            .iter()
+            .find(|(f, _)| *f == function::INGREDIENT_ADDED)
+            .expect("answered");
+        match v[0] {
+            Value::Int(e) => e,
+            ref other => panic!("an error, not {other:?}"),
+        }
+    }
+
+    /// Ask to make a recipe with items by slot; what the answer said (its error).
+    fn execute(h: &mut Harness, b: usize, recipe: u32, slots: &[(u32, u64)]) -> u32 {
+        let mut g = yalain_world::graph::Builder::new();
+        let entries: Vec<(Item, Item)> = slots
+            .iter()
+            .map(|(s, i)| (Item::Word(*s), Item::Long(*i)))
+            .collect();
+        g.native(
+            8,
+            yalain_world::graph::hash(Elem::Word, Elem::Long, 0, &entries),
+        );
+        let from = h.bots[b].inbox.len();
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(
+                function::EXECUTE,
+                &[
+                    Arg::LongInt(0),
+                    Arg::Object(g.graph()),
+                    Arg::Int(0),
+                    Arg::Int(recipe),
+                ],
+            ),
+        );
+        let t = h.now.0 + 8.0;
+        while h.now.0 < t {
+            h.step();
+        }
+        let got = calls_of(h, b, from);
+        let (_, v) = got
+            .iter()
+            .find(|(f, _)| *f == function::EXECUTED)
+            .expect("answered");
+        match v[1] {
+            Value::Int(e) => e,
+            ref other => panic!("an error, not {other:?}"),
+        }
+    }
+
+    /// A world recipe is made as an install recipe is: unknown to a player who hasn't learned it,
+    /// it is refused as the install's is; learned from a quest step that teaches it by name, a part
+    /// not its slot's is refused as one in the install recipe's slot is, its parts go in, and
+    /// making it makes the row's product and uses up its parts.
+    /// Behaviour: server.craft.world-recipes-craft
+    #[test]
+    fn a_world_recipe_learned_from_a_step_is_refused_and_made_as_an_install_recipe_is() {
+        use yalain_content::quests::{Step, Trigger, Update};
+        let p = Portal::open();
+        let (c, refused) = with_rows(
+            &p,
+            vec![row(
+                THREE,
+                vec![slot(&[GEAR], 1), slot(&[PUMP], 1), slot(&[COG], 1)],
+                SYSTEM,
+            )],
+        );
+        assert!(refused.is_empty(), "{refused:?}");
+        let mut h = Harness::new();
+        h.server.crafting = c;
+        for t in [GEAR, PUMP, COG, UNIT, SYSTEM] {
+            h.server.catalog.insert(p.template(t));
+        }
+        let (b, me) = h.player_in_world("one", "Elara");
+        h.run(5);
+        let world = *h
+            .server
+            .players
+            .iter()
+            .find(|(_, x)| x.character == me)
+            .expect("in the world")
+            .0;
+        for t in [GEAR, PUMP, COG, UNIT] {
+            yalain_world::inventory::give(&mut h.server, &mut h.net, world, t, 1);
+        }
+        h.run(2);
+        let held = |h: &Harness, t: u32| {
+            h.server.players[&world]
+                .play
+                .items
+                .iter()
+                .find(|i| i.template == t)
+                .map(|i| i.id)
+        };
+        let (gear, pump, cog, unit) = (
+            held(&h, GEAR).expect("a gear"),
+            held(&h, PUMP).expect("a pump"),
+            held(&h, COG).expect("a cog"),
+            held(&h, UNIT).expect("a unit"),
+        );
+        let slots = [(1, gear), (2, pump), (3, cog)];
+        assert_eq!(execute(&mut h, b, THREE, &slots), error::BAD_RECIPE);
+        assert_eq!(execute(&mut h, b, FUSE, &slots), error::BAD_RECIPE);
+        let step = Step {
+            quest: 0,
+            needs: 0,
+            trigger: Trigger::Use(0x4700_314D),
+            tell: None,
+            update: Update::Nothing,
+            xp: 0,
+            gives: Vec::new(),
+            counts: Vec::new(),
+            effects: Vec::new(),
+            text: None,
+            recipes: vec![THREE, FUSE],
+            placed: "authored for a test".into(),
+            requires: Vec::new(),
+            takes: Vec::new(),
+            to: None,
+            races: Vec::new(),
+            effects_last: false,
+            effects_quiet: false,
+            fellows: false,
+            wants: None,
+            levels: None,
+            xp_share: 0.0,
+            transforms: None,
+            chance: None,
+        };
+        let clock = h.clock();
+        yalain_world::quests::run(&mut h.server, &mut h.net, world, &step, None, clock);
+        h.run(2);
+        let known: Vec<u32> = h.server.players[&world]
+            .play
+            .recipes
+            .iter()
+            .map(|r| r.recipe)
+            .collect();
+        assert!(
+            known.contains(&THREE) && known.contains(&FUSE),
+            "{known:x?}"
+        );
+        let wrong = add_ingredient(&mut h, b, FUSE, 1, unit);
+        assert_ne!(wrong, 0);
+        assert_eq!(add_ingredient(&mut h, b, THREE, 1, unit), wrong);
+        assert_eq!(add_ingredient(&mut h, b, THREE, 1, gear), 0);
+        assert_eq!(execute(&mut h, b, THREE, &slots), 0);
+        let me = &h.server.players[&world].play;
+        assert!(me.items.iter().any(|i| i.template == SYSTEM));
+        for t in [GEAR, PUMP, COG] {
+            assert!(!me.items.iter().any(|i| i.template == t), "{t:08X} used up");
+        }
+        assert!(me.items.iter().any(|i| i.template == UNIT), "the unit kept");
+    }
+}

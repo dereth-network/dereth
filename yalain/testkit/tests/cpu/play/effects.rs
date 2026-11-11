@@ -714,6 +714,7 @@ fn a_quest_steps_effects_come_after_its_gifts_and_before_its_update() {
         counts: Vec::new(),
         effects: vec![COURAGE_EFFECT],
         text: Some((0x912E_FF1D, 0x2500_10E8)),
+        recipes: Vec::new(),
         placed: "made up for the test".into(),
         requires: Vec::new(),
         takes: Vec::new(),

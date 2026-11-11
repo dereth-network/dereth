@@ -1754,6 +1754,7 @@ fn a_quest_an_admin_takes_off_a_player_takes_its_subquests_too() {
                 counts: Vec::new(),
                 effects: Vec::new(),
                 text: None,
+                recipes: Vec::new(),
                 placed: "authored for a test".into(),
                 requires: Vec::new(),
                 takes: Vec::new(),

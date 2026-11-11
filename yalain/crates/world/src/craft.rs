@@ -564,6 +564,9 @@ pub struct Crafting {
     pub crafts: Crafts,
     /// The level tables recipes' actions read by the spinner, by saved state.
     pub spinner_tables: HashMap<u32, LevelMap>,
+    /// The records of the recipes the world defines, by id, as a data file would hold them: served
+    /// to a client that asks for one ([`crate::recipe_rows`]).
+    pub records: HashMap<u32, Vec<u8>>,
 }
 
 impl Crafting {
@@ -1514,6 +1517,48 @@ impl Crafting {
             self.spinner_tables.entry(table).or_insert(m);
         }
         read
+    }
+
+    /// Make the recipes the world defines (the `[[recipe]]` rows taken with
+    /// [`Self::take_world_crafts`]), each from the install recipe it names, and read them as the
+    /// install's are, their records kept for clients ([`crate::recipe_rows`]). A row whose id the
+    /// install holds a record of, or whose recipe to make it from does not read, is not made.
+    /// Returns those rows, by id, each with why.
+    pub fn take_world_recipes(
+        &mut self,
+        lib: &Library,
+        graph: &dyn Fn(u32) -> Option<Graph>,
+    ) -> Vec<(u32, String)> {
+        let mut made = HashMap::new();
+        let mut refused = Vec::new();
+        for row in self.crafts.recipes.values() {
+            if graph(row.recipe).is_some() {
+                refused.push((row.recipe, "the install holds a record of its id".into()));
+                continue;
+            }
+            let Some(like) = graph(row.like) else {
+                refused.push((
+                    row.recipe,
+                    format!("no recipe {:08X} to make it from", row.like),
+                ));
+                continue;
+            };
+            match crate::recipe_rows::make(lib, &like, row)
+                .and_then(|g| RecipeDef::from_state(row.recipe, lib, &g).map(|_| g))
+                .and_then(|g| crate::recipe_rows::record(row.recipe, &g).map(|r| (g, r)))
+            {
+                Ok((g, record)) => {
+                    made.insert(row.recipe, g);
+                    self.records.insert(row.recipe, record);
+                }
+                Err(why) => refused.push((row.recipe, why)),
+            }
+        }
+        let ids: Vec<u32> = made.keys().copied().collect();
+        self.read_more(lib, &ids, &|id| {
+            made.get(&id).cloned().or_else(|| graph(id))
+        });
+        refused
     }
 
     /// The `[[refining]]` rows whose recipe none of crafting's recipes is of (none a player can

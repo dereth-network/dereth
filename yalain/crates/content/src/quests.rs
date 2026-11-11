@@ -263,6 +263,8 @@ pub struct Step {
     /// The effects it puts on the player (their saved states), and a text shown after them.
     pub effects: Vec<u32>,
     pub text: Option<(u32, u32)>,
+    /// The recipes it teaches the player.
+    pub recipes: Vec<u32>,
     pub placed: String,
     /// Other quests it requires, at a phase or done.
     pub requires: Vec<(u32, Need)>,
@@ -483,6 +485,11 @@ impl QuestTable {
             .chain(self.gives.iter().flat_map(|g| g.effects.iter().copied()))
     }
 
+    /// Every recipe the table's steps teach by name.
+    pub fn recipes_taught(&self) -> impl Iterator<Item = u32> + '_ {
+        self.steps.iter().flat_map(|s| s.recipes.iter().copied())
+    }
+
     /// The quests and phases a quest is a subquest of.
     pub fn parents(&self, sub: u32) -> impl Iterator<Item = (u32, u32)> + '_ {
         self.quests.iter().flat_map(move |q| {
@@ -590,6 +597,12 @@ impl QuestTable {
                 .collect::<Vec<_>>()
                 .join(",");
             let text = s.text.map_or_else(String::new, r);
+            let recipes = s
+                .recipes
+                .iter()
+                .map(|g| format!("{g:08X}"))
+                .collect::<Vec<_>>()
+                .join(",");
             let requires = s
                 .requires
                 .iter()
@@ -615,7 +628,7 @@ impl QuestTable {
             });
             let _ = writeln!(
                 out,
-                "step\t{:08X}\t{}\t{trigger}\t{}\t{update}\t{}\t{gives}\t{}\t{requires}\t{takes}\t{to}\t{effects}\t{text}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                "step\t{:08X}\t{}\t{trigger}\t{}\t{update}\t{}\t{gives}\t{}\t{requires}\t{takes}\t{to}\t{effects}\t{text}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{recipes}",
                 s.quest,
                 s.needs,
                 s.tell.as_ref().map(Words::to_text).unwrap_or_default(),
@@ -790,7 +803,7 @@ impl QuestTable {
                         _ => None,
                     },
                 }),
-                "step" if (9..=21).contains(&c.len()) => {
+                "step" if (9..=22).contains(&c.len()) => {
                     let (kind, tpl) = c[3]
                         .split_once(':')
                         .ok_or_else(|| at(format!("a trigger is kind:template, not {}", c[3])))?;
@@ -902,6 +915,12 @@ impl QuestTable {
                         } else {
                             Some(pair(col(13)).map_err(at)?)
                         },
+                        recipes: col(21)
+                            .split(',')
+                            .filter(|x| !x.is_empty())
+                            .map(hex)
+                            .collect::<Result<_, _>>()
+                            .map_err(at)?,
                         placed: c[8].to_string(),
                         requires,
                         takes,

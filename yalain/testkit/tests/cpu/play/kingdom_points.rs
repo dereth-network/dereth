@@ -531,6 +531,7 @@ fn a_step_for_one_kingdom_runs_only_for_its_players() {
         counts: Vec::new(),
         effects: vec![SLIVER_BONUS],
         text: None,
+        recipes: Vec::new(),
         placed: "authored for a test".into(),
         requires: Vec::new(),
         takes: vec![SLIVER],

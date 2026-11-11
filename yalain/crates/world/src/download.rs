@@ -6,6 +6,8 @@
 //!   portal file for the rest (the client's own table of kinds, [`RecordType::info`]).
 //! - A record the server's file holds is sent whole, as that file stores it, compressed when that
 //!   makes it smaller; a landblock brings its landblock information right after it, unasked.
+//! - A recipe the world defines ([`crate::recipe_rows`]) is served as the portal file would hold
+//!   it: no install holds it, and a client's crafting page reads a recipe from its record.
 //! - A record the server does not hold is refused with the kind, the id and error 1.
 //!
 //! Answering never holds up the world. A very long record is compressed as the server starts
@@ -350,7 +352,15 @@ fn record_answer<S: Store>(
             bytes,
         });
     }
-    let record = s.data.as_deref().and_then(|f| f.read(file, id));
+    let record = s
+        .data
+        .as_deref()
+        .and_then(|f| f.read(file, id))
+        .or_else(|| {
+            (file == DatKind::Portal)
+                .then(|| s.crafting.records.get(&id).cloned())
+                .flatten()
+        });
     s.downloads.spend(conn, record.as_ref().map_or(0, Vec::len));
     let record = record?;
     s.downloads.compressed += record.len() as u64;

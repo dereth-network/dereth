@@ -93,6 +93,9 @@ pub fn item(l: &Located) -> Option<Item> {
         Row::Refining(r) => Item::Refining {
             recipe: r.refining.recipe.clone(),
         },
+        Row::Recipe(r) => Item::Recipe {
+            id: r.recipe.recipe,
+        },
         Row::Plant(r) => Item::Plant {
             template: r.species.plant,
         },
@@ -196,6 +199,7 @@ fn value(row: &Row) -> String {
         Row::MapRecipes(x) => x.prov = crate::rows::Prov::default(),
         Row::Spellbinding(x) => x.prov = crate::rows::Prov::default(),
         Row::Refining(x) => x.prov = crate::rows::Prov::default(),
+        Row::Recipe(x) => x.prov = crate::rows::Prov::default(),
         Row::Plant(x) => x.prov = crate::rows::Prov::default(),
         Row::PlantCross(x) => x.prov = crate::rows::Prov::default(),
         Row::Worn(x) => x.prov = crate::rows::Prov::default(),

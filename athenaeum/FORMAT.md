@@ -28,7 +28,7 @@ world.lock                         ids given to authored rows, kept across build
 <pack>/server/quests/QQQQQQQQ.toml [[quest]], [[step]] of one quest
 <pack>/server/gives/TTTTTTTT.toml  [[give]] of one template given to
 <pack>/server/talk/TTTTTTTT.toml   [[talk]] of one template
-<pack>/server/crafting.toml        [[craft]], [[tool]], [[spellbinding]], [[refining]]
+<pack>/server/crafting.toml        [[craft]], [[tool]], [[spellbinding]], [[refining]], [[recipe]]
 <pack>/server/mines.toml           [[mine]]
 <pack>/server/maps.toml            [[map_region]], [[map_recipes]]
 <pack>/server/story.toml           [[scene]], [[shard]]
@@ -131,6 +131,7 @@ Every row sets one **item**, named by its key:
 | `quest 0xID` | the quest's id |
 | `step 0xQUEST KEY` | the quest and the step's `key` |
 | `craft 0xID` | the craft skill or recipe |
+| `recipe 0xID` | the recipe's id |
 | `scene 0xID` | the scene's id |
 | `shard 0xOBJECT` | the shard's world id |
 | `butchery 0xPROFILE` | the butchery profile |
@@ -362,6 +363,7 @@ What moves a quest on, in its quest's file.
 | `gives`, `counts` | | templates it gives, and how many of each in order (1 when left out) |
 | `effects`, `text`, `effects_last` | | the effects it puts on the player, by their saved states; a text shown after them; `effects_last = true` tells the quest's update before them |
 | `effects_quiet` | | true: its effects tell none of their own lines (a recipe or a skill they grant is granted in silence); its `text` is still told. Only with `effects` |
+| `recipes` | | recipes it teaches, by id: the install's, or the world's `[[recipe]]` rows'; learned after its update and its effects |
 | `requires` | | other quests it needs (`{ quest, phase }`, `{ quest, done = true }`, `{ quest, free = true }`, `{ quest, failed = true }`: failed, by a step or its time run out, and for a step of a quest under way given since that quest was, so a hidden timer given with the quest is waited on until it runs out), an event that must be on (`{ event = "key" }`), acts that must be whole (`{ act = A }`: seven of the act's scenes held, its hidden ones aside; a scene of the act must be served) and one kingdom (`{ kingdom = "order" }`: `neutral`, `shadow`, `order` or `dominion`) |
 | `takes` | | templates of items taken from the player's pack, which the player must hold |
 | `to` | | a place it takes the player to, through portal space |
@@ -717,6 +719,27 @@ What a refining recipe yields.
 | `product` | required | the template of what it yields |
 | `full_at` | | a craft skill level from 2 at which a refining yields all it takes; 150 when left out |
 | `start` | | a percent from 0 to 100: what a refining yields of what it takes before any skill, growing evenly to all of it at `full_at`; 34 when left out |
+| `prov` | required | where it came from |
+
+#### `[[recipe]]`
+
+A recipe the world defines where the install holds none, made from an install recipe: everything
+the row doesn't set (its craft skill and category unless the row names them, its animation, checks
+and cost) is that recipe's. Its outcomes make the row's product, stamp it with its maker and use up
+each of its slots; whatever else the install recipe's outcomes did is left out. A client is sent
+its record when it asks for one. A step's `recipes` teaches it.
+
+| field | | meaning |
+|---|---|---|
+| `recipe` | required | its id: a saved state id (`0x6F...`) no record of the install holds |
+| `like` | required | the install recipe it is made from (its saved state) |
+| `name` | required | a string reference: its name |
+| `description` | | a string reference; none when left out |
+| `ingredients` | required | its slots, in order, at least one: `{ items, count, name }`, the templates any of which goes in it, how many it takes (1 when left out), and a string reference for what the slot says it wants (none when left out) |
+| `product` | required | the template of what it makes |
+| `count` | | above 0; 1 when left out |
+| `skill` | | its craft skill (a saved state); the install recipe's when left out |
+| `category` | | its category in its craft skill, by number; the install recipe's when left out |
 | `prov` | required | where it came from |
 
 #### `[[plant]]`

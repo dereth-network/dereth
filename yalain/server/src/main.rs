@@ -1960,7 +1960,13 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             .chain(quests.effect_states())
             .collect();
         let effects = data::effect_table(portal, &states, &effect_rules)?;
-        let mut craft = data::crafting(portal, &crafting, &effects.recipes())?;
+        // The recipes effects grant, and those quests' steps teach by name.
+        let granted: Vec<u32> = effects
+            .recipes()
+            .into_iter()
+            .chain(quests.recipes_taught())
+            .collect();
+        let mut craft = data::crafting(portal, &crafting, &granted)?;
         if crafting.tool_yields.is_empty() {
             tracing::warn!(
                 "this world has no [[tool]] rows: every unmade knife yields what a crude one does"
@@ -1972,6 +1978,10 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             &mut craft, &gathering,
         ));
         missing.extend(craft.take_world_crafts(&crafts));
+        // The recipes the world defines, made from the install's.
+        for (id, why) in data::world_recipes(portal, &mut craft)? {
+            tracing::warn!("the world's [[recipe]] {id:08X} is not made: {why}");
+        }
         if !missing.is_empty() {
             let kinds: Vec<String> = missing.iter().map(|k| format!("[[{k}]]")).collect();
             tracing::warn!(
@@ -2817,6 +2827,71 @@ mod real_start_tests {
             after.effects.get(0x6F00_1CDF).is_some(),
             "the outcome's chain is read"
         );
+    }
+
+    /// A start makes the recipes the world's rows define from the install's, reads them into the
+    /// crafting table with what they make and ask for described and their records kept for
+    /// clients, and reads the install recipes quest steps teach by name; a row whose id the
+    /// install holds is not made. The same world without those rows reads none of them.
+    /// Behaviour: server.craft.a-start-makes-the-worlds-recipes
+    #[test]
+    fn a_start_makes_the_worlds_recipes_and_reads_those_steps_teach() {
+        use yalain_content::crafts::{Recipe, RecipeIngredient};
+        const MADE: u32 = 0x6F7E_0001;
+        const FUSE: u32 = 0x6F00_02BE;
+        const ARC_BLADE: u32 = 0x6F00_1CAE;
+        const PARTS: [u32; 3] = [0x4700_1600, 0x4700_1609, 0x4700_1608];
+        const SYSTEM: u32 = 0x4700_1601;
+        let install = auberean_dat::testing::require_target_install();
+        let world_db = std::env::var("YALAIN_TEST_WORLD_DB")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| "pinned".to_owned());
+        let portal = super::data::Portal::open(&install, None).expect("the install opens");
+        let (_, plain) = super::compile_world(&portal, &world_db, None)
+            .unwrap_or_else(|e| panic!("the world database {world_db}: {e}"));
+        let mut rows = plain.clone();
+        let row = |recipe| Recipe {
+            recipe,
+            like: FUSE,
+            name: (0x00DD_730E, 0x2500_2007),
+            description: None,
+            ingredients: PARTS
+                .iter()
+                .map(|t| RecipeIngredient {
+                    items: vec![*t],
+                    count: 1,
+                    name: None,
+                })
+                .collect(),
+            product: SYSTEM,
+            count: 1,
+            skill: None,
+            category: Some(605),
+        };
+        rows.crafts.recipes.insert(MADE, row(MADE));
+        rows.crafts.recipes.insert(FUSE + 1, row(FUSE + 1));
+        let mut step = rows.quests.steps[0].clone();
+        step.recipes = vec![MADE, ARC_BLADE];
+        rows.quests.steps.push(step);
+        let read = |t| {
+            let (_, p) = super::load_play(&portal, t).expect("the world starts");
+            p
+        };
+        let before = read(plain);
+        let after = read(rows);
+        for r in [MADE, ARC_BLADE] {
+            assert!(!before.craft.recipes.contains_key(&r), "{r:08X} before");
+            assert!(after.craft.recipes.contains_key(&r), "{r:08X} after");
+        }
+        assert!(before.craft.records.is_empty());
+        assert_eq!(
+            after.craft.records.keys().copied().collect::<Vec<_>>(),
+            [MADE]
+        );
+        for t in PARTS.iter().chain([&SYSTEM]) {
+            assert!(after.catalog.templates.contains_key(t), "{t:08X} described");
+        }
     }
 
     /// Step up to the placed object of a template: its id.

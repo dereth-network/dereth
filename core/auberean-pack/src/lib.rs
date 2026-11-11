@@ -122,8 +122,8 @@ impl Dialect for Ac2 {
          treasure_value <level>, treasure_rules, treasure_sort <sort>, treasure_word <sort> <word>, \
          treasure_look <template>, treasure_potion <kind>, \
          treasure_family <sort> <order>, item_use <template>, book <template>, \
-         start_item <template>, interaction <key>, concealing <effect> <class|any>, npc_table <name>, \
-         friend_table <table>, creature <template>, or landblock <XXYY>";
+         start_item <template>, interaction <key>, recipe <id>, concealing <effect> <class|any>, \
+         npc_table <name>, friend_table <table>, creature <template>, or landblock <XXYY>";
     const NAMES_BASE: bool = true;
     type Kind = Kind;
     type Era = Era;
@@ -240,6 +240,8 @@ pub enum Item {
     Spellbinding { sort: String },
     /// What a refining recipe yields, by its script package's name.
     Refining { recipe: String },
+    /// A recipe the world defines, by its id.
+    Recipe { id: u32 },
     /// What creatures of a class (none: every creature) make of a concealing effect's holder, by
     /// the effect and the class.
     Concealing { effect: u32, class: Option<u32> },
@@ -383,6 +385,7 @@ impl Item {
             ["refining", recipe] => Self::Refining {
                 recipe: identifier(recipe)?,
             },
+            ["recipe", id] => Self::Recipe { id: number(id)? },
             ["concealing", effect, class] => Self::Concealing {
                 effect: number(effect)?,
                 class: match *class {
@@ -478,6 +481,7 @@ impl fmt::Display for Item {
             Self::MapRecipes { region } => write!(f, "map_recipes {region}"),
             Self::Spellbinding { sort } => write!(f, "spellbinding {sort}"),
             Self::Refining { recipe } => write!(f, "refining {recipe}"),
+            Self::Recipe { id } => write!(f, "recipe {id:#010x}"),
             Self::Concealing {
                 effect,
                 class: Some(c),

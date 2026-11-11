@@ -1198,6 +1198,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     counts: s.counts.clone(),
                     effects: s.effects.clone(),
                     text: s.text.map(|r| (r.string, r.table)),
+                    recipes: s.recipes.clone(),
                     placed: prov_text(&s.prov),
                     requires: s
                         .requires
@@ -1225,7 +1226,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     #[allow(clippy::cast_possible_truncation)]
                     xp_share: s.xp_share.unwrap_or(0.0) as f32,
                     to,
-                    transforms: s.transforms.clone(),
+                    transforms: s.transforms.as_deref().cloned(),
                     #[allow(clippy::cast_possible_truncation)]
                     chance: s.chance.map(|c| c as f32),
                 });
@@ -1465,6 +1466,19 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     t.crafts
                         .refining
                         .insert(r.refining.recipe.clone(), r.refining.clone());
+                }
+            }
+            Row::Recipe(r) => {
+                let known = r
+                    .recipe
+                    .ingredients
+                    .iter()
+                    .flat_map(|i| &i.items)
+                    .fold(cx.template(l, "product", r.recipe.product), |ok, t| {
+                        cx.template(l, "ingredients", *t) && ok
+                    });
+                if known {
+                    t.crafts.recipes.insert(r.recipe.recipe, r.recipe.clone());
                 }
             }
             Row::Plant(r) => {

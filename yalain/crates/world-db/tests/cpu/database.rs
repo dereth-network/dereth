@@ -3253,6 +3253,126 @@ fn a_step_on_a_quest_given_compiles_and_reads_back_as_written() {
     );
 }
 
+/// A recipe row names its id, the install recipe it is made from, its name, its slots (each one or
+/// more templates, how many, and what the slot says) and its product; it compiles into crafting's
+/// rows by its id, and a step names the recipes it teaches, which read back as written.
+/// Behaviour: server.craft.world-recipe-rows
+#[test]
+fn recipe_rows_compile_by_their_ids_and_a_step_names_the_recipes_it_teaches() {
+    use yalain_content::crafts::{Recipe, RecipeIngredient};
+    let row = |body: &str| {
+        format!(
+            "[[recipe]]\n{body}\nprov = {{ from = \"authored\", by = \"a test\", note = \"a test\" }}\n"
+        )
+    };
+    let good = row(
+        "recipe = 0x6F7E0001\nlike = 0x6F0002BE\nname = { table = 0x25002007, string = 0x00DD730E }\n\
+         ingredients = [{ items = [0x4700115B, 0x47002224], count = 2, name = { table = 0x25002007, string = 0x2FF03B27 } }, { items = [0x47002224] }]\n\
+         product = 0x47002224\ncount = 3\ncategory = 605",
+    );
+    let mut files = fixture();
+    files.insert("town/server/crafting.toml".into(), good.clone());
+    let quest = files["town/server/quests/40000088.toml"].clone();
+    files.insert(
+        "town/server/quests/40000088.toml".into(),
+        format!(
+            "{quest}\n[[step]]\nkey = \"teaches\"\nquest = 0x40000088\nneeds = 2\ntrigger = {{ use = 0x47002224 }}\nupdate = \"none\"\nrecipes = [0x6F7E0001, 0x6F0002BE]\nprov = {{ from = \"authored\", by = \"a test\", note = \"a test\" }}\n"
+        ),
+    );
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.crafts.recipes.values().collect::<Vec<_>>(),
+        [&Recipe {
+            recipe: 0x6F7E_0001,
+            like: 0x6F00_02BE,
+            name: (0x00DD_730E, 0x2500_2007),
+            description: None,
+            ingredients: vec![
+                RecipeIngredient {
+                    items: vec![0x4700_115B, 0x4700_2224],
+                    count: 2,
+                    name: Some((0x2FF0_3B27, 0x2500_2007)),
+                },
+                RecipeIngredient {
+                    items: vec![0x4700_2224],
+                    count: 1,
+                    name: None,
+                },
+            ],
+            product: 0x4700_2224,
+            count: 3,
+            skill: None,
+            category: Some(605),
+        }]
+    );
+    assert!(
+        t.crafts.templates().any(|x| x == 0x4700_2224),
+        "its product is made"
+    );
+    let step = t
+        .quests
+        .steps
+        .iter()
+        .find(|s| s.recipes == [0x6F7E_0001, 0x6F00_02BE])
+        .expect("the step teaching them");
+    assert_eq!(step.update, yalain_content::quests::Update::Nothing);
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+        t.quests,
+        "it reads back as written"
+    );
+
+    // A template the install lacks is a problem, a slot's or the product's.
+    for (from, to) in [
+        ("[0x47002224] }", "[0x47009999] }"),
+        ("product = 0x47002224", "product = 0x47009999"),
+    ] {
+        let mut lost = fixture();
+        lost.insert("town/server/crafting.toml".into(), good.replace(from, to));
+        let problems = compile(&merge(&read(&lost).unwrap()).unwrap(), &Fake::new()).unwrap_err();
+        assert!(
+            problems.iter().any(|p| p
+                .to_string()
+                .contains("template 47009999 is not in the install")),
+            "{to}: {problems:?}"
+        );
+    }
+
+    // One row an id.
+    let mut twice = files.clone();
+    twice.insert(
+        "town/server/more.toml".into(),
+        good.replace("count = 3", "count = 4"),
+    );
+    assert!(
+        check(&twice)
+            .iter()
+            .any(|p| p.message.contains("set twice")),
+        "{:?}",
+        check(&twice)
+    );
+
+    // Their shapes.
+    let base = "recipe = 0x6F7E0001\nlike = 0x6F0002BE\nname = { table = 0x25002007, string = 0x00DD730E }\nproduct = 0x47002224";
+    for bad in [
+        base.to_string(),
+        format!("{base}\ningredients = []"),
+        format!("{base}\ningredients = [{{ items = [] }}]"),
+        format!("{base}\ningredients = [{{ items = [0x47002224], count = 0 }}]"),
+        format!("{base}\ningredients = [{{ items = [0x47002224], what = 1 }}]"),
+        format!("{base}\ningredients = [{{ items = [0x47002224] }}]\ncount = 0"),
+        format!("{base}\ningredients = [{{ items = [0x47002224], name = 3 }}]"),
+        base.replace("like = 0x6F0002BE\n", "") + "\ningredients = [{ items = [0x47002224] }]",
+        base.replace("name = { table = 0x25002007, string = 0x00DD730E }\n", "")
+            + "\ningredients = [{ items = [0x47002224] }]",
+    ] {
+        let mut f = fixture();
+        f.insert("town/server/crafting.toml".into(), row(&bad));
+        assert!(read(&f).is_err(), "{bad}");
+    }
+}
+
 /// A death treasure row names a template or a camp (in another pack by `pack:key@XXYY`), an item and
 /// a chance above 0 and at most 1; it compiles into the loot table, which reads back as written.
 /// Behaviour: server.content.death-treasure-row

@@ -900,6 +900,7 @@ pub fn quest_mine_done<S: Store>(
             counts: Vec::new(),
             effects: Vec::new(),
             text: None,
+            recipes: Vec::new(),
             placed: String::new(),
             requires: Vec::new(),
             takes: Vec::new(),

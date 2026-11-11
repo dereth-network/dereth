@@ -1512,7 +1512,8 @@ fn for_fellows<S: Store>(
 
 /// A step's effects on the player (a reward, a recipe learned), cast by the player itself, then
 /// what they say (a text one of them told already is not told again; none of their own lines for a
-/// step whose effects are quiet); a step that transforms its player makes it a hero first.
+/// step whose effects are quiet), then the recipes it teaches by name; a step that transforms its
+/// player makes it a hero first.
 fn step_effects<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1539,6 +1540,9 @@ fn step_effects<S: Store>(
     }
     if let Some(t) = step.text.filter(|t| !told.contains(t)) {
         progress::private(net, world, &crate::chat::show_text(2, progress::text(t)));
+    }
+    for r in &step.recipes {
+        crate::craft::learn(s, net, world, *r, clock);
     }
 }
 

@@ -613,6 +613,21 @@ impl Portal {
         c
     }
 
+    /// Make the recipes the world defines (crafting's `[[recipe]]` rows) from the install's, as
+    /// the server does at start: the rows not made, by id, each with why.
+    ///
+    /// # Panics
+    /// The library does not read.
+    pub fn world_recipes(&self, c: &mut yalain_world::craft::Crafting) -> Vec<(u32, String)> {
+        let lib = self.library();
+        let graph = |id: u32| -> Option<Graph> {
+            let st: ScriptState =
+                auberean_assets::decode(id, &self.dat.read(id).ok()?, &self.ctx).ok()?;
+            Graph::decode(&st.graph, &lib).ok()
+        };
+        c.take_world_recipes(&lib, &graph)
+    }
+
     /// The body a template's look gives (its radius and height), as the server reads it at start.
     #[must_use]
     pub fn body(&self, template: u32) -> Option<[f32; 2]> {

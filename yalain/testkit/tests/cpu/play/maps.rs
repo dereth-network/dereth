@@ -437,6 +437,7 @@ fn a_map_found_at_its_place_moves_on_the_quest_it_is_part_of() {
         counts: Vec::new(),
         effects: Vec::new(),
         text: None,
+        recipes: Vec::new(),
         placed: "authored for a test".into(),
         requires: Vec::new(),
         takes: Vec::new(),

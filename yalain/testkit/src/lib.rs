@@ -2532,6 +2532,7 @@ pub fn test_crafts() -> yalain_content::crafts::Crafts {
             refine("PlasterRefiningRecipe", 0x4700_0656),
         ]
         .into(),
+        recipes: std::collections::BTreeMap::new(),
     }
 }
 

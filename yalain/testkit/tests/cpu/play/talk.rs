@@ -293,6 +293,7 @@ fn a_step_says_its_line_then_the_lines_heard_with_its_update_in_order() {
             counts: Vec::new(),
             effects: Vec::new(),
             text: None,
+            recipes: Vec::new(),
             placed: "authored for a test".into(),
             requires: Vec::new(),
             takes: Vec::new(),

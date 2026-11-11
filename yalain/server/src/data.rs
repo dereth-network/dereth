@@ -1073,6 +1073,19 @@ pub fn crafting(
     ))
 }
 
+/// Make the recipes the world defines (crafting's `[[recipe]]` rows) from the install's: the rows
+/// not made, by id, each with why.
+///
+/// # Errors
+/// The library does not read.
+pub fn world_recipes(
+    p: &Portal,
+    craft: &mut yalain_world::craft::Crafting,
+) -> Result<Vec<(u32, String)>, String> {
+    let lib = library(p)?;
+    Ok(craft.take_world_recipes(lib, &|id| state_graph(p, lib, id)))
+}
+
 /// The recipes these effects teach, and the effects they add in turn (a chain's), read into
 /// crafting where it lacks them: how many it read.
 ///

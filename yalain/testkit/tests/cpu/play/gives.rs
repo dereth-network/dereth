@@ -108,6 +108,7 @@ fn step(quest: u32, needs: u32, trigger: Trigger, update: Update) -> Step {
         counts: Vec::new(),
         effects: Vec::new(),
         text: None,
+        recipes: Vec::new(),
         placed: "authored for a test".into(),
         requires: Vec::new(),
         takes: Vec::new(),

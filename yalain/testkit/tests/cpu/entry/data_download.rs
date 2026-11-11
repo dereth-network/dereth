@@ -145,6 +145,56 @@ fn a_landblock_sent_brings_its_landblock_information_right_after_it() {
     }
 }
 
+const SCRIPT_STATE: u32 = 0x4000_002F;
+
+/// A recipe the world defines is served from its record as the portal file would hold it, where
+/// the server's files lack it (and with no files at all); a record the files hold of the same id is
+/// served in its place; an id neither holds is refused.
+/// Behaviour: server.data.world-recipes-served
+#[test]
+fn a_recipe_the_world_defines_is_served_from_its_record_where_the_files_lack_one() {
+    const MADE: u32 = 0x6F7E_0001;
+    const HELD: u32 = 0x4100_4B93;
+    for data in [true, false] {
+        let mut h = Harness::new();
+        if data {
+            h.server.data = Some(Box::new(files()));
+        }
+        let made = short_record(MADE);
+        h.server.crafting.records.insert(MADE, made.clone());
+        h.server.crafting.records.insert(HELD, short_record(0));
+        let b = at_character_list(&mut h, "tester");
+        let held = if data {
+            short_record(HELD)
+        } else {
+            short_record(0)
+        };
+        for (id, want) in [(MADE, Some(made)), (HELD, Some(held)), (0x6F7E_0002, None)] {
+            let before = h.bots[b].inbox.len();
+            let m = ClientMessage::DataRequest(DataRequest {
+                kind: SCRIPT_STATE,
+                id,
+            });
+            h.bots[b].send(false, queue::DATABASE, &m);
+            assert!(h.run_until(STEPS, |h| h.bots[b].inbox.len() > before));
+            h.run(20);
+            let got: Vec<ServerMessage> = h.bots[b].inbox[before..]
+                .iter()
+                .filter_map(|r| r.message())
+                .collect();
+            assert_eq!(got.len(), 1, "{id:08X}: one answer");
+            match (&got[0], want) {
+                (ServerMessage::DataRecord(r), Some(w)) => {
+                    assert_eq!((r.dat_file, r.kind, r.id), (PORTAL_FILE, SCRIPT_STATE, id));
+                    assert_eq!(inflated(r), w, "{id:08X}");
+                }
+                (ServerMessage::DataRefused(r), None) => assert_eq!(r.id, id),
+                (other, w) => panic!("{id:08X} (files {data}): {other:?}, wanted {w:?}"),
+            }
+        }
+    }
+}
+
 const ROOM: u32 = 0x4000_0026;
 
 /// A record of this many bytes that compresses well.

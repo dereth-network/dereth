@@ -131,6 +131,7 @@ pub mod quests;
 pub mod rates;
 pub mod ratings;
 pub mod reach;
+pub mod recipe_rows;
 pub mod regen;
 pub mod reload;
 pub mod reported;

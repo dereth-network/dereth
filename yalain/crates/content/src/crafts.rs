@@ -1,6 +1,6 @@
 //! What the world database says of crafting's own work: the surveyor's map recipes each region's
-//! drawing sets waiting, the totem spellbinding makes of each sort of item, and what each refining
-//! recipe yields.
+//! drawing sets waiting, the totem spellbinding makes of each sort of item, what each refining
+//! recipe yields, and the recipes the world defines itself.
 
 use std::collections::BTreeMap;
 
@@ -41,12 +41,45 @@ pub struct Refining {
     pub start: Option<u32>,
 }
 
-/// The world's crafting work: map recipes by region, totems by sort, refinings by recipe.
+/// A recipe the world defines, where the install holds none: an install recipe's saved state (its
+/// craft skill, category, animation, checks and the like) with its name, description, ingredients
+/// and product replaced, under an id of its own.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Recipe {
+    /// Its data id, which no record of the install holds.
+    pub recipe: u32,
+    /// The install recipe it is made from.
+    pub like: u32,
+    /// Its name and description, as string references `(string, table)` (no description: none).
+    pub name: (u32, u32),
+    pub description: Option<(u32, u32)>,
+    /// What it takes, slot by slot.
+    pub ingredients: Vec<RecipeIngredient>,
+    /// The template of what it makes, and how many.
+    pub product: u32,
+    pub count: u32,
+    /// Its craft skill (a saved state) and its category (none: the install recipe's).
+    pub skill: Option<u32>,
+    pub category: Option<u32>,
+}
+
+/// One of a world recipe's slots: the templates any of which goes in it, how many it takes, and
+/// what the slot says it wants (none: nothing).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RecipeIngredient {
+    pub items: Vec<u32>,
+    pub count: u32,
+    pub name: Option<(u32, u32)>,
+}
+
+/// The world's crafting work: map recipes by region, totems by sort, refinings by recipe, the
+/// world's own recipes by id.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Crafts {
     pub map_recipes: BTreeMap<String, MapRecipes>,
     pub totems: Vec<Totem>,
     pub refining: BTreeMap<String, Refining>,
+    pub recipes: BTreeMap<u32, Recipe>,
 }
 
 impl Crafts {
@@ -77,11 +110,13 @@ impl Crafts {
             .map(|t| t.word)
     }
 
-    /// Every template crafting's work makes: the totems and the refined products.
+    /// Every template crafting's work makes: the totems, the refined products and the world's
+    /// recipes' products.
     pub fn templates(&self) -> impl Iterator<Item = u32> + '_ {
         self.totems
             .iter()
             .map(|t| t.template)
             .chain(self.refining.values().map(|r| r.product))
+            .chain(self.recipes.values().map(|r| r.product))
     }
 }

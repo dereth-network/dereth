@@ -512,6 +512,8 @@ pub struct Step {
     /// The effects it puts on the player (their saved states), and a text shown after them.
     pub effects: Vec<u32>,
     pub text: Option<StrRef>,
+    /// The recipes it teaches the player (the install's, or the world's `[[recipe]]` rows').
+    pub recipes: Vec<u32>,
     /// Other quests it requires.
     pub requires: Vec<(u32, Need)>,
     /// The `[[event]]`s it runs only while they run.
@@ -539,8 +541,9 @@ pub struct Step {
     pub most_level: Option<i32>,
     /// It pays this share of what the player's level takes to reach the next, whole.
     pub xp_share: Option<f64>,
-    /// For a give, it makes its player a hero, after this transformation.
-    pub transforms: Option<yalain_content::quests::Transformation>,
+    /// For a give, it makes its player a hero, after this transformation (boxed: few steps have
+    /// one).
+    pub transforms: Option<Box<yalain_content::quests::Transformation>>,
     /// The chance it runs each time it may, above 0 and at most 1 (none: every time).
     pub chance: Option<f64>,
     pub prov: Prov,
@@ -664,6 +667,7 @@ pub enum Row {
     MapRecipes(MapRecipes),
     Spellbinding(Spellbinding),
     Refining(Refining),
+    Recipe(Recipe),
     Concealing(Concealing),
     NpcTable(NpcTable),
     FriendTable(FriendTable),
@@ -819,6 +823,14 @@ pub struct Spellbinding {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Refining {
     pub refining: yalain_content::crafts::Refining,
+    pub prov: Prov,
+}
+
+/// `[[recipe]]`: a recipe the world defines where the install holds none, made from an install
+/// recipe: its id, the recipe it is made from, its name, description, slots and product.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Recipe {
+    pub recipe: yalain_content::crafts::Recipe,
     pub prov: Prov,
 }
 
@@ -1165,6 +1177,7 @@ impl Row {
             Self::MapRecipes(_) => "map_recipes",
             Self::Spellbinding(_) => "spellbinding",
             Self::Refining(_) => "refining",
+            Self::Recipe(_) => "recipe",
             Self::Concealing(_) => "concealing",
             Self::NpcTable(_) => "npc_table",
             Self::FriendTable(_) => "friend_table",
@@ -1225,6 +1238,7 @@ impl Row {
             Self::MapRecipes(r) => Some(&r.prov),
             Self::Spellbinding(r) => Some(&r.prov),
             Self::Refining(r) => Some(&r.prov),
+            Self::Recipe(r) => Some(&r.prov),
             Self::Concealing(r) => Some(&r.prov),
             Self::NpcTable(r) => Some(&r.prov),
             Self::FriendTable(r) => Some(&r.prov),
@@ -1238,7 +1252,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 54] = [
+pub const KINDS: [&str; 55] = [
     "object",
     "camp",
     "loot",
@@ -1286,6 +1300,7 @@ pub const KINDS: [&str; 54] = [
     "map_recipes",
     "spellbinding",
     "refining",
+    "recipe",
     "concealing",
     "npc_table",
     "friend_table",
@@ -1296,7 +1311,7 @@ pub const KINDS: [&str; 54] = [
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 54] = [
+pub const FIELDS: [(&str, &[&str]); 55] = [
     (
         "object",
         &[
@@ -1446,6 +1461,7 @@ pub const FIELDS: [(&str, &[&str]); 54] = [
             "counts",
             "effects",
             "text",
+            "recipes",
             "requires",
             "takes",
             "to",
@@ -1688,6 +1704,21 @@ pub const FIELDS: [(&str, &[&str]); 54] = [
     (
         "refining",
         &["recipe", "product", "full_at", "start", "prov"],
+    ),
+    (
+        "recipe",
+        &[
+            "recipe",
+            "like",
+            "name",
+            "description",
+            "ingredients",
+            "product",
+            "count",
+            "skill",
+            "category",
+            "prov",
+        ],
     ),
     ("concealing", &["effect", "class", "regard", "prov"]),
     ("npc_table", &["name", "heals_kin", "prov"]),
@@ -2327,6 +2358,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 counts: f.ids("counts"),
                 effects: f.ids("effects"),
                 text: f.strref("text"),
+                recipes: f.ids("recipes"),
                 requires,
                 events,
                 kingdom,
@@ -2342,7 +2374,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 most_level: f.int("most_level").and_then(|v| i32::try_from(v).ok()),
                 xp_share: f.float("xp_share"),
                 transforms: match f.get("transforms") {
-                    Some(_) => Some(f.transformation()?),
+                    Some(_) => Some(Box::new(f.transformation()?)),
                     None => None,
                 },
                 chance: f.share("chance"),
@@ -2784,6 +2816,59 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                     product,
                     full_at,
                     start,
+                },
+                prov: f.req_prov()?,
+            })
+        }
+        "recipe" => {
+            use yalain_content::crafts::RecipeIngredient;
+            let recipe = f.req_id("recipe")?;
+            let like = f.req_id("like")?;
+            let name = f.req_strref("name")?;
+            let description = f.strref("description");
+            let ingredients = f.list_of(
+                "ingredients",
+                "a list of { items, count, name }: the templates that go in a slot, how many (1 \
+                 when left out) and what the slot says it wants (a string reference, or left out)",
+                &["items", "count", "name"],
+                |t| {
+                    let items = t
+                        .get("items")?
+                        .as_array()?
+                        .iter()
+                        .map(as_u32)
+                        .collect::<Option<Vec<_>>>()
+                        .filter(|i| !i.is_empty())?;
+                    let count = match t.get("count") {
+                        Some(v) => as_u32(v).filter(|n| *n > 0)?,
+                        None => 1,
+                    };
+                    let name = match t.get("name") {
+                        Some(v) => {
+                            let r = v.as_table().filter(|r| r.len() == 2)?;
+                            Some((as_u32(r.get("string")?)?, as_u32(r.get("table")?)?))
+                        }
+                        None => None,
+                    };
+                    Some(RecipeIngredient { items, count, name })
+                },
+            );
+            let ok = !ingredients.is_empty();
+            let ingredients = f.held("ingredients", ingredients, ok, "at least one slot")?;
+            let product = f.req_id("product")?;
+            let count = f.u32("count").unwrap_or(1);
+            let count = f.held("count", count, count > 0, "above 0")?;
+            Row::Recipe(Recipe {
+                recipe: yalain_content::crafts::Recipe {
+                    recipe,
+                    like,
+                    name: (name.string, name.table),
+                    description: description.map(|d| (d.string, d.table)),
+                    ingredients,
+                    product,
+                    count,
+                    skill: f.id("skill"),
+                    category: f.u32("category"),
                 },
                 prov: f.req_prov()?,
             })

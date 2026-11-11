@@ -653,6 +653,7 @@ fn a_step_with_its_effects_last_tells_the_update_before_the_recipe() {
             counts: Vec::new(),
             effects: vec![GRANT_MINES_RECIPE],
             text: None,
+            recipes: Vec::new(),
             placed: "authored for a test".into(),
             requires: Vec::new(),
             takes: Vec::new(),
@@ -682,6 +683,70 @@ fn a_step_with_its_effects_last_tells_the_update_before_the_recipe() {
             [function::ADD_RECIPE, UPDATE_QUEST]
         };
         assert_eq!(order, want, "effects last: {last}");
+    }
+}
+
+/// A quest step that teaches recipes by name has its player learn each (told as one learned
+/// alone), after its update; one it knows already is not told again, and a step naming none
+/// teaches none.
+/// Behaviour: server.quests.a-step-teaches-the-recipes-it-names
+#[test]
+fn a_step_teaches_the_recipes_it_names_and_one_naming_none_teaches_none() {
+    use yalain_content::quests::{Step, Trigger, Update};
+    const OTHER: u32 = 0x6F7E_0001;
+    for recipes in [vec![MINES_RECIPE, OTHER], Vec::new()] {
+        let (mut h, b, _me, world) = in_world();
+        let step = Step {
+            quest: 0,
+            needs: 0,
+            trigger: Trigger::Use(0x4700_2FA9),
+            tell: None,
+            update: Update::Nothing,
+            xp: 0,
+            gives: Vec::new(),
+            counts: Vec::new(),
+            effects: Vec::new(),
+            text: None,
+            recipes: recipes.clone(),
+            placed: "authored for a test".into(),
+            requires: Vec::new(),
+            takes: Vec::new(),
+            races: Vec::new(),
+            effects_last: false,
+            effects_quiet: false,
+            wants: None,
+            fellows: false,
+            levels: None,
+            xp_share: 0.0,
+            to: None,
+            transforms: None,
+            chance: None,
+        };
+        for round in 0..2 {
+            let from = h.bots[b].inbox.len();
+            let clock = h.clock();
+            yalain_world::quests::run(&mut h.server, &mut h.net, world, &step, None, clock);
+            h.run(2);
+            let added: Vec<Vec<Value>> = calls_of(&h, b, from)
+                .into_iter()
+                .filter(|(f, _)| *f == function::ADD_RECIPE)
+                .map(|(_, v)| v)
+                .collect();
+            let want: Vec<Vec<Value>> = if round == 0 {
+                recipes.iter().map(|r| vec![Value::Int(*r)]).collect()
+            } else {
+                Vec::new()
+            };
+            assert_eq!(added, want, "{recipes:x?}, round {round}");
+        }
+        let known: Vec<u32> = h.server.players[&world]
+            .play
+            .recipes
+            .iter()
+            .map(|r| r.recipe)
+            .filter(|r| *r == MINES_RECIPE || *r == OTHER)
+            .collect();
+        assert_eq!(known, recipes);
     }
 }
 
@@ -1357,6 +1422,7 @@ fn a_quest_given_runs_the_step_waiting_on_it_and_one_withheld_runs_none() {
                 counts: Vec::new(),
                 effects: vec![GRANT_MINES_RECIPE],
                 text: None,
+                recipes: Vec::new(),
                 placed: "authored for a test".into(),
                 requires: Vec::new(),
                 takes: Vec::new(),
