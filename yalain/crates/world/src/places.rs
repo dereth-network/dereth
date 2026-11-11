@@ -2514,6 +2514,11 @@ fn arrive<S: Store>(
         crate::death::returned(s, net, world);
         s.after(
             clock,
+            crate::death::MOVES_AFTER_RETURN,
+            crate::Timer::MovesAgain { world },
+        );
+        s.after(
+            clock,
             crate::effects::AURAS_PULSE_AFTER_RETURN,
             crate::Timer::AurasPulseAgain { world },
         );

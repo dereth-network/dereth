@@ -3826,6 +3826,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.death.moves-again-after-return",
+        says: "A player resurrected at its lifestone may move again about three seconds after it \
+               comes out of portal space: the freeze its death put on is lifted then, beside the \
+               trip's own, which the drawn scene lifts, so every freeze since the death is lifted \
+               once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MOVES-AGAIN-AFTER-RETURN"),
+        station: "yalain-testkit::cpu::play::dying::a_resurrected_player_is_freed_of_its_deaths_freeze_three_seconds_after_its_return",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.death.no-fair-fight",
         says: "A kill by a player the creature could not reach is no fair fight: the killer hears \
                \"You receive no experience, since that wasn't a fair fight.\" and then that it \

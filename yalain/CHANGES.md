@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Fixed players being unable to move after resurrecting.
 - Players can no longer walk through walls or closed doors.
 - Quest steps and gives can now grant a recipe or skill without its message.
 - Fixed the wrong message when a recipe is taught or an item's effect comes on.

@@ -633,6 +633,8 @@ pub enum Timer {
     AurasPulseAgain { world: ConnId },
     /// A player another raised may move.
     RaisedMoves { world: ConnId },
+    /// A player back at its lifestone from a resurrection may move again.
+    MovesAgain { world: ConnId },
     /// The next step of a player's craft.
     Craft { world: ConnId, step: craft::Step },
     /// A player's day of craft experience may be over.
@@ -1067,6 +1069,7 @@ impl<S: Store> Server<S> {
                     pets::aura_pulses(self, net, (pet, aura, second), clock);
                 }
                 Timer::RaisedMoves { world } => resurrections::raised_moves(self, net, world),
+                Timer::MovesAgain { world } => death::moves_again(self, net, world),
                 Timer::AurasPulseAgain { world } => {
                     effects::auras_pulse_again(self, net, world, clock);
                 }

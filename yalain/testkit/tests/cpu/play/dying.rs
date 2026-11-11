@@ -283,6 +283,56 @@ fn a_resurrected_player_is_set_standing_then_glows_as_it_goes() {
     );
 }
 
+/// The freezes and frees of the player's movement a client was sent since `from`: true for a
+/// freeze.
+fn freezes(h: &Harness, b: usize, from: usize) -> Vec<bool> {
+    calls_of(h, b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == yalain_world::session::function::MOVEMENT_FROZEN)
+        .map(|(_, v)| v != vec![Value::Int(0)])
+        .collect()
+}
+
+/// A client holds its player still for as long as it has been frozen more often than freed. Its
+/// death froze it and so does its resurrection's trip, whose freeze the drawn scene lifts; about
+/// three seconds after it is back at its lifestone the death's is lifted too, so a resurrected
+/// player can walk again, and every freeze since the death has been lifted once.
+/// Behaviour: server.death.moves-again-after-return
+#[test]
+fn a_resurrected_player_is_freed_of_its_deaths_freeze_three_seconds_after_its_return() {
+    let mut h = Harness::new();
+    let (b, _) = about_to_die(&mut h);
+    let from = h.bots[b].inbox.len();
+    let _ = run_to_death(&mut h, b, from);
+    wait(&mut h, 11.0);
+    assert_eq!(freezes(&h, b, from), vec![true], "frozen once dead");
+    h.bots[b].send(true, queue::WEENIE, &server_call(RESURRECT, &[]));
+    let out = h.run_until(200, |h| {
+        calls_of(h, b, from)
+            .iter()
+            .any(|(f, _)| *f == yalain_world::places::function::EXIT_PORTAL_SPACE)
+    });
+    assert!(out, "back out of portal space");
+    let exit = h.now.0;
+    scene_drawn(&mut h, b);
+    while h.now.0 < exit + 2.5 {
+        h.step();
+    }
+    assert_eq!(
+        freezes(&h, b, from),
+        vec![true, true, false],
+        "the trip's freeze lifted as the scene is drawn, the death's not yet"
+    );
+    while h.now.0 < exit + 3.1 {
+        h.step();
+    }
+    assert_eq!(
+        freezes(&h, b, from),
+        vec![true, true, false, false],
+        "the death's freeze lifted too"
+    );
+}
+
 /// Back from a resurrection, a player with more than ten focus has ten: sent after its health
 /// and vigor, before it is told it is alive; one with ten or less keeps it, and nothing is sent.
 /// Behaviour: server.focus.resurrection

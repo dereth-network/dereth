@@ -1170,6 +1170,14 @@ pub const RETURNS_WITH: f32 = 0.75;
 /// longest wait of the 227 that asked was 251.3 s).
 pub const SENT_BACK_AFTER: f64 = 600.0;
 
+/// How long after it comes out of portal space at its lifestone a resurrected player may move
+/// again, in seconds. Its client holds it still for as long as it has been frozen more often than
+/// freed: its death froze it, and so did the trip, whose freeze the drawn scene lifts; the death's
+/// is lifted now (2017: 137 of 138 returns lifted a freeze twice or more; the first that did not
+/// answer a drawn scene came a median 2.94 s after the exit, 2.59 to 3.04 s for 80% of 133, first
+/// in its tick, ahead of any aura's pulse, in 132 of 133).
+pub const MOVES_AFTER_RETURN: f64 = 2.94;
+
 /// How long after its description a character that left the world dead comes back (2017: 1.43 s,
 /// 1 of 1).
 pub const BACK_AFTER_ENTRY: f64 = 1.43;
@@ -1543,7 +1551,8 @@ pub fn sent_back<S: Store>(
 /// resurrections, played 0), the resurrection's effect and, into portal space, the arrival's (219 of
 /// 227, in that order 216); a second and a half later it is back at the
 /// lifestone it is bound to (or, never bound, the nearest lifestone the world has, else where it
-/// fell), with 5 vitae less and three quarters of its health and vigor.
+/// fell), with 5 vitae less and three quarters of its health and vigor, and free to move again a
+/// moment later ([`moves_again`]).
 pub fn resurrect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
     let Some(p) = s.players.get(&world) else {
         return;
@@ -1563,6 +1572,14 @@ pub fn resurrect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
     crate::effects::protect(s, net, world, clock);
     resurrection_look(s, net, world, &stop);
     crate::places::resurrection_trip(s, net, world, to, clock);
+}
+
+/// Back at its lifestone a moment ago, a player may move again: the freeze its death put on is
+/// lifted, whatever has happened since, so that each freeze it was given is lifted once.
+pub fn moves_again<S: Store>(s: &Server<S>, net: &mut ServerNet, world: ConnId) {
+    if s.players.contains_key(&world) {
+        progress::private(net, world, &session::movement_frozen(false));
+    }
 }
 
 /// For everyone who sees it, a player coming back is set standing at peace and the appearances of
