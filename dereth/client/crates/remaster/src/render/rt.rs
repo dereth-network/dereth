@@ -14,7 +14,10 @@
 //! **What it holds.**
 //! - A bottom-level structure per distinct mesh run: a mesh's first vertex and the subsets the
 //!   G-buffer draws opaque or alpha-tested (blended and additive ones left out), one geometry
-//!   each, opaque unless alpha-tested.
+//!   each, opaque unless alpha-tested. A skinned body's mesh is posed every frame, so its
+//!   structure is made again every frame ([`RtPass::set_posed`]). It is built at the head of the
+//!   frame's recording, before that frame's posing, so it holds the body as the last frame posed
+//!   it: a frame behind the G-buffer.
 //! - The statics' entries and rows, made again only when what is resident changes.
 //! - The objects' entries and rows, every frame.
 
@@ -68,6 +71,8 @@ struct Held {
     address: u64,
     /// The last frame an object placed it.
     seen: u64,
+    /// The frame it was made.
+    made_at: u64,
 }
 
 #[derive(Debug)]
@@ -94,7 +99,8 @@ pub struct RtCounts {
     pub rows: u32,
     /// Bytes the device holds for the structures.
     pub bytes: u64,
-    /// Bottom-level structures made since the pass was: it stops rising once the scene settles.
+    /// Bottom-level structures made since the pass was: it stops rising once the scene settles,
+    /// but for the skinned bodies', made again every frame.
     pub made: u64,
 }
 
@@ -119,6 +125,8 @@ pub struct RtPass {
     /// Bottom-level structures made since the pass was.
     made: u64,
     static_keys: BTreeSet<BlasKey>,
+    /// The first vertex of each mesh posed this frame, whose structure is made again.
+    posed: BTreeSet<u32>,
     static_count: u32,
     static_rows: u32,
     statics: Option<(PerFrame, PerFrame)>,
@@ -179,6 +187,7 @@ impl RtPass {
             generation: None,
             made: 0,
             static_keys: BTreeSet::new(),
+            posed: BTreeSet::new(),
             static_count: 0,
             static_rows: 0,
             statics: None,
@@ -227,6 +236,12 @@ impl RtPass {
         self.static_keys.clear();
         self.counts = RtCounts::default();
         self.last = None;
+    }
+
+    /// The meshes posed this frame, by their first vertex: their structures are made again
+    /// rather than kept.
+    pub fn set_posed(&mut self, first_vertices: BTreeSet<u32>) {
+        self.posed = first_vertices;
     }
 
     /// The frame's structures, when `wanted` and the device traces rays: the bottom-level ones
@@ -454,8 +469,14 @@ impl RtPass {
         vertex_count: u32,
     ) -> Result<u64, dereth_gfx::Error> {
         if let Some(h) = self.blas.get_mut(key) {
-            h.seen = self.frame;
-            return Ok(h.address);
+            let stale = self.posed.contains(&key.0) && h.made_at != self.frame;
+            if !stale {
+                h.seen = self.frame;
+                return Ok(h.address);
+            }
+            if let Some(h) = self.blas.remove(key) {
+                gfx.destroy_blas(h.blas);
+            }
         }
         let geometries: Vec<BlasGeometry> = key
             .1
@@ -481,6 +502,7 @@ impl RtPass {
                 blas,
                 address,
                 seen: self.frame,
+                made_at: self.frame,
             },
         );
         Ok(address)

@@ -555,6 +555,10 @@ pub struct RemasterCounts {
     pub grounds: usize,
     pub objects: usize,
     pub meshes: usize,
+    /// Bodies posed, their vertices, and the nanoseconds posing them took.
+    pub skin_poses: u64,
+    pub skin_vertices: u64,
+    pub skin_nanos: u64,
 }
 
 impl SceneDraw {
@@ -588,6 +592,9 @@ impl SceneDraw {
             grounds: renderer.grounds(),
             objects: renderer.objects(),
             meshes: renderer.meshes(),
+            skin_poses: s.skin_poses,
+            skin_vertices: s.skin_vertices,
+            skin_nanos: s.skin_nanos,
         })
     }
 

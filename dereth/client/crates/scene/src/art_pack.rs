@@ -183,6 +183,26 @@ pub struct PackModel {
     pub credit: Credit,
 }
 
+/// One primitive's vertices' parts (by their place in the setup) and their weights on each.
+pub type Influences = (Arc<Vec<[u16; 4]>>, Arc<Vec<[f32; 4]>>);
+
+/// One body of a pack, drawn in place of a setup's parts: its triangles in its bind space, each
+/// vertex's parts and weights, and each part's inverse bind matrix ([`gltf::decode_skin`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PackSkin {
+    /// The setup whose objects it is drawn for.
+    pub setup: DataId,
+    /// Its parts, each of one material.
+    pub primitives: Vec<PackPrimitive>,
+    /// For each of [`Self::primitives`], each vertex's parts (by their place in the setup) and
+    /// its weight on each.
+    pub influences: Vec<Influences>,
+    /// Each part a vertex follows, and the matrix that takes the bind space to the part's own.
+    pub inverse_binds: Vec<(u16, glam::Mat4)>,
+    /// Who made it, with what, and under which license.
+    pub credit: Credit,
+}
+
 /// One ground material of a pack, its pictures packed for drawing.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PackGround {
@@ -581,6 +601,8 @@ pub struct ArtPack {
     pub hash: String,
     /// The models that read.
     pub models: Vec<PackModel>,
+    /// The bodies that read.
+    pub skins: Vec<PackSkin>,
     /// The pictures the materials name.
     pub images: Vec<Image>,
     /// Where each of [`Self::images`] was made from, in their order.
@@ -726,14 +748,18 @@ fn bounds(lods: &[PackLod]) -> ([f32; 3], f32) {
 
 /// Leave in each manifest of a stack, bottom first, only what no manifest above it claims: a model
 /// for an object one above has a model for, a ground (flat or steep) one above has a material for,
-/// a retail picture one above has a material for, a cover whose model one above grows. A material
-/// left with no ground or picture is taken out whole. `[lighting]` is kept whole in each, to be
+/// a retail picture one above has a material for, a cover whose model one above grows, a body for
+/// a setup one above has a body for. A material left with no ground or picture is taken out
+/// whole. `[lighting]` is kept whole in each, to be
 /// merged key by key ([`merged_lighting`]).
 pub fn keep_winners(manifests: &mut [ArtPackManifest]) {
     let mut models: HashSet<DataId> = HashSet::new();
     let mut grounds: HashSet<(bool, Ground)> = HashSet::new();
     let mut textures: HashSet<DataId> = HashSet::new();
+    let mut setups: HashSet<DataId> = HashSet::new();
     for m in manifests.iter_mut().rev() {
+        m.skins.retain(|k| !setups.contains(&k.setup));
+        setups.extend(m.skins.iter().map(|k| k.setup));
         m.models.retain(|model| !models.contains(&model.id));
         models.extend(m.models.iter().map(|model| model.id));
         let kept: HashSet<DataId> = m.models.iter().map(|model| model.id).collect();
@@ -966,6 +992,7 @@ impl ArtPack {
             covers: Vec::new(),
             problems: Vec::new(),
             lighting: None,
+            skins: Vec::new(),
         };
         for pack in opened {
             hash.part("pack", pack.hash.as_bytes());
@@ -986,6 +1013,24 @@ impl ArtPack {
                     }
                 }
                 out.models.push(model);
+            }
+            // A body's pictures are numbered as the models' are.
+            for mut skin in pack.skins {
+                for p in &mut skin.primitives {
+                    let m = &mut p.material;
+                    for i in [
+                        &mut m.base_color_image,
+                        &mut m.normal_image,
+                        &mut m.metal_rough_image,
+                        &mut m.occlusion_image,
+                    ]
+                    .into_iter()
+                    .flatten()
+                    {
+                        *i = i.saturating_add(base);
+                    }
+                }
+                out.skins.push(skin);
             }
             out.images.extend(pack.images);
             out.image_sources.extend(pack.image_sources);
@@ -1159,6 +1204,92 @@ impl ArtPack {
                 credit: entry.credit.clone(),
             });
         }
+        // The bodies, their pictures named as the models' are.
+        let mut skins: Vec<PackSkin> = Vec::new();
+        for entry in &manifest.skins {
+            let label = gltf::label(entry.setup);
+            let read_skin = reader
+                .file(&entry.file)
+                .and_then(|json| gltf::decode_skin(&json, &entry.file, &mut |p| reader.file(p)));
+            let skin = match read_skin {
+                Ok(s) => s,
+                Err(e) => {
+                    problems.push(format!("{label}: {e}"));
+                    continue;
+                }
+            };
+            let mut picture = |path: &Option<String>,
+                               srgb: bool,
+                               cutoff: Option<f32>|
+             -> Result<Option<u32>, String> {
+                let Some(path) = path else {
+                    return Ok(None);
+                };
+                if let Some(i) = by_path.get(&(path.clone(), srgb, false)) {
+                    return Ok(Some(*i));
+                }
+                let bytes = match pictures {
+                    Pictures::Made => Some(reader.for_picture(path)?),
+                    Pictures::Packed(_) => None,
+                };
+                let i = u32::try_from(pending.len()).map_err(|_| "too many pictures".to_owned())?;
+                pending.push(PendingPicture {
+                    path: path.clone(),
+                    bytes,
+                    srgb,
+                    cutoff,
+                    views: false,
+                });
+                by_path.insert((path.clone(), srgb, false), i);
+                Ok(Some(i))
+            };
+            let mut primitives = Vec::with_capacity(skin.primitives.len());
+            let mut influences = Vec::with_capacity(skin.primitives.len());
+            let mut broken = None;
+            for sp in skin.primitives {
+                let m = &sp.primitive.material;
+                let material = (|| -> Result<PackMaterial, String> {
+                    Ok(PackMaterial {
+                        base_color: m.base_color,
+                        base_color_image: picture(&m.base_color_image, true, m.alpha_cutoff)?,
+                        normal_image: picture(&m.normal_image, false, None)?,
+                        normal_scale: m.normal_scale,
+                        metal_rough_image: picture(&m.metal_rough_image, false, None)?,
+                        metallic: m.metallic,
+                        roughness: m.roughness,
+                        occlusion_image: picture(&m.occlusion_image, false, None)?,
+                        occlusion_strength: m.occlusion_strength,
+                        alpha_cutoff: m.alpha_cutoff,
+                        double_sided: m.double_sided,
+                    })
+                })();
+                match material {
+                    Ok(material) => {
+                        primitives.push(PackPrimitive {
+                            vertices: Arc::new(sp.primitive.vertices),
+                            indices: Arc::new(sp.primitive.indices),
+                            material,
+                        });
+                        influences.push((Arc::new(sp.parts), Arc::new(sp.weights)));
+                    }
+                    Err(e) => {
+                        broken = Some(e);
+                        break;
+                    }
+                }
+            }
+            if let Some(e) = broken {
+                problems.push(format!("{label}: {e}"));
+                continue;
+            }
+            skins.push(PackSkin {
+                setup: entry.setup,
+                primitives,
+                influences,
+                inverse_binds: skin.inverse_binds,
+                credit: entry.credit.clone(),
+            });
+        }
         // The pictures made (decoded, given their levels and compressed) or read as packed, on
         // every thread at once; a model whose picture will not make is left out.
         let keys: Vec<String> = match recording {
@@ -1211,6 +1342,27 @@ impl ArtPack {
                 return true;
             };
             problems.push(format!("{}: {e}", gltf::label(m.id)));
+            false
+        });
+        skins.retain(|k: &PackSkin| {
+            let Some(e) = k
+                .primitives
+                .iter()
+                .flat_map(|p| {
+                    let m = &p.material;
+                    [
+                        m.base_color_image,
+                        m.normal_image,
+                        m.metal_rough_image,
+                        m.occlusion_image,
+                    ]
+                })
+                .flatten()
+                .find_map(|i| failed.get(&i))
+            else {
+                return true;
+            };
+            problems.push(format!("{}: {e}", gltf::label(k.setup)));
             false
         });
         let images: Vec<Image> = decoded
@@ -1331,6 +1483,7 @@ impl ArtPack {
             serial: next_serial(),
             hash,
             models,
+            skins,
             images,
             image_sources,
             grounds,
@@ -1906,6 +2059,7 @@ license = "CC0-1.0"
             serial: 0,
             hash: String::new(),
             models: Vec::new(),
+            skins: Vec::new(),
             images: Vec::new(),
             image_sources: Vec::new(),
             grounds: Vec::new(),
@@ -2141,6 +2295,114 @@ license = "CC0-1.0"
             "alone, the bottom pack reads its rock, which is not there: {:?}",
             alone.problems
         );
+        let _ = (
+            std::fs::remove_dir_all(&bottom),
+            std::fs::remove_dir_all(&top),
+        );
+    }
+
+    /// A body of one triangle on `part_00`, carrying the picture `skin/<picture>`.
+    fn skin_files(picture: &str, rgba: [u8; 4]) -> Vec<(String, Vec<u8>)> {
+        let mut bin = Vec::new();
+        for p in [[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]] {
+            bin.extend(p.iter().flat_map(|c| c.to_le_bytes()));
+        }
+        for uv in [[0.0f32, 0.0], [1.0, 0.0], [0.0, 1.0]] {
+            bin.extend(uv.iter().flat_map(|c| c.to_le_bytes()));
+        }
+        bin.extend([0u8; 12]);
+        for _ in 0..3 {
+            bin.extend([1.0f32, 0.0, 0.0, 0.0].iter().flat_map(|c| c.to_le_bytes()));
+        }
+        let gltf = format!(
+            r#"{{"asset": {{"version": "2.0"}}, "scenes": [{{"nodes": [0, 1]}}],
+            "nodes": [{{"name": "part_00"}}, {{"mesh": 0, "skin": 0}}],
+            "skins": [{{"joints": [0]}}],
+            "meshes": [{{"primitives": [{{"attributes": {{"POSITION": 0, "TEXCOORD_0": 1,
+                "JOINTS_0": 2, "WEIGHTS_0": 3}}, "material": 0}}]}}],
+            "materials": [{{"pbrMetallicRoughness": {{"baseColorTexture": {{"index": 0}}}}}}],
+            "textures": [{{"source": 0}}], "images": [{{"uri": "{picture}"}}],
+            "buffers": [{{"uri": "skin.bin", "byteLength": 120}}],
+            "bufferViews": [{{"buffer": 0, "byteOffset": 0, "byteLength": 36}},
+                {{"buffer": 0, "byteOffset": 36, "byteLength": 24}},
+                {{"buffer": 0, "byteOffset": 60, "byteLength": 12}},
+                {{"buffer": 0, "byteOffset": 72, "byteLength": 48}}],
+            "accessors": [{{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"}},
+                {{"bufferView": 1, "componentType": 5126, "count": 3, "type": "VEC2"}},
+                {{"bufferView": 2, "componentType": 5121, "count": 3, "type": "VEC4"}},
+                {{"bufferView": 3, "componentType": 5126, "count": 3, "type": "VEC4"}}]}}"#
+        );
+        vec![
+            ("skin/body.gltf".to_owned(), gltf.into_bytes()),
+            ("skin/skin.bin".to_owned(), bin),
+            (format!("skin/{picture}"), png_of(1, 1, &rgba)),
+        ]
+    }
+
+    #[test]
+    fn a_stack_keeps_its_packs_bodies_and_a_later_packs_body_for_a_setup_wins() {
+        let (bottom, top) = (folder("skin-bottom"), folder("skin-top"));
+        let skin = |setup: &str| {
+            format!(
+                "[[skin]]
+setup = \"{setup}\"
+file = \"skin/body.gltf\"
+{CREDIT}"
+            )
+        };
+        let mut bottom_files = model_files("tree");
+        bottom_files.extend(skin_files("a.png", [200, 0, 0, 255]));
+        write_pack(
+            &bottom,
+            &format!(
+                "[pack]
+name = \"Bottom\"
+format = 1
+                 [[model]]
+id = \"0x02000258\"
+{CREDIT}[[model.lod]]
+file = \"tree/lod0.gltf\"
+{}{}",
+                skin("0x02000001"),
+                skin("0x0200004E").replace("skin/body.gltf", "skin/other.gltf")
+            ),
+            &bottom_files,
+        );
+        std::fs::copy(
+            bottom.join("skin/body.gltf"),
+            bottom.join("skin/other.gltf"),
+        )
+        .expect("a second body");
+        let top_files = skin_files("b.png", [0, 0, 200, 255]);
+        write_pack(
+            &top,
+            &format!(
+                "[pack]
+name = \"Top\"
+format = 1
+{}",
+                skin("0x02000001")
+            ),
+            &top_files,
+        );
+        let pack = ArtPack::open_stack(&[bottom.clone(), top.clone()]).expect("the stack opens");
+        assert!(pack.problems.is_empty(), "{:?}", pack.problems);
+        let setups: Vec<u32> = pack.skins.iter().map(|k| k.setup.0).collect();
+        assert_eq!(
+            setups,
+            [0x0200_004E, 0x0200_0001],
+            "the bottom pack's other body kept, its human taken by the top's"
+        );
+        // Each body's picture is its own pack's, numbered past the pictures below it.
+        let picture = |k: &PackSkin| {
+            let i = k.primitives[0]
+                .material
+                .base_color_image
+                .expect("a picture");
+            pack.image_sources[i as usize].folder.clone()
+        };
+        assert_eq!(picture(&pack.skins[0]), Some(bottom.clone()));
+        assert_eq!(picture(&pack.skins[1]), Some(top.clone()));
         let _ = (
             std::fs::remove_dir_all(&bottom),
             std::fs::remove_dir_all(&top),

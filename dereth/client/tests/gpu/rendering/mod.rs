@@ -56,6 +56,7 @@ mod remaster_post;
 mod remaster_rt;
 mod remaster_scene;
 mod remaster_shadows;
+pub(crate) mod remaster_skins;
 mod remaster_sky;
 mod remaster_terrain;
 mod remaster_traced;

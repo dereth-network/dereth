@@ -13,6 +13,7 @@ use super::light::{
 };
 use super::scene::{Bucket, CULLED_BUCKETS, GROUP_BUCKETS, NONE};
 use super::{push_words, Pipelines, Renderer, Targets, BUCKET_CAPACITY};
+use crate::assets::MeshKey;
 
 /// What a recorded frame needs, as plain values: nothing in it borrows the renderer.
 #[derive(Debug, Clone)]
@@ -99,6 +100,8 @@ pub struct Plan {
     grass: Option<super::grass::GrassPlan>,
     /// The art pack's models chosen and listed on the device, when any is held.
     pack: Option<super::instances::PackPlan>,
+    /// The skinned bodies posed on the device, when there are any.
+    skins: Option<super::skin_pass::SkinPlan>,
     /// Buffers outgrown, destroyed once the recording that copies them is begun.
     pub retired: Vec<Buffer>,
     /// The ambient occlusion pass's frame, when it runs.
@@ -549,6 +552,14 @@ impl Renderer {
             || (self.rt_ao.wants_rays() && ao.is_some())
             || self.gi.wants_rays()
             || self.water.wants_rays();
+        let posed = self
+            .skins
+            .meshes()
+            .into_keys()
+            .filter_map(|id| self.scene.meshes.get(&MeshKey::GfxObj(id)))
+            .map(|m| m.vertices.start)
+            .collect();
+        self.rt.set_posed(posed);
         let rt = self.rt.prepare(&mut self.gfx, &self.scene, wanted)?;
         let rt_shadow = self
             .rt_shadow
@@ -780,13 +791,20 @@ impl Renderer {
             forest,
             grass,
             pack,
+            skins: self
+                .skin_pass
+                .plan((self.scene.vertices.buffer, self.scene.vertices.index)),
             rt,
             gi,
             index_pool: self.scene.indices.index,
             rt_shadow,
             rt_ao,
             rt_pools,
-            retired: self.scene.take_retired(),
+            retired: {
+                let mut r = self.scene.take_retired();
+                r.append(&mut self.skin_pass.retired);
+                r
+            },
             ao,
             water,
             sky_probe,
@@ -1140,6 +1158,11 @@ impl Plan {
             width: t.width,
             height: t.height,
         };
+
+        // 0. The skinned bodies posed, before anything reads their vertices.
+        if let Some(s) = &self.skins {
+            s.record(r)?;
+        }
 
         // 1. The cull.
         r.timestamp("cull");

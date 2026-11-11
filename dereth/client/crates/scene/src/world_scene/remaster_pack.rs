@@ -34,10 +34,11 @@ use dereth_remaster::assets::pack::{
     fill_cut_away, of_pack_mesh, of_pack_picture, of_pack_surface, pack_mesh, pack_picture,
     pack_surface, Category, PackLevel, PackModel, PackSettings,
 };
+use dereth_remaster::assets::skin::{of_skin_surface, skin_surface, SkinModel};
 use dereth_remaster::assets::terrain::{GroundMaps, LayerSlopes, SplatBank, SteepTile};
 use dereth_remaster::assets::{
-    kind::Kind, BlendFactor, Material, MaterialMaps, Mesh, SubsetInfo, SurfaceRef, TextureKey,
-    Vertex,
+    kind::Kind, BlendFactor, Material, MaterialMaps, Mesh, Subset, SubsetInfo, SurfaceRef,
+    TextureKey, Vertex,
 };
 use dereth_remaster::look::{Layer, LookToml};
 use dereth_render::device::Gpu;
@@ -106,6 +107,10 @@ pub(crate) struct PackAssets {
     /// The cut-out pictures made again, by their place in the pack: made on a thread of their own
     /// from when the pack is given, and here whenever an entry needs one first.
     filled: Arc<Mutex<HashMap<u32, Arc<Image>>>>,
+    /// Each body's place in the pack, by the setup it is drawn for.
+    skin_by_setup: HashMap<u32, u32>,
+    /// Each body as the remaster draws it, made when it is first asked for.
+    skin_models: Mutex<HashMap<u32, Option<Arc<SkinModel>>>>,
 }
 
 impl PackAssets {
@@ -171,6 +176,12 @@ impl PackAssets {
                 tracing::warn!(target: "dereth::remaster", "the pack's pictures are made as they are wanted: {e}");
             }
         }
+        let skin_by_setup = pack
+            .skins
+            .iter()
+            .zip(0u32..)
+            .map(|(k, i)| (k.setup.0, i))
+            .collect();
         Self {
             pack,
             folder,
@@ -178,6 +189,8 @@ impl PackAssets {
             by_texture,
             view_levels,
             filled,
+            skin_by_setup,
+            skin_models: Mutex::new(HashMap::new()),
         }
     }
 
@@ -357,13 +370,89 @@ impl PackAssets {
         Some(mesh)
     }
 
+    /// The body drawn in place of the parts of the objects built on `setup`, when the pack has
+    /// one: its primitives as one mesh in its bind space, each a surface of its own, each vertex carrying its color times its primitive's color factor.
+    pub(crate) fn skin(&self, setup: u32) -> Option<Arc<SkinModel>> {
+        let index = *self.skin_by_setup.get(&setup)?;
+        if let Some(made) = self.skin_models.lock().ok()?.get(&index) {
+            return made.clone();
+        }
+        let made = self.make_skin(index).map(Arc::new);
+        if made.is_none() {
+            tracing::warn!(target: "dereth::remaster", "the pack's body for {setup:#010X} could not be drawn");
+        }
+        self.skin_models.lock().ok()?.insert(index, made.clone());
+        made
+    }
+
+    fn make_skin(&self, index: u32) -> Option<SkinModel> {
+        let skin = self.pack.skins.get(index as usize)?;
+        let mut mesh = Mesh::default();
+        let mut parts = Vec::new();
+        let mut weights = Vec::new();
+        for (k, (p, (ps, ws))) in skin.primitives.iter().zip(&skin.influences).enumerate() {
+            let first = u32::try_from(mesh.vertices.len()).ok()?;
+            let factor = if p.material.base_color_image.is_some() {
+                p.material.base_color
+            } else {
+                [1.0; 4]
+            };
+            for v in p
+                .vertices
+                .as_chunks::<{ crate::art_pack::VERTEX_FLOATS }>()
+                .0
+            {
+                mesh.vertices.push(Vertex {
+                    position: [v[0], v[1], v[2]],
+                    normal: [v[3], v[4], v[5]],
+                    uv: [v[10], v[11]],
+                });
+                mesh.colors.push(display_color([
+                    v[12] * factor[0],
+                    v[13] * factor[1],
+                    v[14] * factor[2],
+                    v[15] * factor[3],
+                ]));
+            }
+            parts.extend(ps.iter().copied());
+            weights.extend(ws.iter().copied());
+            let start = u32::try_from(mesh.indices.len()).ok()?;
+            // Counter-clockwise seen from the front, as glTF has them and retail's are.
+            mesh.indices.extend(p.indices.iter().map(|i| first + i));
+            mesh.subsets.push(Subset {
+                first_index: start,
+                index_count: u32::try_from(mesh.indices.len()).ok()? - start,
+                surface: SurfaceRef::Surface(skin_surface(index, u8::try_from(k).ok()?)),
+                two_sided: p.material.double_sided,
+                tiled: true,
+            });
+        }
+        SkinModel::new(index, mesh, parts, weights, &skin.inverse_binds)
+    }
+
     /// The surface a pack surface id names: its part's base color picture (or its color where it
-    /// has none), its cut, drawn as the model's kind.
+    /// has none), its cut, drawn as the model's kind; or a body's primitive's, drawn as a
+    /// character.
     pub(crate) fn material(&self, id: u32) -> Option<Material> {
+        if let Some((index, primitive)) = of_skin_surface(id) {
+            let skin = self.pack.skins.get(index as usize)?;
+            let m = skin.primitives.get(usize::from(primitive))?.material;
+            return Some(Self::material_of(&m, Kind::Character));
+        }
         let (index, level, part) = of_pack_surface(id)?;
         let model = self.pack.models.get(index as usize)?;
         let lod = &model.lods[*self.view_levels[index as usize].get(usize::from(level))?];
         let m = lod.primitives.get(usize::from(part))?.material;
+        let kind = if model.foliage && m.alpha_cutoff.is_some() {
+            Kind::Foliage
+        } else {
+            Kind::Architecture
+        };
+        Some(Self::material_of(&m, kind))
+    }
+
+    /// A pack material as the remaster's, drawn as `kind`.
+    fn material_of(m: &crate::art_pack::PackMaterial, kind: Kind) -> Material {
         let texture = match m.base_color_image {
             Some(i) => TextureKey::Dat {
                 picture: pack_picture(i),
@@ -376,12 +465,8 @@ impl PackAssets {
         let alpha_test = m
             .alpha_cutoff
             .map(|c| (c.clamp(0.0, 1.0) * 255.0).round() as u8);
-        Some(Material {
-            kind: if model.foliage && m.alpha_cutoff.is_some() {
-                Kind::Foliage
-            } else {
-                Kind::Architecture
-            },
+        Material {
+            kind,
             surface_type: 0,
             data_category: None,
             texture: Some(texture),
@@ -411,7 +496,7 @@ impl PackAssets {
                     normal_scale: m.normal_scale,
                     roughness: m.roughness,
                 }),
-        })
+        }
     }
 
     /// The picture the pack draws in place of the retail picture (texture record) `texture`,
@@ -1078,5 +1163,55 @@ mod tests {
                 "depth {deep} came back {back}"
             );
         }
+    }
+
+    /// Instrument: the time posing a pack's body takes on the CPU, as the remaster poses it each
+    /// frame (its joints, every vertex blended, the vertex rows written), timed over many poses:
+    /// the least and the median, which a busy machine moves less than one frame's count does.
+    /// `DERETH_ART_PACK` (a pack folder with a `[[skin]]`) and `DERETH_SKIN_SETUP` (hex).
+    #[test]
+    #[ignore = "instrument: times a pack body's posing; run with --ignored --nocapture"]
+    fn time_posing_a_packs_body() {
+        let pack = std::env::var("DERETH_ART_PACK").expect("DERETH_ART_PACK");
+        let setup = std::env::var("DERETH_SKIN_SETUP").unwrap_or_else(|_| "0x02000001".to_owned());
+        let setup = u32::from_str_radix(setup.trim_start_matches("0x"), 16).expect("a hex setup");
+        let path = PathBuf::from(pack);
+        let art = Arc::new(ArtPack::open_path(&path).expect("the pack opens"));
+        let assets = PackAssets::new(art, Some(path));
+        let model = assets.skin(setup).expect("the pack's body");
+        // Each part turned a little from its bind, alternately, so the joints bend.
+        let parts: Vec<glam::Mat4> = model
+            .inverse_binds
+            .iter()
+            .enumerate()
+            .map(|(k, b)| {
+                #[allow(clippy::cast_precision_loss)]
+                let turn = glam::Mat4::from_rotation_x(0.45 * (k % 3) as f32);
+                b.map_or(glam::Mat4::IDENTITY, |b| turn * b.inverse())
+            })
+            .collect();
+        let mut times = Vec::new();
+        let mut rows = Vec::new();
+        for _ in 0..300 {
+            let started = std::time::Instant::now();
+            let joints = model.joints(&parts).expect("joints");
+            let posed = model.posed(&joints);
+            rows.clear();
+            for (k, (p, n, t)) in posed.iter().enumerate() {
+                let uv = model.mesh.vertices[k].uv;
+                for f in p.iter().chain(n).chain(&uv).chain(t).chain(&[1.0f32; 4]) {
+                    rows.extend_from_slice(&f.to_le_bytes());
+                }
+            }
+            times.push(started.elapsed().as_secs_f64() * 1e3);
+        }
+        times.sort_by(f64::total_cmp);
+        println!(
+            "{} vertices: least {:.3} ms, median {:.3} ms a pose; {} bytes of rows",
+            model.mesh.vertices.len(),
+            times[0],
+            times[times.len() / 2],
+            rows.len()
+        );
     }
 }

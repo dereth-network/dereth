@@ -4,7 +4,8 @@
 // alone would put it.
 //
 // A part is drawn by its own draw items, each command naming its row in buffer `moving`: the
-// item, then the part's last transform, in the frame's space, as four columns.
+// item (and, for a skinned body, where its vertices' last places are kept), then the part's last
+// transform, in the frame's space, as four columns.
 import bindless;
 import retail;
 
@@ -46,13 +47,17 @@ Varyings vs_main(uint vertex : SV_VertexID
 #ifdef DERETH_DXIL
     uint command = draw_item.value;
 #endif
-    uint item = row_u(push.moving, command * 5).x;
+    uint4 head = row_u(push.moving, command * 5);
+    uint item = head.x;
     uint4 a = row_u(push.items, item * 2);
     // A mesh vertex is three rows; its position leads the first.
     float3 position = row(push.vertices, (a.y + vertex) * 4).xyz;
+    // A skinned body names where its vertices' last places are kept (one more than the first);
+    // anything else was where it is, in its part's own space.
+    float3 last_position = head.y != 0 ? row(push.vertices, (head.y - 1 + vertex) * 4).xyz : position;
     // The same arithmetic as the G-buffer's, so the depth is the same.
     float4 p = transform(push.instances, a.x * push.instance_rows, float4(position, 1.0));
-    float4 was = transform(push.moving, command * 5 + 1, float4(position, 1.0));
+    float4 was = transform(push.moving, command * 5 + 1, float4(last_position, 1.0));
     Varyings o;
     o.position = transform(push.frame, FRAME_VIEW_PROJ, float4(p.xyz, 1.0));
     o.last = transform(push.post, 0, float4(was.xyz, 1.0));

@@ -57,6 +57,8 @@ pub struct PackSettings {
     pub ground: bool,
     /// The scree and rock its ground lays on steep ground, while its ground is drawn.
     pub slopes: bool,
+    /// Its bodies, drawn in place of the parts of the objects built on their setups.
+    pub characters: bool,
 }
 
 impl PackSettings {
@@ -71,6 +73,7 @@ impl PackSettings {
             materials: true,
             ground: true,
             slopes: true,
+            characters: true,
         }
     }
 

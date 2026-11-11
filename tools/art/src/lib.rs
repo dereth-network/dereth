@@ -12,7 +12,9 @@
 //! **Must never** write anywhere but the output folder or packed file it is given, or depend on a
 //! server crate: the server's spawns arrive as a table the server's own importer writes.
 //!
-//! [`pack`] packs an art pack's folder as the client opens it.
+//! [`pack`] packs an art pack's folder as the client opens it. [`skeleton`] writes a setup as a
+//! skeleton an artist rigs a new body to, with its own parts as a reference body and its animations as
+//! clips.
 //!
 //! [`survey::run`] is the whole survey: [`world`] walks every landblock into a [`tally::Tally`],
 //! [`character`] adds the bodies and the clothing, [`spawns`] reads the server's table,
@@ -26,6 +28,7 @@ pub mod model;
 pub mod output;
 pub mod pack;
 pub mod pictures;
+pub mod skeleton;
 pub mod spawns;
 pub mod survey;
 pub mod tally;

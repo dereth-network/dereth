@@ -626,6 +626,14 @@ impl AssetSource for DatAssets<'_> {
         p.model(id, *on)
     }
 
+    fn pack_skin(
+        &mut self,
+        setup: u32,
+    ) -> Option<std::sync::Arc<dereth_remaster::assets::skin::SkinModel>> {
+        let (p, on) = self.pack.as_ref()?;
+        on.characters.then(|| p.skin(setup)).flatten()
+    }
+
     fn sky(&mut self, id: u32) -> Option<Mesh> {
         // A sky object never moves its parts, so each part's place is folded into its vertices,
         // as the scene's sky is built.

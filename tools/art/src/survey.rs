@@ -316,7 +316,7 @@ fn write_picture(pic: &thumb::Picture, id: ModelId, dir: &Path) -> Result<Option
 /// What surface `s` draws with, decoded as the client decodes it: its picture (cut out where a
 /// clip-mapped picture is transparent), or its flat colour; nothing for a surface mostly
 /// see-through.
-fn material_of(
+pub(crate) fn material_of(
     models: &mut Models<'_>,
     pictures: &TextureStore<'_>,
     s: DataId,

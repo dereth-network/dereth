@@ -1417,6 +1417,7 @@ dependencies = [
  "dereth-scene",
  "dereth-terrain",
  "dereth-world-data",
+ "glam",
  "png",
  "serde_json",
 ]

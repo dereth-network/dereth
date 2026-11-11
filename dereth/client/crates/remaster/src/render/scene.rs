@@ -353,6 +353,10 @@ pub struct GpuScene {
     pub buckets: Vec<Bucket>,
     /// Every item as the processor sees it, by its index.
     pub item_draws: Vec<ItemDraw>,
+    /// For a mesh whose vertices are written every frame (a skinned body), by its first vertex:
+    /// where its vertices as the last frame drew them are kept, in the same pool, so the motion
+    /// pass finds each vertex's last place.
+    pub previous: std::collections::BTreeMap<u32, Range<u32>>,
     /// The sky's objects, by their id.
     pub sky: BTreeMap<u32, SkyGpu>,
     /// Counts the changes to what is resident: a block or its ground in, changed or out.
@@ -486,6 +490,7 @@ impl GpuScene {
             room_keys: Pool::new(ROOM_KEYS),
             buckets: Vec::new(),
             item_draws: Vec::new(),
+            previous: std::collections::BTreeMap::new(),
             sky: BTreeMap::new(),
             static_generation: 0,
             particle_instances: 0..0,
@@ -1322,6 +1327,93 @@ impl GpuScene {
             .filter(|p| *p != NONE)
     }
 
+    /// Write `rows` (whole vertices, [`VERTEX_BYTES`] each) over the vertices of the held mesh
+    /// `key`, from its first; a mesh not held, or rows that do not fit it, are left alone.
+    ///
+    /// # Errors
+    /// A write the device refused.
+    pub fn write_mesh_vertices(
+        &mut self,
+        d: &mut Device,
+        key: MeshKey,
+        rows: &[u8],
+    ) -> Result<(), dereth_gfx::Error> {
+        let Some(m) = self.meshes.get(&key) else {
+            return Ok(());
+        };
+        let fits = rows.len() as u64
+            <= u64::from(m.vertices.end - m.vertices.start) * u64::from(VERTEX_BYTES);
+        if !fits || !rows.len().is_multiple_of(VERTEX_BYTES as usize) {
+            return Ok(());
+        }
+        self.vertices.write(d, m.vertices.start, rows)?;
+        self.uploaded += rows.len() as u64;
+        Ok(())
+    }
+
+    /// Write `rows` as the held mesh's vertices as the last frame drew them, beside the mesh in
+    /// the vertex pool ([`Self::previous`]).
+    ///
+    /// # Errors
+    /// What the device refuses.
+    pub fn write_mesh_previous(
+        &mut self,
+        d: &mut Device,
+        key: MeshKey,
+        rows: &[u8],
+    ) -> Result<(), dereth_gfx::Error> {
+        let Some(m) = self.meshes.get(&key) else {
+            return Ok(());
+        };
+        let (start, n) = (m.vertices.start, m.vertices.end - m.vertices.start);
+        if rows.len() as u64 != u64::from(n) * u64::from(VERTEX_BYTES) {
+            return Ok(());
+        }
+        let at = match self.previous.get(&start) {
+            Some(r) => r.start,
+            None => {
+                let r = self.vertices.take(d, n)?;
+                let at = r.start;
+                self.previous.insert(start, r);
+                at
+            }
+        };
+        self.vertices.write(d, at, rows)?;
+        self.uploaded += rows.len() as u64;
+        Ok(())
+    }
+
+    /// Where the held mesh's last frame's vertices are kept ([`Self::previous`]), made the first
+    /// time it is asked for; `None` for a mesh it does not hold.
+    ///
+    /// # Errors
+    /// What the device refuses.
+    pub fn previous_region(
+        &mut self,
+        d: &mut Device,
+        key: MeshKey,
+    ) -> Result<Option<u32>, dereth_gfx::Error> {
+        let Some(m) = self.meshes.get(&key) else {
+            return Ok(None);
+        };
+        let (start, n) = (m.vertices.start, m.vertices.end - m.vertices.start);
+        if let Some(r) = self.previous.get(&start) {
+            return Ok(Some(r.start));
+        }
+        let r = self.vertices.take(d, n)?;
+        let at = r.start;
+        self.previous.insert(start, r);
+        Ok(Some(at))
+    }
+
+    /// A mesh's vertices gone from the pool, and its last frame's with them.
+    fn give_vertices(&mut self, r: Range<u32>) {
+        if let Some(p) = self.previous.remove(&r.start) {
+            self.vertices.pool.give(p);
+        }
+        self.vertices.pool.give(r);
+    }
+
     /// Let an object go.
     pub fn object_out(&mut self, key: ObjectKey) {
         if let Some(o) = self.objects.remove(&key) {
@@ -1616,7 +1708,7 @@ impl Sink<'_> {
 
     fn mesh_in(&mut self, key: MeshKey, m: &Mesh) -> Result<(), dereth_gfx::Error> {
         if let Some(old) = self.scene.meshes.remove(&key) {
-            self.scene.vertices.pool.give(old.vertices);
+            self.scene.give_vertices(old.vertices);
             self.scene.indices.pool.give(old.indices);
         }
         let nv = u32::try_from(m.vertices.len()).unwrap_or(0);
@@ -1734,7 +1826,7 @@ impl AssetSink for Sink<'_> {
             }
             AssetKey::Mesh(m) => {
                 if let Some(g) = self.scene.meshes.remove(m) {
-                    self.scene.vertices.pool.give(g.vertices);
+                    self.scene.give_vertices(g.vertices);
                     self.scene.indices.pool.give(g.indices);
                 }
             }

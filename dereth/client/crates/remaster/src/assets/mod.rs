@@ -32,6 +32,7 @@
 
 pub mod kind;
 pub mod pack;
+pub mod skin;
 mod tables;
 pub mod terrain;
 
@@ -418,6 +419,12 @@ pub trait AssetSource {
     /// pack, the pack has one, and its kind is switched on ([`pack`]). None by default.
     fn pack_model(&mut self, id: u32) -> Option<pack::PackModel> {
         let _ = id;
+        None
+    }
+    /// The art pack's body drawn in place of the parts of the objects built on `setup`, when the
+    /// source has a pack and the pack has one ([`skin`]). None by default.
+    fn pack_skin(&mut self, setup: u32) -> Option<std::sync::Arc<skin::SkinModel>> {
+        let _ = setup;
         None
     }
 }

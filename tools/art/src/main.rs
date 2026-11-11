@@ -5,6 +5,7 @@
 //!                   [--landblocks <XXYY,XXYY,...>] [--threads <n>] [--no-thumbnails] [--pixels]
 //! dereth-art pack <folder> [--out <file>] [--check]
 //! dereth-art mesh <id> [--dat-dir <dir>]
+//! dereth-art skeleton <setup> [--dat-dir <dir>] [--out <dir>] [--anim <id>@<fps>,...]
 //! ```
 //!
 //! `survey`: `--dat-dir` defaults to `DERETH_TEST_DAT_DIR`, `--out` to `target/art-survey`,
@@ -17,6 +18,9 @@
 //!
 //! `mesh`: the triangles the model `<id>` draws, as JSON on the standard output, by group: its
 //! surface, and each corner's position, normal and picture coordinates.
+//! `skeleton`: the setup as a glTF skeleton with its parts as a reference body
+//! ([`dereth_art::skeleton`]), in `--out` (default `target/skeleton/<setup>`), with each animation of
+//! `--anim` as a clip at its rate.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -24,7 +28,8 @@ use std::process::ExitCode;
 const USAGE: &str = "dereth-art survey [--dat-dir <dir>] [--out <dir>] [--spawns <spawns.tsv>] \
 [--tags <tags.tsv>] [--landblocks <XXYY,XXYY,...>] [--threads <n>] [--no-thumbnails] [--pixels]
        dereth-art pack <folder> [--out <file>] [--check]
-       dereth-art mesh <id> [--dat-dir <dir>]";
+       dereth-art mesh <id> [--dat-dir <dir>]
+       dereth-art skeleton <setup> [--dat-dir <dir>] [--out <dir>] [--anim <id>@<fps>,...]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -44,6 +49,16 @@ fn main() -> ExitCode {
             }
         },
         Some("mesh") => mesh(&args[1..]),
+        Some("skeleton") => match skeleton_options(&args[1..]) {
+            Ok((dat_dir, req)) => skeleton(&dat_dir, &req),
+            Err(e) => {
+                eprintln!(
+                    "dereth-art skeleton: {e}
+usage: {USAGE}"
+                );
+                ExitCode::from(2)
+            }
+        },
         Some("-h" | "--help") => {
             println!("usage: {USAGE}");
             ExitCode::SUCCESS
@@ -262,6 +277,99 @@ fn survey(opts: &dereth_art::survey::Options) -> ExitCode {
         }
         Err(e) => {
             eprintln!("dereth-art survey: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// A record id, `0x` and hexadecimal.
+fn data_id(s: &str) -> Result<dereth_primitives::DataId, String> {
+    u32::from_str_radix(s.trim().trim_start_matches("0x"), 16)
+        .map(dereth_primitives::DataId)
+        .map_err(|_| format!("{s:?} is not a record id"))
+}
+
+/// `skeleton`'s dat folder and request.
+fn skeleton_options(args: &[String]) -> Result<(PathBuf, dereth_art::skeleton::Request), String> {
+    let mut setup = None;
+    let mut dat_dir = None;
+    let mut out = None;
+    let mut animations = Vec::new();
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let mut value = || {
+            it.next()
+                .cloned()
+                .ok_or_else(|| format!("{a} needs a value"))
+        };
+        match a.as_str() {
+            "--dat-dir" => dat_dir = Some(PathBuf::from(value()?)),
+            "--out" => out = Some(PathBuf::from(value()?)),
+            "--anim" => {
+                for one in value()?.split(',') {
+                    let (id, fps) = one
+                        .split_once('@')
+                        .ok_or_else(|| format!("--anim wants <id>@<fps>, got {one:?}"))?;
+                    let fps: f32 = fps
+                        .parse()
+                        .ok()
+                        .filter(|f: &f32| *f > 0.0)
+                        .ok_or_else(|| format!("{fps:?} is not a rate"))?;
+                    animations.push((data_id(id)?, fps));
+                }
+            }
+            other if setup.is_none() && !other.starts_with("--") => setup = Some(data_id(other)?),
+            other => return Err(format!("unknown argument {other:?}")),
+        }
+    }
+    let setup = setup.ok_or("no setup named")?;
+    let dat_dir = match dat_dir {
+        Some(d) => d,
+        None => std::env::var_os("DERETH_TEST_DAT_DIR")
+            .map(PathBuf::from)
+            .ok_or("no --dat-dir, and DERETH_TEST_DAT_DIR is not set")?,
+    };
+    let out = out.unwrap_or_else(|| PathBuf::from(format!("target/skeleton/0x{:08X}", setup.0)));
+    Ok((
+        dat_dir,
+        dereth_art::skeleton::Request {
+            setup,
+            animations,
+            out,
+        },
+    ))
+}
+
+fn skeleton(dat_dir: &std::path::Path, req: &dereth_art::skeleton::Request) -> ExitCode {
+    let store = match dereth_art::survey::open_dats(dat_dir) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("dereth-art skeleton: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    match dereth_art::skeleton::export(&store, req) {
+        Ok(w) => {
+            let parents: Vec<String> = w
+                .parents
+                .iter()
+                .enumerate()
+                .map(|(k, p)| p.map_or(format!("{k}:root"), |p| format!("{k}<{p}")))
+                .collect();
+            println!(
+                "wrote {}: {} joints, {} triangles, {} pictures, {} clips
+parents: {}",
+                w.gltf.display(),
+                w.joints,
+                w.triangles,
+                w.pictures,
+                w.clips,
+                parents.join(" ")
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("dereth-art skeleton: {e}");
             ExitCode::FAILURE
         }
     }

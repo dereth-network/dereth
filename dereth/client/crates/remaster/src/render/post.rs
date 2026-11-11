@@ -768,12 +768,23 @@ fn moving_parts(
         ) else {
             continue;
         };
-        if pp.hidden || pp.previous == pp.transform {
-            continue;
-        }
         let Some(items) = p.levels.get(usize::from(pp.level)) else {
             continue;
         };
+        // A skinned body's vertices move however its anchor does: its items are drawn every
+        // frame, each naming where its vertices' last places are kept (one more than their first,
+        // so 0 says none).
+        let last_of = |i: u32| {
+            scene
+                .item_draws
+                .get(i as usize)
+                .and_then(|d| scene.previous.get(&d.vertex_base))
+                .map(|r| r.start + 1)
+        };
+        let skinned = items.clone().any(|i| last_of(i).is_some());
+        if pp.hidden || (pp.previous == pp.transform && !skinned) {
+            continue;
+        }
         for i in items.clone() {
             if matches!(
                 scene.buckets.get(i as usize),
@@ -784,7 +795,7 @@ fn moving_parts(
             let Some(d) = scene.item_draws.get(i as usize) else {
                 continue;
             };
-            rows.extend(push_words(&[i, 0, 0, 0]));
+            rows.extend(push_words(&[i, last_of(i).unwrap_or(0), 0, 0]));
             for c in pp.previous.to_cols_array() {
                 rows.extend(c.to_le_bytes());
             }

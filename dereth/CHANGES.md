@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Remaster: art packs can bring skinned meshes.
 - Fixed AC1999's patch downloading again on every launch.
 - Remaster: trees sway in the wind.
 - Remaster: art packs can grow ground cover.

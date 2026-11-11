@@ -39,6 +39,8 @@ pub mod rt_shadow;
 pub mod scene;
 pub mod settings;
 pub mod shadow;
+pub mod skin_pass;
+pub mod skins;
 pub mod sky;
 pub mod sky_probe;
 pub mod terrain;
@@ -58,7 +60,7 @@ use glam::{Vec3, Vec4Swizzles};
 
 use self::light::{LightMode, LightSet};
 use self::scene::{Bucket, GpuScene, NONE};
-use crate::assets::{AssetSource, AssetTables};
+use crate::assets::{AssetSource, AssetTables, MeshKey};
 use crate::scene::{BlockId, FrameDelta, SceneDelta};
 use crate::shaders::{spirv, Entry};
 
@@ -205,6 +207,11 @@ pub struct RenderStats {
     pub last_forward: u32,
     /// The particles' draw items of the last frame.
     pub last_particle_items: u32,
+    /// Bodies posed, their vertices, and the time posing them took, in nanoseconds (an
+    /// instrument's count, read from the wall clock).
+    pub skin_poses: u64,
+    pub skin_vertices: u64,
+    pub skin_nanos: u64,
 }
 
 /// The renderer: the layer's device, the retained scene and each frame's passes.
@@ -242,6 +249,9 @@ pub struct Renderer {
     ao: self::ao::AoPass,
     /// The art pack's swaps made.
     packs: crate::assets::pack::PackSwaps,
+    /// The objects drawn with an art pack's body, and their bodies.
+    skins: skins::Skins,
+    skin_pass: skin_pass::SkinPass,
     /// Whether an art pack's light and grade are laid over the frame.
     pack_look: bool,
     /// Which of the landscape's additions are drawn.
@@ -570,6 +580,7 @@ impl Renderer {
         let forest = forest::ForestPass::new(&mut gfx)?;
         let grass = grass::GrassPass::new(&mut gfx)?;
         let instances = instances::PackInstances::new(&mut gfx)?;
+        let skin_pass = skin_pass::SkinPass::new(&mut gfx)?;
         let lift_probe = gfx.create_compute_pipeline(&dereth_gfx::ComputeDesc {
             label: "remaster lift probe",
             shader: shader(Entry::LiftCsBases),
@@ -623,6 +634,8 @@ impl Renderer {
             forward: per_frame(&mut gfx, "remaster forward", 1 << 18, BufferUsage::INDIRECT)?,
             ao: self::ao::AoPass::new(&mut gfx)?,
             packs: crate::assets::pack::PackSwaps::default(),
+            skins: skins::Skins::default(),
+            skin_pass,
             pack_look: false,
             landscape: self::landscape::LandscapeSettings::default(),
             water: self::water::WaterPass::new(&mut gfx)?,
@@ -786,6 +799,20 @@ impl Renderer {
     #[must_use]
     pub fn intent(&self) -> &self::intent::Intent {
         self.intents.last()
+    }
+
+    /// Whether skinned bodies are posed on the device (on by default) or on the processor.
+    pub fn set_skin_gpu(&mut self, on: bool) {
+        self.skins.gpu = on;
+    }
+
+    /// Whether the motion pass is given skinned bodies' last places, vertex by vertex (on by
+    /// default; off, a body moves in the motion pass only as its anchor part does).
+    pub fn set_skin_motion(&mut self, on: bool) {
+        self.skins.motion = on;
+        if !on {
+            self.scene.previous.clear();
+        }
     }
 
     /// What the renderer has counted.
@@ -1170,8 +1197,20 @@ impl Renderer {
         if switched {
             self.tables.set_splat(self.terrain.splat, src);
         }
-        // An art pack's models in place of the placements it has them for, as the blocks come.
+        // An art pack's models in place of the placements it has them for, as the blocks come;
+        // its bodies in place of the parts of the objects it has them for, as the objects come.
         let deltas = self.packs.swap(deltas, &mut |id| src.pack_model(id));
+        let deltas = if self.packs.settings.characters {
+            self.skins.swap(deltas, &mut |setup| src.pack_skin(setup))
+        } else {
+            self.skins.forget(&deltas);
+            deltas
+        };
+        let mut with_skins = skins::WithSkins {
+            src,
+            meshes: self.skins.meshes(),
+        };
+        let src: &mut dyn AssetSource = &mut with_skins;
         for d in &deltas {
             self.tables.apply(d, src);
             match d {
@@ -1256,6 +1295,45 @@ impl Renderer {
         }
         for l in &frame.levels {
             self.scene.levels(l);
+        }
+        // Each body posed by its object's parts this frame, written over its mesh: on the device,
+        // where here only each body's joints are worked out (and its data sent the first time);
+        // or here, every vertex.
+        let started = std::time::Instant::now();
+        let vertices = self.skins.posed;
+        let (bodies, posed) = if self.skins.gpu {
+            let jobs = self.skins.joints(&frame);
+            let motion = self.skins.motion;
+            let r = self
+                .skin_pass
+                .receive(&mut self.gfx, &mut self.scene, &jobs, motion);
+            if let Err(e) = r {
+                tracing::warn!(target: "dereth::remaster", "the bodies were not posed: {e}");
+            }
+            (jobs.len(), Vec::new())
+        } else {
+            let posed = self.skins.pose(&frame);
+            (posed.len(), posed)
+        };
+        self.stats.skin_nanos += u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
+        self.stats.skin_poses += bodies as u64;
+        self.stats.skin_vertices += self.skins.posed - vertices;
+        for (id, rows) in posed {
+            if self.skins.motion {
+                let last = self.skins.last_rows(id, &rows);
+                let r = self
+                    .scene
+                    .write_mesh_previous(&mut self.gfx, MeshKey::GfxObj(id), &last);
+                if let Err(e) = r {
+                    tracing::warn!(target: "dereth::remaster", "a body's last places were not kept: {e}");
+                }
+            }
+            let r = self
+                .scene
+                .write_mesh_vertices(&mut self.gfx, MeshKey::GfxObj(id), &rows);
+            if let Err(e) = r {
+                tracing::warn!(target: "dereth::remaster", "a body was not posed: {e}");
+            }
         }
         self.particles = frame
             .particles

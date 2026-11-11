@@ -31,6 +31,8 @@ dereth-scene = { workspace = true, features = ["art-pack"] }
 # The surface record's type bits.
 dereth-render-cpu.workspace = true
 png.workspace = true
+# A skeleton's transforms.
+glam.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]

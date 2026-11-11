@@ -39,6 +39,8 @@ pub enum Entry {
     InstancesCsScan,
     /// `cs_write` in `instances.slang`, the compute stage.
     InstancesCsWrite,
+    /// `cs_main` in `skin.slang`, the compute stage.
+    SkinCsMain,
     /// `fs_caster` in `gbuffer.slang`, the fragment stage.
     GbufferFsCaster,
     /// `fs_main` in `shadow_mask.slang`, the fragment stage.
@@ -189,7 +191,7 @@ pub enum Entry {
 
 impl Entry {
     /// Every entry point, in `shaders.toml`'s order.
-    pub const ALL: [Self; 91] = [Self::AirFsAir, Self::CloudShadowFsMain, Self::StampVsMain, Self::FullscreenVsMain, Self::CopyFsMain, Self::GbufferVsMain, Self::GbufferFsMain, Self::GbufferFsForward, Self::GbufferFsEdge, Self::TerrainVsMain, Self::TerrainFsMain, Self::ResolveFsVertex, Self::ResolveFsPixel, Self::CompositeFsMain, Self::CullCsMain, Self::InstancesCsChoose, Self::InstancesCsScan, Self::InstancesCsWrite, Self::GbufferFsCaster, Self::ShadowMaskFsMain, Self::AoFsGtao, Self::AoFsGather, Self::AoFsUpsample, Self::LampsCsClusters, Self::LampsFsLamps, Self::HaloVsHalo, Self::HaloFsHalo, Self::PostFsTaa, Self::PostFsTaaCheck, Self::PostFsBloomDown, Self::PostFsBloomUp, Self::PostFsTonemap, Self::MotionVsMain, Self::MotionFsMain, Self::SkyTablesFsTransmittance, Self::SkyTablesFsMultiple, Self::SkyTablesFsSkyView, Self::SkyFsSky, Self::SkyFsVeil, Self::FogVolumeCsMain, Self::DrawnVsGround, Self::DrawnFsGround, Self::DrawnVsCaster, Self::DrawnCsProbe, Self::DrawnCsGrass, Self::GrassVsBlade, Self::GrassFsBlade, Self::GrassVsBladeMotion, Self::GrassFsBladeMotion, Self::DrawnCsScatter, Self::GrassVsScatter, Self::GrassFsScatter, Self::WaterFsMain, Self::WaterFsTraced, Self::WaterCsWake, Self::LiftCsBases, Self::ImpostorVsBake, Self::ImpostorFsBake, Self::ImpostorVsDraw, Self::ImpostorFsDraw, Self::ForestCsCull, Self::ForestVsFar, Self::ForestFsFar, Self::RainFsSplash, Self::RainVsFall, Self::RainFsFall, Self::RtCsInstances, Self::RtCheckCsCheck, Self::GiCsUpdate, Self::GiFsProbes, Self::GiFsScreen, Self::GiFsBlur, Self::GiTraceCsTrace, Self::RtShadowFsMain, Self::RtAoFsRays, Self::RtAoFsFilter, Self::UpscaleInputsCsMain, Self::Fsr3PassesCsClearReconstructed, Self::Fsr3PassesCsPrepareInputs, Self::Fsr3PassesCsFarthestHalf, Self::Fsr3PassesCsShadingLevelZero, Self::Fsr3PassesCsShadingLevel, Self::Fsr3PassesCsShadingChange, Self::Fsr3PassesCsReactivity, Self::Fsr3PassesCsLumaInstability, Self::Fsr3PassesCsAccumulate, Self::Fsr3PassesCsRcas, Self::Fsr3PassesFsShow, Self::Fsr3PassesCsReactiveInput, Self::Fsr3PassesCsExposure, Self::Fsr3PassesFsInputsAsPictures];
+    pub const ALL: [Self; 92] = [Self::AirFsAir, Self::CloudShadowFsMain, Self::StampVsMain, Self::FullscreenVsMain, Self::CopyFsMain, Self::GbufferVsMain, Self::GbufferFsMain, Self::GbufferFsForward, Self::GbufferFsEdge, Self::TerrainVsMain, Self::TerrainFsMain, Self::ResolveFsVertex, Self::ResolveFsPixel, Self::CompositeFsMain, Self::CullCsMain, Self::InstancesCsChoose, Self::InstancesCsScan, Self::InstancesCsWrite, Self::SkinCsMain, Self::GbufferFsCaster, Self::ShadowMaskFsMain, Self::AoFsGtao, Self::AoFsGather, Self::AoFsUpsample, Self::LampsCsClusters, Self::LampsFsLamps, Self::HaloVsHalo, Self::HaloFsHalo, Self::PostFsTaa, Self::PostFsTaaCheck, Self::PostFsBloomDown, Self::PostFsBloomUp, Self::PostFsTonemap, Self::MotionVsMain, Self::MotionFsMain, Self::SkyTablesFsTransmittance, Self::SkyTablesFsMultiple, Self::SkyTablesFsSkyView, Self::SkyFsSky, Self::SkyFsVeil, Self::FogVolumeCsMain, Self::DrawnVsGround, Self::DrawnFsGround, Self::DrawnVsCaster, Self::DrawnCsProbe, Self::DrawnCsGrass, Self::GrassVsBlade, Self::GrassFsBlade, Self::GrassVsBladeMotion, Self::GrassFsBladeMotion, Self::DrawnCsScatter, Self::GrassVsScatter, Self::GrassFsScatter, Self::WaterFsMain, Self::WaterFsTraced, Self::WaterCsWake, Self::LiftCsBases, Self::ImpostorVsBake, Self::ImpostorFsBake, Self::ImpostorVsDraw, Self::ImpostorFsDraw, Self::ForestCsCull, Self::ForestVsFar, Self::ForestFsFar, Self::RainFsSplash, Self::RainVsFall, Self::RainFsFall, Self::RtCsInstances, Self::RtCheckCsCheck, Self::GiCsUpdate, Self::GiFsProbes, Self::GiFsScreen, Self::GiFsBlur, Self::GiTraceCsTrace, Self::RtShadowFsMain, Self::RtAoFsRays, Self::RtAoFsFilter, Self::UpscaleInputsCsMain, Self::Fsr3PassesCsClearReconstructed, Self::Fsr3PassesCsPrepareInputs, Self::Fsr3PassesCsFarthestHalf, Self::Fsr3PassesCsShadingLevelZero, Self::Fsr3PassesCsShadingLevel, Self::Fsr3PassesCsShadingChange, Self::Fsr3PassesCsReactivity, Self::Fsr3PassesCsLumaInstability, Self::Fsr3PassesCsAccumulate, Self::Fsr3PassesCsRcas, Self::Fsr3PassesFsShow, Self::Fsr3PassesCsReactiveInput, Self::Fsr3PassesCsExposure, Self::Fsr3PassesFsInputsAsPictures];
 
     /// The source file that defines it.
     #[must_use]
@@ -213,6 +215,7 @@ impl Entry {
             Self::InstancesCsChoose => "instances.slang",
             Self::InstancesCsScan => "instances.slang",
             Self::InstancesCsWrite => "instances.slang",
+            Self::SkinCsMain => "skin.slang",
             Self::GbufferFsCaster => "gbuffer.slang",
             Self::ShadowMaskFsMain => "shadow_mask.slang",
             Self::AoFsGtao => "ao.slang",
@@ -311,6 +314,7 @@ impl Entry {
             Self::InstancesCsChoose => "cs_choose",
             Self::InstancesCsScan => "cs_scan",
             Self::InstancesCsWrite => "cs_write",
+            Self::SkinCsMain => "cs_main",
             Self::GbufferFsCaster => "fs_caster",
             Self::ShadowMaskFsMain => "fs_main",
             Self::AoFsGtao => "fs_gtao",
@@ -409,6 +413,7 @@ impl Entry {
             Self::InstancesCsChoose => Stage::Compute,
             Self::InstancesCsScan => Stage::Compute,
             Self::InstancesCsWrite => Stage::Compute,
+            Self::SkinCsMain => Stage::Compute,
             Self::GbufferFsCaster => Stage::Fragment,
             Self::ShadowMaskFsMain => Stage::Fragment,
             Self::AoFsGtao => Stage::Fragment,
@@ -507,6 +512,7 @@ impl Entry {
             Self::InstancesCsChoose => include_bytes!("spirv/instances.cs_choose.spv"),
             Self::InstancesCsScan => include_bytes!("spirv/instances.cs_scan.spv"),
             Self::InstancesCsWrite => include_bytes!("spirv/instances.cs_write.spv"),
+            Self::SkinCsMain => include_bytes!("spirv/skin.cs_main.spv"),
             Self::GbufferFsCaster => include_bytes!("spirv/gbuffer.fs_caster.spv"),
             Self::ShadowMaskFsMain => include_bytes!("spirv/shadow_mask.fs_main.spv"),
             Self::AoFsGtao => include_bytes!("spirv/ao.fs_gtao.spv"),
@@ -605,6 +611,7 @@ impl Entry {
             Self::InstancesCsChoose => include_bytes!("dxil/instances.cs_choose.dxil"),
             Self::InstancesCsScan => include_bytes!("dxil/instances.cs_scan.dxil"),
             Self::InstancesCsWrite => include_bytes!("dxil/instances.cs_write.dxil"),
+            Self::SkinCsMain => include_bytes!("dxil/skin.cs_main.dxil"),
             Self::GbufferFsCaster => include_bytes!("dxil/gbuffer.fs_caster.dxil"),
             Self::ShadowMaskFsMain => include_bytes!("dxil/shadow_mask.fs_main.dxil"),
             Self::AoFsGtao => include_bytes!("dxil/ao.fs_gtao.dxil"),

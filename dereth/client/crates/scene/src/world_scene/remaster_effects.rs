@@ -59,6 +59,22 @@ impl SceneDraw {
         remaster(gpu)?.renderer().read_ao()
     }
 
+    /// Whether the remaster poses skinned bodies on the device (on by default) or on the
+    /// processor, for an instrument comparing the two.
+    pub fn set_remaster_skin_gpu(&mut self, on: bool, gpu: &mut Gpu) {
+        if let Some(r) = remaster(gpu) {
+            r.renderer().set_skin_gpu(on);
+        }
+    }
+
+    /// Whether the remaster's motion pass follows a skinned body vertex by vertex (on by
+    /// default), for an instrument showing what that adds.
+    pub fn set_remaster_skin_motion(&mut self, on: bool, gpu: &mut Gpu) {
+        if let Some(r) = remaster(gpu) {
+            r.renderer().set_skin_motion(on);
+        }
+    }
+
     /// How the remaster's post passes draw, from its next frame on, and from when it is turned
     /// on.
     pub fn set_remaster_post(&mut self, settings: RemasterPost, gpu: &mut Gpu) {

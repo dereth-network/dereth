@@ -395,7 +395,7 @@ fn group_of(sg: SurfaceGroup) -> Group {
 
 /// A part's triangles placed in the setup: scaled by the part's default scale, then turned and
 /// moved by its placement frame.
-fn posed(mut g: Group, frame: &Frame, scale: Vec3) -> Group {
+pub(crate) fn posed(mut g: Group, frame: &Frame, scale: Vec3) -> Group {
     let turn = l2g(frame.rotation);
     for t in &mut g.triangles {
         for v in t.iter_mut() {

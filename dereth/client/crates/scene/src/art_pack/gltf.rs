@@ -235,6 +235,7 @@ fn accessor(
         Some("VEC2") => 2,
         Some("VEC3") => 3,
         Some("VEC4") => 4,
+        Some("MAT4") => 16,
         other => return Err(format!("accessor {i}: type {other:?} is not read")),
     };
     let normalized = a
@@ -406,17 +407,13 @@ fn tangents(positions: &[Vec3], normals: &[Vec3], uvs: &[Vec2], indices: &[u32])
         .collect()
 }
 
-/// The primitives of the model whose glTF text is `json`, at `at` in the pack, its buffers read
-/// through `read` by path relative to the pack.
-///
-/// # Errors
-/// What the model needs that is not read, or a buffer that will not read or is too short.
-#[allow(clippy::too_many_lines)] // one pass over the scene's nodes and their primitives
-pub fn decode(
+/// A glTF document whose text is `json`, at `at` in the pack, and its buffers, read through
+/// `read` by path relative to the pack.
+fn open_doc(
     json: &[u8],
     at: &str,
     read: &mut dyn FnMut(&str) -> Result<Vec<u8>, Refusal>,
-) -> Result<Vec<Primitive>, Refusal> {
+) -> Result<(Value, Vec<Vec<u8>>), Refusal> {
     if json.starts_with(b"glTF") {
         return Err(format!(
             "{at}: a binary glTF is not read; export it as .gltf"
@@ -454,6 +451,160 @@ pub fn decode(
         }
         buffers.push(bytes);
     }
+    Ok((doc, buffers))
+}
+
+/// One triangle primitive `p` of a mesh, its vertices taken through `world` and turned upright.
+#[allow(clippy::too_many_lines)] // one pass over a primitive's attributes
+fn primitive(
+    doc: &Value,
+    buffers: &[Vec<u8>],
+    at: &str,
+    p: &Value,
+    world: Mat4,
+) -> Result<Primitive, Refusal> {
+    let turn = Mat3::from_mat4(world);
+    let normal_turn = turn.inverse().transpose();
+    let mirrored = turn.determinant() < 0.0;
+    if index(p, "mode").unwrap_or(4) != 4 {
+        return Err(format!(
+            "{at}: a primitive that is not triangles is not read"
+        ));
+    }
+    let attrs = p
+        .get("attributes")
+        .ok_or_else(|| format!("{at}: a primitive with no attributes"))?;
+    let read_attr = |name: &str| -> Result<Option<Accessor>, Refusal> {
+        index(attrs, name)
+            .map(|i| accessor(doc, buffers, i).map(|(a, _)| a))
+            .transpose()
+            .map_err(|e| format!("{at}: {e}"))
+    };
+    let pos =
+        read_attr("POSITION")?.ok_or_else(|| format!("{at}: a primitive with no positions"))?;
+    if pos.width != 3 {
+        return Err(format!("{at}: positions are not three numbers"));
+    }
+    let count = pos.count;
+    let positions: Vec<Vec3> = pos
+        .values
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .map(|v| upright(world.transform_point3(Vec3::new(v[0], v[1], v[2]))))
+        .collect();
+    let indices: Vec<u32> = match index(p, "indices") {
+        Some(i) => {
+            let (_, ints) = accessor(doc, buffers, i).map_err(|e| format!("{at}: {e}"))?;
+            ints.ok_or_else(|| format!("{at}: indices that are not unsigned integers"))?
+        }
+        None => (0..u32::try_from(count).unwrap_or(u32::MAX)).collect(),
+    };
+    if !indices.len().is_multiple_of(3) || indices.iter().any(|i| *i as usize >= count) {
+        return Err(format!("{at}: indices that do not make whole triangles"));
+    }
+    let indices: Vec<u32> = if mirrored {
+        indices
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .flat_map(|t| [t[0], t[2], t[1]])
+            .collect()
+    } else {
+        indices
+    };
+    let normals: Vec<Vec3> = match read_attr("NORMAL")? {
+        Some(a) if a.width == 3 && a.count == count => a
+            .values
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .map(|v| upright((normal_turn * Vec3::new(v[0], v[1], v[2])).normalize_or_zero()))
+            .collect(),
+        Some(_) => return Err(format!("{at}: normals that do not match the positions")),
+        None => {
+            // Flat normals, each vertex taking its last triangle's.
+            let mut n = vec![Vec3::Z; count];
+            for t in indices.as_chunks::<3>().0.iter() {
+                let [a, b, c] = [t[0] as usize, t[1] as usize, t[2] as usize];
+                let f = (positions[b] - positions[a])
+                    .cross(positions[c] - positions[a])
+                    .normalize_or_zero();
+                for v in [a, b, c] {
+                    n[v] = f;
+                }
+            }
+            n
+        }
+    };
+    let uvs: Vec<Vec2> = match read_attr("TEXCOORD_0")? {
+        Some(a) if a.width == 2 && a.count == count => a
+            .values
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|v| Vec2::new(v[0], v[1]))
+            .collect(),
+        Some(_) => return Err(format!("{at}: texture coordinates that do not match")),
+        None => vec![Vec2::ZERO; count],
+    };
+    let colors: Vec<Vec4> = match read_attr("COLOR_0")? {
+        Some(a) if a.width == 4 && a.count == count => a
+            .values
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|v| Vec4::new(v[0], v[1], v[2], v[3]))
+            .collect(),
+        Some(a) if a.width == 3 && a.count == count => a
+            .values
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .map(|v| Vec4::new(v[0], v[1], v[2], 1.0))
+            .collect(),
+        Some(_) => return Err(format!("{at}: colours that do not match")),
+        None => vec![Vec4::ONE; count],
+    };
+    let tangents: Vec<Vec4> = match read_attr("TANGENT")? {
+        Some(a) if a.width == 4 && a.count == count => a
+            .values
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|v| {
+                let t = upright((turn * Vec3::new(v[0], v[1], v[2])).normalize_or_zero());
+                t.extend(if mirrored { -v[3] } else { v[3] })
+            })
+            .collect(),
+        _ => tangents(&positions, &normals, &uvs, &indices),
+    };
+    let mut vertices = Vec::with_capacity(count * VERTEX_FLOATS);
+    for v in 0..count {
+        vertices.extend(positions[v].to_array());
+        vertices.extend(normals[v].to_array());
+        vertices.extend(tangents[v].to_array());
+        vertices.extend(uvs[v].to_array());
+        vertices.extend(colors[v].to_array());
+    }
+    Ok(Primitive {
+        vertices,
+        indices,
+        material: material(doc, at, index(p, "material"))?,
+    })
+}
+
+/// The primitives of the model whose glTF text is `json`, at `at` in the pack, its buffers read
+/// through `read` by path relative to the pack.
+///
+/// # Errors
+/// What the model needs that is not read, or a buffer that will not read or is too short.
+pub fn decode(
+    json: &[u8],
+    at: &str,
+    read: &mut dyn FnMut(&str) -> Result<Vec<u8>, Refusal>,
+) -> Result<Vec<Primitive>, Refusal> {
+    let (doc, buffers) = open_doc(json, at, read)?;
     let scene = index(&doc, "scene").unwrap_or(0);
     let roots: Vec<usize> = doc
         .get("scenes")
@@ -496,142 +647,241 @@ pub fn decode(
             .and_then(|m| m.get("primitives"))
             .and_then(Value::as_array)
             .ok_or_else(|| format!("{at}: no mesh {mesh}"))?;
-        let turn = Mat3::from_mat4(world);
-        let normal_turn = turn.inverse().transpose();
-        let mirrored = turn.determinant() < 0.0;
         for p in primitives {
-            if index(p, "mode").unwrap_or(4) != 4 {
-                return Err(format!(
-                    "{at}: a primitive that is not triangles is not read"
-                ));
-            }
-            let attrs = p
-                .get("attributes")
-                .ok_or_else(|| format!("{at}: a primitive with no attributes"))?;
-            let read_attr = |name: &str| -> Result<Option<Accessor>, Refusal> {
-                index(attrs, name)
-                    .map(|i| accessor(&doc, &buffers, i).map(|(a, _)| a))
-                    .transpose()
-                    .map_err(|e| format!("{at}: {e}"))
-            };
-            let pos = read_attr("POSITION")?
-                .ok_or_else(|| format!("{at}: a primitive with no positions"))?;
-            if pos.width != 3 {
-                return Err(format!("{at}: positions are not three numbers"));
-            }
-            let count = pos.count;
-            let positions: Vec<Vec3> = pos
-                .values
-                .as_chunks::<3>()
-                .0
-                .iter()
-                .map(|v| upright(world.transform_point3(Vec3::new(v[0], v[1], v[2]))))
-                .collect();
-            let indices: Vec<u32> = match index(p, "indices") {
-                Some(i) => {
-                    let (_, ints) =
-                        accessor(&doc, &buffers, i).map_err(|e| format!("{at}: {e}"))?;
-                    ints.ok_or_else(|| format!("{at}: indices that are not unsigned integers"))?
-                }
-                None => (0..u32::try_from(count).unwrap_or(u32::MAX)).collect(),
-            };
-            if !indices.len().is_multiple_of(3) || indices.iter().any(|i| *i as usize >= count) {
-                return Err(format!("{at}: indices that do not make whole triangles"));
-            }
-            let indices: Vec<u32> = if mirrored {
-                indices
-                    .as_chunks::<3>()
-                    .0
-                    .iter()
-                    .flat_map(|t| [t[0], t[2], t[1]])
-                    .collect()
-            } else {
-                indices
-            };
-            let normals: Vec<Vec3> = match read_attr("NORMAL")? {
-                Some(a) if a.width == 3 && a.count == count => a
-                    .values
-                    .as_chunks::<3>()
-                    .0
-                    .iter()
-                    .map(|v| {
-                        upright((normal_turn * Vec3::new(v[0], v[1], v[2])).normalize_or_zero())
-                    })
-                    .collect(),
-                Some(_) => return Err(format!("{at}: normals that do not match the positions")),
-                None => {
-                    // Flat normals, each vertex taking its last triangle's.
-                    let mut n = vec![Vec3::Z; count];
-                    for t in indices.as_chunks::<3>().0.iter() {
-                        let [a, b, c] = [t[0] as usize, t[1] as usize, t[2] as usize];
-                        let f = (positions[b] - positions[a])
-                            .cross(positions[c] - positions[a])
-                            .normalize_or_zero();
-                        for v in [a, b, c] {
-                            n[v] = f;
-                        }
-                    }
-                    n
-                }
-            };
-            let uvs: Vec<Vec2> = match read_attr("TEXCOORD_0")? {
-                Some(a) if a.width == 2 && a.count == count => a
-                    .values
-                    .as_chunks::<2>()
-                    .0
-                    .iter()
-                    .map(|v| Vec2::new(v[0], v[1]))
-                    .collect(),
-                Some(_) => return Err(format!("{at}: texture coordinates that do not match")),
-                None => vec![Vec2::ZERO; count],
-            };
-            let colors: Vec<Vec4> = match read_attr("COLOR_0")? {
-                Some(a) if a.width == 4 && a.count == count => a
-                    .values
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .map(|v| Vec4::new(v[0], v[1], v[2], v[3]))
-                    .collect(),
-                Some(a) if a.width == 3 && a.count == count => a
-                    .values
-                    .as_chunks::<3>()
-                    .0
-                    .iter()
-                    .map(|v| Vec4::new(v[0], v[1], v[2], 1.0))
-                    .collect(),
-                Some(_) => return Err(format!("{at}: colours that do not match")),
-                None => vec![Vec4::ONE; count],
-            };
-            let tangents: Vec<Vec4> = match read_attr("TANGENT")? {
-                Some(a) if a.width == 4 && a.count == count => a
-                    .values
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .map(|v| {
-                        let t = upright((turn * Vec3::new(v[0], v[1], v[2])).normalize_or_zero());
-                        t.extend(if mirrored { -v[3] } else { v[3] })
-                    })
-                    .collect(),
-                _ => tangents(&positions, &normals, &uvs, &indices),
-            };
-            let mut vertices = Vec::with_capacity(count * VERTEX_FLOATS);
-            for v in 0..count {
-                vertices.extend(positions[v].to_array());
-                vertices.extend(normals[v].to_array());
-                vertices.extend(tangents[v].to_array());
-                vertices.extend(uvs[v].to_array());
-                vertices.extend(colors[v].to_array());
-            }
-            out.push(Primitive {
-                vertices,
-                indices,
-                material: material(&doc, at, index(p, "material"))?,
-            });
+            out.push(primitive(&doc, &buffers, at, p, world)?);
         }
     }
     Ok(out)
+}
+
+/// One primitive of a skinned body: its triangles in the body's bind space, upright, and each
+/// vertex's parts (by their place in the setup) and its weight on each, summing to one.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SkinPrimitive {
+    pub primitive: Primitive,
+    pub parts: Vec<[u16; 4]>,
+    pub weights: Vec<[f32; 4]>,
+}
+
+/// A skinned body: its primitives, and for each part a vertex follows, the matrix that takes the
+/// body's bind space to the part's own (upright both, the part's scale applied).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Skin {
+    pub primitives: Vec<SkinPrimitive>,
+    pub inverse_binds: Vec<(u16, Mat4)>,
+}
+
+/// The part a node names: `part_NN`, or `extras.part`.
+fn part_named(node: &Value) -> Option<u16> {
+    if let Some(p) = node
+        .get("extras")
+        .and_then(|e| e.get("part"))
+        .and_then(Value::as_u64)
+    {
+        return u16::try_from(p).ok();
+    }
+    let name = node.get("name").and_then(Value::as_str)?;
+    let digits = name.strip_prefix("part_")?;
+    // A tool may add a suffix of its own to a name it has seen twice (`part_03.001`).
+    let digits = digits.split(['.', ' ']).next()?;
+    digits.parse().ok()
+}
+
+/// The skinned body of the glTF whose text is `json`, at `at` in the pack, its buffers read
+/// through `read`: the first node that has both a mesh and a skin. Each joint follows the part it
+/// names (`part_NN`, or `extras.part`), or the nearest node above it in the node tree that names
+/// one. The positions are the mesh's own, in its bind space: the node's transform is not applied
+/// to a skinned mesh.
+///
+/// # Errors
+/// As [`decode`]; no skinned mesh; a joint that follows no part; or joints and weights that do
+/// not match the positions.
+#[allow(clippy::too_many_lines)] // one pass over the skin, then over its primitives
+pub fn decode_skin(
+    json: &[u8],
+    at: &str,
+    read: &mut dyn FnMut(&str) -> Result<Vec<u8>, Refusal>,
+) -> Result<Skin, Refusal> {
+    let (doc, buffers) = open_doc(json, at, read)?;
+    let nodes = doc
+        .get("nodes")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut parent = vec![None; nodes.len()];
+    for (i, n) in nodes.iter().enumerate() {
+        for c in n
+            .get("children")
+            .and_then(Value::as_array)
+            .map_or(&[][..], Vec::as_slice)
+        {
+            if let Some(slot) = c
+                .as_u64()
+                .and_then(|c| usize::try_from(c).ok())
+                .and_then(|c| parent.get_mut(c))
+            {
+                *slot = Some(i);
+            }
+        }
+    }
+    // Each node's transform in the scene, its parents' applied.
+    let world = |mut n: usize| -> Mat4 {
+        let mut m = Mat4::IDENTITY;
+        for _ in 0..=64 {
+            let Some(node) = nodes.get(n) else {
+                break;
+            };
+            m = local(node) * m;
+            match parent[n] {
+                Some(p) => n = p,
+                None => break,
+            }
+        }
+        m
+    };
+    let follows = |mut n: usize| -> Option<(u16, usize)> {
+        for _ in 0..=64 {
+            if let Some(p) = part_named(nodes.get(n)?) {
+                return Some((p, n));
+            }
+            n = parent.get(n).copied().flatten()?;
+        }
+        None
+    };
+    let (body, skin) = nodes
+        .iter()
+        .enumerate()
+        .find_map(|(i, n)| {
+            n.get("mesh")?;
+            Some((i, index(n, "skin")?))
+        })
+        .ok_or_else(|| format!("{at}: no skinned mesh"))?;
+    let skin_v = doc
+        .get("skins")
+        .and_then(|l| l.get(skin))
+        .ok_or_else(|| format!("{at}: no skin {skin}"))?;
+    let joints: Vec<usize> = skin_v
+        .get("joints")
+        .and_then(Value::as_array)
+        .map(|j| {
+            j.iter()
+                .filter_map(|i| i.as_u64().and_then(|i| usize::try_from(i).ok()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let binds: Option<Vec<Mat4>> = match index(skin_v, "inverseBindMatrices") {
+        Some(i) => {
+            let (a, _) = accessor(&doc, &buffers, i).map_err(|e| format!("{at}: {e}"))?;
+            if a.width != 16 || a.count != joints.len() {
+                return Err(format!(
+                    "{at}: inverse bind matrices that do not match the joints"
+                ));
+            }
+            Some(
+                a.values
+                    .as_chunks::<16>()
+                    .0
+                    .iter()
+                    .map(Mat4::from_cols_array)
+                    .collect(),
+            )
+        }
+        None => None,
+    };
+    // Each joint's part, and each part's inverse bind matrix: its own joint's, or where its node
+    // is no joint of the skin, the inverse of the node's place in the scene.
+    let mut part_of_joint = Vec::with_capacity(joints.len());
+    let mut by_part: std::collections::BTreeMap<u16, Mat4> = std::collections::BTreeMap::new();
+    for (k, &j) in joints.iter().enumerate() {
+        let (part, node) =
+            follows(j).ok_or_else(|| format!("{at}: joint {k} (node {j}) follows no part"))?;
+        part_of_joint.push(part);
+        let own = binds.as_ref().filter(|_| node == j).map(|b| b[k]);
+        if own.is_some() || !by_part.contains_key(&part) {
+            by_part.insert(part, own.unwrap_or_else(|| world(node).inverse()));
+        }
+    }
+    // glTF's axes on both sides: the body's bind space in, the part's own space out.
+    let up = Mat4::from_cols(
+        Vec4::X,
+        Vec4::new(0.0, 0.0, 1.0, 0.0),
+        Vec4::new(0.0, -1.0, 0.0, 0.0),
+        Vec4::W,
+    );
+    let inverse_binds = by_part
+        .into_iter()
+        .map(|(p, m)| (p, up * m * up.inverse()))
+        .collect();
+    let mesh = index(&nodes[body], "mesh").unwrap_or(0);
+    let listed = doc
+        .get("meshes")
+        .and_then(|m| m.get(mesh))
+        .and_then(|m| m.get("primitives"))
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("{at}: no mesh {mesh}"))?;
+    let mut primitives = Vec::with_capacity(listed.len());
+    for p in listed {
+        let primitive = primitive(&doc, &buffers, at, p, Mat4::IDENTITY)?;
+        let count = primitive.vertices.len() / VERTEX_FLOATS;
+        let attrs = p.get("attributes").unwrap_or(&Value::Null);
+        let (Some(ji), Some(wi)) = (index(attrs, "JOINTS_0"), index(attrs, "WEIGHTS_0")) else {
+            return Err(format!(
+                "{at}: a skinned primitive with no joints or weights"
+            ));
+        };
+        let (ja, jints) = accessor(&doc, &buffers, ji).map_err(|e| format!("{at}: {e}"))?;
+        let (wa, _) = accessor(&doc, &buffers, wi).map_err(|e| format!("{at}: {e}"))?;
+        let jints = jints.ok_or_else(|| format!("{at}: joints that are not unsigned integers"))?;
+        if ja.width != 4 || wa.width != 4 || ja.count != count || wa.count != count {
+            return Err(format!(
+                "{at}: joints and weights that do not match the positions"
+            ));
+        }
+        let mut parts = Vec::with_capacity(count);
+        let mut weights = Vec::with_capacity(count);
+        for v in 0..count {
+            // The weights on one part summed, the largest first, made to sum to one.
+            let mut on: Vec<(u16, f32)> = Vec::with_capacity(4);
+            for c in 0..4 {
+                let w = wa.values[v * 4 + c];
+                if w.is_nan() || w <= 0.0 {
+                    continue;
+                }
+                let j = jints[v * 4 + c] as usize;
+                let part = *part_of_joint.get(j).ok_or_else(|| {
+                    format!("{at}: a vertex names joint {j}, which the skin has not")
+                })?;
+                match on.iter_mut().find(|(p, _)| *p == part) {
+                    Some(e) => e.1 += w,
+                    None => on.push((part, w)),
+                }
+            }
+            on.sort_by(|a, b| b.1.total_cmp(&a.1));
+            let total: f32 = on.iter().map(|e| e.1).sum();
+            let mut ps = [0u16; 4];
+            let mut ws = [0.0f32; 4];
+            if total > 0.0 {
+                for (k, (p, w)) in on.iter().enumerate() {
+                    ps[k] = *p;
+                    ws[k] = *w / total;
+                }
+            } else {
+                ps[0] = part_of_joint.first().copied().unwrap_or(0);
+                ws[0] = 1.0;
+            }
+            parts.push(ps);
+            weights.push(ws);
+        }
+        primitives.push(SkinPrimitive {
+            primitive,
+            parts,
+            weights,
+        });
+    }
+    Ok(Skin {
+        primitives,
+        inverse_binds,
+    })
 }
 
 /// The id a pack names a model by, for messages.
@@ -767,5 +1017,127 @@ mod tests {
         );
         assert!(beside("m.gltf", "../t.png").is_err());
         assert!(beside("a/m.gltf", "data:image/png;base64,AA").is_err());
+    }
+
+    /// A triangle skinned to two joints: `part_00` a metre up, and an unnamed joint under
+    /// `part_02`, which stands a metre east of it. Its mesh node is moved, which a skinned mesh
+    /// ignores.
+    fn skinned_triangle() -> (String, Vec<u8>) {
+        let mut bin = Vec::new();
+        for p in [[0.0f32, 1.0, 0.0], [1.0, 1.0, 0.0], [0.5, 1.5, 0.0]] {
+            for c in p {
+                bin.extend(c.to_le_bytes());
+            }
+        }
+        bin.extend([0u8, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0]);
+        for w in [
+            [1.0f32, 0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0, 0.0],
+            [0.25, 0.25, 0.0, 0.0],
+        ] {
+            for c in w {
+                bin.extend(c.to_le_bytes());
+            }
+        }
+        let ibm = [
+            Mat4::from_translation(Vec3::new(0.0, -1.0, 0.0)),
+            Mat4::from_translation(Vec3::new(9.0, 9.0, 9.0)),
+        ];
+        for m in ibm {
+            for c in m.to_cols_array() {
+                bin.extend(c.to_le_bytes());
+            }
+        }
+        for i in [0u16, 1, 2, 0] {
+            bin.extend(i.to_le_bytes());
+        }
+        let json = r#"{
+            "asset": {"version": "2.0"},
+            "scenes": [{"nodes": [0, 3]}],
+            "nodes": [
+                {"name": "part_00", "translation": [0, 1, 0], "children": [1]},
+                {"name": "part_02", "translation": [1, 0, 0], "children": [2]},
+                {"name": "twist"},
+                {"mesh": 0, "skin": 0, "translation": [5, 5, 5]}
+            ],
+            "skins": [{"joints": [0, 2], "inverseBindMatrices": 3}],
+            "meshes": [{"primitives": [{"attributes": {"POSITION": 0, "JOINTS_0": 1,
+                "WEIGHTS_0": 2}, "indices": 4}]}],
+            "buffers": [{"uri": "skin.bin", "byteLength": 232}],
+            "bufferViews": [
+                {"buffer": 0, "byteOffset": 0, "byteLength": 36},
+                {"buffer": 0, "byteOffset": 36, "byteLength": 12},
+                {"buffer": 0, "byteOffset": 48, "byteLength": 48},
+                {"buffer": 0, "byteOffset": 96, "byteLength": 128},
+                {"buffer": 0, "byteOffset": 224, "byteLength": 6}
+            ],
+            "accessors": [
+                {"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"},
+                {"bufferView": 1, "componentType": 5121, "count": 3, "type": "VEC4"},
+                {"bufferView": 2, "componentType": 5126, "count": 3, "type": "VEC4"},
+                {"bufferView": 3, "componentType": 5126, "count": 2, "type": "MAT4"},
+                {"bufferView": 4, "componentType": 5123, "count": 3, "type": "SCALAR"}
+            ]
+        }"#;
+        (json.to_owned(), bin)
+    }
+
+    #[test]
+    fn a_skinned_body_names_each_vertexs_parts_and_takes_its_bind_space_to_each_parts_own() {
+        let (json, bin) = skinned_triangle();
+        let skin = decode_skin(json.as_bytes(), "body/skin.gltf", &mut |path| {
+            assert_eq!(path, "body/skin.bin");
+            Ok(bin.clone())
+        })
+        .expect("the skin reads");
+        assert_eq!(skin.primitives.len(), 1);
+        let p = &skin.primitives[0];
+        // The unnamed joint follows the part above it; a vertex's weights are made whole.
+        assert_eq!(p.parts, [[0, 0, 0, 0], [2, 0, 0, 0], [0, 2, 0, 0]]);
+        assert_eq!(p.weights[2], [0.5, 0.5, 0.0, 0.0]);
+        // The positions are the mesh's own, upright, its node's move left out.
+        let first = Vec3::from_slice(&p.primitive.vertices[0..3]);
+        assert!(first.distance(Vec3::new(0.0, 0.0, 1.0)) < 1e-6, "{first}");
+        // Part 0's own matrix; part 2's from its node's place, its joint being another node.
+        let bind = |part: u16| {
+            skin.inverse_binds
+                .iter()
+                .find(|(p, _)| *p == part)
+                .map(|(_, m)| *m)
+                .expect("a part's bind")
+        };
+        assert!(bind(0)
+            .transform_point3(Vec3::new(0.0, 0.0, 1.0))
+            .abs_diff_eq(Vec3::ZERO, 1e-6));
+        assert!(bind(2)
+            .transform_point3(Vec3::new(1.0, 0.0, 1.0))
+            .abs_diff_eq(Vec3::ZERO, 1e-6));
+        assert_eq!(skin.inverse_binds.len(), 2);
+    }
+
+    #[test]
+    fn a_skin_that_is_not_whole_is_refused() {
+        let (json, bin) = skinned_triangle();
+        let refused = |from: &str, to: &str| {
+            assert!(json.contains(from), "{from}");
+            decode_skin(json.replacen(from, to, 1).as_bytes(), "m.gltf", &mut |_| {
+                Ok(bin.clone())
+            })
+            .is_err()
+        };
+        assert!(
+            refused("\"name\": \"part_00\", ", ""),
+            "a joint that follows no part"
+        );
+        assert!(refused("\"skin\": 0, ", ""), "no skinned mesh");
+        assert!(
+            refused("\"WEIGHTS_0\": 2", "\"TEXCOORD_1\": 2"),
+            "no weights"
+        );
+        assert!(refused(
+            "\"count\": 2, \"type\": \"MAT4\"",
+            "\"count\": 1, \"type\": \"MAT4\""
+        ));
+        assert!(decode_skin(json.as_bytes(), "m.gltf", &mut |_| Ok(bin.clone())).is_ok());
     }
 }

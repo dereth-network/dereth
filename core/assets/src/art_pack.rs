@@ -137,6 +137,23 @@
 //! when it has a level of pictures round it, a plant when it is foliage, and a rock otherwise; a
 //! model is a water model only when it says so.
 //!
+//! **A pack may draw a body in place of a setup's parts** (`[[skin]]`): one glTF 2.0 mesh skinned
+//! to the setup's parts, every object built on the setup drawn with it. Its joints are named
+//! `part_00`, `part_01` ..., the part each follows by its place in the setup (a joint of another
+//! name follows the nearest joint above it that names a part), and its inverse bind matrices take
+//! the mesh to each part's own space. Each frame the parts' own transforms, as the object's
+//! animation places them, move the joints; nothing else about the object changes. A part no
+//! vertex follows keeps drawing as it is.
+//!
+//! ```toml
+//! [[skin]]
+//! setup = "0x02000001"       # the setup whose objects it is drawn for
+//! file = "human/body.gltf"
+//! author = "..."
+//! tool = "..."
+//! license = "..."
+//! ```
+//!
 //! **A pack may say how its art wants to be lit** (`[lighting]`), with the keys and the tables
 //! of a player's look file, each kind of day a table of its own within it:
 //!
@@ -187,6 +204,8 @@ pub struct ArtPackManifest {
     /// Its ground cover, in the order the manifest lists it. Each cover's model is also in
     /// [`Self::models`], under [`ManifestCover::id`].
     pub covers: Vec<ManifestCover>,
+    /// Its bodies drawn in place of setups' parts, in the order the manifest lists them.
+    pub skins: Vec<ManifestSkin>,
     /// Its `[lighting]` section, as the text of a look file: its keys at the top and each kind
     /// of day's table under its own name. `None` when it has none.
     pub lighting: Option<String>,
@@ -350,6 +369,17 @@ pub struct ManifestMaterial {
     pub occlusion: Option<String>,
     /// How strongly the normal picture bends the normal.
     pub normal_scale: f32,
+    /// Who made it, with what, and under which license.
+    pub credit: Credit,
+}
+
+/// One body drawn in place of a setup's parts: the setup and its glTF.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ManifestSkin {
+    /// The setup (`0x02...`) whose objects it is drawn for.
+    pub setup: DataId,
+    /// The glTF 2.0 file, relative to the pack's folder.
+    pub file: String,
     /// Who made it, with what, and under which license.
     pub credit: Credit,
 }
@@ -613,6 +643,26 @@ impl ArtPackManifest {
             }
             covers.push(cover);
         }
+        let listed = match table.get("skin") {
+            None => &empty,
+            Some(toml::Value::Array(a)) => a,
+            Some(_) => return fail("`skin` is not a list of [[skin]] tables"),
+        };
+        let mut skins: Vec<ManifestSkin> = Vec::with_capacity(listed.len());
+        for (i, k) in listed.iter().enumerate() {
+            let Some(k) = k.as_table() else {
+                return fail(format!("skin {} is not a table", i + 1));
+            };
+            let one = skin(k).map_err(|e| ManifestError(format!("skin {}: {}", i + 1, e.0)))?;
+            if skins.iter().any(|o| o.setup == one.setup) {
+                return fail(format!(
+                    "skin {}: {:#010X} has a skin already",
+                    i + 1,
+                    one.setup.0
+                ));
+            }
+            skins.push(one);
+        }
         let lighting = match table.get("lighting") {
             None => None,
             Some(toml::Value::Table(t)) => Some(t.to_string()),
@@ -625,8 +675,15 @@ impl ArtPackManifest {
             grounds,
             materials,
             covers,
+            skins,
             lighting,
         })
+    }
+
+    /// The body drawn in place of the parts of `setup`, if the pack has one.
+    #[must_use]
+    pub fn skin(&self, setup: DataId) -> Option<&ManifestSkin> {
+        self.skins.iter().find(|k| k.setup == setup)
     }
 
     /// The material drawn in place of the retail picture `texture`, if the pack has one.
@@ -831,6 +888,26 @@ fn material(t: &toml::Table) -> Result<ManifestMaterial, ManifestError> {
         roughness: picture("roughness")?,
         occlusion: picture("occlusion")?,
         normal_scale,
+        credit: Credit {
+            author: text(t, "author")?.to_owned(),
+            tool: text(t, "tool")?.to_owned(),
+            license: text(t, "license")?.to_owned(),
+        },
+    })
+}
+
+fn skin(t: &toml::Table) -> Result<ManifestSkin, ManifestError> {
+    let setup = object_id(t.get("setup").and_then(toml::Value::as_str).unwrap_or(""))?;
+    if setup.0 >> 24 != 0x02 {
+        return fail(format!("{:#010X} is not a setup (0x02...)", setup.0));
+    }
+    let file = text(t, "file")?;
+    if !inside_the_pack(file) {
+        return fail(format!("file {file:?} is not a path inside the pack"));
+    }
+    Ok(ManifestSkin {
+        setup,
+        file: file.to_owned(),
         credit: Credit {
             author: text(t, "author")?.to_owned(),
             tool: text(t, "tool")?.to_owned(),
@@ -1108,6 +1185,46 @@ file = "rock.gltf"
         assert_eq!(rock.lods.len(), 1);
         assert!(m.model(DataId(0x0200_0001)).is_none());
         assert!(tree.lods.iter().all(|l| l.views.is_none()));
+    }
+
+    #[test]
+    fn a_skin_names_the_setup_it_is_drawn_for_its_file_and_its_credit() {
+        let body = |setup: &str, file: &str| {
+            format!(
+                "{PILOT}
+[[skin]]
+setup = \"{setup}\"
+file = \"{file}\"
+author = \"A\"
+                 tool = \"B\"
+license = \"CC0-1.0\"
+"
+            )
+        };
+        let m = ArtPackManifest::parse(&body("0x02000001", "human/body.gltf")).expect("reads");
+        let k = m.skin(DataId(0x0200_0001)).expect("the human's body");
+        assert_eq!(k.file, "human/body.gltf");
+        assert_eq!(k.credit.tool, "B");
+        assert!(m.skin(DataId(0x0200_0002)).is_none());
+        assert!(ArtPackManifest::parse(PILOT)
+            .expect("reads")
+            .skins
+            .is_empty());
+        // Only a setup, a file inside the pack, and one skin a setup.
+        assert!(ArtPackManifest::parse(&body("0x01000001", "b.gltf")).is_err());
+        assert!(ArtPackManifest::parse(&body("0x02000001", "../b.gltf")).is_err());
+        let twice = format!(
+            "{}
+[[skin]]
+setup = \"0x02000001\"
+file = \"c.gltf\"
+author = \"A\"
+             tool = \"B\"
+license = \"C\"
+",
+            body("0x02000001", "b.gltf")
+        );
+        assert!(ArtPackManifest::parse(&twice).is_err());
     }
 
     #[test]
