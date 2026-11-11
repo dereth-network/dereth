@@ -34,6 +34,10 @@ struct Push
     // horizon, 1 with it well up.
     uint rays;
     uint strength;
+    // How far along the view ground cover casts (a float's bits): the nearest cascade's reach,
+    // fading out over its last fifth as the cascades' look-up blends it into the next, which has
+    // none.
+    uint cover_reach;
 };
 
 [[vk::push_constant]]
@@ -104,6 +108,9 @@ float4 fs_main(float4 position : SV_Position) : SV_Target0
     float3 up = cross(across, sun);
     uint rays = max(push.rays, 1u);
     float turn = pattern(p) * TAU;
+    float ahead = transform(push.frame, FRAME_VIEW, float4(world, 1.0)).z;
+    float reach = asfloat(push.cover_reach);
+    float cover = 1.0 - saturate((ahead - 0.8 * reach) / max(0.2 * reach, 1e-3));
     float lit = 0.0;
     for (uint k = 0; k < rays; k++)
     {
@@ -115,7 +122,10 @@ float4 fs_main(float4 position : SV_Position) : SV_Target0
         ray.Direction = normalize(sun + across * (cos(a) * r) + up * (sin(a) * r));
         ray.TMin = 0.0;
         ray.TMax = 4000.0;
-        if (blocked(ray, 0xFF & ~RT_GROUND))
+        // Each ray takes the cover in as the share of it left here says, by the pixel's pattern.
+        bool with_cover = frac(pattern(p) + (float(k) + 0.5) / float(rays)) < cover;
+        uint mask = 0xFF & ~RT_GROUND & (with_cover ? 0xFF : ~RT_COVER);
+        if (blocked(ray, mask))
         {
             continue;
         }

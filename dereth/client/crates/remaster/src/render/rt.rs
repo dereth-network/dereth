@@ -37,6 +37,8 @@ pub mod mask {
     pub const GROUND: u8 = 4;
     pub const OBJECT: u8 = 8;
     pub const BODY: u8 = 16;
+    /// An art pack's ground cover: the sun's traced shadows take it near the eye alone.
+    pub const COVER: u8 = 32;
 }
 
 /// A geometry row's flags, as `rt.slang` names them.
@@ -541,7 +543,9 @@ impl RtPass {
                 let address = self.blas_for(gfx, scene, &key, count)?;
                 let custom = u32::try_from(rows.len() / 4).unwrap_or(0);
                 rows.extend(part_rows);
-                let m = if alpha {
+                let m = if part.cover {
+                    mask::COVER
+                } else if alpha {
                     mask::STATIC_ALPHA
                 } else {
                     mask::STATIC

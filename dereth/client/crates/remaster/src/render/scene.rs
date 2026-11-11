@@ -279,6 +279,10 @@ pub struct PartItems {
     /// How far its placement is drawn above where it stands, on the near ground and the far
     /// (see [`crate::scene::Placement::lifts`]).
     pub lifts: [f32; 2],
+    /// The GfxObj its first level draws.
+    pub mesh: u32,
+    /// It is an art pack's ground cover: it casts the sun's shadows near the eye alone.
+    pub cover: bool,
 }
 
 /// One room on the device.
@@ -833,7 +837,9 @@ impl GpuScene {
             });
             let mut levels = Vec::new();
             let mut sphere = ([0.0; 3], 0.0);
-            for (k, g) in Self::part_levels(block, part).into_iter().enumerate() {
+            let meshes = Self::part_levels(block, part);
+            let mesh = meshes.first().copied().unwrap_or(part.gfxobj);
+            for (k, g) in meshes.into_iter().enumerate() {
                 let start = item;
                 if let Some(m) = scene.meshes.get(&MeshKey::GfxObj(g)).cloned() {
                     if k == 0 {
@@ -867,6 +873,8 @@ impl GpuScene {
                 scale: part.scale,
                 turned,
                 lifts,
+                mesh,
+                cover: false,
             })
         };
         for p in &block.placements {
@@ -961,12 +969,23 @@ impl GpuScene {
                 scale: Vec3::ONE,
                 turned: None,
                 lifts: [0.0; 2],
+                mesh: 0,
+                cover: false,
             };
         }
         self.instances.write(d, instances.start, &instance_rows)?;
         self.uploaded += instance_rows.len() as u64;
         self.blocks.insert(block.block, gpu);
         Ok(())
+    }
+
+    /// Mark block `id`'s parts whose first level is ground cover, as `cover` says of a mesh.
+    pub fn mark_cover(&mut self, id: BlockId, cover: &dyn Fn(u32) -> bool) {
+        if let Some(b) = self.blocks.get_mut(&id) {
+            for p in &mut b.parts {
+                p.cover = p.mesh != 0 && cover(p.mesh);
+            }
+        }
     }
 
     /// Let a block go: its instances, items, ground and slot.
@@ -1247,6 +1266,8 @@ impl GpuScene {
                 scale: Vec3::ONE,
                 turned: None,
                 lifts: [0.0; 2],
+                mesh: 0,
+                cover: false,
             });
         }
         self.objects.insert(object.key, gpu);

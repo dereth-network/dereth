@@ -895,9 +895,15 @@ mod tests {
     /// and tier 1 never names the crate. The manifests are read, not restated.
     #[test]
     fn every_crate_with_a_retail_dats_tier_is_gated_with_its_features() {
-        // The browser client's one retail-dat test and the remaster layer's device tests draw on
-        // a graphics device, which tier 1 does not have; the clipboard's feature selects no test.
-        const NOT_IN_TIER_ONE: &[&str] = &["dereth-web", "dereth-gfx", "dereth-clipboard"];
+        // The browser client's one retail-dat test, and the graphics layer's and the remaster's
+        // device tests, draw on a graphics device, which tier 1 does not have; the clipboard's
+        // feature selects no test.
+        const NOT_IN_TIER_ONE: &[&str] = &[
+            "dereth-web",
+            "dereth-gfx",
+            "dereth-remaster",
+            "dereth-clipboard",
+        ];
         let ws = crate::util::workspace_root();
         let root = std::fs::read_to_string(ws.join("Cargo.toml")).unwrap();
         let members = root

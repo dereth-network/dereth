@@ -127,6 +127,7 @@ fn tree_model() -> PackModel {
                 },
             })
             .collect(),
+        cover: false,
     }
 }
 
@@ -177,6 +178,7 @@ fn a_placement_the_pack_has_a_model_for_is_drawn_as_the_model() {
                 mesh: pack_mesh(3, 0),
                 distance: f32::INFINITY,
             }],
+            cover: false,
         })
     };
     swap_placements(&mut b, &mut |id| {

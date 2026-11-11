@@ -322,6 +322,9 @@ pub fn pick(hand_overs: &[f32], d: f32, band: f32) -> Pick {
 /// measured draws retail's level meanwhile.
 pub const ERRORS_PER_FRAME: usize = 64;
 
+/// A group's meshes, whether any of its levels turns, and its levels' errors once measured.
+pub(crate) type GroupInfo<'a> = (&'a [u32], bool, Option<&'a [f32]>);
+
 /// What records share: their levels and their turns. Records alike share their levels' errors.
 type GroupKey = (Vec<u32>, Vec<u8>);
 
@@ -330,8 +333,13 @@ type GroupKey = (Vec<u32>, Vec<u8>);
 /// drawn to, worked out once a frame.
 #[derive(Debug, Default)]
 struct Group {
+    /// Their levels' meshes and turns.
+    levels: Vec<u32>,
+    modes: Vec<u8>,
     /// Whether any of their levels turns toward the viewer.
     turns: bool,
+    /// Whether they are a tree's, drawn far off as an impostor; `None` until it is known.
+    tree: Option<bool>,
     errors: Option<Errors>,
     switches: Vec<f32>,
     /// The frame `switches` was worked out for.
@@ -375,6 +383,13 @@ pub struct Lod {
     /// Each block's records' groups, by record: an index into `groups`.
     // ORDER-OK: looked up by block.
     record_groups: BTreeMap<BlockId, Vec<u32>>,
+    /// The records whose levels are chosen here, by block, where not all of them are: the rest
+    /// are chosen on the device ([`super::instances`]).
+    // ORDER-OK: looked up by block.
+    cpu_records: BTreeMap<BlockId, Vec<u32>>,
+    /// The groups whose levels are chosen on the device, measured here as the budget allows.
+    // ORDER-OK: walked in group order.
+    wanted: std::collections::BTreeSet<u32>,
     // ORDER-OK: only looked up, as a block comes.
     group_of: HashMap<GroupKey, u32>,
     groups: Vec<Group>,
@@ -425,7 +440,8 @@ impl LodTally {
     }
 }
 
-/// What the last frame's choice of levels did.
+/// What the last frame's choice of levels did, over the parts chosen on the processor: an art
+/// pack's models chosen on the device are counted by it ([`super::Renderer::pack_states`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct LodStats {
     /// Degrading parts chosen for, and of them those fading and those drawing a finer level than
@@ -472,6 +488,7 @@ impl Lod {
                 SceneDelta::BlockOut(id) => {
                     self.records.remove(id);
                     self.record_groups.remove(id);
+                    self.cpu_records.remove(id);
                     self.turned.remove(id);
                     self.picks.remove(id);
                     self.walked.remove(id);
@@ -495,6 +512,8 @@ impl Lod {
         }
         let g = u32::try_from(self.groups.len()).unwrap_or(u32::MAX);
         self.groups.push(Group {
+            levels: r.levels.clone(),
+            modes: r.modes.clone(),
             turns: r.modes.iter().any(|m| (2..=5).contains(m)),
             ..Group::default()
         });
@@ -541,6 +560,7 @@ impl Lod {
         let Self {
             records,
             record_groups,
+            cpu_records,
             groups,
             scratch,
             picks: all_picks,
@@ -557,26 +577,23 @@ impl Lod {
                 0.0,
             );
             let picks = all_picks.entry(*block).or_default();
-            picks.clear();
+            picks.resize(records.len(), None);
             let impostor_levels = all_impostor_levels.entry(*block).or_default();
-            impostor_levels.clear();
+            impostor_levels.resize(records.len(), None);
             let of = record_groups.get(block).map_or(&[][..], Vec::as_slice);
-            for (i, r) in records.iter().enumerate() {
+            let mut choose = |i: usize| -> (Option<Pick>, Option<u8>) {
+                let Some(r) = records.get(i) else {
+                    return (None, None);
+                };
                 let Some(group) = of.get(i).and_then(|g| groups.get_mut(*g as usize)) else {
-                    picks.push(None);
-                    impostor_levels.push(None);
-                    continue;
+                    return (None, None);
                 };
                 if group.errors.is_none() {
                     if budget == 0 {
-                        picks.push(None);
-                        impostor_levels.push(None);
-                        continue;
+                        return (None, None);
                     }
                     let Some(e) = record_errors(r, tables) else {
-                        picks.push(None);
-                        impostor_levels.push(None);
-                        continue;
+                        return (None, None);
                     };
                     budget -= 1;
                     stats.measured += 1;
@@ -599,9 +616,7 @@ impl Lod {
                     switches.extend_from_slice(&group.switches);
                 }
                 let Some(e) = group.errors.as_ref() else {
-                    picks.push(None);
-                    impostor_levels.push(None);
-                    continue;
+                    return (None, None);
                 };
                 let errors = &mut scratch.errors;
                 errors.clear();
@@ -625,7 +640,6 @@ impl Lod {
                         impostor = u8::try_from(r.levels.len()).ok();
                     }
                 }
-                impostor_levels.push(impostor);
                 hand_overs_into(
                     errors,
                     switches,
@@ -635,13 +649,119 @@ impl Lod {
                     fade,
                     &mut scratch.hand_overs,
                 );
-                picks.push(Some(pick(
-                    &scratch.hand_overs,
-                    (r.centre + offset).distance(eye),
-                    fade,
-                )));
+                let p = pick(&scratch.hand_overs, (r.centre + offset).distance(eye), fade);
+                (Some(p), impostor)
+            };
+            // Only the records chosen here; those chosen on the device are never asked of.
+            match cpu_records.get(block) {
+                Some(cpu) => {
+                    for &i in cpu {
+                        let i = i as usize;
+                        let (p, impostor) = choose(i);
+                        if let (Some(a), Some(b)) = (picks.get_mut(i), impostor_levels.get_mut(i)) {
+                            (*a, *b) = (p, impostor);
+                        }
+                    }
+                }
+                None => {
+                    for (i, (a, b)) in picks.iter_mut().zip(impostor_levels.iter_mut()).enumerate()
+                    {
+                        (*a, *b) = choose(i);
+                    }
+                }
             }
         }
+        // The groups whose levels are chosen on the device, measured as the budget allows.
+        let Self {
+            wanted,
+            groups,
+            stats,
+            ..
+        } = self;
+        for g in wanted.iter() {
+            if budget == 0 {
+                break;
+            }
+            let Some(group) = groups.get_mut(*g as usize) else {
+                continue;
+            };
+            if group.errors.is_some() {
+                continue;
+            }
+            let sample = Degrade {
+                levels: group.levels.clone(),
+                modes: group.modes.clone(),
+                ..Degrade::default()
+            };
+            if let Some(e) = record_errors(&sample, tables) {
+                budget -= 1;
+                stats.measured += 1;
+                group.errors = Some(e);
+            }
+        }
+        wanted.retain(|g| groups.get(*g as usize).is_some_and(|x| x.errors.is_none()));
+    }
+
+    /// Choose levels here only for block `block`'s records `cpu`, or every one with `None`: the
+    /// rest are chosen on the device.
+    pub(crate) fn set_cpu_records(&mut self, block: BlockId, cpu: Option<Vec<u32>>) {
+        match cpu {
+            Some(c) => {
+                self.cpu_records.insert(block, c);
+            }
+            None => {
+                self.cpu_records.remove(&block);
+            }
+        }
+    }
+
+    /// Measure group `g`'s levels' errors as the budget allows, its levels being chosen on the
+    /// device.
+    pub(crate) fn want(&mut self, g: u32) {
+        if self
+            .groups
+            .get(g as usize)
+            .is_some_and(|x| x.errors.is_none())
+        {
+            self.wanted.insert(g);
+        }
+    }
+
+    /// The group of block `block`'s record `record`.
+    #[must_use]
+    pub(crate) fn group_of_record(&self, block: BlockId, record: u32) -> Option<u32> {
+        self.record_groups
+            .get(&block)
+            .and_then(|g| g.get(record as usize))
+            .copied()
+    }
+
+    /// Group `g`'s meshes, whether any of its levels turns, and its levels' errors once measured.
+    #[must_use]
+    pub(crate) fn group_info(&self, g: u32) -> Option<GroupInfo<'_>> {
+        self.groups.get(g as usize).map(|x| {
+            (
+                x.levels.as_slice(),
+                x.turns,
+                x.errors.as_ref().map(|e| e.levels.as_slice()),
+            )
+        })
+    }
+
+    /// Whether group `g` is a tree's, drawn far off as an impostor; `None` while its first mesh
+    /// is not held.
+    pub(crate) fn group_tree(&mut self, g: u32, tables: &AssetTables) -> Option<bool> {
+        let group = self.groups.get_mut(g as usize)?;
+        if group.tree.is_none() {
+            group.tree = tree_of(&group.levels, &group.modes, tables);
+        }
+        group.tree
+    }
+
+    /// Block `block`'s degrade records.
+    #[must_use]
+    pub(crate) fn records(&self, block: BlockId) -> &[Degrade] {
+        self.records.get(&block).map_or(&[][..], Vec::as_slice)
     }
 
     /// What this frame chose for block `block`'s records, to ask of part after part
@@ -905,19 +1025,8 @@ pub fn fade_row(row: &mut [u8], fade: f32, lower: u8, next: u8) {
 fn record_errors(r: &Degrade, tables: &AssetTables) -> Option<Errors> {
     let first = *r.levels.first()?;
     let full = tables.mesh(MeshKey::GfxObj(first))?;
-    let foliage = full
-        .subsets
-        .iter()
-        .filter(|s| match s.surface {
-            crate::assets::SurfaceRef::Surface(id) => tables
-                .material(&crate::assets::MaterialKey::plain(id))
-                .is_some_and(|m| m.kind == crate::assets::Kind::Foliage),
-            _ => false,
-        })
-        .count();
-    let turns = r.modes.iter().any(|m| (2..=5).contains(m));
+    let tree = tree_of(&r.levels, &r.modes, tables)?;
     let r_full = radius(full);
-    let tree = !turns && r_full >= IMPOSTOR_RADIUS && foliage * 2 >= full.subsets.len().max(1);
     let mut out = Vec::with_capacity(r.levels.len());
     for (i, g) in r.levels.iter().enumerate() {
         let turned = r.modes.get(i).is_some_and(|m| (2..=5).contains(m));
@@ -936,6 +1045,24 @@ fn record_errors(r: &Degrade, tables: &AssetTables) -> Option<Errors> {
         levels: out,
         impostor: tree.then_some(IMPOSTOR_ERROR * r_full),
     })
+}
+
+/// Whether a record of `levels` and `modes` is a tree's: its full mesh large and mostly foliage,
+/// and none of its levels turning. `None` while its full mesh is not held.
+fn tree_of(levels: &[u32], modes: &[u8], tables: &AssetTables) -> Option<bool> {
+    let full = tables.mesh(MeshKey::GfxObj(*levels.first()?))?;
+    let foliage = full
+        .subsets
+        .iter()
+        .filter(|s| match s.surface {
+            crate::assets::SurfaceRef::Surface(id) => tables
+                .material(&crate::assets::MaterialKey::plain(id))
+                .is_some_and(|m| m.kind == crate::assets::Kind::Foliage),
+            _ => false,
+        })
+        .count();
+    let turns = modes.iter().any(|m| (2..=5).contains(m));
+    Some(!turns && radius(full) >= IMPOSTOR_RADIUS && foliage * 2 >= full.subsets.len().max(1))
 }
 
 #[cfg(test)]
@@ -1248,5 +1375,82 @@ mod tests {
             Some(Pick::only(1)),
             "25 parts along is 100 m off"
         );
+    }
+    /// Records the device chooses levels for are never walked here: a frame chooses only the
+    /// block's others, and the device's group is still measured once for it.
+    #[test]
+    fn records_the_device_chooses_are_not_walked_and_their_group_is_still_measured() {
+        const BLOCK: BlockId = 0xA9B4;
+        const PARTS: usize = 2000;
+        let degrades: Vec<Degrade> = (0..PARTS)
+            .map(|i| {
+                #[allow(clippy::cast_precision_loss)] // under two thousand
+                let (x, y) = ((i % 45) as f32 * 4.0, (i / 45) as f32 * 4.0);
+                Degrade {
+                    levels: vec![1, 2, 0],
+                    modes: vec![1; 3],
+                    scale_z: 1.0,
+                    centre: Vec3::new(x, y, 0.0),
+                    ..Degrade::default()
+                }
+            })
+            .collect();
+        let block = crate::scene::Block {
+            block: BLOCK,
+            generation: 1,
+            terrain: crate::scene::Terrain {
+                side: 1,
+                vertices: vec![Vec3::ZERO; 4],
+                cuts: vec![false],
+                words: [4; 81],
+            },
+            placements: vec![crate::scene::Placement {
+                id: 0x0100_0001,
+                kind: crate::scene::PlacementKind::Object,
+                frame: Mat4::IDENTITY,
+                scale: 1.0,
+                lifts: [0.0; 2],
+                parts: vec![crate::scene::Part {
+                    gfxobj: 1,
+                    frame: Mat4::IDENTITY,
+                    scale: Vec3::ONE,
+                    degrade: Some(0),
+                }],
+            }],
+            degrades,
+            rooms: Vec::new(),
+            lights: Vec::new(),
+            lamps: Vec::new(),
+        };
+        let came = SceneDelta::BlockIn(Box::new(block));
+        let mut tables = AssetTables::new();
+        tables.apply(&came, &mut Levels);
+        let mut lod = Lod::default();
+        lod.set_settings(LodSettings::ON);
+        lod.take(std::slice::from_ref(&came), &[]);
+        // The device chooses every record but two.
+        lod.set_cpu_records(BLOCK, Some(vec![0, 25]));
+        let group = lod.group_of_record(BLOCK, 7).expect("a group");
+        let mut frame = FrameDelta::default();
+        frame.camera.eye = Vec3::new(0.0, 0.0, 2.0);
+        frame.camera.fov_y = 1.0;
+        frame.origin = [0xA9, 0xB4];
+        let distance_of = |_mesh: u32| Some(60.0);
+        lod.prepare(&frame, &tables, 2160, &distance_of);
+        assert_eq!(lod.stats().measured, 1);
+        let picks = &lod.picks[&BLOCK];
+        assert_eq!(picks[0], Some(Pick::only(0)));
+        assert_eq!(picks[25], Some(Pick::only(1)));
+        assert!(picks.iter().filter(|p| p.is_some()).count() == 2);
+        // With none of them chosen here, the device's group is measured as the budget allows.
+        let mut lod = Lod::default();
+        lod.set_settings(LodSettings::ON);
+        lod.take(std::slice::from_ref(&came), &[]);
+        lod.set_cpu_records(BLOCK, Some(Vec::new()));
+        lod.want(group);
+        lod.prepare(&frame, &tables, 2160, &distance_of);
+        assert_eq!(lod.stats().measured, 1);
+        assert!(lod.group_info(group).and_then(|g| g.2).is_some());
+        assert!(lod.picks[&BLOCK].iter().all(Option::is_none));
     }
 }

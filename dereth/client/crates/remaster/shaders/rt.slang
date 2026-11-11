@@ -26,6 +26,8 @@ public static const uint RT_STATIC_ALPHA = 2;
 public static const uint RT_GROUND = 4;
 public static const uint RT_OBJECT = 8;
 public static const uint RT_BODY = 16;
+// An art pack's ground cover.
+public static const uint RT_COVER = 32;
 
 // A geometry row's flags.
 public static const uint RT_ALPHA_TESTED = 1;

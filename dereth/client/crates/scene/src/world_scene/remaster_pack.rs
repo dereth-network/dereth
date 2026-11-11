@@ -259,7 +259,11 @@ impl PackAssets {
                 })
             })
             .collect();
-        (!levels.is_empty()).then_some(PackModel { category, levels })
+        (!levels.is_empty()).then_some(PackModel {
+            category,
+            levels,
+            cover: false,
+        })
     }
 
     /// The mesh a pack mesh id names: its level's parts, each a surface of its own, their

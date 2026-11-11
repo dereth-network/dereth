@@ -16,6 +16,9 @@ test-support = []
 # the Windows release carries it. Off, without the DLL, or on another system (where it builds
 # nothing), the upscaler's DLSS modes are drawn by FSR.
 dlss = ["dep:libloading", "dep:ash"]
+# Tier switch only: no code is gated on it. The device tests draw on the hardware GPU, which every
+# device tier sits behind; without it they are not built.
+retail-dats = []
 
 [dependencies]
 # The scene's deltas carry their transforms and vectors as `glam` values.
@@ -43,6 +46,11 @@ objc2 = "0.6"
 # The workspace's lints, but for `unsafe`: denied rather than forbidden, so the one module that
 # adopts the device and lends the layer the frame's images (`src/hook.rs`) can allow it, each
 # block with a SAFETY comment.
+
+[[test]]
+name = "gpu"
+path = "tests/gpu/main.rs"
+required-features = ["retail-dats"]
 
 [lints.rust]
 unsafe_code = "deny"

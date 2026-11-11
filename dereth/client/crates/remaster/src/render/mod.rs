@@ -20,6 +20,7 @@ pub mod gi;
 pub mod grade;
 pub mod grass;
 pub mod impostor;
+pub mod instances;
 pub mod intent;
 pub mod lamps;
 pub mod landscape;
@@ -304,6 +305,8 @@ pub struct Renderer {
     /// The lamps' pass.
     pub(crate) lamps: lamps::LampsPass,
     pub(crate) lod: lod::Lod,
+    /// The art pack's placed models chosen and listed on the device.
+    pub(crate) instances: instances::PackInstances,
     pub(crate) impostors: impostor::ImpostorPass,
     /// The art pack's far trees and forest cover.
     pub(crate) forest: forest::ForestPass,
@@ -566,6 +569,7 @@ impl Renderer {
         let impostors = impostor::ImpostorPass::new(&mut gfx)?;
         let forest = forest::ForestPass::new(&mut gfx)?;
         let grass = grass::GrassPass::new(&mut gfx)?;
+        let instances = instances::PackInstances::new(&mut gfx)?;
         let lift_probe = gfx.create_compute_pipeline(&dereth_gfx::ComputeDesc {
             label: "remaster lift probe",
             shader: shader(Entry::LiftCsBases),
@@ -577,13 +581,17 @@ impl Renderer {
             label: "remaster commands",
             size: u64::from(scene::CULLED_BUCKETS * BUCKET_CAPACITY)
                 * u64::from(command_bytes(&gfx)),
-            usage: BufferUsage::STORAGE | BufferUsage::INDIRECT,
+            // Read back by the checks.
+            usage: BufferUsage::STORAGE | BufferUsage::INDIRECT | BufferUsage::TRANSFER_SRC,
             location: Location::Gpu,
         })?;
         let counts = gfx.create_buffer(&BufferDesc {
             label: "remaster counts",
             size: 16,
-            usage: BufferUsage::STORAGE | BufferUsage::INDIRECT | BufferUsage::TRANSFER_DST,
+            usage: BufferUsage::STORAGE
+                | BufferUsage::INDIRECT
+                | BufferUsage::TRANSFER_DST
+                | BufferUsage::TRANSFER_SRC,
             location: Location::Gpu,
         })?;
         let commands_index = gfx.bind_buffer(commands)?;
@@ -692,6 +700,7 @@ impl Renderer {
             stats: RenderStats::default(),
             lamps,
             lod: lod::Lod::default(),
+            instances,
             impostors,
             forest,
             grass,
@@ -1230,6 +1239,19 @@ impl Renderer {
             if let Err(e) = r {
                 tracing::warn!(target: "dereth::remaster", "the scene could not take a change: {e}");
             }
+            if let SceneDelta::BlockIn(b) | SceneDelta::BlockChanged(b) = d {
+                let packs = &self.packs;
+                self.scene.mark_cover(b.block, &|m| packs.is_cover(m));
+            }
+        }
+        if let Err(e) = self.instances.take(
+            &mut self.gfx,
+            &self.scene,
+            &mut self.lod,
+            &self.tables,
+            &deltas,
+        ) {
+            tracing::warn!(target: "dereth::remaster", "the pack's models were not taken: {e}");
         }
         for l in &frame.levels {
             self.scene.levels(l);
@@ -1611,7 +1633,13 @@ impl Renderer {
                 }
                 let o = offset(*id);
                 let lod = self.lod.block(*id);
-                for (k, p) in b.parts.iter().enumerate() {
+                // The parts the device chooses for are left to it.
+                let cpu = self.instances.cpu_parts(*id);
+                for j in 0..cpu.map_or(b.parts.len(), <[u32]>::len) {
+                    let k = cpu.map_or(j, |c| c[j] as usize);
+                    let Some(p) = b.parts.get(k) else {
+                        continue;
+                    };
                     let c = p.transform.transform_point3(Vec3::from(p.sphere.0)) + o;
                     let retail = u8::try_from(level_of(b, p)).unwrap_or(u8::MAX);
                     let d = lod.part(p, retail, true);
@@ -1898,6 +1926,162 @@ impl Renderer {
 }
 
 impl Renderer {
+    /// Whether the art pack's placed models are chosen and listed on the device (where it takes a
+    /// draw count from a buffer), or every part on the processor: every held block's models are
+    /// written again now.
+    pub fn set_packs_on_device(&mut self, on: bool) {
+        self.instances.set_on(on);
+        if let Err(e) =
+            self.instances
+                .take(&mut self.gfx, &self.scene, &mut self.lod, &self.tables, &[])
+        {
+            tracing::warn!(target: "dereth::remaster", "the pack's models were not taken: {e}");
+        }
+    }
+
+    /// Draw the frame received into targets of its own, `width` by `height`, and wait for the
+    /// device to finish it: for the checks, with no window. Whether a frame was drawn.
+    ///
+    /// # Errors
+    /// What the device refuses.
+    pub fn draw_offscreen(&mut self, width: u32, height: u32) -> Result<bool, dereth_gfx::Error> {
+        let area = dereth_gfx::Rect {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        };
+        let Some(plan) = self.prepare(area, 1.0)? else {
+            return Ok(false);
+        };
+        let make = |gfx: &mut Device, format, usage| {
+            gfx.create_texture(&TextureDesc {
+                label: "remaster offscreen",
+                width,
+                height,
+                mips: 1,
+                format,
+                usage,
+            })
+        };
+        let color = make(
+            &mut self.gfx,
+            Format::Bgra8Unorm,
+            TextureUsage::COLOR_TARGET | TextureUsage::SAMPLED,
+        )?;
+        let depth = make(
+            &mut self.gfx,
+            DEPTH,
+            TextureUsage::DEPTH_TARGET | TextureUsage::SAMPLED,
+        )?;
+        let mut r = self.gfx.begin()?;
+        for b in &plan.retired {
+            r.destroy_buffer(*b);
+        }
+        let recorded = plan.record(
+            &mut r,
+            color,
+            depth,
+            dereth_gfx::Use::ColorTarget.state(),
+            dereth_gfx::Use::DepthTarget.state(),
+        );
+        let ticket = r.submit()?;
+        recorded?;
+        self.gfx.wait(ticket)?;
+        self.gfx.destroy_texture(color);
+        self.gfx.destroy_texture(depth);
+        Ok(true)
+    }
+
+    /// How many of the art pack's placed models the device chooses and lists.
+    #[must_use]
+    pub fn packs_on_device(&self) -> usize {
+        self.instances.count()
+    }
+
+    /// The device's last choice for each of the art pack's models it chooses, after it has
+    /// finished: for the checks. Empty when the device refuses.
+    pub fn pack_states(&mut self) -> Vec<instances::PackState> {
+        self.instances
+            .read_states(&mut self.gfx)
+            .unwrap_or_default()
+    }
+
+    /// The draw items each cascade's list of the device's models held when last drawn again:
+    /// for the checks.
+    pub fn pack_casters(&mut self) -> [Vec<u32>; 4] {
+        self.instances
+            .read_casters(&mut self.gfx)
+            .unwrap_or_default()
+    }
+
+    /// The draw items of the G-buffer's two outdoor buckets, front faces culled away and both
+    /// drawn, in the order the last frame drew them, after the device has finished: for the
+    /// checks.
+    pub fn culled_items(&mut self) -> [Vec<u32>; 2] {
+        let words = self.gfx.indexed_command_words();
+        let read = |gfx: &mut Device, b: Buffer, offset: u64, len: u64| {
+            instances::read_back(gfx, b, offset, len).unwrap_or_default()
+        };
+        let counts = read(&mut self.gfx, self.counts, 0, 16);
+        let mut out: [Vec<u32>; 2] = Default::default();
+        for (bucket, list) in out.iter_mut().enumerate() {
+            let n = counts
+                .get(bucket * 4..bucket * 4 + 4)
+                .map_or(0, |w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]))
+                .min(BUCKET_CAPACITY);
+            if n == 0 {
+                continue;
+            }
+            let bytes = words as usize * 4;
+            let at = bucket as u64 * u64::from(BUCKET_CAPACITY) * bytes as u64;
+            let all = read(
+                &mut self.gfx,
+                self.commands,
+                at,
+                u64::from(n) * bytes as u64,
+            );
+            // The item is each layout's last word.
+            for c in all.chunks_exact(bytes) {
+                let w = &c[c.len() - 4..];
+                list.push(u32::from_le_bytes([w[0], w[1], w[2], w[3]]));
+            }
+        }
+        out
+    }
+
+    /// What the processor chooses for each of block `block`'s parts this frame (outdoors), with the
+    /// level retail chose: the frame's own choice where the processor makes it. For the checks.
+    #[must_use]
+    pub fn part_choices(&self, block: BlockId) -> Vec<lod::PartDraw> {
+        let Some(b) = self.scene.blocks.get(&block) else {
+            return Vec::new();
+        };
+        let lod = self.lod.block(block);
+        b.parts
+            .iter()
+            .map(|p| {
+                let retail = p
+                    .degrade
+                    .and_then(|d| b.levels.get(d as usize))
+                    .copied()
+                    .unwrap_or(0);
+                lod.part(p, retail, true)
+            })
+            .collect()
+    }
+
+    /// The draw items of each level of block `block`'s part `part`. For the checks.
+    #[must_use]
+    pub fn part_items(&self, block: BlockId, part: u32) -> Vec<std::ops::Range<u32>> {
+        self.scene
+            .blocks
+            .get(&block)
+            .and_then(|b| b.parts.get(part as usize))
+            .map(|p| p.levels.clone())
+            .unwrap_or_default()
+    }
+
     /// What of an art pack is drawn, from the next blocks that come on: only models of a kind
     /// switched on are swapped in.
     pub fn set_packs(&mut self, s: crate::assets::pack::PackSettings) {

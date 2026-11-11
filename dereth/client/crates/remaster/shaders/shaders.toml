@@ -89,6 +89,23 @@ source = "cull.slang"
 entry = "cs_main"
 stage = "compute"
 
+# An art pack's placed models: their levels and fades chosen, their places in the command lists
+# counted, and their commands written, on the device.
+[[entry]]
+source = "instances.slang"
+entry = "cs_choose"
+stage = "compute"
+
+[[entry]]
+source = "instances.slang"
+entry = "cs_scan"
+stage = "compute"
+
+[[entry]]
+source = "instances.slang"
+entry = "cs_write"
+stage = "compute"
+
 # A caster in the sun's shadow maps: its depth, cut where a cut-out is clear.
 [[entry]]
 source = "gbuffer.slang"

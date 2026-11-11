@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Remaster: dense art packs no longer cost the processor.
 - Remaster: wading leaves a wake of crossing ripples.
 - Remaster: no more ring of water around the foot of a tree on a lake's bank.
 - Remaster: far mountains no longer flicker, with or without ray-traced shadows.

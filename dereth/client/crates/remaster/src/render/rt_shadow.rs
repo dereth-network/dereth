@@ -187,6 +187,7 @@ impl RtShadowPlan {
                         sampler,
                         self.rays,
                         self.strength.to_bits(),
+                        super::shadow::SPLITS[0].to_bits(),
                     ]),
                 )?;
                 d.draw(3, 1, 0, 0);

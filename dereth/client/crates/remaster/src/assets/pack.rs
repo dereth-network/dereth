@@ -155,6 +155,9 @@ pub struct PackLevel {
 pub struct PackModel {
     pub category: Category,
     pub levels: Vec<PackLevel>,
+    /// The pack scatters it over the ground as cover: it casts the sun's shadows near the eye
+    /// alone.
+    pub cover: bool,
 }
 
 /// `block` with each placement the pack has a model for (`model` of the placement's object)
@@ -218,6 +221,8 @@ pub struct PackSwaps {
     meshes: BTreeSet<u32>,
     /// How far from the eye the pack says each of its levels is drawn, by the level's mesh.
     distances: BTreeMap<u32, f32>,
+    /// The meshes of the models the pack scatters as ground cover.
+    cover: BTreeSet<u32>,
 }
 
 impl PackSwaps {
@@ -228,7 +233,7 @@ impl PackSwaps {
         deltas: Vec<SceneDelta>,
         model: &mut dyn FnMut(u32) -> Option<PackModel>,
     ) -> Vec<SceneDelta> {
-        let (meshes, distances) = (&mut self.meshes, &mut self.distances);
+        let (meshes, distances, cover) = (&mut self.meshes, &mut self.distances, &mut self.cover);
         let on = self.settings;
         let mut counted = |id: u32| {
             let m = model(id).filter(|m| on.models(m.category));
@@ -236,6 +241,9 @@ impl PackSwaps {
                 for l in &m.levels {
                     meshes.insert(l.mesh);
                     distances.insert(l.mesh, l.distance);
+                    if m.cover && l.mesh != 0 {
+                        cover.insert(l.mesh);
+                    }
                 }
             }
             m
@@ -254,6 +262,12 @@ impl PackSwaps {
     #[must_use]
     pub fn distance(&self, mesh: u32) -> Option<f32> {
         self.distances.get(&mesh).copied()
+    }
+
+    /// Whether `mesh` is a level of a model the pack scatters as ground cover.
+    #[must_use]
+    pub fn is_cover(&self, mesh: u32) -> bool {
+        self.cover.contains(&mesh)
     }
 
     /// What of the pack `tables` hold, against what the swaps drew.

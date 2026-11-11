@@ -97,6 +97,8 @@ pub struct Plan {
     forest: Option<super::forest::ForestPlan>,
     /// The grass field, when it is drawn.
     grass: Option<super::grass::GrassPlan>,
+    /// The art pack's models chosen and listed on the device, when any is held.
+    pack: Option<super::instances::PackPlan>,
     /// Buffers outgrown, destroyed once the recording that copies them is begun.
     pub retired: Vec<Buffer>,
     /// The ambient occlusion pass's frame, when it runs.
@@ -367,6 +369,7 @@ impl Renderer {
                 &rows,
                 &written,
                 render,
+                &self.instances,
             )?
         } else {
             None
@@ -604,6 +607,31 @@ impl Renderer {
             }
             _ => None,
         };
+        // The art pack's models chosen and listed on the device, after the processor's own items.
+        let mirror = planar.as_ref().map(|p| p.view_projection);
+        let packs = &self.packs;
+        let pack = self.instances.prepare(
+            &mut self.gfx,
+            &self.scene,
+            &self.lod,
+            &|m| packs.distance(m),
+            &super::instances::PackAsk {
+                frame: &frame,
+                height: display.1,
+                clip: camera.projection * camera.view,
+                mirror,
+                cascades: shadow.as_ref().map(|s| s.pack),
+                targets: super::instances::PackTargets {
+                    offsets: (self.offsets.buffer, self.offsets.index),
+                    instances: (self.scene.instances.buffer, self.scene.instances.index),
+                    items: (self.scene.items.buffer, self.scene.items.index),
+                    commands: (self.commands, self.commands_index),
+                    counts: (self.counts, self.counts_index),
+                    capacity: BUCKET_CAPACITY,
+                    bases: [next[0], next[1]],
+                },
+            },
+        )?;
         let water_sampler = self.sampler(0);
         let probe_sampler = self.sampler(1);
         let water = self.water.prepare(
@@ -748,6 +776,7 @@ impl Renderer {
             impostors,
             forest,
             grass,
+            pack,
             rt,
             gi,
             index_pool: self.scene.indices.index,
@@ -1136,6 +1165,9 @@ impl Plan {
             },
         )?;
 
+        if let Some(p) = &self.pack {
+            p.record(r)?;
+        }
         if let Some(f) = &self.forest {
             super::forest::ForestPass::record_cull(f, r)?;
         }
@@ -1172,6 +1204,7 @@ impl Plan {
                     ])
                 },
                 self.drawn_ground.as_ref(),
+                self.pack.as_ref(),
             )?;
         }
 

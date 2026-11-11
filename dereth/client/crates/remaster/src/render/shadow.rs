@@ -312,9 +312,10 @@ pub struct ShadowPass {
     visibility: Option<(Texture, u32, u32, u32)>,
     /// The objects' instances the shadows wrote, with the transform they wrote.
     written: BTreeMap<u32, Mat4>,
-    /// The blocks' parts' spheres in the frame's space, block after block, and each block's box
-    /// round its parts': worked out once a frame that redraws a cascade, for every cascade.
-    spheres: Vec<(Vec3, f32)>,
+    /// The blocks' parts' spheres in the frame's space, block after block, with whether each is
+    /// ground cover, and each block's box round its parts': worked out once a frame that redraws
+    /// a cascade, for every cascade.
+    spheres: Vec<(Vec3, f32, bool)>,
     block_boxes: Vec<(Vec3, Vec3)>,
     pub stats: ShadowStats,
 }
@@ -343,6 +344,8 @@ pub struct ShadowPlan {
     pub visibility_index: u32,
     /// The bytes one indirect draw command takes on the device.
     command_bytes: u32,
+    /// The cascades as the pack's models chosen on the device are cast into them.
+    pub(crate) pack: super::instances::PackCascades,
 }
 
 fn shader(e: Entry) -> Shader<'static> {
@@ -558,7 +561,7 @@ impl ShadowPass {
     ///
     /// `camera` is the frame's camera before any sub-pixel jitter, so the cascades hold still under
     /// the anti-aliasing; `frame_rows` is the frame's constants; `drawn` the instances the frame's
-    /// draw wrote; `area` the world's size.
+    /// draw wrote; `area` the world's size; `instances` the models the device casts itself.
     ///
     /// # Errors
     /// What the device refuses.
@@ -572,6 +575,7 @@ impl ShadowPass {
         frame_rows: &[u8],
         drawn: &BTreeSet<u32>,
         area: (u32, u32),
+        instances: &super::instances::PackInstances,
     ) -> Result<Option<ShadowPlan>, dereth_gfx::Error> {
         if !self.settings.on {
             return Ok(None);
@@ -664,17 +668,23 @@ impl ShadowPass {
                 let offset = block_offset(*id, origin);
                 let (mut min, mut max) =
                     (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
-                for p in &b.parts {
+                // The parts the device chooses for, it casts itself.
+                let cpu = instances.cpu_parts(*id);
+                for j in 0..cpu.map_or(b.parts.len(), <[u32]>::len) {
+                    let Some(p) = b.parts.get(cpu.map_or(j, |c| c[j] as usize)) else {
+                        continue;
+                    };
                     let (centre, radius) = part_sphere(p, p.transform, offset);
                     min = min.min(centre - Vec3::splat(radius));
                     max = max.max(centre + Vec3::splat(radius));
-                    self.spheres.push((centre, radius));
+                    self.spheres.push((centre, radius, p.cover));
                 }
                 self.block_boxes.push((min, max));
             }
         }
 
         let mut plans = Vec::with_capacity(CASCADES);
+        let mut redraw_bits = 0u32;
         let (mut redrawn, mut static_items, mut ground_blocks, mut dynamic_items) = (0, 0, 0, 0);
         for (c, cascade) in cascades.iter().enumerate() {
             let key = CacheKey {
@@ -683,6 +693,9 @@ impl ShadowPass {
                 origin,
             };
             let redraw = drawn_mode || self.keys[c] != Some(key);
+            if redraw {
+                redraw_bits |= 1 << c;
+            }
             let gpu = &mut self.cascades[c];
             // The frame's constants with the cascade's view and projection.
             let mut rows = frame_rows.to_vec();
@@ -699,11 +712,10 @@ impl ShadowPass {
                 let mut first = 0;
                 for ((id, b), (lo, hi)) in scene.blocks.iter().zip(&self.block_boxes) {
                     let offset = block_offset(*id, origin);
-                    let spheres = self
-                        .spheres
-                        .get(first..first + b.parts.len())
-                        .unwrap_or(&[]);
-                    first += b.parts.len();
+                    let cpu = instances.cpu_parts(*id);
+                    let n = cpu.map_or(b.parts.len(), <[u32]>::len);
+                    let spheres = self.spheres.get(first..first + n).unwrap_or(&[]);
+                    first += n;
                     if let Some(g) = scene.ground.get(id) {
                         let min = offset + Vec3::new(0.0, 0.0, g.z[0]);
                         let max = offset + Vec3::new(192.0, 192.0, g.z[1]);
@@ -715,11 +727,19 @@ impl ShadowPass {
                             ground_rows.push([g.vertices.start, g.cells.start, g.side, b.slot]);
                         }
                     }
-                    if b.parts.is_empty() || !cascade.reaches_box(*lo, *hi) {
+                    if n == 0 || !cascade.reaches_box(*lo, *hi) {
                         continue;
                     }
-                    for (p, (centre, radius)) in b.parts.iter().zip(spheres) {
+                    for (j, (centre, radius, cover)) in spheres.iter().enumerate() {
+                        let Some(p) = b.parts.get(cpu.map_or(j, |c| c[j] as usize)) else {
+                            continue;
+                        };
                         let (centre, radius) = (*centre, *radius);
+                        // Ground cover casts in the nearest cascade alone: the next one, which
+                        // the sun's share blends into over the nearest's last fifth, has none.
+                        if *cover && c > 0 {
+                            continue;
+                        }
                         if !cascade.reaches(centre, radius) {
                             continue;
                         }
@@ -819,6 +839,13 @@ impl ShadowPass {
             visibility,
             visibility_index,
             command_bytes,
+            pack: super::instances::PackCascades {
+                light_view: cascades[0].light_view,
+                across: cascades.map(|c| c.across),
+                along: cascades.map(|c| c.along),
+                redraw: redraw_bits,
+                in_view: drawn_mode,
+            },
         }))
     }
 }
@@ -856,6 +883,7 @@ impl ShadowPlan {
         caster_push: &dyn Fn(u32) -> Vec<u8>,
         ground_push: &dyn Fn(u32, u32, u32) -> Vec<u8>,
         drawn: Option<&super::drawn::DrawnPlan>,
+        pack: Option<&super::instances::PackPlan>,
     ) -> Result<(), dereth_gfx::Error> {
         let full = Rect {
             x: 0,
@@ -866,6 +894,14 @@ impl ShadowPlan {
         let p = self.pipelines;
         for (c, cp) in self.cascades.iter().enumerate() {
             if cp.redraw {
+                let pack = pack.filter(|p| p.casts(c));
+                let mut touches = vec![
+                    Touch::Buffer(cp.statics.0, Use::Indirect),
+                    Touch::Buffer(indices, Use::Index),
+                ];
+                if let Some(p) = pack {
+                    touches.extend(p.caster_touches());
+                }
                 r.timestamp(
                     [
                         "shadow cache 0",
@@ -883,10 +919,7 @@ impl ShadowPlan {
                             clear: Some(1.0),
                             write: true,
                         }),
-                        touches: &[
-                            Touch::Buffer(cp.statics.0, Use::Indirect),
-                            Touch::Buffer(indices, Use::Index),
-                        ],
+                        touches: &touches,
                         area: Some(full),
                     },
                     |d| {
@@ -897,16 +930,21 @@ impl ShadowPlan {
                                 d.draw(side * side * 6, *count, 0, 0);
                             }
                         }
-                        if cp.statics.1 > 0 {
+                        if cp.statics.1 > 0 || pack.is_some() {
                             d.set_pipeline(p.caster)?;
                             d.push(0, &caster_push(cp.frame))?;
                             d.bind_index_buffer(indices, 0, IndexType::U32)?;
+                        }
+                        if cp.statics.1 > 0 {
                             d.draw_indexed_indirect(
                                 cp.statics.0,
                                 0,
                                 cp.statics.1,
                                 self.command_bytes,
                             )?;
+                        }
+                        if let Some(pack) = pack {
+                            pack.draw_casters(d, c)?;
                         }
                         Ok(())
                     },
