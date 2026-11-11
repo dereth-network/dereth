@@ -5,11 +5,14 @@
 //!   reads a database and checks it without an install: the schema, keys, references, the
 //!   merge of its packs and every row's provenance
 //!
-//! yalain world release <folder> --tag vX.Y.Z [--since vA.B.C] [--out <folder>]
+//! yalain world release <folder> --tag vX.Y.Z [--since vA.B.C] [--out <folder>] [--package-only]
 //!   checks it and writes its release archive, yalain-world-<tag>.zip, the archive's SHA-256
 //!   beside it (<archive>.sha256) and, from the folder's CHANGES.md, the release notes
 //!   (yalain-world-<tag>.notes.md): the tag's section, or with --since every section after that
-//!   release; the same files always make the same bytes
+//!   release; the same files always make the same bytes. With --package-only it checks only that
+//!   the files read (the world file, the lockfile, the pack headers, every pack file as TOML of
+//!   rows, each row's provenance), not what the rows say, so a database with rows this build does
+//!   not know is packaged as a build that knows them would package it
 //!
 //! yalain world fetch [--version vX.Y.Z [--sha256 HEX]] [--from <address>] [--dir <folder>]
 //!   downloads a release (by default the one this build pins), checks its SHA-256 and unpacks
@@ -539,8 +542,13 @@ pub fn install_problems(p: &data::Portal, db: &rows::Database) -> Result<Vec<Pro
     Ok(out)
 }
 
+/// How `world release` is used.
+const RELEASE_USAGE: &str =
+    "world release takes <folder> --tag vX.Y.Z [--since vA.B.C] [--out <folder>] [--package-only]";
+
 fn release_cmd(args: &[String]) -> Result<(), String> {
     let (mut dir, mut tag, mut since, mut out) = (None, None, None, PathBuf::from("."));
+    let mut package_only = false;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         let mut value = || {
@@ -564,27 +572,35 @@ fn release_cmd(args: &[String]) -> Result<(), String> {
                     })?);
             }
             "--out" => out = PathBuf::from(value()?),
+            "--package-only" => package_only = true,
             other if dir.is_none() && !other.starts_with("--") => dir = Some(PathBuf::from(other)),
             other => return Err(format!("unknown argument {other}")),
         }
     }
     let (Some(dir), Some(tag)) = (dir, tag) else {
-        return Err(
-            "world release takes <folder> --tag vX.Y.Z [--since vA.B.C] [--out <folder>]".into(),
-        );
+        return Err(RELEASE_USAGE.into());
     };
     let files = load(&dir)?;
-    let problems = check::check(&files);
-    if !problems.is_empty() {
-        return Err(format!(
+    let not_released = |problems: Vec<Problem>| {
+        format!(
             "{}\nnot released: {} problems",
             report(&problems),
             problems.len()
-        ));
-    }
-    let db = rows::read(&files).map_err(|p| report(&p))?;
-    let carried = release::release_files(&files, &db);
-    let zip = release::archive(&carried, &release::manifest(&tag, &db));
+        )
+    };
+    // Packaging alone reads the files' layout, not their rows: a database whose rows a later
+    // server reads is packaged by this one the same as that server would package it.
+    let layout = if package_only {
+        rows::read_layout(&files).map_err(not_released)?
+    } else {
+        let problems = check::check(&files);
+        if !problems.is_empty() {
+            return Err(not_released(problems));
+        }
+        rows::read(&files).map_err(|p| report(&p))?.layout()
+    };
+    let carried = release::release_files(&files, &layout);
+    let zip = release::archive(&carried, &release::manifest(&tag, &layout));
     let sha = release::sha256_hex(&zip);
     // The notes come from the change log; a release without its section is not made.
     let changes = dir.join("CHANGES.md");
@@ -606,6 +622,9 @@ fn release_cmd(args: &[String]) -> Result<(), String> {
         zip.len()
     );
     println!("SHA-256 {sha}");
+    if package_only {
+        println!("packaged only: its rows were not checked (yalain world check checks them)");
+    }
     match notes {
         Some(text) => {
             let p = out.join(release::notes_name(&tag));
@@ -1193,6 +1212,63 @@ mod tests {
         main(&strings(&args)).unwrap();
         let cached = load(&d.join("cache").join("v0.3.0")).unwrap();
         assert_eq!(cached["world.toml"], load(&world).unwrap()["world.toml"]);
+        std::fs::remove_dir_all(&d).ok();
+    }
+
+    /// `--package-only` writes the very files a full release writes for a database this build
+    /// reads, and packages one with a field and a kind it does not know, which a full release
+    /// refuses; files that do not read are refused either way.
+    /// Behaviour: server.world-db.release-packaged-from-its-layout
+    #[test]
+    fn a_release_packaged_only_carries_rows_this_build_does_not_know_and_is_otherwise_the_full_release(
+    ) {
+        let d = scratch("package-only");
+        let world = d.join("world");
+        fixture_world(&world);
+        let w = world.to_string_lossy().to_string();
+        let release_into = |out: &str, more: &[&str]| {
+            let o = d.join(out).to_string_lossy().to_string();
+            let mut args = vec![
+                "release", &w, "--tag", "v0.3.0", "--since", "v0.1.0", "--out", &o,
+            ];
+            args.extend_from_slice(more);
+            main(&strings(&args))
+        };
+        release_into("full", &[]).unwrap();
+        release_into("packaged", &["--package-only"]).unwrap();
+        for name in [
+            release::zip_name("v0.3.0"),
+            format!("{}.sha256", release::zip_name("v0.3.0")),
+            release::notes_name("v0.3.0"),
+        ] {
+            let full = std::fs::read(d.join("full").join(&name)).unwrap();
+            let packaged = std::fs::read(d.join("packaged").join(&name)).unwrap();
+            assert_eq!(full, packaged, "{name}");
+        }
+        // Rows of a later server: a field and a kind this build does not know.
+        let loot = world.join("town/server/loot.toml");
+        let text = std::fs::read_to_string(&loot).unwrap();
+        let later = text.replacen("profile = 0x19B\n", "profile = 0x19B\nglow = 3\n", 1)
+            + "\n[[lantern]]\nkey = \"hall\"\nprov = { from = \"authored\" }\n";
+        assert_ne!(later, text);
+        std::fs::write(&loot, &later).unwrap();
+        let e = release_into("later-full", &[]).unwrap_err();
+        assert!(e.contains("not released"), "{e}");
+        assert!(!d.join("later-full").exists());
+        release_into("later", &["--package-only"]).unwrap();
+        let zip = std::fs::read(d.join("later").join(release::zip_name("v0.3.0"))).unwrap();
+        let files = release::read_stored(&zip).expect("its files");
+        assert_eq!(files["town/server/loot.toml"], later);
+        assert!(
+            files["manifest.json"].contains("\"lantern\": 1"),
+            "{}",
+            files["manifest.json"]
+        );
+        // A pack file that is not TOML is not packaged.
+        std::fs::write(&loot, "[[loot]\n").unwrap();
+        let e = release_into("broken", &["--package-only"]).unwrap_err();
+        assert!(e.contains("not TOML") && e.contains("not released"), "{e}");
+        assert!(!d.join("broken").exists());
         std::fs::remove_dir_all(&d).ok();
     }
 

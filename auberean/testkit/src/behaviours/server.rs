@@ -15055,6 +15055,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.world-db.release-packaged-from-its-layout",
+        says: "A world database packaged for release from its files' layout alone (the world \
+               file, the lockfile, the pack headers, every pack file as TOML of rows, each row's \
+               provenance) is the same archive as one packaged from the database read in full; a \
+               field or a kind the server does not know is carried and counted, not refused, and \
+               files that do not read are refused.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WDB-RELEASE-PACKAGE"),
+        station: "yalain-world-db::cpu::release::a_release_packaged_from_the_layout_alone_is_the_same_bytes_and_carries_rows_it_does_not_know",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.world-db.release-the-same-bytes-for-the-same-files",
         says: "A world database release built twice from the same files is the same archive, byte \
                for byte: its entries in path order, stored, with one fixed date, so anyone can \

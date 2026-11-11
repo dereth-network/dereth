@@ -140,6 +140,13 @@ yalain world check|release|fetch|compile ...
 
   the world database's commands: yalain world check <folder>, yalain world fetch, and the rest
 
+yalain world release <folder> --tag vX.Y.Z [--since vA.B.C] [--out <folder>] [--package-only]
+
+  checks a database and writes its release archive, the archive's SHA-256 and its release notes;
+  with --package-only it checks only that the files read (the world file, the lockfile, the pack
+  headers, every pack file, each row's provenance), not what the rows say, so rows this build
+  does not know are packaged as a build that knows them would package them
+
 yalain update --check|--apply [--config <yalain.toml>] [--policy <off|patch|minor>]
 
   says what a new release would involve and why each newer one would or would not be installed
@@ -195,6 +202,7 @@ mod tests {
         assert!(TEXT.contains("log at the debug level (every connection event, and more)"));
         assert!(TEXT.contains("yalain --version"));
         assert!(TEXT.contains("yalain --release-facts"));
+        assert!(TEXT.contains("[--out <folder>] [--package-only]"));
         assert!(TEXT.contains("3 a port the server listens on is held"));
     }
 }

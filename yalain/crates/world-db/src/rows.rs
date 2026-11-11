@@ -1734,6 +1734,136 @@ pub fn read(files: &Files) -> Result<Database, Vec<Problem>> {
 /// have a problem, `None` when its world file does not read, and every problem found, sorted.
 #[must_use]
 pub fn read_partly(files: &Files) -> (Option<Database>, Vec<Problem>) {
+    let (read, problems) = read_files(files, read_rows);
+    (
+        read.map(|(world, packs)| Database { world, packs }),
+        problems,
+    )
+}
+
+/// A database read for its layout alone: its world file, each pack's header, and its rows counted
+/// by the table they are written in and by provenance, without reading what a row says. A release
+/// packaged from it is the same as one packaged from the database read in full.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Layout {
+    pub world: World,
+    /// Each pack's header, in load order, with no rows.
+    pub packs: Vec<Pack>,
+    /// Rows by kind: the table each is written in.
+    pub rows: BTreeMap<String, usize>,
+    /// Rows by provenance: its source, and a capture's by its confidence too (`capture high`).
+    /// Removals are not counted here.
+    pub provenance: BTreeMap<String, usize>,
+}
+
+impl Database {
+    /// The database's layout: its world file, its packs' headers, and its rows counted.
+    #[must_use]
+    pub fn layout(&self) -> Layout {
+        let mut rows: BTreeMap<String, usize> = BTreeMap::new();
+        let mut provenance: BTreeMap<String, usize> = BTreeMap::new();
+        for l in self.rows() {
+            *rows.entry(l.row.kind().to_string()).or_default() += 1;
+            if let Row::Remove(_) = l.row {
+                continue;
+            }
+            if let Some(p) = l.row.prov() {
+                *provenance.entry(prov_count_key(p)).or_default() += 1;
+            }
+        }
+        Layout {
+            world: self.world.clone(),
+            packs: self
+                .packs
+                .iter()
+                .map(|p| Pack {
+                    rows: Vec::new(),
+                    ..p.clone()
+                })
+                .collect(),
+            rows,
+            provenance,
+        }
+    }
+}
+
+/// What a row's provenance is counted under: its source, and a capture's confidence with it.
+fn prov_count_key(p: &Prov) -> String {
+    match (p.source, p.confidence) {
+        (Source::Capture, Some(c)) => format!("capture {}", c.word()),
+        (f, _) => f.word().to_string(),
+    }
+}
+
+/// Read a database's files for their layout alone: the world file, the lockfile and each pack's
+/// header in the shared grammar, every pack file as TOML of tables of rows, and each row's
+/// provenance, where it gives one. A kind or a field this server does not know is no problem: it
+/// is counted as written.
+///
+/// # Errors
+/// Every problem found: no world file, a world, lockfile or pack header that does not read, a pack
+/// file that is not TOML, a table that is not of rows, a row that is not a table, a provenance that
+/// does not read.
+pub fn read_layout(files: &Files) -> Result<Layout, Vec<Problem>> {
+    let mut rows: BTreeMap<String, usize> = BTreeMap::new();
+    let mut provenance: BTreeMap<String, usize> = BTreeMap::new();
+    let read = read_files(files, |_, path, text, t, problems| {
+        let lines = header_lines(text);
+        for (kind, v) in t {
+            let Some(items) = v.as_array() else {
+                problems.push(Problem::new(
+                    path,
+                    0,
+                    format!("{kind} is not a table of rows ([[{kind}]])"),
+                ));
+                continue;
+            };
+            for (i, item) in items.iter().enumerate() {
+                let line = lines.get(kind).and_then(|l| l.get(i)).copied().unwrap_or(0);
+                let Some(table) = item.as_table() else {
+                    problems.push(Problem::new(
+                        path,
+                        line,
+                        format!("a [[{kind}]] row is not a table"),
+                    ));
+                    continue;
+                };
+                *rows.entry(kind.clone()).or_default() += 1;
+                let Some(prov) = table.get("prov") else {
+                    continue;
+                };
+                match prov.clone().try_into::<Prov>() {
+                    Ok(p) if kind != "remove" => {
+                        *provenance.entry(prov_count_key(&p)).or_default() += 1;
+                    }
+                    Ok(_) => {}
+                    Err(e) => problems.push(Problem::new(
+                        path,
+                        line,
+                        format!("[[{kind}]] prov: {}", e.message()),
+                    )),
+                }
+            }
+        }
+    });
+    match read {
+        (Some((world, packs)), problems) if problems.is_empty() => Ok(Layout {
+            world,
+            packs,
+            rows,
+            provenance,
+        }),
+        (_, problems) => Err(problems),
+    }
+}
+
+/// Read the world file, the lockfile and each pack's header, and hand every TOML file of each
+/// pack's `server/` folder, parsed, to `each`: the world and its packs in load order (`None` when
+/// the world file does not read), and every problem found, sorted.
+fn read_files(
+    files: &Files,
+    mut each: impl FnMut(&mut Pack, &str, &str, &toml::Table, &mut Vec<Problem>),
+) -> (Option<(World, Vec<Pack>)>, Vec<Problem>) {
     let mut problems = Vec::new();
     let Some(text) = files.get("world.toml") else {
         return (
@@ -1790,14 +1920,14 @@ pub fn read_partly(files: &Files) -> (Option<Database>, Vec<Problem>) {
                 continue;
             }
             match parse(path, text) {
-                Ok(t) => read_rows(&mut pack, path, text, &t, &mut problems),
+                Ok(t) => each(&mut pack, path, text, &t, &mut problems),
                 Err(p) => problems.push(p),
             }
         }
         packs.push(pack);
     }
     problems.sort();
-    (Some(Database { world, packs }), problems)
+    (Some((world, packs)), problems)
 }
 
 /// The world file, read in the shared grammar: `None` (with the problem) when it does not read.

@@ -5389,3 +5389,32 @@ fn the_hierophant_temple_opens_by_the_talismans_and_its_last_guardian_ends_seskr
     hand_in(&mut h, &portal, ITS_TALISMAN, 0x4700_3293);
     assert_eq!(quest_state(&h, QUEST).map(|q| q.0), Some(status::COMPLETED));
 }
+
+/// The pinned release, packaged again from its files' layout alone, is the pin's archive byte for
+/// byte, as a full read packages it; and the database under test counts the same either way.
+/// Behaviour: server.world-db.release-packaged-from-its-layout
+#[test]
+fn the_pinned_release_packaged_from_its_layout_alone_is_the_pins_archive() {
+    use yalain_world_db::release::{self, PINNED_ZIP_SHA256};
+    let dir = pinned_in_cache().unwrap_or_else(|why| {
+        panic!("no pinned release: {why}. Fetch it ({PINNED_TAG}) with `yalain world fetch`")
+    });
+    let mut files = release::unpacked(&dir).expect("the release's files");
+    files.remove("manifest.json").expect("its manifest");
+    let layout =
+        rows::read_layout(&files).unwrap_or_else(|p| panic!("{}", yalain_world_db::report(&p)));
+    let carried = release::release_files(&files, &layout);
+    assert_eq!(carried, files, "a release carries every file it holds");
+    let zip = release::archive(&carried, &release::manifest(PINNED_TAG, &layout));
+    assert_eq!(release::sha256_hex(&zip), PINNED_ZIP_SHA256);
+    let full = rows::read(&files).unwrap_or_else(|p| panic!("{}", yalain_world_db::report(&p)));
+    assert_eq!(full.layout(), layout);
+
+    let under_test = load(&database());
+    let full =
+        rows::read(&under_test).unwrap_or_else(|p| panic!("{}", yalain_world_db::report(&p)));
+    assert_eq!(
+        rows::read_layout(&under_test).map_err(|p| yalain_world_db::report(&p)),
+        Ok(full.layout())
+    );
+}

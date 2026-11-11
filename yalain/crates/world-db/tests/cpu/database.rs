@@ -623,9 +623,9 @@ fn a_row_naming_what_the_install_lacks_stops_the_compile_at_its_line() {
 fn the_release_archive_is_the_same_bytes_for_the_same_files() {
     let files = fixture();
     let db = read(&files).unwrap();
-    let carried = release::release_files(&files, &db);
+    let carried = release::release_files(&files, &db.layout());
     assert!(carried.contains_key("world.toml") && carried.contains_key("town/pack.toml"));
-    let manifest = release::manifest("v0.1.0", &db);
+    let manifest = release::manifest("v0.1.0", &db.layout());
     let a = release::archive(&carried, &manifest);
     let b = release::archive(&carried.clone(), &manifest.clone());
     assert_eq!(a, b);

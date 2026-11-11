@@ -5,7 +5,7 @@
 use std::path::Path;
 
 use yalain_world_db::release;
-use yalain_world_db::rows::read;
+use yalain_world_db::rows::{read, read_layout};
 use yalain_world_db::Files;
 
 /// The test world's files, read from the server's test kit, in the order the folder lists them
@@ -38,9 +38,21 @@ fn fixture(reverse: bool) -> Files {
 fn build(files: &Files, tag: &str) -> Vec<u8> {
     let db = read(files).unwrap();
     release::archive(
-        &release::release_files(files, &db),
-        &release::manifest(tag, &db),
+        &release::release_files(files, &db.layout()),
+        &release::manifest(tag, &db.layout()),
     )
+}
+
+/// The test world as a later server might write it: a field and a kind this server does not know.
+fn with_rows_this_server_does_not_know(files: &Files) -> Files {
+    let mut out = files.clone();
+    let loot = out.get_mut("town/server/loot.toml").expect("the loot file");
+    assert!(loot.contains("profile = 0x19B\n"), "{loot}");
+    *loot = loot.replacen("profile = 0x19B\n", "profile = 0x19B\nglow = 3\n", 1);
+    loot.push_str(
+        "\n[[lantern]]\nkey = \"hall\"\nprov = { from = \"capture\", evidence = \"lantern-count\", ref = \"hall\", confidence = \"high\" }\n",
+    );
+    out
 }
 
 /// The names and dates of an archive's entries, read off its local headers.
@@ -147,6 +159,117 @@ fn a_release_built_twice_from_the_same_files_is_the_same_bytes() {
     assert!(e.windows(2).all(|w| w[0].0 < w[1].0));
     // Another tag is another archive.
     assert_ne!(build(&fixture(false), "v0.3.1"), a);
+}
+
+/// A database read for its layout alone counts its rows by kind and provenance as the full read
+/// does, so the release packaged from it is the same bytes; a field or a kind this server does not
+/// know is carried and counted, where the full read refuses it.
+/// Behaviour: server.world-db.release-packaged-from-its-layout
+#[test]
+fn a_release_packaged_from_the_layout_alone_is_the_same_bytes_and_carries_rows_it_does_not_know() {
+    let files = fixture(false);
+    let layout = read_layout(&files).expect("the layout reads");
+    assert_eq!(layout, read(&files).unwrap().layout());
+    let packaged = release::archive(
+        &release::release_files(&files, &layout),
+        &release::manifest("v0.3.0", &layout),
+    );
+    assert_eq!(packaged, build(&files, "v0.3.0"));
+    // A removal's provenance is read but not counted, as the full read does.
+    let mut removal = files.clone();
+    let fixes = removal
+        .get_mut("town-fixes/server/landblocks/77B7.toml")
+        .expect("the fixes");
+    assert!(fixes.contains("[[remove]]\n"), "{fixes}");
+    *fixes = fixes.replacen(
+        "[[remove]]\n",
+        "[[remove]]\nprov = { from = \"authored\" }\n",
+        1,
+    );
+    assert_eq!(read_layout(&removal), Ok(read(&removal).unwrap().layout()));
+
+    let later = with_rows_this_server_does_not_know(&files);
+    let refused = read(&later).expect_err("the full read refuses them");
+    assert!(
+        refused.iter().any(|p| p.message.contains("lantern")),
+        "{refused:?}"
+    );
+    let l = read_layout(&later).expect("the layout still reads");
+    assert_eq!(l.rows["lantern"], 1);
+    assert_eq!(l.rows["loot"], layout.rows["loot"]);
+    let captured =
+        |l: &yalain_world_db::rows::Layout| l.provenance.get("capture high").copied().unwrap_or(0);
+    assert_eq!(captured(&l), captured(&layout) + 1);
+    assert_eq!(
+        l.rows.values().sum::<usize>(),
+        layout.rows.values().sum::<usize>() + 1
+    );
+    let carried = release::release_files(&later, &l);
+    assert_eq!(
+        carried["town/server/loot.toml"],
+        later["town/server/loot.toml"]
+    );
+    let manifest: serde_json::Value =
+        serde_json::from_str(&release::manifest("v0.3.1", &l)).expect("json");
+    assert_eq!(manifest["rows"]["lantern"], 1);
+}
+
+/// Read for its layout alone, a database is still refused when its files do not read: no world
+/// file, a pack named without its header, a pack file that is not TOML, a table that is not of
+/// rows, a row that is not a table, or a provenance that does not read.
+/// Behaviour: server.world-db.release-packaged-from-its-layout
+#[test]
+fn a_database_whose_files_do_not_read_is_not_packaged_from_its_layout() {
+    let files = fixture(false);
+    let refused = |change: &dyn Fn(&mut Files), says: &str| {
+        let mut f = files.clone();
+        change(&mut f);
+        let problems = read_layout(&f).expect_err(says);
+        assert!(
+            problems.iter().any(|p| p.to_string().contains(says)),
+            "{says}: {problems:?}"
+        );
+    };
+    refused(
+        &|f| {
+            f.remove("world.toml");
+        },
+        "no world.toml",
+    );
+    refused(
+        &|f| {
+            f.remove("town-fixes/pack.toml");
+        },
+        "without a pack.toml",
+    );
+    let loot = "town/server/loot.toml";
+    refused(
+        &|f| {
+            f.insert(loot.into(), "[[loot]\n".into());
+        },
+        "not TOML",
+    );
+    refused(
+        &|f| {
+            f.insert(loot.into(), "loot = 3\n".into());
+        },
+        "is not a table of rows",
+    );
+    refused(
+        &|f| {
+            f.insert(loot.into(), "lantern = [1, 2]\n".into());
+        },
+        "row is not a table",
+    );
+    refused(
+        &|f| {
+            f.insert(
+                loot.into(),
+                "[[lantern]]\nprov = { from = \"capture\" }\n".into(),
+            );
+        },
+        "names its evidence",
+    );
 }
 
 const CHANGES: &str = "# Changes

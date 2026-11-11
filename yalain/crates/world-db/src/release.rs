@@ -18,14 +18,13 @@
 //!
 //! It holds one folder per fetched release, named by its tag.
 
-use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use sha2::{Digest, Sha256};
 
-use crate::rows::{Database, Row};
+use crate::rows::Layout;
 use crate::Files;
 
 /// The release this server build is tested against.
@@ -222,14 +221,14 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 /// The files a release carries: the world file, the lockfile, the licence and readme when
 /// present, and every file of every pack the world names.
 #[must_use]
-pub fn release_files(files: &Files, db: &Database) -> Files {
+pub fn release_files(files: &Files, layout: &Layout) -> Files {
     let mut out = Files::new();
     for top in ["world.toml", "world.lock", "LICENSE", "README.md"] {
         if let Some(t) = files.get(top) {
             out.insert(top.to_string(), t.clone());
         }
     }
-    for p in &db.packs {
+    for p in &layout.packs {
         let prefix = format!("{}/", p.folder);
         for (k, v) in files.range(prefix.clone()..) {
             if !k.starts_with(&prefix) {
@@ -242,35 +241,22 @@ pub fn release_files(files: &Files, db: &Database) -> Files {
 }
 
 /// The release's `manifest.json`: the tag, the format and era, the packs, rows by kind, and rows
-/// by provenance (`capture` by confidence).
+/// by provenance (`capture` by confidence). The layout is the database's ([`crate::rows::Database::layout`]),
+/// or its files' read for their layout alone ([`crate::rows::read_layout`]): the two are the same
+/// for a database this server reads in full.
 #[must_use]
-pub fn manifest(tag: &str, db: &Database) -> String {
-    let mut kinds: BTreeMap<&str, usize> = BTreeMap::new();
-    let mut prov: BTreeMap<String, usize> = BTreeMap::new();
-    for l in db.rows() {
-        *kinds.entry(l.row.kind()).or_default() += 1;
-        if let Row::Remove(_) = l.row {
-            continue;
-        }
-        if let Some(p) = l.row.prov() {
-            let k = match (p.source, p.confidence) {
-                (crate::rows::Source::Capture, Some(c)) => format!("capture {}", c.word()),
-                (f, _) => f.word().to_string(),
-            };
-            *prov.entry(k).or_default() += 1;
-        }
-    }
+pub fn manifest(tag: &str, layout: &Layout) -> String {
     let v = serde_json::json!({
-        "database": db.world.key,
+        "database": layout.world.key,
         "tag": tag,
-        "game": db.world.game,
-        "era": db.world.era,
-        "format_version": db.world.format_version,
-        "packs": db.packs.iter().map(|p| serde_json::json!({
+        "game": layout.world.game,
+        "era": layout.world.era,
+        "format_version": layout.world.format_version,
+        "packs": layout.packs.iter().map(|p| serde_json::json!({
             "name": p.name, "version": p.version, "license": p.license,
         })).collect::<Vec<_>>(),
-        "rows": kinds,
-        "provenance": prov,
+        "rows": layout.rows,
+        "provenance": layout.provenance,
     });
     let mut s = serde_json::to_string_pretty(&v).unwrap_or_default();
     s.push('\n');

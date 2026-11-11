@@ -135,6 +135,23 @@ and every row's provenance. `compile` compiles it against the install as the ser
 writes the tables it makes as text files (`content.tsv`, `spawns.tsv`, `loot.tsv`, `stores.tsv`,
 `quests.tsv`, `talk.tsv`) for reading and comparing.
 
+To release a database as an archive others can fetch:
+
+```
+yalain world release <folder> --tag vX.Y.Z [--since vA.B.C] [--out <folder>] [--package-only]
+```
+
+This checks the database as `check` does and writes `yalain-world-<tag>.zip`, its SHA-256 beside it
+(`yalain-world-<tag>.zip.sha256`), and release notes from the folder's `CHANGES.md`: the tag's own
+section, or with `--since` every section after that release. The same files always make the same
+bytes, so anyone can build a release again and compare its SHA-256.
+
+`--package-only` checks only that the files read: the world file, the lockfile, the pack headers,
+every pack file as TOML, and each row's provenance. It doesn't check what the rows say, so a
+database with rows this build of `yalain` doesn't know yet is still packaged. The archive is the
+same bytes a build that knows them would make. Check the rows first with `yalain world check`, run
+by a build that knows them.
+
 To take changes to the database without a restart, use the console's `reload` (section 6).
 
 ---
