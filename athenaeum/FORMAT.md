@@ -714,6 +714,7 @@ What a refining recipe yields.
 | `recipe` | required | the name of the recipe's script package, such as `SteelRefiningRecipe` |
 | `product` | required | the template of what it yields |
 | `full_at` | | a craft skill level from 2 at which a refining yields all it takes; 150 when left out |
+| `start` | | a percent from 0 to 100: what a refining yields of what it takes before any skill, growing evenly to all of it at `full_at`; 34 when left out |
 | `prov` | required | where it came from |
 
 #### `[[plant]]`

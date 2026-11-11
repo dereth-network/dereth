@@ -811,8 +811,8 @@ pub struct Spellbinding {
     pub prov: Prov,
 }
 
-/// `[[refining]]`: what a refining recipe yields, by its script package, and the craft skill level
-/// at which it yields all it takes.
+/// `[[refining]]`: what a refining recipe yields, by its script package, the craft skill level at
+/// which it yields all it takes, and the percent of it it yields before any skill.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Refining {
     pub refining: yalain_content::crafts::Refining,
@@ -1661,7 +1661,10 @@ pub const FIELDS: [(&str, &[&str]); 53] = [
         &["region", "drawn", "found", "recipes", "wait", "prov"],
     ),
     ("spellbinding", &["sort", "template", "word", "prov"]),
-    ("refining", &["recipe", "product", "full_at", "prov"]),
+    (
+        "refining",
+        &["recipe", "product", "full_at", "start", "prov"],
+    ),
     ("concealing", &["effect", "class", "regard", "prov"]),
     ("npc_table", &["name", "heals_kin", "prov"]),
     ("friend_table", &["table", "attacks_first", "prov"]),
@@ -2721,11 +2724,15 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             let full_at = f.u32("full_at");
             let ok = full_at.is_none_or(|l| l >= 2);
             let full_at = f.held("full_at", full_at, ok, "a craft skill level from 2")?;
+            let start = f.u32("start");
+            let ok = start.is_none_or(|p| p <= 100);
+            let start = f.held("start", start, ok, "a percent from 0 to 100")?;
             Row::Refining(Refining {
                 refining: yalain_content::crafts::Refining {
                     recipe,
                     product,
                     full_at,
+                    start,
                 },
                 prov: f.req_prov()?,
             })

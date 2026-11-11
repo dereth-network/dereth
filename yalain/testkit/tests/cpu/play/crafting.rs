@@ -1830,6 +1830,7 @@ fn steel_recipe() -> yalain_world::craft::RecipeDef {
         custom: Custom::Refine {
             product: STEEL,
             full_at: 150,
+            start: 34,
         },
         checks: vec![Check {
             upto: 2.0,
@@ -1926,14 +1927,17 @@ fn refining_adds_a_third_of_what_it_takes_to_the_players_stack_and_says_how_many
     assert_eq!(c.today, 2, "what the skill pays a use at its level");
 }
 
-/// A world's `[[refining]]` row gives a refining recipe, by its script package, its product and
-/// the level it yields all it takes at (the server's rule where it names none); a refining recipe
-/// no row names makes nothing of its own; a row no recipe is of is told.
+/// A world's `[[refining]]` row gives a refining recipe, by its script package, its product, the
+/// level it yields all it takes at and the percent it yields before any skill (the server's rule
+/// where it names none); a refining recipe no row names makes nothing of its own; a row no recipe
+/// is of is told.
 /// Behaviour: server.craft.refining-by-world-rows
 #[test]
 fn a_refining_row_sets_its_recipes_product_and_the_level_it_yields_all_at() {
     use yalain_content::crafts::{Crafts, Refining};
-    use yalain_world::craft::{refining_yield, Crafting, Custom, RecipeDef, REFINING_CAP};
+    use yalain_world::craft::{
+        refining_yield, Crafting, Custom, RecipeDef, REFINING_CAP, REFINING_START,
+    };
     const OWN: u32 = 0x4700_7002;
     let recipe = |did: u32, package: &str| RecipeDef {
         did,
@@ -1941,6 +1945,7 @@ fn a_refining_row_sets_its_recipes_product_and_the_level_it_yields_all_at() {
         custom: Custom::Refine {
             product: STEEL,
             full_at: REFINING_CAP,
+            start: REFINING_START,
         },
         ..RecipeDef::default()
     };
@@ -1948,21 +1953,22 @@ fn a_refining_row_sets_its_recipes_product_and_the_level_it_yields_all_at() {
     c.recipes.insert(1, recipe(1, "SteelRefiningRecipe"));
     c.recipes.insert(2, recipe(2, "PlasterRefiningRecipe"));
     c.recipes.insert(3, recipe(3, "BrickRefiningRecipe"));
-    let row = |recipe: &str, full_at| {
+    let row = |recipe: &str, full_at, start| {
         (
             recipe.to_string(),
             Refining {
                 recipe: recipe.into(),
                 product: OWN,
                 full_at,
+                start,
             },
         )
     };
     let rows = Crafts {
         refining: [
-            row("SteelRefiningRecipe", Some(75)),
-            row("BrickRefiningRecipe", None),
-            row("GlassRefiningRecipe", Some(10)),
+            row("SteelRefiningRecipe", Some(75), Some(50)),
+            row("BrickRefiningRecipe", None, None),
+            row("GlassRefiningRecipe", Some(10), None),
         ]
         .into(),
         ..Crafts::default()
@@ -1973,7 +1979,8 @@ fn a_refining_row_sets_its_recipes_product_and_the_level_it_yields_all_at() {
         c.recipes[&1].custom,
         Custom::Refine {
             product: OWN,
-            full_at: 75
+            full_at: 75,
+            start: 50,
         }
     );
     assert_eq!(c.recipes[&2].custom, Custom::None, "no row names it");
@@ -1981,26 +1988,36 @@ fn a_refining_row_sets_its_recipes_product_and_the_level_it_yields_all_at() {
         c.recipes[&3].custom,
         Custom::Refine {
             product: OWN,
-            full_at: REFINING_CAP
+            full_at: REFINING_CAP,
+            start: REFINING_START,
         }
     );
     assert_eq!(c.refining_unread(), ["GlassRefiningRecipe"]);
     assert!(c.templates().contains(&OWN), "its product is made");
-    assert_eq!(refining_yield(100, 75, 75), 100);
-    assert!(refining_yield(100, 75, REFINING_CAP) < 100);
+    assert_eq!(refining_yield(100, 75, 75, REFINING_START), 100);
+    assert!(refining_yield(100, 75, REFINING_CAP, REFINING_START) < 100);
+    assert_eq!(refining_yield(100, 0, 75, 50), 50, "its row's start");
+    assert_eq!(
+        refining_yield(100, 30, 60, 50),
+        75,
+        "halfway from it to all"
+    );
 
-    // In play: a row's level is where it yields all.
-    let (mut h, b, _me, world) = in_world();
-    let def = RecipeDef {
-        custom: Custom::Refine {
-            product: STEEL,
-            full_at: 2,
-        },
-        ..steel_recipe()
-    };
-    with_own_recipe(&mut h, world, def, 2, &[IRON, WOOD, STEEL]);
-    let (steel, _) = refine(&mut h, b, world);
-    assert_eq!(steel, 100, "all it takes at its row's level");
+    // In play: a row's level is where it yields all, and its start what it grows from.
+    for (full_at, start, made) in [(2, REFINING_START, 100), (4, 50, 75), (4, 0, 50)] {
+        let (mut h, b, _me, world) = in_world();
+        let def = RecipeDef {
+            custom: Custom::Refine {
+                product: STEEL,
+                full_at,
+                start,
+            },
+            ..steel_recipe()
+        };
+        with_own_recipe(&mut h, world, def, 2, &[IRON, WOOD, STEEL]);
+        let (steel, _) = refine(&mut h, b, world);
+        assert_eq!(steel, made, "level 2 of {full_at}, from {start} percent");
+    }
 }
 
 /// A world with no `[[map_recipes]]`, `[[spellbinding]]` or `[[refining]]` rows has none of each
@@ -2040,14 +2057,13 @@ fn a_world_without_map_recipes_spellbinding_or_refining_rows_has_none_and_names_
 /// Behaviour: server.craft.refining-grows-with-skill
 #[test]
 fn a_refining_yields_more_at_a_higher_craft_skill_and_with_what_effects_add_to_it() {
-    use yalain_world::craft::refining_yield;
     use yalain_world::effect_defs::{EffectDef, Kind, Scale};
-    assert_eq!(refining_yield(100, 2, 150), 34);
-    assert_eq!(refining_yield(100, 1, 150), 33);
-    assert_eq!(refining_yield(100, 150, 150), 100);
-    assert_eq!(refining_yield(100, 500, 150), 100, "no more past the cap");
-    assert!(refining_yield(100, 75, 150) > 34 && refining_yield(100, 75, 150) < 100);
-    assert_eq!(refining_yield(2500, 2, 150), 845);
+    let refining_yield =
+        |amount, level| yalain_world::craft::refining_yield(amount, level, 150, 34);
+    assert_eq!(refining_yield(100, 2), 34);
+    assert_eq!(refining_yield(100, 150), 100);
+    assert_eq!(refining_yield(100, 500), 100, "no more past the cap");
+    assert!(refining_yield(100, 75) > 34 && refining_yield(100, 75) < 100);
 
     const BONUS_STAT: u32 = 129 << 16 | 22;
     const CRUCIBLE: u32 = 0x6F00_17F3;
@@ -2084,9 +2100,34 @@ fn a_refining_yields_more_at_a_higher_craft_skill_and_with_what_effects_add_to_i
     );
     let (steel, _) = refine(&mut h, b, world);
     assert!(
-        steel > refining_yield(100, 40, 150),
+        steel > refining_yield(100, 40),
         "skill 1 and 50 from the effect yield more: {steel}"
     );
+}
+
+/// A refining yields 34 percent of what it takes and 0.44 more a craft skill level, rounded down,
+/// all of it from level 150, as players' table of 2004-05 gives it at 100, 500 and 2500 units (the
+/// table has one less at 2500 units at levels 20, 100 and 120); level 2 gives 34 of 100, as in 2017.
+/// Behaviour: server.craft.refining-line
+#[test]
+fn a_refining_yields_34_percent_and_0_44_more_a_level_to_all_at_150() {
+    use yalain_world::craft::{refining_yield, REFINING_CAP, REFINING_START};
+    let levels = [1, 10, 20, 30, 50, 70, 100, 120, 150];
+    for (amount, table) in [
+        (100, [34, 38, 42, 47, 56, 64, 78, 86, 100]),
+        (500, [172, 192, 214, 236, 280, 324, 390, 434, 500]),
+        (2500, [861, 960, 1070, 1180, 1400, 1620, 1950, 2170, 2500]),
+    ] {
+        for (level, made) in levels.into_iter().zip(table) {
+            assert_eq!(
+                refining_yield(amount, level, REFINING_CAP, REFINING_START),
+                made,
+                "{amount} at level {level}"
+            );
+        }
+    }
+    assert_eq!(refining_yield(100, 2, REFINING_CAP, REFINING_START), 34);
+    assert_eq!(refining_yield(2500, 2, REFINING_CAP, REFINING_START), 872);
 }
 
 /// A recipe that works out its own product names none the data holds: it answers that it failed

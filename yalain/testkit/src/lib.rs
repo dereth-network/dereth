@@ -2472,6 +2472,7 @@ pub fn test_crafts() -> yalain_content::crafts::Crafts {
                 recipe: recipe.to_string(),
                 product,
                 full_at: Some(150),
+                start: None,
             },
         )
     };

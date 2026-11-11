@@ -30,13 +30,15 @@ pub struct Totem {
     pub word: u32,
 }
 
-/// What a refining recipe yields: by its script package, the template of its product, and the craft
-/// skill level at which it yields all it takes (none: the server's rule).
+/// What a refining recipe yields: by its script package, the template of its product, the craft
+/// skill level at which it yields all it takes, and the percent of it it yields before any skill
+/// (none: the server's rule).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Refining {
     pub recipe: String,
     pub product: u32,
     pub full_at: Option<u32>,
+    pub start: Option<u32>,
 }
 
 /// The world's crafting work: map recipes by region, totems by sort, refinings by recipe.

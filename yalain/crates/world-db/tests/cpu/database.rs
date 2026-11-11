@@ -4353,7 +4353,7 @@ fn crafting_work_rows_compile_to_map_recipes_totems_and_refinings() {
                 [[spellbinding]]\nsort = \"shield\"\ntemplate = 0x4700115B\nword = 0x3B284FFE\n\
                 prov = { from = \"authored\" }\n\n\
                 [[refining]]\nrecipe = \"SteelRefiningRecipe\"\nproduct = 0x47002224\nfull_at = 150\n\
-                prov = { from = \"authored\" }\n\n\
+                start = 34\nprov = { from = \"authored\" }\n\n\
                 [[refining]]\nrecipe = \"BrickRefiningRecipe\"\nproduct = 0x47002224\n\
                 prov = { from = \"authored\" }\n";
     files.insert("town/server/crafting2.toml".into(), rows.to_string());
@@ -4384,6 +4384,8 @@ fn crafting_work_rows_compile_to_map_recipes_totems_and_refinings() {
     assert_eq!(c.totem_word(0x4700_115B), Some(0x3B28_4FFE));
     assert_eq!(c.refining["SteelRefiningRecipe"].full_at, Some(150));
     assert_eq!(c.refining["BrickRefiningRecipe"].full_at, None);
+    assert_eq!(c.refining["SteelRefiningRecipe"].start, Some(34));
+    assert_eq!(c.refining["BrickRefiningRecipe"].start, None);
     assert_eq!(c.refining["BrickRefiningRecipe"].product, 0x4700_2224);
     // Templates the install lacks.
     for (from, said) in [
@@ -4410,10 +4412,12 @@ fn crafting_work_rows_compile_to_map_recipes_totems_and_refinings() {
         assert_eq!(messages.len(), 1, "{messages:?}");
         assert!(messages[0].contains(said), "{messages:?}");
     }
-    // A sort of weapon, armor or shield; a level from 2; a wait from 0; recipes, a found effect.
+    // A sort of weapon, armor or shield; a level from 2; a percent to 100; a wait from 0; recipes, a
+    // found effect.
     for (from, to) in [
         ("sort = \"shield\"", "sort = \"jewelry\""),
         ("full_at = 150", "full_at = 1"),
+        ("start = 34", "start = 101"),
         ("wait = 300.0", "wait = -1.0"),
         ("recipes = [0x6F001091]", "recipes = []"),
         ("found = \"Eff_ResetOstethResetTimers\"\n", ""),

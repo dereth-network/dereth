@@ -330,9 +330,14 @@ pub enum Custom {
     /// It has none.
     #[default]
     None,
-    /// Refining: it yields units of this template, by how much it took and the craft skill, all it
-    /// took at the level `full_at` (the world's `[[refining]]` rows name both).
-    Refine { product: u32, full_at: u32 },
+    /// Refining: it yields units of this template, by how much it took and the craft skill: `start`
+    /// percent of it before any skill, all it took at the level `full_at` (the world's
+    /// `[[refining]]` rows name all three).
+    Refine {
+        product: u32,
+        full_at: u32,
+        start: u32,
+    },
     /// Spellbinding: it makes a totem of the kind of the item in its first slot.
     Spellbind,
     /// Dyeing: the item in its first slot takes the color of the dye in its second.
@@ -353,17 +358,21 @@ pub const NOTHING_PRODUCED: (u32, u32) = (0x9CD4_94DC, 0x2500_000C);
 /// The craft skill level at which a refining yields all it takes, where its row names none.
 pub const REFINING_CAP: u32 = 150;
 
-/// What a refining of this amount of each material yields at a craft skill level: a third of it at
-/// the first level (2017: 34 of 100 at level 2, 2 of 2), all of it at `full_at` (a row's, or
-/// [`REFINING_CAP`]: this server's own, the recipes say only that it grows with the skill).
+/// The percent of what it takes a refining yields before any skill, where its row names none.
+pub const REFINING_START: u32 = 34;
+
+/// What a refining of this amount of each material yields at a craft skill level: `start` percent
+/// of it before any skill, growing evenly to all of it at `full_at`, rounded down. The server's
+/// own, 34 and 150, is 34 percent and 0.44 more a level, as players measured it in 2004-05; it
+/// gives 34 of 100 at level 2, as in 2017.
 #[must_use]
-pub fn refining_yield(amount: u32, level: u32, full_at: u32) -> u32 {
-    let full_at = full_at.max(2);
-    let above = f64::from(level.clamp(1, full_at) - 1) / f64::from(full_at - 1);
-    let share = 1.0 / 3.0 + 2.0 / 3.0 * above;
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let got = (f64::from(amount) * share).round() as u32;
-    got
+pub fn refining_yield(amount: u32, level: u32, full_at: u32, start: u32) -> u32 {
+    let full_at = u64::from(full_at.max(1));
+    let start = u64::from(start.min(100));
+    let level = u64::from(level).min(full_at);
+    let share = start * full_at + (100 - start) * level;
+    let got = u64::from(amount) * share / (100 * full_at);
+    u32::try_from(got).unwrap_or(amount)
 }
 
 /// "You successfully produce %1 units of %2.": its string, and its variables (how many, the
@@ -1458,6 +1467,7 @@ impl Crafting {
                 r.custom = Custom::Refine {
                     product: row.product,
                     full_at: row.full_at.unwrap_or(REFINING_CAP),
+                    start: row.start.unwrap_or(REFINING_START),
                 };
             } else if matches!(r.custom, Custom::Refine { .. }) {
                 r.custom = Custom::None;
@@ -2755,7 +2765,12 @@ fn refine<S: Store>(
     outcome: &Outcome,
     spinner: u32,
 ) -> u64 {
-    let Custom::Refine { product, full_at } = def.custom else {
+    let Custom::Refine {
+        product,
+        full_at,
+        start,
+    } = def.custom
+    else {
         return 0;
     };
     let amount = outcome
@@ -2773,7 +2788,7 @@ fn refine<S: Store>(
     else {
         return 0;
     };
-    let got = refining_yield(amount, craft_level(s, world, def.skill), full_at);
+    let got = refining_yield(amount, craft_level(s, world, def.skill), full_at, start);
     let name = s.catalog.get(product).and_then(|t| t.facts.name);
     crate::inventory::give_stacked(s, net, world, product, got);
     if let Some(name) = name {

@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Refining now yields as much as players measured in retail at every skill level.
 - `world compile` now builds a world's overlay of clearings and shop titles.
 - Worlds can give a shop a title of its own.
 - Items and places for heroes alone now refuse everyone else.

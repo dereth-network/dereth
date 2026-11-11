@@ -2426,8 +2426,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.craft.refining-by-world-rows",
-        says: "A refining recipe's product and the level it yields all at are the world's \
-               `[[refining]]` row's for its script package; one no row names makes nothing of its own.",
+        says: "A refining recipe's product, the level it yields all at and the percent it yields \
+               before any skill are the world's `[[refining]]` row's for its script package; one no \
+               row names makes nothing of its own.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-REFINING-BY-ROWS"),
         station: "yalain-testkit::cpu::play::crafting::a_refining_row_sets_its_recipes_product_and_the_level_it_yields_all_at",
@@ -2439,6 +2440,14 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-REFINING-SKILL"),
         station: "yalain-testkit::cpu::play::crafting::a_refining_yields_more_at_a_higher_craft_skill_and_with_what_effects_add_to_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.refining-line",
+        says: "A refining yields 34 percent of what it takes and 0.44 more a craft skill level, rounded down, all of it from level 150.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-REFINING-WORKBOOK"),
+        station: "yalain-testkit::cpu::play::crafting::a_refining_yields_34_percent_and_0_44_more_a_level_to_all_at_150",
         tier: Tier::Cpu,
     },
     behaviour! {
