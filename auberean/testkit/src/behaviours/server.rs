@@ -6468,9 +6468,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.use-judged-by-its-own-quest",
+        says: "An item in the pack whose template names a quest for its use is judged by that quest, not by its quest for taking: used while the use's quest is where it asks, refused with the use's own refusal while it isn't.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PACK-USE-OWN-QUEST"),
+        station: "yalain-testkit::cpu::play::chests::an_item_in_the_pack_naming_a_quest_for_its_use_is_judged_by_that_quest",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.use-refused-by-the-quest-for-taking",
-        says: "An item in the pack that its quest keeps from the player is refused when used, as a \
-               take would be; with the quest where it asks, the use goes on to what the item does.",
+        says: "An item in the pack that its quest keeps from the player, its template naming no quest for its use, is refused when used, as a take would be; with the quest where it asks, the use goes on to what the item does.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-USE-TAKE-QUEST"),
         station: "yalain-testkit::cpu::play::chests::an_item_in_the_pack_its_quest_keeps_is_refused_by_its_use",

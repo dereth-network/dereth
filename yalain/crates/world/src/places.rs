@@ -471,6 +471,13 @@ fn in_the_pack<S: Store>(s: &Server<S>, world: ConnId, item: u64) -> bool {
         .is_some_and(|p| p.play.items.iter().any(|h| h.id == item && h.location == 0))
 }
 
+/// Does an item template name a quest its use needs?
+fn names_a_use_quest<S: Store>(s: &Server<S>, template: u32) -> bool {
+    s.catalog
+        .get(template)
+        .is_some_and(|t| t.props.word("Usage_RequiredQuest").is_some())
+}
+
 /// Why taking an item of a template is refused, if its quest keeps the player from it.
 fn take_refused<S: Store>(
     s: &Server<S>,
@@ -1026,8 +1033,9 @@ fn use_held<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, u: 
     };
     // An item in the pack that its quest keeps from the player is used no more than taken (2017, pack
     // uses refused 10042, 10021: 13 of 15 of items whose classes name a quest for taking, 8 of 8 of
-    // 10042).
-    if u.target == 0 && in_the_pack(s, world, u.item) {
+    // 10042, none of them naming a quest for their use), unless its template names a quest for its
+    // use: that one judges its use, as it does any held item's.
+    if u.target == 0 && in_the_pack(s, world, u.item) && !names_a_use_quest(s, item) {
         if let Some(why) = take_refused(s, world, item, clock) {
             let no = use_refused(&u, 0, Some(USE_FLAGS_PACK), 0.0, why);
             send(net, world, BlobKind::PRIVATE, &no);

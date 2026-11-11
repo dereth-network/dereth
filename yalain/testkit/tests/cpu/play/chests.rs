@@ -662,6 +662,148 @@ fn an_item_in_the_pack_its_quest_keeps_is_refused_by_its_use() {
     );
 }
 
+/// An item in the pack whose template names a quest for its use as well as one for its taking is
+/// judged by the one for its use: with its taking's quest under way, as its taking left it, it is
+/// used while its use's quest can be given; with that quest under way it is refused with the use's
+/// own refusal, not a take's.
+/// Behaviour: server.inventory.use-judged-by-its-own-quest
+#[test]
+fn an_item_in_the_pack_naming_a_quest_for_its_use_is_judged_by_that_quest() {
+    use yalain_content::quests::{QuestDef, QuestTable};
+    use yalain_world::effect_defs::{EffectDef, Kind as EffectKind, Scale};
+    use yalain_world::item_use::{refusal, UsageEffect, CAN_BE_BESTOWED};
+    use yalain_world::quests::status;
+    use yalain_world::state::QuestState;
+    const TAKEN: u32 = 0x8000_01D1;
+    const USED: u32 = 0x8000_01C7;
+    const BOOK: u32 = 0x4700_7B0A;
+    const TEACHES: u32 = 0x6F00_1CAD;
+    const RECIPE: u32 = 0x6F00_1CAE;
+    let mut h = hall(SMALL, false, false);
+    let mut book = Props::default();
+    book.set("Usage_RequiredQuest_ForTaking", Prop::Word(TAKEN))
+        .set(
+            "Usage_RequiredQuestStatus_ForTaking",
+            Prop::Word(CAN_BE_BESTOWED),
+        )
+        .set("Usage_RequiredQuest", Prop::Word(USED))
+        .set("Usage_RequiredQuestStatus", Prop::Word(CAN_BE_BESTOWED));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(BOOK, 0x200, book));
+    h.server.item_uses.insert(
+        BOOK,
+        vec![UsageEffect {
+            state: TEACHES,
+            spellcraft: 1.0,
+        }],
+    );
+    h.server.effect_table.effects.insert(
+        TEACHES,
+        EffectDef {
+            state: TEACHES,
+            kind: EffectKind::GrantRecipe(RECIPE),
+            duration: Scale(Vec::new()),
+            priority: Scale(Vec::new()),
+            fx: 0,
+            external_flags: 0,
+            internal_flags: 0x4040_0012,
+            ends_at_logout: false,
+            ends_at_teleport: false,
+            enum_value: 0,
+            eq_class: 0,
+            name: None,
+        },
+    );
+    let def = |id: u32| QuestDef {
+        timed_phase: 0,
+        id,
+        name: (0xA860_7CEC, 0x2500_17EE),
+        description: (0x6C45_9364, 0x2500_17EE),
+        icon: 0,
+        play_fx: false,
+        journals: Vec::new(),
+        challenge: -999,
+        duration: 0.0,
+        retry: 0.0,
+        xp: 0,
+        cancellable: false,
+        placed: "authored for a test".into(),
+        hidden: false,
+        effects: Vec::new(),
+        subquests: Vec::new(),
+        min_level: 0,
+        fails_on_death: false,
+        once: false,
+        fellows: yalain_content::quests::Fellows::default(),
+        last_waits: false,
+        hero_only: false,
+        pay: yalain_content::quests::CompletionPay::default(),
+        required: None,
+        cancel_wait: None,
+    };
+    h.server.quests = QuestTable {
+        quests: vec![def(TAKEN), def(USED)],
+        steps: Vec::new(),
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
+    let (a, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let world = *h.server.players.keys().next().expect("in");
+    let under_way = |quest: u32| QuestState {
+        quest,
+        status: status::UNDERWAY,
+        phase: 1,
+        started: 0,
+        updated: 0,
+    };
+    let give_book = |h: &mut Harness| {
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, BOOK, 1);
+        h.run(3);
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .find(|i| i.template == BOOK)
+            .expect("given")
+            .id
+    };
+    let taught = |h: &Harness, from: usize| {
+        h.calls(a, from).iter().any(|(f, v)| {
+            *f == yalain_world::craft::function::ADD_RECIPE
+                && v.iter().any(|x| matches!(x, Value::Int(r) if *r == RECIPE))
+        })
+    };
+    let item = give_book(&mut h);
+    h.server.players.get_mut(&world).expect("in").play.quests = vec![under_way(TAKEN)];
+    let from = h.bots[a].inbox.len();
+    send_use(&mut h, a, me, item, 0, 3.0);
+    let done: Vec<String> = seen(&h, a, from)
+        .into_iter()
+        .filter(|s| s.starts_with("done"))
+        .collect();
+    assert!(
+        done.len() == 1 && done[0].starts_with("done 0 "),
+        "used: {done:?}"
+    );
+    assert!(taught(&h, from), "what its use does, done");
+    let item = give_book(&mut h);
+    h.server.players.get_mut(&world).expect("in").play.quests =
+        vec![under_way(TAKEN), under_way(USED)];
+    let from = h.bots[a].inbox.len();
+    send_use(&mut h, a, me, item, 0, 3.0);
+    let done: Vec<String> = seen(&h, a, from)
+        .into_iter()
+        .filter(|s| s.starts_with("done"))
+        .collect();
+    assert!(
+        done.len() == 1 && done[0].starts_with(&format!("done {} ", refusal::WRONG_QUEST_STATUS)),
+        "its use's own refusal: {done:?}"
+    );
+    assert!(!taught(&h, from), "nothing done");
+}
+
 /// An item its quest keeps from the player is not taken out of a chest: refused at once, the
 /// request's flags kept, for a quest the player never had (10022), for one not where the item
 /// needs it (10021), for a hidden one either way (10042); with the quest where it needs it, the
