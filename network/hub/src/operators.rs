@@ -136,7 +136,8 @@ impl Method {
 }
 
 /// How approval onto the network went.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Approval {
     Approved,
     NotNetworkSlug,
@@ -1510,7 +1511,7 @@ impl Registry {
     }
 
     /// Turns federation on for a verified world, within the allowances.
-    fn approve(&self, row: &Row, operator: &str) -> Result<Approval> {
+    pub(crate) fn approve(&self, row: &Row, operator: &str) -> Result<Approval> {
         if row.federation == Federation::On {
             return Ok(Approval::Approved);
         }

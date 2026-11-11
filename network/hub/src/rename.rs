@@ -12,13 +12,19 @@
 //! still open under the old slug, as for any world it no longer has, and the world links again
 //! once its server names the new slug. The channels are the one thing a serving hub keeps in
 //! memory and writes back, so a world whose characters are in a channel is not renamed.
+//!
+//! A world verified under a slug that could not join the network was never approved onto it. When
+//! a rename gives such a world its first network slug and its federation flag was never set, the
+//! rename asks for that approval, as verifying would have; a flag someone set stays as it is.
 
 use dereth_network_protocol::address::is_network_slug;
+use dereth_network_protocol::Federation;
 use rusqlite::{params, Transaction, TransactionBehavior};
 use serde::Serialize;
 use serde_json::json;
 
-use crate::registry::{is_registry_slug, Registry, RegistryError};
+use crate::operators::Approval;
+use crate::registry::{is_registry_slug, Registry, RegistryError, Row};
 
 type Result<T> = std::result::Result<T, RegistryError>;
 
@@ -63,6 +69,11 @@ pub struct Renamed {
     /// Whether the world has a key, which still works under its new slug.
     #[serde(rename = "hasKey")]
     pub has_key: bool,
+    /// How approval onto the network went, when the rename asked for it: the world is verified,
+    /// its operator's, its federation flag was never set, and its old slug could not join the
+    /// network.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approval: Option<Approval>,
 }
 
 /// One line of a `fix-slugs` plan.
@@ -79,7 +90,9 @@ pub struct SlugFix {
 
 impl Registry {
     /// Renames the world `old` to `new`, carrying across everything the hub keeps of it, in one
-    /// transaction; its log, and its operator's, say so. Its key keeps working.
+    /// transaction; its log, and its operator's, say so. Its key keeps working. A verified world
+    /// that could not join the network under its old slug is approved onto it, within the
+    /// allowances, unless its federation flag was set.
     ///
     /// # Errors
     /// 400 for a `new` that is no network slug; 404; 409 for a taken slug, the same slug, or a
@@ -230,7 +243,19 @@ impl Registry {
             "UPDATE directory_listings SET profile = replace(profile, ?1, ?2) WHERE world = ?3",
             params![format!("{at_old}\""), format!("{at_new}\""), new],
         )?;
-        let details = json!({ "from": old, "to": new, "by": by });
+        let approval = match (&row.operator_id, asks_approval(&row)) {
+            (Some(op), true) => {
+                let renamed = self
+                    .row_by_id(&row.id)?
+                    .ok_or_else(RegistryError::not_found)?;
+                Some(self.approve(&renamed, op)?)
+            }
+            _ => None,
+        };
+        let mut details = json!({ "from": old, "to": new, "by": by });
+        if let Some(a) = approval {
+            details["approval"] = json!(a);
+        }
         self.event(&row.id, "renamed", &details)?;
         if let Some(op) = &row.operator_id {
             self.operator_event(op, "renamed", &details)?;
@@ -239,14 +264,27 @@ impl Registry {
             from: old,
             to: new.to_owned(),
             has_key: row.key_hash.is_some(),
+            approval,
         })
     }
 }
 
+/// Whether renaming `row` onto a network slug asks for its approval onto the network: it is
+/// verified at its endpoint, its federation flag was never set, and its slug could not join the
+/// network, so verifying it could not have approved it.
+fn asks_approval(row: &Row) -> bool {
+    row.state() == "managed"
+        && row.registry["verification"]["endpointVerified"] != false
+        && row.federation == Federation::Unset
+        && !is_network_slug(&row.slug)
+}
+
 #[cfg(test)]
 mod tests {
+    use dereth_network_protocol::Federation;
     use serde_json::{json, Value};
 
+    use crate::operators::Approval;
     use crate::registry::{CommunityEntry, Registration, Registry};
 
     fn registry() -> Registry {
@@ -296,6 +334,146 @@ mod tests {
     }
 
     const EVIDENCE: &str = "Saw the world's admin panel on a call with its operator.";
+
+    /// A world registered under `slug` and handed to the operator signed in as Discord user `100`.
+    fn assigned(r: &Registry, slug: &str) {
+        r.register(&registration(slug, "Hollowtide"))
+            .expect("registered");
+        r.signed_in("100", "Hollow").expect("an operator");
+        r.assign(slug, "100").expect("assigned");
+    }
+
+    /// [`assigned`], then vouched for: verified, with approval onto the network asked for.
+    fn verified(r: &Registry, slug: &str) -> Option<Approval> {
+        assigned(r, slug);
+        r.vouch(slug, EVIDENCE).expect("verified")
+    }
+
+    fn operator_kinds(r: &Registry) -> Vec<String> {
+        let mut q =
+            r.db.prepare("SELECT kind FROM operator_events ORDER BY id")
+                .expect("a query");
+        let kinds = q
+            .query_map([], |q| q.get(0))
+            .expect("events")
+            .collect::<Result<_, _>>()
+            .expect("kinds");
+        kinds
+    }
+
+    fn flag(r: &Registry, slug: &str) -> Federation {
+        r.federation(slug).expect("read").expect("there").1
+    }
+
+    /// Spec: hub: a world verified under a slug that could not join the network, whose federation
+    /// flag was never set, is approved onto the network when a rename gives it a network slug: its
+    /// flag is on, so it links, and its log and its operator's say so.
+    #[test]
+    fn a_verified_world_renamed_onto_a_network_slug_joins_the_network() {
+        let r = registry();
+        assert_eq!(
+            verified(&r, "hollowtide-pk"),
+            Some(Approval::NotNetworkSlug),
+            "verifying could not approve it"
+        );
+        assert_eq!(flag(&r, "hollowtide-pk"), Federation::Unset);
+
+        let renamed = r.rename("hollowtide-pk", "hollowtide").expect("renamed");
+        assert_eq!(renamed.approval, Some(Approval::Approved));
+        assert!(flag(&r, "hollowtide").links(), "the world links");
+        let log = r.audit("hollowtide").expect("its log");
+        assert_eq!(&kinds(&log)[..2], ["renamed", "federation"], "{log}");
+        assert_eq!(log[0]["details"]["approval"], "approved");
+        assert_eq!(log[1]["details"]["flag"], "on");
+        let ops = operator_kinds(&r);
+        assert!(
+            ops.ends_with(&["approved".to_owned(), "renamed".to_owned()]),
+            "{ops:?}"
+        );
+        assert_eq!(
+            serde_json::to_value(&renamed).expect("json")["approval"],
+            "approved"
+        );
+    }
+
+    /// Spec: hub: a rename leaves alone a federation flag someone set: a verified world whose flag
+    /// is `off` stays off on its new network slug.
+    #[test]
+    fn a_rename_keeps_a_federation_flag_set_off() {
+        let r = registry();
+        verified(&r, "hollowtide-pk");
+        r.set_federation("hollowtide-pk", Federation::Off)
+            .expect("off");
+        let renamed = r.rename("hollowtide-pk", "hollowtide").expect("renamed");
+        assert_eq!(renamed.approval, None);
+        assert_eq!(flag(&r, "hollowtide"), Federation::Off);
+        assert!(!operator_kinds(&r).iter().any(|k| k == "approved"));
+    }
+
+    /// Spec: hub: a rename does not turn federation on for a locked or an unlisted world; it says
+    /// why, and the flag stays unset.
+    #[test]
+    fn a_rename_does_not_approve_a_locked_or_unlisted_world() {
+        for (how, approval) in [
+            ("locked", Approval::Locked),
+            ("unlisted", Approval::Unlisted),
+        ] {
+            let r = registry();
+            verified(&r, "hollowtide-pk");
+            if how == "locked" {
+                r.db.execute_batch(
+                    "UPDATE servers SET registry = json_set(registry, '$.locked',
+                       json('{\"at\":\"2026-01-01T00:00:00.000Z\"}'))",
+                )
+                .expect("locked");
+            } else {
+                r.set_listed("hollowtide-pk", false).expect("unlisted");
+            }
+            let renamed = r.rename("hollowtide-pk", "hollowtide").expect("renamed");
+            assert_eq!(renamed.approval, Some(approval), "{how}");
+            assert_eq!(flag(&r, "hollowtide"), Federation::Unset, "{how}");
+            assert!(!operator_kinds(&r).iter().any(|k| k == "approved"), "{how}");
+        }
+    }
+
+    /// Spec: hub: a rename asks no approval for a world that is not verified, or whose new endpoint
+    /// is not verified yet, nor for one with no operator, nor for one already on a network slug,
+    /// which could have joined the network as it was.
+    #[test]
+    fn a_rename_asks_no_approval_for_an_unverified_unowned_or_network_slug_world() {
+        let r = registry();
+        verified(&r, "hollowtide-pk");
+        r.db.execute_batch(
+            "UPDATE servers SET registry =
+               json_set(registry, '$.verification.endpointVerified', json('false'))",
+        )
+        .expect("a new endpoint");
+        let renamed = r.rename("hollowtide-pk", "hollowtide").expect("renamed");
+        assert_eq!(renamed.approval, None, "its new endpoint is not verified");
+        assert_eq!(flag(&r, "hollowtide"), Federation::Unset);
+
+        let r = registry();
+        r.register(&registration("frost-legends", "Frost"))
+            .expect("registered");
+        let renamed = r.rename("frost-legends", "frost").expect("renamed");
+        assert_eq!(renamed.approval, None, "no operator");
+        assert_eq!(flag(&r, "frost"), Federation::Unset);
+
+        assigned(&r, "coldeve");
+        let renamed = r.rename("coldeve", "coldeve-2").expect("renamed");
+        assert_eq!(renamed.approval, None, "from a network slug");
+        assert_eq!(flag(&r, "coldeve-2"), Federation::Unset);
+
+        let r = registry();
+        assigned(&r, "hollowtide-pk");
+        r.db.execute_batch(
+            "UPDATE servers SET registry = json_set(registry, '$.state', 'pending')",
+        )
+        .expect("not verified yet");
+        let renamed = r.rename("hollowtide-pk", "hollowtide").expect("renamed");
+        assert_eq!(renamed.approval, None, "not verified");
+        assert_eq!(flag(&r, "hollowtide"), Federation::Unset);
+    }
 
     /// Spec: hub: `rename` gives a claimed world its new slug and keeps its claim, its proof, its
     /// key, its operator and its log; the old slug is free and its key no longer answers to it.
@@ -352,12 +530,14 @@ mod tests {
             log,
             [
                 "renamed",
+                "federation",
                 "key-rotated",
                 "ownership-reviewed",
                 "community-imported"
             ],
-            "its log, the rename newest"
+            "its log, the rename newest, after the approval it asked for"
         );
+        assert_eq!(renamed.approval, Some(Approval::Approved));
         let operator_log: String = r
             .db
             .query_row(

@@ -693,7 +693,7 @@ accounts cannot spend it for everyone; the ceiling is the hub's setting `approva
 | `approval` | federation |
 |---|---|
 | `approved` | turned `on` |
-| `not_network_slug` | stays as it was: the slug cannot join the network |
+| `not_network_slug` | stays as it was: the slug cannot join the network (a `rename` onto one that can asks again, section 2.12) |
 | `locked` | stays as it was |
 | `unlisted` | stays as it was: the hub's operator took the world out of the lists |
 | `rate_limited` | stays as it was; ask again later |
@@ -835,10 +835,15 @@ key, which keeps working, its claim, verifications, reports, log, mirrors and ro
 characters' links, link codes, directory listings and holds, and every person friend naming one of
 its characters), with a `renamed` event in its log and its operator's, while a link still open
 under the old slug is closed within a second and a world whose characters are in a channel is
-refused; `fix-slugs [--apply]`, which renames each unclaimed community listing whose slug cannot
-join the network to the slug the import now gives its name, a dry run unless applied, listing and
-keeping claimed and managed ones; and `unlist <slug>` and `relist <slug>`, which take a world out of
-every public answer and put it back. An unlisted world's federation is turned off, and neither its
+refused. A verified world with an operator, whose old slug could not join the network and whose
+federation flag was never set, is approved onto the network by the rename, on section 2.6's terms
+and allowances, as verifying would have approved it: the command says how it went, and the
+`renamed` event carries its `approval`. A flag set `off` stays off, and a world that is not
+verified, whose new endpoint is not verified yet, that has no operator, or whose old slug could
+already join the network keeps its flag as it is. The others are `fix-slugs [--apply]`, which
+renames each unclaimed community listing whose slug cannot join the network to the slug the import
+now gives its name, a dry run unless applied, listing and keeping claimed and managed ones; and
+`unlist <slug>` and `relist <slug>`, which take a world out of every public answer and put it back. An unlisted world's federation is turned off, and neither its
 operator nor the hub's operator can turn it on until it is relisted; its operator still sees and
 edits it. A disabled operator's
 sessions end, and it can sign in no more until enabled; its open verifications and claims are

@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use dereth_network_hub::community;
+use dereth_network_hub::operators::Approval;
 use dereth_network_hub::registry::{ImportOptions, Registration, Registry};
 use dereth_network_hub::server::{self, HubConfig};
 use dereth_network_hub::settings::Setting;
@@ -543,6 +544,16 @@ fn run(mut args: Vec<String>) -> Result<ExitCode, String> {
                     "Its key still works under the new slug; `rotate-key {}` gives a fresh one.",
                     r.to
                 );
+            }
+            match r.approval {
+                Some(Approval::Approved) => {
+                    println!("It was verified, so it joins the network: federation is on.");
+                }
+                Some(a) => println!(
+                    "Approval onto the network: {}; its federation flag stays unset.",
+                    a.word()
+                ),
+                None => {}
             }
             println!(
                 "A serving hub closes a link still open under {} within a second; the world links again once its server names {}.",
