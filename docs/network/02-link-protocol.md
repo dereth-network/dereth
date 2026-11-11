@@ -18,6 +18,12 @@ keep-alive and reconnects) in `network/link`. The vectors in
 - **Before the upgrade** the hub answers `401` for a key that is not the world's current key and
   `403` for a world whose federation flag is not `on`. A world that gets either must not retry
   faster than once a minute.
+- **The hub marks its own refusals** with the header `X-Dereth-Hub-Refusal`: `key` on the `401`,
+  `federation` on the `403`, and `key` on a heartbeat's `401` too. A `401` or `403` without it came
+  from something in front of the hub (a reverse proxy, or Cloudflare challenging what it takes for
+  a bot), and a world says so rather than blame its key or its flag, naming what answered (its
+  `Server` and `CF-Ray` headers) when it can. It waits before the next attempt exactly as after
+  the hub's own refusal. A mark a world does not know is still the hub's.
 - **A link lasts as long as its key.** When the world's key is rotated or revoked, the hub closes
   every link opened with the old one, as it does when the flag leaves `on`.
 - **A second link** from the same world replaces the first, which the hub closes.

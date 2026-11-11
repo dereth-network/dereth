@@ -482,6 +482,19 @@ For `hub.dereth.network`:
   `/v1/servers/*/verify/answer` and `/v1/probe` alone (the hub limits them itself). A launcher's
   check from outside (`/v1/probe`) must reach the hub with the caller's own address as its client
   address, as every limit already needs.
+- **Bot Fight Mode.** On the Free plan, Bot Fight Mode challenges the worlds' links and heartbeats
+  (a Managed Challenge, answered `403`), and no WAF rule can skip it: turn it off (**Security**,
+  **Bots**). On Pro and up, Super Bot Fight Mode can stay on with a WAF custom rule, action
+  **Skip**, that skips **Super Bot Fight Mode**, **Browser Integrity Check** and **Security Level**
+  for the worlds' routes:
+
+  ```
+  (starts_with(http.request.uri.path, "/v1/servers/") and (ends_with(http.request.uri.path, "/link") or ends_with(http.request.uri.path, "/heartbeat")))
+  ```
+
+  The hub marks its own refusals of a world (`X-Dereth-Hub-Refusal`), so a world whose link is
+  refused by Cloudflare says that something in front of the hub refused it, with Cloudflare's
+  `cf-ray`, rather than blame its key or its federation flag.
 - **The origin** (your own proxy; a tunnel opens no port, and needs neither this nor the next
   point). Let only Cloudflare reach port 443 at home (the router, or a firewall on the
   machine), from the same ranges as `cloudflare.txt`: section 3's script keeps `ufw`'s rules (each

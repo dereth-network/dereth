@@ -157,6 +157,8 @@ internal sealed class RawLink(HubLink link)
     public readonly HubLink Link = link;
     private readonly List<WireMessage> inbox = [];
     public readonly List<int> Refused = [];
+    /// <summary>The hub's mark on each refusal, empty for none.</summary>
+    public readonly List<string> Marks = [];
     public long Epoch;
     public bool IsUp;
 
@@ -175,6 +177,7 @@ internal sealed class RawLink(HubLink link)
                     break;
                 case LinkEventKind.Refused:
                     Refused.Add(e.Status);
+                    Marks.Add(e.Text);
                     break;
                 case LinkEventKind.Frame:
                     var r = Wire.Read(e.Text);
@@ -350,9 +353,10 @@ internal static class HubChecks
         var unset = new RawLink(new HubLink(Link("charlie"), keyC, linkLog("charlie"), Fast));
         bad.Link.Start();
         unset.Link.Start();
-        c.Check(s, await bad.Until(r => r.Refused.Count > 0) && bad.Refused[0] == 401 && !bad.IsUp, "a wrong key is refused 401 before the upgrade");
-        c.Check(s, await unset.Until(r => r.Refused.Count > 0) && unset.Refused[0] == 403 && !unset.IsUp,
-            "a world whose federation flag was never set is refused 403");
+        c.Check(s, await bad.Until(r => r.Refused.Count > 0) && bad.Refused[0] == 401 && bad.Marks[0] == HubRefusal.Key && !bad.IsUp,
+            "a wrong key is refused 401 before the upgrade, marked as the hub's");
+        c.Check(s, await unset.Until(r => r.Refused.Count > 0) && unset.Refused[0] == 403 && unset.Marks[0] == HubRefusal.Federation && !unset.IsUp,
+            "a world whose federation flag was never set is refused 403, marked as the hub's");
         foreach (var r in new[] { ra, rb, bad, unset })
             r.Link.Stop();
         await Task.Delay(300);

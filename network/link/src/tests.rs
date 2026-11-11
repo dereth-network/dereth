@@ -170,28 +170,82 @@ fn hub(serve: impl Fn(usize, TcpStream) + Send + 'static) -> u16 {
 fn a_refused_key_or_world_waits_a_minute_before_the_next_attempt() {
     let port = hub(|i, mut s| {
         let _ = head_of(&s);
-        let status = if i % 2 == 0 {
-            "401 Unauthorized"
+        let (status, mark) = if i % 2 == 0 {
+            ("401 Unauthorized", "key")
         } else {
-            "403 Forbidden"
+            ("403 Forbidden", "federation")
         };
         let _ = write!(
             s,
-            "HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            "HTTP/1.1 {status}\r\nX-Dereth-Hub-Refusal: {mark}\r\nContent-Length: 0\r\n\
+             Connection: close\r\n\r\n"
         );
     });
     let (clock, pauses) = fake(Duration::ZERO);
     let mut link = LinkClient::start_with(&loopback(port), "aa", KEY, clock).expect("started");
-    for want in [401, 403, 401] {
+    for (want, why) in [
+        (401, HubRefusal::Key),
+        (403, HubRefusal::Federation),
+        (401, HubRefusal::Key),
+    ] {
         assert_eq!(pauses.next(), REFUSED_WAIT);
         assert_eq!(
             next(&mut link),
             Event::Refused {
                 status: want,
+                by: RefusedBy::Hub(why),
                 retry_in: REFUSED_WAIT
             }
         );
     }
+    link.stop();
+}
+
+/// Spec: link protocol: a `403` without the hub's mark is read as a refusal by something in front
+/// of the hub, named as it named itself, and waited out as the hub's own refusal is; one with the
+/// mark is the hub's.
+#[test]
+fn an_unmarked_403_is_read_as_a_refusal_in_front_of_the_hub() {
+    let port = hub(|i, mut s| {
+        let _ = head_of(&s);
+        let named = if i == 0 {
+            "Server: cloudflare\r\nCF-RAY: 8f00aa-AMS\r\n"
+        } else {
+            "X-Dereth-Hub-Refusal: federation\r\n"
+        };
+        let _ = write!(
+            s,
+            "HTTP/1.1 403 Forbidden\r\n{named}Content-Type: text/html\r\nContent-Length: 0\r\n\
+             Connection: close\r\n\r\n"
+        );
+    });
+    let (clock, pauses) = fake(Duration::ZERO);
+    let mut link = LinkClient::start_with(&loopback(port), "aa", KEY, clock).expect("started");
+    assert_eq!(pauses.next(), REFUSED_WAIT);
+    let Event::Refused { status, by, .. } = next(&mut link) else {
+        panic!("a refusal");
+    };
+    assert_eq!(
+        by,
+        RefusedBy::Front {
+            server: Some("cloudflare".into()),
+            cf_ray: Some("8f00aa-AMS".into()),
+        }
+    );
+    let line = by.describe(status);
+    assert!(
+        line.starts_with("something in front of the hub refused the connection (HTTP 403"),
+        "{line}"
+    );
+    assert_eq!(pauses.next(), REFUSED_WAIT);
+    let Event::Refused { status, by, .. } = next(&mut link) else {
+        panic!("a refusal");
+    };
+    assert_eq!(by, RefusedBy::Hub(HubRefusal::Federation));
+    assert_eq!(
+        by.describe(status),
+        "the hub refused this world (403: its federation flag is not on)"
+    );
     link.stop();
 }
 

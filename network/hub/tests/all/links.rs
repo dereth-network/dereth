@@ -33,6 +33,79 @@ fn a_live_link_closes_when_its_key_is_rotated_or_revoked() {
     running.shutdown();
 }
 
+/// The status and the hub's refusal mark (`X-Dereth-Hub-Refusal`) of a request to `addr`.
+fn refusal_of(addr: std::net::SocketAddr, request: &str) -> (u16, Option<String>) {
+    use std::io::Read as _;
+    let mut s = TcpStream::connect(addr).expect("connect");
+    // A guard against a hub that never answers, not the time it takes.
+    s.set_read_timeout(Some(Duration::from_secs(60)))
+        .expect("a timeout");
+    s.write_all(request.as_bytes()).expect("the request");
+    let mut out = String::new();
+    let _ = s.read_to_string(&mut out);
+    let (head, _) = out.split_once("\r\n\r\n").unwrap_or((&out, ""));
+    let status = head
+        .split_whitespace()
+        .nth(1)
+        .and_then(|c| c.parse().ok())
+        .unwrap_or(0);
+    let header = dereth_network_protocol::refusal::HEADER;
+    let mark = head.lines().find_map(|l| {
+        let (k, v) = l.split_once(':')?;
+        k.trim()
+            .eq_ignore_ascii_case(header)
+            .then(|| v.trim().to_owned())
+    });
+    (status, mark)
+}
+
+/// A link's upgrade request for `slug` with `key`.
+fn upgrade(slug: &str, key: &str) -> String {
+    format!(
+        "GET /v1/servers/{slug}/link HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\n\
+         Upgrade: websocket\r\nSec-WebSocket-Version: 13\r\n\
+         Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nAuthorization: Bearer {key}\r\n\r\n"
+    )
+}
+
+/// Spec: hub: the hub marks its own refusals of a world's link and heartbeat, so that a world can
+/// tell them from a refusal by anything in front of the hub.
+#[test]
+fn the_hubs_refusals_of_a_world_carry_its_mark() {
+    let (running, worlds, (off, off_key)) = super::conformance::hub();
+    let addr = running.local_addr();
+    let bad = format!("drth_{}", "A".repeat(43));
+    assert_eq!(
+        refusal_of(addr, &upgrade(&worlds[0].0, &bad)),
+        (401, Some("key".to_owned())),
+        "a wrong key"
+    );
+    assert_eq!(
+        refusal_of(addr, &upgrade(&off, &off_key)),
+        (403, Some("federation".to_owned())),
+        "a world whose flag is off"
+    );
+    let body = r#"{"state":"online"}"#;
+    let beat = format!(
+        "POST /v1/servers/{}/heartbeat HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {bad}\r\n\
+         Content-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+        worlds[0].0,
+        body.len()
+    );
+    assert_eq!(
+        refusal_of(addr, &beat),
+        (401, Some("key".to_owned())),
+        "a heartbeat with a wrong key"
+    );
+    let missing = "GET /v1/servers/nobody HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    assert_eq!(
+        refusal_of(addr, missing),
+        (404, None),
+        "an answer that is no refusal of a world is not marked"
+    );
+    running.shutdown();
+}
+
 /// Spec: hub: a link attempt takes from its client address's request allowance.
 #[test]
 fn link_attempts_with_a_bad_key_are_limited_as_requests_are() {

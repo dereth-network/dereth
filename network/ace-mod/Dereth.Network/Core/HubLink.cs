@@ -2,9 +2,10 @@
 //
 // It connects to `<hub>/v1/servers/<slug>/link` with the world's key as a bearer token, carries
 // text frames both ways, and reconnects with growing waits (1, 2, 5, 10, then every 30 seconds; a
-// minute after the hub refuses the key or the world). It knows nothing of the protocol beyond the
-// frame: the world half decides what to send and reads what arrives, on the world thread, through
-// <see cref="TryTake"/> and <see cref="Send"/>. A frame handed over for a connection that has since
+// minute after the hub refuses the key or the world, or anything in front of the hub refuses the
+// connection with a 401 or 403; the hub marks its own refusals, so the log says which it was). It
+// knows nothing of the protocol beyond the frame: the world half decides what to send and reads
+// what arrives, on the world thread, through <see cref="TryTake"/> and <see cref="Send"/>. A frame handed over for a connection that has since
 // gone is dropped rather than sent first on the next one, where only `hello` may come first. A hub
 // that sends faster than the world takes its frames, so that <see cref="HubLink.MaxWaitingFrames"/>
 // wait, loses the link, as one that falls silent does.
@@ -36,7 +37,11 @@ public enum LinkEventKind
     Frame,
     /// <summary>The connection is gone.</summary>
     Down,
-    /// <summary>The hub refused the connection before the upgrade (401: the key; 403: the world's federation flag).</summary>
+    /// <summary>
+    /// The connection was refused before the upgrade with a 401 or 403 (its <c>Status</c>). <c>Text</c> is the hub's
+    /// mark (<see cref="HubRefusal.Key"/>, <see cref="HubRefusal.Federation"/>), or empty when the refusal came from something
+    /// in front of the hub.
+    /// </summary>
     Refused,
 }
 
@@ -49,6 +54,84 @@ public interface ILink
 
     /// <summary>Queues a frame for the connection `epoch`; dropped if that connection has gone.</summary>
     void Send(long epoch, string frame);
+}
+
+/// <summary>
+/// Who refused a link before its upgrade. The hub marks each of its own refusals with <see cref="Header"/>; a 401 or 403
+/// without it came from something in front of the hub (a reverse proxy, or Cloudflare challenging what it takes for a
+/// bot), never from the hub.
+/// </summary>
+public static class HubRefusal
+{
+    public const string Header = "X-Dereth-Hub-Refusal";
+
+    /// <summary>The mark of a refusal of the world's key (401).</summary>
+    public const string Key = "key";
+
+    /// <summary>The mark of a refusal of a world whose federation flag is not on (403).</summary>
+    public const string Federation = "federation";
+
+    /// <summary>The most of a header's value kept from a refusal, so a long one never fills the log.</summary>
+    private const int MaxValue = 64;
+
+    /// <summary>The hub's mark on a refusal, from its headers (<paramref name="header"/> gives one by name); null when it has none.</summary>
+    public static string? Mark(Func<string, string?> header)
+    {
+        var mark = Kept(header(Header));
+        return mark.Length > 0 ? mark : null;
+    }
+
+    /// <summary>What the log says of a refusal of <paramref name="status"/>, without what the link does next.</summary>
+    public static string Describe(int status, Func<string, string?> header) => Mark(header) switch
+    {
+        Key => $"the hub refused this world's key ({status})",
+        Federation => $"the hub refused this world ({status}: its federation flag is not on)",
+        { } other => $"the hub refused this world ({status}: {other})",
+        null => $"something in front of the hub refused the connection (HTTP {status}{Named(header)}); "
+                + "check the proxy or Cloudflare (Bot Fight Mode challenges game servers)",
+    };
+
+    /// <summary>What answered in the hub's place, as it named itself: its Server and CF-Ray headers.</summary>
+    private static string Named(Func<string, string?> header)
+    {
+        var named = new StringBuilder();
+        var server = Kept(header("Server"));
+        if (server.Length > 0)
+            named.Append(", server: ").Append(server);
+        var ray = Kept(header("CF-Ray"));
+        if (ray.Length > 0)
+            named.Append(", cf-ray: ").Append(ray);
+        return named.ToString();
+    }
+
+    /// <summary>A header's value as the log keeps it: printable ASCII only, at most <see cref="MaxValue"/> characters.</summary>
+    private static string Kept(string? v)
+    {
+        if (v is null)
+            return "";
+        var kept = new StringBuilder();
+        foreach (var ch in v.Trim())
+        {
+            if (ch is >= ' ' and <= '~')
+                kept.Append(ch);
+            if (kept.Length == MaxValue)
+                break;
+        }
+        return kept.ToString();
+    }
+
+    /// <summary>A lookup of a response's headers by name, ignoring case; the first value of each.</summary>
+    public static Func<string, string?> Lookup(IReadOnlyDictionary<string, IEnumerable<string>>? headers) => name =>
+    {
+        if (headers is null)
+            return null;
+        foreach (var (k, values) in headers)
+        {
+            if (string.Equals(k, name, StringComparison.OrdinalIgnoreCase))
+                return values.FirstOrDefault();
+        }
+        return null;
+    };
 }
 
 public sealed class LinkTiming
@@ -189,10 +272,9 @@ public sealed class HubLink : ILink, IDisposable
                 var code = (int)ws.HttpStatusCode;
                 if (code is 401 or 403)
                 {
-                    events.Enqueue(new LinkEvent(LinkEventKind.Refused, 0, "", code));
-                    log(LogLevel.Error, code == 401
-                        ? "the hub refused this world's key (401); trying again in a minute"
-                        : "the hub refused this world (403: its federation flag is not on); trying again in a minute");
+                    var header = HubRefusal.Lookup(ws.HttpResponseHeaders);
+                    events.Enqueue(new LinkEvent(LinkEventKind.Refused, 0, HubRefusal.Mark(header) ?? "", code));
+                    log(LogLevel.Error, HubRefusal.Describe(code, header) + "; trying again in a minute");
                     await Pause(timing.RefusedWait, ct).ConfigureAwait(false);
                     continue;
                 }

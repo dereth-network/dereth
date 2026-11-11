@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use dereth_network_protocol::person::is_link_code;
 use dereth_network_protocol::wire::PROTOCOL;
-use dereth_network_protocol::{heartbeat, Game};
+use dereth_network_protocol::{heartbeat, refusal, Game};
 use dereth_network_protocol::{
     Address, ChannelOp, ChannelOutcome, DirectoryMessage, ListingOutcome, Message, Outcome,
     PersonOp, PersonOutcome, Profile, ReachMessage, RoomsMessage, SayMessage,
@@ -110,23 +110,45 @@ impl Link {
     /// # Errors
     /// [`Open::Refused`] for a status answer, [`Open::Failed`] for anything else.
     pub fn open(base: &str, slug: &str, key: &str) -> Result<Self, Open> {
+        Self::open_marked(base, slug, key).map_err(|(e, _)| e)
+    }
+
+    /// How the hub refuses `slug`'s link with `key`: the status, and the hub's mark on it
+    /// ([`dereth_network_protocol::refusal::HEADER`]) if it has one.
+    ///
+    /// # Errors
+    /// When the link is not refused with a status answer.
+    pub fn refusal(base: &str, slug: &str, key: &str) -> Result<(u16, Option<String>), String> {
+        match Self::open_marked(base, slug, key) {
+            Ok(l) => {
+                l.close();
+                Err("it linked".into())
+            }
+            Err((Open::Refused(status), mark)) => Ok((status, mark)),
+            Err((e, _)) => Err(format!("{e:?}")),
+        }
+    }
+
+    /// [`Link::open`], with the hub's mark on a refusal.
+    fn open_marked(base: &str, slug: &str, key: &str) -> Result<Self, (Open, Option<String>)> {
+        let failed = |e: Open| (e, None);
         let url = format!("{}/v1/servers/{slug}/link", base.trim_end_matches('/'));
         let rest = url
             .strip_prefix("ws://")
-            .ok_or_else(|| Open::Failed(format!("{url}: the suite speaks ws:// only")))?;
+            .ok_or_else(|| failed(Open::Failed(format!("{url}: the suite speaks ws:// only"))))?;
         let authority = rest.split('/').next().unwrap_or("");
-        let tcp = TcpStream::connect(authority).map_err(|e| Open::Failed(e.to_string()))?;
+        let tcp = TcpStream::connect(authority).map_err(|e| failed(Open::Failed(e.to_string())))?;
         tcp.set_read_timeout(Some(HANDSHAKE_GUARD))
-            .map_err(|e| Open::Failed(e.to_string()))?;
+            .map_err(|e| failed(Open::Failed(e.to_string())))?;
         let mut request = url
             .as_str()
             .into_client_request()
-            .map_err(|e| Open::Failed(e.to_string()))?;
+            .map_err(|e| failed(Open::Failed(e.to_string())))?;
         request.headers_mut().insert(
             "Authorization",
             format!("Bearer {key}")
                 .parse()
-                .map_err(|_| Open::Failed("a key that is no header".into()))?,
+                .map_err(|_| failed(Open::Failed("a key that is no header".into())))?,
         );
         match tungstenite::client::client(request, tcp) {
             Ok((ws, _)) => {
@@ -142,9 +164,14 @@ impl Link {
                 })
             }
             Err(tungstenite::HandshakeError::Failure(tungstenite::Error::Http(r))) => {
-                Err(Open::Refused(r.status().as_u16()))
+                let mark = r
+                    .headers()
+                    .get(dereth_network_protocol::refusal::HEADER)
+                    .and_then(|v| v.to_str().ok())
+                    .map(str::to_owned);
+                Err((Open::Refused(r.status().as_u16()), mark))
             }
-            Err(e) => Err(Open::Failed(e.to_string())),
+            Err(e) => Err(failed(Open::Failed(e.to_string()))),
         }
     }
 
@@ -644,16 +671,16 @@ pub fn run(t: &HubTarget) -> Vec<Check> {
 
     check("link.a_wrong_key_is_refused_401", &mut || {
         let wrong = format!("drth_{}", "A".repeat(43));
-        match Link::open(&t.base, &a, &wrong) {
-            Err(Open::Refused(401)) => Ok(()),
+        match Link::refusal(&t.base, &a, &wrong)? {
+            (401, Some(m)) if m == refusal::KEY => Ok(()),
             other => Err(format!("{other:?}")),
         }
     });
     if let Some((off, key)) = &t.off {
         check(
             "link.a_world_whose_flag_is_not_on_is_refused_403",
-            &mut || match Link::open(&t.base, off, key) {
-                Err(Open::Refused(403)) => Ok(()),
+            &mut || match Link::refusal(&t.base, off, key)? {
+                (403, Some(m)) if m == refusal::FEDERATION => Ok(()),
                 other => Err(format!("{other:?}")),
             },
         );

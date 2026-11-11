@@ -36,8 +36,8 @@ held to them.
 
 | check | what it holds the hub to |
 |---|---|
-| `link.a_wrong_key_is_refused_401` | a key that is not the world's is refused before the upgrade |
-| `link.a_world_whose_flag_is_not_on_is_refused_403` | a world not `on` may not link (with `--off`) |
+| `link.a_wrong_key_is_refused_401` | a key that is not the world's is refused before the upgrade, marked `X-Dereth-Hub-Refusal: key` |
+| `link.a_world_whose_flag_is_not_on_is_refused_403` | a world not `on` may not link (with `--off`), marked `X-Dereth-Hub-Refusal: federation` |
 | `link.hello_is_welcomed_with_the_worlds_own_slug` | `welcome` answers `hello`, naming the world |
 | `link.anything_before_hello_is_refused` | `error {order}`, then the link is closed |
 | `link.another_protocol_version_is_refused` | `error {protocol}`, then closed |

@@ -5,9 +5,10 @@
 //!   ([`crate::forwarded`]).
 //! - **A link** is `GET /v1/servers/<slug>/link` upgraded to a WebSocket, with the world's key as
 //!   `Authorization: Bearer drth_...`. A wrong key is refused 401 and a world whose federation
-//!   flag is not on 403, before the upgrade. Each link has a thread that carries its frames both
-//!   ways; every frame goes to the one hub thread, which owns the routing ([`crate::core::Hub`])
-//!   and hands each link what it is to send. A world that stops taking its frames is dropped once
+//!   flag is not on 403, before the upgrade, each marked as the hub's own refusal
+//!   ([`dereth_network_protocol::refusal::HEADER`]), as a heartbeat's refused key is. Each link
+//!   has a thread that carries its frames both ways; every frame goes to the one hub thread,
+//!   which owns the routing ([`crate::core::Hub`]) and hands each link what it is to send. A world that stops taking its frames is dropped once
 //!   a write to it has waited [`LINK_WRITE_TIMEOUT`], or at once when the frames waiting for it
 //!   pass [`LINK_QUEUE_BYTES`]; the other worlds are told it is offline, as for any lost link.
 //! - **The HTTP API** is the registry's: worlds, status, resolution, heartbeats and the two
@@ -44,6 +45,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use dereth_network_protocol::limits::{Bucket, Limits, Rate};
+use dereth_network_protocol::refusal;
 use dereth_network_protocol::wire::{WireError, MAX_MESSAGE_BYTES};
 use dereth_network_protocol::{
     DirectoryMessage, Federation, Message, ReachMessage, RoomsMessage, SayMessage,
@@ -1849,15 +1851,19 @@ fn connection(shared: &Arc<Shared>, mut stream: TcpStream, peer: SocketAddr) -> 
     } else {
         None
     };
+    let mut headers: Vec<(String, String)> = cache
+        .map(|c| vec![("Cache-Control".into(), c.into())])
+        .unwrap_or_default();
+    if status == 401 && world_key_route(path) {
+        headers.push((refusal::HEADER.into(), refusal::KEY.into()));
+    }
     write_reply(
         &mut stream,
         &crate::api::Reply {
             status,
             body,
             kind,
-            headers: cache
-                .map(|c| vec![("Cache-Control".into(), c.into())])
-                .unwrap_or_default(),
+            headers,
             cors: crate::api::Cors::Any,
         },
     )
@@ -1878,6 +1884,38 @@ pub(crate) fn too_many(wait: u64, cors: crate::api::Cors) -> crate::api::Reply {
 
 fn error_json(status: u16, message: &str) -> String {
     json!({ "error": { "code": crate::api::code(status), "message": message } }).to_string()
+}
+
+/// The hub's own refusal of a world's link: marked as the hub's, with why, so that the world can
+/// tell it from a refusal by anything in front of the hub.
+fn refuse_world(
+    stream: &mut TcpStream,
+    status: u16,
+    mark: &'static str,
+    message: &str,
+) -> io::Result<()> {
+    write_reply(
+        stream,
+        &crate::api::Reply {
+            status,
+            body: error_json(status, message),
+            kind: "application/json; charset=utf-8",
+            headers: vec![(refusal::HEADER.into(), mark.into())],
+            cors: crate::api::Cors::Any,
+        },
+    )
+}
+
+/// Whether `path` is one of a world's own routes, which take its key: its heartbeat and its web
+/// address. Their `401` is the hub's refusal of the key.
+fn world_key_route(path: &str) -> bool {
+    matches!(
+        path.trim_matches('/')
+            .split('/')
+            .collect::<Vec<_>>()
+            .as_slice(),
+        ["v1", "servers", _, "heartbeat" | "web"]
+    )
 }
 
 fn respond(stream: &mut TcpStream, status: u16, body: &str) -> io::Result<()> {
@@ -2327,10 +2365,11 @@ fn link(
                 &format!("link refused for {slug} from {peer}: bad key (logged once a minute)"),
             );
             consume(&mut stream, head.len)?;
-            return respond(
+            return refuse_world(
                 &mut stream,
                 401,
-                &error_json(401, "A valid key for this server is required"),
+                refusal::KEY,
+                "A valid key for this server is required",
             );
         };
         let key = crate::registry::key_digest(&key);
@@ -2345,10 +2384,11 @@ fn link(
             &format!("link refused for {slug}: federation is not on (logged once a minute)"),
         );
         consume(&mut stream, head.len)?;
-        return respond(
+        return refuse_world(
             &mut stream,
             403,
-            &error_json(403, "This world's federation flag is not on"),
+            refusal::FEDERATION,
+            "This world's federation flag is not on",
         );
     }
     stream.set_read_timeout(Some(HEAD_TIMEOUT))?;

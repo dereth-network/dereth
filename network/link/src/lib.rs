@@ -20,7 +20,8 @@
 //!   faster than the world takes its frames, so that [`MAX_WAITING_FRAMES`] wait;
 //! - connects again after a lost link or a failed attempt, waiting as [`Reconnect`] says: 1, 2, 5,
 //!   10, then every 30 seconds, and a minute after the hub refuses the key or the world (`401`,
-//!   `403`).
+//!   `403`); a `401` or `403` without the hub's mark is told apart as a refusal by something in
+//!   front of the hub ([`RefusedBy`]), and waited out the same way.
 //!
 //! Nothing here logs, and nothing here holds the key anywhere but the request it sends. [`verify`]
 //! is a world's other calls to the hub, the two of its operator's verification.
@@ -34,6 +35,8 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+
+pub use dereth_network_protocol::refusal::{HubRefusal, RefusedBy};
 
 /// The waits between reconnection attempts; the last repeats.
 pub const BACKOFF_SECS: [u64; 5] = [1, 2, 5, 10, 30];
@@ -189,9 +192,15 @@ pub enum Event {
     Down(String),
     /// An attempt to connect failed; the next is made after `retry_in`.
     Unreachable { why: String, retry_in: Duration },
-    /// The hub refused the world's key (`401`) or the world itself (`403`, its federation flag is
-    /// not on); the next attempt is made after `retry_in`.
-    Refused { status: u16, retry_in: Duration },
+    /// The world was refused before the upgrade with `status`: by the hub, its key (`401`) or the
+    /// world itself (`403`, its federation flag is not on), or by something in front of the hub,
+    /// as `by` says ([`RefusedBy::describe`] words it). The next attempt is made after
+    /// `retry_in`.
+    Refused {
+        status: u16,
+        by: RefusedBy,
+        retry_in: Duration,
+    },
 }
 
 /// The waits between attempts to connect: 1, 2, 5, 10, then every 30 seconds while attempts
@@ -476,8 +485,8 @@ impl Stream {
 
 /// Why a connection attempt failed.
 enum Failed {
-    /// The hub refused the key (401) or the world (403).
-    Refused(u16),
+    /// A `401` or `403`, and who answered it.
+    Refused(u16, RefusedBy),
     Other(String),
 }
 
@@ -533,7 +542,9 @@ fn connect(
         Err(tungstenite::HandshakeError::Failure(tungstenite::Error::Http(r))) => {
             let code = r.status().as_u16();
             if code == 401 || code == 403 {
-                Err(Failed::Refused(code))
+                let headers = r.headers();
+                let by = RefusedBy::read(|name| headers.get(name).and_then(|v| v.to_str().ok()));
+                Err(Failed::Refused(code, by))
             } else {
                 Err(Failed::Other(format!("the hub answered {code}")))
             }
@@ -549,9 +560,16 @@ fn run(target: &HubUrl, url: &str, key: &str, side: &Side, clock: &impl Clock) {
     while !side.stopping() {
         let mut ws = match connect(target, url, key) {
             Ok(ws) => ws,
-            Err(Failed::Refused(status)) => {
+            Err(Failed::Refused(status, by)) => {
                 let retry_in = reconnect.after_refusal();
-                if !side.tell(0, Event::Refused { status, retry_in }) {
+                if !side.tell(
+                    0,
+                    Event::Refused {
+                        status,
+                        by,
+                        retry_in,
+                    },
+                ) {
                     return;
                 }
                 clock.pause(retry_in, &side.stop);

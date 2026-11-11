@@ -25,6 +25,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use dereth_network_protocol::heartbeat::{self, Adapter, Heartbeat};
+use dereth_network_protocol::refusal::RefusedBy;
 use dereth_network_protocol::Game;
 
 /// How often the world reports while nothing changes. The hub counts a world's status for three
@@ -240,6 +241,26 @@ impl Reporter {
     }
 }
 
+/// What the log says when a heartbeat is answered with `status`, `why` its body: a `401` or `403`
+/// without the hub's mark (`by`) came from something in front of the hub, whose answer is not
+/// the hub's to show.
+fn refused_line(status: u16, by: Option<&RefusedBy>, why: &str) -> String {
+    if let Some(by @ RefusedBy::Front { .. }) = by {
+        return format!(
+            "this world's heartbeat was refused: {}",
+            by.describe(status)
+        );
+    }
+    format!(
+        "the hub refused this world's heartbeat (HTTP {status}{}): {why}",
+        if status == 401 {
+            "; is the key the one the hub gave?"
+        } else {
+            ""
+        }
+    )
+}
+
 /// The thread: a heartbeat at start, each minute, at each change of state, and `offline` at the
 /// end.
 fn report(settings: &HubSettings, rx: &Receiver<Report>) {
@@ -268,6 +289,10 @@ fn report(settings: &HubSettings, rx: &Receiver<Report>) {
             }
             Ok(mut r) => {
                 let status = r.status().as_u16();
+                let by = matches!(status, 401 | 403).then(|| {
+                    let headers = r.headers();
+                    RefusedBy::read(|name| headers.get(name).and_then(|v| v.to_str().ok()))
+                });
                 let why = r
                     .body_mut()
                     .with_config()
@@ -275,14 +300,7 @@ fn report(settings: &HubSettings, rx: &Receiver<Report>) {
                     .read_to_string()
                     .unwrap_or_default();
                 if !std::mem::replace(&mut failing, true) {
-                    tracing::warn!(
-                        "the hub refused this world's heartbeat (HTTP {status}{}): {why}",
-                        if status == 401 {
-                            "; is the key the one the hub gave?"
-                        } else {
-                            ""
-                        }
-                    );
+                    tracing::warn!("{}", refused_line(status, by.as_ref(), &why));
                 }
             }
             Err(e) => {
@@ -391,6 +409,29 @@ mod tests {
         });
         rx.recv_timeout(Duration::from_secs(120))
             .expect("the world posts its heartbeat")
+    }
+
+    #[test]
+    fn a_heartbeat_refused_without_the_hubs_mark_is_logged_as_coming_from_in_front_of_the_hub() {
+        let front = RefusedBy::Front {
+            server: Some("cloudflare".into()),
+            cf_ray: None,
+        };
+        let line = refused_line(403, Some(&front), "<html>a challenge</html>");
+        assert!(
+            line.starts_with("this world's heartbeat was refused: something in front of the hub refused the connection (HTTP 403, server: cloudflare)"),
+            "{line}"
+        );
+        assert!(!line.contains("<html>"), "{line}");
+        let hub = RefusedBy::Hub(dereth_network_protocol::refusal::HubRefusal::Key);
+        assert_eq!(
+            refused_line(401, Some(&hub), "{}"),
+            "the hub refused this world's heartbeat (HTTP 401; is the key the one the hub gave?): {}"
+        );
+        assert_eq!(
+            refused_line(409, None, "a conflict"),
+            "the hub refused this world's heartbeat (HTTP 409): a conflict"
+        );
     }
 
     #[test]

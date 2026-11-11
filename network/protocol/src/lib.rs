@@ -17,9 +17,10 @@
 //! remote correspondents are shown under), [`limits`] (rate limits), [`person`] (the person
 //! layer's words), [`wire`] (the link messages), [`directory`] (a listed character's profile and
 //! the directory's own link messages), [`reach`] (the question the hub asks a world before it
-//! carries a tell to an offline character's person elsewhere), [`say`] (the line the hub asks a
-//! world to say as one of its characters, said by its person elsewhere), [`rooms`] (which of a
-//! world's own rooms carries the Global room, and which the hub mirrors into Discord), [`web`]
+//! carries a tell to an offline character's person elsewhere), [`refusal`] (who refused a world's
+//! link or heartbeat: the hub, which marks its refusals, or something in front of it), [`say`]
+//! (the line the hub asks a world to say as one of its characters, said by its person elsewhere),
+//! [`rooms`] (which of a world's own rooms carries the Global room, and which the hub mirrors into Discord), [`web`]
 //! (where a browser reaches a world), [`challenge`] (the datagram the hub sends a world's game
 //! port when its operator verifies it in game) and [`probe`] (the datagrams the hub sends a
 //! world's game port when its host asks the hub to try it from outside).
@@ -34,6 +35,7 @@ pub mod limits;
 pub mod person;
 pub mod probe;
 pub mod reach;
+pub mod refusal;
 pub mod rooms;
 pub mod say;
 pub mod settings;

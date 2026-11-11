@@ -24,7 +24,7 @@
 
 use std::collections::BTreeMap;
 
-use dereth_network_link::{Event, HubUrl, LinkClient};
+use dereth_network_link::{Event, HubUrl, LinkClient, RefusedBy};
 use dereth_network_protocol::address::is_network_slug;
 use dereth_network_protocol::directory::{
     is_shown_text, Allegiance, AubereanVitals, Vital, MAX_ALLEGIANCE_NAME_CHARS,
@@ -54,6 +54,16 @@ pub const ALLEGIANCE_KEYS: &str = "dereth-network-allegiance-keys";
 /// The most of what the link received that one pass hands the world; the rest waits for the next,
 /// so a hub that sends without pause holds no pass of the world's loop for long.
 pub const FRAMES_PER_PUMP: usize = 256;
+
+/// What the log says when the world's link is refused before its upgrade: by the hub, or by
+/// something in front of it.
+fn refused_line(status: u16, by: &RefusedBy, retry_in: std::time::Duration) -> String {
+    format!(
+        "Dereth Network: {}; trying again in {} s",
+        by.describe(status),
+        retry_in.as_secs()
+    )
+}
 
 /// The world's half of the network and its link.
 #[derive(Debug)]
@@ -196,15 +206,11 @@ impl Network {
                     "Dereth Network: the hub cannot be reached ({why}); trying again in {} s",
                     retry_in.as_secs()
                 ),
-                Event::Refused { status, retry_in } => tracing::warn!(
-                    "Dereth Network: the hub refused the link ({}); trying again in {} s",
-                    if status == 401 {
-                        "it does not know the world's key"
-                    } else {
-                        "the world's federation is not on at the hub"
-                    },
-                    retry_in.as_secs()
-                ),
+                Event::Refused {
+                    status,
+                    by,
+                    retry_in,
+                } => tracing::warn!("{}", refused_line(status, &by, retry_in)),
             }
         }
         f.tick(friends, t);
@@ -457,6 +463,30 @@ mod tests {
     //! the host composes of a character for the directory is the network's own field list
     //! (`docs/network/02-link-protocol.md` section 7).
     use super::*;
+
+    /// A link refused with a `403` without the hub's mark is logged as a refusal by something in
+    /// front of the hub, naming what answered; with the mark, as the hub's refusal of the world.
+    /// (The link reads who refused from the answer's headers: its own tests, at a stand-in hub.)
+    #[test]
+    fn a_403_without_the_hubs_mark_is_logged_as_coming_from_in_front_of_the_hub() {
+        let wait = dereth_network_link::REFUSED_WAIT;
+        let front = RefusedBy::Front {
+            server: Some("cloudflare".into()),
+            cf_ray: Some("8f00aa-AMS".into()),
+        };
+        assert_eq!(
+            refused_line(403, &front, wait),
+            "Dereth Network: something in front of the hub refused the connection (HTTP 403, \
+             server: cloudflare, cf-ray: 8f00aa-AMS); check the proxy or Cloudflare (Bot Fight Mode \
+             challenges game servers); trying again in 60 s"
+        );
+        let hub = RefusedBy::Hub(dereth_network_link::HubRefusal::Federation);
+        assert_eq!(
+            refused_line(403, &hub, wait),
+            "Dereth Network: the hub refused this world (403: its federation flag is not on); \
+             trying again in 60 s"
+        );
+    }
 
     /// The hub is told the WebSocket endpoint's URL only within the network's rule, Empyrean's:
     /// `wss://` to anywhere, `ws://` to this machine; one outside it is left out.

@@ -26,6 +26,7 @@ internal static unsafe class UnitChecks
         TurbineRoomRequest(c);
         GuardChecks.Run(c);
         FloodChecks.Run(c);
+        RefusalChecks.Run(c);
         VerifyChecks.Run(c);
         PersonChecks.Run(c);
         DirectoryChecks.Run(c);

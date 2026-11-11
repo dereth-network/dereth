@@ -36,7 +36,7 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use dereth_network_link::{is_key, Event, HubUrl, LinkClient};
+use dereth_network_link::{is_key, Event, HubUrl, LinkClient, RefusedBy};
 use dereth_network_protocol::verification;
 use empyrean_common::federation_configuration::FederationConfiguration;
 use empyrean_world::federation::{self, FederationSettings, NetworkStore, RoomSlot};
@@ -46,6 +46,15 @@ pub use dereth_network_link::verify::VERIFY_TIMEOUT;
 
 /// What a refusal of the world's key is answered with, and where the key is set.
 const KEY_UNKNOWN: &str = "The Dereth Network did not verify this world: the hub does not know this world's key. Check federation.key_file against the key the site gave you.";
+
+/// What the log says when the world's link is refused before its upgrade: by the hub, or by
+/// something in front of it.
+fn refused_line(status: u16, by: &RefusedBy) -> String {
+    format!(
+        "Dereth Network: {}; trying again in a minute",
+        by.describe(status)
+    )
+}
 
 /// What the world's calls to the hub's verification routes name themselves.
 const USER_AGENT: &str = concat!("empyrean-server/", env!("CARGO_PKG_VERSION"));
@@ -366,10 +375,7 @@ impl FederationLink {
                     log::info!("Dereth Network: link down ({why})");
                     federation::on_link_down(w);
                 }
-                Event::Refused { status, .. } => log::error!(
-                    "Dereth Network: the hub refused this world ({status}: {}); trying again in a minute",
-                    if status == 401 { "the key" } else { "its federation flag is not on" }
-                ),
+                Event::Refused { status, by, .. } => log::error!("{}", refused_line(status, &by)),
                 Event::Unreachable { why, retry_in } => log::warn!(
                     "Dereth Network: cannot reach the hub ({why}); trying again in {} s",
                     retry_in.as_secs()
@@ -434,6 +440,73 @@ impl FederationLink {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A stand-in for the hub's link route on loopback that answers its one connection's upgrade
+    /// `403`, with `headers` (each line ending `\r\n`); its URL.
+    fn refusing_hub(headers: &'static str) -> HubUrl {
+        use std::io::{BufRead as _, Write as _};
+        let l = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
+        let port = l.local_addr().expect("an address").port();
+        std::thread::spawn(move || {
+            let Ok((mut s, _)) = l.accept() else { return };
+            let mut r = std::io::BufReader::new(s.try_clone().expect("the stream"));
+            let mut line = String::new();
+            while r.read_line(&mut line).unwrap_or(0) > 0 && line != "\r\n" {
+                line.clear();
+            }
+            let _ = write!(
+                s,
+                "HTTP/1.1 403 Forbidden\r\n{headers}Content-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+        });
+        HubUrl::parse(&format!("ws://127.0.0.1:{port}")).expect("a loopback hub")
+    }
+
+    /// The line the log gives for the first thing that happens to a link to `hub`.
+    fn first_refusal(hub: &HubUrl) -> String {
+        let mut link = LinkClient::start(
+            hub,
+            "aa",
+            "drth_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        )
+        .expect("started");
+        // A guard against a link that never answers, not the time it takes.
+        let until = Instant::now() + Duration::from_secs(60);
+        let e = loop {
+            if let Some(e) = link.try_event() {
+                break e;
+            }
+            assert!(Instant::now() < until, "no event came");
+            std::thread::sleep(Duration::from_millis(2));
+        };
+        link.stop();
+        match e {
+            Event::Refused { status, by, .. } => refused_line(status, &by),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// Divergence: V451
+    /// A `403` on the link's upgrade without the hub's mark is logged as a refusal by something in
+    /// front of the hub, naming what answered; with the mark, as the hub's refusal of the world.
+    #[test]
+    fn a_403_without_the_hubs_mark_is_logged_as_coming_from_in_front_of_the_hub() {
+        let front = first_refusal(&refusing_hub(
+            "Server: cloudflare\r\nCF-RAY: 8f00aa-AMS\r\n",
+        ));
+        assert_eq!(
+            front,
+            "Dereth Network: something in front of the hub refused the connection (HTTP 403, \
+             server: cloudflare, cf-ray: 8f00aa-AMS); check the proxy or Cloudflare (Bot Fight Mode \
+             challenges game servers); trying again in a minute"
+        );
+        let hub = first_refusal(&refusing_hub("X-Dereth-Hub-Refusal: federation\r\n"));
+        assert_eq!(
+            hub,
+            "Dereth Network: the hub refused this world (403: its federation flag is not on); \
+             trying again in a minute"
+        );
+    }
 
     /// Divergence: V451
     /// A world tells the hub its WebSocket endpoint while it serves one, as the status endpoint
