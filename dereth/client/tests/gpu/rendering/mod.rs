@@ -62,6 +62,7 @@ mod remaster_terrain;
 mod remaster_traced;
 mod remaster_upscale;
 mod remaster_water;
+mod remaster_water_edges;
 mod remaster_weather;
 mod render_and_day_commands;
 mod render_preferences;

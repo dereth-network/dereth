@@ -1733,9 +1733,13 @@ interface IReflection
     Found seen(float3 from, float3 dir, int2 start, float dist);
 };
 
+// How far past the mirrored picture's edges, a share of its size, the way may be turned by the
+// ripples and still take what the picture shows at its edge.
+static const float MIRRORED_PAST = 0.25;
+
 // What the scene mirrored in the water shows the way `dir` goes from `from`, a point of the
 // water's surface; false where it is not drawn, `from` does not lie at the level it is mirrored
-// in, or the way leaves its picture.
+// in, or the way leaves its picture by more than its ripples turn it aside.
 bool mirrored(float3 from, float3 dir, out float3 color)
 {
     color = float3(0.0, 0.0, 0.0);
@@ -1753,10 +1757,15 @@ bool mirrored(float3 from, float3 dir, out float3 color)
         return false;
     }
     float2 uv = float2(c.x / c.w * 0.5 + 0.5, 0.5 - c.y / c.w * 0.5);
-    if (any(uv < 0.0) || any(uv > 1.0))
+    // The picture is the frame's own view mirrored, so the water at the frame's edges finds its
+    // reflection at the picture's edges, and where the ripples turn it a little past them, what
+    // the picture shows at its edge stands for it: anything else that way, found elsewhere, is
+    // lit otherwise and would show as a bar down each side.
+    if (any(uv < -MIRRORED_PAST) || any(uv > 1.0 + MIRRORED_PAST))
     {
         return false;
     }
+    uv = saturate(uv);
     color = textures[NonUniformResourceIndex(w.x)]
                 .SampleLevel(samplers[NonUniformResourceIndex(w.y)], uv, 0.0)
                 .rgb;
