@@ -69,6 +69,23 @@ impl Era {
 /// alike, so a world's record never takes the id of one a player's files have.
 pub const WORLD_STATES: (u32, u32) = (0x6F10_0000, 0x6FFF_FFFF);
 
+/// The world's own saved states a shop's copy of its store template takes, inclusive: the first of
+/// [`WORLD_STATES`], up to below [`WORLD_RECIPES`].
+pub const SHOP_COPIES: (u32, u32) = (WORLD_STATES.0, WORLD_RECIPES.0 - 1);
+
+/// The world's own saved states its recipe rows (`[[recipe]]`) take, inclusive, above every shop's
+/// copy ([`SHOP_COPIES`]).
+pub const WORLD_RECIPES: (u32, u32) = (0x6F7E_0000, 0x6F7E_FFFF);
+
+// The two lie inside the world's own saved states and share no id, however many shops a world has.
+const _: () = assert!(
+    WORLD_STATES.0 <= SHOP_COPIES.0
+        && SHOP_COPIES.0 <= SHOP_COPIES.1
+        && SHOP_COPIES.1 < WORLD_RECIPES.0
+        && WORLD_RECIPES.0 <= WORLD_RECIPES.1
+        && WORLD_RECIPES.1 <= WORLD_STATES.1
+);
+
 /// What the game's symbols name.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Kind {
@@ -76,7 +93,7 @@ pub enum Kind {
     /// highest the base uses there.
     Static,
     /// A shop's copy of its store template (`[[store]]`, by its key): a saved state numbered in
-    /// [`WORLD_STATES`].
+    /// [`SHOP_COPIES`].
     Store,
 }
 
@@ -100,7 +117,7 @@ impl SymbolKind for Kind {
         match self {
             Self::Static => Numbering::InLandblock,
             Self::Store => Numbering::Counted {
-                start: WORLD_STATES.0,
+                start: SHOP_COPIES.0,
                 world_sets: false,
             },
         }

@@ -124,10 +124,23 @@ fn a_shops_copy_is_kept_in_the_lockfile_by_its_key_numbered_above_the_games_own_
     assert_eq!(
         auberean_pack::Kind::Store.numbering(),
         Numbering::Counted {
-            start: first,
+            start: auberean_pack::SHOP_COPIES.0,
             world_sets: false
         }
     );
     // Above every saved state of the final retail client's files and the end of retail's.
     assert!(first > 0x6F00_5D78 && last < 0x7000_0000);
+}
+
+#[test]
+fn a_worlds_shop_copies_and_its_recipes_take_ranges_of_its_own_states_that_share_no_id() {
+    use auberean_pack::{SHOP_COPIES, WORLD_RECIPES, WORLD_STATES};
+    assert_eq!(SHOP_COPIES, (0x6F10_0000, 0x6F7D_FFFF));
+    assert_eq!(WORLD_RECIPES, (0x6F7E_0000, 0x6F7E_FFFF));
+    let within = |(a, b): (u32, u32)| WORLD_STATES.0 <= a && a <= b && b <= WORLD_STATES.1;
+    assert!(within(SHOP_COPIES) && within(WORLD_RECIPES));
+    assert!(
+        SHOP_COPIES.1 < WORLD_RECIPES.0,
+        "the shops' copies end below the recipes"
+    );
 }

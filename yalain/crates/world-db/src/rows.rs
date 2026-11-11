@@ -827,7 +827,8 @@ pub struct Refining {
 }
 
 /// `[[recipe]]`: a recipe the world defines where the install holds none, made from an install
-/// recipe: its id, the recipe it is made from, its name, description, slots and product.
+/// recipe: its id (one of the world's recipes' saved states, [`auberean_pack::WORLD_RECIPES`]), the
+/// recipe it is made from, its name, description, slots and product.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Recipe {
     pub recipe: yalain_content::crafts::Recipe,
@@ -2823,6 +2824,15 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
         "recipe" => {
             use yalain_content::crafts::RecipeIngredient;
             let recipe = f.req_id("recipe")?;
+            let (first, last) = auberean_pack::WORLD_RECIPES;
+            let recipe = f.held(
+                "recipe",
+                recipe,
+                (first..=last).contains(&recipe),
+                &format!(
+                    "{recipe:#010X} is outside the world's recipes ({first:#010X} to {last:#010X})"
+                ),
+            )?;
             let like = f.req_id("like")?;
             let name = f.req_strref("name")?;
             let description = f.strref("description");

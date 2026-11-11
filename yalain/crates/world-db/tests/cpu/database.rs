@@ -5121,7 +5121,7 @@ fn worn_rows_compile_to_each_templates_looks_in_their_order() {
 
 /// A `[[store]]` row is a shop of the world's own: its keeper sells the store template's sales,
 /// and the shop window names the copy, whose id the lockfile gives it or, for a shop it gives
-/// none, is the lowest of the world's own saved states it does not hold, by key. The keepers'
+/// none, is the lowest of the shops' copies' saved states it does not hold, by key. The keepers'
 /// table keeps the copy's id.
 #[test]
 fn a_shop_row_names_a_copy_of_its_store_template_its_keepers_sell_the_templates_sales() {
@@ -5176,7 +5176,7 @@ fn a_shop_row_names_a_copy_of_its_store_template_its_keepers_sell_the_templates_
 }
 
 /// A keeper naming no shop, a shop copying what is no store template, and a lockfile giving a shop
-/// an id outside the world's own saved states are problems.
+/// an id outside the shops' copies' saved states are problems.
 #[test]
 fn a_shop_must_name_a_store_template_and_its_keeper_a_shop() {
     let mut files = fixture();
@@ -5214,7 +5214,137 @@ fn a_shop_must_name_a_store_template_and_its_keeper_a_shop() {
         problems,
         [
             "town/server/stores.toml:1: from: 6F009999 is no store template",
-            "town/server/stores.toml:7: world.lock gives store pinned 0x6F0016F7, outside the world's own saved states (0x6F100000 to 0x6FFFFFFF)",
+            "town/server/stores.toml:7: world.lock gives store pinned 0x6F0016F7, outside the shops' copies (0x6F100000 to 0x6F7DFFFF)",
         ]
     );
+}
+
+/// A shop's copy and a world recipe each take an id of a range of their own, which share none: a
+/// lockfile pins a shop from the first of the world's own saved states up to the last below the
+/// recipes', and a recipe row takes one of the recipes' own. An id past an edge of either is a
+/// problem, and so is one two shops or two packs' recipe rows share. A new shop never takes a
+/// recipe's id, however many shops the world has.
+#[test]
+fn shop_copies_and_world_recipes_each_take_ids_of_a_range_of_their_own() {
+    let recipe = |id: u32| {
+        format!(
+            "[[recipe]]\nrecipe = {id:#010X}\nlike = 0x6F0002BE\nname = {{ table = 0x25002007, string = 0x00DD730E }}\n\
+             ingredients = [{{ items = [0x47002224] }}]\nproduct = 0x47002224\n\
+             prov = {{ from = \"authored\", by = \"a test\", note = \"a test\" }}\n"
+        )
+    };
+    let with = |lock: &str, recipes: &str| {
+        let mut files = fixture();
+        edit(
+            &mut files,
+            "town/server/stores.toml",
+            "[[keeper]]\ntemplate = 0x470033D0\n",
+            "[[store]]\nkey = \"pinned\"\nfrom = 0x6F0016F6\nname_text = \"Pinned\"\nprov = { from = \"authored\" }\n\n\
+             [[store]]\nkey = \"other\"\nfrom = 0x6F0016F6\nname_text = \"Other\"\nprov = { from = \"authored\" }\n\n\
+             [[keeper]]\ntemplate = 0x470033D0\nshop = \"pinned\"\n",
+        );
+        files.insert("world.lock".into(), lock.into());
+        files.insert("town/server/crafting.toml".into(), recipes.into());
+        files
+    };
+    let compiled = |files: &Files| {
+        compile(&merge(&read(files).unwrap()).unwrap(), &Fake::new())
+            .map_err(|p| p.iter().map(ToString::to_string).collect::<Vec<String>>())
+    };
+
+    // A shop pinned at either edge of its range, a recipe at either edge of its own.
+    let (first, last) = auberean_pack::SHOP_COPIES;
+    assert_eq!((first, last), (0x6F10_0000, 0x6F7D_FFFF));
+    assert_eq!(auberean_pack::WORLD_RECIPES, (0x6F7E_0000, 0x6F7E_FFFF));
+    for (shop, made) in [(first, 0x6F7E_0000), (last, 0x6F7E_FFFF)] {
+        let files = with(
+            &format!("[store]\n\"pinned\" = {shop:#010X}\n"),
+            &recipe(made),
+        );
+        assert!(check(&files).is_empty(), "{:?}", check(&files));
+        let t = compiled(&files).unwrap();
+        let pinned = t.shops.iter().find(|s| s.key == "pinned").unwrap();
+        assert_eq!((pinned.id, pinned.pinned), (shop, true));
+        let other = t.shops.iter().find(|s| s.key == "other").unwrap();
+        assert!((first..=last).contains(&other.id) && other.id != shop);
+        assert_eq!(t.crafts.recipes.keys().copied().collect::<Vec<_>>(), [made]);
+    }
+
+    // A shop pinned past an edge of its range, or at a recipe's id, is a problem.
+    for shop in [0x6F0F_FFFF, 0x6F7E_0000, 0x6F7E_1601, 0x6FFF_FFFF] {
+        let files = with(
+            &format!("[store]\n\"pinned\" = {shop:#010X}\n"),
+            &recipe(0x6F7E_1601),
+        );
+        let problems = compiled(&files).unwrap_err();
+        assert_eq!(
+            problems[0],
+            format!(
+                "town/server/stores.toml:1: world.lock gives store pinned {shop:#010X}, outside the shops' copies (0x6F100000 to 0x6F7DFFFF)"
+            ),
+            "{problems:?}"
+        );
+    }
+
+    // Two shops one id.
+    let files = with(
+        "[store]\n\"other\" = 0x6F100005\n\"pinned\" = 0x6F100005\n",
+        &recipe(0x6F7E_0000),
+    );
+    assert!(
+        compiled(&files)
+            .unwrap_err()
+            .contains(&"world.lock: store: other and pinned are both given 0x6F100005".to_string()),
+        "{:?}",
+        compiled(&files)
+    );
+
+    // A recipe row past an edge of its range, or among the shops' copies or the install's own
+    // states, is a problem.
+    for made in [0x6F7D_FFFF, 0x6F7F_0000, 0x6F10_0000, 0x6F00_02BF] {
+        let files = with("", &recipe(made));
+        assert_eq!(
+            check(&files)
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            [format!(
+                "town/server/crafting.toml:1: recipe: {made:#010X} is outside the world's recipes (0x6F7E0000 to 0x6F7EFFFF)"
+            )],
+        );
+    }
+
+    // Two packs' recipe rows one id: a conflict, unless the world says which wins (one pack's row
+    // twice is too, as `recipe_rows_compile_by_their_ids_and_a_step_names_the_recipes_it_teaches`
+    // shows).
+    let mut files = with("", &recipe(0x6F7E_0000));
+    files.insert(
+        "town-fixes/server/crafting.toml".into(),
+        recipe(0x6F7E_0000).replace("product = 0x47002224", "product = 0x4700115B"),
+    );
+    let t = compiled(&files).unwrap();
+    assert_eq!(
+        t.crafts.recipes[&0x6F7E_0000].product, 0x4700_115B,
+        "the fixes win"
+    );
+    edit(
+        &mut files,
+        "world.toml",
+        "[[override]]\npack = \"town-fixes\"\nover = \"town\"\n",
+        "",
+    );
+    assert!(
+        check(&files).iter().any(|p| p
+            .message
+            .starts_with("recipe 0x6f7e0000 is set by pack town ")),
+        "{:?}",
+        check(&files)
+    );
+
+    // However many shops the world holds, a new one takes the next of the shops' copies, and none
+    // of the recipes'.
+    use yalain_world_db::compile::next_shop_id;
+    assert_eq!(next_shop_id(&|_| false), Some(first));
+    assert_eq!(next_shop_id(&|id| id < last), Some(last));
+    assert_eq!(next_shop_id(&|id| id <= last), None);
 }

@@ -449,8 +449,10 @@ A storekeeper.
 A shop of the world's own: a store template's stock, prices, sorter and portrait under a title of
 its own. Its keepers sell the template's sales (and its `[[sale]]` rows name the template); the shop
 window shows the title. The world's overlay holds the shop's copy of the template, under an id the
-build gives it from `0x6F100000` up and keeps in `world.lock`; the server serves it to players as
-they log in.
+build gives it from `0x6F100000` to `0x6F7DFFFF` and keeps in `world.lock`; the server serves it to
+players as they log in. The range ends below the world's recipes' (`[[recipe]]`, `0x6F7E0000` to
+`0x6F7EFFFF`), so a shop's copy and a recipe never share an id; a `world.lock` pinning a shop
+outside its range, or two shops to one id, is a problem.
 
 | field | | meaning |
 |---|---|---|
@@ -731,7 +733,7 @@ its record when it asks for one. A step's `recipes` teaches it.
 
 | field | | meaning |
 |---|---|---|
-| `recipe` | required | its id: a saved state id (`0x6F...`) no record of the install holds |
+| `recipe` | required | its id: a saved state id from `0x6F7E0000` to `0x6F7EFFFF`, the world's recipes' own, which no record of the install and no shop's copy (`[[store]]`) holds |
 | `like` | required | the install recipe it is made from (its saved state) |
 | `name` | required | a string reference: its name |
 | `description` | | a string reference; none when left out |

@@ -534,11 +534,11 @@ pub fn keeper_store(install: &dyn Install, template: u32) -> Option<u32> {
     .word("StoreTemplate")
 }
 
-/// The id a new shop's copy takes: the lowest of the world's own saved states
-/// ([`auberean_pack::WORLD_STATES`]) not `taken`.
+/// The id a new shop's copy takes: the lowest of the shops' copies' saved states
+/// ([`auberean_pack::SHOP_COPIES`]) not `taken`; never one of the world's recipes'.
 #[must_use]
 pub fn next_shop_id(taken: &dyn Fn(u32) -> bool) -> Option<u32> {
-    let (first, last) = auberean_pack::WORLD_STATES;
+    let (first, last) = auberean_pack::SHOP_COPIES;
     (first..=last).find(|id| !taken(*id))
 }
 
@@ -546,7 +546,7 @@ pub fn next_shop_id(taken: &dyn Fn(u32) -> bool) -> Option<u32> {
 ///
 /// # Errors
 /// A shop copying what is no store template, and a lockfile giving a shop an id outside the
-/// world's own saved states or two shops one id.
+/// shops' copies' saved states ([`auberean_pack::SHOP_COPIES`]) or two shops one id.
 pub fn shops_of(merged: &Merged, install: &dyn Install) -> Result<Vec<Shop>, Vec<Problem>> {
     let mut cx = Ctx {
         install,
@@ -562,10 +562,10 @@ pub fn shops_of(merged: &Merged, install: &dyn Install) -> Result<Vec<Shop>, Vec
 }
 
 /// The world's shops, each with its copy's id: the one a lockfile gives its key, else the lowest
-/// of the world's own saved states ([`auberean_pack::WORLD_STATES`]) no lockfile gives, taken in
+/// of the shops' copies' saved states ([`auberean_pack::SHOP_COPIES`]) no lockfile gives, taken in
 /// the order of the keys, so every compile of the same rows numbers them alike.
 fn shops(merged: &Merged, cx: &mut Ctx<'_>) -> Vec<Shop> {
-    let (first, last) = auberean_pack::WORLD_STATES;
+    let (first, last) = auberean_pack::SHOP_COPIES;
     let mut taken: BTreeMap<u32, &str> = BTreeMap::new();
     for (key, id) in &merged.stores {
         if let Some(other) = taken.insert(*id, key) {
@@ -597,7 +597,7 @@ fn shops(merged: &Merged, cx: &mut Ctx<'_>) -> Vec<Shop> {
                 cx.problem(
                     l,
                     format!(
-                        "world.lock gives store {} {id:#010X}, outside the world's own saved states ({first:#010X} to {last:#010X})",
+                        "world.lock gives store {} {id:#010X}, outside the shops' copies ({first:#010X} to {last:#010X})",
                         s.key
                     ),
                 );
