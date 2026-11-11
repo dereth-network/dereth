@@ -918,7 +918,7 @@ pub fn apply_on<S: Store>(
         )
         | (Kind::Aura(_), _) => false,
         // A pet is summoned as its skill's use ends ([`crate::pets`]), never as an effect; a
-        // recall is its skill's trip ([`crate::skill_use`]).
+        // recall is its skill's trip, or its quest update's ([`crate::skill_use::effect_recall`]).
         (Kind::Pet { .. } | Kind::Recall(_) | Kind::Resurrect { .. }, _) => false,
         (Kind::Combo(c), _) => {
             combine(s, net, on, &def, c, cast, clock);

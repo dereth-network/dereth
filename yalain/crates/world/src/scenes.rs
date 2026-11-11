@@ -207,6 +207,7 @@ pub fn shard_used<S: Store>(
         resurrect: false,
         sent: false,
         said: None,
+        updates: Vec::new(),
     });
     let id = p.character;
     places::to_all_knowing(s, net, id, &plays);

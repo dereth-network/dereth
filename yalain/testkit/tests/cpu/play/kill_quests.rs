@@ -1410,3 +1410,294 @@ fn a_step_whose_chance_does_not_come_up_leaves_the_kill_to_move_its_quest() {
         "the step moved the quest, so the effect does not"
     );
 }
+
+/// The test quest's recall: its first advance's effect, which sends its player to a named place.
+const RECALL: u32 = 0x6F00_7701;
+/// Its name's table, which holds "You recall to ..." (`RECALLED`).
+const RECALL_TABLE: u32 = 0x2500_7701;
+const RECALLED: u32 = 0x912E_FF1D;
+const SHOW_TEXT: u32 = 0x8205_0011;
+/// Places the world holds by their names, and one it lacks.
+const FAR: &str = "test_far_room";
+const NEAR: &str = "test_near_room";
+const MISSING: &str = "test_missing_room";
+const FAR_AT: yalain_content::Place = yalain_content::Place {
+    cell: 0x049D_0105,
+    origin: [10.0, 20.0, 3.0],
+    rotation: [1.0, 0.0, 0.0, 0.0],
+};
+const NEAR_AT: yalain_content::Place = yalain_content::Place {
+    cell: 0x049C_0103,
+    origin: [30.0, 40.0, 3.0],
+    rotation: [1.0, 0.0, 0.0, 0.0],
+};
+
+/// A world whose quest's first advance carries a recall to these names, said on arrival or not,
+/// and holds the far and the near places; its player holds the quest under way at its start.
+fn recall_world(names: &[&str], told: bool) -> (Harness, usize, u64) {
+    use yalain_world::effect_defs::{EffectDef, Kind as EffectKind, Recall, Scale};
+    let mut q = quest(3);
+    q.effects = vec![(update::ADVANCE | 2, RECALL)];
+    let (mut h, b, me) = world(q);
+    h.server.effect_table.effects.insert(
+        RECALL,
+        EffectDef {
+            state: RECALL,
+            kind: EffectKind::Recall(Recall::Named {
+                names: names.iter().map(ToString::to_string).collect(),
+                told,
+            }),
+            duration: Scale::default(),
+            priority: Scale::default(),
+            fx: 0,
+            external_flags: 0,
+            internal_flags: 0,
+            enum_value: 0,
+            eq_class: 0,
+            name: Some((0xA860_7CEC, RECALL_TABLE)),
+            ends_at_logout: false,
+            ends_at_teleport: false,
+        },
+    );
+    h.server.places_by_name.insert(FAR.into(), FAR_AT);
+    h.server.places_by_name.insert(NEAR.into(), NEAR_AT);
+    holds(&mut h, me, status::UNDERWAY, 1);
+    h.run(2);
+    (h, b, me)
+}
+
+/// The player's trip under way, if any: where to.
+fn trip_cell(h: &Harness) -> Option<u32> {
+    let p = h.server.players.values().next().expect("in the world");
+    p.trip.as_ref().map(|t| t.to.cell)
+}
+
+fn cell(h: &Harness) -> u32 {
+    h.server
+        .players
+        .values()
+        .next()
+        .expect("in the world")
+        .position
+        .cell
+}
+
+/// Out of portal space, a recall's time after it went in.
+fn recall_lands(h: &mut Harness) {
+    h.advance(yalain_world::skill_use::RECALL_IN_PORTAL);
+    h.run(4);
+}
+
+/// Where the quest's update and the player's newer place come among the messages since `from`.
+fn update_and_place(h: &Harness, b: usize, from: usize, me: u64) -> (Option<usize>, Option<usize>) {
+    use auberean_protocol::ServerMessage;
+    let msgs = h.world_messages(b, from);
+    let update = msgs
+        .iter()
+        .position(|m| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == UPDATE_QUEST));
+    let place = msgs.iter().position(
+        |m| matches!(m, ServerMessage::Position(p) if p.sender.id == me && p.teleport_stamp > 0),
+    );
+    (update, place)
+}
+
+/// The texts' string ids told since `from`.
+fn texts(h: &Harness, b: usize, from: usize) -> Vec<u32> {
+    h.calls(b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == SHOW_TEXT)
+        .filter_map(|(_, v)| {
+            v.iter().find_map(|x| match x.root() {
+                Some(yalain_world::calls::Node::TextInfo(t)) => Some(t.string_id),
+                _ => None,
+            })
+        })
+        .collect()
+}
+
+/// **An advance whose effects carry a recall takes its player there**: into portal space at the
+/// kill, the quest moved on at once but its update not yet told; out at the recall's place a recall's
+/// time later, told the update there, before its new place, and the recall's line where it says one.
+/// Behaviour: server.quests.an-updates-recall-takes-its-player
+#[test]
+fn an_advance_carrying_a_recall_takes_its_player_there_and_is_told_as_it_comes_out() {
+    let (mut h, b, me) = recall_world(&[FAR], true);
+    let from = h.bots[b].inbox.len();
+    kill(&mut h, me, &[INCREMENT]);
+    assert_eq!(phase(&h, me), 2, "moved at once");
+    assert_eq!(trip_cell(&h), Some(FAR_AT.cell), "on its way at the kill");
+    assert_ne!(cell(&h), FAR_AT.cell);
+    assert!(updates(&h, b, from).is_empty(), "nothing told yet");
+    recall_lands(&mut h);
+    assert_eq!(cell(&h), FAR_AT.cell, "out at the recall's place");
+    assert_eq!(trip_cell(&h), None);
+    assert_eq!(updates(&h, b, from), vec![(0, update::ADVANCE | 2)]);
+    let (told, placed) = update_and_place(&h, b, from, me);
+    assert!(told.is_some() && told < placed, "{told:?} {placed:?}");
+    assert!(texts(&h, b, from).contains(&RECALLED), "its line");
+    // Its class says nothing, and a later advance with no recall leaves the player where it is.
+    let (mut h, b, me) = recall_world(&[FAR], false);
+    let from = h.bots[b].inbox.len();
+    kill(&mut h, me, &[INCREMENT]);
+    recall_lands(&mut h);
+    assert_eq!(cell(&h), FAR_AT.cell);
+    assert!(!texts(&h, b, from).contains(&RECALLED), "no line");
+    kill(&mut h, me, &[INCREMENT]);
+    assert_eq!(phase(&h, me), 3);
+    assert_eq!(trip_cell(&h), None, "the next advance carries none");
+    // A recall among the effects another puts on at once takes the player the same.
+    const CHAIN: u32 = 0x6F00_7702;
+    let (mut h, _, me) = recall_world(&[FAR], false);
+    let mut chain = h.server.effect_table.effects[&RECALL].clone();
+    chain.state = CHAIN;
+    chain.kind = yalain_world::effect_defs::Kind::Instants(vec![RECALL]);
+    h.server.effect_table.effects.insert(CHAIN, chain);
+    for q in &mut h.server.quests.quests {
+        q.effects = vec![(update::ADVANCE | 2, CHAIN)];
+    }
+    kill(&mut h, me, &[INCREMENT]);
+    assert_eq!(trip_cell(&h), Some(FAR_AT.cell), "its chain's recall");
+    recall_lands(&mut h);
+    assert_eq!(cell(&h), FAR_AT.cell);
+}
+
+/// **A recall of several places takes its player to one of those the world holds, at random**:
+/// over many advances both of the world's are reached, and never the one it lacks.
+/// Behaviour: server.quests.an-updates-recall-takes-its-player
+#[test]
+fn a_recall_of_several_places_lands_at_one_the_world_holds_chosen_at_random() {
+    let (mut h, _, me) = recall_world(&[FAR, MISSING, NEAR], false);
+    let mut landed = std::collections::BTreeMap::new();
+    for _ in 0..16 {
+        holds(&mut h, me, status::UNDERWAY, 1);
+        kill(&mut h, me, &[INCREMENT]);
+        let to = trip_cell(&h).expect("sent");
+        recall_lands(&mut h);
+        assert_eq!(cell(&h), to);
+        *landed.entry(to).or_insert(0) += 1;
+    }
+    assert_eq!(
+        landed.keys().copied().collect::<Vec<_>>(),
+        vec![NEAR_AT.cell, FAR_AT.cell],
+        "{landed:x?}"
+    );
+}
+
+/// **A recall with no place in the world takes its player nowhere**: the quest moves on and is told
+/// at once, the player stays where it stood, and the server notes the recall.
+/// Behaviour: server.quests.an-updates-recall-with-no-place-stays
+#[test]
+fn a_recall_to_a_place_the_world_lacks_leaves_its_player_where_it_is() {
+    let (mut h, b, me) = recall_world(&[MISSING], false);
+    let here = cell(&h);
+    let from = h.bots[b].inbox.len();
+    kill(&mut h, me, &[INCREMENT]);
+    assert_eq!(phase(&h, me), 2);
+    assert_eq!(trip_cell(&h), None, "not sent");
+    assert_eq!(
+        updates(&h, b, from),
+        vec![(0, update::ADVANCE | 2)],
+        "told at once"
+    );
+    recall_lands(&mut h);
+    assert_eq!(cell(&h), here);
+    assert!(
+        h.server
+            .unhandled
+            .counts()
+            .keys()
+            .any(|k| k.contains(&format!("{RECALL:08X}"))),
+        "noted: {:?}",
+        h.server.unhandled.counts()
+    );
+}
+
+/// **A step with a place of its own takes its player there, once**: its update's recall stays put,
+/// so the kill's trip goes to the step's place, its update is told on landing, and no second trip
+/// follows.
+/// Behaviour: server.quests.a-steps-place-wins-over-its-updates-recall
+#[test]
+fn a_step_leading_somewhere_sends_its_player_once_to_its_own_place_not_the_recalls() {
+    let (mut h, b, me) = recall_world(&[FAR], false);
+    let template = kill(&mut h, me, &[]);
+    h.server.quests.steps = vec![leading_step(template, 1, ARENA)];
+    holds(&mut h, me, status::UNDERWAY, 1);
+    h.run(2);
+    let from = h.bots[b].inbox.len();
+    kill(&mut h, me, &[]);
+    assert_eq!(trip_cell(&h), Some(ARENA.cell), "the step's place");
+    land(&mut h);
+    assert_eq!(phase(&h, me), 2);
+    assert_eq!(cell(&h), ARENA.cell);
+    recall_lands(&mut h);
+    h.run(20);
+    assert_eq!(trip_cell(&h), None, "no second trip");
+    assert_eq!(cell(&h), ARENA.cell);
+    assert_eq!(
+        updates(&h, b, from),
+        vec![(0, update::ADVANCE | 2)],
+        "told once"
+    );
+    let stamps = h
+        .world_messages(b, from)
+        .iter()
+        .filter(|m| {
+            matches!(m, auberean_protocol::ServerMessage::Position(p) if p.sender.id == me && p.teleport_stamp > 0)
+        })
+        .map(|m| match m {
+            auberean_protocol::ServerMessage::Position(p) => p.teleport_stamp,
+            _ => 0,
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(stamps.len(), 1, "one trip: {stamps:?}");
+}
+
+/// **A failure whose effects carry a recall takes its player too**, told as it comes out; and a
+/// player already on its way somewhere is left to that trip, the update told at once.
+/// Behaviour: server.quests.an-updates-recall-takes-its-player
+#[test]
+fn a_failure_carrying_a_recall_takes_its_player_and_one_on_its_way_is_left_to_it() {
+    let (mut h, b, me) = recall_world(&[FAR], false);
+    for q in &mut h.server.quests.quests {
+        q.effects = vec![(update::FAIL, RECALL)];
+    }
+    let world = *h.server.players.keys().next().expect("in the world");
+    let from = h.bots[b].inbox.len();
+    let clock = h.clock();
+    yalain_world::quests::fail(&mut h.server, &mut h.net, world, QUEST, clock);
+    h.run(2);
+    assert_eq!(state(&h, me).map(|s| s.0), Some(status::FAILED));
+    assert_eq!(trip_cell(&h), Some(FAR_AT.cell));
+    assert!(updates(&h, b, from).is_empty(), "nothing told yet");
+    recall_lands(&mut h);
+    assert_eq!(cell(&h), FAR_AT.cell);
+    assert_eq!(updates(&h, b, from), vec![(0, update::FAIL)]);
+    // On its way to the arena, the failure's recall leaves it to that trip.
+    let (mut h, b, me) = recall_world(&[FAR], false);
+    for q in &mut h.server.quests.quests {
+        q.effects = vec![(update::FAIL, RECALL)];
+    }
+    let world = *h.server.players.keys().next().expect("in the world");
+    let to = yalain_store::StoredPosition {
+        cell: ARENA.cell,
+        origin: ARENA.origin,
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let clock = h.clock();
+    yalain_world::places::sent_away(&mut h.server, &mut h.net, world, to, clock);
+    let from = h.bots[b].inbox.len();
+    yalain_world::quests::fail(&mut h.server, &mut h.net, world, QUEST, clock);
+    h.run(2);
+    assert_eq!(
+        updates(&h, b, from),
+        vec![(0, update::FAIL)],
+        "told at once"
+    );
+    assert_eq!(trip_cell(&h), Some(ARENA.cell), "still the trip it was on");
+    land(&mut h);
+    recall_lands(&mut h);
+    h.run(20);
+    assert_eq!(cell(&h), ARENA.cell);
+    assert_eq!(state(&h, me).map(|s| s.0), Some(status::FAILED));
+    assert_eq!(updates(&h, b, from).len(), 1, "told once");
+}

@@ -60,7 +60,8 @@
 //! last portal it used that may be recalled to (Portal Recall); a city's place (the cities'
 //! recalls, which protect it for 30 s as they end); the hall its allegiance is bound to. A player
 //! with no such place plays it all and is told it failed. Moving while it powers up interrupts
-//! it, and nothing is spent.
+//! it, and nothing is spent. A recall a quest update puts on takes its player the same way, at
+//! once and with no powering up ([`effect_recall`]).
 //!
 //! **A summoning** (a portal to the lifestone or to the last portal's place) plays as a recall
 //! does to its story; then its portal appears ([`crate::usable::portals`]) and the use ends.
@@ -723,6 +724,64 @@ pub fn recall_places<S: Store>(s: &Server<S>, world: ConnId, r: &Recall) -> Vec<
             .collect(),
         Recall::Allegiance => Vec::new(),
     }
+}
+
+/// Where a recall takes a player now: its one place, or one of several at random; none when the
+/// world or the player holds none.
+fn recall_place<S: Store>(s: &mut Server<S>, world: ConnId, r: &Recall) -> Option<StoredPosition> {
+    let places = recall_places(s, world, r);
+    match places.len() {
+        0 => None,
+        1 => places.first().copied(),
+        n => places.get(s.rng.below(n)).copied(),
+    }
+}
+
+/// A recall an effect holds (one of a quest update's), itself or among the effects it puts on at
+/// once: its player goes at once, as the recall's skill takes it, to the same place, saying the
+/// same on arrival. A player already on its way somewhere is left to it; one the recall finds no
+/// place for stays where it is, and the server notes it. Returns whether the player went.
+pub fn effect_recall<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    state: u32,
+    clock: Clock,
+) -> bool {
+    let found = std::iter::once(state)
+        .chain(crate::effects::chained(&s.effect_table, state))
+        .find_map(|e| match s.effect_table.get(e) {
+            Some(EffectDef {
+                kind: EffectKind::Recall(r),
+                name,
+                ..
+            }) => Some((e, r.clone(), name.map_or(0, |(_, table)| table))),
+            _ => None,
+        });
+    let Some((e, recall, table)) = found else {
+        return false;
+    };
+    if s.players.get(&world).is_none_or(|p| p.trip.is_some()) {
+        return false;
+    }
+    let Some(to) = recall_place(s, world, &recall) else {
+        s.unhandled.note(format!(
+            "recall effect {e:08X}, with no place to take its player"
+        ));
+        return false;
+    };
+    let told = !matches!(recall, Recall::Named { told: false, .. });
+    let said = told.then(|| progress::text((text::RECALLED, table)));
+    crate::places::recall_trip(s, net, world, to, said);
+    s.after(
+        clock,
+        RECALL_IN_PORTAL,
+        Timer::Trip {
+            world,
+            step: crate::places::Step::Arrive,
+        },
+    );
+    true
 }
 
 /// The kinds of target a skill aimed at items takes.
@@ -2743,12 +2802,7 @@ fn recall_portal<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
     let Some((recall, table)) = recall_of(s, skill) else {
         return;
     };
-    let places = recall_places(s, world, &recall);
-    let to = match places.len() {
-        0 => None,
-        1 => places.first().copied(),
-        n => places.get(s.rng.below(n)).copied(),
-    };
+    let to = recall_place(s, world, &recall);
     let named = matches!(recall, Recall::Named { .. });
     let Some(to) = to else {
         // A recall that fails puts nothing on its user (a city's protection).

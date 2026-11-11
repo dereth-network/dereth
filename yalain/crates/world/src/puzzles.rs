@@ -140,9 +140,11 @@ pub fn used<S: Store>(
             } else {
                 Update::Advance(at + 1)
             };
-            crate::quests::apply(s, net, world, q.quest, up, 0, clock);
-            right = right.or(Some(q.right));
             let last = usize::try_from(at + 1).is_ok_and(|n| n == q.uses.len());
+            // A last use whose row names a place takes the player there, not the update's recall.
+            let led = last && q.to.is_some();
+            crate::quests::apply_led(s, net, world, (q.quest, up, 0), led, clock);
+            right = right.or(Some(q.right));
             if let Some(place) = q.to.filter(|_| last) {
                 let place = crate::quests::room_for(s, place);
                 crate::places::sends_on(s, world, object, place, None, clock);

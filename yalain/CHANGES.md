@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Quests that recall the player to a place now take them there.
 - Federation links now tell a proxy's refusal from the hub's.
 - Worlds can now have puzzles: objects that items change, used in the right order.
 - Worlds can now have creatures that fight other creatures, and targets players can't harm.

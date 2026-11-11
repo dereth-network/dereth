@@ -227,6 +227,9 @@ pub struct Trip {
     pub sent: bool,
     /// A recall's text on arrival ("You recall to your lifestone."), if it says one.
     pub said: Option<TextInfo>,
+    /// The quest updates told as it comes out, each its quest and the kind of update: an update
+    /// whose own recall sent the player.
+    pub updates: Vec<(u32, u32)>,
 }
 
 fn send(net: &mut ServerNet, conn: ConnId, kind: BlobKind, m: &ServerMessage) {
@@ -1267,6 +1270,7 @@ fn held_on_object<S: Store>(
         resurrect: false,
         sent: false,
         said: None,
+        updates: Vec::new(),
     });
     to_all_knowing(s, net, id, &plays);
     s.after(
@@ -1743,6 +1747,7 @@ pub(crate) fn through_portal<S: Store>(
             resurrect: false,
             sent: false,
             said: None,
+            updates: Vec::new(),
         });
     }
     s.after(
@@ -1819,6 +1824,7 @@ pub(crate) fn sends_on<S: Store>(
         resurrect: false,
         sent: false,
         said: None,
+        updates: Vec::new(),
     });
     s.after(
         clock,
@@ -1878,6 +1884,7 @@ fn through_door<S: Store>(
         resurrect: false,
         sent: false,
         said: None,
+        updates: Vec::new(),
     });
     s.after(
         clock,
@@ -2145,6 +2152,7 @@ pub fn recall_trip<S: Store>(
             resurrect: false,
             sent: false,
             said,
+            updates: Vec::new(),
         });
     }
 }
@@ -2181,6 +2189,7 @@ pub fn sent_away<S: Store>(
             resurrect: false,
             sent: true,
             said: None,
+            updates: Vec::new(),
         });
     }
     s.after(
@@ -2216,6 +2225,7 @@ pub fn item_trip<S: Store>(
             resurrect: false,
             sent: false,
             said,
+            updates: Vec::new(),
         });
     }
     s.after(
@@ -2293,6 +2303,7 @@ pub fn resurrection_trip<S: Store>(
             resurrect: true,
             sent: false,
             said: None,
+            updates: Vec::new(),
         });
     }
     s.after(
@@ -2426,6 +2437,18 @@ fn arrive<S: Store>(
         s.players.insert(world, p);
         if crate::quests::may_run_now(s, world, step, clock.unix) {
             crate::quests::run(s, net, world, step, None, clock);
+        }
+        let Some(q) = s.players.remove(&world) else {
+            return;
+        };
+        p = q;
+    }
+    if !trip.updates.is_empty() {
+        // The updates whose recall this trip is, told as it comes out (2017: the Gauntlets' 47 of
+        // 47 advances, in portal space's exit's tick, 1.44 to 1.67 s after the trip began).
+        s.players.insert(world, p);
+        for (quest, kind) in &trip.updates {
+            crate::quests::told_on_arrival(s, net, world, *quest, *kind, clock);
         }
         let Some(q) = s.players.remove(&world) else {
             return;

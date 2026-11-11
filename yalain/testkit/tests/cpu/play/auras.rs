@@ -809,6 +809,7 @@ fn an_aura_for_weapons_holds_on_a_fellows_weapon_within_its_range() {
         resurrect: false,
         sent: false,
         said: None,
+        updates: Vec::new(),
     };
     player(&mut h, me).trip = Some(trip);
     assert_eq!(

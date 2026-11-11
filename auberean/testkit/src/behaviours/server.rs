@@ -12837,6 +12837,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-steps-place-wins-over-its-updates-recall",
+        says: "A step or an order of uses that names a place of its own takes its player there, once, \
+               and the recall its quest's update carries stays put.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-UPDATE-RECALL-LED"),
+        station: "yalain-testkit::cpu::play::kill_quests::a_step_leading_somewhere_sends_its_player_once_to_its_own_place_not_the_recalls",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-strangers-kill-moves-nothing",
         says: "A kill moves nothing for a player who is no fellow of the killer, whatever it holds \
                and however near it stands.",
@@ -12891,6 +12900,26 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-KILL-UNRECORDED"),
         station: "yalain-testkit::corpus::world_db::a_quest_with_no_setup_and_no_recording_moves_its_killers_quest_and_no_fellows",
         tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.an-updates-recall-takes-its-player",
+        says: "A quest update whose effects carry a recall takes its player at once into portal space \
+               and out at the recall's place a recall's time later, one of several the world holds \
+               chosen at random, saying the recall's line where its class says one; the update is \
+               told as the player comes out, before its new place.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-UPDATE-RECALL"),
+        station: "yalain-testkit::cpu::play::kill_quests::an_advance_carrying_a_recall_takes_its_player_there_and_is_told_as_it_comes_out",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.an-updates-recall-with-no-place-stays",
+        says: "A quest update's recall to a place the world lacks leaves its player where it is, the \
+               update told at once and the recall noted by the server.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-UPDATE-RECALL-NOWHERE"),
+        station: "yalain-testkit::cpu::play::kill_quests::a_recall_to_a_place_the_world_lacks_leaves_its_player_where_it_is",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.quests.arrival-through-one-portal",

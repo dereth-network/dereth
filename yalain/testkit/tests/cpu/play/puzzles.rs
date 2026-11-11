@@ -438,6 +438,73 @@ fn the_last_right_use_takes_the_player_where_its_row_says() {
     assert!(dx * dx + dy * dy < 1.0, "{here:?}");
 }
 
+/// The last right use of an order whose row names a place takes its player there even when its
+/// quest's update carries a recall elsewhere: the row's place wins, and the player goes once.
+/// Behaviour: server.quests.a-steps-place-wins-over-its-updates-recall
+#[test]
+fn an_orders_own_place_wins_over_the_recall_its_last_update_carries() {
+    use yalain_world::effect_defs::{EffectDef, Kind as EffectKind, Recall, Scale};
+    const RECALL: u32 = 0x6F00_7801;
+    let mut h = hall(false);
+    let elsewhere = yalain_content::Place {
+        cell: 0x049D_0105,
+        origin: [10.0, 20.0, 3.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    h.server
+        .places_by_name
+        .insert("test_elsewhere".into(), elsewhere);
+    h.server.effect_table.effects.insert(
+        RECALL,
+        EffectDef {
+            state: RECALL,
+            kind: EffectKind::Recall(Recall::Named {
+                names: vec!["test_elsewhere".into()],
+                told: false,
+            }),
+            duration: Scale::default(),
+            priority: Scale::default(),
+            fx: 0,
+            external_flags: 0,
+            internal_flags: 0,
+            enum_value: 0,
+            eq_class: 0,
+            name: None,
+            ends_at_logout: false,
+            ends_at_teleport: false,
+        },
+    );
+    for q in &mut h.server.quests.quests {
+        if q.id == LONG {
+            q.effects = vec![(yalain_world::quests::update::ADVANCE | 3, RECALL)];
+        }
+    }
+    let (a, one) = player(&mut h, "one", "Elara");
+    let green = hold(&mut h, one, GREEN_ORB);
+    let red = hold(&mut h, one, RED_ORB);
+    give(&mut h, a, one, green, TILE_A);
+    give(&mut h, a, one, red, TILE_B);
+    use_tile(&mut h, a, one, TILE_A);
+    use_tile(&mut h, a, one, TILE_B);
+    let from = h.bots[a].inbox.len();
+    use_tile(&mut h, a, one, TILE_C);
+    assert_eq!(phase(&h, one, LONG), 3);
+    run_for(&mut h, 8.0);
+    let world = world_of(&h, one);
+    assert_eq!(
+        h.server.players[&world].position.cell, AWAY.cell,
+        "the row's place"
+    );
+    let trips = h
+        .world_messages(a, from)
+        .iter()
+        .filter(|m| {
+            matches!(m, auberean_protocol::ServerMessage::Position(p) if p.sender.id == one && p.teleport_stamp > 0)
+        })
+        .count();
+    assert_eq!(trips, 1, "one trip");
+}
+
 /// A use of another object the order names, or of the next in another state, takes the quest
 /// away from a player who has it under way, with the wrong line, and the order starts over; one
 /// use may move one order on and start another over.

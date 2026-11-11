@@ -367,7 +367,7 @@ What moves a quest on, in its quest's file.
 | `recipes` | | recipes it teaches, by id: the install's, or the world's `[[recipe]]` rows'; learned after its update and its effects |
 | `requires` | | other quests it needs (`{ quest, phase }`, `{ quest, done = true }`, `{ quest, free = true }`, `{ quest, failed = true }`: failed, by a step or its time run out, and for a step of a quest under way given since that quest was, so a hidden timer given with the quest is waited on until it runs out), an event that must be on (`{ event = "key" }`), acts that must be whole (`{ act = A }`: seven of the act's scenes held, its hidden ones aside; a scene of the act must be served) and one kingdom (`{ kingdom = "order" }`: `neutral`, `shadow`, `order` or `dominion`) |
 | `takes` | | templates of items taken from the player's pack, which the player must hold |
-| `to` | | a place it takes the player to, through portal space |
+| `to` | | a place it takes the player to, through portal space; a recall the quest's definition names for the update then stays put. Without `to`, such a recall takes the player itself, the update told as the player comes out |
 | `races` | | the races it is for, by number: 1 human, 2 Lugian, 4 Tumerok, 8 Drudge, 16 Empyrean; every race when left out |
 | `fellows` | | true: the update is made for each of the player's fellows in the world as well |
 | `wants` | | for a give, exactly how many of the item it wants: any other count is refused and handed back |
@@ -1040,7 +1040,7 @@ use of an object a row names runs no quest step of its own.
 | `quest` | required | the quest whose phase counts the right uses |
 | `uses` | required | `{ use, state }` in order: the template used and the state its object must be in (`[[object_states]]`, loaded before; any state when left out) |
 | `right`, `wrong` | | what the object used says at a right use and at a wrong one, `{ table, string }` |
-| `to` | | the place the last right use takes the player to, through portal space (`key`, or `pack:key`) |
+| `to` | | the place the last right use takes the player to, through portal space (`key`, or `pack:key`), in place of a recall the quest's definition names for that update; without it, such a recall takes the player |
 | `prov` | required | where it came from |
 
 #### `[[worn]]`

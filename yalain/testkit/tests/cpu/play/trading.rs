@@ -589,6 +589,7 @@ fn a_trade_fails_while_a_trip_counts_on_a_sides_pack_and_nothing_moves() {
         resurrect: false,
         sent: false,
         said: None,
+        updates: Vec::new(),
     });
     let from = h.bots[a].inbox.len();
     h.ask(a, function::ACCEPT, &[], 10);

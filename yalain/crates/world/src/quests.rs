@@ -19,7 +19,11 @@
 //!
 //! **An update's effects.** A quest's definition names effects for kinds of update (a recipe
 //! taught as it is given, a reward quest given as it completes, a place it sends the player); an
-//! update puts them on the player before anything else of it is told.
+//! update puts them on the player before anything else of it is told. A recall among them takes
+//! the player at once through portal space, as the recall's skill would, and the update is told as
+//! the player comes out (2017: the Gauntlets' advances, 47 of 47); a recall with no place in the
+//! world leaves the player where it is. A step or an order of uses that names a place of its own
+//! takes the player there instead, and its update's recall stays put.
 //!
 //! **Time running out.** A quest with a duration fails when its time runs out: its update of the
 //! fail kind tells it failed, with the whole of its wait to be taken again. A few quests' durations
@@ -1499,12 +1503,15 @@ fn run_with<S: Store>(
         crate::inventory::take_from_pack(s, net, world, *t);
     }
     // Its effects come before the update, or for some steps after it.
+    // A step that leads somewhere itself takes the player there, not the update's own recall.
+    let up = (step.quest, step.update, step.xp);
+    let led = step.to.is_some();
     if step.effects_last {
-        apply(s, net, world, step.quest, step.update, step.xp, clock);
+        apply_led(s, net, world, up, led, clock);
         step_effects(s, net, world, step, who, clock);
     } else {
         step_effects(s, net, world, step, who, clock);
-        apply(s, net, world, step.quest, step.update, step.xp, clock);
+        apply_led(s, net, world, up, led, clock);
     }
     if step.xp_share > 0.0 {
         let level = s
@@ -1557,7 +1564,8 @@ fn for_fellows<S: Store>(
     };
     for w in fellows {
         if may_run(s, w, &theirs, clock.unix) {
-            apply(s, net, w, step.quest, step.update, 0, clock);
+            let up = (step.quest, step.update, 0);
+            apply_led(s, net, w, up, step.to.is_some(), clock);
         }
     }
 }
@@ -1663,6 +1671,21 @@ pub fn apply<S: Store>(
     xp: u64,
     clock: Clock,
 ) {
+    apply_led(s, net, world, (quest, up, xp), false, clock);
+}
+
+/// Make a quest update (the quest, the update, the experience the step pays) and tell the player.
+/// `led`: what made it takes the player somewhere itself (a step's place, an order's), so a recall
+/// among the update's effects stays put and the row's place is the one the player goes to. An
+/// update whose recall sends the player is told as the player comes out of portal space.
+pub fn apply_led<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    (quest, up, xp): (u32, Update, u64),
+    led: bool,
+    clock: Clock,
+) {
     let Some(def) = s.quests.quest(quest).cloned() else {
         s.unhandled.note(format!(
             "a step of quest {quest:08X}, which has no definition"
@@ -1684,7 +1707,7 @@ pub fn apply<S: Store>(
     // A subquest of a quest the player has at the phase it belongs to: its move is told as that
     // quest's.
     let parent = parent_held(s, world, quest);
-    update_effects(s, net, world, &def, effects_of, clock);
+    let recalled = update_effects(s, net, world, &def, effects_of, led, clock);
     if xp > 0 {
         progress::award(s, net, world, xp, Award::Step);
     }
@@ -1755,7 +1778,15 @@ pub fn apply<S: Store>(
         give_subquests(s, world, quest, phase, clock);
     }
     if !is_hidden(&s.quests, &def) {
-        tell_record(s, net, world, &def, kind, clock);
+        let trip = s
+            .players
+            .get_mut(&world)
+            .and_then(|p| p.trip.as_mut())
+            .filter(|_| recalled);
+        match trip {
+            Some(t) => t.updates.push((quest, kind)),
+            None => tell_record(s, net, world, &def, kind, clock),
+        }
     }
     crate::world::keep_player(s, world);
     if up == Update::Bestow {
@@ -1769,6 +1800,22 @@ pub fn apply<S: Store>(
     }
     if up == Update::Complete {
         triggered(s, net, world, Trigger::Done(quest), None, clock);
+    }
+}
+
+/// A player out of the portal space an update's recall sent it into is told the update: its record
+/// of the quest as it stands now, as an update of that kind (a quest taken off on the way is told
+/// nothing).
+pub(crate) fn told_on_arrival<S: Store>(
+    s: &Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    quest: u32,
+    kind: u32,
+    clock: Clock,
+) {
+    if let Some(def) = s.quests.quest(quest) {
+        tell_record(s, net, world, def, kind, clock);
     }
 }
 
@@ -1968,17 +2015,23 @@ pub fn died<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clo
 }
 
 /// Put on a player the effects a quest's definition names for an update of this kind, cast by the
-/// player itself.
+/// player itself; the first recall among them takes the player, unless the update is `led`.
+/// Returns whether one did.
 fn update_effects<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
     def: &QuestDef,
     kind: u32,
+    led: bool,
     clock: Clock,
-) {
+) -> bool {
     let me = s.players.get(&world).map_or(0, |p| p.character);
+    let mut recalled = false;
     for (_, e) in def.effects.iter().filter(|(k, _)| *k == kind) {
+        if !led && !recalled {
+            recalled = crate::skill_use::effect_recall(s, net, world, *e, clock);
+        }
         crate::effects::apply(
             s,
             net,
@@ -1992,6 +2045,7 @@ fn update_effects<S: Store>(
             clock,
         );
     }
+    recalled
 }
 
 /// The timer that fails a quest of a player's when its time runs out, if its time is running.
@@ -2137,7 +2191,7 @@ pub fn fail<S: Store>(
     if !under_way {
         return;
     }
-    update_effects(s, net, world, &def, update::FAIL, clock);
+    let recalled = update_effects(s, net, world, &def, update::FAIL, false, clock);
     let game_now = net.game_time(clock.local);
     #[allow(clippy::cast_precision_loss)]
     let game_epoch = game_now - clock.unix as f64;
@@ -2154,8 +2208,17 @@ pub fn fail<S: Store>(
     st.updated = clock.unix;
     let st = *st;
     if !is_hidden(&s.quests, &def) {
-        let rec = record(&def, &st, game_now, game_epoch);
-        progress::private(net, world, &update_call(rec, update::FAIL));
+        let trip = s
+            .players
+            .get_mut(&world)
+            .and_then(|p| p.trip.as_mut())
+            .filter(|_| recalled);
+        if let Some(t) = trip {
+            t.updates.push((quest, update::FAIL));
+        } else {
+            let rec = record(&def, &st, game_now, game_epoch);
+            progress::private(net, world, &update_call(rec, update::FAIL));
+        }
     }
     crate::world::keep_player(s, world);
 }

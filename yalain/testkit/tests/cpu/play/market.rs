@@ -1446,6 +1446,7 @@ fn nothing_is_put_up_for_sale_while_a_trip_counts_on_the_pack() {
         resurrect: false,
         sent: false,
         said: None,
+        updates: Vec::new(),
     });
     h.ask(
         a,
