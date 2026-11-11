@@ -1246,6 +1246,53 @@ fn a_chest_that_completes_its_own_quest_opens_once() {
     );
 }
 
+/// A chest whose kind needs its quest able to be given opens for a player who has never had it, the
+/// quest given as it begins to open, and refuses that player while the quest is under way.
+/// Behaviour: server.places.chest-for-a-quest-able-to-be-given
+#[test]
+fn a_chest_needing_its_quest_able_to_be_given_opens_for_one_who_may_be_given_it() {
+    let mut h = hall(SMALL, false, false);
+    hidden_quest(&mut h);
+    let mut chest = Props::default();
+    chest
+        .set("GeneratorProfile", Prop::Word(PROFILE))
+        .set("Usage_RequiredQuest", Prop::Word(CHEST_QUEST))
+        .set("Usage_RequiredQuestStatus", Prop::Word(0x5000_0000))
+        .set(
+            "Usage_Effect1",
+            Prop::Text("Eff_BestowQuestTestChestControl".into()),
+        );
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(SMALL, PACKAGE, chest));
+    let (a, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let fa = h.bots[a].inbox.len();
+    send_use(&mut h, a, me, CHEST, 0, 2.0);
+    assert!(
+        seen(&h, a, fa).iter().any(|s| s.starts_with("opened")),
+        "never had: it opens"
+    );
+    let p = h.server.players.values().next().expect("in the world");
+    assert_eq!(
+        yalain_world::quests::phase_of(&p.play.quests, CHEST_QUEST),
+        1,
+        "given as it opens"
+    );
+    close(&mut h, a, 2.0);
+    let fa = h.bots[a].inbox.len();
+    send_use(&mut h, a, me, CHEST, 0, 2.0);
+    assert_eq!(
+        seen(&h, a, fa),
+        [format!(
+            "done {} flags {}",
+            yalain_world::item_use::refusal::MYSTERIOUS_USE,
+            chests::WRONG_QUEST_FLAGS
+        )],
+        "under way: not to be given now"
+    );
+}
+
 /// A use accepted on the way to a chest doesn't open it if another of its kind has completed the
 /// quest that keeps them both.
 /// Behaviour: server.places.a-chests-use-comes-on-its-opener

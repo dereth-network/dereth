@@ -1380,6 +1380,62 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         });
                 }
             }
+            Row::ObjectStates(r) => {
+                let st = &r.states;
+                let mut known = true;
+                for (template, _) in &st.templates {
+                    known &= cx.template(l, "templates", *template);
+                    if t.items.states_of(*template).is_some() {
+                        cx.problem(
+                            l,
+                            format!("templates: {template:08X} holds a state of another row"),
+                        );
+                        known = false;
+                    }
+                }
+                for c in &st.changes {
+                    known &= cx.template(l, "changes", c.item);
+                }
+                if known {
+                    t.items.object_states.push(st.clone());
+                }
+            }
+            Row::Sequence(r) => {
+                let mut q = r.sequence.clone();
+                if let Some(to) = &r.to {
+                    let Some(p) = cx.place(&places, l, to) else {
+                        continue;
+                    };
+                    q.to = Some(StepPlace {
+                        cell: p.cell,
+                        origin: p.origin,
+                        heading: heading_byte(rotation_heading(p.rotation)),
+                    });
+                }
+                let mut known = true;
+                for (template, state) in &q.uses {
+                    known &= cx.template(l, "uses", *template);
+                    let Some(state) = state else {
+                        continue;
+                    };
+                    let held = t
+                        .items
+                        .states_of(*template)
+                        .is_some_and(|st| st.states.contains(state));
+                    if !held {
+                        cx.problem(
+                            l,
+                            format!(
+                                "uses: {template:08X} holds no state {state} (an [[object_states]] row loaded before this one names it)"
+                            ),
+                        );
+                        known = false;
+                    }
+                }
+                if known {
+                    t.items.sequences.push(q);
+                }
+            }
             Row::Concealing(r) => {
                 t.creatures.concealing.insert((r.effect, r.class), r.regard);
             }

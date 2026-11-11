@@ -5430,3 +5430,130 @@ fn shop_copies_and_world_recipes_each_take_ids_of_a_range_of_their_own() {
     assert_eq!(next_shop_id(&|id| id < last), Some(last));
     assert_eq!(next_shop_id(&|id| id <= last), None);
 }
+
+/// An object states row names the templates whose objects hold a state, each with its first, the
+/// states, when an object goes back and the changes items given make; a sequence row names a quest
+/// and its uses in order, each a template and the state its object must be in, the lines said at a
+/// right use and a wrong one, and the place its last right use takes the player to. Both compile
+/// into the item rows; a state no row of the template names, a template of two rows, a template
+/// the install lacks and a place the world lacks are problems.
+/// Behaviour: server.puzzles.rows
+#[test]
+fn object_states_and_sequence_rows_compile_into_the_item_rows() {
+    use yalain_content::item_rows::{ObjectStates, Sequence, StateChange};
+    let prov = "prov = { from = \"authored\", by = \"a test\", note = \"a test\" }";
+    let states = format!(
+        "[[object_states]]\nkey = \"tiles\"\ntemplates = [{{ template = 0x4700115B, start = \"red\" }}]\n\
+         states = [\"red\", \"white\"]\nreverts = 90\n\
+         changes = [{{ item = 0x47002224, from = \"red\", to = \"white\" }}]\n{prov}\n"
+    );
+    let sequence = format!(
+        "[[sequence]]\nkey = \"one\"\nquest = 0x40000088\n\
+         uses = [{{ use = 0x4700115B, state = \"white\" }}, {{ use = 0x47002224 }}]\n\
+         right = {{ table = 0x250029AC, string = 0x257C1464 }}\nwrong = {{ table = 0x250029AC, string = 0xFFFB8534 }}\nto = \"inn\"\n{prov}\n"
+    );
+    let mut files = fixture();
+    files.insert(
+        "town/server/puzzles.toml".into(),
+        format!("{states}\n{sequence}"),
+    );
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.items.object_states,
+        [ObjectStates {
+            key: "tiles".into(),
+            templates: vec![(0x4700_115B, "red".into())],
+            states: vec!["red".into(), "white".into()],
+            reverts: Some(90.0),
+            changes: vec![StateChange {
+                item: 0x4700_2224,
+                from: "red".into(),
+                to: "white".into(),
+            }],
+        }]
+    );
+    assert_eq!(
+        t.items.sequences,
+        [Sequence {
+            key: "one".into(),
+            quest: 0x4000_0088,
+            uses: vec![(0x4700_115B, Some("white".into())), (0x4700_2224, None)],
+            right: Some((0x257C_1464, 0x2500_29AC)),
+            wrong: Some((0xFFFB_8534, 0x2500_29AC)),
+            to: Some(yalain_content::quests::Place {
+                cell: 0x77B8_0003,
+                origin: [1.18, 53.42, 183.82],
+                heading: yalain_world_db::compile::heading_byte(
+                    yalain_world_db::compile::rotation_heading(
+                        yalain_world_db::compile::heading_rotation(320.5),
+                    ),
+                ),
+            }),
+        }]
+    );
+
+    // A state the template's row doesn't name, a template of two rows, a template the install
+    // lacks, a place the world lacks.
+    for (what, files, wanted) in [
+        (
+            "an unknown place",
+            format!(
+                "{states}\n{}",
+                sequence.replace("to = \"inn\"", "to = \"nowhere\"")
+            ),
+            "no place nowhere",
+        ),
+        (
+            "an unknown state",
+            format!(
+                "{states}\n{}",
+                sequence.replace("state = \"white\"", "state = \"blue\"")
+            ),
+            "holds no state blue",
+        ),
+        (
+            "a template of two rows",
+            format!("{states}\n{}", states.replace("\"tiles\"", "\"more\"")),
+            "holds a state of another row",
+        ),
+        (
+            "a template the install lacks",
+            states.replace("template = 0x4700115B", "template = 0x47009999"),
+            "template 47009999 is not in the install",
+        ),
+    ] {
+        let mut f = fixture();
+        f.insert("town/server/puzzles.toml".into(), files);
+        let problems = compile(&merge(&read(&f).unwrap()).unwrap(), &Fake::new()).unwrap_err();
+        assert!(
+            problems.iter().any(|p| p.to_string().contains(wanted)),
+            "{what}: {problems:?}"
+        );
+    }
+
+    // Their shapes.
+    for bad in [
+        states.replace("states = [\"red\", \"white\"]", "states = [\"red\"]"),
+        states.replace(
+            "states = [\"red\", \"white\"]",
+            "states = [\"red\", \"red\"]",
+        ),
+        states.replace("start = \"red\"", "start = \"blue\""),
+        states.replace("to = \"white\"", "to = \"blue\""),
+        states.replace("reverts = 90", "reverts = 0"),
+        states.replace(
+            "templates = [{ template = 0x4700115B, start = \"red\" }]",
+            "templates = []",
+        ),
+        sequence.replace(
+            "uses = [{ use = 0x4700115B, state = \"white\" }, { use = 0x47002224 }]",
+            "uses = []",
+        ),
+        sequence.replace("state = \"white\"", "state = \"White\""),
+    ] {
+        let mut f = fixture();
+        f.insert("town/server/puzzles.toml".into(), bad.clone());
+        assert!(read(&f).is_err(), "{bad}");
+    }
+}

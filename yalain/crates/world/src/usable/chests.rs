@@ -25,7 +25,8 @@
 //! a chest no key opens never holds one.
 //!
 //! **Quests.** A chest a quest keeps refuses at once a player whose quest is not at the phase it
-//! names, and again at the chest. What its kind names for its use comes on its opener as it begins
+//! names, or, for a chest whose kind needs its quest able to be given, a player who may not be given
+//! it now (the quest under way, or done and its wait not over), and again at the chest. What its kind names for its use comes on its opener as it begins
 //! to open, so a kind that completes its own quest opens once for each giving.
 //!
 //! **Closing.** Asked to close, or its opener gone more than six meters from it, the chest plays its
@@ -262,16 +263,24 @@ fn open_done(status: u32, chest: u64, contents: &[u64]) -> ServerMessage {
 }
 
 /// Does a chest's quest keep a player out: its template names a quest the player does not have under
-/// way (at the phase it names, if it names one)?
-fn quest_keeps_out<S: Store>(s: &Server<S>, world: ConnId, template: u32) -> bool {
+/// way (at the phase it names, if it names one), or, where it names its quest able to be given, one
+/// the player may not be given now?
+fn quest_keeps_out<S: Store>(s: &Server<S>, world: ConnId, template: u32, now_unix: i64) -> bool {
     let Some(props) = s.catalog.get(template).map(|t| &t.props) else {
         return false;
     };
     let Some(quest) = props.word("Usage_RequiredQuest") else {
         return false;
     };
-    let phase = props.word("Usage_RequiredQuestStatus").unwrap_or(0) & 0xFFFF;
+    let status = props.word("Usage_RequiredQuestStatus").unwrap_or(0);
+    let phase = status & 0xFFFF;
     let held = s.players.get(&world).map(|p| p.play.quests.as_slice());
+    if status & 0xF000_0000 == crate::item_use::CAN_BE_BESTOWED {
+        let retry = s.quests.quest(quest).map_or(0.0, |d| d.retry);
+        return held.is_none_or(|q| {
+            crate::item_use::quest_refusal(q, quest, status, retry, now_unix).is_some()
+        });
+    }
     // A status naming no phase asks only that the quest be under way.
     held.is_none_or(|q| {
         let at = crate::quests::phase_of(q, quest);
@@ -286,8 +295,9 @@ fn refused_by_its_quest<S: Store>(
     world: ConnId,
     u: &Use,
     template: u32,
+    clock: Clock,
 ) -> bool {
-    if !quest_keeps_out(s, world, template) {
+    if !quest_keeps_out(s, world, template, clock.unix) {
         return false;
     }
     // A hidden quest's refusal is the mysterious one.
@@ -350,7 +360,7 @@ pub fn used<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, u: 
     let Some((kind, at)) = chest(s, u.item) else {
         return;
     };
-    if refused_by_its_quest(s, net, world, &u, kind.template) {
+    if refused_by_its_quest(s, net, world, &u, kind.template, clock) {
         return;
     }
     let Some(here) = position(s, world) else {
@@ -376,7 +386,7 @@ pub fn at_chest<S: Store>(
     let Some((kind, at)) = chest(s, id) else {
         return;
     };
-    if refused_by_its_quest(s, net, world, &u, kind.template) {
+    if refused_by_its_quest(s, net, world, &u, kind.template, clock) {
         return;
     }
     let phase = s.chests.by_id.get(&id).map(|c| c.phase).unwrap_or_default();

@@ -6,7 +6,7 @@
 //! its type, with the fields its kind needs; a row that breaks it is a [`Problem`] and is left
 //! out.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use auberean_pack::Ac2;
@@ -666,6 +666,8 @@ pub enum Row {
     Book(Book),
     StartItem(StartItem),
     Interaction(Interaction),
+    ObjectStates(ObjectStatesRow),
+    Sequence(SequenceRow),
     MapRecipes(MapRecipes),
     Spellbinding(Spellbinding),
     Refining(Refining),
@@ -1071,6 +1073,24 @@ pub struct Interaction {
     pub prov: Prov,
 }
 
+/// `[[object_states]]`: the states the world's objects of some templates hold, each object's first,
+/// what items given change and when an object goes back to its first.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ObjectStatesRow {
+    pub states: yalain_content::item_rows::ObjectStates,
+    pub prov: Prov,
+}
+
+/// `[[sequence]]`: uses in an order judged against the used objects' states, the quest whose phase
+/// counts them, what the object used says at a right use and a wrong one, and the place its last
+/// right use takes the player to (`key`, or `pack:key` in another pack).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SequenceRow {
+    pub sequence: yalain_content::item_rows::Sequence,
+    pub to: Option<String>,
+    pub prov: Prov,
+}
+
 /// `[[tool]]`: what a gathering tool yields when it was not made (a made one's yield is its own).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tool {
@@ -1181,6 +1201,8 @@ impl Row {
             Self::Book(_) => "book",
             Self::StartItem(_) => "start_item",
             Self::Interaction(_) => "interaction",
+            Self::ObjectStates(_) => "object_states",
+            Self::Sequence(_) => "sequence",
             Self::MapRecipes(_) => "map_recipes",
             Self::Spellbinding(_) => "spellbinding",
             Self::Refining(_) => "refining",
@@ -1242,6 +1264,8 @@ impl Row {
             Self::Book(r) => Some(&r.prov),
             Self::StartItem(r) => Some(&r.prov),
             Self::Interaction(r) => Some(&r.prov),
+            Self::ObjectStates(r) => Some(&r.prov),
+            Self::Sequence(r) => Some(&r.prov),
             Self::MapRecipes(r) => Some(&r.prov),
             Self::Spellbinding(r) => Some(&r.prov),
             Self::Refining(r) => Some(&r.prov),
@@ -1259,7 +1283,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 55] = [
+pub const KINDS: [&str; 57] = [
     "object",
     "camp",
     "loot",
@@ -1304,6 +1328,8 @@ pub const KINDS: [&str; 55] = [
     "book",
     "start_item",
     "interaction",
+    "object_states",
+    "sequence",
     "map_recipes",
     "spellbinding",
     "refining",
@@ -1318,7 +1344,7 @@ pub const KINDS: [&str; 55] = [
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 55] = [
+pub const FIELDS: [(&str, &[&str]); 57] = [
     (
         "object",
         &[
@@ -1702,6 +1728,14 @@ pub const FIELDS: [(&str, &[&str]); 55] = [
     (
         "interaction",
         &["key", "item", "on", "on_class", "gives", "count", "prov"],
+    ),
+    (
+        "object_states",
+        &["key", "templates", "states", "reverts", "changes", "prov"],
+    ),
+    (
+        "sequence",
+        &["key", "quest", "uses", "right", "wrong", "to", "prov"],
     ),
     (
         "map_recipes",
@@ -2588,6 +2622,112 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 on,
                 gives,
                 count,
+                prov: f.req_prov()?,
+            })
+        }
+        "object_states" => {
+            use yalain_content::item_rows::{ObjectStates, StateChange};
+            let key = f.req_symbol("key")?;
+            let name = |v: &toml::Value| v.as_str().filter(|s| is_symbol(s)).map(str::to_string);
+            let states = match f.get("states") {
+                Some(_) => f.typed(
+                    "states",
+                    "a list of state names (lowercase letters, digits and hyphens)",
+                    |v| v.as_array()?.iter().map(name).collect::<Option<Vec<_>>>(),
+                ),
+                None => f.missing("states"),
+            }?;
+            let ok =
+                states.len() >= 2 && states.iter().collect::<BTreeSet<_>>().len() == states.len();
+            let states = f.held("states", states, ok, "two or more, each named once")?;
+            let templates = f.list_of(
+                "templates",
+                "a list of { template, start }: a template whose objects hold a state, and their first state",
+                &["template", "start"],
+                |t| Some((as_u32(t.get("template")?)?, name(t.get("start")?)?)),
+            );
+            let ok = !templates.is_empty() && templates.iter().all(|(_, s)| states.contains(s));
+            let templates = f.held(
+                "templates",
+                templates,
+                ok,
+                "at least one, each starting in one of the states",
+            )?;
+            let reverts = f.float("reverts");
+            let reverts = f.held(
+                "reverts",
+                reverts,
+                reverts.is_none_or(|r| r > 0.0),
+                "above 0",
+            )?;
+            let changes = f.list_of(
+                "changes",
+                "a list of { item, from, to }: an item given an object in one state puts it in another",
+                &["item", "from", "to"],
+                |t| {
+                    Some(StateChange {
+                        item: as_u32(t.get("item")?)?,
+                        from: name(t.get("from")?)?,
+                        to: name(t.get("to")?)?,
+                    })
+                },
+            );
+            let named = changes
+                .iter()
+                .all(|c| states.contains(&c.from) && states.contains(&c.to));
+            let once = changes
+                .iter()
+                .map(|c| (c.item, &c.from))
+                .collect::<BTreeSet<_>>()
+                .len()
+                == changes.len();
+            let changes = f.held(
+                "changes",
+                changes,
+                named && once,
+                "each from and to one of the states, an item and a state changed once",
+            )?;
+            Row::ObjectStates(ObjectStatesRow {
+                states: ObjectStates {
+                    key,
+                    templates,
+                    states,
+                    reverts,
+                    changes,
+                },
+                prov: f.req_prov()?,
+            })
+        }
+        "sequence" => {
+            let key = f.req_symbol("key")?;
+            let quest = f.req_id("quest")?;
+            let uses = f.list_of(
+                "uses",
+                "a list of { use, state }: the template used and the state its object must be in (any when left out)",
+                &["use", "state"],
+                |t| {
+                    let state = match t.get("state") {
+                        Some(v) => Some(v.as_str().filter(|s| is_symbol(s))?.to_string()),
+                        None => None,
+                    };
+                    Some((as_u32(t.get("use")?)?, state))
+                },
+            );
+            let ok = !uses.is_empty();
+            let uses = f.held("uses", uses, ok, "at least one")?;
+            let right = f.strref("right").map(|r| (r.string, r.table));
+            let wrong = f.strref("wrong").map(|r| (r.string, r.table));
+            let to = f.symbol("to");
+            Row::Sequence(SequenceRow {
+                sequence: yalain_content::item_rows::Sequence {
+                    key,
+                    quest,
+                    uses,
+                    right,
+                    wrong,
+                    to: None,
+                },
+                to,
                 prov: f.req_prov()?,
             })
         }

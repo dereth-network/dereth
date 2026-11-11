@@ -139,8 +139,9 @@ impl Dialect for Ac2 {
          treasure_value <level>, treasure_rules, treasure_sort <sort>, treasure_word <sort> <word>, \
          treasure_look <template>, treasure_potion <kind>, \
          treasure_family <sort> <order>, item_use <template>, book <template>, \
-         start_item <template>, interaction <key>, recipe <id>, concealing <effect> <class|any>, \
-         npc_table <name>, friend_table <table>, creature <template>, or landblock <XXYY>";
+         start_item <template>, interaction <key>, recipe <id>, object_states <key>, \
+         sequence <key>, concealing <effect> <class|any>, npc_table <name>, \
+         friend_table <table>, creature <template>, or landblock <XXYY>";
     const NAMES_BASE: bool = true;
     type Kind = Kind;
     type Era = Era;
@@ -251,6 +252,10 @@ pub enum Item {
     StartItem { template: u32 },
     /// What an item used on another makes, by its key.
     Interaction { key: String },
+    /// The states objects of some templates hold, by the row's key.
+    ObjectStates { key: String },
+    /// An order of uses judged against objects' states, by its key.
+    Sequence { key: String },
     /// A region's surveyor's map recipes, by the region's key.
     MapRecipes { region: String },
     /// The totem spellbinding makes of a sort of item, by the sort's name.
@@ -393,6 +398,8 @@ impl Item {
                 template: number(template)?,
             },
             ["interaction", key] => Self::Interaction { key: symbol(key)? },
+            ["object_states", key] => Self::ObjectStates { key: symbol(key)? },
+            ["sequence", key] => Self::Sequence { key: symbol(key)? },
             ["map_recipes", region] => Self::MapRecipes {
                 region: symbol(region)?,
             },
@@ -495,6 +502,8 @@ impl fmt::Display for Item {
             Self::Book { template } => write!(f, "book {template:#010x}"),
             Self::StartItem { template } => write!(f, "start_item {template:#010x}"),
             Self::Interaction { key } => write!(f, "interaction {key}"),
+            Self::ObjectStates { key } => write!(f, "object_states {key}"),
+            Self::Sequence { key } => write!(f, "sequence {key}"),
             Self::MapRecipes { region } => write!(f, "map_recipes {region}"),
             Self::Spellbinding { sort } => write!(f, "spellbinding {sort}"),
             Self::Refining { recipe } => write!(f, "refining {recipe}"),

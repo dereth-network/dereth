@@ -1,6 +1,7 @@
 //! Talking to people and shopping.
 //!
-//! **Using a person** (in reach: the use answered first) runs the quest step it triggers, if one
+//! **Using a person** (in reach: the use answered first) is judged by the orders of uses naming it,
+//! if any do ([`crate::puzzles`]); else it runs the quest step it triggers, if one
 //! does; else it says what it says when used ([`crate::talk`]): a storekeeper its greeting, if its
 //! row gives one, and it opens its store: the store's first page
 //! of sales (seven to a page), each sale with its product, icon, name, price and currency, stack
@@ -96,6 +97,10 @@ pub fn talk<S: Store>(
     o: &ContentObject,
     clock: Clock,
 ) {
+    if crate::puzzles::judges(s, o.template) {
+        crate::puzzles::used(s, net, world, id, clock);
+        return;
+    }
     let name = o.description.name.or(o.facts.name);
     if crate::quests::triggered(
         s,

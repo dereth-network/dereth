@@ -11341,6 +11341,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.chest-for-a-quest-able-to-be-given",
+        says: "A chest whose kind needs its quest able to be given opens for a player who may be given it \
+               now, its kind's use giving the quest as it begins to open, and refuses one who has it under \
+               way or done and its wait not over.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHEST-QUEST-GIVABLE"),
+        station: "yalain-testkit::cpu::play::chests::a_chest_needing_its_quest_able_to_be_given_opens_for_one_who_may_be_given_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.chest-kept-by-a-quest",
         says: "A chest a quest keeps refuses at once a player whose quest is not at the phase it \
                names, and opens for one whose quest is.",
@@ -12433,6 +12443,64 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-POSITION-RELAY"),
         station: "yalain-testkit::cpu::entry::presence::a_players_reported_place_reaches_the_clients_that_know_it_with_newer_stamps",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.puzzles.a-wrong-use-starts-the-order-over",
+        says: "A use of another object an order of uses names, or of the next in another state, takes the \
+               order's quest away from a player who has it under way, with the wrong line, and the order \
+               starts over; an order not naming the object used is not judged by it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PUZZLE-ORDER-WRONG"),
+        station: "yalain-testkit::cpu::play::puzzles::a_wrong_use_takes_the_quest_away_and_the_order_starts_over",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.puzzles.an-item-given-changes-an-objects-state",
+        says: "An item given to an object holding a state, where a change names the item and the state \
+               the object is in, puts the object in the change's state for every player and is handed \
+               back; an item no change names is refused and handed back, the state as it was.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PUZZLE-STATES"),
+        station: "yalain-testkit::cpu::play::puzzles::an_item_a_change_names_changes_the_objects_state_for_everyone_and_comes_back",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.puzzles.an-objects-state-goes-back",
+        says: "An object holding a state goes back to its first its row's time after its last change, not \
+               before.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PUZZLE-STATES-BACK"),
+        station: "yalain-testkit::cpu::play::puzzles::an_object_goes_back_to_its_first_state_its_rows_time_after_its_last_change",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.puzzles.rows",
+        says: "Object states rows and sequence rows read, are checked against the install and against \
+               one another's states, and compile into the server's item rows.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-PUZZLE-ROWS"),
+        station: "yalain-world-db::cpu::database::object_states_and_sequence_rows_compile_into_the_item_rows",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.puzzles.the-last-right-use-takes-the-player-on",
+        says: "The last right use of an order of uses whose row names a place takes its player there \
+               through portal space; an order naming none leaves the player where it stands.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PUZZLE-ORDER-TRIP"),
+        station: "yalain-testkit::cpu::play::puzzles::the_last_right_use_takes_the_player_where_its_row_says",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.puzzles.uses-in-order-move-a-quest",
+        says: "Right uses in an order, each object in the state its use names, move the order's quest on a \
+               phase each, the first giving it, with the right line said once however many orders moved; \
+               past its last use an order is not judged; a use of an object an order names runs no quest \
+               step of its own, and a world without such rows runs it as before.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PUZZLE-ORDER"),
+        station: "yalain-testkit::cpu::play::puzzles::right_uses_in_order_move_the_quest_a_phase_each_the_first_giving_it",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -140,6 +140,12 @@ pub fn item(l: &Located) -> Option<Item> {
             template: r.template,
         },
         Row::Interaction(r) => Item::Interaction { key: r.key.clone() },
+        Row::ObjectStates(r) => Item::ObjectStates {
+            key: r.states.key.clone(),
+        },
+        Row::Sequence(r) => Item::Sequence {
+            key: r.sequence.key.clone(),
+        },
         Row::Concealing(r) => Item::Concealing {
             effect: r.effect,
             class: r.class,
@@ -218,6 +224,8 @@ fn value(row: &Row) -> String {
         Row::Book(x) => x.prov = crate::rows::Prov::default(),
         Row::StartItem(x) => x.prov = crate::rows::Prov::default(),
         Row::Interaction(x) => x.prov = crate::rows::Prov::default(),
+        Row::ObjectStates(x) => x.prov = crate::rows::Prov::default(),
+        Row::Sequence(x) => x.prov = crate::rows::Prov::default(),
         Row::Concealing(x) => x.prov = crate::rows::Prov::default(),
         Row::NpcTable(x) => x.prov = crate::rows::Prov::default(),
         Row::FriendTable(x) => x.prov = crate::rows::Prov::default(),

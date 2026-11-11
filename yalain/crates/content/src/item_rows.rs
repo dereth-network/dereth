@@ -1,6 +1,8 @@
 //! What the world database says of items beyond their templates: what an item's use does where its
 //! template names nothing, what a book, card or person shows when used, what every new character
-//! is given as it first enters, and what an item used on another makes.
+//! is given as it first enters, and what an item used on another makes; the states the world's
+//! objects of some templates hold, which items given them change, and the orders of uses judged
+//! against those states.
 
 use std::collections::BTreeMap;
 
@@ -59,6 +61,54 @@ pub struct ItemRows {
     pub start_items: BTreeMap<u32, u32>,
     /// What items used on others make, in the rows' order.
     pub interactions: Vec<Interaction>,
+    /// The states objects of some templates hold, in the rows' order.
+    pub object_states: Vec<ObjectStates>,
+    /// Orders of uses judged against the used objects' states, in the rows' order.
+    pub sequences: Vec<Sequence>,
+}
+
+/// The states the world's objects of some templates hold: each object one of them, its first at the
+/// start; an item given an object changes its state where a change names the item and the state
+/// it is in; it goes back to its first some time after its last change.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ObjectStates {
+    /// The row's key.
+    pub key: String,
+    /// The templates whose objects hold a state, each with its objects' first state.
+    pub templates: Vec<(u32, String)>,
+    /// The states' names.
+    pub states: Vec<String>,
+    /// Seconds after its last change an object goes back to its first state (none: never).
+    pub reverts: Option<f64>,
+    /// What changes a state: the item given, the state it changes from and the state it becomes.
+    pub changes: Vec<StateChange>,
+}
+
+/// An item given to an object in one state puts it in another.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StateChange {
+    pub item: u32,
+    pub from: String,
+    pub to: String,
+}
+
+/// Uses in an order, judged against the used objects' states: each use of the next object, in the
+/// state it names, moves the row's quest on a phase (the first gives it), and the last takes the
+/// player where the row says; a use of another, or of the next in another state, takes the quest
+/// away from a player who has it under way, and the order starts over.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Sequence {
+    /// The row's key.
+    pub key: String,
+    /// The quest whose phase counts the right uses made.
+    pub quest: u32,
+    /// The uses in order: the template used and the state its object must be in (none: any).
+    pub uses: Vec<(u32, Option<String>)>,
+    /// What the object used says at a right use and at a wrong one: (string, table).
+    pub right: Option<(u32, u32)>,
+    pub wrong: Option<(u32, u32)>,
+    /// Where the last right use takes the player.
+    pub to: Option<crate::quests::Place>,
 }
 
 impl ItemRows {
@@ -88,6 +138,22 @@ impl ItemRows {
         self.uses
             .values()
             .flat_map(|u| u.effects.iter().map(|(s, _)| *s))
+    }
+
+    /// The states row of a template whose objects hold a state.
+    #[must_use]
+    pub fn states_of(&self, template: u32) -> Option<&ObjectStates> {
+        self.object_states
+            .iter()
+            .find(|r| r.templates.iter().any(|(t, _)| *t == template))
+    }
+
+    /// Does an order of uses name a use of this template?
+    #[must_use]
+    pub fn in_a_sequence(&self, template: u32) -> bool {
+        self.sequences
+            .iter()
+            .any(|q| q.uses.iter().any(|(t, _)| *t == template))
     }
 
     /// Every template the rows give.

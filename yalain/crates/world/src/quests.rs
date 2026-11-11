@@ -613,7 +613,7 @@ fn setup_allows(
 /// one's the same; a cancelled one's its cancel wait). 2017: a failed quest's shrine said only its
 /// refusal while the wait ran, 2 of 2; quests whose completion named no wait were given again 23
 /// times (9 of 31), never one done once.
-fn given_again(def: &QuestDef, held: &[QuestState], now_unix: i64) -> bool {
+pub(crate) fn given_again(def: &QuestDef, held: &[QuestState], now_unix: i64) -> bool {
     held.iter().find(|q| q.quest == def.id).is_none_or(|q| {
         #[allow(clippy::cast_precision_loss)]
         let waited = (now_unix - q.updated) as f64;

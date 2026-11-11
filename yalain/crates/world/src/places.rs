@@ -556,10 +556,11 @@ fn keeps_players_out<S: Store>(s: &Server<S>, o: &yalain_content::ContentObject)
 }
 
 /// Is a template one a player talks to by using it (a storekeeper, a person or object a quest
-/// step is triggered by, or one that says something when used)?
+/// step is triggered by or an order of uses names, or one that says something when used)?
 fn is_person<S: Store>(s: &Server<S>, template: u32) -> bool {
     s.stores.keeper(template).is_some()
         || crate::books::npc_book(s, template).is_some()
+        || s.item_rows.in_a_sequence(template)
         || s.quests
             .steps
             .iter()

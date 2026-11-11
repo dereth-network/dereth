@@ -20,7 +20,8 @@
 //! Land Claim: two records in one instant, 1 of 1). A step that keeps nothing hands the item back
 //! after its update (23 of 23). With no step for it the person says its own refusal of a give and
 //! hands it back (30 of 30): a person with a body plays its handing-over behavior and the item is
-//! back 1.30 s later, an object hands it back at once.
+//! back 1.30 s later, an object hands it back at once. An item that changes the state of an object
+//! holding one ([`crate::puzzles`]) is handed back as it changes it.
 //!
 //! **Stacks.** What is given is taken whole when a step keeps it: the count asked, a part of a
 //! stack leaving the rest in the pack (2017: 38 of 38). A step may want an exact count: any other
@@ -350,6 +351,10 @@ pub fn handed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, c
             crate::quests::give_for(s, world, template, target_template, given.quantity)
         {
             takes(s, net, world, i, &row, given, clock);
+            return;
+        }
+        if crate::puzzles::given(s, m.target, template, clock) {
+            hand_back(s, net, world, i, &m, object, None, clock);
             return;
         }
         match crate::map_trips::sends(s, i, template) {

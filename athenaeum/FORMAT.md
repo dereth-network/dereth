@@ -53,6 +53,7 @@ world.lock                         ids given to authored rows, kept across build
 <pack>/server/treasure_potions.toml [[treasure_potion]]
 <pack>/server/treasure_families.toml [[treasure_family]]
 <pack>/server/items.toml           [[item_use]], [[book]], [[start_item]], [[interaction]]
+<pack>/server/puzzles.toml         [[object_states]], [[sequence]]
 <pack>/server/creatures.toml       [[concealing]], [[npc_table]], [[friend_table]], [[creature]]
 ```
 
@@ -123,7 +124,7 @@ Every row sets one **item**, named by its key:
 | item | key |
 |---|---|
 | `object KEY@XXYY`, `camp KEY@XXYY`, `clearing KEY@XXYY` | the row's `key`, unique within its landblock in its pack |
-| `place KEY`, `talk KEY`, `give KEY`, `route KEY`, `event KEY`, `death_treasure KEY` | the row's `key` |
+| `place KEY`, `talk KEY`, `give KEY`, `route KEY`, `event KEY`, `death_treasure KEY`, `object_states KEY`, `sequence KEY` | the row's `key` |
 | `loot 0xVALUE` | the death-loot profile's value |
 | `keeper 0xTEMPLATE` | the storekeeper template |
 | `store KEY` | the shop's `key`, unique in the world |
@@ -1002,6 +1003,44 @@ item that names the target's template, else the first that names a class the tar
 | `on`, `on_class` | one of them | what it is used on: a template, or a class (a script package, by number) the item's table names, any template of which counts |
 | `gives` | required | the template of what it makes |
 | `count` | | above 0; 1 when left out |
+| `prov` | required | where it came from |
+
+#### `[[object_states]]`
+
+The states the world's objects of some templates hold: each such object is in one of them, at the
+start its template's first. An item given to one, where a change names the item and the state the
+object is in, puts it in the change's state and is handed back, nothing used up; an item no change
+names is answered as any other give. The object goes back to its first state `reverts` seconds after
+its last change. The state is the object's, the same for every player. A template holds the states
+of one row at most.
+
+| field | | meaning |
+|---|---|---|
+| `key` | required | lowercase letters, digits and hyphens |
+| `templates` | required | `{ template, start }`: a template whose objects hold a state, and the state they start in |
+| `states` | required | the states' names (lowercase letters, digits and hyphens), two or more, each once |
+| `reverts` | | seconds after its last change an object goes back to its first state, above 0; never when left out |
+| `changes` | | `{ item, from, to }`: an item given to an object in state `from` puts it in state `to`; an item and a state once |
+| `prov` | required | where it came from |
+
+#### `[[sequence]]`
+
+Uses in an order, judged against the used objects' states, and the quest whose phase counts the right
+uses a player has made: a use of the next in the state named moves the quest on a phase, the first
+giving it, with what its definition names for that update, and the last takes the player to `to`; a use of any other object the row names, or
+of the next in another state, takes the quest away from a player who has it under way, and the order
+starts over. Every row naming the object used is judged at each use, so one use may move several on.
+A row whose quest is past its last use, or done and not to be given again, is not judged. The object
+says the `right` line of the first row a use moved on, else the `wrong` line of the first it judged; a
+use of an object a row names runs no quest step of its own.
+
+| field | | meaning |
+|---|---|---|
+| `key` | required | lowercase letters, digits and hyphens |
+| `quest` | required | the quest whose phase counts the right uses |
+| `uses` | required | `{ use, state }` in order: the template used and the state its object must be in (`[[object_states]]`, loaded before; any state when left out) |
+| `right`, `wrong` | | what the object used says at a right use and at a wrong one, `{ table, string }` |
+| `to` | | the place the last right use takes the player to, through portal space (`key`, or `pack:key`) |
 | `prov` | required | where it came from |
 
 #### `[[worn]]`

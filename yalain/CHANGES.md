@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Worlds can now have puzzles: objects that items change, used in the right order.
 - Worlds can now have creatures that fight other creatures, and targets players can't harm.
 - Worlds can now add recipes of their own.
 - Worlds can now have locked doors whose key takes a player somewhere.

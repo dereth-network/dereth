@@ -44,6 +44,8 @@
 //! - [`kingdoms`]: a player's kingdom, joined at a faction shrine, and the kind of player conflict
 //!   each place allows, which the client is told of as its player comes and goes.
 //! - [`plants`]: dye plants: planted from seeds, cared for, pollinated and harvested.
+//! - [`puzzles`]: objects whose state the items given them change, and uses in an order judged
+//!   against those states.
 //! - [`mounts`]: saddles and mount eggs put their user on a beast; riding, dismounting and the
 //!   ride's end.
 //! - [`usable`]: doors, chests, their locks and keys, surveyor's maps, items used on the objects
@@ -126,6 +128,7 @@ pub mod popups;
 pub mod presence;
 pub mod profile;
 pub mod progress;
+pub mod puzzles;
 pub mod quals;
 pub mod quests;
 pub mod rates;
@@ -509,6 +512,8 @@ pub struct Server<S: Store> {
     pub pets: pets::Pets,
     /// The dye plants players have planted, and the species' ripe looks.
     pub plants: plants::Plants,
+    /// The states of the world's objects that hold one, where they have changed.
+    pub object_states: puzzles::States,
     /// The locked doors and their keys, and the doors' states.
     pub locks: yalain_content::LockTable,
     /// The places templates name: where a person who sends players by their maps sends the
@@ -886,6 +891,7 @@ impl<S: Store> Server<S> {
             lying: drops::Lying::default(),
             pets: pets::Pets::default(),
             plants: plants::Plants::default(),
+            object_states: puzzles::States::default(),
             locks: yalain_content::LockTable::default(),
             places_named: std::collections::BTreeMap::new(),
             places_by_name: std::collections::BTreeMap::new(),
