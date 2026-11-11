@@ -9,8 +9,9 @@
 //! (`auberean-pack`), for the world file, the pack headers, the lockfile, provenance, overrides,
 //! removals and the merge; the record decoders (`auberean-assets`) and the script library
 //! (`auberean-script`), for reading the install's templates, stores and quest definitions; the
-//! server's tables (`yalain-content`), which a compile fills; and `dereth-primitives` for its
-//! math. **Used by** the `yalain`
+//! server's tables (`yalain-content`), which a compile fills; the install's files (`dereth-dat`,
+//! `auberean-dat`) and its world records (`auberean-world`), for building a world's overlay; and
+//! `dereth-primitives` for its math. **Used by** the `yalain`
 //! program (`yalain world ...`, `--world-db`), the server's tests, and the world builder
 //! (`athenaeum`), whose worlds lie over a released database ([`layer`]).
 //!
@@ -55,7 +56,8 @@
 //! uses only where no string reference is given, and which is said as literal text.
 //!
 //! **Must never** do I/O: the caller hands in the files ([`Files`]) and the install
-//! ([`compile::Install`]); a release is bytes out.
+//! ([`compile::Install`]); a release is bytes out. The one exception is the `fs` feature's
+//! [`overlay::write`], which reads an install on disk and writes a world's overlay folder.
 
 use std::collections::BTreeMap;
 use std::fmt;

@@ -1,8 +1,10 @@
 //! The operator's `reload` typed into the running executable's console: a database that does not
 //! compile leaves the world as it was; one that does changes what the guard says to a player
 //! already in the world, and moves the guard, the player's client seeing it made again where it
-//! now stands. Fixture: a copy of the authored world's database in a scratch folder, edited
-//! between reloads.
+//! now stands. And `yalain world compile`, the same compile run as a command, building the world's
+//! overlay from its rows against the install as it writes the tables. Fixture: a copy of the
+//! authored world's database in a scratch folder, edited between reloads, and one with a shop and a
+//! clearing of its own.
 
 use std::io::Write as _;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
@@ -10,6 +12,9 @@ use std::path::Path;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::time::Instant;
 
+use auberean_client_sdk::dat::locate::{install_dats, DatName};
+use auberean_client_sdk::dat::overlay::{WorldOverlay, WORLD_FOLDER};
+use auberean_client_sdk::dat::DatFile;
 use yalain_testkit::authored;
 use yalain_testkit::session::{self as play, call, Drive};
 
@@ -198,4 +203,109 @@ fn reload_at_the_console_changes_the_running_world_or_nothing() {
         "the new line"
     );
     must(play::log_off(&mut s), &dir);
+}
+
+/// The session tests' world copied into `dir`, with a shop of Sabine's store under a title of its
+/// own, kept by her template, and a clearing in a town.
+fn world_with_a_shop(dir: &Path) {
+    copy_dir(&authored::database_dir(), dir);
+    std::fs::write(
+        dir.join("hall/server/shops.toml"),
+        "[[store]]\nkey = \"bobs\"\nfrom = 0x6F0016E5\nname_text = \"Bob's Fine Goods\"\nprov = { from = \"authored\" }\n\n\
+         [[keeper]]\ntemplate = 0x470033D0\nshop = \"bobs\"\nprov = { from = \"authored\" }\n",
+    )
+    .expect("the shop");
+    std::fs::write(
+        dir.join("hall/server/landblocks/5766.toml"),
+        "[[clearing]]\nkey = \"square\"\nat = [123.0, 45.0, \"ground\"]\nradius = 10.0\nprov = { from = \"authored\" }\n",
+    )
+    .expect("the clearing");
+}
+
+/// Every file of a folder, by name, with its bytes.
+fn folder_bytes(dir: &Path) -> Vec<(std::ffi::OsString, Vec<u8>)> {
+    let mut out: Vec<_> = std::fs::read_dir(dir)
+        .expect("the folder")
+        .flatten()
+        .map(|e| (e.file_name(), std::fs::read(e.path()).expect("a file")))
+        .collect();
+    out.sort();
+    out
+}
+
+fn world_compile(install: &Path, world: &Path, out: &Path, overlay: Option<&Path>) -> String {
+    let mut c = Command::new(env!("CARGO_BIN_EXE_yalain"));
+    c.args(["world", "compile", "--dats"])
+        .arg(install)
+        .arg("--world-db")
+        .arg(world)
+        .arg("--out")
+        .arg(out);
+    if let Some(o) = overlay {
+        c.arg("--overlay").arg(o);
+    }
+    let done = c
+        .stdin(Stdio::null())
+        .output()
+        .expect("the executable runs");
+    assert!(
+        done.status.success(),
+        "world compile: {}",
+        String::from_utf8_lossy(&done.stderr)
+    );
+    String::from_utf8_lossy(&done.stdout).into_owned()
+}
+
+/// A world's compile builds its overlay in the world's folder, over the install it compiles
+/// against: its shop's copy of the store template in the portal file under the id the build gives
+/// it, its clearing's landblocks in the cell file, and the keepers' table naming the copy. Built
+/// again with nothing changed, the folder stays as it was. `--overlay` builds it elsewhere and
+/// leaves the world's folder alone.
+/// Behaviour: server.operator.world-compile-builds-the-worlds-overlay
+#[test]
+fn a_worlds_compile_builds_its_overlay_against_the_install() {
+    let install = auberean_dat::testing::require_target_install();
+    let dir = scratch("compile-overlay");
+    let world = dir.join("world");
+    world_with_a_shop(&world);
+    let said = world_compile(&install, &world, &dir.join("tables"), None);
+    assert!(said.contains("1 shops"), "{said}");
+    let folder = world.join(WORLD_FOLDER);
+    let overlay = WorldOverlay::open(&folder).expect("the world's overlay");
+    assert_eq!(overlay.world(), "test-hall");
+    let found = install_dats(&install).expect("the install");
+    let file = |name: DatName| {
+        let (_, p) = found.iter().find(|(n, _)| *n == name).expect("the file");
+        DatFile::open(p).expect("opens")
+    };
+    let portal = overlay
+        .over(file(DatName::Portal))
+        .expect("over the portal");
+    assert!(portal.read(0x6F10_0000).is_ok(), "the shop's copy");
+    let cell = file(DatName::Cell(1));
+    let over = overlay.over(cell.clone()).expect("over the cell file");
+    assert_ne!(
+        over.read(0x5766_FFFF).expect("the landblock"),
+        cell.read(0x5766_FFFF).expect("the install's"),
+        "the clearing's landblock"
+    );
+    let stores = std::fs::read_to_string(dir.join("tables/stores.tsv")).expect("the table");
+    assert!(
+        stores
+            .lines()
+            .any(|l| l.starts_with("keeper\t470033D0\t6F0016E5\t") && l.ends_with("\t6F100000")),
+        "{stores}"
+    );
+    // Again: nothing changes, the folder as it was.
+    let before = folder_bytes(&folder);
+    world_compile(&install, &world, &dir.join("tables"), None);
+    assert_eq!(folder_bytes(&folder), before);
+    // Elsewhere: the world's folder holds none.
+    let copy = dir.join("copy");
+    world_with_a_shop(&copy);
+    let elsewhere = dir.join("staging").join("overlay");
+    world_compile(&install, &copy, &dir.join("tables-2"), Some(&elsewhere));
+    assert!(WorldOverlay::open(&elsewhere).is_ok());
+    assert!(!copy.join(WORLD_FOLDER).exists());
+    let _ = std::fs::remove_dir_all(&dir);
 }

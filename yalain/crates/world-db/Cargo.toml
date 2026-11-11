@@ -8,10 +8,20 @@ license.workspace = true
 publish.workspace = true
 autotests = false
 
+[features]
+# The world's overlay written into a folder, against an install on disk (`overlay::write`): the
+# server's compile and the world builder build it. Off, the crate does no I/O.
+fs = ["auberean-dat/fs"]
+
 [dependencies]
 auberean-assets.workspace = true
 auberean-pack.workspace = true
 auberean-script.workspace = true
+# The overlay: the install's records it is made from, what the land grows (for a clearing), and
+# the shared container it is written in.
+auberean-dat.workspace = true
+auberean-world.workspace = true
+dereth-dat.workspace = true
 dereth-pack.workspace = true
 dereth-primitives.workspace = true
 yalain-content.workspace = true

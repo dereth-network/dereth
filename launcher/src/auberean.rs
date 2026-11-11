@@ -977,12 +977,12 @@ fn yalain_facts(program: &Path) -> (Option<String>, Option<String>) {
 
 /// Export the Athenaeum world in the folder `world` for a Yalain that serves it elsewhere, into
 /// `out`: a Yalain world database package. Its world file, its ids (`world.lock`) and its packs,
-/// the server's rows, which are all Athenaeum changes (never the game's data files); the world
-/// file names the release of the world database it lies over, the one it named or else the one
-/// `yalain` pins; the copy is compiled against the data files `dats` as Yalain compiles it at its
-/// start, and a world that does not compile is not exported; and a `README.txt` says how to serve
-/// it. `out` is new, empty, or an earlier export, which it replaces. What the README names the
-/// release by, in words for the page.
+/// the server's rows, and its overlay, the records its clearings and shops change, ready to serve.
+/// The world file names the release of the world database it lies over, the one it named or else
+/// the one `yalain` pins; the copy is compiled against the data files `dats` as Yalain compiles it,
+/// which brings the overlay up to its rows there, and a world that does not compile is not
+/// exported; and a `README.txt` says how to serve it. `out` is new, empty, or an earlier export,
+/// which it replaces. What the README names the release by, in words for the page.
 ///
 /// # Errors
 /// A world that is gone, changes while it is copied or does not compile, an export folder that
@@ -1020,6 +1020,13 @@ fn export_world(world: &Path, out: &Path, yalain: &Path, dats: &Path) -> Result<
     .map_err(|e| e.to_string())?;
     let sources = crate::lyceum_world::digest(&file)?;
     crate::host_publication::copy_athenaeum_world(&file, out)?;
+    let overlay = folder.join(crate::host_publication::ATHENAEUM_OVERLAY);
+    if overlay.is_dir() {
+        crate::hosts::copy_tree(
+            &overlay,
+            &out.join(crate::host_publication::ATHENAEUM_OVERLAY),
+        )?;
+    }
     if crate::lyceum_world::digest(&file)? != sources {
         return Err("The world changed during the export. Save in Athenaeum, then retry.".into());
     }
@@ -1053,6 +1060,8 @@ fn export_world(world: &Path, out: &Path, yalain: &Path, dats: &Path) -> Result<
         out,
     )
     .map_err(|e| format!("Could not get the world database {base} the world lies over: {e}"))?;
+    // The compile builds the export's overlay from its rows, as the next revision of the world's
+    // own; one already up to date is left as it is.
     let staging = out.join(EXPORT_STAGING);
     let checked = crate::host_publication::run_yalain(
         yalain,
@@ -1082,7 +1091,9 @@ fn export_world(world: &Path, out: &Path, yalain: &Path, dats: &Path) -> Result<
             )
         })
         .collect::<Vec<_>>();
-    let readme = export_readme(&key, &packs, &base, version.as_deref());
+    let overlay = std::fs::read_dir(out.join(crate::host_publication::ATHENAEUM_OVERLAY))
+        .is_ok_and(|mut d| d.next().is_some());
+    let readme = export_readme(&key, &packs, overlay, &base, version.as_deref());
     std::fs::write(out.join("README.txt"), readme).map_err(|e| e.to_string())?;
     Ok(base)
 }
@@ -1102,9 +1113,15 @@ fn with_base(text: &str, base: &str) -> Result<String, String> {
     Ok(doc.to_string())
 }
 
-/// What an export's `README.txt` says: what is in the folder, that the world changes only the
-/// server's rows, and how a Yalain serves it, over the release `base` of the world database.
-fn export_readme(key: &str, packs: &[String], base: &str, yalain: Option<&str>) -> String {
+/// What an export's `README.txt` says: what is in the folder, its `overlay` when it has one, and
+/// how a Yalain serves it, over the release `base` of the world database.
+fn export_readme(
+    key: &str,
+    packs: &[String],
+    overlay: bool,
+    base: &str,
+    yalain: Option<&str>,
+) -> String {
     let width = packs.iter().map(|p| p.len() + 1).max().unwrap_or(0).max(10);
     let mut files = format!(
         "  {:width$}  the world: its key, its packs, and the world database it lies over, {base}\n",
@@ -1121,13 +1138,25 @@ fn export_readme(key: &str, packs: &[String], base: &str, yalain: Option<&str>) 
         ));
     }
     let checked = yalain.map_or_else(|| "Yalain".to_owned(), |v| format!("Yalain {v}"));
+    let records = if overlay {
+        files.push_str(&format!(
+            "  {:width$}  the players' records its clearings and shops change\n",
+            "overlay/"
+        ));
+        "
+The world clears ground or names its own shops, which changes some of the players' records too.
+Those are in overlay/, built over the data files it was exported with, and Yalain sends them to
+players as they log in. A retail player needs `[ddd] enable_dat_patching` on, and a copy of their
+files kept for this world.
+"
+        .to_owned()
+    } else {
+        String::new()
+    };
     format!(
         "{key}, an Athenaeum world, exported for Yalain.
 
-{files}
-Athenaeum changes only the server's rows, never the game's data files, so every client, retail
-too, sees this world's changes from the server.
-
+{files}{records}
 In yalain.toml (a path is relative to yalain.toml's folder; give full paths when it is
 elsewhere):
 
@@ -1143,8 +1172,10 @@ or name a copy of it in yalain.toml's [server]:
 
   world_base_path = \"<that release's folder>\"
 
-{checked} compiled it against the Asheron's Call 2 data files when it was exported. Check it
-against yours:
+{checked} compiled it against the Asheron's Call 2 data files when it was exported, so it is
+ready to serve. Yalain does not start a world whose overlay was built over other data files: if
+yours are not the same, compile it against yours, which checks it and builds its overlay again in
+this folder:
 
   yalain world compile --dats <your data files> --world-db <this folder> --out <a scratch folder>
 "
@@ -1576,8 +1607,9 @@ mod tests {
     }
 
     /// An Athenaeum world in `dir` as `athenaeum new` makes one, its base named by name only, with
-    /// a row in its pack and what playing and building it leave beside it.
-    fn export_world_at(dir: &Path) {
+    /// a row in its pack and what playing and building it leave beside it; with `clearing`, a
+    /// clearing too and the overlay its build made of it.
+    fn export_world_at(dir: &Path, clearing: bool) {
         std::fs::create_dir_all(dir.join("fill-frontier/server")).unwrap();
         std::fs::write(
             dir.join("world.toml"),
@@ -1595,18 +1627,28 @@ mod tests {
             std::fs::create_dir_all(dir.join(left)).unwrap();
             std::fs::write(dir.join(left).join("kept.txt"), "not the world's").unwrap();
         }
+        if clearing {
+            std::fs::write(
+                dir.join("fill-frontier/server/places.toml"),
+                "[[clearing]]\nkey = \"yard\"\nradius = 20.0\n",
+            )
+            .unwrap();
+            std::fs::create_dir_all(dir.join("overlay")).unwrap();
+            std::fs::write(dir.join("overlay/cell.dat"), "the yard cleared").unwrap();
+        }
     }
 
     /// Export For writes an Athenaeum world as a Yalain world database package: its world file,
-    /// ids and packs and nothing it leaves beside them, the release it was checked over named in
-    /// its world file, a README that says how a Yalain serves it, the build checked by Yalain's
-    /// compile; a later export replaces it. A folder holding other files, or in the world's own
-    /// folder, is refused, and a world that does not compile is not exported.
+    /// ids, packs and overlay and nothing else it leaves beside them, the release it was checked
+    /// over named in its world file, a README that says how a Yalain serves it, the build checked
+    /// by Yalain's compile, which builds the overlay in the export itself; a later export replaces
+    /// it. A folder holding other files, or in the world's own folder, is refused, and a world that
+    /// does not compile is not exported.
     #[test]
     fn an_athenaeum_world_exports_for_yalain_as_a_world_database_package() {
         let d = scratch("export");
         let world = d.join("Athenaeum").join("frontier");
-        export_world_at(&world);
+        export_world_at(&world, true);
         let yalain = export_yalain(&d.join("bin"), true);
         let dats = d.join("ac2");
         let out = d.join("out");
@@ -1619,11 +1661,17 @@ mod tests {
             "world.lock",
             "fill-frontier/pack.toml",
             "fill-frontier/server/people.toml",
+            "fill-frontier/server/places.toml",
             "README.txt",
             EXPORT_MARKER,
         ] {
             assert!(out.join(file).is_file(), "{file}");
         }
+        assert_eq!(
+            std::fs::read_to_string(out.join("overlay/cell.dat")).unwrap(),
+            "the yard cleared",
+            "the export carries the world's overlay"
+        );
         for left in [".playtest", "build", "characters", EXPORT_STAGING] {
             assert!(!out.join(left).exists(), "{left}");
         }
@@ -1640,7 +1688,9 @@ mod tests {
         for said in [
             "frontier, an Athenaeum world, exported for Yalain.",
             "fill-frontier/",
-            "never the game's data files",
+            "overlay/",
+            "Those are in overlay/",
+            "ready to serve",
             "world_database_path = \"<this folder>\"",
             "yalain world fetch --version v0.23.0",
             "Yalain 0.1.2 compiled it",
@@ -1650,6 +1700,8 @@ mod tests {
         let ran = std::fs::read_to_string(d.join("bin/said.txt")).unwrap();
         assert!(ran.contains("world fetch --version v0.23.0"), "{ran}");
         assert!(ran.contains("world compile --dats"), "{ran}");
+        // Compiled where it is, so its overlay is built in the export and nowhere else.
+        assert!(!ran.contains("--overlay"), "{ran}");
 
         // Again: an earlier export is replaced whole.
         std::fs::write(out.join("stale.txt"), "x").unwrap();
@@ -1657,7 +1709,7 @@ mod tests {
         assert!(!out.join("stale.txt").exists());
         // A world that names its release keeps it.
         let named = d.join("named");
-        export_world_at(&named);
+        export_world_at(&named, false);
         let text = std::fs::read_to_string(named.join("world.toml")).unwrap();
         std::fs::write(
             named.join("world.toml"),
@@ -1668,6 +1720,10 @@ mod tests {
             export_world(&named, &d.join("named-out"), &yalain, &dats).as_deref(),
             Ok("v0.22.0")
         );
+        // A world that changes no record has no overlay, and its README names none.
+        assert!(!d.join("named-out/overlay").exists());
+        let readme = std::fs::read_to_string(d.join("named-out/README.txt")).unwrap();
+        assert!(!readme.contains("overlay/"), "{readme}");
 
         // Refused: a folder of other files, the world's own folder, a world that does not compile.
         let other = d.join("other");

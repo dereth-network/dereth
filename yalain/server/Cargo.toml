@@ -29,7 +29,7 @@ yalain-content.workspace = true
 yalain-net = { workspace = true, features = ["udp", "websocket"] }
 yalain-world.workspace = true
 yalain-store = { workspace = true, features = ["sqlite"] }
-yalain-world-db.workspace = true
+yalain-world-db = { workspace = true, features = ["fs"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 # `--hub`: the heartbeat the world posts to a Dereth Network hub, the network's own, as JSON.

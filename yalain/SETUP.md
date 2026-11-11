@@ -116,12 +116,15 @@ yalain world fetch --from yalain-world-<tag>.zip
   holds only its own changes. Give its folder to `--world-db`, and the server lays it over the
   release its `[base]` names (or the pinned one, if it names none), from the cache. `--world-base
   <folder>` takes the base from that folder instead.
-  If the world changes the game's own records, `athenaeum build` writes them to its `overlay`
-  folder (`--dat-overlay` names another), and the server reads its data files through that. An
-  overlay built against another install, or another world's, stops the server: build it again
-  against this one's `--dats`. Auberean is sent what it lacks as it logs in. A client holding other
-  data files is refused, and so is a retail client unless you turn on `[ddd] enable_dat_patching`:
-  then it must run with `-rodat off`, on a copy of its files kept for this world.
+  If the world changes the game's own records (its clearings, its shops' titles), `yalain world
+  compile` builds them from its rows into its `overlay` folder against the install it is given
+  (`athenaeum build` does too), and the server reads its data files through that (`--dat-overlay`
+  names another folder). A world exported from Athenaeum carries its overlay, ready to serve. An
+  overlay built against another install, or another world's, stops the server: compile the world
+  against this one's `--dats` to build it again. Auberean is sent what it lacks as it logs in. A
+  client holding other data files is refused, and so is a retail client unless you turn on `[ddd]
+  enable_dat_patching`: then it must run with `-rodat off`, on a copy of its files kept for this
+  world.
 
 Two commands help when you change a database:
 
@@ -133,7 +136,8 @@ yalain world compile --dats <install folder> --world-db <folder> --out <folder>
 `check` checks a database without an install: the schema, keys, references, how its packs merge,
 and every row's provenance. `compile` compiles it against the install as the server would, and
 writes the tables it makes as text files (`content.tsv`, `spawns.tsv`, `loot.tsv`, `stores.tsv`,
-`quests.tsv`, `talk.tsv`) for reading and comparing.
+`quests.tsv`, `talk.tsv`) for reading and comparing. It also builds the world's overlay, the next
+revision of what its `overlay` folder holds (`--overlay <folder>` builds it elsewhere).
 
 To release a database as an archive others can fetch:
 

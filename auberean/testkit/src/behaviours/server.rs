@@ -10098,6 +10098,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Live,
     },
     behaviour! {
+        id: "server.operator.world-compile-builds-the-worlds-overlay",
+        says: "`yalain world compile` builds a world's overlay from its rows, its shops' copies \
+               and its clearings, against the install it compiles with, into the world's folder or \
+               the one `--overlay` names; a build that changes nothing leaves the folder as it was.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-COMPILE-OVERLAY"),
+        station: "yalain::live::reload::a_worlds_compile_builds_its_overlay_against_the_install",
+        tier: Tier::Live,
+    },
+    behaviour! {
         id: "server.operator.world-step-times-by-stage",
         says: "The server times each world step's work since the step before on the host's clock, \
                by stage (the network, the timers, the camps, the creatures, the rest of the step, \

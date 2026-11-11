@@ -7367,9 +7367,12 @@ name = "yalain-world-db"
 version = "0.4.0-rc.0"
 dependencies = [
  "auberean-assets",
+ "auberean-dat",
  "auberean-pack",
  "auberean-primitives",
  "auberean-script",
+ "auberean-world",
+ "dereth-dat",
  "dereth-pack",
  "dereth-primitives",
  "serde_json",

@@ -511,9 +511,10 @@ fetches the world database release the world names in its `[base]` (if it names 
 copy against the world's data set as the server will (`yalain world compile`; a world that does
 not compile is refused and the world keeps what it played), then points `[server]
 world_database_path` at it. Each publish that changes something is the next version; the three
-newest snapshots are kept, and the one the world plays always. An Athenaeum world changes only the
-server's rows (people, objects, camps, places, talk, stores, quests), which every client is told of
-as it plays, so nothing is sent to players' data files and the retail client sees it too.
+newest snapshots are kept, and the one the world plays always. The compile also builds the world's
+overlay (its clearings and shop titles) in the snapshot, from its rows against the world's data
+set; Yalain sends players what they lack of it as they log in, and a retail player needs the
+world's patching on.
 
 **Athenaeum's page** makes and opens worlds. **New world** makes one with `athenaeum new` in an
 `Athenaeum` folder in your Documents and opens the editor on it; **Open World** opens one by its
@@ -524,10 +525,11 @@ beside itself. A world's row opens to when it was saved, what it changes, **Expo
 **Export For** writes the world for a Yalain that serves it elsewhere, as a world database package,
 in a folder you choose (that folder when it is empty or an earlier export, else `<world>-yalain` in
 it): its `world.toml`, naming the release of the world database it lies over (the one it names, else
-the one Yalain pins), `world.lock` and its packs, checked with `yalain world compile` against your
-default data set, and a `README.txt` saying how to serve it (`[server] world_database_path`) and
-which release to fetch. Athenaeum changes only the server's rows, never the game's data files, so
-every client, retail too, sees its changes from the server.
+the one Yalain pins), `world.lock`, its packs and its `overlay` (its clearings and shop titles),
+checked with `yalain world compile` against your default data set, which brings the overlay up to
+the rows, and a `README.txt` saying how to serve it (`[server] world_database_path`) and which
+release to fetch. It is ready to serve with no compile step; an operator whose data files differ
+builds the overlay again with `yalain world compile`.
 
 Started with `DERETH_SETTINGS_DIR` set, the launcher gives Auberean `AUBEREAN_SETTINGS_DIR` as a
 folder `auberean` in it, so a trial run keeps away from the player's own settings.

@@ -20,14 +20,11 @@ dereth-pack.workspace = true
 auberean-pack.workspace = true
 # The world database: its rows read and checked, merged over a base, compiled into the server's
 # tables; and the server's tables themselves.
-yalain-world-db.workspace = true
+yalain-world-db = { workspace = true, features = ["fs"] }
 yalain-content.workspace = true
 # The install a world is built against.
 auberean-dat = { workspace = true, features = ["fs"] }
 auberean-assets.workspace = true
-# What a vertex grows, to build a clearing, and the shared container an overlay is written in.
-auberean-world.workspace = true
-dereth-dat.workspace = true
 dereth-primitives.workspace = true
 # The script library a compile reads saved states with.
 auberean-script.workspace = true
@@ -38,6 +35,9 @@ tracing.workspace = true
 
 [dev-dependencies]
 auberean-dat = { workspace = true, features = ["fs", "test-support"] }
+# What the land grows and the overlay's containers, to check a world's overlay against.
+auberean-world.workspace = true
+dereth-dat.workspace = true
 
 [lints]
 workspace = true

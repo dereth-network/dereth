@@ -6,9 +6,9 @@
 //! (`auberean-pack`); the world database (`yalain-world-db`), whose rows, checks, merge over a
 //! base and compile a world uses as the server does, and the server's tables it compiles into
 //! (`yalain-content`); the data files (`auberean-dat`, `auberean-assets`) and the script library
-//! (`auberean-script`) a world is built against; what the land grows (`auberean-world`) and the
-//! overlay containers and shared helpers (`dereth-dat`, `dereth-primitives`) its client's records
-//! are built with; `toml_edit`, to change a pack's rows in place; and logging (`tracing`).
+//! (`auberean-script`) a world is built against, and the shared helpers (`dereth-primitives`);
+//! `toml_edit`, to change a pack's rows in place; and logging (`tracing`). Its overlay is built
+//! by the world database's own builder, as the server's compile builds it.
 //! **Used by** the `athenaeum` command (`athenaeum-cli`) and the editor
 //! (`athenaeum-editor`).
 //!

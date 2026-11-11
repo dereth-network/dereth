@@ -21,11 +21,15 @@
 //!   YALAIN_WORLD_URL variable, else the database's release downloads)
 //!
 //! yalain world compile --dats <install> [--world-db <folder> | pinned] [--world-base <folder>]
-//!                      --out <folder>
+//!                      [--overlay <folder>] --out <folder>
 //!   compiles a database against the install into the tables the server reads, written as text
 //!   for reading and comparing: content.tsv, spawns.tsv, loot.tsv, stores.tsv, quests.tsv,
-//!   talk.tsv
+//!   talk.tsv; and builds the world's overlay from its rows (its clearings and shops) against the
+//!   install, into its `overlay` folder (or --overlay), the next revision of what is there
 //! ```
+//!
+//! A world's overlay is made of the install's own records: one copied or exported with its world
+//! is served as it is over the same files, and compiled again over other ones.
 //!
 //! A world that names a base database (`[base]`, as a world builder's worlds do) is compiled over
 //! it: the release its `version` names (else the one this build pins) from the per-user cache, or
@@ -158,17 +162,17 @@ pub fn overlay_of(world_db: &str, given: Option<&Path>) -> Result<Option<WorldOv
     Ok(Some(overlay))
 }
 
-/// What a world's clearings come to with no overlay: what the land grows stays, and the person who
-/// wrote them should know why.
+/// What a world's clearings and shops come to with no overlay: what the land grows stays, a shop
+/// window keeps its store's name, and the person who wrote them should know why.
 #[must_use]
 pub fn clearing_warning(merged: &merge::Merged, has_overlay: bool) -> Option<String> {
-    let clearings = merged
-        .rows
-        .iter()
-        .filter(|l| matches!(l.row, rows::Row::Clearing(_)))
-        .count();
-    (clearings > 0 && !has_overlay).then(|| {
-        format!("{clearings} clearings and no overlay: `athenaeum build` makes the world's overlay")
+    let count = |f: fn(&rows::Row) -> bool| merged.rows.iter().filter(|l| f(&l.row)).count();
+    let clearings = count(|r| matches!(r, rows::Row::Clearing(_)));
+    let shops = count(|r| matches!(r, rows::Row::Store(_)));
+    (clearings + shops > 0 && !has_overlay).then(|| {
+        format!(
+            "{clearings} clearings, {shops} shops and no overlay: `yalain world compile` makes the world's overlay"
+        )
     })
 }
 
@@ -940,6 +944,20 @@ pub fn compile_dir(
     db_dir: &Path,
     base_dir: Option<&Path>,
 ) -> Result<Tables, String> {
+    let (_, merged) = merge_dir(p, db_dir, base_dir)?;
+    compile_merged(p, &merged, db_dir)
+}
+
+/// A database folder read, checked against the install and merged (over its base, when it names
+/// one): its key and its rows.
+///
+/// # Errors
+/// As [`compile_dir`].
+fn merge_dir(
+    p: &data::Portal,
+    db_dir: &Path,
+    base_dir: Option<&Path>,
+) -> Result<(String, merge::Merged), String> {
     let files = load(db_dir)?;
     let (read, read_problems) = rows::read_partly(&files);
     if let Some(db) = &read {
@@ -980,6 +998,10 @@ pub fn compile_dir(
             db_dir.display()
         ));
     }
+    let key = read
+        .as_ref()
+        .map(|db| db.world.key.clone())
+        .unwrap_or_default();
     let merged = match checked {
         Some(merged) => merged,
         None => {
@@ -994,6 +1016,15 @@ pub fn compile_dir(
             .map_err(|p| report(&p))?
         }
     };
+    Ok((key, merged))
+}
+
+/// A merged database compiled against an install.
+fn compile_merged(
+    p: &data::Portal,
+    merged: &merge::Merged,
+    db_dir: &Path,
+) -> Result<Tables, String> {
     let mut install = DatInstall::new(
         Box::new(|id| p.dat.read(id).ok()),
         p.ctx.clone(),
@@ -1014,7 +1045,7 @@ pub fn compile_dir(
     if let Some(local) = p.english() {
         install = install.with_text(Box::new(move |id| local.read(id).ok()));
     }
-    let mut tables = compile(&merged, &install).map_err(|p| {
+    let mut tables = compile(merged, &install).map_err(|p| {
         format!(
             "{}\n{} problems compiling {}",
             report(&p),
@@ -1022,14 +1053,14 @@ pub fn compile_dir(
             db_dir.display()
         )
     })?;
-    if let Some(w) = clearing_warning(&merged, p.has_overlay()) {
+    if let Some(w) = clearing_warning(merged, p.has_overlay()) {
         tables.warnings.push(Problem::new("world.toml", 0, w));
     }
     Ok(tables)
 }
 
 fn compile_cmd(args: &[String]) -> Result<(), String> {
-    let (mut dats, mut db, mut out, mut base) = (None, None, None, None);
+    let (mut dats, mut db, mut out, mut base, mut overlay) = (None, None, None, None, None);
     let mut it = args.iter();
     while let Some(a) = it.next() {
         let mut value = || {
@@ -1042,19 +1073,46 @@ fn compile_cmd(args: &[String]) -> Result<(), String> {
             "--world-db" => db = Some(value()?),
             "--world-base" => base = Some(PathBuf::from(value()?)),
             "--out" => out = Some(PathBuf::from(value()?)),
+            "--overlay" => overlay = Some(PathBuf::from(value()?)),
             other => return Err(format!("unknown argument {other}")),
         }
     }
     let (Some(dats), Some(out)) = (dats, out) else {
         return Err(
-            "world compile takes --dats <install> [--world-db <folder> | pinned] [--world-base <folder>] --out <folder>"
+            "world compile takes --dats <install> [--world-db <folder> | pinned] [--world-base <folder>] [--overlay <folder>] --out <folder>"
                 .into(),
         );
     };
     let db = db.unwrap_or_else(|| "pinned".to_owned());
     let dir = database_dir(&db)?;
-    let portal = data::Portal::open(&dats, overlay_of(&db, None)?)?;
+    // The world's overlay first, from its rows over the install as it is: the tables are then
+    // compiled through it, as the server reads them.
+    let built = if db == "pinned" {
+        None
+    } else {
+        let plain = data::Portal::open(&dats, None)?;
+        let (key, merged) = merge_dir(&plain, &dir, base.as_deref())?;
+        let folder = overlay.clone().unwrap_or_else(|| dir.join(WORLD_FOLDER));
+        let built = yalain_world_db::overlay::write(&merged, &key, &dats, &folder)?;
+        Some((folder, built))
+    };
+    let given = built
+        .as_ref()
+        .map(|(f, _)| f.as_path())
+        .filter(|f| f.exists());
+    let portal = data::Portal::open(&dats, overlay_of(&db, given)?)?;
     let t = compile_dir(&portal, &dir, base.as_deref())?;
+    if let Some((folder, b)) = &built {
+        if b.blocks > 0 || b.shops > 0 {
+            println!(
+                "overlay: {} landblocks, {} vertices, {} shops -> {}",
+                b.blocks,
+                b.vertices,
+                b.shops,
+                folder.display()
+            );
+        }
+    }
     std::fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
     for (name, text) in [
         ("content.tsv", t.content.to_text()),

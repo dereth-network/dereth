@@ -587,13 +587,14 @@ fn selected_athenaeum(dir: &Path) -> Option<(PathBuf, Publication)> {
     Some((folder, publication))
 }
 
-/// The folder of an Athenaeum world that holds its overlay, the data files its clearings change,
-/// which Yalain reads in the world's folder.
-const ATHENAEUM_OVERLAY: &str = "overlay";
+/// The folder of an Athenaeum world that holds its overlay, the data files its clearings and shops
+/// change, which Yalain reads in the world's folder.
+pub(crate) const ATHENAEUM_OVERLAY: &str = "overlay";
 
 /// Copy the Athenaeum world whose world file is `world` into `to`: its world file, its ids
-/// (`world.lock`), each of its packs' folders and its overlay ([`ATHENAEUM_OVERLAY`]), which are
-/// what Yalain reads of a world. Its playtest, build and characters stay behind.
+/// (`world.lock`) and each of its packs' folders, its rows. Its playtest, build and characters stay
+/// behind, and so does its overlay ([`ATHENAEUM_OVERLAY`]), which each copy takes as it needs:
+/// Publish's is built after the one players were last sent, and Export For takes the world's own.
 pub(crate) fn copy_athenaeum_world(world: &Path, to: &Path) -> Result<(), String> {
     std::fs::create_dir_all(to).map_err(|e| e.to_string())?;
     let from = world.parent().ok_or("Missing world folder")?;
@@ -609,10 +610,6 @@ pub(crate) fn copy_athenaeum_world(world: &Path, to: &Path) -> Result<(), String
             return Err(format!("The world's pack {} is not there.", name.display()));
         }
         crate::hosts::copy_tree(&pack, &to.join(name))?;
-    }
-    let overlay = from.join(ATHENAEUM_OVERLAY);
-    if overlay.is_dir() {
-        crate::hosts::copy_tree(&overlay, &to.join(ATHENAEUM_OVERLAY))?;
     }
     Ok(())
 }
@@ -744,13 +741,23 @@ pub fn publish_athenaeum(dir: &Path, world: &Path, yalain: &Path) -> Result<Publ
     let built = (|| -> Result<Publication, String> {
         let served = folder.join(SERVED);
         copy_athenaeum_world(&world, &served)?;
+        // The overlay players were last sent, which this host built: the compile's is the next
+        // revision of it.
+        if let Some(last) = last_folder
+            .as_ref()
+            .map(|p| p.join(SERVED).join(ATHENAEUM_OVERLAY))
+            .filter(|p| p.is_dir())
+        {
+            crate::hosts::copy_tree(&last, &served.join(ATHENAEUM_OVERLAY))?;
+        }
         if crate::lyceum_world::digest(&world)? != sources {
             return Err(
                 "The world changed during publication. Save in Athenaeum, then retry.".into(),
             );
         }
         // Compiled as the server compiles it at its start, so a world that would not start it is
-        // refused here; the tables written for that are not kept.
+        // refused here; the tables written for that are not kept. The compile builds the world's
+        // overlay in the served folder, over the world's own data set.
         let compiled = folder.join("compiled");
         let mut compile = vec![
             OsStr::new("world"),
@@ -1140,10 +1147,10 @@ pub fn play_inputs(root: &Path, slug: &str) -> Result<Option<PlayInputs>, String
 mod tests {
     use super::*;
 
-    /// A published Athenaeum world carries its overlay with its packs, so its clearings come too;
-    /// its playtest stays behind.
+    /// The copy of an Athenaeum world's rows leaves its overlay to the publish or export making it,
+    /// and its playtest behind.
     #[test]
-    fn an_athenaeum_world_is_copied_with_its_overlay() {
+    fn an_athenaeum_world_s_rows_are_copied_without_its_overlay() {
         let root = tempfile::tempdir().unwrap();
         let world = root.path().join("world");
         for (rel, text) in [
@@ -1175,10 +1182,7 @@ packs = [\"town\"]
         for rel in ["world.toml", "world.lock", "town/pack.toml"] {
             assert!(to.join(rel).is_file(), "{rel}");
         }
-        assert_eq!(
-            std::fs::read_to_string(to.join("overlay/cell.dat")).unwrap(),
-            "clearings"
-        );
+        assert!(!to.join("overlay").exists());
         assert!(!to.join(".playtest").exists());
     }
 
