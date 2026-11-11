@@ -1478,15 +1478,7 @@ impl Crafting {
     /// waits, totems or refined products of such a kind.
     pub fn take_world_crafts(&mut self, rows: &Crafts) -> Vec<&'static str> {
         for r in self.recipes.values_mut() {
-            if let Some(row) = rows.refining.get(&r.package) {
-                r.custom = Custom::Refine {
-                    product: row.product,
-                    full_at: row.full_at.unwrap_or(REFINING_CAP),
-                    start: row.start.unwrap_or(REFINING_START),
-                };
-            } else if matches!(r.custom, Custom::Refine { .. }) {
-                r.custom = Custom::None;
-            }
+            refine_by_rows(r, rows);
         }
         self.crafts = rows.clone();
         [
@@ -1499,6 +1491,31 @@ impl Crafting {
         .collect()
     }
 
+    /// Read these recipes too, those it does not hold already, each refining as the world's
+    /// `[[refining]]` rows it has taken say: how many it read.
+    pub fn read_more(
+        &mut self,
+        lib: &Library,
+        recipes: &[u32],
+        graph: &dyn Fn(u32) -> Option<Graph>,
+    ) -> usize {
+        let wanted: Vec<u32> = recipes
+            .iter()
+            .copied()
+            .filter(|r| !self.recipes.contains_key(r))
+            .collect();
+        let more = Self::read(lib, &[], &wanted, &[], graph);
+        let read = more.recipes.len();
+        for (did, mut r) in more.recipes {
+            refine_by_rows(&mut r, &self.crafts);
+            self.recipes.insert(did, r);
+        }
+        for (table, m) in more.spinner_tables {
+            self.spinner_tables.entry(table).or_insert(m);
+        }
+        read
+    }
+
     /// The `[[refining]]` rows whose recipe none of crafting's recipes is of (none a player can
     /// learn here).
     #[must_use]
@@ -1509,6 +1526,19 @@ impl Crafting {
             .filter(|k| !self.recipes.values().any(|r| &r.package == *k))
             .map(String::as_str)
             .collect()
+    }
+}
+
+/// A recipe refines as its `[[refining]]` row says; one no row names refines nothing of its own.
+fn refine_by_rows(r: &mut RecipeDef, rows: &Crafts) {
+    if let Some(row) = rows.refining.get(&r.package) {
+        r.custom = Custom::Refine {
+            product: row.product,
+            full_at: row.full_at.unwrap_or(REFINING_CAP),
+            start: row.start.unwrap_or(REFINING_START),
+        };
+    } else if matches!(r.custom, Custom::Refine { .. }) {
+        r.custom = Custom::None;
     }
 }
 

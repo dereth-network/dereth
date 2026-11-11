@@ -1836,6 +1836,20 @@ fn compile_world(
     })
 }
 
+/// Templates described apart joined to the catalog, with their icons and icon tables (what it
+/// holds already kept).
+fn absorb(catalog: &mut Catalog, more: Catalog) {
+    for (id, t) in more.templates {
+        catalog.templates.entry(id).or_insert(t);
+    }
+    for (id, icon) in more.icons {
+        catalog.icons.entry(id).or_insert(icon);
+    }
+    for (id, tables) in more.icon_tables {
+        catalog.icon_tables.entry(id).or_insert(tables);
+    }
+}
+
 /// The world's objects and what it plays, from its database compiled and the install.
 fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Play), String> {
     let Tables {
@@ -1944,16 +1958,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             .chain(quests.effect_states())
             .collect();
         let effects = data::effect_table(portal, &states, &effect_rules)?;
-        let granted: Vec<u32> = effects
-            .effects
-            .values()
-            .filter_map(|d| match d.kind {
-                yalain_world::effect_defs::Kind::GrantRecipe(r)
-                | yalain_world::effect_defs::Kind::RemoveRecipe(r) => Some(r),
-                _ => None,
-            })
-            .collect();
-        let mut craft = data::crafting(portal, &crafting, &granted)?;
+        let mut craft = data::crafting(portal, &crafting, &effects.recipes())?;
         if crafting.tool_yields.is_empty() {
             tracing::warn!(
                 "this world has no [[tool]] rows: every unmade knife yields what a crude one does"
@@ -1970,13 +1975,6 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             tracing::warn!(
                 "this world has no {} rows: it has none of what they give",
                 kinds.join(", ")
-            );
-        }
-        let unread = craft.refining_unread();
-        if !unread.is_empty() {
-            tracing::info!(
-                "[[refining]] rows no recipe a player can learn here is of: {}",
-                unread.join(", ")
             );
         }
         craft.butchery = crafting
@@ -2041,6 +2039,46 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
                 .collect();
         let (mut catalog, mut skipped) =
             data::catalog(portal, &spawns, &loot, &more, &treasure_tables, &worn)?;
+        // The recipes items' uses teach (the install's and the world's rows'), and those recipes'
+        // outcomes teach in turn: each read with what it makes and asks for, whose own uses may
+        // teach more.
+        loop {
+            let (uses, _, _) = data::item_uses(portal, &catalog, &effect_names)?;
+            let teaching: Vec<u32> = uses
+                .values()
+                .flatten()
+                .map(|e| e.state)
+                .chain(item_rows.states())
+                .chain(craft.outcome_effects())
+                .collect();
+            if data::read_recipes_taught(portal, &mut craft, &teaching, &effect_rules)? == 0 {
+                break;
+            }
+            let wanted: Vec<u32> = craft
+                .templates()
+                .into_iter()
+                .filter(|t| !catalog.templates.contains_key(t))
+                .collect();
+            let (made, also) = data::catalog(
+                portal,
+                &SpawnTable::default(),
+                &LootTable::default(),
+                &wanted,
+                &treasure_tables,
+                &worn,
+            )?;
+            skipped.extend(also);
+            absorb(&mut catalog, made);
+        }
+        // What those recipes' outcomes put on, read with the rest.
+        states.extend(craft.outcome_effects());
+        let unread = craft.refining_unread();
+        if !unread.is_empty() {
+            tracing::info!(
+                "[[refining]] rows no recipe a player can learn here is of: {}",
+                unread.join(", ")
+            );
+        }
         // The weapons the creatures wield, described with the rest.
         let weapons = data::creature_weapons(portal, &catalog, &listed_weapons)?;
         let wanted: Vec<u32> = weapons.values().copied().collect();
@@ -2053,15 +2091,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             &worn,
         )?;
         skipped.extend(also);
-        for (id, t) in held.templates {
-            catalog.templates.entry(id).or_insert(t);
-        }
-        for (id, icon) in held.icons {
-            catalog.icons.entry(id).or_insert(icon);
-        }
-        for (id, tables) in held.icon_tables {
-            catalog.icon_tables.entry(id).or_insert(tables);
-        }
+        absorb(&mut catalog, held);
         tracing::info!(weapons = weapons.len(), "the creatures' weapons read");
         catalog.bodies = data::bodies(portal, &catalog);
         catalog.implements = data::implements(portal, &catalog)?;
@@ -2713,6 +2743,69 @@ mod real_start_tests {
         assert!(
             matches!(t.get(0x6F00_10D8).map(|d| &d.kind), Some(Kind::Other)),
             "a combination's finisher"
+        );
+    }
+
+    /// A start reads the recipes items' uses teach into the crafting table, with what they make: the
+    /// recipe book whose use the world's rows name the effects of teaches the sixteen weapon recipes
+    /// its chain of grants holds; the outcome of each puts on the chain that teaches the imbues, so
+    /// those are read too; and a use the world's rows give an item teaches its recipe. A start of
+    /// the same world without those rows reads none of them.
+    /// Behaviour: server.craft.a-start-reads-the-recipes-items-teach
+    #[test]
+    fn a_start_reads_the_recipes_items_uses_teach_and_those_their_outcomes_teach() {
+        const BOOK: u32 = 0x4700_15AE;
+        const BLANK: u32 = 0x4700_15BC;
+        const ARC_BLADE: u32 = 0x6F00_1CAE;
+        const ARC_BLADE_MADE: u32 = 0x4700_15EF;
+        const IMBUE: u32 = 0x6F00_1CE1;
+        const BAR_GRANT: u32 = 0x6F00_1CEA;
+        const BAR: u32 = 0x6F00_1CEB;
+        let install = auberean_dat::testing::require_target_install();
+        let world_db = std::env::var("YALAIN_TEST_WORLD_DB")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| "pinned".to_owned());
+        let portal = super::data::Portal::open(&install, None).expect("the install opens");
+        let (_, plain) = super::compile_world(&portal, &world_db, None)
+            .unwrap_or_else(|e| panic!("the world database {world_db}: {e}"));
+        let mut taught = plain.clone();
+        taught.items.start_items.extend([(BOOK, 1), (BLANK, 1)]);
+        taught.effect_names.extend([
+            ("Eff_BestowQuestAtlanWeapons".to_owned(), 0x6F00_3C0A),
+            ("Eff_GrantRecipe_AtlanWeapons".to_owned(), 0x6F00_1CAC),
+        ]);
+        taught.items.uses.insert(
+            BLANK,
+            yalain_content::item_rows::ItemUse {
+                template: BLANK,
+                effects: vec![(BAR_GRANT, 1.0)],
+                behavior: None,
+                wears: None,
+            },
+        );
+        let read = |t| {
+            let (_, p) = super::load_play(&portal, t).expect("the world starts");
+            p
+        };
+        let before = read(plain);
+        let after = read(taught);
+        for r in [ARC_BLADE, IMBUE, BAR] {
+            assert!(!before.craft.recipes.contains_key(&r), "{r:08X} before");
+            assert!(after.craft.recipes.contains_key(&r), "{r:08X} after");
+        }
+        let weapons = (0..16)
+            .map(|i| ARC_BLADE + 2 * i)
+            .filter(|r| after.craft.recipes.contains_key(r))
+            .count();
+        assert_eq!(weapons, 16, "the book's sixteen recipes");
+        assert!(
+            after.catalog.templates.contains_key(&ARC_BLADE_MADE),
+            "what the recipe makes is described"
+        );
+        assert!(
+            after.effects.get(0x6F00_1CDF).is_some(),
+            "the outcome's chain is read"
         );
     }
 

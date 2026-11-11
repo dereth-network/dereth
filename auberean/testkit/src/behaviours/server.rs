@@ -1802,6 +1802,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.a-start-reads-the-recipes-items-teach",
+        says: "A start reads into the crafting table the recipes items' uses teach, by the install's effects or the world's rows, chained or not, and those the recipes' outcomes teach in turn, with what they make and ask for; a world whose items teach none reads none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-RECIPES-ITEMS-TEACH"),
+        station: "yalain::bin.yalain::real_start_tests::a_start_reads_the_recipes_items_uses_teach_and_those_their_outcomes_teach",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.a-target-is-in-reach",
         says: "A recipe that asks for a target is made within thirty meters of its target's place; \
                farther off the target is taken as none.",

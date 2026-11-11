@@ -944,6 +944,18 @@ impl EffectTable {
         self.effects.get(&state)
     }
 
+    /// The recipes its effects teach or take away.
+    #[must_use]
+    pub fn recipes(&self) -> Vec<u32> {
+        self.effects
+            .values()
+            .filter_map(|d| match d.kind {
+                Kind::GrantRecipe(r) | Kind::RemoveRecipe(r) => Some(r),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// Keep the chains of other effects that these effects are or lead to (what they add in turn,
     /// the chains they hold); every other chain reads as an effect that does nothing. A start keeps
     /// those items' uses, quests and recipes' outcomes put on: the finishing chains skills'

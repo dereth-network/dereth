@@ -1073,6 +1073,31 @@ pub fn crafting(
     ))
 }
 
+/// The recipes these effects teach, and the effects they add in turn (a chain's), read into
+/// crafting where it lacks them: how many it read.
+///
+/// # Errors
+/// The library does not read.
+pub fn read_recipes_taught(
+    p: &Portal,
+    craft: &mut yalain_world::craft::Crafting,
+    states: &[u32],
+    rules: &yalain_world::effect_defs::EffectRules,
+) -> Result<usize, String> {
+    use yalain_world::effect_defs::{EffectTable, Kind};
+    let lib = library(p)?;
+    let graph = |id| state_graph(p, lib, id);
+    let taught: Vec<u32> = EffectTable::read(lib, states, &graph, rules)
+        .effects
+        .values()
+        .filter_map(|d| match d.kind {
+            Kind::GrantRecipe(r) => Some(r),
+            _ => None,
+        })
+        .collect();
+    Ok(craft.read_more(lib, &taught, &graph))
+}
+
 /// The recipes' ingredient classes made the catalog's templates that derive from them.
 ///
 /// # Errors
