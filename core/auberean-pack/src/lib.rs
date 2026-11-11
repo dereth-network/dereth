@@ -19,6 +19,7 @@
 //! | `place KEY` | a destination |
 //! | `loot 0xVALUE` | a death-loot profile |
 //! | `keeper 0xTEMPLATE` | a storekeeper |
+//! | `store KEY` | a shop of a world's own: a store template's copy under its own title |
 //! | `sale 0xSTORE ORDINAL` | a store's listing |
 //! | `quest 0xID` | a quest's server values |
 //! | `step 0xQUEST KEY` | a step of a quest |
@@ -63,12 +64,20 @@ impl Era {
     }
 }
 
+/// The saved states a world numbers its own records in (`0x6F...`), inclusive: well above the
+/// highest the game's own files hold, those of the final retail client and of the end of retail
+/// alike, so a world's record never takes the id of one a player's files have.
+pub const WORLD_STATES: (u32, u32) = (0x6F10_0000, 0x6FFF_FFFF);
+
 /// What the game's symbols name.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Kind {
     /// A static object a pack places: its world id is numbered within its landblock, above the
     /// highest the base uses there.
     Static,
+    /// A shop's copy of its store template (`[[store]]`, by its key): a saved state numbered in
+    /// [`WORLD_STATES`].
+    Store,
 }
 
 impl fmt::Display for Kind {
@@ -78,17 +87,22 @@ impl fmt::Display for Kind {
 }
 
 impl SymbolKind for Kind {
-    const KINDS: &'static [Self] = &[Self::Static];
+    const KINDS: &'static [Self] = &[Self::Static, Self::Store];
 
     fn kind_name(self) -> &'static str {
         match self {
             Self::Static => "static",
+            Self::Store => "store",
         }
     }
 
     fn numbering(self) -> Numbering {
         match self {
             Self::Static => Numbering::InLandblock,
+            Self::Store => Numbering::Counted {
+                start: WORLD_STATES.0,
+                world_sets: false,
+            },
         }
     }
 
@@ -102,7 +116,7 @@ impl Dialect for Ac2 {
     const PRODUCT: &'static str = "Yalain";
     const BUILD_COMMAND: &'static str = "yalain world compile";
     const ITEM_FORMS: &'static str = "object <key>@<XXYY>, camp <key>@<XXYY>, place <key>, \
-         loot <value>, keeper <template>, sale <store> <ordinal>, quest <id>, \
+         loot <value>, keeper <template>, store <key>, sale <store> <ordinal>, quest <id>, \
          step <quest> <key>, talk <key>, weapon <name>, route <key>, area <XXYY>, \
          clearing <key>@<XXYY>, death_treasure <key>, treasure_pool <name>, \
          treasure_value <level>, treasure_rules, treasure_sort <sort>, treasure_word <sort> <word>, \
@@ -144,6 +158,8 @@ pub enum Item {
     Loot { profile: u32 },
     /// A storekeeper, by its template.
     Keeper { template: u32 },
+    /// A shop of the world's own, by its key.
+    Store { key: String },
     /// A store's listing, by its store template and its ordinal.
     Sale { store: u32, ordinal: u32 },
     /// A quest's server values, by its id.
@@ -268,6 +284,7 @@ impl Item {
             ["keeper", t] => Self::Keeper {
                 template: number(t)?,
             },
+            ["store", key] => Self::Store { key: symbol(key)? },
             ["sale", s, o] => Self::Sale {
                 store: number(s)?,
                 ordinal: number(o)?,
@@ -417,6 +434,7 @@ impl fmt::Display for Item {
             Self::Place { key } => write!(f, "place {key}"),
             Self::Loot { profile } => write!(f, "loot {profile:#x}"),
             Self::Keeper { template } => write!(f, "keeper {template:#010x}"),
+            Self::Store { key } => write!(f, "store {key}"),
             Self::Sale { store, ordinal } => write!(f, "sale {store:#010x} {ordinal}"),
             Self::Quest { id } => write!(f, "quest {id:#010x}"),
             Self::Step { quest, key } => write!(f, "step {quest:#010x} {key}"),

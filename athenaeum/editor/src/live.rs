@@ -60,6 +60,7 @@ use std::time::{Duration, Instant};
 use auberean_dat::locate::DatName;
 use auberean_dat::overlay::{WorldOverlay, WORLD_FOLDER};
 use auberean_dat::DatFile;
+use yalain_world_db::compile::Shop;
 use yalain_world_db::rows::Clearing;
 use yalain_world_db::Files;
 
@@ -571,9 +572,10 @@ pub struct Setup {
     pub folder: PathBuf,
     /// The world's base, when it lies over one.
     pub base: Option<PathBuf>,
-    /// The world's key, and its clearings with the landblock each is written in.
+    /// The world's key, its clearings with the landblock each is written in, and its shops.
     pub key: String,
     pub clearings: Vec<(Clearing, u16)>,
+    pub shops: Vec<Shop>,
 }
 
 impl Setup {
@@ -587,7 +589,7 @@ impl Setup {
             return Ok(());
         };
         let rows: Vec<(&Clearing, u16)> = self.clearings.iter().map(|(c, l)| (c, *l)).collect();
-        athenaeum_foundry::overlay::write_rows(&rows, &self.key, dats, &self.world())?;
+        athenaeum_foundry::overlay::write_rows(&rows, &self.shops, &self.key, dats, &self.world())?;
         Ok(())
     }
 
@@ -608,7 +610,8 @@ impl Setup {
         }
         let own = self.folder.join("client");
         let rows: Vec<(&Clearing, u16)> = self.clearings.iter().map(|(c, l)| (c, *l)).collect();
-        let (folder, _) = athenaeum_foundry::overlay::write_rows(&rows, &self.key, dats, &own)?;
+        let (folder, _) =
+            athenaeum_foundry::overlay::write_rows(&rows, &self.shops, &self.key, dats, &own)?;
         Ok(Some(folder))
     }
 

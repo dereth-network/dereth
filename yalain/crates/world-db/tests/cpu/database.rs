@@ -4769,3 +4769,103 @@ fn worn_rows_compile_to_each_templates_looks_in_their_order() {
     );
     assert!(merge(&read(&files).unwrap()).is_err(), "set twice");
 }
+
+/// A `[[store]]` row is a shop of the world's own: its keeper sells the store template's sales,
+/// and the shop window names the copy, whose id the lockfile gives it or, for a shop it gives
+/// none, is the lowest of the world's own saved states it does not hold, by key. The keepers'
+/// table keeps the copy's id.
+#[test]
+fn a_shop_row_names_a_copy_of_its_store_template_its_keepers_sell_the_templates_sales() {
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/stores.toml",
+        "[[keeper]]\ntemplate = 0x470033D0\n",
+        "[[store]]\nkey = \"bobs-shop\"\nfrom = 0x6F0016F6\nname_text = \"Bob's Fine Goods\"\nprov = { from = \"authored\" }\n\n\
+         [[store]]\nkey = \"another\"\nfrom = 0x6F0016F6\nname_text = \"Another\"\ndescription_text = \"A line\"\nprov = { from = \"authored\" }\n\n\
+         [[keeper]]\ntemplate = 0x470033D0\nshop = \"bobs-shop\"\n",
+    );
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let shops: Vec<(&str, u32, u32, bool)> = t
+        .shops
+        .iter()
+        .map(|s| (s.key.as_str(), s.from, s.id, s.pinned))
+        .collect();
+    assert_eq!(
+        shops,
+        [
+            ("another", 0x6F00_16F6, 0x6F10_0000, false),
+            ("bobs-shop", 0x6F00_16F6, 0x6F10_0001, false)
+        ]
+    );
+    assert_eq!(t.shops[0].description_text.as_deref(), Some("A line"));
+    let k = &t.stores.keepers[0];
+    assert_eq!((k.store, k.shown), (0x6F00_16F6, Some(0x6F10_0001)));
+    assert_eq!(
+        yalain_content::StoreTable::from_text(&t.stores.to_text()).unwrap(),
+        t.stores
+    );
+    // The lockfile keeps a shop's id; one it gives none takes the lowest free.
+    files.insert(
+        "world.lock".into(),
+        "[store]\n\"bobs-shop\" = 0x6F100000\n".into(),
+    );
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let ids: Vec<(&str, u32, bool)> = t
+        .shops
+        .iter()
+        .map(|s| (s.key.as_str(), s.id, s.pinned))
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            ("another", 0x6F10_0001, false),
+            ("bobs-shop", 0x6F10_0000, true)
+        ]
+    );
+    assert_eq!(t.stores.keepers[0].shown, Some(0x6F10_0000));
+}
+
+/// A keeper naming no shop, a shop copying what is no store template, and a lockfile giving a shop
+/// an id outside the world's own saved states are problems.
+#[test]
+fn a_shop_must_name_a_store_template_and_its_keeper_a_shop() {
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/stores.toml",
+        "[[keeper]]\ntemplate = 0x470033D0\n",
+        "[[keeper]]\ntemplate = 0x470033D0\nshop = \"nowhere\"\n",
+    );
+    let problems: Vec<String> = check(&files).iter().map(ToString::to_string).collect();
+    assert_eq!(
+        problems,
+        ["town/server/stores.toml:1: shop: no [[store]] nowhere"]
+    );
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/stores.toml",
+        "[[keeper]]\ntemplate = 0x470033D0\n",
+        "[[store]]\nkey = \"bad\"\nfrom = 0x6F009999\nname_text = \"Bad\"\nprov = { from = \"authored\" }\n\n\
+         [[store]]\nkey = \"pinned\"\nfrom = 0x6F0016F6\nname_text = \"Pinned\"\nprov = { from = \"authored\" }\n\n\
+         [[keeper]]\ntemplate = 0x470033D0\n",
+    );
+    files.insert(
+        "world.lock".into(),
+        "[store]\n\"pinned\" = 0x6F0016F7\n".into(),
+    );
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let problems: Vec<String> = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new())
+        .unwrap_err()
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert_eq!(
+        problems,
+        [
+            "town/server/stores.toml:1: from: 6F009999 is no store template",
+            "town/server/stores.toml:7: world.lock gives store pinned 0x6F0016F7, outside the world's own saved states (0x6F100000 to 0x6FFFFFFF)",
+        ]
+    );
+}

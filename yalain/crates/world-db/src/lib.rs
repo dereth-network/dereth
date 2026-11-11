@@ -23,7 +23,7 @@
 //! <pack>/server/landblocks/XXYY.toml   [[object]], [[camp]] standing in landblock XXYY
 //! <pack>/server/places.toml       [[place]]
 //! <pack>/server/loot.toml         [[loot]]
-//! <pack>/server/stores.toml       [[keeper]], [[sale]]
+//! <pack>/server/stores.toml       [[keeper]], [[store]], [[sale]]
 //! <pack>/server/quests/QQQQQQQQ.toml   [[quest]], [[step]] of one quest
 //! <pack>/server/gives/TTTTTTTT.toml    [[give]] of one template given to
 //! <pack>/server/talk/TTTTTTTT.toml     [[talk]] of one template
@@ -65,6 +65,7 @@ pub mod compile;
 pub mod install;
 pub mod layer;
 pub mod merge;
+pub mod overlay;
 pub mod pools_check;
 pub mod release;
 pub mod rows;

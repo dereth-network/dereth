@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Worlds can give a shop a title of its own.
 - Items and places for heroes alone now refuse everyone else.
 - Characters at level 50 who aren't heroes no longer gain experience.
 - World: creatures with no recorded loot now drop all six talismans.

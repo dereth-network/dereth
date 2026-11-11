@@ -308,6 +308,8 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
     let mut camps: BTreeSet<(String, String, u16)> = BTreeSet::new();
     let mut objects: BTreeSet<(String, String, u16)> = BTreeSet::new();
     let mut routes: BTreeMap<(String, String), usize> = BTreeMap::new();
+    // Shops are named by key alone, in any pack.
+    let mut shops: BTreeSet<String> = BTreeSet::new();
     // Each placed object's id: its templates, and whether a row of it leads somewhere.
     let mut ids: BTreeMap<u64, (BTreeSet<u32>, bool)> = BTreeMap::new();
     // Each camp, by its key and landblock in whichever pack: the templates it makes.
@@ -335,6 +337,9 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
             }
             Row::Route(r) => {
                 routes.insert((l.pack.clone(), r.key.clone()), r.waypoints.len());
+            }
+            Row::Store(r) => {
+                shops.insert(r.key.clone());
             }
             _ => {}
         }
@@ -449,6 +454,11 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                         "route_start, route_direction: a camp without a route has no start".into(),
                     )),
                     None => {}
+                }
+            }
+            Row::Keeper(r) => {
+                if let Some(shop) = r.shop.as_ref().filter(|s| !shops.contains(*s)) {
+                    problems.push(at(format!("shop: no [[store]] {shop}")));
                 }
             }
             Row::Place(r) => {
@@ -662,6 +672,7 @@ fn scope_key(l: &Located) -> Option<String> {
         Row::Place(r) => format!("place {}", r.key),
         Row::Talk(r) => format!("talk {}", r.key),
         Row::Route(r) => format!("route {}", r.key),
+        Row::Store(r) => format!("store {}", r.key),
         _ => return None,
     })
 }

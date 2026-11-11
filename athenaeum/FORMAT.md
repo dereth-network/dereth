@@ -9,7 +9,8 @@ A test of Athenaeum's reads this page and checks it against the rows the server 
 row kind has a section here, and each section's table names exactly the fields its kind has.
 
 Athenaeum's editor places and changes `[[object]]`, `[[camp]]`, `[[place]]` and `[[clearing]]`
-rows, and changes, adds and takes away `[[pet]]` and `[[pet_limit]]` rows; it writes `[[remove]]`
+rows, changes, adds and takes away `[[pet]]` and `[[pet_limit]]` rows, and writes a storekeeper's
+`[[keeper]]` and `[[store]]` rows when its shop is given a title; it writes `[[remove]]`
 when a row of the database is taken away. Every other kind is written by hand, and the editor takes
 in a file changed on disk while it is open. [`sample/`](sample/) is a small world over the
 database to start from.
@@ -18,12 +19,12 @@ database to start from.
 
 ```text
 world.toml                         the world: key, game, era, packs in load order, overrides, base
-world.lock                         ids given to authored rows, kept across builds
+world.lock                         ids given to authored rows, kept across builds (a shop's copy under [store])
 <pack>/pack.toml                   name, version, game, authors, license, description
 <pack>/server/landblocks/XXYY.toml [[object]], [[camp]] and [[clearing]] rows standing in landblock XXYY
 <pack>/server/places.toml          [[place]]
 <pack>/server/loot.toml            [[loot]]
-<pack>/server/stores.toml          [[keeper]], [[sale]]
+<pack>/server/stores.toml          [[keeper]], [[store]], [[sale]]
 <pack>/server/quests/QQQQQQQQ.toml [[quest]], [[step]] of one quest
 <pack>/server/gives/TTTTTTTT.toml  [[give]] of one template given to
 <pack>/server/talk/TTTTTTTT.toml   [[talk]] of one template
@@ -125,6 +126,7 @@ Every row sets one **item**, named by its key:
 | `place KEY`, `talk KEY`, `give KEY`, `route KEY`, `event KEY`, `death_treasure KEY` | the row's `key` |
 | `loot 0xVALUE` | the death-loot profile's value |
 | `keeper 0xTEMPLATE` | the storekeeper template |
+| `store KEY` | the shop's `key`, unique in the world |
 | `sale 0xSTORE ORDINAL` | the store template and the listing's ordinal |
 | `quest 0xID` | the quest's id |
 | `step 0xQUEST KEY` | the quest and the step's `key` |
@@ -436,7 +438,24 @@ A storekeeper.
 |---|---|---|
 | `template` | required | the storekeeper's template |
 | `store` | † | the store template it opens |
+| `shop` | | the `[[store]]` it opens, by key: that shop's store template, under the shop's title |
 | `greeting`, `greeting_text` | | what it says as its store opens |
+| `prov` | required | where it came from |
+
+#### `[[store]]`
+
+A shop of the world's own: a store template's stock, prices, sorter and portrait under a title of
+its own. Its keepers sell the template's sales (and its `[[sale]]` rows name the template); the shop
+window shows the title. The world's overlay holds the shop's copy of the template, under an id the
+build gives it from `0x6F100000` up and keeps in `world.lock`; the server serves it to players as
+they log in.
+
+| field | | meaning |
+|---|---|---|
+| `key` | required | unique in the world |
+| `from` | required | the store template it copies |
+| `name_text` | required | the shop window's title, the same in every language |
+| `description_text` | | the line under the title; else the template's |
 | `prov` | required | where it came from |
 
 #### `[[sale]]`

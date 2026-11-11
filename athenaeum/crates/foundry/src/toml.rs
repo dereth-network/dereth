@@ -381,6 +381,41 @@ pub fn clearing(c: &Clearing, p: &Prov) -> Table {
     t
 }
 
+/// `[[keeper]]`.
+#[must_use]
+pub fn keeper(k: &yalain_world_db::rows::Keeper, p: &Prov) -> Table {
+    let mut t = Table::new();
+    put(&mut t, "template", hex(k.template));
+    if let Some(s) = k.store {
+        put(&mut t, "store", hex(s));
+    }
+    if let Some(s) = &k.shop {
+        put(&mut t, "shop", Value::from(s.as_str()));
+    }
+    if let Some(g) = k.greeting {
+        put(&mut t, "greeting", strref(g));
+    }
+    if let Some(g) = &k.greeting_text {
+        put(&mut t, "greeting_text", Value::from(g.as_str()));
+    }
+    put(&mut t, "prov", prov(p));
+    t
+}
+
+/// `[[store]]`.
+#[must_use]
+pub fn store(s: &yalain_world_db::rows::Store, p: &Prov) -> Table {
+    let mut t = Table::new();
+    put(&mut t, "key", Value::from(s.key.as_str()));
+    put(&mut t, "from", hex(s.from));
+    put(&mut t, "name_text", Value::from(s.name_text.as_str()));
+    if let Some(d) = &s.description_text {
+        put(&mut t, "description_text", Value::from(d.as_str()));
+    }
+    put(&mut t, "prov", prov(p));
+    t
+}
+
 /// `[[pet]]`.
 #[must_use]
 pub fn pet(r: &yalain_world_db::rows::Pet, p: &Prov) -> Table {

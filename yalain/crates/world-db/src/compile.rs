@@ -167,8 +167,25 @@ pub struct Tables {
     /// who heals its kin, who never attacks first, shooters' rhythms, who marks the players it sees,
     /// who takes on only those it hates.
     pub creatures: yalain_content::creature_rows::CreatureRows,
+    /// The world's own shops: each a copy of a store template under its title, by key.
+    pub shops: Vec<Shop>,
     /// What the compile left out or could not serve, and why.
     pub warnings: Vec<Problem>,
+}
+
+/// A shop of the world's own (`[[store]]`): the store template it copies, the id its copy has, and
+/// the title and line the copy shows. Its keepers sell the template's sales; the shop window names
+/// the copy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Shop {
+    pub key: String,
+    pub from: u32,
+    pub id: u32,
+    pub name_text: String,
+    pub description_text: Option<String>,
+    /// Whether a lockfile gives it its id; else this compile numbered it, and the world builder
+    /// keeps the number in the world's lockfile.
+    pub pinned: bool,
 }
 
 impl Tables {
@@ -508,6 +525,105 @@ fn quest_pay(
     setup
 }
 
+/// The store template a storekeeper template opens, as its template names it.
+#[must_use]
+pub fn keeper_store(install: &dyn Install, template: u32) -> Option<u32> {
+    yalain_content::Props::of(template, &|id| install.entity(id), &|id| {
+        install.property_name(id)
+    })
+    .word("StoreTemplate")
+}
+
+/// The id a new shop's copy takes: the lowest of the world's own saved states
+/// ([`auberean_pack::WORLD_STATES`]) not `taken`.
+#[must_use]
+pub fn next_shop_id(taken: &dyn Fn(u32) -> bool) -> Option<u32> {
+    let (first, last) = auberean_pack::WORLD_STATES;
+    (first..=last).find(|id| !taken(*id))
+}
+
+/// The world's shops, as a compile numbers them ([`Tables::shops`]).
+///
+/// # Errors
+/// A shop copying what is no store template, and a lockfile giving a shop an id outside the
+/// world's own saved states or two shops one id.
+pub fn shops_of(merged: &Merged, install: &dyn Install) -> Result<Vec<Shop>, Vec<Problem>> {
+    let mut cx = Ctx {
+        install,
+        problems: Vec::new(),
+        warnings: Vec::new(),
+    };
+    let out = shops(merged, &mut cx);
+    if cx.problems.is_empty() {
+        Ok(out)
+    } else {
+        Err(cx.problems)
+    }
+}
+
+/// The world's shops, each with its copy's id: the one a lockfile gives its key, else the lowest
+/// of the world's own saved states ([`auberean_pack::WORLD_STATES`]) no lockfile gives, taken in
+/// the order of the keys, so every compile of the same rows numbers them alike.
+fn shops(merged: &Merged, cx: &mut Ctx<'_>) -> Vec<Shop> {
+    let (first, last) = auberean_pack::WORLD_STATES;
+    let mut taken: BTreeMap<u32, &str> = BTreeMap::new();
+    for (key, id) in &merged.stores {
+        if let Some(other) = taken.insert(*id, key) {
+            cx.problems.push(Problem::new(
+                "world.lock",
+                0,
+                format!("store: {other} and {key} are both given {id:#010X}"),
+            ));
+        }
+    }
+    let mut rows: Vec<(&Located, &crate::rows::Store)> = merged
+        .rows
+        .iter()
+        .filter_map(|l| match &l.row {
+            Row::Store(s) => Some((l, s)),
+            _ => None,
+        })
+        .collect();
+    rows.sort_by(|a, b| a.1.key.cmp(&b.1.key));
+    let mut out = Vec::new();
+    for (l, s) in rows {
+        if cx.install.store_sales(s.from).is_none() {
+            cx.problem(l, format!("from: {:08X} is no store template", s.from));
+            continue;
+        }
+        let (id, pinned) = match merged.stores.get(&s.key) {
+            Some(id) if (first..=last).contains(id) => (*id, true),
+            Some(id) => {
+                cx.problem(
+                    l,
+                    format!(
+                        "world.lock gives store {} {id:#010X}, outside the world's own saved states ({first:#010X} to {last:#010X})",
+                        s.key
+                    ),
+                );
+                continue;
+            }
+            None => {
+                let Some(next) = next_shop_id(&|id| taken.contains_key(&id)) else {
+                    cx.problem(l, "no saved state is left for the shop's copy");
+                    continue;
+                };
+                taken.insert(next, &s.key);
+                (next, false)
+            }
+        };
+        out.push(Shop {
+            key: s.key.clone(),
+            from: s.from,
+            id,
+            name_text: s.name_text.clone(),
+            description_text: s.description_text.clone(),
+            pinned,
+        });
+    }
+    out
+}
+
 /// Compile a merged database against an install.
 ///
 /// # Errors
@@ -565,6 +681,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             _ => {}
         }
     }
+    t.shops = shops(merged, &mut cx);
     let mut rooms: BTreeMap<(String, String), Vec<TableRoom>> = BTreeMap::new();
     for l in &merged.rows {
         let lb = l.landblock.unwrap_or(0);
@@ -851,10 +968,31 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 if !cx.template(l, "template", k.template) {
                     continue;
                 }
-                let store = k.store.or_else(|| {
-                    yalain_content::Props::of(k.template, &entity, &|id| install.property_name(id))
-                        .word("StoreTemplate")
-                });
+                let shop = match &k.shop {
+                    None => None,
+                    Some(key) => match t.shops.iter().find(|s| s.key == *key) {
+                        Some(s) => Some((s.from, s.id)),
+                        None => {
+                            cx.problem(l, format!("shop: no [[store]] {key}"));
+                            continue;
+                        }
+                    },
+                };
+                if let (Some(store), Some((from, _))) = (k.store, shop) {
+                    if store != from {
+                        cx.problem(
+                            l,
+                            format!(
+                                "store, shop: the shop copies store {from:08X}; leave store out"
+                            ),
+                        );
+                        continue;
+                    }
+                }
+                let store = k
+                    .store
+                    .or(shop.map(|(from, _)| from))
+                    .or_else(|| keeper_store(install, k.template));
                 let Some(store) = store else {
                     cx.problem(
                         l,
@@ -868,6 +1006,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 t.stores.keepers.push(TableKeeper {
                     template: k.template,
                     store,
+                    shown: shop.map(|(_, id)| id),
                     greeting: words(k.greeting, k.greeting_text.as_ref()),
                     placed: prov_text(&k.prov),
                 });
@@ -1482,6 +1621,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             | Row::Route(_)
             | Row::Remove(_)
             | Row::Clearing(_)
+            | Row::Store(_)
             | Row::DeathTreasure(_) => {}
         }
     }

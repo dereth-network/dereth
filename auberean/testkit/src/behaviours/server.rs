@@ -14183,6 +14183,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.store.a-worlds-shop-is-titled-by-its-copy",
+        says: "A keeper of a world's own shop opens a page that names the shop's copy of its store \
+               template, which titles the shop window, and lists and sells the store's own sales.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SHOP-COPY"),
+        station: "yalain-testkit::cpu::play::trade::a_keeper_of_a_worlds_shop_names_its_copy_and_sells_the_stores_sales",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.store.greeting-and-store",
         says: "Using a storekeeper in reach is answered, then the storekeeper greets the player \
                by name and opens its store on its first page.",

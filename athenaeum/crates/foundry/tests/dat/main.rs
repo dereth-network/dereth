@@ -570,3 +570,117 @@ fn a_worlds_overlay_sets_portal_and_english_records_each_file_numbered_apart() {
     drop((p, e));
     std::fs::remove_dir_all(&root).ok();
 }
+
+/// A storekeeper of the database given a shop title in a world: the world writes its own shop, a
+/// `[[store]]` copying the keeper's store under the title, and the keeper's row naming it, as one
+/// step undone and redone; the copy's id is kept in the world's lockfile. Compiled, the keeper
+/// sells the store's sales and names the copy; built, the overlay's portal file holds the copy:
+/// the store's own stock and portrait, under the title as literal text. Retitled, the same shop
+/// takes the new title; an empty title takes the shop away.
+#[test]
+fn a_shop_title_makes_a_copy_of_the_keepers_store_under_its_title() {
+    use auberean_assets::decode;
+    use auberean_assets::script::ScriptState;
+    use auberean_script::graph::{Body, Graph};
+    use auberean_script::library::{Library, RECORD};
+    use auberean_script::native_object::NativeObject;
+
+    const SABINE: u32 = 0x4700_33D0;
+    let base = database();
+    let root = scratch("shop-title");
+    let dir = root.join("shop");
+    new::new_world(&dir, None).unwrap();
+    let dats = require_install(TARGET);
+    let files = build::InstallFiles::open(&dats).unwrap();
+    let install = files.install().unwrap();
+    let store = yalain_world_db::compile::keeper_store(&install, SABINE).expect("her store");
+    {
+        let mut s = Session::open(world::open(&dir, Some(&base)).unwrap(), None).unwrap();
+        assert_eq!(s.shop_title(SABINE), None);
+        let item = s
+            .set_shop_title(SABINE, "Bob's Fine Goods", Some(store))
+            .unwrap();
+        assert_eq!(item, "keeper 0x470033d0");
+        assert_eq!(s.shop_title(SABINE), Some("Bob's Fine Goods"));
+        assert!(s.problems().is_empty(), "{:?}", s.problems());
+        assert!(s.undo());
+        assert_eq!(s.shop_title(SABINE), None, "one step");
+        assert!(s.redo());
+        assert_eq!(s.shops(&install).len(), 1);
+        s.save().unwrap();
+    }
+    let lock = std::fs::read_to_string(dir.join("world.lock")).unwrap();
+    assert!(lock.contains("[store]\n\"shop-1\" = 0x6F100000"), "{lock}");
+    let t = compiled(&dir, &base);
+    let k = t.stores.keeper(SABINE).expect("her keeper row");
+    assert_eq!((k.store, k.shown), (store, Some(0x6F10_0000)));
+    assert!(t.shops[0].pinned);
+    assert!(
+        !t.stores.sales_of(store).is_empty(),
+        "the store's own sales"
+    );
+
+    let out = root.join("built");
+    let opened = world::open(&dir, Some(&base)).unwrap();
+    let (folder, built) = overlay::write(&opened, &dats, &out).unwrap();
+    assert_eq!(built.shops, 1);
+    let w = WorldOverlay::open(&folder).unwrap();
+    let found = install_dats(&dats).unwrap();
+    let (_, p) = found.iter().find(|(n, _)| *n == DatName::Portal).unwrap();
+    let portal = DatFile::open(p).unwrap();
+    let over = w.over(portal.clone()).unwrap();
+    let ctx = Context::from_portal(&portal).unwrap();
+    let lib = Library::from_record(&portal.read(RECORD).unwrap()).unwrap();
+    let graph = |file: &DatFile, id: u32| {
+        let st: ScriptState = decode(id, &file.read(id).unwrap(), &ctx).unwrap();
+        (st.package, Graph::decode(&st.graph, &lib).unwrap())
+    };
+    assert_eq!(
+        over.read(store).unwrap(),
+        portal.read(store).unwrap(),
+        "the store stays"
+    );
+    let (package, copy) = graph(&over, 0x6F10_0000);
+    let (own_package, own) = graph(&portal, store);
+    assert_eq!(package, own_package);
+    // Every object of the copy is the store's but its title.
+    let texts = |g: &Graph| -> Vec<Option<String>> {
+        g.entries
+            .iter()
+            .filter_map(|e| match &e.body {
+                Body::Object(o) => match &o.native {
+                    Some(NativeObject::TextInfo(t)) => {
+                        Some(t.literal.as_deref().map(String::from_utf16_lossy))
+                    }
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect()
+    };
+    assert!(texts(&copy).contains(&Some("Bob's Fine Goods".into())));
+    assert!(!texts(&own).iter().any(Option::is_some));
+    let differ = copy
+        .entries
+        .iter()
+        .zip(&own.entries)
+        .filter(|(a, b)| a != b)
+        .count();
+    assert_eq!(
+        (copy.ids.clone(), differ),
+        (own.ids.clone(), 1),
+        "the title alone"
+    );
+
+    // Retitled, the same shop; emptied, no shop.
+    let mut s = Session::open(world::open(&dir, Some(&base)).unwrap(), None).unwrap();
+    s.set_shop_title(SABINE, "Bob's Finer Goods", Some(store))
+        .unwrap();
+    assert_eq!(s.shop_title(SABINE), Some("Bob's Finer Goods"));
+    assert_eq!(s.shops(&install)[0].id, 0x6F10_0000);
+    s.set_shop_title(SABINE, "", Some(store)).unwrap();
+    assert_eq!(s.shop_title(SABINE), None);
+    assert!(s.shops(&install).is_empty(), "its shop goes with it");
+    assert!(s.problems().is_empty(), "{:?}", s.problems());
+    std::fs::remove_dir_all(&root).ok();
+}

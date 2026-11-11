@@ -190,9 +190,13 @@ pub fn merge_over(base: &Base, world: &Database) -> Result<Merged, Vec<Problem>>
     rows.retain(|l| item_key(l).is_none_or(|k| !gone.contains(k.as_str())));
     overridden.sort();
     overridden.dedup();
+    // The base's shops keep their ids; the world's own lockfile gives its shops theirs.
+    let mut stores = base.merged.stores.clone();
+    stores.extend(ours.stores);
     Ok(Merged {
         rows,
         warnings,
         overridden,
+        stores,
     })
 }

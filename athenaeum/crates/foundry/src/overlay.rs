@@ -7,8 +7,12 @@
 //! so the shape is widened by [`SPREAD`], and a vertex on a block's edge is its neighbor's too, so
 //! every block the shape reaches is changed. What a vertex grows includes its ambient sound.
 //!
-//! A world with no clearing has no overlay: the folder is left empty and everything reads the
-//! install's own records.
+//! A `[[store]]` row is a shop of the world's own: its copy of its store template, under the
+//! shop's title, goes into the portal file under the id the world gives it
+//! ([`yalain_world_db::overlay`]).
+//!
+//! A world with no clearing and no shop has no overlay: the folder is left empty and everything
+//! reads the install's own records.
 //!
 //! The overlay lies over the portal, the first region's cell file and the English file alike
 //! ([`write_records`]): what a world sets in each goes into that file's container, and each file is
@@ -28,6 +32,7 @@ use auberean_assets::{decode, encode, Context};
 use auberean_dat::locate::{install_dats, role_file, DatName};
 use auberean_dat::overlay::WORLD_FOLDER;
 use auberean_dat::DatFile;
+use auberean_script::library::{Library, RECORD};
 use auberean_world::records::{RegionSet, WorldRecords};
 use auberean_world::scenery::barren_field;
 use dereth_dat::overlay::{OverlayDir, OverlayError};
@@ -35,6 +40,7 @@ use dereth_dat::revise::{revise_folder, ReviseError};
 use dereth_dat::{decompose, ModernDat};
 use dereth_primitives::num::math;
 use dereth_primitives::DataId;
+use yalain_world_db::compile::Shop;
 use yalain_world_db::merge::Merged;
 use yalain_world_db::rows::{self, Clearing, Row};
 
@@ -60,6 +66,8 @@ pub struct Built {
     pub blocks: usize,
     /// The vertices in them that it changes.
     pub vertices: usize,
+    /// Its shops' copies of their store templates.
+    pub shops: usize,
 }
 
 /// A clearing's shape in the world's meters, widened by [`SPREAD`].
@@ -291,36 +299,56 @@ pub fn write(world: &Opened, dats: &Path, out: &Path) -> Result<(PathBuf, Built)
         .map_err(|p| yalain_world_db::report(&p))?
         .world
         .key;
-    write_rows(&clearings(&merged), &key, dats, out)
+    let shops = if merged.rows.iter().any(|l| matches!(l.row, Row::Store(_))) {
+        let files = build::InstallFiles::open(dats)?;
+        let install = files.install()?;
+        yalain_world_db::compile::shops_of(&merged, &install)
+            .map_err(|p| yalain_world_db::report(&p))?
+    } else {
+        Vec::new()
+    };
+    write_rows(&clearings(&merged), &shops, &key, dats, out)
 }
 
-/// [`write()`] for the clearings a world holds, each with the landblock it is written in, for a world
-/// whose rows are in hand.
+/// [`write()`] for the clearings a world holds, each with the landblock it is written in, and its
+/// shops, for a world whose rows are in hand.
 ///
 /// # Errors
-/// As [`cleared_rows`], the install not reading, and the containers not writing.
+/// As [`cleared_rows`] and [`yalain_world_db::overlay::shop_copies`], the install not reading,
+/// and the containers not writing.
 pub fn write_rows(
     rows: &[(&Clearing, u16)],
+    shops: &[Shop],
     key: &str,
     dats: &Path,
     out: &Path,
 ) -> Result<(PathBuf, Built), String> {
     let folder = out.join(FOLDER);
     let dir = OverlayDir::new(&folder).map_err(|e| e.to_string())?;
-    if rows.is_empty() && dir.containers().is_empty() {
+    if rows.is_empty() && shops.is_empty() && dir.containers().is_empty() {
         return Ok((folder, Built::default()));
     }
     let install = Install::new(dats)?;
     let portal = install.file(ModernDat::Portal)?;
     let cell = install.file(ModernDat::Cell)?;
     let ctx = Context::from_portal(&portal).map_err(|e| format!("{e:?}"))?;
+    let copies = if shops.is_empty() {
+        BTreeMap::new()
+    } else {
+        let lib = portal
+            .read_checked(RECORD, Library::from_record)
+            .map_err(|e| format!("the script library: {e}"))?
+            .value;
+        yalain_world_db::overlay::shop_copies(shops, &|id| portal.read(id).ok(), &ctx, &lib)?
+    };
     let records = WorldRecords::new(portal, cell.clone(), None, ctx.clone());
     let region = records.region().map_err(|e| format!("{e:?}"))?;
-    let (blocks, built) = cleared_rows(rows, &cell, &ctx, &region, &records)?;
+    let (blocks, mut built) = cleared_rows(rows, &cell, &ctx, &region, &records)?;
+    built.shops = copies.len();
     publish(
         &folder,
         key,
-        &Records::from([(ModernDat::Cell, blocks)]),
+        &Records::from([(ModernDat::Cell, blocks), (ModernDat::Portal, copies)]),
         &install,
     )?;
     Ok((folder, built))

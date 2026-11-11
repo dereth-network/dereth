@@ -1,7 +1,8 @@
 //! The inspector's fields of the selected row: every field of its kind, each with a control for
 //! the kind of value it holds (a check box, a choice of values, a quest and where it must be, a
 //! string of the install), and plain TOML text for the rest. A change is set when it is made, or
-//! for text when the field is left; Escape leaves text as it was.
+//! for text when the field is left; Escape leaves text as it was. A storekeeper has its shop's
+//! title too: what its shop window is called.
 
 use athenaeum_foundry::fields::{self, Control, Field};
 use athenaeum_foundry::Entry;
@@ -17,6 +18,8 @@ pub(super) struct Typing {
     quest: String,
     phase: u32,
     name: [String; 2],
+    /// The shop title of a storekeeper.
+    shop: String,
 }
 
 /// Where a gate's quest must be, as the inspector offers it.
@@ -63,6 +66,12 @@ impl Editor<'_> {
         &self.fields
     }
 
+    /// The shop title the inspector shows for the selected storekeeper, as the last frame drew it.
+    #[must_use]
+    pub fn shown_shop_title(&self) -> &str {
+        &self.typing.shop
+    }
+
     /// The selected row's fields, after where it stands: each by its kind of value, set as it is
     /// changed.
     pub(super) fn row_fields(&mut self, ui: &mut egui::Ui, item: &str, e: &Entry) {
@@ -82,11 +91,17 @@ impl Editor<'_> {
                 || [String::new(), String::new()],
                 |(t, s)| [format!("0x{t:08X}"), format!("0x{s:08X}")],
             );
+            let shop = match row {
+                Row::Object(o) => self.session.shop_title(o.template).unwrap_or_default(),
+                _ => "",
+            }
+            .to_owned();
             self.typing = Typing {
                 gate: gate_of(row).map(|(_, g)| g),
                 quest,
                 phase,
                 name,
+                shop,
             };
             self.fields_of = Some((item.to_string(), self.session.revision()));
         }
@@ -95,6 +110,11 @@ impl Editor<'_> {
         let mut typing = std::mem::take(&mut self.typing);
         let mut group = "";
         let mut wrong = None;
+        let keeper = match row {
+            Row::Object(o) => self.session.keeper(o.template).map(|_| o.template),
+            _ => None,
+        };
+        let mut retitled = None;
         egui::Grid::new("fields")
             .num_columns(2)
             .striped(true)
@@ -113,12 +133,33 @@ impl Editor<'_> {
                     }
                     ui.end_row();
                 }
+                if keeper.is_some() {
+                    ui.label("Shop title").on_hover_text(
+                        "what this storekeeper's shop window is called; empty: the store's own name",
+                    );
+                    let r = ui.add(egui::TextEdit::singleline(&mut typing.shop).desired_width(220.0));
+                    if r.lost_focus() {
+                        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                            typing.shop = String::new();
+                            self.fields_of = None;
+                        } else {
+                            retitled = Some(typing.shop.clone());
+                        }
+                    }
+                    ui.end_row();
+                }
             });
         self.fields = texts;
         self.typing = typing;
         if let Some(why) = wrong {
             self.status = why;
             self.fields_of = None;
+        }
+        if let (Some(template), Some(title)) = (keeper, retitled) {
+            if self.session.shop_title(template).unwrap_or_default() != title.trim() {
+                self.set_shop_title(item, &title);
+            }
+            return;
         }
         let unchanged = |field: &str, value: &str| fields::text(row, field) == value.trim();
         let Some((field, value)) = set.filter(|(f, v)| !unchanged(f, v)) else {
@@ -142,6 +183,23 @@ impl Editor<'_> {
                 self.fields_of = None;
             }
         }
+    }
+}
+
+impl Editor<'_> {
+    /// Give the shop of the selected storekeeper `item` the title `title` (empty: the store's own
+    /// name again), as one step; what came of it is the status.
+    pub fn set_shop_title(&mut self, item: &str, title: &str) {
+        let Some(Row::Object(o)) = self.session.entry(item).map(|e| e.row.row.clone()) else {
+            self.status = format!("{item} is not a person");
+            return;
+        };
+        let store = yalain_world_db::compile::keeper_store(self.install, o.template);
+        match self.session.set_shop_title(o.template, title, store) {
+            Ok(keeper) => self.status = format!("{keeper}: shop title set"),
+            Err(err) => self.status = err,
+        }
+        self.fields_of = None;
     }
 }
 

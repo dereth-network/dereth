@@ -33,6 +33,7 @@ pub fn item(l: &Located) -> Option<Item> {
         Row::Keeper(r) => Item::Keeper {
             template: r.template,
         },
+        Row::Store(r) => Item::Store { key: r.key.clone() },
         Row::Sale(r) => Item::Sale {
             store: r.store,
             ordinal: r.ordinal,
@@ -205,6 +206,7 @@ fn value(row: &Row) -> String {
         Row::Pet(x) => x.prov = crate::rows::Prov::default(),
         Row::PetLimit(x) => x.prov = crate::rows::Prov::default(),
         Row::Route(x) => x.prov = crate::rows::Prov::default(),
+        Row::Store(x) => x.prov = crate::rows::Prov::default(),
         Row::Area(x) => x.prov = crate::rows::Prov::default(),
         Row::Clearing(x) => x.prov = crate::rows::Prov::default(),
         Row::ItemUse(x) => x.prov = crate::rows::Prov::default(),
@@ -227,6 +229,8 @@ pub struct Merged {
     pub warnings: Vec<Problem>,
     /// The items packs set differently that the world settled, each as the report says it.
     pub overridden: Vec<String>,
+    /// The ids the lockfiles give the shops' copies of their store templates, by the shops' keys.
+    pub stores: BTreeMap<String, u32>,
 }
 
 /// Merge a database's packs.
@@ -334,5 +338,6 @@ pub fn merge(db: &Database) -> Result<Merged, Vec<Problem>> {
         rows,
         warnings,
         overridden: settled.overridden.iter().map(ToString::to_string).collect(),
+        stores: db.world.stores.clone(),
     })
 }

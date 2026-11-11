@@ -138,6 +138,7 @@ impl Editor<'_> {
                 .into_iter()
                 .map(|(c, l)| (c.clone(), l))
                 .collect(),
+            shops: self.session.shops(self.install),
         }
     }
 

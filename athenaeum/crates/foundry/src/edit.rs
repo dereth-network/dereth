@@ -32,7 +32,7 @@ use yalain_world_db::compile::outdoor_cell;
 use yalain_world_db::layer::{self, Base};
 use yalain_world_db::merge::item_key;
 use yalain_world_db::rows::{
-    At, Camp, Clearing, Located, Object, ObjectKind, Place, Prov, Row, Trigger,
+    At, Camp, Clearing, Keeper, Located, Object, ObjectKind, Place, Prov, Row, Store, Trigger,
 };
 use yalain_world_db::{Files, Problem};
 
@@ -175,6 +175,10 @@ pub struct Session {
     entries: Vec<Entry>,
     /// The world's `[[pet]]` and `[[pet_limit]]` rows as they stand.
     pets: Vec<Located>,
+    /// The world's `[[keeper]]` and `[[store]]` rows as they stand, and the ids its lockfiles give
+    /// its shops.
+    shops: Vec<Located>,
+    shop_ids: BTreeMap<String, u32>,
     index: HashMap<String, usize>,
     /// Every item a row of the world or its base names, removed or not.
     taken: BTreeSet<String>,
@@ -302,6 +306,8 @@ impl Session {
             world_packs: BTreeSet::new(),
             entries: Vec::new(),
             pets: Vec::new(),
+            shops: Vec::new(),
+            shop_ids: BTreeMap::new(),
             index: HashMap::new(),
             taken: BTreeSet::new(),
             removed: Vec::new(),
@@ -637,6 +643,9 @@ impl Session {
                     None
                 }
             };
+            if let Some(m) = &merged {
+                self.shop_ids.clone_from(&m.stores);
+            }
             let rows: Vec<Located> = match &merged {
                 Some(m) => {
                     warnings.clone_from(&m.warnings);
@@ -661,6 +670,11 @@ impl Session {
             self.pets = rows
                 .iter()
                 .filter(|l| matches!(l.row, Row::Pet(_) | Row::PetLimit(_)))
+                .cloned()
+                .collect();
+            self.shops = rows
+                .iter()
+                .filter(|l| matches!(l.row, Row::Keeper(_) | Row::Store(_)))
                 .cloned()
                 .collect();
             for l in rows {
@@ -1430,6 +1444,207 @@ impl Session {
         Ok(item.to_string())
     }
 
+    /// The `[[keeper]]` row that makes `template` a storekeeper, when there is one.
+    #[must_use]
+    pub fn keeper(&self, template: u32) -> Option<&Keeper> {
+        self.shops.iter().find_map(|l| match &l.row {
+            Row::Keeper(k) if k.template == template => Some(k),
+            _ => None,
+        })
+    }
+
+    /// The `[[store]]` of the key, when the world has one.
+    #[must_use]
+    pub fn store(&self, key: &str) -> Option<&Store> {
+        self.shops.iter().find_map(|l| match &l.row {
+            Row::Store(s) if s.key == key => Some(s),
+            _ => None,
+        })
+    }
+
+    /// The title of the shop the keeper of `template` opens, when it opens one of the world's own.
+    #[must_use]
+    pub fn shop_title(&self, template: u32) -> Option<&str> {
+        let key = self.keeper(template)?.shop.as_deref()?;
+        Some(self.store(key)?.name_text.as_str())
+    }
+
+    /// Give the shop the keeper of `template` opens the title `title`, as one step: the shop it
+    /// opens has its title changed, and a keeper that opens none gets a shop of its own, a
+    /// `[[store]]` of `store` (the store it opens: its row's, else `store` as given) with its id
+    /// kept in the world's lockfile. An empty title takes the shop away, and the window shows the
+    /// store's own name again. The rows are the target's: a keeper or shop of another pack or the
+    /// base is written into the target, which replaces it. Answers the keeper's item.
+    ///
+    /// # Errors
+    /// No `[[keeper]]` of the template, no store to copy, a title too long, or a file that is not
+    /// TOML.
+    pub fn set_shop_title(
+        &mut self,
+        template: u32,
+        title: &str,
+        store: Option<u32>,
+    ) -> Result<String, String> {
+        let title = title.trim();
+        let k = self
+            .keeper(template)
+            .cloned()
+            .ok_or_else(|| format!("template {template:08X} keeps no store"))?;
+        let item = ItemKey::Keeper { template }.to_string();
+        if title.chars().count() > yalain_world_db::rows::TEXT_LIMIT {
+            return Err(format!(
+                "a shop's title is at most {} characters",
+                yalain_world_db::rows::TEXT_LIMIT
+            ));
+        }
+        let file = format!("{}/server/stores.toml", self.target);
+        // Each row is changed where the target writes it, else written into the stores file.
+        let mut docs: BTreeMap<String, DocumentMut> = BTreeMap::new();
+        let open = |s: &Self, rel: &str, docs: &mut BTreeMap<String, DocumentMut>| {
+            if !docs.contains_key(rel) {
+                docs.insert(rel.to_owned(), s.doc(rel)?);
+            }
+            Ok::<(), String>(())
+        };
+        let mut lock = None;
+        let mut keeper = k.clone();
+        match (&k.shop, title.is_empty()) {
+            (None, true) => return Ok(item),
+            (Some(key), true) => {
+                keeper.shop = None;
+                // The target's own shop goes with its last keeper.
+                let named = self.shops.iter().any(|l| {
+                    matches!(&l.row, Row::Keeper(o) if o.template != template && o.shop.as_ref() == Some(key))
+                });
+                let ours = self
+                    .shop_row(&ItemKey::Store { key: key.clone() }.to_string())
+                    .filter(|l| l.pack == self.target_name)
+                    .map(|l| l.file.clone());
+                if let (false, Some(rel)) = (named, ours) {
+                    open(self, &rel, &mut docs)?;
+                    remove_row(docs.get_mut(&rel).expect("opened"), "store", key);
+                }
+            }
+            (Some(key), false) => {
+                let s = self
+                    .store(key)
+                    .cloned()
+                    .ok_or_else(|| format!("shop: no [[store]] {key}"))?;
+                let l = self.shop_row(&ItemKey::Store { key: key.clone() }.to_string());
+                let rel = l
+                    .filter(|l| l.pack == self.target_name)
+                    .map_or_else(|| file.clone(), |l| l.file.clone());
+                open(self, &rel, &mut docs)?;
+                let mut table = rowtoml::store(&s, &s.prov);
+                let before = table.clone();
+                table.insert("name_text", Item::Value(Value::from(title)));
+                mark_authored(&before, &mut table);
+                let doc = docs.get_mut(&rel).expect("opened");
+                if !replace_row(doc, "store", key, table.clone()) {
+                    push_row(doc, "store", table);
+                }
+            }
+            (None, false) => {
+                let from = k
+                    .store
+                    .or(store)
+                    .ok_or_else(|| format!("template {template:08X} names no store to copy"))?;
+                let key = self.free_key("shop", |k| ItemKey::Store { key: k.to_owned() });
+                let mut t = Table::new();
+                t.insert("key", Item::Value(Value::from(key.as_str())));
+                t.insert("from", Item::Value(rowtoml::hex(from)));
+                t.insert("name_text", Item::Value(Value::from(title)));
+                t.insert("prov", Item::Value(rowtoml::prov(&Prov::AUTHORED)));
+                open(self, &file, &mut docs)?;
+                let doc = docs.get_mut(&file).expect("opened");
+                take_remove(doc, &ItemKey::Store { key: key.clone() }.to_string());
+                push_row(doc, "store", t);
+                // Its copy's id, kept from now on.
+                let mut ids = self.lock()?;
+                if ids.get(auberean_pack::Kind::Store, &key).is_none() {
+                    let held: BTreeSet<u32> = self.shop_ids.values().copied().collect();
+                    let id = yalain_world_db::compile::next_shop_id(&|id| held.contains(&id))
+                        .ok_or("no saved state is left for the shop's copy")?;
+                    ids.insert(auberean_pack::Kind::Store, &key, id);
+                    lock = Some(ids.render());
+                }
+                keeper.shop = Some(key);
+            }
+        }
+        if keeper != k {
+            let l = self.shop_row(&item);
+            let rel = l
+                .filter(|l| l.pack == self.target_name)
+                .map_or_else(|| file.clone(), |l| l.file.clone());
+            open(self, &rel, &mut docs)?;
+            let before = rowtoml::keeper(&k, &k.prov);
+            let mut table = rowtoml::keeper(&keeper, &k.prov);
+            mark_authored(&before, &mut table);
+            let doc = docs.get_mut(&rel).expect("opened");
+            let template = i64::from(template);
+            put_row_where(
+                doc,
+                "keeper",
+                |t| t.get("template").and_then(Item::as_integer) == Some(template),
+                table,
+            );
+        }
+        let mut changes: Vec<(String, Option<String>)> = docs
+            .iter()
+            .map(|(rel, doc)| (rel.clone(), text_of(doc)))
+            .collect();
+        if let Some(text) = lock {
+            changes.push(("world.lock".into(), Some(text)));
+        }
+        let files: BTreeSet<String> = changes.iter().map(|(f, _)| f.clone()).collect();
+        let steps = self.history.len();
+        self.commit(changes);
+        let why: Vec<String> = self
+            .problems
+            .iter()
+            .filter(|p| files.contains(&p.file))
+            .map(ToString::to_string)
+            .collect();
+        if !why.is_empty() && self.history.len() > steps {
+            self.undo();
+            self.history.clear_redo();
+            return Err(why.join("\n"));
+        }
+        Ok(item)
+    }
+
+    /// The world's shops, numbered as a compile numbers them; none when they do not compile (the
+    /// world's build says why).
+    #[must_use]
+    pub fn shops(
+        &self,
+        install: &dyn yalain_world_db::compile::Install,
+    ) -> Vec<yalain_world_db::compile::Shop> {
+        let merged = yalain_world_db::merge::Merged {
+            rows: self.shops.clone(),
+            stores: self.shop_ids.clone(),
+            ..Default::default()
+        };
+        yalain_world_db::compile::shops_of(&merged, install).unwrap_or_default()
+    }
+
+    /// A `[[keeper]]` or `[[store]]` row of the world, by its item.
+    fn shop_row(&self, item: &str) -> Option<&Located> {
+        self.shops
+            .iter()
+            .find(|l| item_key(l).as_deref() == Some(item))
+    }
+
+    /// The world's lockfile, as it stands.
+    fn lock(&self) -> Result<dereth_pack::Lock<auberean_pack::Ac2>, String> {
+        match self.files.get("world.lock") {
+            Some(text) => {
+                dereth_pack::Lock::parse(Path::new("world.lock"), text).map_err(|e| e.to_string())
+            }
+            None => Ok(dereth_pack::Lock::default()),
+        }
+    }
+
     /// Take a kind of pet or a skill's limit away: the target's own row is deleted, and the
     /// base's, or the one the target's replaced, is removed by item.
     ///
@@ -2114,6 +2329,25 @@ fn push_row(doc: &mut DocumentMut, kind: &str, mut table: Table) {
             aot.push(table);
             doc.insert(kind, Item::ArrayOfTables(aot));
         }
+    }
+}
+
+/// Put `table` in place of the `[[kind]]` row `is` finds, keeping its place and the lines before
+/// it, else add it.
+fn put_row_where(doc: &mut DocumentMut, kind: &str, is: impl Fn(&Table) -> bool, mut table: Table) {
+    let there = doc
+        .get_mut(kind)
+        .and_then(Item::as_array_of_tables_mut)
+        .and_then(|a| a.iter_mut().find(|t| is(t)));
+    match there {
+        Some(t) => {
+            table.decor_mut().clone_from(t.decor());
+            if let Some(p) = t.position() {
+                table.set_position(Some(p));
+            }
+            *t = table;
+        }
+        None => push_row(doc, kind, table),
     }
 }
 

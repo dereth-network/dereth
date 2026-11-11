@@ -8,6 +8,9 @@
 //! (a race, a least level, quests at a status) is left off the page of a player who may not have
 //! it where its store hides such sales, else shown restricted; buying it finds no sale.
 //!
+//! The page names the store template the shop window takes its title from: the store's own, or
+//! for a keeper of a world's own shop, the shop's copy of it, whose sales are the store's.
+//!
 //! **Paging** answers with the next or the previous page. **Leaving** is not answered (the client
 //! closes the store itself).
 //!
@@ -275,12 +278,21 @@ pub fn page<S: Store>(
         view,
         &[
             Slot::Ref(Some(list)),
-            Slot::Tagged(0x04, store),
+            Slot::Tagged(0x04, titled_by(s, keeper, store)),
             Slot::Tagged(0x04, size),
             Slot::Int(pos),
         ],
     );
     session::call(f, &[Arg::Object(b.graph()), Arg::LongInt(keeper)]).expect("a store view packs")
+}
+
+/// The store template a keeper's page of `store` names: its shop's copy when it keeps one.
+fn titled_by<S: Store>(s: &Server<S>, keeper: u64, store: u32) -> u32 {
+    crate::presence::content_by_id(&s.content.objects, keeper)
+        .and_then(|i| s.stores.keeper(s.content.objects[i].template))
+        .filter(|k| k.store == store)
+        .and_then(|k| k.shown)
+        .unwrap_or(store)
 }
 
 /// Whether a player may have a sale: of its race, of its level, holding its quests at their status.

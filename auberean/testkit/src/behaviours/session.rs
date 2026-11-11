@@ -474,6 +474,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Live,
     },
     behaviour! {
+        id: "session.server.our-client-shows-a-worlds-shop-under-its-title",
+        says: "Our client, sent a world's copy of a store template under a title of its own as it \
+               logs in, reads the copy as the store's scripts ask for it and shows a keeper's shop \
+               under that title, with the store's own sales.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SESSION-SHOP-TITLE"),
+        station: "yalain-testkit::dat::world_patch::our_client_shows_a_worlds_shop_under_its_own_title",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "session.server.our-client-takes-a-worlds-overlay-as-it-logs-in",
         says: "Our client says it keeps overlays and which files it holds ahead of what it holds, \
                stores a world's records it lacks as it logs in, and reads them as its own.",

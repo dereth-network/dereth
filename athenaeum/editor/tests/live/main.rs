@@ -288,6 +288,7 @@ fn recipes_characters_play_the_world_live_on_one_server_made_built_and_placed_at
         base: Some(base),
         key: String::new(),
         clearings: Vec::new(),
+        shops: Vec::new(),
     };
     let mut recipe = Recipe::new("Tester");
     recipe.race = chargen::TUMEROK;
@@ -749,6 +750,7 @@ fn a_server_started_on_ports_another_program_holds_moves_on_to_free_ones() {
         base: Some(base),
         key: String::new(),
         clearings: Vec::new(),
+        shops: Vec::new(),
     };
     let p = live::free_port(live::first_port(41_500, std::process::id())).expect("free ports");
     let held: Vec<UdpSocket> = (0..4)
@@ -805,6 +807,7 @@ fn two_playtests_started_at_once_on_the_same_free_ports_each_serve_on_their_own(
             base: Some(base.clone()),
             key: String::new(),
             clearings: Vec::new(),
+            shops: Vec::new(),
         })
         .collect();
     let p = live::free_port(live::first_port(41_900, std::process::id())).expect("free ports");
@@ -949,6 +952,7 @@ fn a_clearing_is_read_by_the_server_and_by_the_client_play_starts() {
             .into_iter()
             .map(|(c, l)| (c.clone(), l))
             .collect(),
+        shops: Vec::new(),
     };
     let setup = setup_of(&session);
     let mut live = Live::default();

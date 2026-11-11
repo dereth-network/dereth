@@ -107,6 +107,7 @@ fn shop() -> Harness {
         keepers: vec![Keeper {
             template: KEEPER_TEMPLATE,
             store: STORE,
+            shown: None,
             greeting: Some(yalain_content::Words::Ref(0x2824_938C, 0x2500_2AFC)),
             placed: "authored for a test".into(),
         }],
@@ -521,6 +522,76 @@ fn a_purchase_takes_its_price_and_makes_the_item_in_the_pack() {
     });
     assert_eq!(money, Some(40));
     let made = h.world_messages(b, from).iter().any(|m| {
+        matches!(m, ServerMessage::CreateObject(o) if o.weenie.entity_did == TEST_ITEM && o.weenie.objects[0] == me)
+    });
+    assert!(made, "the item is made in the pack");
+}
+
+/// A keeper of a world's own shop: its page names the shop's copy of the store template, which the
+/// shop window takes its title from, and lists and sells the store's own sales; a page asked for
+/// again names the copy too.
+/// Behaviour: server.store.a-worlds-shop-is-titled-by-its-copy
+#[test]
+fn a_keeper_of_a_worlds_shop_names_its_copy_and_sells_the_stores_sales() {
+    const COPY: u32 = 0x6F10_0000;
+    const UPDATE_SALES: u32 = 0x9B5E_0042;
+    let mut h = shop();
+    h.server.stores.keepers[0].shown = Some(COPY);
+    let (b, me) = h.player_in_world("one", "Elara");
+    for p in h.server.players.values_mut() {
+        yalain_world::quals::set_int(&mut p.qualities, 3100, 50);
+    }
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(USE, &[use_of(KEEPER, me)]),
+    );
+    h.run(10);
+    let named = |h: &Harness, from: usize, f: u32| -> Vec<(u32, usize)> {
+        calls_of(h, b, from)
+            .iter()
+            .filter(|(x, _)| *x == f)
+            .map(|(_, args)| {
+                let Some(calls::Node::Script { slots, .. }) = args[0].root() else {
+                    panic!("a store view");
+                };
+                (slots[1].1, listed(&args[0]).1.len())
+            })
+            .collect()
+    };
+    assert_eq!(
+        named(&h, from, ENTER_STORE),
+        [(COPY, 1)],
+        "the copy, with the store's sale"
+    );
+    // Asked again, the page still names the copy.
+    let again = h.bots[b].inbox.len();
+    h.ask(b, UPDATE_SALES, &[Arg::LongInt(KEEPER)], 10);
+    assert_eq!(named(&h, again, UPDATE_STORE), [(COPY, 1)]);
+    // The sale is bought by the store's own stock id.
+    let bought = h.bots[b].inbox.len();
+    let stock = yalain_world::store::STOCK_BASE | u64::from(STORE & 0xFFFF) << 8;
+    let mut g = Builder::new();
+    g.object(
+        0x1B76,
+        &[
+            Slot::Long(stock),
+            Slot::Ref(None),
+            Slot::Long(me),
+            Slot::Int(1),
+            Slot::Long(KEEPER),
+            Slot::Int(0),
+            Slot::Int(0),
+        ],
+    );
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(PURCHASE, &[Arg::Object(g.graph())]),
+    );
+    h.run(10);
+    let made = h.world_messages(b, bought).iter().any(|m| {
         matches!(m, ServerMessage::CreateObject(o) if o.weenie.entity_did == TEST_ITEM && o.weenie.objects[0] == me)
     });
     assert!(made, "the item is made in the pack");

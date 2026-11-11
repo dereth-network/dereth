@@ -7,7 +7,7 @@
 //!
 //! The text form is tab-separated, one row per line, the first column saying which kind of row:
 //! `keeper` (template, store, greeting as `string:table`, `=` and literal text or empty,
-//! provenance), `sale` (store,
+//! provenance, and optionally the store template the shop window names in its place), `sale` (store,
 //! ordinal, product, cost, currency, stack, icon layers as `layer:picture:color` joined by spaces,
 //! name string, name table, provenance, and optionally who it is for: `race=N`, `level=N`,
 //! `quest=QUEST:STATUS` joined by spaces) or `hides` (a store that hides what a player may not
@@ -22,6 +22,9 @@ use crate::talk::Words;
 pub struct Keeper {
     pub template: u32,
     pub store: u32,
+    /// The store template the shop window names, when not `store`: a world's copy of it under a
+    /// title of its own. Its sales are `store`'s.
+    pub shown: Option<u32>,
     pub greeting: Option<Words>,
     pub placed: String,
 }
@@ -138,11 +141,12 @@ impl StoreTable {
         for k in &self.keepers {
             let _ = writeln!(
                 out,
-                "keeper\t{:08X}\t{:08X}\t{}\t{}",
+                "keeper\t{:08X}\t{:08X}\t{}\t{}{}",
                 k.template,
                 k.store,
                 k.greeting.as_ref().map(Words::to_text).unwrap_or_default(),
-                k.placed
+                k.placed,
+                k.shown.map(|s| format!("\t{s:08X}")).unwrap_or_default(),
             );
         }
         for s in &self.sales {
@@ -187,9 +191,10 @@ impl StoreTable {
             let at = |e: String| format!("line {}: {e}", n + 1);
             let c: Vec<&str> = line.split('\t').collect();
             match c[0] {
-                "keeper" if c.len() == 5 => t.keepers.push(Keeper {
+                "keeper" if c.len() == 5 || c.len() == 6 => t.keepers.push(Keeper {
                     template: hex(c[1]).map_err(at)?,
                     store: hex(c[2]).map_err(at)?,
+                    shown: c.get(5).map(|s| hex(s)).transpose().map_err(at)?,
                     greeting: if c[3].is_empty() {
                         None
                     } else {

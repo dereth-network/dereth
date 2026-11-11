@@ -633,3 +633,122 @@ fn a_reload_patches_the_next_client_to_the_overlay_as_it_now_is() {
     h.server.reload(&mut h.net, clock, t);
     assert!(h.server.world_patch.is_none());
 }
+
+/// Our client in a world's shop: the world's copy of Sabine's store template, under a title of its
+/// own, sent to it as it logs in, and a keeper whose page names the copy. The shop window its
+/// scripts show is called by the copy's title; the sales are the store's.
+/// Behaviour: session.server.our-client-shows-a-worlds-shop-under-its-title
+#[test]
+fn our_client_shows_a_worlds_shop_under_its_own_title() {
+    use auberean_client_sdk::runtime::store::{notice, SHOP};
+    use auberean_script::native_object::{Field, NativeObject};
+    use yalain_content::stores::{Keeper, Sale, SaleGate};
+    use yalain_world_db::compile::Shop;
+
+    const SABINE: u32 = 0x6F00_16E5;
+    const COPY: u32 = 0x6F10_0000;
+    const TITLE: &str = "Bob's Fine Goods";
+    let p = authored::Portal::open();
+    let shop = Shop {
+        key: "bobs".into(),
+        from: SABINE,
+        id: COPY,
+        name_text: TITLE.into(),
+        description_text: None,
+        pinned: true,
+    };
+    let copy = yalain_world_db::overlay::shop_copies(
+        std::slice::from_ref(&shop),
+        &|id| p.dat.read(id).ok(),
+        &p.ctx,
+        &p.library(),
+    )
+    .expect("the copy");
+    let files = authored::install_files();
+    let portal = files.portal.clone().expect("the portal file");
+    let folder = Arc::new(MemoryFolder::new(std::path::Path::new("a-world")));
+    let dir = OverlayDir::in_folder(folder.clone()).expect("a folder");
+    let mut w = dir
+        .writer(
+            ModernDat::Portal,
+            portal.shared(),
+            role_file(ModernDat::Portal),
+            WORLD,
+            0,
+        )
+        .expect("a writer");
+    let r = dereth_dat::decompose::revision_over(portal.shared());
+    for (id, bytes) in &copy {
+        w.put(DataId(*id), bytes, 1, r, 0).expect("the record");
+    }
+    w.add_iteration(r, 0).expect("the revision");
+    w.flush(0).expect("written");
+    let overlay = WorldOverlay::in_folder(folder).expect("the overlay");
+    let files = InstallFiles {
+        portal: Some(overlay.over(portal).expect("it lies over the portal")),
+        ..files
+    };
+
+    let mut s = InProcess::new();
+    s.h.server.world_patch = WorldPatch::of(&files).map(Arc::new);
+    s.h.server.data = Some(Box::new(files));
+    s.h.server.stores.keepers = vec![Keeper {
+        template: authored::GUARD,
+        store: SABINE,
+        shown: Some(COPY),
+        greeting: Some(yalain_content::Words::Literal("Welcome".into())),
+        placed: "authored for a test".into(),
+    }];
+    s.h.server.stores.sales = vec![Sale {
+        store: SABINE,
+        ordinal: 0,
+        product: authored::SWORD,
+        cost: 10.0,
+        currency: 0x4700_0538,
+        stack: 1,
+        icon: Vec::new(),
+        name: (0x01A2_D809, 0x2500_23D3),
+        placed: "authored for a test".into(),
+        gate: SaleGate::default(),
+    }];
+    play::character_list(&mut s).expect("the characters, after what it lacks");
+    let me = play::create(&mut s, "Aubrey").expect("made");
+    play::enter(&mut s, me).expect("in the world");
+    play::see(&mut s, &[authored::GUARD]).expect("the keeper");
+    let keeper = play::find(s.client_ref(), authored::GUARD).expect("the keeper");
+    let from = s.client_ref().notices.len();
+    play::talk_to(&mut s, keeper.id).expect("greeted");
+    let shown = |c: &auberean_client_sdk::Client| {
+        c.notices[from..]
+            .iter()
+            .filter(|n| n.native == notice::VIEW_STORE)
+            .flat_map(|n| n.objects.iter().flatten())
+            .find_map(|o| match o {
+                NativeObject::Adaptor { ty, fields } if *ty == SHOP => Some(fields.clone()),
+                _ => None,
+            })
+    };
+    play::until(&mut s, play::HANG, "the shop window", |c| {
+        shown(c).is_some()
+    })
+    .expect("the shop shows");
+    let fields = shown(s.client_ref()).expect("the shop");
+    let Some(Field::Value(name)) = fields.get("Name") else {
+        panic!("a shop with no name: {fields:?}");
+    };
+    let NativeObject::TextInfo(t) = name.as_ref() else {
+        panic!("a name that is no text: {name:?}");
+    };
+    assert_eq!(
+        t.literal
+            .as_deref()
+            .map(String::from_utf16_lossy)
+            .as_deref(),
+        Some(TITLE),
+        "{t:?}"
+    );
+    let Some(Field::Many(sales)) = fields.get("Sale") else {
+        panic!("no sales: {fields:?}");
+    };
+    assert_eq!(sales.len(), 1, "the store's own sale");
+}

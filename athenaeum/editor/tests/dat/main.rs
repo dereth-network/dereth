@@ -1508,3 +1508,35 @@ fn the_pets_window_adds_a_kind_of_pet_and_a_limit_and_shows_every_field() {
         e.session.problems()
     );
 }
+
+/// A storekeeper placed and selected has a shop title in the inspector: set, it is the world's own
+/// shop and the inspector shows it; emptied, the shop is gone and the world builds clean.
+#[test]
+fn a_storekeepers_shop_title_is_set_in_the_inspector_and_shown_there() {
+    let mut e = editor("shop-title");
+    e.template = "0x470033D0".into();
+    let g = ground(&mut e);
+    e.place_at(g, 0.0);
+    let item = e.selected.clone().expect("the placed keeper");
+    let ctx = egui::Context::default();
+    draw_panels(&mut e, &ctx);
+    assert_eq!(e.shown_shop_title(), "");
+    e.set_shop_title(&item, "Bob's Fine Goods");
+    assert_eq!(
+        e.session.shop_title(0x4700_33D0),
+        Some("Bob's Fine Goods"),
+        "{}",
+        e.status
+    );
+    draw_panels(&mut e, &ctx);
+    assert_eq!(e.shown_shop_title(), "Bob's Fine Goods");
+    assert!(
+        e.session.problems().is_empty(),
+        "{:?}",
+        e.session.problems()
+    );
+    e.set_shop_title(&item, "");
+    assert_eq!(e.session.shop_title(0x4700_33D0), None, "{}", e.status);
+    draw_panels(&mut e, &ctx);
+    assert_eq!(e.shown_shop_title(), "");
+}

@@ -33,6 +33,8 @@ pub struct World {
     pub packs: Vec<String>,
     pub overrides: Vec<Override>,
     pub base: Option<Base>,
+    /// The ids its lockfile gives its shops' copies of their store templates, by the shops' keys.
+    pub stores: BTreeMap<String, u32>,
 }
 
 /// One pack: its header and its rows.
@@ -369,8 +371,24 @@ pub const POOL_RACES: [(&str, u32); 5] = [
 pub struct Keeper {
     pub template: u32,
     pub store: Option<u32>,
+    /// The `[[store]]` it opens, by key: that shop's store template, under the shop's title.
+    pub shop: Option<String>,
     pub greeting: Option<StrRef>,
     pub greeting_text: Option<String>,
+    pub prov: Prov,
+}
+
+/// `[[store]]`: a shop of the world's own, a store template's stock, prices and portrait under a
+/// title of its own.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Store {
+    pub key: String,
+    /// The store template it copies.
+    pub from: u32,
+    /// The shop window's title.
+    pub name_text: String,
+    /// The line under the title, else the template's.
+    pub description_text: Option<String>,
     pub prov: Prov,
 }
 
@@ -600,6 +618,7 @@ pub enum Row {
     Camp(Camp),
     Loot(Loot),
     Keeper(Keeper),
+    Store(Store),
     Sale(Sale),
     Quest(Quest),
     Step(Step),
@@ -1086,6 +1105,7 @@ impl Row {
             Self::Camp(_) => "camp",
             Self::Loot(_) => "loot",
             Self::Keeper(_) => "keeper",
+            Self::Store(_) => "store",
             Self::Sale(_) => "sale",
             Self::Quest(_) => "quest",
             Self::Step(_) => "step",
@@ -1145,6 +1165,7 @@ impl Row {
             Self::Camp(r) => Some(&r.prov),
             Self::Loot(r) => Some(&r.prov),
             Self::Keeper(r) => Some(&r.prov),
+            Self::Store(r) => Some(&r.prov),
             Self::Sale(r) => Some(&r.prov),
             Self::Quest(r) => Some(&r.prov),
             Self::Step(r) => Some(&r.prov),
@@ -1198,11 +1219,12 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 52] = [
+pub const KINDS: [&str; 53] = [
     "object",
     "camp",
     "loot",
     "keeper",
+    "store",
     "sale",
     "quest",
     "step",
@@ -1254,7 +1276,7 @@ pub const KINDS: [&str; 52] = [
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 52] = [
+pub const FIELDS: [(&str, &[&str]); 53] = [
     (
         "object",
         &[
@@ -1333,7 +1355,18 @@ pub const FIELDS: [(&str, &[&str]); 52] = [
     ),
     (
         "keeper",
-        &["template", "store", "greeting", "greeting_text", "prov"],
+        &[
+            "template",
+            "store",
+            "shop",
+            "greeting",
+            "greeting_text",
+            "prov",
+        ],
+    ),
+    (
+        "store",
+        &["key", "from", "name_text", "description_text", "prov"],
     ),
     (
         "sale",
@@ -1878,9 +1911,16 @@ fn read_files(
     let Some(world) = read_world(text, &mut problems) else {
         return (None, problems);
     };
+    let mut world = world;
     if let Some(lock) = files.get("world.lock") {
-        if let Err(e) = dereth_pack::Lock::<Ac2>::parse(Path::new("world.lock"), lock) {
-            problems.push(problem(&e));
+        match dereth_pack::Lock::<Ac2>::parse(Path::new("world.lock"), lock) {
+            Ok(lock) => {
+                world.stores = lock
+                    .of(auberean_pack::Kind::Store)
+                    .map(|(key, id)| (key.to_owned(), id))
+                    .collect();
+            }
+            Err(e) => problems.push(problem(&e)),
         }
     }
     let mut packs = Vec::new();
@@ -1972,6 +2012,7 @@ fn read_world(text: &str, problems: &mut Vec<Problem>) -> Option<World> {
         packs,
         overrides: w.overrides,
         base: w.base,
+        stores: BTreeMap::new(),
     })
 }
 
@@ -2169,8 +2210,19 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
         "keeper" => Row::Keeper(Keeper {
             template: f.req_id("template")?,
             store: f.id("store"),
+            shop: f.key("shop"),
             greeting: f.strref("greeting"),
             greeting_text: f.text("greeting_text"),
+            prov: f.req_prov()?,
+        }),
+        "store" => Row::Store(Store {
+            key: f.req_symbol("key")?,
+            from: f.req_id("from")?,
+            name_text: match f.get("name_text") {
+                Some(_) => f.text("name_text")?,
+                None => return f.missing("name_text"),
+            },
+            description_text: f.text("description_text"),
             prov: f.req_prov()?,
         }),
         "sale" => Row::Sale(Sale {
@@ -3472,6 +3524,12 @@ impl<'a> Fields<'a> {
             "a key (lowercase letters, digits, hyphens, and @XXYY from another landblock or pack:key from another pack)",
             |v| v.as_str().filter(|s| is_reference(s)).map(str::to_string),
         )
+    }
+
+    fn key(&mut self, name: &str) -> Option<String> {
+        self.typed(name, "a key (lowercase letters, digits and hyphens)", |v| {
+            v.as_str().filter(|s| is_symbol(s)).map(str::to_string)
+        })
     }
 
     fn req_symbol(&mut self, name: &str) -> Option<String> {

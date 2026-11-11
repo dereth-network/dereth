@@ -607,6 +607,7 @@ fn a_visit() -> Vec<ServerMessage> {
         keepers: vec![Keeper {
             template: 0x4700_33D0,
             store: 0x6F00_16F6,
+            shown: None,
             greeting: Some(yalain_content::Words::Ref(0x2824_938C, 0x2500_2AFC)),
             placed: "authored for a test".into(),
         }],

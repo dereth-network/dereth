@@ -122,7 +122,11 @@ to where it leads.
 - `=` and `-` make the selected objects larger and smaller, and **scale** on the right sets it; an
   empty one goes back to their template's.
 - **name_text** on the right gives a person or object a name of its own: over their head, in what they
-  tell you and when examined. A shop's own title still shows the store's name.
+  tell you and when examined.
+- **Shop title** on the right of a storekeeper names its shop window. It's the world's own shop, a
+  `[[store]]` row copying the keeper's store under the title, and the keeper's `shop` naming it; its
+  stock and prices stay the store's. Empty, the window shows the store's own name again. Like a
+  clearing, it goes into the world's overlay, so a retail player needs patching too.
 - Ctrl+D or **Duplicate** copies the selected row beside it and selects the copy, whatever it is:
   a person with their name and place, a camp with its creatures, a portal with where it leads.
 - **Place** with the kind **clearing** keeps a spot free of trees, rocks and grass: drag on the

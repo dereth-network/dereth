@@ -143,6 +143,29 @@ pub fn compile_world(world: &Opened, install: &dyn Install) -> Result<Tables, St
     })
 }
 
+/// Keep the ids a compile gave the world's new shops in its lockfile (`world.lock` in `dir`), so
+/// every build after it gives each the same. Answers whether the lockfile changed.
+///
+/// # Errors
+/// A lockfile that does not read or write.
+pub fn pin_shops(dir: &Path, shops: &[yalain_world_db::compile::Shop]) -> Result<bool, String> {
+    let path = dir.join("world.lock");
+    let mut lock =
+        dereth_pack::Lock::<auberean_pack::Ac2>::read(&path).map_err(|e| e.to_string())?;
+    let mut changed = false;
+    for s in shops.iter().filter(|s| !s.pinned) {
+        if lock.get(auberean_pack::Kind::Store, &s.key).is_none() {
+            lock.insert(auberean_pack::Kind::Store, &s.key, s.id);
+            changed = true;
+        }
+    }
+    if changed {
+        lock.save(&dereth_pack::store::DiskStore, &path)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(changed)
+}
+
 /// The tables as the text files a build writes, by name.
 #[must_use]
 pub fn texts(t: &Tables) -> [(&'static str, String); 6] {

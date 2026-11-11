@@ -265,7 +265,14 @@ impl core::fmt::Debug for ClientHost {
 
 impl Host for ClientHost {
     fn saved_state(&mut self, id: u32) -> Option<Arc<SavedState>> {
-        self.states.get(id, &self.program.library)
+        // Through the data cache, so a state the server sent (a world's own) is read as the
+        // file's are.
+        match self.data_cache().cloned() {
+            Some(c) => self
+                .states
+                .get_through(id, &self.program.library, &|id| c.database().read(id)),
+            None => self.states.get(id, &self.program.library),
+        }
     }
 
     fn send(&mut self, function: u32, args: &[u8], encrypted: bool) -> Result<(), Stop> {
