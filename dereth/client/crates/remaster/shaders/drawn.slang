@@ -912,6 +912,13 @@ Targets fs_ground(Varyings in)
     float4 water = row(push.drawn, D_WATER);
     float bed = water.x > 0.5 ? bed_depth(shore_distance(p, foot), water.y, water.z) : 0.0;
     uint below = uint(clamp(bed / BED_STEP + 0.5, 0.0, 255.0));
+    // Where the bed is lowered under the water's level the ground is water, whatever retail's
+    // picture lays there, so the water's surface runs on over the land inside its edge rather
+    // than ending where the picture turns to land.
+    if (below > 0 && level_at(p) - parts.x > 0.5 * BED_STEP)
+    {
+        kind = KIND_WATER;
+    }
     // Where the ground is not water and the weather is drawn, the fourth byte is how much of it is
     // puddle instead: on ground the smooth surface holds flat, judged over half a meter however
     // far off it is drawn, and over the stretch the pixel covers where that is longer, so a far

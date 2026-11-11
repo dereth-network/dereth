@@ -1,9 +1,10 @@
 //! The remaster's water at its shores, where the bed is drawn lowered under it: a lake's
 //! shallows by a stone pillar, a strip of land between two waters with lily pads off it,
-//! Holtburg's lake shore by its boardwalk, a bank by a tree, and the lake out where it is deep,
-//! each at noon and in the evening, the camera held behind the body. Beside each picture, where `DERETH_SHORE_DEBUG` is set, a picture of what the
-//! frame drew there: the water's pixels shaded by how far under its surface the bed is drawn
-//! (black at the edge, white at four meters), the land's pixels dark green, the rest dark gray.
+//! Holtburg's lake shore by its boardwalk, a bank by a tree, Holtburg's dock, and the lake out
+//! where it is deep, each at noon and in the evening, the camera held behind the body. Beside
+//! each picture, where `DERETH_SHORE_DEBUG` is set, a picture of what the frame drew there: the
+//! water's pixels shaded by how far under its surface the bed is drawn (black at the edge, white
+//! at four meters), the land's pixels dark green, the rest dark gray.
 //!
 //! Fixture: the retail dats (`DERETH_TEST_DAT_DIR`) and a hardware device.
 //!
@@ -42,7 +43,7 @@ use super::remaster_look_frames::EVERY_BOX;
 use super::stations::{self, capture, report_station, Clock, Shot};
 
 /// Each spot: its name, where the body stands, and the camera's heading.
-const SPOTS: [(&str, &str, f32); 5] = [
+const SPOTS: [(&str, &str, f32); 6] = [
     (
         "pillar",
         "dereth report 1; loc 0xA9B50015 [59.258690 104.685966 27.904999] 0.723986 0.000000 \
@@ -66,6 +67,12 @@ const SPOTS: [(&str, &str, f32); 5] = [
         "dereth report 1; loc 0xA9B5001C [83.963875 82.829918 27.904999] -0.645227 0.000000 \
          0.000000 -0.763991",
         -1.0,
+    ),
+    (
+        "dock",
+        "dereth report 1; loc 0xAAB50003 [12.083943 49.621696 27.554998] -0.988524 0.000000 \
+         0.000000 -0.151063",
+        0.3,
     ),
     (
         "deep",

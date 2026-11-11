@@ -5,6 +5,8 @@
 //!   water, not a band of the mirrored picture taken from the wrong place in it.
 //! - **Shallow water shows its bed**: near the shore the bed shows through the water, clearing
 //!   toward the edge, while deep water out in the lake takes on the water's own color.
+//! - **The water's surface runs over all the ground its bed is lowered under**: over land inside
+//!   the water's edge as well as retail's water.
 //!
 //! Fixture: the retail dats (`DERETH_TEST_DAT_DIR`) and a hardware Vulkan 1.3 device.
 //!
@@ -154,6 +156,13 @@ const SHALLOWS: &str = "dereth report 1; loc 0xA9B50015 [59.258690 104.685966 27
 /// The remaster's last frame of the shallows, the water still and taking the light of the bed
 /// seen through it `absorption` times as strongly as it is made to.
 fn shallows(absorption: f32) -> RemasterCapture {
+    still_water(SHALLOWS, [6.0, 2.2, -0.3, -2.5], absorption)
+}
+
+/// The remaster's last frame of the place `line` reports, the camera held behind the body as
+/// `follow` says (meters back, meters up, its pitch and its heading), the water still and taking
+/// the light of the bed seen through it `absorption` times as strongly as it is made to.
+fn still_water(line: &str, follow: [f32; 4], absorption: f32) -> RemasterCapture {
     let store = crate::common::dats();
     let cfg = DeviceConfig {
         width: W,
@@ -169,13 +178,13 @@ fn shallows(absorption: f32) -> RemasterCapture {
         "{} is a software rasterizer",
         gpu.adapter_name()
     );
-    let report = VisualReport::parse(SHALLOWS).expect("the report reads");
+    let report = VisualReport::parse(line).expect("the report reads");
     let mut shot = Shot::open(&store, &mut gpu, &report_station(&report, Some(8)));
     shot.apply_report(&report);
     shot.poll(&mut gpu);
     shot.scene.draw.cfg.render.fidelity =
         FidelityPreferences::parse_switch(BOXES).expect("the boxes read");
-    shot.follow = Some([6.0, 2.2, -0.3, -2.5]);
+    shot.follow = Some(follow);
     shot.poll(&mut gpu);
     let w = shot.scene.draw.remaster_water();
     shot.scene.draw.set_remaster_water(
@@ -323,5 +332,55 @@ fn shallow_water_near_the_shore_shows_its_bed_and_deep_water_does_not() {
         deep.0 > 0.85,
         "deep water takes the water's own color: {:.2}",
         deep.0
+    );
+}
+
+/// A strip of land at the water's level between two waters, which the bed is lowered under.
+const STRIP: &str = "dereth report 1; loc 0xA9B50008 [11.774128 187.334106 27.554998] 0.161152 \
+                     0.000000 0.000000 -0.986930; time 0.5; clock 306486600.0; weather clear";
+
+/// **The water's surface runs over all the ground its bed is lowered under**: across the strip of
+/// land between two waters, every pixel of ground the bed is drawn lowered under is drawn as
+/// water, and none the bed is not lowered under is unless retail's picture lays water there.
+#[test]
+fn the_waters_surface_runs_over_all_the_ground_its_bed_is_lowered_under() {
+    let _gpu = crate::common::gpu_lock();
+    let strip = still_water(STRIP, [6.0, 2.2, -0.3, -2.82], 1.0);
+    if let Some(dir) = std::env::var_os("DERETH_REMASTER_CAPTURE_DIR") {
+        crate::instruments::stations::write_png(
+            &std::path::Path::new(&dir).join("water-strip.png"),
+            strip.width,
+            strip.height,
+            &strip.color,
+        );
+    }
+    let (mut lowered, mut dry, mut flooded) = (0usize, 0usize, 0usize);
+    for i in 0..strip.kind.len() {
+        if strip.class[i] != GROUND {
+            continue;
+        }
+        let water = strip.kind[i] == WATER;
+        // Two steps, eight centimeters: past where the surface fades in at the water's edge.
+        if strip.bed[i] >= 2 {
+            lowered += 1;
+            if !water {
+                dry += 1;
+            }
+        } else if strip.bed[i] == 0 && water && strip.water[i] < 128 {
+            flooded += 1;
+        }
+    }
+    println!(
+        "{lowered} ground pixels with the bed lowered, {dry} of them drawn dry; {flooded} drawn \
+         water with no bed lowered and retail's land there"
+    );
+    assert!(
+        lowered > 20_000,
+        "the frame shows the strip's water: {lowered}"
+    );
+    assert_eq!(dry, 0, "every pixel the bed is lowered under is water");
+    assert_eq!(
+        flooded, 0,
+        "no land is flooded where the bed is not lowered"
     );
 }

@@ -18,7 +18,7 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 "composite.slang" = "fd7739c04379bc0d33cd1e783aadff0bb1546011984a101366fc898b5cc9f921"
 "copy.slang" = "3e44d8f502f65ad725d8424969fb131a82263cfb008ee6054aa8cadecffdd506"
 "cull.slang" = "3b8b95095890c8722272af2102ca039c65227783dfd4847d40fd45d3e2fdc4e3"
-"drawn.slang" = "678b3dc02da77409a094e7034a7e675bf8d07daa09c9c5a064b48d313836a29f"
+"drawn.slang" = "5fd65c951b7c68ada7229cb5597993d686ae3c621c59bc09e098918c795e9955"
 "fog.slang" = "519d7edfd73ee502ff9ee442bf0c1185aa5a2dfaf51b9ad6e8bec272ec99060a"
 "fog_volume.slang" = "374071634e0b0e14a0cafbca47ee83ab08f69ceab8bba41c27ec0c681e5a7539"
 "forest.slang" = "806ad73c2e1b829ad1267f6b052e978244181b2e1ac82d8d443c9f2fe338449b"
@@ -70,7 +70,7 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 "dxil/drawn.cs_grass.dxil" = { sha256 = "203e4462363f69228a867b9afe613350ecb8dd2a5841b0ce6449788c5ba4b3b7", bytes = 22520 }
 "dxil/drawn.cs_probe.dxil" = { sha256 = "68c4be41992bc5e56d517a577239ddd9260efe0f8d45154c64c169e30d9c12f7", bytes = 11784 }
 "dxil/drawn.cs_scatter.dxil" = { sha256 = "7c8aeb26dee3cf975a30ec5e631f8f330a07fac991218d95d79c5b059854d5a3", bytes = 22172 }
-"dxil/drawn.fs_ground.dxil" = { sha256 = "92ec34c3169577c9b0ce2cd0d5405b40ca7183594a863b2224427596deebb9a1", bytes = 88764 }
+"dxil/drawn.fs_ground.dxil" = { sha256 = "269683e55e8e72d403f067a414dc5842aa9746ed960960ccdbd19b6827e6e4bf", bytes = 89360 }
 "dxil/drawn.vs_caster.dxil" = { sha256 = "663fc3ecf814e5a97d298b2abd16fc37560da451c27ed0e98c911263b6667266", bytes = 13736 }
 "dxil/drawn.vs_ground.dxil" = { sha256 = "0c4c069172e6986276d7eaaab4df4a4dad3d0c3f08e649ca9e3ed215a54acc05", bytes = 15984 }
 "dxil/fog_volume.cs_main.dxil" = { sha256 = "3a9c9fce0b8c34e01f79ec225229c9cdc5fd45663ec58ab43aaf3eb01480872c", bytes = 8248 }
@@ -162,7 +162,7 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 "spirv/drawn.cs_grass.spv" = { sha256 = "2cd6d3dba60fa016330991a89378d144997abc965434e21af257703d01b5ae3e", bytes = 103128 }
 "spirv/drawn.cs_probe.spv" = { sha256 = "51e2cd59bb16e1a4a6d98aababb5e8222746a93260f9245b33afc6d20c538ff3", bytes = 45656 }
 "spirv/drawn.cs_scatter.spv" = { sha256 = "5e99b6c382fee01a8cb8b376055395b8e8b066c302f19b1f634699d43ebfa0ed", bytes = 103676 }
-"spirv/drawn.fs_ground.spv" = { sha256 = "ec43fa0318f67a3d7201311ebf3e7fb9d12f391e55c8104d3b01c52905c43025", bytes = 396736 }
+"spirv/drawn.fs_ground.spv" = { sha256 = "36852fe60c8127df147c9db7f2746bdde8619d3d6860445f8a40fc4e4257729b", bytes = 401788 }
 "spirv/drawn.vs_caster.spv" = { sha256 = "179bcd32b1b26f8f03ac49b69b65157c447132c403ddd30b8f042548d0f78176", bytes = 53380 }
 "spirv/drawn.vs_ground.spv" = { sha256 = "39f64e156ac4ad3f736d87630c6a3ce2a36d31bc70d87faaf7608e738ae00882", bytes = 62540 }
 "spirv/fog_volume.cs_main.spv" = { sha256 = "638297554f89fad1873f078314767475d45d9b5e55b9e204add0c36eab61d719", bytes = 31200 }
