@@ -71,6 +71,13 @@
 //! to move: those limits are the rule's, and the fellows' share range's; the level limit is
 //! inferred. A quest with no setup and no recording to say otherwise stays the killer's.
 //!
+//! **Deaths nearby.** A step may be moved by a creature's death within some meters of the player,
+//! whoever killed it (another creature, or nobody the player knows): it runs for every player in
+//! the world, out of portal space and alive, that far from where the creature fell or nearer.
+//! Inferred: the install's one such death (a strike's target, which players may not harm) moves
+//! its quest by an area effect of 150 m on the players there, and players' guides say only those
+//! inside saw it move.
+//!
 //! **Hidden quests.** A quest the world keeps without showing it (its definition shows none:
 //! no description, or it is set not to be shown) is held and moved on like any other, but never
 //! listed at entry and never told in an update; a use that needs one and finds it not where it
@@ -732,7 +739,7 @@ fn run_triggered<S: Store>(
     // on one is the trip's first, its update on arrival.
     let leads_on = matches!(
         trigger,
-        Trigger::Use(_) | Trigger::Kill(_) | Trigger::KillIn(..)
+        Trigger::Use(_) | Trigger::Kill(_) | Trigger::KillIn(..) | Trigger::KillNear(..)
     ) && who.is_some();
     let used = matches!(trigger, Trigger::Use(_));
     // A use runs one step of the server's errands: the person's next comes at the next use.
@@ -791,7 +798,10 @@ fn run_triggered<S: Store>(
         }
         let free = trip.is_none();
         let sent = step.to.zip(who);
-        let kill = matches!(trigger, Trigger::Kill(_) | Trigger::KillIn(..));
+        let kill = matches!(
+            trigger,
+            Trigger::Kill(_) | Trigger::KillIn(..) | Trigger::KillNear(..)
+        );
         if let (true, true, Some((place, (by, _)))) = (free, kill, sent) {
             // A kill's step goes with the trip, its update told on landing (2017: 47 of 47 Gauntlet
             // kills, in portal space's exit's tick; the trip within 0.1 s of the death, 42 of 42
@@ -1048,6 +1058,48 @@ pub fn killed<S: Store>(
             if reaches(s, *e, killer, w) {
                 moves(s, net, w, *e, false, clock);
             }
+        }
+    }
+}
+
+/// A creature died: the steps a death of its template within some meters triggers run for each
+/// player that far from where it died or nearer, whoever killed it: in the world, out of portal
+/// space and alive.
+pub fn died_near<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    (creature, template): (u64, u32),
+    at: &StoredPosition,
+    clock: Clock,
+) {
+    let mut reaches: Vec<u32> = s
+        .quests
+        .steps
+        .iter()
+        .filter_map(|st| match st.trigger {
+            Trigger::KillNear(t, m) if t == template => Some(m),
+            _ => None,
+        })
+        .collect();
+    reaches.sort_unstable();
+    reaches.dedup();
+    for meters in reaches {
+        #[allow(clippy::cast_precision_loss)]
+        let within = meters as f32;
+        let near: Vec<ConnId> = s
+            .players
+            .iter()
+            .filter(|(_, p)| p.scene_drawn && p.trip.is_none() && !crate::combat::is_dead(p))
+            .filter(|(_, p)| {
+                crate::presence::distance(at, &p.position).is_some_and(|d| d <= within)
+            })
+            .map(|(w, _)| *w)
+            .collect();
+        let trigger = Trigger::KillNear(template, meters);
+        for world in near {
+            let mut moved = Vec::new();
+            let who = Some((creature, None));
+            run_triggered(s, net, world, trigger, who, None, clock, &mut moved);
         }
     }
 }

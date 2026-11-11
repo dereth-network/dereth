@@ -1,7 +1,7 @@
 //! What the world database says of creatures' behavior: whom a concealing effect spares or makes
 //! hated, which behavior tables heal their kin, which friend tables never attack a player first,
-//! a shooter's rhythm by its template, the creatures that mark the players they see, and those that
-//! take on only the players they hate.
+//! which friend tables fight which, a shooter's rhythm by its template, the creatures that mark the
+//! players they see, those that take on only the players they hate, and those players may not harm.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -85,6 +85,11 @@ pub struct CreatureRows {
     pub marks: BTreeMap<u32, Mark>,
     /// The templates whose creatures take on only a player a concealing effect makes them hate.
     pub only_hated: BTreeSet<u32>,
+    /// The friend tables whose creatures the creatures of a friend table take on, by the table.
+    pub fights: BTreeMap<u32, BTreeSet<u32>>,
+    /// The templates whose creatures players may not harm, with the line a player's attack on one
+    /// is told (a string reference: string id, table), if any.
+    pub kept_out: BTreeMap<u32, Option<(u32, u32)>>,
 }
 
 impl CreatureRows {
@@ -122,5 +127,20 @@ impl CreatureRows {
     #[must_use]
     pub fn may_attack_first(&self, table: Option<u32>) -> bool {
         table.is_none_or(|t| self.attacks_first.get(&t) != Some(&false))
+    }
+
+    /// Whether creatures of one friend table take on creatures of another.
+    #[must_use]
+    pub fn fights(&self, table: Option<u32>, other: Option<u32>) -> bool {
+        match (table, other) {
+            (Some(t), Some(o)) => self.fights.get(&t).is_some_and(|f| f.contains(&o)),
+            _ => false,
+        }
+    }
+
+    /// Whether creatures of a friend table take on creatures of any other.
+    #[must_use]
+    pub fn fights_any(&self, table: Option<u32>) -> bool {
+        table.is_some_and(|t| self.fights.get(&t).is_some_and(|f| !f.is_empty()))
     }
 }

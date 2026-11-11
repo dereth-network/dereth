@@ -4885,6 +4885,88 @@ fn a_creatures_row_reads_its_mark_and_whom_it_takes_on() {
     }
 }
 
+/// A friend table's row may give the tables its creatures fight with or without its first attacks,
+/// and a creature's row that players may not harm it, with the line their attack is told; a friend
+/// table's row giving neither, tables that are no numbers and a line without the creatures kept from
+/// players are refused.
+#[test]
+fn a_friend_tables_row_reads_whom_it_fights_and_a_creatures_row_whom_players_may_not_harm() {
+    const ROWS: &str = "[[friend_table]]\ntable = 0x4B\nfights = [0x16, 0x4C]\nprov = { from = \"authored\" }\n\n\
+        [[friend_table]]\ntable = 0x4C\nattacks_first = true\nfights = [0x4B]\nprov = { from = \"authored\" }\n\n\
+        [[creature]]\ntemplate = 0x47002224\nplayers_kept_out = true\n\
+        kept_out_line = { table = 0x250025F5, string = 0x383D0528 }\nprov = { from = \"authored\" }\n\n\
+        [[creature]]\ntemplate = 0x4700115B\nplayers_kept_out = true\nprov = { from = \"authored\" }\n";
+    let mut files = fixture();
+    files.insert("town/server/creatures.toml".into(), ROWS.into());
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let c = &t.creatures;
+    assert!(c.fights(Some(0x4B), Some(0x16)) && c.fights(Some(0x4B), Some(0x4C)));
+    assert!(c.fights(Some(0x4C), Some(0x4B)) && !c.fights(Some(0x4C), Some(0x16)));
+    assert!(!c.fights(Some(0x16), Some(0x4B)) && !c.fights_any(Some(0x16)));
+    assert!(c.may_attack_first(Some(0x4C)));
+    assert!(
+        !c.attacks_first.contains_key(&0x4B),
+        "no first attacks given"
+    );
+    assert_eq!(
+        c.kept_out.get(&0x4700_2224),
+        Some(&Some((0x383D_0528, 0x2500_25F5)))
+    );
+    assert_eq!(c.kept_out.get(&0x4700_115B), Some(&None));
+    for (from, to) in [
+        ("fights = [0x16, 0x4C]\n", ""),
+        ("fights = [0x16, 0x4C]", "fights = 0x16"),
+        ("fights = [0x16, 0x4C]", "fights = [\"loner\"]"),
+        ("players_kept_out = true\nkept_out_line", "kept_out_line"),
+        (
+            "players_kept_out = true\nprov",
+            "players_kept_out = 1\nprov",
+        ),
+        ("string = 0x383D0528 }", "string = 0x383D0528, how = 1 }"),
+    ] {
+        let mut files = fixture();
+        files.insert(
+            "town/server/creatures.toml".into(),
+            ROWS.replacen(from, to, 1),
+        );
+        assert!(read(&files).is_err(), "{to:?} for {from:?}");
+    }
+}
+
+/// A step may be moved by a death of a creature of a template within some meters; it reads back as
+/// written, and no meters, 0 and a reach that is no number are refused.
+#[test]
+fn a_step_may_be_moved_by_a_death_within_some_meters() {
+    const BEETLE: u32 = 0x4700_2224;
+    let quests = "town/server/quests/40000088.toml";
+    let mut files = fixture();
+    edit(
+        &mut files,
+        quests,
+        "trigger = { arrive = 0x4700115B }",
+        "trigger = { kill = 0x47002224, within = 150 }",
+    );
+    assert_eq!(check(&files), []);
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(t.quests.steps[2].trigger, Trigger::KillNear(BEETLE, 150));
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+        t.quests,
+        "the quest table reads back as written"
+    );
+    for within in ["within = 0", "within = 1.5", "within = \"near\""] {
+        let mut files = fixture();
+        edit(
+            &mut files,
+            quests,
+            "trigger = { arrive = 0x4700115B }",
+            &format!("trigger = {{ kill = 0x47002224, {within} }}"),
+        );
+        assert!(read(&files).is_err(), "{within}");
+    }
+}
+
 #[test]
 fn plant_rows_compile_to_species_and_crosses() {
     let mut files = fixture();

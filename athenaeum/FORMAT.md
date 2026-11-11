@@ -384,6 +384,7 @@ What moves a quest on, in its quest's file.
 | `{ take = T }` | takes an item of template T |
 | `{ kill = T }` | kills a creature of template T |
 | `{ kill = T, camp = K }` | kills a creature of template T that the one camp K made (`key`, or `key@XXYY`) |
+| `{ kill = T, within = M }` | is within M meters (a whole number above 0) of a creature of template T as it dies, whoever kills it, in the world, out of portal space and alive |
 | `{ done = Q }` | completes quest Q |
 | `{ given = Q }` | is given quest Q, shown or kept hidden |
 
@@ -862,18 +863,21 @@ What the world says of the creatures of a behavior table.
 
 #### `[[friend_table]]`
 
-What the world says of the creatures of a friend table.
+What the world says of the creatures of a friend table. A row gives at least one of
+`attacks_first` and `fights`.
 
 | field | | meaning |
 |---|---|---|
 | `table` | required | its number, their `AI_LoveTable` |
-| `attacks_first` | required | false: they never attack a player first |
+| `attacks_first` | | false: they never attack a player first |
+| `fights` | | the friend tables (numbers) whose creatures they take on, the nearest within their perception, nearer than any player they would, while a player is near; they turn from one only to a player that hurts them |
 | `prov` | required | where it came from |
 
 #### `[[creature]]`
 
 What the world says of the creatures of a template: its shooting rhythm, the mark it puts on the
-players it sees, and whether it takes on only the players it hates. A row gives at least one of these.
+players it sees, whether it takes on only the players it hates, and whether players may harm it. A
+row gives at least one of these.
 
 | field | | meaning |
 |---|---|---|
@@ -882,6 +886,8 @@ players it sees, and whether it takes on only the players it hates. A row gives 
 | `marks` | | an effect (its saved state) it puts on each player that comes within its perception, once each time the player comes in |
 | `mark_lines` | | with `marks`: the line it says aloud as it marks, naming the player, `{ race, line }`, one to a race (no race: any other), `line` a string reference `{ table, string }` |
 | `only_hated` | | true: it takes on only a player a concealing effect makes it hate, and gives up on one that no longer holds the effect |
+| `players_kept_out` | | true: players and their pets may not harm it; an attack on it is refused |
+| `kept_out_line` | | with `players_kept_out`: the line a player's attack on it is told, a string reference `{ table, string }` |
 | `prov` | required | where it came from |
 
 A world with no rows of `[[concealing]]`, `[[npc_table]]`, `[[friend_table]]` or `[[creature]]`

@@ -3085,6 +3085,27 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.creatures.fighting-another-turns-only-to-a-hurter",
+        says: "A creature that attacks first takes the creature its row fights when it is nearer than \
+               any player; it never turns from it to a player that has not hurt it, and turns to one \
+               that does by the draw of harm.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-FOE-TURNS"),
+        station: "yalain-testkit::cpu::play::creature_foes::a_creature_fighting_another_turns_only_to_a_player_that_hurts_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.fights-a-friend-table-its-row-names",
+        says: "A creature whose friend table the world's rows say fights another's goes after the \
+               nearest creature of that table within its perception once a player is near, strikes \
+               it down and comes to rest; it leaves a player it never attacks first alone, and \
+               without the row the two leave each other alone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-FOES"),
+        station: "yalain-testkit::cpu::play::creature_foes::a_creature_whose_row_fights_anothers_table_strikes_one_down_once_a_player_is_near",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.flies-as-its-body-says",
         says: "A body flies if its motion description gives it a height in the air: two meters at \
                rest, one in a fight for the wasps.",
@@ -3356,6 +3377,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PATROL-ROUTES"),
         station: "yalain-testkit::cpu::play::patrols::a_creature_on_a_route_walks_to_each_waypoint_rests_there_and_turns_back_at_the_end",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.players-kept-out-by-a-row",
+        says: "A player's attack on a creature the world's rows keep players from is refused as kept \
+               out, the row's line told, and the creature is not struck; without the row it is.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-KEPT-OUT"),
+        station: "yalain-testkit::cpu::play::creature_foes::a_player_may_not_harm_a_creature_its_row_keeps_players_from",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -12413,6 +12443,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-KILL-GIVERS-BOARD"),
         station: "yalain-testkit::corpus::world_db::a_postings_board_gives_one_of_the_quests_it_lists_at_a_time",
         tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.a-death-nearby-moves-a-step",
+        says: "A step moved by a death of a template within some meters moves the quest of each \
+               player that near, out of portal space and alive, whoever kills the creature, another \
+               creature or a player; not of a player farther off, and not at another template's death.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-DEATH-NEARBY"),
+        station: "yalain-testkit::cpu::play::creature_foes::a_death_within_a_steps_meters_moves_it_for_each_player_that_near_whoever_kills_it",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.quests.a-give-teaches-its-recipe-on-a-real-start",

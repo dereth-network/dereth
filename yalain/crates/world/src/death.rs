@@ -225,6 +225,7 @@ pub fn creature_dies<S: Store>(
     let Some(t) = s.things.get_mut(id) else {
         return;
     };
+    let fell_at = t.at;
     let Some(c) = t.creature.as_mut() else { return };
     if c.mode == Mode::Dead {
         return;
@@ -266,6 +267,9 @@ pub fn creature_dies<S: Store>(
             crate::quests::killed(s, net, world, kill, &death_effects, clock);
             crate::death_spawn::killed(s, net, world, id, template, &death_effects, clock);
         }
+    }
+    if let Some(at) = fell_at {
+        crate::quests::died_near(s, net, (id, template), &at, clock);
     }
     if let Some(w) = blow_fellow {
         let victim = name.map_or_else(Default::default, progress::text);

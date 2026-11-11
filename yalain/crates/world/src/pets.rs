@@ -2900,7 +2900,7 @@ pub const TURNS_ON_PET: f32 = 0.62;
 /// A strike lands on a thing: a pet loses health (shown wounded at 80% or less, dying with none
 /// left), and one that defends itself fights back what struck it when it fights nothing else; a
 /// creature a pet struck is hurt as its owner's, and fights the pet (turning from another three
-/// times in five).
+/// times in five); one another creature struck is hurt by that creature.
 pub fn struck<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -2932,6 +2932,11 @@ pub fn struck<S: Store>(
         if free && pet.order == Order::Follow && pet.flags & flag::SELF_DEFENDING != 0 {
             take_on(s, net, target, by);
         }
+        return;
+    }
+    if !s.pets.is_pet(by) {
+        // A creature's strike on another: it is hurt by that creature, which no player is.
+        crate::combat::hurt_creature_by_skill(s, net, target, (by, by, skill), damage, clock);
         return;
     }
     struck_by_pet(s, net, target, (by, skill), damage, clock);

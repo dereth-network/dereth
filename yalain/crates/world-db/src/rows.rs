@@ -469,6 +469,8 @@ pub enum Trigger {
     /// Killing a creature of the template that one camp made: the camp's `key`, or `key@XXYY` for
     /// the one in that landblock where several camps share the key.
     KillIn(u32, String),
+    /// A creature of the template dying within some meters of the player, whoever kills it.
+    KillNear(u32, u32),
     Done(u32),
     Given(u32),
 }
@@ -700,24 +702,28 @@ pub struct NpcTable {
 }
 
 /// `[[friend_table]]`: what the world says of the creatures of a friend table: whether they may
-/// attack a player first.
+/// attack a player first, and the friend tables whose creatures they take on.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FriendTable {
     pub table: u32,
-    pub attacks_first: bool,
+    pub attacks_first: Option<bool>,
+    pub fights: Vec<u32>,
     pub prov: Prov,
 }
 
 /// `[[creature]]`: what the world says of the creatures of a template: its shooting rhythm, the
 /// gap between its shots times its shot's time scale and its windup before a missile leaves at the
 /// creatures' median time scale, in seconds; the effect it puts on a player that comes within its
-/// perception, with its lines for that by race; whether it takes on only the players it hates.
+/// perception, with its lines for that by race; whether it takes on only the players it hates;
+/// whether players may not harm it, with the line a player's attack on it is told.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Creature {
     pub template: u32,
     pub rhythm: Option<yalain_content::creature_rows::Rhythm>,
     pub marks: Option<yalain_content::creature_rows::Mark>,
     pub only_hated: bool,
+    pub players_kept_out: bool,
+    pub kept_out_line: Option<StrRef>,
     pub prov: Prov,
 }
 
@@ -1723,7 +1729,10 @@ pub const FIELDS: [(&str, &[&str]); 55] = [
     ),
     ("concealing", &["effect", "class", "regard", "prov"]),
     ("npc_table", &["name", "heals_kin", "prov"]),
-    ("friend_table", &["table", "attacks_first", "prov"]),
+    (
+        "friend_table",
+        &["table", "attacks_first", "fights", "prov"],
+    ),
     (
         "creature",
         &[
@@ -1733,6 +1742,8 @@ pub const FIELDS: [(&str, &[&str]); 55] = [
             "marks",
             "mark_lines",
             "only_hated",
+            "players_kept_out",
+            "kept_out_line",
             "prov",
         ],
     ),
@@ -2914,12 +2925,26 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
         "friend_table" => {
             let table = f.req_id("table")?;
             let attacks_first = match f.t.get("attacks_first") {
-                Some(_) => f.bool("attacks_first")?,
-                None => return f.missing("attacks_first"),
+                Some(_) => Some(f.bool("attacks_first")?),
+                None => None,
             };
+            let fights = match f.t.get("fights") {
+                Some(_) => f.typed("fights", "a list of friend tables (whole numbers)", |v| {
+                    v.as_array()?.iter().map(as_u32).collect::<Option<Vec<_>>>()
+                })?,
+                None => Vec::new(),
+            };
+            if attacks_first.is_none() && fights.is_empty() {
+                f.bad(
+                    "attacks_first, fights",
+                    "a friend table's row gives attacks_first or the tables it fights",
+                );
+                return None;
+            }
             Row::FriendTable(FriendTable {
                 table,
                 attacks_first,
+                fights,
                 prov: f.req_prov()?,
             })
         }
@@ -2965,10 +2990,25 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 Some(_) => f.bool("only_hated")?,
                 None => false,
             };
-            if rhythm.is_none() && marks.is_none() && !only_hated {
+            let players_kept_out = match f.t.get("players_kept_out") {
+                Some(_) => f.bool("players_kept_out")?,
+                None => false,
+            };
+            let kept_out_line = match f.t.get("kept_out_line") {
+                Some(_) => Some(f.strref("kept_out_line")?),
+                None => None,
+            };
+            if kept_out_line.is_some() && !players_kept_out {
                 f.bad(
-                    "shot_gap, windup, marks, only_hated",
-                    "a creature's row gives its rhythm, a mark or only_hated",
+                    "kept_out_line",
+                    "a line for a player's attack needs players kept out (players_kept_out = true)",
+                );
+                return None;
+            }
+            if rhythm.is_none() && marks.is_none() && !only_hated && !players_kept_out {
+                f.bad(
+                    "shot_gap, windup, marks, only_hated, players_kept_out",
+                    "a creature's row gives its rhythm, a mark, only_hated or players_kept_out",
                 );
                 return None;
             }
@@ -2977,6 +3017,8 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 rhythm,
                 marks,
                 only_hated,
+                players_kept_out,
+                kept_out_line,
                 prov: f.req_prov()?,
             })
         }
@@ -4066,7 +4108,7 @@ impl<'a> Fields<'a> {
         }
         self.typed(
             name,
-            "one of { use = T }, { use = ITEM, on = TARGET }, { give = ITEM, to = TARGET }, { arrive = T }, { arrive = T, from = OBJECT }, { take = T }, { kill = T }, { kill = T, camp = KEY }, { done = Q }, { given = Q }",
+            "one of { use = T }, { use = ITEM, on = TARGET }, { give = ITEM, to = TARGET }, { arrive = T }, { arrive = T, from = OBJECT }, { take = T }, { kill = T }, { kill = T, camp = KEY }, { kill = T, within = METERS }, { done = Q }, { given = Q }",
             |v| {
                 let t = v.as_table()?;
                 if let (2, Some(item), Some(on)) = (t.len(), t.get("use"), t.get("on")) {
@@ -4082,6 +4124,10 @@ impl<'a> Fields<'a> {
                 if let (2, Some(tpl), Some(camp)) = (t.len(), t.get("kill"), t.get("camp")) {
                     let camp = camp.as_str().filter(|c| !c.is_empty())?;
                     return Some(Trigger::KillIn(as_u32(tpl)?, camp.to_string()));
+                }
+                if let (2, Some(tpl), Some(m)) = (t.len(), t.get("kill"), t.get("within")) {
+                    let m = as_u32(m).filter(|m| *m > 0)?;
+                    return Some(Trigger::KillNear(as_u32(tpl)?, m));
                 }
                 if t.len() != 1 {
                     return None;

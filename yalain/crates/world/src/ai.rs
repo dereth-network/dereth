@@ -21,6 +21,14 @@
 //!   one that spares it doesn't take it on, come to its kin's fight with it, or turn to it, unless
 //!   it has hurt the creature; one that hates it is taken on even by a creature that never attacks
 //!   first ([`regard`]).
+//! - **Other creatures.** A creature whose friend table the world's rows say fights another's takes
+//!   on, as it would a player, the nearest creature of that table within its perception, nearer than
+//!   any player it would take on, while a player is in its landblock or one beside it; it runs to
+//!   within a pet's reach past that creature's body and strikes it as it would a pet. It
+//!   turns from such a creature only to a player that has hurt it, by the same draw. Inferred: the
+//!   install gives each such creature a friend table of its own (a strike's soldiers, the tunnelers
+//!   sent at them, a war's two sides), whose server tables were never shipped; no recording holds a
+//!   creature fighting another that is not a pet.
 //! - **Marking.** A creature whose row marks players puts its effect on each player that comes
 //!   within its perception, saying its line for the player's race aloud, naming it, as it does: once
 //!   each time the player comes in, whether the creature rests or fights (2017: the patrolling guards
@@ -432,8 +440,8 @@ pub fn attacks_due<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Cloc
     }
 }
 
-/// Is a creature fighting a player or a pet, its attack due, attacking from where it stands: within
-/// reach, shooting within range, or fixed where it is?
+/// Is a creature fighting a player, a pet or another creature, its attack due, attacking from where
+/// it stands: within reach, shooting within range, or fixed where it is?
 fn attacks_from_here<S: Store>(s: &Server<S>, t: &crate::things::Thing, now: f64) -> bool {
     let Some(c) = t.creature.as_ref() else {
         return false;
@@ -444,14 +452,15 @@ fn attacks_from_here<S: Store>(s: &Server<S>, t: &crate::things::Thing, now: f64
     let (Some(at), Some(target)) = (t.at, c.target) else {
         return false;
     };
-    if s.pets.is_pet(target) {
+    if fights_thing(s, target) {
+        let reach = thing_reach(s, target);
         return s
             .things
             .get(target)
             .filter(|p| p.alive())
             .and_then(|p| p.at)
             .and_then(|p| presence::distance(&at, &p))
-            .is_some_and(|d| d <= MELEE_REACH);
+            .is_some_and(|d| d <= reach);
     }
     let Some(p) = s.players.values().find(|p| p.character == target) else {
         return false;
@@ -539,7 +548,19 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                 if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
                     c.next_look = now + LOOK_EVERY;
                 }
-                if let Some(p) = notice(s, &at, perception, class_of(s, id), attacks_first) {
+                let player = notice(s, &at, perception, class_of(s, id), attacks_first);
+                let foe = foe_near(s, id, &at, perception);
+                let player_gap = player.and_then(|p| {
+                    let place = s.players.values().find(|q| q.character == p)?.position;
+                    presence::distance(&at, &place)
+                });
+                if let Some((f, gap)) = foe {
+                    if player_gap.is_none_or(|d| gap < d) {
+                        engage(s, net, id, f, clock);
+                        return;
+                    }
+                }
+                if let Some(p) = player {
                     go_after(s, net, id, p, clock);
                     return;
                 }
@@ -552,8 +573,18 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
             idle(s, net, id, now);
         }
         Mode::Chasing => {
-            if let Some(pet) = target.filter(|t| s.pets.is_pet(*t)) {
-                fights_pet(s, net, id, pet, &at, leash.as_ref(), perception, run, clock);
+            if let Some(thing) = target.filter(|t| fights_thing(s, *t)) {
+                fights(
+                    s,
+                    net,
+                    id,
+                    thing,
+                    &at,
+                    leash.as_ref(),
+                    perception,
+                    run,
+                    clock,
+                );
                 return;
             }
             let player = target.and_then(|t| {
@@ -732,10 +763,53 @@ fn back_to<S: Store>(s: &Server<S>, id: u64) -> Option<StoredPosition> {
         .and_then(Patrol::goal)
 }
 
-/// A creature fights a pet: it gives up as with a player when the pet is gone, dead or beyond its
-/// perception, or it is too far from home; else it runs into reach and strikes it.
+/// Is a creature's target a thing it fights as it fights a pet: a pet, or another creature?
+fn fights_thing<S: Store>(s: &Server<S>, target: u64) -> bool {
+    s.pets.is_pet(target) || s.things.get(target).is_some_and(|t| t.creature.is_some())
+}
+
+/// How near a creature strikes a thing from, between their middles: a pet within [`MELEE_REACH`];
+/// another creature within that past its body.
+fn thing_reach<S: Store>(s: &Server<S>, target: u64) -> f32 {
+    if s.pets.is_pet(target) {
+        MELEE_REACH
+    } else {
+        MELEE_REACH + body_radius_of(s, target)
+    }
+}
+
+/// The nearest creature within `radius` of a creature that its friend table fights, while a player
+/// is near: alive, not a pet, and with how far it is.
+fn foe_near<S: Store>(
+    s: &Server<S>,
+    id: u64,
+    at: &StoredPosition,
+    radius: f32,
+) -> Option<(u64, f32)> {
+    let table = s.things.get(id)?.creature.as_ref()?.stats.friend_table;
+    if !s.creature_rows.fights_any(table) || !player_near(s, at) {
+        return None;
+    }
+    s.things
+        .by_id
+        .values()
+        .filter(|t| t.id != id && t.alive() && !s.pets.is_pet(t.id))
+        .filter_map(|t| {
+            let c = t.creature.as_ref()?;
+            if !s.creature_rows.fights(table, c.stats.friend_table) {
+                return None;
+            }
+            let d = presence::distance(at, &t.at?)?;
+            (d <= radius).then_some((t.id, d))
+        })
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+}
+
+/// A creature fights a pet or another creature: it gives up as with a player when the target is
+/// gone, dead or beyond its perception, or it is too far from home; else it runs into reach and
+/// strikes it.
 #[allow(clippy::too_many_arguments)]
-fn fights_pet<S: Store>(
+fn fights<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     id: u64,
@@ -746,6 +820,7 @@ fn fights_pet<S: Store>(
     run: f32,
     clock: Clock,
 ) {
+    let reach = thing_reach(s, pet);
     let place = s.things.get(pet).filter(|t| t.alive()).and_then(|t| t.at);
     let d = place.and_then(|p| presence::distance(at, &p));
     let far_from_home = too_far(at, leash);
@@ -757,8 +832,17 @@ fn fights_pet<S: Store>(
         go_home(s, net, id);
         return;
     }
-    if d > MELEE_REACH {
-        step_toward(s, net, id, &place, run, MELEE_REACH * 0.8, RUNNING, clock);
+    if d > reach {
+        step_toward(
+            s,
+            net,
+            id,
+            &place,
+            run,
+            reach - MELEE_REACH * 0.2,
+            RUNNING,
+            clock,
+        );
     } else {
         face(s, net, id, &place, clock);
         crate::combat::thing_strikes_thing(s, net, id, pet, None, clock);
@@ -860,7 +944,12 @@ fn reconsider<S: Store>(
             Some((*p, d, *h as f64))
         })
         .collect();
+    // One fighting another creature turns only to a player that hurt it.
+    let on_creature = !s.pets.is_pet(target) && s.things.get(target).is_some();
     let pick = if harmers.is_empty() {
+        if on_creature {
+            return;
+        }
         let mine = near.iter().find(|(p, _)| *p == target).map(|e| e.1);
         let others: Vec<(u64, f32, f64)> = near
             .iter()

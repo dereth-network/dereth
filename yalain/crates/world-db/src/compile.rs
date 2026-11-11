@@ -164,8 +164,8 @@ pub struct Tables {
     /// and what every new character is given.
     pub items: yalain_content::item_rows::ItemRows,
     /// What the world says of creatures' behavior: whom concealing effects spare or make hated,
-    /// who heals its kin, who never attacks first, shooters' rhythms, who marks the players it sees,
-    /// who takes on only those it hates.
+    /// who heals its kin, who never attacks first, who fights whom, shooters' rhythms, who marks the
+    /// players it sees, who takes on only those it hates, whom players may not harm.
     pub creatures: yalain_content::creature_rows::CreatureRows,
     /// The world's own shops: each a copy of a store template under its title, by key.
     pub shops: Vec<Shop>,
@@ -1145,6 +1145,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     Trigger::Kill(x) => (TableTrigger::Kill(x), vec![x]),
                     // The camp's row comes once every camp has its own.
                     Trigger::KillIn(x, _) => (TableTrigger::KillIn(x, u32::MAX), vec![x]),
+                    Trigger::KillNear(x, m) => (TableTrigger::KillNear(x, m), vec![x]),
                     Trigger::Done(q) => (TableTrigger::Done(q), Vec::new()),
                     Trigger::Given(q) => (TableTrigger::Given(q), Vec::new()),
                 };
@@ -1386,7 +1387,14 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 t.creatures.heals_kin.insert(r.name.clone(), r.heals_kin);
             }
             Row::FriendTable(r) => {
-                t.creatures.attacks_first.insert(r.table, r.attacks_first);
+                if let Some(first) = r.attacks_first {
+                    t.creatures.attacks_first.insert(r.table, first);
+                }
+                if !r.fights.is_empty() {
+                    t.creatures
+                        .fights
+                        .insert(r.table, r.fights.iter().copied().collect());
+                }
             }
             Row::Creature(r) => {
                 if cx.template(l, "template", r.template) {
@@ -1398,6 +1406,10 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     }
                     if r.only_hated {
                         t.creatures.only_hated.insert(r.template);
+                    }
+                    if r.players_kept_out {
+                        let line = r.kept_out_line.map(|l| (l.string, l.table));
+                        t.creatures.kept_out.insert(r.template, line);
                     }
                 }
             }

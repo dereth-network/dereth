@@ -73,6 +73,9 @@ pub mod error {
     pub const TOO_FAR: u32 = 30019;
 }
 
+/// How the line of a creature players may not harm is shown when one attacks it: as a refusal.
+pub const KEPT_OUT_SHOWN_AS: u32 = crate::social::REFUSED;
+
 /// Modes.
 pub mod mode {
     pub use auberean_physics::motion::PEACE;
@@ -378,11 +381,15 @@ pub fn may_attack_player<S: Store>(s: &Server<S>, world: ConnId, other: ConnId) 
 }
 
 /// May a player harm a thing? A pet is as its owner ([`may_attack_player`]), its own owner's
-/// excepted; any other creature may be fought.
+/// excepted; a creature the world's rows keep players from harming is kept out (as the client's own
+/// check refuses a target whose permissions keep players out); any other creature may be fought.
 ///
 /// # Errors
 /// Why not (the client writes the text).
 pub fn may_attack_thing<S: Store>(s: &Server<S>, world: ConnId, thing: u64) -> Result<(), u32> {
+    if kept_out_line(s, thing).is_some() {
+        return Err(crate::kingdoms::refusal::KEPT_OUT);
+    }
     let Some(owner) = s.pets.by_id.get(&thing).map(|p| p.owner) else {
         return Ok(());
     };
@@ -390,6 +397,16 @@ pub fn may_attack_thing<S: Store>(s: &Server<S>, world: ConnId, thing: u64) -> R
         Some((c, _)) if *c != world => may_attack_player(s, world, *c),
         _ => Ok(()),
     }
+}
+
+/// Is a thing a creature players may not harm, and with what line is a player's attack on it told
+/// (none for one whose row gives none)?
+pub(crate) fn kept_out_line<S: Store>(s: &Server<S>, thing: u64) -> Option<Option<(u32, u32)>> {
+    if s.creature_rows.kept_out.is_empty() {
+        return None;
+    }
+    let t = s.things.get(thing).filter(|t| t.creature.is_some())?;
+    s.creature_rows.kept_out.get(&t.template).copied()
 }
 
 /// The bits of a hook's attacker health change and attacker PK damage change.
@@ -530,6 +547,10 @@ pub fn begin<S: Store>(
         None => {
             if let Err(err) = may_attack_thing(s, world, target) {
                 progress::private(net, world, &failed(err));
+                if let Some(Some(line)) = kept_out_line(s, target) {
+                    let m = crate::chat::show_text(KEPT_OUT_SHOWN_AS, progress::text(line));
+                    progress::private(net, world, &m);
+                }
                 progress::private(net, world, &attack_state(false));
                 return;
             }
