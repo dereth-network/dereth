@@ -2,9 +2,10 @@
 //!
 //! The remaster's sun shadows and ambient occlusion traced through its acceleration structures:
 //! the traced sun's share agrees with the cascades' near the eye; the traced occlusion is darker
-//! where the screen-space occlusion is; both hold still under a still view; and where the device
-//! does not trace rays, the cascades and the screen-space occlusion draw them, the frame the same
-//! as with nothing traced.
+//! where the screen-space occlusion is; both hold still under a still view; the traced shadows on
+//! far mountains hold still while the view is held under the anti-aliasing and while it turns;
+//! and where the device does not trace rays, the cascades and the screen-space occlusion draw
+//! them, the frame the same as with nothing traced.
 //!
 //! Fixture: the retail dats (`DERETH_TEST_DAT_DIR`) and a hardware Vulkan 1.3 device.
 
@@ -13,6 +14,7 @@
 
 use std::sync::Arc;
 
+use dereth_client_runtime::render_prefs::FidelityPreferences;
 use dereth_dat::RetailDatStore;
 use dereth_render::device::{Backend, DeviceConfig, Gpu};
 use dereth_scene::world_scene::{
@@ -425,4 +427,191 @@ fn without_ray_queries_the_cascades_and_the_screens_occlusion_draw() {
             "asked, nothing was traced"
         );
     }
+}
+
+/// A hill west of Holtburg from 25 metres over it, looking out past the green hills at the
+/// snow-capped mountains six kilometres off, early on a sunny morning, with the land held 24
+/// blocks out so the mountains' ground is in the acceleration structures.
+fn far_hill() -> Station {
+    Station {
+        name: "far-hill",
+        why: "far mountains under a low morning sun",
+        place: stations::Place::Free {
+            block: 0xA9B7,
+            x: 112.75,
+            y: 6.95,
+            eye: 27.0,
+            yaw: 20f32.to_radians(),
+            pitch: -0.12,
+        },
+        clock: stations::Clock::Sunny(0.342),
+        weather: false,
+        land_radius: 24,
+    }
+}
+
+/// How far off land is far, meters.
+const FAR: f32 = 1000.0;
+
+/// The far land at [`far_hill`] drawn with the traced sun's shadows and the far detail, the clock
+/// held: each frame's capture, the camera turned by `turn(k)` radians at step `k`, the
+/// anti-aliasing (whose projection moves by part of a pixel every frame) on as `taa` says; the last `keep` of
+/// `frames` captured. `None` where the device does not trace rays.
+fn far_frames(
+    store: &Arc<RetailDatStore>,
+    taa: bool,
+    frames: usize,
+    keep: usize,
+    turn: impl Fn(usize) -> f32,
+) -> Option<Vec<RemasterCapture>> {
+    let config = DeviceConfig {
+        width: W,
+        height: H,
+        remaster: true,
+        ..DeviceConfig::default()
+    };
+    let mut gpu = Gpu::new_on(Backend::Vulkan, None, &config).expect("a Vulkan device");
+    assert_eq!(
+        gpu.adapter_kind(),
+        dereth_render::device::AdapterKind::Hardware,
+        "{} is a software rasterizer",
+        gpu.adapter_name()
+    );
+    let mut shot = Shot::open(store, &mut gpu, &far_hill());
+    shot.poll(&mut gpu);
+    // The ground as the remaster draws it, which far off is coarser than retail's.
+    let boxes = format!(
+        "Remaster=1,RemasterShadows=1,RemasterTracedShadows=1,RemasterDetail=1,RemasterSmoothing={}",
+        u8::from(taa)
+    );
+    shot.scene.draw.cfg.render.fidelity =
+        FidelityPreferences::parse_switch(&boxes).expect("the boxes read");
+    shot.poll(&mut gpu);
+    if !shot.scene.draw.remaster_on() {
+        shot.scene
+            .draw
+            .set_remaster(true, store, &mut gpu)
+            .expect("the remaster starts");
+        shot.poll(&mut gpu);
+    }
+    if !shot.scene.draw.remaster_traces_rays(&mut gpu) {
+        return None;
+    }
+    shot.step_held(&mut gpu);
+    shot.scene.wait_for_remaster_ground();
+    let camera = shot.scene.camera;
+    let mut out = Vec::new();
+    for k in 0..frames {
+        shot.hold_camera(camera.position, camera.yaw + turn(k), camera.pitch);
+        shot.step_held(&mut gpu);
+        if k + keep >= frames {
+            out.push(
+                shot.scene
+                    .draw
+                    .remaster_capture(&mut gpu)
+                    .expect("the remaster drew"),
+            );
+        }
+    }
+    shot.scene
+        .draw
+        .set_remaster(false, store, &mut gpu)
+        .expect("the remaster stops");
+    Some(out)
+}
+
+/// The share of the far land's pixels of `now` (those the sun lights, past [`FAR`] meters) in
+/// the sun's shadow (under half of it) by one of `was` and `now` and lit by the other; with
+/// `inside`, only those every pixel round which agrees with it in `was`, so the change is not a
+/// shadow's edge moving by part of a pixel. And how many far pixels there are.
+#[allow(clippy::cast_precision_loss)] // pixel counts
+fn far_flips(was: &RemasterCapture, now: &RemasterCapture, inside: bool) -> (f64, usize) {
+    let (a, b) = (
+        was.sun_visibility.as_ref().expect("the sun's share"),
+        now.sun_visibility.as_ref().expect("the sun's share"),
+    );
+    let inv = glam::Mat4::from_cols_array(&now.view_projection).inverse();
+    let (w, h) = (now.width as usize, now.height as usize);
+    let dark = |v: &[u8], i: usize| v[i] < 128;
+    let far: Vec<usize> = (0..now.class.len())
+        .filter(|&i| matches!(now.class[i], 1 | 2) && distance(now, &inv, i) > FAR)
+        .collect();
+    let flips = far
+        .iter()
+        .filter(|&&i| {
+            let (x, y) = (i % w, i / w);
+            if x == 0 || y == 0 || x + 1 == w || y + 1 == h || dark(a, i) == dark(b, i) {
+                return false;
+            }
+            !inside
+                || (y - 1..=y + 1)
+                    .all(|yy| (x - 1..=x + 1).all(|xx| dark(a, yy * w + xx) == dark(a, i)))
+        })
+        .count();
+    (flips as f64 / far.len().max(1) as f64, far.len())
+}
+
+/// The most of `frames`' far land flipped between one frame and the next, as [`far_flips`]
+/// counts it.
+fn worst_flips(frames: &[RemasterCapture], inside: bool) -> f64 {
+    let mut worst = 0.0f64;
+    for pair in frames.windows(2) {
+        let (share, far) = far_flips(&pair[0], &pair[1], inside);
+        assert!(far > 2000, "too little far land in view: {far} pixels");
+        worst = worst.max(share);
+    }
+    worst
+}
+
+/// The most of the far land's pixels whose sun's share may flip from one frame to the next while
+/// the view is held under the anti-aliasing. Measured: 0.0001; 0.052 while the far ground drawn
+/// under retail's, or a far point whose depth put it behind its surface, shaded itself.
+const HELD_FLIPS: f64 = 0.005;
+
+/// The most of the far land's pixels whose sun's share may flip from one frame to the next away
+/// from a shadow's edge while the view turns. Measured: 0.0006; 0.049 before, as above.
+const TURNING_FLIPS: f64 = 0.005;
+
+/// **The traced shadows on the far mountains hold still while the view is held**: at
+/// [`far_hill`] with the anti-aliasing on, whose projection moves by part of a pixel every frame,
+/// under one in two hundred of the far land's pixels (past [`FAR`] meters) goes from the sun to
+/// the shadow or back from one frame to the next, over sixteen frames.
+#[test]
+fn traced_shadows_on_far_mountains_hold_still_while_the_view_is_held() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let Some(frames) = far_frames(&store, true, 56, 17, |_| 0.0) else {
+        eprintln!("the device does not trace rays");
+        return;
+    };
+    let worst = worst_flips(&frames, false);
+    eprintln!("far hill, held: at most {worst:.4} of the far land flipped in a frame");
+    assert!(
+        worst < HELD_FLIPS,
+        "the far land's traced shadows flicker: {worst:.4} of it flipped in a frame"
+    );
+}
+
+/// **The traced shadows on the far mountains hold still while the view turns**: at
+/// [`far_hill`] without the anti-aliasing, the camera turning by a twentieth of a pixel a frame
+/// one way and then back, under one in two hundred of the far land's pixels goes from the sun
+/// to the shadow or back away from a shadow's edge from one frame to the next, over sixteen
+/// frames.
+#[test]
+fn traced_shadows_on_far_mountains_hold_still_while_the_view_turns() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    // A pixel spans about a 600th of a radian across the view.
+    #[allow(clippy::cast_precision_loss)] // a step
+    let turn = |k: usize| 8e-5 * ((k % 16) as f32 - 8.0).abs();
+    let Some(frames) = far_frames(&store, false, 56, 17, turn) else {
+        eprintln!("the device does not trace rays");
+        return;
+    };
+    let worst = worst_flips(&frames, true);
+    eprintln!("far hill, turning: at most {worst:.4} of the far land flipped in a frame");
+    assert!(
+        worst < TURNING_FLIPS,
+        "the far land's traced shadows flicker: {worst:.4} of it flipped in a frame"
+    );
 }

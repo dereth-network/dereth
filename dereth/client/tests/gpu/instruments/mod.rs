@@ -4,6 +4,7 @@ mod building_boundary_frames;
 pub(crate) mod cliff_frames;
 pub(crate) mod drawn_ground_names;
 mod dungeon_web_frames;
+mod far_shadow_frames;
 mod horizon_frames;
 pub(crate) mod nameplate_frames;
 pub(crate) mod remaster_frames;
