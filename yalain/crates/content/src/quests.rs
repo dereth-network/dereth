@@ -10,7 +10,8 @@
 //!   journal entries `string:table` by phase joined by `,`, challenge, duration in seconds (0 for
 //!   none), retry wait in seconds, completion experience, can-be-cancelled flag, provenance; then,
 //!   optionally, the hidden flag (0/1), the update effects (`KIND:STATE`, the update's kind and
-//!   the effect's saved state, joined by `,`), the phases' subquests (`PHASE:ANY:QUEST/QUEST...`,
+//!   the effect's saved state, `@SPELLCRAFT` after it where its record's spellcraft isn't 1, joined
+//!   by `,`), the phases' subquests (`PHASE:ANY:QUEST/QUEST...`,
 //!   ANY 1 when one of them is enough, joined by `,`), the least level it is given at (0 for any),
 //!   whether it fails when its player dies (0/1), whether it is given only once (0/1), how a kill's
 //!   move on it reaches the killer's fellows (added up: 1 it does, 2 only those near the killer's
@@ -63,8 +64,9 @@ pub struct QuestDef {
     /// Kept for the player but never shown: in no journal, no update told.
     pub hidden: bool,
     /// The effects an update puts on the player, by the update's kind (bestow, a phase's advance,
-    /// complete, fail): the kind and the effect's saved state, in order.
-    pub effects: Vec<(u32, u32)>,
+    /// complete, fail): the kind, the effect's saved state and the spellcraft its record puts it
+    /// on at, in order.
+    pub effects: Vec<(u32, u32, f32)>,
     /// The phases that are done by doing other quests (subquests), each phase's in its order.
     pub subquests: Vec<Subquests>,
     /// The least level a player is given it at (0: any).
@@ -451,6 +453,16 @@ fn pair(s: &str) -> Result<(u32, u32), String> {
     Ok((hex(a)?, hex(b)?))
 }
 
+/// An update's effect, `KIND:STATE`, with `@SPELLCRAFT` after it where that isn't 1.
+fn update_effect(s: &str) -> Result<(u32, u32, f32), String> {
+    let (effect, at) = match s.split_once('@') {
+        Some((e, a)) => (e, num(a)?),
+        None => (s, 1.0),
+    };
+    let (kind, state) = pair(effect)?;
+    Ok((kind, state, at))
+}
+
 fn num<T: std::str::FromStr>(s: &str) -> Result<T, String>
 where
     T::Err: std::fmt::Display,
@@ -483,7 +495,7 @@ impl QuestTable {
             .chain(
                 self.quests
                     .iter()
-                    .flat_map(|q| q.effects.iter().map(|(_, e)| *e)),
+                    .flat_map(|q| q.effects.iter().map(|(_, e, _)| *e)),
             )
             .chain(self.gives.iter().flat_map(|g| g.effects.iter().copied()))
     }
@@ -518,7 +530,13 @@ impl QuestTable {
             let effects = q
                 .effects
                 .iter()
-                .map(|(k, e)| format!("{k:08X}:{e:08X}"))
+                .map(|(k, e, at)| {
+                    if (*at - 1.0).abs() < f32::EPSILON {
+                        format!("{k:08X}:{e:08X}")
+                    } else {
+                        format!("{k:08X}:{e:08X}@{at}")
+                    }
+                })
                 .collect::<Vec<_>>()
                 .join(",");
             let subs = q
@@ -766,7 +784,7 @@ impl QuestTable {
                         .unwrap_or("")
                         .split(',')
                         .filter(|x| !x.is_empty())
-                        .map(pair)
+                        .map(update_effect)
                         .collect::<Result<_, _>>()
                         .map_err(at)?,
                     subquests: c

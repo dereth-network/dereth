@@ -1583,7 +1583,7 @@ fn with_stone_quest(h: &mut Harness) {
     let mut q = h.server.quests.quests[0].clone();
     q.id = STONE_QUEST;
     q.hidden = true;
-    q.effects = vec![(yalain_world::quests::update::BESTOW, LUCK)];
+    q.effects = vec![(yalain_world::quests::update::BESTOW, LUCK, 1.0)];
     h.server.quests.quests.push(q);
 }
 

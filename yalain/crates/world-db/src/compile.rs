@@ -55,7 +55,9 @@ pub struct QuestDefinition {
     pub icon: u32,
     pub play_fx: bool,
     pub journals: Vec<(u32, u32)>,
-    pub effects: Vec<(u32, u32)>,
+    /// The effects each kind of update puts on: the kind, the effect's saved state, and the
+    /// spellcraft its record puts it on at.
+    pub effects: Vec<(u32, u32, f32)>,
     /// The phases done by other quests (subquests), in their order.
     pub subquests: Vec<yalain_content::quests::Subquests>,
     /// Done once: its package's setup says it may be done one time.

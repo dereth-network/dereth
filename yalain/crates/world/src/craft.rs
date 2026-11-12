@@ -1231,6 +1231,25 @@ pub fn award<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, sk
     progress::private(net, world, &skill_call(&record));
 }
 
+/// A player is given craft experience to spend: its pool's total and what is left of it grow by
+/// so much, and the client is told both (nothing when it is nothing).
+pub fn give_pool<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, points: u64) {
+    if points == 0 {
+        return;
+    }
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    for k in [pool::AVAILABLE, pool::TOTAL] {
+        let v = quals::long(&p.qualities, k)
+            .unwrap_or(0)
+            .saturating_add(points);
+        quals::set_long(&mut p.qualities, k, v);
+    }
+    tell_pool(net, world, p, true);
+    crate::world::keep_player(s, world);
+}
+
 /// The client asks to raise a craft skill: the pool pays what the skill still lacks for its next
 /// level. One that cannot be raised, is at its cap, or that the pool cannot pay for is left as it
 /// is (the client asks only when it can).

@@ -248,7 +248,7 @@ fn the_worlds_crystalabra_rows_give_its_cure_through_its_quest() {
         quest
             .effects
             .iter()
-            .any(|(_, e)| *e == yalain_testkit::CRYSTALABRA_CURE),
+            .any(|(_, e, _)| *e == yalain_testkit::CRYSTALABRA_CURE),
         "{:?}",
         quest.effects
     );
@@ -1954,7 +1954,7 @@ fn a_players_rating_moved_in_2017_by_the_points_of_what_it_completed() {
 
 /// The install's effects a quest's updates put on its player, read as a server reads them.
 fn effects_of(def: &yalain_content::quests::QuestDef) -> yalain_world::effect_defs::EffectTable {
-    let states: Vec<u32> = def.effects.iter().map(|(_, e)| *e).collect();
+    let states: Vec<u32> = def.effects.iter().map(|(_, e, _)| *e).collect();
     effects_read(&states, &compiled().tables.effect_rules)
 }
 

@@ -328,18 +328,19 @@ impl Install for DatInstall<'_> {
                 continue;
             };
             for r in nav.items(list).unwrap_or_default() {
-                let Some(state) = r
-                    .reference()
-                    .and_then(|r| nav.object(r))
-                    .and_then(|rec| nav.field(rec, "m_effect"))
-                    .and_then(|e| nav.state_of(e))
-                else {
+                let Some(rec) = r.reference().and_then(|r| nav.object(r)) else {
                     continue;
                 };
-                effects.push((kind, state));
+                let Some(state) = nav.field(rec, "m_effect").and_then(|e| nav.state_of(e)) else {
+                    continue;
+                };
+                // The spellcraft the record puts its effect on at (what a craft experience
+                // reward pays grows with it).
+                let spellcraft = nav.field(rec, "m_fSpellcraft").map_or(1.0, f32::from_bits);
+                effects.push((kind, state, spellcraft));
             }
         }
-        effects.sort_by_key(|(k, _)| *k);
+        effects.sort_by_key(|(k, _, _)| *k);
         // A last phase of one kill's range ends the quest as it is moved on; one of any other range
         // waits for a use to end it (its journal says so: "Return to ...", "Report ...").
         let last_waits = ranges

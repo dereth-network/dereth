@@ -476,7 +476,7 @@ fn an_orders_own_place_wins_over_the_recall_its_last_update_carries() {
     );
     for q in &mut h.server.quests.quests {
         if q.id == LONG {
-            q.effects = vec![(yalain_world::quests::update::ADVANCE | 3, RECALL)];
+            q.effects = vec![(yalain_world::quests::update::ADVANCE | 3, RECALL, 1.0)];
         }
     }
     let (a, one) = player(&mut h, "one", "Elara");

@@ -329,6 +329,8 @@ pub enum Kind {
     Reset(Reset),
     /// Trains its player this skill for good (by its number), once.
     GrantSkill(u32),
+    /// Gives its player so many points of craft experience to spend, at its spellcraft, once.
+    CraftExperience(Scale),
     /// Anything else (kept as a record only).
     Other,
 }
@@ -385,6 +387,7 @@ impl EffectDef {
                     | Kind::VitaeRestore(_)
                     | Kind::Reset(_)
                     | Kind::GrantSkill(_)
+                    | Kind::CraftExperience(_)
                     | Kind::Instants(_)
             )
     }
@@ -578,7 +581,10 @@ impl EffectDef {
         };
         let flags = word("m_uiExternalFlags")?;
         let number = |name: &str| nav.number(o, name).unwrap_or(0.0);
-        let kind = if is("ResurrectEffect") {
+        // A craft experience reward is a numeric effect's kind, told by its own package first.
+        let kind = if is("CraftExperienceEffect") {
+            Kind::CraftExperience(scale("m_magData"))
+        } else if is("ResurrectEffect") {
             Kind::Resurrect {
                 focus: scale("m_magData"),
                 fx: word("m_rezFX").unwrap_or(0),

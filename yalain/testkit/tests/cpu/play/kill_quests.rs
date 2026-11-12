@@ -1437,7 +1437,7 @@ const NEAR_AT: yalain_content::Place = yalain_content::Place {
 fn recall_world(names: &[&str], told: bool) -> (Harness, usize, u64) {
     use yalain_world::effect_defs::{EffectDef, Kind as EffectKind, Recall, Scale};
     let mut q = quest(3);
-    q.effects = vec![(update::ADVANCE | 2, RECALL)];
+    q.effects = vec![(update::ADVANCE | 2, RECALL, 1.0)];
     let (mut h, b, me) = world(q);
     h.server.effect_table.effects.insert(
         RECALL,
@@ -1553,7 +1553,7 @@ fn an_advance_carrying_a_recall_takes_its_player_there_and_is_told_as_it_comes_o
     chain.kind = yalain_world::effect_defs::Kind::Instants(vec![RECALL]);
     h.server.effect_table.effects.insert(CHAIN, chain);
     for q in &mut h.server.quests.quests {
-        q.effects = vec![(update::ADVANCE | 2, CHAIN)];
+        q.effects = vec![(update::ADVANCE | 2, CHAIN, 1.0)];
     }
     kill(&mut h, me, &[INCREMENT]);
     assert_eq!(trip_cell(&h), Some(FAR_AT.cell), "its chain's recall");
@@ -1659,7 +1659,7 @@ fn a_step_leading_somewhere_sends_its_player_once_to_its_own_place_not_the_recal
 fn a_failure_carrying_a_recall_takes_its_player_and_one_on_its_way_is_left_to_it() {
     let (mut h, b, me) = recall_world(&[FAR], false);
     for q in &mut h.server.quests.quests {
-        q.effects = vec![(update::FAIL, RECALL)];
+        q.effects = vec![(update::FAIL, RECALL, 1.0)];
     }
     let world = *h.server.players.keys().next().expect("in the world");
     let from = h.bots[b].inbox.len();
@@ -1675,7 +1675,7 @@ fn a_failure_carrying_a_recall_takes_its_player_and_one_on_its_way_is_left_to_it
     // On its way to the arena, the failure's recall leaves it to that trip.
     let (mut h, b, me) = recall_world(&[FAR], false);
     for q in &mut h.server.quests.quests {
-        q.effects = vec![(update::FAIL, RECALL)];
+        q.effects = vec![(update::FAIL, RECALL, 1.0)];
     }
     let world = *h.server.players.keys().next().expect("in the world");
     let to = yalain_store::StoredPosition {

@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Quests that reward craft experience now pay it.
 - Items used on another item the use consumes, like a meld, now take it.
 - Card melds and other recipes that work out their own product can now make something.
 - Worlds that change the game files now always patch retail clients.

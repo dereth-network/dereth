@@ -4411,6 +4411,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.effects.craft-experience-at-its-spellcraft",
+        says: "A craft experience reward a quest's update puts on pays its amount at the spellcraft the quest's record puts it on at, whole: the four craft gateways' 2500, 3112, 3877 and 6938.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CARD-MELD-COMBINATIONS"),
+        station: "yalain-testkit::dat::quests::the_craft_gateways_quests_pay_their_craft_experience_at_their_records_spellcraft",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.effects.read-from-their-definitions",
         says: "Effects read from their saved states with the library's names, by the package each \
                derives from: an instant change to vitals and its amount by spellcraft, changes to \

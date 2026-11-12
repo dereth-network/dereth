@@ -177,7 +177,7 @@ fn only_the_chains_items_quests_and_recipes_lead_to_put_anything_on() {
             cancellable: false,
             placed: "authored for a test".into(),
             hidden: false,
-            effects: vec![(0x1000_0000, QUEST_CHAIN)],
+            effects: vec![(0x1000_0000, QUEST_CHAIN, 1.0)],
             subquests: Vec::new(),
             min_level: 0,
             fails_on_death: false,

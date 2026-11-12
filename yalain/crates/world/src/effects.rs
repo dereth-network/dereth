@@ -860,6 +860,16 @@ pub fn apply_on<S: Store>(
             crate::craft::forget(s, net, world, *recipe);
             true
         }
+        // A craft experience reward: its amount at the spellcraft it is put on at, whole.
+        (Kind::CraftExperience(points), On::Player(world)) => {
+            let points = points.at(cast.spellcraft).unwrap_or(0.0).max(0.0).floor();
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            crate::craft::give_pool(s, net, world, points as u64);
+            if def.fx != 0 {
+                show_fx(s, net, world, def.fx);
+            }
+            true
+        }
         // The appearance played is the one the effect's own data names.
         (Kind::VitaeTap(share), On::Player(world)) => {
             crate::death::tap_vitae(s, net, world, *share);

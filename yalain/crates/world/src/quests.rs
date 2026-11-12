@@ -2028,7 +2028,7 @@ fn update_effects<S: Store>(
 ) -> bool {
     let me = s.players.get(&world).map_or(0, |p| p.character);
     let mut recalled = false;
-    for (_, e) in def.effects.iter().filter(|(k, _)| *k == kind) {
+    for (_, e, spellcraft) in def.effects.iter().filter(|(k, _, _)| *k == kind) {
         if !led && !recalled {
             recalled = crate::skill_use::effect_recall(s, net, world, *e, clock);
         }
@@ -2039,7 +2039,7 @@ fn update_effects<S: Store>(
             *e,
             crate::effects::Cast {
                 caster: me,
-                spellcraft: 1.0,
+                spellcraft: *spellcraft,
                 ..crate::effects::Cast::default()
             },
             clock,

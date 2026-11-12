@@ -835,7 +835,7 @@ fn an_update_puts_on_its_definitions_effects_before_it_is_told() {
     use yalain_world::effect_defs::{EffectDef, Kind as EffectKind, Scale};
     const GIVES_HALL: u32 = 0x6F00_4484;
     let rewarding = QuestDef {
-        effects: vec![(0x3000_0000, GIVES_HALL)],
+        effects: vec![(0x3000_0000, GIVES_HALL, 1.0)],
         ..quest(NEXT_QUEST, 0, -999)
     };
     let mut h = explorer_world(
@@ -876,6 +876,69 @@ fn an_update_puts_on_its_definitions_effects_before_it_is_told() {
         "the effect's quest given, then the completion told"
     );
     assert_eq!(held(&h, HALL_QUEST), Some((status::UNDERWAY, 1)));
+}
+
+/// A craft experience reward a quest's completion puts on pays at the spellcraft its record names:
+/// 3877 points at 10 of a reward of 2500 at 1 and 10000 at 50, added to what the player's pool
+/// holds and its total, and told; at 1 it pays 2500.
+/// Behaviour: server.effects.craft-experience-at-its-spellcraft
+#[test]
+fn a_craft_experience_reward_pays_at_the_spellcraft_its_quests_record_names() {
+    use yalain_world::craft::pool;
+    use yalain_world::effect_defs::{EffectDef, Kind as EffectKind, Scale};
+    const REWARD: u32 = 0x6F00_0DCE;
+    for (spellcraft, pays) in [(10.0_f32, 3877_u64), (1.0, 2500)] {
+        let rewarding = QuestDef {
+            effects: vec![(0x3000_0000, REWARD, spellcraft)],
+            ..quest(NEXT_QUEST, 0, -999)
+        };
+        let mut h = explorer_world(
+            vec![rewarding],
+            vec![step(
+                NEXT_QUEST,
+                1,
+                Trigger::Use(EXPLORER_TEMPLATE),
+                Update::Complete,
+            )],
+        );
+        h.server.effect_table.effects.insert(
+            REWARD,
+            EffectDef {
+                state: REWARD,
+                kind: EffectKind::CraftExperience(Scale(vec![(1.0, 2500.0), (50.0, 10000.0)])),
+                duration: Scale::default(),
+                priority: Scale::default(),
+                fx: 0,
+                external_flags: 6,
+                internal_flags: 0,
+                ends_at_logout: false,
+                ends_at_teleport: false,
+                enum_value: 0,
+                eq_class: 0,
+                name: None,
+            },
+        );
+        let (b, me) = h.player_in_world("one", "Elara");
+        let world = *h
+            .server
+            .players
+            .iter()
+            .find(|(_, p)| p.character == me)
+            .expect("in the world")
+            .0;
+        let before = |h: &Harness, k| {
+            yalain_world::quals::long(&h.server.players[&world].qualities, k).unwrap_or(0)
+        };
+        let (left, total) = (before(&h, pool::AVAILABLE), before(&h, pool::TOTAL));
+        at_phase(&mut h, NEXT_QUEST, 1);
+        use_explorer(&mut h, b, me);
+        assert_eq!(held(&h, NEXT_QUEST).map(|q| q.0), Some(status::COMPLETED));
+        assert_eq!(
+            (before(&h, pool::AVAILABLE), before(&h, pool::TOTAL)),
+            (left + pays, total + pays),
+            "at {spellcraft}"
+        );
+    }
 }
 
 /// A quest with a duration fails when its time runs out: nothing just before, then one update

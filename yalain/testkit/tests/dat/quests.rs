@@ -338,3 +338,44 @@ fn a_quests_setup_says_whether_it_is_for_a_monarch() {
     assert_eq!(monarch(0x4000_01D1), Some(true), "the Hall's");
     assert_eq!(monarch(0x4000_0009), Some(false), "another's");
 }
+
+/// The four craft gateways' quests put the one craft experience reward on as they are done, each
+/// at its own spellcraft, 1, 5, 10 and 30, and the reward pays 2500, 3112, 3877 and 6938 there, the
+/// amounts players were paid.
+/// Behaviour: server.effects.craft-experience-at-its-spellcraft
+#[test]
+fn the_craft_gateways_quests_pay_their_craft_experience_at_their_records_spellcraft() {
+    use yalain_world::effect_defs::Kind;
+    const REWARD: u32 = 0x6F00_0DCE;
+    const COMPLETE: u32 = 0x3000_0000;
+    let p = Portal::open();
+    let states = p
+        .dat
+        .entries_in(0x6F00_0000, 0x6FFF_FFFF)
+        .map(|e| e.id)
+        .collect();
+    let lib = p.library();
+    let install = DatInstall::new(
+        Box::new(|id| p.dat.read(id).ok()),
+        p.ctx.clone(),
+        &lib,
+        states,
+    )
+    .expect("install");
+    let t = p.effects(&[REWARD]);
+    let Some(Kind::CraftExperience(points)) = t.get(REWARD).map(|d| &d.kind) else {
+        panic!("{:?}", t.get(REWARD));
+    };
+    // Apprentice, Journeyman, Master, Grandmaster.
+    for (quest, spellcraft, pays) in [
+        (0x8000_0044_u32, 1.0_f32, 2500.0_f32),
+        (0x8000_0039, 5.0, 3112.0),
+        (0x8000_0045, 10.0, 3877.0),
+        (0x8000_0038, 30.0, 6938.0),
+    ] {
+        let def = install.quest_definition(None, quest).expect("the quest");
+        assert_eq!(def.effects, [(COMPLETE, REWARD, spellcraft)], "{quest:08X}");
+        let at = points.at(spellcraft).expect("an amount").floor();
+        assert!((at - pays).abs() < f32::EPSILON, "{quest:08X}: {at}");
+    }
+}

@@ -924,7 +924,10 @@ fn the_hoards_time_runs_out_and_its_miner_is_sent_out() {
             cancellable: false,
             placed: "authored for a test".into(),
             hidden: true,
-            effects: vec![(0x1000_0000, HOARD_EFFECT), (0x4000_0000, SEND_OUT)],
+            effects: vec![
+                (0x1000_0000, HOARD_EFFECT, 1.0),
+                (0x4000_0000, SEND_OUT, 1.0),
+            ],
             subquests: Vec::new(),
             min_level: 0,
             fails_on_death: false,
