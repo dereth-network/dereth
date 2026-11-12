@@ -109,7 +109,7 @@ static const uint NONE = 0xFFFFFFFF;
 static const uint KIND_WATER = 7;
 // The step, meters, of how far under the water's surface the ground draws its bed: the material
 // target's fourth byte on the ground (0 where the bed is not lowered).
-static const float BED_STEP = 0.04;
+static const float BED_STEP = 0.01;
 
 // The share of the Fresnel reflection drawn: water seen at a low angle reflects nearly all of the
 // sky, which would turn the water's own color to the sky's white; this keeps it showing through.

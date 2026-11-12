@@ -862,7 +862,7 @@ impl DrawnPass {
         #[allow(clippy::cast_precision_loss)] // a body count, at most 32
         f.extend([far_scale, 0.0, 0.0, bodies as f32]);
         match (offset, k.water) {
-            (true, Some((depth, shelf))) => f.extend([1.0, depth, shelf, 0.0]),
+            (true, Some(slope)) => f.extend([1.0, slope, 0.0, 0.0]),
             _ => f.extend([0.0; 4]),
         }
         let mut out = floats(&f);

@@ -1565,7 +1565,8 @@ impl Sink<'_> {
                 | (puddles(s.base_ground) << 2)
                 | (u32::from(!s.slopes.is_empty()) << 4)
                 | (mud(s.base_ground) << 5)
-                | (u32::from(s.bank.is_some()) << 6),
+                | (u32::from(s.bank.is_some()) << 6)
+                | (u32::from(s.bank.as_ref().is_some_and(|b| b.land == b.bed)) << 7),
         ];
         for k in 0..crate::assets::terrain::SPLAT_OVERLAYS {
             match s.overlays.get(k) {

@@ -564,9 +564,9 @@ pub struct DrawnKnobs {
     pub haze: f32,
     /// The clouds that shade the land, with an art pack.
     pub clouds: Option<DrawnClouds>,
-    /// The bed lowered under the water: its deepest, and how far from the shore it gets there,
-    /// meters; `None` while the water is not drawn over its bed.
-    pub water: Option<(f32, f32)>,
+    /// The water drawn over its bed: how far in from its edge the bed slopes down to where a body
+    /// standing in it stands, meters; `None` while the water is not drawn over its bed.
+    pub water: Option<f32>,
     /// The scree and rock a pack's ground lays by its slope; `None` while none is laid.
     pub slope: Option<DrawnSlope>,
     /// What a pack's ground lays by the water, while the water is drawn over its bed: how much

@@ -375,10 +375,9 @@ pub fn far_offset(p: &Point, x: f32, y: f32, knobs: &Knobs) -> f32 {
 pub struct Water<'a> {
     /// Where it lies and its level.
     pub shore: shore::Shore<'a>,
-    /// The deepest the bed lies below the water's surface, meters.
-    pub depth: f32,
-    /// How far from the shore the bed reaches that depth, meters.
-    pub shelf: f32,
+    /// How far in from the water's edge the bed slopes down to where a body standing in the water
+    /// stands, meters (see [`shore::Shore::bed`]).
+    pub slope: f32,
 }
 
 /// The drawn ground at one point: how far it is drawn off retail's surface by the offset, and
@@ -396,8 +395,9 @@ pub struct Drawn {
 /// near offset, or a body's averaged over its stance), `far` of the way given way to the far
 /// ground, over `water` while it is drawn as water: retail's height and the offset (far off the
 /// rounding and the eroded relief, kept out of the water and its shore), the bed lowered under the
-/// water, and beside it land no lower than its floor ([`shore::floor`]). The presentation's own
-/// arithmetic, less the fine relief, which is leveled under bodies.
+/// water to where a body standing in it stands ([`shore::Shore::bed`]), and beside it land no
+/// lower than its floor ([`shore::floor`]). The presentation's own arithmetic, less the fine
+/// relief, which is leveled under bodies.
 #[must_use]
 pub fn drawn_at(
     p: &Point,
@@ -417,7 +417,7 @@ pub fn drawn_at(
     }
     let mut height = p.retail + offset;
     if let Some(w) = water {
-        height -= shore::bed_depth(inside, w.depth, w.shelf);
+        height -= w.shore.bed(x, y, inside, w.slope);
         if inside <= 0.0 && inside > -shore::NEAR {
             height = height.max(shore::floor(w.shore.level(x, y), inside));
         }
@@ -425,45 +425,23 @@ pub fn drawn_at(
     Drawn { offset, height }
 }
 
+/// The height a thing that physics puts at `z`, over retail's ground at `retail`, is held out of
+/// the drawn ground from (see [`shift`]): no lower than retail's ground, so a thing retail sinks
+/// into its water is drawn as deep in it as retail sinks it, on the bed drawn there, rather than
+/// lifted onto the bed where the bed eases or slopes shallower.
+#[must_use]
+pub fn held_from(z: f32, retail: f32) -> f32 {
+    z.max(retail)
+}
+
 /// How far a thing that physics puts at height `z` over ground `ground` (its offset averaged over
 /// its stance, see [`drawn_at`]) is drawn above where it stands: by the offset, as much of it as
 /// `keep` leaves (things in the air keep less), and never lower than the drawn ground under it,
-/// so a body that retail sinks into its water stands on the bed where the bed is shallower than
-/// retail sinks it, and one beside the water stands on the floor the bank keeps.
+/// so one beside the water stands on the floor the bank keeps.
 #[must_use]
 pub fn shift(z: f32, ground: Drawn, keep: f32) -> f32 {
     let moved = keep * ground.offset;
     moved + keep * (ground.height - (z + moved)).max(0.0)
-}
-
-/// How far over retail's ground a thing may stand and still be drawn wholly on the bed of the
-/// water, meters: a body on a slope stands a few centimeters over the ground at its feet.
-pub const WADE_FROM: f32 = 0.04;
-/// How far over retail's ground a thing stands before it is no longer drawn standing on the bed
-/// of the water, meters: it stands on the bed while it stands on retail's ground, or sunk into it
-/// as retail sinks what stands in its water, and fades out from [`WADE_FROM`] up to this, under
-/// the deck of the lowest dock.
-pub const WADE_ABOVE: f32 = 0.25;
-
-/// How far a thing drawn at height `z`, `inside` meters inside the water (negative outside it),
-/// and standing `above` meters over retail's ground there (negative where retail sinks it into
-/// its water), is drawn lower still so that it stands on the water's bed, where the water's level
-/// there is `level` and the drawn ground under it, the bed, is `ground`: down to the bed, but no
-/// more than `most` meters under the level, fading out as the thing stands higher over retail's
-/// ground, from [`WADE_FROM`] over it and gone [`WADE_ABOVE`] over it. Nought for a thing out of
-/// the water or already as deep. The bed shelves out from the water's edge, so the sink does
-/// too. Taken from retail's ground rather than the water's level, a body walking from the water
-/// up a bank inside the water's edge stays on the bed. Physics never sees it.
-#[must_use]
-pub fn wade(z: f32, above: f32, ground: f32, level: f32, inside: f32, most: f32) -> f32 {
-    if inside <= 0.0 || most <= 0.0 {
-        return 0.0;
-    }
-    let deepest = (level - most).max(ground);
-    if z <= deepest {
-        return 0.0;
-    }
-    (deepest - z) * (1.0 - smoothstep(WADE_FROM, WADE_ABOVE, above))
 }
 
 /// How far a point `distance` meters from the eye has given way to the far ground: 0 near, 1 far.

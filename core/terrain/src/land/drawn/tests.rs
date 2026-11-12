@@ -330,82 +330,25 @@ fn a_footprint_is_pinned_along_its_own_turned_sides_and_its_margin_round_them() 
 }
 
 #[test]
-fn what_stands_in_water_stands_on_its_bed_and_what_stands_on_a_deck_over_it_does_not() {
-    let (level, bed, most) = (28.0, 26.0, 1.0);
-    // How far over retail's ground at the water's level a thing at `z` stands.
-    let over = |z: f32| z - level;
-    // Over a bed shallower than the most it sinks, a body retail stands a little under the
-    // water's surface is drawn standing on the bed.
-    let z = 27.905;
-    assert!((z + wade(z, over(z), 27.6, level, 10.0, most) - 27.6).abs() < 1e-5);
-    // Over a deeper bed, the most it sinks under the surface; with no most, on the bed.
-    let deep = wade(z, over(z), bed, level, 10.0, most);
-    assert!((z + deep - (level - most)).abs() < 1e-5, "{deep}");
-    assert!((z + wade(z, over(z), bed, level, 10.0, f32::INFINITY) - bed).abs() < 1e-5);
-    // One retail already stands as deep, or deeper, is left where it is.
-    let z1 = level - most;
-    assert!(wade(z1, over(z1), bed, level, 10.0, most).abs() < 1e-6);
-    let z2 = level - 1.2;
-    assert!(wade(z2, over(z2), bed, level, 10.0, most).abs() < 1e-6);
-    // On a dock's deck a little over the water, and out of the water, it is left where it is.
-    let deck = level + 0.277;
-    assert!(wade(deck, over(deck), bed, level, 10.0, most).abs() < 1e-6);
-    assert!(wade(z, over(z), bed, level, -0.5, most).abs() < 1e-6);
-    assert!(wade(z, over(z), bed, level, 10.0, 0.0).abs() < 1e-6);
-    // At the water's edge the bed is the level, and nothing sinks: it comes in as the bed
-    // shelves away from the edge.
-    let shelf = |inside: f32| level - shore::bed_depth(inside, 2.5, 30.0);
-    assert!(wade(z, over(z), shelf(0.01), level, 0.01, most).abs() < 1e-6);
-    let mut last = 0.0;
-    for k in 1..=30u16 {
-        let inside = f32::from(k);
-        let sunk = wade(z, over(z), shelf(inside), level, inside, f32::INFINITY);
-        assert!(sunk <= last + 1e-6, "{sunk} over {last} {inside} m in");
-        last = sunk;
-    }
-    assert!((z + last - shelf(30.0)).abs() < 1e-5, "{last}");
-    // Higher up it fades out with no step: what is drawn rises steadily with where it stands.
-    let mut last = f32::MIN;
-    for k in 0..=560u16 {
-        let z = level - 1.1 + f32::from(k) * 0.0025;
-        let drawn = z + wade(z, over(z), bed, level, 10.0, most);
-        assert!(drawn >= last - 1e-6, "{drawn} under {last} at {z}");
-        if k > 0 {
-            assert!(drawn - last < 0.025, "a step of {} at {z}", drawn - last);
-        }
-        last = drawn;
-    }
-}
-
-#[test]
-fn a_body_walking_from_the_water_up_a_bank_inside_its_edge_stays_on_the_bed() {
-    // Inside the water's edge retail's ground rises out of its water up a bank: in the water
-    // physics sinks a body by the water's depth there, on the bank it stands on the ground, a few
-    // centimeters over it where the bank slopes. Walking out, the body is drawn on the bed, the
-    // ground lowered under the water, all the way.
-    let (level, most) = (28.0, 1.0);
-    let retail = |x: f32| level + 0.4 * smoothstep(5.0, 12.0, x);
-    let bed_under = |x: f32| retail(x) - 0.3 - 0.01 * x;
-    let mut last = None;
-    for k in 0..=400u16 {
-        let x = f32::from(k) * 0.05;
-        let z = if x < 5.0 {
-            retail(x) - 0.445
-        } else {
-            retail(x) + 0.03 * smoothstep(5.0, 6.0, x)
+fn a_body_in_the_water_is_drawn_as_deep_as_retail_sinks_it_and_out_of_it_moves_with_the_offset() {
+    // Retail's ground at the water's level, the bed drawn half a meter under it: physics sinks a
+    // body wading there by 0.45 m, and it is drawn where physics puts it, not lifted onto a bed
+    // that eases or slopes shallower, nor moved down onto one deeper.
+    let retail = 28.0;
+    for bed in [0.45, 0.3, 0.6] {
+        let ground = Drawn {
+            offset: 0.0,
+            height: retail - bed,
         };
-        let ground = bed_under(x);
-        // As the ground's shift draws it: never under the drawn ground, then on the bed.
-        let raised = z.max(ground);
-        let drawn = raised + wade(raised, z - retail(x), ground, level, 10.0, most);
-        assert!(
-            (drawn - ground).abs() < 1e-5,
-            "drawn at {drawn} over the bed at {ground}, {x} m along"
-        );
-        if let Some(last) = last {
-            let step: f32 = drawn - last;
-            assert!(step.abs() < 0.01, "a step of {step} {x} m along");
-        }
-        last = Some(drawn);
+        let z = retail - 0.45;
+        let s = shift(held_from(z, retail), ground, 1.0);
+        assert!(s.abs() < 1e-6, "over a bed {bed} m down: {s}");
     }
+    // Out of the water it stands on retail's ground, and the offset moves it.
+    let raised = Drawn {
+        offset: 0.3,
+        height: retail + 0.35,
+    };
+    let s = shift(held_from(retail + 0.01, retail), raised, 1.0);
+    assert!((s - 0.34).abs() < 1e-5, "{s}");
 }

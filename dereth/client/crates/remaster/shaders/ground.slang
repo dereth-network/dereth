@@ -52,6 +52,9 @@ public static const uint SPLAT_BANK = 4 * SPLAT_LAYERS;
 public static const uint SPLAT_ROWS = SPLAT_BANK + 3;
 // The base row's flags: where it holds what a pack lays by the water.
 public static const uint SPLAT_HAS_BANK = 64;
+// And where the land it lays in place of retail's water ground is the bed: a cell with no ground
+// beside the water the pack lays.
+public static const uint SPLAT_BANK_IS_BED = 128;
 
 // The four candidate texture coordinates of a cell, and the one each corner takes at each quarter
 // turn, as the retail grid lays them.

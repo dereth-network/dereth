@@ -113,7 +113,7 @@ fn kept(c: &dereth_scene::world_scene::RemasterCapture, i: usize, refracted: boo
     let p = inv * ndc;
     let bed = (p / p.w).truncate();
     let eye = glam::Vec3::from(c.eye);
-    let under = f32::from(c.bed[i]) * 0.04;
+    let under = f32::from(c.bed[i]) * 0.01;
     let v = (eye - bed).normalize();
     let up = v.z.max(1e-3);
     let down = if refracted {
@@ -156,7 +156,7 @@ fn keeps(c: &dereth_scene::world_scene::RemasterCapture) -> String {
     for (lo, hi) in bands {
         let (mut a, mut b, mut n) = (0.0f64, 0.0f64, 0u32);
         for i in 0..c.kind.len() {
-            let under = f32::from(c.bed[i]) * 0.04;
+            let under = f32::from(c.bed[i]) * 0.01;
             if under <= lo || under > hi {
                 continue;
             }

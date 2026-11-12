@@ -816,8 +816,9 @@ fn what_stands_on_dry_ground_below_the_waters_level_is_not_covered_by_it() {
 /// lake, the tree on its bank some twenty meters off, where the ground the remaster draws along
 /// the bank stands higher than retail's and the line of sight meets it meters short of where
 /// retail's would lie, the tree and everything else but the body are drawn the same with the
-/// water as without it, all but one pixel in a thousand: the line where the water meets the
-/// tree's foot at the edge of the bank.
+/// water as without it, all but two pixels in a thousand: the line where the water meets the
+/// tree's foot at the edge of the bank, where the bed drawn under the water shows a little more
+/// of the foot under its surface.
 #[test]
 fn what_stands_on_the_dry_bank_seen_across_the_water_is_not_covered_by_it() {
     let _gpu = crate::common::gpu_lock();
@@ -827,10 +828,7 @@ fn what_stands_on_the_dry_bank_seen_across_the_water_is_not_covered_by_it() {
     let (objects, covered) = covered(&with, &without);
     eprintln!("across the water: {covered} of {objects} pixels of what stands there drawn otherwise with the water");
     assert!(objects > 2_000, "the tree is in the picture: {objects}");
-    assert!(
-        covered * 1_000 <= objects,
-        "covered: {covered} of {objects}"
-    );
+    assert!(covered * 500 <= objects, "covered: {covered} of {objects}");
 }
 
 /// The shore's frame at `size`, with the camera carried `back` metres back along its view and
@@ -943,7 +941,7 @@ fn shore_seen(
 fn surface_of(c: &RemasterCapture, inv: &glam::Mat4, i: usize) -> glam::Vec3 {
     let bed = place_of(c, inv, i);
     let eye = glam::Vec3::from(c.eye);
-    let under = f32::from(c.bed[i]) * 0.04;
+    let under = f32::from(c.bed[i]) * 0.01;
     if under > 0.0 && eye.z > bed.z + under {
         eye + (bed - eye) * ((eye.z - bed.z - under) / (eye.z - bed.z))
     } else {
@@ -1132,7 +1130,7 @@ fn the_water_ripples_near_lies_calm_far_and_takes_retails_color_over_its_bed() {
         if with.kind[i] != WATER {
             continue;
         }
-        if with.bed[i] >= 25 {
+        if with.bed[i] >= 40 {
             deep += 1;
             for k in 0..3 {
                 sum_with[k] += u64::from(with.color[i * 4 + k]);

@@ -587,8 +587,7 @@ fn block_delta(
                 at.0 as f32 * dereth_terrain::land::drawn::BLOCK_METERS + p.frame.origin.x,
                 at.1 as f32 * dereth_terrain::land::drawn::BLOCK_METERS + p.frame.origin.y,
             );
-            let wades = !p.building && ground.wades(store, p.id, x, y);
-            placed.lifts = ground.lifts(x, y, p.frame.origin.z, wades);
+            placed.lifts = ground.lifts(x, y, p.frame.origin.z);
             placed
         })
         .collect();
@@ -623,7 +622,7 @@ fn block_delta(
                     &block.terrain,
                     covers,
                     &inputs.buildings,
-                    &|x, y, z| ground.lifts(x, y, z, false),
+                    &|x, y, z| ground.lifts(x, y, z),
                     row,
                     out,
                 );
@@ -689,7 +688,7 @@ fn block_lamps(
                 // LINT-OK: hashing the bits of a position. Not a float conversion.
                 seed: p.x.to_bits() ^ p.y.to_bits().rotate_left(11) ^ p.z.to_bits().rotate_left(22),
                 position: p,
-                lifts: ground.lifts(x, y, p.z, false),
+                lifts: ground.lifts(x, y, p.z),
                 color: l.source.color,
                 intensity: l.source.intensity,
                 falloff: l.source.falloff,

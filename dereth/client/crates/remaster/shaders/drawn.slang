@@ -7,14 +7,15 @@
 // Laid over retail's height, when asked: the scene's own offset for the blocks round the viewer
 // (so what stands on the ground and the ground agree), a fine relief and terraces leveled under
 // each body, and far off the smooth surface through retail's vertices with an eroded relief, out
-// to the world's edge. The water's bed is lowered under the water, and the land beside it never
-// lies below the water's level at its edge.
+// to the world's edge. The water's bed is drawn where a body standing in the water stands, as
+// deep under retail's ground as physics sinks it, and the land beside it never lies below the
+// water's level at its edge.
 //
 // Each pixel takes the drawn surface's normal (finite differences of the drawn height), leaned
 // to the smooth surface's where the ground is pinned to retail's; its picture is its cell's,
 // composite or splat, where the block is held, and far off its corners' terrain's colors. The
 // material target carries, on the ground, the water's share of the blend (third byte) and how far
-// under the water's surface the bed is drawn, in 4 cm steps (fourth byte; where the ground is not
+// under the water's surface the bed is drawn, in 1 cm steps (fourth byte; where the ground is not
 // water and the weather is drawn, how much of it is puddle).
 import bindless;
 import ground;
@@ -59,7 +60,7 @@ static const uint D_K0 = 2;       // x the fine relief's height, y its size; z t
 static const uint D_K1 = 3;       // x a terrace's height, y its cap, z the slope it starts at; w the rounding kept far
 static const uint D_K2 = 4;       // x, y where the near gives way to the far; z 1 for the far ground; w its relief's height
 static const uint D_K3 = 5;       // x the far relief's size; w how many bodies
-static const uint D_WATER = 6;    // x 1 while the bed is lowered, y its deepest, z where it gets there
+static const uint D_WATER = 6;    // x 1 while the water is drawn over its bed, y how far in from its edge the bed slopes down to where bodies stand
 static const uint D_ORIGIN = 7;   // (uint) xy the frame's origin block, z the blocks table's reach, w its side
 static const uint D_BODIES = 8;   // 32 rows
 static const uint D_SLOTS = 40;   // 64 rows of four blocks, `x * 256 + y`, or -1
@@ -85,7 +86,9 @@ static const float WALKABLE_Z = 0.6641741;
 static const float BELOW = 0.01;
 // The step the bed's depth under the water is written in, meters: the material target's fourth
 // byte on the ground.
-static const float BED_STEP = 0.04;
+static const float BED_STEP = 0.01;
+// How far under the water's level the bed lies before the ground there is drawn as water.
+static const float SURFACE_FROM = 0.02;
 
 // --- the world's vertices ---------------------------------------------------------------------
 
@@ -278,17 +281,68 @@ float shore_distance(float2 p, float foot)
     return s + shore_wander(p, foot);
 }
 
-// The bed's depth below the water's surface `inside` meters inside the water: none at its edge,
-// shelving gently out from it, so the shallows stay shallow for a few meters, steepest halfway
-// out and leveling off at `depth` meters `shelf` meters in.
-float bed_depth(float inside, float depth, float shelf)
+// How far physics stands a body under retail's ground at a point standing on it, meters, by its
+// cell's water corners: in a cell of water corners alone, its deepest; in one with some, by
+// whether the corner nearest is water; in one with none, nought.
+static const float SINK_DEEP = 0.9;
+static const float SINK_WET = 0.45;
+static const float SINK_DRY = 0.1;
+// How far either side of where two of those depths meet the bed eases from one to the other.
+static const float SINK_EASE = 0.75;
+
+// How far physics stands a body under retail's ground in quarter `q` of a cell (two a cell each
+// way), from `wet`, whether each of the 3 by 3 vertices from vertex `from` is water.
+float quarter_sink(int2 q, int2 from, bool wet[3][3])
+{
+    int2 c = int2(floor(float2(q) * 0.5)) - from;
+    bool a = wet[c.x][c.y];
+    bool b = wet[c.x + 1][c.y];
+    bool d = wet[c.x][c.y + 1];
+    bool e = wet[c.x + 1][c.y + 1];
+    if (a && b && d && e)
+    {
+        return SINK_DEEP;
+    }
+    if (!(a || b || d || e))
+    {
+        return 0.0;
+    }
+    int2 near = c + (q - int2(floor(float2(q) * 0.5)) * 2);
+    return wet[near.x][near.y] ? SINK_WET : SINK_DRY;
+}
+
+// How far physics stands a body at world `p` under retail's ground, its quarter's depth eased
+// over `SINK_EASE` either side of where quarters meet.
+float shore_sink(float2 p)
+{
+    float half_cell = 0.5 * SHORE_CELL;
+    float2 b = round(p / half_cell);
+    float2 t = float2(smoothstep(-SINK_EASE, SINK_EASE, p.x - b.x * half_cell),
+                      smoothstep(-SINK_EASE, SINK_EASE, p.y - b.y * half_cell));
+    int2 q = int2(b);
+    int2 from = int2(floor(float2(q - 1) * 0.5));
+    bool wet[3][3];
+    for (int i = 0; i < 3; i++)
+    {
+        for (int j = 0; j < 3; j++)
+        {
+            wet[i][j] = shore_texel(from + int2(i, j)).x > 0.0;
+        }
+    }
+    return lerp(lerp(quarter_sink(q - int2(1, 1), from, wet), quarter_sink(q - int2(0, 1), from, wet), t.x),
+                lerp(quarter_sink(q - int2(1, 0), from, wet), quarter_sink(q, from, wet), t.x), t.y);
+}
+
+// How far under retail's ground the bed is drawn at world `p`, `inside` meters inside the water:
+// where a body standing there stands, sloping up to nought over `slope` meters to
+// the water's edge.
+float bed_depth(float2 p, float inside, float slope)
 {
     if (inside <= 0.0)
     {
         return 0.0;
     }
-    float t = min(inside / max(shelf, 1e-3), 1.0);
-    return depth * t * t * (3.0 - 2.0 * t);
+    return shore_sink(p) * smoothstep(0.0, max(slope, 1e-3), inside);
 }
 
 float shore_floor(float level, float inside)
@@ -484,7 +538,7 @@ float4 drawn_at(float2 p, float dist, float fine_share, float foot)
         float far_offset = (k1.w * (rounded - r.x) + far_relief(p, k3.x, k2.w, length(r.yz), foot)) * dry;
         offset = lerp(offset, far_offset, far);
     }
-    float h = r.x + offset - bed_depth(inside, water.y, water.z);
+    float h = r.x + offset - bed_depth(p, inside, water.y);
     // The forest cover's canopy far off, kept out of the water and its shore.
     h += canopy(p, dist) * (1.0 - smoothstep(-SHORE_CELL, 0.0, inside));
     if (fine_share > 0.0)
@@ -585,6 +639,70 @@ float3 smooth_normal(float2 p, float e)
 }
 
 
+// How far a pack's bank blends from the cell beside it into a cell, meters: where the cell beside
+// lays the bed in place of retail's water ground and this one lays the land beside the water, the
+// bed comes in over this much of this cell, so their side is no line between the two.
+static const float BED_BESIDE = 6.0;
+
+// Whether the held cell at world `p` lays a pack's bed in place of retail's water ground.
+bool lays_bed(float2 p)
+{
+    uint4 o = row_u(push.drawn, D_ORIGIN);
+    int2 b = int2(floor(p / BLOCK));
+    int2 at = b - int2(o.xy) + int(o.z);
+    if (any(at < 0) || any(at >= int(o.w)))
+    {
+        return false;
+    }
+    uint2 entry = row_u(push.blocks, uint(at.y) * o.w + uint(at.x)).xy;
+    if (entry.x == 0xFFFFFFFF)
+    {
+        return false;
+    }
+    uint side = max(entry.y, 1u);
+    float2 local = (p - float2(b) * BLOCK) / (BLOCK / float(side));
+    uint2 ij = uint2(clamp(floor(local), 0.0, float(side - 1)));
+    uint w = row_u(push.cells, entry.x + ij.x * side + ij.y).w;
+    return w != 0xFFFFFFFF && (row_u(push.splats, w * SPLAT_ROWS).w & SPLAT_BANK_IS_BED) != 0;
+}
+
+// How much of the bed a cell `size` meters a side that lays the land beside the water takes at
+// `f` across it (0 to 1 each way), from the cells about it that lay the bed: all of it at their
+// side or corner, none `BED_BESIDE` meters in from it.
+float bed_beside(float2 p, float2 f, float size)
+{
+    float2 lo = f * size;
+    float2 hi = (1.0 - f) * size;
+    if (min(min(lo.x, lo.y), min(hi.x, hi.y)) >= BED_BESIDE)
+    {
+        return 0.0;
+    }
+    float2 corner = p - lo;
+    float most = 0.0;
+    for (int i = -1; i <= 1; i++)
+    {
+        for (int j = -1; j <= 1; j++)
+        {
+            if (i == 0 && j == 0)
+            {
+                continue;
+            }
+            float dx = i < 0 ? lo.x : (i > 0 ? hi.x : 0.0);
+            float dy = j < 0 ? lo.y : (j > 0 ? hi.y : 0.0);
+            float d = length(float2(dx, dy));
+            if (d >= BED_BESIDE)
+            {
+                continue;
+            }
+            if (lays_bed(corner + (float2(i, j) + 0.5) * size))
+            {
+                most = max(most, 1.0 - smoothstep(0.0, BED_BESIDE, d));
+            }
+        }
+    }
+    return most;
+}
+
 // The ground's picture at world `p` and the water's share of it: its cell's, where its block is
 // held; far off, its corners' terrain's colors. `dx`, `dy` are `p`'s steps across the screen;
 // `takes` how readily it gathers puddles, 0 to 1.
@@ -644,8 +762,15 @@ float4 picture(float2 p, float2 dx, float2 dy, float3 steep, float dist, float f
                 if (banks)
                 {
                     from_water = shore_distance(p, foot);
-                    // Well inside the water, the bed's own ground in place of the land beside it.
-                    float into = smoothstep(BED_FROM, BED_IN, from_water) * s.water;
+                    // Well inside the water, the bed's own ground in place of the land beside it;
+                    // and by the side of a cell that lays the bed there, coming in over a few
+                    // meters, so their side is no line between the two.
+                    float into = smoothstep(BED_FROM, BED_IN, from_water);
+                    if ((flags & SPLAT_BANK_IS_BED) == 0)
+                    {
+                        into = max(into, bed_beside(p, f, size));
+                    }
+                    into *= s.water;
                     if (into > 0.001)
                     {
                         SteepSample t = bank_row(push.splats, push.wrap, at_splat, rot, inside, udx, udy, 2, place);
@@ -907,17 +1032,26 @@ Targets fs_ground(Varyings in)
     }
     t.rgb = forest(t.rgb, p, dist, abs(eye.z - at.z) / max(length(eye - at), 1e-3));
     bool per_pixel = row(push.frame, FRAME_SCREEN).y > 0.5;
-    // How far below the water's surface the bed is drawn here, in steps of 4 cm: the water stands
+    // How far below the water's surface the bed is drawn here, in steps of 1 cm: the water stands
     // that far over the ground's own pixel.
     float4 water = row(push.drawn, D_WATER);
-    float bed = water.x > 0.5 ? bed_depth(shore_distance(p, foot), water.y, water.z) : 0.0;
-    uint below = uint(clamp(bed / BED_STEP + 0.5, 0.0, 255.0));
+    float bed = water.x > 0.5 ? bed_depth(p, shore_distance(p, foot), water.y) : 0.0;
+    // Counted from the depth this pixel writes, the mesh's, which lies a little off the drawn
+    // height between its vertices where the bed eases or slopes, so the surface over it stays at
+    // the water's level.
+    float depth = bed > 0.0 ? max(parts.x + bed - (in.world.z - BELOW), 0.0) : 0.0;
+    uint below = uint(clamp(depth / BED_STEP + 0.5, 0.0, 255.0));
     // Where the bed is lowered under the water's level the ground is water, whatever retail's
     // picture lays there, so the water's surface runs on over the land inside its edge rather
     // than ending where the picture turns to land.
-    if (below > 0 && level_at(p) - parts.x > 0.5 * BED_STEP)
+    if (bed > SURFACE_FROM && level_at(p) - parts.x > SURFACE_FROM)
     {
         kind = KIND_WATER;
+    }
+    // Ground left dry, where its bed still stands over the water's level, has no water over it.
+    if (kind != KIND_WATER)
+    {
+        below = 0;
     }
     // Where the ground is not water and the weather is drawn, the fourth byte is how much of it is
     // puddle instead: on ground the smooth surface holds flat, judged over half a meter however

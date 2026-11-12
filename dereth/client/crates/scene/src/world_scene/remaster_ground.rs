@@ -13,7 +13,7 @@
 //! remaster mixes the two by its distance from the eye frame by frame.
 
 use std::collections::HashMap;
-use std::sync::{mpsc, Arc, Mutex, PoisonError};
+use std::sync::{mpsc, Arc};
 
 use dereth_assets::Decode as _;
 use dereth_dat::{DbType, RetailDatStore};
@@ -27,10 +27,6 @@ use dereth_terrain::land::drawn::{
 pub(crate) const WORLD_SIDE: usize = 2041;
 /// The height above a model's base its footprint is taken from: what meets the ground.
 const FOOT: f32 = 2.5;
-/// The least a model rises over its base to stand on the bed of the water it stands in, meters:
-/// taller than a deck, a dock's post, a stepping stone or a lily pad, which keep where retail
-/// places them.
-const STANDS_TALL: f32 = 1.5;
 /// How far above a body's feet the camera that follows it pivots, meters: about its eyes.
 const CAMERA_PIVOT: f32 = 1.6;
 /// How far apart the camera's line from that pivot is tried against the drawn ground, meters.
@@ -161,15 +157,6 @@ fn footprint(store: &RetailDatStore, id: DataId) -> Option<[f32; 4]> {
         b[3] = b[3].max(p.y);
     })?;
     boxed
-}
-
-/// Whether a model stands tall: its top at least [`STANDS_TALL`] over its base. A tree, a reed
-/// bed, a pillar or a pole standing in the water is drawn standing on its bed; a deck over the
-/// water, a dock's post, a stepping stone or a lily pad, which a body may stand on or which lies
-/// on the water, is left where retail places it.
-fn stands_tall(store: &RetailDatStore, id: DataId) -> bool {
-    let mut top = f32::MIN;
-    model_points(store, id, |p| top = top.max(p.z)).is_some() && top >= STANDS_TALL
 }
 
 /// Each vertex of a model in its own space, its parts at rest, handed to `take`; `None` for a
@@ -413,16 +400,10 @@ pub(crate) struct RemasterGround {
     worker: Option<FieldWorker>,
     /// Whether a worker was asked for.
     worker_tried: bool,
-    /// Whether each model a placement standing in the water draws stands tall (see
-    /// [`stands_tall`]).
-    tall: Mutex<HashMap<DataId, bool>>,
     /// Bumped whenever the offsets are thrown away for new knobs.
     field_generation: u64,
     /// Whether the offset is drawn this frame.
     pub(crate) active: bool,
-    /// Whether the water is drawn over the bed: off, a body in the water stands on its bed however
-    /// deep it lies.
-    pub(crate) water_shown: bool,
     /// Where render space's origin lies in the world, meters east and north.
     pub(crate) global: (f32, f32),
     /// The viewer's block.
@@ -704,9 +685,7 @@ impl RemasterGround {
                 scale: k.get(Knob::CloudScale),
                 shadows: k.get(Knob::CloudShadows),
             }),
-            water: k
-                .on(Knob::Water)
-                .then(|| (k.get(Knob::WaterDepth), k.get(Knob::WaterShelf))),
+            water: k.on(Knob::Water).then(|| k.get(Knob::BedSlope)),
             slope: k.on(Knob::Slope).then(|| rm::DrawnSlope {
                 scree: (k.get(Knob::ScreeFrom), k.get(Knob::ScreeBlend)),
                 rock: (k.get(Knob::RockFrom), k.get(Knob::RockBlend)),
@@ -750,8 +729,7 @@ impl RemasterGround {
                 heights: &world.heights,
                 field: &world.water,
             },
-            depth: self.knobs.get(Knob::WaterDepth),
-            shelf: self.knobs.get(Knob::WaterShelf),
+            slope: self.knobs.get(Knob::BedSlope),
         })
     }
 
@@ -769,17 +747,10 @@ impl RemasterGround {
 
     /// How far a thing standing at global `(x, y)` and height `z` is drawn above where physics
     /// puts it, `far` of the way given way to the far ground: the offset averaged over its
-    /// stance, faded out as it stands higher over retail's ground; never under the drawn ground
-    /// there, the water's bed and the floor of its banks included; and, for a thing that wades
-    /// in water at most `wades` meters under its surface, drawn standing on the bed of the water
-    /// it stands in, that deep at most (see [`drawn::wade`]).
-    fn shift(
-        &self,
-        world: &World,
-        (x, y, z): (f32, f32, f32),
-        far: f32,
-        wades: Option<f32>,
-    ) -> f32 {
+    /// stance, faded out as it stands higher over retail's ground, and never under the drawn
+    /// ground there, the floor of the water's banks included. A thing retail sinks into its
+    /// water stays as deep as retail sinks it, where the water's bed is drawn.
+    fn shift(&self, world: &World, (x, y, z): (f32, f32, f32), far: f32) -> f32 {
         let p = Point::at(world, x, y);
         let keep = self.keep(z - p.retail);
         if keep <= 0.0 {
@@ -790,30 +761,13 @@ impl RemasterGround {
         } else {
             0.0
         };
-        let water = self.water();
-        let ground = drawn::drawn_at(&p, x, y, near, far, water.as_ref(), &self.knobs);
-        let shifted = drawn::shift(z, ground, keep);
-        match (water, wades) {
-            (Some(w), Some(most)) => {
-                let sunk = drawn::wade(
-                    z + shifted,
-                    z - p.retail,
-                    ground.height,
-                    w.shore.level(x, y),
-                    w.shore.distance(x, y, 0.0),
-                    most,
-                );
-                shifted + keep * sunk
-            }
-            _ => shifted,
-        }
+        let ground = drawn::drawn_at(&p, x, y, near, far, self.water().as_ref(), &self.knobs);
+        drawn::shift(drawn::held_from(z, p.retail), ground, keep)
     }
 
     /// How far a thing standing at render-space `at` is drawn above where physics puts it, given
-    /// way to the far ground with its distance from the eye, and standing on the bed of the
-    /// water it stands in: while the water is drawn, no deeper under its surface than the knobs'
-    /// sink, so a body wading out into deep water keeps its head over it. Nought while the offset
-    /// is not drawn.
+    /// way to the far ground with its distance from the eye. Nought while the offset is not
+    /// drawn.
     pub(crate) fn shift_at(&self, at: Vec3) -> f32 {
         if !self.active || !self.knobs.on(Knob::BodyShift) {
             return 0.0;
@@ -827,12 +781,7 @@ impl RemasterGround {
         let dist =
             ((at.x - eye.x).powi(2) + (at.y - eye.y).powi(2) + (retail - eye.z).powi(2)).sqrt();
         let far = drawn::morph(dist, &self.knobs);
-        let most = if self.water_shown {
-            self.knobs.get(Knob::WaterSink)
-        } else {
-            f32::INFINITY
-        };
-        self.shift(world, (x, y, at.z), far, Some(most))
+        self.shift(world, (x, y, at.z), far)
     }
 
     /// How far server object `o` is drawn above where physics puts it: outdoors, as a body
@@ -853,38 +802,23 @@ impl RemasterGround {
     }
 
     /// How far a piece of scenery standing at global `(x, y)` and height `z` is drawn above where
-    /// it stands: on the near ground, and on the far ground, standing on the bed of the water it
-    /// stands in where it `wades`. The remaster mixes the two by the piece's distance from the eye
-    /// as the ground mixes them. Nought while the offset is not drawn.
-    pub(crate) fn lifts(&self, x: f32, y: f32, z: f32, wades: bool) -> [f32; 2] {
+    /// it stands: on the near ground, and on the far ground. The remaster mixes the two by the
+    /// piece's distance from the eye as the ground mixes them. Nought while the offset is not
+    /// drawn.
+    pub(crate) fn lifts(&self, x: f32, y: f32, z: f32) -> [f32; 2] {
         if !self.active || !self.knobs.on(Knob::BodyShift) {
             return [0.0; 2];
         }
         let Some(world) = self.world.as_ref() else {
             return [0.0; 2];
         };
-        let wades = wades.then_some(f32::INFINITY);
-        let near = self.shift(world, (x, y, z), 0.0, wades);
+        let near = self.shift(world, (x, y, z), 0.0);
         let far = if self.knobs.on(Knob::Far) {
-            self.shift(world, (x, y, z), 1.0, wades)
+            self.shift(world, (x, y, z), 1.0)
         } else {
             near
         };
         [near, far]
-    }
-
-    /// Whether a placement of model `id` standing at global `(x, y)` is drawn standing on the bed
-    /// of the water it stands in: a model that stands tall (see [`stands_tall`]), standing in
-    /// the water while its bed is drawn.
-    pub(crate) fn wades(&self, store: Option<&RetailDatStore>, id: DataId, x: f32, y: f32) -> bool {
-        let (Some(store), Some(water)) = (store, self.water()) else {
-            return false;
-        };
-        if !self.active || water.shore.distance(x, y, 0.0) <= 0.0 {
-            return false;
-        }
-        let mut tall = self.tall.lock().unwrap_or_else(PoisonError::into_inner);
-        *tall.entry(id).or_insert_with(|| stands_tall(store, id))
     }
 
     /// A number for what block `block`'s scenery is lifted by: it changes whenever the offsets
@@ -897,12 +831,7 @@ impl RemasterGround {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         self.field_generation.hash(&mut h);
         self.knobs.on(Knob::Far).hash(&mut h);
-        for k in [
-            Knob::Water,
-            Knob::WaterDepth,
-            Knob::WaterShelf,
-            Knob::WaterSink,
-        ] {
+        for k in [Knob::Water, Knob::BedSlope] {
             self.knobs.get(k).to_bits().hash(&mut h);
         }
         for x in block.0 - 1..=block.0 + 1 {
@@ -1154,15 +1083,12 @@ impl super::WorldScene {
         self.draw.remaster_ground.shift_at(at)
     }
 
-    /// How far a placement of model `id` standing at render-space `at` is drawn above it on
-    /// the remaster's ground, near and far (see [`RemasterGround::lifts`]), standing on the bed of
-    /// the water it stands in where it stands tall.
+    /// How far a placement standing at render-space `at` is drawn above it on the remaster's
+    /// ground, near and far (see [`RemasterGround::lifts`]).
     #[must_use]
-    pub fn remaster_lifts_at(&self, id: DataId, at: Vec3) -> [f32; 2] {
+    pub fn remaster_lifts_at(&self, at: Vec3) -> [f32; 2] {
         let g = &self.draw.remaster_ground;
-        let (x, y) = (at.x + g.global.0, at.y + g.global.1);
-        let wades = g.wades(self.draw.remaster_view.borrow().store.as_ref(), id, x, y);
-        g.lifts(x, y, at.z, wades)
+        g.lifts(at.x + g.global.0, at.y + g.global.1, at.z)
     }
 
     /// How far server object `id` is drawn above where physics puts it on the remaster's
@@ -1299,5 +1225,52 @@ mod tests {
             fresh.keep_fields_from(None);
         }
         assert!(offsets(&g) == offsets(&fresh));
+    }
+
+    /// **A body in the water is drawn where physics puts it, on the bed drawn there**: out in a
+    /// lake, where physics sinks a body 0.9 m, the bed is drawn that far under the water's level
+    /// and the body is not moved; in its shallows a body sunk less is drawn as deep, and scenery
+    /// standing in the water is drawn where retail places it.
+    #[test]
+    fn a_body_in_the_water_is_drawn_where_physics_puts_it_on_the_bed_drawn_there() {
+        let heights = vec![28.0f32; WORLD_SIDE * WORLD_SIDE];
+        // A lake forty vertices across, fresh standing water, in grassland.
+        let words: Vec<u16> = (0..WORLD_SIDE * WORLD_SIDE)
+            .map(|k| {
+                if (780..820).contains(&(k % WORLD_SIDE)) {
+                    17 << 2
+                } else {
+                    1 << 2
+                }
+            })
+            .collect();
+        let water = drawn::shore::held(&drawn::shore::water_field(WORLD_SIDE, &heights, &words));
+        let mut g = RemasterGround {
+            world: Some(Arc::new(World {
+                heights: Arc::new(heights),
+                words: Arc::new(words),
+                water: Arc::new(water),
+            })),
+            active: true,
+            viewer: (100, 100),
+            ..RemasterGround::default()
+        };
+        let (x, y) = (800.0 * 24.0 + 5.0, 800.0 * 24.0 + 7.0);
+        g.eye = Vec3::new(x, y - 10.0, 32.0);
+        let deep = Vec3::new(x, y, 28.0 - 0.9);
+        assert!(g.shift_at(deep).abs() < 1e-5, "{}", g.shift_at(deep));
+        let bed = g.ground_at(x, y).expect("the world is read");
+        assert!((bed - deep.z).abs() < 1e-4, "the bed under the body: {bed}");
+        // In the cell on the lake's west edge, by its water corner: physics sinks a body 0.45 m.
+        let (sx, sy) = (779.0 * 24.0 + 19.0, 800.0 * 24.0 + 7.0);
+        let shallow = Vec3::new(sx, sy, 28.0 - 0.45);
+        assert!(g.shift_at(shallow).abs() < 1e-5, "{}", g.shift_at(shallow));
+        let bed = g.ground_at(sx, sy).expect("the world is read");
+        assert!(
+            (bed - shallow.z).abs() < 1e-4,
+            "the bed in the shallows: {bed}"
+        );
+        assert_eq!(g.lifts(x, y, 28.0), [0.0; 2]);
+        assert_eq!(g.lifts(sx, sy, 28.0), [0.0; 2]);
     }
 }

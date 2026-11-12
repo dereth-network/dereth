@@ -16,6 +16,10 @@
 //!   mean height of the nearest water vertices lies below the vertex, so the water stays level up
 //!   to and past its edge where the bank rises, and slopes with the ground where the land beside
 //!   it lies lower (a river on a hillside).
+//! - **The bed**, under the water's surface at retail's ground, is drawn where a body standing in
+//!   the water stands: as deep under retail's ground as physics sinks it there, by its cell's
+//!   water corners, eased where one depth meets the next, and sloping up to nought at the
+//!   water's edge. Nothing else by the water is lowered.
 //! - **The values are held as half floats**, as the presentation holds them ([`held`]), so the
 //!   scene and the presentation read the same numbers.
 
@@ -228,18 +232,17 @@ pub fn held(field: &[[f32; 2]]) -> Vec<[f32; 2]> {
     field.iter().map(|[a, b]| [half(*a), half(*b)]).collect()
 }
 
-/// The made-up depth of the bed below the water's surface `inside` meters inside the water: none
-/// at its edge, shelving gently out from it so the shallows stay shallow for a few meters,
-/// steepest halfway out and leveling out at `depth` meters `shelf` meters in. The shaders' own
-/// arithmetic.
-#[must_use]
-pub fn bed_depth(inside: f32, depth: f32, shelf: f32) -> f32 {
-    if inside <= 0.0 {
-        return 0.0;
-    }
-    let t = (inside / shelf.max(1e-3)).min(1.0);
-    depth * t * t * (3.0 - 2.0 * t)
-}
+/// How far a body standing in a cell all of whose corners are water stands under retail's ground,
+/// meters, as physics stands it.
+pub const SINK_DEEP: f32 = 0.9;
+/// How far a body standing in a cell with some water corners stands under retail's ground where
+/// the corner nearest it is water, meters.
+pub const SINK_WET: f32 = 0.45;
+/// The same where the corner nearest it is land, meters.
+pub const SINK_DRY: f32 = 0.1;
+/// How far either side of where two of those sinkings meet the bed eases from one to the other,
+/// meters: physics steps from one to the next, the drawn bed slopes.
+pub const SINK_EASE: f32 = 0.75;
 
 /// The lowest the land `inside` meters inside the water (negative outside it) is drawn, where the
 /// water's level there is `level`: the level at the edge, falling away by [`FALL`] a meter out.
@@ -362,6 +365,68 @@ impl Shore<'_> {
             s += wxi * column;
         }
         s + wander(x, y, foot)
+    }
+
+    /// Whether vertex `(gx, gy)` is water.
+    fn wet(&self, gx: i32, gy: i32) -> bool {
+        self.texel(gx, gy)[0] > 0.0
+    }
+
+    /// How far physics stands a body under retail's ground in quarter `(qx, qy)` of a cell (the
+    /// cells' quarters counted from the world's south-west, two a cell each way): nought in a
+    /// cell with no water corner, [`SINK_DEEP`] in one whose corners are all water, otherwise by
+    /// the corner the quarter holds, [`SINK_WET`] for water and [`SINK_DRY`] for land.
+    fn quarter_sink(&self, qx: i32, qy: i32) -> f32 {
+        let (cx, cy) = (qx.div_euclid(2), qy.div_euclid(2));
+        let corners = [
+            self.wet(cx, cy),
+            self.wet(cx + 1, cy),
+            self.wet(cx, cy + 1),
+            self.wet(cx + 1, cy + 1),
+        ];
+        if corners.iter().all(|w| *w) {
+            SINK_DEEP
+        } else if !corners.iter().any(|w| *w) {
+            0.0
+        } else if self.wet(cx + qx.rem_euclid(2), cy + qy.rem_euclid(2)) {
+            SINK_WET
+        } else {
+            SINK_DRY
+        }
+    }
+
+    /// How far physics stands a body at world `(x, y)` under retail's ground, meters, where it
+    /// stands on retail's ground: [`Self::quarter_sink`] of the quarter it is in, eased over
+    /// [`SINK_EASE`] either side of where quarters meet.
+    #[must_use]
+    pub fn sink(&self, x: f32, y: f32) -> f32 {
+        let half = 0.5 * CELL;
+        let (bx, by) = ((x / half).round(), (y / half).round());
+        let tx = smoothstep(-SINK_EASE, SINK_EASE, x - bx * half);
+        let ty = smoothstep(-SINK_EASE, SINK_EASE, y - by * half);
+        let (qx, qy) = (floor_to_i32(bx + 0.5), floor_to_i32(by + 0.5));
+        let mix = |p: f32, q: f32, t: f32| p * (1.0 - t) + q * t;
+        mix(
+            mix(
+                self.quarter_sink(qx - 1, qy - 1),
+                self.quarter_sink(qx, qy - 1),
+                tx,
+            ),
+            mix(self.quarter_sink(qx - 1, qy), self.quarter_sink(qx, qy), tx),
+            ty,
+        )
+    }
+
+    /// How far under retail's ground the water's bed is drawn at world `(x, y)`, meters, where it
+    /// lies `inside` meters inside the water ([`Self::distance`]): where a body
+    /// standing there stands ([`Self::sink`]), sloping up to nought over `slope` meters to the
+    /// water's edge, and nought outside it.
+    #[must_use]
+    pub fn bed(&self, x: f32, y: f32, inside: f32, slope: f32) -> f32 {
+        if inside <= 0.0 {
+            return 0.0;
+        }
+        self.sink(x, y) * smoothstep(0.0, slope, inside)
     }
 
     /// The water's level at world `(x, y)`: each vertex's level (its height, less how far below it

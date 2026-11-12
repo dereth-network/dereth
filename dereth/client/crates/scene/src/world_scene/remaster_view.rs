@@ -488,7 +488,7 @@ pub struct RemasterCapture {
     /// Each pixel's material kind (7 water), and on the ground the water's share of it, 0 to 255.
     pub kind: Vec<u8>,
     pub water: Vec<u8>,
-    /// On the ground, how far under the water's surface its bed is drawn, in steps of 4 cm.
+    /// On the ground, how far under the water's surface its bed is drawn, in steps of 1 cm.
     pub bed: Vec<u8>,
     /// Each pixel's depth.
     pub depth: Vec<f32>,
