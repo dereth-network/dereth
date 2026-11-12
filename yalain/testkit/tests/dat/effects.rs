@@ -3489,6 +3489,7 @@ mod world_recipes {
             xp_share: 0.0,
             transforms: None,
             chance: None,
+            to_fellows: false,
         };
         let clock = h.clock();
         yalain_world::quests::run(&mut h.server, &mut h.net, world, &step, None, clock);

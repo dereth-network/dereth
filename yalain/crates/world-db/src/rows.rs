@@ -559,6 +559,8 @@ pub struct Step {
     pub chance: Option<f64>,
     /// The creature it sets to follow its player for the quest (boxed: few steps have one).
     pub escort: Option<Box<yalain_content::escorts::Escort>>,
+    /// Where it takes the player, the player's fellows in the world go too.
+    pub to_fellows: bool,
     pub prov: Prov,
 }
 
@@ -1595,6 +1597,7 @@ pub const FIELDS: [(&str, &[&str]); 59] = [
             "chance",
             "adds",
             "escort",
+            "to_fellows",
             "prov",
         ],
     ),
@@ -2546,6 +2549,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 },
                 chance: f.share("chance"),
                 escort: f.escort().map(Box::new),
+                to_fellows: f.bool("to_fellows").unwrap_or(false),
                 prov: f.req_prov()?,
             })
         }

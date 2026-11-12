@@ -130,6 +130,7 @@ fn step(quest: u32, person: u32, tells: u32) -> Step {
         to: None,
         transforms: None,
         chance: None,
+        to_fellows: false,
     }
 }
 

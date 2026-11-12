@@ -491,6 +491,7 @@ fn a_kills_step_runs_first_and_its_quest_is_not_moved_again_by_the_effect() {
         to: None,
         transforms: None,
         chance: None,
+        to_fellows: false,
     });
     let from = h.bots[b].inbox.len();
     kill(&mut h, me, &[INCREMENT]);
@@ -628,6 +629,7 @@ fn giving_step() -> Step {
         to: None,
         transforms: None,
         chance: None,
+        to_fellows: false,
     }
 }
 
@@ -737,6 +739,7 @@ fn an_item_acquired_moves_the_quest_its_template_names() {
         to: None,
         transforms: None,
         chance: None,
+        to_fellows: false,
     });
     let from = h.bots[b].inbox.len();
     take(&mut h);
@@ -775,6 +778,7 @@ fn an_item_acquired_moves_the_quest_its_template_names() {
         to: None,
         transforms: None,
         chance: None,
+        to_fellows: false,
     });
     h.server.quests.steps.retain(|st| st.quest != QUEST);
     holds(&mut h, me, status::UNDERWAY, 2);
@@ -830,6 +834,7 @@ fn a_kills_step_that_leads_somewhere_sends_the_killer() {
         xp_share: 0.0,
         transforms: None,
         chance: None,
+        to_fellows: false,
     };
     h.server.quests.steps = vec![step(1, Some(place)), step(2, None)];
     for p in h.server.players.values_mut() {
@@ -891,6 +896,7 @@ pub(super) fn leading_step(template: u32, needs: u32, to: yalain_content::quests
         xp_share: 0.0,
         transforms: None,
         chance: None,
+        to_fellows: false,
     }
 }
 
@@ -925,6 +931,121 @@ fn a_kills_update_comes_as_the_killer_lands() {
     let p = h.server.players.values().next().expect("in the world");
     assert_eq!(p.position.cell, ARENA.cell);
     assert!(p.trip.is_none());
+}
+
+/// A kill's step that takes the fellowship along sends the killer's fellows at the kill, a fellow
+/// half a kilometer off too; the killer's quest moves as it lands, and the fellow's, which it doesn't
+/// hold, not at all.
+/// Behaviour: server.quests.a-step-takes-the-fellowship-along
+#[test]
+fn a_kills_step_that_takes_the_fellowship_along_sends_the_killers_fellows() {
+    let mut q = quest(3);
+    q.effects = Vec::new();
+    let (mut h, a, me) = world(q);
+    let (b, you) = fellows(&mut h, (a, me), 500.0);
+    h.bots[b].send(
+        true,
+        auberean_protocol::queue::WEENIE,
+        &auberean_protocol::ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    let template = kill(&mut h, me, &[]);
+    h.server.quests.steps = vec![Step {
+        to_fellows: true,
+        ..leading_step(template, 1, ARENA)
+    }];
+    holds(&mut h, me, status::UNDERWAY, 1);
+    h.run(2);
+    kill(&mut h, me, &[]);
+    let trip = |h: &Harness, who: u64| {
+        h.server
+            .players
+            .values()
+            .find(|p| p.character == who)
+            .and_then(|p| p.trip.as_ref().map(|t| t.to.cell))
+    };
+    assert_eq!(trip(&h, me), Some(ARENA.cell), "the killer sent");
+    assert_eq!(trip(&h, you), Some(ARENA.cell), "the fellow sent with it");
+    land(&mut h);
+    let at = |h: &Harness, who: u64| {
+        h.server
+            .players
+            .values()
+            .find(|p| p.character == who)
+            .expect("in the world")
+            .position
+            .cell
+    };
+    assert_eq!((at(&h, me), at(&h, you)), (ARENA.cell, ARENA.cell));
+    assert_eq!(phase(&h, me), 2);
+    assert_eq!(state(&h, you), None, "the fellow's quests as they were");
+}
+
+/// A kill's step that takes the fellowship along to a room of a row sends each fellow to a free
+/// room of its own choosing, as the killer is, never to the room a player stands in though the row
+/// names it.
+/// Behaviour: server.quests.a-step-takes-the-fellowship-along
+#[test]
+fn a_fellowship_taken_along_to_a_row_of_rooms_is_sent_to_free_rooms() {
+    use yalain_content::quests::{Place, Room};
+    let mut q = quest(3);
+    q.effects = Vec::new();
+    let (mut h, a, me) = world(q);
+    let (b, you) = fellows(&mut h, (a, me), 2.0);
+    h.bots[b].send(
+        true,
+        auberean_protocol::queue::WEENIE,
+        &auberean_protocol::ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    let (_, other) = h.player_in_world("three", "Bran");
+    let template = kill(&mut h, me, &[]);
+    let room = |i: u32| Room {
+        place: Place {
+            cell: 0x049E_0138 + i,
+            #[allow(clippy::cast_precision_loss)]
+            origin: [-120.4 + 60.0 * i as f32, -84.7, 3.06],
+            heading: 127,
+        },
+        holds: 0x049E_0160 + i,
+    };
+    h.server.quests.rooms = vec![vec![room(0), room(1), room(2)]];
+    h.server.quests.steps = vec![Step {
+        to_fellows: true,
+        update: Update::Advance(1),
+        ..leading_step(template, 1, room(1).place)
+    }];
+    let p = h
+        .server
+        .players
+        .values_mut()
+        .find(|p| p.character == other)
+        .expect("in the world");
+    p.position.cell = room(1).place.cell;
+    p.position.origin = [
+        room(1).place.origin[0],
+        room(1).place.origin[1] - 40.0,
+        3.06,
+    ];
+    holds(&mut h, me, status::UNDERWAY, 1);
+    h.run(2);
+    for _ in 0..20 {
+        kill(&mut h, me, &[]);
+        for who in [me, you] {
+            let p = h
+                .server
+                .players
+                .values_mut()
+                .find(|p| p.character == who)
+                .expect("in the world");
+            let to = p.trip.take().expect("sent").to.cell;
+            // Back as though it had landed and drawn its scene.
+            p.scene_drawn = true;
+            assert!(
+                to == room(0).place.cell || to == room(2).place.cell,
+                "a free room, not the one a player stands in: {to:08X}"
+            );
+        }
+        holds(&mut h, me, status::UNDERWAY, 1);
+    }
 }
 
 /// Another kill of the kind while the first's trip is under way moves nothing: the quest moves one
@@ -1095,6 +1216,7 @@ fn a_kills_step_sends_the_killer_to_a_free_room_of_its_row() {
         xp_share: 0.0,
         transforms: None,
         chance: None,
+        to_fellows: false,
     }];
     for p in h.server.players.values_mut() {
         p.play.quests.push(QuestState {
@@ -1289,6 +1411,7 @@ fn a_named_camps_creature_goes_by_its_name_and_only_its_kill_moves_the_camps_ste
         to: None,
         transforms: None,
         chance: None,
+        to_fellows: false,
     });
     let from = h.bots[b].inbox.len();
     slay(&mut h, other, me);
@@ -1349,6 +1472,7 @@ fn chance_step(template: u32, chance: f32) -> Step {
         to: None,
         transforms: None,
         chance: Some(chance),
+        to_fellows: false,
     }
 }
 

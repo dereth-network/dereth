@@ -76,6 +76,7 @@ fn step(quest: u32, needs: u32, trigger: Trigger, update: Update) -> Step {
         effects_quiet: false,
         wants: None,
         fellows: false,
+        to_fellows: false,
         levels: None,
         xp_share: 0.0,
         to: None,

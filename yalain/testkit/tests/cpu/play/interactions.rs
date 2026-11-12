@@ -181,6 +181,7 @@ fn hall() -> Harness {
         xp_share: 0.0,
         transforms: None,
         chance: None,
+        to_fellows: false,
     });
     h
 }
@@ -407,6 +408,7 @@ fn an_item_used_on_an_object_while_its_step_waits_for_another_phase_is_answered_
         xp_share: 0.0,
         transforms: None,
         chance: None,
+        to_fellows: false,
     });
     let (a, me, world, glyph) = holding(&mut h, "one", GLYPH_TEMPLATE);
     h.server

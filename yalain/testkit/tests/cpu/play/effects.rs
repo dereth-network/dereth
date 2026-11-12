@@ -729,6 +729,7 @@ fn a_quest_steps_effects_come_after_its_gifts_and_before_its_update() {
         to: None,
         transforms: None,
         chance: None,
+        to_fellows: false,
     };
     let world = *h
         .server

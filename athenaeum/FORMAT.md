@@ -384,6 +384,7 @@ What moves a quest on, in its quest's file.
 | `adds` | | `{ tally = "key", by = N }`: as it runs it adds N (above 0) to the tally, never past its `full`, before anything it says |
 | `takes` | | templates of items taken from the player's pack, which the player must hold |
 | `to` | | a place it takes the player to, through portal space, for a use, a give, a take or a kill: a use of a person or an object, a give and a take tell the update first, an item used on an object and a kill as the player arrives; a recall the quest's definition names for the update then stays put. Without `to`, such a recall takes the player itself, the update told as the player comes out |
+| `to_fellows` | | true, with `to`: the player's fellows go there too, each through portal space, wherever they are in the world (as the player goes; for a kill, at the kill); a fellow who is dead or already on its way somewhere stays. Where `to` is a room of a row, each goes to a room of its own. It moves no fellow's quest: `fellows` does that |
 | `races` | | the races it is for, by number: 1 human, 2 Lugian, 4 Tumerok, 8 Drudge, 16 Empyrean; every race when left out |
 | `fellows` | | true: the update is made for each of the player's fellows in the world as well |
 | `wants` | | for a give, exactly how many of the item it wants: any other count is refused and handed back |

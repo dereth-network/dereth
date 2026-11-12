@@ -883,6 +883,7 @@ fn quests() -> QuestTable {
         to: None,
         transforms: None,
         chance: None,
+        to_fellows: false,
     };
     QuestTable {
         quests: vec![QuestDef {

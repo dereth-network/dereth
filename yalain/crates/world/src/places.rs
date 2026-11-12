@@ -2433,6 +2433,17 @@ pub fn step<S: Store>(
                     step: Step::Arrive,
                 },
             );
+            // An item's use whose step takes the fellowship along sends the fellows as the user goes.
+            let carried = s
+                .players
+                .get(&world)
+                .and_then(|p| p.trip.as_ref())
+                .and_then(|t| t.step.as_ref())
+                .filter(|st| st.to_fellows)
+                .and_then(|st| st.to);
+            if let Some(place) = carried {
+                crate::quests::fellows_go(s, world, target, place, clock);
+            }
         }
         Step::Sent { by } => {
             if s.players.get(&world).is_none_or(|p| p.trip.is_none()) {

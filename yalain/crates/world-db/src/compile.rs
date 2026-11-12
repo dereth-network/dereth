@@ -1270,6 +1270,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     transforms: s.transforms.as_deref().cloned(),
                     #[allow(clippy::cast_possible_truncation)]
                     chance: s.chance.map(|c| c as f32),
+                    to_fellows: s.to_fellows,
                 });
             }
             Row::Give(g) => {

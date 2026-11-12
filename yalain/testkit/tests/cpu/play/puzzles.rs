@@ -585,6 +585,7 @@ fn without_such_rows_a_use_runs_its_step_and_a_give_is_refused() {
         xp_share: 0.0,
         transforms: None,
         chance: None,
+        to_fellows: false,
     };
     let mut h = hall(true);
     h.server.quests.steps.push(step.clone());

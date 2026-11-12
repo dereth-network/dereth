@@ -865,16 +865,23 @@ fn run_triggered<S: Store>(
             // A kill's step goes with the trip, its update told on landing (2017: 47 of 47 Gauntlet
             // kills, in portal space's exit's tick; the trip within 0.1 s of the death, 42 of 42
             // whose death was seen).
-            let place = room_for(s, place);
-            crate::places::sends_on(s, world, by, place, Some(step), clock);
+            let carries = step.to_fellows;
+            let room = room_for(s, place);
+            crate::places::sends_on(s, world, by, room, Some(step), clock);
+            if carries {
+                fellows_go(s, world, by, place, clock);
+            }
             continue;
         }
         let received = run_with(s, net, world, &step, who, given, clock);
         if let Some((place, by)) = sent {
             // One already on its way goes nowhere, whichever room.
             if s.players.get(&world).is_some_and(|p| p.trip.is_none()) {
-                let place = room_for(s, place);
-                crate::places::sends_on(s, world, by, place, None, clock);
+                let room = room_for(s, place);
+                crate::places::sends_on(s, world, by, room, None, clock);
+            }
+            if step.to_fellows {
+                fellows_go(s, world, by, place, clock);
             }
         }
         // The item given is kept by the first step that takes it.
@@ -961,6 +968,32 @@ pub(crate) fn room_for<S: Store>(
         .collect();
     let i = s.rng.below(among.len());
     among[i]
+}
+
+/// A step that takes its player somewhere takes the player's fellowship along: each fellow in the
+/// world goes there too, through portal space, wherever it is, unless it is dead or already on its
+/// way somewhere. Where the place is one of a row of like rooms, each fellow is sent to a room of
+/// its own. A fellow is only sent: what the step does to a quest reaches it only as the step says.
+pub(crate) fn fellows_go<S: Store>(
+    s: &mut Server<S>,
+    world: ConnId,
+    by: u64,
+    place: yalain_content::quests::Place,
+    clock: Clock,
+) {
+    let going: Vec<ConnId> = crate::fellowship::fellows_in_world(s, world)
+        .into_iter()
+        .filter(|w| {
+            s.players
+                .get(w)
+                .is_some_and(|p| p.scene_drawn && !crate::combat::is_dead(p))
+        })
+        .collect();
+    // One already on its way somewhere keeps going there.
+    for w in going {
+        let room = room_for(s, place);
+        crate::places::sends_on(s, w, by, room, None, clock);
+    }
 }
 
 /// What a quest effect does to its quest.

@@ -133,6 +133,7 @@ fn grant_step() -> Step {
         to: None,
         transforms: None,
         chance: None,
+        to_fellows: false,
     }
 }
 

@@ -1061,6 +1061,7 @@ fn crop_garden() -> Harness {
         to: None,
         transforms: None,
         chance: None,
+        to_fellows: false,
     });
     h
 }

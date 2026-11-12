@@ -119,6 +119,7 @@ fn step(quest: u32, needs: u32, trigger: Trigger, update: Update) -> Step {
         to: None,
         transforms: None,
         chance: None,
+        to_fellows: false,
     }
 }
 

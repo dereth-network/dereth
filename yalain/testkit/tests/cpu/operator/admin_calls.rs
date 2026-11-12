@@ -1769,6 +1769,7 @@ fn a_quest_an_admin_takes_off_a_player_takes_its_subquests_too() {
                 to: None,
                 transforms: None,
                 chance: None,
+                to_fellows: false,
             })
             .to_vec(),
         gives: Vec::new(),

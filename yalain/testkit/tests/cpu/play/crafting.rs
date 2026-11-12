@@ -668,6 +668,7 @@ fn a_step_with_its_effects_last_tells_the_update_before_the_recipe() {
             to: None,
             transforms: None,
             chance: None,
+            to_fellows: false,
         };
         let from = h.bots[b].inbox.len();
         let clock = h.clock();
@@ -723,6 +724,7 @@ fn a_step_teaches_the_recipes_it_names_and_one_naming_none_teaches_none() {
             to: None,
             transforms: None,
             chance: None,
+            to_fellows: false,
         };
         for round in 0..2 {
             let from = h.bots[b].inbox.len();
@@ -1439,6 +1441,7 @@ fn a_quest_given_runs_the_step_waiting_on_it_and_one_withheld_runs_none() {
                 to: None,
                 transforms: None,
                 chance: None,
+                to_fellows: false,
             }],
             gives: Vec::new(),
             rooms: Vec::new(),

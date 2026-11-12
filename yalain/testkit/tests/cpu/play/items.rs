@@ -757,6 +757,7 @@ fn a_rod_whose_use_moves_a_quest_is_refused_away_from_its_place_and_moves_it_the
         to: None,
         transforms: None,
         chance: None,
+        to_fellows: false,
     });
     let (b, me, world) = in_world(&mut h);
     let rod = give(&mut h, world, ROD, 1);
@@ -916,6 +917,7 @@ fn a_reward_quest_is_completed_with_the_quest_it_rewards() {
             xp_share: 0.0,
             transforms: None,
             chance: None,
+            to_fellows: false,
         }],
         gives: Vec::new(),
         rooms: Vec::new(),

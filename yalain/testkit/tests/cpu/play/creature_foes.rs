@@ -348,6 +348,7 @@ fn two_players(fights: bool) -> (Harness, u64, u64, u64, u64, u32) {
         to: None,
         transforms: None,
         chance: None,
+        to_fellows: false,
     });
     let (_, near) = enters(&mut h, "one", "Elara");
     let (_, far) = enters(&mut h, "two", "Kestrel");

@@ -308,6 +308,8 @@ pub struct Step {
     pub transforms: Option<Transformation>,
     /// The chance it runs each time it may, above 0 and at most 1 (none: every time).
     pub chance: Option<f32>,
+    /// Where it takes the player, the player's fellows in the world go too, wherever they are.
+    pub to_fellows: bool,
 }
 
 /// A give's step that makes its player a hero: the gift kept at once and these appearances and
@@ -660,7 +662,7 @@ impl QuestTable {
             });
             let _ = writeln!(
                 out,
-                "step\t{:08X}\t{}\t{trigger}\t{}\t{update}\t{}\t{gives}\t{}\t{requires}\t{takes}\t{to}\t{effects}\t{text}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{recipes}\t{}",
+                "step\t{:08X}\t{}\t{trigger}\t{}\t{update}\t{}\t{gives}\t{}\t{requires}\t{takes}\t{to}\t{effects}\t{text}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{recipes}\t{}\t{}",
                 s.quest,
                 s.needs,
                 s.tell.as_ref().map(Words::to_text).unwrap_or_default(),
@@ -677,6 +679,7 @@ impl QuestTable {
                 s.chance.map_or_else(String::new, |c| c.to_string()),
                 u8::from(s.effects_quiet),
                 s.key,
+                u8::from(s.to_fellows),
             );
         }
         for g in &self.gives {
@@ -836,7 +839,7 @@ impl QuestTable {
                         _ => None,
                     },
                 }),
-                "step" if (9..=23).contains(&c.len()) => {
+                "step" if (9..=24).contains(&c.len()) => {
                     let (kind, tpl) = c[3]
                         .split_once(':')
                         .ok_or_else(|| at(format!("a trigger is kind:template, not {}", c[3])))?;
@@ -999,6 +1002,7 @@ impl QuestTable {
                                     .map_err(|_| at(format!("a chance {}", col(19))))?,
                             )
                         },
+                        to_fellows: col(23) == "1",
                     });
                 }
                 "give" if (10..=11).contains(&c.len()) => {

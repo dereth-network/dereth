@@ -452,6 +452,7 @@ fn a_map_found_at_its_place_moves_on_the_quest_it_is_part_of() {
         xp_share: 0.0,
         transforms: None,
         chance: None,
+        to_fellows: false,
     });
     let (b, me, world, map) = with_map(&mut h);
     h.server

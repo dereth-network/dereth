@@ -522,6 +522,12 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                 if let Some(why) = r.to.as_deref().and_then(|to| place_ref(to, &l.pack)) {
                     problems.push(at(format!("to: {why}")));
                 }
+                if r.to_fellows && r.to.is_none() {
+                    problems.push(at(
+                        "to_fellows: only a step that takes its player somewhere takes the fellows"
+                            .into(),
+                    ));
+                }
                 if r.to.is_some()
                     && matches!(r.trigger, Trigger::Arrive(_) | Trigger::ArriveFrom(..))
                 {

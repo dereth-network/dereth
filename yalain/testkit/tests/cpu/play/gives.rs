@@ -123,6 +123,7 @@ fn step(quest: u32, needs: u32, trigger: Trigger, update: Update) -> Step {
         to: None,
         transforms: None,
         chance: None,
+        to_fellows: false,
     }
 }
 
@@ -1357,6 +1358,7 @@ fn hero_world(effects: Vec<u32>, transforms: Option<Transformation>) -> Harness 
             effects,
             transforms,
             chance: None,
+            to_fellows: false,
             ..step(
                 ELYSA,
                 4,
@@ -2069,6 +2071,101 @@ fn a_give_or_a_takes_step_that_leads_somewhere_tells_its_update_then_takes_the_p
         then,
         "at the take's place"
     );
+}
+
+/// A give's step that takes the fellowship along sends every fellow in the world to its place with
+/// the giver, the one beside it and the one far off in another landblock alike, whatever quests they
+/// hold; a fellow who is dead stays, as do one whose scene isn't drawn yet, one already on its way
+/// elsewhere and a player who is no fellow. Without it, the giver goes alone.
+///
+/// Behaviour: server.quests.a-step-takes-the-fellowship-along
+#[test]
+fn a_step_that_takes_the_fellowship_along_sends_every_fellow_wherever_it_is() {
+    const THERE: u32 = 0x04A9_0100;
+    const ELSEWHERE: u32 = 0x7F91_0034;
+    for along in [true, false] {
+        let mut h = world();
+        h.server.quests.steps = vec![Step {
+            takes: vec![ASHES],
+            to: Some(yalain_content::quests::Place {
+                cell: THERE,
+                origin: [10.0, 20.0, 5.0],
+                heading: 0,
+            }),
+            to_fellows: along,
+            ..step(QUEST, 2, Trigger::Give(ASHES, PERSON_T), Update::Advance(3))
+        }];
+        let (b, me) = player(&mut h, "one", "Elara");
+        let (_, near) = player(&mut h, "two", "Bran");
+        let (_, far) = player(&mut h, "three", "Cael");
+        let (_, dead) = player(&mut h, "four", "Dun");
+        let (_, other) = player(&mut h, "five", "Eir");
+        let (_, busy) = player(&mut h, "six", "Fen");
+        // In the world, its scene not yet drawn.
+        let (_, loading) = h.player_in_world("seven", "Gil");
+        fellowship(&mut h, &[me, near, far, dead, busy, loading]);
+        player_at_phase(&mut h, me, QUEST, 2);
+        let w = world_of(&h, far);
+        let p = h.server.players.get_mut(&w).expect("in the world");
+        p.position.cell = ELSEWHERE;
+        p.position.origin = [100.0, 100.0, 40.0];
+        let w = world_of(&h, dead);
+        let p = h.server.players.get_mut(&w).expect("in the world");
+        yalain_world::quals::set_int(&mut p.qualities, yalain_world::player::quality::HEALTH, 0);
+        let w = world_of(&h, busy);
+        let p = h.server.players.get_mut(&w).expect("in the world");
+        let mut away = p.position;
+        away.cell = ELSEWHERE;
+        p.trip = Some(yalain_world::places::Trip {
+            to: away,
+            used: None,
+            step: None,
+            resurrect: false,
+            sent: true,
+            said: None,
+            updates: Vec::new(),
+        });
+        let cell = |h: &Harness, who: u64| h.server.players[&world_of(h, who)].position.cell;
+        let before = [near, dead, other, busy, loading].map(|who| cell(&h, who));
+        let (ashes, slot) = hold(&mut h, me, ASHES, 1);
+        h.bots[b].send(true, queue::WEENIE, &give(me, ashes, slot, PERSON, 1));
+        h.run(steps(HANDED_AFTER) + 8);
+        h.run(steps(12.0));
+        assert_eq!(cell(&h, me), THERE, "the giver went");
+        if along {
+            assert_eq!(cell(&h, near), THERE, "the fellow beside it went");
+            assert_eq!(cell(&h, far), THERE, "the fellow far off went");
+        } else {
+            assert_eq!(cell(&h, near), before[0], "alone: the fellow stays");
+            assert_eq!(cell(&h, far), ELSEWHERE);
+        }
+        assert_eq!(cell(&h, dead), before[1], "a dead fellow stays");
+        assert_eq!(cell(&h, other), before[2], "no fellow stays");
+        assert_eq!(
+            cell(&h, loading),
+            before[4],
+            "a fellow not yet in the scene stays"
+        );
+        let p = &h.server.players[&world_of(&h, busy)];
+        assert_eq!(
+            (p.position.cell, p.trip.as_ref().map(|t| t.to.cell)),
+            (before[3], Some(ELSEWHERE)),
+            "a fellow on its way elsewhere keeps going there"
+        );
+        let holds_quest = |h: &Harness, who: u64| {
+            h.server.players[&world_of(h, who)]
+                .play
+                .quests
+                .iter()
+                .any(|q| q.quest == QUEST)
+        };
+        assert!(!holds_quest(&h, near), "sent, its quests not moved");
+        assert!(h
+            .server
+            .players
+            .values()
+            .all(|p| p.character == busy || p.trip.is_none()));
+    }
 }
 
 /// A step's give of a class runs for an item of any template of the class (its package the class,

@@ -162,6 +162,7 @@ fn step(effect: u32, text: Option<(u32, u32)>) -> Step {
         to: None,
         transforms: None,
         chance: None,
+        to_fellows: false,
     }
 }
 

@@ -13038,6 +13038,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-step-takes-the-fellowship-along",
+        says: "A step that takes its player somewhere and takes the fellowship along sends each of \
+               the player's fellows in the world there too, through portal space, wherever it is: \
+               at a give or a use, with the player; at a kill, at the kill. A dead fellow, one not \
+               yet in the world's scene and one already on its way somewhere stay; a player who is \
+               no fellow stays. The fellows' quests move only as the step says.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FELLOWSHIP-TRIP"),
+        station: "yalain-testkit::cpu::play::gives::a_step_that_takes_the_fellowship_along_sends_every_fellow_wherever_it_is",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-step-teaches-the-recipes-it-names",
         says: "A quest step that names recipes has its player learn each, told as any recipe learned, after its update; one known already is not told again, and a step naming none teaches none.",
         since: RETAIL,

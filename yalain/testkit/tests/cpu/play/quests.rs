@@ -115,6 +115,7 @@ pub(super) fn step(quest: u32, needs: u32, trigger: Trigger, update: Update) -> 
         to: None,
         transforms: None,
         chance: None,
+        to_fellows: false,
     }
 }
 
@@ -286,6 +287,109 @@ fn an_item_used_on_an_object_takes_the_player_and_moves_the_quest_on_arrival() {
     let p = h.server.players.values().next().expect("the player");
     assert_eq!(p.position.cell, 0x0299_014D, "at the step's place");
     assert!(p.play.items.iter().all(|i| i.id != glyph));
+}
+
+/// A held item used on an object, when its step takes the fellowship along: the user's fellow goes
+/// through portal space as the user does and comes out at the step's place; a player who is no
+/// fellow stays.
+/// Behaviour: server.quests.a-step-takes-the-fellowship-along
+#[test]
+fn an_item_used_on_an_object_whose_step_takes_the_fellowship_along_sends_the_fellow_too() {
+    use yalain_world::fellowship::{Fellow, Fellowship, Vitals};
+    let mut h = Harness::new();
+    h.server.catalog = test_catalog();
+    h.server.content = ContentPack {
+        objects: vec![object(
+            VAULT,
+            VAULT_TEMPLATE,
+            Kind::Static,
+            [61.0, 241.0, -44.6],
+        )],
+        ..ContentPack::default()
+    };
+    let to = Place {
+        cell: 0x0299_014D,
+        origin: [1.15, -7.59, 1.30],
+        heading: 0,
+    };
+    h.server.quests = QuestTable {
+        quests: vec![quest(HALL_QUEST, 0, -999)],
+        steps: vec![Step {
+            takes: vec![TEST_ITEM],
+            to: Some(to),
+            to_fellows: true,
+            ..step(
+                HALL_QUEST,
+                6,
+                Trigger::UseOn(TEST_ITEM, VAULT_TEMPLATE),
+                Update::Advance(7),
+            )
+        }],
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
+    let (b, me) = h.player_in_world("one", "Elara");
+    let (c, you) = h.player_in_world("two", "Bran");
+    let (_, other) = h.player_in_world("three", "Cael");
+    h.bots[c].send(
+        true,
+        queue::WEENIE,
+        &auberean_protocol::ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    h.run(5);
+    h.server.fellowships.list.push(Fellowship {
+        name: "Hunters".into(),
+        leader: me,
+        flags: 0,
+        room: 1,
+        fellows: [me, you]
+            .iter()
+            .map(|&id| Fellow {
+                id,
+                joined: 0.0,
+                sent: Vitals::default(),
+                next_check: f64::INFINITY,
+            })
+            .collect(),
+        last_claimant: 0,
+    });
+    at_phase(&mut h, HALL_QUEST, 6);
+    let cell = |h: &Harness, who: u64| {
+        h.server
+            .players
+            .values()
+            .find(|p| p.character == who)
+            .expect("in the world")
+            .position
+            .cell
+    };
+    let stays = cell(&h, other);
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in the world")
+        .0;
+    yalain_world::inventory::give(&mut h.server, &mut h.net, world, TEST_ITEM, 1);
+    let glyph = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .find(|i| i.template == TEST_ITEM)
+        .expect("held")
+        .id;
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(USE, &[use_on(glyph, VAULT, me)]),
+    );
+    h.run(20);
+    assert_ne!(cell(&h, you), to.cell, "not before the user goes");
+    h.run(100);
+    assert_eq!(cell(&h, me), to.cell, "the user went");
+    assert_eq!(cell(&h, you), to.cell, "the fellow went with it");
+    assert_eq!(cell(&h, other), stays, "no fellow stays");
 }
 
 /// One use runs every step it triggers, each quest at most once: an explorer completes the quest

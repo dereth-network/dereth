@@ -3383,6 +3383,48 @@ fn a_steps_or_a_gives_quiet_effects_are_read_compiled_and_need_effects() {
     assert!(read(&step("effects = [0x6F0019F0]\neffects_quiet = 1\n")).is_err());
 }
 
+/// A step's `to_fellows` is read, compiled and kept through the quest table's text; a world that
+/// says nothing takes no fellowship along, and a step that takes its player nowhere can't take the
+/// fellows.
+/// Behaviour: server.quests.a-step-takes-the-fellowship-along
+#[test]
+fn a_steps_fellowship_trip_is_read_compiled_and_needs_a_place() {
+    let plain = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert!(plain.quests.steps.iter().all(|s| !s.to_fellows));
+    let use_ = yalain_content::quests::Trigger::Use(0x4700_33D0);
+    let step = |extra: &str| {
+        let mut files = fixture();
+        edit(
+            &mut files,
+            "town/server/quests/40000088.toml",
+            "needs = 0\ntrigger = { use = 0x470033D0 }\n",
+            &format!("needs = 0\ntrigger = {{ use = 0x470033D0 }}\n{extra}"),
+        );
+        files
+    };
+    let files = step("to = \"inn\"\nto_fellows = true\n");
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let s = t
+        .quests
+        .steps
+        .iter()
+        .find(|s| s.trigger == use_)
+        .expect("the step");
+    assert!(s.to_fellows && s.to.is_some());
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+        t.quests,
+        "it reads back as written"
+    );
+    let nowhere = check(&step("to_fellows = true\n"))
+        .iter()
+        .map(ToString::to_string)
+        .any(|m| m.contains("to_fellows") && m.contains("takes its player somewhere"));
+    assert!(nowhere, "no place, no fellows taken");
+    assert!(read(&step("to = \"inn\"\nto_fellows = 1\n")).is_err());
+}
+
 /// Behaviour: server.gives.row-wants-a-count
 #[test]
 fn a_give_moving_no_quest_is_checked_for_what_it_wants_and_names() {
