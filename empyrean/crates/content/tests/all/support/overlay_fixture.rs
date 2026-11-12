@@ -17,14 +17,31 @@ pub(crate) fn base_sql() -> PathBuf {
     fixtures().join("base.sql")
 }
 
-pub(crate) fn tmp(name: &str) -> PathBuf {
+/// A test's own empty folder, removed with everything in it when dropped. Made first in a test, it
+/// is dropped last, after the overlay and packs that hold its files open.
+pub(crate) struct TempDir(PathBuf);
+
+impl std::ops::Deref for TempDir {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+pub(crate) fn tmp(name: &str) -> TempDir {
     let d = std::env::temp_dir().join(format!(
         "empyrean-content-overlay-{}-{name}",
         std::process::id()
     ));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).unwrap();
-    d
+    TempDir(d)
 }
 
 pub(crate) fn base_pack() -> Pack {

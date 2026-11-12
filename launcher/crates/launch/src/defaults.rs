@@ -127,12 +127,29 @@ impl Defaults {
 mod tests {
     use super::*;
 
-    fn temp(name: &str) -> PathBuf {
+    /// A folder in the temporary directory, made anew and removed with everything in it when
+    /// dropped, even by a test that fails.
+    struct Scratch(PathBuf);
+
+    impl std::ops::Deref for Scratch {
+        type Target = Path;
+        fn deref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn temp(name: &str) -> Scratch {
         let dir =
             std::env::temp_dir().join(format!("dereth-defaults-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        dir
+        Scratch(dir)
     }
 
     /// The file Auberean's package writes names Auberean for the realm and the updates; no file,
@@ -146,7 +163,6 @@ mod tests {
         assert_eq!(Defaults::read(&dir, &dir.join("data")), Defaults::default());
         assert_eq!(Defaults::default().realm, Realm::Dereth);
         assert_eq!(Defaults::default().updates, Game::Dereth);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A file that does not read, or a word this launcher does not know, falls back to Dereth
@@ -175,7 +191,7 @@ mod tests {
             Defaults::read(&dir, &dir.join("data")).updates,
             Game::Auberean
         );
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(dir);
 
         let app = temp("bundle");
         let macos = app.join("Contents/MacOS");
@@ -191,7 +207,6 @@ mod tests {
             Defaults::read(&macos, &macos.join("data")).realm,
             Realm::Auberean
         );
-        let _ = std::fs::remove_dir_all(&app);
     }
 
     /// The packaged realm decides the first run only; after that the realm the player last showed

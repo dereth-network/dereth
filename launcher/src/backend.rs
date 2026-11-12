@@ -2899,11 +2899,28 @@ mod tests {
     use dereth_launch::world::{Emulator, Endpoint, Told};
     use dereth_launch::Iterations;
 
-    fn tmp(name: &str) -> PathBuf {
+    /// A folder in the temporary directory, made anew and removed with everything in it when
+    /// dropped, even by a test that fails.
+    struct Scratch(PathBuf);
+
+    impl std::ops::Deref for Scratch {
+        type Target = PathBuf;
+        fn deref(&self) -> &PathBuf {
+            &self.0
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn tmp(name: &str) -> Scratch {
         let d = std::env::temp_dir().join(format!("dereth-tauri-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
-        d
+        Scratch(d)
     }
 
     /// A launcher that doesn't list the worlds it knows of its own: these tests read the list
@@ -2915,7 +2932,7 @@ mod tests {
 
     /// A state folder, and a "Dereth client" with an end-of-retail set beside it. On a Unix system
     /// the client is a script that records how it was started.
-    fn backend(name: &str) -> (Backend, PathBuf) {
+    fn backend(name: &str) -> (Backend, Scratch) {
         let dir = tmp(name);
         let client = dir.join("client");
         write_dat_set(&client, Iterations::END_OF_RETAIL);
@@ -2994,7 +3011,7 @@ mod tests {
     /// account's name was typed.
     #[test]
     fn a_password_is_typed_or_kept_and_kept_only_when_asked() {
-        let (mut b, dir) = backend("password");
+        let (mut b, _dir) = backend("password");
         assert_eq!(b.password_for("shardfall", "player", None), None);
         assert_eq!(b.password_for("shardfall", "player", Some("")), None);
         assert_eq!(
@@ -3018,7 +3035,6 @@ mod tests {
         );
         b.keep_password("shardfall", "player", "hunter2", false);
         assert_eq!(b.kept_password("shardfall", "player"), None);
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// With no secret store, a password an earlier launcher made up for an Asheron's Call 2 account
@@ -3051,7 +3067,6 @@ mod tests {
         b.forget_account("shardfall", "player");
         assert!(!file.exists(), "forgotten with the account");
         assert_eq!(b.password_for("shardfall", "player", None), None);
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// The last thing a client said: its last error line, else its last line but a hint about
@@ -3135,7 +3150,6 @@ mod tests {
             "{}",
             said.text
         );
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// A state file with parts that do not read starts the launcher with the rest of it, the page
@@ -3182,7 +3196,6 @@ mod tests {
             b.message.as_ref().map(|m| m.text.as_str()),
             Some("Your saved settings couldn't be read and were reset.")
         );
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// A world added for Auberean under an older name, `custom-<n>`, is given one of its own at
@@ -3238,7 +3251,6 @@ mod tests {
             !file.contains("custom-1") && !file.contains("auberean"),
             "{file}"
         );
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// A process that ends at once, standing in for a client the launcher started.
@@ -3288,7 +3300,6 @@ mod tests {
             world.endpoint.map(|e| (e.address, e.port)),
             Some(("127.0.0.1".into(), 9200))
         );
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// A launch of an Asheron's Call 2 world is kept as any launch is: the account for the world,
@@ -3296,7 +3307,7 @@ mod tests {
     /// Discord shows as that game's.
     #[test]
     fn an_asheron_s_call_2_launch_keeps_the_account_the_combination_and_the_running_game() {
-        let (mut b, dir) = backend("ac2-launched");
+        let (mut b, _dir) = backend("ac2-launched");
         let slug = b
             .add_custom_world(&NewServer {
                 name: "Dawnsong".into(),
@@ -3343,7 +3354,6 @@ mod tests {
             b.world_view(&slug).unwrap().default_client,
             Some(ClientKind::Retail)
         );
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The list and the worlds' status documents are read over HTTPS only, except from this
@@ -3378,7 +3388,7 @@ mod tests {
 
     #[test]
     fn the_dereth_client_and_the_set_beside_it_are_found_without_first_run() {
-        let (b, dir) = backend("found");
+        let (b, _dir) = backend("found");
         let s = b.snapshot();
         assert_eq!(
             s.dereth.as_ref().map(|d| d.exe.as_str()),
@@ -3394,7 +3404,6 @@ mod tests {
             "no retail client until the player adds one"
         );
         assert_eq!(v.dat_sets.len(), 1);
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// The plugins' downloads, served from memory: each address's bytes, and every address asked.
@@ -3436,7 +3445,7 @@ mod tests {
     #[test]
     fn the_plugins_section_is_there_and_the_client_is_offered_the_installed_plugins() {
         use dereth_launch::testing::{plugin_list, plugin_zip};
-        let (mut b, dir) = backend("plugins-on");
+        let (mut b, _dir) = backend("plugins-on");
         let id = "network.dereth.counter";
         let zip = plugin_zip(id, "1.0.0", "0.1", "");
         assert!(b.snapshot().plugins.installed.is_empty());
@@ -3454,7 +3463,6 @@ mod tests {
         assert_eq!(b.offered_plugins().len(), 1);
         b.remove_plugin(id).expect("removed");
         assert!(b.offered_plugins().is_empty());
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// Every file under `dir`, by its `/`-separated path there, and its bytes.
@@ -3565,7 +3573,6 @@ mod tests {
             check_new_plugin("XP", Some("someone")),
             Err("Give the GitHub repository as username/repo.".to_owned())
         );
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// A new plugin's workflows install the tool the player has, whose Dereth release isn't the
@@ -3676,7 +3683,6 @@ mod tests {
             Err("That is a plugin's own folder. Choose its repository.".to_owned())
         );
         assert_eq!(files_under(&here), now, "nothing is written when refused");
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// The Plugins page's flow over a fake network: Dereth's own source is read, a plugin is
@@ -3808,7 +3814,6 @@ mod tests {
             Backend::refresh_art(&shared, &fetch, &no_github, &packs),
             ""
         );
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// Add a pack file: a packed pack on this computer joins the stack last, from where it is,
@@ -3839,7 +3844,6 @@ mod tests {
         b.remove_art_pack("org.example.flowers").unwrap();
         assert!(b.art.stack().is_empty());
         assert_eq!(std::fs::read(&file).unwrap(), bytes, "the file stays");
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// A GitHub repository added as an art pack source is read from its releases: its newest
@@ -3847,7 +3851,7 @@ mod tests {
     /// answer goes with it, and an answer of "not modified" keeps the list.
     #[test]
     fn a_github_repository_is_an_art_pack_source_asked_again_with_its_last_answers_tag() {
-        let (b, dir) = backend("art-github");
+        let (b, _dir) = backend("art-github");
         let shared: Shared = Arc::new(Mutex::new(b));
         let repo = "https://github.com/jacobjohnston/dereth-enhanced-environment";
         let releases: &[u8] =
@@ -3924,13 +3928,12 @@ mod tests {
             .sources
             .iter()
             .all(|s| s.error.is_none() || s.url != repo));
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
     fn plugins_install_from_sources_and_update_as_the_setting_says() {
         use dereth_launch::testing::{plugin_list, plugin_zip};
-        let (b, dir) = backend("plugins-sources");
+        let (b, _dir) = backend("plugins-sources");
         let shared: Shared = Arc::new(Mutex::new(b));
         let own = "network.dereth.counter";
         let theirs = "org.example.meter";
@@ -4015,7 +4018,6 @@ mod tests {
         let said = Backend::refresh_plugins(&shared, &fetch);
         assert!(said.contains("example.github.io: https://example.github.io/plugins/plugins.json was not found (404)"), "{said}");
         assert_eq!(lock(&shared).offered_plugins().len(), 2);
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// At start every source is read and what is new is said in the notice, whatever the update
@@ -4023,7 +4025,7 @@ mod tests {
     #[test]
     fn at_start_the_updates_that_wait_are_told_whatever_the_setting() {
         use dereth_launch::testing::{plugin_list, plugin_zip};
-        let (b, dir) = backend("plugins-at-start");
+        let (b, _dir) = backend("plugins-at-start");
         let shared: Shared = Arc::new(Mutex::new(b));
         let own = "network.dereth.counter";
         let v1 = plugin_zip(own, "1.0.0", "0.1", "");
@@ -4055,14 +4057,13 @@ mod tests {
             Some("Plugins: 1 plugin update is waiting.")
         );
         drop(b);
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// Started with no connection, the launcher says nothing of its sources in the notice: each
     /// source's row says it could not be read. Refresh still says so.
     #[test]
     fn at_start_a_source_that_cannot_be_read_says_so_on_its_row_and_not_in_the_notice() {
-        let (b, dir) = backend("plugins-offline");
+        let (b, _dir) = backend("plugins-offline");
         let shared: Shared = Arc::new(Mutex::new(b));
         let offline = Served::new(&[]);
         let fetch = |u: &str, l: usize| offline.fetch(u, l);
@@ -4075,7 +4076,6 @@ mod tests {
             .is_some_and(|e| e.contains("was not found")));
         let said = Backend::refresh_plugins(&shared, &fetch);
         assert!(said.starts_with("Dereth: "), "{said}");
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// A folder on this computer is added and taken off by the page; its plugins are offered to
@@ -4114,7 +4114,6 @@ mod tests {
         assert_eq!(b.offered_plugins(), b.plugins.offered_packages());
         assert_eq!(b.offered_plugins().len(), 1, "the installed one again");
         assert!(b.remove_plugin_folder(&repo).is_err());
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// Adding a folder is one step, with no question first, and says what it added in one short
@@ -4154,7 +4153,6 @@ mod tests {
                 code.join("plugins").display()
             ))
         );
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// Make Your Own puts the folder it wrote in on the folders on this computer, once, so the
@@ -4196,7 +4194,6 @@ mod tests {
         std::fs::write(held.join("notes.txt"), "mine").unwrap();
         assert!(b.make_plugin(&held, "XP Tracker", None).is_err());
         assert_eq!(b.plugins.local, [repo]);
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// Make Your Own puts a copy of the author's tool the launcher ships with at the root of the
@@ -4311,7 +4308,6 @@ mod tests {
         lock(&shared).tool = Some(tool);
         Backend::keep_tools_current(&shared);
         assert_eq!(copy_in(&later).as_deref(), Some("the tool, 1.2"));
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[cfg(unix)]
@@ -4346,17 +4342,15 @@ mod tests {
             "the same combination is listed once"
         );
         b.running.remove(0).child.wait().unwrap();
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
     fn no_password_anywhere_asks_for_one() {
-        let (mut b, dir) = backend("nopw");
+        let (mut b, _dir) = backend("nopw");
         assert!(matches!(
             b.launch(choice(None)),
             LaunchOutcome::NeedPassword { .. }
         ));
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// Auberean's realm's Library takes its folders as Dereth's does, into a library of its own:
@@ -4417,7 +4411,6 @@ mod tests {
             b.state.dat_sets, dereth_sets,
             "Asheron's Call's library is untouched"
         );
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -4445,14 +4438,13 @@ mod tests {
             });
             assert!(matches!(out, LaunchOutcome::Error { .. }), "{out:?}");
         }
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// A world added from a join link that names Auberean is listed in Auberean's realm, not
     /// Dereth's.
     #[test]
     fn a_world_added_for_auberean_is_listed_in_auberean_s_realm() {
-        let (mut b, dir) = backend("auberean-world");
+        let (mut b, _dir) = backend("auberean-world");
         let slug = b
             .add_custom_world(&NewServer {
                 name: "A friend's".into(),
@@ -4470,7 +4462,6 @@ mod tests {
             .expect("listed");
         assert_eq!(world.game, dereth_launch::world::Game::Auberean);
         assert!(Realm::Auberean.shows(&world) && !Realm::Dereth.shows(&world));
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// A first run opens in the realm the launcher's package names; once there is a state file,
@@ -4500,12 +4491,11 @@ mod tests {
             Realm::Dereth,
             "the last one shown"
         );
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn a_server_added_by_hand_is_a_world_and_goes_with_its_accounts() {
-        let (mut b, dir) = backend("custom");
+        let (mut b, _dir) = backend("custom");
         let slug = b
             .add_custom_world(&NewServer {
                 name: "Home".into(),
@@ -4546,7 +4536,6 @@ mod tests {
         b.remove_custom_world(&slug);
         assert!(b.world_view(&slug).is_err());
         assert!(b.state.accounts.is_empty());
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -4569,17 +4558,16 @@ mod tests {
             silent.local_addr().unwrap().port()
         ));
 
-        let (mut b, dir) = backend("probe");
+        let (mut b, _dir) = backend("probe");
         b.probed.insert("eulmore".into(), false);
         assert_eq!(b.world("eulmore").unwrap().state, WorldState::Offline);
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// A world starred in the world list is a favorite, which the list shows first, and the star
     /// is saved; taken away, it is not.
     #[test]
     fn a_world_starred_in_the_list_is_a_favorite_and_is_saved() {
-        let (mut b, dir) = backend("world-favorite");
+        let (mut b, _dir) = backend("world-favorite");
         assert!(!b.world("eulmore").unwrap().favorite);
         b.set_world_favorite("eulmore", true);
         assert!(b.world("eulmore").unwrap().favorite);
@@ -4591,7 +4579,6 @@ mod tests {
         );
         b.set_world_favorite("eulmore", false);
         assert!(!b.world("eulmore").unwrap().favorite);
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// The desktop shows an Empyrean world's era as being checked until it has asked the world,
@@ -4601,7 +4588,7 @@ mod tests {
     fn an_empyrean_worlds_era_is_checked_until_asked_and_asked_again_only_while_shown() {
         use dereth_launch::status::LiveStatus;
         use dereth_launch::world::EraState;
-        let (mut b, dir) = backend("era-state");
+        let (mut b, _dir) = backend("era-state");
         assert_eq!(b.world("eulmore").unwrap().era_state, EraState::Checking);
         b.probed.insert("eulmore".into(), true);
         assert_eq!(b.world("eulmore").unwrap().era_state, EraState::Unknown);
@@ -4623,7 +4610,6 @@ mod tests {
         assert!(b.pings_due().is_empty(), "nothing is asked off screen");
         b.set_worlds_shown(true);
         assert_eq!(b.pings_due(), ["eulmore"]);
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// A stand-in for Empyrean's side of the status ping: a token for the hello, the status for
@@ -4676,7 +4662,7 @@ mod tests {
         );
 
         // A server the player added without a name is called what it says it is called.
-        let (mut b, dir) = backend("ping");
+        let (mut b, _dir) = backend("ping");
         let slug = b
             .add_custom_world(&NewServer {
                 host: "127.0.0.1".into(),
@@ -4692,14 +4678,13 @@ mod tests {
         assert_eq!(w.players, Some(4));
         assert_eq!(w.era_source, Some(Told::World));
         assert_eq!(w.features_source, Some(Told::World));
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// A world's era and systems are its own word, and a world that says none plays the end of
     /// retail; the page is given nothing to choose them with.
     #[test]
     fn a_world_plays_the_era_it_says_and_any_other_the_end_of_retail() {
-        let (mut b, dir) = backend("eras");
+        let (mut b, _dir) = backend("eras");
         let mut w = World::new("leafcull", "Leafcull");
         w.emulator = Emulator::Ace;
         w.endpoint = b.list.worlds()[0].endpoint.clone();
@@ -4755,7 +4740,6 @@ mod tests {
             (w.era.as_deref(), w.era_features.as_deref()),
             (Some("eor"), None)
         );
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -4784,7 +4768,6 @@ mod tests {
             matches!(&out, LaunchOutcome::Error { message } if message.contains("Modern")),
             "{out:?}"
         );
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// Play Again's combination, saved with a set the player removed and then added again from the
@@ -4840,14 +4823,13 @@ mod tests {
             b.state.recent[0].dat_set_id.as_deref(),
             Some(again.as_str())
         );
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// A combination whose data files are gone from the Library opens its world's page to choose
     /// others, rather than failing to start.
     #[test]
     fn a_combination_whose_data_files_are_gone_asks_for_others() {
-        let (mut b, dir) = backend("play-again-gone");
+        let (mut b, _dir) = backend("play-again-gone");
         let out = b.launch(Choice {
             dat_set_id: Some("removed-long-ago".into()),
             ..choice(Some("pw"))
@@ -4861,13 +4843,12 @@ mod tests {
             ..choice(Some("pw"))
         });
         assert!(matches!(out, LaunchOutcome::ChooseSet { .. }), "{out:?}");
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// A choice saved before a world said it plays Launch can't start the retail client on it.
     #[test]
     fn a_launch_world_is_not_started_on_the_retail_client() {
-        let (mut b, dir) = backend("retail-on-launch");
+        let (mut b, _dir) = backend("retail-on-launch");
         b.list.worlds_mut()[0].era = Some("launch".into());
         let out = b.launch(Choice {
             client: ClientKind::Retail,
@@ -4877,7 +4858,6 @@ mod tests {
             matches!(&out, LaunchOutcome::Error { message } if message.contains("can't play")),
             "{out:?}"
         );
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -4907,7 +4887,6 @@ mod tests {
         assert!(view.launch_pair);
         assert_eq!(view.classic_sets.len(), 1);
         assert_eq!(view.classic_sets[0].path, original);
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[cfg(unix)]
@@ -4948,7 +4927,6 @@ mod tests {
             b.state.recent[0].classic_set_id.as_deref(),
             Some(id.as_str())
         );
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -4980,7 +4958,6 @@ mod tests {
         assert!(s.list_fetched_at.is_some());
         assert!(!b.list.wants_reading(now()), "fresh: no fetch at start");
         assert_eq!(s.eras.len(), 3);
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// A launcher started on another hub's list (`DERETH_HUB_LIST`) reads that hub's list at
@@ -5047,7 +5024,6 @@ mod tests {
             lock(&after).list.wants_reading(now()),
             "the network's list is read again"
         );
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// The list the launcher fetches by default comes from the hub, or from the community's own
@@ -5210,7 +5186,6 @@ mod tests {
             Some(copy),
             "an empty list is never the day's copy"
         );
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// The window shows the same worlds as the web client's front page from the same answers: the
@@ -5242,7 +5217,6 @@ mod tests {
         };
         assert_eq!(read(true), fixture::from_the_hub());
         assert_eq!(read(false), fixture::from_the_community());
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -5274,7 +5248,6 @@ mod tests {
         );
         let (saved, _) = LauncherState::load(&dir.join("state"));
         assert_eq!(saved.recent.len(), 1, "and the history on disk with it");
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// The first start asks which interface the Dereth client plays in, until the launcher keeps
@@ -5361,7 +5334,6 @@ Interface=Horizon
             None,
         );
         assert!(none.snapshot().interface.is_none());
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// A row of the hub's list: the world `name` on this machine's discard port, its status
@@ -5397,7 +5369,7 @@ Interface=Horizon
     /// `Servers.xml` `named` alone.
     /// A launcher reading the usual sources, or the list `named` alone, with `copy` kept as the
     /// day's copy of what they gave.
-    fn launcher_with(name: &str, copy: &ListCache, named: Option<&str>) -> (Shared, PathBuf) {
+    fn launcher_with(name: &str, copy: &ListCache, named: Option<&str>) -> (Shared, Scratch) {
         let dir = tmp(name);
         let folders = Folders::single(dir.join("state"));
         let sources = serverlist::sources(named);
@@ -5469,7 +5441,7 @@ Interface=Horizon
             )],
             ..ListCache::default()
         };
-        let (shared, dir) = launcher_with("hub-status", &copy, None);
+        let (shared, _dir) = launcher_with("hub-status", &copy, None);
         assert_eq!(
             seen(&shared, "coldeve"),
             (WorldState::Unknown, None),
@@ -5556,7 +5528,6 @@ Interface=Horizon
             "an expired heartbeat leaves the world to its probe"
         );
         assert_eq!(seen(&shared, "frostfell"), (WorldState::Online, None));
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// The refresh button's list, when it is the hub's, brings each world's status at once. The
@@ -5609,7 +5580,7 @@ Interface=Horizon
         );
         let (_, get) = stand_in(Vec::new());
         assert!(Backend::read_hub_status_at(&shared, now() + 600, get).is_none());
-        let _ = std::fs::remove_dir_all(dir);
+        drop(dir);
 
         let hub_copy = ListCache {
             fetched_at: now(),
@@ -5619,7 +5590,7 @@ Interface=Horizon
             )],
             ..ListCache::default()
         };
-        let (shared, dir) = launcher_with(
+        let (shared, _dir) = launcher_with(
             "hub-named",
             &hub_copy,
             Some("https://lists.example/Servers.xml"),
@@ -5631,7 +5602,6 @@ Interface=Horizon
             "a named list is read alone, and says nothing of status"
         );
         assert_eq!(seen(&shared, "coldeve"), (WorldState::Unknown, None));
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// A game the launcher "started" on `world`: this test program again, listing its tests,
@@ -5682,7 +5652,6 @@ Interface=Horizon
         )
         .unwrap();
         assert!(listed(&folders), "a file that had it turned off");
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// A client started by a launcher that reads another hub's list is told that hub, for the count
@@ -5717,7 +5686,6 @@ Interface=Horizon
         );
         assert!(told(serverlist::sources(None)).is_empty());
         assert_eq!(serverlist::PLAYER_COUNT_HUB_ENV, "DERETH_PLAYER_COUNT_HUB");
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// A launcher with an empty state folder lists Icefire in Asheron's Call 2's realm, and so does
@@ -5751,7 +5719,6 @@ Interface=Horizon
         )
         .unwrap();
         assert!(icefire(&folders).is_some(), "an older file");
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// Icefire is asked whether it is up with the server-tracker login alone, as any world that
@@ -5760,7 +5727,7 @@ Interface=Horizon
     /// This doesn't send anything: Icefire's address is real.
     #[test]
     fn icefire_is_asked_with_the_login_and_shows_what_it_said() {
-        let (b, dir) = backend("icefire-probe");
+        let (b, _dir) = backend("icefire-probe");
         let shared: Shared = Arc::new(Mutex::new(b));
         let slugs = ["icefire".to_owned()];
         lock(&shared).state.hide_built_in_worlds = false;
@@ -5799,7 +5766,6 @@ Interface=Horizon
         };
         assert_eq!(ask(Emulator::Unknown, "9300"), (true, true, false));
         assert_eq!(ask(Emulator::Yalain, "9400"), (true, false, false));
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// A world played through a relay is listed with nothing set, and asked as any world is, in the
@@ -5807,7 +5773,7 @@ Interface=Horizon
     /// send anything: its address is real.
     #[test]
     fn a_relayed_world_is_listed_and_asked_in_its_own_form() {
-        let (b, dir) = backend("relayed");
+        let (b, _dir) = backend("relayed");
         let shared: Shared = Arc::new(Mutex::new(b));
         let slugs = ["ac1999".to_owned()];
         assert!(lock(&shared).world("ac1999").is_none(), "the tests hide it");
@@ -5837,7 +5803,6 @@ Interface=Horizon
             lock(&shared).world("ac1999").unwrap().state,
             WorldState::Online
         );
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// A server of the 1999 wire is asked in that wire's form, and its login failure is a yes; silence
@@ -5881,7 +5846,7 @@ Interface=Horizon
     /// The relay goes when the client it serves ends.
     #[test]
     fn a_relay_stops_when_its_client_ends() {
-        let (mut b, dir) = backend("relay-stops");
+        let (mut b, _dir) = backend("relay-stops");
         let world = b.world("eulmore").unwrap();
         let mut game = running_game(&world, ClientKind::Dereth);
         let mut relay = if cfg!(windows) {
@@ -5911,7 +5876,6 @@ Interface=Horizon
             std::thread::sleep(Duration::from_millis(100));
         }
         assert!(!process_alive(id), "and its relay with it");
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// Whether a process of this id still runs.
@@ -5991,7 +5955,6 @@ Interface=Horizon
             other => panic!("{other:?}"),
         }
         assert_eq!(next(&rx), Seen::Closed);
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// "Automatically update components" is on to begin with, and what the player
@@ -6008,7 +5971,6 @@ Interface=Horizon
         b.set_update_components(true);
         let (saved, _) = LauncherState::load(&dir.join("state"));
         assert!(saved.settings.update_components);
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// A Library section the player folds stays folded across a restart, and the page is told.
@@ -6031,7 +5993,6 @@ Interface=Horizon
             json["state"]["settings"]["library_open"]["dereth.sets.classic"],
             false
         );
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -6047,12 +6008,11 @@ Interface=Horizon
         assert_eq!(saved.settings.realm, Realm::Auberean, "kept with the state");
         let json = serde_json::to_value(b.snapshot()).unwrap();
         assert_eq!(json["state"]["settings"]["realm"], "auberean");
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
     fn snapshots_serialise_for_the_page() {
-        let (b, dir) = backend("json");
+        let (b, _dir) = backend("json");
         let json = serde_json::to_string(&b.snapshot()).unwrap();
         assert!(json.contains("\"slug\":\"eulmore\""));
         assert!(json.contains("\"list_state\":\"loading\""));
@@ -6061,7 +6021,6 @@ Interface=Horizon
             view.contains("\"kind\":\"dereth\"") && view.contains("\"default_client\":\"dereth\""),
             "{view}"
         );
-        let _ = std::fs::remove_dir_all(dir);
     }
     #[test]
     fn a_host_address_change_refuses_play_before_starting_a_client_on_the_old_address() {
@@ -6189,7 +6148,6 @@ Interface=Horizon
             "past the check"
         );
         drop(guard);
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// Playing an Asheron's Call 2 world that writes into the retail client's files first copies
@@ -6299,6 +6257,5 @@ Interface=Horizon
         assert!(b.job.is_none());
         assert!(b.state.auberean.retail_copies.is_empty());
         drop(b);
-        let _ = std::fs::remove_dir_all(dir);
     }
 }

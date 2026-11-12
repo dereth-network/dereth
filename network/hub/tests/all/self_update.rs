@@ -1244,7 +1244,8 @@ CREATE TABLE settings_events (
                 "the character chosen to speak as"
             );
         }
-        drop(r);
+        // Every file is closed before the folder goes.
+        drop((r, db, new));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

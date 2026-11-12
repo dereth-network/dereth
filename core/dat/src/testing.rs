@@ -248,13 +248,15 @@ pub fn open_classic_store_or_fail() -> RetailDatStore {
 
 /// One folder holding both dat sets, as a player's one `--dat-dir` does: the retail files of
 /// [`dat_dir`] and the February 2005 `portal.dat` and `cell.dat` of [`classic_dat_dir`], hard-linked
-/// into a folder under the temp directory (no copy is made). The folder is named after the two it
-/// joins, so every test process reuses it, and it is protected for the run as the install is.
+/// into a folder beside the test programs in the build's output (no copy is made), so it goes when
+/// the build output does; in the temp directory when the program's own folder is unknown. The
+/// folder is named after the two it joins, so every test process of the build reuses it, and it is
+/// protected for the run as the install is.
 ///
 /// # Panics
 ///
 /// With the shortfall line when either set is not there, or when a file cannot be linked (the
-/// temp directory on another volume than the dats).
+/// build's output on another volume than the dats).
 #[must_use]
 pub fn both_sets_dir() -> PathBuf {
     static DIR: OnceLock<PathBuf> = OnceLock::new();
@@ -272,7 +274,12 @@ pub fn both_sets_dir() -> PathBuf {
         for b in format!("{}|{}", later.display(), older.display()).bytes() {
             hash = (hash ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
         }
-        let dir = std::env::temp_dir().join(format!("dereth-both-dat-sets-{hash:016x}"));
+        // A test program runs from `<target>/<profile>/deps/`: the folder goes in `<profile>`.
+        let base = std::env::current_exe()
+            .ok()
+            .and_then(|exe| Some(exe.parent()?.parent()?.to_path_buf()))
+            .unwrap_or_else(std::env::temp_dir);
+        let dir = base.join(format!("dereth-both-dat-sets-{hash:016x}"));
         std::fs::create_dir_all(&dir)
             .unwrap_or_else(|e| panic!("the folder {} could not be made: {e}", dir.display()));
         let files = ModernDat::ALL

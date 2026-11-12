@@ -288,9 +288,9 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("tmp");
         let path = dir.join("t.jsonl");
         std::fs::write(&path, lines.join("\n") + "\n").expect("write");
-        let rec = Recording::read(&path).expect("read");
-        std::fs::remove_file(&path).ok();
-        rec
+        let rec = Recording::read(&path);
+        std::fs::remove_dir_all(&dir).ok();
+        rec.expect("read")
     }
 
     /// **The property this module exists for.** A name cut in half by the fragmenter is found in

@@ -496,12 +496,8 @@ mod tests {
     const CRLF: &[u8] = b"a\r\nb\r\nc\r\n";
     const LF: &[u8] = b"a\nb\nc\n";
 
-    fn scratch(tag: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("xtask-line-endings-{tag}-{}", std::process::id()));
-        std::fs::remove_dir_all(&dir).ok();
-        std::fs::create_dir_all(&dir).expect("a temp directory");
-        dir
+    fn scratch(tag: &str) -> crate::scratch::Scratch {
+        crate::scratch::Scratch::new(&format!("xtask-line-endings-{tag}"))
     }
 
     /// A CRLF file with one bare-LF line appended is MIXED, and the counts say so; pure files,
@@ -586,7 +582,8 @@ mod tests {
     /// it could not read into files reported as examined.
     #[test]
     fn a_path_past_max_path_is_read_and_an_absent_file_still_errors() {
-        let mut deep = scratch("deep");
+        let root = scratch("deep");
+        let mut deep = root.to_path_buf();
         for _ in 0..4 {
             deep = deep.join("x".repeat(60));
         }

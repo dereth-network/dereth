@@ -99,11 +99,8 @@ fn the_launcher_is_a_product_of_its_own() {
     assert!(p.version(&workspace_root()).is_ok());
 }
 
-fn temp(name: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("xtask-launcher-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("a temp directory");
-    dir
+fn temp(name: &str) -> crate::scratch::Scratch {
+    crate::scratch::Scratch::new(&format!("xtask-launcher-{name}"))
 }
 
 fn member(name: &str, bytes: &[u8], executable: bool) -> Member {

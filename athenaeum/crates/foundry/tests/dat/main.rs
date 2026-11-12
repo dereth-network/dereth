@@ -37,12 +37,28 @@ fn database() -> PathBuf {
     })
 }
 
-/// A folder of the test's own, empty.
-fn scratch(name: &str) -> PathBuf {
+/// A folder of the test's own, empty, removed with everything in it when dropped, even by a test
+/// that fails.
+struct Scratch(PathBuf);
+
+impl std::ops::Deref for Scratch {
+    type Target = PathBuf;
+    fn deref(&self) -> &PathBuf {
+        &self.0
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+fn scratch(name: &str) -> Scratch {
     let d = std::env::temp_dir().join(format!("athenaeum-dat-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).unwrap();
-    d
+    Scratch(d)
 }
 
 fn compiled(dir: &Path, base: &Path) -> Tables {
@@ -126,7 +142,6 @@ fn a_person_placed_and_one_moved_in_a_world_are_where_the_server_puts_them() {
     };
     assert_eq!(t.content.objects.len(), plain.content.objects.len() + 1);
     assert!(base_objects > 0);
-    std::fs::remove_dir_all(&root).ok();
 }
 
 /// A script library read wrong once, over a file that did not change, is read again and a compile
@@ -370,7 +385,6 @@ fn a_world_built_again_is_the_next_revision_even_with_a_server_reading_the_folde
     assert_eq!(last.shared().layer().unwrap().own_iterations().len(), 3);
 
     drop((held, next, last));
-    std::fs::remove_dir_all(&root).ok();
 }
 
 /// Athenaeum's sample world builds against the install over the database: its trader, its portal
@@ -568,7 +582,6 @@ fn a_worlds_overlay_sets_portal_and_english_records_each_file_numbered_apart() {
     assert_eq!(own(&p), [portal_first, portal_first + 1, portal_first + 2]);
     assert_eq!(own(&e), [english_first, english_first + 1]);
     drop((p, e));
-    std::fs::remove_dir_all(&root).ok();
 }
 
 /// A storekeeper of the database given a shop title in a world: the world writes its own shop, a
@@ -682,5 +695,4 @@ fn a_shop_title_makes_a_copy_of_the_keepers_store_under_its_title() {
     assert_eq!(s.shop_title(SABINE), None);
     assert!(s.shops(&install).is_empty(), "its shop goes with it");
     assert!(s.problems().is_empty(), "{:?}", s.problems());
-    std::fs::remove_dir_all(&root).ok();
 }

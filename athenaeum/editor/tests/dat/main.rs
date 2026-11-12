@@ -39,9 +39,35 @@ fn database() -> PathBuf {
     })
 }
 
+/// An editor and the folder of its world, which is removed with everything in it when the editor
+/// is dropped, even by a test that fails.
+struct Opened {
+    editor: Editor<'static>,
+    dir: PathBuf,
+}
+
+impl std::ops::Deref for Opened {
+    type Target = Editor<'static>;
+    fn deref(&self) -> &Editor<'static> {
+        &self.editor
+    }
+}
+
+impl std::ops::DerefMut for Opened {
+    fn deref_mut(&mut self) -> &mut Editor<'static> {
+        &mut self.editor
+    }
+}
+
+impl Drop for Opened {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
 /// An editor on a new, empty world of the test's own, its camera over the town looking north. What
 /// it borrows lives as long as the test program.
-fn editor(name: &str) -> Editor<'static> {
+fn editor(name: &str) -> Opened {
     let dir = std::env::temp_dir().join(format!("athenaeum-editor-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     new::new_world(&dir, None).expect("a new world");
@@ -58,7 +84,7 @@ fn editor(name: &str) -> Editor<'static> {
     let camera = FlyCamera::new(Vec3::new(g[0], g[1], g[2]), 0.0, -0.5);
     let mut e = Editor::new(session, install, scene, camera, Programs::default());
     e.size = (1600, 900);
-    e
+    Opened { editor: e, dir }
 }
 
 /// A point of open ground in the town, on the world's grid.
@@ -232,7 +258,7 @@ fn drag(e: &mut Editor<'_>, from: [f32; 2], to: [f32; 2], shift: bool) {
 }
 
 /// An editor with a row placed in the town and selected: the row's item and place.
-fn with_a_row(name: &str) -> (Editor<'static>, String, [f32; 3]) {
+fn with_a_row(name: &str) -> (Opened, String, [f32; 3]) {
     let mut e = editor(name);
     // Looking north-east, so the arrows lie apart on the screen.
     e.camera.yaw = -0.6;
@@ -402,7 +428,7 @@ fn a_row_an_undo_took_away_is_let_go() {
 const HALL: u16 = 0x0298;
 const IN_THE_HALL: [f32; 3] = [52.16, 238.5, -42.5];
 
-fn in_the_hall(name: &str) -> Editor<'static> {
+fn in_the_hall(name: &str) -> Opened {
     let mut e = editor(name);
     let g = view::global(HALL, IN_THE_HALL);
     e.camera.position = Vec3::new(g[0], g[1], g[2]);
@@ -519,7 +545,7 @@ fn a_click_on_a_rows_body_selects_it_though_its_marker_is_elsewhere() {
 }
 
 /// Two rows in the town, selected together, the second leading.
-fn with_two_rows(name: &str) -> (Editor<'static>, String, String, [f32; 3], [f32; 3]) {
+fn with_two_rows(name: &str) -> (Opened, String, String, [f32; 3], [f32; 3]) {
     let (mut e, first, g) = with_a_row(name);
     let h = view::global(TOWN, [OPEN[0] + 4.0, OPEN[1], 0.0]);
     let h = [h[0], h[1], e.scene.ground(h[0], h[1]).expect("ground")];

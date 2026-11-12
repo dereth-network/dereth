@@ -50,6 +50,8 @@ mod preflight;
 mod publish;
 mod release;
 mod run_launcher;
+#[cfg(test)]
+mod scratch;
 mod seams;
 mod separation;
 mod server;

@@ -846,11 +846,28 @@ mod tests {
     //! Behaviour: none (tooling: the world editor's start screen and its recent worlds)
     use super::*;
 
-    fn scratch(name: &str) -> PathBuf {
+    /// A folder in the temporary directory, made anew and removed with everything in it when
+    /// dropped, even by a test that fails.
+    struct Scratch(PathBuf);
+
+    impl std::ops::Deref for Scratch {
+        type Target = PathBuf;
+        fn deref(&self) -> &PathBuf {
+            &self.0
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn scratch(name: &str) -> Scratch {
         let d = std::env::temp_dir().join(format!("lyceum-start-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
-        d
+        Scratch(d)
     }
 
     fn argv(s: &[&str]) -> Vec<String> {
@@ -985,7 +1002,6 @@ mod tests {
         again.act(Action::Name("vale".to_owned()));
         again.act(Action::Here);
         assert_eq!(again.note, Some(Note::Taken("vale".to_owned())));
-        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
@@ -1025,7 +1041,6 @@ mod tests {
             s.picker.as_ref().map(|p| p.dir.clone()),
             Some(d.join("projects"))
         );
-        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
@@ -1069,7 +1084,6 @@ mod tests {
                 dats: client
             })
         );
-        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
@@ -1121,7 +1135,6 @@ mod tests {
             editor_argv(s.chosen.as_ref().unwrap())[1..],
             ["--dats".to_owned(), client.display().to_string()]
         );
-        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
@@ -1146,7 +1159,6 @@ mod tests {
             assert!(!items.is_empty(), "{picker:?}: something drawn");
         }
         assert!(!gui.uploads.is_empty(), "the font's texture goes up");
-        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]

@@ -6,6 +6,8 @@
 //! Fixture: isolated configuration paths and synthetic server state.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use empyrean_common::config_paths::PathBase;
 use empyrean_common::master_configuration::MasterConfiguration;
@@ -13,11 +15,49 @@ use empyrean_content::models::world::Quest;
 use empyrean_content::MemContent;
 use empyrean_server::world_pack::{self, WorldPackStatus};
 
-fn temp_path(name: &str) -> PathBuf {
-    let dir =
-        std::env::temp_dir().join(format!("empyrean-server-world-pack-{}", std::process::id()));
+/// A file's place in a folder of its own, removed with everything in it when dropped.
+struct TempPath {
+    dir: PathBuf,
+    path: PathBuf,
+}
+
+impl std::ops::Deref for TempPath {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl AsRef<Path> for TempPath {
+    fn as_ref(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for TempPath {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+fn temp_path(name: &str) -> TempPath {
+    let dir = std::env::temp_dir().join(format!(
+        "empyrean-server-world-pack-{}-{name}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("temp dir");
-    dir.join(name)
+    let path = dir.join(name);
+    TempPath { dir, path }
+}
+
+/// Waits until the test holds the last reference to `content`: a start reports the corrections it
+/// makes from a thread of its own, which holds the pack and the overlay open until it ends.
+fn closed<T: ?Sized>(content: Arc<T>) {
+    let hang = Instant::now() + Duration::from_secs(60);
+    while Arc::strong_count(&content) > 1 && Instant::now() < hang {
+        std::thread::sleep(Duration::from_millis(1));
+    }
 }
 
 fn quest(id: u32, name: &str) -> Quest {
@@ -99,7 +139,7 @@ fn a_pack_on_disk_is_installed_as_the_world_database() {
         content.content_hash().as_deref(),
         Some(content_hash.as_str())
     );
-    let _ = std::fs::remove_file(&path);
+    closed(content);
 }
 
 #[test]
@@ -171,7 +211,6 @@ fn a_corrupt_pack_boots_with_empty_content() {
     std::fs::write(&path, b"not a pack").expect("rewrite");
     let (_, status) = world_pack::open_world_database(&path);
     assert!(matches!(status, WorldPackStatus::Invalid(_)), "{status:?}");
-    let _ = std::fs::remove_file(&path);
 }
 
 /// A pack another release wrote (a format or schema version this build does not read) gives empty
@@ -209,7 +248,6 @@ fn a_pack_from_another_release_is_refused_with_the_command_that_rebuilds_it() {
             bytes,
             "the old pack is left as it was"
         );
-        let _ = std::fs::remove_file(&path);
     }
 
     let pack = Path::new("/srv/empyrean/world.pack");
@@ -334,28 +372,31 @@ fn the_configured_overlay_is_opened_in_front_of_the_pack() {
     let pack = temp_path("overlay-world.pack");
     write_pack(&pack);
     let overlay = temp_path("overlay-8b2.sqlite");
-    let _ = std::fs::remove_file(&overlay);
-    let (content, status, opened) =
-        world_pack::open_world_database_with_overlay(&pack, Some((overlay.clone(), base.clone())));
+    let (content, status, opened) = world_pack::open_world_database_with_overlay(
+        &pack,
+        Some((overlay.to_path_buf(), base.clone())),
+    );
     assert!(matches!(status, WorldPackStatus::Loaded { .. }));
     assert_eq!(opened, Some(Ok(0)));
-    assert_eq!(content.overlay().unwrap().path(), overlay);
+    assert_eq!(content.overlay().unwrap().path(), &*overlay);
     assert_eq!(
         content.get_cached_quest("F16QuestA").unwrap().id,
         1,
         "reads fall through to the pack"
     );
+    closed(content);
 
     // An overlay made over another pack is refused, and the server would not start.
     let other = temp_path("overlay-other.pack");
     let mem = MemContent::new().quest(quest(3, "Other"));
     std::fs::write(&other, mem.content().to_pack([8; 16]).unwrap().0).unwrap();
-    let (_, _, opened) =
-        world_pack::open_world_database_with_overlay(&other, Some((overlay, base)));
+    let (content, _, opened) =
+        world_pack::open_world_database_with_overlay(&other, Some((overlay.to_path_buf(), base)));
     assert!(
         matches!(opened, Some(Err(ref e)) if e.contains("was made over")),
         "{opened:?}"
     );
+    closed(content);
 }
 
 /// The overlay and its base inputs resolve against the configuration file's folder, `json:`

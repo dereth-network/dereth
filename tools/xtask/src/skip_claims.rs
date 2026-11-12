@@ -656,9 +656,8 @@ mod tests {
     /// would certify files by omission.
     #[test]
     fn a_path_past_max_path_is_read_and_its_lie_is_still_seen() {
-        let mut deep =
-            std::env::temp_dir().join(format!("xtask-skip-claims-{}", std::process::id()));
-        std::fs::remove_dir_all(&deep).ok();
+        let root = crate::scratch::Scratch::new("xtask-skip-claims");
+        let mut deep = root.to_path_buf();
         for _ in 0..4 {
             deep = deep.join("x".repeat(60));
         }

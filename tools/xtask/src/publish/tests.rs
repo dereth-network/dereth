@@ -10,6 +10,7 @@ use super::github::{GitHub, HttpRequest, HttpResponse, Method, Transport};
 use super::*;
 use crate::package::archive::{self, Member};
 use crate::package::targets::{self, Os};
+use crate::scratch::Scratch;
 
 const REPO: &str = "owner/repo";
 const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -327,11 +328,8 @@ impl Transport for FakeGitHub {
 
 // ---------------------------------------------------------------- helpers
 
-fn temp(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("xtask-publish-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("a temp directory");
-    dir
+fn temp(name: &str) -> Scratch {
+    Scratch::new(&format!("xtask-publish-{name}"))
 }
 
 fn write(dir: &Path, name: &str, bytes: &[u8]) {
@@ -682,8 +680,9 @@ fn the_finish_lists_every_missing_file_by_name_and_writes_nothing() {
     run_upload(&mut fake, Kind::Empyrean, &v, &up).expect("an upload");
     let writes = fake.writes.len();
     let gather = |_: &Path| -> Result<(), String> { panic!("nothing is gathered") };
+    let work = temp("missing-work");
     let finish = Finish {
-        work: temp("missing-work"),
+        work: work.to_path_buf(),
         commit: COMMIT.to_owned(),
         notes: String::new(),
         gather: &gather,

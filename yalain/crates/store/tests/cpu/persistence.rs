@@ -839,6 +839,7 @@ fn no_character_is_kept_without_its_account_nor_its_state_without_it() {
 #[test]
 fn the_database_is_kept_with_a_write_ahead_log_and_a_save_outlives_a_crash() {
     let file = temp("wal");
+    let crashed = temp("wal-crashed");
     let mut s = SqliteStore::open(&file.0).expect("opens");
     let a = s.create_account("Tester", None, 100).expect("made");
     s.insert_character(&character(5, a.id, "Babyfare"))
@@ -850,9 +851,21 @@ fn the_database_is_kept_with_a_write_ahead_log_and_a_save_outlives_a_crash() {
         .expect("reads");
     assert_eq!(mode, "wal");
     drop(other);
-    // The server stops without closing the database: nothing is checkpointed.
-    std::mem::forget(s);
-    let mut again = SqliteStore::open(&file.0).expect("opens after the crash");
+    // The server stops without closing the database: a crash leaves what is on disk while the
+    // server holds it open, the file and its log, nothing checkpointed and no shared index.
+    for suffix in ["", "-wal"] {
+        let named = |p: &std::path::Path| {
+            let mut name = p.as_os_str().to_owned();
+            name.push(suffix);
+            std::path::PathBuf::from(name)
+        };
+        let mut from = std::fs::File::open(named(&file.0)).expect("the server's file");
+        let mut to = std::fs::File::create(named(&crashed.0)).expect("a copy");
+        let copied = std::io::copy(&mut from, &mut to).expect("copied");
+        assert!(copied > 0, "the file{suffix} is empty");
+    }
+    drop(s);
+    let mut again = SqliteStore::open(&crashed.0).expect("opens after the crash");
     assert_eq!(again.world_state(5).expect("reads"), Some(world()));
 }
 

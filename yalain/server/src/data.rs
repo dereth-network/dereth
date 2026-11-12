@@ -1400,18 +1400,36 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
 
+    /// A world's folder, removed with everything in it when dropped: made before what reads it, it
+    /// goes after them.
+    struct WorldFolder(PathBuf);
+
+    impl std::ops::Deref for WorldFolder {
+        type Target = Path;
+        fn deref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for WorldFolder {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).ok();
+        }
+    }
+
     /// A world's folder, `key`, its overlay holding `build`'s records.
     fn world_with_overlay(
         name: &str,
         key: &str,
         build: impl FnOnce(&dereth_dat::overlay::OverlayDir),
-    ) -> PathBuf {
+    ) -> WorldFolder {
         let world = std::env::temp_dir().join(format!(
             "yalain-world-overlay-{name}-{}",
             std::process::id()
         ));
         std::fs::remove_dir_all(&world).ok();
         std::fs::create_dir_all(&world).expect("the world's folder");
+        let world = WorldFolder(world);
         std::fs::write(
             world.join("world.toml"),
             format!(
@@ -1498,7 +1516,6 @@ mod tests {
         assert!(files.overlaid(DatKind::Cell, replaced));
         assert!(files.overlaid(DatKind::Cell, deleted));
         assert!(!files.overlaid(DatKind::Cell, kept));
-        std::fs::remove_dir_all(&world).ok();
     }
 
     /// A world with no overlay reads the install and starts as it did; the pinned release has none.
@@ -1522,7 +1539,6 @@ mod tests {
             install_files(&p).read(DatKind::Cell, id),
             cell.read(id).ok()
         );
-        std::fs::remove_dir_all(&world).ok();
     }
 
     /// An overlay made against other files stops the start, and so does another world's, whichever
@@ -1576,9 +1592,6 @@ mod tests {
             panic!("another world's overlay was taken");
         };
         assert!(why.contains("another-world"), "{why}");
-        for w in [other_files, other_world] {
-            std::fs::remove_dir_all(&w).ok();
-        }
     }
 
     /// A world that writes clearings and has no overlay is told, as it starts.
@@ -1989,7 +2002,6 @@ mod tests {
             panic!("a start without the Arcane Lore table read its treasure");
         };
         assert!(why.starts_with("the Arcane Lore table 70001BE5"), "{why}");
-        std::fs::remove_dir_all(&world).ok();
     }
 
     /// A start reads the quest taking an item asks from its class, by the quest's name: a piece of

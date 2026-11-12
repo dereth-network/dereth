@@ -84,14 +84,31 @@ fn base_sql() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../crates/content/tests/fixtures/patches/base.sql")
 }
 
-fn tmp(name: &str) -> PathBuf {
+/// A test's own folder, removed with everything in it when dropped. Made first in a test, it is
+/// dropped last, after the server and the overlay that hold its files open.
+struct TempDir(PathBuf);
+
+impl std::ops::Deref for TempDir {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+fn tmp(name: &str) -> TempDir {
     let d = std::env::temp_dir().join(format!(
         "empyrean-testkit-content-commands-{}-{name}",
         std::process::id()
     ));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(d.join("content")).unwrap();
-    d
+    TempDir(d)
 }
 
 /// The setup patch over the fixture dump: the player's weenie, a stuck statue with the test body,

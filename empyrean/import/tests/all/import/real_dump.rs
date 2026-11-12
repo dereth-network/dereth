@@ -1,7 +1,8 @@
 //! Vectors: the configured ACE world dump, independently counted table by table
 //! A pack built from ACE's real world dump has every table's row count, verifies, converts every
 //! weenie, spot checks (drudge creature tables, chargen starter items).
-//! Fixture: the configured ACE world dump, an independent row counter and a temporary pack.
+//! Fixture: the configured ACE world dump, an independent row counter and a pack built once in a
+//! temporary folder, read back and the folder removed.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
@@ -18,7 +19,8 @@ fn dump_path() -> PathBuf {
 }
 
 struct Built {
-    pack: PathBuf,
+    /// The pack file as the import wrote it.
+    pack: Vec<u8>,
     imported: empyrean_content::import::Imported,
     secs: f64,
 }
@@ -28,17 +30,21 @@ fn built() -> &'static Built {
     CELL.get_or_init(|| {
         let dir =
             std::env::temp_dir().join(format!("empyrean-content-real-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let pack = dir.join("world.pack");
+        let path = dir.join("world.pack");
         let t0 = std::time::Instant::now();
         let imported = empyrean_content::import::import_file(
             &dump_path(),
             empyrean_content::import::Allow::default(),
-            &pack,
+            &path,
             None,
         )
         .unwrap_or_else(|e| panic!("the real dump must import ({}): {e}", dump_path().display()));
         let secs = t0.elapsed().as_secs_f64();
+        // Read back and the folder removed now: a static is never dropped, so nothing would later.
+        let pack = std::fs::read(&path).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
         eprintln!(
             "real-content: built {} bytes in {secs:.1}s",
             imported.stats.file_len
@@ -52,7 +58,7 @@ fn built() -> &'static Built {
 }
 
 fn db() -> PackContent {
-    PackContent::open(&built().pack).unwrap()
+    PackContent::new(Pack::from_bytes(built().pack.clone()).unwrap())
 }
 
 /// An independent reading of the dump: rows per table (tuples counted by a quote-aware scan),
@@ -215,7 +221,7 @@ fn every_table_is_imported_with_the_dumps_row_count() {
 
 #[test]
 fn the_pack_holds_every_row_and_verifies() {
-    let pack = Pack::open(&built().pack).unwrap();
+    let pack = Pack::from_bytes(built().pack.clone()).unwrap();
     pack.verify_hash().unwrap();
     let f = facts();
     assert_eq!(u64::from(pack.count(TableId::WEENIE)), f.rows["weenie"]);
