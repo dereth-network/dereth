@@ -5979,6 +5979,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.gives.walk-ends-at-the-persons-side",
+        says: "A walk to give ends at the walk's range from the person's body, not its center: a \
+               player at rest that close to the side of a wide person hands the item over; with \
+               the body not known, the walk measures to the center.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-WALK-END-BODY"),
+        station: "yalain-testkit::cpu::play::gives::a_give_whose_walk_ends_by_a_wide_persons_side_is_handed_over",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.gives.walked-handed-over-and-answered",
         says: "A give is walked to 2 m of the person, the order sent even when the player is there; the \
                player plays its handing-over with the item's look in its hand in the walk's context, \
@@ -11988,6 +11998,17 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-VAULT-REFUSALS"),
         station: "yalain-testkit::cpu::play::vaults::a_vault_refuses_while_another_goes_through_and_too_soon_after",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.walk-ends-at-the-objects-side",
+        says: "A walk to a placed object ends at the walk's range from the object's body, not its \
+               center: a player at rest that close to the side of a wide lifestone binds, one \
+               farther off has not arrived, and an object whose body is not known is measured to \
+               its center.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-WALK-END-BODY"),
+        station: "yalain-testkit::cpu::entry::places::a_walk_to_a_wide_lifestone_ends_at_its_side_not_its_center",
         tier: Tier::Cpu,
     },
     behaviour! {

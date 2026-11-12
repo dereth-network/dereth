@@ -158,13 +158,51 @@ pub const USE_FLAGS_PERSON: u32 = 956;
 /// How close a player must be to use a person, in meters.
 pub const PERSON_REACH: f32 = 5.0;
 
-/// How far beyond a walk's range a walking player's center may be for the walk to be done (2017's
-/// servers ended walks to people with the centers a median 1.0 m beyond the range, 3,787 walks),
-/// and a player that has come to rest (its client ends the walk with the two bodies within the
-/// range: authored, wide enough for two bodies and a step).
+/// How far beyond a walk's range a walking player may be from the object's body ([`walk_gap`]) for
+/// the walk to be done (2017's servers ended walks to people with the centers a median 1.0 m
+/// beyond the range, 3,787 walks), and a player that has come to rest (authored, wide enough for
+/// a step and a report's lag).
 pub const WALK_SLACK: f32 = 1.0;
 pub const STILL_SLACK: f32 = 4.0;
 pub const USER_IS_PLAYER: u32 = 31;
+
+/// The body a walk's end measures from: the walking player's center, at a player's height.
+const WALK_FROM: crate::reach::Body = crate::reach::Body {
+    radius: 0.0,
+    height: crate::reach::PLAYER.height,
+};
+
+/// How far a walking player is from an object of a template (at its own scale, if it has one), as
+/// its client ends a walk to it: from the player's center to the side of the object's upright body
+/// (its look's radius and height) across the ground, and past the lower one's top in height; the
+/// distance between their centers where the template's body is not known. (2017: the servers ended
+/// walks to people, lifestones and doors with the player's last report a median 0.48, 0.35 and
+/// 1.32 m inside the walk's range of the object's side, 609, 247 and 137 walks; the Tumerok's
+/// lifestone, 4.46 m wide, was used from 3.0 to 12.2 m off its center, 61 of 105 walked uses
+/// farther than 6 m.)
+pub(crate) fn walk_gap<S: Store>(
+    s: &Server<S>,
+    at: &StoredPosition,
+    template: u32,
+    scale: Option<f32>,
+    cell: u32,
+    origin: [f32; 3],
+) -> Option<f32> {
+    let Some([r, h]) = s.catalog.bodies.get(&template) else {
+        return reach(at, cell, origin);
+    };
+    let scale = scale.unwrap_or(1.0);
+    let body = crate::reach::Body {
+        radius: r * scale,
+        height: h * scale,
+    };
+    let there = StoredPosition {
+        cell,
+        origin,
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    crate::reach::gap(at, WALK_FROM, &there, body)
+}
 
 /// The slots of a use's description, by index (its package's layout).
 pub mod usage {
@@ -1503,7 +1541,16 @@ pub fn arrived<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
         return;
     };
     let o = &s.content.objects[i];
-    if reach(&p.position, o.cell, o.origin).is_some_and(|d| d <= slack) {
+    // A placed object's body counts: the client ends a walk to it at the range from its side.
+    let gap = walk_gap(
+        s,
+        &p.position,
+        o.template,
+        o.description.scale,
+        o.cell,
+        o.origin,
+    );
+    if gap.is_some_and(|d| d <= slack) {
         if u.target == 0 {
             carry_out(s, net, world, u, true, clock);
         } else {

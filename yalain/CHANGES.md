@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Fixed wide lifestones and people doing nothing after a player walks up to them.
 - Creatures can now follow players into and out of caves whose mouth opens on the land.
 - People now say a line meant for one item only when given that item.
 - Quests that reward craft experience now pay it.

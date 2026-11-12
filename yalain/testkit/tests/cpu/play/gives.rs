@@ -643,6 +643,51 @@ fn a_give_whose_walk_ends_out_of_reach_is_refused() {
     assert!(holds(&h, me, item));
 }
 
+/// A walk to give that ends at rest 6.4 m from the far person's center hands the item over when the
+/// person's body is 4.45 m wide (as wide as one 2017's players walked to and used from 9.4 m off its
+/// center): the walk ends at its range from the person's side, here 1.95 m off. With the body not
+/// known the walk measures to the center, and the same place is refused as one that could not get
+/// there.
+///
+/// Behaviour: server.gives.walk-ends-at-the-persons-side
+#[test]
+fn a_give_whose_walk_ends_by_a_wide_persons_side_is_handed_over() {
+    for wide in [true, false] {
+        let mut h = world();
+        if wide {
+            h.server.catalog.bodies.insert(FAR_T, [4.45, 6.29]);
+        }
+        let (b, me) = player(&mut h, "one", "Elara");
+        let (item, slot) = hold(&mut h, me, JUNK, 1);
+        let from = h.bots[b].inbox.len();
+        h.bots[b].send(true, queue::WEENIE, &give(me, item, slot, FAR, 1));
+        h.run(4);
+        assert!(answers(&h, b, from).is_empty(), "walking");
+        let at = h.server.players[&world_of(&h, me)].position;
+        let here = auberean_primitives::Vec3::new(59.0, 260.0 - 6.4, at.origin[2]);
+        let stamp = h.server.players[&world_of(&h, me)].teleport_stamp;
+        for _ in 0..2 {
+            let idle = yalain_world::world::IDLE_MOTION;
+            h.bots[b].send(true, queue::WEENIE, &report(at.cell, here, 0, idle, stamp));
+            h.run(3);
+        }
+        h.run(steps(HANDED_AFTER) + 8);
+        let a = answers(&h, b, from);
+        assert_eq!(a.len(), 1, "{a:?}");
+        let handing = h.world_messages(b, from).iter().any(|m| {
+            matches!(m,
+            ServerMessage::PlayBehavior(e) if e.action.behavior == HANDING)
+        });
+        if wide {
+            assert_eq!(a[0].status, 0);
+            assert!(handing, "handed over");
+        } else {
+            assert_eq!(a[0].status, status::CANT_GET_THERE);
+            assert!(!handing, "not handed over");
+        }
+    }
+}
+
 /// A part of a stack given to a step that keeps it is taken, the rest staying in the pack with
 /// its quantity told.
 ///

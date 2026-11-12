@@ -1421,6 +1421,80 @@ fn a_person_kind_object_with_nothing_to_say_answers_as_a_person() {
     assert_eq!(walk, Some(5.0));
 }
 
+/// The Tumerok's lifestone and its body's radius and height (its look's setup, at scale 1).
+const TUMEROK_STONE: u32 = 0x4700_1143;
+const TUMEROK_BODY: [f32; 2] = [4.46, 2.3];
+
+/// A player walked to a lifestone that has come to rest `off` meters from its center, along the
+/// ground (its own report, the walk's stamp); the use's answers since the use (the stone's body
+/// known when `wide`).
+fn rests_by_a_lifestone(off: f32, wide: bool) -> Vec<(u32, u32, f32)> {
+    let mut h = Harness::new();
+    h.server.lifestone_packages.insert(0x1A00);
+    if wide {
+        h.server.catalog.bodies.insert(TUMEROK_STONE, TUMEROK_BODY);
+    }
+    let (a, ida) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == ida)
+        .expect("in the world")
+        .0;
+    let at = h.server.players[&world].position;
+    let mut stone = object(STONE, TUMEROK_STONE, at.origin, None);
+    stone.cell = at.cell;
+    stone.origin[0] += off;
+    h.server.content = ContentPack {
+        objects: vec![stone],
+        ..ContentPack::default()
+    };
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::USE, &[use_of(STONE, ida)]),
+    );
+    h.run(10);
+    let walk = h
+        .world_messages(a, from)
+        .iter()
+        .find_map(|m| match m {
+            ServerMessage::MoveTo(o) if o.sender.id == ida && o.action.params.flags == 0x63 => {
+                Some((o.action.stamp, o.action.params.desired_distance))
+            }
+            _ => None,
+        })
+        .expect("walked toward the stone");
+    assert_eq!(walk.1, 2.0, "to within 2 m");
+    h.bots[a].send(true, queue::WEENIE, &hand_report(at, 0.0, false, walk.0));
+    h.run(4);
+    use_answers(&h, a, from)
+}
+
+/// A walk to a placed object ends at the walk's range from the object's body, not its center: a
+/// player at rest 6.4 m from the Tumerok's lifestone's center (its body 4.46 m wide, so 1.9 m from
+/// its side) has arrived and binds, as 2017's players did from 3.0 to 12.2 m off its center (61 of
+/// 105 walked uses farther than 6 m); one at rest 11 m off has not; and with the body not known,
+/// the walk measures to the center, so 6.4 m off has not arrived.
+/// Behaviour: server.places.walk-ends-at-the-objects-side
+#[test]
+fn a_walk_to_a_wide_lifestone_ends_at_its_side_not_its_center() {
+    let bound = rests_by_a_lifestone(6.4, true);
+    assert_eq!(bound.len(), 1, "answered: {bound:?}");
+    assert_eq!(bound[0].0, 0, "bound");
+    assert!(
+        rests_by_a_lifestone(11.0, true).is_empty(),
+        "farther off: still walking"
+    );
+    assert!(
+        rests_by_a_lifestone(6.4, false).is_empty(),
+        "no body known: measured to the center, still walking"
+    );
+}
+
 /// A faction shrine: the player is walked to within 3 m of it, the walk stopped, the shrine and the
 /// player play their behaviors, and "Your Kingdom Rating has been recorded."; the use is never
 /// answered.

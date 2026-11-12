@@ -210,7 +210,15 @@ pub fn moved<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, cl
         } else {
             crate::places::WALK_SLACK
         };
-    if crate::places::reach(&p.position, o.cell, o.origin).is_some_and(|d| d <= slack) {
+    let gap = crate::places::walk_gap(
+        s,
+        &p.position,
+        o.template,
+        o.description.scale,
+        o.cell,
+        o.origin,
+    );
+    if gap.is_some_and(|d| d <= slack) {
         hand_over(s, net, world, clock);
         return;
     }
