@@ -461,6 +461,8 @@ pub enum Trigger {
     Use(u32),
     UseOn(u32, u32),
     Give(u32, u32),
+    /// Giving an item of any template of a class (a script package, by number) to one of a template.
+    GiveClass(u32, u32),
     Arrive(u32),
     /// Arriving through one placed portal of the template: the object's id.
     ArriveFrom(u32, u64),
@@ -565,6 +567,8 @@ pub struct Give {
     pub to: u32,
     /// The template of the item given (none: any item).
     pub item: Option<u32>,
+    /// A class (a script package, by number) of the items it takes, any template of which counts.
+    pub item_class: Option<u32>,
     /// Exactly how many of the item it wants (none: whatever is given).
     pub wants: Option<u32>,
     /// The items it gives back in its place.
@@ -1594,6 +1598,7 @@ pub const FIELDS: [(&str, &[&str]); 59] = [
             "key",
             "to",
             "item",
+            "item_class",
             "wants",
             "gives",
             "counts",
@@ -2535,10 +2540,17 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 kingdom,
                 ..
             } = f.requires_and_events("requires", false);
+            let item = f.id("item");
+            let item_class = f.u32("item_class");
+            if item.is_some() && item_class.is_some() {
+                f.bad("item_class", "one of item or item_class");
+                return None;
+            }
             Row::Give(Give {
                 key: f.req_symbol("key")?,
                 to: f.req_id("to")?,
-                item: f.id("item"),
+                item,
+                item_class,
                 wants: f.u32("wants"),
                 gives: f.ids("gives"),
                 counts: f.ids("counts"),
@@ -4444,7 +4456,7 @@ impl<'a> Fields<'a> {
         }
         self.typed(
             name,
-            "one of { use = T }, { use = ITEM, on = TARGET }, { give = ITEM, to = TARGET }, { arrive = T }, { arrive = T, from = OBJECT }, { take = T }, { kill = T }, { kill = T, camp = KEY }, { kill = T, within = METERS }, { done = Q }, { given = Q }",
+            "one of { use = T }, { use = ITEM, on = TARGET }, { give = ITEM, to = TARGET }, { give_class = CLASS, to = TARGET }, { arrive = T }, { arrive = T, from = OBJECT }, { take = T }, { kill = T }, { kill = T, camp = KEY }, { kill = T, within = METERS }, { done = Q }, { given = Q }",
             |v| {
                 let t = v.as_table()?;
                 if let (2, Some(item), Some(on)) = (t.len(), t.get("use"), t.get("on")) {
@@ -4456,6 +4468,9 @@ impl<'a> Fields<'a> {
                 }
                 if let (2, Some(item), Some(to)) = (t.len(), t.get("give"), t.get("to")) {
                     return Some(Trigger::Give(as_u32(item)?, as_u32(to)?));
+                }
+                if let (2, Some(class), Some(to)) = (t.len(), t.get("give_class"), t.get("to")) {
+                    return Some(Trigger::GiveClass(as_u32(class)?, as_u32(to)?));
                 }
                 if let (2, Some(tpl), Some(camp)) = (t.len(), t.get("kill"), t.get("camp")) {
                     let camp = camp.as_str().filter(|c| !c.is_empty())?;

@@ -5763,6 +5763,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.gives.any-item-of-a-class",
+        says: "A step's trigger `{ give_class, to }` runs for an item of any template of the class (a \
+               script package: the template's own, or one it derives from) given to one of the \
+               template, a step for the item's own template looked for first, and hands the item \
+               back; a `[[give]]` naming an `item_class` keeps any item of the class, after a row \
+               naming the item and before one for any item. An item of no template of the class is \
+               refused.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-CLASS"),
+        station: "yalain-testkit::cpu::play::gives::a_give_of_a_class_runs_for_any_item_of_it_and_for_no_other",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.gives.cannot-get-there",
         says: "A walk to give that ends at rest out of reach is refused as one that could not get \
                there: nothing handed over, the item never leaving the pack.",

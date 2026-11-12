@@ -294,9 +294,11 @@ impl<S: Store> Server<S> {
         r.note(table::STORES, changed, true);
         self.stores = t.stores;
 
-        let changed = t.quests != self.quests;
+        let changed = t.quests != self.quests || t.content.class_gives != self.content.class_gives;
         r.note(table::QUESTS, changed, true);
         self.quests = t.quests;
+        // The classes the gives take go with the gives they name by place.
+        self.content.class_gives = std::mem::take(&mut t.content.class_gives);
 
         let changed = t.talk != self.talk;
         r.note(table::TALK, changed, true);

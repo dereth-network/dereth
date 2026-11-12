@@ -1157,6 +1157,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     Trigger::Use(x) => (TableTrigger::Use(x), vec![x]),
                     Trigger::UseOn(i, x) => (TableTrigger::UseOn(i, x), vec![i, x]),
                     Trigger::Give(i, x) => (TableTrigger::Give(i, x), vec![i, x]),
+                    Trigger::GiveClass(c, x) => (TableTrigger::GiveClass(c, x), vec![x]),
                     Trigger::Arrive(x) => (TableTrigger::Arrive(x), vec![x]),
                     Trigger::ArriveFrom(x, o) => (TableTrigger::ArriveFrom(x, o), vec![x]),
                     Trigger::Take(x) => (TableTrigger::Take(x), vec![x]),
@@ -1297,6 +1298,10 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 });
                 if let (Some(k), Some(give)) = (g.kingdom, t.quests.gives.last()) {
                     t.kingdoms.gives.push((give.clone(), k));
+                }
+                if let Some(c) = g.item_class {
+                    let row = t.quests.gives.len() - 1;
+                    t.content.class_gives.insert(row, c);
                 }
                 if let Some(give) = t.quests.gives.last() {
                     let tallies = &mut t.content.tallies;

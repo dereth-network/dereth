@@ -733,6 +733,10 @@ pub struct ContentPack {
     /// The creatures quest steps set to follow their players. Not part of the text form: the
     /// world database's steps fill it.
     pub escorts: escorts::EscortTable,
+    /// The gives that move no quest and take any item of a class: the class (a script package, by
+    /// number) of each, by the give's place among the quest table's gives. Not part of the text
+    /// form: the world database's gives fill it.
+    pub class_gives: BTreeMap<usize, u32>,
 }
 
 /// The kind of player conflict a place allows.
@@ -1104,6 +1108,7 @@ impl ContentPack {
             events: events::EventTable::default(),
             tallies: tallies::TallyTable::default(),
             escorts: escorts::EscortTable::default(),
+            class_gives: BTreeMap::new(),
         })
     }
 

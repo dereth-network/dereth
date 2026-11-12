@@ -42,7 +42,7 @@ use auberean_protocol::script::{ClientCall, FunctionId, ObjectCall, ScriptArgs};
 use auberean_protocol::types::{BehaviorParams, MoveTarget, MovementParams, ObjectStamp};
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
-use yalain_content::quests::{Step, Transformation, Trigger};
+use yalain_content::quests::{Step, Transformation};
 use yalain_net::{BlobKind, ConnId, ServerNet};
 use yalain_store::{Store, StoredPosition};
 
@@ -315,6 +315,21 @@ fn answer(m: &Move, template: u32, look: u32, whole: bool) -> Move {
     }
 }
 
+/// Which script packages derive from which: each package with the packages it derives from, so a
+/// template counts in a class when its package is the class or derives from it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ItemClasses {
+    pub bases: std::collections::HashMap<u32, Vec<u32>>,
+}
+
+impl ItemClasses {
+    /// Does a template of this package count in this class?
+    #[must_use]
+    pub fn counts_in(&self, package: u32, class: u32) -> bool {
+        package == class || self.bases.get(&package).is_some_and(|b| b.contains(&class))
+    }
+}
+
 /// The handing-over is through: the give is answered, then what the person does with the item.
 pub fn handed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
     let Some(p) = s.players.get_mut(&world) else {
@@ -341,12 +356,16 @@ pub fn handed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, c
         quantity: m.quantity.min(quantity).max(1),
         target: m.target,
     };
-    let trigger = Trigger::Give(template, target_template);
-    let Some(step) = crate::quests::step_for_give(s, world, trigger, given.quantity, clock.unix)
-    else {
-        if let Some(quest) =
-            crate::quests::wants_another_count(s, world, trigger, given.quantity, clock.unix)
-        {
+    // The give of the item's own template first, then of each class it counts in.
+    let triggers = crate::quests::give_triggers(s, template, target_template);
+    let found = triggers.iter().find_map(|t| {
+        crate::quests::step_for_give(s, world, *t, given.quantity, clock.unix).map(|st| (*t, st))
+    });
+    let Some((trigger, step)) = found else {
+        let wrong = triggers.iter().find_map(|t| {
+            crate::quests::wants_another_count(s, world, *t, given.quantity, clock.unix)
+        });
+        if let Some(quest) = wrong {
             let line = crate::talk::at_wrong_count(s, target_template, Some(i), quest, template);
             if let Some(line) = line {
                 let speaker = crate::talk::content_speaker(s, i);

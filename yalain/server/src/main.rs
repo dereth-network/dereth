@@ -875,6 +875,7 @@ struct Play {
     places_by_name: std::collections::BTreeMap<String, yalain_content::Place>,
     brokers: std::collections::BTreeMap<u32, yalain_world::market::Broker>,
     walk_in: std::collections::HashSet<u32>,
+    item_classes: yalain_world::gives::ItemClasses,
     persons: std::collections::HashSet<u32>,
     lifestones: std::collections::HashSet<u32>,
     knives: std::collections::HashSet<u32>,
@@ -1108,6 +1109,7 @@ fn run<S: Store>(
     server.places_by_name = play.places_by_name;
     server.brokers = play.brokers;
     server.walk_in_packages = play.walk_in;
+    server.item_classes = play.item_classes;
     server.person_packages = play.persons;
     server.lifestone_packages = play.lifestones;
     server.knife_packages = play.knives;
@@ -2203,6 +2205,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             "the effects items put on their wearers read"
         );
         let walk_in = data::walk_in_packages(portal, &content)?;
+        let item_classes = data::item_classes(portal)?;
         let persons =
             data::packages_deriving_from(portal, &content, &yalain_world::places::PERSONS)?;
         let lifestones =
@@ -2308,6 +2311,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             places_by_name,
             brokers,
             walk_in,
+            item_classes,
             persons,
             lifestones,
             knives,

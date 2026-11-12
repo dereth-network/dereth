@@ -400,6 +400,7 @@ and has it again on entering while the quest still wants it. One follows a playe
 | `{ use = T }` | uses a person or an object of template T (or a held item of it) |
 | `{ use = I, on = T }` | uses a held item of template I on an object of template T |
 | `{ give = I, to = T }` | gives an item of template I to a person or an object of template T |
+| `{ give_class = C, to = T }` | gives an item of any template of class C (a script package, by number: the template's own, or one it derives from) to a person or an object of template T; a give of the item's own template is looked for first, and the item is handed back |
 | `{ arrive = T }` | arrives through a portal of template T |
 | `{ arrive = T, from = O }` | arrives through the one placed portal O (its `id`), of template T |
 | `{ take = T }` | takes an item of template T |
@@ -419,6 +420,7 @@ template given to.
 | `key` | required | unique in its pack |
 | `to` | required | the template given to |
 | `item` | | the template given; left out, any item |
+| `item_class` | | in place of `item`: a class (a script package, by number) any template of which it takes; a row naming the item is taken first, then one naming a class it counts in, then one for any item |
 | `wants` | | exactly how many of it: any other count is refused, the stack handed back |
 | `gives`, `counts` | | what it gives in its place, from the person, and how many of each |
 | `effects`, `text` | | what it puts on the player, cast by the person, and a text after them |

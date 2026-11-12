@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- A quest's hand-in can now take any item of a kind.
 - A quest's hand-in can now send the player somewhere.
 - Worlds can now have creatures that follow a player for a quest.
 - Worlds can now put a quest's item in a chest.

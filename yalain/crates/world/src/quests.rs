@@ -785,6 +785,7 @@ fn run_triggered<S: Store>(
         trigger,
         Trigger::Use(_)
             | Trigger::Give(..)
+            | Trigger::GiveClass(..)
             | Trigger::Take(_)
             | Trigger::Kill(_)
             | Trigger::KillIn(..)
@@ -1404,8 +1405,31 @@ pub fn step_for_give<S: Store>(
         .cloned()
 }
 
+/// Does a template count in a class (a script package: its own, or one its package derives from)?
+#[must_use]
+pub fn in_class<S: Store>(s: &Server<S>, template: u32, class: u32) -> bool {
+    s.catalog
+        .get(template)
+        .is_some_and(|t| s.item_classes.counts_in(t.description.package, class))
+}
+
+/// The triggers a give of an item of a template to one of another makes: the give of the template,
+/// then the give of each class a step names for that person or object that the template counts in.
+#[must_use]
+pub fn give_triggers<S: Store>(s: &Server<S>, template: u32, to: u32) -> Vec<Trigger> {
+    let mut out = vec![Trigger::Give(template, to)];
+    for st in &s.quests.steps {
+        if let Trigger::GiveClass(c, t) = st.trigger {
+            if t == to && !out.contains(&st.trigger) && in_class(s, template, c) {
+                out.push(st.trigger);
+            }
+        }
+    }
+    out
+}
+
 /// The give that moves no quest a person takes so many of an item by: its row for that item, else
-/// one for any item. A row for the item wanting another count refuses it; so does a row whose
+/// one for a class the item counts in, else one for any item. A row for the item wanting another count refuses it; so does a row whose
 /// requirements the player does not meet, or one that would do nothing for the player (it gives
 /// nothing and its only effects are points bonuses at their caps already), unless one for any item
 /// takes it.
@@ -1433,22 +1457,40 @@ pub fn give_for<S: Store>(
                 Need::Failed => failed_during(held, *q, None),
             })
     };
-    let rows: Vec<&yalain_content::quests::Give> = s
+    // Each with the class it takes, if it names one.
+    let rows: Vec<(&yalain_content::quests::Give, Option<u32>)> = s
         .quests
         .gives
         .iter()
-        .filter(|g| g.to == to)
-        .filter(meets)
+        .enumerate()
+        .filter(|(_, g)| g.to == to)
+        .filter(|(_, g)| meets(g))
+        .map(|(i, g)| (g, s.content.class_gives.get(&i).copied()))
         .collect();
-    let named: Vec<&&yalain_content::quests::Give> =
-        rows.iter().filter(|g| g.item == Some(item)).collect();
-    if !named.is_empty() {
-        return named
-            .into_iter()
+    let wanting = |of: Vec<&yalain_content::quests::Give>| {
+        of.into_iter()
             .find(|g| g.wants.is_none_or(|n| n == quantity))
-            .map(|g| (*g).clone());
+            .cloned()
+    };
+    let named: Vec<&yalain_content::quests::Give> = rows
+        .iter()
+        .filter(|(g, _)| g.item == Some(item))
+        .map(|(g, _)| *g)
+        .collect();
+    if !named.is_empty() {
+        return wanting(named);
     }
-    rows.into_iter().find(|g| g.item.is_none()).cloned()
+    let of_class: Vec<&yalain_content::quests::Give> = rows
+        .iter()
+        .filter(|(_, c)| c.is_some_and(|c| in_class(s, item, c)))
+        .map(|(g, _)| *g)
+        .collect();
+    if !of_class.is_empty() {
+        return wanting(of_class);
+    }
+    rows.into_iter()
+        .find(|(g, c)| g.item.is_none() && c.is_none())
+        .map(|(g, _)| g.clone())
 }
 
 /// The quest of a step a give would run now but for its count, if any.

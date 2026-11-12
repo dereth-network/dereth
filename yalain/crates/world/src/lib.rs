@@ -449,6 +449,8 @@ pub struct Server<S: Store> {
     pub examine_waits: HashSet<ConnId>,
     /// The packages of the objects a player uses by walking into them (portals).
     pub walk_in_packages: std::collections::HashSet<u32>,
+    /// Which script packages derive from which, for the gives that take any item of a class.
+    pub item_classes: gives::ItemClasses,
     /// The packages of the world's people and objects that answer a use as a person does (those
     /// derived from the script library's person), and of its faction shrines.
     pub person_packages: std::collections::HashSet<u32>,
@@ -904,6 +906,7 @@ impl<S: Store> Server<S> {
             lying: drops::Lying::default(),
             pets: pets::Pets::default(),
             escorts: escorts::Escorts::default(),
+            item_classes: gives::ItemClasses::default(),
             plants: plants::Plants::default(),
             object_states: puzzles::States::default(),
             locks: yalain_content::LockTable::default(),

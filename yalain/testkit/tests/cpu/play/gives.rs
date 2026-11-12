@@ -2070,3 +2070,105 @@ fn a_give_or_a_takes_step_that_leads_somewhere_tells_its_update_then_takes_the_p
         "at the take's place"
     );
 }
+
+/// A step's give of a class runs for an item of any template of the class (its package the class,
+/// or one deriving from it) and hands the item back; an item of no template of the class is refused
+/// and handed back with no quest moved. A give that moves no quest naming a class keeps any item
+/// of it, and takes no other.
+///
+/// Behaviour: server.gives.any-item-of-a-class
+#[test]
+fn a_give_of_a_class_runs_for_any_item_of_it_and_for_no_other() {
+    const WEAPON: u32 = 0x1049;
+    const AXE_PACKAGE: u32 = 0x1058;
+    const AXE: u32 = 0x4700_1601;
+    const BLADE: u32 = 0x4700_1602;
+    let mut h = world();
+    h.server.catalog.insert(yalain_testkit::test_template(
+        AXE,
+        AXE_PACKAGE,
+        Props::default(),
+    ));
+    h.server.catalog.insert(yalain_testkit::test_template(
+        BLADE,
+        WEAPON,
+        Props::default(),
+    ));
+    h.server
+        .item_classes
+        .bases
+        .insert(AXE_PACKAGE, vec![WEAPON]);
+    h.server.quests.steps = vec![step(
+        QUEST,
+        1,
+        Trigger::GiveClass(WEAPON, PERSON_T),
+        Update::Advance(2),
+    )];
+    let (b, me) = player(&mut h, "one", "Elara");
+    at_phase(&mut h, QUEST, 1);
+    let junk = hold(&mut h, me, JUNK, 1);
+    let (_, moved) = give_ashes(&mut h, b, me, junk, 1);
+    assert!(moved.is_empty(), "no weapon: refused");
+    assert!(holds(&h, me, junk.0), "handed back");
+    let axe = hold(&mut h, me, AXE, 1);
+    let (_, moved) = give_ashes(&mut h, b, me, axe, 1);
+    assert_eq!(
+        moved,
+        vec![(0x2000_0002, QUEST, 2)],
+        "a weapon by its class"
+    );
+    assert!(holds(&h, me, axe.0), "handed back");
+    // A give that moves no quest, for any weapon.
+    h.server.quests.steps.clear();
+    let row = Give {
+        gives: vec![IMBUED],
+        ..taking(None)
+    };
+    h.server.quests.gives.push(row);
+    h.server.content.class_gives.insert(0, WEAPON);
+    let blade = hold(&mut h, me, BLADE, 1);
+    give_ashes(&mut h, b, me, blade, 1);
+    assert!(!holds(&h, me, blade.0), "kept");
+    assert!(h.server.players[&world_of(&h, me)]
+        .play
+        .items
+        .iter()
+        .any(|x| x.template == IMBUED));
+    let junk = hold(&mut h, me, JUNK, 1);
+    give_ashes(&mut h, b, me, junk, 1);
+    assert!(holds(&h, me, junk.0), "no weapon: handed back");
+}
+
+/// Two gives that move no quest, alike but for the class each takes, each take an item of their
+/// own class: one of the second class is kept by the second, not refused for the first's.
+///
+/// Behaviour: server.gives.any-item-of-a-class
+#[test]
+fn two_gives_alike_but_for_their_class_each_take_their_own_class() {
+    const WEAPON: u32 = 0x1049;
+    const ARMOR: u32 = 0x1100;
+    const AXE: u32 = 0x4700_1601;
+    const HELM: u32 = 0x4700_1603;
+    let mut h = world();
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(AXE, WEAPON, Props::default()));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(HELM, ARMOR, Props::default()));
+    h.server.quests.steps.clear();
+    for (i, class) in [WEAPON, ARMOR].into_iter().enumerate() {
+        h.server.quests.gives.push(Give {
+            gives: vec![IMBUED],
+            ..taking(None)
+        });
+        h.server.content.class_gives.insert(i, class);
+    }
+    let (b, me) = player(&mut h, "one", "Elara");
+    let helm = hold(&mut h, me, HELM, 1);
+    give_ashes(&mut h, b, me, helm, 1);
+    assert!(!holds(&h, me, helm.0), "kept by the second");
+    let axe = hold(&mut h, me, AXE, 1);
+    give_ashes(&mut h, b, me, axe, 1);
+    assert!(!holds(&h, me, axe.0), "kept by the first");
+}

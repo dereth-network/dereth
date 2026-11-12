@@ -193,6 +193,9 @@ pub enum Trigger {
     UseOn(u32, u32),
     /// Giving an item of a template to a person or an object of another (an item dragged onto it).
     Give(u32, u32),
+    /// Giving an item of any template of a class (a script package, by number: the template's own
+    /// or one it derives from) to a person or an object of a template; the item is handed back.
+    GiveClass(u32, u32),
     /// Arriving through a portal of a template.
     Arrive(u32),
     /// Arriving through one placed portal: its template, and the object's own id.
@@ -592,6 +595,7 @@ impl QuestTable {
                 Trigger::Use(t) => format!("use:{t:08X}"),
                 Trigger::UseOn(i, t) => format!("useon:{i:08X}:{t:08X}"),
                 Trigger::Give(i, t) => format!("give:{i:08X}:{t:08X}"),
+                Trigger::GiveClass(c, t) => format!("giveclass:{c:08X}:{t:08X}"),
                 Trigger::Arrive(t) => format!("arrive:{t:08X}"),
                 Trigger::ArriveFrom(t, o) => format!("arrivefrom:{t:08X}:{o:016X}"),
                 Trigger::Take(t) => format!("take:{t:08X}"),
@@ -837,15 +841,15 @@ impl QuestTable {
                         .split_once(':')
                         .ok_or_else(|| at(format!("a trigger is kind:template, not {}", c[3])))?;
                     let trigger = match kind {
-                        "useon" | "give" => {
+                        "useon" | "give" | "giveclass" => {
                             let (i, t) = tpl.split_once(':').ok_or_else(|| {
                                 at(format!("{kind} takes ITEM:TARGET, not {tpl}"))
                             })?;
                             let (i, t) = (hex(i).map_err(at)?, hex(t).map_err(at)?);
-                            if kind == "give" {
-                                Trigger::Give(i, t)
-                            } else {
-                                Trigger::UseOn(i, t)
+                            match kind {
+                                "give" => Trigger::Give(i, t),
+                                "giveclass" => Trigger::GiveClass(i, t),
+                                _ => Trigger::UseOn(i, t),
                             }
                         }
                         "use" => Trigger::Use(hex(tpl).map_err(at)?),

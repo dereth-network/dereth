@@ -956,6 +956,34 @@ pub fn chest_packages(
         .collect())
 }
 
+/// Every script package of the library with the packages it derives from, nearest first: what
+/// counts in a class a give names.
+///
+/// # Errors
+/// The library does not read.
+pub fn item_classes(p: &Portal) -> Result<yalain_world::gives::ItemClasses, String> {
+    let lib = library(p)?;
+    let mut bases = std::collections::HashMap::new();
+    for pkg in &lib.packages {
+        let mut chain = Vec::new();
+        let mut at = pkg.parent;
+        while let Some(i) = at {
+            let Some(base) = lib.packages.get(i) else {
+                break;
+            };
+            if chain.contains(&base.id) || chain.len() > lib.packages.len() {
+                break;
+            }
+            chain.push(base.id);
+            at = base.parent;
+        }
+        if !chain.is_empty() {
+            bases.insert(pkg.id, chain);
+        }
+    }
+    Ok(yalain_world::gives::ItemClasses { bases })
+}
+
 /// The script library's packages that are this one or derive from it.
 ///
 /// # Errors

@@ -6391,3 +6391,61 @@ fn a_steps_escort_compiles_with_its_step_and_needs_a_pet_row_for_its_creature() 
         assert!(read(&f).is_err(), "{bad}");
     }
 }
+
+/// A step's trigger may give any item of a class, and a give that moves no quest may take one; the
+/// class compiles to the trigger and to the class gives' table, and a give naming both an item and
+/// a class, or a class trigger that reads wrong, is a problem.
+/// Behaviour: server.gives.any-item-of-a-class
+#[test]
+fn a_give_of_a_class_compiles_to_its_trigger_and_to_the_class_gives() {
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "trigger = { give = 0x470020B9, to = 0x470033D0 }",
+        "trigger = { give_class = 0x1049, to = 0x470033D0 }",
+    );
+    files.insert(
+        "town/server/gives/470033D0.toml".into(),
+        "[[give]]\nkey = \"weapons\"\nto = 0x470033D0\nitem_class = 0x1049\ngives = [0x470020B9]\n\
+         prov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert!(t
+        .quests
+        .steps
+        .iter()
+        .any(|s| s.trigger == Trigger::GiveClass(0x1049, 0x4700_33D0)));
+    let c: Vec<(usize, u32)> = t
+        .content
+        .class_gives
+        .iter()
+        .map(|(i, c)| (*i, *c))
+        .collect();
+    let row = t
+        .quests
+        .gives
+        .iter()
+        .position(|g| g.to == 0x4700_33D0 && g.gives == [0x4700_20B9])
+        .expect("the give");
+    assert_eq!(c, vec![(row, 0x1049)], "by its row");
+    assert_eq!(t.quests.gives[row].item, None);
+    for (path, from, to) in [
+        (
+            "town/server/gives/470033D0.toml",
+            "item_class = 0x1049",
+            "item_class = 0x1049\nitem = 0x470020B9",
+        ),
+        (
+            "town/server/quests/40000088.toml",
+            "{ give_class = 0x1049, to = 0x470033D0 }",
+            "{ give_class = 0x1049 }",
+        ),
+    ] {
+        let mut f = files.clone();
+        edit(&mut f, path, from, to);
+        assert!(read(&f).is_err(), "{to}");
+    }
+}

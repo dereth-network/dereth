@@ -477,7 +477,7 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                     problems.push(at("needs: only a quest under way fails".into()));
                 }
                 if let Some(wants) = r.wants {
-                    if !matches!(r.trigger, Trigger::Give(..)) {
+                    if !matches!(r.trigger, Trigger::Give(..) | Trigger::GiveClass(..)) {
                         problems.push(at("wants: only a give's step wants a count".into()));
                     }
                     if wants == 0 {
@@ -487,7 +487,9 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                 if r.effects_quiet && r.effects.is_empty() {
                     problems.push(at(QUIET_WITHOUT_EFFECTS.into()));
                 }
-                if r.transforms.is_some() && !matches!(r.trigger, Trigger::Give(..)) {
+                if r.transforms.is_some()
+                    && !matches!(r.trigger, Trigger::Give(..) | Trigger::GiveClass(..))
+                {
                     problems.push(at(
                         "transforms: only a give's step transforms its player".into()
                     ));
