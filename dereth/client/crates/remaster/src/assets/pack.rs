@@ -172,8 +172,11 @@ pub fn swap_placements(
     model: &mut dyn FnMut(u32) -> Option<PackModel>,
 ) -> usize {
     let mut swapped = 0;
+    // Each object's model asked once: a block's ground cover is thousands of placements of a
+    // few.
+    let mut models: BTreeMap<u32, Option<PackModel>> = BTreeMap::new();
     for p in &mut block.placements {
-        let Some(m) = model(p.id) else {
+        let Some(m) = models.entry(p.id).or_insert_with(|| model(p.id)) else {
             continue;
         };
         let Some(first) = m.levels.first() else {

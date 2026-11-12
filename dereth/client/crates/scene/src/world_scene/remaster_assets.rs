@@ -62,6 +62,8 @@ pub struct DatAssets<'a> {
         Arc<super::remaster_pack::PackAssets>,
         dereth_remaster::assets::pack::PackSettings,
     )>,
+    /// Where pictures are made ahead of their use, off the frame, when they are.
+    pictures: Option<&'a RefCell<super::remaster_pictures::Pictures>>,
 }
 
 impl std::fmt::Debug for DatAssets<'_> {
@@ -91,7 +93,18 @@ impl<'a> DatAssets<'a> {
             tiles: RefCell::new(HashMap::new()),
             palettised: HashMap::new(),
             pack: None,
+            pictures: None,
         }
+    }
+
+    /// This source with its pictures made ahead in `pictures`, off the frame.
+    #[must_use]
+    pub(crate) fn with_pictures(
+        mut self,
+        pictures: &'a RefCell<super::remaster_pictures::Pictures>,
+    ) -> Self {
+        self.pictures = Some(pictures);
+        self
     }
 
     /// This source with `pack` drawn as `on` says: its models, their surfaces and pictures, and
@@ -407,6 +420,14 @@ impl AssetSource for DatAssets<'_> {
     }
 
     fn texture(&mut self, key: &TextureKey, clip_map: bool) -> Option<TextureData> {
+        if let Some(p) = self
+            .pictures
+            .filter(|_| super::remaster_pictures::made_ahead(key))
+        {
+            if let Some(made) = p.borrow_mut().take(key, clip_map) {
+                return made;
+            }
+        }
         if let (TextureKey::Dat { picture, .. }, Some((p, _))) = (key, self.pack.as_ref()) {
             if dereth_remaster::assets::pack::of_pack_picture(*picture).is_some() {
                 return p.texture(*picture);
@@ -656,6 +677,15 @@ impl AssetSource for DatAssets<'_> {
         Some(mesh_of(&groups, |s| {
             s.map_or(SurfaceRef::Missing, |s| SurfaceRef::Surface(s.0))
         }))
+    }
+
+    fn prepare(&mut self, key: &TextureKey, clip_map: bool) -> bool {
+        match self.pictures {
+            Some(p) if super::remaster_pictures::made_ahead(key) => {
+                p.borrow_mut().prepare(key, clip_map)
+            }
+            _ => true,
+        }
     }
 
     fn terrain_cells(&mut self, block: BlockId, terrain: &Terrain) -> Vec<TerrainCell> {

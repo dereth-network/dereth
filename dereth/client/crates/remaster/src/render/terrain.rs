@@ -38,4 +38,6 @@ pub struct ChangeCounts {
     pub blocks_in: u64,
     pub blocks_changed: u64,
     pub grounds_changed: u64,
+    /// The changes waiting for their pictures after the last frame.
+    pub waiting: usize,
 }

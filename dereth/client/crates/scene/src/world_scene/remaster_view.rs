@@ -68,6 +68,8 @@ pub(crate) struct View {
     pub(super) traced_ao: super::remaster_traced::RemasterTracedAo,
     /// Which of the landscape's additions are drawn.
     pub(super) landscape: super::remaster_landscape::RemasterLandscape,
+    /// The pictures made ahead of the changes that hold them.
+    pub(super) pictures: RefCell<super::remaster_pictures::Pictures>,
 }
 
 /// Where the remaster works retail's light out.
@@ -706,5 +708,22 @@ pub(super) fn deliver(draw: &SceneDraw, gpu: &mut Gpu) {
         Some((d.surface.texture.0, d.tiling))
     });
     let mut src = DatAssets::for_scene(store, draw).with_pack(view.pack.clone(), view.packs);
+    // While the landscape streams within a budget, the pictures a change brings are made ahead of
+    // it, off the frame, and the change waits for them.
+    if draw.cfg.stream_budget.is_some() {
+        view.pictures
+            .borrow_mut()
+            .frame(super::remaster_pictures::Making {
+                store: store.clone(),
+                detail: draw.land.bake.environment_texture_detail,
+                scale: draw.land.bake.image_scale,
+                pack: view
+                    .pack
+                    .clone()
+                    .filter(|_| view.packs.any())
+                    .map(|p| (p, view.packs)),
+            });
+        src = src.with_pictures(&view.pictures);
+    }
     r.receive(deltas, frame, detail, &mut src);
 }

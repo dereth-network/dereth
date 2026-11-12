@@ -218,6 +218,9 @@ impl AssetSource for WithSkins<'_> {
     fn texture(&mut self, key: &TextureKey, clip_map: bool) -> Option<Texture> {
         self.src.texture(key, clip_map)
     }
+    fn prepare(&mut self, key: &TextureKey, clip_map: bool) -> bool {
+        self.src.prepare(key, clip_map)
+    }
     fn terrain_cells(
         &mut self,
         block: BlockId,

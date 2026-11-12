@@ -121,6 +121,9 @@ pub use remaster_lod::{RemasterImpostorStats, RemasterLod, RemasterLodStats};
 #[path = "remaster_ground.rs"]
 mod remaster_ground;
 #[cfg(feature = "remaster")]
+#[path = "remaster_pictures.rs"]
+mod remaster_pictures;
+#[cfg(feature = "remaster")]
 #[path = "remaster_view.rs"]
 mod remaster_view;
 pub use marker::{marker_mesh, MarkerCorner, MARKER_GRID, MARKER_LIFT, MARKER_MIN_RADIUS};

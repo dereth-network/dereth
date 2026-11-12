@@ -45,6 +45,7 @@ pub mod sky;
 pub mod sky_probe;
 pub mod terrain;
 pub mod upscale;
+pub(crate) mod waiting;
 pub mod wake;
 pub mod water;
 pub mod weather;
@@ -308,6 +309,8 @@ pub struct Renderer {
     /// How the ground's cells are drawn, and what the scene's changes counted.
     terrain: terrain::TerrainSettings,
     changes: terrain::ChangeCounts,
+    /// The scene's changes waiting for their pictures.
+    waiting: waiting::Waiting,
     /// The last frame's view and projection, and whether it drew the sun's shadows.
     view_projection: glam::Mat4,
     eye: Vec3,
@@ -564,7 +567,11 @@ impl ScenePipelines {
 
 /// Little-endian words, as the shaders' push constants read them.
 fn push_words(w: &[u32]) -> Vec<u8> {
-    w.iter().flat_map(|x| x.to_le_bytes()).collect()
+    let mut out = Vec::with_capacity(w.len() * 4);
+    for x in w {
+        out.extend_from_slice(&x.to_le_bytes());
+    }
+    out
 }
 
 impl Renderer {
@@ -690,6 +697,7 @@ impl Renderer {
             },
             terrain: terrain::TerrainSettings::default(),
             changes: terrain::ChangeCounts::default(),
+            waiting: waiting::Waiting::default(),
             view_projection: glam::Mat4::IDENTITY,
             eye: Vec3::ZERO,
             shadowed: false,
@@ -1177,7 +1185,7 @@ impl Renderer {
     pub fn receive(
         &mut self,
         deltas: Vec<SceneDelta>,
-        frame: FrameDelta,
+        mut frame: FrameDelta,
         detail: [Option<(u32, f32)>; 2],
         src: &mut dyn AssetSource,
     ) {
@@ -1211,6 +1219,11 @@ impl Renderer {
             meshes: self.skins.meshes(),
         };
         let src: &mut dyn AssetSource = &mut with_skins;
+        // The changes whose pictures are ready, in order; the rest wait for theirs.
+        let deltas = self
+            .waiting
+            .admit(deltas, &mut frame.levels, &mut self.tables, src);
+        self.changes.waiting = self.waiting.len();
         for d in &deltas {
             self.tables.apply(d, src);
             match d {

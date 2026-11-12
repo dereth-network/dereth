@@ -66,6 +66,7 @@ fn unit(h: u32) -> f32 {
 /// The cover the block at `at` grows, block-local: `ground` its full-detail ground, `words` its
 /// terrain words, `buildings` where its buildings stand, and `lifts` how far a placement at a
 /// global point is drawn above it.
+#[cfg(test)]
 pub(super) fn cover_placements(
     at: (i32, i32),
     ground: &CoverGround<'_>,
@@ -75,14 +76,41 @@ pub(super) fn cover_placements(
     lifts: &dyn Fn(f32, f32, f32) -> [f32; 2],
 ) -> Vec<rm::Placement> {
     let mut out = Vec::new();
-    if covers.is_empty() {
-        return out;
+    for row in 0..cover_rows(covers) {
+        grow_row(at, ground, words, covers, buildings, lifts, row, &mut out);
     }
+    out
+}
+
+/// How many rows of cells `covers` grow in, a cover's eight after another's: a block's cover is
+/// grown a row at a time, in order, and the rows together are the whole of it.
+pub(super) fn cover_rows(covers: &[ManifestCover]) -> usize {
+    covers.len() * 8
+}
+
+/// Grow row `row` of [`cover_rows`] onto `out`, as the whole block's cover grows it.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn grow_row(
+    at: (i32, i32),
+    ground: &CoverGround<'_>,
+    words: &[u16; 81],
+    covers: &[ManifestCover],
+    buildings: &[glam::Vec3],
+    lifts: &dyn Fn(f32, f32, f32) -> [f32; 2],
+    row: usize,
+    out: &mut Vec<rm::Placement>,
+) {
+    let Some(cover) = covers.get(row / 8) else {
+        return;
+    };
+    // LINT-OK: a row of a block's eight.
+    #[allow(clippy::cast_possible_truncation)]
+    let cx = (row % 8) as u32;
     // LINT-OK: block coordinates, far inside f32's exact range.
     #[allow(clippy::cast_sign_loss)]
     let block = (at.0 as u32) << 16 | (at.1 as u32 & 0xFFFF);
     let area = CELL_SIZE * CELL_SIZE / 100.0;
-    for cover in covers {
+    {
         let expected = cover.density * area;
         // LINT-OK: a count a cell, from a density a hundred square meters: a few dozen.
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -96,7 +124,7 @@ pub(super) fn cover_placements(
                 .iter()
                 .fold(0u32, |m, t| m | 1 << (t & 31))
                 .rotate_left(7);
-        for cx in 0..8u32 {
+        {
             for cy in 0..8u32 {
                 let cell = cx * 8 + cy;
                 if (ground.wet)(cell as usize) {
@@ -174,7 +202,6 @@ pub(super) fn cover_placements(
             }
         }
     }
-    out
 }
 
 #[cfg(test)]

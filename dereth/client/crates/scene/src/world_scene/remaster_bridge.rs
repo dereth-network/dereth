@@ -204,10 +204,14 @@ pub(crate) struct Shadow {
     blocks: HashMap<u16, u32>,
     // ORDER-OK: as above.
     levels: HashMap<u16, u64>,
-    // ORDER-OK: as above. Each block's contents but its ground, as one number.
-    contents: HashMap<u16, u64>,
+    // ORDER-OK: as above. Each block as it was last sent, its build's number aside.
+    contents: HashMap<u16, rm::Block>,
     // ORDER-OK: as above. What each block's scenery was lifted by, as one number (0 for none).
     shifts: HashMap<u16, u64>,
+    // ORDER-OK: as above. The ground cover each block last grew, and what it grew from.
+    covers: HashMap<u16, Cover>,
+    /// A block's ground cover grew whole on the last frame, and is sent on this one.
+    cover_whole: bool,
     /// The world's vertices last sent, and their serial.
     drawn_world: Option<(u64, std::sync::Arc<rm::DrawnWorld>)>,
     /// The far forest last sent: the pack's far pictures, the trees within reach, and the cover.
@@ -225,17 +229,109 @@ pub(crate) struct Shadow {
     pub(super) now: f64,
 }
 
-/// Everything a block holds but its ground and its build's number, as one number: a block built
-/// again with the same number changed only its ground.
-fn contents_of(b: &rm::Block) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    format!(
-        "{:?}",
-        (&b.placements, &b.degrades, &b.rooms, &b.lights, &b.lamps)
-    )
-    .hash(&mut h);
-    h.finish()
+/// About the most ground cover grown in one frame, placements, while the landscape streams within
+/// a budget: a block's cover is thousands, each lifted onto the drawn ground, so a block's is grown
+/// a row of cells at a time over a few frames, and the block is sent once it is whole.
+const COVER_A_FRAME: usize = 2500;
+
+/// What ground cover a frame may still grow, while the landscape streams within a budget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CoverBudget {
+    /// Placements still to grow this frame.
+    left: usize,
+    /// A block's cover grew whole this frame: it is sent on the next, which grows none, so the
+    /// frame that sends a block whose cover grew over frames does not grow cover as well.
+    whole: bool,
+}
+
+impl CoverBudget {
+    /// A frame's budget: none the frame after a cover grew whole, when that block is sent.
+    fn after(whole: bool) -> Self {
+        Self {
+            left: if whole { 0 } else { COVER_A_FRAME },
+            whole: false,
+        }
+    }
+}
+
+/// What a block's ground cover grows from: its full-detail ground, its terrain, its buildings,
+/// the covers and what they are lifted by. A block built again from the same grows the same.
+#[derive(Debug, Clone, PartialEq)]
+struct CoverInputs {
+    vertices: Vec<Vec3>,
+    cuts: Vec<bool>,
+    water: Vec<dereth_terrain::land::water::WaterType>,
+    words: [u16; 81],
+    buildings: Vec<glam::Vec3>,
+    covers: Vec<dereth_assets::art_pack::ManifestCover>,
+    lifts: u64,
+    knobs: dereth_terrain::land::drawn::Knobs,
+}
+
+/// The ground cover a block grew, and what it grew from: whole once every row is grown.
+#[derive(Debug, Clone)]
+pub(crate) struct Cover {
+    inputs: CoverInputs,
+    placements: Vec<rm::Placement>,
+    /// The rows grown so far (see [`super::remaster_cover::cover_rows`]).
+    rows: usize,
+}
+
+impl Cover {
+    /// The cover `inputs` grow in `rows` rows, `grow` growing one onto what is grown: what
+    /// `entry` holds when it grew from the same, or grown a row at a time while `allowance`
+    /// lasts, at least a row (or all of it at once with none). `None` until it is whole, and
+    /// within an allowance on the frame it grows whole too, which the allowance then counts
+    /// ([`CoverBudget::whole`]); what is grown is kept for the next frame.
+    fn grow<'a>(
+        entry: std::collections::hash_map::Entry<'a, u16, Cover>,
+        inputs: CoverInputs,
+        rows: usize,
+        mut allowance: Option<&mut CoverBudget>,
+        mut grow: impl FnMut(&CoverInputs, usize, &mut Vec<rm::Placement>),
+    ) -> Option<&'a [rm::Placement]> {
+        // Grown again only from something new: a block is built again far more often than what
+        // its cover grows from changes (its light, its neighbors' detail).
+        let c = entry.or_insert_with(|| Cover {
+            inputs: inputs.clone(),
+            placements: Vec::new(),
+            rows: 0,
+        });
+        if c.inputs != inputs {
+            *c = Cover {
+                inputs,
+                placements: Vec::new(),
+                rows: 0,
+            };
+        }
+        let grown = c.rows < rows;
+        while c.rows < rows {
+            if allowance.as_deref().is_some_and(|b| b.left == 0) {
+                return None;
+            }
+            let before = c.placements.len();
+            grow(&c.inputs, c.rows, &mut c.placements);
+            c.rows += 1;
+            if let Some(b) = allowance.as_deref_mut() {
+                b.left = b.left.saturating_sub((c.placements.len() - before).max(1));
+            }
+        }
+        if let Some(b) = allowance.filter(|_| grown) {
+            b.whole = true;
+            return None;
+        }
+        Some(&c.placements)
+    }
+}
+
+/// Whether `b` holds what `last` did, its ground and its build's number aside: a block built
+/// again that does changed only its ground, if that.
+fn same_contents(last: &rm::Block, b: &rm::Block) -> bool {
+    last.placements == b.placements
+        && last.degrades == b.degrades
+        && last.rooms == b.rooms
+        && last.lights == b.lights
+        && last.lamps == b.lamps
 }
 
 /// What an object is built from, as one number: the setup, the appearance its meshes are shared
@@ -417,8 +513,12 @@ fn block_delta(
     mesh: &dereth_terrain::land::mesh::LandblockMesh,
     ground: &super::remaster_ground::RemasterGround,
     store: Option<&RetailDatStore>,
-    covers: &[dereth_assets::art_pack::ManifestCover],
-) -> rm::Block {
+    (covers, allowance): (
+        &[dereth_assets::art_pack::ManifestCover],
+        Option<&mut CoverBudget>,
+    ),
+    cache: &mut HashMap<u16, Cover>,
+) -> Option<rm::Block> {
     let own = u32::try_from(block.degrade.len()).unwrap_or(u32::MAX);
     let mut first = own;
     let rooms = block
@@ -500,16 +600,38 @@ fn block_delta(
             .filter(|p| p.kind == rm::PlacementKind::Building)
             .map(|p| p.frame.w_axis.truncate())
             .collect();
-        placements.extend(super::remaster_cover::cover_placements(
-            at,
-            &cover_ground,
-            &block.terrain,
-            covers,
-            &buildings,
-            &|x, y, z| ground.lifts(x, y, z, false),
-        ));
+        let inputs = CoverInputs {
+            vertices: mesh.vertices.clone(),
+            cuts: mesh.sw_to_ne_cut.clone(),
+            water: mesh.cell_water.clone(),
+            words: block.terrain,
+            buildings,
+            covers: covers.to_vec(),
+            lifts: ground.lifts_key(at),
+            knobs: ground.knobs().clone(),
+        };
+        let rows = super::remaster_cover::cover_rows(covers);
+        let grown = Cover::grow(
+            cache.entry(id),
+            inputs,
+            rows,
+            allowance,
+            |inputs, row, out| {
+                super::remaster_cover::grow_row(
+                    at,
+                    &cover_ground,
+                    &block.terrain,
+                    covers,
+                    &inputs.buildings,
+                    &|x, y, z| ground.lifts(x, y, z, false),
+                    row,
+                    out,
+                );
+            },
+        )?;
+        placements.extend_from_slice(grown);
     }
-    rm::Block {
+    let b = rm::Block {
         block: id,
         generation: block.remaster_generation,
         terrain: rm::Terrain {
@@ -523,7 +645,8 @@ fn block_delta(
         rooms,
         lights,
         lamps,
-    }
+    };
+    Some(b)
 }
 
 /// The lamps of `block`'s outdoor placements, block-local, each as high as its placement is drawn:
@@ -957,6 +1080,7 @@ pub(super) fn publish(draw: &SceneDraw, bridge: &mut Bridge, ws: &WorldState, si
             })
             .unwrap_or_default()
     };
+    let mut cover_budget = CoverBudget::after(sh.cover_whole);
     let mid = window.mid_width();
     let mut resident: Vec<u16> = Vec::new();
     for xi in 0..mid {
@@ -990,18 +1114,36 @@ pub(super) fn publish(draw: &SceneDraw, bridge: &mut Bridge, ws: &WorldState, si
             if sent != Some(block.remaster_generation)
                 || sh.shifts.get(&id).copied().unwrap_or(0) != lifts_key
             {
-                sh.shifts.insert(id, lifts_key);
-                let b = Box::new(block_delta(
+                // A block coming in grows its cover at once. While the landscape streams within a
+                // budget, one sent before grows its cover a share a frame, and is drawn as it
+                // was until the cover is whole.
+                let bounded = sent.is_some() && draw.cfg.stream_budget.is_some();
+                let Some(b) = block_delta(
                     (id, at),
                     block,
                     mesh,
                     &draw.remaster_ground,
                     draw.remaster_view.borrow().store.as_ref(),
-                    if near { &covers } else { &[] },
-                ));
-                let contents = contents_of(&b);
-                let same = sent.is_some() && sh.contents.get(&id) == Some(&contents);
-                if same {
+                    (
+                        if near { &covers } else { &[] },
+                        bounded.then_some(&mut cover_budget),
+                    ),
+                    &mut sh.covers,
+                ) else {
+                    continue;
+                };
+                let b = Box::new(b);
+                sh.shifts.insert(id, lifts_key);
+                let last = sent.and_then(|_| sh.contents.get_mut(&id));
+                let same = last.as_deref().is_some_and(|l| same_contents(l, &b));
+                let unchanged = same && last.as_deref().is_some_and(|l| l.terrain == b.terrain);
+                if unchanged {
+                    // Built again with nothing the remaster draws changed (its lighting, say):
+                    // nothing is sent.
+                } else if same {
+                    if let Some(l) = last {
+                        l.terrain = b.terrain.clone();
+                    }
                     // Built again for its ground alone (its level of detail or its stitching):
                     // the parts the remaster holds stay, and so do their levels.
                     deltas.push(rm::SceneDelta::GroundChanged(Box::new(rm::GroundDelta {
@@ -1010,6 +1152,7 @@ pub(super) fn publish(draw: &SceneDraw, bridge: &mut Bridge, ws: &WorldState, si
                         terrain: b.terrain,
                     })));
                 } else {
+                    sh.contents.insert(id, (*b).clone());
                     deltas.push(if sent.is_some() {
                         rm::SceneDelta::BlockChanged(b)
                     } else {
@@ -1018,7 +1161,6 @@ pub(super) fn publish(draw: &SceneDraw, bridge: &mut Bridge, ws: &WorldState, si
                     sh.levels.remove(&id);
                 }
                 sh.blocks.insert(id, block.remaster_generation);
-                sh.contents.insert(id, contents);
             }
             let (levels, key) = block_levels(id, block);
             if sh.levels.get(&id) != Some(&key) {
@@ -1042,7 +1184,9 @@ pub(super) fn publish(draw: &SceneDraw, bridge: &mut Bridge, ws: &WorldState, si
         sh.levels.remove(&id);
         sh.contents.remove(&id);
         sh.shifts.remove(&id);
+        sh.covers.remove(&id);
     }
+    sh.cover_whole = cover_budget.whole;
 
     // --- the moving objects ---------------------------------------------------------------
     let objects = moving(draw, ws, &sh.objects);
@@ -1452,6 +1596,119 @@ mod tests {
         let (near, far) = planes(p);
         assert!((near - 0.25).abs() < 1e-4, "{near}");
         assert!((far - 900.0).abs() < 0.5, "{far}");
+    }
+
+    /// What a block's cover grows from: nothing but `lifts`.
+    fn inputs(lifts: u64) -> CoverInputs {
+        CoverInputs {
+            vertices: Vec::new(),
+            cuts: Vec::new(),
+            water: Vec::new(),
+            words: [0; 81],
+            buildings: Vec::new(),
+            covers: Vec::new(),
+            lifts,
+            knobs: dereth_terrain::land::drawn::Knobs::default(),
+        }
+    }
+
+    /// A row of ten placements, each numbered by its row and place.
+    fn row(_: &CoverInputs, row: usize, out: &mut Vec<rm::Placement>) {
+        for k in 0..10u32 {
+            out.push(rm::Placement {
+                // LINT-OK: a test's few rows.
+                #[allow(clippy::cast_possible_truncation)]
+                id: (row as u32) << 8 | k,
+                kind: rm::PlacementKind::Object,
+                frame: glam::Mat4::IDENTITY,
+                scale: 1.0,
+                lifts: [0.0; 2],
+                parts: Vec::new(),
+            });
+        }
+    }
+
+    /// **A block's ground cover grows a share a frame and is sent whole, on a frame that grows
+    /// none**: within an allowance it is grown a row at a time over frames, never all on one;
+    /// the frame it grows whole it waits, and the next frame grows no cover, its own or another
+    /// block's, and sends it; what is sent is what growing it at once makes, in the same order.
+    #[test]
+    fn a_blocks_cover_grows_a_share_a_frame_and_is_sent_whole_on_a_frame_that_grows_none() {
+        let mut cache = HashMap::new();
+        let mut frames = 0;
+        let mut rows_grown = Vec::new();
+        let mut whole_last = false;
+        let grown = loop {
+            frames += 1;
+            let mut budget = if whole_last {
+                CoverBudget::after(true)
+            } else {
+                CoverBudget {
+                    left: 25,
+                    whole: false,
+                }
+            };
+            let before = rows_grown.len();
+            let mut counted = |i: &CoverInputs, r: usize, out: &mut Vec<rm::Placement>| {
+                rows_grown.push(r);
+                row(i, r, out);
+            };
+            let sent = Cover::grow(
+                cache.entry(1),
+                inputs(7),
+                8,
+                Some(&mut budget),
+                &mut counted,
+            )
+            .map(<[_]>::to_vec);
+            // Another block, its cover not grown yet, on the same frame.
+            let other = Cover::grow(
+                cache.entry(2),
+                inputs(7),
+                8,
+                Some(&mut budget),
+                &mut counted,
+            );
+            if let Some(g) = sent {
+                assert_eq!(
+                    rows_grown.len(),
+                    before,
+                    "the frame that sends it grows none"
+                );
+                assert!(other.is_none());
+                break g;
+            }
+            whole_last = budget.whole;
+            assert!(frames < 8, "it grows on");
+        };
+        assert_eq!(frames, 4, "three rows a frame, of eight, then sent");
+        assert_eq!(
+            rows_grown[..8],
+            (0..8).collect::<Vec<_>>(),
+            "each row once, in order"
+        );
+        let mut whole = HashMap::new();
+        let at_once = Cover::grow(whole.entry(1), inputs(7), 8, None, row).map(<[_]>::to_vec);
+        assert_eq!(Some(grown), at_once);
+    }
+
+    /// **A block built again grows its cover again only from something new**: the same inputs
+    /// take the cover grown, and new ones grow it again from its first row.
+    #[test]
+    fn a_blocks_cover_is_grown_again_only_from_something_new() {
+        let mut cache = HashMap::new();
+        let asked = std::cell::Cell::new(0);
+        let counted = |i: &CoverInputs, r: usize, out: &mut Vec<rm::Placement>| {
+            asked.set(asked.get() + 1);
+            row(i, r, out);
+        };
+        assert!(Cover::grow(cache.entry(1), inputs(7), 4, None, counted).is_some());
+        assert!(Cover::grow(cache.entry(1), inputs(7), 4, None, counted).is_some());
+        assert_eq!(asked.get(), 4, "grown once");
+        let mut none = CoverBudget::after(true);
+        assert!(Cover::grow(cache.entry(1), inputs(8), 4, Some(&mut none), counted).is_none());
+        assert!(Cover::grow(cache.entry(1), inputs(8), 4, None, counted).is_some());
+        assert_eq!(asked.get(), 8, "grown again, whole, for new lifts");
     }
 
     #[test]

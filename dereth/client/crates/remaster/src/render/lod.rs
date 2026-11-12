@@ -480,7 +480,18 @@ impl Lod {
         for d in deltas {
             match d {
                 SceneDelta::BlockIn(b) | SceneDelta::BlockChanged(b) => {
-                    let groups: Vec<u32> = b.degrades.iter().map(|r| self.group(r)).collect();
+                    // Records alike come together (a cover's placements of one model): each
+                    // takes the group of the one before it when it is alike.
+                    let mut groups: Vec<u32> = Vec::with_capacity(b.degrades.len());
+                    let mut last: Option<(&Degrade, u32)> = None;
+                    for r in &b.degrades {
+                        let g = match last {
+                            Some((l, g)) if l.levels == r.levels && l.modes == r.modes => g,
+                            _ => self.group(r),
+                        };
+                        last = Some((r, g));
+                        groups.push(g);
+                    }
                     self.record_groups.insert(b.block, groups);
                     self.records.insert(b.block, b.degrades.clone());
                     self.turned.remove(&b.block);
@@ -1376,6 +1387,50 @@ mod tests {
             "25 parts along is 100 m off"
         );
     }
+    /// **Records alike share a group, and only they**: a ground cover's placements of one model
+    /// come together, each record alike the one before it; one between them whose levels turn
+    /// otherwise, or that has other levels, is a group of its own.
+    #[test]
+    fn records_alike_share_a_group_and_only_they() {
+        const BLOCK: BlockId = 0xA9B4;
+        let record = |levels: Vec<u32>, modes: Vec<u8>| Degrade {
+            levels,
+            modes,
+            scale_z: 1.0,
+            ..Degrade::default()
+        };
+        let block = crate::scene::Block {
+            block: BLOCK,
+            generation: 1,
+            terrain: crate::scene::Terrain {
+                side: 1,
+                vertices: vec![Vec3::ZERO; 4],
+                cuts: vec![false],
+                words: [4; 81],
+            },
+            placements: Vec::new(),
+            degrades: vec![
+                record(vec![1, 2, 0], vec![1; 3]),
+                record(vec![1, 2, 0], vec![1; 3]),
+                record(vec![1, 2, 0], vec![1, 2, 1]),
+                record(vec![1, 2, 0], vec![1; 3]),
+                record(vec![1, 3, 0], vec![1; 3]),
+            ],
+            rooms: Vec::new(),
+            lights: Vec::new(),
+            lamps: Vec::new(),
+        };
+        let mut lod = Lod::default();
+        lod.take(&[SceneDelta::BlockIn(Box::new(block))], &[]);
+        let g: Vec<u32> = (0..5)
+            .map(|r| lod.group_of_record(BLOCK, r).expect("a group"))
+            .collect();
+        assert_eq!((g[1], g[3]), (g[0], g[0]), "alike");
+        assert_ne!(g[2], g[0], "turning otherwise");
+        assert_ne!(g[4], g[0], "other levels");
+        assert_ne!(g[4], g[2]);
+    }
+
     /// Records the device chooses levels for are never walked here: a frame chooses only the
     /// block's others, and the device's group is still measured once for it.
     #[test]

@@ -189,7 +189,7 @@ impl Pooled {
 pub struct MeshGpu {
     pub vertices: Range<u32>,
     pub indices: Range<u32>,
-    pub subsets: Vec<crate::assets::Subset>,
+    pub subsets: std::sync::Arc<[crate::assets::Subset]>,
     pub sphere: Option<([f32; 3], f32)>,
     pub sort_center: [f32; 3],
     /// Its vertices' lowest and highest corner, its own space.
@@ -225,6 +225,18 @@ pub struct ItemDraw {
     pub material: u32,
     pub alpha_test: bool,
 }
+
+/// One draw item of a mesh, as any instance of it draws it: its row's words after the instance's,
+/// its bucket, and what the processor keeps of it.
+#[derive(Debug, Clone, Copy)]
+struct MeshItem {
+    words: [u32; 7],
+    bucket: Bucket,
+    draw: ItemDraw,
+}
+
+/// A mesh as a block's parts draw it at one level: its sphere and its draw items.
+type LaidMesh = (([f32; 3], f32), Vec<MeshItem>);
 
 /// One sky object's instance and draw items.
 #[derive(Debug, Clone)]
@@ -309,8 +321,8 @@ pub struct BlockGpu {
     pub rooms: Vec<RoomGpu>,
     /// Each degrade record's level, as the frames last said.
     pub levels: Vec<u8>,
-    /// The degrade records of the block's own placements, then each room's.
-    pub degrades: Vec<Vec<u32>>,
+    /// How many of its parts are ground cover ([`GpuScene::mark_cover`]).
+    pub cover_parts: usize,
 }
 
 /// One object on the device.
@@ -338,6 +350,8 @@ pub struct GpuScene {
     pub splats: Pooled,
     pub splat_index: BTreeMap<u32, u32>,
     pub meshes: BTreeMap<MeshKey, MeshGpu>,
+    /// Counts each change to [`Self::meshes`]: a mesh held, made again or let go.
+    pub mesh_generation: u64,
     pub material_index: BTreeMap<MaterialKey, MaterialGpu>,
     pub textures: BTreeMap<TextureKey, (GpuTexture, u32)>,
     /// Each texture's bytes, every level.
@@ -393,15 +407,12 @@ fn bucket_of(m: &MaterialGpu, two_sided: bool) -> Bucket {
     }
 }
 
-fn mat_bytes(m: Mat4) -> Vec<u8> {
-    m.to_cols_array()
-        .iter()
-        .flat_map(|f| f.to_le_bytes())
-        .collect()
-}
-
 fn words(w: &[u32]) -> Vec<u8> {
-    w.iter().flat_map(|x| x.to_le_bytes()).collect()
+    let mut out = Vec::with_capacity(w.len() * 4);
+    for x in w {
+        out.extend_from_slice(&x.to_le_bytes());
+    }
+    out
 }
 
 fn kind_index(k: Kind) -> u32 {
@@ -480,6 +491,7 @@ impl GpuScene {
             )?,
             splat_index: BTreeMap::new(),
             meshes: BTreeMap::new(),
+            mesh_generation: 0,
             material_index: BTreeMap::new(),
             textures: BTreeMap::new(),
             texture_bytes: BTreeMap::new(),
@@ -608,32 +620,59 @@ impl GpuScene {
         at: u32,
         extra_flags: u32,
     ) -> Result<u32, dereth_gfx::Error> {
-        let mut next = at;
         let mut bytes = Vec::new();
+        let next = self.item_rows(instance, mesh, material, at, extra_flags, &mut bytes);
+        self.items.write(d, at, &bytes)?;
+        self.uploaded += bytes.len() as u64;
+        Ok(next)
+    }
+
+    /// [`Self::write_items`]'s items, their rows added to `bytes` rather than written: a block's
+    /// are written together, in one write.
+    fn item_rows(
+        &mut self,
+        instance: u32,
+        mesh: &MeshGpu,
+        material: &dyn Fn(usize, SurfaceRef) -> Option<MaterialKey>,
+        at: u32,
+        extra_flags: u32,
+        bytes: &mut Vec<u8>,
+    ) -> u32 {
+        let items = self.mesh_items(mesh, material, extra_flags);
+        self.place_items(instance, &items, at, bytes)
+    }
+
+    /// The draw items `mesh` makes with the material of each subset from `material`, as any
+    /// instance of it draws them.
+    fn mesh_items(
+        &self,
+        mesh: &MeshGpu,
+        material: &dyn Fn(usize, SurfaceRef) -> Option<MaterialKey>,
+        extra_flags: u32,
+    ) -> Vec<MeshItem> {
+        let mut out = Vec::with_capacity(mesh.subsets.len());
         for (k, s) in mesh.subsets.iter().enumerate() {
             let key = material(k, s.surface);
-            let Some(m) = key.and_then(|key| self.material_index.get(&key)).cloned() else {
+            let Some(m) = key.and_then(|key| self.material_index.get(&key)) else {
                 continue;
             };
-            if !subset_drawn(&m, extra_flags) {
+            if !subset_drawn(m, extra_flags) {
                 continue;
             }
-            let bucket = bucket_of(&m, s.two_sided);
+            let bucket = bucket_of(m, s.two_sided);
             let flags = extra_flags | if s.tiled { ITEM_TILED } else { 0 };
-            bytes.extend(words(&[
-                instance,
-                mesh.vertices.start,
-                s.index_count,
-                m.index,
-                flags,
-                0,
-                mesh.indices.start + s.first_index,
-                bucket as u32,
-            ]));
-            self.set_bucket(
-                next,
+            out.push(MeshItem {
+                words: [
+                    mesh.vertices.start,
+                    s.index_count,
+                    m.index,
+                    flags,
+                    0,
+                    mesh.indices.start + s.first_index,
+                    bucket as u32,
+                ],
                 bucket,
-                ItemDraw {
+                draw: ItemDraw {
                     index_count: s.index_count,
                     first_index: mesh.indices.start + s.first_index,
                     two_sided: s.two_sided,
@@ -642,12 +681,30 @@ impl GpuScene {
                     material: m.index,
                     alpha_test: m.alpha_test,
                 },
-            );
+            });
+        }
+        out
+    }
+
+    /// `items` drawn by instance `instance`, from item `at` on, their rows added to `bytes`; the
+    /// next free item.
+    fn place_items(
+        &mut self,
+        instance: u32,
+        items: &[MeshItem],
+        at: u32,
+        bytes: &mut Vec<u8>,
+    ) -> u32 {
+        let mut next = at;
+        for i in items {
+            bytes.extend_from_slice(&instance.to_le_bytes());
+            for w in i.words {
+                bytes.extend_from_slice(&w.to_le_bytes());
+            }
+            self.set_bucket(next, i.bucket, i.draw);
             next += 1;
         }
-        self.items.write(d, at, &bytes)?;
-        self.uploaded += bytes.len() as u64;
-        Ok(next)
+        next
     }
 
     /// How many items `mesh` makes.
@@ -697,7 +754,30 @@ impl GpuScene {
         override_: u32,
         uv: [f32; 2],
     ) -> Vec<u8> {
-        let mut b = mat_bytes(transform);
+        let mut b = Vec::with_capacity(INSTANCE_BYTES as usize);
+        // How far it is drawn above where it stands: nought until `lift_row` says.
+        Self::instance_row_into(
+            &mut b,
+            (transform, scale),
+            [slot, class, set, override_],
+            uv,
+            [0.0; 2],
+        );
+        b
+    }
+
+    /// An instance's row, added to `out`: [`Self::instance_bytes_scrolled`]'s, lifted as
+    /// [`Self::lift_row`] lifts it.
+    fn instance_row_into(
+        out: &mut Vec<u8>,
+        (transform, scale): (Mat4, Vec3),
+        words: [u32; 4],
+        uv: [f32; 2],
+        lifts: [f32; 2],
+    ) {
+        for f in transform.to_cols_array() {
+            out.extend_from_slice(&f.to_le_bytes());
+        }
         let uniform = (scale.x - scale.y).abs() < 1e-6 && (scale.x - scale.z).abs() < 1e-6;
         let inv = |s: f32| if s.abs() > 1e-12 { 1.0 / (s * s) } else { 1.0 };
         for f in [
@@ -706,15 +786,14 @@ impl GpuScene {
             inv(scale.z),
             if uniform { 0.0 } else { 1.0 },
         ] {
-            b.extend_from_slice(&f.to_le_bytes());
+            out.extend_from_slice(&f.to_le_bytes());
         }
-        b.extend(words(&[slot, class, set, override_]));
-        for f in [uv[0], uv[1], 0.0, 0.0] {
-            b.extend_from_slice(&f.to_le_bytes());
+        for w in words {
+            out.extend_from_slice(&w.to_le_bytes());
         }
-        // How far it is drawn above where it stands: nought until `lift_row` says.
-        b.extend_from_slice(&[0u8; 16]);
-        b
+        for f in [uv[0], uv[1], 0.0, 0.0, lifts[0], lifts[1], 0.0, 0.0] {
+            out.extend_from_slice(&f.to_le_bytes());
+        }
     }
 
     /// Write into an instance's row how far its placement is drawn above where it stands, on the
@@ -743,13 +822,13 @@ impl GpuScene {
     }
 
     /// The meshes a part's levels draw: its own GfxObj, or each level of its degrade record.
-    fn part_levels(block: &Block, part: &Part) -> Vec<u32> {
+    fn part_levels<'a>(block: &'a Block, part: &'a Part) -> &'a [u32] {
         match part.degrade {
             Some(d) => block
                 .degrades
                 .get(d as usize)
-                .map_or_else(Vec::new, |r| r.levels.clone()),
-            None => vec![part.gfxobj],
+                .map_or(&[][..], |r| r.levels.as_slice()),
+            None => std::slice::from_ref(&part.gfxobj),
         }
     }
 
@@ -785,7 +864,7 @@ impl GpuScene {
         {
             for part in &p.parts {
                 instance_count += 1 + u32::from(Self::part_turns(block, part));
-                for g in Self::part_levels(block, part) {
+                for &g in Self::part_levels(block, part) {
                     if let Some(m) = mesh_of(g) {
                         item_count += self.item_count(m);
                     }
@@ -812,64 +891,76 @@ impl GpuScene {
             instances: instances.clone(),
             items: items.clone(),
             levels: vec![0; block.degrades.len()],
-            degrades: block.degrades.iter().map(|r| r.levels.clone()).collect(),
             ..BlockGpu::default()
         };
         let mut inst = instances.start;
         let mut item = items.start;
         let mut instance_rows = Vec::new();
+        // The block's draw items, written together once they are all laid out.
+        let mut item_bytes = Vec::new();
+        // Each mesh's items and sphere at each level, worked out once: a block's ground cover is
+        // thousands of placements of a few models.
+        // ORDER-OK: looked up by mesh and level, never walked.
+        let mut laid: std::collections::HashMap<(u32, u32), Option<LaidMesh>> =
+            std::collections::HashMap::new();
         let mut place = |scene: &mut Self,
-                         d: &mut Device,
                          (part, lifts): (&Part, [f32; 2]),
                          class: u32,
                          flags: u32,
-                         instance_rows: &mut Vec<u8>|
-         -> Result<PartItems, dereth_gfx::Error> {
+                         (instance_rows, item_bytes): (&mut Vec<u8>, &mut Vec<u8>)|
+         -> PartItems {
             let this = inst;
             inst += 1;
             let transform = part.transform();
-            let row = || {
-                let mut r = Self::instance_bytes(transform, part.scale, slot, class, 0, NONE);
-                Self::lift_row(&mut r, lifts);
-                r
+            let row = |out: &mut Vec<u8>| {
+                Self::instance_row_into(
+                    out,
+                    (transform, part.scale),
+                    [slot, class, 0, NONE],
+                    [0.0; 2],
+                    lifts,
+                );
             };
-            instance_rows.extend(row());
+            row(instance_rows);
             let turned = Self::part_turns(block, part).then(|| {
                 let t = inst;
                 inst += 1;
-                instance_rows.extend(row());
+                row(instance_rows);
                 t
             });
-            let mut levels = Vec::new();
-            let mut sphere = ([0.0; 3], 0.0);
             let meshes = Self::part_levels(block, part);
+            let mut levels = Vec::with_capacity(meshes.len());
+            let mut sphere = ([0.0; 3], 0.0);
             let mesh = meshes.first().copied().unwrap_or(part.gfxobj);
-            for (k, g) in meshes.into_iter().enumerate() {
+            for (k, &g) in meshes.iter().enumerate() {
                 let start = item;
-                if let Some(m) = scene.meshes.get(&MeshKey::GfxObj(g)).cloned() {
-                    if k == 0 {
-                        sphere = m.sphere.unwrap_or((m.sort_center, 0.0));
-                    }
-                    let owner = match turned {
-                        Some(t) if Self::level_turns(block, part, k) => t,
-                        _ => this,
-                    };
-                    item = scene.write_items(
-                        d,
-                        owner,
-                        &m,
+                let level_flags = flags | (u32::try_from(k).unwrap_or(0).min(0xFF) << 8);
+                let mesh_items = laid.entry((g, level_flags)).or_insert_with(|| {
+                    let m = scene.meshes.get(&MeshKey::GfxObj(g))?;
+                    let items = scene.mesh_items(
+                        m,
                         &|_, s| match s {
                             SurfaceRef::Surface(id) => Some(MaterialKey::plain(id)),
                             SurfaceRef::Missing => Some(MaterialKey::plain(0)),
                             SurfaceRef::Slot(_) => None,
                         },
-                        start,
-                        flags | (u32::try_from(k).unwrap_or(0).min(0xFF) << 8),
-                    )?;
+                        level_flags,
+                    );
+                    Some((m.sphere.unwrap_or((m.sort_center, 0.0)), items))
+                });
+                if let Some((s, items)) = mesh_items {
+                    if k == 0 {
+                        sphere = *s;
+                    }
+                    let owner = match turned {
+                        Some(t) if Self::level_turns(block, part, k) => t,
+                        _ => this,
+                    };
+                    item = scene.place_items(owner, items, start, item_bytes);
                 }
                 levels.push(start..item);
             }
-            Ok(PartItems {
+            PartItems {
                 instance: this,
                 degrade: part.degrade,
                 levels,
@@ -880,7 +971,7 @@ impl GpuScene {
                 lifts,
                 mesh,
                 cover: false,
-            })
+            }
         };
         for p in &block.placements {
             let flags = if p.kind == PlacementKind::Building {
@@ -891,12 +982,11 @@ impl GpuScene {
             for part in &p.parts {
                 let items = place(
                     self,
-                    d,
                     (part, p.lifts),
                     class::SUN,
                     flags,
-                    &mut instance_rows,
-                )?;
+                    (&mut instance_rows, &mut item_bytes),
+                );
                 gpu.parts.push(items);
             }
         }
@@ -921,12 +1011,11 @@ impl GpuScene {
                 for part in &p.parts {
                     r.statics.push(place(
                         self,
-                        d,
                         (part, [0.0; 2]),
                         class::INDOOR,
                         0,
-                        &mut instance_rows,
-                    )?);
+                        (&mut instance_rows, &mut item_bytes),
+                    ));
                 }
             }
             gpu.rooms.push(r);
@@ -950,8 +1039,7 @@ impl GpuScene {
             });
             if let Some(m) = self.meshes.get(&key).cloned() {
                 let slots = tables.cell_materials(room.id).map(<[MaterialKey]>::to_vec);
-                item = self.write_items(
-                    d,
+                item = self.item_rows(
                     this,
                     &m,
                     &|_, s| match s {
@@ -963,7 +1051,8 @@ impl GpuScene {
                     },
                     start,
                     ITEM_ROOM,
-                )?;
+                    &mut item_bytes,
+                );
             }
             gpu.rooms[k].walls = PartItems {
                 instance: this,
@@ -979,7 +1068,8 @@ impl GpuScene {
             };
         }
         self.instances.write(d, instances.start, &instance_rows)?;
-        self.uploaded += instance_rows.len() as u64;
+        self.items.write(d, items.start, &item_bytes)?;
+        self.uploaded += (instance_rows.len() + item_bytes.len()) as u64;
         self.blocks.insert(block.block, gpu);
         Ok(())
     }
@@ -990,6 +1080,7 @@ impl GpuScene {
             for p in &mut b.parts {
                 p.cover = p.mesh != 0 && cover(p.mesh);
             }
+            b.cover_parts = b.parts.iter().filter(|p| p.cover).count();
         }
     }
 
@@ -1707,6 +1798,7 @@ impl Sink<'_> {
     }
 
     fn mesh_in(&mut self, key: MeshKey, m: &Mesh) -> Result<(), dereth_gfx::Error> {
+        self.scene.mesh_generation += 1;
         if let Some(old) = self.scene.meshes.remove(&key) {
             self.scene.give_vertices(old.vertices);
             self.scene.indices.pool.give(old.indices);
@@ -1764,7 +1856,7 @@ impl Sink<'_> {
             MeshGpu {
                 vertices,
                 indices,
-                subsets: m.subsets.clone(),
+                subsets: m.subsets.as_slice().into(),
                 sphere: m.sphere,
                 sort_center: m.sort_center,
                 bounds,
@@ -1825,6 +1917,7 @@ impl AssetSink for Sink<'_> {
                 }
             }
             AssetKey::Mesh(m) => {
+                self.scene.mesh_generation += 1;
                 if let Some(g) = self.scene.meshes.remove(m) {
                     self.scene.give_vertices(g.vertices);
                     self.scene.indices.pool.give(g.indices);
@@ -1834,5 +1927,36 @@ impl AssetSink for Sink<'_> {
                 self.scene.pending_ground.remove(b);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (experimental)
+    use super::*;
+
+    /// **An instance's row laid out in place is its row, lifted**: what a block's parts write
+    /// straight into the block's rows is the row an instance is given, with its lifts written in.
+    #[test]
+    fn an_instances_row_laid_out_in_place_is_its_row_lifted() {
+        let transform = Mat4::from_scale_rotation_translation(
+            Vec3::new(1.0, 2.0, 3.0),
+            glam::Quat::from_rotation_z(0.7),
+            Vec3::new(10.0, -4.0, 2.5),
+        );
+        let scale = Vec3::new(1.0, 2.0, 3.0);
+        let mut row = GpuScene::instance_bytes(transform, scale, 7, class::SUN, 0, NONE);
+        GpuScene::lift_row(&mut row, [0.25, -1.5]);
+        let mut out = vec![9u8; 3];
+        GpuScene::instance_row_into(
+            &mut out,
+            (transform, scale),
+            [7, class::SUN, 0, NONE],
+            [0.0; 2],
+            [0.25, -1.5],
+        );
+        assert_eq!(&out[..3], &[9; 3], "added after what is there");
+        assert_eq!(&out[3..], row.as_slice());
+        assert_eq!(row.len(), INSTANCE_BYTES as usize);
     }
 }

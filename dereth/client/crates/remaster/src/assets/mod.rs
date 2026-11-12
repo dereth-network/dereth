@@ -398,6 +398,13 @@ pub trait AssetSource {
     /// A texture's pixels, every level; `clip_map` is the first material's that names it.
     /// `None` when the picture will not decode.
     fn texture(&mut self, key: &TextureKey, clip_map: bool) -> Option<Texture>;
+    /// Start making picture `key` ahead of its use, where the source makes pictures off the
+    /// frame; whether it is ready to be taken now. A source that makes each picture when it is
+    /// asked for is always ready.
+    fn prepare(&mut self, key: &TextureKey, clip_map: bool) -> bool {
+        let _ = (key, clip_map);
+        true
+    }
     /// The pictures of a block's drawn ground cells, in the terrain's cell order.
     fn terrain_cells(&mut self, block: BlockId, terrain: &Terrain) -> Vec<TerrainCell>;
     /// The layers of the ground cells' picture `key` ([`terrain::splat_key`]); `None` when the

@@ -19,6 +19,8 @@
 //! - `DERETH_CROWD_BOXES`: the boxes, as `--fidelity` takes them (default the remaster and its
 //!   art pack, over the boxes ticked at first).
 //! - `DERETH_CROWD_FPS`: frames a second (default 60).
+//! - `DERETH_CROWD_SPLAT`: `1` blends the ground's layers as it is drawn, as the client does by
+//!   default (default off: the ground drawn from the composites built for its cells).
 //! - `DERETH_CROWD_CSV`: where each frame's row is written (default none).
 //! - `DERETH_REMASTER_SIZE`: `WIDTHxHEIGHT` (default 960x540).
 
@@ -196,7 +198,8 @@ fn time_a_run_past_crowds_of_creatures() {
         weather: false,
         land_radius: 8,
     };
-    let mut shot = Shot::open(&store, &mut gpu, &station);
+    let splat = env("DERETH_CROWD_SPLAT").is_some_and(|v| v.trim() == "1");
+    let mut shot = Shot::open_blending(&store, &mut gpu, &station, splat);
     shot.frame_seconds = 1.0 / f64::from(fps);
     shot.follow = Some([4.0, 2.2, -0.2, yaw]);
     shot.poll(&mut gpu);

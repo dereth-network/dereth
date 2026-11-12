@@ -237,6 +237,154 @@ fn pin_of(fp: [f32; 4], frame: &Frame, (bx, by): (i32, i32), margin: f32) -> Pin
     }
 }
 
+/// What works blocks' offsets out: the pins standing near each block, read once, and each
+/// model's footprint.
+#[derive(Debug, Default)]
+struct FieldMaker {
+    pins: HashMap<(i32, i32), Arc<Vec<Pin>>>,
+    footprints: HashMap<DataId, Option<[f32; 4]>>,
+}
+
+impl FieldMaker {
+    /// The pins standing on block `block` or near enough to reach it, worked out once.
+    fn pins_for(
+        &mut self,
+        store: Option<&RetailDatStore>,
+        block: (i32, i32),
+        knobs: &Knobs,
+    ) -> Arc<Vec<Pin>> {
+        if let Some(p) = self.pins.get(&block) {
+            return Arc::clone(p);
+        }
+        let reach = knobs.get(Knob::PinFade) + 48.0;
+        // LINT-OK: block coordinates, far inside f32's exact range.
+        #[allow(clippy::cast_precision_loss)]
+        let (lo, hi) = (
+            (
+                block.0 as f32 * BLOCK_METERS - reach,
+                block.1 as f32 * BLOCK_METERS - reach,
+            ),
+            (
+                (block.0 + 1) as f32 * BLOCK_METERS + reach,
+                (block.1 + 1) as f32 * BLOCK_METERS + reach,
+            ),
+        );
+        let mut pins = Vec::new();
+        for nx in block.0 - 1..=block.0 + 1 {
+            for ny in block.1 - 1..=block.1 + 1 {
+                let Some(store) = store else {
+                    continue;
+                };
+                let Some(info) = dereth_client_runtime::world_build::read_lbi(store, nx, ny) else {
+                    continue;
+                };
+                let objects = info
+                    .buildings
+                    .iter()
+                    .map(|b| (b.id, b.frame, knobs.get(Knob::PinBuildingMargin)))
+                    .chain(
+                        info.objects
+                            .iter()
+                            .map(|o| (o.id, o.frame, knobs.get(Knob::PinStaticMargin))),
+                    )
+                    .collect::<Vec<_>>();
+                for (id, frame, margin) in objects {
+                    let fp = *self
+                        .footprints
+                        .entry(id)
+                        .or_insert_with(|| footprint(store, id));
+                    let Some(fp) = fp else {
+                        continue;
+                    };
+                    let pin = pin_of(fp, &frame, (nx, ny), margin);
+                    let r = pin.reach();
+                    if pin.x + r >= lo.0
+                        && pin.x - r <= hi.0
+                        && pin.y + r >= lo.1
+                        && pin.y - r <= hi.1
+                    {
+                        pins.push(pin);
+                    }
+                }
+            }
+        }
+        let pins = Arc::new(pins);
+        self.pins.insert(block, Arc::clone(&pins));
+        pins
+    }
+
+    /// Block `block`'s offset over `world` under `knobs`, its pins read from `store`.
+    fn make(
+        &mut self,
+        store: Option<&RetailDatStore>,
+        world: &World,
+        block: (i32, i32),
+        knobs: &Knobs,
+    ) -> drawn::BlockField {
+        let pins = self.pins_for(store, block, knobs);
+        drawn::block_field(world, block, &pins, knobs)
+    }
+}
+
+/// A block's offset asked of the thread, and the knobs it is worked out under, with their
+/// generation: one worked out under knobs since thrown away is not held.
+struct FieldJob {
+    generation: u64,
+    block: (i32, i32),
+    world: Arc<World>,
+    knobs: Knobs,
+}
+
+/// A block's offset the thread worked out.
+struct FieldDone {
+    generation: u64,
+    block: (i32, i32),
+    field: drawn::BlockField,
+}
+
+/// The thread blocks' offsets are worked out on, in the order they are asked for.
+#[derive(Debug)]
+struct FieldWorker {
+    jobs: mpsc::Sender<FieldJob>,
+    done: mpsc::Receiver<FieldDone>,
+    /// The blocks asked for and not yet taken.
+    asked: std::collections::HashSet<(i32, i32)>,
+}
+
+impl FieldWorker {
+    /// The thread, its pins read from `store`; `None` where no thread starts.
+    fn start(store: Option<Arc<RetailDatStore>>) -> Option<Self> {
+        let (jobs, asked) = mpsc::channel::<FieldJob>();
+        let (send, done) = mpsc::channel();
+        crate::workers::spawn("drawn ground offsets", move || {
+            let mut maker = FieldMaker::default();
+            let mut generation = None;
+            for job in asked {
+                // The pins are read under the knobs, so new knobs read them again.
+                if generation != Some(job.generation) {
+                    maker.pins.clear();
+                    generation = Some(job.generation);
+                }
+                let field = maker.make(store.as_deref(), &job.world, job.block, &job.knobs);
+                let worked = FieldDone {
+                    generation: job.generation,
+                    block: job.block,
+                    field,
+                };
+                if send.send(worked).is_err() {
+                    return;
+                }
+            }
+        })
+        .ok()?;
+        Some(Self {
+            jobs,
+            done,
+            asked: std::collections::HashSet::new(),
+        })
+    }
+}
+
 /// One block's near offset.
 #[derive(Debug, Clone)]
 pub(crate) struct Tile {
@@ -258,8 +406,13 @@ pub(crate) struct RemasterGround {
     fields: HashMap<(i32, i32), Tile>,
     /// The number the next tile takes.
     next_tile: u64,
-    pins: HashMap<(i32, i32), Arc<Vec<Pin>>>,
-    footprints: HashMap<DataId, Option<[f32; 4]>>,
+    /// What works the offsets out here, on the frame's thread.
+    maker: FieldMaker,
+    /// What works them out on a thread of its own, ahead of need, once one is started; `None`
+    /// where there are no threads.
+    worker: Option<FieldWorker>,
+    /// Whether a worker was asked for.
+    worker_tried: bool,
     /// Whether each model a placement standing in the water draws stands tall (see
     /// [`stands_tall`]).
     tall: Mutex<HashMap<DataId, bool>>,
@@ -290,7 +443,10 @@ impl RemasterGround {
         self.knobs = knobs;
         if changed.iter().any(|k| FIELD_KNOBS.contains(k)) {
             self.fields.clear();
-            self.pins.clear();
+            self.maker.pins.clear();
+            if let Some(w) = self.worker.as_mut() {
+                w.asked.clear();
+            }
             self.field_generation += 1;
         }
     }
@@ -343,74 +499,19 @@ impl RemasterGround {
         self.world.as_ref().map(|w| (w, self.world_serial))
     }
 
-    /// The pins standing on block `block` or near enough to reach it, worked out once.
-    fn pins_for(&mut self, store: &RetailDatStore, block: (i32, i32)) -> Arc<Vec<Pin>> {
-        if let Some(p) = self.pins.get(&block) {
-            return Arc::clone(p);
-        }
-        let reach = self.knobs.get(Knob::PinFade) + 48.0;
-        // LINT-OK: block coordinates, far inside f32's exact range.
-        #[allow(clippy::cast_precision_loss)]
-        let (lo, hi) = (
-            (
-                block.0 as f32 * BLOCK_METERS - reach,
-                block.1 as f32 * BLOCK_METERS - reach,
-            ),
-            (
-                (block.0 + 1) as f32 * BLOCK_METERS + reach,
-                (block.1 + 1) as f32 * BLOCK_METERS + reach,
-            ),
-        );
-        let mut pins = Vec::new();
-        for nx in block.0 - 1..=block.0 + 1 {
-            for ny in block.1 - 1..=block.1 + 1 {
-                let Some(info) = dereth_client_runtime::world_build::read_lbi(store, nx, ny) else {
-                    continue;
-                };
-                let objects = info
-                    .buildings
-                    .iter()
-                    .map(|b| (b.id, b.frame, self.knobs.get(Knob::PinBuildingMargin)))
-                    .chain(
-                        info.objects
-                            .iter()
-                            .map(|o| (o.id, o.frame, self.knobs.get(Knob::PinStaticMargin))),
-                    )
-                    .collect::<Vec<_>>();
-                for (id, frame, margin) in objects {
-                    let fp = *self
-                        .footprints
-                        .entry(id)
-                        .or_insert_with(|| footprint(store, id));
-                    let Some(fp) = fp else {
-                        continue;
-                    };
-                    let pin = pin_of(fp, &frame, (nx, ny), margin);
-                    let r = pin.reach();
-                    if pin.x + r >= lo.0
-                        && pin.x - r <= hi.0
-                        && pin.y + r >= lo.1
-                        && pin.y - r <= hi.1
-                    {
-                        pins.push(pin);
-                    }
-                }
-            }
-        }
-        let pins = Arc::new(pins);
-        self.pins.insert(block, Arc::clone(&pins));
-        pins
-    }
-
     /// Block `block`'s offset, worked out now if it has not been; `None` before the world's
     /// vertices are read.
-    fn field(&mut self, store: &RetailDatStore, block: (i32, i32)) -> Option<Tile> {
+    fn field(&mut self, store: Option<&RetailDatStore>, block: (i32, i32)) -> Option<Tile> {
         if let Some(t) = self.fields.get(&block) {
             return Some(t.clone());
         }
         let world = Arc::clone(self.world.as_ref()?);
-        let pins = self.pins_for(store, block);
-        let field = drawn::block_field(world.as_ref(), block, &pins, &self.knobs);
+        let field = self.maker.make(store, &world, block, &self.knobs);
+        Some(self.hold_field(block, field))
+    }
+
+    /// Hold `field` as block `block`'s offset.
+    fn hold_field(&mut self, block: (i32, i32), field: drawn::BlockField) -> Tile {
         self.next_tile += 1;
         let tile = Tile {
             generation: self.next_tile,
@@ -418,7 +519,7 @@ impl RemasterGround {
             weight: Arc::new(field.weight),
         };
         self.fields.insert(block, tile.clone());
-        Some(tile)
+        tile
     }
 
     /// How many blocks the near offset reaches from the viewer's, each way.
@@ -430,8 +531,16 @@ impl RemasterGround {
     }
 
     /// Work out the offsets of the blocks round the viewer's that lack one, a few a frame, and
-    /// forget those far from it.
-    pub(crate) fn keep_fields(&mut self, store: &RetailDatStore) {
+    /// forget those far from it. The ring of blocks just past the near ones is worked out too,
+    /// on a thread of its own where there is one, so a block the viewer comes near has its
+    /// offset already; the near blocks lacking one get theirs this frame, a few at most, as
+    /// they always have.
+    pub(crate) fn keep_fields(&mut self, store: &Arc<RetailDatStore>) {
+        self.keep_fields_from(Some(store));
+    }
+
+    /// [`Self::keep_fields`], with the pins read from `store` where there is one.
+    fn keep_fields_from(&mut self, store: Option<&Arc<RetailDatStore>>) {
         if !self.active {
             return;
         }
@@ -439,17 +548,102 @@ impl RemasterGround {
         let (vx, vy) = self.viewer;
         self.fields
             .retain(|(x, y), _| (x - vx).abs() <= reach + 1 && (y - vy).abs() <= reach + 1);
-        self.pins
+        self.maker
+            .pins
             .retain(|(x, y), _| (x - vx).abs() <= reach + 2 && (y - vy).abs() <= reach + 2);
-        let mut wanted: Vec<(i32, i32)> = (vx - reach..=vx + reach)
-            .flat_map(|x| (vy - reach..=vy + reach).map(move |y| (x, y)))
-            .filter(|b| (0..255).contains(&b.0) && (0..255).contains(&b.1))
+        self.take_worked_fields(false);
+        let ring = |d: i32| {
+            (vx - d..=vx + d)
+                .flat_map(move |x| (vy - d..=vy + d).map(move |y| (x, y)))
+                .filter(|b| (0..255).contains(&b.0) && (0..255).contains(&b.1))
+        };
+        let distance = |(x, y): &(i32, i32)| (x - vx).abs().max((y - vy).abs());
+        let mut near: Vec<(i32, i32)> = ring(reach)
             .filter(|b| !self.fields.contains_key(b))
             .collect();
-        wanted.sort_by_key(|(x, y)| (x - vx).abs().max((y - vy).abs()));
-        for b in wanted.into_iter().take(FIELDS_A_FRAME) {
-            let _ = self.field(store, b);
+        near.sort_by_key(distance);
+        let mut ahead: Vec<(i32, i32)> = ring(reach + 1)
+            .filter(|b| distance(b) > reach && !self.fields.contains_key(b))
+            .collect();
+        ahead.sort_by_key(distance);
+        if !self.worker_tried {
+            self.worker_tried = true;
+            self.worker = FieldWorker::start(store.cloned());
         }
+        let (Some(world), true) = (self.world.clone(), self.worker.is_some()) else {
+            // No thread: the near blocks now, and one block ahead on a frame that needed none.
+            let one_ahead = near.is_empty().then(|| ahead.first().copied()).flatten();
+            near.truncate(FIELDS_A_FRAME);
+            for b in near.into_iter().chain(one_ahead) {
+                let _ = self.field(store.map(AsRef::as_ref), b);
+            }
+            return;
+        };
+        if let Some(w) = self.worker.as_mut() {
+            for &b in near.iter().chain(&ahead) {
+                if w.asked.insert(b) {
+                    let job = FieldJob {
+                        generation: self.field_generation,
+                        block: b,
+                        world: Arc::clone(&world),
+                        knobs: self.knobs.clone(),
+                    };
+                    if w.jobs.send(job).is_err() {
+                        w.asked.remove(&b);
+                    }
+                }
+            }
+        }
+        // The near blocks lacking an offset are waited for, as many as the frame works out.
+        for b in near.into_iter().take(FIELDS_A_FRAME) {
+            while !self.fields.contains_key(&b) && self.take_worked_fields(true) {}
+            if !self.fields.contains_key(&b) {
+                // The thread is gone: worked out here instead.
+                self.worker = None;
+                let _ = self.field(store.map(AsRef::as_ref), b);
+            }
+        }
+    }
+
+    /// Hold the offsets the thread has worked out: those it has now, or when `wait`, the next
+    /// one too, waiting for it. Whether the thread is still there to ask.
+    fn take_worked_fields(&mut self, wait: bool) -> bool {
+        let Some(w) = self.worker.as_mut() else {
+            return false;
+        };
+        let mut done = Vec::new();
+        let mut alive = true;
+        if wait {
+            match w.done.recv() {
+                Ok(d) => done.push(d),
+                Err(_) => alive = false,
+            }
+        }
+        loop {
+            match w.done.try_recv() {
+                Ok(d) => done.push(d),
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    alive = false;
+                    break;
+                }
+            }
+        }
+        let reach = i32::from(self.reach()) + 1;
+        let (vx, vy) = self.viewer;
+        for d in done {
+            if d.generation != self.field_generation {
+                continue;
+            }
+            if let Some(w) = self.worker.as_mut() {
+                w.asked.remove(&d.block);
+            }
+            let kept = (d.block.0 - vx).abs() <= reach && (d.block.1 - vy).abs() <= reach;
+            if kept && !self.fields.contains_key(&d.block) {
+                self.hold_field(d.block, d.field);
+            }
+        }
+        alive
     }
 
     /// The offset of block `b`, when it is one the remaster draws: one within the near reach of
@@ -989,5 +1183,121 @@ impl super::WorldScene {
     /// Draw the remaster's ground with `knobs` from the next frame.
     pub fn set_remaster_ground_knobs(&mut self, knobs: Knobs) {
         self.draw.remaster_ground.set_knobs(knobs);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (experimental: the remaster's drawn ground)
+    use std::collections::BTreeMap;
+
+    use super::*;
+
+    impl RemasterGround {
+        /// Wait for every offset asked of the thread.
+        fn wait_for_asked(&mut self) {
+            while self.worker.as_ref().is_some_and(|w| !w.asked.is_empty()) {
+                if !self.take_worked_fields(true) {
+                    break;
+                }
+            }
+        }
+    }
+
+    /// A world of rolling grassland, no water, and the ground drawn about block `(100, 100)`.
+    fn ground() -> RemasterGround {
+        let mut heights = vec![0.0f32; WORLD_SIDE * WORLD_SIDE];
+        for (k, h) in heights.iter_mut().enumerate() {
+            // LINT-OK: vertex indices, far inside f32's exact range.
+            #[allow(clippy::cast_precision_loss)]
+            let (x, y) = ((k % WORLD_SIDE) as f32, (k / WORLD_SIDE) as f32);
+            use dereth_primitives::num::math::{cosf, sinf};
+            *h = 40.0 + 9.0 * sinf(x * 0.37) * cosf(y * 0.23) + 3.0 * sinf(x * 1.7 + y);
+        }
+        // Grassland everywhere.
+        let words = vec![1u16 << 2; WORLD_SIDE * WORLD_SIDE];
+        let water = drawn::shore::held(&drawn::shore::water_field(WORLD_SIDE, &heights, &words));
+        RemasterGround {
+            world: Some(Arc::new(World {
+                heights: Arc::new(heights),
+                words: Arc::new(words),
+                water: Arc::new(water),
+            })),
+            active: true,
+            viewer: (100, 100),
+            ..RemasterGround::default()
+        }
+    }
+
+    /// The offsets held, by block.
+    fn offsets(g: &RemasterGround) -> BTreeMap<(i32, i32), (Vec<f32>, Vec<f32>)> {
+        g.fields
+            .iter()
+            .map(|(b, t)| (*b, ((*t.offset).clone(), (*t.weight).clone())))
+            .collect()
+    }
+
+    /// **The drawn ground's offsets worked out on their own thread are the frame's own**: the
+    /// near blocks have theirs from the frame that first wants them, as the frame would work
+    /// them out, and the ring past them, worked out ahead, matches too.
+    #[test]
+    fn offsets_worked_out_ahead_on_a_thread_are_those_the_frame_works_out() {
+        let mut threaded = ground();
+        let mut here = ground();
+        // Never started: the frame works every offset out itself.
+        here.worker_tried = true;
+        let reach = i32::from(threaded.reach());
+        let near = |g: &RemasterGround| {
+            (100 - reach..=100 + reach)
+                .flat_map(|x| (100 - reach..=100 + reach).map(move |y| (x, y)))
+                .filter(|b| g.fields.contains_key(b))
+                .count()
+        };
+        threaded.keep_fields_from(None);
+        here.keep_fields_from(None);
+        assert!(threaded.worker.is_some(), "a thread started");
+        // The thread may have finished more of them while the frame waited for its own.
+        assert!(
+            near(&threaded) >= near(&here),
+            "the frame that wants them has at least as many near offsets as it works out"
+        );
+        // Every block out to the ring past the near ones, for both.
+        threaded.wait_for_asked();
+        for _ in 0..200 {
+            here.keep_fields_from(None);
+        }
+        let (a, b) = (offsets(&threaded), offsets(&here));
+        assert_eq!(
+            a.len(),
+            (2 * reach as usize + 3).pow(2),
+            "the near blocks and the ring past them"
+        );
+        assert_eq!(a.keys().collect::<Vec<_>>(), b.keys().collect::<Vec<_>>());
+        assert!(a == b, "every offset the thread worked out is the frame's");
+        assert!(
+            a.values().any(|(o, _)| o.iter().any(|v| v.abs() > 1e-3)),
+            "the ground is drawn off retail's somewhere"
+        );
+    }
+
+    /// **Offsets worked out under knobs since thrown away are not held**: new knobs that change
+    /// the offsets drop what the thread was still working out under the old ones.
+    #[test]
+    fn offsets_worked_out_under_old_knobs_are_dropped() {
+        let mut g = ground();
+        g.keep_fields_from(None);
+        let mut knobs = g.knobs.clone();
+        knobs.set(Knob::WalkCap, g.knobs.get(Knob::WalkCap) * 0.5 + 0.01);
+        g.set_knobs(knobs);
+        assert!(g.fields.is_empty());
+        g.keep_fields_from(None);
+        g.wait_for_asked();
+        let mut fresh = ground();
+        fresh.worker_tried = true;
+        fresh.set_knobs(g.knobs.clone());
+        for _ in 0..200 {
+            fresh.keep_fields_from(None);
+        }
+        assert!(offsets(&g) == offsets(&fresh));
     }
 }

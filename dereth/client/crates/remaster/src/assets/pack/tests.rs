@@ -349,6 +349,46 @@ fn every_pack_asset_a_swapped_block_uses_is_held() {
     );
 }
 
+/// **A block's placements of one object ask the pack for its model once**: a block's ground cover
+/// is thousands of placements of a few objects, and each is swapped as the first is, at its own
+/// place with a record of its own.
+#[test]
+fn a_blocks_placements_of_one_object_ask_the_pack_for_its_model_once() {
+    let mut b = block();
+    b.placements = (0..50u8)
+        .map(|k| {
+            let at = Mat4::from_translation(Vec3::new(f32::from(k), 0.0, 0.0));
+            placement(TREE, at, 1.0, vec![part(3, None)])
+        })
+        .collect();
+    let mut swaps = PackSwaps {
+        settings: PackSettings::all(),
+        ..PackSwaps::default()
+    };
+    let mut asked = 0;
+    let deltas = swaps.swap(vec![SceneDelta::BlockIn(Box::new(b))], &mut |id| {
+        asked += 1;
+        (id == TREE).then(tree_model)
+    });
+    assert_eq!(asked, 1);
+    let SceneDelta::BlockIn(b) = &deltas[0] else {
+        panic!("a block");
+    };
+    assert_eq!(
+        b.degrades.len(),
+        51,
+        "the block's own record and one a placement"
+    );
+    for (k, p) in (0u8..).zip(&b.placements) {
+        let [part] = p.parts.as_slice() else {
+            panic!("one part");
+        };
+        assert_eq!(part.gfxobj, pack_mesh(7, 0));
+        let record = &b.degrades[part.degrade.expect("its levels") as usize];
+        assert_eq!(record.centre, Vec3::new(f32::from(k), 0.0, 0.0));
+    }
+}
+
 /// A green leaf in the middle of a picture whose cut-away texels are a magenta key, as a painted
 /// picture often leaves them: once filled, no texel of the picture nor of any level averaged
 /// from it carries the key's color, its alpha is the picture's own, and a picture the cut keeps

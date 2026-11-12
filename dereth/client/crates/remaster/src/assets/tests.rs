@@ -16,6 +16,10 @@ use crate::scene::{
 #[derive(Debug, Default)]
 struct Dats {
     asked: BTreeMap<&'static str, u32>,
+    /// The pictures still being made off the frame.
+    slow: std::collections::BTreeSet<u32>,
+    /// How often a surface's look was asked for.
+    appearances: u32,
 }
 
 impl Dats {
@@ -64,6 +68,7 @@ impl AssetSource for Dats {
     }
 
     fn appearance(&mut self, surface: u32, look: Option<&PartLook>) -> Appearance {
+        self.appearances += 1;
         let Some(look) = look else {
             return Appearance::default();
         };
@@ -131,6 +136,10 @@ impl AssetSource for Dats {
             format: TextureFormat::Bgra8,
             levels: vec![vec![0; 4 * usize::try_from(size.max(1)).unwrap()]],
         })
+    }
+
+    fn prepare(&mut self, key: &TextureKey, _clip_map: bool) -> bool {
+        !matches!(key, TextureKey::Dat { picture, .. } if self.slow.contains(picture))
     }
 
     fn sky_objects(&mut self) -> Vec<u32> {
@@ -467,6 +476,182 @@ fn a_block_built_again_replaces_what_it_held() {
         TextureKey::Terrain(8)
     );
     assert_eq!(t.cell_materials(0xA9B4_0100), None);
+}
+
+/// **A block or object built again keeps what both builds use**: the dats are not asked for it
+/// again and the device is not told to let it go, so a block sent again as the viewer moves
+/// costs only what it changed.
+#[test]
+fn a_block_or_object_built_again_keeps_what_both_builds_use() {
+    let mut dats = Dats::default();
+    let mut t = AssetTables::new();
+    let mut dev = Device::default();
+    t.block_in(&block(0xA9B4), &mut dats);
+    let object = Object {
+        key: ObjectKey::Server(7),
+        setup: 1,
+        parts: vec![ObjectPart {
+            levels: vec![2, 3],
+            look: None,
+        }],
+    };
+    t.object_in(&object, &mut dats);
+    t.upload(&mut dev);
+    let asked = dats.asked.clone();
+    dev.log.clear();
+    let mut again = block(0xA9B4);
+    again.generation = 2;
+    t.apply(&SceneDelta::BlockChanged(Box::new(again)), &mut dats);
+    t.apply(&SceneDelta::ObjectChanged(Box::new(object)), &mut dats);
+    t.upload(&mut dev);
+    // The ground's cells are worked out again from the new build's ground; nothing else is read.
+    let read = |m: &BTreeMap<&'static str, u32>| {
+        let mut m = m.clone();
+        m.remove("terrain");
+        m
+    };
+    assert_eq!(read(&dats.asked), read(&asked), "nothing is read again");
+    assert!(
+        dev.log.iter().all(|l| !l.starts_with("release")),
+        "{:?}",
+        dev.log
+    );
+    assert_eq!(t.counts().meshes, 3);
+}
+
+/// **What a change will hold is found without holding it**: the pictures a block's placements
+/// and cells draw with that are not held yet, each once and never the ground's own, and the
+/// meshes and materials read to find them are the ones the block then holds, read once.
+#[test]
+fn the_pictures_a_change_wants_are_found_and_what_finds_them_is_read_once() {
+    let mut dats = Dats::default();
+    let mut t = AssetTables::new();
+    let b = SceneDelta::BlockIn(Box::new(block(0xA9B4)));
+    let wanted: Vec<TextureKey> = t
+        .pictures_wanted(&b, &mut dats)
+        .into_iter()
+        .map(|(k, _)| k)
+        .collect();
+    let dat = |picture| TextureKey::Dat {
+        picture,
+        palette: 0,
+    };
+    assert_eq!(wanted, [dat(2), dat(3), dat(4)]);
+    assert_eq!(t.counts(), AssetCounts::default(), "nothing is held");
+    t.apply(&b, &mut dats);
+    assert_eq!(dats.asked["gfxobj"], 3);
+    assert_eq!(dats.asked["cell piece"], 1);
+    assert_eq!(dats.asked["material"], 6);
+    assert_eq!(t.counts().meshes, 3);
+    // Held now, none is wanted again.
+    let again = SceneDelta::BlockIn(Box::new(block(0xA9B5)));
+    assert!(t.pictures_wanted(&again, &mut dats).is_empty());
+}
+
+/// **A block's many placements of one model work its materials out once**: a block's ground cover
+/// is thousands of placements of a few models, and each model's surfaces are looked at once a
+/// block, to find the pictures it wants and again to hold it, and held as one placement holds
+/// them.
+#[test]
+fn a_blocks_many_placements_of_one_model_work_its_materials_out_once() {
+    let mut dats = Dats::default();
+    let mut t = AssetTables::new();
+    let mut b = block(0xA9B4);
+    b.rooms.clear();
+    b.placements = (0..100).map(|_| placement(vec![part(2, None)])).collect();
+    let delta = SceneDelta::BlockIn(Box::new(b));
+    let wanted = t.pictures_wanted(&delta, &mut dats);
+    // GfxObj 2's two surfaces, 20 and 21, which draw one picture.
+    assert_eq!(dats.appearances, 2);
+    assert_eq!(wanted.len(), 1);
+    t.apply(&delta, &mut dats);
+    assert_eq!(dats.appearances, 4, "and once more as it is held");
+    let c = t.counts();
+    assert_eq!((c.meshes, c.materials), (1, 2));
+}
+
+/// **A change waits for its pictures, and the rest go on**: a block whose picture is still being
+/// made waits, and what comes after it of the same block waits behind it, its levels too, while
+/// an object whose pictures are ready is taken; once the picture is ready the block's changes
+/// are taken in the order they came, and a block that goes takes what of it waited with it.
+#[test]
+fn a_change_waits_for_its_pictures_and_the_rest_go_on() {
+    use crate::render::waiting::Waiting;
+    use crate::scene::{BlockLevels, GroundDelta};
+    let mut dats = Dats::default();
+    dats.slow.insert(4);
+    let mut t = AssetTables::new();
+    let mut w = Waiting::default();
+    let object = Object {
+        key: ObjectKey::Server(5),
+        setup: 1,
+        parts: vec![ObjectPart {
+            levels: vec![6],
+            look: None,
+        }],
+    };
+    let ground = SceneDelta::GroundChanged(Box::new(GroundDelta {
+        block: 0xA9B4,
+        generation: 2,
+        terrain: flat(8),
+    }));
+    let levels = |block| BlockLevels {
+        block,
+        levels: vec![1],
+        turned: Vec::new(),
+    };
+    let mut frame_levels = vec![levels(0xA9B4)];
+    let taken = w.admit(
+        vec![
+            SceneDelta::BlockIn(Box::new(block(0xA9B4))),
+            SceneDelta::ObjectBuilt(Box::new(object)),
+            ground,
+        ],
+        &mut frame_levels,
+        &mut t,
+        &mut dats,
+    );
+    assert!(
+        matches!(taken[..], [SceneDelta::ObjectBuilt(_)]),
+        "{taken:?}"
+    );
+    assert!(frame_levels.is_empty(), "the block's levels wait with it");
+    assert_eq!(w.len(), 2);
+    let mut none = Vec::new();
+    assert!(w.admit(Vec::new(), &mut none, &mut t, &mut dats).is_empty());
+    dats.slow.clear();
+    let taken = w.admit(Vec::new(), &mut none, &mut t, &mut dats);
+    assert!(
+        matches!(
+            taken[..],
+            [SceneDelta::BlockIn(_), SceneDelta::GroundChanged(_)]
+        ),
+        "{taken:?}"
+    );
+    assert_eq!(none.len(), 1, "its levels come with it");
+    assert_eq!(w.len(), 0);
+
+    dats.slow.insert(4);
+    let mut t = AssetTables::new();
+    let mut none = Vec::new();
+    let taken = w.admit(
+        vec![SceneDelta::BlockIn(Box::new(block(0xA9B5)))],
+        &mut none,
+        &mut t,
+        &mut dats,
+    );
+    assert!(taken.is_empty());
+    let taken = w.admit(
+        vec![SceneDelta::BlockOut(0xA9B5)],
+        &mut none,
+        &mut t,
+        &mut dats,
+    );
+    assert!(
+        matches!(taken[..], [SceneDelta::BlockOut(0xA9B5)]),
+        "{taken:?}"
+    );
+    assert_eq!(w.len(), 0, "what waited of the block goes with it");
 }
 
 /// **The sky is held once, whole**: a mesh for every sky object the source names, with its
