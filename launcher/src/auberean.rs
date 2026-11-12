@@ -596,14 +596,24 @@ pub fn launch(
             Client::Auberean => dats(shared, b, set.as_deref())?,
             Client::Retail => PathBuf::new(),
         };
-        let world = backend::lock(b)
-            .world(&choice.world_slug)
-            .ok_or("That world is no longer listed.")?;
+        let world = {
+            let backend = backend::lock(b);
+            let world = backend
+                .world(&choice.world_slug)
+                .ok_or("That world is no longer listed.")?;
+            backend.with_hosted_facts(world)
+        };
         let endpoint = world
             .endpoint
             .clone()
             .ok_or("This world names no address to connect to.")?;
         let server = resolve(&endpoint.address, endpoint.port)?;
+        // A world that writes into the retail client's files plays from a copy of the install of
+        // its own, made now when it has none; the player's install is only ever read.
+        if client == Client::Retail && backend::lock(b).copies_retail_at_play(&world) {
+            retail_client(b, None)?;
+            backend::Backend::copy_retail_for_play(b, &world.slug)?;
+        }
         let to = Launch {
             server,
             local: server.ip().is_loopback(),
@@ -1146,8 +1156,8 @@ fn export_readme(
         "
 The world clears ground or names its own shops, which changes some of the players' records too.
 Those are in overlay/, built over the data files it was exported with, and Yalain sends them to
-players as they log in. A retail player needs `[ddd] enable_dat_patching` on, and a copy of their
-files kept for this world.
+players as they log in, retail players too, who play from a copy of their files kept for this
+world (the Dereth launcher makes one when they play).
 "
         .to_owned()
     } else {

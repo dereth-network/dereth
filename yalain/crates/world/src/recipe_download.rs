@@ -8,9 +8,10 @@
 //! download sends a world's records: their ids under an iteration of the portal file, then each
 //! record, and its characters once it has stored them.
 //!
-//! - **Only when the operator patches retail clients** (`[ddd] enable_dat_patching`): a client that
-//!   opens its files only to read them can't store a record, and stops. Off, a retail client is sent
-//!   none and doesn't see the world's recipes.
+//! - **Whatever the operator chose for retail clients** (`[ddd] enable_dat_patching`): a world that
+//!   defines recipes patches them ([`crate::world_patch::patches_retail`]), as without the records a
+//!   retail player can't see its recipes. A client that opens its files only to read them can't
+//!   store a record, and stops: it plays such a world from a copy of its files kept for it.
 //! - **Not to a client that keeps overlays**: it asks for a record it lacks, and is answered
 //!   ([`crate::download`]).
 //! - **Once for each set of recipes**: the iteration is the server's own (as the admin's script

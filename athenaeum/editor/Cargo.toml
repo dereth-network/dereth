@@ -30,6 +30,8 @@ athenaeum-foundry.workspace = true
 yalain-world-db.workspace = true
 yalain-content.workspace = true
 dereth-pack.workspace = true
+# The world's own copy of the retail client's install, which it plays from when it patches it.
+dereth-dat.workspace = true
 # The world as the client draws it: its records and region, the frame at the camera, bodies posed
 # and skinned, and the device that draws a frame; the ground under a point.
 auberean-world.workspace = true

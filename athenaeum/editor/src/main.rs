@@ -4,7 +4,8 @@
 //!
 //! **Depends on** the world machinery (`athenaeum-foundry`: the world over the world database, its
 //! edits, undo and save), the world database (`yalain-world-db`, `yalain-content`: rows, and a
-//! template described as the server describes it), the pack format (`dereth-pack`), the world as
+//! template described as the server describes it), the pack format (`dereth-pack`), the copy of
+//! the retail client's install a world that patches it plays from (`dereth-dat`), the world as
 //! the client draws it (`auberean-world`, `-assets`, `-dat`, `-animation`, `-physics`,
 //! `-primitives`, `auberean-draw`, `auberean-gpu`), the game played in the world view (through
 //! the library, `embedded.rs`), the free camera (`dereth-builder`), the panels (`egui`), and the

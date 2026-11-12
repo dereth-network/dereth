@@ -3,7 +3,8 @@
 //! **Depends on** `dereth-primitives`. **Used by** the decoders (`dereth-assets`), the shared world
 //! adapters (`dereth-world-data`), the client runtime (`dereth-client-runtime`), the client
 //! (`dereth-client`), the SDK (`dereth-client-sdk`), the test kit (`dereth-testkit`), the
-//! server's dat layer (`empyrean-dat`) and binary (`empyrean-server`) and `xtask`; every crate's
+//! server's dat layer (`empyrean-dat`) and binary (`empyrean-server`), the launcher
+//! (`dereth-launch`), the world builder (`athenaeum-editor`) and `xtask`; every crate's
 //! tests find the retail files through it.
 //!
 //! Where the retail files are is decided here and nowhere else: [`locate`] searches the
@@ -52,6 +53,7 @@ pub mod error;
 pub mod fileset;
 pub mod folder;
 pub mod inflate;
+pub mod install_copy;
 pub mod iteration;
 pub mod layout;
 pub mod locate;

@@ -18,7 +18,7 @@ use yalain_testkit::{authored, Harness};
 use yalain_world::download::{InstallFiles, CELL_FILE, ENGLISH_FILE, PORTAL_FILE};
 use yalain_world::reload::WorldTables;
 use yalain_world::world_patch::{
-    DatOverlaySettings, WorldPatch, NOT_KEPT, NOT_PATCHING, OTHER_FILES, OTHER_WORLD, PAUSE_SECONDS,
+    DatOverlaySettings, WorldPatch, NOT_PATCHING, OTHER_FILES, OTHER_WORLD, PAUSE_SECONDS,
 };
 
 const WORLD: &str = "a-world";
@@ -360,31 +360,30 @@ fn a_client_holding_other_files_is_refused_unless_it_checks_them_itself() {
     assert_eq!(refused(&h, b), said(NOT_PATCHING));
 }
 
-/// A retail client, which says nothing of overlays, lacking the world's: refused with what to play
-/// instead, unless the operator turned its patching on, when it is sent it.
-/// Behaviour: server.data.a-retail-client-lacking-a-worlds-overlay-is-refused-unless-patching-is-on
+/// A retail client, which says nothing of overlays, lacking the world's is sent it, whether or not
+/// the operator turned retail patching on: the world says it patches retail clients.
+/// Behaviour: server.data.a-retail-client-lacking-a-worlds-overlay-is-patched
 #[test]
-fn a_retail_client_lacking_the_overlay_is_refused_unless_the_operator_patches_it() {
-    let (files, _) = overlaid(2, 1);
-    let mut h = serving(files, DatOverlaySettings::default());
-    let b = asked(&mut h);
-    tell(&mut h, b, None, held(&[]));
-    assert_eq!(refused(&h, b), said(NOT_KEPT));
-    assert!(begun(&h, b).is_empty());
-
-    let (files, _) = overlaid(2, 1);
-    let on = DatOverlaySettings {
-        enable_dat_patching: true,
-        ..DatOverlaySettings::default()
-    };
-    let mut h = serving(files, on);
-    let b = asked(&mut h);
-    tell(&mut h, b, None, held(&[]));
-    assert_eq!(refused(&h, b), None);
-    assert_eq!(begun(&h, b).len(), 1);
-    h.advance(PAUSE_SECONDS + 1.0);
-    h.run(10);
-    assert_eq!(records(&h, b).len(), 2);
+fn a_retail_client_lacking_the_overlay_is_patched_whatever_the_operator_chose() {
+    for enable_dat_patching in [false, true] {
+        let (files, _) = overlaid(2, 1);
+        let settings = DatOverlaySettings {
+            enable_dat_patching,
+            ..DatOverlaySettings::default()
+        };
+        let mut h = serving(files, settings);
+        assert!(
+            yalain_world::world_patch::patches_retail(&h.server),
+            "patching {enable_dat_patching}: the world says it patches retail clients"
+        );
+        let b = asked(&mut h);
+        tell(&mut h, b, None, held(&[]));
+        assert_eq!(refused(&h, b), None, "patching {enable_dat_patching}");
+        assert_eq!(begun(&h, b).len(), 1, "patching {enable_dat_patching}");
+        h.advance(PAUSE_SECONDS + 1.0);
+        h.run(10);
+        assert_eq!(records(&h, b).len(), 2, "patching {enable_dat_patching}");
+    }
 }
 
 /// A client holding a revision past its file's own that this world doesn't have was patched to
@@ -441,11 +440,7 @@ fn a_clients_records_go_at_its_rate_and_retail_clients_share_theirs() {
 
     // Retail, at the original servers' thousand a minute: two clients between them.
     let (files, _) = overlaid(200, 1);
-    let on = DatOverlaySettings {
-        enable_dat_patching: true,
-        ..DatOverlaySettings::default()
-    };
-    let mut h = serving(files, on);
+    let mut h = serving(files, DatOverlaySettings::default());
     let a = asked(&mut h);
     tell(&mut h, a, None, held(&[]));
     let b = h.add_bot();

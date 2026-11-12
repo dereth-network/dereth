@@ -608,8 +608,8 @@ fn admit<S: Store>(
 }
 
 /// Answer a client that told of its data and lacks nothing of the world's overlay: the world's
-/// recipes if it's a retail client the operator patches that lacks them, the script library if
-/// it's an admin's that lacks that, else the end of the download and its characters.
+/// recipes if it's a retail client that lacks them, the script library if it's an admin's that
+/// lacks that, else the end of the download and its characters.
 fn answer_held<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -619,7 +619,7 @@ fn answer_held<S: Store>(
 ) {
     let retail = !s.overlay_clients.contains_key(&conn);
     if let Some(d) = crate::recipe_download::of(&s.crafting.records)
-        .filter(|_| retail && s.cfg.dat_overlay.enable_dat_patching)
+        .filter(|_| retail && crate::world_patch::patches_retail(s))
         .filter(|d| {
             !crate::world_patch::holds(&held.files, crate::download::PORTAL_FILE, d.iteration)
         })

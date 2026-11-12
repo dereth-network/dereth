@@ -703,6 +703,7 @@
     }),
     get_dats: ({ id }) => { getDats(id); },
     cancel_get_dats: () => { if (download) download.stage = "cancelled"; },
+    cancel_job: () => { job = null; },
     clear_get_dats: () => { if (download && ["done", "failed", "cancelled"].includes(download.stage)) download = null; },
     refresh: () => {},
     // As the backend: the updates the setting lets apply are applied, and the rest are told.

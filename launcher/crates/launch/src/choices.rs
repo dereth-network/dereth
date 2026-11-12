@@ -288,11 +288,11 @@ pub fn dat_dirs(
     }
 }
 
-/// Whether an Asheron's Call 2 world's page offers a private copy of the retail client's install,
-/// as an Asheron's Call world's offers a private set ([`offers_private_copy`]): the world writes
-/// into the install ([`World::writes_retail_install`]), there is a retail client to copy, and the
-/// world has no copy yet. A copy is made only when the player asks.
-pub fn offers_retail_copy(state: &LauncherState, world: &World) -> bool {
+/// Whether playing an Asheron's Call 2 world with the retail client first makes the world a private
+/// copy of the retail client's install, which it then plays from: the world writes into the
+/// install ([`World::writes_retail_install`]), there is a retail client to copy, and the world has
+/// no copy yet. The player's own install is never written.
+pub fn copies_retail_at_play(state: &LauncherState, world: &World) -> bool {
     world.game == crate::world::Game::Auberean
         && world.writes_retail_install()
         && state.auberean.retail.is_some()
@@ -624,11 +624,11 @@ mod tests {
         assert_eq!(default_client(&[], &w, None), None);
     }
 
-    /// An Asheron's Call 2 world that patches or serves the admin library offers a private copy of
-    /// the retail install, once there is a retail client and until the world has a copy; a world
-    /// that writes nothing, or one of Asheron's Call, doesn't.
+    /// Playing an Asheron's Call 2 world that patches or serves the admin library with the retail
+    /// client makes it a private copy of the retail install, once there is a retail client and
+    /// until the world has a copy; a world that writes nothing, or one of Asheron's Call, doesn't.
     #[test]
-    fn a_world_that_writes_into_the_retail_install_offers_a_private_copy_until_it_has_one() {
+    fn a_world_that_writes_into_the_retail_install_is_copied_at_play_until_it_has_a_copy() {
         let mut state = LauncherState::default();
         let mut world = World {
             slug: "dawnsong".into(),
@@ -637,25 +637,25 @@ mod tests {
         };
         world.dats.admin_library = Some(true);
         assert!(
-            !offers_retail_copy(&state, &world),
+            !copies_retail_at_play(&state, &world),
             "no retail client to copy"
         );
         state.auberean.retail = Some(install(ClientKind::Retail, "ac2client-0930"));
-        assert!(offers_retail_copy(&state, &world));
+        assert!(copies_retail_at_play(&state, &world));
         world.dats.admin_library = None;
-        assert!(!offers_retail_copy(&state, &world), "writes nothing");
+        assert!(!copies_retail_at_play(&state, &world), "writes nothing");
         world.dats.patches_over_wire = Some(true);
-        assert!(offers_retail_copy(&state, &world));
+        assert!(copies_retail_at_play(&state, &world));
         state
             .auberean
             .retail_copies
             .insert("dawnsong".into(), PathBuf::from("C:/copies/dawnsong"));
-        assert!(!offers_retail_copy(&state, &world), "it has one");
+        assert!(!copies_retail_at_play(&state, &world), "it has one");
         world.slug = "other".into();
-        assert!(offers_retail_copy(&state, &world));
+        assert!(copies_retail_at_play(&state, &world));
         world.game = crate::world::Game::Dereth;
         assert!(
-            !offers_retail_copy(&state, &world),
+            !copies_retail_at_play(&state, &world),
             "a world of the other game"
         );
     }

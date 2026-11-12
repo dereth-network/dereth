@@ -9,8 +9,10 @@
 //! work, and each stage's mean and worst); the world database it serves (`world_database`: its key
 //! and era, the release it is, the release it lies over and the world whose overlay the install is
 //! read through, each null when there is none); what clients asked for that the server doesn't
-//! do yet (`not_handled`: the requests met, and each kind's count); and the operator's game rates
-//! that aren't 1 (`rates`, by name; empty when the game plays at its own). It has no
+//! do yet (`not_handled`: the requests met, and each kind's count); the operator's game rates
+//! that aren't 1 (`rates`, by name; empty when the game plays at its own); and whether it patches
+//! retail clients' data files (`dats.patching`, as Empyrean's document says it), when a retail
+//! player must play from a copy of the client's files kept for the world. It has no
 //! authentication: it is meant for loopback or a private network.
 //!
 //! A web page may read it from a page origin the WebSocket endpoint admits
@@ -56,6 +58,9 @@ pub struct Snapshot {
     pub not_handled: (u64, Arc<BTreeMap<String, u64>>),
     /// The operator's game rates that aren't 1, by name.
     pub rates: Vec<(&'static str, f64)>,
+    /// The world patches retail clients' data files as they log in, so a retail player plays it
+    /// from a copy of the client's files kept for it.
+    pub patches_retail: bool,
 }
 
 impl Snapshot {
@@ -86,6 +91,7 @@ impl Snapshot {
                 .iter()
                 .map(|(name, rate)| ((*name).to_owned(), serde_json::json!(rate)))
                 .collect::<serde_json::Map<_, _>>(),
+            "dats": { "patching": self.patches_retail },
         })
         .to_string()
     }

@@ -11,7 +11,8 @@
 //! brings the window and the event loop) and its tests.
 //!
 //! **Depends on** the world machinery (`athenaeum-foundry`), the world database and the server's
-//! tables (`yalain-world-db`, `yalain-content`), the pack format (`dereth-pack`), the world as the
+//! tables (`yalain-world-db`, `yalain-content`), the pack format (`dereth-pack`), the copy of the
+//! retail client's install a world that patches it plays from (`dereth-dat`), the world as the
 //! client draws it (`auberean-world`, `auberean-assets`, `auberean-dat`, `auberean-animation`,
 //! `auberean-physics`, `auberean-primitives`, `auberean-draw`, `auberean-gpu`), the game played in
 //! its view (`auberean-shell`, `auberean-scene`, `auberean-interface`, `auberean-present`, the

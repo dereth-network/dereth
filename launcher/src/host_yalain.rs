@@ -194,20 +194,17 @@ pub fn read(dir: &Path) -> Result<Settings, String> {
 }
 
 /// What a Yalain world's configuration `text` says it writes into a retail client's data files:
-/// whether it patches them (`[dat_overlay]` with a `path`, its `patching` not turned off), and
-/// whether it serves the admin library (`[server.accounts] serve_admin_library`). Neither, for
-/// text that doesn't read.
+/// whether it patches them (a world with an overlay, `[dat_overlay]` with a `path`, always does,
+/// whatever its `patching`; `[ddd] enable_dat_patching` alone patches nothing), and whether it
+/// serves the admin library (`[server.accounts] serve_admin_library`). Neither, for text that
+/// doesn't read. A world that patches for what the configuration doesn't name (its database's own
+/// overlay, its own recipes) says so in its status.
 #[must_use]
 pub fn writes_players_install(text: &str) -> (bool, bool) {
     let Ok(doc) = text.parse::<DocumentMut>() else {
         return (false, false);
     };
-    let overlay = doc.get("dat_overlay");
-    let patches = overlay.and_then(|o| o.get("path")).is_some()
-        && overlay
-            .and_then(|o| o.get("patching"))
-            .and_then(toml_edit::Item::as_bool)
-            != Some(false);
+    let patches = doc.get("dat_overlay").and_then(|o| o.get("path")).is_some();
     let library = doc
         .get("server")
         .and_then(|s| s.get("accounts"))
@@ -582,8 +579,9 @@ mod tests {
     //! Behaviour: none (the launcher's Yalain worlds: their settings in yalain.toml, and Yalain's command line).
     use super::*;
 
-    /// A world's configuration says it writes into a retail client's data files when it patches
-    /// them from an overlay or serves the admin library, and not otherwise.
+    /// A world's configuration says it writes into a retail client's data files when it has an
+    /// overlay, whatever its patching of clients that keep overlays, or when it serves the admin
+    /// library, and not otherwise: retail patching turned on with nothing to patch writes nothing.
     #[test]
     fn a_world_writes_into_the_retail_install_when_it_patches_or_serves_the_admin_library() {
         assert_eq!(writes_players_install("[server]\n"), (false, false));
@@ -593,6 +591,16 @@ mod tests {
         );
         assert_eq!(
             writes_players_install("[dat_overlay]\npath = \"o\"\npatching = false\n"),
+            (true, false),
+            "an overlay patches retail clients whatever its patching of the others"
+        );
+        assert_eq!(
+            writes_players_install("[ddd]\nenable_dat_patching = true\n"),
+            (false, false),
+            "nothing to patch"
+        );
+        assert_eq!(
+            writes_players_install("[ddd]\nenable_dat_patching = false\n"),
             (false, false)
         );
         assert_eq!(

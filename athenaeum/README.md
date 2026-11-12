@@ -135,9 +135,11 @@ to where it leads.
   and a `radius`, or a `size = [x, y]` and a `heading`. Play shows it in our client, and `athenaeum
   build` writes it to the world's `overlay` folder, which Yalain reads, sending Auberean what it
   lacks as it logs in. A published or exported world carries its overlay, built over your data
-  files; `yalain world compile` builds it again against other ones. Yalain refuses a retail client
-  on a world with an overlay unless its operator turns on `[ddd] enable_dat_patching`, so **Play**
-  with the retail client doesn't enter such a world.
+  files; `yalain world compile` builds it again against other ones. Yalain patches a retail client
+  on a world with an overlay too, so the client plays such a world from a copy of its install kept
+  for it. **Play retail** makes that copy the first time, in the world's `.playtest/retail`
+  (progress and **Cancel** beside the button), and plays from it after; the install you gave is
+  only read.
 - A row of the database is never written: changing one writes this world's own row of its key,
   shown as changed, with what it was and **Put back**; taking one away writes a `[[remove]]`.
 - Ctrl+S saves, Ctrl+Z undoes, Ctrl+Y redoes (Cmd on macOS, as well). The world's problems are listed along the bottom as

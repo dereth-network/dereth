@@ -161,9 +161,11 @@ fn a_recipe_the_world_defines_is_served_from_its_record_where_the_files_lack_one
             h.server.data = Some(Box::new(files()));
         }
         let made = short_record(MADE);
+        // At its list first: a retail client logging in to a world with recipes of its own is
+        // sent them before its list.
+        let b = at_character_list(&mut h, "tester");
         h.server.crafting.records.insert(MADE, made.clone());
         h.server.crafting.records.insert(HELD, short_record(0));
-        let b = at_character_list(&mut h, "tester");
         let held = if data {
             short_record(HELD)
         } else {
@@ -271,14 +273,14 @@ fn world_recipes_at_login(
 }
 
 /// A retail client never asks for a recipe's record, so the world's recipes go to it as it logs
-/// in, when the operator patches retail clients: the download begins with their ids under the
-/// portal file's iteration for them, each record follows as the file would hold it, and its
-/// characters wait until it has stored them. A client listing that iteration, one that keeps
-/// overlays (it asks), a world with no recipes of its own, and any client with retail patching off
-/// are sent none, and listed at once.
+/// in, whether or not the operator turned on patching retail clients (a world with recipes of its
+/// own patches them): the download begins with their ids under the portal file's iteration for
+/// them, each record follows as the file would hold it, and its characters wait until it has
+/// stored them. A client listing that iteration, one that keeps overlays (it asks), and a world
+/// with no recipes of its own are sent none, and listed at once.
 /// Behaviour: server.data.world-recipes-sent-to-retail
 #[test]
-fn a_retail_client_is_sent_the_worlds_recipes_as_it_logs_in_when_the_operator_patches_it() {
+fn a_retail_client_is_sent_the_worlds_recipes_as_it_logs_in() {
     use auberean_protocol::login::{DownloadBegins, MissingIterations};
     use yalain_world::recipe_download::{FIRST_ITERATION, ITERATIONS};
     let records = vec![
@@ -288,27 +290,32 @@ fn a_retail_client_is_sent_the_worlds_recipes_as_it_logs_in_when_the_operator_pa
     let iteration = yalain_world::recipe_download::iteration(&records.iter().cloned().collect());
     assert!((FIRST_ITERATION..FIRST_ITERATION + ITERATIONS).contains(&iteration));
 
-    let (got, waited) = world_recipes_at_login(&records, true, Told::Nothing);
-    assert!(waited, "its characters wait for the recipes to be stored");
-    assert_eq!(got.len(), 3, "{got:?}");
-    let ServerMessage::DownloadBegins(DownloadBegins { bytes, files }) = &got[0] else {
-        panic!("the download begins first, not {:?}", got[0]);
-    };
-    assert_eq!(
-        files,
-        &vec![MissingIterations {
-            dat_file: PORTAL_FILE,
-            iteration,
-            download: vec![0x6F7E_1601, 0x6F7E_1606],
-            purge: vec![],
-        }]
-    );
-    let sent: usize = got[1..].iter().map(|m| record(m).bytes.len()).sum();
-    assert_eq!(*bytes as usize, sent);
-    for (m, (id, want)) in got[1..].iter().zip([&records[1], &records[0]]) {
-        let r = record(m);
-        assert_eq!((r.dat_file, r.kind, r.id), (PORTAL_FILE, SCRIPT_STATE, *id));
-        assert_eq!(&inflated(r), want, "{id:08X}");
+    for patching in [true, false] {
+        let (got, waited) = world_recipes_at_login(&records, patching, Told::Nothing);
+        assert!(
+            waited,
+            "patching {patching}: its characters wait for the recipes to be stored"
+        );
+        assert_eq!(got.len(), 3, "patching {patching}: {got:?}");
+        let ServerMessage::DownloadBegins(DownloadBegins { bytes, files }) = &got[0] else {
+            panic!("the download begins first, not {:?}", got[0]);
+        };
+        assert_eq!(
+            files,
+            &vec![MissingIterations {
+                dat_file: PORTAL_FILE,
+                iteration,
+                download: vec![0x6F7E_1601, 0x6F7E_1606],
+                purge: vec![],
+            }]
+        );
+        let sent: usize = got[1..].iter().map(|m| record(m).bytes.len()).sum();
+        assert_eq!(*bytes as usize, sent);
+        for (m, (id, want)) in got[1..].iter().zip([&records[1], &records[0]]) {
+            let r = record(m);
+            assert_eq!((r.dat_file, r.kind, r.id), (PORTAL_FILE, SCRIPT_STATE, *id));
+            assert_eq!(&inflated(r), want, "{id:08X}");
+        }
     }
 
     for (records, patching, told, case) in [
@@ -318,13 +325,24 @@ fn a_retail_client_is_sent_the_worlds_recipes_as_it_logs_in_when_the_operator_pa
             Told::TheirIteration,
             "it lists their iteration",
         ),
+        (
+            &records[..],
+            false,
+            Told::TheirIteration,
+            "it lists their iteration, patching off",
+        ),
         (&records[..], true, Told::KeepsOverlays, "it keeps overlays"),
-        (&records[..], false, Told::Nothing, "retail patching off"),
         (
             &[][..],
             true,
             Told::Nothing,
             "no recipes of the world's own",
+        ),
+        (
+            &[][..],
+            false,
+            Told::Nothing,
+            "no recipes of the world's own, patching off",
         ),
     ] {
         let (got, waited) = world_recipes_at_login(records, patching, told);

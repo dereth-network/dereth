@@ -1083,6 +1083,20 @@ fn run<S: Store>(
     server.worn_effects = play.worn_effects;
     server.quest_ids = play.quest_ids;
     server.crafting = play.craft;
+    if yalain_world::world_patch::patches_retail(&server) {
+        // The tag ends the line, for a program reading the log (section 6.3 of the setup guide).
+        let overlay = server
+            .world_patch
+            .as_ref()
+            .is_some_and(|p| p.changes_records());
+        tracing::info!(
+            "this world patches retail clients' data files as they log in (its overlay: {}; \
+             recipes of its own: {}): a retail player plays it from a copy of the client's files \
+             kept for it [patches-retail]",
+            if overlay { "yes" } else { "no" },
+            server.crafting.records.len()
+        );
+    }
     server.vitae_costs = play.vitae_costs;
     server.stores = play.stores;
     server.quests = play.quests;
@@ -1166,7 +1180,13 @@ fn run<S: Store>(
     let status = o
         .status
         .map(|at| {
-            let first = snapshot(&server, &net, started, websocket_url.as_ref(), &mut told);
+            let first = snapshot(
+                &server,
+                &net,
+                started.elapsed(),
+                websocket_url.as_ref(),
+                &mut told,
+            );
             let pages = if wire.websocket.is_some() {
                 o.websocket.allowed_origins.clone()
             } else {
@@ -1480,7 +1500,7 @@ fn run<S: Store>(
                 s.set(snapshot(
                     &server,
                     &net,
-                    started,
+                    started.elapsed(),
                     websocket_url.as_ref(),
                     &mut told,
                 ));
@@ -1710,7 +1730,7 @@ struct Told {
 fn snapshot<S: Store>(
     server: &Server<S>,
     net: &ServerNet,
-    started: Instant,
+    uptime: std::time::Duration,
     websocket_url: Option<&String>,
     told: &mut Told,
 ) -> status::Snapshot {
@@ -1725,7 +1745,7 @@ fn snapshot<S: Store>(
         not_handled: told.not_handled.clone(),
         websocket_url: websocket_url.cloned(),
         world_name: server.cfg.world_name.clone(),
-        uptime_seconds: started.elapsed().as_secs(),
+        uptime_seconds: uptime.as_secs(),
         shutting_down: server.shutdown != yalain_world::shutdown::Shutdown::No,
         players: server.players.len(),
         logins: server.sessions.len(),
@@ -1734,6 +1754,7 @@ fn snapshot<S: Store>(
         saves_failing: server.saves.failing(),
         world_step: server.step_timer.figures().clone(),
         rates: server.cfg.rates.changed(),
+        patches_retail: yalain_world::world_patch::patches_retail(server),
     }
 }
 
@@ -2684,6 +2705,53 @@ mod version_text_tests {
         assert!(lines[1].starts_with("commit: "), "{text}");
         assert!(lines[2].starts_with("target: "), "{text}");
         assert_eq!(lines[3], format!("source: {SOURCE_URL}"));
+    }
+}
+
+#[cfg(test)]
+mod status_snapshot_tests {
+    use yalain_testkit::Harness;
+
+    /// What the status document says of the world's patching of retail clients' data files.
+    fn says_patching(h: &Harness) -> serde_json::Value {
+        let mut told = super::Told {
+            world: crate::world::Served::default(),
+            not_handled: Default::default(),
+        };
+        let s = super::snapshot(
+            &h.server,
+            &h.net,
+            std::time::Duration::ZERO,
+            None,
+            &mut told,
+        );
+        let v: serde_json::Value = serde_json::from_str(&s.json()).expect("JSON");
+        v["dats"]["patching"].clone()
+    }
+
+    /// The status document says a world patches retail clients' data files when it defines recipes
+    /// of its own, whatever the operator chose; a world with nothing to patch says it doesn't, the
+    /// operator's patching on or off. A launcher reads it to play such a world from a copy of the
+    /// retail client's files, and makes none for a world with nothing to patch.
+    /// Behaviour: server.operator.status-says-a-world-patches-retail-clients
+    #[test]
+    fn the_status_says_a_world_with_recipes_of_its_own_patches_retail_clients() {
+        let mut h = Harness::new();
+        for enable_dat_patching in [false, true] {
+            h.server.cfg.dat_overlay.enable_dat_patching = enable_dat_patching;
+            h.server.crafting.records.clear();
+            assert_eq!(
+                says_patching(&h),
+                false,
+                "nothing to patch, patching {enable_dat_patching}"
+            );
+            h.server.crafting.records.insert(0x6F7E_0001, vec![0; 8]);
+            assert_eq!(
+                says_patching(&h),
+                true,
+                "recipes of its own, patching {enable_dat_patching}"
+            );
+        }
     }
 }
 

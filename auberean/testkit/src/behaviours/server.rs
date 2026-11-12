@@ -3675,12 +3675,13 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "server.data.a-retail-client-lacking-a-worlds-overlay-is-refused-unless-patching-is-on",
-        says: "A client that says nothing of overlays and lacks the world's is refused with what \
-               to play instead, unless the operator turned its patching on, when it is sent it.",
+        id: "server.data.a-retail-client-lacking-a-worlds-overlay-is-patched",
+        says: "A client that says nothing of overlays and lacks the world's is sent it, whatever \
+               the operator chose for patching retail clients: it has no other way to the world's \
+               records.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-PATCH-RETAIL"),
-        station: "yalain-testkit::dat::world_patch::a_retail_client_lacking_the_overlay_is_refused_unless_the_operator_patches_it",
+        station: "yalain-testkit::dat::world_patch::a_retail_client_lacking_the_overlay_is_patched_whatever_the_operator_chose",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -3783,10 +3784,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.data.world-recipes-sent-to-retail",
-        says: "A retail client never asks for a recipe's record, and leaves a taught recipe it holds no record of off its crafting page; so the world's own recipes go to it as it logs in, before its characters: the download's begin names their ids under one iteration of the portal file for that set of records (another when they change), each record follows as the file would hold it, and its list waits until it has stored them. A client listing that iteration, a client that keeps overlays (it asks), and a world with none are sent none. Our choice: only with the operator's retail patching on, since a client that opens its files read-only stops at a record it can't store.",
+        says: "A retail client never asks for a recipe's record, and leaves a taught recipe it holds no record of off its crafting page; so the world's own recipes go to it as it logs in, before its characters: the download's begin names their ids under one iteration of the portal file for that set of records (another when they change), each record follows as the file would hold it, and its list waits until it has stored them. A client listing that iteration, a client that keeps overlays (it asks), and a world with none are sent none. Our choice: whatever the operator chose for patching retail clients, since without the records a retail player can't see the world's recipes; a client that opens its files read-only stops at a record it can't store, so it plays such a world from a copy of its files.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-WORLD-RECIPES-TO-RETAIL"),
-        station: "yalain-testkit::cpu::entry::data_download::a_retail_client_is_sent_the_worlds_recipes_as_it_logs_in_when_the_operator_patches_it",
+        station: "yalain-testkit::cpu::entry::data_download::a_retail_client_is_sent_the_worlds_recipes_as_it_logs_in",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -10122,6 +10123,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-OPERATOR-STATUS-PING"),
         station: "yalain-net::cpu::status_ping::a_hello_draws_a_token_and_an_ask_with_it_draws_the_worlds_status",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.status-says-a-world-patches-retail-clients",
+        says: "The status endpoint says whether the world patches retail clients' data files \
+               (`dats.patching`): exactly when it has something to patch, an overlay that changes \
+               records or recipes of its own, whatever the operator chose.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STATUS-RETAIL-PATCHING"),
+        station: "yalain::bin.yalain::status_snapshot_tests::the_status_says_a_world_with_recipes_of_its_own_patches_retail_clients",
         tier: Tier::Cpu,
     },
     behaviour! {

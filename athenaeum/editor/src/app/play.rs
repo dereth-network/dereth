@@ -803,6 +803,14 @@ impl Editor<'_> {
         if self.programs.retail.is_some() && ui.button("Play retail").clicked() {
             self.play(Client::Retail);
         }
+        // The world's copy of the retail client being made, before it plays.
+        if let Some((done, total)) = self.live.copy_progress() {
+            let part = done.saturating_mul(100).checked_div(total).unwrap_or(0);
+            ui.label(format!("Copying the retail client for this world: {part}%"));
+            if ui.button("Cancel").clicked() {
+                self.live.cancel_copy();
+            }
+        }
         if self.live.up()
             && self.live.playing()
             && ui

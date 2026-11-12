@@ -7,6 +7,7 @@ Add a line under **Unreleased** when a change lands that a world builder would n
 see, not how it was done.
 
 ## Unreleased
+- Play retail now works on worlds that change the game files, from a copy of the client.
 - Play now plays the world inside the editor's own window.
 - Storekeepers can now have a shop title.
 - Every field and pet can now be edited in the editor.

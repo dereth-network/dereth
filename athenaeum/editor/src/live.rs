@@ -8,9 +8,9 @@
 //! every playtest character lives in, each on an account of its own ([`account_of`]), so one
 //! server plays them all and a character leaving the world never holds up another entering it;
 //! `characters/`, each character's recipe as it was last made or given and the server's recipe it
-//! was given from; the server's log (and the one before it); and the client's log, settings and
-//! screenshots. One editor at a time plays a world: a second is refused while the first holds the
-//! folder's lock.
+//! was given from; the server's log (and the one before it); the client's log, settings and
+//! screenshots; and `retail/`, the world's own copy of the retail client's install. One editor at
+//! a time plays a world: a second is refused while the first holds the folder's lock.
 //!
 //! **Live.** Each change made while the server runs is published: the changed files are written
 //! into `world/` and the server is told `reload` at its console. It compiles the world again and
@@ -43,6 +43,14 @@
 //! asks. A client that is Auberean logs in by itself as the character; the retail client is told
 //! the server, account and ticket as the launcher tells it.
 //!
+//! **The retail client's copy.** A world with something to patch a retail client with (an overlay
+//! of the world's clearings or shops, or recipes of its own, as the server says when it starts) has
+//! the retail client play from a copy of its install kept in the playtest folder, opening its data
+//! files for writing (`-rodat off`). The first such Play makes the copy, on a thread of its own,
+//! its progress shown and cancellable ([`Live::copy_progress`]); the client starts once it is made.
+//! The install the editor was given is only ever read: from it the client opens its files read-only
+//! (`--rodat`).
+//!
 //! **The clients.** A playtest plays in our client drawn in the editor's own world view
 //! ([`Client::Editor`]: nothing is started, the editor is told how to log in, [`Launch`]), in our
 //! client as a program of its own ([`Client::Window`]), or in the retail client
@@ -60,6 +68,9 @@ use std::io::{Read as _, Seek as _, SeekFrom, Write as _};
 use std::net::{Ipv4Addr, TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use auberean_dat::locate::DatName;
@@ -390,6 +401,8 @@ pub enum Said {
     Listening,
     /// Another program holds a port the server listens on: it ends.
     PortsTaken,
+    /// The world patches a retail client's data files: the client plays it from a copy of them.
+    PatchesRetail,
 }
 
 /// What the server itself said on a line of its log (a line from `yalain`, after its time and
@@ -425,6 +438,7 @@ pub fn said(line: &str) -> Option<Said> {
     match tag {
         "listening" => return Some(Said::Listening),
         "ports-taken" => return Some(Said::PortsTaken),
+        "patches-retail" => return Some(Said::PatchesRetail),
         _ => {}
     }
     if let Some(command) = tag.strip_prefix("ok ") {
@@ -652,6 +666,17 @@ impl Setup {
         self.folder.join("world")
     }
 
+    /// The world's own copy of the retail client's install, once it is made.
+    #[must_use]
+    pub fn retail_copy(&self) -> PathBuf {
+        self.folder.join("retail")
+    }
+
+    /// Where the copy is made, until it is whole.
+    fn retail_copy_partial(&self) -> PathBuf {
+        self.folder.join("retail.partial")
+    }
+
     /// The store every playtest character lives in.
     #[must_use]
     pub fn store(&self) -> PathBuf {
@@ -684,6 +709,8 @@ struct Server {
     read: u64,
     /// Whether it has said it listens.
     up: bool,
+    /// Whether it said it patches a retail client's data files.
+    patches_retail: bool,
     /// The characters in the world, by their names in small letters.
     in_world: BTreeSet<String>,
     /// Whether a `reload` waits for its answer.
@@ -729,6 +756,8 @@ pub struct Live {
     /// A client to start once the server listens and the steps before it are done: its character,
     /// and which client it is.
     pending: Option<(String, Client)>,
+    /// The retail client's copy being made, and the character to play once it is.
+    copying: Option<(Copying, String)>,
     /// The world as last written into the playtest folder.
     written: Files,
     /// What the last start said, for the status line.
@@ -740,6 +769,100 @@ fn type_line(console: &mut ChildStdin, line: &str) -> Result<(), String> {
     writeln!(console, "{line}")
         .and_then(|()| console.flush())
         .map_err(|e| format!("the server's console: {e}"))
+}
+
+/// The world's copy of the retail client's install, made on a thread of its own.
+#[derive(Debug)]
+struct Copying {
+    /// The bytes copied, and all there are to copy.
+    done: Arc<AtomicU64>,
+    total: Arc<AtomicU64>,
+    cancel: Arc<AtomicBool>,
+    thread: Option<JoinHandle<Result<(), String>>>,
+}
+
+impl Copying {
+    /// Copy the install folder `from` into `partial`, then name it `to` once it is whole; stopped
+    /// by `cancel`. A partial copy left by an editor that stopped part way is removed first.
+    fn start(from: PathBuf, partial: PathBuf, to: PathBuf, cancel: Arc<AtomicBool>) -> Self {
+        let done = Arc::new(AtomicU64::new(0));
+        let total = Arc::new(AtomicU64::new(0));
+        let (d, t, c) = (done.clone(), total.clone(), cancel.clone());
+        let thread = std::thread::spawn(move || {
+            let _ = std::fs::remove_dir_all(&partial);
+            let mut progress = |n, all| {
+                d.store(n, Ordering::Relaxed);
+                t.store(all, Ordering::Relaxed);
+            };
+            dereth_dat::install_copy::copy_install(&from, &partial, &mut progress, &c).map_err(
+                |e| copy_failed(&e, c.load(Ordering::Relaxed), t.load(Ordering::Relaxed)),
+            )?;
+            std::fs::rename(&partial, &to).map_err(|e| {
+                let _ = std::fs::remove_dir_all(&partial);
+                format!("the copy of the retail client could not be kept: {e}")
+            })
+        });
+        Self {
+            done,
+            total,
+            cancel,
+            thread: Some(thread),
+        }
+    }
+
+    /// Its end, once it has ended.
+    fn ended(&mut self) -> Option<Result<(), String>> {
+        if !self.thread.as_ref()?.is_finished() {
+            return None;
+        }
+        let thread = self.thread.take()?;
+        Some(
+            thread
+                .join()
+                .unwrap_or_else(|_| Err("the copy of the retail client failed".into())),
+        )
+    }
+}
+
+/// What stopped a copy of the retail client, in words: cancelled (`cancelled`), no room for its
+/// `total` bytes, or the error itself.
+fn copy_failed(e: &std::io::Error, cancelled: bool, total: u64) -> String {
+    if cancelled {
+        "the copy of the retail client was cancelled, so it didn't start".into()
+    } else if e.kind() == std::io::ErrorKind::StorageFull {
+        #[allow(clippy::cast_precision_loss)] // a size in words
+        let gb = total as f64 / 1e9;
+        format!("there isn't room for the world's copy of the retail client ({gb:.1} GB): free some space and play again")
+    } else {
+        format!("the copy of the retail client failed: {e}")
+    }
+}
+
+/// The retail client's options for a world on `port`, as `account` with the playtest ticket, as
+/// character `name`: its data files opened for writing when it plays from the world's copy
+/// (`writable`), else only read.
+fn retail_args(port: &str, account: &str, name: &str, writable: bool) -> Vec<String> {
+    let mut args: Vec<String> = if writable {
+        vec!["-rodat".into(), "off".into()]
+    } else {
+        vec!["--rodat".into()]
+    };
+    args.extend(
+        [
+            "--host",
+            "127.0.0.1",
+            "--port",
+            port,
+            "--account",
+            account,
+            "--glsticketdirect",
+            TICKET,
+            "--user",
+            name,
+        ]
+        .map(str::to_owned),
+    );
+    args
 }
 
 fn kill(c: &mut Option<Child>) {
@@ -920,6 +1043,7 @@ impl Live {
             tries,
             read: 0,
             up: false,
+            patches_retail: false,
             in_world: BTreeSet::new(),
             reloading: false,
             asked: None,
@@ -1110,6 +1234,10 @@ impl Live {
                 }
                 // Read with its exit, below.
                 Some(Said::PortsTaken) => continue,
+                Some(Said::PatchesRetail) => {
+                    s.patches_retail = true;
+                    continue;
+                }
                 Some(Said::Entered(n)) => {
                     s.in_world.insert(n.to_ascii_lowercase());
                     continue;
@@ -1227,13 +1355,71 @@ impl Live {
         }
         if self.up() && !self.asking() {
             if let Some((name, client)) = self.pending.take() {
-                events.push(match self.play(setup, &name, client)? {
-                    Some(launch) => Event::InEditor(launch),
-                    None => Event::Playing,
-                });
+                if client == Client::Retail
+                    && self.retail_needs_copy(setup)
+                    && !setup.retail_copy().is_dir()
+                {
+                    let from = self.retail_install(setup)?;
+                    let copying = Copying::start(
+                        from,
+                        setup.retail_copy_partial(),
+                        setup.retail_copy(),
+                        Arc::default(),
+                    );
+                    self.said = "copying the retail client for this world".into();
+                    self.copying = Some((copying, name));
+                } else {
+                    events.push(match self.play(setup, &name, client)? {
+                        Some(launch) => Event::InEditor(launch),
+                        None => Event::Playing,
+                    });
+                }
             }
         }
+        if let Some(end) = self.copying.as_mut().and_then(|(c, _)| c.ended()) {
+            let (_, name) = self.copying.take().expect("a copy being made");
+            end?;
+            self.play(setup, &name, Client::Retail)?;
+            events.push(Event::Playing);
+        }
         Ok(events)
+    }
+
+    /// Whether the world patches a retail client's data files, so it plays from the world's copy
+    /// of its install: the server said so as it started, or the world has an overlay to patch it
+    /// with, its clearings and shops, made since.
+    fn retail_needs_copy(&self, setup: &Setup) -> bool {
+        self.server.as_ref().is_some_and(|s| s.patches_retail)
+            || !setup.clearings.is_empty()
+            || !setup.shops.is_empty()
+    }
+
+    /// The folder of the retail client the editor was given, which it only reads.
+    fn retail_install(&self, setup: &Setup) -> Result<PathBuf, String> {
+        let exe = setup
+            .programs
+            .retail
+            .as_deref()
+            .ok_or("no retail client: give --retail <client.exe>")?;
+        Ok(exe.parent().unwrap_or(Path::new(".")).to_path_buf())
+    }
+
+    /// The retail client's copy being made for the world: the bytes copied and all there are.
+    #[must_use]
+    pub fn copy_progress(&self) -> Option<(u64, u64)> {
+        self.copying.as_ref().map(|(c, _)| {
+            (
+                c.done.load(Ordering::Relaxed),
+                c.total.load(Ordering::Relaxed),
+            )
+        })
+    }
+
+    /// Stop making the retail client's copy: the client it was for doesn't start.
+    pub fn cancel_copy(&self) {
+        if let Some((c, _)) = &self.copying {
+            c.cancel.store(true, Ordering::Relaxed);
+        }
     }
 
     /// Publish the world's `files`: write what changed into the playtest folder and ask the server
@@ -1305,25 +1491,24 @@ impl Live {
         }
         let retail = client == Client::Retail;
         let mut cmd = if retail {
-            let exe = programs
+            let given = programs
                 .retail
                 .as_deref()
                 .ok_or("no retail client: give --retail <client.exe>")?;
-            let mut c = Command::new(exe);
-            c.args([
-                "--host",
-                "127.0.0.1",
-                "--port",
-                &port,
-                "--account",
-                &account,
-                "--glsticketdirect",
-                TICKET,
-                "--user",
-                name,
-            ])
-            .args(&programs.client_args)
-            .current_dir(exe.parent().unwrap_or(Path::new(".")));
+            // The world's copy when it has one, its files writable; else the install given, read.
+            let copy = setup.retail_copy();
+            let writable = copy.is_dir();
+            if !writable && self.retail_needs_copy(setup) {
+                return Err("the world's copy of the retail client isn't made yet".into());
+            }
+            let exe = match given.file_name() {
+                Some(file) if writable => copy.join(file),
+                _ => given.to_path_buf(),
+            };
+            let mut c = Command::new(&exe);
+            c.args(retail_args(&port, &account, name, writable))
+                .args(&programs.client_args)
+                .current_dir(exe.parent().unwrap_or(Path::new(".")));
             c
         } else {
             let exe = programs
@@ -1441,6 +1626,9 @@ impl Live {
 
     /// Stop everything the editor started, and let the playtest folder go.
     pub fn stop_all(&mut self) {
+        // A copy being made stops at its next block and leaves nothing.
+        self.cancel_copy();
+        self.copying = None;
         self.stop_client();
         self.stop_server();
         self.steps.clear();
@@ -1451,5 +1639,105 @@ impl Live {
 impl Drop for Live {
     fn drop(&mut self) {
         self.stop_all();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (the world builder's retail client playing from the world's copy of its install)
+    use super::*;
+
+    /// A fresh scratch folder for one test.
+    fn scratch(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("athenaeum-live-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// The copy's end, waited for.
+    fn waited(mut c: Copying) -> Result<(), String> {
+        c.thread.take().expect("a thread").join().expect("it ends")
+    }
+
+    /// The retail client opens its data files for writing only from the world's copy of its
+    /// install; from the install the editor was given, only to read them.
+    #[test]
+    fn the_retail_client_writes_its_files_only_from_the_worlds_copy() {
+        let copy = retail_args("9300", "kara", "Kara", true);
+        assert_eq!(copy[..3], ["-rodat", "off", "--host"]);
+        assert!(!copy.iter().any(|a| a == "--rodat"));
+        let given = retail_args("9300", "kara", "Kara", false);
+        assert_eq!(given[..2], ["--rodat", "--host"]);
+        assert_eq!(
+            given[2..],
+            [
+                "127.0.0.1",
+                "--port",
+                "9300",
+                "--account",
+                "kara",
+                "--glsticketdirect",
+                TICKET,
+                "--user",
+                "Kara"
+            ]
+        );
+    }
+
+    /// The server's word that the world patches a retail client's files is read by its tag.
+    #[test]
+    fn the_server_saying_it_patches_retail_clients_is_read_by_its_tag() {
+        let line = "2026-11-01T14:06:47.884225Z  INFO yalain: this world patches retail clients' \
+                    data files as they log in (its overlay: yes; recipes of its own: 0): a retail \
+                    player plays it from a copy of the client's files kept for it [patches-retail]";
+        assert_eq!(said(line), Some(Said::PatchesRetail));
+    }
+
+    /// The world's copy of the retail client's install is made whole, past a partial one an
+    /// editor left, and the install is left as it was; one cancelled leaves no copy, and says so.
+    #[test]
+    fn a_worlds_copy_of_the_retail_client_is_made_whole_or_not_at_all() {
+        let d = scratch("retail-copy");
+        let install = d.join("install");
+        std::fs::create_dir_all(install.join("data")).unwrap();
+        std::fs::write(install.join("AC2client.exe"), b"a client").unwrap();
+        std::fs::write(install.join("data").join("records.bin"), b"portal").unwrap();
+        let (partial, to) = (d.join("retail.partial"), d.join("retail"));
+        std::fs::create_dir_all(&partial).unwrap();
+        std::fs::write(partial.join("left.dat"), b"half").unwrap();
+
+        let c = Copying::start(install.clone(), partial.clone(), to.clone(), Arc::default());
+        let (done, total) = (c.done.clone(), c.total.clone());
+        waited(c).unwrap();
+        assert_eq!(
+            std::fs::read(to.join("data").join("records.bin")).unwrap(),
+            b"portal"
+        );
+        assert!(to.join("AC2client.exe").is_file());
+        assert!(
+            !to.join("left.dat").exists() && !partial.exists(),
+            "the partial one is gone"
+        );
+        assert_eq!(done.load(Ordering::Relaxed), 14);
+        assert_eq!(total.load(Ordering::Relaxed), 14);
+        std::fs::write(to.join("data").join("records.bin"), b"patched").unwrap();
+        assert_eq!(
+            std::fs::read(install.join("data").join("records.bin")).unwrap(),
+            b"portal",
+            "the install as it was"
+        );
+
+        let again = d.join("again");
+        let c = Copying::start(
+            install.clone(),
+            partial.clone(),
+            again.clone(),
+            Arc::new(AtomicBool::new(true)),
+        );
+        let e = waited(c).unwrap_err();
+        assert!(e.contains("cancelled"), "{e}");
+        assert!(!again.exists() && !partial.exists());
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

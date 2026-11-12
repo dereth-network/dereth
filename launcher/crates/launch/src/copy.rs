@@ -7,7 +7,88 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
+/// A world's private copy of a whole install, which the world builder makes too.
+pub use dereth_dat::install_copy::{copy_install, install_size};
+
 use crate::datset::DatRole;
+
+/// The folder of the launcher's library that holds Asheron's Call 2 worlds' copies of the retail
+/// client's install, each `copy-<n>`.
+pub const RETAIL_COPIES: &str = "auberean-copies";
+
+/// The lock a copy of the install holds while it is made, beside it: `copy-<n>.lock`.
+fn lock_file(copy: &Path) -> PathBuf {
+    copy.with_extension("lock")
+}
+
+/// Hold the lock of `copy`, a folder in [`RETAIL_COPIES`], while it is made: a launcher started
+/// meanwhile leaves it be ([`sweep_unfinished_copies`]). It is let go when the file is dropped.
+///
+/// # Errors
+/// The lock file cannot be made, or another launcher holds it.
+pub fn lock_copy(copy: &Path) -> io::Result<std::fs::File> {
+    if let Some(dir) = copy.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let f = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(lock_file(copy))?;
+    f.try_lock().map_err(|e| match e {
+        std::fs::TryLockError::WouldBlock => {
+            io::Error::other("another launcher is making this copy")
+        }
+        std::fs::TryLockError::Error(e) => e,
+    })?;
+    Ok(f)
+}
+
+/// Let go of the lock of `copy` held while it was made ([`lock_copy`]), and remove its file.
+pub fn unlock_copy(copy: &Path, lock: std::fs::File) {
+    // Closed before it is removed; a browser's file has no handle to close.
+    #[cfg_attr(target_arch = "wasm32", allow(clippy::drop_non_drop))]
+    drop(lock);
+    let _ = std::fs::remove_file(lock_file(copy));
+}
+
+/// Remove every copy of the install in `copies` (the library's [`RETAIL_COPIES`]) that was never
+/// finished: a `copy-<n>` folder that isn't one of the copies recorded as made (`kept`) and that
+/// no launcher is making now, with its lock. A launcher that stopped part way through a copy
+/// leaves one. What was removed.
+pub fn sweep_unfinished_copies<'a>(
+    copies: &Path,
+    kept: impl IntoIterator<Item = &'a PathBuf>,
+) -> Vec<PathBuf> {
+    let same = |p: &Path| std::fs::canonicalize(p).ok();
+    let kept: Vec<PathBuf> = kept.into_iter().filter_map(|p| same(p)).collect();
+    let Ok(entries) = std::fs::read_dir(copies) else {
+        return Vec::new();
+    };
+    let mut removed = Vec::new();
+    for e in entries.flatten() {
+        let path = e.path();
+        let name = e.file_name();
+        let Some(n) = name.to_str().and_then(|n| n.strip_prefix("copy-")) else {
+            continue;
+        };
+        if n.is_empty() || !n.bytes().all(|b| b.is_ascii_digit()) || !path.is_dir() {
+            continue;
+        }
+        if same(&path).is_some_and(|p| kept.contains(&p)) {
+            continue;
+        }
+        // One being made holds its lock; taking it means no launcher is.
+        let Ok(lock) = lock_copy(&path) else {
+            continue;
+        };
+        if std::fs::remove_dir_all(&path).is_ok() {
+            removed.push(path.clone());
+        }
+        unlock_copy(&path, lock);
+    }
+    removed
+}
 
 /// Copy a set's four dats into `to`, reporting `(done, total)` bytes as it goes.
 ///
@@ -59,73 +140,44 @@ pub fn copy_dat_set(from: &Path, to: &Path, progress: &mut dyn FnMut(u64, u64)) 
     Ok(total)
 }
 
-/// Copy a whole install folder `from`, every file in every folder under it, into `to`, reporting
-/// `(done, total)` bytes as it goes: an Asheron's Call 2 world's private copy of the retail
-/// client's install, which it plays from and may write to. The copies are made writable. A link
-/// in the folder refuses the copy, and a partial copy is removed on failure, so a copy is either
-/// complete or absent.
-///
-/// # Errors
-/// A file that cannot be read or written, or a link.
-pub fn copy_install(from: &Path, to: &Path, progress: &mut dyn FnMut(u64, u64)) -> io::Result<u64> {
-    use std::io::{Read, Write};
-    fn walk(dir: &Path, rel: &Path, out: &mut Vec<(PathBuf, u64)>) -> io::Result<()> {
-        for e in std::fs::read_dir(dir)? {
-            let e = e?;
-            let kind = e.file_type()?;
-            let rel = rel.join(e.file_name());
-            if kind.is_symlink() {
-                return Err(io::Error::other("the install holds a link"));
-            } else if kind.is_dir() {
-                walk(&e.path(), &rel, out)?;
-            } else if kind.is_file() {
-                out.push((rel, e.metadata()?.len()));
-            }
-        }
-        Ok(())
-    }
-    let mut files = Vec::new();
-    walk(from, Path::new(""), &mut files)?;
-    let total: u64 = files.iter().map(|(_, n)| n).sum();
-    if to.exists() {
-        return Err(io::Error::new(
-            io::ErrorKind::AlreadyExists,
-            "the copy's folder is there already",
-        ));
-    }
-    let mut done = 0u64;
-    let result = (|| -> io::Result<()> {
-        let mut buf = vec![0u8; 1 << 20];
-        for (rel, _) in &files {
-            let dest = to.join(rel);
-            if let Some(dir) = dest.parent() {
-                std::fs::create_dir_all(dir)?;
-            }
-            let mut r = std::fs::File::open(from.join(rel))?;
-            let mut w = std::fs::File::create(&dest)?;
-            loop {
-                let n = r.read(&mut buf)?;
-                if n == 0 {
-                    break;
-                }
-                w.write_all(&buf[..n])?;
-                done += n as u64;
-                progress(done, total);
-            }
-            w.sync_all()?;
-        }
-        Ok(())
-    })();
-    if let Err(e) = result {
-        let _ = std::fs::remove_dir_all(to);
-        return Err(e);
-    }
-    Ok(total)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// At a launcher's start, a copy of the install that was never recorded as made (one a
+    /// launcher stopped part way through) is removed; a recorded copy, one another launcher is
+    /// making, and anything else in the folder are left.
+    #[test]
+    fn copies_never_finished_are_swept_and_recorded_ones_kept() {
+        let root = tmp("copy-sweep");
+        let copies = root.join(RETAIL_COPIES);
+        for n in 1..=3 {
+            std::fs::create_dir_all(copies.join(format!("copy-{n}")).join("data")).unwrap();
+            std::fs::write(
+                copies.join(format!("copy-{n}")).join("data/portal.dat"),
+                b"p",
+            )
+            .unwrap();
+        }
+        std::fs::create_dir_all(copies.join("other")).unwrap();
+        std::fs::write(copies.join("notes.txt"), b"n").unwrap();
+        let making = lock_copy(&copies.join("copy-3")).unwrap();
+        let kept = [copies.join("copy-1")];
+        let removed = sweep_unfinished_copies(&copies, kept.iter());
+        assert_eq!(removed, vec![copies.join("copy-2")]);
+        assert!(copies.join("copy-1/data/portal.dat").is_file(), "recorded");
+        assert!(!copies.join("copy-2").exists(), "never finished");
+        assert!(
+            copies.join("copy-3/data/portal.dat").is_file(),
+            "being made"
+        );
+        assert!(copies.join("other").is_dir() && copies.join("notes.txt").is_file());
+        drop(making);
+        let removed = sweep_unfinished_copies(&copies, kept.iter());
+        assert_eq!(removed, vec![copies.join("copy-3")], "no longer being made");
+        assert!(sweep_unfinished_copies(&root.join("none"), kept.iter()).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
     use crate::datset::tests::{fake_set, tmp};
     use crate::datset::Iterations;
 
@@ -143,59 +195,6 @@ mod tests {
             let m = std::fs::metadata(root.join("to").join(r.file_name())).unwrap();
             assert!(!m.permissions().readonly());
         }
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    /// A private copy of an install holds every file of every folder in it, writable, with its
-    /// bytes reported as they go; a copy whose folder is there already is refused and leaves it.
-    #[test]
-    fn a_private_copy_of_an_install_is_whole_writable_and_reported() {
-        let root = tmp("copy-install");
-        let from = root.join("install");
-        std::fs::create_dir_all(from.join("data/sub")).unwrap();
-        std::fs::write(from.join("AC2client.exe"), b"a client").unwrap();
-        std::fs::write(from.join("data/portal.dat"), vec![7u8; 3 << 20]).unwrap();
-        std::fs::write(from.join("data/sub/local.dat"), b"local").unwrap();
-        let mut ro = std::fs::metadata(from.join("data/sub/local.dat"))
-            .unwrap()
-            .permissions();
-        ro.set_readonly(true);
-        std::fs::set_permissions(from.join("data/sub/local.dat"), ro).unwrap();
-        let to = root.join("copies/dawnsong");
-        let mut last = (0, 0);
-        let total = copy_install(&from, &to, &mut |d, t| last = (d, t)).unwrap();
-        assert_eq!(total, 8 + (3 << 20) + 5);
-        assert_eq!(last, (total, total));
-        assert_eq!(
-            std::fs::read(to.join("AC2client.exe")).unwrap(),
-            b"a client"
-        );
-        assert_eq!(
-            std::fs::read(to.join("data/sub/local.dat")).unwrap(),
-            b"local"
-        );
-        for f in ["AC2client.exe", "data/portal.dat", "data/sub/local.dat"] {
-            assert!(
-                !std::fs::metadata(to.join(f))
-                    .unwrap()
-                    .permissions()
-                    .readonly(),
-                "{f}"
-            );
-        }
-        std::fs::write(to.join("data/portal.dat"), b"patched").unwrap();
-        assert!(copy_install(&from, &to, &mut |_, _| {}).is_err());
-        assert_eq!(
-            std::fs::read(to.join("data/portal.dat")).unwrap(),
-            b"patched",
-            "a copy there already is left as it is"
-        );
-        let mut rw = std::fs::metadata(from.join("data/sub/local.dat"))
-            .unwrap()
-            .permissions();
-        #[allow(clippy::permissions_set_readonly_false)] // so the folder can be removed
-        rw.set_readonly(false);
-        std::fs::set_permissions(from.join("data/sub/local.dat"), rw).unwrap();
         let _ = std::fs::remove_dir_all(&root);
     }
 }

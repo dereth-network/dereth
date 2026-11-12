@@ -33,6 +33,25 @@ impl<S: Store> Harness<S> {
             files: Vec::new(),
         });
         self.bots[b].send(false, queue::DATABASE, &held);
+        let listed_or_sent = |h: &Self| {
+            h.bots[b].messages(false).iter().any(|m| {
+                matches!(
+                    m,
+                    ServerMessage::CharacterList(_) | ServerMessage::DownloadBegins(_)
+                )
+            })
+        };
+        assert!(self.run_until(STEPS, listed_or_sent));
+        // A world with recipes of its own sends them to a retail client first: it stores them.
+        if self.bots[b]
+            .messages(false)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::DownloadBegins(_)))
+        {
+            self.run(20);
+            let ends = ClientMessage::DownloadEnds(auberean_protocol::login::Empty);
+            self.bots[b].send(false, queue::DATABASE, &ends);
+        }
         assert!(self.run_until(STEPS, |h| h.bots[b]
             .messages(false)
             .iter()

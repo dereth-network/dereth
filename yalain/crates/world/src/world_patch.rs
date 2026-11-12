@@ -10,9 +10,10 @@
 //!   against, when it is refused with the reason. Holding the same records laid out otherwise, it
 //!   checks them itself: it is told the records the overlay was made against
 //!   ([`OverlayBases`]), and stops if it doesn't hold them. With patching off, it is refused.
-//! - **A retail client** is refused unless the operator turned its patching on, as it can't take a
-//!   world's records unless it runs with its files writable, on a copy kept for this world. Patched,
-//!   it goes at the original servers' rate shared by every client.
+//! - **A retail client** is patched too, whatever the operator chose ([`patches_retail`]): it has no
+//!   other way to the world's records, and the world can't be played in full without them. It must
+//!   run with its files writable, on a copy kept for this world, and goes at the original servers'
+//!   rate shared by every client.
 //! - **Which records.** A client lacks a revision its list for that file doesn't hold. A client
 //!   holding a revision past its file's own that the world doesn't have was patched to another
 //!   world, and is refused.
@@ -39,8 +40,6 @@ use crate::{Clock, Server};
 
 /// Why a client that keeps overlays and holds other files is refused.
 pub const OTHER_FILES: &str = "This world's data overlay was made against other data files than your client's. Install the data files the world names.";
-/// Why a client that keeps no overlay, missing the world's, is refused.
-pub const NOT_KEPT: &str = "This world changes the game's data files, and your client does not take a world's changes. Play it with Auberean, which the world patches.";
 /// Why a client that keeps overlays is refused while the operator has patching off.
 pub const NOT_PATCHING: &str = "This world changes the game's data files, and does not send them. Get its overlay from the world's operator.";
 /// Why a client holding another world's revisions is refused.
@@ -64,8 +63,9 @@ pub struct DatOverlaySettings {
     pub patching: bool,
     /// How many records a minute such a client is sent; 0 for the original servers' shared rate.
     pub records_per_minute: u32,
-    /// Patch a client that keeps no overlay to the world too, at the original servers' rate. It
-    /// must run with its files writable, or it stops at the first record.
+    /// The operator's retail patching, as Empyrean's setting names it. It changes nothing here: a
+    /// world with something to patch patches a client that keeps no overlay, a retail client,
+    /// whatever it says, and one with nothing has nothing to send ([`patches_retail`]).
     pub enable_dat_patching: bool,
 }
 
@@ -183,6 +183,12 @@ impl WorldPatch {
         (!patch.bases.is_empty()).then_some(patch)
     }
 
+    /// Whether the overlay changes any record: a revision a client can lack.
+    #[must_use]
+    pub fn changes_records(&self) -> bool {
+        !self.revisions.is_empty()
+    }
+
     /// The revisions a client holding these lists lacks, each by its place in the patch.
     fn lacked(&self, files: &[DataFileIterations]) -> Vec<usize> {
         self.revisions
@@ -216,7 +222,8 @@ impl WorldPatch {
         })
     }
 
-    /// What a client is answered: it told what it holds and, if it keeps overlays, which files.
+    /// What a client is answered: it told what it holds and, if it keeps overlays, which files. A
+    /// client that keeps none, a retail client, is patched at the rate all such clients share.
     #[must_use]
     pub fn verdict(
         &self,
@@ -231,13 +238,9 @@ impl WorldPatch {
             return Verdict::Holds;
         }
         let Some(keeps) = keeps else {
-            return if settings.enable_dat_patching {
-                Verdict::Patch {
-                    rate: None,
-                    check_records: false,
-                }
-            } else {
-                Verdict::Refused(NOT_KEPT)
+            return Verdict::Patch {
+                rate: None,
+                check_records: false,
             };
         };
         if !settings.patching {
@@ -310,6 +313,16 @@ impl Patches {
         self.patching.remove(&conn);
         self.held.remove(&conn)
     }
+}
+
+/// Whether the world patches the data files of a client that keeps no overlay, a retail client:
+/// exactly when it has something to patch, an overlay that changes records or recipes of its own
+/// ([`crate::recipe_rows`]), whatever the operator chose. A retail client holds only the install's
+/// records and is never sent the world's unless it is patched, so such a world can't be played in
+/// full otherwise; a world with neither leaves the client's files as they are.
+#[must_use]
+pub fn patches_retail<S: Store>(s: &Server<S>) -> bool {
+    !s.crafting.records.is_empty() || s.world_patch.as_ref().is_some_and(|p| p.changes_records())
 }
 
 /// Answer a client that told of its data, as far as the world's overlay goes. Answers whether that

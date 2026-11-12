@@ -444,6 +444,13 @@ fn cancel_get_dats(b: State<'_, Shared>) {
     lock(&b).cancel_get_dats();
 }
 
+/// Stop the job the page shows, when it may be cancelled: a world's copy of the retail client
+/// being made as it is played.
+#[tauri::command]
+fn cancel_job(b: State<'_, Shared>) {
+    lock(&b).cancel_job();
+}
+
 #[tauri::command]
 fn clear_get_dats(b: State<'_, Shared>) {
     lock(&b).clear_get_dats();
@@ -1135,6 +1142,7 @@ fn main() {
             install_art_pack,
             get_dats,
             cancel_get_dats,
+            cancel_job,
             clear_get_dats,
             update_art_pack,
             remove_art_pack,

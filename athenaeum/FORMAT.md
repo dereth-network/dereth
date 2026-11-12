@@ -730,8 +730,11 @@ What a refining recipe yields.
 A recipe the world defines where the install holds none, made from an install recipe: everything
 the row doesn't set (its craft skill and category unless the row names them, its animation, checks
 and cost) is that recipe's. Its outcomes make the row's product, stamp it with its maker and use up
-each of its slots; whatever else the install recipe's outcomes did is left out. A client is sent
-its record when it asks for one. A step's `recipes` teaches it.
+each of its slots; whatever else the install recipe's outcomes did is left out. Auberean is sent
+its record when it asks for one; a retail client, which never asks, is sent it as it logs in. The
+install's own recipes need no patching, as every retail client holds them; a world with any
+`[[recipe]]` row patches retail clients' data files, and they play it from a copy of them kept for
+it. A step's `recipes` teaches it.
 
 | field | | meaning |
 |---|---|---|

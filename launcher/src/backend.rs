@@ -304,6 +304,8 @@ pub struct JobView {
     pub what: String,
     pub done: u64,
     pub total: u64,
+    /// The page offers to cancel it ([`Backend::cancel_job`]).
+    pub cancellable: bool,
 }
 
 /// A line for the status bar.
@@ -534,6 +536,8 @@ pub struct WorldView {
     pub requires: SetKind,
     /// The world is drawn from Launch's Classic pair, the 1999 files.
     pub launch_pair: bool,
+    /// An Asheron's Call world's page offers a set of the world's own; an Asheron's Call 2
+    /// world's says playing it with the retail client first makes it a copy of the install.
     pub offers_private_copy: bool,
     pub accounts: Vec<Account>,
     pub prefs: WorldPrefs,
@@ -755,6 +759,8 @@ pub struct Backend {
     /// The last data set download's status, and the flag that stops one going.
     download: Option<crate::downloads::Status>,
     download_cancel: Arc<AtomicBool>,
+    /// The flag that stops a job the page may cancel.
+    job_cancel: Arc<AtomicBool>,
     /// The plugin author's tool this launcher ships with, which it keeps a copy of in the folders
     /// Make Your Own wrote in; `None` when there is none to copy.
     tool: Option<PathBuf>,
@@ -808,6 +814,18 @@ impl Backend {
             client_preferences.as_deref().and_then(interface::saved),
         ) {
             let _ = state.save(&folders.config);
+        }
+        // A copy of the retail client a launcher stopped part way through is never played: it goes.
+        for gone in dereth_launch::copy::sweep_unfinished_copies(
+            &state
+                .library_dir(&folders.data)
+                .join(dereth_launch::copy::RETAIL_COPIES),
+            state.auberean.retail_copies.values(),
+        ) {
+            eprintln!(
+                "dereth-launcher: removed {}, a copy of the retail client never finished",
+                gone.display()
+            );
         }
         // Files change outside the launcher (a patch, a copy, a deleted folder); each set's four
         // headers are re-read once at start, which costs a few small reads. Both realms' sets.
@@ -868,6 +886,7 @@ impl Backend {
             art_progress: None,
             download: None,
             download_cancel: Arc::new(AtomicBool::new(false)),
+            job_cancel: Arc::new(AtomicBool::new(false)),
             folders,
             state,
             dereth,
@@ -1450,7 +1469,7 @@ impl Backend {
                 classic_sets: Vec::new(),
                 requires: choices::required_set_for(&world),
                 launch_pair: false,
-                offers_private_copy: choices::offers_retail_copy(
+                offers_private_copy: choices::copies_retail_at_play(
                     &self.state,
                     &self.with_hosted_facts(world.clone()),
                 ),
@@ -1983,6 +2002,7 @@ impl Backend {
                 what: what.clone(),
                 done: 0,
                 total: 0,
+                cancellable: false,
             });
         }
         let shared = shared.clone();
@@ -2006,7 +2026,7 @@ impl Backend {
     /// `world` with what it writes into a retail Asheron's Call 2 install as the configuration
     /// of the Yalain world this launcher hosts for it says, when it is one: the case its operator
     /// meets before any list says so.
-    fn with_hosted_facts(&self, mut world: World) -> World {
+    pub fn with_hosted_facts(&self, mut world: World) -> World {
         if world.game != Game::Auberean {
             return world;
         }
@@ -2026,56 +2046,112 @@ impl Backend {
         world
     }
 
-    /// Copy the retail client's install into a copy of the Asheron's Call 2 world `slug`'s own, in
-    /// the background: the world then plays from it, and may write to its data files.
-    fn create_retail_copy(shared: &Shared, slug: &str) {
-        let (from, to, name) = {
+    /// Copy the retail client's install into a copy of the Asheron's Call 2 world `slug`'s own, as
+    /// playing it with the retail client does first: the world then plays from it, and may write to
+    /// its data files. The page shows it as a job, which it may cancel. The copy's folder, or what
+    /// stopped it in words for a person; the player's own install is never written either way.
+    ///
+    /// # Errors
+    /// No retail client, another job running, no room for the copy, the copy cancelled or failing.
+    pub fn copy_retail_for_play(shared: &Shared, slug: &str) -> Result<PathBuf, String> {
+        let (from, to, name, cancel) = {
             let mut b = lock(shared);
-            let Some(retail) = b.state.auberean.retail.clone() else {
-                b.say(
-                    "There is no retail client to copy yet. Add one in the Library first.",
-                    true,
-                );
-                return;
-            };
-            let copies = b.library_dir().join("auberean-copies");
-            let Some(to) = (1u32..)
+            let retail = b
+                .state
+                .auberean
+                .retail
+                .clone()
+                .ok_or("There is no retail client in the Library. Play with Auberean.")?;
+            if b.job.is_some() {
+                return Err("Another copy is still running. Play again when it is done.".into());
+            }
+            let copies = b.library_dir().join(dereth_launch::copy::RETAIL_COPIES);
+            let to = (1u32..)
                 .map(|n| copies.join(format!("copy-{n}")))
                 .find(|p| !p.exists())
-            else {
-                return;
-            };
+                .ok_or("There is no folder name left for a copy.")?;
             let name = b.world(slug).map_or_else(|| slug.to_owned(), |w| w.name);
-            (retail.path, to, name)
+            b.job_cancel.store(false, Ordering::Relaxed);
+            b.job = Some(JobView {
+                what: format!("Copying the retail client for {name}"),
+                done: 0,
+                total: 0,
+                cancellable: true,
+            });
+            (retail.path, to, name, b.job_cancel.clone())
         };
-        let slug = slug.to_owned();
-        let done_to = shared.clone();
-        Self::start_job(
-            shared,
-            format!("Copying the retail client for {name}"),
-            move |report| {
-                dereth_launch::copy::copy_install(&from, &to, &mut |d, t| report(d, t))
-                    .map_err(|e| format!("The copy failed: {e}"))?;
-                let mut b = lock(&done_to);
-                b.state.auberean.retail_copies.insert(slug, to);
-                b.save();
-                b.say(
-                    format!("{name} has its own copy of the retail client now."),
-                    false,
-                );
-                Ok(())
-            },
-        );
+        // Held until the copy is recorded: a launcher started meanwhile leaves it be.
+        let held = match dereth_launch::copy::lock_copy(&to) {
+            Ok(held) => held,
+            Err(e) => {
+                lock(shared).job = None;
+                return Err(format!("Could not copy the retail client for {name}: {e}"));
+            }
+        };
+        let no_room = |bytes: u64| {
+            format!(
+                "There isn't room for {name}'s copy of the retail client: it needs {:.1} GB. Free \
+                 some space and play again.",
+                bytes as f64 / 1e9
+            )
+        };
+        let copied = (|| {
+            let size = dereth_launch::copy::install_size(&from)
+                .map_err(|e| format!("Could not read the retail client's folder: {e}"))?;
+            if crate::art::free_space(&to).is_some_and(|free| free < size) {
+                return Err(no_room(size));
+            }
+            let progress_to = shared.clone();
+            let mut report = move |done, total| {
+                if let Some(j) = lock(&progress_to).job.as_mut() {
+                    j.done = done;
+                    j.total = total;
+                }
+            };
+            dereth_launch::copy::copy_install(&from, &to, &mut report, &cancel).map_err(|e| {
+                if cancel.load(Ordering::Relaxed) {
+                    "The copy of the retail client was cancelled, so the game didn't start.".into()
+                } else if e.kind() == std::io::ErrorKind::StorageFull {
+                    no_room(size)
+                } else {
+                    format!("Could not copy the retail client for {name}: {e}")
+                }
+            })
+        })();
+        let mut b = lock(shared);
+        b.job = None;
+        if copied.is_ok() {
+            b.state
+                .auberean
+                .retail_copies
+                .insert(slug.to_owned(), to.clone());
+            b.save();
+        }
+        drop(b);
+        dereth_launch::copy::unlock_copy(&to, held);
+        copied.map(|_| to)
     }
 
-    /// Copy the shared set into a set of the world's own, in the background; for an Asheron's
-    /// Call 2 world, the retail client's install.
+    /// Whether playing the Asheron's Call 2 world `world` with the retail client first makes it a
+    /// copy of the retail client's install ([`choices::copies_retail_at_play`]).
+    pub fn copies_retail_at_play(&self, world: &World) -> bool {
+        choices::copies_retail_at_play(&self.state, world)
+    }
+
+    /// Stop the job the page shows, when it may be cancelled.
+    pub fn cancel_job(&mut self) {
+        if self.job.as_ref().is_some_and(|j| j.cancellable) {
+            self.job_cancel.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// Copy the shared set into a set of the world's own, in the background. An Asheron's Call 2
+    /// world's copy is made as it is played ([`Self::copy_retail_for_play`]), not here.
     pub fn create_private_copy(shared: &Shared, slug: &str) {
         if lock(shared)
             .world(slug)
             .is_some_and(|w| w.game == Game::Auberean)
         {
-            Self::create_retail_copy(shared, slug);
             return;
         }
         let (from, to, id, name) = {
@@ -6113,6 +6189,116 @@ Interface=Horizon
             "past the check"
         );
         drop(guard);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Playing an Asheron's Call 2 world that writes into the retail client's files first copies
+    /// the retail client's install into the library as the world's own, which it then plays from,
+    /// and leaves the player's install as it was; a launcher started later keeps that copy and
+    /// removes one never finished. A copy that can't be made stops PLAY in words for a person and
+    /// keeps no copy; so does one asked for while another job runs.
+    #[test]
+    fn a_worlds_copy_of_the_retail_client_is_made_in_the_library_and_the_install_left_alone() {
+        let dir = tmp("retail-copy");
+        let install = dir.join("retail");
+        std::fs::create_dir_all(install.join("data")).unwrap();
+        std::fs::write(install.join("AC2client.exe"), b"a client").unwrap();
+        std::fs::write(install.join("data").join("portal.dat"), b"portal").unwrap();
+        let mut b = without_built_in_worlds(Backend::new(
+            Folders::single(dir.join("state")),
+            Vec::new(),
+            None,
+            Box::new(MemoryVault::default()),
+            "memory",
+            None,
+        ));
+        let mut w = World::new("dawnsong", "Dawnsong");
+        w.game = Game::Auberean;
+        w.dats.patches_over_wire = Some(true);
+        *b.list.worlds_mut() = vec![w.clone()];
+        assert!(!b.copies_retail_at_play(&w), "no retail client to copy");
+        b.state.auberean.retail = Some(Installation {
+            id: "r".into(),
+            path: install.clone(),
+            exe: "AC2client.exe".into(),
+            kind: ClientKind::Retail,
+            client_id: "ac2client-0930".into(),
+            version: None,
+            build_date: None,
+            net_version: None,
+            identified_by: dereth_launch::install::IdentifiedBy::ExeSha256,
+            modifications: vec![],
+            multi_instance: true,
+            own_dats: Iterations::default(),
+            verified_at: None,
+            manifest_result: None,
+        });
+        assert!(b.copies_retail_at_play(&w));
+        let shared: Shared = Arc::new(Mutex::new(b));
+
+        lock(&shared).job = Some(JobView {
+            what: "Copying data files".into(),
+            done: 0,
+            total: 0,
+            cancellable: false,
+        });
+        let e = Backend::copy_retail_for_play(&shared, "dawnsong").unwrap_err();
+        assert!(e.starts_with("Another copy is still running"), "{e}");
+        lock(&shared).job = None;
+
+        let copy = Backend::copy_retail_for_play(&shared, "dawnsong").unwrap();
+        {
+            let b = lock(&shared);
+            assert!(copy.starts_with(b.library_dir()), "{}", copy.display());
+            assert!(b.job.is_none(), "the job is over");
+            assert_eq!(b.state.auberean.retail_copies.get("dawnsong"), Some(&copy));
+            assert!(!b.copies_retail_at_play(&w), "it has one now");
+        }
+        assert_eq!(
+            std::fs::read(copy.join("data").join("portal.dat")).unwrap(),
+            b"portal"
+        );
+        std::fs::write(copy.join("data").join("portal.dat"), b"patched").unwrap();
+        assert_eq!(
+            std::fs::read(install.join("data").join("portal.dat")).unwrap(),
+            b"portal",
+            "the player's install as it was"
+        );
+
+        // A launcher started later removes a copy never finished, and keeps the recorded one.
+        let unfinished = copy.with_file_name("copy-9");
+        std::fs::create_dir_all(unfinished.join("data")).unwrap();
+        let again = Backend::new(
+            Folders::single(dir.join("state")),
+            Vec::new(),
+            None,
+            Box::new(MemoryVault::default()),
+            "memory",
+            None,
+        );
+        assert!(!unfinished.exists(), "never finished");
+        assert_eq!(
+            std::fs::read(copy.join("data").join("portal.dat")).unwrap(),
+            b"patched",
+            "the recorded copy as it was"
+        );
+        assert_eq!(
+            again.state.auberean.retail_copies.get("dawnsong"),
+            Some(&copy)
+        );
+        drop(again);
+
+        std::fs::remove_dir_all(&install).unwrap();
+        lock(&shared).state.auberean.retail_copies.clear();
+        let e = Backend::copy_retail_for_play(&shared, "dawnsong").unwrap_err();
+        assert!(
+            e.starts_with("Could not read the retail client's folder"),
+            "{e}"
+        );
+        let b = lock(&shared);
+        assert!(b.job.is_none());
+        assert!(b.state.auberean.retail_copies.is_empty());
+        drop(b);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

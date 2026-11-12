@@ -265,6 +265,7 @@ dependencies = [
  "dereth-audio",
  "dereth-audio-out",
  "dereth-builder",
+ "dereth-dat",
  "dereth-pack",
  "dereth-physics",
  "dereth-primitives",
