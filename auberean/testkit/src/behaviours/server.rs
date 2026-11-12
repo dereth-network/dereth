@@ -13160,6 +13160,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.an-item-acquired-reaches-fellows-as-its-quest-says",
+        says: "An item's move on a quest when acquired reaches the taker's fellows as a kill's \
+               does: when the quest shares, within the limits it names; a fellow is moved as the \
+               taker is and never told a refusal, a fellow a step on the taking moved is not moved \
+               again, and a quest that does not share stays the taker's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ACQUIRE-FELLOWS"),
+        station: "yalain-testkit::cpu::play::kill_quests::an_item_acquired_moves_a_fellows_quest_only_as_the_quest_says",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.an-obelisk-search-leads-on",
         says: "Each giving and each stone's advance of an obelisk search moves its quest and sends \
                no one; the portal beside each stone takes the seeker on to the next.",

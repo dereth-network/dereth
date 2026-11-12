@@ -178,7 +178,7 @@ impl CompletionPay {
     }
 }
 
-/// How a kill's move on a quest reaches the killer's fellows.
+/// How a kill's or a take's move on a quest reaches the killer's or the taker's fellows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Fellows {
     /// It reaches them.

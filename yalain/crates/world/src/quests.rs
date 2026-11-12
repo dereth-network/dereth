@@ -1109,8 +1109,11 @@ pub fn acquiring_does_more_than_quests(props: &yalain_content::Props) -> bool {
 
 /// An item came into a player's hands: the steps its taking triggers run, then the quest effects
 /// its template names on being acquired on each quest no step moved (2017: 38 of 54 acquirings
-/// moved their quest in the same second; 14 of the rest were past that phase, 2 a hidden quest's).
-/// Nothing is said of a quest the effect could not move.
+/// moved their quest in the same second; 14 of the rest were past that phase, 2 a hidden quest's),
+/// then on the taker's fellows the effects whose quests reach them, as a kill's do (2017: an item
+/// picked up, recorded from both sides, moved the fellow's quest in the same moment, the fellow
+/// doing nothing and standing 1.6 m off; 34 levels apart, its quest limiting neither). Nothing is
+/// said of a quest the effect could not move.
 pub fn took<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1129,6 +1132,21 @@ pub fn took<S: Store>(
     });
     for e in named.iter().filter(|e| !moved.contains(&e.quest)) {
         moves(s, net, world, *e, false, clock);
+    }
+    if named.is_empty() {
+        return;
+    }
+    // Every effect reaches the fellows, a quest a step moved too: a step that moved its fellows
+    // already left them past the phase a giving, an advance or a completion moves from. An
+    // increment would move them twice, so one a step moved stays the taker's.
+    let fellows = crate::fellowship::fellows_in_world(s, world);
+    for w in fellows {
+        for e in &named {
+            let twice = e.act == Move::Increment && moved.contains(&e.quest);
+            if !twice && reaches(s, *e, world, w) {
+                moves(s, net, w, *e, false, clock);
+            }
+        }
     }
 }
 
@@ -1229,13 +1247,13 @@ pub fn named_for_use<S: Store>(s: &Server<S>, props: &yalain_content::Props) -> 
         .collect()
 }
 
-/// Does an effect a killer's kill has on a quest reach this fellow: the quest shares, and the fellow
-/// is within the limits it names?
-fn reaches<S: Store>(s: &Server<S>, e: QuestEffect, killer: ConnId, fellow: ConnId) -> bool {
+/// Does an effect a killer's kill (or a taker's take) has on a quest reach this fellow: the quest
+/// shares, and the fellow is within the limits it names?
+fn reaches<S: Store>(s: &Server<S>, e: QuestEffect, by: ConnId, fellow: ConnId) -> bool {
     let Some(f) = s.quests.quest(e.quest).map(|d| d.fellows) else {
         return false;
     };
-    let (Some(a), Some(b)) = (s.players.get(&killer), s.players.get(&fellow)) else {
+    let (Some(a), Some(b)) = (s.players.get(&by), s.players.get(&fellow)) else {
         return false;
     };
     let levels = crate::examine::level_of(&a.qualities) - crate::examine::level_of(&b.qualities);

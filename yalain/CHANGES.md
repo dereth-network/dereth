@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Fixed fellows' quests not moving when a fellow picks up a quest item.
 - Quests now fail on death, logout or portal as the game's own quest data says.
 - Fixed some chests opening empty.
 - Fixed some kill quests counting the wrong creatures or never finishing.

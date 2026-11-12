@@ -864,6 +864,129 @@ fn an_item_acquired_moves_the_quest_its_template_names() {
     assert_eq!(phase(&h, me), 3, "by what the person gave");
 }
 
+/// A step of the test quest for a taking of this item, moving the taker's fellows too.
+fn fellows_take_step(item: u32, needs: u32) -> Step {
+    Step {
+        trigger: Trigger::Take(item),
+        to: None,
+        fellows: true,
+        ..leading_step(0, needs, ARENA)
+    }
+}
+
+/// **An item acquired moves the taker's fellows' quest as a kill does**: a quest that shares
+/// reaches them, those it limits only near by; a fellow is moved as the taker is and told nothing
+/// it was refused; a quest that does not share stays the taker's. A step on the taking that moved
+/// the fellows leaves them where it put them, an increment too.
+/// Behaviour: server.quests.an-item-acquired-reaches-fellows-as-its-quest-says
+#[test]
+fn an_item_acquired_moves_a_fellows_quest_only_as_the_quest_says() {
+    const ITEM: u32 = 0x4700_FFF1;
+    const GIVING: u32 = 0x4700_FFF3;
+    const COUNTED: u32 = 0x4700_FFF4;
+    let (mut h, a, me) = world(QuestDef {
+        fellows: Fellows {
+            shared: true,
+            near_level: false,
+            near_by: true,
+        },
+        ..quest(5)
+    });
+    for (item, effect) in [
+        (ITEM, "Eff_AdvanceQuestHuntPhase3"),
+        (GIVING, "Eff_BestowQuestHunt"),
+        (COUNTED, INCREMENT),
+    ] {
+        let mut props = yalain_content::Props::default();
+        props.set(
+            "Item_AcquireEffect1",
+            yalain_content::Prop::Text(effect.into()),
+        );
+        h.server
+            .catalog
+            .insert(yalain_testkit::test_template(item, 0x3A1, props));
+    }
+    let (b, them) = fellows(&mut h, (a, me), 10.0);
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in the world")
+        .0;
+    let take = |h: &mut Harness, item: u32| {
+        let clock = h.clock();
+        yalain_world::quests::took(&mut h.server, &mut h.net, world, item, clock);
+        h.run(2);
+    };
+    // Both from the phase before; a fellow told as the taker is.
+    holds(&mut h, me, status::UNDERWAY, 2);
+    holds(&mut h, them, status::UNDERWAY, 2);
+    let from = h.bots[b].inbox.len();
+    take(&mut h, ITEM);
+    assert_eq!((phase(&h, me), phase(&h, them)), (3, 3));
+    assert_eq!(updates(&h, b, from), vec![(0, update::ADVANCE | 3)]);
+    // A fellow at another phase stays there.
+    holds(&mut h, me, status::UNDERWAY, 2);
+    holds(&mut h, them, status::UNDERWAY, 1);
+    take(&mut h, ITEM);
+    assert_eq!((phase(&h, me), phase(&h, them)), (3, 1));
+    // A fellow is never told a refused giving; a free one is given it.
+    let from = h.bots[b].inbox.len();
+    take(&mut h, GIVING);
+    assert!(updates(&h, b, from).is_empty(), "nothing said");
+    let p = h
+        .server
+        .players
+        .values_mut()
+        .find(|p| p.character == them)
+        .expect("in the world");
+    p.play.quests.clear();
+    take(&mut h, GIVING);
+    assert_eq!(state(&h, them), Some((status::UNDERWAY, 1)));
+    assert_eq!(updates(&h, b, from), vec![(0, update::BESTOW)]);
+    // Too far away.
+    holds(&mut h, me, status::UNDERWAY, 2);
+    holds(&mut h, them, status::UNDERWAY, 2);
+    let p = h
+        .server
+        .players
+        .values_mut()
+        .find(|p| p.character == them)
+        .expect("in the world");
+    p.position.origin[0] += 500.0;
+    take(&mut h, ITEM);
+    assert_eq!((phase(&h, me), phase(&h, them)), (3, 2));
+    let p = h
+        .server
+        .players
+        .values_mut()
+        .find(|p| p.character == them)
+        .expect("in the world");
+    p.position.origin[0] -= 500.0;
+
+    // A step that moves the fellows too: each moved once, by the step.
+    h.server.quests.steps = vec![fellows_take_step(ITEM, 2), fellows_take_step(COUNTED, 2)];
+    for item in [ITEM, COUNTED] {
+        holds(&mut h, me, status::UNDERWAY, 2);
+        holds(&mut h, them, status::UNDERWAY, 2);
+        let from = h.bots[b].inbox.len();
+        take(&mut h, item);
+        assert_eq!((phase(&h, me), phase(&h, them)), (3, 3), "{item:#X}");
+        assert_eq!(updates(&h, b, from), vec![(0, update::ADVANCE | 3)]);
+    }
+    h.server.quests.steps.clear();
+
+    // Not shared: only the taker moves.
+    if let Some(q) = h.server.quests.quests.iter_mut().find(|q| q.id == QUEST) {
+        q.fellows = Fellows::default();
+    }
+    holds(&mut h, me, status::UNDERWAY, 2);
+    holds(&mut h, them, status::UNDERWAY, 2);
+    take(&mut h, ITEM);
+    assert_eq!((phase(&h, me), phase(&h, them)), (3, 2));
+}
+
 /// A kill's step that leads somewhere sends the killer there; one that leads nowhere doesn't.
 /// Behaviour: server.quests.kill-step-leads-on
 #[test]
