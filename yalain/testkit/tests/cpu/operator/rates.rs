@@ -48,7 +48,7 @@ fn the_experience_rate_multiplies_what_a_player_earns_and_not_what_is_given() {
         let w = world_of(&h, id);
         for why in [
             Award::Step,
-            Award::Quest((0x1111_1111, 0x2500_0001)),
+            Award::Quest(0x8000_0001),
             Award::Part,
             Award::Share,
         ] {

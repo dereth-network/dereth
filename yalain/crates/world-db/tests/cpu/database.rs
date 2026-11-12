@@ -246,7 +246,7 @@ impl Install for Fake {
     fn quest_definition(&self, state: Option<u32>, id: u32) -> Option<QuestDefinition> {
         (id == 0x4000_0088 && state.is_none()).then(|| QuestDefinition {
             state: 0x6F00_0D3F,
-            name: (0xA860_7CEC, 0x2500_17EE),
+            name: Words::Ref(0xA860_7CEC, 0x2500_17EE),
             description: (0x6C45_9364, 0x2500_17EE),
             icon: 0x4100_034B,
             play_fx: true,
@@ -580,8 +580,8 @@ fn the_compile_takes_what_the_rows_leave_out_from_the_install() {
     // The quest's definition from the install, its numbers from the row.
     let q = &t.quests.quests[0];
     assert_eq!(
-        (q.name, q.icon, q.journals.len()),
-        ((0xA860_7CEC, 0x2500_17EE), 0x4100_034B, 2)
+        (&q.name, q.icon, q.journals.len()),
+        (&Words::Ref(0xA860_7CEC, 0x2500_17EE), 0x4100_034B, 2)
     );
     assert_eq!(
         (q.challenge, q.duration, q.retry, q.xp, q.cancellable),
@@ -5791,4 +5791,30 @@ fn object_states_and_sequence_rows_compile_into_the_item_rows() {
         f.insert("town/server/puzzles.toml".into(), bad.clone());
         assert!(read(&f).is_err(), "{bad}");
     }
+}
+
+/// A quest's name in the install's enumeration said as words: the leading `Quest` and underscores
+/// left out, a word begun at a capital after a small letter, at the last of a run of capitals
+/// before a small letter, and where a number begins or ends.
+/// Behaviour: server.world-db.quest-name-in-words
+#[test]
+fn a_quests_enumeration_name_is_said_as_its_words() {
+    use yalain_world_db::install::spoken_name;
+    for (name, words) in [
+        (
+            "Quest_MarshTerrorMustBeStopped",
+            "Marsh Terror Must Be Stopped",
+        ),
+        ("QuestMirraRelicAlabaster", "Mirra Relic Alabaster"),
+        ("QuestTOMortal", "TO Mortal"),
+        ("QuestDesolationMH", "Desolation MH"),
+        ("Quest_DeadlyDummy60", "Deadly Dummy 60"),
+        ("QuestIN", "IN"),
+        ("Quest_Two_Words", "Two Words"),
+        ("TheBeetleHunt", "The Beetle Hunt"),
+    ] {
+        assert_eq!(spoken_name(name).as_deref(), Some(words), "{name}");
+    }
+    assert_eq!(spoken_name("Quest"), None);
+    assert_eq!(spoken_name("Quest_"), None);
 }

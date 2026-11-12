@@ -77,7 +77,7 @@ fn tile(id: u64, template: u32, x: f32) -> ContentObject {
 fn quest(id: u32, phases: u32) -> QuestDef {
     QuestDef {
         id,
-        name: (0, 0),
+        name: yalain_content::Words::Ref(0, 0),
         description: (0, 0),
         icon: 0,
         play_fx: false,

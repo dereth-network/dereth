@@ -249,7 +249,7 @@ fn a_day_of_heals_and_crafts() -> Vec<ServerMessage> {
         .quests
         .push(yalain_content::quests::QuestDef {
             id: quest,
-            name: (1, 2),
+            name: yalain_content::Words::Ref(1, 2),
             description: (3, 4),
             icon: 0,
             play_fx: false,
@@ -629,7 +629,7 @@ fn a_visit() -> Vec<ServerMessage> {
     h.server.quests = QuestTable {
         quests: vec![QuestDef {
             id: 0x4000_0088,
-            name: (0xA860_7CEC, 0x2500_17EE),
+            name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_17EE),
             description: (0x6C45_9364, 0x2500_17EE),
             icon: 0x4100_034B,
             play_fx: true,

@@ -2338,9 +2338,34 @@ fn a_person_says_its_under_level_line_to_a_player_too_low_and_to_no_one_else() {
     }
 }
 
+/// A quest whose name the install's text can't write is named in the words of its own name in the
+/// quest enumeration: Marsh Terror's definition names a token its table sends on to a table of its
+/// own, which the install lacks (as 2017's servers sent it, which held that table), and another's
+/// a token its table doesn't hold. A name the install writes keeps its reference.
+/// Behaviour: server.world-db.quest-names-the-install-cannot-write
+#[test]
+fn a_quest_whose_name_the_install_cannot_write_is_named_in_its_own_names_words() {
+    use yalain_content::Words;
+    let t = &compiled().tables;
+    let name = |quest: u32| {
+        t.quests
+            .quest(quest)
+            .expect("the quest has a row")
+            .name
+            .clone()
+    };
+    assert_eq!(
+        name(0x8000_0383),
+        Words::Literal("Marsh Terror Must Be Stopped".into())
+    );
+    assert_eq!(name(0x8000_02D4), Words::Literal("SC 1 Hamekh".into()));
+    assert_eq!(name(0x8000_02DD), Words::Ref(0xB563_8728, 0x2500_174A));
+}
+
 /// The quests 2017 listed with no words of their own are shown, not hidden: three entries held
-/// the postings' two done quests, with the strings their definitions name, which are empty. A quest
-/// is hidden for having no string, not for an empty one.
+/// the postings' two done quests, with the strings their definitions name: an empty description,
+/// and names whose text the install doesn't hold, said instead in the words of the quests' own
+/// names. A quest is hidden for having no string, not for an empty one.
 /// Behaviour: server.quests.empty-words-are-still-listed
 #[test]
 fn the_quests_2017_listed_with_empty_words_are_listed() {
@@ -2348,12 +2373,12 @@ fn the_quests_2017_listed_with_empty_words_are_listed() {
     use yalain_world::state::QuestState;
     let t = &compiled().tables;
     for (quest, name, journal) in [
-        (0x8000_028D_u32, 0xC2D0_C9C9_u32, 0xFAA2_0995_u32),
-        (0x8000_028B, 0xDB7E_E1BD, 0xFAA2_0995),
+        (0x8000_028D_u32, "Posting Complete", 0xFAA2_0995_u32),
+        (0x8000_028B, "Posting Company Complete", 0xFAA2_0995),
     ] {
         const TABLE: u32 = 0x2500_1654;
         let d = t.quests.quest(quest).expect("the quest has a row");
-        assert_eq!(d.name, (name, TABLE));
+        assert_eq!(d.name, yalain_content::Words::Literal(name.into()));
         assert_eq!(d.description, (journal, TABLE));
         assert_eq!(d.icon, 0x4100_034B);
         assert!(!is_hidden(&t.quests, d), "{quest:08X} is shown");

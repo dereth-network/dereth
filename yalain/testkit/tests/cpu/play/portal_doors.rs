@@ -145,7 +145,7 @@ fn hall(rotation: [f32; 4], keeps_out: bool) -> Harness {
     }
     h.server.quests.quests.push(QuestDef {
         id: QUEST,
-        name: (0, 0),
+        name: yalain_content::Words::Ref(0, 0),
         description: (0, 0),
         icon: 0,
         play_fx: false,

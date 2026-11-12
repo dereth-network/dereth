@@ -129,7 +129,7 @@ fn world() -> Harness {
     h.server.quests = QuestTable {
         quests: vec![QuestDef {
             id: TOKEN_QUEST,
-            name: (0xA860_7CEC, 0x2500_17EE),
+            name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_17EE),
             description: (0x6C45_9364, 0x2500_17EE),
             icon: 0,
             play_fx: false,

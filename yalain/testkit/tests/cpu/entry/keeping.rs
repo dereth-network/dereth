@@ -507,7 +507,7 @@ fn an_items_instance_stamp_is_one_more_at_each_entry() {
 fn hour_quest(id: u32) -> QuestDef {
     QuestDef {
         id,
-        name: (0xA860_7CEC, 0x2500_17EE),
+        name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_17EE),
         description: (0x6C45_9364, 0x2500_17EE),
         icon: 0x4100_034B,
         play_fx: true,

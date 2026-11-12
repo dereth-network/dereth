@@ -678,7 +678,7 @@ fn a_quest_steps_effects_come_after_its_gifts_and_before_its_update() {
     let quest = 0x4000_0016;
     h.server.quests.quests.push(QuestDef {
         id: quest,
-        name: (1, 2),
+        name: yalain_content::Words::Ref(1, 2),
         description: (3, 4),
         icon: 0,
         play_fx: false,

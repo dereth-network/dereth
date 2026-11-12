@@ -525,7 +525,7 @@ fn what_a_quest_pays_is_not_passed_up_and_what_a_kill_pays_is() {
     let (_, pid) = b;
     h.server.levels = levels();
     sworn(&mut h, a, b);
-    pay(&mut h, vid, 400, Award::Quest((0, 0)));
+    pay(&mut h, vid, 400, Award::Quest(0));
     pay(&mut h, vid, 400, Award::Step);
     assert_eq!(pool_of(&h, pid), 0, "a quest's and its steps'");
     pay(&mut h, vid, 40, Award::Part);
@@ -550,12 +550,12 @@ fn a_vassal_reaching_a_level_pays_its_patron_the_pool_at_once() {
     assert_eq!(pool_of(&h, pid), 25, "under the threshold of 200");
     assert_eq!(total_of(&h, pid), 0, "nothing paid yet");
     let from = h.bots[pa].inbox.len();
-    pay(&mut h, vid, 900, Award::Quest((0, 0)));
+    pay(&mut h, vid, 900, Award::Quest(0));
     assert_eq!(pool_of(&h, pid), 0, "paid out");
     assert_eq!(total_of(&h, pid), 25);
     assert!(h.texts(pa, from).contains(&(8, text::VASSAL_EARNED.0)));
     let from = h.bots[pa].inbox.len();
-    pay(&mut h, vid, 2_000, Award::Quest((0, 0)));
+    pay(&mut h, vid, 2_000, Award::Quest(0));
     assert_eq!(total_of(&h, pid), 25, "no more for a pool of nothing");
     assert!(!h.texts(pa, from).contains(&(8, text::VASSAL_EARNED.0)));
 }
@@ -588,7 +588,7 @@ fn a_new_level_with_the_patron_away_is_kept_through_a_restart_and_paid_as_it_ent
         .get_mut(&pid)
         .expect("a member")
         .pooled = 30;
-    pay(&mut h, vid, 1_000, Award::Quest((0, 0)));
+    pay(&mut h, vid, 1_000, Award::Quest(0));
     assert_eq!(pool_of(&h, pid), 0);
     assert_eq!(h.server.allegiances.nodes[&pid].owed, 30, "kept for it");
     h.run(STEPS);

@@ -12823,6 +12823,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-name-in-words-is-told-as-written",
+        says: "A quest named by words, standing in for a name the install's text lacks, is told by \
+               those words in its record as it is given and in the text of what its completion \
+               pays.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-NAME-WORDS-TOLD"),
+        station: "yalain-testkit::cpu::play::quests::a_quest_named_by_words_is_told_by_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-person-gives-and-takes-back-kill-quests",
         says: "A sample of kill quests the January 2017 recordings hold from giving to end, played \
                through the database's rows and the creatures' death effects, sends only updates \
@@ -13160,7 +13170,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.quests.empty-words-are-still-listed",
-        says: "A quest whose name and description are empty strings is listed and told as any other; a quest is hidden for naming no description.",
+        says: "A quest whose description is an empty string, or whose name the install's text \
+               lacks, is listed and told as any other; a quest is hidden for naming no \
+               description.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-EMPTY-WORDS"),
         station: "yalain-testkit::corpus::world_db::the_quests_2017_listed_with_empty_words_are_listed",
@@ -15686,6 +15698,27 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-WDB-POPUP-INSTALL"),
         station: "yalain::bin.yalain::data::tests::a_popup_row_naming_an_effect_the_install_lacks_or_with_nothing_to_show_is_a_problem",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world-db.quest-name-in-words",
+        says: "A quest's name in the install's quest enumeration is said as words: its leading \
+               `Quest` and underscores left out, a word begun at a capital after a small letter, \
+               at the last of a run of capitals before a small letter, and where a number begins \
+               or ends.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-NAME-WORDS"),
+        station: "yalain-world-db::cpu::database::a_quests_enumeration_name_is_said_as_its_words",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world-db.quest-names-the-install-cannot-write",
+        says: "A quest whose name the install's text can't write (the name's table, or the table \
+               its entry sends the token on to, is missing) is named in the words of its own name \
+               in the quest enumeration; a name the install writes keeps its string reference.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-NAME-UNWRITTEN"),
+        station: "yalain-testkit::corpus::world_db::a_quest_whose_name_the_install_cannot_write_is_named_in_its_own_names_words",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.world-db.release-folder-holds-to-its-archive-hash",

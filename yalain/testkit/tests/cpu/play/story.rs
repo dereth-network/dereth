@@ -132,7 +132,7 @@ fn a_vaults_shard_completes_its_quest_as_the_player_comes_out() {
     let mut h = world();
     h.server.quests.quests = vec![yalain_content::quests::QuestDef {
         id: QUEST,
-        name: (1, 2),
+        name: yalain_content::Words::Ref(1, 2),
         description: (3, 4),
         icon: 0,
         play_fx: false,

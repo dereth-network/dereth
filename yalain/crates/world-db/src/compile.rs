@@ -44,13 +44,14 @@ pub struct InstallSale {
     pub currency: u32,
 }
 
-/// A quest's definition, as the install holds it: name and description (string, table), icon,
-/// whether updates play an effect, the journal entry of each phase from the first, and the effects
-/// each kind of update puts on the player (the kind, the effect's saved state).
+/// A quest's definition, as the install holds it: name (a string reference, or the words standing
+/// in for one the install's text can't write) and description (string, table), icon, whether
+/// updates play an effect, the journal entry of each phase from the first, and the effects each
+/// kind of update puts on the player (the kind, the effect's saved state).
 #[derive(Debug, Clone, PartialEq)]
 pub struct QuestDefinition {
     pub state: u32,
-    pub name: (u32, u32),
+    pub name: Words,
     pub description: (u32, u32),
     pub icon: u32,
     pub play_fx: bool,

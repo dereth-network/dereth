@@ -526,7 +526,7 @@ fn a_quest_cancelled_is_updated_as_cancelled_and_no_longer_under_way() {
     let quest = 0x8000_02E5;
     h.server.quests.quests.push(QuestDef {
         id: quest,
-        name: (1, 0x2500_14B4),
+        name: yalain_content::Words::Ref(1, 0x2500_14B4),
         description: (2, 0x2500_14B4),
         icon: 0x4100_034B,
         play_fx: false,
@@ -604,7 +604,7 @@ fn a_cancelled_quest_waits_what_its_row_says_and_without_one_five_minutes() {
     const SHORT: u32 = 0x8000_02E5;
     let def = |id: u32, cancel_wait: Option<f64>| QuestDef {
         id,
-        name: (1, 0x2500_14B4),
+        name: yalain_content::Words::Ref(1, 0x2500_14B4),
         description: (2, 0x2500_14B4),
         icon: 0x4100_034B,
         play_fx: false,

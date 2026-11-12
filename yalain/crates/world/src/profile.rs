@@ -948,13 +948,13 @@ pub fn monarch_lines(p: &mut Profile) {
 }
 
 /// What a placed object's requirements say of the quest it needs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QuestLine {
     /// A hidden quest: the section stands with no line for it (2017: 12 of 12 objects whose quest
     /// is hidden).
     Hidden,
-    /// One of the quest's lines, and the quest's name (string, table).
-    Named(u32, (u32, u32)),
+    /// One of the quest's lines, and the quest's name.
+    Named(u32, yalain_content::Words),
 }
 
 /// Which line says a quest is needed at a status, written as [`yalain_content::QuestGate`] writes it.
@@ -1022,7 +1022,7 @@ pub fn requirement_lines(p: &mut Profile, f: &Facts, quest: Option<QuestLine>) -
         p.text(REQUIREMENTS, look::VALUE, string(line::TABLE, line::A_HERO));
         p.brk(REQUIREMENTS);
     }
-    if let Some(QuestLine::Named(said, (sid, table))) = quest {
+    if let Some(QuestLine::Named(said, name)) = quest {
         p.tab(REQUIREMENTS, 0);
         p.text(
             REQUIREMENTS,
@@ -1030,7 +1030,10 @@ pub fn requirement_lines(p: &mut Profile, f: &Facts, quest: Option<QuestLine>) -
             with_vars(
                 line::TABLE,
                 said,
-                vec![nested(line::QUEST_NAME_VAR, string(table, sid))],
+                vec![nested(
+                    line::QUEST_NAME_VAR,
+                    crate::quests::name_text(&name),
+                )],
             ),
         );
         p.brk(REQUIREMENTS);

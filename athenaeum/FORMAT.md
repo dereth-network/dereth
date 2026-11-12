@@ -327,7 +327,9 @@ rows whose moment and quest match, picking at random among several.
 #### `[[quest]]`
 
 A quest's server values. Its name, description, icon and journal are its definition's in the
-install.
+install; a name whose text the install doesn't hold (its table, or the table the name's entry sends
+it on to, is missing) is said in the words of the quest's name in the install's quest enumeration
+(`Quest_AnExampleHunt`: An Example Hunt).
 
 | field | | meaning |
 |---|---|---|

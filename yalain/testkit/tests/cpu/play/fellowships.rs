@@ -984,7 +984,7 @@ fn a_kill_by_a_player_the_creature_could_not_reach_pays_no_one_and_moves_no_ques
         }
         h.server.quests.quests.push(QuestDef {
             id: QUEST,
-            name: (1, 2),
+            name: yalain_content::Words::Ref(1, 2),
             description: (3, 4),
             icon: 0,
             play_fx: false,

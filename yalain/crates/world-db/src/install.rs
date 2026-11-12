@@ -18,6 +18,7 @@ use auberean_script::opcode::{length, low_byte, signed, tag_of};
 use auberean_script::value::{join, tag, FunctionId};
 use yalain_content::props::{TAKING_QUEST, TAKING_STATUS};
 use yalain_content::stores::SaleGate;
+use yalain_content::talk::Words;
 use yalain_content::{FactIds, Prop, Props, FACT_NAMES};
 
 use crate::compile::{Install, InstallSale, QuestDefinition};
@@ -112,6 +113,20 @@ impl<'a> DatInstall<'a> {
     }
 
     fn text(&self, string: u32, table: u32) -> Option<String> {
+        self.entry(table, string, |e| {
+            e.strings.iter().flatten().next().cloned()
+        })
+        .flatten()
+    }
+
+    /// What `read` makes of a token's entry in a table of the language file, when the table holds
+    /// the token.
+    fn entry<T>(
+        &self,
+        table: u32,
+        token: u32,
+        read: impl FnOnce(&auberean_assets::strings::StringEntry) -> T,
+    ) -> Option<T> {
         let local = self.local.as_ref()?;
         let mut cache = self.strings.borrow_mut();
         let t = cache.entry(table).or_insert_with(|| {
@@ -121,21 +136,42 @@ impl<'a> DatInstall<'a> {
         t.as_ref()?
             .entries
             .iter()
-            .find(|e| e.token == string)
-            .and_then(|e| e.strings.iter().flatten().next().cloned())
+            .find(|e| e.token == token)
+            .map(read)
+    }
+
+    /// Whether the language file writes a string reference as the client does: its table holds the
+    /// token and, where the token's entry sends it on to a table of its own, that table holds the
+    /// token too. `None` when there is no language file to tell.
+    fn writes(&self, string: u32, table: u32) -> Option<bool> {
+        self.local.as_ref()?;
+        Some(match self.entry(table, string, |e| e.table) {
+            None => false,
+            Some(0) => true,
+            Some(own) => self.entry(own, string, |_| ()).is_some(),
+        })
+    }
+
+    fn quest_names(&self) -> &HashMap<String, u32> {
+        self.quest_names.get_or_init(|| {
+            self.decode::<EnumMap>(QUEST_NAMES)
+                .map_or_else(HashMap::new, |m| {
+                    m.names.into_iter().map(|(v, n)| (n, v)).collect()
+                })
+        })
     }
 
     /// A quest's id by its name in the install's enumeration.
     fn quest_named(&self, name: &str) -> Option<u32> {
-        self.quest_names
-            .get_or_init(|| {
-                self.decode::<EnumMap>(QUEST_NAMES)
-                    .map_or_else(HashMap::new, |m| {
-                        m.names.into_iter().map(|(v, n)| (n, v)).collect()
-                    })
-            })
-            .get(name)
-            .copied()
+        self.quest_names().get(name).copied()
+    }
+
+    /// A quest's name in the install's enumeration.
+    fn name_of_quest(&self, id: u32) -> Option<&str> {
+        self.quest_names()
+            .iter()
+            .find(|(_, v)| **v == id)
+            .map(|(n, _)| n.as_str())
     }
 
     fn quest_states(&self) -> &HashMap<u32, u32> {
@@ -154,6 +190,39 @@ impl<'a> DatInstall<'a> {
             out
         })
     }
+}
+
+/// A quest's name in the install's enumeration as words: the leading `Quest` and underscores
+/// left out, and a word begun at each capital after a small letter or a digit, at the last capital
+/// of a run of them before a small letter, and where a number begins or ends
+/// (`Quest_MarshTerrorMustBeStopped`: "Marsh Terror Must Be Stopped", `QuestTOMortal`: "TO
+/// Mortal", `Quest_DeadlyDummy60`: "Deadly Dummy 60"). `None` for a name with nothing after it.
+#[must_use]
+pub fn spoken_name(name: &str) -> Option<String> {
+    let rest: Vec<char> = name.strip_prefix("Quest").unwrap_or(name).chars().collect();
+    let mut out = String::new();
+    for (i, &c) in rest.iter().enumerate() {
+        if c == '_' {
+            if !out.is_empty() && !out.ends_with(' ') {
+                out.push(' ');
+            }
+            continue;
+        }
+        let before = i.checked_sub(1).map(|j| rest[j]);
+        let after = rest.get(i + 1).copied();
+        let begins = before.is_some_and(|b| {
+            (c.is_uppercase() && (b.is_lowercase() || b.is_ascii_digit()))
+                || (c.is_uppercase() && b.is_uppercase() && after.is_some_and(char::is_lowercase))
+                || (c.is_ascii_digit() && b.is_alphabetic())
+                || (c.is_alphabetic() && b.is_ascii_digit())
+        });
+        if begins && !out.is_empty() && !out.ends_with(' ') {
+            out.push(' ');
+        }
+        out.push(c);
+    }
+    let out = out.trim_end().to_string();
+    (!out.is_empty()).then_some(out)
 }
 
 /// The quest a saved state defines, when it defines one: the enumeration value of a state with
@@ -348,9 +417,19 @@ impl Install for DatInstall<'_> {
             .max_by_key(|(p, _)| *p)
             .is_some_and(|(_, r)| *r != 1);
         let setup = setup_of(self.lib, root.package_id());
+        // A name the language file can't write (its text was never shipped with the install) is
+        // said as the quest's own name in the enumeration, in words.
+        let (string, table) = text("m_siLongName")?;
+        let name = match self.writes(string, table) {
+            Some(false) => self
+                .name_of_quest(id)
+                .and_then(spoken_name)
+                .map_or(Words::Ref(string, table), Words::Literal),
+            _ => Words::Ref(string, table),
+        };
         Some(QuestDefinition {
             state,
-            name: text("m_siLongName")?,
+            name,
             description: text("m_siDescription")?,
             icon: nav.field(root, "m_didIcon")?,
             play_fx: nav.field(root, "m_bPlayFXOnUpdate").unwrap_or(0) != 0,

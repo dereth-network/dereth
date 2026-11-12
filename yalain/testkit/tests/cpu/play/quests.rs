@@ -61,7 +61,7 @@ fn object(id: u64, template: u32, kind: Kind, origin: [f32; 3]) -> ContentObject
 fn quest(id: u32, xp: u64, challenge: i32) -> QuestDef {
     QuestDef {
         id,
-        name: (0xA860_7CEC, 0x2500_17EE),
+        name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_17EE),
         description: (0x6C45_9364, 0x2500_17EE),
         icon: 0x4100_034B,
         play_fx: true,
@@ -571,6 +571,63 @@ fn a_hidden_quests_completion_pays_with_no_text() {
     assert_eq!(paid, 800);
     assert_eq!(texts.len(), 1, "a shown quest's pay is named");
     assert!(calls.contains(&yalain_world::quests::UPDATE_QUEST));
+}
+
+/// A quest named by words, standing in for a name the install's text can't write, is told by those
+/// words: in its record as it is given, and in the text of what its completion pays.
+/// Behaviour: server.quests.a-name-in-words-is-told-as-written
+#[test]
+fn a_quest_named_by_words_is_told_by_them() {
+    use auberean_script::native_object::{TextInfo, VariableValue};
+    const NAMED: u32 = 0x4000_0035;
+    const WORDS: &str = "Marsh Terror Must Be Stopped";
+    let literal = |t: &TextInfo| t.literal.as_ref().map(|l| String::from_utf16_lossy(l));
+    let mut h = Harness::new();
+    h.server.quests = QuestTable {
+        quests: vec![QuestDef {
+            name: yalain_content::Words::Literal(WORDS.into()),
+            ..quest(NAMED, 800, -999)
+        }],
+        steps: Vec::new(),
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
+    let (b, me) = h.player_in_world("one", "Elara");
+    let world = conn_of(&h, me);
+    let run = |h: &mut Harness, update: Update| {
+        let from = h.bots[b].inbox.len();
+        let clock = h.clock();
+        yalain_world::quests::apply(&mut h.server, &mut h.net, world, NAMED, update, 0, clock);
+        h.run(3);
+        from
+    };
+    let from = run(&mut h, Update::Bestow);
+    let given = records(&h, b, from);
+    assert_eq!(given.len(), 1, "its record");
+    assert_eq!(
+        literal(&given[0].name).as_deref(),
+        Some(WORDS),
+        "{:?}",
+        given[0].name
+    );
+    let from = run(&mut h, Update::Complete);
+    let paid: Vec<TextInfo> = h
+        .calls(b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == yalain_world::session::function::SHOW_TEXT)
+        .filter_map(|(_, v)| {
+            v.iter().find_map(|x| match x.root() {
+                Some(yalain_world::calls::Node::TextInfo(t)) => Some(t.clone()),
+                _ => None,
+            })
+        })
+        .collect();
+    assert_eq!(paid.len(), 1, "its pay's text");
+    let named = paid[0].variables.iter().find_map(|v| match &v.value {
+        VariableValue::Nested(t) => literal(t),
+        _ => None,
+    });
+    assert_eq!(named.as_deref(), Some(WORDS), "{:?}", paid[0]);
 }
 
 /// A quest may pay a share of what its player's level takes to reach the next, rounded down: the

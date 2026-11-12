@@ -86,8 +86,8 @@ pub const CREDITS_PER_LEVEL: i32 = 1;
 pub enum Award {
     /// A damager's part of a kill, paid to it (or to its pet's owner).
     Part,
-    /// A quest completed, by its name (its text sent even when it pays nothing).
-    Quest((u32, u32)),
+    /// A quest completed, by its id: its text, naming it, is sent even when it pays nothing.
+    Quest(u32),
     /// A step of a quest that pays on its way (no text: 2017 sent the totals alone).
     Step,
     /// A fellow's share of a part of a kill (no text).
@@ -317,14 +317,20 @@ pub fn award_with_focus<S: Store>(
     match why {
         Award::Part | Award::Step | Award::Share | Award::Allegiance | Award::Given => {}
         Award::Quest(_) if topped => {}
-        Award::Quest(name) => say(
-            net,
-            world,
-            text_with(
-                text::QUEST_XP,
-                vec![long(var::XP, 12, amount), nested(var::QUEST, text(name))],
-            ),
-        ),
+        Award::Quest(quest) => {
+            let name = s
+                .quests
+                .quest(quest)
+                .map_or_else(TextInfo::default, |d| crate::quests::name_text(&d.name));
+            say(
+                net,
+                world,
+                text_with(
+                    text::QUEST_XP,
+                    vec![long(var::XP, 12, amount), nested(var::QUEST, name)],
+                ),
+            );
+        }
     }
 }
 

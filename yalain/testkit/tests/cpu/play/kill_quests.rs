@@ -30,7 +30,7 @@ fn string_arg(s: &str) -> Arg {
 pub(super) fn quest(phases: u32) -> QuestDef {
     QuestDef {
         id: QUEST,
-        name: (0xA860_7CEC, 0x2500_17EE),
+        name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_17EE),
         description: (0x6C45_9364, 0x2500_17EE),
         icon: 0x4100_034B,
         play_fx: true,

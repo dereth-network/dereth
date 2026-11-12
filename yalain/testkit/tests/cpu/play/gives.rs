@@ -67,7 +67,7 @@ fn place(id: u64, template: u32, kind: Kind, origin: [f32; 3]) -> ContentObject 
 fn quest(id: u32, phases: u32) -> QuestDef {
     QuestDef {
         id,
-        name: (0xA860_7CEC, 0x2500_2958),
+        name: Words::Ref(0xA860_7CEC, 0x2500_2958),
         description: (0x6C45_9364, 0x2500_2958),
         icon: 0x4100_034B,
         play_fx: true,

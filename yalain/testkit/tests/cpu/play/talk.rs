@@ -306,7 +306,7 @@ fn a_step_says_its_line_then_the_lines_heard_with_its_update_in_order() {
     let quests = QuestTable {
         quests: vec![QuestDef {
             id: QUEST,
-            name: (0xA860_7CEC, 0x2500_0A7E),
+            name: Words::Ref(0xA860_7CEC, 0x2500_0A7E),
             description: (0x6C45_9364, 0x2500_0A7E),
             icon: 0x4100_034B,
             play_fx: true,

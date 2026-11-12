@@ -401,7 +401,7 @@ fn a_map_found_at_its_place_moves_on_the_quest_it_is_part_of() {
     let quest = 0x4000_00C7;
     h.server.quests.quests.push(QuestDef {
         id: quest,
-        name: (1, 0x2500_14B4),
+        name: yalain_content::Words::Ref(1, 0x2500_14B4),
         description: (2, 0x2500_14B4),
         icon: 0,
         play_fx: false,

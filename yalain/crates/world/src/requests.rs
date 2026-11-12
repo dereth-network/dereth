@@ -654,7 +654,7 @@ fn profile_bytes<S: Store>(
                     Some(if def.hidden {
                         profile::QuestLine::Hidden
                     } else {
-                        profile::QuestLine::Named(profile::quest_line(g.status), def.name)
+                        profile::QuestLine::Named(profile::quest_line(g.status), def.name.clone())
                     })
                 });
                 let recall = if lifestone {

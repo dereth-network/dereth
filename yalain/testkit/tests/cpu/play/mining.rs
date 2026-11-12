@@ -603,7 +603,7 @@ fn a_quest_mine_gives_its_material_and_moves_its_quest_on_and_a_recipe_mine_refu
         .quests
         .push(yalain_content::quests::QuestDef {
             id: quest,
-            name: (1, 0x2500_14B4),
+            name: yalain_content::Words::Ref(1, 0x2500_14B4),
             description: (2, 0x2500_14B4),
             icon: 0,
             play_fx: false,
@@ -911,7 +911,7 @@ fn the_hoards_time_runs_out_and_its_miner_is_sent_out() {
     h.server.quests = QuestTable {
         quests: vec![QuestDef {
             id: MINE,
-            name: (0, 0),
+            name: yalain_content::Words::Ref(0, 0),
             description: (0, 0),
             icon: 0,
             play_fx: true,

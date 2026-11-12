@@ -308,7 +308,7 @@ fn a_placed_objects_requirements_read_as_the_recorded_pages_did() {
         assert_eq!(got[..want.len()], want[..], "{what}");
         assert_eq!(got.len(), want.len() + 1, "{what}: the page ends there");
     };
-    let name = (0xA860_4EEC, 0x2500_1658);
+    let name = yalain_content::Words::Ref(0xA860_4EEC, 0x2500_1658);
     let hero = yalain_content::Facts {
         hero: true,
         ..yalain_content::Facts::default()
@@ -342,7 +342,7 @@ fn a_placed_objects_requirements_read_as_the_recorded_pages_did() {
         (0x1000_0002, 0x6C86_F753),
         (yalain_content::QuestGate::HAD, 0x8D31_AAA4),
     ] {
-        let said = Some(QuestLine::Named(profile::quest_line(status), name));
+        let said = Some(QuestLine::Named(profile::quest_line(status), name.clone()));
         same(
             page(yalain_content::Facts::default(), said),
             join(&[&HEAD, &BRK, &TAB, &quest(line), &BRK]),
@@ -352,7 +352,10 @@ fn a_placed_objects_requirements_read_as_the_recorded_pages_did() {
     same(
         page(
             level,
-            Some(QuestLine::Named(profile::quest_line(0x1000_0000), name)),
+            Some(QuestLine::Named(
+                profile::quest_line(0x1000_0000),
+                name.clone(),
+            )),
         ),
         join(&[
             &HEAD,

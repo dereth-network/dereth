@@ -1699,7 +1699,7 @@ fn a_quest_an_admin_takes_off_a_player_takes_its_subquests_too() {
     const UNRELATED: u32 = 0x4000_0106;
     let def = |id, subquests| QuestDef {
         id,
-        name: (1, 0x2500_0001),
+        name: yalain_content::Words::Ref(1, 0x2500_0001),
         description: (2, 0x2500_0001),
         icon: 0,
         play_fx: false,
@@ -1876,7 +1876,7 @@ fn an_admin_gives_moves_on_and_finishes_a_players_quest() {
     h.server.quests = yalain_content::QuestTable {
         quests: vec![yalain_content::quests::QuestDef {
             id: QUEST,
-            name: (1, 0x2500_0001),
+            name: yalain_content::Words::Ref(1, 0x2500_0001),
             description: (2, 0x2500_0001),
             icon: 0,
             play_fx: false,
@@ -1971,7 +1971,7 @@ fn a_quest_an_admin_takes_off_a_player_leaves_its_clients_list_at_once() {
         let (me, _) = admin_in_world(&mut h, "two", "Cara");
         let def = |id, hidden| yalain_content::quests::QuestDef {
             id,
-            name: (1, 0x2500_0001),
+            name: yalain_content::Words::Ref(1, 0x2500_0001),
             description: (2, 0x2500_0001),
             icon: 0,
             play_fx: false,

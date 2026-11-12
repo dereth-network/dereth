@@ -383,7 +383,7 @@ fn entries(con: &Connection) -> BTreeMap<u64, Vec<Entry>> {
 fn timed_quest(id: u32, duration: f64, retry: f64) -> QuestDef {
     QuestDef {
         id,
-        name: (0, 0),
+        name: yalain_content::Words::Ref(0, 0),
         description: (0, 0),
         icon: 0,
         play_fx: false,

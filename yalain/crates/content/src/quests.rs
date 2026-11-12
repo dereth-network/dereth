@@ -6,7 +6,8 @@
 //!
 //! The text form is tab-separated, one row per line, the first column saying which kind of row:
 //!
-//! - `quest`: id, name `string:table`, description `string:table`, icon, play-effect flag (0/1),
+//! - `quest`: id, name `string:table` (or `=` and literal text, where the install can't write the
+//!   definition's own), description `string:table`, icon, play-effect flag (0/1),
 //!   journal entries `string:table` by phase joined by `,`, challenge, duration in seconds (0 for
 //!   none), retry wait in seconds, completion experience, can-be-cancelled flag, provenance; then,
 //!   optionally, the hidden flag (0/1), the update effects (`KIND:STATE`, the update's kind and
@@ -44,7 +45,9 @@ use crate::talk::Words;
 #[derive(Debug, Clone, PartialEq)]
 pub struct QuestDef {
     pub id: u32,
-    pub name: (u32, u32),
+    /// Its name: the definition's string reference, or literal text standing in for one the
+    /// install's text can't write.
+    pub name: Words,
     pub description: (u32, u32),
     pub icon: u32,
     pub play_fx: bool,
@@ -557,7 +560,7 @@ impl QuestTable {
                 out,
                 "quest\t{:08X}\t{}\t{}\t{:08X}\t{}\t{j}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{effects}\t{subs}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 q.id,
-                r(q.name),
+                q.name.to_text(),
                 r(q.description),
                 q.icon,
                 u8::from(q.play_fx),
@@ -761,7 +764,7 @@ impl QuestTable {
                 }
                 "quest" if (13..=26).contains(&c.len()) => t.quests.push(QuestDef {
                     id: hex(c[1]).map_err(at)?,
-                    name: pair(c[2]).map_err(at)?,
+                    name: Words::from_text(c[2]).map_err(at)?,
                     description: pair(c[3]).map_err(at)?,
                     icon: hex(c[4]).map_err(at)?,
                     play_fx: c[5] == "1",

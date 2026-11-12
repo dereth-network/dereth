@@ -79,7 +79,7 @@ fn person() -> ContentObject {
 fn hidden_quest() -> QuestDef {
     QuestDef {
         id: QUEST,
-        name: (0, 0),
+        name: Words::Ref(0, 0),
         description: (0, 0),
         icon: 0x4100_034B,
         play_fx: true,

@@ -251,6 +251,20 @@ fn time_since(q: &QuestDef, st: &QuestState) -> Option<i64> {
     }
 }
 
+/// A quest's name as the client is sent it: its reference, or the literal text standing in for one
+/// the install can't write.
+#[must_use]
+pub fn name_text(name: &Words) -> TextInfo {
+    match name {
+        Words::Ref(string, table) => progress::text((*string, *table)),
+        Words::Literal(l) => TextInfo {
+            has_literal: 1,
+            literal: Some(l.encode_utf16().collect()),
+            ..TextInfo::default()
+        },
+    }
+}
+
 /// A quest's record, its journal entry given where it is not the phase's.
 fn write_record(
     q: &QuestDef,
@@ -274,7 +288,7 @@ fn write_record(
         );
     };
     w32(&mut b, q.id);
-    ti(&mut b, q.name);
+    b.extend_from_slice(&name_text(&q.name).pack());
     ti(&mut b, q.description);
     w32(&mut b, q.icon);
     w32(&mut b, st.status);
@@ -342,7 +356,7 @@ fn write_refused(q: &QuestDef, st: &QuestState, game_epoch: f64) -> Vec<u8> {
         );
     };
     w32(&mut b, q.id);
-    ti(&mut b, q.name);
+    b.extend_from_slice(&name_text(&q.name).pack());
     ti(&mut b, q.description);
     w32(&mut b, q.icon);
     w32(&mut b, st.status);
@@ -1723,7 +1737,7 @@ pub fn apply_led<S: Store>(
             let why = if is_hidden(&s.quests, &def) {
                 Award::Step
             } else {
-                Award::Quest(def.name)
+                Award::Quest(def.id)
             };
             progress::award(s, net, world, paid, why);
         }

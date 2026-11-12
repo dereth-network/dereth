@@ -613,7 +613,7 @@ fn a_step_with_its_effects_last_tells_the_update_before_the_recipe() {
         h.server.quests = QuestTable {
             quests: vec![QuestDef {
                 id: QUEST,
-                name: (0xA860_7CEC, 0x2500_17EE),
+                name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_17EE),
                 description: (0x6C45_9364, 0x2500_17EE),
                 icon: 0x4100_034B,
                 play_fx: true,
@@ -1378,7 +1378,7 @@ fn a_quest_given_runs_the_step_waiting_on_it_and_one_withheld_runs_none() {
     const UPDATE_QUEST: u32 = 0x8213_0024;
     let def = |id, hidden, required| QuestDef {
         id,
-        name: (0xA860_7CEC, 0x2500_17EE),
+        name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_17EE),
         description: (0x6C45_9364, 0x2500_17EE),
         icon: 0x4100_034B,
         play_fx: true,

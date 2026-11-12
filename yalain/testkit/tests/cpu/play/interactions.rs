@@ -128,7 +128,7 @@ fn hall() -> Harness {
     );
     h.server.quests.quests.push(QuestDef {
         id: ENTER_QUEST,
-        name: (0x6EE1_B009, 0x2500_1446),
+        name: yalain_content::Words::Ref(0x6EE1_B009, 0x2500_1446),
         description: (0x0121_67D6, 0x2500_1446),
         icon: 0x4100_034B,
         play_fx: false,
