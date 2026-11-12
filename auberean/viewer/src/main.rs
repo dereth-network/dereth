@@ -17,6 +17,7 @@
 //! `--walk SECONDS` puts the player's body at `--at` instead, walks it (standing half a second,
 //! then running; `--turn-at S` turns left for a second from S, `--jump-at S` jumps at S) and writes
 //! `--frames N` frames from the chase camera, and a strip of them, into the folder `--out`.
+//! `--orbit DEG` swings that camera about the body from straight behind it (180 looks at its front).
 //!
 //! `--uptime SECONDS` is how long the client has been running: the clouds' shadows scroll with it
 //! (default 0). `--no-shadows`, `--no-clouds` and `--no-reflections` turn the static object
@@ -77,6 +78,7 @@ struct Args {
     walk: Option<f64>,
     frames: u32,
     turn_at: Option<f64>,
+    orbit: f32,
     jump_at: Option<f64>,
     uptime: f64,
     fx: Vec<fx::Placed>,
@@ -126,6 +128,7 @@ fn parse() -> Result<Args, String> {
         walk: None,
         frames: 8,
         turn_at: None,
+        orbit: 0.0,
         jump_at: None,
         uptime: 0.0,
         fx: Vec::new(),
@@ -207,6 +210,7 @@ fn parse() -> Result<Args, String> {
                 let s = v()?;
                 a.turn_at = Some(s.parse::<f64>().map_err(|e| format!("{s}: {e}"))?);
             }
+            "--orbit" => a.orbit = num(v()?)?,
             "--jump-at" => {
                 let s = v()?;
                 a.jump_at = Some(s.parse::<f64>().map_err(|e| format!("{s}: {e}"))?);

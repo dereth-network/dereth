@@ -143,7 +143,8 @@ pub fn run(a: &Args, records: &WorldRecords, region: &RegionSet) -> Result<(), S
     let mut volumes = auberean_draw::volume::VolumeMaker::default();
     let mut decals = auberean_draw::decal::DecalManager::default();
     let mut layers = std::collections::HashMap::new();
-    let camera = Camera::new(CameraSettings::for_body(setup.height, 1.0));
+    let mut camera = Camera::new(CameraSettings::for_body(setup.height, 1.0));
+    camera.yaw = a.orbit.to_radians();
     let frames = a.frames.max(1);
     let every = ((seconds * FPS) / f64::from(frames)).max(1.0);
     let mut ticker = Ticker::new(0.0);
