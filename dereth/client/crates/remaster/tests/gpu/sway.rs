@@ -1,5 +1,6 @@
 //! An art pack's trees sway in the wind: a tree whose vertices carry how far the wind bends them
-//! stands elsewhere a moment later, and stands still with the sway off or with no bend in it.
+//! stands elsewhere a moment later, and stands still with the sway off or with no bend in it; and
+//! the shadows and the occlusion traced on a swaying tree hold as it sways.
 //!
 //! Behaviour: none (experimental)
 
@@ -9,7 +10,13 @@ use dereth_remaster::assets::{
     tangents, Appearance, AssetSource, BlendFactor, CellPieceKey, Kind, Material, MaterialKey,
     Mesh, SubsetInfo, SurfaceRef, TerrainCell, Texture, TextureKey, Use, Vertex,
 };
+use dereth_remaster::render::ao::AoSettings;
 use dereth_remaster::render::landscape::LandscapeSettings;
+use dereth_remaster::render::light::LightMode;
+use dereth_remaster::render::rt_ao::RtAoSettings;
+use dereth_remaster::render::rt_shadow::RtShadowSettings;
+use dereth_remaster::render::scene::class;
+use dereth_remaster::render::shadow::ShadowSettings;
 use dereth_remaster::render::Renderer;
 use dereth_remaster::scene::{
     Block, BlockId, BlockLevels, Camera, FrameDelta, Part, PartLook, Placement, PlacementKind,
@@ -126,13 +133,17 @@ impl AssetSource for Source {
 }
 
 fn block() -> Block {
+    block_with(Mat4::from_translation(Vec3::new(EYE.x, EYE.y + 12.0, 0.0)))
+}
+
+/// The block, its ground flat, with the tree placed by `frame`.
+fn block_with(frame: Mat4) -> Block {
     let mut vertices = Vec::new();
     for i in 0..9u8 {
         for j in 0..9u8 {
             vertices.push(Vec3::new(f32::from(i) * 24.0, f32::from(j) * 24.0, 0.0));
         }
     }
-    let frame = Mat4::from_translation(Vec3::new(EYE.x, EYE.y + 12.0, 0.0));
     Block {
         block: BLOCK,
         generation: 1,
@@ -235,4 +246,116 @@ fn a_tree_bent_by_the_wind_sways_and_stands_still_with_the_sway_off_or_no_bend()
     assert_eq!(moved(false, true).0, 0, "with the sway off it stands still");
     assert_eq!(moved(true, false).0, 0, "with no bend it stands still");
     crate::no_validation_errors();
+}
+
+/// Where the traced test's tree stands: twelve meters east of the eye, turned to face it, west.
+const TRACED_AT: Vec3 = Vec3::new(EYE.x + 12.0, EYE.y, 0.0);
+
+/// The traced test's frame at `clock` seconds: the eye looking east at the tree's face, the sun
+/// low in the west behind the eye, so the face is in the sun and nothing stands between them.
+fn traced_frame(clock: f64) -> FrameDelta {
+    let mut f = frame(clock);
+    f.camera.view = Mat4::look_to_lh(EYE, Vec3::X, Vec3::Z);
+    f.light.sun = Vec3::new(-0.8, 0.0, 0.6);
+    f
+}
+
+/// The tree under the sun's traced shadows and the traced occlusion, its sway as `sway` says,
+/// drawn every quarter second for four seconds: each frame, of the pixels of the tree, the share
+/// out of the sun and the mean occlusion (1 open sky).
+fn traced(sway: bool) -> Vec<(f64, f64)> {
+    let mut r = Renderer::new(crate::hardware(), Format::D32Float).expect("a renderer");
+    r.set_mode(LightMode::Pixel);
+    r.set_packs(PackSettings::all());
+    r.set_landscape(LandscapeSettings {
+        sway,
+        ..LandscapeSettings::default()
+    });
+    r.set_shadows(ShadowSettings {
+        on: true,
+        ..ShadowSettings::default()
+    });
+    r.set_ao(AoSettings {
+        on: true,
+        ..AoSettings::default()
+    });
+    r.set_rt_shadows(RtShadowSettings { on: true, rays: 4 });
+    r.set_rt_ao(RtAoSettings { on: true, rays: 8 });
+    let mut src = Source { bent: true };
+    // Turned a quarter clockwise, the card's face looks west, at the eye and the sun.
+    let placed = Mat4::from_translation(TRACED_AT) * Mat4::from_rotation_z(-90f32.to_radians());
+    let mut deltas = vec![SceneDelta::BlockIn(Box::new(block_with(placed)))];
+    let mut out = Vec::new();
+    for k in 0..16u8 {
+        let clock = 40.0 + f64::from(k) * 0.25;
+        r.receive(
+            std::mem::take(&mut deltas),
+            traced_frame(clock),
+            [None; 2],
+            &mut src,
+        );
+        assert!(r.draw_offscreen(SIZE.0, SIZE.1).expect("a frame"));
+        let back = r.read_back().expect("a frame");
+        let sun = back.sun_visibility.expect("the sun's share");
+        let occlusion = back.occlusion.expect("the occlusion");
+        let tree: Vec<usize> = back
+            .material
+            .chunks(4)
+            .enumerate()
+            .filter(|(_, m)| u32::from(m[0]) == class::SUN)
+            .map(|(i, _)| i)
+            .collect();
+        assert!(tree.len() > 1000, "the tree covers {} pixels", tree.len());
+        #[allow(clippy::cast_precision_loss)] // a frame's pixels
+        let n = tree.len() as f64;
+        let shaded = tree.iter().filter(|&&i| sun[i] < 128).count();
+        let open: f64 = tree
+            .iter()
+            .map(|&i| {
+                let b = &occlusion[i * 4..i * 4 + 4];
+                f64::from(f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            })
+            .sum();
+        #[allow(clippy::cast_precision_loss)] // a frame's pixels
+        out.push((shaded as f64 / n, open / n));
+    }
+    crate::no_validation_errors();
+    out
+}
+
+/// **A swaying tree's traced light holds**: a tree alone with its face in the sun, swaying, is
+/// never shaded by itself, and the sky reaching it is as much as it is with the sway off, frame
+/// after frame. The rays leave the drawn tree, which the wind has carried a few centimeters from
+/// where the structures they test stand; a ray that met the tree's own still shape there shaded it
+/// in a pattern that changed every frame.
+#[test]
+fn a_swaying_trees_traced_shadows_and_occlusion_hold_as_it_sways() {
+    if !crate::hardware().caps().ray_queries {
+        eprintln!("the device traces no rays: nothing to check");
+        return;
+    }
+    let still = traced(false);
+    let swaying = traced(true);
+    eprintln!("still: {still:?}");
+    eprintln!("swaying: {swaying:?}");
+    for (k, (&(s_shade, s_open), &(w_shade, w_open))) in still.iter().zip(&swaying).enumerate() {
+        assert!(
+            s_shade < 0.01,
+            "frame {k}: {s_shade} of the still tree is out of the sun"
+        );
+        assert!(
+            w_shade < 0.01,
+            "frame {k}: {w_shade} of the swaying tree is out of the sun"
+        );
+        assert!(
+            (w_open - s_open).abs() < 0.03,
+            "frame {k}: the swaying tree sees {w_open} of the sky, the still one {s_open}"
+        );
+    }
+    let steps = swaying.windows(2).map(|w| (w[1].1 - w[0].1).abs());
+    let most = steps.fold(0.0f64, f64::max);
+    assert!(
+        most < 0.02,
+        "the swaying tree's sky changed by {most} from one frame to the next"
+    );
 }

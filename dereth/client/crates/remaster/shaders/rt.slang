@@ -7,13 +7,14 @@
 //   16 the viewer's own body.
 // Its index of the user's names its first row in the geometry tables: one row per geometry of
 // its bottom-level structure, in order, for that instance, `uint4(first index, vertex base,
-// material row, flags)` with the flags 1 alpha-tested and 2 two-sided; a block's ground has one
+// material row, flags)` with the flags 1 alpha-tested, 2 two-sided and 8 swayed by the wind; a
+// block's ground has one
 // row, `uint4(0, vertex base, first cell, 4 | cells a side << 8)`, its triangles two a cell in the
 // cells' order. Statics' and the ground's rows are in one table, the objects' in another, which
 // bit 23 of the index picks.
 //
-// Every geometry is opaque but the alpha-tested ones, whose candidate hits a query is handed to
-// test against the texel; no instance culls either face.
+// Every geometry is opaque but the alpha-tested and the swaying ones, whose candidate hits a query
+// is handed to test; no instance culls either face.
 module rt;
 
 import bindless;
@@ -33,6 +34,7 @@ public static const uint RT_COVER = 32;
 public static const uint RT_ALPHA_TESTED = 1;
 public static const uint RT_TWO_SIDED = 2;
 public static const uint RT_IS_GROUND = 4;
+public static const uint RT_SWAYS = 8;
 
 // The bit of an instance's index that names the objects' table.
 static const uint OBJECT_ROWS = 0x800000;
@@ -79,6 +81,91 @@ public bool alpha_kept(uint statics, uint objects, uint indices, uint vertices, 
                 .a;
     }
     return a - float(m.z) / 255.0 + 1e-6 >= 0.0;
+}
+
+// Whether the ray from `o` along `d` meets the triangle `a`, `b`, `c` (either face) past `tmin` and
+// before `tmax`: where along it (`t`) and where in the triangle (`bary`, of `b` and `c`).
+bool meets(float3 o, float3 d, float tmin, float tmax, float3 a, float3 b, float3 c, out float t,
+           out float2 bary)
+{
+    t = 0.0;
+    bary = float2(0.0, 0.0);
+    float3 e1 = b - a;
+    float3 e2 = c - a;
+    float3 p = cross(d, e2);
+    float det = dot(e1, p);
+    if (abs(det) < 1e-12)
+    {
+        return false;
+    }
+    float inv = 1.0 / det;
+    float3 s = o - a;
+    float u = dot(s, p) * inv;
+    float3 q = cross(s, e1);
+    float v = dot(d, q) * inv;
+    if (u < 0.0 || v < 0.0 || u + v > 1.0)
+    {
+        return false;
+    }
+    t = dot(e2, q) * inv;
+    bary = float2(u, v);
+    return t > tmin && t < tmax;
+}
+
+// Whether a query keeps a candidate hit, and where. The structures hold a swaying model as it
+// stands still, so a candidate on one is tested again against its triangle as the G-buffer drew
+// it this frame, swayed by the frame's wind (`frame`'s constants): a ray leaving a swayed surface
+// then never meets that surface's still self, and a hit is where the drawn model is. Such a hit's
+// distance is `t`; any other leaves `t` negative, the candidate's own. An alpha-tested surface is
+// then tested as `alpha_kept` tests it. The ray runs from `o` along `d`, kept between `tmin` and
+// `tmax`; `object_to_world` is the candidate's instance's transform, `bary` its place in the
+// triangle.
+public bool hit_kept(uint frame, uint statics, uint objects, uint indices, uint vertices,
+                     uint materials, uint sampler, uint custom, uint geometry, uint primitive,
+                     float2 bary, float3 o, float3 d, float tmin, float tmax,
+                     float3x4 object_to_world, out float t)
+{
+    t = -1.0;
+    uint4 g = geometry_row(statics, objects, custom, geometry);
+    float4 wind = row(frame, FRAME_WIND);
+    if ((g.w & RT_SWAYS) != 0 && dot(wind.xy, wind.xy) >= 1e-8)
+    {
+        ByteAddressBuffer ib = buffers[NonUniformResourceIndex(indices)];
+        uint first = g.x + primitive * 3;
+        bool leaf = (row_u(materials, g.z * 2).y & PACK_FOLIAGE) != 0;
+        float scale = length(float3(object_to_world[0].x, object_to_world[1].x, object_to_world[2].x));
+        float3 origin = float3(object_to_world[0].w, object_to_world[1].w, object_to_world[2].w);
+        float3 p[3];
+        for (uint k = 0; k < 3; k++)
+        {
+            uint v = g.y + ib.Load((first + k) * 4);
+            float3 w = mul(object_to_world, float4(row(vertices, v * 4).xyz, 1.0));
+            // How far the wind bends the vertex, whole millimeters, above twice its tangent's
+            // last value's own part, as the G-buffer takes it out.
+            float bent = floor((abs(row(vertices, v * 4 + 2).w) - 1.0) * 0.5 + 1e-3);
+            if (bent > 0.5)
+            {
+                w += swayed(wind, bent * 0.001 * scale, origin, w, leaf);
+            }
+            p[k] = w;
+        }
+        float2 drawn;
+        if (!meets(o, d, tmin, tmax, p[0], p[1], p[2], t, drawn))
+        {
+            t = -1.0;
+            return false;
+        }
+        bary = drawn;
+        if (!alpha_kept(statics, objects, indices, vertices, materials, sampler, custom, geometry,
+                        primitive, bary))
+        {
+            t = -1.0;
+            return false;
+        }
+        return true;
+    }
+    return alpha_kept(statics, objects, indices, vertices, materials, sampler, custom, geometry,
+                      primitive, bary);
 }
 
 // What the instances' pass reads and writes.

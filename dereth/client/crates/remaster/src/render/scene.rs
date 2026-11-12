@@ -194,6 +194,9 @@ pub struct MeshGpu {
     pub sort_center: [f32; 3],
     /// Its vertices' lowest and highest corner, its own space.
     pub bounds: ([f32; 3], [f32; 3]),
+    /// How far the wind bends its farthest-bent vertex, meters at a wind of a meter a second:
+    /// 0 for a model the wind does not move.
+    pub sway: f32,
 }
 
 /// A material: its row's index, and what the passes ask of it.
@@ -1815,6 +1818,9 @@ impl Sink<'_> {
             worked = crate::assets::tangents(m);
             &worked
         };
+        let sway = tangents
+            .iter()
+            .fold(0.0f32, |most, t| most.max(bend_of(t[3])));
         let mut vb = Vec::with_capacity(m.vertices.len() * VERTEX_BYTES as usize);
         for (k, (v, t)) in m.vertices.iter().zip(tangents).enumerate() {
             let c = m.colors.get(k).copied().unwrap_or([1.0; 4]);
@@ -1861,9 +1867,23 @@ impl Sink<'_> {
                 sphere: m.sphere,
                 sort_center: m.sort_center,
                 bounds,
+                sway,
             },
         );
         Ok(())
+    }
+}
+
+/// How far the wind bends a vertex whose tangent's last value is `w`, meters at a wind of a
+/// meter a second: the whole millimeters an art pack's growing model carries above twice the
+/// length's own part, as the G-buffer's vertex shader takes them out.
+#[must_use]
+pub fn bend_of(w: f32) -> f32 {
+    let bent = ((w.abs() - 1.0) * 0.5 + 1e-3).floor();
+    if bent > 0.5 {
+        bent * 0.001
+    } else {
+        0.0
     }
 }
 

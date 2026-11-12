@@ -137,6 +137,9 @@ pub struct ReadBack {
     pub eye: Vec3,
     /// The sun's share at each pixel, a byte a pixel, when the frame drew the sun's shadows.
     pub sun_visibility: Option<Vec<u8>>,
+    /// How much of the sky reaches each pixel, a float a pixel at the render size, when the frame
+    /// drew the occlusion.
+    pub occlusion: Option<Vec<u8>>,
 }
 
 /// One buffer rewritten every frame, grown when a frame needs more.
@@ -1152,6 +1155,7 @@ impl Renderer {
         } else {
             None
         };
+        let occlusion = self.ao.read_occlusion(&mut self.gfx).ok().flatten();
         let (color, (width, height)) = self
             .post
             .upscaled_output()
@@ -1170,6 +1174,7 @@ impl Renderer {
             view_projection: self.view_projection,
             eye: self.eye,
             sun_visibility,
+            occlusion,
         })
     }
 

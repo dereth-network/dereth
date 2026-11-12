@@ -49,6 +49,8 @@ pub mod row_flag {
     pub const ALPHA_TESTED: u32 = 1;
     pub const TWO_SIDED: u32 = 2;
     pub const GROUND: u32 = 4;
+    /// The wind sways it: a query tests a candidate on it against the triangle as it is drawn.
+    pub const SWAYS: u32 = 8;
 }
 
 /// The bit of an instance's index of the user's that names the objects' table.
@@ -64,6 +66,14 @@ const KEEP_FRAMES: u64 = 300;
 /// What a bottom-level structure holds: its mesh's first vertex, and each geometry's first index,
 /// index count and whether it is opaque.
 type BlasKey = (u32, Vec<(u32, u32, bool)>);
+
+/// What the structures take of each mesh, by its first vertex: its vertex count, and how far the
+/// wind bends its farthest-bent vertex when it sways (meters at a wind of a meter a second).
+#[derive(Debug, Default)]
+struct MeshFacts {
+    counts: BTreeMap<u32, u32>,
+    sways: BTreeMap<u32, f32>,
+}
 
 #[derive(Debug)]
 struct Held {
@@ -168,8 +178,8 @@ pub struct RtPass {
     static_keys: BTreeMap<BlasKey, u32>,
     /// Each held block's statics, as they were last placed.
     block_statics: BTreeMap<BlockId, BlockStatics>,
-    /// Each mesh's vertex count by its first vertex, and the meshes' generation it was made at.
-    vertex_counts: (Option<u64>, BTreeMap<u32, u32>),
+    /// What the structures take of each mesh, and the meshes' generation it was made at.
+    vertex_counts: (Option<u64>, MeshFacts),
     /// The first vertex of each mesh posed this frame, whose structure is refitted.
     posed: BTreeSet<u32>,
     static_count: u32,
@@ -234,7 +244,7 @@ impl RtPass {
             refits: 0,
             static_keys: BTreeMap::new(),
             block_statics: BTreeMap::new(),
-            vertex_counts: (None, BTreeMap::new()),
+            vertex_counts: (None, MeshFacts::default()),
             posed: BTreeSet::new(),
             static_count: 0,
             static_rows: 0,
@@ -283,7 +293,7 @@ impl RtPass {
         self.generation = None;
         self.static_keys.clear();
         self.block_statics.clear();
-        self.vertex_counts = (None, BTreeMap::new());
+        self.vertex_counts = (None, MeshFacts::default());
         self.counts = RtCounts::default();
         self.last = None;
     }
@@ -316,15 +326,23 @@ impl RtPass {
             return Ok(None);
         }
         self.frame += 1;
-        // Each mesh's vertex count by its first vertex, made again only when the meshes change.
+        // What the structures take of each mesh, made again only when the meshes change.
         if self.vertex_counts.0 != Some(scene.mesh_generation) {
             self.vertex_counts = (
                 Some(scene.mesh_generation),
-                scene
-                    .meshes
-                    .values()
-                    .map(|m| (m.vertices.start, m.vertices.end - m.vertices.start))
-                    .collect(),
+                MeshFacts {
+                    counts: scene
+                        .meshes
+                        .values()
+                        .map(|m| (m.vertices.start, m.vertices.end - m.vertices.start))
+                        .collect(),
+                    sways: scene
+                        .meshes
+                        .values()
+                        .filter(|m| m.sway > 0.0)
+                        .map(|m| (m.vertices.start, m.sway))
+                        .collect(),
+                },
             );
         }
         let vertex_counts = std::mem::take(&mut self.vertex_counts.1);
@@ -583,8 +601,14 @@ impl RtPass {
     }
 
     /// A part's finest level as a structure's key and its geometry rows, when it draws anything
-    /// opaque or alpha-tested.
-    fn part_key(scene: &GpuScene, part: &PartItems) -> Option<(BlasKey, Vec<u32>, bool)> {
+    /// opaque or alpha-tested. `sways` holds the meshes the wind sways, by their first vertex:
+    /// such a mesh's geometries are handed to the queries as alpha-tested ones are, so each hit on
+    /// one is tested again against the triangle as it is drawn this frame.
+    fn part_key(
+        scene: &GpuScene,
+        part: &PartItems,
+        sways: &BTreeMap<u32, f32>,
+    ) -> Option<(BlasKey, Vec<u32>, bool)> {
         let items = part.levels.first()?;
         let mut geometries = Vec::new();
         let mut rows = Vec::new();
@@ -601,13 +625,15 @@ impl RtPass {
                 continue;
             }
             base.get_or_insert(d.vertex_base);
-            geometries.push((d.first_index, d.index_count, !d.alpha_test));
+            let sways = sways.contains_key(&d.vertex_base);
+            geometries.push((d.first_index, d.index_count, !d.alpha_test && !sways));
             alpha |= d.alpha_test;
             let flags = if d.alpha_test {
                 row_flag::ALPHA_TESTED
             } else {
                 0
-            } | if d.two_sided { row_flag::TWO_SIDED } else { 0 };
+            } | if d.two_sided { row_flag::TWO_SIDED } else { 0 }
+                | if sways { row_flag::SWAYS } else { 0 };
             rows.extend([d.first_index, d.vertex_base, d.material, flags]);
         }
         Some(((base?, geometries), rows, alpha))
@@ -619,13 +645,13 @@ impl RtPass {
         &mut self,
         gfx: &mut Device,
         scene: &GpuScene,
-        vertex_counts: &BTreeMap<u32, u32>,
+        facts: &MeshFacts,
     ) -> Result<(Vec<Entry32>, Vec<u32>), dereth_gfx::Error> {
         if self.generation != Some(scene.static_generation) {
-            self.make_statics(gfx, scene, vertex_counts)?;
+            self.make_statics(gfx, scene, facts)?;
             self.generation = Some(scene.static_generation);
         }
-        self.make_objects(gfx, scene, vertex_counts)
+        self.make_objects(gfx, scene, facts)
     }
 
     /// Every static's, wall's and ground's entry and rows, made again.
@@ -633,7 +659,7 @@ impl RtPass {
         &mut self,
         gfx: &mut Device,
         scene: &GpuScene,
-        vertex_counts: &BTreeMap<u32, u32>,
+        facts: &MeshFacts,
     ) -> Result<(), dereth_gfx::Error> {
         let mut entries: Vec<u8> = Vec::new();
         let mut static_count = 0u32;
@@ -679,9 +705,9 @@ impl RtPass {
                         {
                             placed.clone()
                         }
-                        _ => match Self::part_key(scene, part) {
+                        _ => match Self::part_key(scene, part, &facts.sways) {
                             Some((key, part_rows, alpha)) => {
-                                match vertex_counts.get(&key.0).copied() {
+                                match facts.counts.get(&key.0).copied() {
                                     Some(count) => {
                                         let address = self.blas_for(gfx, scene, &key, count)?;
                                         own.keys.insert(key);
@@ -836,7 +862,7 @@ impl RtPass {
         &mut self,
         gfx: &mut Device,
         scene: &GpuScene,
-        vertex_counts: &BTreeMap<u32, u32>,
+        facts: &MeshFacts,
     ) -> Result<(Vec<Entry32>, Vec<u32>), dereth_gfx::Error> {
         let mut entries = Vec::new();
         let mut rows = Vec::new();
@@ -847,10 +873,10 @@ impl RtPass {
                 mask::OBJECT
             };
             for part in &object.parts {
-                let Some((k, part_rows, _)) = Self::part_key(scene, part) else {
+                let Some((k, part_rows, _)) = Self::part_key(scene, part, &facts.sways) else {
                     continue;
                 };
-                let Some(count) = vertex_counts.get(&k.0).copied() else {
+                let Some(count) = facts.counts.get(&k.0).copied() else {
                     continue;
                 };
                 let address = self.blas_for(gfx, scene, &k, count)?;

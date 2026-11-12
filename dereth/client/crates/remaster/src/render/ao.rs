@@ -151,6 +151,19 @@ impl AoPass {
         self.settings
     }
 
+    /// The last frame's occlusion at full resolution, four bytes (a float) a pixel; `None` while
+    /// the pass has drawn none.
+    ///
+    /// # Errors
+    /// What the device refuses.
+    pub fn read_occlusion(&self, d: &mut Device) -> Result<Option<Vec<u8>>, dereth_gfx::Error> {
+        let Some(t) = self.targets.filter(|_| self.settings.on) else {
+            return Ok(None);
+        };
+        d.wait_idle()?;
+        d.read_texture(t.ao, 0).map(Some)
+    }
+
     /// The full-resolution occlusion's index in the table, for the resolve's masks; `None` when
     /// the pass is off, and the occlusion is 1 everywhere.
     #[must_use]

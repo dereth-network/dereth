@@ -66,10 +66,13 @@ bool blocked(RayDesc ray, uint mask)
     q.TraceRayInline(accels[NonUniformResourceIndex(push.accel)], RAY_FLAG_NONE, mask, ray);
     while (q.Proceed())
     {
+        float t;
         if (q.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE
-            && alpha_kept(push.statics, push.objects, push.indices, push.vertices, push.materials,
-                          push.sampler, q.CandidateInstanceID(), q.CandidateGeometryIndex(),
-                          q.CandidatePrimitiveIndex(), q.CandidateTriangleBarycentrics()))
+            && hit_kept(push.frame, push.statics, push.objects, push.indices, push.vertices,
+                        push.materials, push.sampler, q.CandidateInstanceID(),
+                        q.CandidateGeometryIndex(), q.CandidatePrimitiveIndex(),
+                        q.CandidateTriangleBarycentrics(), ray.Origin, ray.Direction, ray.TMin,
+                        ray.TMax, q.CandidateObjectToWorld3x4(), t))
         {
             q.CommitNonOpaqueTriangleHit();
         }

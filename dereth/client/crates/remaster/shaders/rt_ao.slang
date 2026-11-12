@@ -84,22 +84,36 @@ float3 world_at(float2 pos, float d)
     return h.xyz / h.w;
 }
 
-// The nearest hit of anything `mask` names along `ray`, its distance; `ray.TMax` for none.
+// The nearest hit of anything `mask` names along `ray`, its distance; `ray.TMax` for none. A hit
+// on a swaying model is where the model is drawn, which may lie past where its structure stands:
+// it is kept by its own distance, and does not close the search.
 float nearest(RayDesc ray, uint mask)
 {
     RayQuery<RAY_FLAG_NONE> q;
     q.TraceRayInline(accels[NonUniformResourceIndex(push.accel)], RAY_FLAG_NONE, mask, ray);
+    float swayed = ray.TMax;
     while (q.Proceed())
     {
+        float t;
         if (q.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE
-            && alpha_kept(push.statics, push.objects, push.indices, push.vertices, push.materials,
-                          push.sampler, q.CandidateInstanceID(), q.CandidateGeometryIndex(),
-                          q.CandidatePrimitiveIndex(), q.CandidateTriangleBarycentrics()))
+            && hit_kept(push.frame, push.statics, push.objects, push.indices, push.vertices,
+                        push.materials, push.sampler, q.CandidateInstanceID(),
+                        q.CandidateGeometryIndex(), q.CandidatePrimitiveIndex(),
+                        q.CandidateTriangleBarycentrics(), ray.Origin, ray.Direction, ray.TMin,
+                        min(swayed, ray.TMax), q.CandidateObjectToWorld3x4(), t))
         {
-            q.CommitNonOpaqueTriangleHit();
+            if (t >= 0.0)
+            {
+                swayed = min(swayed, t);
+            }
+            else
+            {
+                q.CommitNonOpaqueTriangleHit();
+            }
         }
     }
-    return q.CommittedStatus() == COMMITTED_TRIANGLE_HIT ? q.CommittedRayT() : ray.TMax;
+    float hit = q.CommittedStatus() == COMMITTED_TRIANGLE_HIT ? q.CommittedRayT() : ray.TMax;
+    return min(hit, swayed);
 }
 
 [shader("fragment")]
