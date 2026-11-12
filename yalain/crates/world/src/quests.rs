@@ -590,7 +590,13 @@ fn may_run_at_any_level<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_u
         return false;
     }
     // A step whose gift can't be made doesn't run: it would take what it takes for nothing.
-    if !st.gives.iter().all(|t| crate::makes::can_make(s, *t)) {
+    let picked = s.item_rows.step_pick(st).unwrap_or_default();
+    if !st
+        .gives
+        .iter()
+        .chain(picked.iter().map(|(t, _)| t))
+        .all(|t| crate::makes::can_make(s, *t))
+    {
         return false;
     }
     if !st.races.is_empty() && !st.races.contains(&p.race) {
@@ -1491,7 +1497,11 @@ pub fn give_for<S: Store>(
     let kingdom = crate::kingdoms::counted_of(&p.qualities);
     let meets = |g: &&yalain_content::quests::Give| {
         // One whose gift can't be made takes nothing: the item goes back to its giver.
-        g.gives.iter().all(|t| crate::makes::can_make(s, *t))
+        let picked = s.item_rows.give_pick(g).unwrap_or_default();
+        g.gives
+            .iter()
+            .chain(picked.iter().map(|(t, _)| t))
+            .all(|t| crate::makes::can_make(s, *t))
             && s.kingdom_rows.give_for(g, kingdom)
             && crate::tallies::give_for(s, g)
             && crate::craft::give_allows(s, world, g)
@@ -1632,6 +1642,15 @@ fn run_with<S: Store>(
                 received.push(*g);
             }
         }
+    }
+    // One more item, of several, picked by weight.
+    let pick = s.item_rows.step_pick(step).map(<[(u32, u32)]>::to_vec);
+    if let Some(g) = pick.and_then(|p| crate::makes::pick_one(s, &p)) {
+        match given {
+            Some(from) => crate::inventory::give_from(s, net, world, g, 1, from.target),
+            None => crate::inventory::give(s, net, world, g, 1),
+        };
+        received.push(g);
     }
     for t in &step.takes {
         if kept.is_some_and(|g| g.template == *t) {

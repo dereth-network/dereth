@@ -761,16 +761,16 @@ fn forge() -> Harness {
         Made {
             item: BLANK_TEMPLATE,
             on: On::Class(SWORDS),
-            gives: SWORD_EMBLEM,
+            gives: vec![(SWORD_EMBLEM, 1)],
             count: 1,
-            gated_gives: None,
+            gated_gives: Vec::new(),
         },
         Made {
             item: BLANK_TEMPLATE,
             on: On::Template(DAGGER_TEMPLATE),
-            gives: DAGGER_EMBLEM,
+            gives: vec![(DAGGER_EMBLEM, 1)],
             count: 1,
-            gated_gives: None,
+            gated_gives: Vec::new(),
         },
     ];
     h
@@ -964,9 +964,9 @@ fn parlor() -> Harness {
     h.server.item_rows.interactions = vec![Made {
         item: MELD_TEMPLATE,
         on: On::Class(DRUMS),
-        gives: LESSER_FATE_CARD,
+        gives: vec![(LESSER_FATE_CARD, 1)],
         count: 1,
-        gated_gives: Some(FATE_CARD),
+        gated_gives: vec![(FATE_CARD, 1)],
     }];
     h
 }
@@ -1034,6 +1034,53 @@ fn a_card_meld_on_a_drum_makes_the_fate_card_only_for_the_characters_whose_rank_
     ranks.sort_unstable();
     ranks.dedup();
     assert_eq!(ranks.len(), 3, "three ranks");
+}
+
+/// A row naming several things a use makes makes one of them each use, picked by their weights,
+/// and never anything else: a card meld whose row makes either fortune's lesser card, three to
+/// one, on drums of ranks other than its user's makes both over many uses, the likelier more
+/// often; where the interaction met is the user's own rank it picks among the row's gated ones.
+/// Behaviour: server.interactions.a-use-makes-one-of-several
+#[test]
+fn a_meld_whose_row_names_two_cards_makes_one_of_them_each_use_by_their_weights() {
+    const BONA: u32 = 0x4700_1385;
+    const MALA: u32 = 0x4700_1395;
+    const BONA_CARD: u32 = 0x4700_1383;
+    const MALA_CARD: u32 = 0x4700_1393;
+    let mut h = parlor();
+    for t in [BONA, MALA, BONA_CARD, MALA_CARD] {
+        h.server
+            .catalog
+            .insert(yalain_testkit::test_template(t, 0x1B34, Props::default()));
+    }
+    let row = &mut h.server.item_rows.interactions[0];
+    row.gives = vec![(BONA, 3), (MALA, 1)];
+    row.gated_gives = vec![(BONA_CARD, 1), (MALA_CARD, 1)];
+    let (a, me, world, meld) = holding(&mut h, "one", MELD_TEMPLATE);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+    let own = (me as u32 as i32 % 14).unsigned_abs();
+    let other = (own + 1) % 14;
+    let uses = |h: &mut Harness, rank: u32, n: u32| {
+        for _ in 0..n {
+            yalain_world::inventory::give(&mut h.server, &mut h.net, world, ACE_OF_DRUMS + rank, 1);
+            h.run(3);
+            let drum = held(h, world, ACE_OF_DRUMS + rank).expect("given");
+            send_use(h, a, me, meld, drum);
+        }
+    };
+    uses(&mut h, other, 80);
+    let (bona, mala) = (count_of(&h, world, BONA), count_of(&h, world, MALA));
+    assert_eq!(bona + mala, 80, "one card a use");
+    assert!(mala > 0 && bona > 2 * mala, "{bona} to {mala}");
+    assert_eq!(count_of(&h, world, LESSER_FATE_CARD), 0, "nothing else");
+    uses(&mut h, own, 40);
+    let (bona, mala) = (
+        count_of(&h, world, BONA_CARD),
+        count_of(&h, world, MALA_CARD),
+    );
+    assert_eq!(bona + mala, 40, "the gated ones on its own rank");
+    assert!(bona > 0 && mala > 0, "{bona} and {mala}");
+    assert_eq!(count_of(&h, world, FATE_CARD), 0);
 }
 
 /// An item whose table names an object only for characters of another number is refused (10053),

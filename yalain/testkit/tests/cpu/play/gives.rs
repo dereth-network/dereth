@@ -1693,6 +1693,62 @@ fn a_give_waiting_on_a_craft_skill_takes_the_item_only_at_its_level() {
     assert!(!holds(&h, me, offering.0), "taken at the level");
 }
 
+/// A quest step or a give naming several items to pick from gives one of them each time it runs,
+/// by their weights, beside what it always gives: an offering handed in again and again brings
+/// one gem or the other, never both and never none.
+///
+/// Behaviour: server.gives.one-of-several
+#[test]
+fn a_step_or_a_give_naming_several_items_gives_one_of_them_each_time() {
+    const TIMES: u32 = 24;
+    let held_of = |h: &Harness, me: u64, template: u32| -> u32 {
+        h.server.players[&world_of(h, me)]
+            .play
+            .items
+            .iter()
+            .filter(|x| {
+                h.server
+                    .things
+                    .get(x.id)
+                    .is_some_and(|t| t.template == template)
+            })
+            .map(|x| x.quantity.max(1))
+            .sum()
+    };
+    for by_step in [true, false] {
+        let mut h = world();
+        h.server
+            .catalog
+            .insert(yalain_testkit::test_template(GEM, 0x1067, Props::default()));
+        let pick = vec![(GEM, 1), (IMBUED, 1)];
+        if by_step {
+            let st = Step {
+                key: "pick".into(),
+                takes: vec![OFFERING],
+                ..step(QUEST, 0, Trigger::Give(OFFERING, PERSON_T), Update::Nothing)
+            };
+            h.server.quests.steps.push(st.clone());
+            h.server.item_rows.step_picks = vec![(st, pick)];
+        } else {
+            let row = taking(Some(OFFERING));
+            h.server.quests.gives.push(row.clone());
+            h.server.item_rows.give_picks = vec![(row, pick)];
+        }
+        let (b, me) = player(&mut h, "one", "Elara");
+        for _ in 0..TIMES {
+            let offering = hold(&mut h, me, OFFERING, 1);
+            give_ashes(&mut h, b, me, offering, 1);
+            assert!(!holds(&h, me, offering.0), "step {by_step}: taken");
+        }
+        let (gems, imbued) = (held_of(&h, me, GEM), held_of(&h, me, IMBUED));
+        assert_eq!(gems + imbued, TIMES, "step {by_step}: one a time");
+        assert!(
+            gems > 0 && imbued > 0,
+            "step {by_step}: {gems} and {imbued}"
+        );
+    }
+}
+
 /// A give whose gift this world can't make takes nothing: the item goes back to its giver, whole.
 ///
 /// Behaviour: server.makes.nothing-used-up-for-what-cannot-be-made

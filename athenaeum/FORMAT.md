@@ -377,6 +377,7 @@ What moves a quest on, in its quest's file.
 | `xp`, `xp_share` | | experience it pays: an amount, or a share of what the player's level takes to reach the next |
 | `least_level`, `most_level` | | the levels it runs for |
 | `gives`, `counts` | | templates it gives, and how many of each in order (1 when left out) |
+| `gives_one_of` | | one more item it gives, one of several picked by weight each time it runs: at least two `{ template, weight }`, each weight above 0 (`[{ template = A, weight = 3 }, { template = B, weight = 1 }]`: A three times in four) |
 | `effects`, `text`, `effects_last` | | the effects it puts on the player, by their saved states; a text shown after them; `effects_last = true` tells the quest's update before them |
 | `effects_quiet` | | true: its effects tell none of their own lines (a recipe or a skill they grant is granted in silence); its `text` is still told. Only with `effects` |
 | `recipes` | | recipes it teaches, by id: the install's, or the world's `[[recipe]]` rows'; learned after its update and its effects |
@@ -432,6 +433,7 @@ template given to.
 | `item_class` | | in place of `item`: a class (a script package, by number) any template of which it takes; a row naming the item is taken first, then one naming a class it counts in, then one for any item |
 | `wants` | | exactly how many of it: any other count is refused, the stack handed back |
 | `gives`, `counts` | | what it gives in its place, from the person, and how many of each |
+| `gives_one_of` | | as a step's: one more item, one of several picked by weight |
 | `effects`, `text` | | what it puts on the player, cast by the person, and a text after them |
 | `effects_quiet` | | true: its effects tell none of their own lines; its `text` is still told. Only with `effects` |
 | `fx` | | what the person or the object plays as it takes the item |
@@ -1105,8 +1107,8 @@ covers the suit.
 | `key` | required | lowercase letters, digits and hyphens |
 | `item` | required | the template of the item used |
 | `on`, `on_class` | one of them | what it is used on: a template, or a class (a script package, by number) the item's table names, any template of which counts |
-| `gives` | required | the template of what it makes |
-| `gated_gives` | | the template of what it makes instead where the interaction the use met is for some characters only; `gives` when left out |
+| `gives`, `gives_one_of` | one of them | the template of what it makes, or one of several picked by weight each use: at least two `{ template, weight }`, each weight above 0 (a meld making one of a fortune card's two sets: `[{ template = A, weight = 1 }, { template = B, weight = 1 }]`) |
+| `gated_gives`, `gated_gives_one_of` | | what it makes instead where the interaction the use met is for some characters only, one template or one of several as `gives_one_of`; `gives` when left out |
 | `count` | | above 0; 1 when left out |
 | `prov` | required | where it came from |
 

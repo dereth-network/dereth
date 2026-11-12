@@ -25,6 +25,14 @@ pub fn can_make<S: Store>(s: &Server<S>, template: u32) -> bool {
     s.catalog.get(template).is_some()
 }
 
+/// One of several templates, picked by weight: the one a row hands out this time (none when
+/// there are none to pick from).
+pub fn pick_one<S: Store>(s: &mut Server<S>, from: &[(u32, u32)]) -> Option<u32> {
+    #[allow(clippy::cast_precision_loss)]
+    let i = s.rng.weighted(from.iter().map(|(_, w)| *w as f32))?;
+    from.get(i).map(|(t, _)| *t)
+}
+
 /// What the server's own rules make, whatever the world holds: the corpse, the races' starting
 /// packs, the mount items (`mounts`, as
 /// [`crate::mounts::Mounts::catalog_items`] gives them) and a summoned portal. The nodes delving

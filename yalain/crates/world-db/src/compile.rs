@@ -690,6 +690,8 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     let mut kingdom_steps: Vec<(usize, u32)> = Vec::new();
     // The steps a craft skill gates, likewise.
     let mut craft_steps: Vec<(usize, yalain_content::crafts::CraftGate)> = Vec::new();
+    // The steps that also give one of several items, likewise.
+    let mut pick_steps: Vec<(usize, Vec<(u32, u32)>)> = Vec::new();
     // The steps a tally gates or adds to, likewise.
     let mut tally_steps: Vec<(usize, yalain_content::tallies::Gate)> = Vec::new();
     let mut tally_step_adds: Vec<(usize, yalain_content::tallies::Adds)> = Vec::new();
@@ -1188,6 +1190,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 for tpl in s.gives.iter().chain(&s.takes) {
                     ok &= cx.template(l, "gives, takes", *tpl);
                 }
+                for (tpl, _) in &s.gives_one_of {
+                    ok &= cx.template(l, "gives_one_of", *tpl);
+                }
                 let to = match &s.to {
                     None => None,
                     Some(to) => match cx.place(&places, l, to) {
@@ -1204,6 +1209,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 }
                 if let Trigger::KillIn(_, camp) = &s.trigger {
                     kills_in.push((l, t.quests.steps.len(), camp.as_str()));
+                }
+                if !s.gives_one_of.is_empty() {
+                    pick_steps.push((t.quests.steps.len(), s.gives_one_of.clone()));
                 }
                 for e in &s.events {
                     event_steps.push((t.quests.steps.len(), e.clone()));
@@ -1283,6 +1291,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 for tpl in g.item.iter().chain(&g.gives) {
                     ok &= cx.template(l, "item, gives", *tpl);
                 }
+                for (tpl, _) in &g.gives_one_of {
+                    ok &= cx.template(l, "gives_one_of", *tpl);
+                }
                 if !ok {
                     continue;
                 }
@@ -1319,6 +1330,11 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 if let Some(give) = t.quests.gives.last() {
                     for c in &g.crafts {
                         t.content.craft_gates.gives.push((give.clone(), c.clone()));
+                    }
+                    if !g.gives_one_of.is_empty() {
+                        t.items
+                            .give_picks
+                            .push((give.clone(), g.gives_one_of.clone()));
                     }
                 }
                 if let Some(c) = g.item_class {
@@ -1432,20 +1448,22 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     On::Template(x) => cx.template(l, "on", x),
                     On::Class(_) => true,
                 };
-                let gated = r
-                    .gated_gives
-                    .is_none_or(|g| cx.template(l, "gated_gives", g));
-                let known =
-                    cx.template(l, "item", r.item) & on & cx.template(l, "gives", r.gives) & gated;
+                let mut known = cx.template(l, "item", r.item) & on;
+                for (g, _) in &r.gives {
+                    known &= cx.template(l, "gives", *g);
+                }
+                for (g, _) in &r.gated_gives {
+                    known &= cx.template(l, "gated_gives", *g);
+                }
                 if known {
                     t.items
                         .interactions
                         .push(yalain_content::item_rows::Interaction {
                             item: r.item,
                             on: r.on,
-                            gives: r.gives,
+                            gives: r.gives.clone(),
                             count: r.count,
-                            gated_gives: r.gated_gives,
+                            gated_gives: r.gated_gives.clone(),
                         });
                 }
             }
@@ -1940,6 +1958,12 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     for (i, c) in craft_steps {
         if let Some(st) = t.quests.steps.get(i) {
             t.content.craft_gates.steps.push((st.clone(), c));
+        }
+    }
+    // The steps that also give one of several items, likewise.
+    for (i, p) in pick_steps {
+        if let Some(st) = t.quests.steps.get(i) {
+            t.items.step_picks.push((st.clone(), p));
         }
     }
     // The steps an act gates, whole, likewise; and an act a step names has scenes.

@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Worlds can now have a use, a quest or a hand-in give one of several items by chance.
 - World quests and hand-ins can now wait on a craft skill's level.
 - A quest step can now send the player's whole fellowship somewhere.
 - Worlds can now give a quest bearer's fellows a quest that fails with the bearer's.

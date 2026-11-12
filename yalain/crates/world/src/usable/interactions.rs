@@ -52,7 +52,9 @@
 //! quest steps it triggers and before the item is used up: the row for the item that names the
 //! target's template, else the first whose class the target counts in (an emblem used on a held
 //! sword of the swords' class makes that weapon's emblem); where the interaction met is for some
-//! players only, the row's `gated_gives` when it names one.
+//! players only, the row's `gated_gives` when it names one. A row may name several items, one of
+//! which a use makes, picked by their weights each time (a meld that makes one fortune or its
+//! opposite).
 //!
 //! **What it uses up of the object.** An outcome that destroys its target (the script library's
 //! outcome flag 2) uses up an object the user holds, one off its stack, after what the use makes
@@ -532,9 +534,11 @@ fn carry_out<S: Store>(
     let made = s
         .item_rows
         .made_by(item, target, |c| s.interactions.counts_in(c, target))
-        .map(|r| (r.gives_where(how.gate.is_some()), r.count));
-    if let Some((gives, count)) = made {
-        crate::inventory::give(s, net, world, gives, count);
+        .map(|r| (r.gives_where(how.gate.is_some()).to_vec(), r.count));
+    if let Some((from, count)) = made {
+        if let Some(gives) = crate::makes::pick_one(s, &from) {
+            crate::inventory::give(s, net, world, gives, count);
+        }
     }
     let item_name = s.things.get(u.item).and_then(|t| t.facts.name);
     if how.uses_up {

@@ -249,6 +249,7 @@ pub fn would_do_nothing<S: Store>(
 ) -> bool {
     let held = points(qualities);
     give.gives.is_empty()
+        && s.item_rows.give_pick(give).is_none()
         && !give.effects.is_empty()
         && give.effects.iter().all(|e| {
             s.kingdom_rows

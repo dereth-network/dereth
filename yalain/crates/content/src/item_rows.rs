@@ -1,8 +1,8 @@
 //! What the world database says of items beyond their templates: what an item's use does where its
 //! template names nothing, what a book, card or person shows when used, what every new character
-//! is given as it first enters, and what an item used on another makes; the states the world's
-//! objects of some templates hold, which items given them change, and the orders of uses judged
-//! against those states.
+//! is given as it first enters, and what an item used on another makes; the one of several items
+//! quest steps and gives hand out by chance; the states the world's objects of some templates
+//! hold, which items given them change, and the orders of uses judged against those states.
 
 use std::collections::BTreeMap;
 
@@ -37,19 +37,25 @@ pub struct Interaction {
     pub item: u32,
     /// What it is used on.
     pub on: On,
-    /// The template of what it makes, and how many.
-    pub gives: u32,
+    /// What it makes: one of these templates, picked by weight each use (one alone is always
+    /// made), and how many.
+    pub gives: Vec<(u32, u32)>,
     pub count: u32,
-    /// What it makes instead where the interaction the use met is for some characters only.
-    pub gated_gives: Option<u32>,
+    /// What it makes instead where the interaction the use met is for some characters only, picked
+    /// so (none: `gives`).
+    pub gated_gives: Vec<(u32, u32)>,
 }
 
 impl Interaction {
-    /// What a use makes: `gated_gives` where the interaction it met is for some characters only
-    /// and the row names one, else `gives`.
+    /// What a use picks what it makes from: `gated_gives` where the interaction it met is for some
+    /// characters only and the row names them, else `gives`.
     #[must_use]
-    pub fn gives_where(&self, gated: bool) -> u32 {
-        self.gated_gives.filter(|_| gated).unwrap_or(self.gives)
+    pub fn gives_where(&self, gated: bool) -> &[(u32, u32)] {
+        if gated && !self.gated_gives.is_empty() {
+            &self.gated_gives
+        } else {
+            &self.gives
+        }
     }
 }
 
@@ -76,6 +82,11 @@ pub struct ItemRows {
     pub object_states: Vec<ObjectStates>,
     /// Orders of uses judged against the used objects' states, in the rows' order.
     pub sequences: Vec<Sequence>,
+    /// Quest steps that also hand out one of several items, picked by weight: each step with its
+    /// templates and their weights.
+    pub step_picks: Vec<(crate::quests::Step, Vec<(u32, u32)>)>,
+    /// Gives that move no quest and also hand out one of several items, likewise.
+    pub give_picks: Vec<(crate::quests::Give, Vec<(u32, u32)>)>,
 }
 
 /// The states the world's objects of some templates hold: each object one of them, its first at the
@@ -169,11 +180,39 @@ impl ItemRows {
 
     /// Every template the rows give.
     pub fn given(&self) -> impl Iterator<Item = u32> + '_ {
-        self.start_items.keys().copied().chain(
-            self.interactions
-                .iter()
-                .flat_map(|i| std::iter::once(i.gives).chain(i.gated_gives)),
-        )
+        let picked = self
+            .step_picks
+            .iter()
+            .map(|(_, p)| p)
+            .chain(self.give_picks.iter().map(|(_, p)| p));
+        self.start_items
+            .keys()
+            .copied()
+            .chain(
+                self.interactions
+                    .iter()
+                    .flat_map(|i| i.gives.iter().chain(&i.gated_gives).map(|(t, _)| *t)),
+            )
+            .chain(picked.flat_map(|p| p.iter().map(|(t, _)| *t)))
+    }
+
+    /// The one of several items a step also hands out, if it names some: the templates and their
+    /// weights of the step of its quest and key.
+    #[must_use]
+    pub fn step_pick(&self, step: &crate::quests::Step) -> Option<&[(u32, u32)]> {
+        self.step_picks
+            .iter()
+            .find(|(s, _)| s.quest == step.quest && s.key == step.key)
+            .map(|(_, p)| p.as_slice())
+    }
+
+    /// The one of several items a give also hands out, if it names some.
+    #[must_use]
+    pub fn give_pick(&self, give: &crate::quests::Give) -> Option<&[(u32, u32)]> {
+        self.give_picks
+            .iter()
+            .find(|(g, _)| g == give)
+            .map(|(_, p)| p.as_slice())
     }
 
     /// What an item of a template used on one of another makes: the first row for the item that

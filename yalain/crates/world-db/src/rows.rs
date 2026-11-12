@@ -516,6 +516,8 @@ pub struct Step {
     pub gives: Vec<u32>,
     /// How many of each item given, in order (1 when left out).
     pub counts: Vec<u32>,
+    /// One more item it gives, one of these templates picked by weight (none: no such item).
+    pub gives_one_of: Vec<(u32, u32)>,
     /// The effects it puts on the player (their saved states), and a text shown after them.
     pub effects: Vec<u32>,
     pub text: Option<StrRef>,
@@ -582,6 +584,8 @@ pub struct Give {
     pub gives: Vec<u32>,
     /// How many of each item given, in order (1 when left out).
     pub counts: Vec<u32>,
+    /// One more item it gives, one of these templates picked by weight (none: no such item).
+    pub gives_one_of: Vec<(u32, u32)>,
     /// The effects it puts on the player (their saved states), and a text shown after them.
     pub effects: Vec<u32>,
     pub text: Option<StrRef>,
@@ -1147,14 +1151,16 @@ pub struct StartItem {
 /// `[[interaction]]`: what an item used on another makes, where the item's interaction table lets
 /// it be used so and the table's outcome names nothing made: the item used, what it is used on (a
 /// template, or a class the table names), and what it gives the user, how many, and instead where
-/// the table's interaction the use met is for some characters only.
+/// the table's interaction the use met is for some characters only. What it gives is one template,
+/// or one of several picked by weight (`gives_one_of`), each with its weight (1 for `gives`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Interaction {
     pub key: String,
     pub item: u32,
     pub on: yalain_content::item_rows::On,
-    pub gives: u32,
-    pub gated_gives: Option<u32>,
+    pub gives: Vec<(u32, u32)>,
+    /// None: `gives`.
+    pub gated_gives: Vec<(u32, u32)>,
     pub count: u32,
     pub prov: Prov,
 }
@@ -1585,6 +1591,7 @@ pub const FIELDS: [(&str, &[&str]); 59] = [
             "xp",
             "gives",
             "counts",
+            "gives_one_of",
             "effects",
             "text",
             "recipes",
@@ -1617,6 +1624,7 @@ pub const FIELDS: [(&str, &[&str]); 59] = [
             "wants",
             "gives",
             "counts",
+            "gives_one_of",
             "effects",
             "text",
             "effects_quiet",
@@ -1846,7 +1854,9 @@ pub const FIELDS: [(&str, &[&str]); 59] = [
             "on",
             "on_class",
             "gives",
+            "gives_one_of",
             "gated_gives",
+            "gated_gives_one_of",
             "count",
             "prov",
         ],
@@ -2531,6 +2541,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 xp: f.int("xp").and_then(|v| u64::try_from(v).ok()),
                 gives: f.ids("gives"),
                 counts: f.ids("counts"),
+                gives_one_of: f.one_of("gives_one_of"),
                 effects: f.ids("effects"),
                 text: f.strref("text"),
                 recipes: f.ids("recipes"),
@@ -2583,6 +2594,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 wants: f.u32("wants"),
                 gives: f.ids("gives"),
                 counts: f.ids("counts"),
+                gives_one_of: f.one_of("gives_one_of"),
                 effects: f.ids("effects"),
                 text: f.strref("text"),
                 effects_quiet: f.bool("effects_quiet").unwrap_or(false),
@@ -2763,8 +2775,29 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                     return None;
                 }
             };
-            let gives = f.req_id("gives")?;
-            let gated_gives = f.id("gated_gives");
+            let gives = match (f.get("gives").is_some(), f.get("gives_one_of").is_some()) {
+                (true, false) => vec![(f.id("gives")?, 1)],
+                (false, true) => f.one_of("gives_one_of"),
+                _ => {
+                    f.bad("gives", "one of gives or gives_one_of");
+                    return None;
+                }
+            };
+            let gated_gives = match (
+                f.get("gated_gives").is_some(),
+                f.get("gated_gives_one_of").is_some(),
+            ) {
+                (true, false) => vec![(f.id("gated_gives")?, 1)],
+                (false, true) => f.one_of("gated_gives_one_of"),
+                (false, false) => Vec::new(),
+                (true, true) => {
+                    f.bad("gated_gives", "one of gated_gives or gated_gives_one_of");
+                    return None;
+                }
+            };
+            if gives.is_empty() {
+                return None;
+            }
             let count = f.u32("count").unwrap_or(1);
             let count = f.held("count", count, count > 0, "above 0")?;
             Row::Interaction(Interaction {
@@ -4256,6 +4289,30 @@ impl<'a> Fields<'a> {
                 })
                 .collect::<Option<Vec<_>>>()
         })
+        .unwrap_or_default()
+    }
+
+    /// One of several templates picked by weight: a list of at least two `{ template, weight }`,
+    /// each weight above 0 (none when left out).
+    fn one_of(&mut self, name: &str) -> Vec<(u32, u32)> {
+        self.typed(
+            name,
+            "a list of at least two { template, weight }, each weight above 0",
+            |v| {
+                let a = v.as_array().filter(|a| a.len() >= 2)?;
+                a.iter()
+                    .map(|x| {
+                        let t = x.as_table()?;
+                        if t.len() != 2 {
+                            return None;
+                        }
+                        let template = as_u32(t.get("template")?)?;
+                        let weight = as_u32(t.get("weight")?).filter(|w| *w > 0)?;
+                        Some((template, weight))
+                    })
+                    .collect::<Option<Vec<_>>>()
+            },
+        )
         .unwrap_or_default()
     }
 

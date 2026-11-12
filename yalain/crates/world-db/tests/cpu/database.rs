@@ -4689,16 +4689,16 @@ fn interaction_rows_compile_and_bad_ones_are_problems() {
             Interaction {
                 item: 0x4700_115B,
                 on: On::Class(4441),
-                gives: 0x4700_2224,
+                gives: vec![(0x4700_2224, 1)],
                 count: 1,
-                gated_gives: Some(0x4700_115B),
+                gated_gives: vec![(0x4700_115B, 1)],
             },
             Interaction {
                 item: 0x4700_115B,
                 on: On::Template(0x4700_2224),
-                gives: 0x4700_2224,
+                gives: vec![(0x4700_2224, 1)],
                 count: 2,
-                gated_gives: None,
+                gated_gives: Vec::new(),
             },
         ],
         "in the rows' order, one when the count is left out"
@@ -4709,7 +4709,11 @@ fn interaction_rows_compile_and_bad_ones_are_problems() {
             t.items.interactions[0].gives_where(false),
             t.items.interactions[1].gives_where(true),
         ),
-        (0x4700_115B, 0x4700_2224, 0x4700_2224),
+        (
+            &[(0x4700_115B, 1)][..],
+            &[(0x4700_2224, 1)][..],
+            &[(0x4700_2224, 1)][..]
+        ),
         "a row's gated_gives where the interaction met is for some characters only"
     );
     assert!(
@@ -4771,6 +4775,99 @@ fn interaction_rows_compile_and_bad_ones_are_problems() {
         );
         assert!(read(&f).is_err(), "{bad}");
     }
+}
+
+#[test]
+fn rows_giving_one_of_several_items_compile_and_bad_ones_are_problems() {
+    let mut files = fixture();
+    files.insert(
+        "town/server/items.toml".into(),
+        "[[interaction]]\nkey = \"fortune\"\nitem = 0x4700115B\non_class = 4441\n\
+         gives_one_of = [{ template = 0x47002224, weight = 1 }, { template = 0x470020B9, weight = 1 }]\n\
+         gated_gives_one_of = [{ template = 0x4700115B, weight = 3 }, { template = 0x470020BB, weight = 1 }]\n\
+         prov = { from = \"authored\" }\n"
+            .into(),
+    );
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "xp = 40\ngives = [0x470020B9]\n",
+        "xp = 40\ngives = [0x470020B9]\ngives_one_of = [{ template = 0x47002224, weight = 2 }, { template = 0x4700115B, weight = 1 }]\n",
+    );
+    files.insert(
+        "town/server/gives/470033D0.toml".into(),
+        "[[give]]\nkey = \"gem\"\nto = 0x470033D0\nitem = 0x470020BB\n\
+         gives_one_of = [{ template = 0x470020B9, weight = 1 }, { template = 0x4700115B, weight = 1 }]\n\
+         prov = { from = \"authored\" }\n"
+            .into(),
+    );
+    let db = read(&files).unwrap();
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&db).unwrap(), &Fake::new()).unwrap();
+    let made = &t.items.interactions[0];
+    assert_eq!(made.gives, [(0x4700_2224, 1), (0x4700_20B9, 1)]);
+    assert_eq!(made.gated_gives, [(0x4700_115B, 3), (0x4700_20BB, 1)]);
+    assert_eq!(t.items.step_picks.len(), 1);
+    let (step, pick) = &t.items.step_picks[0];
+    assert_eq!(step.key, "s3");
+    assert_eq!(step.gives, [0x4700_20B9], "its own gives kept beside it");
+    assert_eq!(pick, &[(0x4700_2224, 2), (0x4700_115B, 1)]);
+    assert_eq!(t.items.step_pick(step), Some(&pick[..]));
+    assert_eq!(t.items.give_picks.len(), 1);
+    let (give, pick) = &t.items.give_picks[0];
+    assert!(t.quests.gives.contains(give), "the give itself is served");
+    assert_eq!(pick, &[(0x4700_20B9, 1), (0x4700_115B, 1)]);
+    let given: Vec<u32> = t.items.given().collect();
+    for g in [0x4700_2224, 0x4700_20B9, 0x4700_115B, 0x4700_20BB] {
+        assert!(given.contains(&g), "{g:08X} is made");
+    }
+
+    // A template the install lacks is a problem.
+    let mut lost = files.clone();
+    lost.insert(
+        "town/server/gives/470033D0.toml".into(),
+        "[[give]]\nkey = \"gem\"\nto = 0x470033D0\nitem = 0x470020BB\n\
+         gives_one_of = [{ template = 0x47009999, weight = 1 }, { template = 0x4700115B, weight = 1 }]\n\
+         prov = { from = \"authored\" }\n"
+            .into(),
+    );
+    let problems = compile(&merge(&read(&lost).unwrap()).unwrap(), &Fake::new()).unwrap_err();
+    assert!(
+        problems.iter().any(|p| p
+            .to_string()
+            .contains("gives_one_of: template 47009999 is not in the install")),
+        "{problems:?}"
+    );
+
+    // At least two, each weight above 0, each { template, weight } alone; gives or gives_one_of,
+    // not both, and the gated likewise.
+    let two = "[{ template = 0x47002224, weight = 1 }, { template = 0x470020B9, weight = 1 }]";
+    for bad in [
+        "gives_one_of = [{ template = 0x47002224, weight = 1 }]".to_string(),
+        "gives_one_of = [{ template = 0x47002224, weight = 0 }, { template = 0x470020B9, weight = 1 }]".into(),
+        "gives_one_of = [{ template = 0x47002224 }, { template = 0x470020B9, weight = 1 }]".into(),
+        "gives_one_of = [{ template = 0x47002224, weight = 1, count = 2 }, { template = 0x470020B9, weight = 1 }]".into(),
+        "gives_one_of = [0x47002224, 0x470020B9]".into(),
+        format!("gives = 0x47002224\ngives_one_of = {two}"),
+        format!("gives = 0x47002224\ngated_gives = 0x47002224\ngated_gives_one_of = {two}"),
+    ] {
+        let mut f = fixture();
+        f.insert(
+            "town/server/items.toml".into(),
+            format!(
+                "[[interaction]]\nkey = \"x\"\nitem = 0x4700115B\non_class = 4441\n{bad}\nprov = {{ from = \"authored\" }}\n"
+            ),
+        );
+        assert!(read(&f).is_err(), "interaction: {bad}");
+    }
+    let mut f = fixture();
+    f.insert(
+        "town/server/gives/470033D0.toml".into(),
+        "[[give]]\nkey = \"gem\"\nto = 0x470033D0\nitem = 0x470020BB\n\
+         gives_one_of = [{ template = 0x470020B9, weight = 1 }]\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert!(read(&f).is_err(), "a give's single pick");
 }
 
 #[test]

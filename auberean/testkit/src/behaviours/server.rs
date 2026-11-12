@@ -5918,6 +5918,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.gives.one-of-several",
+        says: "A quest step or a give that moves no quest may name several items to pick from: each \
+               time it runs it gives one of them, picked by their weights, beside what it always \
+               gives.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-GIVES-ONE-OF"),
+        station: "yalain-testkit::cpu::play::gives::a_step_or_a_give_naming_several_items_gives_one_of_them_each_time",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.gives.part-of-a-stack",
         says: "A part of a stack given to a step that keeps it is taken, the rest staying in the pack \
                with its quantity told.",
@@ -6065,6 +6075,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-GIVE-WRONG-COUNT"),
         station: "yalain-testkit::cpu::play::gives::the_wrong_number_line_is_said_only_with_the_step_waiting_for_the_item",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.interactions.a-use-makes-one-of-several",
+        says: "A world's row may name several things an item used on another makes: each use makes \
+               one of them, picked by their weights, and nothing else; where the interaction met is \
+               for some characters only, it picks among the row's gated ones.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-INTERACTION-ONE-OF"),
+        station: "yalain-testkit::cpu::play::interactions::a_meld_whose_row_names_two_cards_makes_one_of_them_each_use_by_their_weights",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -444,6 +444,12 @@ fn takes<S: Store>(
         let count = row.counts.get(n).copied().unwrap_or(1).max(1);
         crate::inventory::give_from(s, net, world, *item, count, given.target);
     }
+    // One more item, of several, picked by weight.
+    let pick = s.item_rows.give_pick(row).map(<[(u32, u32)]>::to_vec);
+    let picked = pick.and_then(|p| crate::makes::pick_one(s, &p));
+    if let Some(item) = picked {
+        crate::inventory::give_from(s, net, world, item, 1, given.target);
+    }
     let mut told = Vec::new();
     for e in &row.effects {
         let cast = crate::effects::Cast {
@@ -460,7 +466,7 @@ fn takes<S: Store>(
     if let Some(text) = row.text.filter(|t| !told.contains(t)) {
         progress::private(net, world, &crate::chat::show_text(2, progress::text(text)));
     }
-    for item in &row.gives {
+    for item in row.gives.iter().chain(&picked) {
         crate::quests::took(s, net, world, *item, clock);
     }
 }
