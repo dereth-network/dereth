@@ -13251,6 +13251,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.craft-skill-gate",
+        says: "A quest step that waits on a craft skill runs only for a player with one of the \
+               skills it names at its level, as a making reads the level; a person who would give \
+               the quest but for it says its refusal of that quest instead.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-CRAFT-GATE"),
+        station: "yalain-testkit::cpu::play::quest_uses::a_quest_waiting_on_a_craft_skill_is_given_only_at_its_level_and_the_person_says_why",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.crafters-second-halves",
         says: "A crafter's second half runs as its journal says: the person it names moves the quest \
                on, the last item handed to that person brings what the crafter wants, and the crafter \

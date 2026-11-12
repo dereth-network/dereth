@@ -1,7 +1,8 @@
 //! The placed objects whose use moves a quest: a quest whose phase is done by subquests (the
 //! kingdom stones' doctrines), a failed quest's wait before it is given again (the Mist Shrine), a
-//! quest's least level and the person's refusal (the Great Deru Shrine), a quest that fails when
-//! its player dies (the Mist Opal), and a faction shrine used on a mount.
+//! quest's least level and the person's refusal (the Great Deru Shrine), a quest given only at a
+//! craft skill's level (the Radiant Temple's smith), a quest that fails when its player dies (the
+//! Mist Opal), and a faction shrine used on a mount.
 
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
@@ -459,6 +460,83 @@ fn a_quest_is_not_given_under_its_least_level_and_the_person_says_why() {
     assert_eq!(updates(&h, b, from).len(), 1, "given at level 25");
     assert!(
         !texts(&h, b, from).contains(&(HEAR_TELL, TOO_GREEN)),
+        "and not refused"
+    );
+}
+
+/// A quest step that waits on a craft skill is not given to a player under its level in any of
+/// the skills it names: the person says its refusal of that quest instead (the Radiant Temple's
+/// smith turning away "as if judging your crafting ability"); any one of the skills at the level
+/// gives it.
+/// Behaviour: server.quests.craft-skill-gate
+#[test]
+fn a_quest_waiting_on_a_craft_skill_is_given_only_at_its_level_and_the_person_says_why() {
+    use yalain_content::crafts::{CraftGate, CraftGates};
+    use yalain_world::state::CraftSkillState;
+    const FORGE: u32 = 0x4000_01CE;
+    const SMITH: u32 = 0x4700_3267;
+    const JUDGED: u32 = 0x63E4_15AA;
+    const HUMAN_ARMOR: u32 = 0x6F00_0695;
+    const LUGIAN_ARMOR: u32 = 0x6F00_0698;
+    let gift = step(FORGE, 0, Trigger::Use(SMITH), Update::Bestow);
+    let mut h = Harness::new();
+    h.server.content = ContentPack {
+        objects: vec![object(0x8130_0000_0000_0701, SMITH, [61.0, 241.0, -44.6])],
+        craft_gates: CraftGates {
+            steps: vec![(
+                gift.clone(),
+                CraftGate {
+                    skills: vec![HUMAN_ARMOR, LUGIAN_ARMOR],
+                    at_least: 200,
+                },
+            )],
+            gives: Vec::new(),
+        },
+        ..ContentPack::default()
+    };
+    h.server.quests = QuestTable {
+        quests: vec![quest(FORGE, 0x2500_1706, 1)],
+        steps: vec![gift],
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
+    h.server.talk = TalkTable {
+        lines: vec![line(
+            SMITH,
+            JUDGED,
+            Role::RefuseUse,
+            How::Emote,
+            Some(FORGE),
+        )],
+    };
+    let (b, me) = h.player_in_world("one", "Elara");
+    let skilled = |h: &mut Harness, skill: u32, level: u32| {
+        for p in h.server.players.values_mut() {
+            p.play.craft_skills = vec![CraftSkillState {
+                skill,
+                level,
+                today: 0,
+                available: 0,
+            }];
+        }
+    };
+    let id = 0x8130_0000_0000_0701;
+    let from = use_it(&mut h, b, me, id);
+    assert!(updates(&h, b, from).is_empty(), "not given with no skill");
+    assert_eq!(texts(&h, b, from), vec![(SHOW_TEXT, JUDGED)], "the refusal");
+    skilled(&mut h, HUMAN_ARMOR, 199);
+    let from = use_it(&mut h, b, me, id);
+    assert!(updates(&h, b, from).is_empty(), "not given at 199");
+    assert_eq!(texts(&h, b, from), vec![(SHOW_TEXT, JUDGED)]);
+    skilled(&mut h, LUGIAN_ARMOR, 200);
+    let from = use_it(&mut h, b, me, id);
+    assert_eq!(
+        updates(&h, b, from).len(),
+        1,
+        "given at 200 in another of its skills"
+    );
+    assert!(
+        !texts(&h, b, from).contains(&(SHOW_TEXT, JUDGED)),
         "and not refused"
     );
 }

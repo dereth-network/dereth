@@ -688,6 +688,8 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     // The steps an event gates, by their row in the quest table, to copy once each is whole.
     let mut event_steps: Vec<(usize, String)> = Vec::new();
     let mut kingdom_steps: Vec<(usize, u32)> = Vec::new();
+    // The steps a craft skill gates, likewise.
+    let mut craft_steps: Vec<(usize, yalain_content::crafts::CraftGate)> = Vec::new();
     // The steps a tally gates or adds to, likewise.
     let mut tally_steps: Vec<(usize, yalain_content::tallies::Gate)> = Vec::new();
     let mut tally_step_adds: Vec<(usize, yalain_content::tallies::Adds)> = Vec::new();
@@ -1218,6 +1220,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 if let Some(k) = s.kingdom {
                     kingdom_steps.push((t.quests.steps.len(), k));
                 }
+                for c in &s.crafts {
+                    craft_steps.push((t.quests.steps.len(), c.clone()));
+                }
                 for a in &s.acts {
                     act_steps.push((l, t.quests.steps.len(), *a));
                 }
@@ -1310,6 +1315,11 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 });
                 if let (Some(k), Some(give)) = (g.kingdom, t.quests.gives.last()) {
                     t.kingdoms.gives.push((give.clone(), k));
+                }
+                if let Some(give) = t.quests.gives.last() {
+                    for c in &g.crafts {
+                        t.content.craft_gates.gives.push((give.clone(), c.clone()));
+                    }
                 }
                 if let Some(c) = g.item_class {
                     let row = t.quests.gives.len() - 1;
@@ -1924,6 +1934,12 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     for (i, k) in kingdom_steps {
         if let Some(st) = t.quests.steps.get(i) {
             t.kingdoms.steps.push((st.clone(), k));
+        }
+    }
+    // The steps a craft skill gates, likewise.
+    for (i, c) in craft_steps {
+        if let Some(st) = t.quests.steps.get(i) {
+            t.content.craft_gates.steps.push((st.clone(), c));
         }
     }
     // The steps an act gates, whole, likewise; and an act a step names has scenes.

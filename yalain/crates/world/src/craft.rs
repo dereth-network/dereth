@@ -86,7 +86,7 @@ use auberean_script::args::Arg;
 use auberean_script::graph::{Graph, PackedObject};
 use auberean_script::library::{Elem, Library};
 use auberean_script::native_object::{Item, NativeObject};
-use yalain_content::crafts::Crafts;
+use yalain_content::crafts::{CraftGate, Crafts};
 use yalain_content::treasure_tables::Sort;
 use yalain_net::{ConnId, ServerNet};
 use yalain_store::Store;
@@ -1373,6 +1373,35 @@ pub fn craft_level<S: Store>(s: &Server<S>, world: ConnId, skill: u32) -> u32 {
     u32::try_from(dereth_primitives::num::to_i32(lifted).max(0))
         .unwrap_or(raw)
         .min(d.cap.max(raw))
+}
+
+/// Does a player meet a craft gate: one of its skills at its level or above, as a making reads it?
+fn meets<S: Store>(s: &Server<S>, world: ConnId, gate: &CraftGate) -> bool {
+    gate.skills
+        .iter()
+        .any(|k| craft_level(s, world, *k) >= gate.at_least)
+}
+
+/// May a step run for a player, by the craft skills it waits on: every gate it names met.
+#[must_use]
+pub fn step_allows<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    step: &yalain_content::quests::Step,
+) -> bool {
+    let gates = &s.content.craft_gates;
+    gates.is_empty() || gates.of_step(step).all(|g| meets(s, world, g))
+}
+
+/// May a give take its item from a player, by the craft skills it waits on.
+#[must_use]
+pub fn give_allows<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    give: &yalain_content::quests::Give,
+) -> bool {
+    let gates = &s.content.craft_gates;
+    gates.is_empty() || gates.of_give(give).all(|g| meets(s, world, g))
 }
 
 /// The record of a craft skill held, as the registry packs it.

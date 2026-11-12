@@ -1,10 +1,12 @@
 //! What the world database says of crafting's own work: the surveyor's map recipes each region's
 //! drawing sets waiting, the totem spellbinding makes of each sort of item, what each refining
 //! recipe yields, the recipes the world defines itself, and what a recipe that works out its own
-//! product makes of a set of ingredients.
+//! product makes of a set of ingredients; and the steps and gives that wait on a player's craft
+//! skill.
 
 use std::collections::BTreeMap;
 
+use crate::quests::{Give, Step};
 use crate::treasure_tables::Sort;
 
 /// A region's surveyor's map recipes: drawing one has them all wait, a find of one of the region's
@@ -155,5 +157,48 @@ impl Crafts {
             .chain(self.refining.values().map(|r| r.product))
             .chain(self.recipes.values().map(|r| r.product))
             .chain(self.combinations.iter().map(|c| c.product))
+    }
+}
+
+/// What a step or a give waits on: the player's level in a craft skill, or in any one of several,
+/// at least so much (the level a making reads: its own, with what its effects add, never past
+/// the skill's cap).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CraftGate {
+    /// The craft skills, by their saved states; any one of them at the level will do.
+    pub skills: Vec<u32>,
+    pub at_least: u32,
+}
+
+/// The steps and gives that wait on a player's craft skills.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CraftGates {
+    /// Quest steps, each with what it waits on.
+    pub steps: Vec<(Step, CraftGate)>,
+    /// Gives that move no quest, each with what it waits on.
+    pub gives: Vec<(Give, CraftGate)>,
+}
+
+impl CraftGates {
+    /// Does no step or give wait on a craft skill?
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.steps.is_empty() && self.gives.is_empty()
+    }
+
+    /// What a step waits on: the gates of the step of its quest and key.
+    pub fn of_step<'a>(&'a self, step: &'a Step) -> impl Iterator<Item = &'a CraftGate> + 'a {
+        self.steps
+            .iter()
+            .filter(move |(s, _)| s.quest == step.quest && s.key == step.key)
+            .map(|(_, g)| g)
+    }
+
+    /// What a give waits on.
+    pub fn of_give<'a>(&'a self, give: &'a Give) -> impl Iterator<Item = &'a CraftGate> + 'a {
+        self.gives
+            .iter()
+            .filter(move |(g, _)| g == give)
+            .map(|(_, g)| g)
     }
 }

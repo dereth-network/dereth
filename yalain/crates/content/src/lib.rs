@@ -733,6 +733,9 @@ pub struct ContentPack {
     /// The creatures quest steps set to follow their players. Not part of the text form: the
     /// world database's steps fill it.
     pub escorts: escorts::EscortTable,
+    /// The steps and gives that wait on a player's craft skills. Not part of the text form: the
+    /// world database's steps and gives fill it.
+    pub craft_gates: crafts::CraftGates,
     /// The gives that move no quest and take any item of a class: the class (a script package, by
     /// number) of each, by the give's place among the quest table's gives. Not part of the text
     /// form: the world database's gives fill it.
@@ -1114,6 +1117,7 @@ impl ContentPack {
             events: events::EventTable::default(),
             tallies: tallies::TallyTable::default(),
             escorts: escorts::EscortTable::default(),
+            craft_gates: crafts::CraftGates::default(),
             class_gives: BTreeMap::new(),
             companions: BTreeMap::new(),
         })

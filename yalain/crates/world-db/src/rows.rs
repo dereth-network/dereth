@@ -531,6 +531,8 @@ pub struct Step {
     pub kingdom: Option<u32>,
     /// The acts it runs for only once they are whole (the scenes an act needs held).
     pub acts: Vec<u32>,
+    /// The craft skills it runs for only at a level (any one of a gate's skills at it).
+    pub crafts: Vec<yalain_content::crafts::CraftGate>,
     /// What it adds to a `[[tally]]` as it runs (boxed: few steps add).
     pub adds: Option<Box<yalain_content::tallies::Adds>>,
     /// The items it takes from the player's pack, which the player must hold.
@@ -593,6 +595,8 @@ pub struct Give {
     pub tallies: Vec<yalain_content::tallies::Gate>,
     /// The kingdom it takes the item from alone (a player in none counting as of the neutral one).
     pub kingdom: Option<u32>,
+    /// The craft skills it takes the item for only at a level (any one of a gate's skills at it).
+    pub crafts: Vec<yalain_content::crafts::CraftGate>,
     /// What it adds to a `[[tally]]` as it takes the item.
     pub adds: Option<yalain_content::tallies::Adds>,
     pub prov: Prov,
@@ -654,7 +658,8 @@ pub enum Row {
     Store(Store),
     Sale(Sale),
     Quest(Quest),
-    Step(Step),
+    /// Boxed: a step is the largest row by far.
+    Step(Box<Step>),
     Give(Give),
     Place(Place),
     Talk(Talk),
@@ -810,6 +815,7 @@ struct Requires {
     tallies: Vec<yalain_content::tallies::Gate>,
     kingdom: Option<u32>,
     acts: Vec<u32>,
+    crafts: Vec<yalain_content::crafts::CraftGate>,
 }
 
 /// `[[effect_rule]]`: what the world says of an effect where its own data says nothing: what a ward
@@ -2511,8 +2517,9 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 tallies,
                 kingdom,
                 acts,
+                crafts,
             } = f.requires_and_events("requires", true);
-            Row::Step(Step {
+            Row::Step(Box::new(Step {
                 key: f.req_symbol("key")?,
                 quest: f.req_id("quest")?,
                 needs: f.req_u32("needs")?,
@@ -2532,6 +2539,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 tallies,
                 kingdom,
                 acts,
+                crafts,
                 adds: f.adds().map(Box::new),
                 takes: f.ids("takes"),
                 to: f.symbol("to"),
@@ -2551,13 +2559,14 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 escort: f.escort().map(Box::new),
                 to_fellows: f.bool("to_fellows").unwrap_or(false),
                 prov: f.req_prov()?,
-            })
+            }))
         }
         "give" => {
             let Requires {
                 quests: requires,
                 tallies,
                 kingdom,
+                crafts,
                 ..
             } = f.requires_and_events("requires", false);
             let item = f.id("item");
@@ -2581,6 +2590,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 requires,
                 tallies,
                 kingdom,
+                crafts,
                 adds: f.adds(),
                 prov: f.req_prov()?,
             })
@@ -4548,7 +4558,8 @@ impl<'a> Fields<'a> {
     /// A step's or a give's `requires`: other quests (`{ quest, phase }`, `{ quest, done = true }`,
     /// `{ quest, free = true }` or `{ quest, failed = true }`); `{ kingdom = "word" }`, the one kingdom it is for, a word of
     /// [`yalain_content::kingdoms::kingdom::WORDS`]; `{ tally = "key", full = true|false }`, a
-    /// `[[tally]]` that must be full or not yet full; and, for a step (`events`),
+    /// `[[tally]]` that must be full or not yet full; `{ craft = S, at_least = N }`, a craft skill
+    /// (or `craft = [S, ...]`, any one of several) at level N or above; and, for a step (`events`),
     /// `{ event = "key" }`, an `[[event]]` that must be on, and `{ act = A }`, an act that must be
     /// whole.
     fn requires_and_events(&mut self, name: &str, events: bool) -> Requires {
@@ -4559,21 +4570,25 @@ impl<'a> Fields<'a> {
             Tally(Vec<yalain_content::tallies::Gate>),
             Kingdom(u32),
             Act(u32),
+            Craft(yalain_content::crafts::CraftGate),
         }
         let (what, keys): (&str, &[&str]) = if events {
             (
-                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { quest, failed = true }, { event }, { tally, full }, { tally, at_least, below }, { act } or { kingdom } (neutral, shadow, order or dominion)",
-                &["quest", "phase", "done", "free", "failed", "event", "tally", "full", "at_least", "below", "act", "kingdom"],
+                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { quest, failed = true }, { event }, { tally, full }, { tally, at_least, below }, { craft, at_least }, { act } or { kingdom } (neutral, shadow, order or dominion)",
+                &["quest", "phase", "done", "free", "failed", "event", "tally", "full", "at_least", "below", "craft", "act", "kingdom"],
             )
         } else {
             (
-                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { quest, failed = true }, { tally, full }, { tally, at_least, below } or { kingdom } (neutral, shadow, order or dominion)",
-                &["quest", "phase", "done", "free", "failed", "tally", "full", "at_least", "below", "kingdom"],
+                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { quest, failed = true }, { tally, full }, { tally, at_least, below }, { craft, at_least } or { kingdom } (neutral, shadow, order or dominion)",
+                &["quest", "phase", "done", "free", "failed", "tally", "full", "at_least", "below", "craft", "kingdom"],
             )
         };
         let all = self.list_of(name, what, keys, |t| {
             if t.contains_key("tally") {
                 return tally_gate(t).map(Req::Tally);
+            }
+            if t.contains_key("craft") {
+                return craft_gate(t).map(Req::Craft);
             }
             if t.contains_key("at_least") || t.contains_key("below") {
                 return None;
@@ -4614,6 +4629,7 @@ impl<'a> Fields<'a> {
         let mut tallies = Vec::new();
         let mut kingdoms = Vec::new();
         let mut acts = Vec::new();
+        let mut crafts = Vec::new();
         for r in all {
             match r {
                 Req::Quest(q, n) => quests.push((q, n)),
@@ -4621,6 +4637,7 @@ impl<'a> Fields<'a> {
                 Req::Tally(g) => tallies.extend(g),
                 Req::Kingdom(k) => kingdoms.push(k),
                 Req::Act(a) => acts.push(a),
+                Req::Craft(c) => crafts.push(c),
             }
         }
         if kingdoms.len() > 1 {
@@ -4632,6 +4649,7 @@ impl<'a> Fields<'a> {
             tallies,
             kingdom: kingdoms.first().copied(),
             acts,
+            crafts,
         }
     }
 
@@ -5507,6 +5525,20 @@ fn pair_of(v: &toml::Value) -> Option<(f32, f32)> {
 
 fn as_u32(v: &toml::Value) -> Option<u32> {
     v.as_integer().and_then(|i| u32::try_from(i).ok())
+}
+
+/// `{ craft = S, at_least = N }`: a craft skill (its saved state) at level N (above 0) or above;
+/// `craft = [S, ...]`, any one of several.
+fn craft_gate(t: &toml::Table) -> Option<yalain_content::crafts::CraftGate> {
+    if t.len() != 2 {
+        return None;
+    }
+    let skills = match t.get("craft")? {
+        toml::Value::Array(a) => a.iter().map(as_u32).collect::<Option<Vec<_>>>()?,
+        v => vec![as_u32(v)?],
+    };
+    let at_least = as_u32(t.get("at_least")?).filter(|n| *n > 0)?;
+    (!skills.is_empty()).then_some(yalain_content::crafts::CraftGate { skills, at_least })
 }
 
 /// `{ tally = "key", full = true|false }`: a tally that must be full, or not yet full; or

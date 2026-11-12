@@ -4884,6 +4884,80 @@ fn points_bonus_rows_and_kingdom_requirements_compile_and_bad_ones_are_problems(
 }
 
 #[test]
+fn craft_skill_requirements_compile_beside_their_steps_and_gives_and_bad_ones_are_problems() {
+    use yalain_content::crafts::CraftGate;
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "update = \"bestow\"\n",
+        "update = \"bestow\"\nrequires = [{ craft = 0x6F000695, at_least = 200 }]\n",
+    );
+    files.insert(
+        "town/server/gives/470033D0.toml".into(),
+        "[[give]]\nkey = \"gem\"\nto = 0x470033D0\nitem = 0x470020BB\neffects = [0x6F00188E]\n\
+         requires = [{ quest = 0x40000016, done = true }, { craft = [0x6F000691, 0x6F000693], at_least = 100 }]\n\
+         prov = { from = \"authored\" }\n"
+            .into(),
+    );
+    let db = read(&files).unwrap();
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&db).unwrap(), &Fake::new()).unwrap();
+    let gates = &t.content.craft_gates;
+    assert_eq!(gates.steps.len(), 1);
+    assert_eq!(gates.steps[0].0.trigger, Trigger::Use(0x4700_33D0));
+    assert_eq!(
+        gates.steps[0].1,
+        CraftGate {
+            skills: vec![0x6F00_0695],
+            at_least: 200
+        }
+    );
+    assert!(
+        t.quests.steps.contains(&gates.steps[0].0),
+        "the step itself is served"
+    );
+    assert_eq!(gates.gives.len(), 1);
+    let (give, gate) = &gates.gives[0];
+    assert_eq!(
+        *gate,
+        CraftGate {
+            skills: vec![0x6F00_0691, 0x6F00_0693],
+            at_least: 100
+        }
+    );
+    assert_eq!(
+        give.requires,
+        [(0x4000_0016, Need::Done)],
+        "the quest it requires is kept beside the craft skill"
+    );
+    assert!(t.quests.gives.contains(give), "the give itself is served");
+
+    // A skill or a list of them and a level above 0, alone in their table.
+    for bad in [
+        "requires = [{ craft = 0x6F000695 }]",
+        "requires = [{ craft = 0x6F000695, at_least = 0 }]",
+        "requires = [{ craft = [], at_least = 200 }]",
+        "requires = [{ craft = \"armor\", at_least = 200 }]",
+        "requires = [{ craft = 0x6F000695, at_least = 200, below = 300 }]",
+        "requires = [{ craft = 0x6F000695, at_least = 200, quest = 0x40000016 }]",
+    ] {
+        let mut f = files.clone();
+        f.insert(
+            "town/server/gives/470033D0.toml".into(),
+            format!(
+                "[[give]]\nkey = \"gem\"\nto = 0x470033D0\nitem = 0x470020BB\n{bad}\nprov = {{ from = \"authored\" }}\n"
+            ),
+        );
+        let problems = check(&f);
+        assert!(
+            problems.iter().any(|p| p.message.contains("requires")),
+            "{bad}: {problems:?}"
+        );
+    }
+}
+
+#[test]
 fn treasure_values_compile_by_level_and_bad_ones_are_problems() {
     let with = |rows: &str| {
         let mut files = fixture();

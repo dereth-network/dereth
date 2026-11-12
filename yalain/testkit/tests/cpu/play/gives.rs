@@ -1646,6 +1646,53 @@ fn a_give_moving_no_quest_adds_to_a_tally_until_it_is_full() {
     assert_eq!(count(&h), 3);
 }
 
+/// A give that moves no quest and waits on a craft skill refuses the item to a player under its
+/// level, handing it back; at the level in one of the skills it names it takes it.
+///
+/// Behaviour: server.quests.craft-skill-gate
+#[test]
+fn a_give_waiting_on_a_craft_skill_takes_the_item_only_at_its_level() {
+    use yalain_content::crafts::{CraftGate, CraftGates};
+    use yalain_world::state::CraftSkillState;
+    const TOOLS: u32 = 0x6F00_06A7;
+    let mut h = world();
+    let row = taking(Some(OFFERING));
+    h.server.quests.gives.push(row.clone());
+    h.server.content.craft_gates = CraftGates {
+        steps: Vec::new(),
+        gives: vec![(
+            row,
+            CraftGate {
+                skills: vec![TOOLS],
+                at_least: 100,
+            },
+        )],
+    };
+    let (b, me) = player(&mut h, "one", "Elara");
+    let at = |h: &mut Harness, level: u32| {
+        let world = world_of(h, me);
+        h.server
+            .players
+            .get_mut(&world)
+            .expect("in the world")
+            .play
+            .craft_skills = vec![CraftSkillState {
+            skill: TOOLS,
+            level,
+            today: 0,
+            available: 0,
+        }];
+    };
+    at(&mut h, 99);
+    let offering = hold(&mut h, me, OFFERING, 1);
+    let (lines, _) = give_ashes(&mut h, b, me, offering, 1);
+    assert!(holds(&h, me, offering.0), "refused under the level");
+    assert_eq!(lines, vec![PLAIN_REFUSAL]);
+    at(&mut h, 100);
+    give_ashes(&mut h, b, me, offering, 1);
+    assert!(!holds(&h, me, offering.0), "taken at the level");
+}
+
 /// A give whose gift this world can't make takes nothing: the item goes back to its giver, whole.
 ///
 /// Behaviour: server.makes.nothing-used-up-for-what-cannot-be-made

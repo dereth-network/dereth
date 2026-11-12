@@ -545,9 +545,11 @@ pub fn failed_during(held: &[QuestState], quest: u32, during: Option<u32>) -> bo
 
 /// May a step run for a player now: its quest at the phase it needs (to be given: not under way,
 /// its wait to be taken again over, the player of its least level), the quests it requires where
-/// it requires them, and the items it takes held.
+/// it requires them, the craft skills it waits on at their levels, and the items it takes held.
 fn may_run<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_unix: i64) -> bool {
-    may_run_at_any_level(s, world, st, now_unix) && level_allows(s, world, st)
+    may_run_at_any_level(s, world, st, now_unix)
+        && level_allows(s, world, st)
+        && crate::craft::step_allows(s, world, st)
 }
 
 /// May a step run for a player now (a step due after a wait runs only if it still may).
@@ -574,7 +576,8 @@ fn level_allows<S: Store>(s: &Server<S>, world: ConnId, st: &Step) -> bool {
     level >= s.quests.quest(st.quest).map_or(0, |d| d.min_level)
 }
 
-/// May a step run for a player now, its quest's least level aside.
+/// May a step run for a player now, its quest's least level and the craft skills it waits on
+/// aside.
 fn may_run_at_any_level<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_unix: i64) -> bool {
     let Some(p) = s.players.get(&world) else {
         return false;
@@ -668,7 +671,7 @@ pub(crate) fn given_again(def: &QuestDef, held: &[QuestState], now_unix: i64) ->
 }
 
 /// The quest a trigger would give a player but for the player's level (it is under the quest's
-/// least level), if any.
+/// least level) or craft skills (under a level its step waits on), if any.
 #[must_use]
 pub fn too_low<S: Store>(
     s: &Server<S>,
@@ -683,10 +686,10 @@ pub fn too_low<S: Store>(
         .iter()
         .filter(|st| st.trigger == trigger && st.needs == 0 && st.update == Update::Bestow)
         .find(|st| {
-            s.quests
-                .quest(st.quest)
-                .is_some_and(|d| level < d.min_level && phase_of(&p.play.quests, d.id) == 0)
-                && may_run_at_any_level(s, world, st, now_unix)
+            s.quests.quest(st.quest).is_some_and(|d| {
+                (level < d.min_level || !crate::craft::step_allows(s, world, st))
+                    && phase_of(&p.play.quests, d.id) == 0
+            }) && may_run_at_any_level(s, world, st, now_unix)
         })
         .map(|st| st.quest)
 }
@@ -1491,6 +1494,7 @@ pub fn give_for<S: Store>(
         g.gives.iter().all(|t| crate::makes::can_make(s, *t))
             && s.kingdom_rows.give_for(g, kingdom)
             && crate::tallies::give_for(s, g)
+            && crate::craft::give_allows(s, world, g)
             && !crate::kingdom_skills::would_do_nothing(s, &p.qualities, g)
             && g.requires.iter().all(|(q, need)| match need {
                 Need::Phase(n) => phase_of(held, *q) == *n,
