@@ -737,6 +737,12 @@ pub struct ContentPack {
     /// number) of each, by the give's place among the quest table's gives. Not part of the text
     /// form: the world database's gives fill it.
     pub class_gives: BTreeMap<usize, u32>,
+    /// The quests that go with another quest's holder (the fellows protecting the one who carries
+    /// it): each such companion quest, by the quest it goes with. As a player's quest of that id is
+    /// done, its companions under way of the player's and of each of its fellows in the world are
+    /// done; as it fails or is cancelled, they fail. Not part of the text form: the world
+    /// database's quests fill it.
+    pub companions: BTreeMap<u32, Vec<u32>>,
 }
 
 /// The kind of player conflict a place allows.
@@ -1109,6 +1115,7 @@ impl ContentPack {
             tallies: tallies::TallyTable::default(),
             escorts: escorts::EscortTable::default(),
             class_gives: BTreeMap::new(),
+            companions: BTreeMap::new(),
         })
     }
 

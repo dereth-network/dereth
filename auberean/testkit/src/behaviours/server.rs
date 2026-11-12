@@ -13196,6 +13196,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.companions-end-with-their-bearers",
+        says: "A quest whose row names `companion_of` goes with that quest's holder: as a player's quest it goes with is done, the companion under way of the player and of each of its fellows in the world is done after it, each told; as that quest fails (its player's death among the ways) or is cancelled, the companion fails after it for them alike. A player outside the fellowship keeps its own, and a companion's own end moves nothing else.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-COMPANIONS"),
+        station: "yalain-testkit::cpu::play::companions::a_bearers_death_fails_its_quests_companion_for_it_and_its_fellows",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.completion-adds-points",
         says: "A quest's completion adds its points to its player's quest rating: whole, whatever its challenge against the player's level, and every time; a row may say otherwise than its setup.",
         since: RETAIL,

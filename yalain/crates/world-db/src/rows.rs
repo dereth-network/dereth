@@ -450,6 +450,9 @@ pub struct Quest {
     /// Whether a kill's move on it reaches the killer's fellows; left out, as the quest's setup in
     /// the install says.
     pub fellows: Option<bool>,
+    /// The quest this one goes with: as a player's quest of that id is done, fails or is cancelled,
+    /// this one under way, the player's and each of its fellows' in the world, is done or fails.
+    pub companion_of: Option<u32>,
     pub prov: Prov,
 }
 
@@ -1556,6 +1559,7 @@ pub const FIELDS: [(&str, &[&str]); 59] = [
             "fails_on_death",
             "once",
             "fellows",
+            "companion_of",
             "prov",
         ],
     ),
@@ -2479,6 +2483,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             fails_on_death: f.bool("fails_on_death"),
             once: f.bool("once"),
             fellows: f.bool("fellows"),
+            companion_of: f.id("companion_of"),
             prov: f.req_prov()?,
         }),
         "step" => {

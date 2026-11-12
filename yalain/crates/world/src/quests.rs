@@ -40,6 +40,15 @@
 //! **A fellowship's step.** A step may make its update for the player's fellows too: each fellow
 //! in the world for whom it may run is given the same update, told it alone.
 //!
+//! **Companion quests.** A quest may go with another's holder (the fellows sworn to protect the one
+//! who carries a quest's burden): as a player's quest that others go with is done, each of those
+//! under way, the player's own and each of its fellows' in the world, is done after it, paying
+//! its own; as it fails (its player's death, its time running out, a step) or is cancelled, they
+//! fail after it. A fellow who has left the fellowship by then keeps its own as it is (2017: a
+//! totem gave its player both its quest and its companion, and both failed in one tick at the
+//! player's portal; the companions' setups spread them to the fellowship and fail them on none of
+//! their own holder's deaths, and their journals fail them as the bearer dies).
+//!
 //! **Subquests.** A phase of a quest may be done by doing other quests: they are given with the
 //! phase, hidden, and each of their moves is told as the quest's own record, its phase kept, its
 //! journal the phase's entry with those of the subquests still open; once all of them (or one,
@@ -1893,7 +1902,43 @@ pub fn apply_led<S: Store>(
         subquest_moved(s, net, world, parent, at, clock);
     }
     if up == Update::Complete {
+        companions_end(s, net, world, quest, true, clock);
         triggered(s, net, world, Trigger::Done(quest), None, clock);
+    }
+}
+
+/// A player's quest is done (`done`), or has failed or been cancelled: the quests that go with it,
+/// under way, the player's and each of its fellows' in the world, are done or fail with it.
+fn companions_end<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    quest: u32,
+    done: bool,
+    clock: Clock,
+) {
+    let Some(companions) = s.content.companions.get(&quest).cloned() else {
+        return;
+    };
+    let mut holders = vec![world];
+    holders.extend(crate::fellowship::fellows_in_world(s, world));
+    for w in holders {
+        for &c in &companions {
+            let under_way = s.players.get(&w).is_some_and(|p| {
+                p.play
+                    .quests
+                    .iter()
+                    .any(|q| q.quest == c && q.status == status::UNDERWAY)
+            });
+            if !under_way {
+                continue;
+            }
+            if done {
+                apply(s, net, w, c, Update::Complete, 0, clock);
+            } else {
+                fail(s, net, w, c, clock);
+            }
+        }
     }
 }
 
@@ -2317,6 +2362,7 @@ pub fn fail<S: Store>(
     }
     crate::world::keep_player(s, world);
     crate::escorts::quest_moved(s, net, world, quest);
+    companions_end(s, net, world, quest, false, clock);
 }
 
 /// Is a quest one the world keeps hidden?
@@ -2377,4 +2423,5 @@ pub fn cancel<S: Store>(
     progress::private(net, world, &update_call(rec, update::CANCEL));
     crate::world::keep_player(s, world);
     crate::escorts::quest_moved(s, net, world, quest);
+    companions_end(s, net, world, quest, false, clock);
 }

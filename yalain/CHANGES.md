@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Worlds can now give a quest bearer's fellows a quest that fails with the bearer's.
 - Fixed some objects not showing their effects after you leave and come back.
 - The world check now refuses gates on objects that a quest's use would ignore.
 - Worlds can now make an item used on another give some characters a different result.

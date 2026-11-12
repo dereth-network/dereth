@@ -1105,6 +1105,19 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     );
                     continue;
                 };
+                match q.companion_of {
+                    Some(of) if of == q.id => {
+                        cx.problem(l, "companion_of: a quest cannot go with itself");
+                    }
+                    Some(of) if !quest_rows.contains(&of) => cx.problem(
+                        l,
+                        format!(
+                            "companion_of: quest {of:08X} has no row, so no player ever holds it"
+                        ),
+                    ),
+                    Some(of) => t.content.companions.entry(of).or_default().push(q.id),
+                    None => {}
+                }
                 t.quests.quests.push(QuestDef {
                     id: q.id,
                     name: def.name,

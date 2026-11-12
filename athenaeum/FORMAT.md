@@ -351,7 +351,15 @@ it on to, is missing) is said in the words of the quest's name in the install's 
 | `fails_on_death` | | true: it fails when its player dies |
 | `once` | | true: given only once; false: given again; left out, as its setup says |
 | `fellows` | | true: a kill's move on it reaches the killer's fellows; false: only the killer |
+| `companion_of` | | a quest whose holder this one goes with, below; another quest with a row |
 | `prov` | required | where it came from |
+
+`companion_of = Q` makes the quest a companion of quest `Q`: one its fellows take on to stand by
+the player who carries `Q`. As a player's `Q` is done, this quest, under way, is done after it for
+the player and for each of the player's fellows in the world, each paid as its own completion pays;
+as `Q` fails (its player's death, its time running out, a step) or is cancelled, this one fails
+after it for them alike. A fellow who has left the fellowship by then keeps its own as it is. The
+companion is given as any quest is, usually by the step that gives `Q`, with `fellows = true`.
 
 #### `[[step]]`
 

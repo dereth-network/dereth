@@ -14,6 +14,7 @@ mod butchery;
 mod chained_effects;
 mod chests;
 mod combinations;
+mod companions;
 mod concealing;
 mod conservation;
 mod corpse_profiles;

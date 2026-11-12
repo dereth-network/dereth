@@ -244,7 +244,8 @@ impl Install for Fake {
     }
 
     fn quest_definition(&self, state: Option<u32>, id: u32) -> Option<QuestDefinition> {
-        (id == 0x4000_0088 && state.is_none()).then(|| QuestDefinition {
+        // The rescue's quest, and a companion of it.
+        ((id == 0x4000_0088 || id == 0x4000_0089) && state.is_none()).then(|| QuestDefinition {
             state: 0x6F00_0D3F,
             name: Words::Ref(0xA860_7CEC, 0x2500_17EE),
             description: (0x6C45_9364, 0x2500_17EE),
@@ -6565,5 +6566,46 @@ fn a_give_of_a_class_compiles_to_its_trigger_and_to_the_class_gives() {
         let mut f = files.clone();
         edit(&mut f, path, from, to);
         assert!(read(&f).is_err(), "{to}");
+    }
+}
+
+/// A quest's `companion_of` compiles to the quests that go with the one it names; one naming
+/// itself, or a quest with no row, is a problem.
+/// Behaviour: server.quests.companions-end-with-their-bearers
+#[test]
+fn a_quests_companion_of_compiles_to_the_quest_it_goes_with() {
+    let mut files = fixture();
+    let companion = |of: &str| {
+        format!(
+            "[[quest]]
+id = 0x40000089
+id_name = \"QuestRescueHoldProtect\"
+companion_of = {of}
+prov = {{ from = \"authored\" }}
+"
+        )
+    };
+    files.insert(
+        "town/server/quests/40000089.toml".into(),
+        companion("0x40000088"),
+    );
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.content.companions.get(&0x4000_0088),
+        Some(&vec![0x4000_0089])
+    );
+    assert_eq!(t.content.companions.len(), 1);
+    for (of, says) in [
+        ("0x40000089", "cannot go with itself"),
+        ("0x40000099", "quest 40000099 has no row"),
+    ] {
+        let mut f = files.clone();
+        f.insert("town/server/quests/40000089.toml".into(), companion(of));
+        let problems = compile(&merge(&read(&f).unwrap()).unwrap(), &Fake::new()).unwrap_err();
+        assert!(
+            problems.iter().any(|p| p.to_string().contains(says)),
+            "{of}: {problems:?}"
+        );
     }
 }
