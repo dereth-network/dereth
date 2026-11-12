@@ -1340,6 +1340,102 @@ pub fn lands<S: Store>(s: &mut Server<S>, net: &mut ServerNet, mut l: Landing, c
     }
 }
 
+/// A blow struck with a weapon lands: each effect the weapon's template names for what it hits
+/// ([`crate::item_use::HIT`]) goes on, at the template's spellcraft, by the effect's own chance at
+/// it; a slayer among them harms a creature of a superclass it names by its spellcraft times the
+/// number with it ([`crate::treasure::slayer_harm`]), told as its own story, and does nothing to
+/// anything else. An effect put on is cast by the striker from the weapon.
+pub(crate) fn weapon_hit_effects<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    by: u64,
+    weapon: u64,
+    on: On,
+    clock: Clock,
+) {
+    let Some(list) = s
+        .things
+        .get(weapon)
+        .and_then(|w| s.hit_effects.get(&w.template))
+        .cloned()
+    else {
+        return;
+    };
+    let by_player = s.players.values().any(|p| p.character == by);
+    for e in list {
+        if let On::Creature(t) = on {
+            if !s.things.get(t).is_some_and(crate::things::Thing::alive) {
+                return;
+            }
+        }
+        let Some(kind) = s.effect_table.get(e.state).map(|d| d.kind.clone()) else {
+            continue;
+        };
+        let chance = s.effect_table.chance(e.state, e.spellcraft);
+        if chance < 1.0 && !s.rng.chance(chance) {
+            continue;
+        }
+        if let crate::effect_defs::Kind::Slayer(classes) = kind {
+            let On::Creature(target) = on else { continue };
+            let superclass = s
+                .things
+                .get(target)
+                .and_then(|t| s.catalog.get(t.template))
+                .and_then(|t| {
+                    t.props
+                        .word(yalain_content::props::creature_property::SUPER_CLASS)
+                });
+            let harm = superclass.map_or(0, |c| {
+                crate::treasure::slayer_harm(&classes, c, e.spellcraft)
+            });
+            if harm > 0 {
+                crate::effects::creature_health(s, net, target, -harm, by, clock);
+            }
+            continue;
+        }
+        crate::effects::apply_on(
+            s,
+            net,
+            on,
+            e.state,
+            crate::effects::Cast {
+                caster: by,
+                spellcraft: e.spellcraft,
+                pk: by_player,
+                item: weapon,
+                ..crate::effects::Cast::default()
+            },
+            clock,
+        );
+    }
+}
+
+/// The first weapon a creature holds, which its blows are struck with.
+fn creature_weapon<S: Store>(s: &Server<S>, creature: u64) -> Option<u64> {
+    s.things
+        .get(creature)
+        .and_then(|t| t.creature.as_ref())
+        .and_then(|c| c.weapons.first().copied())
+}
+
+/// A creature's blow lands on a player still standing: its weapon's effects for what it hits go on
+/// ([`weapon_hit_effects`]).
+pub(crate) fn creature_blow_landed<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    creature: u64,
+    target: ConnId,
+    clock: Clock,
+) {
+    let standing = s
+        .players
+        .get(&target)
+        .is_some_and(|p| p.trip.is_none() && !is_dead(p));
+    if let Some(weapon) = creature_weapon(s, creature).filter(|_| standing) {
+        weapon_hit_effects(s, net, creature, weapon, On::Player(target), clock);
+    }
+}
+
 /// A basic attack that names target effects puts them on what it landed on, at its user's rating
 /// in it, as a special's do.
 fn attack_effects<S: Store>(
@@ -2016,6 +2112,7 @@ pub fn creature_strike_lands<S: Store>(
     {
         hurt_player(s, net, target, creature, harm.left, clock);
         crate::effects::harm_back(s, net, creature, id, harm.back, clock);
+        creature_blow_landed(s, net, creature, target, clock);
     }
 }
 

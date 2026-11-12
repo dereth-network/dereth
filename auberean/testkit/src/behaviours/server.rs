@@ -1552,6 +1552,37 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.combat.weapon-hit-effects-on-what-they-hit",
+        says: "What a weapon's template names for what it hits goes on what its wielder's blows \
+               land on, at the template's spellcraft, by the effect's own chance at it: a \
+               creature's weapon on the player it strikes, a player's on the creature, each cast by \
+               the striker from the weapon.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-WEAPON-HIT-EFFECTS"),
+        station: "yalain-testkit::cpu::play::fights::a_creatures_weapon_puts_its_effect_on_the_player_it_hits_by_the_effects_chance",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.combat.weapon-hit-effects-read",
+        says: "The effects weapons put on what they hit read from the names their templates give, \
+               at the template's spellcraft, each with its own chance; the Sword of the Doomed \
+               Hero's slays the Empowered Warath.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-WEAPON-HIT-EFFECTS-READ"),
+        station: "yalain-testkit::dat::effects::the_effects_weapons_put_on_what_they_hit_read_from_their_names",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.combat.weapon-template-slayer",
+        says: "A slayer a weapon's template names harms a creature of a superclass it names by the \
+               template's spellcraft times its number as each blow lands, and does nothing to any \
+               other. Our choice that it goes by spellcraft, as a treasure slayer's.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WEAPON-SLAYER"),
+        station: "yalain-testkit::cpu::play::fights::a_weapons_own_slayer_kills_the_creature_it_names_and_spares_any_other",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.combinations.link-found",
         says: "A combination that finds the effect type it looks for on its target plays its \
                private effect for its caster, takes the found effect off, and adds its own \
@@ -4738,6 +4769,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-WIELDED-EFFECTS"),
         station: "yalain-testkit::cpu::play::worn_effects::a_wielded_weapon_puts_its_effect_on_and_putting_it_away_takes_it_off",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.equip.worn-effect-moves-a-quest",
+        says: "An effect an item's template names for its wearer or wielder that moves a quest \
+               moves it as the item goes on, as the effect does itself, and holds no record. Our \
+               reading of the install's data: no recording holds one.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WORN-QUEST-MOVE"),
+        station: "yalain-testkit::cpu::play::worn_effects::a_weapon_naming_a_quests_move_moves_the_quest_as_it_is_wielded",
         tier: Tier::Cpu,
     },
     behaviour! {

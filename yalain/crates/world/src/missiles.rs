@@ -620,6 +620,7 @@ pub fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, f: Flight, cloc
     if outcome.landed() {
         crate::effects::answer_attack(s, net, world, f.creature, clock);
         crate::effects::harm_back(s, net, f.creature, f.target, harm.back, clock);
+        combat::creature_blow_landed(s, net, f.creature, world, clock);
     }
 }
 

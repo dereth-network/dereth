@@ -334,3 +334,68 @@ fn an_items_effects_stay_on_through_a_death_that_ends_a_buff_of_the_same_effect(
     assert_eq!(left.len(), 1, "the buff ended: {left:?}");
     assert_eq!((left[0].item, left[0].flags), (sword, WORN));
 }
+
+/// A weapon whose template names a quest's move for its wielder moves the quest as it is wielded,
+/// before the answer, and holds no record of it; at the phase it moved to, wielding it again moves
+/// nothing.
+/// Behaviour: server.equip.worn-effect-moves-a-quest
+#[test]
+fn a_weapon_naming_a_quests_move_moves_the_quest_as_it_is_wielded() {
+    use yalain_world::quests::{phase_of, update};
+    use yalain_world::state::QuestState;
+    const QUEST: u32 = 0x4000_7201;
+    const ADVANCES: u32 = 0x6F00_7204;
+    const BLADE: u32 = 0x4700_7203;
+    let (mut h, b, me, world) = wearer();
+    let mut q = super::kill_quests::quest(3);
+    q.id = QUEST;
+    h.server.quests.quests.push(q);
+    h.server.catalog.insert(yalain_testkit::test_template(
+        BLADE,
+        0x1067,
+        Props::default(),
+    ));
+    h.server
+        .catalog
+        .implements
+        .insert(BLADE, yalain_world::skill_use::implement::SWORD);
+    h.server.effect_table.effects.insert(
+        ADVANCES,
+        EffectDef {
+            kind: Kind::Quest {
+                quest: QUEST,
+                update: update::ADVANCE | 2,
+            },
+            duration: Scale::default(),
+            internal_flags: 0x4140_0512,
+            ..effect(ADVANCES, 0, None)
+        },
+    );
+    h.server.worn_effects.insert(
+        BLADE,
+        vec![UsageEffect {
+            state: ADVANCES,
+            spellcraft: 1.0,
+        }],
+    );
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("in the world")
+        .play
+        .quests
+        .push(QuestState {
+            quest: QUEST,
+            status: yalain_world::quests::status::UNDERWAY,
+            phase: 1,
+            started: 1_000_000,
+            updated: 1_000_000,
+        });
+    let phase = |h: &Harness| phase_of(&h.server.players[&world].play.quests, QUEST);
+    let first = h.arm(b, me, BLADE);
+    assert_eq!(phase(&h), 2);
+    assert!(records(&h, world).iter().all(|e| e.item != first));
+    use_it(&mut h, b, me, first);
+    h.arm(b, me, BLADE);
+    assert_eq!(phase(&h), 2);
+}

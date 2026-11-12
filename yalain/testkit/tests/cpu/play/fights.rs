@@ -2637,3 +2637,179 @@ fn a_worlds_own_treasure_tables_are_what_its_drops_draw_by() {
         assert_eq!(shown == on_hit, own, "{shown:?}");
     }
 }
+
+/// What a weapon's template names for what it hits goes on as its blows land: a slayer of a
+/// creature's superclass, at the template's spellcraft, harms it by that times its number (ten
+/// million: past a million health, so it dies of it), and does nothing to a creature of another.
+/// Behaviour: server.combat.weapon-template-slayer
+#[test]
+fn a_weapons_own_slayer_kills_the_creature_it_names_and_spares_any_other() {
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    use yalain_world::item_use::UsageEffect;
+    const SLAYER: u32 = 0x6F00_0004;
+    const NAMED: u32 = 62;
+    let dies = |superclass: u32| -> bool {
+        let mut h = Harness::new();
+        h.add_creatures(1);
+        h.server.levels = levels();
+        let (b, me) = h.player_in_world("one", "Elara");
+        scene_drawn(&mut h, b);
+        h.arm(b, me, STARTER_SWORD);
+        h.server.effect_table.effects.insert(
+            SLAYER,
+            EffectDef {
+                state: SLAYER,
+                kind: Kind::Slayer(vec![(NAMED, 10_000_000.0)]),
+                duration: Scale::default(),
+                priority: Scale::default(),
+                fx: 0,
+                external_flags: 0,
+                internal_flags: 0,
+                ends_at_logout: false,
+                ends_at_teleport: false,
+                enum_value: 0,
+                eq_class: 0,
+                name: None,
+            },
+        );
+        h.server.hit_effects.insert(
+            STARTER_SWORD,
+            vec![UsageEffect {
+                state: SLAYER,
+                spellcraft: 1.0,
+            }],
+        );
+        let beetle = creature_of(&h, b);
+        let template = h.server.things.get(beetle).expect("the beetle").template;
+        let mut t = h
+            .server
+            .catalog
+            .get(template)
+            .expect("its template")
+            .clone();
+        t.props.set(
+            yalain_content::props::creature_property::SUPER_CLASS,
+            yalain_content::Prop::Word(superclass),
+        );
+        h.server.catalog.insert(t);
+        {
+            let t = h.server.things.get_mut(beetle).expect("the beetle");
+            t.max_health = 1_000_000;
+            t.health = 1_000_000;
+            let c = t.creature.as_mut().expect("a creature");
+            c.stats.natural_damage = 0.0;
+        }
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+        );
+        let mut hit = false;
+        h.run_until(20_000, |h| {
+            let t = h.server.things.get(beetle);
+            hit |= t.is_none_or(|t| t.health < 1_000_000);
+            t.is_none_or(|t| !t.alive())
+        });
+        assert!(hit, "struck");
+        h.server.things.get(beetle).is_none_or(|t| !t.alive())
+    };
+    assert!(dies(NAMED));
+    assert!(!dies(NAMED + 1));
+}
+
+/// A creature's weapon puts what its template names for what it hits on the player its blows land
+/// on, by the effect's own chance: a record cast by the creature from the weapon at the template's
+/// spellcraft; at no chance, never.
+/// Behaviour: server.combat.weapon-hit-effects-on-what-they-hit
+#[test]
+fn a_creatures_weapon_puts_its_effect_on_the_player_it_hits_by_the_effects_chance() {
+    use yalain_testkit::COURAGE_EFFECT;
+    use yalain_world::effect_defs::Scale;
+    use yalain_world::item_use::UsageEffect;
+    use yalain_world::things::{Kind, Thing};
+    const BLADE: u32 = 0x4700_7EA1;
+    let run = |chance: f32| -> (usize, Vec<yalain_world::state::EffectState>, u64, u64) {
+        let mut h = Harness::new();
+        h.add_creatures(1);
+        h.server.levels = levels();
+        let (b, me) = h.player_in_world("one", "Elara");
+        scene_drawn(&mut h, b);
+        h.arm(b, me, STARTER_SWORD);
+        let beetle = creature_of(&h, b);
+        // The creature's blade, a template of its own naming the effect; the player's sword names
+        // nothing.
+        let mut tpl = h
+            .server
+            .catalog
+            .get(STARTER_SWORD)
+            .expect("a sword")
+            .clone();
+        tpl.id = BLADE;
+        h.server.catalog.insert(tpl.clone());
+        h.server.hit_effects.insert(
+            BLADE,
+            vec![UsageEffect {
+                state: COURAGE_EFFECT,
+                spellcraft: 100.0,
+            }],
+        );
+        h.server
+            .effect_table
+            .chances
+            .insert(COURAGE_EFFECT, Scale(vec![(0.0, chance)]));
+        let blade = h.server.things.new_id();
+        let mut t = Thing::of(blade, &tpl, Kind::Item);
+        t.wielded = Some((beetle, 1));
+        h.server.things.insert(t);
+        {
+            let t = h.server.things.get_mut(beetle).expect("the beetle");
+            t.max_health = 1_000_000;
+            t.health = 1_000_000;
+            let c = t.creature.as_mut().expect("a creature");
+            c.weapons = vec![blade];
+            c.stats.natural_damage = 0.0;
+        }
+        let from = h.bots[b].inbox.len();
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+        );
+        let landed = |h: &Harness| {
+            h.world_messages(b, from)
+                .iter()
+                .filter(|m| {
+                    matches!(m, ServerMessage::DoStory(e) if e.sender.id == beetle
+                        && e.action.hooks.iter().any(|k| k.target == me && k.numbers[3] < 0))
+                })
+                .count()
+        };
+        let held = |h: &Harness| -> Vec<yalain_world::state::EffectState> {
+            h.server
+                .players
+                .values()
+                .find(|p| p.character == me)
+                .map(|p| {
+                    p.play
+                        .effects
+                        .iter()
+                        .filter(|e| e.state == COURAGE_EFFECT)
+                        .copied()
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        h.run_until(60_000, |h| landed(h) >= 6 || !held(h).is_empty());
+        // The record goes on as the blow reaches the player, after its story.
+        h.run(200);
+        (landed(&h), held(&h), beetle, blade)
+    };
+    let (landed, held, beetle, blade) = run(1.0);
+    assert!(landed >= 1, "{landed} blows landed");
+    let e = held.first().expect("the weapon's effect on the player");
+    assert_eq!((e.caster, e.item, e.skill), (beetle, blade, 0));
+    assert!((e.spellcraft - 100.0).abs() < f32::EPSILON);
+    let (landed, held, _, _) = run(0.0);
+    assert!(landed >= 6, "{landed} blows landed");
+    assert!(held.is_empty());
+}

@@ -863,6 +863,7 @@ struct Play {
     plants: yalain_world::plants::DyePlants,
     item_uses: yalain_world::item_use::ItemUses,
     worn_effects: yalain_world::item_use::ItemUses,
+    hit_effects: yalain_world::item_use::ItemUses,
     quest_ids: std::collections::HashMap<String, u32>,
     craft: yalain_world::craft::Crafting,
     vitae_costs: Vec<u64>,
@@ -1082,6 +1083,7 @@ fn run<S: Store>(
     server.plants.kinds = play.plants;
     server.item_uses = play.item_uses;
     server.worn_effects = play.worn_effects;
+    server.hit_effects = play.hit_effects;
     server.quest_ids = play.quest_ids;
     server.crafting = play.craft;
     if yalain_world::world_patch::patches_retail(&server) {
@@ -2079,7 +2081,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         // outcomes teach in turn: each read with what it makes and asks for, whose own uses may
         // teach more.
         loop {
-            let (uses, _, _) = data::item_uses(portal, &catalog, &effect_names)?;
+            let (uses, _, _, _) = data::item_uses(portal, &catalog, &effect_names)?;
             let teaching: Vec<u32> = uses
                 .values()
                 .flatten()
@@ -2160,13 +2162,14 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         let vitae_costs = data::vitae_costs(portal)?;
         let item_effects = data::item_effects(portal, &catalog)?;
         // The effects the items' uses put on, read with the rest.
-        let (item_uses, worn_effects, death_effects) =
+        let (item_uses, worn_effects, death_effects, hit_effects) =
             data::item_uses(portal, &catalog, &effect_names)?;
         states.extend(item_uses.values().flatten().map(|e| e.state));
         // And those the world's rows give items' uses.
         states.extend(item_rows.states());
         states.extend(worn_effects.values().flatten().map(|e| e.state));
         states.extend(death_effects.values().flatten().map(|e| e.state));
+        states.extend(hit_effects.values().flatten().map(|e| e.state));
         // The treasure potions' effects, put on when they are drunk.
         states.extend(treasure_tables.potion_states());
         // What the practice dummies hold.
@@ -2190,11 +2193,13 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         states.extend(treasure_tables.states());
         mounts.note_items(&item_uses);
         let mut effects = data::effect_table(portal, &states, &effect_rules)?;
-        // The chains of other effects that items' uses, quests and recipes' outcomes put on do what
-        // they hold; the finishing chains of skills' combinations stay as they were.
-        effects.keep_chains_of(yalain_world::effect_defs::chain_roots(
-            &item_uses, &item_rows, &quests, &craft,
-        ));
+        // The chains of other effects that items' uses, quests, recipes' outcomes and weapons' hits
+        // put on do what they hold; the finishing chains of skills' combinations stay as they were.
+        effects.keep_chains_of(
+            yalain_world::effect_defs::chain_roots(&item_uses, &item_rows, &quests, &craft)
+                .into_iter()
+                .chain(hit_effects.values().flatten().map(|e| e.state)),
+        );
         tracing::info!(
             templates = item_uses.len(),
             effects = effects.effects.len(),
@@ -2203,6 +2208,10 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         tracing::info!(
             templates = worn_effects.len(),
             "the effects items put on their wearers read"
+        );
+        tracing::info!(
+            templates = hit_effects.len(),
+            "the effects weapons put on what they hit read"
         );
         let walk_in = data::walk_in_packages(portal, &content)?;
         let item_classes = data::item_classes(portal)?;
@@ -2299,6 +2308,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             plants,
             item_uses,
             worn_effects,
+            hit_effects,
             quest_ids: data::quest_ids(portal)?,
             craft,
             vitae_costs,

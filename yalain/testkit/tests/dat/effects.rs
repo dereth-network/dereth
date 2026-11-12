@@ -3532,3 +3532,121 @@ mod world_recipes {
         assert!(me.items.iter().any(|i| i.template == UNIT), "the unit kept");
     }
 }
+
+/// What weapons put on what they hit reads from the names their templates give, at the template's
+/// spellcraft: 189 templates name one and 188 of those resolve; the Sword of the Doomed Hero's Dark
+/// Vengeance slays the Empowered Warath's superclass by ten million a point of spellcraft, always,
+/// and the Warath has a million health; the bone blade's Crippling goes on at 100 a tenth of the
+/// time. A player striking the Warath with the sword kills it.
+/// Behaviour: server.combat.weapon-hit-effects-read
+#[test]
+fn the_effects_weapons_put_on_what_they_hit_read_from_their_names() {
+    use yalain_content::props::creature_property::SUPER_CLASS;
+    use yalain_world::item_use::UsageEffect;
+    const SWORD: u32 = 0x4700_13F7;
+    const WARATH: u32 = 0x4700_2D93;
+    const BONE_BLADE: u32 = 0x4700_1FDB;
+    const DARK_VENGEANCE: u32 = 0x6F00_1AFE;
+    const CRIPPLING: u32 = 0x6F00_03E0;
+    let p = Portal::open();
+    let naming: Vec<u32> = p
+        .every_template_props()
+        .iter()
+        .filter(|(_, props)| {
+            (1..=8).any(|n| props.text(&format!("Item_TargetEffect{n}")).is_some())
+        })
+        .map(|(id, _)| *id)
+        .collect();
+    let hits = p.hit_effects(&naming);
+    assert_eq!((naming.len(), hits.len()), (189, 188));
+    let of = |t: u32| -> Vec<(u32, f32)> {
+        hits.get(&t)
+            .map(|l| {
+                l.iter()
+                    .map(|e: &UsageEffect| (e.state, e.spellcraft))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    assert_eq!(of(SWORD), vec![(DARK_VENGEANCE, 1.0)]);
+    assert_eq!(of(BONE_BLADE), vec![(CRIPPLING, 100.0)]);
+    let t = p.effects(&[DARK_VENGEANCE, CRIPPLING]);
+    let warath = p.template(WARATH);
+    let superclass = warath.props.word(SUPER_CLASS).expect("a superclass");
+    let Kind::Slayer(classes) = &t.get(DARK_VENGEANCE).expect("read").kind else {
+        panic!("a slayer");
+    };
+    assert_eq!(classes, &vec![(superclass, 10_000_000.0)]);
+    assert!((t.chance(DARK_VENGEANCE, 1.0) - 1.0).abs() < f32::EPSILON);
+    assert_eq!(
+        warath.props.int("GameplayStatistics_MaxHealth"),
+        Some(1_000_000)
+    );
+    assert!(t.get(CRIPPLING).is_some_and(|d| d.lasts()));
+    assert!((t.chance(CRIPPLING, 100.0) - 0.1).abs() < 1e-6);
+
+    // In play: the Warath's kind, at its health, struck with the sword.
+    let mut h = yalain_testkit::Harness::new();
+    h.add_creatures(1);
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.bots[b].send(
+        true,
+        auberean_protocol::queue::WEENIE,
+        &auberean_protocol::ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    h.run(5);
+    // A new player may wield it here: no hero and no least level asked; held as a sword.
+    let mut sword = p.template(SWORD);
+    sword
+        .props
+        .set("Usage_HeroOnly", yalain_content::Prop::Bool(false))
+        .set("Usage_MinLevel", yalain_content::Prop::Int(0));
+    h.server.catalog.insert(sword);
+    h.server
+        .catalog
+        .implements
+        .insert(SWORD, yalain_world::skill_use::implement::SWORD);
+    h.arm(b, me, SWORD);
+    h.server.effect_table = t;
+    h.server.hit_effects = hits;
+    let beetle = h
+        .world_messages(b, 0)
+        .iter()
+        .find_map(|m| match m {
+            auberean_protocol::ServerMessage::CreateObject(o)
+                if o.weenie.entity_did == yalain_testkit::TEST_CREATURE =>
+            {
+                Some(o.id)
+            }
+            _ => None,
+        })
+        .expect("the camp's creature");
+    let mut kind = h
+        .server
+        .catalog
+        .get(yalain_testkit::TEST_CREATURE)
+        .expect("its template")
+        .clone();
+    kind.props
+        .set(SUPER_CLASS, yalain_content::Prop::Word(superclass));
+    h.server.catalog.insert(kind);
+    {
+        let t = h.server.things.get_mut(beetle).expect("the creature");
+        t.max_health = 1_000_000;
+        t.health = 1_000_000;
+        let c = t.creature.as_mut().expect("a creature");
+        c.stats.natural_damage = 0.0;
+    }
+    h.bots[b].send(
+        true,
+        auberean_protocol::queue::WEENIE,
+        &yalain_testkit::play::server_call(
+            0x8204_0008,
+            &[auberean_script::args::Arg::LongInt(beetle)],
+        ),
+    );
+    h.run_until(20_000, |h| {
+        h.server.things.get(beetle).is_none_or(|t| !t.alive())
+    });
+    assert!(h.server.things.get(beetle).is_none_or(|t| !t.alive()));
+}

@@ -113,6 +113,8 @@ pub const USED: (&str, &str) = ("Usage_Effect", "_Spellcraft");
 pub const WORN: (&str, &str) = ("Item_EquipperEffect", "Stat");
 /// And on whoever kills a creature.
 pub const DIED: (&str, &str) = ("NPC_DeathEffect", "Stat");
+/// And on what a weapon's blows land on.
+pub const HIT: (&str, &str) = ("Item_TargetEffect", "Stat");
 
 /// The effects a template's properties name by one pair of [`USED`] and [`WORN`], in order, each at
 /// its spellcraft (else 1), resolved by `resolve` (a name that resolves to nothing is left out).

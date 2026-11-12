@@ -3367,7 +3367,8 @@ pub fn show_fxs<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId,
 /// from it, held until the item comes off (flags [`WORN`]); then, for an effect a death does not
 /// end, the line of its own table naming the item, or "The `<effect>` applies to you." where its
 /// table holds none (2017: 176 of 200 such records; 276 of 277 of the others had none); its
-/// appearance shown when no other record shows it. Returns the ids.
+/// appearance shown when no other record shows it. An effect that moves a quest moves it then,
+/// as it does itself, and holds no record. Returns the ids.
 pub fn put_on_worn<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -3379,6 +3380,19 @@ pub fn put_on_worn<S: Store>(
     let name = s.things.get(item).and_then(|t| t.facts.name);
     let mut ids = Vec::new();
     for (state, spellcraft) in effects {
+        let cast = Cast {
+            caster: item,
+            spellcraft: *spellcraft,
+            item,
+            ..Cast::default()
+        };
+        if s.effect_table
+            .get(*state)
+            .is_some_and(|d| matches!(d.kind, Kind::Quest { .. }))
+        {
+            apply_on(s, net, On::Player(world), *state, cast, clock);
+            continue;
+        }
         let Some(def) = s
             .effect_table
             .get(*state)
@@ -3386,12 +3400,6 @@ pub fn put_on_worn<S: Store>(
             .cloned()
         else {
             continue;
-        };
-        let cast = Cast {
-            caster: item,
-            spellcraft: *spellcraft,
-            item,
-            ..Cast::default()
         };
         let shape = Shape {
             flags: WORN,

@@ -736,8 +736,9 @@ pub fn interactions(
     ))
 }
 
-/// The effects each item template's use puts on its user, and those it puts on whoever wears or
-/// wields it: each name the template gives resolved to the saved state of its effect enumeration
+/// The effects each item template's use puts on its user, those it puts on whoever wears or
+/// wields it, those a creature's death puts on its killer, and those a weapon puts on what it
+/// hits: each name the template gives resolved to the saved state of its effect enumeration
 /// value, else of its package (the package's one saved state among the effects', else its
 /// singleton), else to the saved state the world's database gives the name.
 ///
@@ -752,10 +753,11 @@ pub fn item_uses(
         yalain_world::item_use::ItemUses,
         yalain_world::item_use::ItemUses,
         yalain_world::item_use::ItemUses,
+        yalain_world::item_use::ItemUses,
     ),
     String,
 > {
-    use yalain_world::item_use::{read_named_or, DIED, USED, WORN};
+    use yalain_world::item_use::{read_named_or, DIED, HIT, USED, WORN};
     let lib = library(p)?;
     let named: HashMap<String, u32> = named.iter().map(|(n, s)| (n.clone(), *s)).collect();
     let states: Vec<(u32, u32, Option<u32>)> = saved_states(p)?
@@ -767,6 +769,7 @@ pub fn item_uses(
         read_named_or(lib, states.iter().copied(), templates(), USED, &named),
         read_named_or(lib, states.iter().copied(), templates(), WORN, &named),
         read_named_or(lib, states.iter().copied(), templates(), DIED, &named),
+        read_named_or(lib, states.iter().copied(), templates(), HIT, &named),
     ))
 }
 

@@ -6,6 +6,8 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Wielding the Sword of the Doomed Hero now moves its quest on.
+- Weapons now put their effects on what they hit, so the Empowered Warath can be slain.
 - Fixed fellows' quests not moving when a fellow picks up a quest item.
 - Quests now fail on death, logout or portal as the game's own quest data says.
 - Fixed some chests opening empty.

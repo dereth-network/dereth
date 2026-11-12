@@ -22,7 +22,8 @@
 //! just before the answer: its template's (`Item_EquipperEffectN`, at `Item_EquipperEffectNStat`)
 //! and its own (a crafted bonus), each a record held until the item comes off
 //! ([`crate::effects::put_on_worn`]). As it comes off, by its use, a directive, or to make room,
-//! its records are taken away just before that answer. They stay across logouts and deaths.
+//! its records are taken away just before that answer. They stay across logouts and deaths. One
+//! that moves a quest moves it as the item goes on, and holds no record.
 //!
 //! **Who may put it on.** An item is refused, nothing done, when its template names a race the
 //! player is not of (10015), a skill the player does not hold (10013), a least level above the

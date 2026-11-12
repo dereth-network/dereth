@@ -553,6 +553,15 @@ impl Portal {
         self.named_effects(templates, yalain_world::item_use::WORN, &HashMap::new())
     }
 
+    /// The effects these weapon templates put on what they hit, as the server reads them at start.
+    ///
+    /// # Panics
+    /// The library does not read.
+    #[must_use]
+    pub fn hit_effects(&self, templates: &[u32]) -> yalain_world::item_use::ItemUses {
+        self.named_effects(templates, yalain_world::item_use::HIT, &HashMap::new())
+    }
+
     /// The effects these templates' deaths name, as the server reads them at start.
     ///
     /// # Panics

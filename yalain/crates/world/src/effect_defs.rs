@@ -535,6 +535,28 @@ impl EffectDef {
         }
     }
 
+    /// The chance a saved state's effect gives itself of going on what a blow naming it lands on,
+    /// by spellcraft (none where it gives none).
+    #[must_use]
+    pub fn chance_of(lib: &Library, g: &Graph) -> Scale {
+        let nav = Nav::new(lib, g);
+        let Some(root) = g.root().and_then(|r| nav.object(r).ok()) else {
+            return Scale::default();
+        };
+        Scale(
+            nav.list(root, "m_probData")
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|p| {
+                    Some((
+                        nav.number(p, "m_level").ok()?,
+                        nav.number(p, "m_value").ok()?,
+                    ))
+                })
+                .collect(),
+        )
+    }
+
     /// The effect enumeration's value a saved state's graph holds, when it holds one.
     #[must_use]
     pub fn enum_value_of(lib: &Library, g: &Graph) -> Option<u32> {
@@ -891,6 +913,9 @@ pub struct EffectTable {
     pub lines: HashMap<u32, (u32, u32)>,
     /// What effects the install names but holds no saved state of place in the world, by name.
     pub placings: HashMap<String, Placing>,
+    /// The chance a weapon's blow that names an effect puts it on what it lands on, at a
+    /// spellcraft, by saved state, where its data gives one ([`EffectTable::chance`]).
+    pub chances: HashMap<u32, Scale>,
 }
 
 impl EffectTable {
@@ -948,6 +973,10 @@ impl EffectTable {
                 if let Some(text) = EffectDef::description_of(lib, &g) {
                     t.descriptions.insert(s, text);
                 }
+                let chance = EffectDef::chance_of(lib, &g);
+                if !chance.is_empty() {
+                    t.chances.insert(s, chance);
+                }
                 todo.extend(d.adds());
                 todo.extend(d.chained_states());
                 t.effects.insert(s, d);
@@ -970,6 +999,16 @@ impl EffectTable {
     #[must_use]
     pub fn get(&self, state: u32) -> Option<&EffectDef> {
         self.effects.get(&state)
+    }
+
+    /// The chance a blow that names an effect puts it on what it lands on, at a spellcraft: its
+    /// data's, else always.
+    #[must_use]
+    pub fn chance(&self, state: u32, spellcraft: f32) -> f32 {
+        self.chances
+            .get(&state)
+            .and_then(|c| c.at(spellcraft))
+            .unwrap_or(1.0)
     }
 
     /// The recipes its effects teach or take away.

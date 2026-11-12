@@ -429,7 +429,8 @@ pub fn slayer_harm(classes: &[(u32, f32)], superclass: u32, spellcraft: f32) -> 
 }
 
 /// A hit lands: each slayer of the striker's weapon harms what it hits if it names it, told as its
-/// own story; each effect the weapon puts on what it hits, by that effect's own chance.
+/// own story; each effect the weapon puts on what it hits, by that effect's own chance; then what
+/// its template names for what it hits ([`crate::combat::weapon_hit_effects`]).
 pub fn on_hit<S: yalain_store::Store>(
     s: &mut crate::Server<S>,
     net: &mut yalain_net::ServerNet,
@@ -486,6 +487,14 @@ pub fn on_hit<S: yalain_store::Store>(
             );
         }
     }
+    crate::combat::weapon_hit_effects(
+        s,
+        net,
+        me,
+        weapon,
+        crate::effects::On::Creature(target),
+        clock,
+    );
 }
 
 /// The saved state of the game's Arcane Lore table: the lore of each item level from 50 to 150.
