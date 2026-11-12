@@ -42,6 +42,17 @@ dereth-physics.workspace = true
 auberean-primitives.workspace = true
 auberean-draw.workspace = true
 auberean-gpu.workspace = true
+# The game played in the world view: the client's shell, its world and its interface over our
+# own platform, the composing of its frame on the editor's device, the window system's keys as the
+# shell's, and the sound device it plays through; the game kept with the world it reads.
+auberean-shell.workspace = true
+auberean-scene.workspace = true
+auberean-interface.workspace = true
+auberean-present.workspace = true
+auberean-client.workspace = true
+dereth-audio.workspace = true
+dereth-audio-out.workspace = true
+self_cell.workspace = true
 # The free camera the world builders share, and the transcendental functions.
 dereth-builder.workspace = true
 dereth-primitives.workspace = true

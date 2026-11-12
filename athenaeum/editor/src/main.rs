@@ -6,10 +6,11 @@
 //! edits, undo and save), the world database (`yalain-world-db`, `yalain-content`: rows, and a
 //! template described as the server describes it), the pack format (`dereth-pack`), the world as
 //! the client draws it (`auberean-world`, `-assets`, `-dat`, `-animation`, `-physics`,
-//! `-primitives`, `auberean-draw`, `auberean-gpu`), the free camera (`dereth-builder`), the panels
-//! (`egui`), and the window system (`winit`) and device (`wgpu`). **Used by** nothing: it is the
-//! `athenaeum-editor` program. Yalain and the clients it plays the world with are programs it
-//! starts, never crates it uses.
+//! `-primitives`, `auberean-draw`, `auberean-gpu`), the game played in the world view (through
+//! the library, `embedded.rs`), the free camera (`dereth-builder`), the panels (`egui`), and the
+//! window system (`winit`) and device (`wgpu`). **Used by** nothing: it is the `athenaeum-editor`
+//! program. Yalain, and the clients it plays the world with in windows of their own, are programs
+//! it starts, never crates it uses.
 //!
 //! ```text
 //! athenaeum-editor <world> --dats <install> [--base <folder>] [--pack <name>]
@@ -54,10 +55,11 @@ use winit::application::ApplicationHandler;
 use winit::event::{DeviceEvent, ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
-use winit::window::{Window, WindowId};
+use winit::window::{CursorGrabMode, Window, WindowId};
 
 use athenaeum_editor::app::{self, Editor, ViewInput};
 use athenaeum_editor::characters::Recipe;
+use athenaeum_editor::embedded::ViewRect;
 use athenaeum_editor::script::{Script, Step};
 use athenaeum_editor::{gui, icon, live, paint, scene, view};
 
@@ -95,7 +97,7 @@ athenaeum-editor <world> --dats <install> [options]
   --port P              where the look for Yalain's login port begins, moved on by a step of
                         this editor's own; the first free one is taken, and the world's is two
                         above (default 9300)
-  --client EXE          Auberean, to play the world with (default: the one beside this program)
+  --client EXE          Auberean, for Play in a window (default: the one beside this program)
   --client-dats DIR     the install Auberean reads (default: --server-dats)
   --retail EXE          the retail client, run from its own folder, to play the world with
   --client-arg ARG      one more argument for whichever client starts (again for more)
@@ -211,6 +213,11 @@ struct App<'w> {
     quit: bool,
     /// The command line chose the panels' scale.
     scale_chosen: bool,
+    /// The pointer is held in the window for the game's mouse look.
+    grabbed: bool,
+    /// The game's pointer picture shown over the window (by its picture), and the cursors made.
+    cursor: Option<u32>,
+    cursors: std::collections::HashMap<u32, winit::window::CustomCursor>,
 }
 
 impl App<'_> {
@@ -229,6 +236,11 @@ impl App<'_> {
         let Some(s) = &mut self.script else {
             return;
         };
+        s.in_world = self
+            .editor
+            .game
+            .as_ref()
+            .is_some_and(|g| g.place().is_some());
         for step in s.due(now) {
             let e = &mut self.editor;
             match step {
@@ -287,7 +299,17 @@ impl App<'_> {
                 Step::Check => e.build_check(),
                 Step::Find(text) => e.find(&text),
                 Step::Serve => e.serve(),
-                Step::Play(retail) => e.play(retail),
+                Step::Play(client) => e.play(client),
+                Step::StopPlay => e.stop_in_editor(),
+                Step::GameKey(name, down) => match &mut e.game {
+                    Some(g) => {
+                        if let Err(err) = g.key(&name, down) {
+                            e.status = err;
+                        }
+                    }
+                    None => e.status = "no game plays in the editor".into(),
+                },
+                Step::UntilInWorld(_) => {}
                 Step::Stop => e.stop_playing(),
                 Step::Restart => e.restart(),
                 Step::Character(r) => {
@@ -311,7 +333,11 @@ impl App<'_> {
                 Step::Export(name) => e.export_character(&name),
                 Step::Import(file, name) => e.import_character(&file, &name),
                 Step::Teleport => e.teleport_to_camera(),
-                Step::Characters => e.characters_open = !e.characters_open,
+                Step::Characters => {
+                    if !e.bring_back("Characters") {
+                        e.characters_open = !e.characters_open;
+                    }
+                }
                 Step::Point(x, y) => self.gui.point([x, y]),
                 Step::Button(left, down) => {
                     if left {
@@ -374,9 +400,39 @@ impl App<'_> {
             editor.panels(ui);
             egui::CentralPanel::no_frame().show(ui, |ui| {
                 viewport = ui.max_rect();
-                editor.markers(ui.painter());
+                editor.world_rect = Some(viewport);
+                if editor.game.is_some() {
+                    editor.play_marks(ui);
+                } else {
+                    editor.markers(ui.painter());
+                }
             });
         });
+        if self.editor.game.is_some() {
+            let view = view_pixels(viewport, self.gui.scale, size);
+            let typing = self.gui.ctx.egui_wants_keyboard_input();
+            self.editor.play_keys(&self.input, typing);
+            self.input.left_pressed = false;
+            self.input.left_released = false;
+            self.input.motion = (0.0, 0.0);
+            self.input.wheel = 0.0;
+            self.input.pressed.clear();
+            self.input.down.clear();
+            let shot = self.shot_next.take();
+            let world = self.world;
+            let mut load = |id: u32| auberean_draw::picture::load(&world.records, id);
+            if let Some(game) = &mut self.editor.game {
+                game.set_view(view);
+                let picture = game.draw(&mut present.renderer);
+                let laid = view.map(|v| (&picture, v));
+                present.present(None, laid, out, &self.gui.ctx, &mut load, shot.as_deref());
+            }
+            if self.editor.game.as_ref().is_some_and(|g| g.quit()) {
+                self.editor.stop_in_editor();
+            }
+            self.after_frame(el, began);
+            return;
+        }
         let p = self.gui.pointer_pixels();
         let inside = viewport.contains(egui::pos2(p[0] / self.gui.scale, p[1] / self.gui.scale));
         // A window floating over the world keeps its clicks.
@@ -399,12 +455,26 @@ impl App<'_> {
         let world = self.world;
         let frame = self.editor.frame();
         let mut load = |id: u32| auberean_draw::picture::load(&world.records, id);
-        present.present(Some(frame), out, &self.gui.ctx, &mut load, shot.as_deref());
-        if present.hidden() {
-            std::thread::sleep(hidden_rest(began.elapsed()));
-        }
+        present.present(
+            Some(frame),
+            None,
+            out,
+            &self.gui.ctx,
+            &mut load,
+            shot.as_deref(),
+        );
         self.editor
             .draw_picture(&self.gui.ctx, &mut present.renderer, &mut load);
+        self.after_frame(el, began);
+    }
+
+    /// After a frame is drawn: the pointer held or let go and its picture, a rest when the window
+    /// can't be seen, the window's title, and the window closed when asked.
+    fn after_frame(&mut self, el: &ActiveEventLoop, began: Instant) {
+        self.pointer_and_cursor(el);
+        if self.present.as_ref().is_some_and(paint::Presenter::hidden) {
+            std::thread::sleep(hidden_rest(began.elapsed()));
+        }
         if let Some(w) = &self.window {
             let dirty = if self.editor.session.unsaved() {
                 "*"
@@ -422,10 +492,94 @@ impl App<'_> {
         }
         if self.quit || self.editor.close_now {
             self.editor.keep_camera();
+            self.editor.end_in_editor();
             self.editor.live.stop_all();
             el.exit();
         }
     }
+
+    /// Whether the pointer is over the editor's panels or one of its windows over the world view.
+    fn covered(&self) -> bool {
+        let p = self.gui.pointer_pixels();
+        let at = egui::pos2(p[0] / self.gui.scale, p[1] / self.gui.scale);
+        let over_window = self
+            .gui
+            .ctx
+            .layer_id_at(at)
+            .is_some_and(|l| l.order != egui::Order::Background);
+        over_window || self.gui.ctx.egui_is_using_pointer()
+    }
+
+    /// The pointer held in the window while the game plays mouse look, and the game's pointer
+    /// picture over the window while it has the mouse there; the editor's arrow otherwise.
+    fn pointer_and_cursor(&mut self, el: &ActiveEventLoop) {
+        let Some(w) = self.window.clone() else {
+            return;
+        };
+        let hold = self
+            .editor
+            .game
+            .as_ref()
+            .is_some_and(athenaeum_editor::embedded::Embedded::holds_pointer);
+        if hold != self.grabbed {
+            self.grabbed = hold;
+            if hold {
+                if w.set_cursor_grab(CursorGrabMode::Locked).is_err() {
+                    let _ = w.set_cursor_grab(CursorGrabMode::Confined);
+                }
+            } else {
+                let _ = w.set_cursor_grab(CursorGrabMode::None);
+            }
+            w.set_cursor_visible(!hold);
+        }
+        let picture = self.editor.game.as_ref().and_then(|g| g.cursor().cloned());
+        let want = picture.as_ref().map(|c| c.picture);
+        if want == self.cursor {
+            return;
+        }
+        let Some(c) = picture else {
+            w.set_cursor(winit::window::Cursor::Icon(
+                winit::window::CursorIcon::Default,
+            ));
+            self.cursor = None;
+            return;
+        };
+        let made = match self.cursors.entry(c.picture) {
+            std::collections::hash_map::Entry::Occupied(e) => e.get().clone(),
+            std::collections::hash_map::Entry::Vacant(e) => {
+                let (Ok(width), Ok(height)) = (u16::try_from(c.width), u16::try_from(c.height))
+                else {
+                    return;
+                };
+                let hot = |v: u32, n: u16| u16::try_from(v).unwrap_or(0).min(n.saturating_sub(1));
+                match winit::window::CustomCursor::from_rgba(
+                    c.rgba.clone(),
+                    width,
+                    height,
+                    hot(c.hot_x, width),
+                    hot(c.hot_y, height),
+                ) {
+                    Ok(source) => e.insert(el.create_custom_cursor(source)).clone(),
+                    Err(err) => {
+                        tracing::warn!("cursor {:#010x}: {err}", c.picture);
+                        self.cursor = want;
+                        return;
+                    }
+                }
+            }
+        };
+        w.set_cursor(made);
+        self.cursor = want;
+    }
+}
+
+/// The world view's rectangle in window pixels, from its rectangle in the panels' points.
+fn view_pixels(r: egui::Rect, scale: f32, (w, h): (u32, u32)) -> Option<ViewRect> {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a window's pixels
+    let px = |v: f32, most: u32| ((v * scale).round().max(0.0) as u32).min(most);
+    let (x0, y0) = (px(r.min.x, w), px(r.min.y, h));
+    let (x1, y1) = (px(r.max.x, w), px(r.max.y, h));
+    (x1 > x0 && y1 > y0).then_some([x0, y0, x1 - x0, y1 - y0])
 }
 
 impl ApplicationHandler for App<'_> {
@@ -465,6 +619,13 @@ impl ApplicationHandler for App<'_> {
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        // The game in the world view takes what is its own first: the editor never sees it.
+        let covered = self.covered();
+        if let Some(game) = &mut self.editor.game {
+            if game.window_event(&event, covered) {
+                return;
+            }
+        }
         self.gui.event(&event);
         match &event {
             WindowEvent::CloseRequested => self.editor.ask_close(),
@@ -533,10 +694,12 @@ impl ApplicationHandler for App<'_> {
     fn device_event(&mut self, _el: &ActiveEventLoop, _id: winit::event::DeviceId, e: DeviceEvent) {
         if let DeviceEvent::MouseMotion { delta } = e {
             #[allow(clippy::cast_possible_truncation)]
-            {
-                self.input.motion.0 += delta.0 as f32;
-                self.input.motion.1 += delta.1 as f32;
+            let (dx, dy) = (delta.0 as f32, delta.1 as f32);
+            if let Some(game) = &mut self.editor.game {
+                game.motion(dx, dy);
             }
+            self.input.motion.0 += dx;
+            self.input.motion.1 += dy;
         }
     }
 
@@ -656,7 +819,7 @@ fn fetch_base(world_dir: &Path, yalain: Option<&Path>) -> Result<(), String> {
 }
 
 fn run() -> Result<(), String> {
-    let o = options()?;
+    let mut o = options()?;
     tracing_subscriber::fmt()
         .with_max_level(if o.verbose {
             tracing::Level::DEBUG
@@ -675,6 +838,25 @@ fn run() -> Result<(), String> {
     // Yalain runs in a folder of its own, so it is told the world's folder whole.
     let world_dir =
         std::path::absolute(&world_dir).map_err(|e| format!("{}: {e}", world_dir.display()))?;
+    // So are the installs and the programs it is told of, and the clients it starts.
+    let whole = |p: &mut PathBuf| -> Result<(), String> {
+        *p = std::path::absolute(&*p).map_err(|e| format!("{}: {e}", p.display()))?;
+        Ok(())
+    };
+    whole(&mut o.dats)?;
+    let programs = &mut o.programs;
+    for p in [
+        &mut programs.yalain,
+        &mut programs.server_dats,
+        &mut programs.client,
+        &mut programs.client_dats,
+        &mut programs.retail,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        whole(p)?;
+    }
     let base = o
         .base
         .as_deref()
@@ -733,10 +915,14 @@ fn run() -> Result<(), String> {
         failed: None,
         quit: false,
         scale_chosen: o.scale_chosen,
+        grabbed: false,
+        cursor: None,
+        cursors: std::collections::HashMap::new(),
     };
     let el = EventLoop::new().map_err(|e| e.to_string())?;
     el.set_control_flow(ControlFlow::Poll);
     el.run_app(&mut app).map_err(|e| e.to_string())?;
+    app.editor.end_in_editor();
     app.editor.live.stop_all();
     if let Some(e) = app.failed {
         return Err(e);

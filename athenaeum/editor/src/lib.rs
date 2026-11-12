@@ -4,7 +4,8 @@
 //!
 //! The editor's state and panels ([`app`]), the panels' toolkit and painter ([`gui`], [`paint`]),
 //! the world it shows ([`scene`]) and where things are on the screen ([`view`]), playing the world
-//! on the editor's own Yalain ([`live`]) as its playtest characters ([`characters`]), starting the
+//! on the editor's own Yalain ([`live`]) as its playtest characters ([`characters`]), in the
+//! editor's own world view ([`embedded`]), starting the
 //! programs it runs without console windows and stopping the server as its operator does
 //! ([`stop`]), and scripts of editor steps ([`script`]), shared by the program (`main.rs`, which
 //! brings the window and the event loop) and its tests.
@@ -12,7 +13,10 @@
 //! **Depends on** the world machinery (`athenaeum-foundry`), the world database and the server's
 //! tables (`yalain-world-db`, `yalain-content`), the pack format (`dereth-pack`), the world as the
 //! client draws it (`auberean-world`, `auberean-assets`, `auberean-dat`, `auberean-animation`,
-//! `auberean-physics`, `auberean-primitives`, `auberean-draw`, `auberean-gpu`), the free camera
+//! `auberean-physics`, `auberean-primitives`, `auberean-draw`, `auberean-gpu`), the game played in
+//! its view (`auberean-shell`, `auberean-scene`, `auberean-interface`, `auberean-present`, the
+//! window system's keys in `auberean-client`, the sound device in `dereth-audio` and
+//! `dereth-audio-out`, kept with its world by `self_cell`), the free camera
 //! (`dereth-builder`), the shared math and collision (`dereth-primitives`, `dereth-physics`), the panels (`egui`), and the window
 //! system (`winit`) and device (`wgpu`, `pollster`, `bytemuck`, `png`), with `toml` for the
 //! playtest characters' recipes, `serde_json` for the character files the server exports and
@@ -25,6 +29,7 @@
 
 pub mod app;
 pub mod characters;
+pub mod embedded;
 pub mod gizmo;
 pub mod gui;
 pub mod icon;

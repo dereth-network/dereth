@@ -129,7 +129,10 @@ fn parse(text: &str) -> Result<Vec<Step>, String> {
         }
         let w: Vec<&str> = line.split_whitespace().collect();
         let bad = || format!("line {}: {line}", n + 1);
-        let key = |s: Option<&&str>| s.and_then(|s| crate::keys::named(s)).ok_or_else(bad);
+        let key = |s: Option<&&str>| {
+            s.and_then(|s| auberean_client::keys::named(s))
+                .ok_or_else(bad)
+        };
         let button = |s: Option<&&str>| match s.copied() {
             Some("left") => Ok(Button::Left),
             Some("right") => Ok(Button::Right),

@@ -7,6 +7,7 @@ Add a line under **Unreleased** when a change lands that a world builder would n
 see, not how it was done.
 
 ## Unreleased
+- Play now plays the world inside the editor's own window.
 - Storekeepers can now have a shop title.
 - Every field and pet can now be edited in the editor.
 - Files you edit by hand now show in the editor at once.

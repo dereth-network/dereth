@@ -2,8 +2,8 @@
 //! sound engine's output seam.
 //!
 //! **Depends on** the sound engine's output seam (`dereth-audio`) and `cpal`. **Used by** the
-//! desktop host (`dereth-desktop`) and the second game's desktop client (`auberean-client`), each
-//! of which hands it to its mixer.
+//! desktop host (`dereth-desktop`), the second game's desktop client (`auberean-client`) and its
+//! world builder (`athenaeum-editor`), each of which hands it to its mixer.
 //!
 //! **Must never** reach a client runtime or an application half: it is a device and nothing else,
 //! so any executable can open sound with it (`cargo xtask seams`).

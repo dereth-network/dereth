@@ -43,6 +43,11 @@
 //! asks. A client that is Auberean logs in by itself as the character; the retail client is told
 //! the server, account and ticket as the launcher tells it.
 //!
+//! **The clients.** A playtest plays in our client drawn in the editor's own world view
+//! ([`Client::Editor`]: nothing is started, the editor is told how to log in, [`Launch`]), in our
+//! client as a program of its own ([`Client::Window`]), or in the retail client
+//! ([`Client::Retail`]).
+//!
 //! **Stopping** is the server's own clean stop, `stop` at its console ([`crate::stop`]), after
 //! which it keeps every character still in the world and ends; one that has not ended within
 //! [`STOP_WAIT`] is ended. It is started to stop by itself, keeping everyone, when its console's
@@ -115,6 +120,32 @@ pub fn first_port(from: u16, process: u32) -> u16 {
 #[must_use]
 pub fn account_of(name: &str) -> String {
     name.to_ascii_lowercase().replace(' ', "_")
+}
+
+/// Which client a playtest plays in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Client {
+    /// Our client, drawn in the editor's own world view.
+    Editor,
+    /// Our client as a program, in a window of its own.
+    Window,
+    /// The retail client, run from its own folder.
+    Retail,
+}
+
+/// How the editor's own client logs in and what it plays from: the server, the account and its
+/// ticket, the character, the install and the world's overlay over it, and the folders its
+/// settings and screenshots go in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Launch {
+    pub server: std::net::SocketAddr,
+    pub account: String,
+    pub password: String,
+    pub character: String,
+    pub dats: PathBuf,
+    pub overlay: Option<PathBuf>,
+    pub settings: PathBuf,
+    pub shots: PathBuf,
 }
 
 /// What starting the server and a client needs.
@@ -672,6 +703,8 @@ pub enum Event {
     Moved(u16),
     /// A client started.
     Playing,
+    /// The editor's own client is to start, logging in as this says.
+    InEditor(Launch),
     /// The server answered a `reload`.
     Reloaded(Reloaded),
     /// The server answered a command asked at its console: what it did, or why not.
@@ -686,14 +719,16 @@ pub struct Live {
     lock: Option<File>,
     server: Option<Server>,
     client: Option<Child>,
-    /// The character the client plays, while one runs, and whether it is the retail client.
+    /// The character the client plays, while one runs, and which client it is.
     playing_as: Option<String>,
-    retail: bool,
+    kind: Option<Client>,
+    /// The editor's own client plays (it is not a program the editor started).
+    in_editor: bool,
     /// Commands to ask at the console in turn.
     steps: VecDeque<Step>,
     /// A client to start once the server listens and the steps before it are done: its character,
-    /// and whether it is the retail client.
-    pending: Option<(String, bool)>,
+    /// and which client it is.
+    pending: Option<(String, Client)>,
     /// The world as last written into the playtest folder.
     written: Files,
     /// What the last start said, for the status line.
@@ -750,12 +785,13 @@ impl Live {
         self.server.as_ref().map(|s| s.port)
     }
 
-    /// Whether a client the editor started runs.
+    /// Whether a client the editor started runs, its own or a program.
     pub fn playing(&mut self) -> bool {
-        let running = match &mut self.client {
-            Some(c) => matches!(c.try_wait(), Ok(None)),
-            None => false,
-        };
+        let running = self.in_editor
+            || match &mut self.client {
+                Some(c) => matches!(c.try_wait(), Ok(None)),
+                None => false,
+            };
         if !running {
             self.playing_as = None;
         }
@@ -771,10 +807,16 @@ impl Live {
         }
     }
 
-    /// Whether the client the editor started last is the retail one.
+    /// Which client the editor started last.
     #[must_use]
-    pub fn retail(&self) -> bool {
-        self.retail
+    pub const fn client(&self) -> Option<Client> {
+        self.kind
+    }
+
+    /// Whether the editor's own client plays.
+    #[must_use]
+    pub const fn in_editor(&self) -> bool {
+        self.in_editor
     }
 
     /// Whether the server's log says character `name` is in the world.
@@ -1029,8 +1071,8 @@ impl Live {
 
     /// Start a client as character `name` once the server listens and the steps asked before
     /// this are done.
-    pub fn play_when_ready(&mut self, name: &str, retail: bool) {
-        self.pending = Some((name.to_string(), retail));
+    pub fn play_when_ready(&mut self, name: &str, client: Client) {
+        self.pending = Some((name.to_string(), client));
     }
 
     /// Type a line at the server's console.
@@ -1143,6 +1185,8 @@ impl Live {
             self.pending = None;
             self.steps.clear();
             self.lock = None;
+            // The editor's own client has no world to play in now.
+            self.in_editor = false;
             events.push(Event::Stopped(tail));
             return Ok(events);
         }
@@ -1182,9 +1226,11 @@ impl Live {
             }
         }
         if self.up() && !self.asking() {
-            if let Some((name, retail)) = self.pending.take() {
-                self.play(setup, &name, retail)?;
-                events.push(Event::Playing);
+            if let Some((name, client)) = self.pending.take() {
+                events.push(match self.play(setup, &name, client)? {
+                    Some(launch) => Event::InEditor(launch),
+                    None => Event::Playing,
+                });
             }
         }
         Ok(events)
@@ -1212,12 +1258,19 @@ impl Live {
         Ok(true)
     }
 
-    /// Start a client into the server as character `name`: ours, or the retail one with `retail`.
+    /// Start a client into the server as character `name`: the retail one, or ours as a program;
+    /// for the editor's own, nothing starts, and how it logs in is answered.
     ///
     /// # Errors
     /// No server, no such client, or it does not start.
-    pub fn play(&mut self, setup: &Setup, name: &str, retail: bool) -> Result<(), String> {
+    pub fn play(
+        &mut self,
+        setup: &Setup,
+        name: &str,
+        client: Client,
+    ) -> Result<Option<Launch>, String> {
         kill(&mut self.client);
+        self.in_editor = false;
         let port = match &self.server {
             Some(s) => s.port.to_string(),
             None => return Err("no server runs".into()),
@@ -1225,6 +1278,32 @@ impl Live {
         let account = account_of(name);
         let programs = &setup.programs;
         let run = &setup.folder;
+        if client == Client::Editor {
+            let dats = programs
+                .client_dats
+                .clone()
+                .or_else(|| programs.server_dats.clone())
+                .ok_or("no install for the client: give --client-dats <install>")?;
+            let settings = run.join("client-settings");
+            std::fs::create_dir_all(&settings).map_err(|e| e.to_string())?;
+            let overlay = setup.client_overlay(&dats)?;
+            let port = self.port().unwrap_or(0);
+            self.in_editor = true;
+            self.kind = Some(client);
+            self.playing_as = Some(name.to_string());
+            self.said = format!("Yalain on 127.0.0.1:{port}; playing as {name} in the editor");
+            return Ok(Some(Launch {
+                server: std::net::SocketAddr::from((Ipv4Addr::LOCALHOST, port)),
+                account,
+                password: TICKET.to_string(),
+                character: name.to_string(),
+                dats,
+                overlay,
+                settings,
+                shots: run.join("shots"),
+            }));
+        }
+        let retail = client == Client::Retail;
         let mut cmd = if retail {
             let exe = programs
                 .retail
@@ -1296,14 +1375,14 @@ impl Live {
         };
         stop::windowless(&mut cmd);
         let child = cmd.spawn().map_err(|e| format!("the client: {e}"))?;
-        self.retail = retail;
+        self.kind = Some(client);
         self.client = Some(child);
         self.playing_as = Some(name.to_string());
         self.said = format!(
             "Yalain on 127.0.0.1:{port}; {} client playing as {name}",
             if retail { "the retail" } else { "our" }
         );
-        Ok(())
+        Ok(None)
     }
 
     /// Start the server again on the world's `files`, every character where it stands, on the free
@@ -1316,11 +1395,12 @@ impl Live {
         let Some(port) = self.port() else {
             return Err("no server runs".into());
         };
-        let replay = match (self.playing_as(), self.pending.take()) {
-            (Some(name), _) => Some((name, self.retail)),
-            (None, waiting) => waiting,
+        let replay = match (self.playing_as(), self.pending.take(), self.kind) {
+            (Some(name), _, Some(client)) => Some((name, client)),
+            (_, waiting, _) => waiting,
         };
         kill(&mut self.client);
+        self.in_editor = false;
         self.playing_as = None;
         // Past the ports it just let go, which the system may not give again at once.
         let port = {
@@ -1336,6 +1416,10 @@ impl Live {
     /// once.
     pub fn stop_client(&mut self) {
         self.pending = None;
+        self.in_editor = false;
+        if let Some(port) = self.port() {
+            self.said = format!("Yalain on 127.0.0.1:{port}; no client plays");
+        }
         let gone = self.playing_as.take();
         kill(&mut self.client);
         if let Some(name) = gone.filter(|_| self.up()) {

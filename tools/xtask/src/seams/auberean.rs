@@ -19,8 +19,9 @@
 //! 6. **Four parts.** The client's crates use the core, their own and [`CLIENT_MAY_USE`]; the
 //!    server's the core, their own and [`SERVER_MAY_USE`] (the network's protocol and its link);
 //!    the world builder's the core, its own and
-//!    [`ATHENAEUM_MAY_USE`] (the world's drawing and the world database, never the server's game,
-//!    network, store or program: it runs Yalain as a program); a core crate's
+//!    [`ATHENAEUM_MAY_USE`] (the client's presentation, which it plays the game in its view with,
+//!    and the world database, never the server's game, network, store or program: it runs Yalain
+//!    as a program), and nothing uses the world builder's; a core crate's
 //!    tests may use the client's test kit and the server's network crate (the server double), the
 //!    server's tests the client's test kit. Nothing of the first game's uses any of them, but the
 //!    launcher's knowledge the friends stream's codec ([`OUTSIDE_MAY_USE`]). No crate
@@ -141,13 +142,22 @@ pub const CLIENT_MAY_USE: &[&str] = &["dereth-audio-out", "dereth-console", "der
 /// own. (The WebSocket endpoint and the updater both game servers run are core crates.)
 pub const SERVER_MAY_USE: &[&str] = &["dereth-network-protocol", "dereth-network-link"];
 
-/// The client's and the server's crates the world builder may use: the world's frame and its
-/// device, which it draws the world with, and the world database and the server's tables, which
+/// The client's and the server's crates the world builder may use: the client's presentation, which
+/// it draws the world with and plays the game in its view with (the world's frame and its device,
+/// the application's shell, scene and interface, the composing of a frame, the window system's keys
+/// as the shell's, and the sound device the shell plays through), and the world database and the
+/// server's tables (`yalain-world-db`, `yalain-content`: the world's data, not the server), which
 /// it reads, checks and compiles worlds with. Nothing of the server's game, network, store or
 /// program: the builder starts Yalain as a program of its own.
 pub const ATHENAEUM_MAY_USE: &[&str] = &[
     "auberean-draw",
     "auberean-gpu",
+    "auberean-shell",
+    "auberean-scene",
+    "auberean-interface",
+    "auberean-present",
+    "auberean-client",
+    "dereth-audio-out",
     "yalain-world-db",
     "yalain-content",
 ];
@@ -609,8 +619,9 @@ pub fn reports(ws: &Path) -> Vec<Report> {
             "seam: Asheron's Call 2 parts",
             parts,
             "the client, the server and the world builder use the core, their own and their \
-             reviewed lists; nothing else uses them; test kits only in tests; executables alone \
-             install a log subscriber"
+             reviewed lists (the world builder the client's presentation, never the server's \
+             game, network, store or program); nothing else uses them; test kits only in tests; \
+             executables alone install a log subscriber"
                 .to_owned(),
         ),
     ]
@@ -750,6 +761,27 @@ mod tests {
                 &[("dereth-network-protocol", false)],
                 true,
             ),
+            pkg("auberean-shell", "auberean/client/crates/shell", &[], false),
+            pkg("auberean-scene", "auberean/client/crates/scene", &[], false),
+            pkg(
+                "auberean-interface",
+                "auberean/client/crates/interface",
+                &[],
+                false,
+            ),
+            pkg(
+                "auberean-present",
+                "auberean/client/crates/present",
+                &[],
+                false,
+            ),
+            pkg(
+                "auberean-ui-game",
+                "auberean/client/crates/ui-game",
+                &[],
+                false,
+            ),
+            pkg("auberean-client", "auberean/client", &[], true),
         ]
     }
 
@@ -791,6 +823,26 @@ mod tests {
         assert!(plant(12, ("yalain", false))[0].contains("athenaeum-foundry depends on `yalain`"));
         assert!(plant(7, ("auberean-testkit", true))[0]
             .contains("athenaeum-cli depends on `auberean-testkit`"));
+        // It plays the game in its view with the client's presentation, and no more of the
+        // client's than that list.
+        for d in [
+            "auberean-shell",
+            "auberean-scene",
+            "auberean-interface",
+            "auberean-present",
+            "auberean-client",
+        ] {
+            assert!(plant(10, (d, false)).is_empty(), "{d}");
+        }
+        assert!(plant(10, ("auberean-ui-game", false))[0]
+            .contains("athenaeum-editor depends on `auberean-ui-game`"));
+        // Nothing uses the world builder's crates: not the client, the server or the core.
+        assert!(plant(3, ("athenaeum-foundry", false))[0]
+            .contains("auberean-draw depends on `athenaeum-foundry`"));
+        assert!(plant(6, ("athenaeum-foundry", false))[0]
+            .contains("yalain depends on `athenaeum-foundry`"));
+        assert!(plant(0, ("athenaeum-editor", false))[0]
+            .contains("auberean-dat depends on `athenaeum-editor`"));
         // The server speaks the network with its shared crates; the client and the world builder
         // do not take them in, and no other crate of the network's.
         assert!(plant(3, ("dereth-network-link", false))[0]

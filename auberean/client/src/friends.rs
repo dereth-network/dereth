@@ -30,6 +30,14 @@ pub struct FriendsSocket {
     open: Option<Open>,
 }
 
+impl std::fmt::Debug for FriendsSocket {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FriendsSocket")
+            .field("open", &self.open.is_some())
+            .finish()
+    }
+}
+
 impl FriendsSocket {
     /// Connect to `host` and `port` (closing a connection open before).
     pub fn dial(&mut self, host: &str, port: u16) {

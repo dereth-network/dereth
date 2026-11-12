@@ -1,7 +1,8 @@
 //! Putting a frame in the window: the world drawn by the world's device into a picture, laid into
-//! the window's picture, and the panels' triangles drawn over it (egui's meshes, each cut to its
-//! clip rectangle, over egui's textures). The composed picture is copied to the window, and can
-//! be saved (a screenshot of exactly the window's drawing).
+//! the window's picture (or, while the game plays in the editor, the game's picture laid into the
+//! world view), and the panels' triangles drawn over it (egui's meshes, each cut to its clip
+//! rectangle, over egui's textures). The composed picture is copied to the window, and can be
+//! saved (a screenshot of exactly the window's drawing).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -422,12 +423,14 @@ impl Presenter {
         self.hidden
     }
 
-    /// Draw a frame: the world (when there is one) and the panels over it, into the window; with
-    /// `shot`, also save the window's picture there.
+    /// Draw a frame: the world (when there is one), or the game's picture laid into its part of
+    /// the window (left, top, width and height in pixels), and the panels over it, into the
+    /// window; with `shot`, also save the window's picture there.
     #[allow(clippy::too_many_lines)] // one pass, in drawing order
     pub fn present(
         &mut self,
         world: Option<&Frame>,
+        game: Option<(&wgpu::Texture, [u32; 4])>,
         mut panels: egui::FullOutput,
         ctx: &egui::Context,
         load: &mut dyn FnMut(u32) -> Option<Image>,
@@ -506,6 +509,10 @@ impl Presenter {
         let composed = self.composed(w, h);
         let composed_view = composed.create_view(&wgpu::TextureViewDescriptor::default());
         let world_group = world_view.as_ref().map(|v| self.group(v, &self.linear));
+        let game_group = game.map(|(t, rect)| {
+            let view = t.create_view(&wgpu::TextureViewDescriptor::default());
+            (self.group(&view, &self.linear), rect)
+        });
         let composed_group = self.group(&composed_view, &self.nearest);
         let device = self.renderer.device();
         let mut encoder =
@@ -537,6 +544,17 @@ impl Presenter {
                 pass.set_pipeline(&self.blit);
                 pass.set_bind_group(1, g, &[]);
                 pass.draw(0..3, 0..1);
+            }
+            #[allow(clippy::cast_precision_loss)] // a window's pixels
+            if let Some((g, [x, y, gw, gh])) = &game_group {
+                let fits = x + gw <= w && y + gh <= h && *gw > 0 && *gh > 0;
+                if fits {
+                    pass.set_viewport(*x as f32, *y as f32, *gw as f32, *gh as f32, 0.0, 1.0);
+                    pass.set_pipeline(&self.blit);
+                    pass.set_bind_group(1, g, &[]);
+                    pass.draw(0..3, 0..1);
+                    pass.set_viewport(0.0, 0.0, w as f32, h as f32, 0.0, 1.0);
+                }
             }
             if let (Some(vb), Some(ib)) = (&vbuf, &ibuf) {
                 pass.set_pipeline(&self.mesh);

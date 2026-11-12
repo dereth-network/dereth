@@ -77,9 +77,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod friends;
 mod icon;
-mod keys;
 mod local;
 mod perf;
 mod player_count;
@@ -91,6 +89,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
+use auberean_client::{friends, keys};
 use auberean_client_sdk::dat::locate::{install_dats, DatName};
 use auberean_client_sdk::dat::overlay::WorldOverlay;
 use auberean_client_sdk::dat::DatFile;

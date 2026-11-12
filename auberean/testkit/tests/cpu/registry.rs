@@ -103,8 +103,9 @@ fn every_station_is_a_test_path_in_its_tier() {
             b.id,
             b.station
         );
-        // A test of an executable's own private parts lives in that executable, on the cpu tier.
-        if b.tier == Tier::Cpu && parts[1].starts_with("bin.") {
+        // A test of an executable's own private parts lives in that executable, and of a
+        // library's in that library, on the cpu tier.
+        if b.tier == Tier::Cpu && (parts[1].starts_with("bin.") || parts[1] == "lib") {
             continue;
         }
         assert_eq!(parts[1], b.tier.binary(), "{}: {}", b.id, b.station);

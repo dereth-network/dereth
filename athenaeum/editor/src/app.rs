@@ -15,7 +15,8 @@
 //! **The panels.** Along the top: save, undo and redo; what to place (a person, an object, a camp
 //! or a place, and its template) and the button that places it at the next click on the ground;
 //! Find rows, Map, and Pets (the world's kinds of pet); the moment of the day; and play ([`play`]:
-//! the playtest character, Characters, Live, Play, To camera, Restart). On the left, the rows near
+//! the playtest character, Characters, Live, Play in the world view (and in a window of its own),
+//! To camera, Restart). On the left, the rows near
 //! the camera, each with the letter of where it came from (C recorded sessions, D the
 //! data files, R a rule, A a person), and the database's rows the world takes away. On the right,
 //! the selected row: where it came from and what it was, its fields, which are changed there.
@@ -293,6 +294,15 @@ pub struct Editor<'w> {
     pub status: String,
     pub live: Live,
     pub programs: Programs,
+    /// The game playing in the world view, while one does; and whether it plays its sound.
+    pub game: Option<crate::embedded::Embedded>,
+    pub sound: bool,
+    /// The world view's rectangle, in the panels' points, as the program last laid it out.
+    pub world_rect: Option<egui::Rect>,
+    /// The floating windows over the world view hidden while the game plays there, by title, and
+    /// whether they were looked for since it started.
+    play_hidden: Vec<&'static str>,
+    hid_for_play: bool,
     /// The window, pixels; and pixels to the panels' point.
     pub size: (u32, u32),
     pub scale: f32,
@@ -587,6 +597,11 @@ impl<'w> Editor<'w> {
             status: String::new(),
             live: Live::default(),
             programs,
+            game: None,
+            sound: true,
+            world_rect: None,
+            play_hidden: Vec::new(),
+            hid_for_play: false,
             size: (1280, 800),
             scale: 1.0,
             near: Vec::new(),
@@ -1704,6 +1719,7 @@ impl<'w> Editor<'w> {
             self.fly_to(&item);
             return;
         }
+        self.bring_back(play::FILE_WINDOW);
         self.viewing = Some((p.file.clone(), p.line));
         self.viewing_scrolled = false;
     }
@@ -1863,6 +1879,9 @@ impl<'w> Editor<'w> {
 
     /// Open the Find window, or close it.
     pub fn toggle_row_finder(&mut self) {
+        if self.bring_back("Find") {
+            return;
+        }
         self.finding_rows = match self.finding_rows.take() {
             Some(_) => None,
             None => Some(String::new()),
@@ -3498,6 +3517,7 @@ impl<'w> Editor<'w> {
                         .on_hover_text("a template by its name")
                         .clicked()
                     {
+                        self.bring_back("Templates");
                         self.finding = Some(self.finding.take().unwrap_or(self.last_find.clone()));
                         self.focus_find = true;
                     }
@@ -3530,6 +3550,7 @@ impl<'w> Editor<'w> {
                     .button("Map")
                     .on_hover_text("the whole world: click to go there (M)")
                     .clicked()
+                    && !self.bring_back("Map")
                 {
                     self.map_open = !self.map_open;
                 }
@@ -3537,6 +3558,7 @@ impl<'w> Editor<'w> {
                     .button("Pets")
                     .on_hover_text("the world's kinds of pet and what each summoning skill allows")
                     .clicked()
+                    && !self.bring_back("Pets")
                 {
                     self.pets.open = !self.pets.open;
                 }
@@ -3586,14 +3608,28 @@ impl<'w> Editor<'w> {
             .default_size(330.0)
             .show(ui, |ui| self.inspector(ui));
         let ctx = ui.ctx().clone();
-        self.finder(&ctx);
-        self.row_finder(&ctx);
-        self.map_window(&ctx);
-        self.characters_window(&ctx);
-        self.pets_window(&ctx);
+        self.hide_for_play(&ctx);
+        let shown = |s: &Self, title: &str| !s.play_hidden.contains(&title);
+        if shown(self, "Templates") {
+            self.finder(&ctx);
+        }
+        if shown(self, "Find") {
+            self.row_finder(&ctx);
+        }
+        if shown(self, "Map") {
+            self.map_window(&ctx);
+        }
+        if shown(self, "Characters") {
+            self.characters_window(&ctx);
+        }
+        if shown(self, "Pets") {
+            self.pets_window(&ctx);
+        }
         self.closing_window(&ctx);
         self.clashes_window(&ctx);
-        self.file_window(&ctx);
+        if shown(self, play::FILE_WINDOW) {
+            self.file_window(&ctx);
+        }
     }
 
     fn status_panel(&mut self, ui: &mut egui::Ui, serving: bool) {

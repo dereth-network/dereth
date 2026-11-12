@@ -977,7 +977,7 @@ pub static ROWS: &[Behaviour] = &[
         since: THIS_CLIENT,
         divergence: "CD2-mac-command-is-control-for-the-clipboard",
         evidence: Evidence::Private("AC2-EVID-MAC-COMMAND-CLIPBOARD"),
-        station: "auberean-client::bin.auberean::keys::tests::command_with_v_c_or_x_pastes_copies_or_cuts_on_a_mac",
+        station: "auberean-client::lib::keys::tests::command_with_v_c_or_x_pastes_copies_or_cuts_on_a_mac",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -987,7 +987,7 @@ pub static ROWS: &[Behaviour] = &[
                and no letter is typed with them.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-INPUT-CTRL-CHARACTERS"),
-        station: "auberean-client::bin.auberean::keys::tests::ctrl_with_a_letter_types_its_control_character",
+        station: "auberean-client::lib::keys::tests::ctrl_with_a_letter_types_its_control_character",
         tier: Tier::Cpu,
     },
     behaviour! {

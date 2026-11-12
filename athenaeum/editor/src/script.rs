@@ -21,7 +21,14 @@
 //! export NAME                        write a character to the world's build/characters
 //! import FILE [NAME]                 bring a character in from another world's file
 //! characters                         open or close the Characters window
-//! live | play | play-retail | stop   the editor's own Yalain, and a client in it (serve: live)
+//! live | stop                       the editor's own Yalain, started and stopped (serve: live)
+//! play | play-window | play-retail   a client in it: ours in the world view, ours in a window of
+//!                                    its own, or the retail client
+//! stop-play                          the game in the world view stops; Yalain plays on
+//! until-in-world SECONDS             wait until the game in the world view is in the world, at
+//!                                    most that long
+//! game-key KEY down|up               a key of the game's (`W`, `Space`, `Numpad5`) goes down / up
+//!                                    in the game in the world view, whatever has the keyboard
 //! teleport                           send the character in the world to the camera
 //! restart                            start Yalain again, the character where it stands
 //! point X Y                          the pointer to a pixel of the window
@@ -41,6 +48,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::characters::{Recipe, Start, RACES, SEXES};
+use crate::live::Client;
 
 /// One step.
 #[derive(Debug, Clone, PartialEq)]
@@ -61,7 +69,12 @@ pub enum Step {
     Check,
     Find(String),
     Serve,
-    Play(bool),
+    Play(Client),
+    StopPlay,
+    /// Wait until the game in the world view is in the world, at most this many seconds.
+    UntilInWorld(f64),
+    /// A key of the game's by its name, down or up.
+    GameKey(String, bool),
     Stop,
     Restart,
     Character(Recipe),
@@ -182,8 +195,12 @@ pub fn parse(text: &str, dir: &Path) -> Result<Vec<Step>, String> {
             ["check"] => Step::Check,
             ["find", w @ ..] => Step::Find(w.join(" ")),
             ["serve" | "live"] => Step::Serve,
-            ["play"] => Step::Play(false),
-            ["play-retail"] => Step::Play(true),
+            ["play"] => Step::Play(Client::Editor),
+            ["play-window"] => Step::Play(Client::Window),
+            ["play-retail"] => Step::Play(Client::Retail),
+            ["stop-play"] => Step::StopPlay,
+            ["until-in-world", s] => Step::UntilInWorld(num(s).map_err(bad)?.into()),
+            ["game-key", k, d @ ("down" | "up")] => Step::GameKey((*k).to_string(), *d == "down"),
             ["stop"] => Step::Stop,
             ["restart"] => Step::Restart,
             ["teleport"] => Step::Teleport,
@@ -247,6 +264,10 @@ pub struct Script {
     steps: Vec<Step>,
     next: usize,
     until: f64,
+    /// Until when the steps wait for the game in the world view to be in the world.
+    held: Option<f64>,
+    /// Whether the game in the world view is in the world, as the program last said.
+    pub in_world: bool,
 }
 
 impl Script {
@@ -260,20 +281,37 @@ impl Script {
             steps: parse(&text, shots)?,
             next: 0,
             until: 0.0,
+            held: None,
+            in_world: false,
         })
     }
 
-    /// The steps due at `now` seconds: every step up to and including the next wait.
+    /// The steps due at `now` seconds: every step up to and including the next wait (or the next
+    /// wait for the game to be in the world, held until [`Script::in_world`] says so, or past its
+    /// time).
     pub fn due(&mut self, now: f64) -> Vec<Step> {
         let mut out = Vec::new();
         if now < self.until {
             return out;
+        }
+        if let Some(by) = self.held {
+            if !self.in_world && now < by {
+                return out;
+            }
+            self.held = None;
         }
         while let Some(s) = self.steps.get(self.next).cloned() {
             self.next += 1;
             if let Step::Wait(w) = s {
                 self.until = now + w;
                 break;
+            }
+            if let Step::UntilInWorld(w) = s {
+                if !self.in_world {
+                    self.held = Some(now + w);
+                    break;
+                }
+                continue;
             }
             let stop = matches!(s, Step::Shot(_));
             out.push(s);

@@ -6,11 +6,12 @@
 //! picture in front and the overlay's rectangles composed into the window's picture, which is
 //! copied to the surface. The world's and portal space's pictures are laid as they stand, their
 //! alpha the frame's own. The composed picture can be saved (a screenshot of exactly the window's
-//! drawing).
+//! drawing). The composing alone ([`Composer`]) needs no surface: a host that draws the game into
+//! a part of a picture of its own takes the composed picture from it.
 //!
 //! **Depends on** the world's device (`auberean-gpu`), a frame's pictures (`auberean-draw`) and
 //! what a frame shows (`auberean-shell`). **Used by** the hosts that have a surface: the desktop
-//! client and the browser client.
+//! client and the browser client; and by the world builder, which draws the game in its view.
 //!
 //! **Must never** make its surface or name what it is on: the host brings it, a window's or a
 //! canvas's, and asks for its device in the way its platform can wait for one.
@@ -138,21 +139,13 @@ struct KeptCanvas {
     bgra: Vec<u8>,
 }
 
-/// The window's device and what it keeps between frames.
-pub struct Presenter {
-    _instance: wgpu::Instance,
-    surface: wgpu::Surface<'static>,
-    config: wgpu::SurfaceConfiguration,
-    /// The ways the surface can take pictures to the screen.
-    present_modes: Vec<wgpu::PresentMode>,
-    pub renderer: Renderer,
+/// What lays a frame's pictures into one, on the world's device, and what it keeps between
+/// frames: the interface's pictures, the overlay's, and the picture it composes. A [`Presenter`]
+/// shows that picture on its surface; a host drawing the game into a picture of its own (an
+/// editor's view) takes it from [`Composer::compose`].
+pub struct Composer {
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
-    to_window: wgpu::RenderPipeline,
-    /// Into the window through the brightness's table of levels.
-    to_window_ramped: wgpu::RenderPipeline,
-    /// The brightness shown and its table of levels, while it changes the picture.
-    ramp: Option<(f32, wgpu::BindGroup)>,
     world: wgpu::RenderPipeline,
     quads: wgpu::RenderPipeline,
     /// A picture of the world's laid over by its rectangle's alpha alone (portal space).
@@ -169,6 +162,30 @@ pub struct Presenter {
     composed: Option<(wgpu::Texture, u32, u32)>,
     /// The overlay's vertices.
     overlay_vertices: Option<wgpu::Buffer>,
+}
+
+impl std::fmt::Debug for Composer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Composer")
+            .field("pictures", &self.pictures.len())
+            .finish_non_exhaustive()
+    }
+}
+
+/// The window's device and what it keeps between frames.
+pub struct Presenter {
+    _instance: wgpu::Instance,
+    surface: wgpu::Surface<'static>,
+    config: wgpu::SurfaceConfiguration,
+    /// The ways the surface can take pictures to the screen.
+    present_modes: Vec<wgpu::PresentMode>,
+    pub renderer: Renderer,
+    composer: Composer,
+    to_window: wgpu::RenderPipeline,
+    /// Into the window through the brightness's table of levels.
+    to_window_ramped: wgpu::RenderPipeline,
+    /// The brightness shown and its table of levels, while it changes the picture.
+    ramp: Option<(f32, wgpu::BindGroup)>,
     /// The size each picture is drawn at, scaled to the window.
     drawn: (u32, u32),
     /// The last frame found the window can't be seen.
@@ -229,58 +246,59 @@ fn upload(
     t.create_view(&wgpu::TextureViewDescriptor::default())
 }
 
-impl Presenter {
-    /// The device for `surface`, `size` pixels, on `instance`'s hardware adapter. A host whose
-    /// platform can block for the device; one that cannot asks for it itself and calls
-    /// [`Self::on`].
-    ///
-    /// # Errors
-    /// No hardware adapter, or no configuration for the surface.
-    pub fn new(
-        instance: wgpu::Instance,
-        surface: wgpu::Surface<'static>,
-        size: (u32, u32),
-        antialiasing: bool,
-    ) -> Result<Self, String> {
-        let renderer = Renderer::antialiased(&instance, Some(&surface), antialiasing)
-            .map_err(|e| e.to_string())?;
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            force_fallback_adapter: false,
-            compatible_surface: Some(&surface),
-            ..Default::default()
-        }))
-        .map_err(|e| format!("no adapter for the window: {e}"))?;
-        Self::on(instance, surface, &adapter, renderer, size)
-    }
+/// The shader module every picture is laid with.
+fn shader(device: &wgpu::Device) -> wgpu::ShaderModule {
+    device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("present"),
+        source: wgpu::ShaderSource::Wgsl(SHADER.into()),
+    })
+}
 
-    /// The device for `surface`, `size` pixels, over `renderer`, which `adapter` made.
-    ///
-    /// # Errors
-    /// No configuration for the surface.
-    pub fn on(
-        instance: wgpu::Instance,
-        surface: wgpu::Surface<'static>,
-        adapter: &wgpu::Adapter,
-        renderer: Renderer,
-        size: (u32, u32),
-    ) -> Result<Self, String> {
-        let caps = surface.get_capabilities(adapter);
-        let mut config = surface
-            .get_default_config(adapter, size.0.max(1), size.1.max(1))
-            .ok_or("the surface has no configuration for this adapter")?;
-        // Colors are written as computed, with no conversion, as the world's device writes them.
-        if let Some(f) = caps.formats.iter().find(|f| !f.is_srgb()) {
-            config.format = *f;
-        }
-        config.present_mode = present_mode(&caps.present_modes, false, true);
-        let present_modes = caps.present_modes.clone();
+/// A pipeline laying a picture into one of `format`, by the vertex and fragment stages of
+/// `module` named in `stages`.
+fn pipeline(
+    device: &wgpu::Device,
+    module: &wgpu::ShaderModule,
+    layout: &wgpu::PipelineLayout,
+    (vs, fs): (&str, &str),
+    format: wgpu::TextureFormat,
+    blend: Option<wgpu::BlendState>,
+    buffers: &[Option<wgpu::VertexBufferLayout<'_>>],
+) -> wgpu::RenderPipeline {
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some(fs),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module,
+            entry_point: Some(vs),
+            compilation_options: Default::default(),
+            buffers,
+        },
+        fragment: Some(wgpu::FragmentState {
+            module,
+            entry_point: Some(fs),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend,
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview_mask: None,
+        cache: None,
+    })
+}
+
+impl Composer {
+    /// What composes frames on `renderer`'s device.
+    #[must_use]
+    pub fn new(renderer: &Renderer) -> Self {
         let device = renderer.device();
-        surface.configure(device, &config);
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("present"),
-            source: wgpu::ShaderSource::Wgsl(SHADER.into()),
-        });
+        let module = shader(device);
+
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
             entries: &[
@@ -307,36 +325,16 @@ impl Presenter {
             bind_group_layouts: &[Some(&layout)],
             immediate_size: 0,
         });
-        let pipeline = |vs: &str,
-                        fs: &str,
-                        format: wgpu::TextureFormat,
-                        blend: Option<wgpu::BlendState>,
-                        buffers: &[Option<wgpu::VertexBufferLayout<'_>>]| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(fs),
-                layout: Some(&pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &module,
-                    entry_point: Some(vs),
-                    compilation_options: Default::default(),
-                    buffers,
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &module,
-                    entry_point: Some(fs),
-                    compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format,
-                        blend,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                primitive: wgpu::PrimitiveState::default(),
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                multiview_mask: None,
-                cache: None,
-            })
+        let pipeline = |stages, blend, buffers: &[Option<wgpu::VertexBufferLayout<'_>>]| {
+            pipeline(
+                device,
+                &module,
+                &pipeline_layout,
+                stages,
+                COMPOSED,
+                blend,
+                buffers,
+            )
         };
         const ATTRS: [wgpu::VertexAttribute; 3] =
             wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Float32x4];
@@ -345,59 +343,12 @@ impl Presenter {
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &ATTRS,
         };
-        let to_window = pipeline("vs_full", "fs_opaque", config.format, None, &[]);
-        let ramped_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[Some(&layout), Some(&layout)],
-            immediate_size: 0,
-        });
-        let to_window_ramped = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("fs_ramp"),
-            layout: Some(&ramped_layout),
-            vertex: wgpu::VertexState {
-                module: &module,
-                entry_point: Some("vs_full"),
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &module,
-                entry_point: Some("fs_ramp"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
-        let world = pipeline("vs_full", "fs_opaque", COMPOSED, None, &[]);
-        let quads = pipeline(
-            "vs_quad",
-            "fs_quad",
-            COMPOSED,
-            Some(wgpu::BlendState::ALPHA_BLENDING),
-            &[Some(quad_layout.clone())],
-        );
-        let laid = pipeline(
-            "vs_quad",
-            "fs_laid",
-            COMPOSED,
-            Some(wgpu::BlendState::ALPHA_BLENDING),
-            &[Some(quad_layout)],
-        );
-        let canvas = pipeline(
-            "vs_full",
-            "fs_quad",
-            COMPOSED,
-            Some(wgpu::BlendState::ALPHA_BLENDING),
-            &[],
-        );
+        let blend = Some(wgpu::BlendState::ALPHA_BLENDING);
+        let world = pipeline(("vs_full", "fs_opaque"), None, &[]);
+        let quads = pipeline(("vs_quad", "fs_quad"), blend, &[Some(quad_layout.clone())]);
+        let laid = pipeline(("vs_quad", "fs_laid"), blend, &[Some(quad_layout)]);
+        let canvas = pipeline(("vs_full", "fs_quad"), blend, &[]);
+
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
@@ -412,20 +363,9 @@ impl Presenter {
             &[255; 4],
             renderer.pictures(),
         );
-        Ok(Self {
-            _instance: instance,
-            surface,
-            drawn: (config.width, config.height),
-            hidden: false,
-            keep_shape: false,
-            config,
-            present_modes,
-            renderer,
+        Self {
             layout,
             sampler,
-            to_window,
-            to_window_ramped,
-            ramp: None,
             world,
             quads,
             laid,
@@ -436,71 +376,38 @@ impl Presenter {
             pictures: HashMap::new(),
             composed: None,
             overlay_vertices: None,
+        }
+    }
+
+    fn bind(&self, device: &wgpu::Device, view: &wgpu::TextureView) -> wgpu::BindGroup {
+        self.bind_with(device, view, &self.sampler)
+    }
+
+    fn bind_with(
+        &self,
+        device: &wgpu::Device,
+        view: &wgpu::TextureView,
+        sampler: &wgpu::Sampler,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &self.layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+            ],
         })
-    }
-
-    /// How pictures reach the screen: a window waits for the display's refresh; full screen as
-    /// asked, its back buffers one, or two with triple buffering.
-    // D2-09870
-    pub fn set_presentation(&mut self, full_screen: bool, triple_buffering: bool, sync: bool) {
-        self.config.present_mode = present_mode(&self.present_modes, full_screen, sync);
-        self.config.desired_maximum_frame_latency = if !full_screen || triple_buffering {
-            2
-        } else {
-            1
-        };
-        self.surface.configure(self.renderer.device(), &self.config);
-    }
-
-    /// The window's drawing area changed: the pictures are drawn at its size until told otherwise.
-    pub fn resize(&mut self, width: u32, height: u32) {
-        if width == 0 || height == 0 {
-            return;
-        }
-        self.config.width = width;
-        self.config.height = height;
-        self.drawn = (width, height);
-        self.surface.configure(self.renderer.device(), &self.config);
-    }
-
-    /// Draw each picture at this size, and scale it to fill the window.
-    pub fn draw_at(&mut self, width: u32, height: u32) {
-        if width != 0 && height != 0 {
-            self.drawn = (width, height);
-        }
-    }
-
-    /// Show each picture at its own shape in the window's middle, black bars around it, or filling
-    /// the window whatever its shape.
-    pub fn keep_shape(&mut self, keep: bool) {
-        self.keep_shape = keep;
-    }
-
-    fn bind(&self, view: &wgpu::TextureView) -> wgpu::BindGroup {
-        self.bind_with(view, &self.sampler)
-    }
-
-    fn bind_with(&self, view: &wgpu::TextureView, sampler: &wgpu::Sampler) -> wgpu::BindGroup {
-        self.renderer
-            .device()
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &self.layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(sampler),
-                    },
-                ],
-            })
     }
 
     fn picture(
         &mut self,
+        renderer: &Renderer,
         id: u32,
         load: &mut dyn FnMut(u32) -> Option<Image>,
     ) -> Option<Arc<wgpu::TextureView>> {
@@ -509,12 +416,12 @@ impl Presenter {
         }
         let v = load(id).map(|img| {
             Arc::new(upload(
-                self.renderer.device(),
-                self.renderer.queue(),
+                renderer.device(),
+                renderer.queue(),
                 img.width,
                 img.height,
                 &img.bgra,
-                self.renderer.pictures(),
+                renderer.pictures(),
             ))
         });
         self.pictures.insert(id, v.clone());
@@ -522,7 +429,12 @@ impl Presenter {
     }
 
     /// One of the interface's pictures on the device, uploaded only when it changed.
-    fn canvas_view(&mut self, slot: usize, c: &Canvas) -> Option<wgpu::TextureView> {
+    fn canvas_view(
+        &mut self,
+        renderer: &Renderer,
+        slot: usize,
+        c: &Canvas,
+    ) -> Option<wgpu::TextureView> {
         if c.width == 0 || c.height == 0 || c.bgra.len() != (c.width * c.height * 4) as usize {
             return None;
         }
@@ -530,23 +442,20 @@ impl Presenter {
             .as_ref()
             .is_some_and(|k| k.width == c.width && k.height == c.height);
         if !same_size {
-            let texture = self
-                .renderer
-                .device()
-                .create_texture(&wgpu::TextureDescriptor {
-                    label: Some("interface"),
-                    size: wgpu::Extent3d {
-                        width: c.width,
-                        height: c.height,
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: self.renderer.pictures().format(),
-                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                    view_formats: &[],
-                });
+            let texture = renderer.device().create_texture(&wgpu::TextureDescriptor {
+                label: Some("interface"),
+                size: wgpu::Extent3d {
+                    width: c.width,
+                    height: c.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: renderer.pictures().format(),
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
             self.canvases[slot] = Some(KeptCanvas {
                 revision: c.revision,
                 width: c.width,
@@ -570,11 +479,11 @@ impl Presenter {
                     height: c.height,
                 }]
             };
-            let pictures = self.renderer.pictures();
+            let pictures = renderer.pictures();
             for s in &spans {
                 let start = ((s.y * c.width + s.x) * 4) as usize;
                 let end = (((s.y + s.height - 1) * c.width + s.x + s.width) * 4) as usize;
-                self.renderer.queue().write_texture(
+                renderer.queue().write_texture(
                     wgpu::TexelCopyTextureInfo {
                         texture: &kept.texture,
                         mip_level: 0,
@@ -606,61 +515,34 @@ impl Presenter {
         )
     }
 
-    fn composed(&mut self, w: u32, h: u32) -> wgpu::Texture {
+    fn composed(&mut self, device: &wgpu::Device, w: u32, h: u32) -> wgpu::Texture {
         if let Some((t, cw, ch)) = &self.composed {
             if *cw == w && *ch == h {
                 return t.clone();
             }
         }
-        let t = self
-            .renderer
-            .device()
-            .create_texture(&wgpu::TextureDescriptor {
-                label: Some("composed"),
-                size: wgpu::Extent3d {
-                    width: w,
-                    height: h,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: COMPOSED,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING
-                    | wgpu::TextureUsages::COPY_SRC,
-                view_formats: &[],
-            });
+        let t = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("composed"),
+            size: wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: COMPOSED,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
         self.composed = Some((t.clone(), w, h));
         t
     }
 
-    /// The screen's brightness, which shows only in a full screen and not in a screenshot: `None`
-    /// in a window. No brightness leaves the picture as it stands.
-    // D2-10524
-    pub fn set_brightness(&mut self, brightness: Option<f32>) {
-        let b = brightness.filter(|b| *b != 0.0);
-        if b == self.ramp.as_ref().map(|(at, _)| *at) {
-            return;
-        }
-        self.ramp = b.map(|b| {
-            // 16 bits to 8, in every channel of the table's texel.
-            let texels = auberean_draw::quality::brightness_ramp(b)
-                .map(|level| [u8::try_from((u32::from(level) + 128) / 257).unwrap_or(u8::MAX); 4]);
-            let view = upload(
-                self.renderer.device(),
-                self.renderer.queue(),
-                256,
-                1,
-                texels.as_flattened(),
-                self.renderer.pictures(),
-            );
-            (b, self.bind(&view))
-        });
-    }
-
     /// The overlay's vertices on the device, in a buffer kept while they fit it.
-    fn overlay_buffer(&mut self, verts: &[QuadVertex]) -> wgpu::Buffer {
+    fn overlay_buffer(&mut self, renderer: &Renderer, verts: &[QuadVertex]) -> wgpu::Buffer {
         let bytes: &[u8] = bytemuck::cast_slice(verts);
         let fits = self
             .overlay_vertices
@@ -669,48 +551,41 @@ impl Presenter {
             .cloned();
         let buffer = fits.unwrap_or_else(|| {
             let size = (bytes.len() as u64).next_power_of_two().max(4096);
-            self.renderer.note_work(|w| {
+            renderer.note_work(|w| {
                 w.buffers += 1;
                 w.buffer_bytes += size;
             });
-            let made = self
-                .renderer
-                .device()
-                .create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("overlay"),
-                    size,
-                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                });
+            let made = renderer.device().create_buffer(&wgpu::BufferDescriptor {
+                label: Some("overlay"),
+                size,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
             self.overlay_vertices = Some(made.clone());
             made
         });
-        self.renderer.queue().write_buffer(&buffer, 0, bytes);
+        renderer.queue().write_buffer(&buffer, 0, bytes);
         buffer
     }
 
-    /// Whether the last frame found the window can't be seen, so nothing waited for the display.
-    #[must_use]
-    pub fn hidden(&self) -> bool {
-        self.hidden
-    }
-
-    /// Draw a frame: the world (when there is one), portal space laid over it (with how much of
-    /// the way), a veil over both, and the overlay over all, into the window; with `shot`, also
-    /// save the window's picture there.
+    /// Compose a frame into a picture `size` pixels: the world (when there is one), portal space
+    /// laid over it (with how much of the way), a veil over both, the interface's pictures and its
+    /// viewports' scenes, and the overlay over all, drawn by `renderer`. The work is recorded in
+    /// `encoder`: the picture holds the frame once that is submitted.
     #[allow(clippy::too_many_arguments)]
-    pub fn present(
+    pub fn compose(
         &mut self,
+        renderer: &mut Renderer,
+        (w, h): (u32, u32),
         world: Option<&Frame>,
         portal: Option<(&Frame, f32)>,
         veil: Option<[f32; 4]>,
         overlay: &Overlay,
         views: &[ViewFrame],
         load: &mut dyn FnMut(u32) -> Option<Image>,
-        shot: Option<&Path>,
-    ) {
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> wgpu::Texture {
         let mut lap = auberean_gpu::Lap::start();
-        let (w, h) = self.drawn;
         // A screen laid out at another size shows at its own proportions in the window's middle:
         // its viewports scale and move with it.
         let area = overlay
@@ -733,7 +608,7 @@ impl Presenter {
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let (vw, vh) = ((r - l).round() as u32, (b - t).round() as u32);
                 (vw > 0 && vh > 0).then(|| {
-                    let tex = self.renderer.draw_laid_over(&v.frame, vw, vh, load);
+                    let tex = renderer.draw_laid_over(&v.frame, vw, vh, load);
                     (
                         [l, t, r, b],
                         v.under,
@@ -743,13 +618,13 @@ impl Presenter {
             })
             .collect();
         let world_view = world.map(|f| {
-            self.renderer
+            renderer
                 .draw(f, w, h, load)
                 .create_view(&wgpu::TextureViewDescriptor::default())
         });
         let portal_view = portal.map(|(f, a)| {
             (
-                self.renderer
+                renderer
                     .draw(f, w, h, load)
                     .create_view(&wgpu::TextureViewDescriptor::default()),
                 a,
@@ -759,16 +634,16 @@ impl Presenter {
         let behind = overlay
             .behind
             .as_deref()
-            .and_then(|c| self.canvas_view(0, c));
+            .and_then(|c| self.canvas_view(renderer, 0, c));
         let middle = overlay
             .middle
             .as_deref()
-            .and_then(|c| self.canvas_view(2, c));
+            .and_then(|c| self.canvas_view(renderer, 2, c));
         let front = overlay
             .front
             .as_deref()
-            .and_then(|c| self.canvas_view(1, c));
-        let composed = self.composed(w, h);
+            .and_then(|c| self.canvas_view(renderer, 1, c));
+        let composed = self.composed(renderer.device(), w, h);
         let composed_view = composed.create_view(&wgpu::TextureViewDescriptor::default());
         // The overlay's vertices, in runs of one picture each.
         let mut verts: Vec<QuadVertex> = Vec::with_capacity(overlay.quads.len() * 6);
@@ -776,7 +651,7 @@ impl Presenter {
         #[allow(clippy::cast_precision_loss)]
         let (fw, fh) = (w as f32, h as f32);
         for q in &overlay.quads {
-            let tex = q.picture.and_then(|id| self.picture(id, load));
+            let tex = q.picture.and_then(|id| self.picture(renderer, id, load));
             if q.picture.is_some() && tex.is_none() {
                 continue;
             }
@@ -857,13 +732,15 @@ impl Presenter {
         if let Some(c) = veil {
             full(&mut verts, c);
         }
-        let portal_group = portal_view.as_ref().map(|(v, _)| self.bind(v));
+        let portal_group = portal_view
+            .as_ref()
+            .map(|(v, _)| self.bind(renderer.device(), v));
         let view_groups: Vec<wgpu::BindGroup> = view_pictures
             .iter()
-            .map(|(_, _, v)| self.bind_with(v, &self.nearest))
+            .map(|(_, _, v)| self.bind_with(renderer.device(), v, &self.nearest))
             .collect();
-        let buffer = (!verts.is_empty()).then(|| self.overlay_buffer(&verts));
-        let world_group = world_view.as_ref().map(|v| self.bind(v));
+        let buffer = (!verts.is_empty()).then(|| self.overlay_buffer(renderer, &verts));
+        let world_group = world_view.as_ref().map(|v| self.bind(renderer.device(), v));
         // The interface's pictures texel for texel at the window's size; another screen (the
         // screens before the world, laid out on 1024 by 768) is filtered as it scales.
         let sampler_for = |c: Option<&Canvas>| match c {
@@ -873,18 +750,20 @@ impl Presenter {
         let behind_sampler = sampler_for(overlay.behind.as_deref());
         let middle_sampler = sampler_for(overlay.middle.as_deref());
         let front_sampler = sampler_for(overlay.front.as_deref());
-        let behind_group = behind.as_ref().map(|v| self.bind_with(v, behind_sampler));
-        let middle_group = middle.as_ref().map(|v| self.bind_with(v, middle_sampler));
-        let front_group = front.as_ref().map(|v| self.bind_with(v, front_sampler));
-        let white_group = self.bind(&self.white);
+        let behind_group = behind
+            .as_ref()
+            .map(|v| self.bind_with(renderer.device(), v, behind_sampler));
+        let middle_group = middle
+            .as_ref()
+            .map(|v| self.bind_with(renderer.device(), v, middle_sampler));
+        let front_group = front
+            .as_ref()
+            .map(|v| self.bind_with(renderer.device(), v, front_sampler));
+        let white_group = self.bind(renderer.device(), &self.white);
         let run_groups: Vec<Option<wgpu::BindGroup>> = runs
             .iter()
-            .map(|(t, _, _)| t.as_ref().map(|v| self.bind(v)))
+            .map(|(t, _, _)| t.as_ref().map(|v| self.bind(renderer.device(), v)))
             .collect();
-        let composed_group = self.bind(&composed_view);
-        let device = self.renderer.device();
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("compose"),
@@ -976,7 +855,206 @@ impl Presenter {
             }
         }
         let ms = lap.lap();
-        self.renderer.note_work(|w| w.ms.compose += ms);
+        renderer.note_work(|w| w.ms.compose += ms);
+        composed
+    }
+}
+
+impl Presenter {
+    /// The device for `surface`, `size` pixels, on `instance`'s hardware adapter. A host whose
+    /// platform can block for the device; one that cannot asks for it itself and calls
+    /// [`Self::on`].
+    ///
+    /// # Errors
+    /// No hardware adapter, or no configuration for the surface.
+    pub fn new(
+        instance: wgpu::Instance,
+        surface: wgpu::Surface<'static>,
+        size: (u32, u32),
+        antialiasing: bool,
+    ) -> Result<Self, String> {
+        let renderer = Renderer::antialiased(&instance, Some(&surface), antialiasing)
+            .map_err(|e| e.to_string())?;
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            force_fallback_adapter: false,
+            compatible_surface: Some(&surface),
+            ..Default::default()
+        }))
+        .map_err(|e| format!("no adapter for the window: {e}"))?;
+        Self::on(instance, surface, &adapter, renderer, size)
+    }
+
+    /// The device for `surface`, `size` pixels, over `renderer`, which `adapter` made.
+    ///
+    /// # Errors
+    /// No configuration for the surface.
+    pub fn on(
+        instance: wgpu::Instance,
+        surface: wgpu::Surface<'static>,
+        adapter: &wgpu::Adapter,
+        renderer: Renderer,
+        size: (u32, u32),
+    ) -> Result<Self, String> {
+        let caps = surface.get_capabilities(adapter);
+        let mut config = surface
+            .get_default_config(adapter, size.0.max(1), size.1.max(1))
+            .ok_or("the surface has no configuration for this adapter")?;
+        // Colors are written as computed, with no conversion, as the world's device writes them.
+        if let Some(f) = caps.formats.iter().find(|f| !f.is_srgb()) {
+            config.format = *f;
+        }
+        config.present_mode = present_mode(&caps.present_modes, false, true);
+        let present_modes = caps.present_modes.clone();
+        let device = renderer.device();
+        let composer = Composer::new(&renderer);
+        let module = shader(device);
+        let layout = &composer.layout;
+        let window_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[Some(layout)],
+            immediate_size: 0,
+        });
+        let to_window = pipeline(
+            device,
+            &module,
+            &window_layout,
+            ("vs_full", "fs_opaque"),
+            config.format,
+            None,
+            &[],
+        );
+        let ramped_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[Some(layout), Some(layout)],
+            immediate_size: 0,
+        });
+        let to_window_ramped = pipeline(
+            device,
+            &module,
+            &ramped_layout,
+            ("vs_full", "fs_ramp"),
+            config.format,
+            None,
+            &[],
+        );
+        Ok(Self {
+            _instance: instance,
+            surface,
+            drawn: (config.width, config.height),
+            hidden: false,
+            keep_shape: false,
+            config,
+            present_modes,
+            renderer,
+            composer,
+            to_window,
+            to_window_ramped,
+            ramp: None,
+        })
+    }
+
+    /// How pictures reach the screen: a window waits for the display's refresh; full screen as
+    /// asked, its back buffers one, or two with triple buffering.
+    // D2-09870
+    pub fn set_presentation(&mut self, full_screen: bool, triple_buffering: bool, sync: bool) {
+        self.config.present_mode = present_mode(&self.present_modes, full_screen, sync);
+        self.config.desired_maximum_frame_latency = if !full_screen || triple_buffering {
+            2
+        } else {
+            1
+        };
+        self.surface.configure(self.renderer.device(), &self.config);
+    }
+
+    /// The window's drawing area changed: the pictures are drawn at its size until told otherwise.
+    pub fn resize(&mut self, width: u32, height: u32) {
+        if width == 0 || height == 0 {
+            return;
+        }
+        self.config.width = width;
+        self.config.height = height;
+        self.drawn = (width, height);
+        self.surface.configure(self.renderer.device(), &self.config);
+    }
+
+    /// Draw each picture at this size, and scale it to fill the window.
+    pub fn draw_at(&mut self, width: u32, height: u32) {
+        if width != 0 && height != 0 {
+            self.drawn = (width, height);
+        }
+    }
+
+    /// Show each picture at its own shape in the window's middle, black bars around it, or filling
+    /// the window whatever its shape.
+    pub fn keep_shape(&mut self, keep: bool) {
+        self.keep_shape = keep;
+    }
+
+    /// The screen's brightness, which shows only in a full screen and not in a screenshot: `None`
+    /// in a window. No brightness leaves the picture as it stands.
+    // D2-10524
+    pub fn set_brightness(&mut self, brightness: Option<f32>) {
+        let b = brightness.filter(|b| *b != 0.0);
+        if b == self.ramp.as_ref().map(|(at, _)| *at) {
+            return;
+        }
+        self.ramp = b.map(|b| {
+            // 16 bits to 8, in every channel of the table's texel.
+            let texels = auberean_draw::quality::brightness_ramp(b)
+                .map(|level| [u8::try_from((u32::from(level) + 128) / 257).unwrap_or(u8::MAX); 4]);
+            let view = upload(
+                self.renderer.device(),
+                self.renderer.queue(),
+                256,
+                1,
+                texels.as_flattened(),
+                self.renderer.pictures(),
+            );
+            (b, self.composer.bind(self.renderer.device(), &view))
+        });
+    }
+
+    /// Whether the last frame found the window can't be seen, so nothing waited for the display.
+    #[must_use]
+    pub fn hidden(&self) -> bool {
+        self.hidden
+    }
+
+    /// Draw a frame: the world (when there is one), portal space laid over it (with how much of
+    /// the way), a veil over both, and the overlay over all, into the window; with `shot`, also
+    /// save the window's picture there.
+    #[allow(clippy::too_many_arguments)]
+    pub fn present(
+        &mut self,
+        world: Option<&Frame>,
+        portal: Option<(&Frame, f32)>,
+        veil: Option<[f32; 4]>,
+        overlay: &Overlay,
+        views: &[ViewFrame],
+        load: &mut dyn FnMut(u32) -> Option<Image>,
+        shot: Option<&Path>,
+    ) {
+        let (w, h) = self.drawn;
+        let mut encoder = self
+            .renderer
+            .device()
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        let composed = self.composer.compose(
+            &mut self.renderer,
+            (w, h),
+            world,
+            portal,
+            veil,
+            overlay,
+            views,
+            load,
+            &mut encoder,
+        );
+        let composed_view = composed.create_view(&wgpu::TextureViewDescriptor::default());
+        let composed_group = self.composer.bind(self.renderer.device(), &composed_view);
+        let mut lap = auberean_gpu::Lap::start();
+        let device = self.renderer.device();
         let acquired = self.surface.get_current_texture();
         self.hidden = matches!(acquired, wgpu::CurrentSurfaceTexture::Occluded);
         let frame = match acquired {

@@ -162,8 +162,14 @@ staying where it stands. Live keeps its files in `.playtest` in the world's fold
 editor can't play the same world while the first does. An editor that closes or crashes takes its
 Yalain with it, which keeps every character where it stands.
 
-**Play** starts our client logged in as the chosen character, where its recipe starts it
-(`--retail <client.exe>` adds **Play retail**), starting Live first when it is off. One Yalain
+**Play** plays the world in the editor's own window: the world view becomes the game, logged in
+as the chosen character where its recipe starts it, starting Live first when it is off. A click in
+the view gives the game the keyboard and the mouse; Shift+F1, or a click on the panels, gives them
+back to the editor while the game plays on, and Ctrl+S, Ctrl+Z, Ctrl+Y and T still work then.
+**Stop** (in the view's corner, or **Stop play**) takes the character out of the world and gives
+the view back to the editor where it was; Live plays on. Changes reach the game as they reach Live;
+a clearing changed while playing shows at the next Play. **Play in a window** starts our client as
+a program of its own instead (`--retail <client.exe>` adds **Play retail**). One Yalain
 plays every character: choosing another, or changing the one you play, never restarts it. When
 our client plays that character already, it is sent to its start through portal space; otherwise
 the character is made, given its build or put at its start before it enters (a character still in
@@ -195,6 +201,7 @@ Its tests that need no data run with the workspace's (`cargo xtask check`, `carg
 Its data test, a world over the database built against the end-of-retail install, is in
 Auberean's `auberean-dat` tier (`cargo xtask ci auberean`); it reads the database from
 `YALAIN_TEST_WORLD_DB`, else the pinned release in the cache. Its playtest tests, a world played
-live as characters on Yalain with our client, both run as programs, a Yalain moved past ports
+live as characters on Yalain with our client, both run as programs (and our client in the
+editor's own process, logging in and running), a Yalain moved past ports
 another program holds, and one stopped by the end of its console, are in the `auberean-live` tier,
 which builds them first.

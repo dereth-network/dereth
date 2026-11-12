@@ -13,8 +13,11 @@ use yalain_world_db::rows::Row;
 
 use super::{entry_global, heading_of, Editor};
 use crate::characters::{self, Item, Making, Quest, QuestAt, Recipe, Skill, Start, RACES, SEXES};
-use crate::live::{self, Ask, Event, Reloaded, Setup};
+use crate::live::{self, Ask, Client, Event, Reloaded, Setup};
 use crate::view;
+
+/// The file window's id, which the floating windows hidden while the game plays name it by.
+pub const FILE_WINDOW: &str = "file window";
 
 /// The recipe Play makes when a world has none yet.
 pub const FIRST: &str = "Builder";
@@ -330,8 +333,9 @@ impl Editor<'_> {
     /// character already, as its recipe makes it, goes on: the character is made a hero or no
     /// longer one when that changed, and sent through portal space to its start. Otherwise the
     /// client playing goes, and the character is made, given its build or put at its start (once
-    /// it has left the world, when it was in it), then played.
-    pub fn play(&mut self, retail: bool) {
+    /// it has left the world, when it was in it), then played: in the editor's own world view
+    /// ([`Client::Editor`]), or in a client of its own.
+    pub fn play(&mut self, client: Client) {
         let recipe = self.recipe();
         let name = recipe.name.clone();
         let setup = self.setup();
@@ -339,7 +343,7 @@ impl Editor<'_> {
         if same
             && self.live.up()
             && self.live.playing_as().as_deref() == Some(name.as_str())
-            && self.live.retail() == retail
+            && self.live.client() == Some(client)
         {
             let entry = self.entry_for(&recipe);
             // Its hero, when that changed: asked in the world.
@@ -358,11 +362,11 @@ impl Editor<'_> {
             return;
         }
         let was_in = self.live.in_world(&name);
-        self.live.stop_client();
+        self.stop_client();
         if !self.ensure_serving() || !self.prepare(&recipe) {
             return;
         }
-        self.live.play_when_ready(&name, retail);
+        self.live.play_when_ready(&name, client);
         self.status = if was_in || self.live.in_world(&name) {
             format!("{name} plays once it has left the world and Yalain has it ready")
         } else {
@@ -383,6 +387,7 @@ impl Editor<'_> {
 
     /// Start the server again on the world as it stands, the character where it stands.
     pub fn restart(&mut self) {
+        self.end_in_editor();
         let setup = self.setup();
         match self.live.restart(&setup, self.session.files()) {
             Ok(()) => {
@@ -395,6 +400,7 @@ impl Editor<'_> {
 
     /// Stop the client and the server, keeping the character where it stands.
     pub fn stop_playing(&mut self) {
+        self.end_in_editor();
         self.live.stop_all();
         self.status = "Yalain stopped, its characters kept".into();
     }
@@ -415,9 +421,11 @@ impl Editor<'_> {
             self.status = format!("no character {name}");
             return;
         };
-        let replay = (self.live.playing_as().as_deref() == Some(name)).then(|| self.live.retail());
+        let replay = (self.live.playing_as().as_deref() == Some(name))
+            .then(|| self.live.client())
+            .flatten();
         if replay.is_some() {
-            self.live.stop_client();
+            self.stop_client();
         }
         let entry = match self.entry_for(&Recipe {
             start: match recipe.start {
@@ -437,8 +445,8 @@ impl Editor<'_> {
             self.status = e;
             return;
         }
-        if let Some(retail) = replay {
-            self.live.play_when_ready(name, retail);
+        if let Some(client) = replay {
+            self.live.play_when_ready(name, client);
         }
         self.status = format!("{name} is made from its recipe again");
     }
@@ -447,7 +455,7 @@ impl Editor<'_> {
     /// else when it is next made under that name).
     pub fn delete_character(&mut self, name: &str) {
         if self.live.playing_as().as_deref() == Some(name) {
-            self.live.stop_client();
+            self.stop_client();
         }
         if self.live.serving() {
             self.live.delete(name);
@@ -511,6 +519,139 @@ impl Editor<'_> {
         self.status = format!("bringing {name} in from {}", file.display());
     }
 
+    /// Start the game in the editor's world view as `launch` says, in place of one playing there.
+    fn start_in_editor(&mut self, launch: &live::Launch) {
+        self.end_in_editor();
+        match crate::embedded::Embedded::start(launch, self.sound) {
+            Ok(game) => {
+                self.game = Some(game);
+                self.status.clone_from(&self.live.said);
+            }
+            Err(e) => {
+                self.live.stop_client();
+                self.status = format!("the game could not start in the editor: {e}");
+            }
+        }
+    }
+
+    /// The game in the editor's world view stops, if one plays: it says goodbye to the server.
+    pub fn end_in_editor(&mut self) {
+        if let Some(game) = self.game.take() {
+            game.stop();
+        }
+    }
+
+    /// Stop the client playing, the editor's own or a program: its character, in the world, is
+    /// taken out of it at once.
+    pub fn stop_client(&mut self) {
+        self.end_in_editor();
+        self.live.stop_client();
+    }
+
+    /// Stop the game in the editor's world view: the character leaves the world, Yalain plays on,
+    /// and the view is the editor's again where it was.
+    pub fn stop_in_editor(&mut self) {
+        if self.game.is_some() {
+            self.stop_client();
+            self.status = "play stopped: Yalain plays on".into();
+        }
+    }
+
+    /// As the game starts in the world view, the floating windows open over it are hidden, seen
+    /// whole; once it stops they come back where they were. A window asked for meanwhile comes
+    /// back at once.
+    pub(super) fn hide_for_play(&mut self, ctx: &egui::Context) {
+        if self.game.is_none() {
+            self.hid_for_play = false;
+            self.play_hidden.clear();
+            return;
+        }
+        if std::mem::replace(&mut self.hid_for_play, true) {
+            return;
+        }
+        let open = [
+            ("Templates", self.finding.is_some()),
+            ("Find", self.finding_rows.is_some()),
+            ("Map", self.map_open),
+            ("Characters", self.characters_open),
+            ("Pets", self.pets.open),
+            (FILE_WINDOW, self.viewing.is_some()),
+        ];
+        let view = self.world_rect;
+        for (title, is_open) in open {
+            let drawn = ctx.memory(|m| m.area_rect(egui::Id::new(title)));
+            let over = match (view, drawn) {
+                (Some(v), Some(d)) => v.intersects(d),
+                _ => true,
+            };
+            if is_open && over {
+                self.play_hidden.push(title);
+            }
+        }
+    }
+
+    /// Bring back the floating window `title` hidden while the game plays: answers whether it was
+    /// hidden.
+    pub fn bring_back(&mut self, title: &str) -> bool {
+        let before = self.play_hidden.len();
+        self.play_hidden.retain(|t| *t != title);
+        self.play_hidden.len() != before
+    }
+
+    /// What the world view shows over the game playing there: in its corner, Stop with the key
+    /// that gives the editor back the keyboard and the mouse (or, while the editor has them, that
+    /// a click gives them to the game).
+    pub fn play_marks(&mut self, ui: &egui::Ui) {
+        let Some(game) = &self.game else {
+            return;
+        };
+        let hint = if game.focused() {
+            "Shift+F1: back to the editor"
+        } else {
+            "Click the view to play"
+        };
+        let mut stop = false;
+        egui::Area::new(egui::Id::new("playtest corner"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(ui.max_rect().left_top() + egui::vec2(8.0, 8.0))
+            .show(ui.ctx(), |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        stop = ui.button("Stop").clicked();
+                        ui.label(hint);
+                    });
+                });
+            });
+        if stop {
+            self.stop_in_editor();
+        }
+    }
+
+    /// The editor's keys while the game plays in the world view and the editor has the keyboard:
+    /// save, undo and redo, and T to send the character to the camera.
+    pub fn play_keys(&mut self, input: &super::ViewInput, typing: bool) {
+        use winit::keyboard::KeyCode;
+        if typing {
+            return;
+        }
+        for code in &input.pressed {
+            match code {
+                KeyCode::KeyS if input.ctrl => self.save(),
+                KeyCode::KeyZ if input.ctrl && input.shift => {
+                    self.session.redo();
+                }
+                KeyCode::KeyZ if input.ctrl => {
+                    self.session.undo();
+                }
+                KeyCode::KeyY if input.ctrl => {
+                    self.session.redo();
+                }
+                KeyCode::KeyT if !input.ctrl => self.teleport_to_camera(),
+                _ => {}
+            }
+        }
+    }
+
     /// Each frame: what the server did, and the world published to it when it changed and no
     /// hand is still on what changed.
     pub(super) fn live_frame(&mut self) {
@@ -522,6 +663,11 @@ impl Editor<'_> {
                 }
             }
             Err(e) => self.status = e,
+        }
+        // The game in the view goes with the playtest that started it (stopped, replaced, or its
+        // server gone).
+        if self.game.is_some() && !self.live.in_editor() {
+            self.end_in_editor();
         }
         // A file changed on disk by hand is taken in, and reaches Live as an edit in the editor
         // does: looked for once a second.
@@ -557,6 +703,7 @@ impl Editor<'_> {
                 );
             }
             Event::Playing => self.status.clone_from(&self.live.said),
+            Event::InEditor(launch) => self.start_in_editor(&launch),
             Event::Reloaded(Reloaded::Refused(why)) => {
                 self.status = format!("Yalain kept the world as it was: {why}");
             }
@@ -615,6 +762,7 @@ impl Editor<'_> {
         if ui
             .selectable_label(self.characters_open, "Characters")
             .clicked()
+            && !self.bring_back("Characters")
         {
             self.characters_open = !self.characters_open;
         }
@@ -629,16 +777,31 @@ impl Editor<'_> {
                 self.serve();
             }
         }
+        if self.game.is_some() {
+            if ui
+                .button("Stop play")
+                .on_hover_text("the character leaves the world, and the view is the editor's again")
+                .clicked()
+            {
+                self.stop_in_editor();
+            }
+        } else if ui
+            .button("Play")
+            .on_hover_text("as the character, in the world view, where its recipe starts it")
+            .clicked()
+        {
+            self.play(Client::Editor);
+        }
         if self.programs.client.is_some()
             && ui
-                .button("Play")
-                .on_hover_text("our client, as the character, where its recipe starts it")
+                .button("Play in a window")
+                .on_hover_text("our client in a window of its own, as the character")
                 .clicked()
         {
-            self.play(false);
+            self.play(Client::Window);
         }
         if self.programs.retail.is_some() && ui.button("Play retail").clicked() {
-            self.play(true);
+            self.play(Client::Retail);
         }
         if self.live.up()
             && self.live.playing()
@@ -1038,7 +1201,7 @@ impl Editor<'_> {
             }
             Some(("play", name)) => {
                 self.character = name;
-                self.play(false);
+                self.play(Client::Editor);
             }
             Some(("reset", name)) => self.reset_character(&name),
             Some(("delete", name)) => self.delete_character(&name),

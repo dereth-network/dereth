@@ -316,6 +316,7 @@ xtask = { path = "tools/xtask" }
 # builder).
 auberean-animation = { path = "core/auberean-animation" }
 auberean-assets = { path = "core/auberean-assets" }
+auberean-client = { path = "auberean/client" }
 auberean-client-contract = { path = "core/auberean-client-contract" }
 auberean-client-model = { path = "core/auberean-client-model" }
 auberean-client-net = { path = "core/auberean-client-net" }
@@ -390,6 +391,8 @@ egui = { version = "0.36.2", default-features = false }
 egui_dock = { version = "0.21.1", default-features = false }
 egui_extras = { version = "0.36.2", default-features = false }
 pollster = "0.4"
+# A value kept with what borrows it (the world builder's playtest: the game with the world it reads).
+self_cell = "1.3"
 raw-window-handle = "0.6"
 serde_json = "1"
 # The classic interface's shipped fonts: TrueType outlines and their hinting instructions.
