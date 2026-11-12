@@ -44,7 +44,7 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 "resolve.slang" = "5c3e38d24f07e0f58e0c1401b276fccf1ebe530167bc669095f89c34a1ce39e3"
 "retail.slang" = "5e2d9c5b056d13471b4c06cb6a55820b3bebefda532222382972f16e5948dc8f"
 "rt.slang" = "a4a03f6df9dbce1aade9c317eb82cb9497f7a8c4be7ec0c53dad8988ca2c2b5d"
-"rt_ao.slang" = "0486e7cf4349600a95c1747853db03dc0c84615ca241a0310f2bbc2ca209fc50"
+"rt_ao.slang" = "00b90fa4bf3483a10f2cf4dbbf82bf197d61f96b07d63f9519f88fef1b219faa"
 "rt_check.slang" = "ad2c672299d2c8eafc0a0cf479b3d8706cd035a4ca856eb628437921b7fbc600"
 "rt_shadow.slang" = "a51301bdbeb77bff7f722256c7c4bb0868ca4f009817d50ccf1271898533d423"
 "shaders.toml" = "d3536b3d75131a6c6a7da62acd9089b25162cfc12c5c646d35ccf46847e1bdb7"
@@ -134,7 +134,7 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 "dxil/resolve.fs_vertex.dxil" = { sha256 = "5f7b553b92212cc8ec6f870028d7c208f6082fe1cf77ddcdc734c8c62744b96e", bytes = 5692 }
 "dxil/rt.cs_instances.dxil" = { sha256 = "87e0ceb094177205e5206032995ecba8514dff9562e951cc0daff2d3c4f517d3", bytes = 5136 }
 "dxil/rt_ao.fs_filter.dxil" = { sha256 = "8f23a71910d16acf4960feb057c33895a0d898724352dff7dcb173e6a1c89e21", bytes = 6972 }
-"dxil/rt_ao.fs_rays.dxil" = { sha256 = "7faa1be266613205300eaa3bccf6f3f9b5c5fef8e5d0eacbe4554f07e31a0642", bytes = 11892 }
+"dxil/rt_ao.fs_rays.dxil" = { sha256 = "c76e465199157883b90f6811b25ef8119fad6397b89e52e32d7bc5c805a7e2d8", bytes = 16372 }
 "dxil/rt_check.cs_check.dxil" = { sha256 = "aa60df000c35108fb0a0636757480f3dc1b58c381b723d697f4996c923e9dc5b", bytes = 6848 }
 "dxil/rt_shadow.fs_main.dxil" = { sha256 = "c8b67bb9b3c0809e9af0f2bb94884878e7d60ca478e034dd5f20c98acc8db9e0", bytes = 16076 }
 "dxil/shadow_mask.fs_main.dxil" = { sha256 = "79b726ab228136c9d8492bfcfe4c82186529dd93803b20df2487e5a9da539edc", bytes = 8592 }
@@ -226,7 +226,7 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 "spirv/resolve.fs_vertex.spv" = { sha256 = "26f1249c52d1eb6d95ff8d779ed9c95b0a71d4ad7c5f59daa767f3661c213de7", bytes = 6536 }
 "spirv/rt.cs_instances.spv" = { sha256 = "cac86d37c866ca1fc6a4bf511f1285f475f83d5e079770c0aab6dd83872ed085", bytes = 15072 }
 "spirv/rt_ao.fs_filter.spv" = { sha256 = "f852f2e3802792875a3114f7f5e0c826519cc1d5f6ba8304945d8b3e8c6312ca", bytes = 15920 }
-"spirv/rt_ao.fs_rays.spv" = { sha256 = "a58225c7e255424709a1502f91b24401e62be5216fd920bb19cad8fda7e637fd", bytes = 29136 }
+"spirv/rt_ao.fs_rays.spv" = { sha256 = "20d643341a72bf61985d484786a402ee54b5fdf7bf06b6014d793947b7bbbc84", bytes = 48700 }
 "spirv/rt_check.cs_check.spv" = { sha256 = "8b4b83339adac1f107ec5f22d9c4e6cc3ddc3f8c765eeaa123406921888bab88", bytes = 12088 }
 "spirv/rt_shadow.fs_main.spv" = { sha256 = "8042a4eedc99e45a117f81f6f020d27c34a52db3a29c07a42cb01e1c5bf9e0f5", bytes = 49324 }
 "spirv/shadow_mask.fs_main.spv" = { sha256 = "6995ae78ba64846e3676038d8f6700068c1989a3c389866fc4f1b1aa7d50cbb9", bytes = 26496 }

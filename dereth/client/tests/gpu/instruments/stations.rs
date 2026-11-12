@@ -1984,9 +1984,10 @@ impl Shot {
     }
 
     /// Hold the camera at `position`, turned `yaw` and pitched `pitch` (radians), over the chase
-    /// camera, from the next step on.
+    /// camera and over a report's camera, from the next step on.
     pub(crate) fn hold_camera(&mut self, position: Vec3, yaw: f32, pitch: f32) {
         self.front = Some((position, yaw, pitch));
+        self.held = None;
     }
 
     /// Draw the station again as it stands, without stepping it.

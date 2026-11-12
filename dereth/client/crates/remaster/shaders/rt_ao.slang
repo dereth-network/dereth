@@ -7,7 +7,9 @@
 //   a fixed four-by-four pattern, so a still view draws a still picture. A ray that meets
 //   anything within the radius occludes, the less the farther past where the falloff begins.
 //   Alpha-tested surfaces are tested at the texel the ray meets. The ground's own structure is
-//   retail's surface, so the ground drawn over it never occludes itself.
+//   retail's surface, so the ground drawn over it never occludes itself. Past the near ground, a
+//   ray meets retail's surface only from above, so a far point's barely known depth, which may
+//   put it under that surface, never has it occluded by the surface's underside.
 // - `fs_filter`: each pixel's occlusion from the four by four pixels round it that lie on its own
 //   surface (near in depth and facing the same way), which evens the pattern out.
 import bindless;
@@ -47,6 +49,9 @@ struct Push
 ConstantBuffer<Push> push;
 
 static const float TAU = 6.2831853;
+// Where the near ground gives way to the far, meters from the eye, where the frame draws no far
+// ground of its own: the drawn ground's own defaults.
+static const float2 NEAR_GROUND = float2(300.0, 500.0);
 
 float4 at(uint t, int2 p)
 {
@@ -116,6 +121,25 @@ float nearest(RayDesc ray, uint mask)
     return min(hit, swayed);
 }
 
+// The nearest place along `ray` where it meets retail's ground on its upper face, its distance;
+// `ray.TMax` for none. A ray that starts under the ground leaves through its underside, which
+// shuts nothing in.
+float ground_above(RayDesc ray)
+{
+    RayQuery<RAY_FLAG_FORCE_NON_OPAQUE> q;
+    q.TraceRayInline(accels[NonUniformResourceIndex(push.accel)], RAY_FLAG_FORCE_NON_OPAQUE,
+                     RT_GROUND, ray);
+    while (q.Proceed())
+    {
+        // The ground's triangles turn their front faces up.
+        if (q.CandidateTriangleFrontFace())
+        {
+            q.CommitNonOpaqueTriangleHit();
+        }
+    }
+    return q.CommittedStatus() == COMMITTED_TRIANGLE_HIT ? q.CommittedRayT() : ray.TMax;
+}
+
 [shader("fragment")]
 float4 fs_rays(float4 position : SV_Position) : SV_Target0
 {
@@ -144,6 +168,15 @@ float4 fs_rays(float4 position : SV_Position) : SV_Target0
     // The pixel's place in a four-by-four pattern, which turns its rays and moves them along it.
     uint cell = uint(p.x & 3) + 4 * uint(p.y & 3);
     float turn = float(cell) / 16.0;
+    // Past the near ground (by the pixel's place in the pattern across the stretch where it gives
+    // way to the far) a ray from what stands on the ground meets retail's ground only from above:
+    // a far point's depth is known only to meters, so it may stand under retail's surface, and
+    // the underside would shut it in, differently from frame to frame. Nearer, it meets the
+    // ground either way, as before.
+    float4 lift = row(push.frame, FRAME_LIFT);
+    float2 band = lift.z > 0.5 ? lift.xy : NEAR_GROUND;
+    float far = (mask & RT_GROUND) != 0 ? smoothstep(band.x, max(band.y, band.x + 1e-3), dist)
+                                        : 0.0;
     float shut = 0.0;
     for (uint k = 0; k < rays; k++)
     {
@@ -158,7 +191,9 @@ float4 fs_rays(float4 position : SV_Position) : SV_Target0
         ray.Direction = normalize(dir);
         ray.TMin = 0.0;
         ray.TMax = radius;
-        float hit = nearest(ray, mask);
+        bool from_above = frac(turn * 7.0 + (float(k) + 0.5) / float(rays)) < far;
+        float hit = from_above ? min(nearest(ray, mask & ~RT_GROUND), ground_above(ray))
+                               : nearest(ray, mask);
         if (hit < radius)
         {
             shut += 1.0 - smoothstep(start, radius, hit);

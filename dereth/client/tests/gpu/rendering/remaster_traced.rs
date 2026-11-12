@@ -2,10 +2,10 @@
 //!
 //! The remaster's sun shadows and ambient occlusion traced through its acceleration structures:
 //! the traced sun's share agrees with the cascades' near the eye; the traced occlusion is darker
-//! where the screen-space occlusion is; both hold still under a still view; the traced shadows on
-//! far mountains hold still while the view is held under the anti-aliasing and while it turns;
-//! and where the device does not trace rays, the cascades and the screen-space occlusion draw
-//! them, the frame the same as with nothing traced.
+//! where the screen-space occlusion is; both hold still under a still view; the traced shadows and
+//! the traced occlusion on far mountains hold still while the view is held under the
+//! anti-aliasing and while it turns; and where the device does not trace rays, the cascades and
+//! the screen-space occlusion draw them, the frame the same as with nothing traced.
 //!
 //! Fixture: the retail dats (`DERETH_TEST_DAT_DIR`) and a hardware Vulkan 1.3 device.
 
@@ -453,17 +453,18 @@ fn far_hill() -> Station {
 /// How far off land is far, meters.
 const FAR: f32 = 1000.0;
 
-/// The far land at [`far_hill`] drawn with the traced sun's shadows and the far detail, the clock
-/// held: each frame's capture, the camera turned by `turn(k)` radians at step `k`, the
-/// anti-aliasing (whose projection moves by part of a pixel every frame) on as `taa` says; the last `keep` of
+/// The far land at [`far_hill`] drawn with the traced sun's shadows and the far detail, and the
+/// traced occlusion as `traced_ao` says, the clock held: each frame's capture and occlusion (1
+/// everywhere without it), the camera turned by `turn(k)` radians at step `k`, the anti-aliasing
+/// (whose projection moves by part of a pixel every frame) on as `taa` says; the last `keep` of
 /// `frames` captured. `None` where the device does not trace rays.
 fn far_frames(
     store: &Arc<RetailDatStore>,
-    taa: bool,
+    (taa, traced_ao): (bool, bool),
     frames: usize,
     keep: usize,
     turn: impl Fn(usize) -> f32,
-) -> Option<Vec<RemasterCapture>> {
+) -> Option<Vec<(RemasterCapture, Vec<f32>)>> {
     let config = DeviceConfig {
         width: W,
         height: H,
@@ -480,10 +481,13 @@ fn far_frames(
     let mut shot = Shot::open(store, &mut gpu, &far_hill());
     shot.poll(&mut gpu);
     // The ground as the remaster draws it, which far off is coarser than retail's.
-    let boxes = format!(
+    let mut boxes = format!(
         "Remaster=1,RemasterShadows=1,RemasterTracedShadows=1,RemasterDetail=1,RemasterSmoothing={}",
         u8::from(taa)
     );
+    if traced_ao {
+        boxes.push_str(",RemasterOcclusion=1,RemasterTracedOcclusion=1");
+    }
     shot.scene.draw.cfg.render.fidelity =
         FidelityPreferences::parse_switch(&boxes).expect("the boxes read");
     shot.poll(&mut gpu);
@@ -505,12 +509,16 @@ fn far_frames(
         shot.hold_camera(camera.position, camera.yaw + turn(k), camera.pitch);
         shot.step_held(&mut gpu);
         if k + keep >= frames {
-            out.push(
-                shot.scene
-                    .draw
-                    .remaster_capture(&mut gpu)
-                    .expect("the remaster drew"),
-            );
+            let capture = shot
+                .scene
+                .draw
+                .remaster_capture(&mut gpu)
+                .expect("the remaster drew");
+            let ao = match shot.scene.draw.remaster_ao_picture(&mut gpu) {
+                Some((_, _, v)) => v,
+                None => vec![1.0; capture.class.len()],
+            };
+            out.push((capture, ao));
         }
     }
     shot.scene
@@ -553,10 +561,10 @@ fn far_flips(was: &RemasterCapture, now: &RemasterCapture, inside: bool) -> (f64
 
 /// The most of `frames`' far land flipped between one frame and the next, as [`far_flips`]
 /// counts it.
-fn worst_flips(frames: &[RemasterCapture], inside: bool) -> f64 {
+fn worst_flips(frames: &[(RemasterCapture, Vec<f32>)], inside: bool) -> f64 {
     let mut worst = 0.0f64;
     for pair in frames.windows(2) {
-        let (share, far) = far_flips(&pair[0], &pair[1], inside);
+        let (share, far) = far_flips(&pair[0].0, &pair[1].0, inside);
         assert!(far > 2000, "too little far land in view: {far} pixels");
         worst = worst.max(share);
     }
@@ -580,7 +588,7 @@ const TURNING_FLIPS: f64 = 0.005;
 fn traced_shadows_on_far_mountains_hold_still_while_the_view_is_held() {
     let _gpu = crate::common::gpu_lock();
     let store = crate::common::dats();
-    let Some(frames) = far_frames(&store, true, 56, 17, |_| 0.0) else {
+    let Some(frames) = far_frames(&store, (true, false), 56, 17, |_| 0.0) else {
         eprintln!("the device does not trace rays");
         return;
     };
@@ -604,7 +612,7 @@ fn traced_shadows_on_far_mountains_hold_still_while_the_view_turns() {
     // A pixel spans about a 600th of a radian across the view.
     #[allow(clippy::cast_precision_loss)] // a step
     let turn = |k: usize| 8e-5 * ((k % 16) as f32 - 8.0).abs();
-    let Some(frames) = far_frames(&store, false, 56, 17, turn) else {
+    let Some(frames) = far_frames(&store, (false, false), 56, 17, turn) else {
         eprintln!("the device does not trace rays");
         return;
     };
@@ -613,5 +621,88 @@ fn traced_shadows_on_far_mountains_hold_still_while_the_view_turns() {
     assert!(
         worst < TURNING_FLIPS,
         "the far land's traced shadows flicker: {worst:.4} of it flipped in a frame"
+    );
+}
+
+/// The most of what stands on the far land (its pixels past [`FAR`] meters, away from its edges)
+/// whose traced occlusion may move by over a tenth from one frame to the next, held under the
+/// anti-aliasing or turning. Measured: none, held or turning; 0.024 held and 0.006 turning while
+/// a ray from a far point standing under retail's ground was shut in by the ground's underside.
+const FAR_OCCLUSION_MOVES: f64 = 0.002;
+
+/// The most of [`far_frames`]' far land standing on the ground whose occlusion moved by over a
+/// tenth from one frame to the next, and the fewest such pixels in a frame.
+fn worst_occlusion_moves(frames: &[(RemasterCapture, Vec<f32>)]) -> (f64, usize) {
+    use crate::instruments::far_shadow_frames::occlusion_moved;
+    let (mut worst, mut fewest) = (0.0f64, usize::MAX);
+    for pair in frames.windows(2) {
+        let (was, now) = (&pair[0], &pair[1]);
+        let m = occlusion_moved(
+            (&was.0, &was.1),
+            (&now.0, &now.1),
+            2,
+            (f64::from(FAR), f64::INFINITY),
+        );
+        worst = worst.max(m.over_a_tenth);
+        fewest = fewest.min(m.pixels);
+    }
+    (worst, fewest)
+}
+
+/// **The traced occlusion on the far mountains holds still while the view is held**: at
+/// [`far_hill`] with the anti-aliasing on, whose projection moves by part of a pixel every frame,
+/// the occlusion of what stands on the far land (past [`FAR`] meters, away from its edges) moves
+/// by over a tenth on under one in five hundred of its pixels from one frame to the next, over
+/// sixteen frames.
+#[test]
+fn traced_occlusion_on_far_mountains_holds_still_while_the_view_is_held() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let Some(frames) = far_frames(&store, (true, true), 56, 17, |_| 0.0) else {
+        eprintln!("the device does not trace rays");
+        return;
+    };
+    let (worst, fewest) = worst_occlusion_moves(&frames);
+    eprintln!(
+        "far hill, held: at most {worst:.4} of the far objects' occlusion moved by over a tenth \
+         ({fewest} pixels at fewest)"
+    );
+    assert!(
+        fewest > 200,
+        "too little stands on the far land: {fewest} pixels"
+    );
+    assert!(
+        worst < FAR_OCCLUSION_MOVES,
+        "the far land's traced occlusion flickers: {worst:.4} of it moved in a frame"
+    );
+}
+
+/// **The traced occlusion on the far mountains holds still while the view turns**: at
+/// [`far_hill`] without the anti-aliasing, the camera turning by a twentieth of a pixel a frame
+/// one way and then back, the occlusion of what stands on the far land (away from its edges)
+/// moves by over a tenth on under one in five hundred of its pixels from one frame to the next,
+/// over sixteen frames.
+#[test]
+fn traced_occlusion_on_far_mountains_holds_still_while_the_view_turns() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    #[allow(clippy::cast_precision_loss)] // a step
+    let turn = |k: usize| 8e-5 * ((k % 16) as f32 - 8.0).abs();
+    let Some(frames) = far_frames(&store, (false, true), 56, 17, turn) else {
+        eprintln!("the device does not trace rays");
+        return;
+    };
+    let (worst, fewest) = worst_occlusion_moves(&frames);
+    eprintln!(
+        "far hill, turning: at most {worst:.4} of the far objects' occlusion moved by over a \
+         tenth ({fewest} pixels at fewest)"
+    );
+    assert!(
+        fewest > 200,
+        "too little stands on the far land: {fewest} pixels"
+    );
+    assert!(
+        worst < FAR_OCCLUSION_MOVES,
+        "the far land's traced occlusion flickers: {worst:.4} of it moved in a frame"
     );
 }
