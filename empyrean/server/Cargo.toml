@@ -68,6 +68,8 @@ zip = { version = "8", default-features = false, features = ["deflate-flate2-zli
 flate2.workspace = true
 # `/dn verify` is checked against a real hub on loopback.
 dereth-network-hub.workspace = true
+# The running server's update test writes the server it starts as the updater's tests do.
+dereth-server-updater = { workspace = true, features = ["testing"] }
 
 [[test]]
 name = "all"

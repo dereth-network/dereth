@@ -42,7 +42,7 @@ pub fn relaunch(exe: &Path, args: &[OsString], forward: Option<ForwardConsole>) 
         if forward.is_some() {
             command.stdin(std::process::Stdio::piped());
         }
-        let waited = command.spawn().and_then(|mut child| {
+        let waited = crate::program::spawn(&mut command).and_then(|mut child| {
             if let (Some(stdin), Some(forward)) = (child.stdin.take(), forward) {
                 forward(Box::new(stdin));
             }

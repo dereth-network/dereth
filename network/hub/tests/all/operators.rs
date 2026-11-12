@@ -25,6 +25,7 @@ use dereth_network_protocol::challenge::{nonce_hex, Challenge};
 use serde_json::{json, Value};
 
 use super::hardening::{listing, snowflake};
+use crate::Start as _;
 
 pub(super) const SITE: &str = "https://site.test";
 pub(super) const ADMIN: &str = "900";
@@ -2623,7 +2624,7 @@ fn the_registrys_value_holds_over_a_differing_flag_and_the_log_says_so() {
         ] {
             command.env_remove(var);
         }
-        let out = command.output().expect("the hub runs");
+        let out = command.run().expect("the hub runs");
         (
             out.status.success(),
             String::from_utf8_lossy(&out.stderr).into_owned(),

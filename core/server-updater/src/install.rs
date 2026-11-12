@@ -26,7 +26,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use crate::archive;
+use crate::program;
 use crate::release::BuildFacts;
 use crate::version::Version;
 use crate::Product;
@@ -89,10 +89,7 @@ pub fn process(exe: &Path) -> Command {
 /// # Errors
 /// When it does not run or answers something else.
 pub fn release_facts<F: BuildFacts>(exe: &Path) -> Result<F, String> {
-    let out = process(exe)
-        .arg("--release-facts")
-        .stdin(Stdio::null())
-        .output()
+    let out = program::output(process(exe).arg("--release-facts"))
         .map_err(|e| format!("{} does not run here: {e}", exe.display()))?;
     if !out.status.success() {
         return Err(format!(
@@ -132,10 +129,7 @@ pub fn run_trial<F: BuildFacts>(
     let mut command = process(exe);
     command.arg("--update-trial").arg(&ready);
     command.args(args);
-    let mut child = command
-        .current_dir(current_dir)
-        .stdin(Stdio::null())
-        .spawn()
+    let mut child = program::spawn(command.current_dir(current_dir).stdin(Stdio::null()))
         .map_err(|e| format!("{} could not be started: {e}", exe.display()))?;
     let end = Instant::now() + timeout;
     let status = loop {
@@ -306,10 +300,12 @@ pub(crate) fn remove_old_asides(dir: &Path, prefix: &str) {
     }
 }
 
-/// Moves `installed` aside (when it exists) and copies `new` in its place.
+/// Moves `installed` aside (when it exists) and copies `new` in its place, as a program
+/// ([`program::copy`]) when it is one.
 fn replace(
     installed: &Path,
     new: &Path,
+    is_program: bool,
     from: &Version,
     moved: &mut Vec<Moved>,
 ) -> Result<(), String> {
@@ -329,7 +325,12 @@ fn replace(
         installed: installed.to_path_buf(),
         aside,
     });
-    std::fs::copy(new, installed).map_err(|e| format!("{}: {e}", installed.display()))?;
+    if is_program {
+        program::copy(new, installed)
+    } else {
+        std::fs::copy(new, installed).map(|_| ())
+    }
+    .map_err(|e| format!("{}: {e}", installed.display()))?;
     Ok(())
 }
 
@@ -392,13 +393,11 @@ pub fn apply<P: Product>(
     let installed = (|| -> Result<P::Facts, String> {
         for name in &staged.files {
             let dest = layout.install_dir.join(name);
-            replace(&dest, &staged.dir.join(name), from, &mut moved)?;
-            if executables.contains(name) {
-                archive::make_executable(&dest)?;
-            }
+            let is_program = executables.contains(name);
+            replace(&dest, &staged.dir.join(name), is_program, from, &mut moved)?;
         }
         if let Some(pack) = &staged.world_pack {
-            replace(&layout.world_pack, pack, from, &mut moved)?;
+            replace(&layout.world_pack, pack, false, from, &mut moved)?;
         }
         tracing::info!(
             "Update: {to} installed in {}; starting it for its health check",

@@ -18,6 +18,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use dereth_server_updater::testing::copy_program;
 use empyrean_server::update::release::{target_triple, Facts};
 use empyrean_server::update::verify;
 
@@ -149,7 +150,10 @@ impl Running {
             .join(format!("{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join(format!("empyrean-server{EXE}")), real_server()).unwrap();
+        copy_program(
+            Path::new(env!("CARGO_BIN_EXE_empyrean-server")),
+            &dir.join(format!("empyrean-server{EXE}")),
+        );
         std::fs::write(dir.join("README.md"), b"old guide").unwrap();
         let status = free_port();
         std::fs::write(

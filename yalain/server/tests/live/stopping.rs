@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use dereth_primitives::num::math;
 use dereth_server_updater::release::target_triple;
-use dereth_server_updater::testing::{Release, Repository};
+use dereth_server_updater::testing::{copy_program, Release, Repository};
 use serde_json::json;
 use yalain_store::{SqliteStore, Store as _};
 use yalain_testkit::authored;
@@ -296,10 +296,11 @@ fn repository_of_this_build() -> Repository {
     repository
 }
 
-/// A temporary installation holding a copy of the built program.
+/// A temporary installation holding a copy of the built program, made so that no process another
+/// test starts meanwhile can be holding it open when it starts.
 fn installation(dir: &Path) -> PathBuf {
     let exe = dir.join(format!("yalain{EXE}"));
-    std::fs::copy(env!("CARGO_BIN_EXE_yalain"), &exe).expect("the program copied");
+    copy_program(Path::new(env!("CARGO_BIN_EXE_yalain")), &exe);
     std::fs::write(dir.join("README.md"), b"old guide").expect("the guide");
     exe
 }

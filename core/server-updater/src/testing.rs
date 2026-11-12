@@ -1,10 +1,12 @@
 //! A stand-in for a repository's releases, for a server's updater tests: a web server on loopback,
 //! and releases published on it as the release packaging lays them out. Nothing here touches the
-//! network beyond this machine.
+//! network beyond this machine. Also programs a test writes and then starts ([`write_program`],
+//! [`copy_program`]).
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{Ipv4Addr, TcpListener};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
@@ -228,5 +230,56 @@ impl Repository {
             ]}),
         );
         self.put_list();
+    }
+}
+
+/// Writes `bytes` as a program at `path` (replacing any file there), for a test that then starts
+/// it.
+///
+/// A test binary's other tests start processes as they please, not through [`crate::program`], and
+/// a process started while this one holds the program open for writing could still be holding it
+/// when the test starts it, which Linux refuses ("Text file busy"). So on Unix the program is made
+/// by a process of its own (`cp`) from the bytes written beside it under another name: this
+/// process never holds the program open for writing, and so nothing it starts can.
+///
+/// # Panics
+/// When the program cannot be written.
+pub fn write_program(path: &Path, bytes: &[u8]) {
+    if cfg!(unix) {
+        let mut beside = path.as_os_str().to_owned();
+        beside.push(".bytes");
+        let beside = std::path::PathBuf::from(beside);
+        std::fs::write(&beside, bytes).unwrap_or_else(|e| panic!("{}: {e}", beside.display()));
+        copy_program(&beside, path);
+        let _ = std::fs::remove_file(&beside);
+    } else {
+        crate::program::write(path, bytes).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    }
+}
+
+/// Copies the file `from` as a program to `to` (replacing any file there), for a test that then
+/// starts it, as [`write_program`] makes one.
+///
+/// # Panics
+/// When the program cannot be copied.
+pub fn copy_program(from: &Path, to: &Path) {
+    if cfg!(unix) {
+        match std::fs::remove_file(to) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => panic!("{}: {e}", to.display()),
+        }
+        let copied =
+            crate::program::status(std::process::Command::new("cp").arg("--").arg(from).arg(to))
+                .unwrap_or_else(|e| panic!("cp runs: {e}"));
+        assert!(
+            copied.success(),
+            "cp {} {}: {copied}",
+            from.display(),
+            to.display()
+        );
+        crate::program::make_executable(to).unwrap_or_else(|e| panic!("{}: {e}", to.display()));
+    } else {
+        crate::program::copy(from, to).unwrap_or_else(|e| panic!("{}: {e}", to.display()));
     }
 }

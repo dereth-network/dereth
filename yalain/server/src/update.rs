@@ -30,6 +30,7 @@ use dereth_server_updater::command::{self, Request};
 use dereth_server_updater::handover::{self, ForwardConsole};
 use dereth_server_updater::install::{process, release_facts, run_trial, Layout};
 use dereth_server_updater::policy::Needs;
+use dereth_server_updater::program;
 use dereth_server_updater::release::{
     target_triple, BuildFacts, ConfigChange, Kind, Migration, UpgradeDeclaration,
 };
@@ -225,12 +226,13 @@ impl Programs for Processes {
             tracing::info!("Update: this world serves its own folder: no world database to fetch");
             return Ok(());
         }
-        let status = process(exe)
-            .args(["world", "fetch"])
-            .current_dir(&self.current_dir)
-            .stdin(Stdio::null())
-            .status()
-            .map_err(|e| format!("{} could not be run: {e}", exe.display()))?;
+        let status = program::status(
+            process(exe)
+                .args(["world", "fetch"])
+                .current_dir(&self.current_dir)
+                .stdin(Stdio::null()),
+        )
+        .map_err(|e| format!("{} could not be run: {e}", exe.display()))?;
         if status.success() {
             Ok(())
         } else {

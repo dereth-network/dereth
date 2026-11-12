@@ -27,6 +27,9 @@
 //! players with the shutdown countdown between 2 and 3, and starting the new or restored server
 //! afterwards, [`handover`]); the server's `update --check` shows what step 1 decides, and its
 //! `update --apply` runs all three by hand on a stopped server ([`command`]).
+//!
+//! Every program the updater writes and every process it starts goes through [`program`], so that
+//! a program it has just written is never refused as busy when it starts it.
 
 pub mod archive;
 pub mod binary;
@@ -34,6 +37,7 @@ pub mod command;
 pub mod handover;
 pub mod install;
 pub mod policy;
+pub mod program;
 pub mod release;
 pub mod running;
 pub mod source;

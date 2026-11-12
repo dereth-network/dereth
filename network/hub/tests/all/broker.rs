@@ -21,6 +21,7 @@ use dereth_network_hub::server::{start_with, HubConfig, Running};
 use serde_json::{json, Value};
 
 use super::operators::{call, hub_with, op, sign_in};
+use crate::Start as _;
 
 /// The bot token the stand-in takes.
 const BOT_TOKEN: &str = "stand-in-bot-token.Zx9q";
@@ -249,7 +250,7 @@ fn the_bot_token_is_read_from_its_file_and_never_logged() {
         .env_remove("DERETH_HUB_DISCORD_CLIENT_ID")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn()
+        .start()
         .expect("the hub runs");
     let out = Output::of(&mut child);
     out.says("made the Discord webhook");
@@ -276,7 +277,7 @@ fn the_bot_token_is_read_from_its_file_and_never_logged() {
         let out = Command::new(hub)
             .args(args)
             .env_remove("DERETH_HUB_DISCORD_BOT_TOKEN")
-            .output()
+            .run()
             .expect("the hub runs");
         assert!(!out.status.success(), "{args:?}");
         String::from_utf8_lossy(&out.stderr).into_owned()
@@ -503,6 +504,7 @@ mod bridge {
         answer, call, hub_with, op, sign_in, Fixture, Got, Stub, ADMIN, SITE,
     };
     use super::{broker_for, folder, hub_on, within, Output, BOT_TOKEN};
+    use crate::Start as _;
 
     /// How long a test waits for something the hub does on its own threads.
     const WAIT: Duration = Duration::from_secs(30);
@@ -2484,7 +2486,7 @@ mod bridge {
             .env_remove("DERETH_HUB_DISCORD_BOT_TOKEN")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .spawn()
+            .start()
             .expect("the hub runs");
         let out = Output::of(&mut child);
         out.says("listening on http://");

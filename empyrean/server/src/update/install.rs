@@ -7,6 +7,7 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use dereth_server_updater::install::{process, release_facts, run_trial};
+use dereth_server_updater::program;
 
 use super::release::Facts;
 use super::Empyrean;
@@ -118,10 +119,7 @@ impl Build for Processes {
                 .arg(path);
         }
         command.arg("--out").arg(out);
-        let status = command
-            .current_dir(&self.current_dir)
-            .stdin(Stdio::null())
-            .status()
+        let status = program::status(command.current_dir(&self.current_dir).stdin(Stdio::null()))
             .map_err(|e| format!("{} could not be run: {e}", importer.display()))?;
         if status.success() && out.is_file() {
             Ok(())

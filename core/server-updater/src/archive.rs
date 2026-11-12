@@ -6,6 +6,8 @@
 use std::io::Read;
 use std::path::Path;
 
+use crate::program;
+
 /// The most an archive unpacks to, in bytes: an archive is about 20 MB and may be 512 MB.
 pub const UNPACKED_LIMIT: u64 = 2 * 1024 * 1024 * 1024;
 
@@ -71,7 +73,8 @@ pub fn read_within(name: &str, bytes: &[u8], root: &str, limit: u64) -> Result<V
     Ok(files)
 }
 
-/// Writes `files` into `dir` (created when absent), executables marked so on Unix.
+/// Writes `files` into `dir` (created when absent), executables as programs
+/// ([`crate::program::write`]).
 ///
 /// # Errors
 /// When a file cannot be written.
@@ -79,27 +82,13 @@ pub fn write(files: &[File], dir: &Path) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     for f in files {
         let path = dir.join(&f.name);
-        std::fs::write(&path, &f.bytes).map_err(|e| format!("{}: {e}", path.display()))?;
         if f.executable {
-            make_executable(&path)?;
+            program::write(&path, &f.bytes)
+        } else {
+            std::fs::write(&path, &f.bytes)
         }
+        .map_err(|e| format!("{}: {e}", path.display()))?;
     }
-    Ok(())
-}
-
-/// Marks `path` executable (Unix; nothing to do elsewhere).
-///
-/// # Errors
-/// When its permissions cannot be set.
-pub fn make_executable(path: &Path) -> Result<(), String> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
-            .map_err(|e| format!("{}: {e}", path.display()))?;
-    }
-    #[cfg(not(unix))]
-    let _ = path;
     Ok(())
 }
 

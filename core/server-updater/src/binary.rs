@@ -32,6 +32,7 @@ use std::time::{Duration, Instant};
 use crate::archive;
 use crate::install::{aside_name, remove_old_asides, Failure, State};
 pub use crate::policy::Policy;
+use crate::program;
 use crate::source::{self, Published, Source};
 use crate::verify;
 use crate::version::Version;
@@ -256,13 +257,14 @@ pub struct Processes;
 
 impl Runner for Processes {
     fn output(&self, exe: &Path, arg: &str) -> Result<String, String> {
-        let mut child = Command::new(exe)
-            .arg(arg)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|e| format!("{} does not run here: {e}", exe.display()))?;
+        let mut child = program::spawn(
+            Command::new(exe)
+                .arg(arg)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null()),
+        )
+        .map_err(|e| format!("{} does not run here: {e}", exe.display()))?;
         let out = child.stdout.take();
         let reader = std::thread::spawn(move || {
             let mut text = Vec::new();
@@ -546,7 +548,10 @@ impl<P: Product> Updater<P> {
             "{staged_prefix}{version}{}",
             std::env::consts::EXE_SUFFIX
         ));
-        std::fs::write(&staged, &binary).map_err(|e| format!("{}: {e}", staged.display()))?;
+        if let Err(e) = program::write(&staged, &binary) {
+            let _ = std::fs::remove_file(&staged);
+            return Err(format!("{}: {e}: nothing was installed", staged.display()));
+        }
         let refuse = |why: String, record: bool| {
             let _ = std::fs::remove_file(&staged);
             if record {
@@ -556,10 +561,6 @@ impl<P: Product> Updater<P> {
             }
             format!("{why}: nothing was installed")
         };
-        if let Err(e) = archive::make_executable(&staged) {
-            return Err(refuse(e, false));
-        }
-
         // It runs here, is the release, and suits this installation.
         let program = P::PROGRAM;
         let named = match self.runner.output(&staged, "--version") {
