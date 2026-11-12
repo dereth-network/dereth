@@ -36,6 +36,15 @@
 //! **Closing.** Asked to close, or its opener gone more than six meters from it, the chest plays its
 //! closing for everyone; when that has played the closer is told and everyone sees it shut.
 //!
+//! **Gone once closed.** A chest of a kind that goes once closed (the script library's chest that
+//! deletes itself on closing: a prospector's corpse, a treasure map's cargo chest, a nut hoard's
+//! stump) leaves the world as its closing is told, after an opening (2017: the one such chest
+//! recorded, a prospector's corpse opened, its key taken and closed by its opener: the closing
+//! told, its mode and its open look shut, and in the same moment it was forgotten and left the
+//! world). What it still held goes with it. One the world made is gone for good; a placed one is
+//! kept from the world until the server starts again. A chest its opener left open as it left the
+//! world goes so too.
+//!
 //! **Chests the world makes.** A chest need not be placed: what an effect places at a player, or an
 //! item used on an object makes there, may be of a chest's template ([`crate::placing`]). It is a
 //! chest as a placed one is, its kind its template's: opened, filled from its profile at each
@@ -60,6 +69,9 @@ use crate::{presence, progress, session, Clock, Server, Timer};
 
 /// The script package every chest derives from.
 pub const PACKAGE: &str = "ChestTemplate";
+
+/// The script package of the chests that go once closed.
+pub const GOES_ONCE_CLOSED: &str = "DeleteOnCloseChestTemplate";
 
 /// How close a player walks to a chest to open it, and to use a key on it, in meters (2017:
 /// `MoveTo` to 2.0 m, a key's to 3.0 m).
@@ -131,11 +143,14 @@ pub struct Chest {
     pub waiting: Option<Waiting>,
 }
 
-/// The chests' states, and the script packages of chests.
+/// The chests' states, the script packages of chests and of those that go once closed, and the
+/// placed chests gone so.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Chests {
     pub by_id: HashMap<u64, Chest>,
     pub packages: HashSet<u32>,
+    pub gone_once_closed: HashSet<u32>,
+    pub gone: HashSet<u64>,
 }
 
 /// A step of a chest's moving.
@@ -161,13 +176,18 @@ pub struct Kind {
     pub key: Option<u32>,
     pub profile: Option<u32>,
     pub most: Option<usize>,
+    /// It leaves the world once closed.
+    pub goes_once_closed: bool,
 }
 
 /// A chest of the world, by its id: its kind and where it stands. One the world made is a thing an
 /// effect or a use placed whose template is a chest's.
 #[must_use]
 pub fn chest<S: Store>(s: &Server<S>, id: u64) -> Option<(Kind, StoredPosition)> {
-    let (template, at) = match presence::content_by_id(&s.content.objects, id) {
+    if s.chests.gone.contains(&id) {
+        return None;
+    }
+    let (template, at, package) = match presence::content_by_id(&s.content.objects, id) {
         Some(i) => {
             let o = &s.content.objects[i];
             if o.destination.is_some() || !s.chests.packages.contains(&o.description.package) {
@@ -178,14 +198,14 @@ pub fn chest<S: Store>(s: &Server<S>, id: u64) -> Option<(Kind, StoredPosition)>
                 origin: o.origin,
                 rotation: o.rotation,
             };
-            (o.template, at)
+            (o.template, at, o.description.package)
         }
         None => {
             let t = s.things.get(id).filter(|t| {
                 t.kind == crate::things::Kind::Placed
                     && s.chests.packages.contains(&t.description.package)
             })?;
-            (t.template, t.at?)
+            (t.template, t.at?, t.description.package)
         }
     };
     let props = s.catalog.get(template).map(|t| &t.props);
@@ -203,6 +223,7 @@ pub fn chest<S: Store>(s: &Server<S>, id: u64) -> Option<(Kind, StoredPosition)>
         most: props
             .and_then(|p| p.int("Container_MaxContainerSize"))
             .and_then(|m| usize::try_from(m).ok()),
+        goes_once_closed: s.chests.gone_once_closed.contains(&package),
     };
     Some((kind, at))
 }
@@ -895,7 +916,39 @@ pub fn step<S: Store>(
                 }
             }
             shown_open(s, net, id, false);
+            if kind.goes_once_closed {
+                gone(s, net, id);
+            }
         }
+    }
+}
+
+/// A chest that goes once closed leaves the world: what it still holds goes, forgotten by the
+/// clients that know it, then the chest. One the world made is gone; a placed one is kept from the
+/// world from now on.
+fn gone<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
+    let left = s
+        .chests
+        .by_id
+        .get(&id)
+        .map(|c| c.contents.clone())
+        .unwrap_or_default();
+    for item in left {
+        if holding::place_of(s, item) != Some(Place::Contents(id)) {
+            continue;
+        }
+        let instance = s.things.get(item).map_or(0, |t| t.instance);
+        presence::thing_gone(s, net, item, instance);
+        let _ = holding::destroy_item(s, item, Place::Contents(id));
+    }
+    s.chests.by_id.remove(&id);
+    if s.things.get(id).is_some() {
+        crate::death::vanish(s, net, id);
+        return;
+    }
+    if let Some(i) = presence::content_by_id(&s.content.objects, id) {
+        s.chests.gone.insert(id);
+        presence::content_gone(s, net, i);
     }
 }
 
@@ -909,6 +962,7 @@ pub fn left<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
         .map(|(id, _)| *id)
         .collect();
     for id in open {
+        let goes = chest(s, id).is_some_and(|(kind, _)| kind.goes_once_closed);
         let locks = chest(s, id).is_some_and(|(kind, _)| kind.locks_on_close);
         if let Some(c) = s.chests.by_id.get_mut(&id) {
             c.opener = None;
@@ -920,6 +974,9 @@ pub fn left<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
         }
         mode(s, net, id, look::CLOSED_MODE);
         shown_open(s, net, id, false);
+        if goes {
+            gone(s, net, id);
+        }
     }
 }
 

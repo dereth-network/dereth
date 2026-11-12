@@ -1,8 +1,9 @@
 //! Chests the world makes: what an effect places at a player may be a chest, opened and filled as
 //! a placed chest is and gone with what it holds when its time is up; and an item used on an
 //! object its row names may make a chest and its guards standing there, the object taken from the
-//! world. Fixture: the test world's beetles, one player holding a summoning stone and a machine, a
-//! cache of a chest's kind with a loot profile of one crystal, a dig point.
+//! world. A chest of a kind that goes once closed leaves the world as it shuts, made or placed.
+//! Fixture: the test world's beetles, one player holding a summoning stone and a machine, a cache
+//! of a chest's kind with a loot profile of one crystal, a dig point.
 
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
@@ -351,4 +352,105 @@ fn a_machine_whose_use_no_row_names_makes_nothing() {
         .get(dig)
         .is_some_and(|t| t.kind == Kind::Placed));
     assert!(standing(&h, CACHE).is_empty());
+}
+
+/// Open the chest, then close it; what its client saw of it, from its opening on.
+fn open_and_close(h: &mut Harness, b: usize, me: u64, chest: u64) -> Vec<String> {
+    let from = h.bots[b].inbox.len();
+    uses(h, b, me, chest, 0, 40);
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(CLOSE, &[Arg::LongInt(chest)]),
+    );
+    h.run(30);
+    chest_calls(h, b, from, chest)
+}
+
+/// A chest of a kind that goes once closed, one an effect placed, leaves the world as its closing
+/// is told: forgotten by the client that saw it, gone with what it still held, long before its time
+/// is up.
+/// Behaviour: server.places.chest-gone-once-closed
+#[test]
+fn a_chest_whose_class_goes_once_closed_leaves_the_world_as_it_shuts() {
+    let (mut h, b, me, _, stone, _) = world();
+    h.server.chests.gone_once_closed.insert(CHEST_PACKAGE);
+    uses(&mut h, b, me, stone, 0, 20);
+    let cache = standing(&h, CACHE)[0];
+    let saw = open_and_close(&mut h, b, me, cache);
+    assert_eq!(
+        saw,
+        ["opened 0", "open", "crystal", "closed", "shut", "gone"]
+    );
+    assert!(h.server.things.get(cache).is_none(), "gone");
+    assert!(!h.server.chests.by_id.contains_key(&cache));
+    assert!(
+        !h.server
+            .things
+            .by_id
+            .values()
+            .any(|t| t.template == CRYSTAL),
+        "what it held goes with it"
+    );
+}
+
+/// A placed chest of such a kind, a world's row, goes as it shuts too, and is not made again for
+/// anyone who comes to its place; one of another kind stays.
+/// Behaviour: server.places.chest-gone-once-closed
+#[test]
+fn a_placed_chest_that_goes_once_closed_is_kept_from_the_world() {
+    use yalain_content::{ContentObject, ContentPack, Description, Facts};
+    const CORPSE: u64 = 0x4002_9900_0000_0091;
+    let (mut h, b, me, world, _, _) = world();
+    h.server.chests.gone_once_closed.insert(CHEST_PACKAGE);
+    let here = h.server.players[&world].position;
+    h.server.content = ContentPack {
+        objects: vec![ContentObject {
+            object: Some(CORPSE),
+            template: CACHE,
+            description: Description {
+                name_text: None,
+                package: CHEST_PACKAGE,
+                look: 0x1F00_0F58,
+                enter_fx: 0,
+                scale: None,
+                name: Some((0x1C06_0002, 0x2500_0002)),
+                numbers: [0; 6],
+                source: "authored for a test".into(),
+            },
+            cell: here.cell,
+            origin: [here.origin[0] + 1.0, here.origin[1], here.origin[2]],
+            rotation: [1.0, 0.0, 0.0, 0.0],
+            kind: yalain_content::Kind::Static,
+            label: String::new(),
+            placed: "authored for a test".into(),
+            destination: None,
+            facts: Facts::default(),
+            walks: None,
+            gate: None,
+        }],
+        ..ContentPack::default()
+    };
+    yalain_world::presence::refresh(&mut h.server, &mut h.net, world);
+    h.run(20);
+    assert!(h.server.players[&world].known.contains_key(&CORPSE), "seen");
+    let saw = open_and_close(&mut h, b, me, CORPSE);
+    assert_eq!(
+        saw,
+        ["opened 0", "open", "crystal", "closed", "shut", "gone"]
+    );
+    yalain_world::presence::refresh(&mut h.server, &mut h.net, world);
+    h.run(40);
+    assert!(
+        !h.server.players[&world].known.contains_key(&CORPSE),
+        "not made again"
+    );
+    assert!(yalain_world::usable::chests::chest(&h.server, CORPSE).is_none());
+    // A chest of a kind that stays is opened again.
+    h.server.chests.gone.clear();
+    h.server.chests.gone_once_closed = [0x280D].into();
+    yalain_world::presence::refresh(&mut h.server, &mut h.net, world);
+    h.run(40);
+    let saw = open_and_close(&mut h, b, me, CORPSE);
+    assert_eq!(saw, ["opened 0", "open", "crystal", "closed", "shut"]);
 }

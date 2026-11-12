@@ -892,6 +892,7 @@ struct Play {
     doors: std::collections::HashMap<u32, yalain_world::usable::doors::Kind>,
     doors_through_locks: std::collections::HashSet<u32>,
     chests: std::collections::HashSet<u32>,
+    chests_gone_once_closed: std::collections::HashSet<u32>,
     portal_doors: std::collections::HashSet<u32>,
     treasure: yalain_world::treasure::Kinds,
     treasure_tables: yalain_world::treasure::TreasureTables,
@@ -1127,6 +1128,7 @@ fn run<S: Store>(
     server.doors.packages = play.doors;
     server.doors.creatures_through_locks = play.doors_through_locks;
     server.chests.packages = play.chests;
+    server.chests.gone_once_closed = play.chests_gone_once_closed;
     server.portal_door_packages = play.portal_doors;
     server.treasure = play.treasure;
     server.treasure_tables = play.treasure_tables;
@@ -2247,6 +2249,9 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             &catalog,
             &[yalain_world::usable::chests::PACKAGE],
         )?);
+        let once = [yalain_world::usable::chests::GOES_ONCE_CLOSED];
+        let mut chests_gone_once_closed = data::packages_deriving_from(portal, &content, &once)?;
+        chests_gone_once_closed.extend(data::catalog_packages_from(portal, &catalog, &once)?);
         let portal_doors = data::packages_deriving_from(
             portal,
             &content,
@@ -2343,6 +2348,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             doors,
             doors_through_locks,
             chests,
+            chests_gone_once_closed,
             portal_doors,
             treasure,
             treasure_tables,
@@ -2412,6 +2418,7 @@ fn reload_world(
             doors: p.doors,
             doors_through_locks: p.doors_through_locks,
             chests: p.chests,
+            chests_gone_once_closed: p.chests_gone_once_closed,
             portal_doors: p.portal_doors,
         }),
         ground: Some(Box::new(p.ground)),

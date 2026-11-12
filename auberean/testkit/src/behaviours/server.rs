@@ -11650,6 +11650,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.chest-gone-once-closed",
+        says: "A chest whose template's class is the install's chest that deletes itself on closing leaves \
+               the world as its closing is told, forgotten by the clients that knew it, with what it still \
+               held; one the world made is gone, a placed one is kept from the world and made for no one \
+               again; a chest of another kind stays.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHEST-GONE-ONCE-CLOSED"),
+        station: "yalain-testkit::cpu::play::made_chests::a_chest_whose_class_goes_once_closed_leaves_the_world_as_it_shuts",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.chest-holds-a-quests-item",
         says: "A chest's death treasure that names a quest is in the chest at every opening whose opener \
                holds the quest where it needs it, though no key opened it, the one left from before \

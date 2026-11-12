@@ -355,3 +355,55 @@ fn the_card_melds_tables_give_each_rank_of_lesser_trump_to_one_character_number_
         }
     }
 }
+
+const RECONDITE_MACHINE: u32 = 0x4700_1B34;
+const DIG_POINTS: std::ops::RangeInclusive<u32> = 0x4700_0F90..=0x4700_0F97;
+
+/// A recondite machine's table names each of the eight dig points, from 3 m, playing a behavior of
+/// its own, the machine kept and the point used up, and names nothing made: what the use uncovers
+/// is a row's to say.
+/// Behaviour: server.places.an-item-used-on-an-object-makes-a-chest-there
+#[test]
+fn a_recondite_machines_table_uses_up_the_dig_point_and_names_nothing_made() {
+    let p = Portal::open();
+    let t = p.interactions(&[RECONDITE_MACHINE], &[]);
+    let machine = p.template(RECONDITE_MACHINE);
+    for point in DIG_POINTS {
+        let on = t
+            .between(&machine.props, point, 0)
+            .unwrap_or_else(|| panic!("{point:08X}"));
+        assert!((on.reach - 3.0).abs() < 1e-6);
+        assert_eq!(on.behavior, Some(0x4100_0020));
+        assert!(!on.uses_up && on.uses_up_target);
+        assert_eq!(on.message, None);
+    }
+}
+
+/// The chests that go once closed are those of the script library's chest that deletes itself on
+/// closing, a chest's kind: the prospectors' corpses, a treasure map's cargo chest, a nut hoard's
+/// stump; an Arcanum cache is a plain chest.
+/// Behaviour: server.places.chest-gone-once-closed
+#[test]
+fn the_chests_that_go_once_closed_are_the_librarys_deleting_kind() {
+    use yalain_world::usable::chests::{GOES_ONCE_CLOSED, PACKAGE};
+    let p = Portal::open();
+    let lib = p.library();
+    let chest = lib.package_id(PACKAGE).expect("the chest");
+    let once = lib
+        .package_id(GOES_ONCE_CLOSED)
+        .expect("the kind that goes");
+    let goes = |t: u32| lib.derives_from(p.template(t).description.package, once);
+    for t in [
+        0x4700_12A1,
+        0x4700_12B2,
+        0x4700_12C5,
+        0x4700_12D8,
+        0x4700_0F01,
+        0x4700_0F2D,
+    ] {
+        assert!(goes(t), "{t:08X}");
+        assert!(lib.derives_from(p.template(t).description.package, chest));
+    }
+    assert!(!goes(0x4700_0F3A), "a cache stays its time");
+    assert!(lib.derives_from(p.template(0x4700_0F3A).description.package, chest));
+}

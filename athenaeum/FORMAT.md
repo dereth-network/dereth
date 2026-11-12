@@ -225,6 +225,11 @@ A person or an object of the world, in its landblock's file.
 | `event` | | the `[[event]]` (its `key`) it stands for: it is in the world only while the event is on |
 | `prov` | required | where it came from |
 
+A chest whose template's class goes once closed (the install's chest that deletes itself on
+closing: the prospectors' corpses, a treasure map's cargo chest, a nut hoard's stump) leaves the
+world as its first opener closes it. One a row places is kept from the world until the server
+starts again; to have such a chest come back now and then, let a `[[camp]]` keep it.
+
 #### `[[camp]]`
 
 A spawn camp, in its landblock's file.
