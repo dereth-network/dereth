@@ -2488,3 +2488,74 @@ fn corpses_nobody_opened_lasted_their_templates_times_in_2017() {
     assert!(long > 500, "{long}");
     assert!(long_at_short * 50 <= long, "{long_at_short} against {long}");
 }
+
+/// A creature with a loot quality override drops equipment at that quality's tens or above, not at
+/// its own level: in 2017, drops from such creatures of level 46 or below (where the cap at 50
+/// cannot reach) stood at the tens plus 0 to 2, and where the tens were one above the creature's
+/// level, hardly any stood at the creature's level. This server's drops from the same creatures
+/// all stand at the tens or above.
+/// Behaviour: server.loot.treasure-override-least-level
+#[test]
+fn equipment_a_creature_with_a_loot_quality_override_drops_stands_at_its_tens_or_above() {
+    use yalain_world::treasure::endow;
+    const DRAWS: usize = 20;
+    let tens = |d: &Dropped| {
+        d.quality
+            .filter(|q| *q > 0)
+            .and_then(|q| i32::try_from(q / 10).ok())
+    };
+    let drops: Vec<(&Dropped, i32)> = equipment_dropped()
+        .iter()
+        .filter(|d| d.level <= 46)
+        .filter_map(|d| Some((d, tens(d)?)))
+        .collect();
+    // 2017: each examined drop's least level against its dropper's tens and level.
+    let (mut examined, mut at_or_above, mut above_level, mut at_level) = (0, 0, 0, 0);
+    let mut over = [0usize; 4];
+    for (d, t) in &drops {
+        let Some(least) = d.examined.and_then(|e| e.least) else {
+            continue;
+        };
+        let least = i32::try_from(least).unwrap_or(0);
+        examined += 1;
+        at_or_above += usize::from(least >= *t);
+        if let Ok(o) = usize::try_from(least - t) {
+            over[o.min(3)] += 1;
+        }
+        if *t == d.level + 1 {
+            above_level += 1;
+            at_level += usize::from(least == d.level);
+        }
+    }
+    println!(
+        "2017: {examined} examined, {at_or_above} at the tens or above, by 0, 1, 2, 3+ above: \
+         {over:?}; {at_level} of {above_level} with the tens one above the level at the level"
+    );
+    assert!(examined >= 300, "the recordings hold them: {examined}");
+    assert!(
+        at_or_above * 100 >= examined * 99,
+        "{at_or_above} of {examined}"
+    );
+    assert_eq!(over[3], 0, "none at the tens plus 3 or more: {over:?}");
+    assert!(above_level >= 300, "{above_level}");
+    assert!(at_level * 50 <= above_level, "{at_level} of {above_level}");
+    // Ours: every drop again, from its own dropper.
+    let portal = yalain_testkit::authored::Portal::open();
+    let lib = portal.library();
+    let mut h = yalain_testkit::Harness::new();
+    let (mut ours, mut below) = (0usize, 0usize);
+    for (d, t) in &drops {
+        treasure_template(&mut h, &portal, &lib, d.template);
+        for _ in 0..DRAWS {
+            let item = yalain_world::inventory::make_item(&mut h.server, d.template, 1, d.value)
+                .expect("made");
+            endow(&mut h.server, item, d.level, d.quality);
+            let least = h.server.things.get(item).expect("made").own.min_level;
+            ours += 1;
+            below += usize::from(least.is_none_or(|l| l < *t));
+        }
+    }
+    println!("ours: {below} of {ours} below the tens");
+    assert!(ours >= 300 * DRAWS, "{ours}");
+    assert_eq!(below, 0, "{below} of {ours}");
+}
