@@ -12,6 +12,11 @@
 //! camp's period (2017: quest items lying alone came back 20.0-20.1 s after their taking, 9 of 9
 //! timed; keys 30.0-30.1 s, 6 of 6; a dungeon's mushrooms 181-193 s, 6 of 6).
 //!
+//! **Chests.** A camp whose template is a chest's keeps one standing at its place, as an effect
+//! places one ([`crate::placing`]): anyone may open it. Once it is gone (a chest of a kind that goes
+//! once closed, closed after its opening) a new one stands there after the camp's period: a rare
+//! prospector's corpse where creatures roam, with a long period, comes back now and then.
+//!
 //! **Summons.** A camp never makes a summoned creature (a template with a pet's AI or a pet's NPC
 //! table): those were players' pets and conjurings, seen beside their owners and never made by a
 //! camp (2017: every one of the 417 creatures given a player as its pet was of such a template).
@@ -253,6 +258,10 @@ pub fn spawn<S: Store>(s: &mut Server<S>, i: usize, now: f64) -> Option<u64> {
     )?;
     let template = s.catalog.get(camp.templates[pick].0)?.clone();
     let Some(mut stats) = yalain_content::CreatureStats::from_props(&template.props) else {
+        if s.chests.packages.contains(&template.description.package) {
+            let (at, _) = place(s, &camp, i);
+            return Some(stand(s, &template, at));
+        }
         if is_item(&template.props) {
             let (at, _) = place(s, &camp, i);
             return lay(s, template.id, at);
@@ -460,6 +469,20 @@ fn lay<S: Store>(s: &mut Server<S>, template: u32, at: StoredPosition) -> Option
         t.at = Some(at);
     }
     Some(id)
+}
+
+/// Stand a chest of a template where a camp keeps it, no one's. Returns its id.
+fn stand<S: Store>(
+    s: &mut Server<S>,
+    template: &yalain_content::Template,
+    at: StoredPosition,
+) -> u64 {
+    let id = s.things.new_id();
+    let mut t = Thing::of(id, template, Kind::Placed);
+    t.at = Some(at);
+    t.fresh = true;
+    s.things.insert(t);
+    id
 }
 
 /// A camp's period: how long after a death or a taking its replacement is due, at the operator's

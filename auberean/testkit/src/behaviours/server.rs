@@ -11302,6 +11302,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.places.a-camp-keeps-a-chest",
+        says: "A camp whose template is a chest's keeps one standing at its place, anyone's to open; once \
+               it is gone (one of a kind that goes once closed, closed after its opening) nothing stands \
+               there until the camp's period is over, and then a new one does.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CAMP-KEEPS-A-CHEST"),
+        station: "yalain-testkit::cpu::play::made_chests::a_camp_keeps_a_chest_and_makes_another_after_its_period",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.a-chest-its-opener-left-opens-again",
         says: "A chest whose opener leaves the world, open or still opening, is shut for the next to \
                open. Our own rule: no recording shows a chest its opener left behind.",

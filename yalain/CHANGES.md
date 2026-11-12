@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Worlds can now have a chest turn up again now and then in the same area.
 - Prospectors' corpses and other one-time chests now vanish once closed.
 - Worlds can now have a map or a machine uncover a chest and its guards.
 - Treasure maps and reckoning gems now lead to their spot and work only there.

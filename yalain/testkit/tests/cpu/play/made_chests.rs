@@ -454,3 +454,48 @@ fn a_placed_chest_that_goes_once_closed_is_kept_from_the_world() {
     let saw = open_and_close(&mut h, b, me, CORPSE);
     assert_eq!(saw, ["opened 0", "open", "crystal", "closed", "shut"]);
 }
+
+/// A camp whose template is a chest's keeps one standing at its place, anyone's to open; once it is
+/// gone (a chest of a kind that goes once closed, closed after its opening) nothing stands there
+/// until the camp's period is over, and then a new one does.
+/// Behaviour: server.places.a-camp-keeps-a-chest
+#[test]
+fn a_camp_keeps_a_chest_and_makes_another_after_its_period() {
+    let (mut h, b, me, world, _, _) = world();
+    h.server.chests.gone_once_closed.insert(CHEST_PACKAGE);
+    let here = h.server.players[&world].position;
+    let spot = [here.origin[0] + 1.0, here.origin[1], here.origin[2]];
+    let mut camp = yalain_testkit::test_camp(1);
+    camp.id = "prospector".into();
+    camp.cell = here.cell;
+    camp.origin = spot;
+    camp.regen = 60.0;
+    camp.templates = vec![(CACHE, 1)];
+    camp.spots = vec![(here.cell, spot)];
+    h.server.spawns.camps.push(camp);
+    h.server
+        .camps
+        .push(yalain_world::spawn::CampState::default());
+    h.run(10);
+    let kept = standing(&h, CACHE);
+    assert_eq!(kept.len(), 1, "the camp's chest stands");
+    let first = kept[0];
+    let saw = open_and_close(&mut h, b, me, first);
+    assert_eq!(
+        saw,
+        ["opened 0", "open", "crystal", "closed", "shut", "gone"]
+    );
+    h.run(1000);
+    assert!(
+        standing(&h, CACHE).is_empty(),
+        "none before its period is over"
+    );
+    h.run(300);
+    let again = standing(&h, CACHE);
+    assert_eq!(again.len(), 1, "a new one after its period");
+    assert_ne!(again[0], first);
+    assert!(
+        h.server.players[&world].known.contains_key(&again[0]),
+        "made for the player"
+    );
+}

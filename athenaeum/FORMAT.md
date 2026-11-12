@@ -242,7 +242,7 @@ A spawn camp, in its landblock's file.
 | `spots` | | indoors, the points creatures appear at: `{ cell, at }` |
 | `population` | required | how many it keeps alive |
 | `regen` | required | seconds from a death to its replacement |
-| `spawns` | | what it makes: `{ template, weight }`; an item's template (one with a value, no creature) it keeps lying at its place, a new one `regen` seconds after the last is taken |
+| `spawns` | | what it makes: `{ template, weight }`; an item's template (one with a value, no creature) it keeps lying at its place, a new one `regen` seconds after the last is taken; a chest's template it keeps standing there, anyone's to open, a new one `regen` seconds after the last is gone (one of a kind that goes once closed: a prospector's corpse that comes back now and then, with a long `regen`) |
 | `profile`, `profile_name` | | the generator profile it stands for |
 | `parent` | | a master camp |
 | `movement` | | how its creatures may move, over their template's: `stationary`, `turn-only`, `constrained-to-home` (the default), `constrained-to-master` or `free-range` |
