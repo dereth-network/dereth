@@ -659,16 +659,285 @@ pub fn decode(
 #[derive(Debug, Clone, PartialEq)]
 pub struct SkinPrimitive {
     pub primitive: Primitive,
+    /// Each vertex's parts, or bones ([`BONE`] and up, by their place in [`Skin::bones`]).
     pub parts: Vec<[u16; 4]>,
     pub weights: Vec<[f32; 4]>,
+    /// The retail surface it is drawn with (`extras.surface`), in place of its material, and
+    /// whether that surface's texture repeats (`extras.tiled`).
+    pub surface: Option<u32>,
+    pub tiled: bool,
+    /// Each vertex's share of dual-quaternion blending (`_DQS`, 0 to 1); empty for none.
+    pub dqs: Vec<f32>,
 }
 
-/// A skinned body: its primitives, and for each part a vertex follows, the matrix that takes the
-/// body's bind space to the part's own (upright both, the part's scale applied).
-#[derive(Debug, Clone, PartialEq)]
+/// The first number a vertex names a bone of a body's own skeleton by: [`BONE`] + its place in
+/// [`Skin::bones`].
+pub const BONE: u16 = 0x4000;
+
+/// A bone of a body's own skeleton: the matrix that takes the bind space to its own (upright).
+/// Its clips alone pose it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SkinBone {
+    pub inverse_bind: Mat4,
+}
+
+/// A skinned body: its primitives, and for each part it is drawn in place of, the matrix that
+/// takes the body's bind space to the part's own (upright both, the part's scale applied).
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Skin {
     pub primitives: Vec<SkinPrimitive>,
     pub inverse_binds: Vec<(u16, Mat4)>,
+    /// The GfxObj each part must be drawing for the body to fit it (`extras.gfxobj` of a part's
+    /// node): a part drawing anything else leaves the object drawn with its parts.
+    pub gfxobjs: Vec<(u16, u32)>,
+    /// The bones of the body's own skeleton, in the order of the skin's joints.
+    pub bones: Vec<SkinBone>,
+    /// Its animations that move its own bones ([`SkinClip`]).
+    pub clips: Vec<SkinClip>,
+}
+
+/// One of a body's animations, by its name: each of [`Skin::bones`]' turn and place in the bind
+/// space (upright), at [`CLIP_RATE`] steps a second through it, the first at its start and the last
+/// at its end.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SkinClip {
+    pub name: String,
+    pub steps: Vec<Vec<(Quat, Vec3)>>,
+    /// Each step's bones' scale against their own at rest, where the clip scales any (a blink, a
+    /// stretched limb); empty where it scales none.
+    pub scales: Vec<Vec<f32>>,
+    /// How long it lasts, in seconds.
+    pub seconds: f32,
+    /// How far the body travels in one round of it, in meters of its own space (`extras.stride` of
+    /// the animation), for a walk or a run paced by the speed its object's motion asks.
+    pub stride: Option<f32>,
+    /// When its blow lands, in seconds from its start (`extras.hit` of the animation), for an
+    /// attack timed to land when the object's own does.
+    pub hit: Option<f32>,
+}
+
+/// How many steps a second a body's clip is read at.
+pub const CLIP_RATE: f32 = 30.0;
+
+/// One animated property of a node: its keys' times, values (`width` each) and whether it holds
+/// each key until the next rather than moving between them.
+struct Track {
+    times: Vec<f32>,
+    values: Vec<f32>,
+    width: usize,
+    step: bool,
+}
+
+impl Track {
+    /// Its value at `t`, held before its first key and after its last.
+    fn at(&self, t: f32, rotation: bool) -> Vec<f32> {
+        let w = self.width;
+        let key = |i: usize| &self.values[i * w..i * w + w];
+        let n = self.times.len();
+        let after = self.times.partition_point(|x| *x <= t);
+        if after == 0 {
+            return key(0).to_vec();
+        }
+        if after >= n || self.step {
+            return key(after - 1).to_vec();
+        }
+        let (t0, t1) = (self.times[after - 1], self.times[after]);
+        let f = if t1 > t0 { (t - t0) / (t1 - t0) } else { 0.0 };
+        let (a, b) = (key(after - 1), key(after));
+        if rotation && w == 4 {
+            let qa = Quat::from_slice(a).normalize();
+            let mut qb = Quat::from_slice(b).normalize();
+            if qa.dot(qb) < 0.0 {
+                qb = -qb;
+            }
+            return qa.slerp(qb, f).normalize().to_array().to_vec();
+        }
+        a.iter().zip(b).map(|(x, y)| x + (y - x) * f).collect()
+    }
+}
+
+/// The body's animations ([`SkinClip`]), each sampled at [`CLIP_RATE`] for the bones whose nodes
+/// are `bone_nodes`, glTF's axes taken to the bind space by `up`.
+fn skin_clips(
+    doc: &Value,
+    buffers: &[Vec<u8>],
+    at: &str,
+    nodes: &[Value],
+    parent: &[Option<usize>],
+    bone_nodes: &[usize],
+    up: Mat4,
+) -> Result<Vec<SkinClip>, Refusal> {
+    let mut out = Vec::new();
+    let listed = doc
+        .get("animations")
+        .and_then(Value::as_array)
+        .map_or(&[][..], Vec::as_slice);
+    for (n, a) in listed.iter().enumerate() {
+        let name = a
+            .get("name")
+            .and_then(Value::as_str)
+            .map_or_else(|| n.to_string(), str::to_owned);
+        let samplers = a
+            .get("samplers")
+            .and_then(Value::as_array)
+            .map_or(&[][..], Vec::as_slice);
+        // Each node's animated translation, rotation and scale.
+        let mut tracks: std::collections::HashMap<(usize, u8), Track> =
+            std::collections::HashMap::new();
+        for c in a
+            .get("channels")
+            .and_then(Value::as_array)
+            .map_or(&[][..], Vec::as_slice)
+        {
+            let target = c.get("target").unwrap_or(&Value::Null);
+            let (Some(node), Some(path)) = (
+                index(target, "node"),
+                target.get("path").and_then(Value::as_str),
+            ) else {
+                continue;
+            };
+            let (slot, width) = match path {
+                "translation" => (0, 3),
+                "rotation" => (1, 4),
+                "scale" => (2, 3),
+                _ => continue,
+            };
+            let s = index(c, "sampler")
+                .and_then(|i| samplers.get(i))
+                .ok_or_else(|| format!("{at}: animation {name:?} names no sampler"))?;
+            let step = match s.get("interpolation").and_then(Value::as_str) {
+                None | Some("LINEAR") => false,
+                Some("STEP") => true,
+                Some(other) => {
+                    return Err(format!(
+                        "{at}: animation {name:?}: {other} keys are not read"
+                    ));
+                }
+            };
+            let (Some(input), Some(output)) = (index(s, "input"), index(s, "output")) else {
+                return Err(format!(
+                    "{at}: animation {name:?} has a sampler with no keys"
+                ));
+            };
+            let (times, _) = accessor(doc, buffers, input).map_err(|e| format!("{at}: {e}"))?;
+            let (values, _) = accessor(doc, buffers, output).map_err(|e| format!("{at}: {e}"))?;
+            if times.width != 1
+                || times.count == 0
+                || values.width != width
+                || values.count != times.count
+            {
+                return Err(format!(
+                    "{at}: animation {name:?} has keys that do not match their times"
+                ));
+            }
+            tracks.insert(
+                (node, slot),
+                Track {
+                    times: times.values,
+                    values: values.values,
+                    width,
+                    step,
+                },
+            );
+        }
+        let end = tracks
+            .values()
+            .filter_map(|t| t.times.last().copied())
+            .fold(0.0f32, f32::max);
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a clip's steps
+        let count = ((end * CLIP_RATE).ceil().max(1.0) as usize) + 1;
+        let into = up.inverse();
+        // Each bone's scale at rest, which a step's is measured against.
+        let rest: Vec<f32> = bone_nodes
+            .iter()
+            .map(|&b| {
+                let mut m = self::local(&nodes[b]);
+                let mut at = parent[b];
+                for _ in 0..64 {
+                    let Some(p) = at else { break };
+                    m = self::local(&nodes[p]) * m;
+                    at = parent[p];
+                }
+                let s = m.to_scale_rotation_translation().0;
+                (s.x + s.y + s.z) / 3.0
+            })
+            .collect();
+        let mut steps = Vec::with_capacity(count);
+        let mut scales = Vec::with_capacity(count);
+        for k in 0..count {
+            #[allow(clippy::cast_precision_loss)]
+            let t = end * k as f32 / (count - 1) as f32;
+            let local = |i: usize| -> Mat4 {
+                let node = &nodes[i];
+                if !tracks.keys().any(|(n, _)| *n == i) {
+                    return self::local(node);
+                }
+                let (s0, r0, t0) = self::local(node).to_scale_rotation_translation();
+                let tr = tracks
+                    .get(&(i, 0))
+                    .map_or(t0, |x| Vec3::from_slice(&x.at(t, false)));
+                let ro = tracks
+                    .get(&(i, 1))
+                    .map_or(r0, |x| Quat::from_slice(&x.at(t, true)).normalize());
+                let sc = tracks
+                    .get(&(i, 2))
+                    .map_or(s0, |x| Vec3::from_slice(&x.at(t, false)));
+                Mat4::from_scale_rotation_translation(sc, ro, tr)
+            };
+            let mut world: Vec<Option<Mat4>> = vec![None; nodes.len()];
+            let mut bones = Vec::with_capacity(bone_nodes.len());
+            let mut sizes = Vec::with_capacity(bone_nodes.len());
+            for &b in bone_nodes {
+                // The bone's node and every node above it, placed parents first.
+                let mut chain = vec![b];
+                while let Some(p) = chain
+                    .last()
+                    .and_then(|c| parent[*c])
+                    .filter(|p| world[*p].is_none() && chain.len() <= 64)
+                {
+                    chain.push(p);
+                }
+                for &c in chain.iter().rev() {
+                    if world[c].is_none() {
+                        let above = parent[c].and_then(|p| world[p]).unwrap_or(Mat4::IDENTITY);
+                        world[c] = Some(above * local(c));
+                    }
+                }
+                let g = up * world[b].unwrap_or(Mat4::IDENTITY) * into;
+                let (s, q, p) = g.to_scale_rotation_translation();
+                bones.push((q.normalize(), p));
+                let at_rest = rest[bones.len() - 1];
+                sizes.push(if at_rest > 1e-6 {
+                    (s.x + s.y + s.z) / 3.0 / at_rest
+                } else {
+                    1.0
+                });
+            }
+            steps.push(bones);
+            scales.push(sizes);
+        }
+        if scales.iter().flatten().all(|s| (s - 1.0).abs() < 1e-3) {
+            scales.clear();
+        }
+        #[allow(clippy::cast_possible_truncation)] // meters or seconds, a few at most
+        let extra = |key: &str| {
+            a.get("extras")
+                .and_then(|e| e.get(key))
+                .and_then(Value::as_f64)
+                .map(|s| s as f32)
+        };
+        let stride = extra("stride").filter(|s| s.is_finite() && *s > 0.0);
+        let hit = extra("hit").filter(|s| s.is_finite() && *s >= 0.0);
+        out.push(SkinClip {
+            name,
+            steps,
+            scales,
+            seconds: end,
+            stride,
+            hit,
+        });
+    }
+    Ok(out)
 }
 
 /// The part a node names: `part_NN`, or `extras.part`.
@@ -688,14 +957,14 @@ fn part_named(node: &Value) -> Option<u16> {
 }
 
 /// The skinned body of the glTF whose text is `json`, at `at` in the pack, its buffers read
-/// through `read`: the first node that has both a mesh and a skin. Each joint follows the part it
-/// names (`part_NN`, or `extras.part`), or the nearest node above it in the node tree that names
-/// one. The positions are the mesh's own, in its bind space: the node's transform is not applied
-/// to a skinned mesh.
+/// through `read`: the first node that has both a mesh and a skin. A joint that names a part
+/// (`part_NN`, or `extras.part`) is that part, which the body is drawn in place of; every other
+/// joint is a bone of the body's own skeleton, which its clips pose. The positions are the mesh's
+/// own, in its bind space: the node's transform is not applied to a skinned mesh.
 ///
 /// # Errors
-/// As [`decode`]; no skinned mesh; a joint that follows no part; or joints and weights that do
-/// not match the positions.
+/// As [`decode`]; no skinned mesh; no joint that names a part; or joints and weights that do not
+/// match the positions.
 #[allow(clippy::too_many_lines)] // one pass over the skin, then over its primitives
 pub fn decode_skin(
     json: &[u8],
@@ -739,15 +1008,6 @@ pub fn decode_skin(
         }
         m
     };
-    let follows = |mut n: usize| -> Option<(u16, usize)> {
-        for _ in 0..=64 {
-            if let Some(p) = part_named(nodes.get(n)?) {
-                return Some((p, n));
-            }
-            n = parent.get(n).copied().flatten()?;
-        }
-        None
-    };
     let (body, skin) = nodes
         .iter()
         .enumerate()
@@ -788,34 +1048,60 @@ pub fn decode_skin(
         }
         None => None,
     };
-    // Each joint's part, and each part's inverse bind matrix: its own joint's, or where its node
-    // is no joint of the skin, the inverse of the node's place in the scene.
+    // Each joint's part or bone, each part's inverse bind matrix, and each bone's.
     let mut part_of_joint = Vec::with_capacity(joints.len());
     let mut by_part: std::collections::BTreeMap<u16, Mat4> = std::collections::BTreeMap::new();
-    for (k, &j) in joints.iter().enumerate() {
-        let (part, node) =
-            follows(j).ok_or_else(|| format!("{at}: joint {k} (node {j}) follows no part"))?;
-        part_of_joint.push(part);
-        let own = binds.as_ref().filter(|_| node == j).map(|b| b[k]);
-        if own.is_some() || !by_part.contains_key(&part) {
-            by_part.insert(part, own.unwrap_or_else(|| world(node).inverse()));
-        }
-    }
-    // glTF's axes on both sides: the body's bind space in, the part's own space out.
+    let mut gfxobjs = Vec::new();
     let up = Mat4::from_cols(
         Vec4::X,
         Vec4::new(0.0, 0.0, 1.0, 0.0),
         Vec4::new(0.0, -1.0, 0.0, 0.0),
         Vec4::W,
     );
+    let mut bones: Vec<SkinBone> = Vec::new();
+    let mut bone_nodes: Vec<usize> = Vec::new();
+    for (k, &j) in joints.iter().enumerate() {
+        let node = nodes
+            .get(j)
+            .ok_or_else(|| format!("{at}: joint {k} names no node"))?;
+        let ib = binds
+            .as_ref()
+            .and_then(|b| b.get(k).copied())
+            .unwrap_or_else(|| world(j).inverse());
+        if let Some(part) = part_named(node) {
+            if let Some(g) = node
+                .get("extras")
+                .and_then(|e| e.get("gfxobj"))
+                .and_then(Value::as_u64)
+                .and_then(|g| u32::try_from(g).ok())
+            {
+                gfxobjs.push((part, g));
+            }
+            part_of_joint.push(part);
+            by_part.insert(part, ib);
+            continue;
+        }
+        let n = u16::try_from(bones.len())
+            .ok()
+            .filter(|n| *n < BONE)
+            .ok_or_else(|| format!("{at}: too many bones"))?;
+        bone_nodes.push(j);
+        bones.push(SkinBone {
+            inverse_bind: up * ib * up.inverse(),
+        });
+        part_of_joint.push(BONE + n);
+    }
+    if by_part.is_empty() {
+        return Err(format!("{at}: no joint names a part"));
+    }
+    // glTF's axes on both sides: the body's bind space in, the part's own space out.
     let inverse_binds = by_part
         .into_iter()
         .map(|(p, m)| (p, up * m * up.inverse()))
         .collect();
     let mesh = index(&nodes[body], "mesh").unwrap_or(0);
-    let listed = doc
-        .get("meshes")
-        .and_then(|m| m.get(mesh))
+    let mesh_v = doc.get("meshes").and_then(|m| m.get(mesh));
+    let listed = mesh_v
         .and_then(|m| m.get("primitives"))
         .and_then(Value::as_array)
         .ok_or_else(|| format!("{at}: no mesh {mesh}"))?;
@@ -872,15 +1158,46 @@ pub fn decode_skin(
             parts.push(ps);
             weights.push(ws);
         }
+        let extras = p.get("extras");
+        let surface = extras
+            .and_then(|e| e.get("surface"))
+            .and_then(Value::as_u64)
+            .and_then(|s| u32::try_from(s).ok());
+        let tiled = extras
+            .and_then(|e| e.get("tiled"))
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        let dqs = match index(attrs, "_DQS") {
+            Some(i) => {
+                let (a, _) = accessor(&doc, &buffers, i).map_err(|e| format!("{at}: {e}"))?;
+                if a.width != 1 || a.count != count {
+                    return Err(format!("{at}: _DQS that does not match the positions"));
+                }
+                a.values
+            }
+            None => Vec::new(),
+        };
         primitives.push(SkinPrimitive {
             primitive,
             parts,
             weights,
+            surface,
+            tiled,
+            dqs,
         });
     }
+    // A body's own clips move its own bones; a body of parts alone has none.
+    let clips = if bones.is_empty() {
+        Vec::new()
+    } else {
+        skin_clips(&doc, &buffers, at, &nodes, &parent, &bone_nodes, up)?
+    };
     Ok(Skin {
         primitives,
         inverse_binds,
+        gfxobjs,
+        bones,
+        clips,
     })
 }
 
@@ -1019,9 +1336,9 @@ mod tests {
         assert!(beside("a/m.gltf", "data:image/png;base64,AA").is_err());
     }
 
-    /// A triangle skinned to two joints: `part_00` a metre up, and an unnamed joint under
-    /// `part_02`, which stands a metre east of it. Its mesh node is moved, which a skinned mesh
-    /// ignores.
+    /// A triangle skinned to two joints: `part_00` a metre up, and an unnamed joint (a bone of
+    /// the body's own) under `part_02`, which stands a metre east of it. Its mesh node is moved,
+    /// which a skinned mesh ignores.
     fn skinned_triangle() -> (String, Vec<u8>) {
         let mut bin = Vec::new();
         for p in [[0.0f32, 1.0, 0.0], [1.0, 1.0, 0.0], [0.5, 1.5, 0.0]] {
@@ -1083,7 +1400,7 @@ mod tests {
     }
 
     #[test]
-    fn a_skinned_body_names_each_vertexs_parts_and_takes_its_bind_space_to_each_parts_own() {
+    fn a_skinned_body_names_the_parts_it_replaces_and_its_own_bones() {
         let (json, bin) = skinned_triangle();
         let skin = decode_skin(json.as_bytes(), "body/skin.gltf", &mut |path| {
             assert_eq!(path, "body/skin.bin");
@@ -1092,13 +1409,15 @@ mod tests {
         .expect("the skin reads");
         assert_eq!(skin.primitives.len(), 1);
         let p = &skin.primitives[0];
-        // The unnamed joint follows the part above it; a vertex's weights are made whole.
-        assert_eq!(p.parts, [[0, 0, 0, 0], [2, 0, 0, 0], [0, 2, 0, 0]]);
+        // The unnamed joint is a bone of its own, whatever part stands above it; a vertex's
+        // weights are made whole.
+        assert_eq!(p.parts, [[0, 0, 0, 0], [BONE, 0, 0, 0], [0, BONE, 0, 0]]);
         assert_eq!(p.weights[2], [0.5, 0.5, 0.0, 0.0]);
+        assert_eq!(skin.bones.len(), 1);
         // The positions are the mesh's own, upright, its node's move left out.
         let first = Vec3::from_slice(&p.primitive.vertices[0..3]);
         assert!(first.distance(Vec3::new(0.0, 0.0, 1.0)) < 1e-6, "{first}");
-        // Part 0's own matrix; part 2's from its node's place, its joint being another node.
+        // Part 0's own matrix, and no other part: part 2 is no joint of the skin.
         let bind = |part: u16| {
             skin.inverse_binds
                 .iter()
@@ -1109,10 +1428,126 @@ mod tests {
         assert!(bind(0)
             .transform_point3(Vec3::new(0.0, 0.0, 1.0))
             .abs_diff_eq(Vec3::ZERO, 1e-6));
-        assert!(bind(2)
-            .transform_point3(Vec3::new(1.0, 0.0, 1.0))
-            .abs_diff_eq(Vec3::ZERO, 1e-6));
-        assert_eq!(skin.inverse_binds.len(), 2);
+        assert_eq!(skin.inverse_binds.len(), 1);
+    }
+
+    #[test]
+    fn a_bodys_own_animations_are_read_as_its_bones_places_and_scales_upright_at_even_steps() {
+        let (json, mut bin) = skinned_triangle();
+        let mut doc: Value = serde_json::from_str(&json).expect("json");
+        // A hip bone a metre up, a knee 0.8 below it; each joint's bind its node's place.
+        let nodes = doc["nodes"].as_array_mut().expect("nodes");
+        nodes.push(serde_json::json!({"name": "hip", "translation": [0, 1, 0], "children": [5]}));
+        nodes.push(serde_json::json!({"name": "knee", "translation": [0, -0.8, 0]}));
+        doc["scenes"][0]["nodes"] = serde_json::json!([0, 3, 4]);
+        doc["skins"][0] = serde_json::json!({"joints": [0, 2, 4, 5]});
+        // The hip turning a quarter forward about glTF's X over a second, and a clip that holds.
+        let at = bin.len();
+        for t in [0.0f32, 1.0] {
+            bin.extend(t.to_le_bytes());
+        }
+        let quarter = Quat::from_rotation_x(90f32.to_radians());
+        for q in [Quat::IDENTITY, quarter] {
+            for c in q.to_array() {
+                bin.extend(c.to_le_bytes());
+            }
+        }
+        let views = doc["bufferViews"].as_array_mut().expect("views");
+        views.push(serde_json::json!({"buffer": 0, "byteOffset": at, "byteLength": 8}));
+        views.push(serde_json::json!({"buffer": 0, "byteOffset": at + 8, "byteLength": 32}));
+        let accessors = doc["accessors"].as_array_mut().expect("accessors");
+        accessors.push(
+            serde_json::json!({"bufferView": 5, "componentType": 5126, "count": 2,
+            "type": "SCALAR"}),
+        );
+        accessors.push(
+            serde_json::json!({"bufferView": 6, "componentType": 5126, "count": 2,
+            "type": "VEC4"}),
+        );
+        // And the hip shrinking to half over the second.
+        let sizes = bin.len();
+        for s in [1.0f32, 1.0, 1.0, 0.5, 0.5, 0.5] {
+            bin.extend(s.to_le_bytes());
+        }
+        let views = doc["bufferViews"].as_array_mut().expect("views");
+        views.push(serde_json::json!({"buffer": 0, "byteOffset": sizes, "byteLength": 24}));
+        let accessors = doc["accessors"].as_array_mut().expect("accessors");
+        accessors.push(
+            serde_json::json!({"bufferView": 7, "componentType": 5126, "count": 2,
+            "type": "VEC3"}),
+        );
+        doc["buffers"][0]["byteLength"] = serde_json::json!(bin.len());
+        doc["animations"] = serde_json::json!([
+            {"name": "kick", "samplers": [{"input": 5, "output": 6}],
+             "channels": [{"sampler": 0, "target": {"node": 4, "path": "rotation"}}],
+             "extras": {"stride": 1.35, "hit": 0.4}},
+            {"name": "held", "samplers": [{"input": 5, "output": 6, "interpolation": "STEP"}],
+             "channels": [{"sampler": 0, "target": {"node": 4, "path": "rotation"}}]},
+            {"name": "blink", "samplers": [{"input": 5, "output": 7}],
+             "channels": [{"sampler": 0, "target": {"node": 4, "path": "scale"}}]}
+        ]);
+        let text = doc.to_string();
+        let skin = decode_skin(text.as_bytes(), "m.gltf", &mut |_| Ok(bin.clone())).expect("reads");
+        // The twist, the hip and the knee.
+        assert_eq!(skin.bones.len(), 3);
+        let kick = skin
+            .clips
+            .iter()
+            .find(|c| c.name == "kick")
+            .expect("the kick");
+        // A second at thirty steps a second: thirty-one steps, the first at its start.
+        assert_eq!(kick.steps.len(), 31);
+        let near = |a: Vec3, b: Vec3| a.distance(b) < 1e-4;
+        let (hip, knee) = (kick.steps[0][1], kick.steps[0][2]);
+        assert!(near(hip.1, Vec3::new(0.0, 0.0, 1.0)), "{hip:?}");
+        assert!(near(knee.1, Vec3::new(0.0, 0.0, 0.2)), "{knee:?}");
+        // At its end the hip has turned the knee forward (AC's y) under it, the turn upright too.
+        let (hip, knee) = (kick.steps[30][1], kick.steps[30][2]);
+        assert!(near(knee.1, Vec3::new(0.0, 0.8, 1.0)), "{knee:?}");
+        assert!(hip.0.dot(Quat::from_rotation_x(90f32.to_radians())).abs() > 0.9999);
+        // Half way, half turned.
+        let mid = kick.steps[15][2].1;
+        let want = Vec3::new(0.0, 0.0, 1.0)
+            + Quat::from_rotation_x(45f32.to_radians()) * Vec3::new(0.0, 0.0, -0.8);
+        assert!(near(mid, want), "{mid:?}");
+        // It scales nothing; the blink shrinks the hip, and the knee under it, by half by its
+        // end, the knee drawn half as far below.
+        assert!(kick.scales.is_empty());
+        let blink = skin
+            .clips
+            .iter()
+            .find(|c| c.name == "blink")
+            .expect("the blink");
+        assert_eq!(blink.scales.len(), 31);
+        let both = |s: &[f32], v: f32| s.iter().all(|s| (s - v).abs() < 1e-4);
+        assert!(both(&blink.scales[0], 1.0), "{:?}", blink.scales[0]);
+        assert!(both(&blink.scales[30][1..], 0.5), "{:?}", blink.scales[30]);
+        assert!(
+            both(&blink.scales[30][..1], 1.0),
+            "the twist is not under the hip"
+        );
+        assert!(near(blink.steps[30][2].1, Vec3::new(0.0, 0.0, 0.6)));
+        // Its length, how far the body travels in one round of it and when its blow lands, where
+        // the animation says.
+        assert!((kick.seconds - 1.0).abs() < 1e-6);
+        assert_eq!(kick.stride, Some(1.35));
+        assert_eq!(kick.hit, Some(0.4));
+        // Keys that hold: unturned until the last.
+        let held = skin.clips.iter().find(|c| c.name == "held").expect("held");
+        assert_eq!((held.stride, held.hit), (None, None));
+        assert!(near(held.steps[29][2].1, Vec3::new(0.0, 0.0, 0.2)));
+        assert!(near(held.steps[30][2].1, Vec3::new(0.0, 0.8, 1.0)));
+        // Cubic keys, and keys of the wrong width for what they move, are refused.
+        let refused = |path: &str, interpolation: &str| {
+            let mut d = doc.clone();
+            d["animations"][1]["samplers"][0]["interpolation"] = serde_json::json!(interpolation);
+            d["animations"][1]["channels"][0]["target"]["path"] = serde_json::json!(path);
+            let text = d.to_string();
+            decode_skin(text.as_bytes(), "m.gltf", &mut |_| Ok(bin.clone())).is_err()
+        };
+        assert!(refused("rotation", "CUBICSPLINE"));
+        assert!(refused("scale", "LINEAR"));
+        assert!(!refused("rotation", "LINEAR"));
     }
 
     #[test]
@@ -1127,7 +1562,7 @@ mod tests {
         };
         assert!(
             refused("\"name\": \"part_00\", ", ""),
-            "a joint that follows no part"
+            "no joint names a part"
         );
         assert!(refused("\"skin\": 0, ", ""), "no skinned mesh");
         assert!(
@@ -1139,5 +1574,34 @@ mod tests {
             "\"count\": 1, \"type\": \"MAT4\""
         ));
         assert!(decode_skin(json.as_bytes(), "m.gltf", &mut |_| Ok(bin.clone())).is_ok());
+    }
+
+    #[test]
+    fn a_body_reads_its_retail_surfaces_blending_shares_and_the_gfxobjs_it_fits() {
+        let (json, mut bin) = skinned_triangle();
+        let mut doc: Value = serde_json::from_str(&json).expect("json");
+        doc["nodes"][0]["extras"] = serde_json::json!({"gfxobj": 16_783_239});
+        // The shares, after what the triangle has.
+        let at = bin.len();
+        bin.extend([0.0f32, 1.0, 0.5].iter().flat_map(|f| f.to_le_bytes()));
+        doc["bufferViews"]
+            .as_array_mut()
+            .expect("views")
+            .push(serde_json::json!({"buffer": 0, "byteOffset": at, "byteLength": 12}));
+        doc["accessors"].as_array_mut().expect("accessors").push(
+            serde_json::json!({"bufferView": 5, "componentType": 5126, "count": 3,
+                "type": "SCALAR"}),
+        );
+        let prim = &mut doc["meshes"][0]["primitives"][0];
+        prim["attributes"]["_DQS"] = serde_json::json!(5);
+        prim["extras"] = serde_json::json!({"surface": 134_219_033, "tiled": false});
+        doc["buffers"][0]["byteLength"] = serde_json::json!(bin.len());
+        let text = doc.to_string();
+        let skin = decode_skin(text.as_bytes(), "m.gltf", &mut |_| Ok(bin.clone())).expect("reads");
+        let p = &skin.primitives[0];
+        assert_eq!(p.surface, Some(0x0800_0519));
+        assert!(!p.tiled);
+        assert_eq!(p.dqs, [0.0, 1.0, 0.5]);
+        assert_eq!(skin.gfxobjs, [(0, 0x0100_1787)]);
     }
 }

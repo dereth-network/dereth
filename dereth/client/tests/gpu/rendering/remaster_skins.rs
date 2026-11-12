@@ -1,12 +1,14 @@
-//! An art pack's skinned body as the remaster draws it, in place of the parts it follows: drawn,
-//! moving with the parts as the body runs, posed on the device as on the processor, its motion
+//! An art pack's skinned body as the remaster draws it, in place of the parts it names: drawn,
+//! playing its own run as the body runs, posed on the device as on the processor, its motion
 //! vectors following its limbs, and the traced structures holding it as it is posed, fitted to it
 //! each frame without being made again.
 //!
 //! The body is made in the test ([`mannequin`]): smooth tubes over the human's legs, arms and
-//! trunk, run through its parts' places at rest, each vertex following the part its stretch of
-//! tube lies along and blended between two parts across each joint. One leg is magenta, the other
-//! cyan, the rest gray; the head, which no vertex follows, keeps drawing as it is.
+//! trunk, run through its parts' places at rest, each vertex on a bone of its own standing where a
+//! part rests, blended between two bones across each joint. Its idle and run clips are the
+//! human's own stand and run, each bone keyed where its part stands at each of their frames. One
+//! leg is magenta, the other cyan, the rest gray; the head, a part it does not name, keeps drawing
+//! as it is.
 //!
 //! Fixture: the retail dats (`DERETH_TEST_DAT_DIR`) and a hardware Vulkan 1.3 device.
 //!
@@ -198,8 +200,40 @@ fn floats(v: impl IntoIterator<Item = f32>) -> Vec<u8> {
     v.into_iter().flat_map(f32::to_le_bytes).collect()
 }
 
+/// The human's stand and run at peace, which the mannequin's idle and run clips are made from.
+const CLIPS: [(&str, u32); 2] = [("idle", 0x0300_0001), ("run", 0x0300_0002)];
+
+/// Each frame of the animation `id`: each part's place in the setup's space.
+fn animation_frames(store: &RetailDatStore, id: u32) -> Vec<Vec<Mat4>> {
+    use dereth_assets::Decode;
+    let id = DataId(id);
+    let bytes = store
+        .read_typed(dereth_dat::DbType::Anim, id)
+        .expect("the animation reads");
+    let a = dereth_assets::Animation::decode_payload_in(store.era_of(id), id, &bytes)
+        .expect("the animation decodes");
+    a.part_frames
+        .iter()
+        .map(|f| {
+            f.frames
+                .iter()
+                .map(|p| {
+                    let m = dereth_primitives::frame::l2g(p.rotation).0;
+                    let o = p.origin;
+                    Mat4::from_cols(
+                        glam::Vec4::new(m[0], m[1], m[2], 0.0),
+                        glam::Vec4::new(m[3], m[4], m[5], 0.0),
+                        glam::Vec4::new(m[6], m[7], m[8], 0.0),
+                        glam::Vec4::new(o.x, o.y, o.z, 1.0),
+                    )
+                })
+                .collect()
+        })
+        .collect()
+}
+
 /// The mannequin's pack, its files by path: a manifest with one `[[skin]]` for the human, and its
-/// glTF, made from the human's parts' places at rest in `store`.
+/// glTF, made from the human's parts' places at rest in `store` and its stand and run.
 #[allow(clippy::too_many_lines)] // the tubes, then the glTF written out
 pub(crate) fn mannequin(store: &RetailDatStore) -> HashMap<String, Vec<u8>> {
     let parts = dereth_client_runtime::models::resolve_parts(store, DataId(HUMAN));
@@ -210,7 +244,7 @@ pub(crate) fn mannequin(store: &RetailDatStore) -> HashMap<String, Vec<u8>> {
     for (chain, reach, r0, r1, p) in TUBES {
         tube(&mut built[p], chain, &places, (reach, r0, r1));
     }
-    // The parts followed, each a joint, in order.
+    // The parts named, each a joint, in order; then a bone for each, which the vertices are on.
     let mut followed: Vec<u16> = built
         .iter()
         .flat_map(|b| b.parts.iter().zip(&b.weights))
@@ -261,9 +295,10 @@ pub(crate) fn mannequin(store: &RetailDatStore) -> HashMap<String, Vec<u8>> {
             .zip(&b.weights)
             .flat_map(|(ps, ws)| {
                 let mut j = [0u16; 4];
+                let bone = u16::try_from(followed.len()).expect("few");
                 for c in 0..4 {
                     if ws[c] > 0.0 {
-                        j[c] = joint_of(ps[c]);
+                        j[c] = bone + joint_of(ps[c]);
                     }
                 }
                 j.into_iter().flat_map(u16::to_le_bytes)
@@ -283,17 +318,81 @@ pub(crate) fn mannequin(store: &RetailDatStore) -> HashMap<String, Vec<u8>> {
             "{{\"attributes\": {{\"POSITION\": {position}, \"NORMAL\": {normal}, \"JOINTS_0\": {joints}, \"WEIGHTS_0\": {weights}}}, \"indices\": {indices}, \"material\": {k}}}"
         ));
     }
-    // Each joint's inverse bind matrix: its part's place at rest undone, in glTF's axes.
+    // Each joint's inverse bind matrix: its part's place at rest undone, in glTF's axes; a part's
+    // and its bone's alike.
     let binds = floats(
         followed
             .iter()
+            .chain(&followed)
             .flat_map(|&p| (g4 * rest[usize::from(p)].inverse() * g4.inverse()).to_cols_array()),
     );
-    let binds = gltf.add(&binds, "MAT4", 5126, followed.len(), "");
+    let binds = gltf.add(&binds, "MAT4", 5126, 2 * followed.len(), "");
+    let trs = |m: Mat4| {
+        let (_, q, t) = (g4 * m * g4.inverse()).to_scale_rotation_translation();
+        (q, t)
+    };
     let mut nodes: Vec<String> = followed
         .iter()
         .map(|p| format!("{{\"name\": \"part_{p:02}\"}}"))
         .collect();
+    for &p in &followed {
+        let (q, t) = trs(rest[usize::from(p)]);
+        nodes.push(format!(
+            "{{\"name\": \"bone_{p:02}\", \"translation\": [{}, {}, {}], \"rotation\": [{}, {}, {}, {}]}}",
+            t.x, t.y, t.z, q.x, q.y, q.z, q.w
+        ));
+    }
+    // The clips: each bone keyed at each frame where its part stands, thirty frames a second.
+    let mut animations = Vec::new();
+    for (name, id) in CLIPS {
+        let frames = animation_frames(store, id);
+        #[allow(clippy::cast_precision_loss)]
+        let times: Vec<f32> = (0..frames.len()).map(|k| k as f32 / 30.0).collect();
+        let last = times.last().copied().unwrap_or(0.0);
+        let bounds = format!(", \"min\": [0.0], \"max\": [{last}]");
+        let input = gltf.add(
+            &floats(times.iter().copied()),
+            "SCALAR",
+            5126,
+            times.len(),
+            &bounds,
+        );
+        let (mut samplers, mut channels) = (Vec::new(), Vec::new());
+        for (b, &p) in followed.iter().enumerate() {
+            let at_rest = rest[usize::from(p)];
+            let posed: Vec<(glam::Quat, V3)> = frames
+                .iter()
+                .map(|f| trs(f.get(usize::from(p)).copied().unwrap_or(at_rest)))
+                .collect();
+            let place = gltf.add(
+                &floats(posed.iter().flat_map(|(_, t)| t.to_array())),
+                "VEC3",
+                5126,
+                posed.len(),
+                "",
+            );
+            let turn = gltf.add(
+                &floats(posed.iter().flat_map(|(q, _)| q.to_array())),
+                "VEC4",
+                5126,
+                posed.len(),
+                "",
+            );
+            let node = followed.len() + b;
+            for (output, path) in [(place, "translation"), (turn, "rotation")] {
+                channels.push(format!(
+                    "{{\"sampler\": {}, \"target\": {{\"node\": {node}, \"path\": \"{path}\"}}}}",
+                    samplers.len()
+                ));
+                samplers.push(format!("{{\"input\": {input}, \"output\": {output}}}"));
+            }
+        }
+        animations.push(format!(
+            "{{\"name\": \"{name}\", \"samplers\": [{}], \"channels\": [{}]}}",
+            samplers.join(", "),
+            channels.join(", ")
+        ));
+    }
     nodes.push("{\"name\": \"mannequin\", \"mesh\": 0, \"skin\": 0}".to_owned());
     let materials: Vec<String> = COLORS
         .iter()
@@ -305,11 +404,11 @@ pub(crate) fn mannequin(store: &RetailDatStore) -> HashMap<String, Vec<u8>> {
         })
         .collect();
     let all: Vec<String> = (0..nodes.len()).map(|i| i.to_string()).collect();
-    let joints: Vec<String> = (0..followed.len()).map(|i| i.to_string()).collect();
+    let joints: Vec<String> = (0..2 * followed.len()).map(|i| i.to_string()).collect();
     let json = format!(
         "{{\"asset\": {{\"version\": \"2.0\"}}, \"scene\": 0, \"scenes\": [{{\"nodes\": [{}]}}], \
          \"nodes\": [{}], \"skins\": [{{\"joints\": [{}], \"inverseBindMatrices\": {binds}}}], \
-         \"meshes\": [{{\"primitives\": [{}]}}], \"materials\": [{}], \
+         \"meshes\": [{{\"primitives\": [{}]}}], \"materials\": [{}], \"animations\": [{}], \
          \"buffers\": [{{\"uri\": \"body.bin\", \"byteLength\": {}}}], \
          \"bufferViews\": [{}], \"accessors\": [{}]}}",
         all.join(", "),
@@ -317,6 +416,7 @@ pub(crate) fn mannequin(store: &RetailDatStore) -> HashMap<String, Vec<u8>> {
         joints.join(", "),
         prims.join(", "),
         materials.join(", "),
+        animations.join(", "),
         gltf.bin.len(),
         gltf.views.join(", "),
         gltf.accessors.join(", "),
@@ -324,6 +424,7 @@ pub(crate) fn mannequin(store: &RetailDatStore) -> HashMap<String, Vec<u8>> {
     let manifest = format!(
         "[pack]\nname = \"Mannequin\"\nformat = 1\n\
          [[skin]]\nsetup = \"{HUMAN:#010X}\"\nfile = \"mannequin/body.gltf\"\n\
+         clips = {{ idle = \"idle\", run = \"run\" }}\n\
          author = \"dereth tests\"\ntool = \"generated\"\nlicense = \"CC0-1.0\"\n"
     );
     let mut files = HashMap::new();
@@ -560,12 +661,12 @@ fn count_and_column(legs: &[Option<usize>], leg: usize) -> (usize, f32) {
     (n, if n > 0 { sum / n as f32 } else { 0.0 })
 }
 
-/// **A pack's skinned body draws in place of the parts it follows, and moves with them**: running,
+/// **A pack's skinned body draws in place of the parts it names, and plays its own run**: running,
 /// the mannequin's legs show at every kept frame, and seen from the side each leg passes the
 /// other (the magenta leg's mean column is more than 8 pixels ahead of the cyan's at one frame
 /// and behind it at another); with the pack's bodies off, its colors are not drawn at all.
 #[test]
-fn a_packs_skinned_body_draws_in_place_of_the_parts_and_moves_with_them() {
+fn a_packs_skinned_body_draws_in_place_of_the_parts_and_plays_its_own_run() {
     let _gpu = crate::common::gpu_lock();
     let store = crate::common::dats();
     let pack = in_memory(&mannequin(&store));

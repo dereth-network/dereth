@@ -29,18 +29,20 @@ use std::sync::{Arc, Mutex};
 
 use crate::art_pack::images::{self, BlockFormat};
 use crate::art_pack::{ArtPack, Image};
+use dereth_animation::parts::{PartArray, PhysicsPart};
 use dereth_primitives::{TextureData, TextureFormat};
 use dereth_remaster::assets::pack::{
     fill_cut_away, of_pack_mesh, of_pack_picture, of_pack_surface, pack_mesh, pack_picture,
     pack_surface, Category, PackLevel, PackModel, PackSettings,
 };
-use dereth_remaster::assets::skin::{of_skin_surface, skin_surface, SkinModel};
+use dereth_remaster::assets::skin::{of_skin_surface, skin_surface, SkinModel, Slot};
 use dereth_remaster::assets::terrain::{GroundMaps, LayerSlopes, SplatBank, SteepTile};
 use dereth_remaster::assets::{
     kind::Kind, BlendFactor, Material, MaterialMaps, Mesh, Subset, SubsetInfo, SurfaceRef,
     TextureKey, Vertex,
 };
 use dereth_remaster::look::{Layer, LookToml};
+use dereth_remaster::scene::Who;
 use dereth_render::device::Gpu;
 
 use super::remaster_view::remaster;
@@ -107,11 +109,24 @@ pub(crate) struct PackAssets {
     /// The cut-out pictures made again, by their place in the pack: made on a thread of their own
     /// from when the pack is given, and here whenever an entry needs one first.
     filled: Arc<Mutex<HashMap<u32, Arc<Image>>>>,
-    /// Each body's place in the pack, by the setup it is drawn for.
-    skin_by_setup: HashMap<u32, u32>,
+    /// Each body's place in the pack and the palettes it is drawn for, by the setup it is drawn
+    /// for, in the pack's order.
+    skin_by_setup: HashMap<u32, Vec<(Vec<u32>, u32)>>,
     /// Each body as the remaster draws it, made when it is first asked for.
     skin_models: Mutex<HashMap<u32, Option<Arc<SkinModel>>>>,
+    /// How high each body stands playing an animation at its object's scale
+    /// ([`SkinModel::top_playing`]), by its place in the pack, the animation and that scale, and
+    /// the points each model is made of, by its place in the pack: as a name over them is placed,
+    /// made when they are first asked for.
+    skin_tops: Mutex<HashMap<SkinTop, Option<f32>>>,
+    model_points: Mutex<HashMap<u32, Option<Arc<[Point]>>>>,
 }
+
+/// A point of a body or a model, as the world measures its objects.
+type Point = dereth_primitives::Vec3;
+
+/// A body's place in the pack, the slot it plays and its object's scale (each axis's bits).
+type SkinTop = (u32, Option<Slot>, [u32; 3]);
 
 impl PackAssets {
     /// The pack `pack`, opened from `folder` when it was a folder.
@@ -176,12 +191,13 @@ impl PackAssets {
                 tracing::warn!(target: "dereth::remaster", "the pack's pictures are made as they are wanted: {e}");
             }
         }
-        let skin_by_setup = pack
-            .skins
-            .iter()
-            .zip(0u32..)
-            .map(|(k, i)| (k.setup.0, i))
-            .collect();
+        let mut skin_by_setup: HashMap<u32, Vec<(Vec<u32>, u32)>> = HashMap::new();
+        for (k, i) in pack.skins.iter().zip(0u32..) {
+            skin_by_setup
+                .entry(k.setup.0)
+                .or_default()
+                .push((k.palettes.clone(), i));
+        }
         Self {
             pack,
             folder,
@@ -191,7 +207,79 @@ impl PackAssets {
             filled,
             skin_by_setup,
             skin_models: Mutex::new(HashMap::new()),
+            skin_tops: Mutex::new(HashMap::new()),
+            model_points: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// How high over its object's origin the body `skin` stands drawn in place of `parts` while
+    /// it plays its clip for `slot` ([`SkinModel::top_playing`]), the parts at their setup's rest
+    /// and scaled as the object is.
+    pub(crate) fn skin_top(
+        &self,
+        skin: &SkinModel,
+        parts: &PartArray,
+        slot: Option<Slot>,
+    ) -> Option<f32> {
+        let s = parts.scale;
+        let key = (
+            skin.skin,
+            slot,
+            [s.x.to_bits(), s.y.to_bits(), s.z.to_bits()],
+        );
+        if let Some(hit) = self
+            .skin_tops
+            .lock()
+            .ok()
+            .and_then(|m| m.get(&key).copied())
+        {
+            return hit;
+        }
+        let made = (|| {
+            let rest = dereth_client_runtime::body_top::rest_frames(parts)?;
+            let at: Vec<glam::Mat4> = parts
+                .parts
+                .iter()
+                .zip(&rest)
+                .map(|(p, f)| {
+                    super::views::frame_matrix(f)
+                        * glam::Mat4::from_scale(Vec3::new(
+                            p.gfxobj_scale.x,
+                            p.gfxobj_scale.y,
+                            p.gfxobj_scale.z,
+                        ))
+                })
+                .collect();
+            let frame = glam::Mat4::from_scale(Vec3::new(s.x, s.y, s.z));
+            skin.top_playing(&at, frame, slot)
+        })();
+        if let Ok(mut m) = self.skin_tops.lock() {
+            m.insert(key, made);
+        }
+        made
+    }
+
+    /// The points the pack's model for the object `id` is made of at its nearest level, in the
+    /// object's own space, when its kind is switched on.
+    pub(crate) fn model_points(&self, id: u32, on: PackSettings) -> Option<Arc<[Point]>> {
+        self.model(id, on)?;
+        let index = *self.by_id.get(&id)?;
+        let made = || -> Option<Arc<[Point]>> {
+            let model = self.pack.models.get(index as usize)?;
+            let lod = &model.lods[*self.view_levels[index as usize].first()?];
+            let floats = crate::art_pack::VERTEX_FLOATS;
+            let points: Vec<Point> = lod
+                .primitives
+                .iter()
+                .flat_map(|p| p.vertices.chunks_exact(floats))
+                .map(|v| Point::new(v[0], v[1], v[2]))
+                .collect();
+            (!points.is_empty()).then(|| Arc::from(points))
+        };
+        let Ok(mut memo) = self.model_points.lock() else {
+            return made();
+        };
+        memo.entry(index).or_insert_with(made).clone()
     }
 
     /// The opened pack.
@@ -372,8 +460,32 @@ impl PackAssets {
 
     /// The body drawn in place of the parts of the objects built on `setup`, when the pack has
     /// one: its primitives as one mesh in its bind space, each a surface of its own, each vertex carrying its color times its primitive's color factor.
+    #[cfg(test)]
     pub(crate) fn skin(&self, setup: u32) -> Option<Arc<SkinModel>> {
-        let index = *self.skin_by_setup.get(&setup)?;
+        self.skin_for(setup, &[], Who::default())
+    }
+
+    /// The body drawn in place of the parts of an object built on `setup` whose look lays
+    /// `palettes` over its parts: the first of the setup's bodies drawn for one of them, else the
+    /// one drawn for its other objects; none for an object the pack keeps as it is (`who` it is:
+    /// made from a weenie it lists, or, where it keeps them, having held a launcher).
+    pub(crate) fn skin_for(
+        &self,
+        setup: u32,
+        palettes: &[u32],
+        who: Who,
+    ) -> Option<Arc<SkinModel>> {
+        let kept = who.weenie.is_some_and(|w| self.pack.keep.contains(&w))
+            || (who.launcher && self.pack.keep_launchers);
+        if kept {
+            return None;
+        }
+        let rows = self.skin_by_setup.get(&setup)?;
+        let index = rows
+            .iter()
+            .find(|(p, _)| p.iter().any(|x| palettes.contains(x)))
+            .or_else(|| rows.iter().find(|(p, _)| p.is_empty()))
+            .map(|(_, i)| *i)?;
         if let Some(made) = self.skin_models.lock().ok()?.get(&index) {
             return made.clone();
         }
@@ -390,13 +502,20 @@ impl PackAssets {
         let mut mesh = Mesh::default();
         let mut parts = Vec::new();
         let mut weights = Vec::new();
+        let mut dqs: Vec<f32> = Vec::new();
+        let none = crate::art_pack::PackSkinExtras::default();
         for (k, (p, (ps, ws))) in skin.primitives.iter().zip(&skin.influences).enumerate() {
             let first = u32::try_from(mesh.vertices.len()).ok()?;
-            let factor = if p.material.base_color_image.is_some() {
+            let extras = skin.extras.get(k).unwrap_or(&none);
+            let factor = if p.material.base_color_image.is_some() && extras.surface.is_none() {
                 p.material.base_color
             } else {
                 [1.0; 4]
             };
+            let count = p.vertices.len() / crate::art_pack::VERTEX_FLOATS;
+            if !skin.extras.iter().all(|e| e.dqs.is_empty()) {
+                dqs.extend((0..count).map(|i| extras.dqs.get(i).copied().unwrap_or(0.0)));
+            }
             for v in p
                 .vertices
                 .as_chunks::<{ crate::art_pack::VERTEX_FLOATS }>()
@@ -422,12 +541,42 @@ impl PackAssets {
             mesh.subsets.push(Subset {
                 first_index: start,
                 index_count: u32::try_from(mesh.indices.len()).ok()? - start,
-                surface: SurfaceRef::Surface(skin_surface(index, u8::try_from(k).ok()?)),
+                surface: SurfaceRef::Surface(match extras.surface {
+                    Some(s) => s,
+                    None => skin_surface(index, u8::try_from(k).ok()?),
+                }),
                 two_sided: p.material.double_sided,
-                tiled: true,
+                tiled: extras.surface.is_none() || extras.tiled,
             });
         }
-        SkinModel::new(index, mesh, parts, weights, &skin.inverse_binds)
+        let rig = dereth_remaster::assets::skin::Rig {
+            dqs,
+            gfxobjs: skin.gfxobjs.clone(),
+            retail: skin.extras.iter().any(|e| e.surface.is_some()),
+            bones: skin
+                .bones
+                .iter()
+                .map(|b| dereth_remaster::assets::skin::Bone::new(b.inverse_bind))
+                .collect(),
+            clips: skin
+                .clips
+                .iter()
+                .filter_map(|(slot, c)| {
+                    let slot = dereth_remaster::assets::skin::Slot::named(slot)?;
+                    Some((
+                        slot,
+                        dereth_remaster::assets::skin::Clip {
+                            steps: Arc::clone(&c.steps),
+                            scales: Arc::clone(&c.scales),
+                            seconds: c.seconds,
+                            stride: c.stride,
+                            hit: c.hit,
+                        },
+                    ))
+                })
+                .collect(),
+        };
+        SkinModel::new(index, mesh, parts, weights, &skin.inverse_binds).map(|m| m.with_rig(rig))
     }
 
     /// The surface a pack surface id names: its part's base color picture (or its color where it
@@ -735,6 +884,73 @@ impl PackAssets {
 /// A pack's color, its red, green and blue in linear light as glTF has them, in the display values
 /// the remaster multiplies a picture's texels by; its alpha as it is. The curve is a power near
 /// enough that a linear picture times a linear color and the display values' product agree.
+/// The height over its origin of the top of what `pack` draws, as `on` says, in place of the
+/// parts `parts` of an object built on `setup`, being `who`, standing in the slot `looping`
+/// (its stance's idle): the pack's body for its setup and palettes, as high as it reaches in its
+/// clip for that slot (at rest without one), with any parts it is not drawn in place of drawn as
+/// they are; or, at rest, the parts it has models for drawn as those models. `own` gives the points the
+/// files hold for each graphics object. `None` when the pack draws the object as the files have
+/// it.
+fn drawn_name_height(
+    pack: &PackAssets,
+    on: PackSettings,
+    (setup, who, looping): (Option<u32>, Who, Option<Slot>),
+    parts: &PartArray,
+    own: &dyn Fn(dereth_primitives::DataId) -> Option<Arc<[Point]>>,
+) -> Option<f32> {
+    use dereth_client_runtime::body_top::rest_top_drawn;
+    let own_of = |p: &PhysicsPart| (p.gfxobj_id.0 != 0).then(|| own(p.gfxobj_id)).flatten();
+    let body = setup
+        .filter(|_| on.characters)
+        .and_then(|s| pack.skin_for(s, &skin_palettes(parts), who));
+    if let Some(skin) = body {
+        // The body, and the parts it does not follow, which draw as they are.
+        let rest = rest_top_drawn(parts, |i, p| {
+            (!skin.follows(i)).then(|| own_of(p)).flatten()
+        });
+        return match (pack.skin_top(&skin, parts, looping), rest) {
+            (Some(b), Some(r)) => Some(b.max(r)),
+            (b, r) => b.or(r),
+        };
+    }
+    let swapped = std::cell::Cell::new(false);
+    let top = rest_top_drawn(parts, |_, p| {
+        if p.gfxobj_id.0 == 0 {
+            return None;
+        }
+        match pack.model_points(p.gfxobj_id.0, on) {
+            Some(points) => {
+                swapped.set(true);
+                Some(points)
+            }
+            None => own_of(p),
+        }
+    });
+    top.filter(|_| swapped.get())
+}
+
+/// The palettes the remaster picks a body for `parts` by: those its description lays, and those
+/// its parts carry.
+fn skin_palettes(parts: &PartArray) -> Vec<u32> {
+    let mut out: Vec<u32> = parts.described_palettes.iter().map(|p| p.0).collect();
+    for o in parts
+        .parts
+        .iter()
+        .filter_map(|p| p.surface_overrides.as_ref())
+    {
+        for id in o
+            .shift_palette
+            .iter()
+            .chain(o.subpalettes.iter().map(|r| &r.palette_set))
+        {
+            if !out.contains(&id.0) {
+                out.push(id.0);
+            }
+        }
+    }
+    out
+}
+
 fn display_color(c: [f32; 4]) -> [f32; 4] {
     let display = |v: f32| {
         if v <= 0.003_130_8 {
@@ -818,6 +1034,32 @@ pub(crate) fn orm_of_surface(surface: &Image) -> Image {
 }
 
 impl SceneDraw {
+    /// The height over its origin of the top of what the art pack draws in place of the parts
+    /// of the server's object `id`, made from `weenie` and having held a launcher or not, which
+    /// `driver` moves ([`drawn_name_height`]); `own` gives the points the files hold for each
+    /// graphics object. `None` while the remaster is off, and when the pack draws the object as
+    /// the files have it.
+    pub(crate) fn pack_name_height(
+        &self,
+        (id, (weenie, launcher)): (dereth_primitives::ObjectId, (Option<u32>, bool)),
+        driver: &dereth_animation::driver::MotionDriver,
+        own: &dyn Fn(dereth_primitives::DataId) -> Option<Arc<[Point]>>,
+    ) -> Option<f32> {
+        if !self.remaster_on() {
+            return None;
+        }
+        let view = self.remaster_view.borrow();
+        let on = view.packs;
+        let pack = view.pack.as_ref().filter(|_| on.any())?;
+        let setup = self.object_draws.get(&id).map(|d| d.setup.0);
+        // The body stands as high as its stance's idle reaches.
+        let looping = Some(super::remaster_slots::idle_of(
+            driver.motion_table.state.style,
+        ));
+        let who = Who { weenie, launcher };
+        drawn_name_height(pack, on, (setup, who, looping), &driver.part_array, own)
+    }
+
     /// The art pack the application opened (`None` for none), and the folder it was opened from:
     /// the remaster draws what of it its switches say, from when it is next turned on.
     pub fn set_remaster_pack(&mut self, pack: Option<Arc<ArtPack>>, folder: Option<PathBuf>) {
@@ -1207,11 +1449,242 @@ mod tests {
         }
         times.sort_by(f64::total_cmp);
         println!(
-            "{} vertices: least {:.3} ms, median {:.3} ms a pose; {} bytes of rows",
+            "{} vertices, {} dual-quaternion: least {:.3} ms, median {:.3} ms a pose; {} bytes of rows",
             model.mesh.vertices.len(),
+            model.rig.dqs.iter().filter(|s| **s > 0.0).count(),
             times[0],
             times[times.len() / 2],
             rows.len()
         );
+    }
+
+    /// A pack of a body three metres tall for one setup, one drawn only for a palette on another,
+    /// and a rock model a metre tall for one graphics object; and an object's parts at rest, each
+    /// a part drawing `gfxobjs[i]` placed `heights[i]` over its origin, the object `scale` times
+    /// its size.
+    mod drawn {
+        use super::*;
+        use dereth_animation::data::{AnimFrame, SetupData};
+        use dereth_primitives::{DataId, Frame, Quat};
+
+        pub(super) const TALL: u32 = 0x0200_0A01;
+        pub(super) const ROBED: u32 = 0x0200_0A02;
+        pub(super) const ROBE: u32 = 0x0400_0A01;
+        pub(super) const ROCK: u32 = 0x0100_0A01;
+        /// A weenie the pack keeps as it is.
+        pub(super) const KEPT: u32 = 19_196;
+
+        fn bytes(v: impl IntoIterator<Item = f32>) -> Vec<u8> {
+            v.into_iter().flat_map(f32::to_le_bytes).collect()
+        }
+
+        /// A triangle `high` metres tall, skinned whole to `part_00` standing at its foot.
+        fn body(high: f32) -> (Vec<u8>, Vec<u8>) {
+            let mut bin = bytes([0.0, 0.0, 0.0, 0.2, 0.0, 0.0, 0.0, high, 0.0]);
+            bin.extend([0u8; 12]);
+            bin.extend(bytes([1.0, 0.0, 0.0, 0.0].repeat(3)));
+            bin.extend(bytes(glam::Mat4::IDENTITY.to_cols_array()));
+            bin.extend([0u8, 0, 1, 0, 2, 0, 0, 0]);
+            let json = format!(
+                r#"{{"asset": {{"version": "2.0"}}, "scenes": [{{"nodes": [0, 1]}}],
+                "nodes": [{{"name": "part_00"}}, {{"mesh": 0, "skin": 0}}],
+                "skins": [{{"joints": [0], "inverseBindMatrices": 3}}],
+                "meshes": [{{"primitives": [{{"attributes": {{"POSITION": 0, "JOINTS_0": 1,
+                    "WEIGHTS_0": 2}}, "indices": 4}}]}}],
+                "buffers": [{{"uri": "body.bin", "byteLength": {}}}],
+                "bufferViews": [
+                    {{"buffer": 0, "byteOffset": 0, "byteLength": 36}},
+                    {{"buffer": 0, "byteOffset": 36, "byteLength": 12}},
+                    {{"buffer": 0, "byteOffset": 48, "byteLength": 48}},
+                    {{"buffer": 0, "byteOffset": 96, "byteLength": 64}},
+                    {{"buffer": 0, "byteOffset": 160, "byteLength": 6}}
+                ],
+                "accessors": [
+                    {{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"}},
+                    {{"bufferView": 1, "componentType": 5121, "count": 3, "type": "VEC4"}},
+                    {{"bufferView": 2, "componentType": 5126, "count": 3, "type": "VEC4"}},
+                    {{"bufferView": 3, "componentType": 5126, "count": 1, "type": "MAT4"}},
+                    {{"bufferView": 4, "componentType": 5123, "count": 3, "type": "SCALAR"}}
+                ]}}"#,
+                bin.len()
+            );
+            (json.into_bytes(), bin)
+        }
+
+        pub(super) fn pack() -> PackAssets {
+            pack_keeping(false)
+        }
+
+        /// [`pack`], keeping objects that have held a launcher as they are where `launchers`.
+        pub(super) fn pack_keeping(launchers: bool) -> PackAssets {
+            let credit = "author = \"a\"\ntool = \"t\"\nlicense = \"CC0-1.0\"\n";
+            let manifest = format!(
+                "[pack]\nname = \"Heights\"\nformat = 1\n\
+                 [[skin]]\nsetup = \"{TALL:#010X}\"\nfile = \"tall/body.gltf\"\n{credit}\
+                 [[skin]]\nsetup = \"{ROBED:#010X}\"\nfile = \"robed/body.gltf\"\n\
+                 palettes = [\"{ROBE:#010X}\"]\n{credit}\
+                 [[model]]\nid = \"{ROCK:#010X}\"\ncategory = \"rock\"\n{credit}\
+                 [[model.lod]]\nfile = \"rock/lod0.gltf\"\n\
+                 [keep]\nweenies = [{KEPT}]\nlaunchers = {launchers}\n"
+            );
+            let (tall, tall_bin) = body(3.0);
+            let (robed, robed_bin) = body(2.5);
+            let rock = br#"{"asset": {"version": "2.0"}, "scenes": [{"nodes": [0]}],
+                "nodes": [{"mesh": 0}],
+                "meshes": [{"primitives": [{"attributes": {"POSITION": 0}}]}],
+                "buffers": [{"uri": "rock.bin", "byteLength": 36}],
+                "bufferViews": [{"buffer": 0, "byteLength": 36}],
+                "accessors": [{"bufferView": 0, "componentType": 5126, "count": 3,
+                    "type": "VEC3"}]}"#;
+            let files: HashMap<&str, Vec<u8>> = [
+                ("tall/body.gltf", tall),
+                ("tall/body.bin", tall_bin),
+                ("robed/body.gltf", robed),
+                ("robed/body.bin", robed_bin),
+                ("rock/lod0.gltf", rock.to_vec()),
+                (
+                    "rock/rock.bin",
+                    bytes([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]),
+                ),
+            ]
+            .into_iter()
+            .collect();
+            let art = ArtPack::open(&manifest, &mut |path| {
+                files
+                    .get(path)
+                    .cloned()
+                    .ok_or_else(|| format!("{path}: missing"))
+            })
+            .expect("the pack opens");
+            assert!(art.problems.is_empty(), "{:?}", art.problems);
+            PackAssets::new(Arc::new(art), None)
+        }
+
+        pub(super) fn parts(gfxobjs: &[u32], heights: &[f32], scale: f32) -> PartArray {
+            let frames = heights
+                .iter()
+                .map(|z| Frame::new(Point::new(0.0, 0.0, *z), Quat::IDENTITY))
+                .collect();
+            let setup = SetupData {
+                parts: gfxobjs.iter().map(|g| DataId(*g)).collect(),
+                placement_frames: [(
+                    0x65,
+                    AnimFrame {
+                        frames,
+                        hooks: Vec::new(),
+                    },
+                )]
+                .into(),
+                ..SetupData::default()
+            };
+            let mut parts = PartArray::new();
+            parts.setup = Some(Arc::new(setup));
+            parts.scale = Point::new(scale, scale, scale);
+            parts.parts = gfxobjs
+                .iter()
+                .map(|g| {
+                    let mut p = PhysicsPart::new(DataId(*g));
+                    p.gfxobj_scale = Point::new(scale, scale, scale);
+                    p
+                })
+                .collect();
+            parts
+        }
+
+        /// A graphics object of the files: a point half a metre up.
+        pub(super) fn own(_: DataId) -> Option<Arc<[Point]>> {
+            Some(Arc::from(vec![Point::new(0.0, 0.0, 0.5)]))
+        }
+    }
+
+    #[test]
+    fn a_name_stands_over_what_the_pack_draws_in_place_of_a_body_scaled_as_the_body_is() {
+        use drawn::{own, parts, ROBE, ROBED, ROCK, TALL};
+        let pack = drawn::pack();
+        let on = PackSettings::all();
+        let near = |a: Option<f32>, b: f32| a.is_some_and(|a| (a - b).abs() < 1e-4);
+        // The body three metres tall, drawn through a part standing a fifth of a metre up: its
+        // top over where the object stands, scaled as the object is, wherever that part is. A
+        // part it is not drawn in place of keeps drawing its own, and is measured with it.
+        let body = parts(&[0x0100_0001, 0x0100_0002], &[0.2, 0.0], 1.0);
+        let h = drawn_name_height(&pack, on, (Some(TALL), Who::default(), None), &body, &own);
+        assert!(near(h, 3.0), "{h:?}");
+        let big = parts(&[0x0100_0001], &[0.2], 1.5);
+        let h = drawn_name_height(&pack, on, (Some(TALL), Who::default(), None), &big, &own);
+        assert!(near(h, 4.5), "{h:?}");
+        let low = parts(&[0x0100_0001, 0x0100_0002], &[0.2, 4.0], 1.0);
+        let h = drawn_name_height(&pack, on, (Some(TALL), Who::default(), None), &low, &own);
+        assert!(near(h, 4.5), "a part over the body: {h:?}");
+        // A body drawn only for a palette: over it where its part lays that palette, as the files
+        // have it elsewhere.
+        let mut robed = parts(&[0x0100_0001], &[0.0], 1.0);
+        assert_eq!(
+            drawn_name_height(&pack, on, (Some(ROBED), Who::default(), None), &robed, &own),
+            None
+        );
+        robed.parts[0].use_palette(dereth_primitives::DataId(ROBE), &[]);
+        let h = drawn_name_height(&pack, on, (Some(ROBED), Who::default(), None), &robed, &own);
+        assert!(near(h, 2.5), "{h:?}");
+        // The bodies off: as the files have it.
+        let no_bodies = PackSettings {
+            characters: false,
+            ..on
+        };
+        assert_eq!(
+            drawn_name_height(
+                &pack,
+                no_bodies,
+                (Some(TALL), Who::default(), None),
+                &body,
+                &own
+            ),
+            None
+        );
+        // A part drawn as the pack's model: the model's top over it, the rest measured as they
+        // are; with rocks off, or no part the pack has a model for, as the files have it.
+        let stone = parts(&[ROCK, 0x0100_0002], &[0.5, 0.0], 2.0);
+        let h = drawn_name_height(&pack, on, (None, Who::default(), None), &stone, &own);
+        assert!(near(h, 1.0 + 2.0), "{h:?}");
+        let no_rocks = PackSettings { rocks: false, ..on };
+        assert_eq!(
+            drawn_name_height(&pack, no_rocks, (None, Who::default(), None), &stone, &own),
+            None
+        );
+        let plain = parts(&[0x0100_0002], &[0.0], 1.0);
+        assert_eq!(
+            drawn_name_height(&pack, on, (None, Who::default(), None), &plain, &own),
+            None
+        );
+    }
+
+    #[test]
+    fn a_pack_draws_no_body_for_an_object_it_keeps() {
+        use drawn::{own, parts, KEPT, TALL};
+        let who = |weenie: Option<u32>, launcher: bool| Who { weenie, launcher };
+        let pack = drawn::pack();
+        assert!(pack.skin_for(TALL, &[], who(Some(KEPT), false)).is_none());
+        assert!(pack
+            .skin_for(TALL, &[], who(Some(KEPT + 1), false))
+            .is_some());
+        assert!(pack.skin_for(TALL, &[], who(None, false)).is_some());
+        // Having held a launcher: kept only by a pack that keeps them.
+        assert!(pack.skin_for(TALL, &[], who(None, true)).is_some());
+        let shooters = drawn::pack_keeping(true);
+        assert!(shooters.skin_for(TALL, &[], who(None, true)).is_none());
+        assert!(shooters
+            .skin_for(TALL, &[], who(Some(KEPT + 1), false))
+            .is_some());
+        // Its name stands where the files' parts put it.
+        let body = parts(&[0x0100_0001], &[0.2], 1.0);
+        let on = PackSettings::all();
+        for (pack, kept) in [
+            (&pack, who(Some(KEPT), false)),
+            (&shooters, who(None, true)),
+        ] {
+            assert_eq!(
+                drawn_name_height(pack, on, (Some(TALL), kept, None), &body, &own),
+                None
+            );
+        }
     }
 }

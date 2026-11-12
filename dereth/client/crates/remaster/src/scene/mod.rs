@@ -276,6 +276,21 @@ pub struct Object {
     pub setup: u32,
     /// Its parts, in the order the frame poses them.
     pub parts: Vec<ObjectPart>,
+    /// The palettes its description lays (its palette and its ranges' palettes), whichever parts
+    /// they land on: a part drawn against another palette keeps its own colors, so a look whose
+    /// palette lands on none of the parts shows it here only.
+    pub palettes: Vec<u32>,
+    /// Who it is beyond its setup and look: what an art pack may keep as it is.
+    pub who: Who,
+}
+
+/// Who an object is beyond its setup and look: what an art pack may keep as it is.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Who {
+    /// The weenie (class id) the server made it from, where it names one.
+    pub weenie: Option<u32>,
+    /// Whether it has held a launcher (a bow, crossbow, sling or atlatl) since it was made.
+    pub launcher: bool,
 }
 
 /// One part of an [`Object`].
@@ -339,6 +354,9 @@ pub struct FrameDelta {
     /// The scene's clock, seconds: what the remaster's own motion (the water's ripples) is timed
     /// by, so a held clock draws a still frame.
     pub clock: f64,
+    /// How many times the viewer has been put somewhere at once (a teleport) so far: what a
+    /// body still drawing after its object left ([`crate::render::skins`]) ends at.
+    pub teleports: u64,
     /// The lights of the moving objects that stand outdoors with their light on, in the frame's
     /// space. Retail's light pools leave them out: the outdoors is lit by the sun alone.
     pub lamps: Vec<Light>,
@@ -783,6 +801,51 @@ pub struct ObjectPose {
     pub cell: u32,
     /// One per [`Object::parts`].
     pub parts: Vec<PartPose>,
+    /// What holds it, when something does: the holder, and the holder's part it hangs on.
+    pub held_by: Option<(ObjectKey, u16)>,
+    /// The animation its parts are playing, when it plays one: a body with clips of its own plays
+    /// the clip for it in its parts' place ([`crate::assets::skin::Clip`]).
+    pub motion: Option<Motion>,
+}
+
+/// What an object's motion plays this frame, for a body drawn in its parts' place to play its own
+/// clip for ([`crate::assets::skin::Slot`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Motion {
+    /// The slot of the motion its parts play: the one whose animations are under way (an attack,
+    /// a change of stance, a death), else the cycle it stands in; `None` for an action no slot is
+    /// for, which leaves what plays going on.
+    pub slot: Option<crate::assets::skin::Slot>,
+    /// The idle of the stance it stands in.
+    pub idle: crate::assets::skin::Slot,
+    /// Whether its parts play it backwards: a turn or a side step to the left, a walk backwards.
+    pub reversed: bool,
+    /// Whether its parts play their cycle itself, rather than a link or an action on the way to
+    /// it.
+    pub settled: bool,
+    /// How far through the animation they play its parts are, 0 to 1 (backwards for one played
+    /// backwards): where a walk or a run starts.
+    pub phase: f32,
+    /// How many seconds until its parts reach their cycle (none while they play it).
+    pub until_cycle: f32,
+    /// How many seconds until the blow of an attack its parts play lands, when one is to.
+    pub until_hit: Option<f32>,
+    /// How many motions are queued, the one under way among them: an action that starts again
+    /// is told by one fewer.
+    pub queued: u8,
+    /// Whether its parts are drawn at the animation's keyframes, the Smooth animations box off,
+    /// rather than between them: a body playing its own clip is then drawn at the clip's step
+    /// nearest its place, as the parts stand at a keyframe.
+    pub keyframed: bool,
+    /// The object's own place this frame, in the space of its parts' transforms, its scale
+    /// applied: where a body playing its own clip stands.
+    pub frame: Mat4,
+    /// How fast, and which way, the object's motion asks to move it, in its own space before its
+    /// scale, meters a second, whether it gets anywhere or not (a creature pressed against a crowd
+    /// still asks): ahead for a walk or a run, behind for a walk played backwards, sideways for a
+    /// side step, none for a stance, a turn or an action. On the way from a walk or a run to a
+    /// stand, what the parts' way there carries it: a stopping stride.
+    pub velocity: Vec3,
 }
 
 /// One object part's pose this frame.

@@ -367,6 +367,8 @@ fn a_palette_swapped_characters_textures_are_as_many_as_retail_looks() {
     let object = Object {
         key: ObjectKey::Body,
         setup: body.setup_id().0,
+        palettes: Vec::new(),
+        who: dereth_remaster::scene::Who::default(),
         parts: built
             .iter()
             .zip(&array.parts)

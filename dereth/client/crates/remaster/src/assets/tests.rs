@@ -397,6 +397,8 @@ fn a_look_makes_materials_only_for_the_surfaces_it_changes() {
     let object = |key, look| Object {
         key,
         setup: 0x0200_0002,
+        palettes: Vec::new(),
+        who: crate::scene::Who::default(),
         parts: vec![
             ObjectPart {
                 levels: vec![2],
@@ -494,6 +496,8 @@ fn a_block_or_object_built_again_keeps_what_both_builds_use() {
             levels: vec![2, 3],
             look: None,
         }],
+        palettes: Vec::new(),
+        who: crate::scene::Who::default(),
     };
     t.object_in(&object, &mut dats);
     t.upload(&mut dev);
@@ -589,6 +593,8 @@ fn a_change_waits_for_its_pictures_and_the_rest_go_on() {
             levels: vec![6],
             look: None,
         }],
+        palettes: Vec::new(),
+        who: crate::scene::Who::default(),
     };
     let ground = SceneDelta::GroundChanged(Box::new(GroundDelta {
         block: 0xA9B4,

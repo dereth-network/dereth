@@ -817,6 +817,39 @@ impl Renderer {
         self.skins.gpu = on;
     }
 
+    /// Whether a skinned body still dying when its object leaves is drawn on to the end of its
+    /// death (on by default), for an instrument showing what that adds.
+    pub fn set_skin_ghosts(&mut self, on: bool) {
+        self.skins.ghosting = on;
+    }
+
+    /// What each object's body last played of its own clips ([`skins::Skins::playing`]).
+    #[must_use]
+    pub fn skin_playing(
+        &self,
+    ) -> Vec<(
+        crate::scene::ObjectKey,
+        Option<crate::assets::skin::Slot>,
+        f32,
+        bool,
+    )> {
+        self.skins.playing()
+    }
+
+    /// The objects drawn as ghosts, and the corpses hidden under them ([`skins::Skins::ghosts`]).
+    #[must_use]
+    pub fn skin_ghosts(&self) -> (Vec<crate::scene::ObjectKey>, Vec<crate::scene::ObjectKey>) {
+        self.skins.ghosts()
+    }
+
+    /// Each skinned body drawn, by the id of its object's mesh.
+    #[must_use]
+    pub fn skin_bodies(
+        &self,
+    ) -> std::collections::BTreeMap<u32, std::sync::Arc<crate::assets::skin::SkinModel>> {
+        self.skins.meshes()
+    }
+
     /// Whether the motion pass is given skinned bodies' last places, vertex by vertex (on by
     /// default; off, a body moves in the motion pass only as its anchor part does).
     pub fn set_skin_motion(&mut self, on: bool) {
@@ -1213,8 +1246,14 @@ impl Renderer {
         // An art pack's models in place of the placements it has them for, as the blocks come;
         // its bodies in place of the parts of the objects it has them for, as the objects come.
         let deltas = self.packs.swap(deltas, &mut |id| src.pack_model(id));
+        // A body still dying when its object leaves is drawn on to the end of its death.
+        let deltas = self
+            .skins
+            .haunt(deltas, &frame, self.packs.settings.characters);
         let deltas = if self.packs.settings.characters {
-            self.skins.swap(deltas, &mut |setup| src.pack_skin(setup))
+            self.skins.swap(deltas, &mut |setup, palettes, who| {
+                src.pack_skin(setup, palettes, who)
+            })
         } else {
             self.skins.forget(&deltas);
             deltas
@@ -1314,6 +1353,8 @@ impl Renderer {
         for l in &frame.levels {
             self.scene.levels(l);
         }
+        // The ghosts stand in the frame, and the corpses under them are hidden.
+        self.skins.with_ghosts(&mut frame);
         // Each body posed by its object's parts this frame, written over its mesh: on the device,
         // where here only each body's joints are worked out (and its data sent the first time);
         // or here, every vertex.
@@ -1353,6 +1394,9 @@ impl Renderer {
                 tracing::warn!(target: "dereth::remaster", "a body was not posed: {e}");
             }
         }
+        // What a body dying now is, should its object leave; nothing the bodies hold is drawn.
+        self.skins.remember(&frame);
+        self.skins.hide_held(&mut frame);
         self.particles = frame
             .particles
             .iter()

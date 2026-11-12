@@ -30,6 +30,16 @@
 //!
 //! - `DERETH_SKIN_GPU`: `0` poses the bodies on the processor (default: on the device).
 //!
+//! - `DERETH_SKIN_SETUP`, `DERETH_SKIN_MTABLE`: another body's setup and motion table (hex), the
+//!   pack's `[[skin]]` naming that setup.
+//! - `DERETH_SKIN_LEAD`: the frames between the subject's start and its moments (default 40).
+//! - `DERETH_SKIN_DISTANCE`, `DERETH_SKIN_AIM`: the whole-body camera's distance and the height it
+//!   looks at, in metres (default 2.3 and 0.95, for a person).
+//! - Subjects also `attack` (sword stance, a high slash, then a thrust), `shoot` (bow stance and a
+//!   shot) and `stop` (running, then standing still).
+//! - `DERETH_SKIN_EXPORT`: a file to write the first skinned body drawn to, as JSON (its bind-space
+//!   vertices, triangles, influences and inverse binds).
+//!
 //! It prints the time posing the bodies took, a body a frame (on the processor: all of it; on the
 //! device: the joints worked out here), and the device's skinning pass's time a frame.
 
@@ -59,6 +69,10 @@ fn fps() -> f64 {
     env("DERETH_SKIN_FPS")
         .and_then(|v| v.parse().ok())
         .unwrap_or(30.0)
+}
+
+fn parse_id(v: &str) -> Option<u32> {
+    u32::from_str_radix(v.trim().trim_start_matches("0x"), 16).ok()
 }
 
 fn env(name: &str) -> Option<String> {
@@ -99,6 +113,19 @@ fn frames(
     scene
         .attach_character(store, &region, &mut gpu)
         .expect("the body is created");
+    // Another body than the Aluvian male: `DERETH_SKIN_SETUP` (and its motion table,
+    // `DERETH_SKIN_MTABLE`), as a server description naming them would rebuild it.
+    if let Some(setup) = env("DERETH_SKIN_SETUP").and_then(|v| parse_id(&v)) {
+        let table = env("DERETH_SKIN_MTABLE").and_then(|v| parse_id(&v));
+        scene
+            .set_character_setup(
+                store,
+                &mut gpu,
+                dereth_primitives::DataId(setup),
+                table.map(dereth_primitives::DataId),
+            )
+            .expect("the body takes the setup");
+    }
     scene.draw.set_remaster_pack(Some(Arc::clone(pack)), folder);
     let packs = RemasterPacks {
         characters: bodies,
@@ -143,22 +170,58 @@ fn frames(
     let dt = (1.0 / FPS) as f32;
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let settle = (2.0 * FPS) as usize;
-    let total = settle + 40 + moments * gap;
+    // `DERETH_SKIN_LEAD`: the frames between the subject's start and its moments' span (default
+    // 40; 0 catches the start itself).
+    let lead = env("DERETH_SKIN_LEAD")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(40);
+    let total = settle + lead + moments * gap;
     for i in 0..total {
         t += 1.0 / FPS;
         if i == settle {
             let c = scene.character.as_mut().expect("a body");
             match subject {
-                "run" => {
+                "run" | "stop" => {
                     input.forward = true;
                     input.run = true;
                 }
                 "walk" => input.forward = true,
+                "attack" => {
+                    c.driver_mut()
+                        .do_interpreted_motion(MotionCommand::SWORD_COMBAT, &params);
+                }
+                "shoot" => {
+                    c.driver_mut()
+                        .do_interpreted_motion(MotionCommand::BOW_COMBAT, &params);
+                }
                 "cast" => {
                     c.driver_mut()
                         .do_interpreted_motion(MotionCommand::MAGIC, &params);
                 }
                 _ => {}
+            }
+        }
+        // Running, then stopping a second before the moments' span ends.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        if subject == "stop" && i + FPS as usize == total {
+            input.forward = false;
+            input.run = false;
+        }
+        let act = |when: usize| i == settle + when;
+        if subject == "attack" && (act(30) || act(70)) {
+            let m = if act(30) {
+                MotionCommand::SLASH_HIGH
+            } else {
+                MotionCommand::THRUST_MED
+            };
+            if let Some(c) = scene.character.as_mut() {
+                c.driver_mut().do_interpreted_motion(m, &params);
+            }
+        }
+        if subject == "shoot" && act(30) {
+            if let Some(c) = scene.character.as_mut() {
+                c.driver_mut()
+                    .do_interpreted_motion(MotionCommand::SHOOT, &params);
             }
         }
         if subject == "cast" && i == settle + 30 {
@@ -204,6 +267,16 @@ fn frames(
                 Some("shoulder") => (0.95, 1.4),
                 _ => (2.3, 0.95),
             };
+            // `DERETH_SKIN_DISTANCE` and `DERETH_SKIN_AIM`: a whole-body camera that far away
+            // (metres), looking at that height, for a body larger or smaller than a person.
+            let dist = env("DERETH_SKIN_DISTANCE")
+                .and_then(|v| v.parse::<f32>().ok())
+                .filter(|_| close.is_none())
+                .unwrap_or(dist);
+            let height = env("DERETH_SKIN_AIM")
+                .and_then(|v| v.parse::<f32>().ok())
+                .filter(|_| close.is_none())
+                .unwrap_or(height);
             let eye = Vec3::new(at.x + dx * dist, at.y + dy * dist, at.z + height + 0.15);
             scene.camera.position = eye;
             scene.camera.yaw = math::atan2f(-(at.x - eye.x), at.y - eye.y);
@@ -237,6 +310,15 @@ fn frames(
             every.push(tile(&gpu.capture().expect("capture").to_rgba()));
         }
     }
+    if bodies {
+        if let Some(path) = env("DERETH_SKIN_EXPORT") {
+            if let Some(models) = scene.draw.remaster_skin_bodies(&mut gpu) {
+                if let Some(model) = models.values().next() {
+                    export(std::path::Path::new(&path), model);
+                }
+            }
+        }
+    }
     let counts = scene
         .draw
         .remaster_counts(&mut gpu)
@@ -254,6 +336,41 @@ fn frames(
         .expect("the remaster stops");
     scene.release_textures(&mut gpu);
     (out, every, counts, motions)
+}
+
+/// `model` written to `path` as JSON for the measurements: its bind-space vertices, triangles
+/// (with their subsets' surfaces), influences, dual-quaternion shares and inverse binds.
+fn export(path: &std::path::Path, model: &dereth_scene::world_scene::RemasterSkinBody) {
+    use serde_json::json;
+    let surfaces: Vec<serde_json::Value> = model
+        .mesh
+        .subsets
+        .iter()
+        .map(|s| {
+            let surface = match s.surface {
+                dereth_scene::world_scene::RemasterSurfaceRef::Surface(id) => id,
+                _ => 0,
+            };
+            json!([s.first_index, s.index_count, surface])
+        })
+        .collect();
+    let binds: Vec<serde_json::Value> = model
+        .inverse_binds
+        .iter()
+        .map(|b| b.map_or(serde_json::Value::Null, |m| json!(m.to_cols_array())))
+        .collect();
+    let value = json!({
+        "positions": model.mesh.vertices.iter().map(|v| v.position).collect::<Vec<_>>(),
+        "normals": model.mesh.vertices.iter().map(|v| v.normal).collect::<Vec<_>>(),
+        "indices": model.mesh.indices,
+        "subsets": surfaces,
+        "joints": model.parts,
+        "weights": model.weights,
+        "dqs": model.rig.dqs,
+        "inverse_binds": binds,
+    });
+    std::fs::write(path, value.to_string()).expect("the export is written");
+    eprintln!("wrote {}", path.display());
 }
 
 /// The middle tile of a motion picture as a heat map: how many pixels each surface moved since

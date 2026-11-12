@@ -2,11 +2,12 @@
 //! each body's vertices by its joints and writes them over its mesh's vertices in the vertex pool,
 //! before anything that draws the world reads them.
 //!
-//! **Once a body:** its vertices in their bind pose and its influences (four joints and their
-//! weights a vertex) go to the device the first time an object wears it.
+//! **Once a body:** its vertices in their bind pose and its influences (four joints and weights,
+//! and its share of dual-quaternion blending) go to the device the first time an object wears it.
 //!
-//! **Each frame:** only each object's joints, a matrix each, a few hundred bytes, worked out on
-//! the processor as the posing on the processor works them out ([`SkinModel::joints`]).
+//! **Each frame:** only each object's joints (its matrices, and the same as dual quaternions), a
+//! few hundred bytes, worked out on the processor as the posing on the processor works them out
+//! ([`SkinModel::joints`]).
 //!
 //! **The motion pass** finds each vertex's last place where the shader kept it, beside the mesh,
 //! before writing over it ([`super::scene::GpuScene::previous`]).
@@ -16,7 +17,7 @@ use std::sync::Arc;
 
 use dereth_gfx::{Buffer, BufferDesc, BufferUsage, ComputeDesc, Device, Location, Pipeline};
 use dereth_gfx::{Recorder, Touch, Use};
-use glam::Mat4;
+use glam::{Mat3, Mat4, Quat};
 
 use super::scene::GpuScene;
 use super::{push_words, shader};
@@ -86,7 +87,7 @@ fn made(
 }
 
 /// A body's vertices in their bind pose, as the pool holds vertices, and its influences, two rows
-/// a vertex: its four joints, two to a word, then their four weights.
+/// a vertex.
 fn statics_of(model: &SkinModel) -> (Vec<u8>, Vec<u8>) {
     let n = model.mesh.vertices.len();
     let mut bind = Vec::with_capacity(n * 64);
@@ -111,13 +112,26 @@ fn statics_of(model: &SkinModel) -> (Vec<u8>, Vec<u8>) {
         bind.extend(floats(&t));
         bind.extend(floats(&c));
     }
+    let slot = |j: u16| -> u32 { u32::try_from(model.slot(j)).unwrap_or(0) };
     let mut influences = Vec::with_capacity(n * 32);
-    for (ps, ws) in model.parts.iter().zip(&model.weights) {
-        let [a, b, c, d] = ps.map(u32::from);
-        influences.extend(push_words(&[a | b << 16, c | d << 16, 0, 0]));
+    for (k, (ps, ws)) in model.parts.iter().zip(&model.weights).enumerate() {
+        let share = model.rig.dqs.get(k).copied().unwrap_or(0.0);
+        influences.extend(push_words(&[
+            slot(ps[0]) | slot(ps[1]) << 16,
+            slot(ps[2]) | slot(ps[3]) << 16,
+            share.to_bits(),
+            0,
+        ]));
         influences.extend(floats(ws));
     }
     (bind, influences)
+}
+
+/// A skinning matrix's turn as a unit quaternion, its scale taken out.
+fn turn_of(m: Mat4) -> Quat {
+    let r = Mat3::from_mat4(m);
+    let s = dereth_primitives::num::math::powf(r.determinant().abs(), 1.0 / 3.0).max(1e-12);
+    Quat::from_mat3(&(r * (1.0 / s))).normalize()
 }
 
 impl SkinPass {
@@ -140,8 +154,8 @@ impl SkinPass {
     }
 
     /// This frame's work: each `(model, mesh id, joints)` posed, its body's data made on the
-    /// device the first time, its joints and weights written, its last places kept in `scene`
-    /// when `motion` asks.
+    /// device the first time, its joints written, its last places kept in `scene` when `motion`
+    /// asks.
     ///
     /// # Errors
     /// What the device refuses.
@@ -178,6 +192,11 @@ impl SkinPass {
             let joints_row = u32::try_from(frame.len() / 16).unwrap_or(0);
             for m in joints {
                 frame.extend(floats(&m.to_cols_array()));
+                let q = turn_of(*m);
+                let t = m.w_axis.truncate();
+                let dq = Quat::from_xyzw(t.x, t.y, t.z, 0.0) * q;
+                frame.extend(floats(&[q.x, q.y, q.z, q.w]));
+                frame.extend(floats(&[dq.x * 0.5, dq.y * 0.5, dq.z * 0.5, dq.w * 0.5]));
             }
             self.jobs.push(Job {
                 count: s.count,
@@ -275,6 +294,7 @@ impl SkinPlan {
 mod tests {
     //! Behaviour: none (a layout check of the data the skinning shader reads)
     use super::*;
+    use crate::assets::skin::{Bone, Rig, BONE};
     use crate::assets::{Mesh, Subset, SurfaceRef, Vertex};
 
     fn word(b: &[u8], i: usize) -> u32 {
@@ -286,7 +306,7 @@ mod tests {
     }
 
     #[test]
-    fn a_bodys_data_is_its_bind_vertices_then_two_rows_of_joints_and_weights_a_vertex() {
+    fn a_bodys_data_names_its_bones_after_its_parts_with_each_vertexs_blending_share() {
         let v = |z: f32| Vertex {
             position: [0.0, 0.0, z],
             normal: [0.0, 1.0, 0.0],
@@ -307,38 +327,29 @@ mod tests {
         let model = SkinModel::new(
             0,
             mesh,
-            vec![[1, 0, 0, 0], [2, 0, 0, 0], [1, 2, 3, 4]],
+            vec![[1, 0, 0, 0], [2, 0, 0, 0], [1, BONE, 2, 0]],
             vec![
                 [1.0, 0.0, 0.0, 0.0],
                 [1.0, 0.0, 0.0, 0.0],
-                [0.25, 0.5, 0.125, 0.125],
+                [0.25, 0.5, 0.25, 0.0],
             ],
-            &[
-                (1, Mat4::IDENTITY),
-                (2, Mat4::IDENTITY),
-                (3, Mat4::IDENTITY),
-                (4, Mat4::IDENTITY),
-            ],
+            &[(1, Mat4::IDENTITY), (2, Mat4::IDENTITY)],
         )
-        .expect("a body");
+        .expect("a body")
+        .with_rig(Rig {
+            bones: vec![Bone::new(Mat4::IDENTITY)],
+            dqs: vec![0.0, 0.0, 1.0],
+            ..Rig::default()
+        });
         let (bind, influences) = statics_of(&model);
-        // Four rows a vertex: position and normal, texture coordinates, tangent, color.
         assert_eq!(bind.len(), 3 * 64);
         assert_eq!([float(&bind, 16 + 2), float(&bind, 16 + 6)], [1.0, 0.5]);
-        assert_eq!(float(&bind, 32 + 15), 1.0, "the third vertex's color");
-        // Two rows a vertex: the joints two to a word, then the weights.
         assert_eq!(influences.len(), 3 * 32);
-        assert_eq!([word(&influences, 0), word(&influences, 1)], [1, 0]);
-        assert_eq!(word(&influences, 16), 1 | 2 << 16);
-        assert_eq!(word(&influences, 17), 3 | 4 << 16);
-        assert_eq!(
-            [
-                float(&influences, 20),
-                float(&influences, 21),
-                float(&influences, 22),
-                float(&influences, 23)
-            ],
-            [0.25, 0.5, 0.125, 0.125]
-        );
+        // Three parts' places (0..2), so the body's own bone is the fourth joint.
+        assert_eq!(word(&influences, 16), 1 | 3 << 16);
+        assert_eq!(word(&influences, 17), 2);
+        assert_eq!(float(&influences, 16 + 4 + 1), 0.5);
+        assert_eq!(float(&influences, 16 + 2), 1.0, "its dual-quaternion share");
+        assert_eq!(float(&influences, 2), 0.0);
     }
 }

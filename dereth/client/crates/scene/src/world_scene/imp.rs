@@ -71,6 +71,9 @@ mod remaster_look;
 #[path = "remaster_pack.rs"]
 mod remaster_pack;
 #[cfg(feature = "remaster")]
+#[path = "remaster_slots.rs"]
+mod remaster_slots;
+#[cfg(feature = "remaster")]
 pub use remaster_look::{RemasterLookError, RemasterLookLayer, RemasterLooks};
 #[cfg(feature = "remaster")]
 pub use remaster_pack::{RemasterForestStats, RemasterPackCounts, RemasterPacks};
@@ -83,8 +86,8 @@ pub use remaster_effects::{
 };
 #[cfg(feature = "remaster")]
 pub use remaster_effects::{
-    remaster_upscaler_drawn, RemasterAo, RemasterPost, RemasterPostPicture, RemasterUpscale,
-    RemasterUpscaleMode, RemasterWater,
+    remaster_upscaler_drawn, RemasterAo, RemasterPost, RemasterPostPicture, RemasterSkinBody,
+    RemasterSurfaceRef, RemasterUpscale, RemasterUpscaleMode, RemasterWater,
 };
 #[cfg(feature = "remaster")]
 #[path = "remaster_weather.rs"]
@@ -4776,6 +4779,32 @@ pub trait SceneWrites: sealed::SceneHalvesMut {
     ) -> Result<(), WorldError> {
         let (world, draw) = self.halves_mut();
         draw.attach_character(world, store, region, gpu)
+    }
+
+    /// The body rebuilt on another setup and motion table, as a server description naming them
+    /// would, its part meshes built again. `Ok(false)` when it already had that setup.
+    ///
+    /// # Errors
+    /// No body, a setup or table that will not load, or a part mesh that cannot be built.
+    fn set_character_setup(
+        &mut self,
+        store: &Arc<RetailDatStore>,
+        gpu: &mut Gpu,
+        setup: dereth_primitives::DataId,
+        motion_table: Option<dereth_primitives::DataId>,
+    ) -> Result<bool, WorldError> {
+        use world_objects::ObjectAppearance as _;
+        let (world, draw) = self.halves_mut();
+        let Some(c) = world.character.as_mut() else {
+            return Err(WorldError::Render("no body".to_owned()));
+        };
+        let rebuilt = c
+            .set_setup_id(setup, motion_table)
+            .map_err(|e| WorldError::Render(e.to_string()))?;
+        if rebuilt {
+            DrawFollows { draw, gpu, store }.body_parts_changed(world)?;
+        }
+        Ok(rebuilt)
     }
 
     /// [`SceneDraw::sync_objects`] on the scene.

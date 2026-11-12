@@ -87,6 +87,12 @@ pub struct WorldObject {
     /// The object as it is drawn between its physics ticks, while the bodies are
     /// ([`WorldState::smooth_movement`]).
     pub between: crate::between_ticks::BetweenTicks,
+    /// The weenie (class id) the server made it from, as its description names it; `None` where
+    /// it names none. An art pack can keep some weenies' own parts.
+    pub weenie: Option<u32>,
+    /// Whether it has held a launcher (a bow, crossbow, sling or atlatl) since it was made. Once
+    /// set it stays: a creature that gives up its bow for a sword fights on as it began.
+    pub held_launcher: bool,
 }
 
 impl AsObjectSim for WorldObject {
@@ -548,12 +554,28 @@ impl WorldState {
     /// frame.
     #[must_use]
     pub fn name_top(&self, id: ObjectId) -> Option<Vec3> {
+        self.name_top_drawn(id, |_, _| None)
+    }
+
+    /// [`Self::name_top`] for a body drawn otherwise than its own meshes, as an art pack draws
+    /// one: `instead` gives, from its parts and what they play, and the points each graphics
+    /// object of the files is made of, the height over its origin of the top of what is drawn in
+    /// their place, which stands in for [`crate::body_top::name_height`]'s; `None` where the
+    /// files' own are drawn.
+    #[must_use]
+    pub fn name_top_drawn(
+        &self,
+        id: ObjectId,
+        instead: impl FnOnce(
+            &dereth_animation::driver::MotionDriver,
+            &dyn Fn(DataId) -> Option<std::sync::Arc<[Vec3]>>,
+        ) -> Option<f32>,
+    ) -> Option<Vec3> {
         let o = self.objects.get(&id).filter(|o| o.drawn)?;
         let driver = o.sim.driver.borrow();
         let parts = &driver.part_array;
-        let height = crate::body_top::name_height(parts, |g| {
-            self.drawn_points.of(self.anim_assets.as_ref()?.store(), g)
-        });
+        let own = |g| self.drawn_points.of(self.anim_assets.as_ref()?.store(), g);
+        let height = instead(&driver, &own).or_else(|| crate::body_top::name_height(parts, own));
         let top = height.map_or_else(
             || {
                 let s = parts.selection_sphere();

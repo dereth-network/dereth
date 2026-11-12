@@ -7,7 +7,7 @@ use crate::assets::{
     kind, AssetSource, AssetTables, BlendFactor, CellPieceKey, Kind, Material, MaterialKey, Mesh,
     MeshKey, SubsetInfo, SurfaceRef, Texture, TextureFormat, TextureKey, Use, Vertex,
 };
-use crate::scene::{PartLook, Placement, PlacementKind, Terrain};
+use crate::scene::{Object, ObjectKey, ObjectPart, PartLook, Placement, PlacementKind, Terrain};
 
 /// Off, nothing of a pack is drawn; every switch on is every kind; each kind's models follow
 /// their own switch.
@@ -186,6 +186,104 @@ fn a_placement_the_pack_has_a_model_for_is_drawn_as_the_model() {
     });
     assert_eq!(b.placements[1].parts, vec![part(pack_mesh(3, 0), None)]);
     assert_eq!(b.degrades.len(), 1);
+}
+
+/// An object the server built (a lifestone: standing stones and a crystal) has each part the
+/// pack has a model for, by the GfxObj it draws, drawn as the model at every level it had; its
+/// other parts, its levels that draw nothing and its look stay; counted with the placements.
+#[test]
+fn a_built_objects_part_the_pack_has_a_model_for_is_drawn_as_the_model() {
+    const STONE: u32 = 0x0100_0D00;
+    const CRYSTAL: u32 = 0x0100_0CFA;
+    let look = PartLook {
+        textures: vec![(0x0500_0001, 0x0500_0002)],
+        palette: None,
+        ranges: Vec::new(),
+    };
+    let object = || Object {
+        key: ObjectKey::Server(0x7000_0001),
+        setup: 0x0200_02EE,
+        palettes: Vec::new(),
+        who: crate::scene::Who::default(),
+        parts: vec![
+            ObjectPart {
+                levels: vec![STONE, 0x0100_0D01],
+                look: Some(look.clone()),
+            },
+            ObjectPart {
+                levels: vec![CRYSTAL],
+                look: None,
+            },
+            ObjectPart {
+                levels: vec![0, STONE],
+                look: None,
+            },
+            ObjectPart {
+                levels: Vec::new(),
+                look: None,
+            },
+        ],
+    };
+    let stone = |id: u32| {
+        (id == STONE).then(|| PackModel {
+            category: Category::Rock,
+            levels: vec![
+                PackLevel {
+                    mesh: pack_mesh(4, 0),
+                    distance: 30.0,
+                },
+                PackLevel {
+                    mesh: pack_mesh(4, 1),
+                    distance: f32::INFINITY,
+                },
+            ],
+            cover: false,
+        })
+    };
+    let mut o = object();
+    assert_eq!(swap_object_parts(&mut o, &mut |id| stone(id)), 2);
+    assert_eq!(o.parts[0].levels, [pack_mesh(4, 0); 2]);
+    assert_eq!(
+        o.parts[0].look,
+        Some(look.clone()),
+        "the object's look stays on the part"
+    );
+    assert_eq!(o.parts[1], object().parts[1], "the crystal has no model");
+    assert_eq!(
+        o.parts[2].levels,
+        [pack_mesh(4, 0); 2],
+        "found by the first level that draws"
+    );
+    assert!(o.parts[3].levels.is_empty());
+    // Through the swaps, built and built again alike, for the kinds switched on.
+    let mut swaps = PackSwaps {
+        settings: PackSettings::all(),
+        ..PackSwaps::default()
+    };
+    let deltas = swaps.swap(
+        vec![
+            SceneDelta::ObjectBuilt(Box::new(object())),
+            SceneDelta::ObjectChanged(Box::new(object())),
+        ],
+        &mut |id| stone(id),
+    );
+    for d in &deltas {
+        let (SceneDelta::ObjectBuilt(o) | SceneDelta::ObjectChanged(o)) = d else {
+            panic!("an object delta");
+        };
+        assert_eq!(o.parts[0].levels, [pack_mesh(4, 0); 2]);
+    }
+    assert_eq!(swaps.placements, 4);
+    let mut off = PackSwaps::default();
+    let kept = off.swap(
+        vec![SceneDelta::ObjectBuilt(Box::new(object()))],
+        &mut |id| stone(id),
+    );
+    assert_eq!(
+        kept,
+        vec![SceneDelta::ObjectBuilt(Box::new(object()))],
+        "rocks off: kept"
+    );
 }
 
 /// A source with a pack: the tree's model of three levels, each a triangle on a surface of its

@@ -333,6 +333,8 @@ mod tests {
         let object = Object {
             key: ObjectKey::Server(0x5000_0001),
             setup: 0x0200_0001,
+            palettes: Vec::new(),
+            who: crate::scene::Who::default(),
             parts: vec![
                 ObjectPart {
                     levels: vec![0x0100_0001],
@@ -345,6 +347,8 @@ mod tests {
             ],
         };
         let pose = |parts: usize| ObjectPose {
+            held_by: None,
+            motion: None,
             key: object.key,
             cell: 0,
             parts: vec![

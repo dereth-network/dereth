@@ -7,6 +7,10 @@ use dereth_render::device::Gpu;
 use super::remaster_view::remaster;
 use super::SceneDraw;
 
+/// A skinned body as the remaster draws it, and what its subsets name as their surfaces.
+pub use dereth_remaster::assets::{
+    skin::SkinModel as RemasterSkinBody, SurfaceRef as RemasterSurfaceRef,
+};
 /// How the remaster's ambient occlusion is found.
 pub use dereth_remaster::render::ao::AoSettings as RemasterAo;
 /// How the remaster's post passes draw, and one picture of them read back.
@@ -17,6 +21,8 @@ pub use dereth_remaster::render::post::{
 pub use dereth_remaster::render::upscale::{
     UpscaleMode as RemasterUpscaleMode, UpscaleSettings as RemasterUpscale,
 };
+/// The remaster's skinned bodies drawn, by their meshes' ids.
+pub type RemasterSkinBodies = std::collections::BTreeMap<u32, std::sync::Arc<RemasterSkinBody>>;
 /// How the remaster draws the water and the puddles.
 pub use dereth_remaster::render::water::WaterSettings as RemasterWater;
 
@@ -65,6 +71,60 @@ impl SceneDraw {
         if let Some(r) = remaster(gpu) {
             r.renderer().set_skin_gpu(on);
         }
+    }
+
+    /// What each server object's body last played of its own clips, by the object's id: the name
+    /// of the slot whose clip it played (`None` while it stands at rest), how far through it it
+    /// was drawn, and whether the speed its motion asks paced it. For an instrument to read.
+    pub fn remaster_skin_playing(
+        &mut self,
+        gpu: &mut Gpu,
+    ) -> Vec<(u32, Option<&'static str>, f32, bool)> {
+        remaster(gpu).map_or_else(Vec::new, |r| {
+            r.renderer()
+                .skin_playing()
+                .into_iter()
+                .filter_map(|(key, a, s, p)| match key {
+                    dereth_remaster::scene::ObjectKey::Server(id) => {
+                        Some((id, a.map(dereth_remaster::assets::skin::Slot::name), s, p))
+                    }
+                    _ => None,
+                })
+                .collect()
+        })
+    }
+
+    /// Whether the remaster draws a skinned body still dying when its object leaves on to the end
+    /// of its death (on by default), for an instrument showing what that adds.
+    pub fn set_remaster_skin_ghosts(&mut self, on: bool, gpu: &mut Gpu) {
+        if let Some(r) = remaster(gpu) {
+            r.renderer().set_skin_ghosts(on);
+        }
+    }
+
+    /// The server objects whose bodies are drawn on as ghosts after they left, still dying, and
+    /// the corpses hidden under them, by their ids. For an instrument to read.
+    pub fn remaster_skin_ghosts(&mut self, gpu: &mut Gpu) -> (Vec<u32>, Vec<u32>) {
+        let ids = |keys: Vec<dereth_remaster::scene::ObjectKey>| {
+            keys.into_iter()
+                .filter_map(|k| match k {
+                    dereth_remaster::scene::ObjectKey::Server(id) => Some(id),
+                    _ => None,
+                })
+                .collect()
+        };
+        remaster(gpu).map_or_else(
+            || (Vec::new(), Vec::new()),
+            |r| {
+                let (ghosts, hidden) = r.renderer().skin_ghosts();
+                (ids(ghosts), ids(hidden))
+            },
+        )
+    }
+
+    /// The remaster's skinned bodies drawn, by their meshes' ids: for an instrument.
+    pub fn remaster_skin_bodies(&mut self, gpu: &mut Gpu) -> Option<RemasterSkinBodies> {
+        Some(remaster(gpu)?.renderer().skin_bodies())
     }
 
     /// Whether the remaster's motion pass follows a skinned body vertex by vertex (on by

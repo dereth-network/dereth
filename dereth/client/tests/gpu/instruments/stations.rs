@@ -2017,6 +2017,20 @@ impl Shot {
         (x, y): (f32, f32),
         heading: f32,
     ) {
+        self.create_object_moving(id, (setup, mtable), block, (x, y), heading, None);
+    }
+
+    /// [`Self::create_object`], its motion given as the server gives a created object's: a
+    /// movement body as it is written (a corpse made lying dead, say).
+    pub(crate) fn create_object_moving(
+        &mut self,
+        id: u32,
+        (setup, mtable): (u32, Option<u32>),
+        block: u16,
+        (x, y): (f32, f32),
+        heading: f32,
+        movement: Option<Vec<u8>>,
+    ) {
         use dereth_protocol::types::{physicsdesc::flags, ObjDesc, PhysicsDesc, PublicWeenieDesc};
         let region =
             dereth_world_data::landblock::load_region(&self.store).expect("the region decodes");
@@ -2034,9 +2048,15 @@ impl Shot {
             physicsdesc: PhysicsDesc {
                 bitfield: flags::POSITION
                     | flags::SETUP
-                    | if mtable.is_some() { flags::MTABLE } else { 0 },
+                    | if mtable.is_some() { flags::MTABLE } else { 0 }
+                    | if movement.is_some() {
+                        flags::MOVEMENT
+                    } else {
+                        0
+                    },
                 setup_id: Some(setup),
                 mtable_id: mtable,
+                movement: movement.map(|m| (m, 0)),
                 state: 0,
                 position: Some(dereth_protocol::types::PositionWire {
                     objcell_id: cell,
@@ -2114,6 +2134,15 @@ impl Shot {
             LocalTime(self.now),
         );
         self.stream.world.update_visible_object_list();
+    }
+
+    /// Hand the station a message the server sent about the world (`opcode`, its body), as it
+    /// arrives now, from the next step on.
+    pub(crate) fn send(&mut self, opcode: dereth_protocol::Opcode, body: Vec<u8>) {
+        self.stream.apply_event(
+            &dereth_client_net::client_session::SessionEvent::WorldObject { opcode, body },
+            LocalTime(self.now),
+        );
     }
 
     /// Have the objects the station is sent read the data files from here on, as the client's

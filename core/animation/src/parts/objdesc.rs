@@ -80,6 +80,14 @@ impl PartArray {
             }
         } else {
             ok &= self.set_palette(od.palette_id, &od.subpalettes);
+            self.described_palettes.clear();
+            for id in
+                std::iter::once(od.palette_id).chain(od.subpalettes.iter().map(|r| r.palette_set))
+            {
+                if id != DataId(0) && !self.described_palettes.contains(&id) {
+                    self.described_palettes.push(id);
+                }
+            }
         }
         ok
     }
@@ -99,6 +107,7 @@ impl PartArray {
         for p in &mut self.parts {
             p.restore_palette();
         }
+        self.described_palettes.clear();
         self.do_obj_desc_changes_with(od, assets)
     }
 
@@ -270,6 +279,42 @@ mod tests {
         for p in &pa.parts {
             assert_eq!(shift(p), Some(BODY));
         }
+    }
+
+    /// The palettes a description names are kept on the array whichever parts they landed on: a
+    /// palette no part is drawn with recolors nothing, yet the array still names it, and a fresh
+    /// description without one names none.
+    #[test]
+    fn a_description_s_palettes_are_kept_even_where_no_part_takes_them() {
+        let a = assets();
+        let mut pa = body(&a);
+        let od = ObjDesc {
+            palette_id: COSTUME,
+            subpalettes: vec![
+                PaletteRange {
+                    palette_set: DataId(0x0400_0F44),
+                    offset: 0,
+                    length: 8,
+                },
+                PaletteRange {
+                    palette_set: COSTUME,
+                    offset: 8,
+                    length: 4,
+                },
+            ],
+            ..ObjDesc::default()
+        };
+        pa.do_obj_desc_changes_from_default_with(&od, &a);
+        for p in &pa.parts {
+            assert_eq!(
+                shift(p),
+                None,
+                "no part is drawn with the costume's palette"
+            );
+        }
+        assert_eq!(pa.described_palettes, [COSTUME, DataId(0x0400_0F44)]);
+        pa.do_obj_desc_changes_from_default_with(&ObjDesc::default(), &a);
+        assert!(pa.described_palettes.is_empty());
     }
 
     /// A description's palette recolors the parts drawn with it and no others: limbs a costume

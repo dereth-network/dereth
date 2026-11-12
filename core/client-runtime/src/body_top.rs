@@ -70,7 +70,7 @@ pub fn top_of_parts(
     parts: &[PhysicsPart],
     points: impl Fn(DataId) -> Option<Arc<[Vec3]>>,
 ) -> Option<f32> {
-    top_of_posed(parts.iter().map(|p| (p, p.pos)), points)
+    top_of_posed(parts.iter().map(|p| (p, p.pos)), by_gfxobj(points))
 }
 
 /// The height over its origin of the highest point `parts` draw in their rest pose: each part
@@ -79,18 +79,33 @@ pub fn top_of_parts(
 /// scale. `None` for a body whose setup has no placement, or whose parts draw nothing `points`
 /// knows.
 pub fn rest_top(parts: &PartArray, points: impl Fn(DataId) -> Option<Arc<[Vec3]>>) -> Option<f32> {
+    rest_top_drawn(parts, by_gfxobj(points))
+}
+
+/// [`rest_top`] for a body drawn otherwise than its own graphics objects: `points` gives what each
+/// part draws, in its own space, from its place in the setup and the part (`None` for nothing).
+pub fn rest_top_drawn(
+    parts: &PartArray,
+    points: impl Fn(usize, &PhysicsPart) -> Option<Arc<[Vec3]>>,
+) -> Option<f32> {
+    top_of_posed(parts.parts.iter().zip(rest_frames(parts)?), points)
+}
+
+/// Where each of `parts` stands at rest, over its object's origin: placed by its setup's resting
+/// placement (its default one where it has no resting one), the placement scaled as the body is.
+/// `None` for a body whose setup has no placement.
+pub fn rest_frames(parts: &PartArray) -> Option<Vec<Frame>> {
     let setup = parts.setup.as_ref()?;
     let rest = setup
         .placement_frames
         .get(&RESTING_PLACEMENT)
         .or_else(|| setup.placement_frames.get(&0))?;
-    let posed = parts.parts.iter().zip(&rest.frames).map(|(part, f)| {
-        (
-            part,
-            Frame::new(f.origin.mul_componentwise(parts.scale), f.rotation),
-        )
-    });
-    top_of_posed(posed, points)
+    Some(
+        rest.frames
+            .iter()
+            .map(|f| Frame::new(f.origin.mul_componentwise(parts.scale), f.rotation))
+            .collect(),
+    )
 }
 
 /// The height over its origin a name over `parts` stands at: its collision height, or the top of
@@ -110,17 +125,29 @@ pub fn name_height(
 /// The placement a setup rests in, the one a body is built in.
 const RESTING_PLACEMENT: u32 = 0x65;
 
-/// [`top_of_parts`], each part placed at the frame it is paired with.
+/// What each part draws, read from the points of its own graphics object.
+fn by_gfxobj(
+    points: impl Fn(DataId) -> Option<Arc<[Vec3]>>,
+) -> impl Fn(usize, &PhysicsPart) -> Option<Arc<[Vec3]>> {
+    move |_, part| {
+        (part.gfxobj_id.0 != 0)
+            .then(|| points(part.gfxobj_id))
+            .flatten()
+    }
+}
+
+/// [`top_of_parts`], each part placed at the frame it is paired with and drawing what `points`
+/// gives for it.
 fn top_of_posed<'a>(
     parts: impl IntoIterator<Item = (&'a PhysicsPart, Frame)>,
-    points: impl Fn(DataId) -> Option<Arc<[Vec3]>>,
+    points: impl Fn(usize, &PhysicsPart) -> Option<Arc<[Vec3]>>,
 ) -> Option<f32> {
     let mut top: Option<f32> = None;
-    for (part, at) in parts {
-        if part.no_draw() || part.gfxobj_id.0 == 0 {
+    for (i, (part, at)) in parts.into_iter().enumerate() {
+        if part.no_draw() {
             continue;
         }
-        let Some(points) = points(part.gfxobj_id) else {
+        let Some(points) = points(i, part) else {
             continue;
         };
         // The height of a point in the part's own space is the part's height plus the rotated,
@@ -548,6 +575,52 @@ mod tests {
             "the golem's name at {} over feet at {feet}, its head at {head}",
             golem.z
         );
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn a_name_stands_over_a_body_drawn_in_its_place_not_at_its_own_height() {
+        let mut h = Holtburg::new(60.0, false);
+        h.make(&[
+            body(MAN, HUMAN, None, (-3.0, 6.0)),
+            body(LUGIAN_AT_ONE, LUGIAN, None, (0.0, 6.0)),
+            body(BIG_LUGIAN, LUGIAN, Some(1.3), (3.0, 6.0)),
+        ]);
+        // A body drawn in place of the first part alone: a mast `high` metres over that part.
+        let mast = |high: f32| {
+            move |driver: &dereth_animation::driver::MotionDriver,
+                  _: &dyn Fn(DataId) -> Option<Arc<[Vec3]>>| {
+                let mast: Arc<[Vec3]> = Arc::from(vec![Vec3::new(0.0, 0.0, high)]);
+                rest_top_drawn(&driver.part_array, |i, _| {
+                    (i == 0).then(|| Arc::clone(&mast))
+                })
+            }
+        };
+        let over = |h: &Holtburg, id, high| {
+            let top = h.ws.name_top_drawn(id, mast(high)).expect("drawn");
+            let o = &h.ws.objects[&id];
+            assert_eq!((top.x, top.y), (o.frame.origin.x, o.frame.origin.y));
+            top.z - o.frame.origin.z
+        };
+        // Nothing drawn in its place: the name stands where it always does.
+        let (man, man_feet) = name_and_feet(&h, MAN);
+        let kept = h.ws.name_top_drawn(MAN, |_, _| None).expect("drawn");
+        assert_eq!(kept, man);
+        // Taller than the man, the name stands over it; shorter, under his height, which no
+        // longer holds the name up.
+        let (_, height) = h.setup_measures(MAN);
+        let (tall, short) = (over(&h, MAN, 4.0), over(&h, MAN, 0.2));
+        assert!(
+            tall > 3.5 && short < height - man_feet - 0.5,
+            "the man's name {tall} and {short} over his feet, his height {}",
+            height - man_feet
+        );
+        // A larger body's stand-in is as much larger.
+        let ratio = over(&h, BIG_LUGIAN, 2.0) / over(&h, LUGIAN_AT_ONE, 2.0);
+        assert!((ratio - 1.3).abs() < 1e-3, "{ratio}");
     }
 
     #[test]

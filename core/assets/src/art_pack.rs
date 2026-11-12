@@ -137,13 +137,12 @@
 //! when it has a level of pictures round it, a plant when it is foliage, and a rock otherwise; a
 //! model is a water model only when it says so.
 //!
-//! **A pack may draw a body in place of a setup's parts** (`[[skin]]`): one glTF 2.0 mesh skinned
-//! to the setup's parts, every object built on the setup drawn with it. Its joints are named
-//! `part_00`, `part_01` ..., the part each follows by its place in the setup (a joint of another
-//! name follows the nearest joint above it that names a part), and its inverse bind matrices take
-//! the mesh to each part's own space. Each frame the parts' own transforms, as the object's
-//! animation places them, move the joints; nothing else about the object changes. A part no
-//! vertex follows keeps drawing as it is.
+//! **A pack may draw a body in place of a setup's parts** (`[[skin]]`): one skinned glTF 2.0 mesh,
+//! every object built on the setup drawn with it, standing where the object stands and posed only
+//! by its own clips. Joints named `part_00`, `part_01` ... (or with `extras.part`) name the parts
+//! it is drawn in place of, by their place in the setup: those draw nothing, and any other part
+//! draws as it is. Every other joint is a bone of the body's own skeleton. Nothing else about the
+//! object changes.
 //!
 //! ```toml
 //! [[skin]]
@@ -152,6 +151,40 @@
 //! author = "..."
 //! tool = "..."
 //! license = "..."
+//! ```
+//!
+//! A setup may have several bodies, each for the objects whose look carries one of its
+//! `palettes` (palette ids, `0x04...`, as a server's description of the object lays them over
+//! its parts): the first that matches is drawn, and a body that names none is drawn for the rest.
+//!
+//! A body's clips (`clips`) name an animation of its glTF, by name, for each motion slot it
+//! fills ([`CLIP_SLOTS`]). The slots are the same for every creature: the client plays the one for
+//! what the object's motion does, and for a slot the body leaves empty, another's (a side step the
+//! walk, a run the walk, a stance's idle the peace idle, an attack the medium one, a sleep the dead
+//! pose). Idles, turns, sleep, the dead pose and a fall loop at their own pace; walks, runs and
+//! side steps go round once for each stride their object's motion asks; the rest play once, a
+//! death holding its end. A turn or a side step is to the right: to the left plays it backwards.
+//!
+//! ```toml
+//! clips = { idle = "Idle", walk = "Walk", run = "Run", melee_med = "Melee_Normal1", die = "Death" }
+//! ```
+//!
+//! A clip's glTF animation may carry `extras.stride`, the meters of the body's own space one round
+//! of a walk, run or side step carries it, so its feet hold; and `extras.hit`, the seconds from an
+//! attack's start to its blow, which the client lands when the object's own attack does. A table
+//! keyed by animation ids (`"0x03000044" = "run"`), as packs once had, still opens.
+//!
+//! A body draws nothing its object holds: the object still holds it.
+//!
+//! A pack may keep some objects as they are (`[keep]`), whatever bodies it has for their setups:
+//! those of the weenies it lists (by their class ids, as a server names them: a statue built on a
+//! creature's setup, a boss), and, with `launchers`, any that has held a bow, crossbow, sling or
+//! atlatl since it was made (a body that cannot shoot).
+//!
+//! ```toml
+//! [keep]
+//! weenies = [7, 237, 19196]
+//! launchers = true
 //! ```
 //!
 //! **A pack may say how its art wants to be lit** (`[lighting]`), with the keys and the tables
@@ -206,6 +239,11 @@ pub struct ArtPackManifest {
     pub covers: Vec<ManifestCover>,
     /// Its bodies drawn in place of setups' parts, in the order the manifest lists them.
     pub skins: Vec<ManifestSkin>,
+    /// The weenies (class ids) whose objects keep their own parts, whatever bodies it has
+    /// (`[keep]`), in the order the manifest lists them.
+    pub keep: Vec<u32>,
+    /// Whether an object that has held a launcher keeps its own parts (`[keep]`'s `launchers`).
+    pub keep_launchers: bool,
     /// Its `[lighting]` section, as the text of a look file: its keys at the top and each kind
     /// of day's table under its own name. `None` when it has none.
     pub lighting: Option<String>,
@@ -373,6 +411,40 @@ pub struct ManifestMaterial {
     pub credit: Credit,
 }
 
+/// The motion slots a body's clips fill ([`ManifestSkin::clips`]), as a pack names them: a
+/// stance's idle (peace, melee, missile, magic); walking, walking backwards, running, a side step
+/// and a turn; attacks high, medium and low, a special, a missile, a cast and the warning before
+/// one; a hit and a heavy hit; dying, dead and asleep; a change of stance; an emote and a cheer;
+/// falling and a jump.
+pub const CLIP_SLOTS: [&str; 26] = [
+    "idle",
+    "idle_melee",
+    "idle_missile",
+    "idle_magic",
+    "walk",
+    "walk_back",
+    "run",
+    "side_step",
+    "turn",
+    "melee_high",
+    "melee_med",
+    "melee_low",
+    "special",
+    "missile",
+    "cast",
+    "telegraph",
+    "hit",
+    "hit_heavy",
+    "die",
+    "dead",
+    "sleep",
+    "stance",
+    "emote",
+    "cheer",
+    "fall",
+    "jump",
+];
+
 /// One body drawn in place of a setup's parts: the setup and its glTF.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ManifestSkin {
@@ -380,6 +452,13 @@ pub struct ManifestSkin {
     pub setup: DataId,
     /// The glTF 2.0 file, relative to the pack's folder.
     pub file: String,
+    /// The palettes (`0x04...`) an object's look must carry one of for this body to be drawn for
+    /// it; none for the setup's other objects.
+    pub palettes: Vec<DataId>,
+    /// The body's own clips: each slot ([`CLIP_SLOTS`]) and its glTF animation's name.
+    pub clips: Vec<(String, String)>,
+    /// Clips listed by the animation (`0x03...`) they were played for, as packs once named them.
+    pub by_animation: Vec<(DataId, String)>,
     /// Who made it, with what, and under which license.
     pub credit: Credit,
 }
@@ -654,7 +733,10 @@ impl ArtPackManifest {
                 return fail(format!("skin {} is not a table", i + 1));
             };
             let one = skin(k).map_err(|e| ManifestError(format!("skin {}: {}", i + 1, e.0)))?;
-            if skins.iter().any(|o| o.setup == one.setup) {
+            if skins
+                .iter()
+                .any(|o| o.setup == one.setup && o.palettes.is_empty() && one.palettes.is_empty())
+            {
                 return fail(format!(
                     "skin {}: {:#010X} has a skin already",
                     i + 1,
@@ -663,6 +745,29 @@ impl ArtPackManifest {
             }
             skins.push(one);
         }
+        let keep_launchers = match table.get("keep").and_then(|k| k.get("launchers")) {
+            None => false,
+            Some(toml::Value::Boolean(b)) => *b,
+            Some(_) => return fail("keep: `launchers` is not true or false"),
+        };
+        let keep = match table.get("keep") {
+            None => Vec::new(),
+            Some(toml::Value::Table(k)) => match k.get("weenies") {
+                None => Vec::new(),
+                Some(toml::Value::Array(a)) => {
+                    let mut out = Vec::with_capacity(a.len());
+                    for v in a {
+                        match v.as_integer().and_then(|w| u32::try_from(w).ok()) {
+                            Some(w) if w > 0 => out.push(w),
+                            _ => return fail(format!("keep: {v} is not a weenie's class id")),
+                        }
+                    }
+                    out
+                }
+                Some(_) => return fail("keep: `weenies` is not a list of class ids"),
+            },
+            Some(_) => return fail("`keep` is not a [keep] table"),
+        };
         let lighting = match table.get("lighting") {
             None => None,
             Some(toml::Value::Table(t)) => Some(t.to_string()),
@@ -676,14 +781,27 @@ impl ArtPackManifest {
             materials,
             covers,
             skins,
+            keep,
+            keep_launchers,
             lighting,
         })
     }
 
-    /// The body drawn in place of the parts of `setup`, if the pack has one.
+    /// The body drawn in place of the parts of `setup`, if the pack has one: the one for its
+    /// objects whose look names none of the palettes the others are drawn for.
     #[must_use]
     pub fn skin(&self, setup: DataId) -> Option<&ManifestSkin> {
-        self.skins.iter().find(|k| k.setup == setup)
+        self.skin_for(setup, &[])
+    }
+
+    /// The body drawn in place of the parts of an object built on `setup` whose look carries
+    /// `palettes`: the first of the setup's bodies drawn for one of them, else its other one.
+    #[must_use]
+    pub fn skin_for(&self, setup: DataId, palettes: &[DataId]) -> Option<&ManifestSkin> {
+        let mut rows = self.skins.iter().filter(|k| k.setup == setup);
+        rows.clone()
+            .find(|k| k.palettes.iter().any(|p| palettes.contains(p)))
+            .or_else(|| rows.find(|k| k.palettes.is_empty()))
     }
 
     /// The material drawn in place of the retail picture `texture`, if the pack has one.
@@ -905,9 +1023,55 @@ fn skin(t: &toml::Table) -> Result<ManifestSkin, ManifestError> {
     if !inside_the_pack(file) {
         return fail(format!("file {file:?} is not a path inside the pack"));
     }
+    let palettes = match t.get("palettes") {
+        None => Vec::new(),
+        Some(toml::Value::Array(a)) => {
+            let mut out = Vec::with_capacity(a.len());
+            for v in a {
+                let id = v.as_str().and_then(|v| {
+                    let d = v.trim().strip_prefix("0x")?;
+                    u32::from_str_radix(d, 16).ok()
+                });
+                match id {
+                    Some(id) if id >> 24 == 0x04 => out.push(DataId(id)),
+                    _ => return fail(format!("palette {v} is not a palette (0x04...)")),
+                }
+            }
+            out
+        }
+        Some(_) => return fail("`palettes` is not a list of palette ids"),
+    };
+    let mut clips = Vec::new();
+    let mut by_animation = Vec::new();
+    match t.get("clips") {
+        None => {}
+        Some(toml::Value::Table(c)) => {
+            for (k, v) in c {
+                let Some(name) = v.as_str() else {
+                    return fail(format!("clip {k} = {v} is not an animation's name"));
+                };
+                if let Some(d) = k.trim().strip_prefix("0x") {
+                    match u32::from_str_radix(d, 16) {
+                        Ok(id) if id >> 24 == 0x03 => {
+                            by_animation.push((DataId(id), name.to_owned()));
+                        }
+                        _ => return fail(format!("{k} is not an animation (0x03...)")),
+                    }
+                } else if CLIP_SLOTS.contains(&k.as_str()) {
+                    clips.push((k.clone(), name.to_owned()));
+                } else {
+                    return fail(format!("clip {k} is not a slot"));
+                }
+            }
+        }
+        Some(_) => return fail("`clips` is not a table of slots and animation names"),
+    }
     Ok(ManifestSkin {
         setup,
         file: file.to_owned(),
+        palettes,
+        clips,
+        by_animation,
         credit: Credit {
             author: text(t, "author")?.to_owned(),
             tool: text(t, "tool")?.to_owned(),
@@ -1225,6 +1389,135 @@ license = \"C\"
             body("0x02000001", "b.gltf")
         );
         assert!(ArtPackManifest::parse(&twice).is_err());
+    }
+
+    #[test]
+    fn a_pack_lists_the_weenies_that_keep_their_own_parts_and_whether_launchers_do() {
+        let m = ArtPackManifest::parse(&format!("{PILOT}\n[keep]\nweenies = [7, 237, 19196]\n"))
+            .expect("reads");
+        assert_eq!(m.keep, [7, 237, 19196]);
+        assert!(!m.keep_launchers);
+        let plain = ArtPackManifest::parse(PILOT).expect("reads");
+        assert!(plain.keep.is_empty() && !plain.keep_launchers);
+        let launchers =
+            ArtPackManifest::parse(&format!("{PILOT}\n[keep]\nlaunchers = true\n")).expect("reads");
+        assert!(launchers.keep_launchers && launchers.keep.is_empty());
+        // Only class ids, in a list under [keep].
+        for bad in [
+            "[keep]\nweenies = [0]",
+            "[keep]\nweenies = [-3]",
+            "[keep]\nweenies = [\"7\"]",
+            "[keep]\nweenies = 7",
+            "[[keep]]\nweenies = [7]",
+            "[keep]\nlaunchers = 1",
+        ] {
+            assert!(
+                ArtPackManifest::parse(&format!("{PILOT}\n{bad}\n")).is_err(),
+                "{bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_setup_s_bodies_are_chosen_by_the_palettes_an_object_carries() {
+        let m = ArtPackManifest::parse(&format!(
+            "{PILOT}
+[[skin]]
+setup = \"0x02000001\"
+file = \"red.gltf\"
+palettes = [\"0x04000010\", \"0x04000011\"]
+author = \"A\"
+tool = \"B\"
+license = \"C\"
+
+[[skin]]
+setup = \"0x02000001\"
+file = \"plain.gltf\"
+author = \"A\"
+tool = \"B\"
+license = \"C\"
+"
+        ))
+        .expect("reads");
+        let file = |p: &[u32]| {
+            let p: Vec<DataId> = p.iter().copied().map(DataId).collect();
+            m.skin_for(DataId(0x0200_0001), &p).map(|k| k.file.as_str())
+        };
+        assert_eq!(file(&[0x0400_0011, 0x0400_0099]), Some("red.gltf"));
+        assert_eq!(file(&[0x0400_0099]), Some("plain.gltf"));
+        assert_eq!(file(&[]), Some("plain.gltf"));
+        assert_eq!(
+            m.skin(DataId(0x0200_0001)).map(|k| k.file.as_str()),
+            Some("plain.gltf")
+        );
+        // A palette list names palettes only.
+        let wrong = format!(
+            "{PILOT}
+[[skin]]
+setup = \"0x02000001\"
+file = \"red.gltf\"
+palettes = [\"0x05000010\"]
+author = \"A\"
+tool = \"B\"
+license = \"C\"
+"
+        );
+        assert!(ArtPackManifest::parse(&wrong).is_err());
+    }
+
+    #[test]
+    fn a_body_lists_its_own_clips_by_slot_and_opens_a_table_by_animation_as_packs_once_had() {
+        let row = |clips: &str| {
+            format!(
+                "{PILOT}
+[[skin]]
+setup = \"0x02000001\"
+file = \"b.gltf\"
+clips = {clips}
+author = \"A\"
+tool = \"B\"
+license = \"C\"
+"
+            )
+        };
+        let m = ArtPackManifest::parse(&row(
+            "{ idle = \"Idle\", melee_high = \"Melee_Strong1\", die = \"death\" }",
+        ))
+        .expect("reads");
+        let mut clips = m.skins[0].clips.clone();
+        clips.sort();
+        assert_eq!(
+            clips,
+            vec![
+                ("die".to_owned(), "death".to_owned()),
+                ("idle".to_owned(), "Idle".to_owned()),
+                ("melee_high".to_owned(), "Melee_Strong1".to_owned())
+            ]
+        );
+        assert!(m.skins[0].by_animation.is_empty());
+        let m = ArtPackManifest::parse(&row(
+            "{ \"0x03000044\" = \"run\", \"0x03000043\" = \"attack\" }",
+        ))
+        .expect("reads");
+        let mut old = m.skins[0].by_animation.clone();
+        old.sort();
+        assert_eq!(
+            old,
+            vec![
+                (DataId(0x0300_0043), "attack".to_owned()),
+                (DataId(0x0300_0044), "run".to_owned())
+            ]
+        );
+        assert!(m.skins[0].clips.is_empty());
+        // A slot the format has not.
+        assert!(ArtPackManifest::parse(&row("{ dance = \"Dance\" }")).is_err());
+        // A key the format no longer reads is passed over.
+        let old = row("{}").replacen("clips = {}", "clips = {}\nheld = false", 1);
+        assert!(ArtPackManifest::parse(&old).is_ok());
+        // The keys are animations, the values names.
+        assert!(ArtPackManifest::parse(&row("{ \"0x05000044\" = \"run\" }")).is_err());
+        assert!(ArtPackManifest::parse(&row("{ \"0x03000044\" = 1 }")).is_err());
+        assert!(ArtPackManifest::parse(&row("[\"run\"]")).is_err());
     }
 
     #[test]

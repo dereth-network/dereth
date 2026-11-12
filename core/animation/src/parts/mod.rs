@@ -485,6 +485,10 @@ pub struct PartArray {
     pub scale: Vec3,
     /// `pa_state & 0x10000` — "some part has a physics BSP".
     pub has_physics_bsp: bool,
+    /// The palettes the last object description named: its palette and its ranges' palettes,
+    /// each once, whichever parts they landed on (a part drawn against another palette takes none
+    /// of them, so a look can name a palette no part carries).
+    pub described_palettes: Vec<DataId>,
 }
 
 impl Default for PartArray {
@@ -494,6 +498,7 @@ impl Default for PartArray {
             parts: Vec::new(),
             scale: Vec3::new(1.0, 1.0, 1.0),
             has_physics_bsp: false,
+            described_palettes: Vec::new(),
         }
     }
 }

@@ -1976,9 +1976,10 @@ impl SceneDraw {
 
     /// Where the point a name over `id` stands on is on screen, in pixels, and its depth as the
     /// world is drawn: over its drawn origin at a height that does not follow its animation
-    /// ([`WorldState::name_top`]), raised with the body where the ground is drawn off where
-    /// physics puts it ([`Self::drawn_lift`]), seen from where the camera is this frame. `None`
-    /// behind the camera or for an object not drawn.
+    /// ([`WorldState::name_top`]; over what the art pack draws in place of its parts, where it
+    /// does), raised with the body where the ground is drawn off where physics puts it
+    /// ([`Self::drawn_lift`]), seen from where the camera is this frame. `None` behind the camera
+    /// or for an object not drawn.
     ///
     /// No depth for an object outdoors seen from a room: the outdoors is drawn before the room's
     /// depth is cleared and its openings stamped back nearer, so the world keeps no depth of its
@@ -1990,6 +1991,17 @@ impl SceneDraw {
         id: ObjectId,
         viewport: (u32, u32),
     ) -> Option<(f32, f32, Option<f32>)> {
+        #[cfg(feature = "remaster")]
+        let top = {
+            let who = ws
+                .objects
+                .get(&id)
+                .map_or((None, false), |o| (o.weenie, o.held_launcher));
+            ws.name_top_drawn(id, |driver, own| {
+                self.pack_name_height((id, who), driver, own)
+            })?
+        };
+        #[cfg(not(feature = "remaster"))]
         let top = ws.name_top(id)?;
         let top = Vec3::new(top.x, top.y, top.z + self.drawn_lift(ws, id));
         let (x, y, depth) = self.screen_point(ws, viewport, top)?;

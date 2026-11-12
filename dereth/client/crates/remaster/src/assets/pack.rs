@@ -39,7 +39,7 @@ impl Category {
 }
 
 use super::{AssetTables, MaterialKey, MeshKey, SurfaceRef, TextureKey};
-use crate::scene::{Block, Degrade, Part, SceneDelta};
+use crate::scene::{Block, Degrade, Object, Part, SceneDelta};
 
 /// What of a pack is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -204,6 +204,28 @@ pub fn swap_placements(
     swapped
 }
 
+/// `object` with each part whose drawing the pack has a model for (`model` of the GfxObj the part
+/// draws nearest) drawn as the model's nearest level at every level, posed as the part is: a
+/// portal's or a lifestone's parts keep their animation and the parts the pack has no model for.
+/// Returns how many parts it swapped.
+pub fn swap_object_parts(
+    object: &mut Object,
+    model: &mut dyn FnMut(u32) -> Option<PackModel>,
+) -> usize {
+    let mut swapped = 0;
+    for part in &mut object.parts {
+        let Some(&drawn) = part.levels.iter().find(|g| **g != 0) else {
+            continue;
+        };
+        let Some(mesh) = model(drawn).and_then(|m| m.levels.first().map(|l| l.mesh)) else {
+            continue;
+        };
+        part.levels.fill(mesh);
+        swapped += 1;
+    }
+    swapped
+}
+
 /// `deltas` with every block's placements the pack has models for swapped
 /// ([`swap_placements`]).
 pub fn swap_deltas(
@@ -257,8 +279,14 @@ impl PackSwaps {
         };
         let mut deltas = deltas;
         for d in &mut deltas {
-            if let SceneDelta::BlockIn(b) | SceneDelta::BlockChanged(b) = d {
-                self.placements += swap_placements(b, &mut counted) as u64;
+            match d {
+                SceneDelta::BlockIn(b) | SceneDelta::BlockChanged(b) => {
+                    self.placements += swap_placements(b, &mut counted) as u64;
+                }
+                SceneDelta::ObjectBuilt(o) | SceneDelta::ObjectChanged(o) => {
+                    self.placements += swap_object_parts(o, &mut counted) as u64;
+                }
+                _ => {}
             }
         }
         deltas

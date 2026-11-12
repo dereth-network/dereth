@@ -186,21 +186,60 @@ pub struct PackModel {
 /// One primitive's vertices' parts (by their place in the setup) and their weights on each.
 pub type Influences = (Arc<Vec<[u16; 4]>>, Arc<Vec<[f32; 4]>>);
 
+/// A body's clip: each step's bones, their turns and places in the bind space ([`gltf::SkinClip`]).
+pub type ClipSteps = Arc<Vec<Vec<(glam::Quat, glam::Vec3)>>>;
+
+/// One of a body's own clips ([`gltf::SkinClip`]): its steps, its length, and the stride and blow
+/// its animation names.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PackClip {
+    pub steps: ClipSteps,
+    /// Each step's bones' scale, where the clip scales any ([`gltf::SkinClip::scales`]).
+    pub scales: Arc<Vec<Vec<f32>>>,
+    /// How long it lasts, in seconds.
+    pub seconds: f32,
+    /// How far the body travels in one round of it ([`gltf::SkinClip::stride`]).
+    pub stride: Option<f32>,
+    /// When its blow lands ([`gltf::SkinClip::hit`]).
+    pub hit: Option<f32>,
+}
+
 /// One body of a pack, drawn in place of a setup's parts: its triangles in its bind space, each
 /// vertex's parts and weights, and each part's inverse bind matrix ([`gltf::decode_skin`]).
 #[derive(Debug, Clone, PartialEq)]
 pub struct PackSkin {
     /// The setup whose objects it is drawn for.
     pub setup: DataId,
+    /// The palettes an object's look must carry one of for it to be drawn (none: the setup's
+    /// other objects).
+    pub palettes: Vec<u32>,
     /// Its parts, each of one material.
     pub primitives: Vec<PackPrimitive>,
-    /// For each of [`Self::primitives`], each vertex's parts (by their place in the setup) and
-    /// its weight on each.
+    /// For each of [`Self::primitives`], each vertex's joints (a part's place in the setup, or a
+    /// bone's) and its weight on each.
     pub influences: Vec<Influences>,
-    /// Each part a vertex follows, and the matrix that takes the bind space to the part's own.
+    /// Each part it is drawn in place of, and the matrix that takes the bind space to the
+    /// part's own.
     pub inverse_binds: Vec<(u16, glam::Mat4)>,
+    /// For each of [`Self::primitives`], the retail surface it is drawn with, if any, and its
+    /// dual-quaternion shares ([`gltf::SkinPrimitive`]).
+    pub extras: Vec<PackSkinExtras>,
+    /// The GfxObj each part must be drawing for it to fit ([`gltf::Skin`]).
+    pub gfxobjs: Vec<(u16, u32)>,
+    /// The bones of its own skeleton, when it brings one ([`gltf::Skin::bones`]).
+    pub bones: Vec<gltf::SkinBone>,
+    /// Its own clips, each by the slot it fills ([`dereth_assets::art_pack::CLIP_SLOTS`]).
+    pub clips: Vec<(String, PackClip)>,
     /// Who made it, with what, and under which license.
     pub credit: Credit,
+}
+
+/// What a body's primitive adds to its triangles ([`gltf::SkinPrimitive`]).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct PackSkinExtras {
+    pub surface: Option<u32>,
+    pub tiled: bool,
+    pub dqs: Arc<Vec<f32>>,
 }
 
 /// One ground material of a pack, its pictures packed for drawing.
@@ -603,6 +642,10 @@ pub struct ArtPack {
     pub models: Vec<PackModel>,
     /// The bodies that read.
     pub skins: Vec<PackSkin>,
+    /// The weenies (class ids) whose objects keep their own parts, whatever bodies it has.
+    pub keep: std::collections::BTreeSet<u32>,
+    /// Whether an object that has held a launcher keeps its own parts.
+    pub keep_launchers: bool,
     /// The pictures the materials name.
     pub images: Vec<Image>,
     /// Where each of [`Self::images`] was made from, in their order.
@@ -993,6 +1036,8 @@ impl ArtPack {
             problems: Vec::new(),
             lighting: None,
             skins: Vec::new(),
+            keep: std::collections::BTreeSet::new(),
+            keep_launchers: false,
         };
         for pack in opened {
             hash.part("pack", pack.hash.as_bytes());
@@ -1037,6 +1082,8 @@ impl ArtPack {
             out.grounds.extend(pack.grounds);
             out.materials.extend(pack.materials);
             out.covers.extend(pack.covers);
+            out.keep.extend(pack.keep);
+            out.keep_launchers |= pack.keep_launchers;
             problems.extend(pack.problems.iter().map(|e| format!("{}: {e}", pack.name)));
             out.lighting = merged_lighting(out.lighting.take(), pack.lighting);
             names.push(pack.name);
@@ -1245,6 +1292,7 @@ impl ArtPack {
             };
             let mut primitives = Vec::with_capacity(skin.primitives.len());
             let mut influences = Vec::with_capacity(skin.primitives.len());
+            let mut extras = Vec::with_capacity(skin.primitives.len());
             let mut broken = None;
             for sp in skin.primitives {
                 let m = &sp.primitive.material;
@@ -1271,6 +1319,11 @@ impl ArtPack {
                             material,
                         });
                         influences.push((Arc::new(sp.parts), Arc::new(sp.weights)));
+                        extras.push(PackSkinExtras {
+                            surface: sp.surface,
+                            tiled: sp.tiled,
+                            dqs: Arc::new(sp.dqs),
+                        });
                     }
                     Err(e) => {
                         broken = Some(e);
@@ -1282,11 +1335,47 @@ impl ArtPack {
                 problems.push(format!("{label}: {e}"));
                 continue;
             }
+            let clip_named = |name: &str| {
+                skin.clips
+                    .iter()
+                    .find(|c| c.name == name)
+                    .map(|c| PackClip {
+                        steps: Arc::new(c.steps.clone()),
+                        scales: Arc::new(c.scales.clone()),
+                        seconds: c.seconds,
+                        stride: c.stride,
+                        hit: c.hit,
+                    })
+            };
+            let mut clips = Vec::with_capacity(entry.clips.len());
+            for (slot, name) in &entry.clips {
+                match clip_named(name) {
+                    Some(c) => clips.push((slot.clone(), c)),
+                    None => problems.push(format!(
+                        "{label}: {} has no animation {name:?} for {slot}",
+                        entry.file
+                    )),
+                }
+            }
+            // Clips listed by animation, as packs once named them, are not played: a body plays
+            // only what its slots name.
+            if !entry.by_animation.is_empty() {
+                problems.push(format!(
+                    "{label}: {} lists {} clips by animation, which are not played: name them by slot",
+                    entry.file,
+                    entry.by_animation.len()
+                ));
+            }
             skins.push(PackSkin {
                 setup: entry.setup,
+                palettes: entry.palettes.iter().map(|p| p.0).collect(),
                 primitives,
                 influences,
                 inverse_binds: skin.inverse_binds,
+                extras,
+                gfxobjs: skin.gfxobjs,
+                bones: skin.bones,
+                clips,
                 credit: entry.credit.clone(),
             });
         }
@@ -1484,6 +1573,8 @@ impl ArtPack {
             hash,
             models,
             skins,
+            keep: manifest.keep.into_iter().collect(),
+            keep_launchers: manifest.keep_launchers,
             images,
             image_sources,
             grounds,
@@ -2060,6 +2151,8 @@ license = "CC0-1.0"
             hash: String::new(),
             models: Vec::new(),
             skins: Vec::new(),
+            keep: std::collections::BTreeSet::new(),
+            keep_launchers: false,
             images: Vec::new(),
             image_sources: Vec::new(),
             grounds: Vec::new(),
@@ -2340,7 +2433,7 @@ license = "CC0-1.0"
     }
 
     #[test]
-    fn a_stack_keeps_its_packs_bodies_and_a_later_packs_body_for_a_setup_wins() {
+    fn a_stack_keeps_its_packs_bodies_and_the_weenies_each_keeps_and_a_later_packs_body_wins() {
         let (bottom, top) = (folder("skin-bottom"), folder("skin-top"));
         let skin = |setup: &str| {
             format!(
@@ -2362,7 +2455,9 @@ format = 1
 id = \"0x02000258\"
 {CREDIT}[[model.lod]]
 file = \"tree/lod0.gltf\"
-{}{}",
+{}{}[keep]
+weenies = [7, 237]
+",
                 skin("0x02000001"),
                 skin("0x0200004E").replace("skin/body.gltf", "skin/other.gltf")
             ),
@@ -2380,7 +2475,10 @@ file = \"tree/lod0.gltf\"
                 "[pack]
 name = \"Top\"
 format = 1
-{}",
+{}[keep]
+weenies = [237, 19196]
+launchers = true
+",
                 skin("0x02000001")
             ),
             &top_files,
@@ -2392,6 +2490,12 @@ format = 1
             setups,
             [0x0200_004E, 0x0200_0001],
             "the bottom pack's other body kept, its human taken by the top's"
+        );
+        // Every pack's kept weenies are kept, and launchers where any pack keeps them.
+        assert!(pack.keep_launchers);
+        assert_eq!(
+            pack.keep.iter().copied().collect::<Vec<_>>(),
+            [7, 237, 19196]
         );
         // Each body's picture is its own pack's, numbered past the pictures below it.
         let picture = |k: &PackSkin| {

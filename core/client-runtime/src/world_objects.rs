@@ -318,6 +318,12 @@ pub fn prepare_object_dispatch<H: ObjectAppearance>(
                 placement,
                 sound_table: described_sound_table.unwrap_or(setup.default_sound_table),
                 between: crate::between_ticks::BetweenTicks::default(),
+                weenie: stream
+                    .world
+                    .weenie(id)
+                    .map(|w| w.pwd.wcid)
+                    .filter(|w| *w != 0),
+                held_launcher: false,
             },
         );
         // The create path sets the description's state word on the object it just built, then
@@ -606,7 +612,41 @@ pub fn sync_objects<H: ObjectAppearance>(
         };
         counters.script(played);
     }
+    mark_launcher_holders(ws, stream);
     Ok(())
+}
+
+/// Every object holding a launcher marked as having held one ([`WorldObject::held_launcher`]),
+/// whichever arrived first, the holder or what it holds.
+fn mark_launcher_holders(ws: &mut WorldState, stream: &ObjectStream) {
+    let holders: Vec<ObjectId> = ws
+        .objects
+        .iter()
+        .filter_map(|(id, o)| {
+            let (holder, _) = o.sim.parent?;
+            stream
+                .world
+                .weenie(*id)
+                .is_some_and(|w| is_launcher(&w.pwd))
+                .then_some(holder)
+        })
+        .collect();
+    for h in holders {
+        if let Some(o) = ws.objects.get_mut(&h) {
+            o.held_launcher = true;
+        }
+    }
+}
+
+/// Whether the item `pwd` describes is a launcher: a missile weapon, used as one, that shoots
+/// ammunition (a bow, crossbow, sling or atlatl), not the ammunition itself or a weapon thrown
+/// whole (a dart, a throwing dagger).
+fn is_launcher(pwd: &dereth_protocol::types::PublicWeenieDesc) -> bool {
+    const MISSILE_WEAPON: u32 = 0x100;
+    const USED_AS_MISSILE: u8 = 2;
+    pwd.obj_type & MISSILE_WEAPON != 0
+        && pwd.combat_use == Some(USED_AS_MISSILE)
+        && pwd.ammo_type.is_some_and(|a| a != 0)
 }
 
 /// Hand a server movement buffer to the animation runtime: the whole of movement unpacking for a
@@ -786,5 +826,209 @@ pub fn reparent_nodraw(
     let (left, joined) = (hidden(ws, before), hidden(ws, after));
     if left != joined {
         set_child_nodraw(ws, counters, id, joined);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (experimental hi-fi art packs)
+    use super::*;
+    use dereth_primitives::{LocalTime, Position};
+    use dereth_protocol::types::{physicsdesc::flags, PhysicsDesc, PublicWeenieDesc};
+
+    /// Where an object the server makes is: standing at a place, or held by another at one of its
+    /// holding locations.
+    enum Place {
+        At(Position),
+        Held(ObjectId),
+    }
+
+    /// The server making `id`, a drudge's setup, from the weenie `pwd` describes, at `place`.
+    fn create(stream: &mut ObjectStream, id: ObjectId, pwd: PublicWeenieDesc, place: &Place) {
+        let mut physicsdesc = PhysicsDesc {
+            bitfield: flags::SETUP,
+            setup_id: Some(0x0200_07DD),
+            timestamps: dereth_protocol::types::PhysicsTimestamps {
+                instance: 1,
+                ..dereth_protocol::types::PhysicsTimestamps::default()
+            },
+            ..PhysicsDesc::default()
+        };
+        match place {
+            Place::At(at) => {
+                physicsdesc.bitfield |= flags::POSITION;
+                physicsdesc.position = Some(dereth_protocol::types::PositionWire {
+                    objcell_id: at.cell.0,
+                    frame: dereth_protocol::types::Frame {
+                        origin: at.frame.origin.into(),
+                        orientation: at.frame.rotation.into(),
+                    },
+                });
+            }
+            Place::Held(holder) => {
+                physicsdesc.bitfield |= flags::PARENT;
+                physicsdesc.parent = Some((*holder, 1));
+            }
+        }
+        let payload = dereth_protocol::objects::ObjectCreatePayload {
+            id,
+            physicsdesc,
+            wdesc: pwd,
+            ..Default::default()
+        };
+        apply(
+            stream,
+            dereth_protocol::Opcode::ITEM_CREATE_OBJECT,
+            dereth_protocol::write_body(&dereth_protocol::objects::ItemCreateObject(payload)),
+        );
+    }
+
+    fn apply(
+        stream: &mut ObjectStream,
+        opcode: dereth_protocol::Opcode,
+        body: Result<Vec<u8>, impl std::fmt::Debug>,
+    ) {
+        stream.apply_event(
+            &dereth_client_net::client_session::SessionEvent::WorldObject {
+                opcode,
+                body: body.expect("encode"),
+            },
+            LocalTime(1.0),
+        );
+        stream.world.update_visible_object_list();
+    }
+
+    fn creature(wcid: u32) -> PublicWeenieDesc {
+        PublicWeenieDesc {
+            name: "Skeleton".to_owned(),
+            wcid,
+            obj_type: 0x10,
+            ..PublicWeenieDesc::default()
+        }
+    }
+
+    /// A missile weapon (or ammunition, `combat_use` 3) shooting `ammo_type`, or thrown whole
+    /// where it names none.
+    fn missile(combat_use: u8, ammo_type: Option<u16>) -> PublicWeenieDesc {
+        use dereth_protocol::types::weeniedesc::header;
+        PublicWeenieDesc {
+            // The description says which of its fields it carries.
+            header: header::COMBAT_USE | ammo_type.map_or(0, |_| header::AMMO_TYPE),
+            name: "Missile".to_owned(),
+            wcid: 306,
+            obj_type: 0x100,
+            combat_use: Some(combat_use),
+            ammo_type,
+            ..PublicWeenieDesc::default()
+        }
+    }
+
+    /// Holtburg with the player's body standing in it, and where he stands.
+    fn holtburg() -> (Arc<RetailDatStore>, SceneConfig, WorldState, Position) {
+        let store = Arc::new(dereth_dat::testing::open_store().unwrap_or_else(|| {
+            panic!(
+                "the retail dats are this test's oracle and they are not under {}",
+                dereth_dat::testing::dat_dir().display()
+            )
+        }));
+        let cfg = SceneConfig {
+            landblock: 0xA9B4,
+            character: true,
+            ..SceneConfig::default()
+        };
+        let (ws, _) = crate::world_build::load(&store, &cfg).expect("the world loads");
+        let at = ws.character.as_ref().expect("a body").position();
+        (store, cfg, ws, at)
+    }
+
+    fn sync(
+        store: &Arc<RetailDatStore>,
+        cfg: &SceneConfig,
+        ws: &mut WorldState,
+        s: &mut ObjectStream,
+    ) {
+        sync_objects(
+            ws,
+            store,
+            cfg,
+            s,
+            &mut ObjectCounters::default(),
+            &mut NoAppearance,
+        )
+        .expect("the objects are made");
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn an_object_keeps_the_weenie_its_description_names() {
+        let (store, cfg, mut ws, at) = holtburg();
+        let mut stream = ObjectStream::new();
+        // A weenie with a class id past the short form's, and one whose description names none.
+        let (named, unnamed) = (ObjectId(0x8300_0701), ObjectId(0x8300_0702));
+        create(&mut stream, named, creature(51_970), &Place::At(at));
+        create(&mut stream, unnamed, creature(0), &Place::At(at));
+        sync(&store, &cfg, &mut ws, &mut stream);
+        assert_eq!(ws.objects[&named].weenie, Some(51_970));
+        assert_eq!(ws.objects[&unnamed].weenie, None);
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn a_creature_that_has_held_a_launcher_is_marked_for_its_life() {
+        let (store, cfg, mut ws, at) = holtburg();
+        let mut stream = ObjectStream::with_store(Arc::clone(&store));
+        let [archer, late, darter, quiver, plain] =
+            [0x0701, 0x0702, 0x0703, 0x0704, 0x0705].map(|n| ObjectId(0x8300_0000 | n));
+        for c in [archer, late, darter, quiver, plain] {
+            create(&mut stream, c, creature(7), &Place::At(at));
+        }
+        // A bow made with its holder; a dart, thrown whole, and arrows, ammunition, are no
+        // launchers.
+        let bow = ObjectId(0x8300_0801);
+        create(&mut stream, bow, missile(2, Some(1)), &Place::Held(archer));
+        create(
+            &mut stream,
+            ObjectId(0x8300_0802),
+            missile(2, None),
+            &Place::Held(darter),
+        );
+        create(
+            &mut stream,
+            ObjectId(0x8300_0803),
+            missile(3, Some(1)),
+            &Place::Held(quiver),
+        );
+        sync(&store, &cfg, &mut ws, &mut stream);
+        let marked = |ws: &WorldState| {
+            [archer, late, darter, quiver, plain].map(|c| ws.objects[&c].held_launcher)
+        };
+        assert_eq!(marked(&ws), [true, false, false, false, false]);
+        // A crossbow wielded a frame later marks its holder then.
+        create(
+            &mut stream,
+            ObjectId(0x8300_0804),
+            missile(2, Some(2)),
+            &Place::Held(late),
+        );
+        sync(&store, &cfg, &mut ws, &mut stream);
+        assert_eq!(marked(&ws), [true, true, false, false, false]);
+        // The bow given up: still marked.
+        apply(
+            &mut stream,
+            dereth_protocol::Opcode::ITEM_DELETE_OBJECT,
+            dereth_protocol::write_body(&dereth_protocol::objects::ItemDeleteObject {
+                id: bow,
+                instance_sequence: 1,
+            }),
+        );
+        sync(&store, &cfg, &mut ws, &mut stream);
+        assert!(!ws.objects.contains_key(&bow), "the bow is gone");
+        assert_eq!(marked(&ws), [true, true, false, false, false]);
     }
 }

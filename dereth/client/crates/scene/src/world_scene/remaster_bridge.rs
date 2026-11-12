@@ -374,7 +374,7 @@ fn build_of(
     h
 }
 
-fn mat(f: &Frame) -> glam::Mat4 {
+pub(super) fn mat(f: &Frame) -> glam::Mat4 {
     frame_matrix(f)
 }
 
@@ -407,7 +407,7 @@ fn light_indices(
     (lights, count)
 }
 
-fn v3(v: Vec3) -> glam::Vec3 {
+pub(super) fn v3(v: Vec3) -> glam::Vec3 {
     glam::Vec3::new(v.x, v.y, v.z)
 }
 
@@ -753,6 +753,10 @@ struct Moving {
     object: Option<rm::Object>,
     parts: Vec<Posed>,
     cell: u32,
+    /// What holds it, and the holder's part it hangs on.
+    held_by: Option<(rm::ObjectKey, u16)>,
+    /// The animation its parts are playing.
+    motion: Option<rm::Motion>,
 }
 
 /// What `meshes` draws at each level of each part, with the looks of `parts`.
@@ -786,24 +790,93 @@ fn object_parts(
         .collect()
 }
 
-/// The object `key` on `setup`, built as `build`, its parts' meshes `meshes`, posed from the part
-/// array `parts` with each part's level and draw frame from `levels` and `draw_pos`, standing in
-/// `cell` and in the world when `drawn`, drawn `lift` meters above where it stands; the object
-/// itself is made only when `sent` has another build.
+/// How fast, and which way, the cycle `seq` repeats asks to carry its object, in the object's own
+/// space before its scale, meters a second ([`rm::Motion::velocity`]): the ground each of its
+/// animation's frames moves the object on, at the rate it plays them, with the motion's own
+/// steady speed. It is what the object would cover were nothing in its way: a creature pressed
+/// against a crowd still asks it.
+pub(super) fn cycle_velocity(seq: &dereth_animation::seq::Sequence) -> glam::Vec3 {
+    seq.first_cyclic()
+        .map_or_else(|| v3(seq.velocity), |c| node_velocity(seq, c, None))
+}
+
+/// How fast, and which way, the node `node` of `seq` carries its object, as [`cycle_velocity`]
+/// reads a cycle's: over all its frames, or at the frame `at` alone (a link whose steps carry the
+/// object on a stopping stride, then stand).
+pub(super) fn node_velocity(
+    seq: &dereth_animation::seq::Sequence,
+    node: usize,
+    at: Option<f64>,
+) -> glam::Vec3 {
+    let steady = v3(seq.velocity);
+    let Some(node) = seq.nodes().get(node) else {
+        return steady;
+    };
+    let Some(steps) = node.anim.pos_frames.as_ref() else {
+        return steady;
+    };
+    let (low, high) = match at {
+        Some(f) => {
+            let f = dereth_primitives::num::to_i32_f64(f.floor())
+                .clamp(node.low_frame, node.high_frame.max(node.low_frame));
+            (f, f)
+        }
+        None => (node.low_frame, node.high_frame),
+    };
+    let frames = || (low..=high).filter_map(|i| steps.get(usize::try_from(i).ok()?));
+    let count = frames().count();
+    if count == 0 {
+        return steady;
+    }
+    let sum = frames().fold(glam::Vec3::ZERO, |a, f| a + v3(f.origin));
+    #[allow(clippy::cast_precision_loss)] // an animation's frames
+    let each = sum / count as f32;
+    steady + each * node.framerate
+}
+
+/// The node of `seq` and the frame of it, keyframes and the share of one between them, a body
+/// whose parts are placed `ahead` seconds on is drawn at, as its parts are drawn: between the
+/// keyframes, while they are drawn between them; at the keyframe the parts stand at, with `None`.
+/// `None` with no animation.
+pub(super) fn drawn_at(
+    seq: &dereth_animation::seq::Sequence,
+    ahead: Option<f64>,
+) -> Option<(usize, f64)> {
+    let curr = seq.curr()?;
+    let Some(ahead) = ahead else {
+        return Some((curr, seq.frame_number().floor()));
+    };
+    let b = seq.between(ahead)?;
+    // Toward the next keyframe in the node, or past its last toward the next node's first.
+    let step = if b.to.0 == b.from.0 {
+        f64::from(b.to.1 - b.from.1)
+    } else {
+        f64::from(seq.nodes().get(b.from.0)?.framerate.signum())
+    };
+    Some((b.from.0, f64::from(b.from.1) + step * f64::from(b.share)))
+}
+
+/// The object `key` on `setup`, built as `build`, laying the palettes `palettes`, its parts'
+/// meshes `meshes`, posed from `driver`'s parts with each part's level and draw frame from
+/// `levels` and `draw_pos`, standing in `cell` and in the world when `drawn`, drawn `lift` meters
+/// above where it stands; the object itself is made only when `sent` has another build.
 #[allow(clippy::too_many_arguments)] // one parameter per input the reading takes
 fn read_moving(
-    (key, setup, build): (rm::ObjectKey, u32, u64),
+    (key, setup, build, palettes, who): (rm::ObjectKey, u32, u64, Vec<u32>, rm::Who),
     sent: &HashMap<rm::ObjectKey, u64>,
     meshes: &[PartLevels],
-    parts: &[dereth_animation::parts::PhysicsPart],
+    driver: &dereth_animation::driver::MotionDriver,
     (levels, draw_pos): (&[u32], &[Frame]),
     cell: u32,
     (drawn, lift): (bool, f32),
 ) -> Moving {
+    let parts = &driver.part_array.parts[..];
     let object = (sent.get(&key) != Some(&build)).then(|| rm::Object {
         key,
         setup,
         parts: object_parts(meshes, parts),
+        palettes,
+        who,
     });
     let posed = (0..meshes.len())
         .map(|i| {
@@ -830,6 +903,8 @@ fn read_moving(
         object,
         parts: posed,
         cell,
+        held_by: None,
+        motion: super::remaster_slots::motion_of(driver, lift),
     }
 }
 
@@ -846,24 +921,80 @@ fn moving(draw: &SceneDraw, ws: &WorldState, sent: &HashMap<rm::ObjectKey, u64>)
         }
     };
     let mut out = Vec::new();
+    // What holds each held thing: the holder (the body when it is the player), and the holder's
+    // part its holding location hangs on.
+    let mut held_by: HashMap<dereth_primitives::ObjectId, (rm::ObjectKey, u16)> = HashMap::new();
+    // The body is the player's: the id the server named it by.
+    let player = ws
+        .character
+        .as_ref()
+        .map(|c| ws.player_object_id().unwrap_or(c.object_id()));
+    for (id, o) in &ws.objects {
+        let Some((holder, location)) = o.sim.parent else {
+            continue;
+        };
+        let entry = if player == Some(holder) {
+            ws.character.as_ref().and_then(|c| {
+                c.driver()
+                    .part_array
+                    .setup
+                    .as_ref()
+                    .and_then(|s| s.holding_locations.get(&location).map(|l| l.part_id))
+            })
+        } else {
+            ws.objects.get(&holder).and_then(|h| {
+                h.sim
+                    .driver
+                    .borrow()
+                    .part_array
+                    .setup
+                    .as_ref()
+                    .and_then(|s| s.holding_locations.get(&location).map(|l| l.part_id))
+            })
+        };
+        if let Some(part) = entry.and_then(|p| u16::try_from(p).ok()) {
+            let key = if player == Some(holder) {
+                rm::ObjectKey::Body
+            } else {
+                rm::ObjectKey::Server(holder.0)
+            };
+            held_by.insert(*id, (key, part));
+        }
+    }
     for (id, d) in &draw.object_draws {
         let Some(o) = ws.objects.get(id) else {
             continue;
         };
         let driver = o.sim.driver.borrow();
+        let who = rm::Who {
+            weenie: o.weenie,
+            launcher: o.held_launcher,
+        };
         out.push(read_moving(
             (
                 rm::ObjectKey::Server(id.0),
                 d.setup.0,
-                build_of(d.setup, d.appearance.as_ref(), &d.meshes, 0),
+                // Who it is decides whether a pack draws its body for it: a change sends it again.
+                build_of(d.setup, d.appearance.as_ref(), &d.meshes, 0)
+                    ^ u64::from(who.launcher) << 63,
+                driver
+                    .part_array
+                    .described_palettes
+                    .iter()
+                    .map(|p| p.0)
+                    .collect(),
+                who,
             ),
             sent,
             &d.meshes,
-            &driver.part_array.parts,
+            &driver,
             (&d.part_levels, &d.part_draw_pos),
             ws.object_draw_cell(o).map_or(0, |c| c.0),
             (o.drawn, draw.remaster_ground.object_lift(ws, o)),
         ));
+        if let Some(m) = out.last_mut() {
+            m.held_by = held_by.get(id).copied();
+        }
     }
     if let Some(c) = ws.character.as_ref() {
         if !draw.character_parts.is_empty() {
@@ -878,10 +1009,17 @@ fn moving(draw: &SceneDraw, ws: &WorldState, sent: &HashMap<rm::ObjectKey, u64>)
                         &draw.character_parts,
                         draw.remaster_body_generation,
                     ),
+                    driver
+                        .part_array
+                        .described_palettes
+                        .iter()
+                        .map(|p| p.0)
+                        .collect(),
+                    rm::Who::default(),
                 ),
                 sent,
                 &draw.character_parts,
-                &driver.part_array.parts,
+                &driver,
                 (&draw.character_part_levels, &draw.character_part_draw_pos),
                 c.position().cell.0,
                 (
@@ -905,10 +1043,17 @@ fn moving(draw: &SceneDraw, ws: &WorldState, sent: &HashMap<rm::ObjectKey, u64>)
                     animated(h.cell.0, h.placement),
                     setup.0,
                     build_of(setup, None, meshes, block.remaster_generation),
+                    h.driver
+                        .part_array
+                        .described_palettes
+                        .iter()
+                        .map(|p| p.0)
+                        .collect(),
+                    rm::Who::default(),
                 ),
                 sent,
                 meshes,
-                &h.driver.part_array.parts,
+                &h.driver,
                 (&h.part_levels, &h.part_draw_pos),
                 h.cell.0,
                 (
@@ -1233,6 +1378,8 @@ pub(super) fn publish(draw: &SceneDraw, bridge: &mut Bridge, ws: &WorldState, si
             key: o.key,
             cell: o.cell,
             parts: poses,
+            held_by: o.held_by,
+            motion: o.motion,
         });
     }
 
@@ -1354,6 +1501,9 @@ pub(super) fn publish(draw: &SceneDraw, bridge: &mut Bridge, ws: &WorldState, si
     // --- the moving objects' lights outdoors ---------------------------------------------
     frame.lamps = outdoor_lamps(draw, ws);
     frame.clock = sh.now;
+    frame.teleports = ws.character.as_ref().map_or(0, |c| {
+        c.stats.teleports_committed + c.stats.teleports_uncommitted
+    });
     let g = draw.degrade_globals(ws);
     frame.degrade = rm::DegradeBias {
         bias: if g.auto_update_deg_mul {
@@ -1588,6 +1738,189 @@ fn outdoor_lamps(draw: &SceneDraw, ws: &WorldState) -> Vec<rm::Light> {
 mod tests {
     //! Behaviour: none (experimental)
     use super::*;
+
+    /// A sequence of one ten-keyframe animation at thirty a second, `seconds` into it.
+    fn ten_keyframes(seconds: f64) -> dereth_animation::seq::Sequence {
+        use dereth_animation::data::{AnimData, AnimFrame, AnimationData, MapAssets};
+        let id = DataId(0x0300_0001);
+        let mut assets = MapAssets::default();
+        assets.animations.insert(
+            id.0,
+            std::sync::Arc::new(AnimationData {
+                num_frames: 10,
+                num_parts: 1,
+                pos_frames: None,
+                part_frames: (0..10)
+                    .map(|_| AnimFrame {
+                        frames: vec![Frame::default()],
+                        hooks: Vec::new(),
+                    })
+                    .collect(),
+                has_hooks: false,
+            }),
+        );
+        let mut s = dereth_animation::seq::Sequence::new();
+        s.append_animation(
+            AnimData {
+                anim_id: id,
+                low_frame: 0,
+                high_frame: -1,
+                framerate: 30.0,
+            },
+            &assets,
+        );
+        s.update(seconds, Some(&mut Frame::default()), &mut Vec::new());
+        s
+    }
+
+    /// Drawn at keyframes (the Smooth animations box off), a body is drawn at the keyframe its
+    /// sequence stands at; drawn between them, where its parts are drawn: the frames it has
+    /// gone into the next keyframe, and on as far as its parts are drawn ahead.
+    #[test]
+    fn a_body_is_drawn_at_its_keyframe_or_between_them_as_its_parts_are() {
+        let s = ten_keyframes(3.5 / 30.0);
+        let near = |a: Option<(usize, f64)>, b: (usize, f64)| {
+            a.is_some_and(|a| a.0 == b.0 && (a.1 - b.1).abs() < 1e-3)
+        };
+        assert!(
+            near(drawn_at(&s, None), (0, 3.0)),
+            "{:?}",
+            drawn_at(&s, None)
+        );
+        assert!(near(drawn_at(&s, Some(0.0)), (0, 3.5)));
+        let ahead = drawn_at(&s, Some(2.0 / 30.0));
+        assert!(near(ahead, (0, 5.5)), "{ahead:?}");
+        assert_eq!(
+            drawn_at(&dereth_animation::seq::Sequence::new(), None),
+            None
+        );
+    }
+
+    /// A run whose animation steps the object on a tenth of a meter a frame, played at `rate`
+    /// frames a second, with the motion's own steady speed `steady`.
+    fn stepping_run(rate: f32, steady: Vec3) -> dereth_animation::seq::Sequence {
+        use dereth_animation::data::{AnimData, AnimFrame, AnimationData, MapAssets};
+        let id = DataId(0x0300_0002);
+        let mut assets = MapAssets::default();
+        assets.animations.insert(
+            id.0,
+            std::sync::Arc::new(AnimationData {
+                num_frames: 10,
+                num_parts: 1,
+                pos_frames: Some(vec![
+                    Frame::new(
+                        Vec3::new(0.0, 0.1, 0.0),
+                        dereth_primitives::Quat::IDENTITY
+                    );
+                    10
+                ]),
+                part_frames: (0..10)
+                    .map(|_| AnimFrame {
+                        frames: vec![Frame::default()],
+                        hooks: Vec::new(),
+                    })
+                    .collect(),
+                has_hooks: false,
+            }),
+        );
+        let mut s = dereth_animation::seq::Sequence::new();
+        s.append_animation(
+            AnimData {
+                anim_id: id,
+                low_frame: 0,
+                high_frame: -1,
+                framerate: rate,
+            },
+            &assets,
+        );
+        s.set_velocity(steady);
+        s
+    }
+
+    /// A body's cycle asks the speed its animation steps its object on at the rate it plays, with
+    /// the motion's own steady speed, whether or not the object moves: a run of a tenth of a meter
+    /// a frame at thirty frames a second asks three meters a second ahead, and played backwards,
+    /// three behind.
+    #[test]
+    fn a_cycle_asks_the_speed_its_animation_steps_at_and_the_motions_own() {
+        let near = |a: glam::Vec3, b: glam::Vec3| (a - b).length() < 1e-4;
+        let ahead = cycle_velocity(&stepping_run(30.0, Vec3::new(0.0, 0.0, 0.0)));
+        assert!(near(ahead, glam::Vec3::new(0.0, 3.0, 0.0)), "{ahead:?}");
+        let behind = cycle_velocity(&stepping_run(-30.0, Vec3::new(0.0, 0.0, 0.0)));
+        assert!(near(behind, glam::Vec3::new(0.0, -3.0, 0.0)), "{behind:?}");
+        let both = cycle_velocity(&stepping_run(15.0, Vec3::new(0.5, 0.0, 0.0)));
+        assert!(near(both, glam::Vec3::new(0.5, 1.5, 0.0)), "{both:?}");
+        assert!(near(
+            cycle_velocity(&dereth_animation::seq::Sequence::new()),
+            glam::Vec3::ZERO
+        ));
+    }
+
+    /// A run's stopping link that steps its object on five centimeters a frame at thirty frames a
+    /// second for its first five frames, then stands for five; then the stand it stops in.
+    fn stopping_link() -> dereth_animation::seq::Sequence {
+        use dereth_animation::data::{AnimData, AnimFrame, AnimationData, MapAssets};
+        let mut assets = MapAssets::default();
+        for (id, step) in [(0x0300_0003, Some(0.05)), (0x0300_0004, None)] {
+            assets.animations.insert(
+                id,
+                std::sync::Arc::new(AnimationData {
+                    num_frames: 10,
+                    num_parts: 1,
+                    // Five frames of steps, then five standing.
+                    pos_frames: step.map(|y| {
+                        (0..10)
+                            .map(|k| {
+                                let y = if k < 5 { y } else { 0.0 };
+                                Frame::new(
+                                    Vec3::new(0.0, y, 0.0),
+                                    dereth_primitives::Quat::IDENTITY,
+                                )
+                            })
+                            .collect()
+                    }),
+                    part_frames: (0..10)
+                        .map(|_| AnimFrame {
+                            frames: vec![Frame::default()],
+                            hooks: Vec::new(),
+                        })
+                        .collect(),
+                    has_hooks: false,
+                }),
+            );
+        }
+        let mut s = dereth_animation::seq::Sequence::new();
+        for id in [0x0300_0003, 0x0300_0004] {
+            s.append_animation(
+                AnimData {
+                    anim_id: DataId(id),
+                    low_frame: 0,
+                    high_frame: -1,
+                    framerate: 30.0,
+                },
+                &assets,
+            );
+        }
+        s
+    }
+
+    /// A link asks the speed its own step carries the object at on the frame it plays, while the
+    /// stand it leads to asks none: a run's stopping stride of five centimeters a frame at thirty
+    /// frames a second carries it a meter and a half a second, then nothing once it stands; over
+    /// the whole link, half that.
+    #[test]
+    fn a_stopping_link_asks_the_speed_its_step_carries_the_object() {
+        let s = stopping_link();
+        let near = |a: glam::Vec3, b: glam::Vec3| (a - b).length() < 1e-4;
+        let step = node_velocity(&s, 0, Some(2.5));
+        assert!(near(step, glam::Vec3::new(0.0, 1.5, 0.0)), "{step:?}");
+        let stands = node_velocity(&s, 0, Some(7.0));
+        assert!(near(stands, glam::Vec3::ZERO), "{stands:?}");
+        let whole = node_velocity(&s, 0, None);
+        assert!(near(whole, glam::Vec3::new(0.0, 0.75, 0.0)), "{whole:?}");
+        assert!(near(cycle_velocity(&s), glam::Vec3::ZERO));
+        assert!(near(node_velocity(&s, 1, Some(3.0)), glam::Vec3::ZERO));
+    }
 
     #[test]
     fn the_near_and_far_planes_come_back_out_of_the_projection() {

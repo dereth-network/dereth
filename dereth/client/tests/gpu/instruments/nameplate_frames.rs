@@ -286,7 +286,7 @@ impl Interface {
     }
 
     /// The interface's quads laid over `rgba`, the drawn world, as the overlay blends them.
-    fn over(&self, rgba: &mut [u8]) {
+    pub(crate) fn over(&self, rgba: &mut [u8]) {
         #[allow(clippy::cast_precision_loss)]
         let screen = dereth_horizon::draw::Rect::new(0.0, 0.0, W as f32, H as f32);
         for q in &self.list.quads {
@@ -564,7 +564,7 @@ fn tile(rgba: &[u8], (x, y): (f32, f32)) -> Vec<u8> {
     out
 }
 
-fn write_png(path: &str, w: u32, h: u32, rgba: &[u8]) {
+pub(crate) fn write_png(path: &str, w: u32, h: u32, rgba: &[u8]) {
     let f = std::fs::File::create(path).expect("create the png");
     let mut enc = png::Encoder::new(std::io::BufWriter::new(f), w, h);
     enc.set_color(png::ColorType::Rgba);

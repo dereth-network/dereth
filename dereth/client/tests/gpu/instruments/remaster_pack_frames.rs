@@ -245,3 +245,220 @@ fn walk_up_to_an_art_packs_bushes() {
         .set_remaster(false, &store, &mut gpu)
         .expect("the remaster stops");
 }
+
+/// Spots from `PACK_SPOTS`, drawn by the remaster with all of the pack (`DERETH_ART_PACK`, or
+/// none when it is `none`). A line is a free camera (`name block x y eye yaw pitch hour`) or a
+/// body standing in an interior cell with the camera held behind it (`name cell <cell> x y z
+/// heading-degrees hour`; `0 0 0` stands it where the cell has room). Either may end `with <setup>
+/// <metres>`: an object of that setup made as the server makes one, standing that far ahead of the
+/// camera, facing it.
+#[test]
+#[ignore = "local"]
+fn capture_pack_spots() {
+    use super::stations::{Clock, Place, Station};
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let named = env("DERETH_ART_PACK").expect("DERETH_ART_PACK");
+    let stack: Vec<std::path::PathBuf> = named.split(':').map(std::path::PathBuf::from).collect();
+    let path = stack[0].clone();
+    let pack = (path.as_os_str() != "none").then(|| {
+        Arc::new(if stack.len() > 1 {
+            ArtPack::open_stack(&stack).expect("the stack opens")
+        } else {
+            ArtPack::open_path(&path).expect("the pack opens")
+        })
+    });
+    if let Some(p) = &pack {
+        println!(
+            "PACK {} materials, problems {:?}",
+            p.materials.len(),
+            p.problems
+        );
+    }
+    let folder = path.is_dir().then(|| path.clone());
+    let size = super::remaster_frames::size();
+    let dir = std::path::PathBuf::from(env("DERETH_REMASTER_CAPTURE_DIR").expect("dir"));
+    // PACK_RAIN: 0 a sunny day, 1 a rainy day with the remaster's rain off, 2 with it on.
+    let rain_mode: u32 = env("PACK_RAIN").and_then(|n| n.parse().ok()).unwrap_or(0);
+    let (rain, rain_drawn) = (rain_mode > 0, rain_mode > 1);
+    let spots = std::fs::read_to_string(env("PACK_SPOTS").expect("PACK_SPOTS")).expect("spots");
+    for line in spots.lines().filter(|l| !l.trim().is_empty()) {
+        let f: Vec<&str> = line.split_whitespace().collect();
+        let name: &'static str = Box::leak(f[0].to_owned().into_boxed_str());
+        let indoor = f[1] == "cell";
+        let station = Station {
+            name,
+            why: "pack spots",
+            place: if indoor {
+                Place::Body {
+                    cell: u32::from_str_radix(f[2].trim_start_matches("0x"), 16).expect("cell"),
+                    origin: dereth_primitives::Vec3::new(
+                        f[3].parse().expect("x"),
+                        f[4].parse().expect("y"),
+                        f[5].parse().expect("z"),
+                    ),
+                    yaw: f[6].parse().expect("yaw"),
+                }
+            } else {
+                Place::Free {
+                    block: u16::from_str_radix(f[1], 16).expect("block"),
+                    x: f[2].parse().expect("x"),
+                    y: f[3].parse().expect("y"),
+                    eye: f[4].parse().expect("eye"),
+                    yaw: f[5].parse().expect("yaw"),
+                    pitch: f[6].parse().expect("pitch"),
+                }
+            },
+            clock: if rain {
+                Clock::Rainy(f.get(7).and_then(|h| h.parse().ok()).unwrap_or(0.45))
+            } else {
+                Clock::Sunny(f.get(7).and_then(|h| h.parse().ok()).unwrap_or(0.45))
+            },
+            weather: rain,
+            land_radius: 3,
+        };
+        let cfg = DeviceConfig {
+            width: size.0,
+            height: size.1,
+            remaster: true,
+            ..DeviceConfig::default()
+        };
+        let mut gpu = Gpu::new_on(crate::common::remaster_backend(), None, &cfg).expect("a device");
+        let mut shot = Shot::open(&store, &mut gpu, &station);
+        let with = f.iter().position(|w| *w == "with").map(|i| {
+            (
+                u32::from_str_radix(f[i + 1].trim_start_matches("0x"), 16).expect("setup"),
+                f[i + 2].parse::<f32>().expect("metres"),
+            )
+        });
+        if indoor {
+            // The camera held 1.2 m behind the body and 1.3 m up, at the spot's heading.
+            let yaw: f32 = f[6].parse().expect("yaw");
+            shot.follow = Some([1.2, 1.3, -0.1, yaw.to_radians()]);
+        }
+        shot.poll(&mut gpu);
+        shot.scene
+            .draw
+            .set_remaster_pack(pack.clone(), folder.clone());
+        shot.scene
+            .draw
+            .set_remaster_packs(RemasterPacks::all(), &mut gpu);
+        shot.scene.draw.set_remaster_terrain(
+            dereth_scene::world_scene::RemasterTerrain::player(),
+            &mut gpu,
+        );
+        shot.scene
+            .draw
+            .set_remaster(true, &store, &mut gpu)
+            .expect("the remaster starts");
+        shot.scene
+            .draw
+            .set_remaster_light(RemasterLight::Pixel, &mut gpu);
+        shot.scene.draw.set_remaster_weather(
+            dereth_scene::world_scene::RemasterWeather {
+                on: rain && rain_drawn,
+            },
+            &mut gpu,
+        );
+        shot.step_held(&mut gpu);
+        if let Some((setup, ahead)) = with {
+            shot.create_ahead(&station, setup, ahead);
+        }
+        if !indoor {
+            shot.scene.wait_for_remaster_ground();
+        }
+        let settle: usize = env("PACK_SETTLE").and_then(|n| n.parse().ok()).unwrap_or(8);
+        for _ in 0..settle {
+            shot.step_held(&mut gpu);
+        }
+        let rgba = stations::capture(&mut gpu);
+        let counts = shot.scene.draw.remaster_pack_counts(&mut gpu);
+        println!("{name:16} {counts:?}");
+        println!(
+            "WEATHER {name} {:?}",
+            shot.scene.draw.remaster_weather_stats(&mut gpu)
+        );
+        stations::write_png(&dir.join(format!("{name}.png")), size.0, size.1, &rgba);
+        shot.scene
+            .draw
+            .set_remaster(false, &store, &mut gpu)
+            .expect("the remaster stops");
+    }
+}
+
+/// A walk from `PACK_WALK` (block x y eye yaw pitch hour metres frames, one line): the free camera
+/// carried `metres` along its heading over `frames` frames, a thirtieth of a second each, drawn by
+/// the remaster with all of the pack (`DERETH_ART_PACK`, or none when it is `none`), each frame
+/// written as `walk-NNNN.png` under `DERETH_REMASTER_CAPTURE_DIR`.
+#[test]
+#[ignore = "local"]
+fn walk_pack_path() {
+    use super::stations::{Clock, Place, Station};
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let path = std::path::PathBuf::from(env("DERETH_ART_PACK").expect("DERETH_ART_PACK"));
+    let pack = (path.as_os_str() != "none")
+        .then(|| Arc::new(ArtPack::open_path(&path).expect("the pack opens")));
+    let folder = path.is_dir().then(|| path.clone());
+    let size = super::remaster_frames::size();
+    let dir = std::path::PathBuf::from(env("DERETH_REMASTER_CAPTURE_DIR").expect("dir"));
+    let line = std::fs::read_to_string(env("PACK_WALK").expect("PACK_WALK")).expect("walk");
+    let f: Vec<&str> = line.split_whitespace().collect();
+    let station = Station {
+        name: "walk",
+        why: "pack walk",
+        place: Place::Free {
+            block: u16::from_str_radix(f[0], 16).expect("block"),
+            x: f[1].parse().expect("x"),
+            y: f[2].parse().expect("y"),
+            eye: f[3].parse().expect("eye"),
+            yaw: f[4].parse().expect("yaw"),
+            pitch: f[5].parse().expect("pitch"),
+        },
+        clock: Clock::Sunny(f[6].parse().expect("hour")),
+        weather: false,
+        land_radius: 3,
+    };
+    let metres: f32 = f[7].parse().expect("metres");
+    let frames: usize = f[8].parse().expect("frames");
+    let cfg = DeviceConfig {
+        width: size.0,
+        height: size.1,
+        remaster: true,
+        ..DeviceConfig::default()
+    };
+    let mut gpu = Gpu::new_on(crate::common::remaster_backend(), None, &cfg).expect("a device");
+    let mut shot = Shot::open(&store, &mut gpu, &station);
+    shot.poll(&mut gpu);
+    shot.scene.draw.set_remaster_pack(pack, folder);
+    shot.scene
+        .draw
+        .set_remaster_packs(RemasterPacks::all(), &mut gpu);
+    shot.scene.draw.set_remaster_terrain(
+        dereth_scene::world_scene::RemasterTerrain::player(),
+        &mut gpu,
+    );
+    shot.scene
+        .draw
+        .set_remaster(true, &store, &mut gpu)
+        .expect("the remaster starts");
+    shot.scene
+        .draw
+        .set_remaster_light(RemasterLight::Pixel, &mut gpu);
+    shot.step_held(&mut gpu);
+    shot.scene.wait_for_remaster_ground();
+    for _ in 0..8 {
+        shot.step_held(&mut gpu);
+    }
+    for k in 0..frames {
+        #[allow(clippy::cast_precision_loss)] // a frame count
+        shot.walk_to(&station, metres * k as f32 / frames.max(1) as f32);
+        shot.step_by(&mut gpu, 1.0 / 30.0);
+        let rgba = stations::capture(&mut gpu);
+        stations::write_png(&dir.join(format!("walk-{k:04}.png")), size.0, size.1, &rgba);
+    }
+    shot.scene
+        .draw
+        .set_remaster(false, &store, &mut gpu)
+        .expect("the remaster stops");
+}

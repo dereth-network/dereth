@@ -650,9 +650,13 @@ impl AssetSource for DatAssets<'_> {
     fn pack_skin(
         &mut self,
         setup: u32,
+        palettes: &[u32],
+        who: dereth_remaster::scene::Who,
     ) -> Option<std::sync::Arc<dereth_remaster::assets::skin::SkinModel>> {
         let (p, on) = self.pack.as_ref()?;
-        on.characters.then(|| p.skin(setup)).flatten()
+        on.characters
+            .then(|| p.skin_for(setup, palettes, who))
+            .flatten()
     }
 
     fn sky(&mut self, id: u32) -> Option<Mesh> {

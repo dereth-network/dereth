@@ -132,6 +132,9 @@ pub struct MotionDriver {
     /// The frame [`Self::update_parts`] last placed the parts from; see
     /// [`Self::particle_parent_frame`].
     placed_frame: Option<Frame>,
+    /// How far on its sequence the parts were last placed from, drawn between keyframes
+    /// ([`Self::update_parts_between`]); `None` while they are placed at keyframes.
+    placed_ahead: Option<f64>,
     events: Vec<AnimEvent>,
     effects: Vec<MotionEffect>,
 }
@@ -181,6 +184,7 @@ impl MotionDriver {
             rng: Ran2::new(1),
             cur_time: ServerTime(0.0),
             placed_frame: None,
+            placed_ahead: None,
             events: Vec::new(),
             effects: Vec::new(),
         }
@@ -979,6 +983,7 @@ impl MotionDriver {
     /// one space the caller places parts in.
     pub fn update_parts(&mut self, world: &Frame) {
         self.placed_frame = Some(*world);
+        self.placed_ahead = None;
         self.part_array.update_parts(world, &self.sequence);
     }
 
@@ -987,8 +992,18 @@ impl MotionDriver {
     /// ([`crate::parts::PartArray::update_parts_between`]). The sequence is not advanced.
     pub fn update_parts_between(&mut self, world: &Frame, ahead: f64) {
         self.placed_frame = Some(*world);
+        self.placed_ahead = Some(ahead);
         self.part_array
             .update_parts_between(world, &self.sequence, ahead);
+    }
+
+    /// How far on from where its sequence was last advanced, in seconds, the parts were last
+    /// placed, drawn between keyframes ([`Self::update_parts_between`]); `None` while they are
+    /// placed at the keyframe the sequence stands at ([`Self::update_parts`]), as before they are
+    /// first placed.
+    #[must_use]
+    pub const fn placed_ahead(&self) -> Option<f64> {
+        self.placed_ahead
     }
 
     /// The frame an emitter that hangs off the object itself, rather than one of its parts,
@@ -1225,6 +1240,18 @@ mod tests {
     use super::*;
     use crate::data::{AnimFrame, AnimationData, MapAssets, Sphere};
     use dereth_primitives::{ObjectId, Vec3};
+
+    /// The driver remembers how far on its parts were last placed: drawn between keyframes, as
+    /// far on as they were drawn; at a keyframe, not at all, as before it first places them.
+    #[test]
+    fn the_driver_remembers_whether_its_parts_were_last_drawn_between_keyframes() {
+        let mut driver = MotionDriver::new(Arc::new(crate::data::NoAssets));
+        assert_eq!(driver.placed_ahead(), None);
+        driver.update_parts_between(&Frame::default(), 0.02);
+        assert_eq!(driver.placed_ahead(), Some(0.02));
+        driver.update_parts(&Frame::default());
+        assert_eq!(driver.placed_ahead(), None);
+    }
 
     #[test]
     fn scoped_movement_preserves_old_physics_effects_and_publishes_the_new_target_inline() {

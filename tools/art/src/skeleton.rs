@@ -2,7 +2,7 @@
 //! the setup's own parts as a reference body skinned to it, and its animations as clips.
 //!
 //! **The joints.** Joint `k` is part `k`, named `part_NN` (two digits or more), so a body rigged
-//! to the skeleton names the parts it follows by their place in the setup. A joint's rest
+//! to the skeleton names the parts it replaces by their place in the setup. A joint's rest
 //! transform is its part's frame in the setup's resting placement, its default scale left out. An
 //! object's parts move in the object's own space, each frame placing every part, so a skeleton
 //! needs no hierarchy to be driven. An artist needs one to pose and weight a body, though, and a

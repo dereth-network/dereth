@@ -166,6 +166,12 @@ impl MotionTableManager {
         !self.pending.is_empty()
     }
 
+    /// The first queued motion: the one whose animations are playing.
+    #[must_use]
+    pub fn pending_head(&self) -> Option<MotionCommand> {
+        self.pending.front().map(|n| n.motion)
+    }
+
     /// Initialise the motion state.
     ///
     /// Note the queued motion is `Ready`, not the style's default substate: the ledger is keyed by
