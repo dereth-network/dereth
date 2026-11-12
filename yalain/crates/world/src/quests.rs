@@ -1559,6 +1559,7 @@ fn run_with<S: Store>(
     if step.fellows {
         for_fellows(s, net, world, step, clock);
     }
+    crate::escorts::step_ran(s, net, world, step, clock);
     received
 }
 
@@ -1822,6 +1823,7 @@ pub fn apply_led<S: Store>(
         }
     }
     crate::world::keep_player(s, world);
+    crate::escorts::quest_moved(s, net, world, quest);
     if up == Update::Bestow {
         start_timer(s, world, &def, clock);
         triggered(s, net, world, Trigger::Given(quest), None, clock);
@@ -1896,6 +1898,7 @@ pub fn remove<S: Store>(
     if held {
         remove_subquests(s, world, quest);
     }
+    crate::escorts::quest_moved(s, net, world, quest);
     held
 }
 
@@ -2254,6 +2257,7 @@ pub fn fail<S: Store>(
         }
     }
     crate::world::keep_player(s, world);
+    crate::escorts::quest_moved(s, net, world, quest);
 }
 
 /// Is a quest one the world keeps hidden?
@@ -2313,4 +2317,5 @@ pub fn cancel<S: Store>(
     );
     progress::private(net, world, &update_call(rec, update::CANCEL));
     crate::world::keep_player(s, world);
+    crate::escorts::quest_moved(s, net, world, quest);
 }

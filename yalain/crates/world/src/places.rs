@@ -503,6 +503,19 @@ fn use_thing<S: Store>(
                 .and_then(|t| t.at)
                 .and_then(|at| presence::distance(&u.from, &at))
                 .unwrap_or(0.0);
+            // A player's own escort is a person used, its use running the steps it triggers.
+            let escort = s
+                .things
+                .get(u.item)
+                .filter(|_| s.escorts.follows(u.item, me))
+                .map(|t| (t.template, t.description.name));
+            if let Some((template, name)) = escort {
+                let done = use_done(&u, me, USE_FLAGS_PERSON, false, distance);
+                send(net, world, BlobKind::PRIVATE, &done);
+                let who = Some((u.item, name));
+                crate::quests::triggered(s, net, world, Trigger::Use(template), who, clock);
+                return;
+            }
             let done = use_done(&u, me, USE_FLAGS_ATTACK, false, distance);
             send(net, world, BlobKind::PRIVATE, &done);
             crate::combat::begin(s, net, world, u.item, clock);
@@ -2685,7 +2698,8 @@ fn arrive<S: Store>(
         // master vault's portal, seen made at three places, gave its quest on arrival, 2 sessions).
         crate::quests::triggered(s, net, world, Trigger::Arrive(template), None, clock);
     }
-    // Its pets come out beside it.
+    // Its pets come out beside it, but for an escort its trip fails.
+    crate::escorts::owner_arrives(s, net, world, clock);
     crate::pets::owner_arrives(s, net, world, time);
     presence::refresh(s, net, world);
     // A rider come out inside is soon off its mount.

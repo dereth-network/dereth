@@ -29,6 +29,7 @@ use auberean_assets::script::Qualities;
 pub mod crafts;
 pub mod creature_rows;
 pub mod effect_rules;
+pub mod escorts;
 pub mod events;
 pub mod gathering;
 pub mod item_rows;
@@ -729,6 +730,9 @@ pub struct ContentPack {
     /// The world's tallies and what fills, waits on and says them. Not part of the text form: the
     /// world database's tallies fill it.
     pub tallies: tallies::TallyTable,
+    /// The creatures quest steps set to follow their players. Not part of the text form: the
+    /// world database's steps fill it.
+    pub escorts: escorts::EscortTable,
 }
 
 /// The kind of player conflict a place allows.
@@ -1099,6 +1103,7 @@ impl ContentPack {
             conflict: BTreeMap::new(),
             events: events::EventTable::default(),
             tallies: tallies::TallyTable::default(),
+            escorts: escorts::EscortTable::default(),
         })
     }
 

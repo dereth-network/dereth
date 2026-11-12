@@ -765,6 +765,7 @@ pub fn enter<S: Store>(
     crate::craft::enter(s, net, world, clock);
     crate::workshops::moved(s, net, world, clock);
     crate::quests::timers_at_entry(s, world, clock);
+    crate::escorts::at_entry(s, net, world, clock);
     // The items it holds: in its pack, and in its hands (held there, as it left them).
     let instance = s.players.get(&world).map_or(0, |p| p.instance);
     for id in crate::inventory::enter(s, world) {

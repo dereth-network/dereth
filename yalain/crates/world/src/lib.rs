@@ -94,6 +94,7 @@ pub mod drops;
 pub mod effect_defs;
 pub mod effects;
 pub mod equip;
+pub mod escorts;
 pub mod events;
 pub mod examine;
 pub mod fellowship;
@@ -518,6 +519,8 @@ pub struct Server<S: Store> {
     pub lying: drops::Lying,
     /// The pets players have summoned.
     pub pets: pets::Pets,
+    /// The creatures following their players for quests.
+    pub escorts: escorts::Escorts,
     /// The dye plants players have planted, and the species' ripe looks.
     pub plants: plants::Plants,
     /// The states of the world's objects that hold one, where they have changed.
@@ -900,6 +903,7 @@ impl<S: Store> Server<S> {
             market: market::Market::default(),
             lying: drops::Lying::default(),
             pets: pets::Pets::default(),
+            escorts: escorts::Escorts::default(),
             plants: plants::Plants::default(),
             object_states: puzzles::States::default(),
             locks: yalain_content::LockTable::default(),

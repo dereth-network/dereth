@@ -691,6 +691,8 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     // The steps a tally gates or adds to, likewise.
     let mut tally_steps: Vec<(usize, yalain_content::tallies::Gate)> = Vec::new();
     let mut tally_step_adds: Vec<(usize, yalain_content::tallies::Adds)> = Vec::new();
+    // The steps that set an escort following, likewise, once every pet kind is known.
+    let mut escort_steps: Vec<(&Located, usize, yalain_content::escorts::Escort)> = Vec::new();
     let mut act_steps: Vec<(&Located, usize, u32)> = Vec::new();
     // The scenes a new character holds, by their order.
     let mut door_scenes: Vec<(&Located, u32)> = Vec::new();
@@ -1197,6 +1199,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 }
                 if let Some(a) = &s.adds {
                     tally_step_adds.push((t.quests.steps.len(), (**a).clone()));
+                }
+                if let Some(e) = &s.escort {
+                    escort_steps.push((l, t.quests.steps.len(), (**e).clone()));
                 }
                 if let Some(k) = s.kingdom {
                     kingdom_steps.push((t.quests.steps.len(), k));
@@ -1857,6 +1862,41 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
         if let Some(st) = t.quests.steps.get(i) {
             t.content.tallies.step_adds.push((st.clone(), a));
         }
+    }
+    for (l, i, e) in escort_steps {
+        let Some(st) = t.quests.steps.get(i) else {
+            continue;
+        };
+        if !cx.template(l, "escort", e.template) {
+            continue;
+        }
+        if !t.pet_kinds.contains_key(&e.template) {
+            cx.problem(
+                l,
+                format!(
+                    "escort: no [[pet]] row has effect {:08X}, so nothing would follow",
+                    e.template
+                ),
+            );
+            continue;
+        }
+        let Some(made_at) = yalain_content::escorts::phase_after(st) else {
+            cx.problem(
+                l,
+                "escort: a step that completes or fails its quest leaves nothing to escort",
+            );
+            continue;
+        };
+        if e.until.is_some_and(|u| u <= made_at) {
+            cx.problem(
+                l,
+                format!(
+                    "escort: until must be after the phase the step leaves its quest at, {made_at}"
+                ),
+            );
+            continue;
+        }
+        t.content.escorts.steps.push((st.clone(), e));
     }
     // The steps a kingdom gates, whole, once every camp's kill has its camp.
     for (i, k) in kingdom_steps {

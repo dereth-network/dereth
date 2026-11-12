@@ -13222,6 +13222,59 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.quests.escorts-come-back",
+        says: "A player leaving the world takes its escort out of it, the quest still under way; \
+               entering again while the quest is at a phase the escort is wanted at, it is told of \
+               the escort again, beside it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ESCORT-RETURNS"),
+        station: "yalain-testkit::cpu::play::escorts::an_escort_leaves_with_its_player_and_follows_it_again_on_entry",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.escorts-death-fails",
+        says: "An escort's death fails its quest, told as a failure, as it is taken off its player's \
+               list; its player's death takes it as it takes a pet, with the same end.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ESCORT-DEATH"),
+        station: "yalain-testkit::cpu::play::escorts::an_escorts_death_fails_its_quest",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.escorts-end-with-their-phase",
+        says: "An escort its player uses is a person used, running the steps a use of its template \
+               triggers. As its quest is done, failed, cancelled or taken off, or reaches the phase \
+               its row lasts `until`, it is taken off its player's list and leaves the world in that \
+               tick, with nothing failed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ESCORT-ENDS"),
+        station: "yalain-testkit::cpu::play::escorts::an_escort_goes_with_nothing_failed_as_its_quest_ends_or_reaches_its_last_phase",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.escorts-follow",
+        says: "A step's `escort` makes its creature follow the player once the step has run, while \
+               the quest is at a phase it is wanted at: the player is told of it as a new pet, of the \
+               quest companions' class with no time left and its kind's flags, it appears beside the \
+               player naming the player as its summoner, at its template's own level, and it follows \
+               as a pet of its `[[pet]]` kind does. A player has one escort of a quest at a time.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ESCORT-FOLLOWS"),
+        station: "yalain-testkit::cpu::play::escorts::a_steps_escort_is_told_as_a_pet_and_follows_its_player",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.escorts-lost",
+        says: "An escort whose row names `far` fails its quest once its player is farther from it \
+               than that as it plans its way; one with `portal_fails` fails it as its player comes \
+               out of portal space somewhere else, but for the trip of a step that made it and sent \
+               the player; without it, or on that trip, it comes out beside its player, as a pet does.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ESCORT-LOST"),
+        station: "yalain-testkit::cpu::play::escorts::an_escort_fails_its_quest_past_its_distance_or_through_a_portal_where_its_row_says_so",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.every-death-effect-names-a-quest",
         says: "Every effect a creature template of the install names that reads as a quest effect \
                names a quest of the install.",

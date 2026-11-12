@@ -548,6 +548,44 @@ pub fn summon<S: Store>(
     made
 }
 
+/// A quest's escort of a kind appears for a player, of a class and with an icon, at a level, to
+/// stay until its quest no longer wants it; it is set down beside its player, and appears with
+/// [`appear`]. None where its kind can't be made there (its template no creature, or it can't be
+/// set down indoors), with nothing told.
+pub fn escort<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    kind: &PetKind,
+    (class, icon): (u32, u32),
+    level: f32,
+    clock: Clock,
+) -> Option<u64> {
+    let owner_at = s.players.get(&world).map(|p| p.position)?;
+    let at = beside_owner(s, &owner_at);
+    let creature = s
+        .catalog
+        .get(kind.template)
+        .and_then(|t| yalain_content::CreatureStats::from_props(&t.props))
+        .is_some();
+    if !creature || (kind.outdoors_only && crate::presence::indoors(at.cell)) {
+        tracing::warn!(
+            template = format_args!("{:08X}", kind.template),
+            "an escort's template can't be made a creature here: nothing follows"
+        );
+        return None;
+    }
+    summon_kind(
+        s,
+        net,
+        world,
+        kind,
+        (class, icon, None),
+        (level, Some(at)),
+        clock,
+    )
+}
+
 /// Told of, then "The summoning fails.", and taken off the list as the use ends (2017: 8 of 8).
 fn fails<S: Store>(
     s: &mut Server<S>,
@@ -1623,6 +1661,7 @@ pub fn dies<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, killer: u
         }
     }
     let pose = crate::death::falls(s, net, id, clock);
+    crate::escorts::died(s, net, id, clock);
     match s.pets.kind_of(pet.effect).and_then(|k| k.corpse_after) {
         Some(after) => s.after(
             clock,
@@ -1657,6 +1696,7 @@ pub fn owner_leaves<S: Store>(s: &mut Server<S>, net: &mut ServerNet, owner: u64
         crate::death::vanish(s, net, id);
     }
     s.pets.owed.remove(&owner);
+    crate::escorts::owner_leaves(s, owner);
 }
 
 /// An owner has come out of portal space somewhere else: its pets are put beside it there.
@@ -1808,6 +1848,9 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, pet: &Pet, clock: Clock
     if now >= pet.next_plan {
         if let Some(p) = s.pets.by_id.get_mut(&id) {
             p.next_plan = now + PLAN_EVERY;
+        }
+        if crate::escorts::too_far(s, net, id, away, clock) {
+            return;
         }
         if away.is_none_or(|d| d > TOO_FAR) && pet.flags & flag::TELEPORT_TO_MASTER != 0 {
             let to = beside_owner(s, &owner_at);

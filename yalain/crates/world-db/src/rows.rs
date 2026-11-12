@@ -552,6 +552,8 @@ pub struct Step {
     pub transforms: Option<Box<yalain_content::quests::Transformation>>,
     /// The chance it runs each time it may, above 0 and at most 1 (none: every time).
     pub chance: Option<f64>,
+    /// The creature it sets to follow its player for the quest (boxed: few steps have one).
+    pub escort: Option<Box<yalain_content::escorts::Escort>>,
     pub prov: Prov,
 }
 
@@ -1582,6 +1584,7 @@ pub const FIELDS: [(&str, &[&str]); 59] = [
             "transforms",
             "chance",
             "adds",
+            "escort",
             "prov",
         ],
     ),
@@ -2521,6 +2524,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                     None => None,
                 },
                 chance: f.share("chance"),
+                escort: f.escort().map(Box::new),
                 prov: f.req_prov()?,
             })
         }
@@ -4626,6 +4630,51 @@ impl<'a> Fields<'a> {
             self.bad(
                 "adds",
                 "{ tally, by }: a tally's key, and how much it adds, above 0",
+            );
+        }
+        read
+    }
+
+    /// A step's `escort`: `{ template, icon, until, far, portal_fails }`, the creature that follows
+    /// its player, the icon its list shows it with, the phase it goes at, the meters from it its
+    /// player fails the quest past, and whether its player's trip through portal space fails it.
+    fn escort(&mut self) -> Option<yalain_content::escorts::Escort> {
+        let v = self.get("escort")?;
+        let read = v.as_table().and_then(|t| {
+            let known = ["template", "icon", "until", "far", "portal_fails"];
+            if t.keys().any(|k| !known.contains(&k.as_str())) {
+                return None;
+            }
+            let template = as_u32(t.get("template")?)?;
+            let icon = match t.get("icon") {
+                Some(i) => as_u32(i)?,
+                None => 0,
+            };
+            let until = match t.get("until") {
+                Some(u) => Some(as_u32(u).filter(|n| *n > 0)?),
+                None => None,
+            };
+            let far = match t.get("far") {
+                #[allow(clippy::cast_possible_truncation)]
+                Some(m) => Some(as_number(m).filter(|m| *m > 0.0)? as f32),
+                None => None,
+            };
+            let portal_fails = match t.get("portal_fails") {
+                Some(b) => b.as_bool()?,
+                None => false,
+            };
+            Some(yalain_content::escorts::Escort {
+                template,
+                icon,
+                until,
+                far,
+                portal_fails,
+            })
+        });
+        if read.is_none() {
+            self.bad(
+                "escort",
+                "{ template, icon, until, far, portal_fails }: the template that follows, and optionally its icon, the phase it goes at (above 0), the meters past which the quest fails (above 0) and true where a trip through portal space fails it",
             );
         }
         read

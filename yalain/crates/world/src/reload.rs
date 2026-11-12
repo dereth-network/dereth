@@ -155,6 +155,7 @@ pub mod table {
     pub const CONFLICT: &str = "conflict areas";
     pub const EVENTS: &str = "scheduled events";
     pub const TALLIES: &str = "tallies";
+    pub const ESCORTS: &str = "escorts";
     pub const KINGDOMS: &str = "kingdom rows";
     pub const POPUPS: &str = "tips";
     pub const ITEMS: &str = "item rows";
@@ -262,6 +263,12 @@ impl<S: Store> Server<S> {
             self.tallies
                 .counts
                 .retain(|k, _| tallies.tally(k).is_some());
+        }
+        // The escorts: those following now keep following as their rows said when they were made.
+        let changed = t.content.escorts != self.content.escorts;
+        r.note(table::ESCORTS, changed, true);
+        if changed {
+            self.content.escorts = std::mem::take(&mut t.content.escorts);
         }
         // The placed objects as the world holds them: with camps, the camps keep the creatures.
         if !t.spawns.camps.is_empty() {

@@ -381,7 +381,19 @@ What moves a quest on, in its quest's file.
 | `wants` | | for a give, exactly how many of the item it wants: any other count is refused and handed back |
 | `transforms` | | a give's step that makes its player a hero: `{ seconds, fx, behavior, text, name }` |
 | `chance` | | above 0 and at most 1: the chance it runs each time it may; left out, every time |
+| `escort` | | a creature it sets to follow the player for the quest, below |
 | `prov` | required | where it came from |
+
+`escort = { template, icon, until, far, portal_fails }` makes the creature of `template` follow the
+player once the step has run, as one of the player's pets: its `[[pet]]` row (whose `effect` is the
+same template) says how it follows and fights, and it is at its template's own level. The player's
+list of pets shows it with `icon` (none when left out). Its death fails the quest, its player's death
+included; so does the player getting more than `far` meters from it (never when left out), and,
+with `portal_fails = true`, the player coming out of portal space somewhere else, but never from the
+trip of a step that makes it and sends the player (otherwise it comes along, as a pet does). It goes, failing nothing, as the quest reaches phase `until` (above the phase
+the step leaves it at), or, when left out, as the quest is done, failed or cancelled. The player
+using it runs the steps a use of its template triggers. A player leaving the world takes it along
+and has it again on entering while the quest still wants it. One follows a player for each quest.
 
 | `trigger` | moves the quest when the player |
 |---|---|
@@ -862,7 +874,7 @@ What a pet effect makes, or what a contract hires. One row for each effect.
 
 | field | | meaning |
 |---|---|---|
-| `effect` | required | the pet effect's saved state, or the contract's template, or for a pet only items make the item's template |
+| `effect` | required | the pet effect's saved state, or the contract's template, or for a pet only items make the item's template, or for a step's `escort` its template |
 | `template` | required | what it makes |
 | `flags` | | the flags of its pet data as its owner is told them; 0 when left out |
 | `count` | | how many the effect makes at once, at least 1; 1 when left out |

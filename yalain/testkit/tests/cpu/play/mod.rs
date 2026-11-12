@@ -33,6 +33,7 @@ mod dye_plants;
 mod dying;
 mod effect_grants;
 mod effects;
+mod escorts;
 mod events;
 mod experience;
 mod fellowships;

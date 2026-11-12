@@ -6294,3 +6294,100 @@ fn a_quests_enumeration_name_is_said_as_its_words() {
     assert_eq!(spoken_name("Quest"), None);
     assert_eq!(spoken_name("Quest_"), None);
 }
+
+/// A step's `escort` reads to its creature, icon, last phase, distance and portal rule, and
+/// compiles to the escort table with its step whole; one whose creature has no `[[pet]]` row, one
+/// lasting until a phase not after the step's own, one on a completing step and one that reads
+/// wrong are problems.
+/// Behaviour: server.quests.escorts-follow
+#[test]
+fn a_steps_escort_compiles_with_its_step_and_needs_a_pet_row_for_its_creature() {
+    use yalain_content::escorts::Escort;
+    let mut files = fixture();
+    files.insert(
+        "town/server/pets.toml".into(),
+        "[[pet]]\neffect = 0x4700115B\ntemplate = 0x4700115B\nflags = 8\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "update = \"bestow\"\n",
+        "update = \"bestow\"\nescort = { template = 0x4700115B, icon = 0x4100034B, until = 2, far = 60, portal_fails = true }\n",
+    );
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let e = &t.content.escorts.steps;
+    assert_eq!(e.len(), 1);
+    assert_eq!(
+        (e[0].0.trigger, e[0].0.update),
+        (Trigger::Use(0x4700_33D0), Update::Bestow)
+    );
+    assert!(t.quests.steps.contains(&e[0].0), "the step whole");
+    assert_eq!(
+        e[0].1,
+        Escort {
+            template: 0x4700_115B,
+            icon: 0x4100_034B,
+            until: Some(2),
+            far: Some(60.0),
+            portal_fails: true,
+        }
+    );
+    // No pet row for it.
+    let mut f = files.clone();
+    f.remove("town/server/pets.toml");
+    let problems = compile(&merge(&read(&f).unwrap()).unwrap(), &Fake::new()).unwrap_err();
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.to_string().contains("no [[pet]] row")),
+        "{problems:?}"
+    );
+    // Lasting until the phase it starts at.
+    let mut f = files.clone();
+    edit(
+        &mut f,
+        "town/server/quests/40000088.toml",
+        "until = 2",
+        "until = 1",
+    );
+    let problems = compile(&merge(&read(&f).unwrap()).unwrap(), &Fake::new()).unwrap_err();
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.to_string().contains("until must be after the phase")),
+        "{problems:?}"
+    );
+    // On a step that completes its quest.
+    let mut f = files.clone();
+    edit(
+        &mut f,
+        "town/server/quests/40000088.toml",
+        "update = \"complete\"\nxp = 40\n",
+        "update = \"complete\"\nxp = 40\nescort = { template = 0x4700115B }\n",
+    );
+    let problems = compile(&merge(&read(&f).unwrap()).unwrap(), &Fake::new()).unwrap_err();
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.to_string().contains("leaves nothing to escort")),
+        "{problems:?}"
+    );
+    for bad in [
+        "escort = { icon = 1 }",
+        "escort = { template = 0x4700115B, until = 0 }",
+        "escort = { template = 0x4700115B, far = -1 }",
+        "escort = { template = 0x4700115B, portal_fails = 1 }",
+        "escort = { template = 0x4700115B, lasts = 3 }",
+    ] {
+        let mut f = files.clone();
+        edit(
+            &mut f,
+            "town/server/quests/40000088.toml",
+            "escort = { template = 0x4700115B, icon = 0x4100034B, until = 2, far = 60, portal_fails = true }",
+            bad,
+        );
+        assert!(read(&f).is_err(), "{bad}");
+    }
+}
