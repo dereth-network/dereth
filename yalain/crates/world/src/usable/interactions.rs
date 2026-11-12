@@ -42,6 +42,11 @@
 //! quest steps it triggers and before the item is used up: the row for the item that names the
 //! target's template, else the first whose class the target counts in (an emblem used on a held
 //! sword of the swords' class makes that weapon's emblem).
+//!
+//! **What it uses up of the object.** An outcome that destroys its target (the script library's
+//! outcome flag 2) uses up an object the user holds, one off its stack, after what the use makes
+//! and the item used: a significator passed through a gateway takes the gateway, a meld used on a
+//! lesser trump takes the trump. An object of the world it names so is left standing.
 
 use std::collections::HashMap;
 
@@ -92,6 +97,8 @@ pub struct Interaction {
     pub message: Option<(u32, u32)>,
     /// The outcome uses the item up.
     pub uses_up: bool,
+    /// The outcome destroys the object it is used on.
+    pub uses_up_target: bool,
 }
 
 /// Every interaction table the item templates name, by its saved state.
@@ -102,8 +109,9 @@ pub struct Interactions {
     pub members: HashMap<u32, Vec<u32>>,
 }
 
-/// The outcome's flags: the item it was used with is destroyed.
+/// The outcome's flags: the item it was used with is destroyed; the object it was used on is.
 const DESTROYS_ITEM: u32 = 1;
+const DESTROYS_TARGET: u32 = 2;
 
 impl Interactions {
     /// The tables of these saved states, read from their graphs (a table that does not read is
@@ -207,6 +215,7 @@ fn table_of(lib: &Library, g: &Graph, templates: &[(u32, u32)]) -> Option<Table>
             behavior: nav.field(ti, "m_anim").ok().filter(|a| *a != 0),
             message,
             uses_up: flags & DESTROYS_ITEM != 0,
+            uses_up_target: flags & DESTROYS_TARGET != 0,
         });
     }
     Some((out, members))
@@ -450,6 +459,10 @@ fn carry_out<S: Store>(
         crate::craft::use_up(s, net, world, u.item, 1);
     } else if played {
         crate::butchery::wear_tool_by(s, net, world, u.item, 1.0, 0);
+    }
+    let me = s.players.get(&world).map_or(0, |p| p.character);
+    if how.uses_up_target && u.target != u.item && held_by(s, u.target, me) {
+        crate::craft::use_up(s, net, world, u.target, 1);
     }
     let mut told = u.clone();
     told.message = Some(match how.message {

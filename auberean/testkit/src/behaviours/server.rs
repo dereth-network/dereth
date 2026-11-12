@@ -6017,6 +6017,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.interactions.an-outcome-that-destroys-its-target-takes-a-held-one",
+        says: "An item used on another the user holds, where the interaction table's outcome destroys its target, takes the target, one off its stack, after what the use makes; the item is kept or used up as the outcome says.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-INTERACTION-DESTROYS-TARGET"),
+        station: "yalain-testkit::cpu::play::interactions::a_significator_passed_through_a_held_gateway_is_kept_and_the_gateway_is_taken",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.a-gift-runs-past-a-full-pack",
         says: "An item given to a pack holding all its room is held all the same, and its move says \
                it took a place past the room; an item from a person may always take one.",

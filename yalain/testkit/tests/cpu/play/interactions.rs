@@ -112,6 +112,7 @@ fn hall() -> Harness {
             behavior: None,
             message: Some(UNLOCKED),
             uses_up: true,
+            uses_up_target: false,
         }],
     );
     h.server.interactions.tables.insert(
@@ -122,6 +123,7 @@ fn hall() -> Harness {
             behavior: None,
             message: None,
             uses_up: false,
+            uses_up_target: false,
         }],
     );
     h.server.quests.quests.push(QuestDef {
@@ -530,6 +532,7 @@ fn garden() -> Harness {
                 behavior: None,
                 message: None,
                 uses_up,
+                uses_up_target: false,
             }],
         );
     }
@@ -729,6 +732,7 @@ fn forge() -> Harness {
         behavior: None,
         message: Some(IMPRINTED),
         uses_up: true,
+        uses_up_target: false,
     };
     h.server.interactions.tables.insert(
         BLANK_TABLE,
@@ -827,4 +831,70 @@ fn an_emblem_used_on_a_held_weapon_makes_what_the_row_for_the_weapon_or_its_clas
         before - 1,
         "the blank gone, nothing made"
     );
+}
+
+const SIGNIFICATOR_TEMPLATE: u32 = 0x4700_13D7;
+const GATEWAY_TEMPLATE: u32 = 0x4700_13A9;
+const SIGNIFICATOR_TABLE: u32 = 0x6F00_123E;
+/// "Your significator passes through the gateway!"
+const PASSES: (u32, u32) = (0xBA0F_3786, 0x2500_1F24);
+
+/// An item used on another the user holds, where the table's outcome destroys its target (a
+/// significator on a gateway), keeps the item and takes the target, one off its stack, and is
+/// answered kept with the table's own text; where the outcome keeps its target, it stays.
+/// Behaviour: server.interactions.an-outcome-that-destroys-its-target-takes-a-held-one
+#[test]
+fn a_significator_passed_through_a_held_gateway_is_kept_and_the_gateway_is_taken() {
+    for destroys in [true, false] {
+        let mut h = hall();
+        let mut significator = Props::default();
+        significator.set(interactions::TABLE, Prop::Word(SIGNIFICATOR_TABLE));
+        for (t, p) in [
+            (SIGNIFICATOR_TEMPLATE, significator),
+            (GATEWAY_TEMPLATE, Props::default()),
+        ] {
+            h.server
+                .catalog
+                .insert(yalain_testkit::test_template(t, 0x1B34, p));
+        }
+        h.server.interactions.tables.insert(
+            SIGNIFICATOR_TABLE,
+            vec![Interaction {
+                targets: vec![GATEWAY_TEMPLATE],
+                reach: 3.0,
+                behavior: None,
+                message: Some(PASSES),
+                uses_up: false,
+                uses_up_target: destroys,
+            }],
+        );
+        let (a, me, world, significator) = holding(&mut h, "one", SIGNIFICATOR_TEMPLATE);
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, GATEWAY_TEMPLATE, 2);
+        h.run(3);
+        let gateway = held(&h, world, GATEWAY_TEMPLATE).expect("given");
+        let from = h.bots[a].inbox.len();
+        send_use(&mut h, a, me, significator, gateway);
+        assert_eq!(
+            answers(&h, a, from),
+            [(0, interactions::FLAGS_KEPT, PASSES.0)],
+            "destroys {destroys}"
+        );
+        assert_eq!(
+            held(&h, world, SIGNIFICATOR_TEMPLATE),
+            Some(significator),
+            "the significator kept"
+        );
+        let gateways: u32 = h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .filter(|i| i.template == GATEWAY_TEMPLATE)
+            .map(|i| i.quantity.max(1))
+            .sum();
+        assert_eq!(
+            gateways,
+            if destroys { 1 } else { 2 },
+            "destroys {destroys}"
+        );
+    }
 }

@@ -35,6 +35,39 @@ fn the_interaction_tables_read_as_the_data_defines_them() {
     assert!(t.between(&bell.props, IRON_STOCKPILE).is_none());
 }
 
+const SIGNIFICATOR: u32 = 0x4700_13D7;
+const GATEWAY_APPRENTICE: u32 = 0x4700_13A9;
+const TWIN_MOONS: u32 = 0x4700_13B5;
+const ACE_OF_SWORDS: u32 = 0x4700_1375;
+
+/// A significator may be used on each of the eighteen melds, from 3 m, kept, its outcome taking
+/// the meld, with "Your significator passes through the gateway!"; a meld on a lesser trump is
+/// kept and takes the trump.
+/// Behaviour: server.interactions.an-outcome-that-destroys-its-target-takes-a-held-one
+#[test]
+fn a_significators_outcome_takes_the_meld_and_a_melds_the_lesser_trump() {
+    let p = Portal::open();
+    let t = p.interactions(&[SIGNIFICATOR, TWIN_MOONS], &[]);
+    let significator = p.template(SIGNIFICATOR);
+    let list = &t.tables[&significator
+        .props
+        .word("Usage_ItemInteractionTable")
+        .expect("a table")];
+    assert_eq!(list.len(), 18, "the melds");
+    let on = t
+        .between(&significator.props, GATEWAY_APPRENTICE)
+        .expect("a gateway");
+    assert!(!on.uses_up && on.uses_up_target);
+    assert!((on.reach - 3.0).abs() < 1e-6);
+    assert_eq!(on.message, Some((0xBA0F_3786, 0x2500_1F24)));
+    assert!(list.iter().all(|i| !i.uses_up && i.uses_up_target));
+    let meld = p.template(TWIN_MOONS);
+    let on = t
+        .between(&meld.props, ACE_OF_SWORDS)
+        .expect("a lesser trump");
+    assert!(!on.uses_up && on.uses_up_target);
+}
+
 const CAN: u32 = 0x4700_145F;
 const REQUIESCAT: u32 = 0x4700_1C8D;
 const DYE_PLANT: u32 = 0x4700_341D;

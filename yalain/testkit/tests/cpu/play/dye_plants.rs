@@ -144,6 +144,7 @@ fn garden() -> Harness {
                 behavior: None,
                 message: None,
                 uses_up,
+                uses_up_target: false,
             }],
         );
     }
