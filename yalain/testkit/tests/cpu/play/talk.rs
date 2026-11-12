@@ -236,6 +236,55 @@ fn a_player_at_rest_a_little_out_of_reach_is_answered_at_once() {
     assert!(tells(&h, b, from).is_empty(), "20 m away: walked first");
 }
 
+/// Where lines said with a quest's update name the item given, those naming another are left out
+/// and those naming it said: of two heard with a completion, each naming its own card, a give of
+/// one says that card's line and the line naming none; a third card's lines, written rather than
+/// heard, are said in their order for a give of that card; a use, or a give of a card no line
+/// names, says every heard line, as before.
+/// Behaviour: server.talk.an-update-line-naming-an-item-follows-its-give
+#[test]
+fn an_update_line_naming_the_item_given_leaves_out_those_naming_another() {
+    const CARDS: [u32; 3] = [0x4700_13C1, 0x4700_13D6, 0x4700_13D2];
+    let with_complete = |s: u32, item: Option<u32>, order: u32| {
+        let mut l = line(words(s), Role::Complete, When::Give, s < 0xD0);
+        l.quest = Some(QUEST);
+        l.update = Some(TalkUpdate::Complete);
+        l.item = item;
+        l.order = order;
+        l
+    };
+    let talk = vec![
+        with_complete(0xC0, None, 0),
+        with_complete(0xC1, Some(CARDS[0]), 1),
+        with_complete(0xC2, Some(CARDS[1]), 1),
+        with_complete(0xD3, Some(CARDS[2]), 1),
+        with_complete(0xD2, Some(CARDS[2]), 0),
+    ];
+    let (h, _b, _me) = world(talk, QuestTable::default());
+    let said = |given: Option<u32>| -> Vec<u32> {
+        yalain_world::talk::with_update(&h.server, TEMPLATE, None, (QUEST, Update::Complete), given)
+            .iter()
+            .map(|l| match l.words {
+                Words::Ref(s, _) => s,
+                Words::Literal(_) => 0,
+            })
+            .collect()
+    };
+    assert_eq!(said(Some(CARDS[0])), [0xC0, 0xC1]);
+    assert_eq!(said(Some(CARDS[1])), [0xC0, 0xC2]);
+    assert_eq!(said(None), [0xC0, 0xC1, 0xC2], "a use");
+    assert_eq!(
+        said(Some(0x4700_13CE)),
+        [0xC0, 0xC1, 0xC2],
+        "a card no line names"
+    );
+    assert_eq!(
+        said(Some(CARDS[2])),
+        [0xC0, 0xD2, 0xD3],
+        "written lines for its card"
+    );
+}
+
 /// A step a person's use runs says its own line, then the lines heard said with that update of
 /// that quest, in their order (its own line not twice); lines only derived from their names are
 /// left out when heard ones are there.

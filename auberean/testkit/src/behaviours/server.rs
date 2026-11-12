@@ -1927,6 +1927,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.combination-rows",
+        says: "A world database combination row names a recipe that works out its own product, the templates its slots hold, in any order, and what they make; it compiles into crafting's rows in order; a template the install lacks is a problem, and a row with no templates or a count of 0 is refused.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-COMBINATION-ROWS"),
+        station: "yalain-world-db::cpu::database::combination_rows_compile_in_order_and_hold_their_templates_to_the_install",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.crafting-in-the-real-start",
         says: "A start describes everything the test world's crafting rows make: the three totems and the ten \
                refined products, each a stack, each refining of a script package the install holds; and \
@@ -2349,19 +2357,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "server.craft.own-product-makes-nothing",
-        says: "A recipe that works out its own product names none the data holds: it answers that it failed with a line saying so, uses up nothing and pays nothing.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC2-EVID-SRV-CARD-MELDS"),
-        station: "yalain-testkit::cpu::play::crafting::a_recipe_working_out_its_own_product_fails_and_uses_up_nothing",
-        tier: Tier::Cpu,
-    },
-    behaviour! {
         id: "server.craft.own-product-made-of-its-combination",
         says: "A recipe that works out its own product makes what the world's combination row for the templates in its slots names, in any order, and uses its slots up; slots that make no row of the recipe make nothing and keep their items.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CARD-MELD-COMBINATIONS"),
         station: "yalain-testkit::cpu::play::crafting::a_meld_makes_what_its_combination_row_says_and_a_set_no_row_names_makes_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.own-product-makes-nothing",
+        says: "A recipe that works out its own product names none the data holds: it answers that it failed with a line saying so, uses up nothing and pays nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CARD-MELDS"),
+        station: "yalain-testkit::cpu::play::crafting::a_recipe_working_out_its_own_product_fails_and_uses_up_nothing",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -2773,14 +2781,6 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-WORLD-RECIPE-ROWS"),
         station: "yalain-world-db::cpu::database::recipe_rows_compile_by_their_ids_and_a_step_names_the_recipes_it_teaches",
-        tier: Tier::Cpu,
-    },
-    behaviour! {
-        id: "server.craft.combination-rows",
-        says: "A world database combination row names a recipe that works out its own product, the templates its slots hold, in any order, and what they make; it compiles into crafting's rows in order; a template the install lacks is a problem, and a row with no templates or a count of 0 is refused.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC2-EVID-SRV-CARD-MELD-COMBINATIONS"),
-        station: "yalain-world-db::cpu::database::combination_rows_compile_in_order_and_hold_their_templates_to_the_install",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -4153,6 +4153,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.effects.craft-experience-at-its-spellcraft",
+        says: "A craft experience reward a quest's update puts on pays its amount at the spellcraft the quest's record puts it on at, whole: the four craft gateways' 2500, 3112, 3877 and 6938.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-XP-SPELLCRAFT"),
+        station: "yalain-testkit::dat::quests::the_craft_gateways_quests_pay_their_craft_experience_at_their_records_spellcraft",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.effects.creature-debuff-shows-until-it-runs-out",
         says: "A debuff a player's skill lands on a creature shows its appearance to those who \
                see it from the add until its duration ends, and changes the creature's numbers \
@@ -4409,14 +4417,6 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-EFFECTS"),
         station: "yalain-testkit::cpu::play::effects::a_quest_steps_effects_come_after_its_gifts_and_before_its_update",
         tier: Tier::Cpu,
-    },
-    behaviour! {
-        id: "server.effects.craft-experience-at-its-spellcraft",
-        says: "A craft experience reward a quest's update puts on pays its amount at the spellcraft the quest's record puts it on at, whole: the four craft gateways' 2500, 3112, 3877 and 6938.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC2-EVID-SRV-CARD-MELD-COMBINATIONS"),
-        station: "yalain-testkit::dat::quests::the_craft_gateways_quests_pay_their_craft_experience_at_their_records_spellcraft",
-        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.effects.read-from-their-definitions",
@@ -14781,6 +14781,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-REMIND-PHASE"),
         station: "yalain-testkit::cpu::play::quest_uses::a_reminder_naming_a_phase_is_said_only_at_that_phase",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.talk.an-update-line-naming-an-item-follows-its-give",
+        says: "Where lines a person says with a quest's update name the item given, those naming another item are left out and those naming it said, heard or not; a use, or a give of an item no line names, says them as before.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TALK-ITEM-LINES"),
+        station: "yalain-testkit::cpu::play::talk::an_update_line_naming_the_item_given_leaves_out_those_naming_another",
         tier: Tier::Cpu,
     },
     behaviour! {

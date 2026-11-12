@@ -297,14 +297,17 @@ pub const fn update_of(u: Update) -> (TalkUpdate, Option<u32>) {
 }
 
 /// The lines a person says with a quest update one of its steps made: those heard said with it,
-/// in their order; else the first of the others.
+/// in their order; else the first of the others. Where some of them name the item given (the card a
+/// teller attunes, its own meaning), those naming another item are left out and those naming it
+/// are said, heard or not; a give no line names, or a use, leaves them all (a quest a subquest's
+/// last element ends says the line heard with the element given then).
 #[must_use]
 pub fn with_update<S: Store>(
     s: &Server<S>,
     who: u32,
     object: Option<usize>,
-    quest: u32,
-    update: Update,
+    (quest, update): (u32, Update),
+    given: Option<u32>,
 ) -> Vec<Line> {
     if update == Update::Nothing {
         return Vec::new();
@@ -319,8 +322,13 @@ pub fn with_update<S: Store>(
                 && (phase.is_none() || l.phase.is_none() || l.phase == phase)
         })
         .collect();
-    if lines.iter().any(|l| l.measured) {
-        lines.retain(|l| l.measured);
+    let named = given.filter(|g| lines.iter().any(|l| l.item == Some(*g)));
+    if named.is_some() {
+        lines.retain(|l| l.item.is_none() || l.item == named);
+    }
+    let kept = |l: &Line| l.measured || (named.is_some() && l.item == named);
+    if lines.iter().any(|l| kept(l)) {
+        lines.retain(|l| kept(l));
     } else {
         lines.truncate(1);
     }

@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- People now say a line meant for one item only when given that item.
 - Quests that reward craft experience now pay it.
 - Items used on another item the use consumes, like a meld, now take it.
 - Card melds and other recipes that work out their own product can now make something.

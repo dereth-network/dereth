@@ -1462,11 +1462,12 @@ fn run_with<S: Store>(
             // The move that finishes a quest's last subquests is said as that quest's completion
             // (2017: the last element handed over, 1 of 1), and one that finishes an earlier
             // phase's as its next phase where the person has a line for that.
+            let item = given.map(|g| g.template);
             let parents = finishes_parent(s, world, step).map_or_else(Vec::new, |(q, up)| {
-                crate::talk::with_update(s, template, Some(i), q, up)
+                crate::talk::with_update(s, template, Some(i), (q, up), item)
             });
             let lines = if parents.is_empty() {
-                crate::talk::with_update(s, template, Some(i), step.quest, step.update)
+                crate::talk::with_update(s, template, Some(i), (step.quest, step.update), item)
             } else {
                 parents
             };
