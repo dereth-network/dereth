@@ -548,6 +548,11 @@ pub fn created<S: Store>(
     let mut m = crate::player::content_object(id, o);
     // An object placed again by a reload is made with its newer instance stamp.
     m.physics.instance_stamp = s.placed.instance(id);
+    // Made at the latest visual stamp it took, those taken while the player was away among them:
+    // a client that let it go starts from this one.
+    if let Some(stamp) = s.visuals.get(&id) {
+        m.physics.visual_ordering_stamp = *stamp;
+    }
     // A person walking its route is made with the stamp its place was last told with.
     if let Some(stamp) = crate::walkers::position_stamp(s, id) {
         m.physics.stamps[0] = stamp;

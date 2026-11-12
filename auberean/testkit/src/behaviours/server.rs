@@ -12545,7 +12545,9 @@ pub static ROWS: &[Behaviour] = &[
         id: "server.presence.a-check-of-visual-order-waits-as-a-client-waits",
         says: "The check every world test ends with takes visual messages as a client does: each \
                waits for its object and the stamps before its own, one at a stamp already passed \
-               is dropped, and a visual stamp under a private message is told as wrong.",
+               is dropped, and a visual stamp under a private message is told as wrong; a making \
+               moves the stamp only forward, and one sent at a stamp before one already sent is \
+               told as wrong.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-VISUAL-ORDER-CHECK"),
         station: "yalain-testkit::cpu::entry::presence::the_check_of_visual_order_waits_as_a_client_waits",
@@ -12608,6 +12610,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-LEAVE-FORGOTTEN"),
         station: "yalain-testkit::cpu::entry::presence::a_player_leaving_the_world_is_seen_to_leave_by_the_others",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.presence.made-again-at-its-latest-visual-stamp",
+        says: "An object made again for a client carries the latest visual stamp the object \
+               took, including those taken while the client was not told of it, so its next \
+               visual message follows for a client that had let the object go.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-REMADE-VISUAL-STAMP"),
+        station: "yalain-testkit::cpu::entry::places::an_object_made_again_after_the_player_was_away_carries_its_latest_visual_stamp",
         tier: Tier::Cpu,
     },
     behaviour! {

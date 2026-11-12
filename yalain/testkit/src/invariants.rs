@@ -193,6 +193,13 @@ pub struct Held {
     pub kind: String,
 }
 
+/// The connection's sequence a message was sent at, from its blob id.
+const fn sequence(blob_id: u64) -> u32 {
+    #[allow(clippy::cast_possible_truncation)]
+    let q = blob_id as u32;
+    q
+}
+
 #[derive(Debug, Default)]
 struct VisualBook {
     /// The connection has been told of the object; until then its messages wait for that.
@@ -204,12 +211,39 @@ struct VisualBook {
 /// One connection's visual messages taken as the client takes them: per object and incarnation,
 /// each stamp must be the one after the last, and a message about an object not yet made waits for
 /// it. Those still waiting for a making are not counted ([`Checker`] answers for those).
+///
+/// A making moves the object's stamp only forward, as for a client that still holds the object.
+/// A client that has let the object go (it does so a while after the object leaves its view)
+/// starts again from the making's stamp, so each making must carry a stamp at or after every
+/// visual stamp sent about the object before it: [`Self::behind`] lists those that do not, taken in
+/// the order they were sent, not the order they came.
 #[derive(Debug, Default)]
 pub struct VisualOrder {
     books: BTreeMap<(u64, u16), VisualBook>,
     /// How many messages came at a stamp the client had already passed, by kind: it drops them.
     pub dropped: BTreeMap<String, usize>,
     misrouted: Vec<String>,
+    /// Per object and incarnation, the visual stamps sent and the makings, each with the
+    /// connection's sequence it was sent at.
+    sent: BTreeMap<(u64, u16), Sent>,
+    behind: Vec<Behind>,
+}
+
+/// A making of an object at a stamp before one already sent about it: a client that had let the
+/// object go waits for the stamps between.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Behind {
+    pub object: u64,
+    /// The stamp the making carries.
+    pub made_at: u16,
+    /// The stamp sent before it.
+    pub sent: u16,
+}
+
+#[derive(Debug, Default)]
+struct Sent {
+    visual: Vec<(u32, u16)>,
+    made: Vec<(u32, u16)>,
 }
 
 impl VisualOrder {
@@ -231,7 +265,21 @@ impl VisualOrder {
                 book.current = stamp;
             }
             book.made = true;
-            self.flush((o.id, o.physics.instance_stamp));
+            let key = (o.id, o.physics.instance_stamp);
+            let sent = self.sent.entry(key).or_default();
+            if let Some(&(_, before)) = sent
+                .visual
+                .iter()
+                .find(|(q, v)| *q < sequence(blob_id) && newer(*v, stamp))
+            {
+                self.behind.push(Behind {
+                    object: o.id,
+                    made_at: stamp,
+                    sent: before,
+                });
+            }
+            sent.made.push((sequence(blob_id), stamp));
+            self.flush(key);
             return;
         }
         if let Some(ServerMessage::ForgetObject(o)) = &read {
@@ -258,6 +306,20 @@ impl VisualOrder {
         };
         let key = (u64::from_le_bytes(id), word(12));
         let name = read.as_ref().map_or_else(|| "unread".to_owned(), kind);
+        let stamp = word(14);
+        let sent = self.sent.entry(key).or_default();
+        if let Some(&(_, made_at)) = sent
+            .made
+            .iter()
+            .find(|(q, m)| sequence(blob_id) < *q && newer(stamp, *m))
+        {
+            self.behind.push(Behind {
+                object: key.0,
+                made_at,
+                sent: stamp,
+            });
+        }
+        sent.visual.push((sequence(blob_id), stamp));
         self.books
             .entry(key)
             .or_default()
@@ -282,6 +344,12 @@ impl VisualOrder {
                 return;
             }
         }
+    }
+
+    /// The makings sent at a stamp before one already sent about the object.
+    #[must_use]
+    pub fn behind(&self) -> Vec<Behind> {
+        self.behind.clone()
     }
 
     /// The messages that came as the wrong kind for what they carry.

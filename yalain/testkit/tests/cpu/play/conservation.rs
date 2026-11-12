@@ -553,6 +553,8 @@ pub(super) fn act(s: &mut Script) -> String {
             let id = s.h.server.things.new_id();
             let mut c = Thing::of(id, &t, Kind::Corpse);
             c.at = Some(s.h.server.players[&w].position);
+            // Made up to stamp 10, as the world's corpses are.
+            c.visual = 10;
             let count = 1 + s.dice.below(4);
             let items: Vec<u64> = (0..count)
                 .map(|_| {

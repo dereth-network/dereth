@@ -299,7 +299,7 @@ pub(crate) fn to_knowers<S: Store>(s: &Server<S>, net: &mut ServerNet, id: u64, 
     }
 }
 
-/// The next visual stamp of a content object (made with stamp 1).
+/// The next visual stamp of a content object (first made with stamp 1, then with its latest).
 pub fn object_stamp<S: Store>(s: &mut Server<S>, id: u64) -> ObjectStamp {
     let instance_stamp = s.placed.instance(id);
     let v = s.visuals.entry(id).or_insert(1);

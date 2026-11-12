@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Fixed some objects not showing their effects after you leave and come back.
 - The world check now refuses gates on objects that a quest's use would ignore.
 - Worlds can now make an item used on another give some characters a different result.
 - A quest's hand-in can now take any item of a kind.

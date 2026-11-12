@@ -181,7 +181,8 @@ fn the_end_of_an_arrival_reaches_a_client_already_watching_and_nothing_after_it_
 
 /// Taken as a client takes them, a visual message waits for the stamps before its own and for its
 /// object; one at a stamp already passed is dropped; a visual stamp under a private message counts for
-/// nothing, and is told as wrong.
+/// nothing, and is told as wrong. A making moves the stamp only forward, and one sent at a stamp
+/// before one sent ahead of it is told as wrong.
 /// Behaviour: server.presence.a-check-of-visual-order-waits-as-a-client-waits
 #[test]
 fn the_check_of_visual_order_waits_as_a_client_waits() {
@@ -236,6 +237,33 @@ fn the_check_of_visual_order_waits_as_a_client_waits() {
         ["0x100a1"],
         "a visual stamp, sent private"
     );
+    // Made again: a making sent before stamp 8 and come after it moves nothing back and is no
+    // fault; one sent after stamp 8 at 7 is.
+    let again = |stamp: u16| {
+        ServerMessage::CreateObject(auberean_protocol::physics::CreateObject {
+            id: ID,
+            physics: auberean_protocol::types::PhysicsDesc {
+                instance_stamp: 1,
+                visual_ordering_stamp: stamp,
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .encode()
+    };
+    let mut order = VisualOrder::new();
+    order.see(blob_id(BlobKind::UNORDERED, 1, 0, 1), &again(5));
+    order.see(blob_id(BlobKind::VISUAL, 1, 0, 3), &stop(6));
+    order.see(blob_id(BlobKind::UNORDERED, 1, 0, 2), &again(5));
+    order.see(blob_id(BlobKind::VISUAL, 1, 0, 4), &stop(7));
+    assert!(order.held().is_empty() && order.behind().is_empty());
+    order.see(blob_id(BlobKind::UNORDERED, 1, 0, 5), &again(6));
+    let behind = yalain_testkit::invariants::Behind {
+        object: ID,
+        made_at: 6,
+        sent: 7,
+    };
+    assert_eq!(order.behind(), [behind]);
 }
 
 /// A player that walks out of another's view is not taken away from that client (the client lets

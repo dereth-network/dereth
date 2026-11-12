@@ -243,6 +243,85 @@ fn a_lifestone_binds_and_the_recall_takes_the_player_back_where_it_bound() {
     );
 }
 
+/// An object of the world made again for a player coming back into its view carries the latest
+/// visual stamp the object took, counting those it took while the player was away, so the
+/// object's next visual message follows it for a client that had let the object go.
+/// Behaviour: server.presence.made-again-at-its-latest-visual-stamp
+#[test]
+fn an_object_made_again_after_the_player_was_away_carries_its_latest_visual_stamp() {
+    use auberean_primitives::Vec3;
+    let mut h = Harness::new();
+    h.server.lifestone_packages.insert(0x1A00);
+    h.server.content = ContentPack {
+        objects: vec![object(STONE, 0x4700_113A, [60.0, 241.0, -44.6], None)],
+        ..ContentPack::default()
+    };
+    let (a, _) = h.player_in_world("one", "Elara");
+    let (b, idb) = h.player_in_world("two", "Babyfare");
+    h.run(10);
+    let bind = |h: &mut Harness| {
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(function::USE, &[use_of(STONE, idb)]),
+        );
+        h.run(40);
+    };
+    let walk = |h: &mut Harness, cell: u32, at: Vec3| {
+        h.bots[a].send(
+            true,
+            queue::WEENIE,
+            &yalain_testkit::play::report(cell, at, 0, yalain_world::world::IDLE_MOTION, 0),
+        );
+        h.run(10);
+    };
+    let stone_stamps = |h: &Harness, bot: usize, from: usize| -> Vec<u16> {
+        h.world_messages(bot, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::PlayBehavior(e) if e.sender.id == STONE => {
+                    Some(e.sender.other_stamp)
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    let fb = h.bots[b].inbox.len();
+    bind(&mut h);
+    // Out of the stone's view, far away; the stone binds again while the player is gone.
+    walk(&mut h, 0x7000_0001, Vec3::new(10.0, 10.0, 50.0));
+    let away = h.bots[a].inbox.len();
+    bind(&mut h);
+    assert!(stone_stamps(&h, a, away).is_empty(), "not told while away");
+    assert_eq!(stone_stamps(&h, b, fb), [2, 3], "the stone took two stamps");
+    // Back: the stone is made again, and binds once more.
+    let back = h.bots[a].inbox.len();
+    walk(&mut h, 0x0299_0109, Vec3::new(59.0, 240.0, -44.6));
+    let made = h.world_messages(a, back).iter().find_map(|m| match m {
+        ServerMessage::CreateObject(c) if c.id == STONE => Some(c.physics.visual_ordering_stamp),
+        _ => None,
+    });
+    assert_eq!(made, Some(3), "made at the stamp it last took");
+    bind(&mut h);
+    assert_eq!(stone_stamps(&h, a, back), [4], "the next one follows it");
+    // A client that let the stone go takes it in turn.
+    let mut order = yalain_testkit::invariants::VisualOrder::new();
+    for r in h.bots[a].inbox[back..].iter().filter(|r| r.world) {
+        order.see(r.blob_id, &r.bytes);
+    }
+    assert_eq!(order.held(), Vec::new(), "nothing waits for a stamp");
+    // Nor is it made behind the stamp the client was told before it left.
+    let mut order = yalain_testkit::invariants::VisualOrder::new();
+    for r in h.bots[a].inbox.iter().filter(|r| r.world) {
+        order.see(r.blob_id, &r.bytes);
+    }
+    assert_eq!(
+        order.behind(),
+        Vec::new(),
+        "made at or after what it was told"
+    );
+}
+
 /// A use asked for while the player's earlier action is still carried out (here, in portal space)
 /// is refused at once: its answer alone, with the status that actions are locked.
 /// Behaviour: server.places.actions-locked

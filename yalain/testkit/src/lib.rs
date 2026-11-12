@@ -2914,8 +2914,8 @@ impl<S: Store> Harness<S> {
 }
 
 /// Every test of the world holds this at its end: each client took every object's visual messages
-/// in turn, none waiting for a stamp that never came, and none carrying a visual stamp outside the
-/// visual kind.
+/// in turn, none waiting for a stamp that never came, none carrying a visual stamp outside the
+/// visual kind, and no object made at a stamp before one already sent about it.
 impl<S: Store> Drop for Harness<S> {
     fn drop(&mut self) {
         if std::thread::panicking() {
@@ -2927,9 +2927,10 @@ impl<S: Store> Drop for Harness<S> {
                 order.see(r.blob_id, &r.bytes);
             }
             assert_eq!(
-                (order.held(), order.misrouted()),
-                (Vec::new(), Vec::new()),
-                "client {b}: the visual messages it holds, and those sent outside the visual kind"
+                (order.held(), order.misrouted(), order.behind()),
+                (Vec::new(), Vec::new(), Vec::new()),
+                "client {b}: the visual messages it holds, those sent outside the visual kind, and the \
+                 makings sent behind a stamp already sent"
             );
         }
     }
