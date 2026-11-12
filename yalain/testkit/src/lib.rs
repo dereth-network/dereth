@@ -2535,6 +2535,7 @@ pub fn test_crafts() -> yalain_content::crafts::Crafts {
         ]
         .into(),
         recipes: std::collections::BTreeMap::new(),
+        combinations: Vec::new(),
     }
 }
 

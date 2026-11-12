@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Card melds and other recipes that work out their own product can now make something.
 - Worlds that change the game files now always patch retail clients.
 - Quests that recall the player to a place now take them there.
 - Federation links now tell a proxy's refusal from the hub's.

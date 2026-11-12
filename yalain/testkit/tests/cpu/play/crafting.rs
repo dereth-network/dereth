@@ -2250,6 +2250,137 @@ fn a_recipe_working_out_its_own_product_fails_and_uses_up_nothing() {
     assert_eq!(c.today, 0, "it pays nothing");
 }
 
+const MELD_RECIPE: u32 = 0x6F00_1ABB;
+const MOON: u32 = 0x4700_70A1;
+const SHATTERED: u32 = 0x4700_70A2;
+const CRAFTER: u32 = 0x4700_70A3;
+const TWIN_MOONS: u32 = 0x4700_70B1;
+const APPRENTICE: u32 = 0x4700_70B2;
+
+/// A two-card meld: two slots of one card each, either of three cards, its product worked out by
+/// itself; its outcome uses up both slots.
+fn meld_recipe() -> yalain_world::craft::RecipeDef {
+    use yalain_world::craft::{Action, Check, Custom, Ingredient, Outcome, RecipeDef};
+    let destroy = |ordinal| Action::Destroy {
+        ordinal,
+        quantity: 1,
+        by_spinner: None,
+        spinners: None,
+    };
+    let slot = |ordinal| Ingredient {
+        ordinal,
+        quantity: 1,
+        items: vec![MOON, SHATTERED, CRAFTER],
+        ..Ingredient::default()
+    };
+    RecipeDef {
+        did: MELD_RECIPE,
+        skill: TOOLS,
+        charges: -1,
+        animation: 0x4100_014B,
+        cycles: 3,
+        ingredients: vec![slot(1), slot(2)],
+        custom: Custom::Unknown,
+        checks: vec![Check {
+            upto: 2.0,
+            outcomes: vec![Outcome {
+                upto: 1000.0,
+                xp_mod: 1.0,
+                actions: vec![Action::Custom, destroy(1), destroy(2)],
+            }],
+        }],
+        ..RecipeDef::default()
+    }
+}
+
+/// A recipe that works out its own product makes what the world's `[[combination]]` row for the
+/// templates in its slots says, in any order and with a template twice where the row names it
+/// twice, and uses its slots up; slots that make no row of the recipe make nothing, with the
+/// failure's line, and keep both cards.
+/// Behaviour: server.craft.own-product-made-of-its-combination
+#[test]
+fn a_meld_makes_what_its_combination_row_says_and_a_set_no_row_names_makes_nothing() {
+    use yalain_content::crafts::Combination;
+    let row = |key: &str, recipe, items: &[u32], product| Combination {
+        key: key.to_string(),
+        recipe,
+        items: items.to_vec(),
+        product,
+        count: 1,
+    };
+    // Each case: the cards in slots 1 and 2, what it makes (none: nothing).
+    let cases: [(u32, u32, Option<u32>); 4] = [
+        (MOON, SHATTERED, Some(TWIN_MOONS)),
+        (SHATTERED, MOON, Some(TWIN_MOONS)),
+        (CRAFTER, CRAFTER, Some(APPRENTICE)),
+        (MOON, CRAFTER, None),
+    ];
+    for (first, second, makes) in cases {
+        let (mut h, b, _me, world) = in_world();
+        with_own_recipe(
+            &mut h,
+            world,
+            meld_recipe(),
+            1,
+            &[MOON, SHATTERED, CRAFTER, TWIN_MOONS, APPRENTICE],
+        );
+        h.server.crafting.crafts.combinations = vec![
+            // Another recipe's row for the same cards makes nothing here.
+            row("other", 0x6F00_1ABD, &[MOON, CRAFTER], APPRENTICE),
+            // Written in another order than the slots are filled.
+            row("twin-moons", MELD_RECIPE, &[SHATTERED, MOON], TWIN_MOONS),
+            row("apprentice", MELD_RECIPE, &[CRAFTER, CRAFTER], APPRENTICE),
+        ];
+        let give = |h: &mut Harness, t| {
+            yalain_world::inventory::give(&mut h.server, &mut h.net, world, t, 1).expect("card")
+        };
+        let one = give(&mut h, first);
+        let two = give(&mut h, second);
+        assert_ne!(one, two, "two cards");
+        h.run(2);
+        let from = execute(&mut h, b, MELD_RECIPE, &[(1, one), (2, two)]);
+        h.run(4);
+        wait(&mut h, 9.0);
+        let got = calls_of(&h, b, from);
+        let done = got
+            .iter()
+            .find(|(f, _)| *f == function::EXECUTED)
+            .expect("the answer");
+        let err = if makes.is_some() { 0 } else { error::FAILED };
+        assert_eq!(
+            done.1,
+            vec![Value::Int(1), Value::Int(err), Value::Int(MELD_RECIPE)],
+            "{first:08X} and {second:08X}"
+        );
+        let p = &h.server.players[&world];
+        let count = |t: u32| {
+            p.play
+                .items
+                .iter()
+                .filter(|i| i.template == t)
+                .map(|i| i.quantity.max(1))
+                .sum::<u32>()
+        };
+        let cards = count(MOON) + count(SHATTERED) + count(CRAFTER);
+        match makes {
+            Some(meld) => {
+                assert_eq!(count(meld), 1, "the meld made");
+                assert_eq!(cards, 0, "both cards used up");
+            }
+            None => {
+                assert_eq!(count(TWIN_MOONS) + count(APPRENTICE), 0, "nothing made");
+                assert_eq!(cards, 2, "both cards kept");
+                assert!(
+                    h.texts(b, from)
+                        .iter()
+                        .any(|(_, sid)| *sid == yalain_world::craft::NOTHING_PRODUCED.0),
+                    "the failure's line"
+                );
+            }
+        }
+    }
+}
+
 /// Spellbinding makes a totem of the kind of the item taken apart, a shield by its class.
 /// Behaviour: server.craft.spellbinding-makes-a-totem
 #[test]

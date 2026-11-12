@@ -2357,6 +2357,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.own-product-made-of-its-combination",
+        says: "A recipe that works out its own product makes what the world's combination row for the templates in its slots names, in any order, and uses its slots up; slots that make no row of the recipe make nothing and keep their items.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CARD-MELD-COMBINATIONS"),
+        station: "yalain-testkit::cpu::play::crafting::a_meld_makes_what_its_combination_row_says_and_a_set_no_row_names_makes_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.quest-mines",
         says: "A mine a quest works refuses a player without the quest under way; with it, the mine's \
                behavior plays some eight seconds, then the quest moves on and the use is answered \
@@ -2765,6 +2773,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-WORLD-RECIPE-ROWS"),
         station: "yalain-world-db::cpu::database::recipe_rows_compile_by_their_ids_and_a_step_names_the_recipes_it_teaches",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.combination-rows",
+        says: "A world database combination row names a recipe that works out its own product, the templates its slots hold, in any order, and what they make; it compiles into crafting's rows in order; a template the install lacks is a problem, and a row with no templates or a count of 0 is refused.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CARD-MELD-COMBINATIONS"),
+        station: "yalain-world-db::cpu::database::combination_rows_compile_in_order_and_hold_their_templates_to_the_install",
         tier: Tier::Cpu,
     },
     behaviour! {

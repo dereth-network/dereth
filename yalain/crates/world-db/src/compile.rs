@@ -1549,6 +1549,18 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     t.crafts.recipes.insert(r.recipe.recipe, r.recipe.clone());
                 }
             }
+            Row::Combination(r) => {
+                let c = &r.combination;
+                let known = c
+                    .items
+                    .iter()
+                    .fold(cx.template(l, "product", c.product), |ok, t| {
+                        cx.template(l, "items", *t) && ok
+                    });
+                if known {
+                    t.crafts.combinations.push(c.clone());
+                }
+            }
             Row::Plant(r) => {
                 let sp = r.species;
                 let held = [

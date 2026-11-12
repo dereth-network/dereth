@@ -1,6 +1,7 @@
 //! What the world database says of crafting's own work: the surveyor's map recipes each region's
 //! drawing sets waiting, the totem spellbinding makes of each sort of item, what each refining
-//! recipe yields, and the recipes the world defines itself.
+//! recipe yields, the recipes the world defines itself, and what a recipe that works out its own
+//! product makes of a set of ingredients.
 
 use std::collections::BTreeMap;
 
@@ -72,14 +73,40 @@ pub struct RecipeIngredient {
     pub name: Option<(u32, u32)>,
 }
 
+/// What a recipe that works out its own product makes of one set of ingredients: the recipe (an
+/// install recipe's saved state), the templates its slots hold (one a slot, in any order; a
+/// template twice where it takes two), and the template of what it makes, how many.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Combination {
+    pub key: String,
+    pub recipe: u32,
+    pub items: Vec<u32>,
+    pub product: u32,
+    pub count: u32,
+}
+
+impl Combination {
+    /// Do these templates, one a slot in any order, make this combination?
+    #[must_use]
+    pub fn made_of(&self, templates: &[u32]) -> bool {
+        let mut want = self.items.clone();
+        let mut have = templates.to_vec();
+        want.sort_unstable();
+        have.sort_unstable();
+        want == have
+    }
+}
+
 /// The world's crafting work: map recipes by region, totems by sort, refinings by recipe, the
-/// world's own recipes by id.
+/// world's own recipes by id, the combinations recipes that work out their own product make, in
+/// the rows' order.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Crafts {
     pub map_recipes: BTreeMap<String, MapRecipes>,
     pub totems: Vec<Totem>,
     pub refining: BTreeMap<String, Refining>,
     pub recipes: BTreeMap<u32, Recipe>,
+    pub combinations: Vec<Combination>,
 }
 
 impl Crafts {
@@ -110,13 +137,23 @@ impl Crafts {
             .map(|t| t.word)
     }
 
-    /// Every template crafting's work makes: the totems, the refined products and the world's
-    /// recipes' products.
+    /// What a recipe that works out its own product makes of the templates its slots hold: the
+    /// first combination of the recipe they make.
+    #[must_use]
+    pub fn combination(&self, recipe: u32, templates: &[u32]) -> Option<&Combination> {
+        self.combinations
+            .iter()
+            .find(|c| c.recipe == recipe && c.made_of(templates))
+    }
+
+    /// Every template crafting's work makes: the totems, the refined products, the world's
+    /// recipes' products and the combinations'.
     pub fn templates(&self) -> impl Iterator<Item = u32> + '_ {
         self.totems
             .iter()
             .map(|t| t.template)
             .chain(self.refining.values().map(|r| r.product))
             .chain(self.recipes.values().map(|r| r.product))
+            .chain(self.combinations.iter().map(|c| c.product))
     }
 }

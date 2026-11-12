@@ -50,8 +50,11 @@
 //! making; the plant is used up, the armor stays).
 //!
 //! **Other recipes that work out their own product** (card melds and the like) name none the data
-//! holds: such a making answers that it failed, with a line saying so, uses up nothing and pays
-//! nothing (2017: 9 of 9 card melds).
+//! holds: what one makes of a set of ingredients is the world's `[[combination]]` row's for the
+//! recipe whose templates the slots hold, one a slot in any order. Such a making makes the row's
+//! product and uses up its slots as the outcome says; one whose slots make no row answers that it
+//! failed, with a line saying so, uses up nothing and pays nothing (2017: 9 of 9 card melds, none of
+//! them a set of cards that melds).
 //!
 //! **Craft experience.** A recipe made pays experience in its craft skill: the recipe's table by
 //! the spinner chosen (else its own fixed amount), times the outcome's share. A part goes to the
@@ -342,7 +345,8 @@ pub enum Custom {
     Spellbind,
     /// Dyeing: the item in its first slot takes the color of the dye in its second.
     Dye,
-    /// A product it works out for itself, which nothing here can: it makes nothing.
+    /// A product it works out for itself: what the world's `[[combination]]` rows say its slots
+    /// make, else nothing.
     Unknown,
 }
 
@@ -2147,16 +2151,28 @@ fn result<S: Store>(
     let Some(def) = s.crafting.recipes.get(&m.recipe).cloned() else {
         return;
     };
-    if def.custom == Custom::Unknown {
-        let line = progress::text(NOTHING_PRODUCED);
-        progress::private(
-            net,
-            world,
-            &crate::chat::show_text(progress::TEXT_KIND, line),
-        );
-        progress::private(net, world, &executed(error::FAILED, m.recipe));
-        return;
-    }
+    // A recipe that works out its own product makes what the world's rows say its slots make,
+    // else nothing.
+    let combined = if def.custom == Custom::Unknown {
+        let templates: Vec<u32> = m
+            .slots
+            .iter()
+            .filter_map(|(_, item)| s.things.get(*item).map(|t| t.template))
+            .collect();
+        let Some(c) = s.crafting.crafts.combination(m.recipe, &templates) else {
+            let line = progress::text(NOTHING_PRODUCED);
+            progress::private(
+                net,
+                world,
+                &crate::chat::show_text(progress::TEXT_KIND, line),
+            );
+            progress::private(net, world, &executed(error::FAILED, m.recipe));
+            return;
+        };
+        Some((c.product, c.count))
+    } else {
+        None
+    };
     // An ingredient put down, traded or sold since the request: nothing is made of it.
     let why = check_slots(s, world, &def, m.spinner, &m.slots);
     if why != 0 {
@@ -2187,8 +2203,10 @@ fn result<S: Store>(
     // What can't be made uses nothing up.
     let cannot = outcome.actions.iter().any(|a| match a {
         Action::Produce { template, .. } => !crate::makes::can_make(s, *template),
-        Action::Custom => matches!(def.custom, Custom::Refine { product, .. }
-            if !crate::makes::can_make(s, product)),
+        Action::Custom => match def.custom {
+            Custom::Refine { product, .. } => !crate::makes::can_make(s, product),
+            _ => combined.is_some_and(|(product, _)| !crate::makes::can_make(s, product)),
+        },
         _ => false,
     });
     if cannot {
@@ -2203,7 +2221,7 @@ fn result<S: Store>(
     }
     let makes_item = outcome.actions.iter().any(|a| match a {
         Action::Produce { .. } => true,
-        Action::Custom => matches!(def.custom, Custom::Refine { .. }),
+        Action::Custom => matches!(def.custom, Custom::Refine { .. }) || combined.is_some(),
         _ => false,
     });
     if makes_item
@@ -2316,7 +2334,12 @@ fn result<S: Store>(
                     }
                 }
                 Custom::Dye => dye(s, net, world, &m.slots),
-                Custom::None | Custom::Unknown => {}
+                Custom::Unknown => {
+                    if let Some((product, count)) = combined {
+                        crate::inventory::give_made(s, net, world, product, count);
+                    }
+                }
+                Custom::None => {}
             },
             Action::Other => {}
         }

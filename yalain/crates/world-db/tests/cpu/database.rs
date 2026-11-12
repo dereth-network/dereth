@@ -3253,6 +3253,111 @@ fn a_step_on_a_quest_given_compiles_and_reads_back_as_written() {
     );
 }
 
+/// A `[[combination]]` row names a recipe that works out its own product, the templates its
+/// slots hold and what they make; it compiles into crafting's rows in their order, its product
+/// among what crafting makes, a template the install lacks is a problem, a key is set once, and
+/// a row with no templates or a count of 0 is refused.
+/// Behaviour: server.craft.combination-rows
+#[test]
+fn combination_rows_compile_in_order_and_hold_their_templates_to_the_install() {
+    use yalain_content::crafts::Combination;
+    let row = |body: &str| {
+        format!(
+            "[[combination]]\n{body}\nprov = {{ from = \"authored\", by = \"a test\", note = \"a test\" }}\n"
+        )
+    };
+    let good = format!(
+        "{}\n{}",
+        row("key = \"pair\"\nrecipe = 0x6F001ABB\nitems = [0x4700115B, 0x47002224]\nproduct = 0x47002224"),
+        row("key = \"twice\"\nrecipe = 0x6F001ABB\nitems = [0x4700115B, 0x4700115B]\nproduct = 0x4700115B\ncount = 2"),
+    );
+    let mut files = fixture();
+    files.insert("town/server/crafting.toml".into(), good.clone());
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.crafts.combinations,
+        [
+            Combination {
+                key: "pair".into(),
+                recipe: 0x6F00_1ABB,
+                items: vec![0x4700_115B, 0x4700_2224],
+                product: 0x4700_2224,
+                count: 1,
+            },
+            Combination {
+                key: "twice".into(),
+                recipe: 0x6F00_1ABB,
+                items: vec![0x4700_115B, 0x4700_115B],
+                product: 0x4700_115B,
+                count: 2,
+            },
+        ]
+    );
+    assert!(
+        t.crafts.templates().any(|x| x == 0x4700_2224),
+        "its product is made"
+    );
+    let c = &t.crafts;
+    assert_eq!(
+        c.combination(0x6F00_1ABB, &[0x4700_2224, 0x4700_115B])
+            .map(|c| c.key.as_str()),
+        Some("pair"),
+        "in any order"
+    );
+    assert!(
+        c.combination(0x6F00_1ABB, &[0x4700_115B]).is_none(),
+        "one short"
+    );
+    assert!(
+        c.combination(0x6F00_1ABD, &[0x4700_115B, 0x4700_2224])
+            .is_none(),
+        "another recipe"
+    );
+
+    // A template the install lacks is a problem, a slot's or the product's.
+    for (from, to) in [
+        ("0x47002224]", "0x47009999]"),
+        ("product = 0x47002224", "product = 0x47009999"),
+    ] {
+        let mut lost = fixture();
+        lost.insert("town/server/crafting.toml".into(), good.replace(from, to));
+        let problems = compile(&merge(&read(&lost).unwrap()).unwrap(), &Fake::new()).unwrap_err();
+        assert!(
+            problems.iter().any(|p| p
+                .to_string()
+                .contains("template 47009999 is not in the install")),
+            "{to}: {problems:?}"
+        );
+    }
+
+    // One row a key.
+    let mut twice = files.clone();
+    twice.insert(
+        "town/server/more.toml".into(),
+        good.replace("count = 2", "count = 3"),
+    );
+    assert!(
+        check(&twice)
+            .iter()
+            .any(|p| p.message.contains("set twice")),
+        "{:?}",
+        check(&twice)
+    );
+
+    // Their shapes.
+    let base = "key = \"pair\"\nrecipe = 0x6F001ABB\nproduct = 0x47002224";
+    for bad in [
+        base.to_string(),
+        format!("{base}\nitems = []"),
+        format!("{base}\nitems = [0x47002224]\ncount = 0"),
+    ] {
+        let mut f = fixture();
+        f.insert("town/server/crafting.toml".into(), row(&bad));
+        assert!(!check(&f).is_empty(), "{bad}");
+    }
+}
+
 /// A recipe row names its id, the install recipe it is made from, its name, its slots (each one or
 /// more templates, how many, and what the slot says) and its product; it compiles into crafting's
 /// rows by its id, and a step names the recipes it teaches, which read back as written.

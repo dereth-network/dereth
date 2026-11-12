@@ -672,6 +672,7 @@ pub enum Row {
     Spellbinding(Spellbinding),
     Refining(Refining),
     Recipe(Recipe),
+    Combination(Combination),
     Concealing(Concealing),
     NpcTable(NpcTable),
     FriendTable(FriendTable),
@@ -840,6 +841,14 @@ pub struct Refining {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Recipe {
     pub recipe: yalain_content::crafts::Recipe,
+    pub prov: Prov,
+}
+
+/// `[[combination]]`: what a recipe that works out its own product makes of one set of
+/// ingredients: the recipe, the templates its slots hold (in any order), and the product, how many.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Combination {
+    pub combination: yalain_content::crafts::Combination,
     pub prov: Prov,
 }
 
@@ -1207,6 +1216,7 @@ impl Row {
             Self::Spellbinding(_) => "spellbinding",
             Self::Refining(_) => "refining",
             Self::Recipe(_) => "recipe",
+            Self::Combination(_) => "combination",
             Self::Concealing(_) => "concealing",
             Self::NpcTable(_) => "npc_table",
             Self::FriendTable(_) => "friend_table",
@@ -1270,6 +1280,7 @@ impl Row {
             Self::Spellbinding(r) => Some(&r.prov),
             Self::Refining(r) => Some(&r.prov),
             Self::Recipe(r) => Some(&r.prov),
+            Self::Combination(r) => Some(&r.prov),
             Self::Concealing(r) => Some(&r.prov),
             Self::NpcTable(r) => Some(&r.prov),
             Self::FriendTable(r) => Some(&r.prov),
@@ -1283,7 +1294,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 57] = [
+pub const KINDS: [&str; 58] = [
     "object",
     "camp",
     "loot",
@@ -1334,6 +1345,7 @@ pub const KINDS: [&str; 57] = [
     "spellbinding",
     "refining",
     "recipe",
+    "combination",
     "concealing",
     "npc_table",
     "friend_table",
@@ -1344,7 +1356,7 @@ pub const KINDS: [&str; 57] = [
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 57] = [
+pub const FIELDS: [(&str, &[&str]); 58] = [
     (
         "object",
         &[
@@ -1760,6 +1772,10 @@ pub const FIELDS: [(&str, &[&str]); 57] = [
             "category",
             "prov",
         ],
+    ),
+    (
+        "combination",
+        &["key", "recipe", "items", "product", "count", "prov"],
     ),
     ("concealing", &["effect", "class", "regard", "prov"]),
     ("npc_table", &["name", "heals_kin", "prov"]),
@@ -3030,6 +3046,26 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                     count,
                     skill: f.id("skill"),
                     category: f.u32("category"),
+                },
+                prov: f.req_prov()?,
+            })
+        }
+        "combination" => {
+            let key = f.req_symbol("key")?;
+            let recipe = f.req_id("recipe")?;
+            let items = f.ids("items");
+            let ok = !items.is_empty();
+            let items = f.held("items", items, ok, "at least one template")?;
+            let product = f.req_id("product")?;
+            let count = f.u32("count").unwrap_or(1);
+            let count = f.held("count", count, count > 0, "above 0")?;
+            Row::Combination(Combination {
+                combination: yalain_content::crafts::Combination {
+                    key,
+                    recipe,
+                    items,
+                    product,
+                    count,
                 },
                 prov: f.req_prov()?,
             })

@@ -28,7 +28,8 @@ world.lock                         ids given to authored rows, kept across build
 <pack>/server/quests/QQQQQQQQ.toml [[quest]], [[step]] of one quest
 <pack>/server/gives/TTTTTTTT.toml  [[give]] of one template given to
 <pack>/server/talk/TTTTTTTT.toml   [[talk]] of one template
-<pack>/server/crafting.toml        [[craft]], [[tool]], [[spellbinding]], [[refining]], [[recipe]]
+<pack>/server/crafting.toml        [[craft]], [[tool]], [[spellbinding]], [[refining]], [[recipe]],
+                                   [[combination]]
 <pack>/server/mines.toml           [[mine]]
 <pack>/server/maps.toml            [[map_region]], [[map_recipes]]
 <pack>/server/story.toml           [[scene]], [[shard]]
@@ -133,6 +134,7 @@ Every row sets one **item**, named by its key:
 | `step 0xQUEST KEY` | the quest and the step's `key` |
 | `craft 0xID` | the craft skill or recipe |
 | `recipe 0xID` | the recipe's id |
+| `combination KEY` | the row's `key` |
 | `scene 0xID` | the scene's id |
 | `shard 0xOBJECT` | the shard's world id |
 | `butchery 0xPROFILE` | the butchery profile |
@@ -747,6 +749,23 @@ it. A step's `recipes` teaches it.
 | `count` | | above 0; 1 when left out |
 | `skill` | | its craft skill (a saved state); the install recipe's when left out |
 | `category` | | its category in its craft skill, by number; the install recipe's when left out |
+| `prov` | required | where it came from |
+
+#### `[[combination]]`
+
+What a recipe that works out its own product (a card meld) makes of one set of ingredients. A making
+whose slots hold the row's templates, one a slot in any order, makes its product in the maker's pack
+and uses up each slot as the recipe's outcome says; one whose slots make no row of its recipe makes
+nothing, says "You fail to produce anything.", and uses up and pays nothing. The first row of the
+recipe the slots make is taken.
+
+| field | | meaning |
+|---|---|---|
+| `key` | required | lowercase letters, digits and hyphens |
+| `recipe` | required | the install recipe (its saved state) whose product it works out |
+| `items` | required | the templates its slots hold, at least one, one a slot in any order; a template twice where two of it go in |
+| `product` | required | the template of what it makes |
+| `count` | | above 0; 1 when left out |
 | `prov` | required | where it came from |
 
 #### `[[plant]]`
