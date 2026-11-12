@@ -80,12 +80,11 @@ impl Event {
     }
 }
 
-/// A placed object an event gates, as it was compiled: found again by its template and place.
-#[derive(Debug, Clone, PartialEq)]
+/// A placed object an event gates: the object by its place in the world's list of placed objects,
+/// so two alike at one place may wait on different events.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObjectGate {
-    pub template: u32,
-    pub cell: u32,
-    pub origin: [f32; 3],
+    pub object: usize,
     pub event: String,
 }
 
@@ -122,16 +121,12 @@ impl EventTable {
             .map(|(_, e)| e.as_str())
     }
 
-    /// The event a placed object waits on, if any.
+    /// The event the placed object at this place in the world's list waits on, if any.
     #[must_use]
-    pub fn of_object(&self, template: u32, cell: u32, origin: [f32; 3]) -> Option<&str> {
+    pub fn of_object(&self, object: usize) -> Option<&str> {
         self.objects
             .iter()
-            .find(|g| {
-                g.template == template
-                    && g.cell == cell
-                    && g.origin.map(f32::to_bits) == origin.map(f32::to_bits)
-            })
+            .find(|g| g.object == object)
             .map(|g| g.event.as_str())
     }
 

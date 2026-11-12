@@ -3978,6 +3978,49 @@ fn an_effect_name_row_compiles_to_the_state_its_name_stands_for() {
     }
 }
 
+/// Two objects of one template at one place, each naming its own event, compile to gates of their
+/// own.
+#[test]
+fn objects_alike_at_one_place_compile_to_their_own_event_gates() {
+    let mut files = fixture();
+    files.insert(
+        "town/server/events.toml".into(),
+        "[[event]]\nkey = \"fair\"\nwhen = [{ days = [\"sat\"], from = \"10:00\", until = \"12:00\" }]\n\
+         prov = { from = \"authored\" }\n\n\
+         [[event]]\nkey = \"market\"\nwhen = [{ days = [\"sun\"], from = \"10:00\", until = \"12:00\" }]\n\
+         prov = { from = \"authored\" }\n"
+            .into(),
+    );
+    for (key, id, event) in [("booth-a", 3, "fair"), ("booth-b", 4, "market")] {
+        files
+            .get_mut("town/server/landblocks/77B7.toml")
+            .unwrap()
+            .push_str(&format!(
+                "\n[[object]]\nkey = \"{key}\"\nkind = \"static\"\nid = 0x4077B7000000000{id}\n\
+                 template = 0x4700115B\nat = [118.0, 114.0, 250.0]\nevent = \"{event}\"\n\
+                 prov = {{ from = \"authored\" }}\n"
+            ));
+    }
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let at = |id: u64| {
+        t.content
+            .objects
+            .iter()
+            .position(|o| o.object == Some(id))
+            .unwrap()
+    };
+    let (fair, market) = (at(0x4077_B700_0000_0003), at(0x4077_B700_0000_0004));
+    let (a, b) = (&t.content.objects[fair], &t.content.objects[market]);
+    assert_eq!(
+        (a.template, a.cell, a.origin),
+        (b.template, b.cell, b.origin)
+    );
+    let ev = &t.content.events;
+    assert_eq!(ev.of_object(fair), Some("fair"));
+    assert_eq!(ev.of_object(market), Some("market"));
+}
+
 #[test]
 fn an_event_row_reads_its_windows_and_gates_compile_to_the_event_table() {
     use yalain_content::events::Window;
@@ -4044,6 +4087,13 @@ fn an_event_row_reads_its_windows_and_gates_compile_to_the_event_table() {
     assert_eq!(ev.events.len(), 1);
     assert_eq!(ev.of_camp("beetles"), Some("fair"));
     assert_eq!(ev.objects.len(), 1);
+    let gate = t
+        .content
+        .objects
+        .iter()
+        .position(|o| o.object == Some(0x4077_B700_0000_0001))
+        .unwrap();
+    assert_eq!(ev.of_object(gate), Some("fair"));
     assert_eq!(ev.steps.len(), 1);
     assert_eq!(
         ev.steps[0].0.requires.len(),

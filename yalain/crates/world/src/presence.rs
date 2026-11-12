@@ -268,7 +268,7 @@ pub fn refresh<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) 
         let id = content_id(&s.content.objects, i);
         let o = &s.content.objects[i];
         let known = p.known.contains_key(&id);
-        if crate::events::hides(s, o) {
+        if crate::events::hides(s, i) {
             continue;
         }
         if !known && in_sight(ground, &p, o.cell, o.origin) {
@@ -725,7 +725,7 @@ pub fn content_moves<S: Store>(
     let Some(o) = s.content.objects.get(index) else {
         return;
     };
-    if crate::events::hides(s, o) {
+    if crate::events::hides(s, index) {
         return;
     }
     let id = content_id(&s.content.objects, index);

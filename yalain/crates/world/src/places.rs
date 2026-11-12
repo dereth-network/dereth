@@ -1467,13 +1467,14 @@ pub fn walked<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, c
         .content
         .objects
         .iter()
-        .filter(|o| {
+        .enumerate()
+        .filter(|(i, o)| {
             (o.destination.is_some() || keeps_players_out(s, o))
                 && s.walk_in_packages.contains(&o.description.package)
-                && !crate::events::hides(s, o)
+                && !crate::events::hides(s, *i)
         })
-        .find(|o| touches(&at, o.cell, o.origin))
-        .and_then(|o| s.placed.database_id(o));
+        .find(|(_, o)| touches(&at, o.cell, o.origin))
+        .and_then(|(_, o)| s.placed.database_id(o));
     let before = s.touching.get(&world).copied();
     match touched {
         None => {

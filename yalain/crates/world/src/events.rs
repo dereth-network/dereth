@@ -55,19 +55,18 @@ pub fn camp_stands<S: Store>(s: &Server<S>, camp: usize) -> bool {
         .is_none_or(|e| is_on(s, e))
 }
 
-/// Is a placed object kept from the world now: it names an event that is off.
+/// Is the placed object at this place in the world's list kept from the world now: it names an
+/// event that is off.
 #[must_use]
-pub fn hides<S: Store>(s: &Server<S>, o: &yalain_content::ContentObject) -> bool {
+pub fn hides<S: Store>(s: &Server<S>, object: usize) -> bool {
     let t = &s.content.events;
-    !t.is_empty()
-        && t.of_object(o.template, o.cell, o.origin)
-            .is_some_and(|e| !is_on(s, e))
+    !t.is_empty() && t.of_object(object).is_some_and(|e| !is_on(s, e))
 }
 
 /// The placed object of an id, unless it is kept from the world now.
 #[must_use]
 pub fn content_standing<S: Store>(s: &Server<S>, id: u64) -> Option<usize> {
-    presence::content_by_id(&s.content.objects, id).filter(|i| !hides(s, &s.content.objects[*i]))
+    presence::content_by_id(&s.content.objects, id).filter(|i| !hides(s, *i))
 }
 
 /// May a quest step run now: every event it names is on.
@@ -160,12 +159,8 @@ fn starts<S: Store>(s: &mut Server<S>, net: &mut ServerNet, key: &str) {
 /// The placed objects an event gates, by their places in the world's list.
 fn gated_objects<S: Store>(s: &Server<S>, key: &str) -> Vec<usize> {
     let t = &s.content.events;
-    s.content
-        .objects
-        .iter()
-        .enumerate()
-        .filter(|(_, o)| t.of_object(o.template, o.cell, o.origin) == Some(key))
-        .map(|(i, _)| i)
+    (0..s.content.objects.len())
+        .filter(|i| t.of_object(*i) == Some(key))
         .collect()
 }
 

@@ -810,9 +810,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         .events
                         .objects
                         .push(yalain_content::events::ObjectGate {
-                            template: o.template,
-                            cell,
-                            origin,
+                            object: t.content.objects.len(),
                             event: event.clone(),
                         });
                 }

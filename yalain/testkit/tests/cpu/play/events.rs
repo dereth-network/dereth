@@ -113,9 +113,7 @@ fn world(windows: Vec<Window>) -> (Harness, usize, u64) {
         }],
         camps: vec![("test".into(), "fair".into())],
         objects: vec![ObjectGate {
-            template: TEMPLATE,
-            cell: CELL,
-            origin: ORIGIN,
+            object: 0,
             event: "fair".into(),
         }],
         steps: vec![(step(), "fair".into())],
@@ -313,4 +311,64 @@ fn a_world_with_no_events_gates_nothing() {
     h.run(10);
     assert_eq!(beetles(&h), 2);
     assert!(made(&h, b, 0));
+}
+
+/// Two objects of one template at one place, each naming its own event, each wait on their own:
+/// while one event is on and the other off, only the first object is made.
+/// Behaviour: server.events.gate-camps-objects-steps-and-players
+#[test]
+fn objects_alike_at_one_place_each_wait_on_their_own_event() {
+    const OTHER: u64 = OBJECT + 1;
+    let start = 1_700_000_000 + 120;
+    let mut h = Harness::new();
+    h.server.content.objects = vec![
+        object(),
+        ContentObject {
+            object: Some(OTHER),
+            ..object()
+        },
+    ];
+    h.server.content.events = EventTable {
+        events: vec![
+            Event {
+                key: "fair".into(),
+                game_event: None,
+                windows: vec![Window::Dated {
+                    from: start,
+                    until: start + 300,
+                }],
+                on_players: Vec::new(),
+            },
+            Event {
+                key: "market".into(),
+                game_event: None,
+                windows: Vec::new(),
+                on_players: Vec::new(),
+            },
+        ],
+        objects: vec![
+            ObjectGate {
+                object: 0,
+                event: "fair".into(),
+            },
+            ObjectGate {
+                object: 1,
+                event: "market".into(),
+            },
+        ],
+        ..EventTable::default()
+    };
+    let (b, _) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let from = h.bots[b].inbox.len();
+    run_to_unix(&mut h, start);
+    let made_ids: Vec<u64> = h
+        .world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::CreateObject(o) if o.id == OBJECT || o.id == OTHER => Some(o.id),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(made_ids, vec![OBJECT], "only the fair's object is made");
 }

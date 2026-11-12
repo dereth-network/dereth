@@ -205,9 +205,7 @@ fn world(tally: Tally) -> Harness {
             on_players: Vec::new(),
         }],
         objects: vec![ObjectGate {
-            template: SIGN_T,
-            cell: 0x0299_0109,
-            origin: SIGN_AT,
+            object: 2,
             event: "fair".into(),
         }],
         ..EventTable::default()
