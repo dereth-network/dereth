@@ -41,6 +41,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "detection.intersect.a-detection-on-the-land-at-a-caves-mouth-searches-the-cave",
+        says: "A detection made on the land searches, with the land cells under the box around its \
+               volume, the rooms each of them touches, whether or not the box reaches their \
+               doorways, and on through the rooms' doorways the box does reach.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DETECT-AT-CAVE-MOUTH"),
+        station: "auberean-physics::dat::objects::a_detection_on_the_land_at_a_caves_mouth_searches_the_cave",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "detection.intersect.each-detection-of-a-target-takes-it-again",
         says: "The world keeps one stamp that every search and every insert attempt of a move \
                counts on, and an object is taken once a count: a detection centered on an object \

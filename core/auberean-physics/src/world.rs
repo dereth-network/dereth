@@ -1167,6 +1167,17 @@ impl LandSource for View<'_> {
         self.land
             .host_cell_list(pos, spheres, arr, want_container, hits_interior_cell)
     }
+    fn adjust_to_outside(&self, id: &mut CellId, origin: &mut Vec3) -> bool {
+        self.land.adjust_to_outside(id, origin)
+    }
+    fn add_outside_cells(
+        &self,
+        pos: &Position,
+        spheres: &[dereth_physics::geom::Sphere],
+        arr: &mut dereth_physics::CellArray,
+    ) -> bool {
+        self.land.add_outside_cells(pos, spheres, arr)
+    }
     fn object_collisions(&self) -> Option<&dyn ObjectCollisions> {
         Some(self)
     }

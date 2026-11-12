@@ -1,8 +1,9 @@
-//! Objects of the world against the player's body in the human training hall: a sign the server
+//! Objects of the world against the player's body, in the human training hall: a sign the server
 //! puts there, what the cells' own records place that collides through cylinders, and the parts
 //! of every object the cells place, where they collide.
 //! Fixture: hall copy 0x0298 of the September 2013 cell file; the Movement sign as the 2017
-//! servers placed it (template 0x47002E09, look 0x1F0002F4, in cell 0x0109); the human male's
+//! servers placed it (template 0x47002E09, look 0x1F0002F4, in cell 0x0109); the same sign at the
+//! mouth of the kings' catacomb at Lake Artefon (block 0x8B91 and its neighbors); the human male's
 //! collision spheres and step heights and the player's motion values.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -11,7 +12,10 @@ use std::sync::Arc;
 use auberean_assets::entity::Entity;
 use auberean_physics::body::flags;
 use auberean_physics::body::profile::{Profile, ProfileQualities};
-use auberean_physics::interior::add_block_cells;
+use auberean_physics::collision::manager::BodyKey;
+use auberean_physics::detect::DetectorSettings;
+use auberean_physics::ethereal::PhysicsTypes;
+use auberean_physics::interior::{add_block_cells, is_interior};
 use auberean_physics::land::{build, build_near, land_cell_id, Land, NearBlocks, Solid};
 use auberean_physics::mesh::Trees;
 use auberean_physics::motion::params::MovementParameters;
@@ -19,7 +23,7 @@ use auberean_physics::motion::MotionInput;
 use auberean_physics::object::Shape;
 use auberean_physics::parts::{PartArray, PartGroup};
 use auberean_physics::solid::Ethereality;
-use auberean_physics::world::{World, WorldObject};
+use auberean_physics::world::{NoGameObjects, World, WorldObject};
 use auberean_primitives::DataId;
 use auberean_world::look::{Group, Look};
 use auberean_world::place::{PlaceRecords, DRAWN_KINDS};
@@ -34,10 +38,14 @@ use dereth_physics::{PhysicsObj, PhysicsState, SetupGeometry};
 use dereth_primitives::{CellId, Frame, Position, Quat, Vec3};
 
 use crate::common::need_world;
-use crate::interior::{at_the_start, body};
+use crate::interior::{at_the_start, body, holds};
+use crate::walk::{catacomb_land, CATACOMB};
 
 /// The Movement sign's look and where it stands.
 const SIGN_LOOK: u32 = 0x1F00_02F4;
+
+/// The id the sign is given at the catacomb.
+const SIGN: u64 = 0x4002_9800_0000_003B;
 
 fn sign_place() -> Position {
     Position::new(
@@ -936,4 +944,140 @@ fn blocks_built_from_the_landblocks_kept_near_them_are_as_those_built_alone() {
     );
     build_near(&w.records, &w.region, &mut along, &mut near, 0x80, 0xB9).expect("a block");
     assert_eq!(near.kept(), 9, "a far column forgets the others");
+}
+
+/// The Movement sign, as object `id`, standing at `at` on the land or in a room of the kings'
+/// catacomb at Lake Artefon, in the cell under it; its entry and how far its cylinder reaches.
+fn sign_at_the_catacomb(
+    land: &Land,
+    world: &mut World,
+    id: u64,
+    cell: CellId,
+    at: Vec3,
+) -> (BodyKey, f32) {
+    let w = need_world!();
+    let shape = Shape::of(&w.records, DataId(SIGN_LOOK), &mut Trees::default()).expect("the sign");
+    let reach = shape.cylinders[0].radius * shape.scale.x;
+    let key = world.insert(
+        land,
+        id,
+        &WorldObject {
+            shape: Arc::new(shape),
+            position: Position::new(cell, Frame::new(at, Quat::IDENTITY)),
+            is_static: true,
+            passable: false,
+        },
+    );
+    (key, reach)
+}
+
+/// An object standing on the land at a cave's mouth stands in the collision list of the cave's
+/// first room as well as the land cell's, the room being one the land cell touches: the Movement
+/// sign on the mouth's floor of the kings' catacomb, its cylinder reaching half a meter past the
+/// doorway, is solid to a body running up out of the catacomb from where a 2017 player came out,
+/// which is turned aside around it and runs on onto the land, never coming inside it. Filed in the
+/// land cell alone, the sign was not there for the body until the body's own box reached the
+/// doorway, by when it was 0.45 m inside it, and held there.
+///
+/// Behaviour: collision.objects.an-object-on-the-land-at-a-caves-mouth-is-solid-inside-the-cave
+#[test]
+fn an_object_on_the_land_at_a_caves_mouth_is_solid_inside_the_cave() {
+    let w = need_world!();
+    let land = catacomb_land();
+    let mut world = World::new();
+    let sign = Vec3::new(103.5, 41.74, 66.2);
+    let on_land = land_cell_id(0x8B, 0x91, 5, 2);
+    let (key, reach) = sign_at_the_catacomb(&land, &mut world, SIGN, on_land, sign);
+    assert_eq!(
+        world.cells_of(key).map(<[CellId]>::to_vec),
+        Some(vec![on_land, CATACOMB])
+    );
+    let start = Position::new(
+        CATACOMB,
+        Frame::new(Vec3::new(108.30, 41.74, 63.97), Quat::IDENTITY),
+    );
+    let mut b = body(w, start, 270.0);
+    let radius = b.config.spheres[0].radius;
+    b.contact = false;
+    b.on_walkable = false;
+    let mut track = Vec::new();
+    for k in 0..80 {
+        b.steer(MotionInput {
+            forward: if k >= 10 { 1.0 } else { 0.0 },
+            ..MotionInput::default()
+        });
+        b.tick_in(&land, &mut world, 0.1);
+        track.push((b.position.cell, b.position.frame.origin));
+    }
+    let nearest = track
+        .iter()
+        .map(|(_, p)| across(*p, sign))
+        .fold(f32::MAX, f32::min);
+    assert!(
+        nearest > reach + radius - 0.05,
+        "never inside the sign (within 5 cm): {nearest} m from it"
+    );
+    let (cell, end) = track[track.len() - 1];
+    assert!(
+        !is_interior(cell) && end.x < 100.0,
+        "out on the land: {end:?}"
+    );
+}
+
+/// A detection made on the land at a cave's mouth searches the cave's first room, which its land
+/// cell touches, though the box around its volume reaches no doorway, and on through the room's
+/// doorways the box does reach: a body standing on the land 6 m short of the kings' catacomb's
+/// doorway, where 2017's players walked in, finds with a 10 m sphere the Movement sign standing
+/// 2 m inside the first room, and with a 31 m sphere that one and another in the second room, past
+/// the first room's far doorway; each sign stands in its own room alone.
+///
+/// Behaviour: detection.intersect.a-detection-on-the-land-at-a-caves-mouth-searches-the-cave
+#[test]
+fn a_detection_on_the_land_at_a_caves_mouth_searches_the_cave() {
+    const WATCHER: u64 = 0x5000_0001;
+    let w = need_world!();
+    let land = catacomb_land();
+    let mut world = World::new();
+    let near = Vec3::new(106.0, 41.74, 64.9);
+    let (first, _) = sign_at_the_catacomb(&land, &mut world, SIGN, CATACOMB, near);
+    let beyond = CellId(CATACOMB.0 + 1);
+    let far = Vec3::new(126.5, 41.0, 57.7);
+    let (second, _) = sign_at_the_catacomb(&land, &mut world, SIGN + 1, beyond, far);
+    assert!(holds(
+        &land,
+        &Position::new(beyond, Frame::new(far, Quat::IDENTITY))
+    ));
+    assert_eq!(
+        world.cells_of(first).map(<[CellId]>::to_vec),
+        Some(vec![CATACOMB])
+    );
+    assert_eq!(
+        world.cells_of(second).map(<[CellId]>::to_vec),
+        Some(vec![beyond])
+    );
+    let at = Vec3::new(98.11, 39.29, 66.49);
+    let mut b = body(
+        w,
+        Position::new(
+            land_cell_id(0x8B, 0x91, 4, 1),
+            Frame::new(at, Quat::IDENTITY),
+        ),
+        90.0,
+    );
+    let key = world.insert_body(&land, WATCHER, &mut b);
+    let mut found_within = |radius: f32| {
+        let mut s = DetectorSettings {
+            context: 7,
+            physics_blocking: PhysicsTypes::new(u64::MAX),
+            ..DetectorSettings::default()
+        };
+        s.set_shape_sphere(radius, Vec3::ZERO);
+        s.add_exclude_object(WATCHER);
+        let (found, _) = b
+            .do_intersection(&s, &mut world.detection(&land, key, &NoGameObjects))
+            .expect("made at once");
+        found.keys().copied().collect::<Vec<_>>()
+    };
+    assert_eq!(found_within(10.0), vec![SIGN]);
+    assert_eq!(found_within(31.0), vec![SIGN, SIGN + 1]);
 }

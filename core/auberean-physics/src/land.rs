@@ -1256,7 +1256,7 @@ impl LandSource for Land {
         spheres: &[Sphere],
         arr: &mut CellArray,
         want_container: bool,
-        _hits_interior_cell: &mut bool,
+        hits_interior_cell: &mut bool,
     ) -> Option<Option<Cell>> {
         // Inside, the shared search walks the interior cells' doorways.
         if crate::interior::is_interior(pos.cell) {
@@ -1297,8 +1297,31 @@ impl LandSource for Land {
                 ));
             }
         }
+        // Each land cell's rooms with doorways out, and on through the doorways the box reaches:
+        // so a body on the land meets a cave's mouth and walks in.
+        let lands: Vec<CellId> = arr.cells.iter().map(|c| c.cell_id).collect();
+        let rooms =
+            crate::cells::rooms_from_land(self, pos.cell, BBox::of_spheres(spheres), &lands);
+        if !rooms.is_empty() {
+            *hits_interior_cell = true;
+        }
+        for &id in &rooms {
+            arr.add_cell(id, self.cell(id).map(|geom| Cell::Env { id, geom }));
+        }
         if !want_container {
             return Some(None);
+        }
+        // A room holding the first sphere's middle holds the body; else the land cell under it.
+        if let Some(first) = spheres.first() {
+            for &id in &rooms {
+                let Some(geom) = self.cell(id) else {
+                    continue;
+                };
+                let room = Cell::Env { id, geom };
+                if room.point_in_cell(first.center.sub(crate::geom::block_offset(pos.cell, id))) {
+                    return Some(Some(room));
+                }
+            }
         }
         let container = spheres.first().and_then(|s| {
             let (x, y, local) = normalize(block, s.center)?;

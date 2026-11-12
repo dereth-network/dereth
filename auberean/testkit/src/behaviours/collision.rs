@@ -411,6 +411,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "collision.objects.an-object-on-the-land-at-a-caves-mouth-is-solid-inside-the-cave",
+        says: "An object standing on the land at a cave's mouth stands in the collision list of each \
+               room its land cell touches as well as the land cell's, so a body coming up out of the \
+               cave meets it before its own box reaches the doorway: turned aside around it, never \
+               inside it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-OBJECT-AT-CAVE-MOUTH"),
+        station: "auberean-physics::dat::objects::an_object_on_the_land_at_a_caves_mouth_is_solid_inside_the_cave",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "collision.objects.an-object-outside-stands-in-every-land-cell-under-it",
         says: "An object outside stands in the collision list of every land cell the box around \
                its shape reaches, across a landblock's edge too; inside, of its own cell and of \

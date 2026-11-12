@@ -223,7 +223,7 @@ impl Search<'_> {
         }
     }
 
-    /// Every land cell under the box, once per search.
+    /// Every land cell under the box, each followed by the rooms it touches, once per search.
     // D2-03834
     fn outside(&mut self) {
         if self.added_outside {
@@ -232,6 +232,17 @@ impl Search<'_> {
         self.added_outside = true;
         for id in outside_cells(self.origin, &self.bbox) {
             self.add(id);
+            self.rooms_touching(id);
+        }
+    }
+
+    /// The interior cells land cell `id` touches, whether or not the box reaches them, each on
+    /// through the doorways the box reaches.
+    // D2-03832
+    fn rooms_touching(&mut self, id: CellId) {
+        for room in self.land.touching_cells(id) {
+            self.add(room);
+            self.transit(room);
         }
     }
 }
@@ -328,7 +339,8 @@ pub fn adjust_to_outside(cell: &mut CellId, origin: &mut Vec3) -> bool {
 
 /// The cells a box in the landblock frame of `origin` touches, starting from `origin`: an interior
 /// cell, then the cells through its doorways the box reaches; a land cell, every land cell under
-/// the box.
+/// the box, each followed by the rooms it touches and the cells through their doorways the box
+/// reaches. A doorway out reached from inside takes in the land the same way.
 // D2-03847
 #[must_use]
 pub fn find_cells(land: &Land, origin: CellId, bbox: BBox) -> Vec<CellId> {
@@ -348,6 +360,31 @@ pub fn find_cells(land: &Land, origin: CellId, bbox: BBox) -> Vec<CellId> {
         s.transit(origin);
     } else {
         s.outside();
+    }
+    s.cells
+}
+
+/// The interior cells a box in the landblock frame of `origin` reaches from the land: the rooms each
+/// of `land_cells` touches, each on through the doorways the box reaches, once each. The land under
+/// the box is the caller's to add.
+// D2-03832, D2-03556
+#[must_use]
+pub fn rooms_from_land(
+    land: &Land,
+    origin: CellId,
+    bbox: BBox,
+    land_cells: &[CellId],
+) -> Vec<CellId> {
+    let mut s = Search {
+        land,
+        origin,
+        bbox,
+        cells: Vec::new(),
+        added_outside: true,
+        walked: BTreeSet::new(),
+    };
+    for &id in land_cells {
+        s.rooms_touching(id);
     }
     s.cells
 }

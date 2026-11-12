@@ -805,6 +805,24 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "motion.walk.a-body-walks-from-the-land-into-a-cave-by-its-mouth",
+        says: "Run off the land into a cave whose mouth opens on it, the player's body goes from the \
+               land cell into the cave's first room where 2017's players did, and on down its ramp.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MOTION-WALK-INTO-CAVE"),
+        station: "auberean-physics::dat::walk::a_body_walks_from_the_land_into_a_cave_by_its_mouth",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "motion.walk.a-body-walks-out-of-a-cave-onto-the-land",
+        says: "Run up out of a cave's first room past its doorway, the player's body is in the land \
+               cell outside, the land's own 20 m cells, and runs on onto the land.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MOTION-WALK-OUT-OF-CAVE"),
+        station: "auberean-physics::dat::walk::a_body_walks_out_of_a_cave_onto_the_land",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "motion.walk.a-running-body-keeps-to-the-ground-and-stops-at-a-wall",
         says: "Run north from the 2017 sessions' commonest arrival point, the player's body keeps \
                to the ground, is turned aside by a building's pillars and comes to rest against \

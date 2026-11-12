@@ -5,10 +5,13 @@
 use auberean_assets::animation::MotionDesc;
 use auberean_assets::setup::Setup;
 use auberean_physics::body::{setup_spheres, Body, BodyConfig};
+use auberean_physics::interior::is_interior;
 use auberean_physics::land::{cell_of, land_cell_id, Land};
 use auberean_physics::mesh::Trees;
 use auberean_physics::motion::MotionInput;
-use dereth_primitives::{Frame, Position, Quat, Vec3};
+use dereth_physics::cell::{CellArray, CellResolver};
+use dereth_physics::geom::Sphere;
+use dereth_primitives::{CellId, Frame, Position, Quat, Vec3};
 
 use crate::common::need_world;
 
@@ -27,24 +30,7 @@ fn a_running_body_keeps_to_the_ground_and_stops_at_a_wall() {
             land.add_block(&w.records, &w.region, &mut trees, x, y);
         }
     }
-    let setup: Setup = w.records.get(0x0400_0029).expect("the human setup");
-    let md: MotionDesc = w.records.get(0x3200_0000).expect("the player's motion");
-    let pick = |element: u32| {
-        let (_, set) = md
-            .set_of
-            .iter()
-            .find(|(k, _)| k.element == element && k.mode == 0x4000_0001)
-            .expect("a set");
-        md.sets[*set as usize].default
-    };
-    let config = BodyConfig {
-        spheres: setup_spheres(&setup),
-        step_up: setup.step_up_height,
-        step_down: setup.step_down_height,
-        scale: 1.0,
-        ground: pick(0x4000_0001),
-        air: pick(0x4000_0002),
-    };
+    let config = player_body(w);
     let at = Vec3::new(45.24, 90.51, 85.26);
     let (cx, cy) = cell_of(at).expect("in the block");
     let start = Position::new(
@@ -156,4 +142,127 @@ fn a_room_names_the_material_of_its_floor() {
         0,
         "not loaded"
     );
+}
+
+/// The human male's collision spheres and step heights, with the player's motion values.
+fn player_body(w: &crate::common::World) -> BodyConfig {
+    let setup: Setup = w.records.get(0x0400_0029).expect("the human setup");
+    let md: MotionDesc = w.records.get(0x3200_0000).expect("the player's motion");
+    let pick = |element: u32| {
+        let (_, set) = md
+            .set_of
+            .iter()
+            .find(|(k, _)| k.element == element && k.mode == 0x4000_0001)
+            .expect("a set");
+        md.sets[*set as usize].default
+    };
+    BodyConfig {
+        spheres: setup_spheres(&setup),
+        step_up: setup.step_up_height,
+        step_down: setup.step_down_height,
+        scale: 1.0,
+        ground: pick(0x4000_0001),
+        air: pick(0x4000_0002),
+    }
+}
+
+/// The ground and rooms around the kings' catacomb at Lake Artefon (block `0x8B91`), where the land
+/// opens on the catacomb's mouth.
+pub(crate) fn catacomb_land() -> Land {
+    let w = need_world!();
+    let land = Land::new();
+    let mut trees = Trees::default();
+    for x in 0x8A..=0x8Cu8 {
+        for y in 0x90..=0x92u8 {
+            land.add_block(&w.records, &w.region, &mut trees, x, y);
+        }
+    }
+    auberean_physics::interior::add_block_cells(&land, &w.records, &mut trees, 0x8B, 0x91);
+    land
+}
+
+/// A run at the catacomb from `at` in `cell` facing `heading`: the cell and place at each of 30
+/// ticks, running from the sixth.
+fn run_at_the_catacomb(cell: CellId, at: Vec3, heading: f32) -> Vec<(CellId, Vec3)> {
+    let land = catacomb_land();
+    let start = Position::new(cell, Frame::new(at, Quat::IDENTITY));
+    let mut body = Body::new(player_body(need_world!()), start, heading);
+    let mut track = Vec::new();
+    for k in 0..30 {
+        body.steer(MotionInput {
+            forward: if k >= 5 { 1.0 } else { 0.0 },
+            ..MotionInput::default()
+        });
+        body.tick(&land, 0.1);
+        track.push((body.position.cell, body.position.frame.origin));
+    }
+    track
+}
+
+/// The catacomb's first room, whose doorway opens on the land.
+pub(crate) const CATACOMB: CellId = CellId(0x8B91_0100);
+
+/// Run east off the land into the kings' catacomb where 2017's players went in: the land cell the
+/// mouth opens on knows the room, so a body there meets the room as well as the land, and goes from
+/// the land into it within a meter of where theirs were first told in it (104.0 to 105.3 m east)
+/// and on down its ramp.
+///
+/// Behaviour: motion.walk.a-body-walks-from-the-land-into-a-cave-by-its-mouth
+#[test]
+fn a_body_walks_from_the_land_into_a_cave_by_its_mouth() {
+    // Standing on the mouth's floor short of the doorway, the body's cells are the land's and the
+    // room's, and it is in the land cell.
+    let land = catacomb_land();
+    let at = Vec3::new(103.0, 39.29, 66.27);
+    let spheres: Vec<Sphere> = player_body(need_world!())
+        .spheres
+        .iter()
+        .map(|s| Sphere::new(Vec3::new(at.x, at.y, at.z + s.center.z), s.radius))
+        .collect();
+    let on_land = land_cell_id(0x8B, 0x91, 5, 1);
+    let (mut cells, mut touches_inside) = (CellArray::new(), false);
+    let held = CellResolver::new(&land).find_cell_list(
+        &Position::new(on_land, Frame::new(at, Quat::IDENTITY)),
+        &spheres,
+        &mut cells,
+        true,
+        &mut touches_inside,
+    );
+    assert!(cells.contains(CATACOMB), "{:?}", cells.cells);
+    assert!(touches_inside, "the search reached a room");
+    assert_eq!(held.map(|c| c.id()), Some(on_land));
+
+    let at = Vec3::new(98.11, 39.29, 66.49);
+    let (cx, cy) = cell_of(at).expect("in the block");
+    let track = run_at_the_catacomb(land_cell_id(0x8B, 0x91, cx, cy), at, 90.0);
+    let (_, first) = track
+        .iter()
+        .find(|(c, _)| *c == CATACOMB)
+        .expect("goes into the catacomb");
+    assert!((103.5..=105.8).contains(&first.x), "{first:?}");
+    let (cell, end) = track[track.len() - 1];
+    assert_eq!(cell, CATACOMB, "{end:?}");
+    assert!(end.x > 110.0 && end.z < 63.0, "down the ramp: {end:?}");
+}
+
+/// Run west up the kings' catacomb's ramp from where a 2017 player came out: past its doorway the
+/// body is in the land cell outside (the land's own 20 m cells, where theirs was told at 103.65 m
+/// east) and runs on over the mouth's floor onto the land, never falling under it.
+///
+/// Behaviour: motion.walk.a-body-walks-out-of-a-cave-onto-the-land
+#[test]
+fn a_body_walks_out_of_a_cave_onto_the_land() {
+    let track = run_at_the_catacomb(CATACOMB, Vec3::new(108.30, 41.74, 63.97), 270.0);
+    let (_, out) = track
+        .iter()
+        .find(|(c, _)| !is_interior(*c))
+        .expect("comes out of the catacomb");
+    assert!((103.0..=104.0).contains(&out.x), "{out:?}");
+    assert!(
+        track.iter().all(|(_, p)| p.z > 63.5),
+        "never falls: {track:?}"
+    );
+    let (cell, end) = track[track.len() - 1];
+    assert_eq!(cell, land_cell_id(0x8B, 0x91, 4, 2), "{end:?}");
+    assert!(end.x < 96.0 && end.z > 66.0, "{end:?}");
 }
