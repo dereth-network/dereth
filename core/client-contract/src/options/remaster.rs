@@ -90,7 +90,7 @@ pub fn drawn_nothing_here(name: &str) -> bool {
 }
 
 /// The remaster's own boxes, in the order the page shows them.
-pub const FEATURES: [Feature; 23] = [
+pub const FEATURES: [Feature; 24] = [
     Feature {
         name: names::REMASTER_SHADOWS,
         caption: "Shadows",
@@ -232,6 +232,12 @@ pub const FEATURES: [Feature; 23] = [
         name: names::REMASTER_ART_PACK,
         caption: "Art pack",
         note: "Draws the art pack's models and ground, when one is open.",
+        at_first: false,
+    },
+    Feature {
+        name: names::REMASTER_CLIFF_SHELVES,
+        caption: "Cliff shelves",
+        note: "Steep rock faces in the distance are drawn as ledges.",
         at_first: false,
     },
 ];

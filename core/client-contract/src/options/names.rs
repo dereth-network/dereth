@@ -163,6 +163,9 @@ pub mod fidelity {
     /// `Fidelity.RemasterGodRays`: how strongly the remaster's sunlit air shows shafts of light,
     /// 0 none, 1 low, 2 high.
     pub const REMASTER_GOD_RAYS: &str = "Fidelity.RemasterGodRays";
+    /// `Fidelity.RemasterCliffShelvesFar`: the remaster draws steep rock faces far off as
+    /// shelves.
+    pub const REMASTER_CLIFF_SHELVES: &str = "Fidelity.RemasterCliffShelvesFar";
     /// `Fidelity.RemasterArtPack`: the art pack in the remaster, while its box is ticked. Naming a
     /// pack ticks it.
     pub const REMASTER_ART_PACK: &str = "Fidelity.RemasterArtPack";
@@ -207,6 +210,7 @@ pub mod fidelity {
         REMASTER_DLSS,
         REMASTER_SCALE,
         REMASTER_GOD_RAYS,
+        REMASTER_CLIFF_SHELVES,
         REMASTER_ART_PACK,
         REMASTER_GRADE,
         REMASTER_AIR,

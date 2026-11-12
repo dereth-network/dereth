@@ -9,7 +9,9 @@
 //!   cap. It is nought at every retail vertex, where the two surfaces meet.
 //! - **Unwalkable ground** (steeper than bodies stand on) takes rock bands: retail's own surface
 //!   cut into treads and risers, nought within an edge of walkable ground (where a body stands at
-//!   the brink) and with room growing past it up to a cap, a larger one on tall faces.
+//!   the brink) and with room growing past it up to a cap, a larger one on tall faces. The bands
+//!   are kept apart in the field ([`BlockField::bands`]), so they can be drawn everywhere, only
+//!   far from the eye, or nowhere ([`CliffShelves`]) without working the field out again.
 //! - **Pins**: buildings, static objects, roads and water keep retail's height, the offset rising
 //!   from them over a fade.
 //! - **Bodies** stand on the offset averaged over their stance (the low-pass, [`body_offset`]); the
@@ -496,13 +498,50 @@ pub fn band_offset(h: f32, band: f32, riser: f32, wander: f32) -> f32 {
     (smoothstep(1.0 - r, 1.0, f) - f + (1.0 - r) * 0.5) * band
 }
 
-/// The offset of the near ground at a point before the pins: the walkable rounding, and the rock
-/// bands of unwalkable ground `to_walkable` meters from walkable ground.
-fn near_raw(p: &Point, x: f32, y: f32, to_walkable: f32, knobs: &Knobs) -> f32 {
+/// Where the rock bands on unwalkable ground are drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CliffShelves {
+    /// Nowhere: unwalkable ground is rounded as walkable ground is.
+    #[default]
+    Off,
+    /// Far from the eye only, fading in from [`Knob::CliffNear`] to [`Knob::CliffFar`]: they
+    /// read as strata far off, and the face up close is drawn without them.
+    FarOnly,
+    /// Everywhere the near ground is drawn.
+    On,
+}
+
+impl CliffShelves {
+    /// The distances from the eye, meters, the bands fade in between: none of them nearer than
+    /// the first, all of them past the second ([`bands_kept`]).
+    #[must_use]
+    pub fn fade(self, knobs: &Knobs) -> (f32, f32) {
+        match self {
+            Self::Off => (1.0e9, 2.0e9),
+            Self::FarOnly => {
+                let near = knobs.get(Knob::CliffNear);
+                (near, knobs.get(Knob::CliffFar).max(near))
+            }
+            Self::On => (-2.0, -1.0),
+        }
+    }
+}
+
+/// How much of the rock bands is drawn `distance` meters from the eye, where they fade in over
+/// `fade` ([`CliffShelves::fade`]): 0 none, 1 all.
+#[must_use]
+pub fn bands_kept(distance: f32, fade: (f32, f32)) -> f32 {
+    smoothstep(fade.0, fade.1, distance)
+}
+
+/// The offset of the near ground at a point before the pins, and the part of it the rock bands
+/// make: the walkable rounding, and the rock bands of unwalkable ground `to_walkable` meters from
+/// walkable ground. The offset less that part is the ground drawn without the bands.
+fn near_raw(p: &Point, x: f32, y: f32, to_walkable: f32, knobs: &Knobs) -> (f32, f32) {
     let walk_cap = knobs.get(Knob::WalkCap);
     let round = soft_cap(knobs.get(Knob::Round) * (p.smooth - p.retail), walk_cap);
     if p.walkable || !knobs.on(Knob::Cliffs) {
-        return round;
+        return (round, 0.0);
     }
     let edge = knobs.get(Knob::CliffEdge);
     let tall = smoothstep(
@@ -520,7 +559,9 @@ fn near_raw(p: &Point, x: f32, y: f32, to_walkable: f32, knobs: &Knobs) -> f32 {
         * knobs.get(Knob::CliffNoise);
     let bands = |c: f32| band_offset(p.retail, band * c, riser, wander * band * c);
     let banded = bands(small) + (bands(big) - bands(small)) * tall;
-    round * (1.0 - smoothstep(0.0, edge.max(1e-3), to_walkable)) + soft_cap(banded, room)
+    let offset =
+        round * (1.0 - smoothstep(0.0, edge.max(1e-3), to_walkable)) + soft_cap(banded, room);
+    (offset, offset - round)
 }
 
 /// The near offset of one block, a sample a meter: [`SIDE`] by [`SIDE`], row by row from the
@@ -533,6 +574,9 @@ pub struct BlockField {
     pub offset: Vec<f32>,
     /// How much of the offset the pins leave, 0 at a pin to 1 clear of them.
     pub weight: Vec<f32>,
+    /// The part of the offset the rock bands make, meters, the pins' weight taken: the offset
+    /// less this is the ground without them.
+    pub bands: Vec<f32>,
 }
 
 impl BlockField {
@@ -541,6 +585,24 @@ impl BlockField {
     pub fn at(&self, x: f32, y: f32) -> (f32, f32) {
         (sample(&self.offset, x, y), sample(&self.weight, x, y))
     }
+
+    /// The offset at block-local `(x, y)` meters with `kept` of the rock bands ([`bands_kept`]),
+    /// between the samples.
+    #[must_use]
+    pub fn offset_at(&self, x: f32, y: f32, kept: f32) -> f32 {
+        with_bands(&self.offset, &self.bands, x, y, kept)
+    }
+}
+
+/// A block's offset `offset` at block-local `(x, y)` meters, with `kept` of its rock bands
+/// `bands` (both [`SIDE`] by [`SIDE`], as [`BlockField`] holds them), between the samples.
+#[must_use]
+pub fn with_bands(offset: &[f32], bands: &[f32], x: f32, y: f32, kept: f32) -> f32 {
+    let o = sample(offset, x, y);
+    if kept >= 1.0 {
+        return o;
+    }
+    o - sample(bands, x, y) * (1.0 - kept)
 }
 
 /// A block's samples `values` ([`SIDE`] by [`SIDE`], row by row from the south) at block-local
@@ -730,6 +792,7 @@ pub fn block_field(
     }
     let mut offset = Vec::with_capacity(SIDE * SIDE);
     let mut weight = Vec::with_capacity(SIDE * SIDE);
+    let mut bands = Vec::with_capacity(SIDE * SIDE);
     for j in m..m + SIDE {
         for i in m..m + SIDE {
             let k = j * n + i;
@@ -738,7 +801,8 @@ pub fn block_field(
             } else {
                 smoothstep(0.0, fade, to_pin[k].sqrt() * SAMPLE)
             };
-            offset.push(raw[k] * w);
+            offset.push(raw[k].0 * w);
+            bands.push(raw[k].1 * w);
             weight.push(w);
         }
     }
@@ -746,6 +810,7 @@ pub fn block_field(
         block,
         offset,
         weight,
+        bands,
     }
 }
 

@@ -32,8 +32,8 @@ struct Push
     uint heights;
     uint words;
     uint water;
-    // The near offset: each slot a block, 192 by 192 samples of two floats, the offset and how
-    // much of it the pins leave.
+    // The near offset: each slot a block, 192 by 192 samples of three floats, the offset, how
+    // much of it the pins leave, and the part of it the rock bands make.
     uint near;
     // The patches: two rows each.
     uint patches;
@@ -59,7 +59,7 @@ static const uint D_GLOBAL = 1;   // xy the frame's origin, world meters; z near
 static const uint D_K0 = 2;       // x the fine relief's height, y its size; z the level round's radius, w its fade
 static const uint D_K1 = 3;       // x a terrace's height, y its cap, z the slope it starts at; w the rounding kept far
 static const uint D_K2 = 4;       // x, y where the near gives way to the far; z 1 for the far ground; w its relief's height
-static const uint D_K3 = 5;       // x the far relief's size; w how many bodies
+static const uint D_K3 = 5;       // x the far relief's size; y, z the distances the rock bands fade in between; w how many bodies
 static const uint D_WATER = 6;    // x 1 while the water is drawn over its bed, y how far in from its edge the bed slopes down to where bodies stand
 static const uint D_ORIGIN = 7;   // (uint) xy the frame's origin block, z the blocks table's reach, w its side
 static const uint D_BODIES = 8;   // 32 rows
@@ -377,15 +377,15 @@ float level_at(float2 p)
 
 // --- the offset -------------------------------------------------------------------------------
 
-// The near offset's sample at world meter `g`: the offset and the pins' weight, and whether a
-// slot holds the block; nought and whole where none does.
-float3 near_sample(int2 g)
+// The near offset's sample at world meter `g`: the offset, the pins' weight, the rock bands'
+// part of the offset, and whether a slot holds the block; nought and whole where none does.
+float4 near_sample(int2 g)
 {
     float4 gl = row(push.drawn, D_GLOBAL);
     int n = int(gl.z);
     if (n <= 0)
     {
-        return float3(0.0, 1.0, 0.0);
+        return float4(0.0, 1.0, 0.0, 0.0);
     }
     int2 b = int2(floor(float2(g) / BLOCK));
     int2 slot = ((b % n) + n) % n;
@@ -393,25 +393,32 @@ float3 near_sample(int2 g)
     int held = asint(row_u(push.drawn, D_SLOTS + uint(k) / 4)[k % 4]);
     if (held != b.x * 256 + b.y)
     {
-        return float3(0.0, 1.0, 0.0);
+        return float4(0.0, 1.0, 0.0, 0.0);
     }
     int2 local = g - b * 192;
-    uint at = (uint(k) * 192 * 192 + uint(local.y) * 192 + uint(local.x)) * 8;
-    float2 v = asfloat(buffers[NonUniformResourceIndex(push.near)].Load2(at));
-    return float3(v, 1.0);
+    uint at = (uint(k) * 192 * 192 + uint(local.y) * 192 + uint(local.x)) * 12;
+    float3 v = asfloat(buffers[NonUniformResourceIndex(push.near)].Load3(at));
+    return float4(v, 1.0);
 }
 
-// The near offset and the pins' weight at world `p`, between the samples; z whether any sample
-// round it is held.
-float3 near_at(float2 p)
+// The near offset, the pins' weight and the rock bands' part of the offset at world `p`, between
+// the samples; w whether any sample round it is held.
+float4 near_at(float2 p)
 {
     int2 i = int2(floor(p));
     float2 f = p - floor(p);
-    float3 a = near_sample(i);
-    float3 b = near_sample(i + int2(1, 0));
-    float3 c = near_sample(i + int2(0, 1));
-    float3 d = near_sample(i + int2(1, 1));
+    float4 a = near_sample(i);
+    float4 b = near_sample(i + int2(1, 0));
+    float4 c = near_sample(i + int2(0, 1));
+    float4 d = near_sample(i + int2(1, 1));
     return lerp(lerp(a, b, f.x), lerp(c, d, f.x), f.y);
+}
+
+// How much of the rock bands is drawn `dist` meters from the eye: the scene's own arithmetic.
+float bands_kept(float dist)
+{
+    float4 k3 = row(push.drawn, D_K3);
+    return smoothstep(k3.y, max(k3.z, k3.y + 1e-3), dist);
 }
 
 // How far `dist` meters from the eye has given way to the far ground: 0 near, 1 far.
@@ -520,8 +527,8 @@ float4 drawn_at(float2 p, float dist, float fine_share, float foot)
 {
     float3 r = retail_at(p);
     float far = morph_far(dist);
-    float3 near = near_at(p);
-    float offset = near.x;
+    float4 near = near_at(p);
+    float offset = near.x - near.z * (1.0 - bands_kept(dist));
     float4 water = row(push.drawn, D_WATER);
     float4 k1 = row(push.drawn, D_K1);
     float4 k2 = row(push.drawn, D_K2);
@@ -549,7 +556,7 @@ float4 drawn_at(float2 p, float dist, float fine_share, float foot)
     {
         h = max(h, shore_floor(level_at(p), inside));
     }
-    return float4(h, near.y * near.z, r.x, far);
+    return float4(h, near.y * near.w, r.x, far);
 }
 
 // --- the mesh ---------------------------------------------------------------------------------

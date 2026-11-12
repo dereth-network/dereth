@@ -638,3 +638,45 @@ fn what_the_scene_no_longer_draws_leaves_the_device() {
     assert!(away.meshes * 2 < town.meshes, "the town's meshes went");
     assert!(away.resident_bytes < town.resident_bytes);
 }
+
+/// **Cliff shelves far off only leave the face at your feet plain and band it from afar**: at the
+/// foot of a tall face in the mountains east of Holtburg, a body standing there with the camera
+/// behind it, the face drawn with its rock bands far off only is the face drawn with none, and the
+/// bands everywhere change much of the frame; from three hundred meters off, far only is the face
+/// drawn with them everywhere, and none changes it.
+#[test]
+fn cliff_shelves_far_only_leave_the_face_at_your_feet_plain_and_band_it_from_afar() {
+    use crate::instruments::cliff_frames::{
+        changed, drawn_face, face_ahead, far_station, near_station, Walk,
+    };
+    use crate::instruments::remaster_look_frames::EVERY_BOX;
+    use crate::instruments::stations::DatGround;
+    use dereth_terrain::land::drawn::CliffShelves;
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let ground = DatGround::new(&store);
+    let (b, x, y, d) = Walk::TALL_FACE;
+    let walk = Walk::from(b, x, y, d);
+    let (foot, _) = face_ahead(&ground, &walk, 60.0).expect("a face ahead");
+    let frames = |station: &Station| {
+        [CliffShelves::Off, CliffShelves::FarOnly, CliffShelves::On]
+            .map(|shelves| drawn_face(&store, station, (EVERY_BOX, shelves), walk.heading, |_| {}))
+    };
+    let [off, far_only, on] = frames(&near_station(&walk, foot, 5.0));
+    let near = (changed(&far_only, &off), changed(&on, &off));
+    let [off, far_only, on] = frames(&far_station("far", &walk, foot, 320.0, 20.0));
+    let far = (changed(&far_only, &on), changed(&off, &on));
+    println!(
+        "at the foot, far only changes {} pixels against none and everywhere {}; from afar, far \
+         only {} against everywhere and none {}",
+        near.0, near.1, far.0, far.1
+    );
+    // Measured: 0 and 227,955 at the foot; 0 and 27,835 from afar.
+    assert!(near.0 < 100, "far only bands the face at the foot");
+    assert!(
+        near.1 > 20_000,
+        "the bands everywhere band the face at the foot"
+    );
+    assert!(far.0 < 100, "far only is the bands everywhere from afar");
+    assert!(far.1 > 5_000, "none leaves the face plain from afar");
+}

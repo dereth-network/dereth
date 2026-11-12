@@ -1222,7 +1222,7 @@ mod tests {
         // ...beside this client's three presentation options from another era, its interface, its
         // performance panel, its background slow-down, Horizon's two status-bar options, the
         // classic interface's six, the renderer and the landscape detail texture, and in a build
-        // with the remaster its boxes too.
+        // with the remaster its box, its own boxes and its two menus.
         #[cfg(not(feature = "fidelity"))]
         assert_eq!(len(), 50);
         #[cfg(feature = "fidelity")]

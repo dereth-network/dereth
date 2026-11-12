@@ -47,6 +47,10 @@ const FAR_RANGE_NODES: f32 = 8.0;
 const MORPH_FROM: f32 = 0.8;
 /// The most bodies the fine relief is leveled under.
 const BODIES: usize = 32;
+/// The bytes of one sample of the near offset: the offset, the pins' weight and the rock bands'
+/// part of the offset.
+const SAMPLE_BYTES: u64 = 12;
+
 /// The most near slots: 16 blocks a side.
 const SLOTS: usize = 256;
 /// How many blocks the table of held blocks reaches from the frame's origin, each way.
@@ -713,7 +717,7 @@ impl DrawnPass {
             if let Some(old) = self.near.take() {
                 d.destroy_buffer(old.buffer.buffer);
             }
-            let bytes = u64::from(n * n) * 192 * 192 * 8;
+            let bytes = u64::from(n * n) * 192 * 192 * SAMPLE_BYTES;
             let buffer = d.create_buffer(&BufferDesc {
                 label: "remaster drawn near offset",
                 size: bytes,
@@ -739,15 +743,16 @@ impl DrawnPass {
                 continue;
             }
             const SIDE: usize = 193;
-            let mut bytes = Vec::with_capacity(192 * 192 * 8);
+            let mut bytes = Vec::with_capacity(192 * 192 * 12);
             for j in 0..192 {
                 for i in 0..192 {
                     let k = j * SIDE + i;
                     bytes.extend(t.offset.get(k).copied().unwrap_or(0.0).to_le_bytes());
                     bytes.extend(t.weight.get(k).copied().unwrap_or(1.0).to_le_bytes());
+                    bytes.extend(t.bands.get(k).copied().unwrap_or(0.0).to_le_bytes());
                 }
             }
-            let at = u64::from(slot.1 * n + slot.0) * 192 * 192 * 8;
+            let at = u64::from(slot.1 * n + slot.0) * 192 * 192 * SAMPLE_BYTES;
             d.write_buffer(near.buffer.buffer, at, &bytes)?;
             near.held.insert(slot, (t.block, t.generation));
         }
@@ -860,7 +865,7 @@ impl DrawnPass {
             0
         };
         #[allow(clippy::cast_precision_loss)] // a body count, at most 32
-        f.extend([far_scale, 0.0, 0.0, bodies as f32]);
+        f.extend([far_scale, k.cliff_fade.0, k.cliff_fade.1, bodies as f32]);
         match (offset, k.water) {
             (true, Some(slope)) => f.extend([1.0, slope, 0.0, 0.0]),
             _ => f.extend([0.0; 4]),

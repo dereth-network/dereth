@@ -186,6 +186,7 @@ fn valley_ground(knobs: &Knobs) -> (Valley, Vec<[f32; 2]>, drawn::BlockField, rm
             generation: 1,
             offset: Arc::new(block.offset.clone()),
             weight: Arc::new(block.weight.clone()),
+            bands: Arc::new(block.bands.clone()),
         }],
         reach: 1,
         global: Vec2::ZERO,
@@ -1128,5 +1129,125 @@ fn what_a_body_holds_stays_in_its_hand_while_it_stands_in_the_water() {
         "the sword is drawn lifted with its holder: {} against {}",
         lifts.1,
         lifts.0
+    );
+}
+
+/// **Cliff shelves are drawn where the option says, and the device draws the face where the scene
+/// has it**: up a tall face in the mountains east of Holtburg, seen from a hundred meters off,
+/// the face drawn with its rock bands everywhere stands as high near the eye as far off, and so
+/// does the face drawn with none; with them far off only, it is drawn without them near the eye
+/// and with them past the distance they fade in over. Under each setting the device's heights at the face's own
+/// distances from the eye are the scene's, so what stands on it stands on what is drawn.
+#[test]
+fn cliff_shelves_are_drawn_everywhere_far_off_only_or_nowhere_as_the_option_says() {
+    use crate::instruments::cliff_frames::{face_ahead, far_station, Walk};
+    use crate::instruments::stations::DatGround;
+    use drawn::CliffShelves;
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let ground = DatGround::new(&store);
+    let (b, x, y, d) = Walk::TALL_FACE;
+    let walk = Walk::from(b, x, y, d);
+    let (foot, _) = face_ahead(&ground, &walk, 60.0).expect("a face ahead");
+    let back = 100.0;
+    let station = far_station("cliff", &walk, foot, back, 20.0);
+    let (mut gpu, mut shot) = opened(&store, &station, None, every_piece());
+    let knobs = shot.scene.remaster_ground_knobs().clone();
+    let (near, far) = (10.0, knobs.get(Knob::CliffFar));
+    assert!(
+        far <= knobs.get(Knob::MorphStart),
+        "both distances on the near ground"
+    );
+    // The face up from its foot, render space.
+    let eye = shot.scene.camera.position;
+    let camera = walk.along(foot - back);
+    let (ox, oy) = (camera.0 - eye.x, camera.1 - eye.y);
+    let face: Vec<(f32, f32)> = (4..60u8)
+        .map(|k| {
+            let (x, y) = walk.along(foot + f32::from(k));
+            (x - ox, y - oy)
+        })
+        .collect();
+    let at = |dist: f32| -> Vec<[f32; 3]> { face.iter().map(|&(x, y)| [x, y, dist]).collect() };
+    let mut drawn = Vec::new();
+    for shelves in [CliffShelves::Off, CliffShelves::FarOnly, CliffShelves::On] {
+        shot.scene.draw.set_remaster_cliff_shelves(shelves);
+        shot.step_held(&mut gpu);
+        shot.step_held(&mut gpu);
+        let device = |shot: &Shot, gpu: &mut Gpu, points: &[[f32; 3]]| {
+            let h = shot.scene.draw.remaster_drawn_heights(gpu, None, points);
+            assert_eq!(h.len(), points.len(), "the probe read back");
+            h
+        };
+        let (h_near, h_far) = (
+            device(&shot, &mut gpu, &at(near)),
+            device(&shot, &mut gpu, &at(far)),
+        );
+        // The scene's heights, and the device's at each point's own distance from the eye.
+        let (mut points, mut scene) = (Vec::new(), Vec::new());
+        for &(x, y) in &face {
+            let retail = Point::at(&ground, x + ox, y + oy).retail;
+            let dist =
+                ((x - eye.x).powi(2) + (y - eye.y).powi(2) + (retail - eye.z).powi(2)).sqrt();
+            points.push([x, y, dist]);
+            scene.push(
+                shot.scene
+                    .remaster_ground_at(x, y)
+                    .expect("the drawn ground"),
+            );
+        }
+        let own = device(&shot, &mut gpu, &points);
+        let worst = scene
+            .iter()
+            .zip(&own)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
+        println!("{shelves:?}: the scene and the device {worst:e} apart on the face");
+        // On a face this steep, the frame's rounding across is a few millimeters up and down.
+        assert!(
+            worst < 1e-2,
+            "{shelves:?}: the device's face is the scene's: {worst}"
+        );
+        drawn.push((shelves, h_near, h_far));
+    }
+    drop(shot);
+    drop(gpu);
+    let errors = dereth_render::vulkan::take_validation_errors();
+    assert!(errors.is_empty(), "the validation layer: {errors:#?}");
+    let apart = |a: &[f32], b: &[f32]| {
+        a.iter()
+            .zip(b)
+            .map(|(x, y)| (x - y).abs())
+            .fold(0.0f32, f32::max)
+    };
+    let banded = |a: &[f32], b: &[f32]| {
+        a.iter()
+            .zip(b)
+            .filter(|(x, y)| (*x - *y).abs() > 0.5)
+            .count()
+    };
+    let (off, far_only, on) = (&drawn[0], &drawn[1], &drawn[2]);
+    println!(
+        "{} of {} points on the face moved over half a meter by the bands; the most {}",
+        banded(&on.1, &off.1),
+        face.len(),
+        apart(&on.1, &off.1)
+    );
+    assert!(banded(&on.1, &off.1) > 10, "the face is banded");
+    assert!(
+        apart(&on.1, &on.2) < 2e-3,
+        "on: the bands at every distance"
+    );
+    assert!(
+        apart(&off.1, &off.2) < 2e-3,
+        "off: no bands at any distance"
+    );
+    assert!(
+        apart(&far_only.1, &off.1) < 2e-3,
+        "far only: none near the eye"
+    );
+    assert!(
+        apart(&far_only.2, &on.2) < 2e-3,
+        "far only: all of them far off"
     );
 }

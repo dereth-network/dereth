@@ -268,6 +268,53 @@ fn rock_bands_leave_the_brink_at_retails_surface_and_keep_within_their_cap() {
 }
 
 #[test]
+fn the_rock_bands_kept_apart_take_the_face_to_the_ground_without_them_near_the_eye() {
+    let src = mesa();
+    let pins = [Pin::round(10.0 * 192.0 + 130.0, 10.0 * 192.0 + 96.0, 3.0)];
+    let k = Knobs::default();
+    let f = block_field(&src, (10, 10), &pins, &k);
+    let plain = block_field(
+        &src,
+        (10, 10),
+        &pins,
+        &knobs(|k| {
+            k.set(Knob::Cliffs, 0.0);
+        }),
+    );
+    // The offset less its bands is the ground worked out without them, sample for sample, the
+    // pins' weight taken alike; on walkable ground the bands are nothing.
+    let mut banded = 0usize;
+    for (k, ((o, b), p)) in f.offset.iter().zip(&f.bands).zip(&plain.offset).enumerate() {
+        assert!(
+            (o - b - p).abs() < 1e-4,
+            "sample {k}: {o} less {b} is not {p}"
+        );
+        if b.abs() > 0.5 {
+            banded += 1;
+        }
+    }
+    assert!(banded > 500, "the faces are banded: {banded}");
+    // Everywhere, the bands are whole at any distance; far off only, gone near the eye and whole
+    // past the far knob; off, gone at any distance.
+    let (near, far) = (k.get(Knob::CliffNear), k.get(Knob::CliffFar));
+    let on = CliffShelves::On.fade(&k);
+    let far_only = CliffShelves::FarOnly.fade(&k);
+    let off = CliffShelves::Off.fade(&k);
+    for d in [0.0, near, far, 5000.0] {
+        assert!((bands_kept(d, on) - 1.0).abs() < 1e-6, "on, at {d}");
+        assert!(bands_kept(d, off).abs() < 1e-6, "off, at {d}");
+    }
+    assert!(bands_kept(near * 0.5, far_only).abs() < 1e-6);
+    let mid = bands_kept(0.5 * (near + far), far_only);
+    assert!((mid - 0.5).abs() < 1e-4, "{mid}");
+    assert!((bands_kept(far + 1.0, far_only) - 1.0).abs() < 1e-6);
+    // Read between the samples, none of the bands is the plain ground and all of them the field.
+    let (x, y) = (146.3, 96.7);
+    assert!((f.offset_at(x, y, 0.0) - sample(&plain.offset, x, y)).abs() < 1e-4);
+    assert!((f.offset_at(x, y, 1.0) - f.at(x, y).0).abs() < 1e-6);
+}
+
+#[test]
 fn a_band_cuts_flat_treads_and_steep_risers_centered_on_retails_surface() {
     // Along a slope, the drawn height (retail plus the offset) holds level over a tread and
     // climbs a whole band over the riser.

@@ -381,6 +381,8 @@ pub(crate) struct Tile {
     pub(crate) offset: Arc<Vec<f32>>,
     /// How much of it the pins leave.
     pub(crate) weight: Arc<Vec<f32>>,
+    /// The part of it the rock bands make.
+    pub(crate) bands: Arc<Vec<f32>>,
 }
 
 /// The remaster's ground in the scene.
@@ -410,6 +412,8 @@ pub(crate) struct RemasterGround {
     pub(crate) viewer: (i32, i32),
     /// The eye, render space.
     pub(crate) eye: Vec3,
+    /// Where the rock bands on unwalkable ground are drawn.
+    pub(crate) cliff_shelves: drawn::CliffShelves,
 }
 
 impl RemasterGround {
@@ -498,6 +502,7 @@ impl RemasterGround {
             generation: self.next_tile,
             offset: Arc::new(field.offset),
             weight: Arc::new(field.weight),
+            bands: Arc::new(field.bands),
         };
         self.fields.insert(block, tile.clone());
         tile
@@ -647,6 +652,7 @@ impl RemasterGround {
                     generation: t.generation,
                     offset: Arc::clone(&t.offset),
                     weight: Arc::clone(&t.weight),
+                    bands: Arc::clone(&t.bands),
                 })
             })
             .collect()
@@ -657,6 +663,7 @@ impl RemasterGround {
         let k = &self.knobs;
         rm::DrawnKnobs {
             detail: k.get(Knob::Detail),
+            cliff_fade: self.cliff_shelves.fade(k),
             micro: (k.get(Knob::Micro), k.get(Knob::MicroScale)),
             level: k
                 .on(Knob::Level)
@@ -702,9 +709,9 @@ impl RemasterGround {
         (self.active && self.knobs.on(Knob::Far)).then(|| self.knobs.get(Knob::Horizon))
     }
 
-    /// The near offset at global `(x, y)`, from the block's offset where the remaster draws one;
-    /// nought elsewhere.
-    fn near_at(&self, x: f32, y: f32) -> f32 {
+    /// The near offset at global `(x, y)`, with `kept` of its rock bands ([`drawn::bands_kept`]),
+    /// from the block's offset where the remaster draws one; nought elsewhere.
+    fn near_at(&self, x: f32, y: f32, kept: f32) -> f32 {
         let (bx, by) = (
             dereth_primitives::num::floor_to_i32(x / BLOCK_METERS),
             dereth_primitives::num::floor_to_i32(y / BLOCK_METERS),
@@ -712,12 +719,31 @@ impl RemasterGround {
         // LINT-OK: block coordinates, far inside f32's exact range.
         #[allow(clippy::cast_precision_loss)]
         self.near_tile((bx, by)).map_or(0.0, |t| {
-            drawn::sample(
+            drawn::with_bands(
                 &t.offset,
+                &t.bands,
                 x - bx as f32 * BLOCK_METERS,
                 y - by as f32 * BLOCK_METERS,
+                kept,
             )
         })
+    }
+
+    /// How much of the rock bands is drawn `dist` meters from the eye.
+    fn bands_kept(&self, dist: f32) -> f32 {
+        drawn::bands_kept(dist, self.cliff_shelves.fade(&self.knobs))
+    }
+
+    /// How much of the rock bands what stands still on the ground (scenery and its lamps) is
+    /// lifted onto: all of them while they are drawn everywhere, none otherwise. Its lift is
+    /// worked out once, not as the eye moves, so with the bands far off only it stands on the face
+    /// as the face is drawn near the eye.
+    fn bands_kept_still(&self) -> f32 {
+        if self.cliff_shelves == drawn::CliffShelves::On {
+            1.0
+        } else {
+            0.0
+        }
     }
 
     /// The water as the ground lays it, while it is drawn as water.
@@ -747,17 +773,17 @@ impl RemasterGround {
 
     /// How far a thing standing at global `(x, y)` and height `z` is drawn above where physics
     /// puts it, `far` of the way given way to the far ground: the offset averaged over its
-    /// stance, faded out as it stands higher over retail's ground, and never under the drawn
-    /// ground there, the floor of the water's banks included. A thing retail sinks into its
-    /// water stays as deep as retail sinks it, where the water's bed is drawn.
-    fn shift(&self, world: &World, (x, y, z): (f32, f32, f32), far: f32) -> f32 {
+    /// stance, `kept` of the rock bands in it, faded out as it stands higher over retail's ground,
+    /// and never under the drawn ground there, the floor of the water's banks included. A thing
+    /// retail sinks into its water stays as deep as retail sinks it, where the water's bed is drawn.
+    fn shift(&self, world: &World, (x, y, z): (f32, f32, f32), (far, kept): (f32, f32)) -> f32 {
         let p = Point::at(world, x, y);
         let keep = self.keep(z - p.retail);
         if keep <= 0.0 {
             return 0.0;
         }
         let near = if far < 1.0 {
-            drawn::body_offset(|x, y| self.near_at(x, y), x, y, &self.knobs)
+            drawn::body_offset(|x, y| self.near_at(x, y, kept), x, y, &self.knobs)
         } else {
             0.0
         };
@@ -781,7 +807,8 @@ impl RemasterGround {
         let dist =
             ((at.x - eye.x).powi(2) + (at.y - eye.y).powi(2) + (retail - eye.z).powi(2)).sqrt();
         let far = drawn::morph(dist, &self.knobs);
-        self.shift(world, (x, y, at.z), far)
+        let kept = self.bands_kept(dist);
+        self.shift(world, (x, y, at.z), (far, kept))
     }
 
     /// How far server object `o` is drawn above where physics puts it: outdoors, as a body
@@ -812,9 +839,10 @@ impl RemasterGround {
         let Some(world) = self.world.as_ref() else {
             return [0.0; 2];
         };
-        let near = self.shift(world, (x, y, z), 0.0);
+        let kept = self.bands_kept_still();
+        let near = self.shift(world, (x, y, z), (0.0, kept));
         let far = if self.knobs.on(Knob::Far) {
-            self.shift(world, (x, y, z), 1.0)
+            self.shift(world, (x, y, z), (1.0, kept))
         } else {
             near
         };
@@ -831,6 +859,7 @@ impl RemasterGround {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         self.field_generation.hash(&mut h);
         self.knobs.on(Knob::Far).hash(&mut h);
+        self.bands_kept_still().to_bits().hash(&mut h);
         for k in [Knob::Water, Knob::BedSlope] {
             self.knobs.get(k).to_bits().hash(&mut h);
         }
@@ -855,7 +884,8 @@ impl RemasterGround {
             Some(b) => self.shift_at(b),
             None => {
                 let (x, y) = (eye.x + self.global.0, eye.y + self.global.1);
-                drawn::body_offset(|x, y| self.near_at(x, y), x, y, &self.knobs)
+                let kept = self.bands_kept(0.0);
+                drawn::body_offset(|x, y| self.near_at(x, y, kept), x, y, &self.knobs)
             }
         };
         let mut at = Vec3::new(eye.x, eye.y, eye.z + rise);
@@ -925,7 +955,7 @@ impl RemasterGround {
             ((x - self.eye.x).powi(2) + (y - self.eye.y).powi(2) + (p.retail - self.eye.z).powi(2))
                 .sqrt();
         let far = drawn::morph(dist, &self.knobs);
-        let near = self.near_at(gx, gy);
+        let near = self.near_at(gx, gy, self.bands_kept(dist));
         Some(drawn::drawn_at(&p, gx, gy, near, far, self.water().as_ref(), &self.knobs).height)
     }
 }
@@ -939,6 +969,18 @@ fn smoothstep(lo: f32, hi: f32, x: f32) -> f32 {
 }
 
 impl super::SceneDraw {
+    /// Where the remaster draws the rock bands on unwalkable ground, from its next frame on:
+    /// nowhere, far from the eye only, or everywhere the near ground is drawn.
+    pub fn set_remaster_cliff_shelves(&mut self, shelves: drawn::CliffShelves) {
+        self.remaster_ground.cliff_shelves = shelves;
+    }
+
+    /// Where the remaster draws the rock bands on unwalkable ground.
+    #[must_use]
+    pub fn remaster_cliff_shelves(&self) -> drawn::CliffShelves {
+        self.remaster_ground.cliff_shelves
+    }
+
     /// The remaster's ground's upkeep for this frame: the world's vertices, whether the offset
     /// is drawn, and the near blocks' offsets.
     ///

@@ -59,6 +59,10 @@ pub enum Knob {
     CliffNoise,
     /// The size of that breaking.
     CliffNoiseScale,
+    /// How near the eye the rock bands are gone, while they are drawn far off only.
+    CliffNear,
+    /// How far from the eye they are whole.
+    CliffFar,
     /// Bodies, items and the camera drawn on the drawn ground.
     BodyShift,
     /// The height over retail's ground the shift starts to fade at.
@@ -285,7 +289,7 @@ const fn switch(
 }
 
 /// How many knobs there are.
-pub const KNOB_COUNT: usize = 102;
+pub const KNOB_COUNT: usize = 104;
 
 /// Every knob, in [`Knob`]'s order.
 pub const KNOBS: [KnobSpec; KNOB_COUNT] = [
@@ -312,6 +316,8 @@ pub const KNOBS: [KnobSpec; KNOB_COUNT] = [
     num(Knob::CliffRiser, "cliff_riser", 0.33, (0.05, 0.95), "", "cliffs", "the share of a band that is its riser: lower is sheerer"),
     num(Knob::CliffNoise, "cliff_noise", 0.35, (0.0, 1.0), "", "cliffs", "how much the bands' edges wander, as a share of a band"),
     num(Knob::CliffNoiseScale, "cliff_noise_scale", 6.0, (1.0, 48.0), "m", "cliffs", "how far apart the bands' edges wander"),
+    num(Knob::CliffNear, "cliff_near", 150.0, (0.0, 500.0), "m", "cliffs", "while the rock bands are drawn far off only, how near the eye they are gone: nearer, the face is drawn as it is without them"),
+    num(Knob::CliffFar, "cliff_far", 300.0, (0.0, 500.0), "m", "cliffs", "while the rock bands are drawn far off only, how far from the eye they are whole"),
     switch(Knob::BodyShift, "body_shift", true, "bodies", "bodies, items, scenery and the camera drawn on the drawn ground; off leaves them at retail's heights"),
     num(Knob::ShiftFade, "shift_fade", 3.0, (0.0, 20.0), "m", "bodies", "the height over retail's ground a thing's shift starts to fade at"),
     num(Knob::ShiftGone, "shift_gone", 6.0, (0.0, 40.0), "m", "bodies", "the height the shift is gone at"),

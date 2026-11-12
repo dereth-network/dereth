@@ -934,6 +934,11 @@ size = 4
         dereth_scene::world_scene::RemasterTerrain::player(),
         &mut gpu,
     );
+    // The face drawn as rock bands, whose risers stand steeper than the rounded face: the steep
+    // faces the fall line runs down.
+    shot.scene
+        .draw
+        .set_remaster_cliff_shelves(dereth_terrain::land::drawn::CliffShelves::On);
     shot.scene
         .draw
         .set_remaster(true, &store, &mut gpu)

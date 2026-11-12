@@ -540,6 +540,8 @@ pub struct DrawnTile {
     pub offset: std::sync::Arc<Vec<f32>>,
     /// How much of the offset the pins leave: 0 at a building, 1 free.
     pub weight: std::sync::Arc<Vec<f32>>,
+    /// The part of the offset the rock bands on unwalkable ground make, meters; empty for none.
+    pub bands: std::sync::Arc<Vec<f32>>,
 }
 
 /// The numbers the drawn ground is drawn with.
@@ -547,6 +549,9 @@ pub struct DrawnTile {
 pub struct DrawnKnobs {
     /// How densely the ground is meshed: 1 a meter a quad near the eye, 2 half a meter.
     pub detail: f32,
+    /// The distances from the eye, meters, the rock bands on unwalkable ground fade in between:
+    /// none nearer than the first, all past the second.
+    pub cliff_fade: (f32, f32),
     /// The fine relief's height and size, meters.
     pub micro: (f32, f32),
     /// The fine relief and the terraces leveled under bodies: the level round's radius and fade,
@@ -592,6 +597,7 @@ impl Default for DrawnKnobs {
     fn default() -> Self {
         Self {
             detail: 1.0,
+            cliff_fade: (-2.0, -1.0),
             micro: (0.0, 0.7),
             level: None,
             terraces: None,

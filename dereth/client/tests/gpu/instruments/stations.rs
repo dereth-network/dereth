@@ -166,6 +166,62 @@ fn block_record(
     Some((heights, lb.terrain))
 }
 
+/// The world's landscape vertices as the dats hold them, each block read once, for the drawn
+/// ground's own arithmetic.
+#[cfg(feature = "remaster")]
+pub(crate) struct DatGround {
+    store: Arc<RetailDatStore>,
+    table: Vec<f32>,
+    blocks: std::sync::Mutex<std::collections::HashMap<u16, Option<BlockRecord>>>,
+}
+
+/// A block's vertex heights and terrain words, as [`block_record`] reads them.
+#[cfg(feature = "remaster")]
+type BlockRecord = ([f32; 81], [u16; 81]);
+
+#[cfg(feature = "remaster")]
+impl DatGround {
+    pub(crate) fn new(store: &Arc<RetailDatStore>) -> Self {
+        let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
+        Self {
+            store: Arc::clone(store),
+            table: region.land_defs.land_height_table.clone(),
+            blocks: std::sync::Mutex::default(),
+        }
+    }
+}
+
+#[cfg(feature = "remaster")]
+impl dereth_terrain::land::drawn::GroundSource for DatGround {
+    fn vertex(&self, gx: i32, gy: i32) -> Option<dereth_terrain::land::drawn::Vertex> {
+        let last = dereth_terrain::land::drawn::WORLD_VERTICES - 1;
+        if !(0..=last).contains(&gx) || !(0..=last).contains(&gy) {
+            return None;
+        }
+        // A block's last vertex is the next block's first; the world's last is its own block's.
+        let (bx, by) = ((gx / 8).min(254), (gy / 8).min(254));
+        let (i, j) = (gx - bx * 8, gy - by * 8);
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // LINT-OK: block coordinates, 0..255. Not a float conversion.
+        let block = ((bx as u16) << 8) | by as u16;
+        let mut blocks = self
+            .blocks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let record = blocks
+            .entry(block)
+            .or_insert_with(|| block_record(&self.store, &self.table, block));
+        let (heights, words) = record.as_ref()?;
+        #[allow(clippy::cast_sign_loss)]
+        // LINT-OK: 0..=8 each. Not a float conversion.
+        let k = (i * 9 + j) as usize;
+        Some(dereth_terrain::land::drawn::Vertex {
+            height: heights[k],
+            word: words[k],
+        })
+    }
+}
+
 /// The blocks within `r` of Holtburg, nearest first.
 fn near_holtburg(r: i32) -> Vec<u16> {
     let (hx, hy) = dereth_world_data::landblock::block_xy(HOLTBURG);

@@ -5,6 +5,7 @@
 use dereth_client_runtime::render_prefs::{FidelityFeature as F, FidelityPreferences};
 use dereth_remaster::render::lod::LodSettings;
 use dereth_render::device::Gpu;
+use dereth_terrain::land::drawn::CliffShelves;
 
 use super::remaster_effects::{
     RemasterAo, RemasterPost, RemasterUpscale, RemasterUpscaleMode, RemasterWater,
@@ -51,6 +52,8 @@ pub struct RemasterRows {
     pub scale: u32,
     /// How strongly the sunlit air shows shafts of light: 0 none, 1 low, 2 high.
     pub god_rays: u32,
+    /// Steep rock faces drawn far off as shelves.
+    pub cliff_shelves: bool,
     /// What of the art pack is drawn.
     pub packs: RemasterPacks,
 }
@@ -84,6 +87,7 @@ impl RemasterRows {
             sway: f.remaster_feature(F::RemasterSway),
             scale: f.effective(F::RemasterScale),
             god_rays: f.effective(F::RemasterGodRays),
+            cliff_shelves: f.remaster_feature(F::RemasterCliffShelves),
             packs: if f.remaster_feature(F::RemasterArtPack) {
                 RemasterPacks::all()
             } else {
@@ -117,6 +121,17 @@ impl RemasterRows {
         #[allow(clippy::cast_precision_loss)] // a share of at most a hundred
         let scale = share as f32 / 100.0;
         scale
+    }
+
+    /// Where the rock bands on unwalkable ground are drawn: far off only while the box is ticked,
+    /// nowhere otherwise.
+    #[must_use]
+    pub fn shelves(self) -> CliffShelves {
+        if self.cliff_shelves {
+            CliffShelves::FarOnly
+        } else {
+            CliffShelves::Off
+        }
     }
 
     /// Whether what they ask is worked out per pixel, which only the light per pixel draws.
@@ -255,6 +270,9 @@ impl SceneDraw {
         if now.packs != was.packs {
             self.set_remaster_packs(now.packs, gpu);
         }
+        if now.cliff_shelves != was.cliff_shelves {
+            self.set_remaster_cliff_shelves(now.shelves());
+        }
         if now.detail != was.detail || (started && now.detail) {
             let lod = if now.detail {
                 LodSettings::ON
@@ -284,6 +302,28 @@ mod tests {
                 rain: true,
                 ..RemasterRows::default()
             }
+        );
+    }
+
+    /// Cliff shelves are drawn far off only while their box is ticked, and nowhere until it is.
+    #[test]
+    fn cliff_shelves_are_drawn_far_off_only_while_ticked_and_nowhere_at_first() {
+        let rows = |spec: &str| {
+            RemasterRows::of(&FidelityPreferences::parse_switch(spec).expect("parses")).shelves()
+        };
+        assert_eq!(rows("Remaster=1"), CliffShelves::Off);
+        assert_eq!(
+            rows("Remaster=1,RemasterCliffShelvesFar=0"),
+            CliffShelves::Off
+        );
+        assert_eq!(
+            rows("Remaster=1,RemasterCliffShelvesFar=1"),
+            CliffShelves::FarOnly
+        );
+        assert_eq!(
+            RemasterRows::default().shelves(),
+            CliffShelves::default(),
+            "the ground starts as the rows ask at first"
         );
     }
 
