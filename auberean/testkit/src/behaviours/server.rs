@@ -6674,6 +6674,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.take-all-leaves-what-a-quest-keeps",
+        says: "Taking everything leaves each item whose quest keeps its taking from the player, its move \
+               answered with the refusal a single take gets, and takes the rest; the answer names the \
+               items left and that refusal, and a take-all that took nothing is refused with it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TAKE-ALL-QUEST-KEPT"),
+        station: "yalain-testkit::cpu::play::pack::taking_all_leaves_an_item_its_quest_keeps_from_the_player_and_takes_the_rest",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.take-all-needs-the-container-open",
         says: "Taking everything from a container the player does not have open is refused.",
         since: RETAIL,

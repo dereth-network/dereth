@@ -732,8 +732,11 @@ pub fn take_all<S: Store>(
 
 /// The picking-up behavior is through: each item of the container comes into the pack in the
 /// container's order, at the front of the pack (or of the first bag with room), answered as a take;
-/// one of a template the pack holds a stack of joins it; one the pack has no room for stays. Then
-/// the request is answered.
+/// one of a template the pack holds a stack of joins it; one the pack has no room for stays. One
+/// whose taking its quest keeps from the player stays, its move answered with the refusal a single
+/// take of it gets (2017: 17 such items in 5 take-alls, each answered so, the rest taken). Each
+/// item is named from the slot it stands at then, past the items left before it. Then the request
+/// is answered, naming the last refusal; one that took nothing is refused with it (2017: 1 of 1).
 pub fn took_all<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -766,13 +769,17 @@ pub fn took_all<S: Store>(
         else {
             continue;
         };
+        // Every item before it was taken or left, and the left ones stand before it still.
+        let at = i32::try_from(left.len()).unwrap_or(i32::MAX);
         let m = Move {
             move_type: inv::move_type::TAKE,
             item,
             split_item: item,
             quantity,
             from: container,
+            from_slot: at,
             actual_from: container,
+            actual_from_slot: at,
             target: player,
             actual_target: player,
             merge_container: player,
@@ -790,6 +797,20 @@ pub fn took_all<S: Store>(
             split_quantity: quantity,
             ..Move::default()
         };
+        if let Some(why) = crate::places::take_refused(s, world, template, clock) {
+            let m = Move {
+                merge: true,
+                merge_slot: 0,
+                split_quantity: 0,
+                quantity_left: quantity,
+                status: why,
+                ..m
+            };
+            progress::private(net, world, &move_done(&m));
+            last_error = why;
+            left.push(item);
+            continue;
+        }
         if let Some((stack, _, had)) = inv::stack_for(s, world, item, quantity) {
             let m = Move {
                 merge: true,
@@ -844,7 +865,8 @@ pub fn took_all<S: Store>(
         taken.push(item);
         crate::quests::took(s, net, world, template, clock);
     }
-    let done = take_all_done(0, last_error, container, &taken, &left, player);
+    let status = if taken.is_empty() { last_error } else { 0 };
+    let done = take_all_done(status, last_error, container, &taken, &left, player);
     progress::private(net, world, &done);
     crate::world::keep_player(s, world);
 }

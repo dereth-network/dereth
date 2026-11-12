@@ -538,7 +538,7 @@ fn names_a_use_quest<S: Store>(s: &Server<S>, template: u32) -> bool {
 }
 
 /// Why taking an item of a template is refused, if its quest keeps the player from it.
-fn take_refused<S: Store>(
+pub(crate) fn take_refused<S: Store>(
     s: &Server<S>,
     world: ConnId,
     template: u32,

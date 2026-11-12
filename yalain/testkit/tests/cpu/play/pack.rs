@@ -775,6 +775,178 @@ fn taking_all_from_a_container_not_open_is_refused() {
     assert!(pack_order(&h, world).is_empty(), "nothing taken");
 }
 
+/// A quest that keeps an item's taking from the player, and the phase it lets it be taken at.
+const KEPT_BY: u32 = 0x8000_0E71;
+const KEPT_PHASE: u32 = 2;
+const KEPT: u32 = 0x4700_7E71;
+
+/// The player of [`player`] with an item template that its quest's second phase alone lets a
+/// player take, and that quest held at `phase` (or not at all).
+fn quest_kept(h: &mut Harness, world: ConnId, phase: Option<u32>) {
+    use yalain_content::quests::{QuestDef, QuestTable};
+    use yalain_content::{Prop, Props};
+    use yalain_world::quests::status as quest;
+    let mut props = Props::default();
+    props
+        .set("Usage_RequiredQuest_ForTaking", Prop::Word(KEPT_BY))
+        .set(
+            "Usage_RequiredQuestStatus_ForTaking",
+            Prop::Word(quest::UNDERWAY | KEPT_PHASE),
+        );
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(KEPT, 0x200, props));
+    h.server.quests = QuestTable {
+        quests: vec![QuestDef {
+            timed_phase: 0,
+            id: KEPT_BY,
+            name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_17EE),
+            description: (0x6C45_9364, 0x2500_17EE),
+            icon: 0,
+            play_fx: false,
+            journals: Vec::new(),
+            challenge: -999,
+            duration: 0.0,
+            retry: 0.0,
+            xp: 0,
+            cancellable: false,
+            placed: "authored for a test".into(),
+            hidden: false,
+            effects: Vec::new(),
+            subquests: Vec::new(),
+            min_level: 0,
+            fails_on_death: false,
+            fails_on_logout: false,
+            fails_on_teleport: false,
+            once: false,
+            fellows: yalain_content::quests::Fellows::default(),
+            ranges: Vec::new(),
+            hero_only: false,
+            pay: yalain_content::quests::CompletionPay::default(),
+            required: None,
+            cancel_wait: None,
+        }],
+        steps: Vec::new(),
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
+    h.server.players.get_mut(&world).expect("in").play.quests = phase
+        .map(|phase| yalain_world::state::QuestState {
+            quest: KEPT_BY,
+            status: quest::UNDERWAY,
+            phase,
+            started: 0,
+            updated: 0,
+        })
+        .into_iter()
+        .collect();
+}
+
+/// The take-all answers since `from` as (status, last error, items taken, items left).
+fn took_with_errors(h: &Harness, b: usize, from: usize) -> Vec<(u32, u32, Vec<u64>, Vec<u64>)> {
+    h.calls(b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == function::TAKE_ALL_DONE)
+        .filter_map(|(_, v)| {
+            v.iter().find_map(|x| {
+                let Some(Node::Script { slots, .. }) = x.root() else {
+                    return None;
+                };
+                // A list's count, then its ids.
+                let ids = |slot: usize| match x.entry(slots[slot].1) {
+                    Some(Node::Native { bytes, .. }) => bytes[4..]
+                        .as_chunks::<8>()
+                        .0
+                        .iter()
+                        .map(|c| u64::from_le_bytes(*c))
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                Some((slots[5].1, slots[0].1, ids(11), ids(8)))
+            })
+        })
+        .collect()
+}
+
+/// Run a take-all from `corpse` to its answer.
+fn take_all_through(h: &mut Harness, b: usize, me: u64, corpse: u64) {
+    h.ask(b, function::TAKE_ALL, &[take_all_request(corpse, me)], 4);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    h.run((pack::TAKE_ALL_SECONDS / STEP).ceil() as usize + 2);
+}
+
+/// A take-all takes no item whose quest keeps its taking from the player, as a single take would
+/// not: the item stays in the corpse, its move answered with the take's refusal and named from the
+/// slot it stands at, the items after it named from the slots past it, and the answer naming it
+/// left with that refusal as its last error. A take-all of nothing but such an item is refused
+/// with it. With its quest at the phase that lets it be taken, it is taken with the rest.
+/// Behaviour: server.inventory.take-all-leaves-what-a-quest-keeps
+#[test]
+fn taking_all_leaves_an_item_its_quest_keeps_from_the_player_and_takes_the_rest() {
+    use yalain_world::item_use::refusal;
+    let (mut h, b, me, world) = player();
+    quest_kept(&mut h, world, Some(1));
+    let (corpse, items) = opened_corpse(&mut h, world, me, 3);
+    h.server.things.get_mut(items[0]).expect("item").template = KEPT;
+    let from = h.bots[b].inbox.len();
+    take_all_through(&mut h, b, me, corpse);
+    let moves = answers(&h, b, from);
+    assert_eq!(moves.len(), 3, "each item answered");
+    // (status, from slot, merged) of each move, in the corpse's order.
+    let seen: Vec<(u32, u32, u32)> = moves.iter().map(|m| (m[40].1, m[39].1, m[0].1)).collect();
+    assert_eq!(
+        seen,
+        [
+            (refusal::WRONG_QUEST_STATUS_TAKE, 0, 1),
+            (0, 1, 0),
+            (0, 1, 0)
+        ],
+        "the kept item refused where it stands, the rest taken from the slot past it"
+    );
+    assert_eq!(
+        took_with_errors(&h, b, from),
+        [(
+            0,
+            refusal::WRONG_QUEST_STATUS_TAKE,
+            vec![items[1], items[2]],
+            vec![items[0]]
+        )],
+        "two taken, the kept one left and named"
+    );
+    assert_eq!(pack_order(&h, world), [items[2], items[1]]);
+    let left = |h: &Harness| {
+        h.server
+            .things
+            .get(corpse)
+            .and_then(|t| t.corpse.as_ref())
+            .map(|c| c.contents.clone())
+    };
+    assert_eq!(left(&h), Some(vec![items[0]]), "the kept one stays");
+
+    let again = h.bots[b].inbox.len();
+    take_all_through(&mut h, b, me, corpse);
+    assert_eq!(
+        took_with_errors(&h, b, again),
+        [(
+            refusal::WRONG_QUEST_STATUS_TAKE,
+            refusal::WRONG_QUEST_STATUS_TAKE,
+            vec![],
+            vec![items[0]]
+        )],
+        "nothing taken: refused with the item's refusal"
+    );
+
+    quest_kept(&mut h, world, Some(KEPT_PHASE));
+    let then = h.bots[b].inbox.len();
+    take_all_through(&mut h, b, me, corpse);
+    assert_eq!(
+        took_with_errors(&h, b, then),
+        [(0, 0, vec![items[0]], vec![])],
+        "at the quest's phase it is taken"
+    );
+    assert_eq!(left(&h), Some(vec![]));
+}
+
 /// Coins dragged out of the money bag come into the pack as one stack of that many, the money goes
 /// down by as many, and the drag is answered with the container the client named.
 /// Behaviour: server.inventory.money-bag-gives-coins
