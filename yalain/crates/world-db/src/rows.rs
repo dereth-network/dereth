@@ -1167,6 +1167,8 @@ pub struct Interaction {
     /// None: `gives`.
     pub gated_gives: Vec<(u32, u32)>,
     pub count: u32,
+    /// What it makes at the object it was used on.
+    pub places: Vec<yalain_content::effect_rules::Placing>,
     pub prov: Prov,
 }
 
@@ -1898,6 +1900,7 @@ pub const FIELDS: [(&str, &[&str]); 61] = [
             "gated_gives",
             "gated_gives_one_of",
             "count",
+            "places",
             "prov",
         ],
     ),
@@ -2825,11 +2828,16 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                     return None;
                 }
             };
+            let places = match f.get("places") {
+                None => Vec::new(),
+                Some(_) => f.placings("places")?,
+            };
             let gives = match (f.get("gives").is_some(), f.get("gives_one_of").is_some()) {
                 (true, false) => vec![(f.id("gives")?, 1)],
                 (false, true) => f.one_of("gives_one_of"),
+                (false, false) if !places.is_empty() => Vec::new(),
                 _ => {
-                    f.bad("gives", "one of gives or gives_one_of");
+                    f.bad("gives", "one of gives or gives_one_of, or places");
                     return None;
                 }
             };
@@ -2845,7 +2853,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                     return None;
                 }
             };
-            if gives.is_empty() {
+            if gives.is_empty() && places.is_empty() {
                 return None;
             }
             let count = f.u32("count").unwrap_or(1);
@@ -2857,6 +2865,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 gives,
                 gated_gives,
                 count,
+                places,
                 prov: f.req_prov()?,
             })
         }
@@ -5485,6 +5494,51 @@ impl<'a> Fields<'a> {
             );
         }
         read
+    }
+
+    /// A list of what a use makes standing in the world, each `{ template, offset, lasts }`: the
+    /// template, its offset (`[across, ahead]` in meters, `[0, 0]` when left out) and its time
+    /// (seconds above 0; left out, until cleared or killed). At least one.
+    fn placings(&mut self, name: &str) -> Option<Vec<yalain_content::effect_rules::Placing>> {
+        let list = self.typed(
+            name,
+            "a list of at least one { template, offset = [across, ahead], lasts }, offset and lasts \
+             left out or two numbers of meters and seconds above 0",
+            |v| {
+                let a = v.as_array().filter(|a| !a.is_empty())?;
+                a.iter()
+                    .map(|x| {
+                        let t = x.as_table()?;
+                        if t.keys()
+                            .any(|k| !["template", "offset", "lasts"].contains(&k.as_str()))
+                        {
+                            return None;
+                        }
+                        let template = as_u32(t.get("template")?)?;
+                        let offset = match t.get("offset") {
+                            None => [0.0, 0.0],
+                            Some(o) => match o.as_array()?.as_slice() {
+                                [x, y] => {
+                                    let (x, y) = (to_f32(as_number(x)?), to_f32(as_number(y)?));
+                                    (x.is_finite() && y.is_finite()).then_some([x, y])?
+                                }
+                                _ => return None,
+                            },
+                        };
+                        let lasts = match t.get("lasts") {
+                            None => None,
+                            Some(l) => Some(as_u32(l).filter(|s| *s > 0)?),
+                        };
+                        Some(yalain_content::effect_rules::Placing {
+                            template,
+                            offset,
+                            lasts,
+                        })
+                    })
+                    .collect::<Option<Vec<_>>>()
+            },
+        )?;
+        Some(list)
     }
 
     /// An `[[effect_rule]]`'s `places`, a template, with its `offset` (`[across, ahead]` in

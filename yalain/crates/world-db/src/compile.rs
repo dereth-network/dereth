@@ -1471,6 +1471,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 for (g, _) in &r.gated_gives {
                     known &= cx.template(l, "gated_gives", *g);
                 }
+                for p in &r.places {
+                    known &= cx.template(l, "places", p.template);
+                }
                 if known {
                     t.items
                         .interactions
@@ -1480,6 +1483,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                             gives: r.gives.clone(),
                             count: r.count,
                             gated_gives: r.gated_gives.clone(),
+                            places: r.places.clone(),
                         });
                 }
             }

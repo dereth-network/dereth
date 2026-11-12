@@ -56,10 +56,19 @@
 //! which a use makes, picked by their weights each time (a meld that makes one fortune or its
 //! opposite).
 //!
+//! **What it makes in the world.** A row may name what the use makes standing at the object it was
+//! used on, in place of an item or beside it: a chest, another object, or creatures (a cache and
+//! the guards it wakes, as a recondite machine on a reckoning gem's dig point makes them). Each
+//! stands at its offset from the object as the user faces, on the ground, for its time: a chest or
+//! an object as an effect places one ([`crate::placing`]), a creature until killed. A table that
+//! plays a behavior of its own is carried out so where a row names what its use makes there (a
+//! machine's tinkering), its behavior played first.
+//!
 //! **What it uses up of the object.** An outcome that destroys its target (the script library's
 //! outcome flag 2) uses up an object the user holds, one off its stack, after what the use makes
 //! and the item used: a significator passed through a gateway takes the gateway, a meld used on a
-//! lesser trump takes the trump. An object of the world it names so is left standing.
+//! lesser trump takes the trump. An object an effect placed (a dig point) is taken from the world.
+//! An object a row of the world places is left standing.
 
 use std::collections::HashMap;
 
@@ -318,6 +327,28 @@ fn target_of<S: Store>(s: &Server<S>, world: ConnId, id: u64) -> Option<Target> 
     Some((t.template, at, t.facts.name))
 }
 
+/// What a row makes at an object: a creature, else an object placed (a chest among them), at its
+/// offset from the object as the place faces.
+fn makes_at<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    there: &StoredPosition,
+    p: yalain_content::effect_rules::Placing,
+    clock: Clock,
+) {
+    let Some(template) = s.catalog.get(p.template).cloned() else {
+        return;
+    };
+    let at = crate::death_spawn::at_offset(s, there, p.offset);
+    if yalain_content::CreatureStats::from_props(&template.props).is_some() {
+        #[allow(clippy::cast_precision_loss)]
+        let lasts = p.lasts.map(|l| l as f32);
+        crate::death_spawn::creature_at(s, net, &template, at, lasts, clock);
+    } else {
+        crate::placing::place_at(s, net, (p.template, at), p.lasts, clock);
+    }
+}
+
 /// Whether a player holds a thing: in its pack (or a container there) or wielded.
 fn held_by<S: Store>(s: &Server<S>, id: u64, player: u64) -> bool {
     let mut at = id;
@@ -407,7 +438,11 @@ pub fn used<S: Store>(
     // plays a behavior of its own (no 2017 use of one on an object was recorded) goes on as any
     // other use.
     let trigger = Trigger::UseOn(item, target);
-    if how.behavior.is_some()
+    let makes_there = s
+        .item_rows
+        .made_by(item, target, |c| s.interactions.counts_in(c, target))
+        .is_some_and(|r| !r.places.is_empty());
+    if (how.behavior.is_some() && !makes_there)
         || s.quests
             .steps
             .iter()
@@ -534,10 +569,24 @@ fn carry_out<S: Store>(
     let made = s
         .item_rows
         .made_by(item, target, |c| s.interactions.counts_in(c, target))
-        .map(|r| (r.gives_where(how.gate.is_some()).to_vec(), r.count));
-    if let Some((from, count)) = made {
+        .map(|r| {
+            (
+                r.gives_where(how.gate.is_some()).to_vec(),
+                r.count,
+                r.places.clone(),
+            )
+        });
+    if let Some((from, count, places)) = made {
         if let Some(gives) = crate::makes::pick_one(s, &from) {
             crate::inventory::give(s, net, world, gives, count);
+        }
+        let facing = s.players.get(&world).map(|p| p.position.rotation);
+        let there = StoredPosition {
+            rotation: facing.unwrap_or(at.rotation),
+            ..at
+        };
+        for p in places {
+            makes_at(s, net, &there, p, clock);
         }
     }
     let item_name = s.things.get(u.item).and_then(|t| t.facts.name);
@@ -548,6 +597,12 @@ fn carry_out<S: Store>(
     }
     if how.uses_up_target && u.target != u.item && held_by(s, u.target, me) {
         crate::craft::use_up(s, net, world, u.target, 1);
+    } else if how.uses_up_target
+        && s.things
+            .get(u.target)
+            .is_some_and(|t| t.kind == crate::things::Kind::Placed)
+    {
+        crate::death::vanish(s, net, u.target);
     }
     let mut told = u.clone();
     told.message = Some(match how.message {

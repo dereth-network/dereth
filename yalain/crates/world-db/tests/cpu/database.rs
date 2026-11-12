@@ -4755,6 +4755,7 @@ fn interaction_rows_compile_and_bad_ones_are_problems() {
                 gives: vec![(0x4700_2224, 1)],
                 count: 1,
                 gated_gives: vec![(0x4700_115B, 1)],
+                places: Vec::new(),
             },
             Interaction {
                 item: 0x4700_115B,
@@ -4762,6 +4763,7 @@ fn interaction_rows_compile_and_bad_ones_are_problems() {
                 gives: vec![(0x4700_2224, 1)],
                 count: 2,
                 gated_gives: Vec::new(),
+                places: Vec::new(),
             },
         ],
         "in the rows' order, one when the count is left out"
@@ -4835,6 +4837,74 @@ fn interaction_rows_compile_and_bad_ones_are_problems() {
         f.insert(
             "town/server/items.toml".into(),
             format!("[[interaction]]\n{bad}\nprov = {{ from = \"authored\" }}\n"),
+        );
+        assert!(read(&f).is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn interaction_rows_may_name_what_they_make_at_their_object() {
+    use yalain_content::effect_rules::Placing;
+    let mut files = fixture();
+    files.insert(
+        "town/server/items.toml".into(),
+        "[[interaction]]\nkey = \"cache\"\nitem = 0x4700115B\non = 0x47002224\n\
+         places = [{ template = 0x470020B9, lasts = 1200 }, { template = 0x470020BB, offset = [3, -1.5] }]\n\
+         prov = { from = \"authored\" }\n"
+            .into(),
+    );
+    let db = read(&files).unwrap();
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&db).unwrap(), &Fake::new()).unwrap();
+    let made = &t.items.interactions[0];
+    assert!(made.gives.is_empty(), "nothing given with places alone");
+    assert_eq!(
+        made.places,
+        [
+            Placing {
+                template: 0x4700_20B9,
+                offset: [0.0, 0.0],
+                lasts: Some(1200),
+            },
+            Placing {
+                template: 0x4700_20BB,
+                offset: [3.0, -1.5],
+                lasts: None,
+            },
+        ]
+    );
+
+    // A template the install lacks is a problem.
+    let mut lost = fixture();
+    lost.insert(
+        "town/server/items.toml".into(),
+        "[[interaction]]\nkey = \"lost\"\nitem = 0x4700115B\non = 0x47002224\n\
+         places = [{ template = 0x47009999 }]\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    let problems = compile(&merge(&read(&lost).unwrap()).unwrap(), &Fake::new()).unwrap_err();
+    assert!(
+        problems.iter().any(|p| p
+            .to_string()
+            .contains("template 47009999 is not in the install")),
+        "{problems:?}"
+    );
+
+    // Their shapes.
+    for bad in [
+        "places = []",
+        "places = [{ offset = [0, 1] }]",
+        "places = [{ template = 0x470020B9, lasts = 0 }]",
+        "places = [{ template = 0x470020B9, offset = [1] }]",
+        "places = [{ template = 0x470020B9, count = 2 }]",
+        "places = 0x470020B9",
+    ] {
+        let mut f = fixture();
+        f.insert(
+            "town/server/items.toml".into(),
+            format!(
+                "[[interaction]]\nkey = \"x\"\nitem = 0x4700115B\non = 0x47002224\n{bad}\nprov = {{ from = \"authored\" }}\n"
+            ),
         );
         assert!(read(&f).is_err(), "{bad}");
     }

@@ -52,6 +52,7 @@ mod kingdom_points;
 mod kingdoms;
 mod levers;
 mod lying_client;
+mod made_chests;
 mod made_portals;
 mod makes;
 mod map_trips;

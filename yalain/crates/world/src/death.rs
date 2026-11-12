@@ -1060,8 +1060,12 @@ pub fn corpse_block(t: &Thing) -> Vec<ServerMessage> {
     )
 }
 
-/// A thing leaves the world: every client that knows it forgets it and sees it leave.
+/// A thing leaves the world: every client that knows it forgets it and sees it leave. A chest the
+/// world made is let go first: its opener is told it closed, and what it holds goes with it.
 pub fn vanish<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
+    if s.chests.by_id.contains_key(&id) {
+        crate::usable::chests::release(s, net, id);
+    }
     let Some(t) = s.things.remove(id) else { return };
     let forget = ServerMessage::ForgetObject(ObjectOnly(ObjectStamp {
         id,

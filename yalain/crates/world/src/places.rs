@@ -491,7 +491,10 @@ fn use_thing<S: Store>(
         crate::things::Kind::Node => crate::mining::begin(s, net, world, u, clock),
         crate::things::Kind::Portal => crate::usable::portals::at_portal(s, net, world, u, clock),
         crate::things::Kind::Plant => crate::plants::begin(s, net, world, u, clock),
-        // What an effect placed is no one's to use.
+        // A chest one placed is opened as any chest; anything else it placed is no one's to use.
+        crate::things::Kind::Placed if crate::usable::chests::chest(s, u.item).is_some() => {
+            crate::usable::chests::at_chest(s, net, world, u, clock);
+        }
         crate::things::Kind::Placed => {
             let no = use_refused(&u, me, None, 0.0, USE_STATUS_OK);
             send(net, world, BlobKind::PRIVATE, &no);
@@ -876,6 +879,11 @@ pub fn use_object<S: Store>(
         let me = p_id(s, world);
         let refused = use_answer(&u, me, None, false, 0.0, ACTIONS_LOCKED);
         send(net, world, BlobKind::PRIVATE, &refused);
+        return;
+    }
+    // A chest the world made: walked to, then opened, as a placed one is.
+    if s.things.get(u.item).is_some() && crate::usable::chests::chest(s, u.item).is_some() {
+        crate::usable::chests::used(s, net, world, u, clock);
         return;
     }
     if let Some(t) = s.things.get(u.item) {

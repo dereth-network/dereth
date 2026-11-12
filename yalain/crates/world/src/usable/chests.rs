@@ -35,6 +35,12 @@
 //!
 //! **Closing.** Asked to close, or its opener gone more than six meters from it, the chest plays its
 //! closing for everyone; when that has played the closer is told and everyone sees it shut.
+//!
+//! **Chests the world makes.** A chest need not be placed: what an effect places at a player, or an
+//! item used on an object makes there, may be of a chest's template ([`crate::placing`]). It is a
+//! chest as a placed one is, its kind its template's: opened, filled from its profile at each
+//! opening, locked by its kind, kept by its quest. It stands until its time is up, and what it
+//! holds goes with it.
 
 use std::collections::{HashMap, HashSet};
 
@@ -157,19 +163,36 @@ pub struct Kind {
     pub most: Option<usize>,
 }
 
-/// A chest of the world, by its id: its kind and where it stands.
+/// A chest of the world, by its id: its kind and where it stands. One the world made is a thing an
+/// effect or a use placed whose template is a chest's.
 #[must_use]
 pub fn chest<S: Store>(s: &Server<S>, id: u64) -> Option<(Kind, StoredPosition)> {
-    let i = presence::content_by_id(&s.content.objects, id)?;
-    let o = &s.content.objects[i];
-    if o.destination.is_some() || !s.chests.packages.contains(&o.description.package) {
-        return None;
-    }
-    let props = s.catalog.get(o.template).map(|t| &t.props);
+    let (template, at) = match presence::content_by_id(&s.content.objects, id) {
+        Some(i) => {
+            let o = &s.content.objects[i];
+            if o.destination.is_some() || !s.chests.packages.contains(&o.description.package) {
+                return None;
+            }
+            let at = StoredPosition {
+                cell: o.cell,
+                origin: o.origin,
+                rotation: o.rotation,
+            };
+            (o.template, at)
+        }
+        None => {
+            let t = s.things.get(id).filter(|t| {
+                t.kind == crate::things::Kind::Placed
+                    && s.chests.packages.contains(&t.description.package)
+            })?;
+            (t.template, t.at?)
+        }
+    };
+    let props = s.catalog.get(template).map(|t| &t.props);
     let flag = |k: &str| props.is_some_and(|p| p.flag(k));
     let lockable = flag("Lock_Lockable");
     let kind = Kind {
-        template: o.template,
+        template,
         // A chest that opens on unlocking is locked although its kind does not say so (2017: every
         // opening of one was by its key, and its one plain use refused).
         locked: lockable && (flag("Lock_IsLocked") || flag("Lock_OpenOnUnlock")),
@@ -181,14 +204,16 @@ pub fn chest<S: Store>(s: &Server<S>, id: u64) -> Option<(Kind, StoredPosition)>
             .and_then(|p| p.int("Container_MaxContainerSize"))
             .and_then(|m| usize::try_from(m).ok()),
     };
-    Some((
-        kind,
-        StoredPosition {
-            cell: o.cell,
-            origin: o.origin,
-            rotation: o.rotation,
-        },
-    ))
+    Some((kind, at))
+}
+
+/// The next visual stamp of a chest: a placed one's, or the thing's the world made.
+fn stamp<S: Store>(s: &mut Server<S>, id: u64) -> auberean_protocol::types::ObjectStamp {
+    if s.things.get(id).is_some() {
+        crate::inventory::visual(s, id)
+    } else {
+        places::object_stamp(s, id)
+    }
 }
 
 fn locked<S: Store>(s: &Server<S>, id: u64, kind: &Kind) -> bool {
@@ -227,7 +252,7 @@ fn to_knowers<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, m: &Ser
 
 fn flash<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
     let m = ServerMessage::DoFx(ObjectEvent {
-        sender: places::object_stamp(s, id),
+        sender: stamp(s, id),
         action: Fx {
             fx: look::OPENING_FX,
             scalar: 1.0,
@@ -238,7 +263,7 @@ fn flash<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
 
 fn mode<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, m: u32) {
     let m = ServerMessage::DoMode(ObjectEvent {
-        sender: places::object_stamp(s, id),
+        sender: stamp(s, id),
         action: Word(m),
     });
     to_knowers(s, net, id, &m);
@@ -246,7 +271,7 @@ fn mode<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, m: u32) {
 
 fn shown_open<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, open: bool) {
     let m = ServerMessage::UpdateBoolVisual(VisualQuality {
-        object: places::object_stamp(s, id),
+        object: stamp(s, id),
         quality: q::OPEN,
         value: i32::from(open),
     });
@@ -618,7 +643,7 @@ fn open<S: Store>(
             continue;
         }
         let m = ServerMessage::VisualObjectCall(ObjectCall {
-            object: places::object_stamp(s, id),
+            object: stamp(s, id),
             call: ClientCall {
                 function: FunctionId(DESTROY_CONTAINED),
                 args: Some(
@@ -726,7 +751,8 @@ pub fn close<S: Store>(
 fn key_answer<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, w: &Waiting) {
     let Some(key) = w.key else { return };
     let name = presence::content_by_id(&s.content.objects, id)
-        .and_then(|i| s.content.objects[i].description.name);
+        .and_then(|i| s.content.objects[i].description.name)
+        .or_else(|| s.things.get(id).and_then(|t| t.facts.name));
     let used = crate::usable::doors::fits_answer(s, &w.used, key, name);
     crate::craft::use_up(s, net, w.world, key, 1);
     let done = places::use_done(&used, 0, places::USE_FLAGS_UNLOCKED, false, w.distance);

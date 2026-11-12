@@ -2240,7 +2240,13 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         let cannot_use =
             data::packages_deriving_from(portal, &content, &yalain_world::places::CANNOT_BE_USED)?;
         let (doors, doors_through_locks) = data::door_packages(portal, &content)?;
-        let chests = data::chest_packages(portal, &content)?;
+        // A chest need not be placed: what an effect or a use makes may be one.
+        let mut chests = data::chest_packages(portal, &content)?;
+        chests.extend(data::catalog_packages_from(
+            portal,
+            &catalog,
+            &[yalain_world::usable::chests::PACKAGE],
+        )?);
         let portal_doors = data::packages_deriving_from(
             portal,
             &content,

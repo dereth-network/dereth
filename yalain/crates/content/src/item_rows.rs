@@ -30,8 +30,9 @@ pub enum Shows {
 }
 
 /// What an item used on another makes, where the item's interaction table lets it be used so and
-/// the table's outcome names nothing made.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// the table's outcome names nothing made: items given its user, and what it makes standing in the
+/// world at the object it was used on.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Interaction {
     /// The template of the item used.
     pub item: u32,
@@ -44,6 +45,9 @@ pub struct Interaction {
     /// What it makes instead where the interaction the use met is for some characters only, picked
     /// so (none: `gives`).
     pub gated_gives: Vec<(u32, u32)>,
+    /// What it makes at the object it was used on, each at its offset as the user faces, for its
+    /// time: a chest or another object, or a creature (its guards).
+    pub places: Vec<crate::effect_rules::Placing>,
 }
 
 impl Interaction {

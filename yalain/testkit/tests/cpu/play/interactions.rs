@@ -766,6 +766,7 @@ fn forge() -> Harness {
             gives: vec![(SWORD_EMBLEM, 1)],
             count: 1,
             gated_gives: Vec::new(),
+            places: Vec::new(),
         },
         Made {
             item: BLANK_TEMPLATE,
@@ -773,6 +774,7 @@ fn forge() -> Harness {
             gives: vec![(DAGGER_EMBLEM, 1)],
             count: 1,
             gated_gives: Vec::new(),
+            places: Vec::new(),
         },
     ];
     h
@@ -969,6 +971,7 @@ fn parlor() -> Harness {
         gives: vec![(LESSER_FATE_CARD, 1)],
         count: 1,
         gated_gives: vec![(FATE_CARD, 1)],
+        places: Vec::new(),
     }];
     h
 }

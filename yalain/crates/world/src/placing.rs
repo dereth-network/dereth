@@ -9,7 +9,8 @@
 //! **Where it stands.** At the row's offset from the player as it faces (`[across, ahead]` in
 //! meters, the player's feet when left out), on the ground outdoors and at the player's height
 //! indoors, facing as the player faces. It is made for every client that sees its place, and is
-//! no one's: it can't be taken, and a use of it does nothing.
+//! no one's: it can't be taken, and a use of it does nothing, unless its template is a chest's:
+//! then it is a chest anyone may open, filled from its profile ([`crate::usable::chests`]).
 //!
 //! **How long.** For its row's `lasts` seconds, else until a tally's reset clears its template,
 //! or the world stops: what is placed is not kept across a restart. No more than [`MOST`] of one
@@ -33,24 +34,37 @@ pub fn place<S: Store>(
     p: Placing,
     clock: Clock,
 ) -> Option<u64> {
-    let template = s.catalog.get(p.template).cloned()?;
     let from = s.players.get(&world)?.position;
+    let at = crate::death_spawn::at_offset(s, &from, p.offset);
+    place_at(s, net, (p.template, at), p.lasts, clock)
+}
+
+/// Place an object of a template at a place, standing `lasts` seconds (until cleared, when none).
+/// Returns its id, if it was made: not past [`MOST`] of its template.
+pub fn place_at<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    (template, at): (u32, yalain_store::StoredPosition),
+    lasts: Option<u32>,
+    clock: Clock,
+) -> Option<u64> {
+    let of = s.catalog.get(template).cloned()?;
     let standing = s
         .things
         .by_id
         .values()
-        .filter(|t| t.kind == Kind::Placed && t.template == p.template)
+        .filter(|t| t.kind == Kind::Placed && t.template == template)
         .count();
     if standing >= MOST {
         return None;
     }
     let id = s.things.new_id();
-    let mut t = Thing::of(id, &template, Kind::Placed);
-    t.at = Some(crate::death_spawn::at_offset(s, &from, p.offset));
+    let mut t = Thing::of(id, &of, Kind::Placed);
+    t.at = Some(at);
     t.fresh = true;
     s.things.insert(t);
     presence::thing_appears(s, net, id);
-    if let Some(seconds) = p.lasts {
+    if let Some(seconds) = lasts {
         s.after(clock, f64::from(seconds), Timer::Vanish { id });
     }
     Some(id)

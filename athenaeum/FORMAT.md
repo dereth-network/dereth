@@ -1006,7 +1006,7 @@ What an effect of the install does where its own data says nothing. One row per 
 | `skill` | | a skill, by its number: putting it on trains its player that skill for good, at level 1 by the grant, unraisable and at no cost, told with the effect's own line and appearance; a player who holds it gains nothing |
 | `gives` | | a template: putting it on makes items of it in its player's pack, as the server's gift, with no line of their own; for an effect that names no item it gives, such as one that hands over a quest's item |
 | `count` | | with `gives`: how many, above 0; 1 when left out |
-| `places` | | a template: putting the effect on (by name: using an item whose template names it, after the use is answered) makes an object of it standing in the world at its player, no one's to take or use |
+| `places` | | a template: putting the effect on (by name: using an item whose template names it, after the use is answered) makes an object of it standing in the world at its player, no one's to take or use; one of a chest's template is a chest anyone may open, filled from its generator profile at each opening (a treasure map's cargo chest), and what it holds goes with it |
 | `offset` | | with `places`: `[across, ahead]`, meters from the player as it faces, on the ground; `[0, 0]` when left out |
 | `lasts` | | with `places`: seconds it stands, above 0; left out, until a `[[tally]]` that `clears` it resets, or the server stops (what is placed is not kept across a restart) |
 | `prov` | required | where it came from |
@@ -1109,14 +1109,22 @@ these, the row gives its `gated_gives`, if it names one. A card meld's table nam
 for anyone: one row a suit, `gives` for anyone and `gated_gives` for a character on its own rank,
 covers the suit.
 
+A row may instead, or as well, name what the use makes standing in the world at the object it was
+used on (`places`): a recondite machine used on a reckoning gem's dig point uncovers a cache and the
+guards it wakes. Each stands at its offset from the object as the user faces, on the ground: a chest
+that anyone may open, filled from its generator profile; another object, no one's; a creature,
+until it is killed. Where the item's table plays a behavior of its own the use plays it first; where
+the table's outcome uses up the object, an object an effect placed (the dig point) leaves the world.
+
 | field | | meaning |
 |---|---|---|
 | `key` | required | lowercase letters, digits and hyphens |
 | `item` | required | the template of the item used |
 | `on`, `on_class` | one of them | what it is used on: a template, or a class (a script package, by number) the item's table names, any template of which counts |
-| `gives`, `gives_one_of` | one of them | the template of what it makes, or one of several picked by weight each use: at least two `{ template, weight }`, each weight above 0 (a meld making one of a fortune card's two sets: `[{ template = A, weight = 1 }, { template = B, weight = 1 }]`) |
+| `gives`, `gives_one_of` | one of them, or `places` | the template of what it makes, or one of several picked by weight each use: at least two `{ template, weight }`, each weight above 0 (a meld making one of a fortune card's two sets: `[{ template = A, weight = 1 }, { template = B, weight = 1 }]`) |
 | `gated_gives`, `gated_gives_one_of` | | what it makes instead where the interaction the use met is for some characters only, one template or one of several as `gives_one_of`; `gives` when left out |
 | `count` | | above 0; 1 when left out |
+| `places` | | at least one `{ template, offset, lasts }`: what it makes at the object, `offset` `[across, ahead]` in meters as the user faces (`[0, 0]` when left out), `lasts` seconds above 0 (left out, until it is killed, cleared or the server stops) |
 | `prov` | required | where it came from |
 
 #### `[[object_states]]`

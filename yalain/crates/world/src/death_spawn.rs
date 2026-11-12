@@ -189,39 +189,45 @@ fn makes<S: Store>(
             }
             continue;
         }
-        let Some(stats) = yalain_content::CreatureStats::from_props(&template.props) else {
+        let at = at_offset(s, &killer_at, spawn.offset);
+        let Some(id) = creature_at(s, net, &template, at, spawn.lasts, clock) else {
             s.unhandled.note(format!(
                 "a death effect's template {:08X} is no creature",
                 spawn.template
             ));
             return;
         };
-        let at = at_offset(s, &killer_at, spawn.offset);
-        let heading = crate::world::heading_of_rotation(at.rotation);
-        let id = crate::spawn::make(
-            s,
-            &template,
-            stats,
-            (at, heading),
-            None,
-            None,
-            clock.local.0,
-        );
         if let Some((name, _)) = most {
             s.death_spawned
                 .entry(name.to_string())
                 .or_default()
                 .push(id);
         }
-        if let Some(seconds) = spawn.lasts {
-            s.after(
-                clock,
-                f64::from(seconds),
-                crate::Timer::MadeEnds { creature: id },
-            );
-        }
-        presence::thing_appears(s, net, id);
     }
+}
+
+/// Make a creature of a template at a place, facing as the place does, standing until killed or for
+/// `lasts` seconds. Returns its id; none for a template that is no creature.
+pub(crate) fn creature_at<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    template: &yalain_content::Template,
+    at: StoredPosition,
+    lasts: Option<f32>,
+    clock: Clock,
+) -> Option<u64> {
+    let stats = yalain_content::CreatureStats::from_props(&template.props)?;
+    let heading = crate::world::heading_of_rotation(at.rotation);
+    let id = crate::spawn::make(s, template, stats, (at, heading), None, None, clock.local.0);
+    if let Some(seconds) = lasts {
+        s.after(
+            clock,
+            f64::from(seconds),
+            crate::Timer::MadeEnds { creature: id },
+        );
+    }
+    presence::thing_appears(s, net, id);
+    Some(id)
 }
 
 /// A place at an offset from another, as that one faces, on the ground.

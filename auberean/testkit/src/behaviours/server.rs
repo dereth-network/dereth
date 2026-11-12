@@ -11531,6 +11531,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.an-item-used-on-an-object-makes-a-chest-there",
+        says: "An item used on an object whose row names what the use makes there makes it at the object, \
+               each at its offset as the user faces, the item's table's own behavior played first: a chest \
+               anyone may open, a creature until killed; the object, one an effect placed, leaves the world \
+               as the outcome uses it up. Without such a row a table that plays a behavior of its own goes \
+               on as any other use.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CACHE-AT-DIG-POINT"),
+        station: "yalain-testkit::cpu::play::made_chests::a_machine_used_on_a_dig_point_makes_a_cache_and_its_guard_there",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.an-items-use-makes-a-portal",
         says: "An item whose use effect a world's row names with a portal template makes that portal \
                2 m straight ahead of its user at its height, facing its way, told to those who see it, \
@@ -11589,6 +11601,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-CANNOT-BE-USED-KINDS"),
         station: "yalain-testkit::dat::interactions::forges_and_road_signs_are_told_by_their_script_kinds",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.places.chest-an-effect-places",
+        says: "What an effect places at a player may be of a chest's template: it is a chest as a placed \
+               one is, opened, filled from its generator profile and closed; when its time is up it goes, \
+               forgotten by the clients that saw it, and what it holds goes with it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MADE-CHESTS"),
+        station: "yalain-testkit::cpu::play::made_chests::a_chest_an_effect_places_opens_as_any_chest_and_goes_when_its_time_is_up",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.places.chest-closes-when-its-opener-walks-away",
