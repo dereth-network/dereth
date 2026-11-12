@@ -38,6 +38,7 @@ pub mod levers;
 pub mod locks;
 pub mod loot;
 pub mod movement;
+pub mod offerings;
 pub mod plants;
 pub mod pools;
 pub mod popups;
@@ -750,6 +751,9 @@ pub struct ContentPack {
     /// The levers whose pulls open doors. Not part of the text form: the world database's levers
     /// fill it.
     pub levers: levers::LeverTable,
+    /// The objects that take a set of items and then open the way for a while. Not part of the
+    /// text form: the world database's offerings fill it.
+    pub offerings: offerings::OfferingTable,
 }
 
 /// The kind of player conflict a place allows.
@@ -1125,6 +1129,7 @@ impl ContentPack {
             class_gives: BTreeMap::new(),
             companions: BTreeMap::new(),
             levers: levers::LeverTable::default(),
+            offerings: offerings::OfferingTable::default(),
         })
     }
 

@@ -21,7 +21,8 @@
 //! after its update (23 of 23). With no step for it the person says its own refusal of a give and
 //! hands it back (30 of 30): a person with a body plays its handing-over behavior and the item is
 //! back 1.30 s later, an object hands it back at once. An item that changes the state of an object
-//! holding one ([`crate::puzzles`]) is handed back as it changes it.
+//! holding one ([`crate::puzzles`]) is handed back as it changes it. An item of the set an object's
+//! offering takes ([`crate::offerings`]) is kept by it, or refused when it holds one already.
 //!
 //! **Stacks.** What is given is taken whole when a step keeps it: the count asked, a part of a
 //! stack leaving the rest in the pack (2017: 38 of 38). A step may want an exact count: any other
@@ -373,6 +374,17 @@ pub fn handed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, c
             }
             hand_back(s, net, world, i, &m, object, None, clock);
             return;
+        }
+        match crate::offerings::given(s, i, template) {
+            crate::offerings::Offered::Takes => {
+                crate::offerings::takes(s, net, world, i, given, clock);
+                return;
+            }
+            crate::offerings::Offered::Refuses => {
+                refused(s, net, world, i, &m, object, clock);
+                return;
+            }
+            crate::offerings::Offered::Not => {}
         }
         if let Some(row) =
             crate::quests::give_for(s, world, template, target_template, given.quantity)

@@ -708,6 +708,7 @@ pub enum Row {
     ObjectStates(ObjectStatesRow),
     Sequence(SequenceRow),
     Lever(LeverRow),
+    Offering(OfferingRow),
     MapRecipes(MapRecipes),
     Spellbinding(Spellbinding),
     Refining(Refining),
@@ -1201,6 +1202,19 @@ pub struct LeverRow {
     pub prov: Prov,
 }
 
+/// `[[offering]]`: a placed object that takes a set of items: the object (`key@XXYY`, or
+/// `pack:key@XXYY`), each item with the placed object that stands while it is held, the placed
+/// objects that stand once it holds the whole set, and for how many seconds.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OfferingRow {
+    pub key: String,
+    pub object: String,
+    pub takes: Vec<(u32, Option<String>)>,
+    pub opens: Vec<String>,
+    pub lasts: u32,
+    pub prov: Prov,
+}
+
 /// `[[tool]]`: what a gathering tool yields when it was not made (a made one's yield is its own).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tool {
@@ -1315,6 +1329,7 @@ impl Row {
             Self::ObjectStates(_) => "object_states",
             Self::Sequence(_) => "sequence",
             Self::Lever(_) => "lever",
+            Self::Offering(_) => "offering",
             Self::MapRecipes(_) => "map_recipes",
             Self::Spellbinding(_) => "spellbinding",
             Self::Refining(_) => "refining",
@@ -1381,6 +1396,7 @@ impl Row {
             Self::ObjectStates(r) => Some(&r.prov),
             Self::Sequence(r) => Some(&r.prov),
             Self::Lever(r) => Some(&r.prov),
+            Self::Offering(r) => Some(&r.prov),
             Self::MapRecipes(r) => Some(&r.prov),
             Self::Spellbinding(r) => Some(&r.prov),
             Self::Refining(r) => Some(&r.prov),
@@ -1399,7 +1415,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 60] = [
+pub const KINDS: [&str; 61] = [
     "object",
     "camp",
     "loot",
@@ -1448,6 +1464,7 @@ pub const KINDS: [&str; 60] = [
     "object_states",
     "sequence",
     "lever",
+    "offering",
     "map_recipes",
     "spellbinding",
     "refining",
@@ -1463,7 +1480,7 @@ pub const KINDS: [&str; 60] = [
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 60] = [
+pub const FIELDS: [(&str, &[&str]); 61] = [
     (
         "object",
         &[
@@ -1895,6 +1912,10 @@ pub const FIELDS: [(&str, &[&str]); 60] = [
     (
         "lever",
         &["key", "levers", "opens", "open_for", "within", "prov"],
+    ),
+    (
+        "offering",
+        &["key", "object", "takes", "opens", "lasts", "prov"],
     ),
     (
         "map_recipes",
@@ -2965,6 +2986,42 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 opens,
                 open_for,
                 within,
+                prov: f.req_prov()?,
+            })
+        }
+        "offering" => {
+            let key = f.req_symbol("key")?;
+            let object = match f.get("object") {
+                Some(_) => f.symbol("object")?,
+                None => return f.missing("object"),
+            };
+            let takes = f.list_of(
+                "takes",
+                "a list of { item, shows }: an item it takes, and the placed object that stands while it holds it (key@XXYY)",
+                &["item", "shows"],
+                |t| {
+                    let shows = match t.get("shows") {
+                        Some(v) => Some(v.as_str().filter(|s| is_reference(s))?.to_string()),
+                        None => None,
+                    };
+                    Some((as_u32(t.get("item")?)?, shows))
+                },
+            );
+            let ok = !takes.is_empty()
+                && takes.iter().map(|(i, _)| i).collect::<BTreeSet<_>>().len() == takes.len();
+            let takes = f.held("takes", takes, ok, "at least one, each item once")?;
+            let opens = f.req_references("opens")?;
+            let ok = !opens.is_empty();
+            let opens = f.held("opens", opens, ok, "at least one")?;
+            let lasts = f.req_u32("lasts")?;
+            let ok = lasts > 0;
+            let lasts = f.held("lasts", lasts, ok, "above 0")?;
+            Row::Offering(OfferingRow {
+                key,
+                object,
+                takes,
+                opens,
+                lasts,
                 prov: f.req_prov()?,
             })
         }

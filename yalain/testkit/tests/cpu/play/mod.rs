@@ -61,6 +61,7 @@ mod marks;
 mod mining;
 mod missiles;
 mod mounts;
+mod offerings;
 mod own_requests;
 mod pack;
 mod paper_doll;

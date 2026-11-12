@@ -46,6 +46,8 @@
 //! - [`plants`]: dye plants: planted from seeds, cared for, pollinated and harvested.
 //! - [`puzzles`]: objects whose state the items given them change, and uses in an order judged
 //!   against those states.
+//! - [`offerings`]: objects that take a set of items from players and then open the way for a
+//!   while.
 //! - [`mounts`]: saddles and mount eggs put their user on a beast; riding, dismounting and the
 //!   ride's end.
 //! - [`usable`]: doors, chests, their locks and keys, levers, surveyor's maps, items used on the
@@ -118,6 +120,7 @@ pub mod mining;
 pub mod missiles;
 pub mod mounts;
 pub mod names;
+pub mod offerings;
 pub mod options;
 pub mod pack;
 pub mod personal;
@@ -423,6 +426,8 @@ pub struct Server<S: Store> {
     pub events: events::Events,
     /// The world's tallies' counts.
     pub tallies: tallies::Tallies,
+    /// What the world's offerings hold, and which stand open.
+    pub offerings: offerings::Offerings,
     /// The lever pulls waiting on a row's other levers.
     pub levers: usable::levers::Levers,
     pub crafting: craft::Crafting,
@@ -862,6 +867,7 @@ impl<S: Store> Server<S> {
             creature_effects: effects::CreatureRecords::default(),
             events: events::Events::default(),
             tallies: tallies::Tallies::default(),
+            offerings: offerings::Offerings::default(),
             levers: usable::levers::Levers::default(),
             crafting: craft::Crafting::default(),
             vitae_costs: Vec::new(),
@@ -1194,6 +1200,7 @@ impl<S: Store> Server<S> {
         if due {
             self.last_step = Some(clock.local);
             events::step(self, net, clock);
+            offerings::step(self, net, clock);
             spawn::step(self, net, clock);
         }
         self.saves.piece_begins();

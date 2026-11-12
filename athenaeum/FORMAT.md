@@ -54,7 +54,7 @@ world.lock                         ids given to authored rows, kept across build
 <pack>/server/treasure_potions.toml [[treasure_potion]]
 <pack>/server/treasure_families.toml [[treasure_family]]
 <pack>/server/items.toml           [[item_use]], [[book]], [[start_item]], [[interaction]]
-<pack>/server/puzzles.toml         [[object_states]], [[sequence]], [[lever]]
+<pack>/server/puzzles.toml         [[object_states]], [[sequence]], [[lever]], [[offering]]
 <pack>/server/creatures.toml       [[concealing]], [[npc_table]], [[friend_table]], [[creature]]
 ```
 
@@ -125,7 +125,7 @@ Every row sets one **item**, named by its key:
 | item | key |
 |---|---|
 | `object KEY@XXYY`, `camp KEY@XXYY`, `clearing KEY@XXYY` | the row's `key`, unique within its landblock in its pack |
-| `place KEY`, `talk KEY`, `give KEY`, `route KEY`, `event KEY`, `tally KEY`, `death_treasure KEY`, `object_states KEY`, `sequence KEY`, `lever KEY` | the row's `key` |
+| `place KEY`, `talk KEY`, `give KEY`, `route KEY`, `event KEY`, `tally KEY`, `death_treasure KEY`, `object_states KEY`, `sequence KEY`, `lever KEY`, `offering KEY` | the row's `key` |
 | `loot 0xVALUE` | the death-loot profile's value |
 | `keeper 0xTEMPLATE` | the storekeeper template |
 | `store KEY` | the shop's `key`, unique in the world |
@@ -1171,6 +1171,28 @@ one pull counts in each.
 | `opens` | required | the doors their pulls open, at least one, named as `levers` |
 | `open_for` | | how long the doors stay open, in seconds, above 0; until a use closes them when left out |
 | `within` | | how long a pull waits for the row's other levers, in seconds, above 0; for as long as it takes when left out |
+| `prov` | required | where it came from |
+
+#### `[[offering]]`
+
+A placed object that takes a set of items from players and then opens the way for a while. An item
+of the set given to it, while it does not hold that item and is not open, is kept (it leaves the
+giver's pack and the world), whoever gives it: what it holds is the world's, the same for every
+player, and it says its lines for a give of that item. A part it holds already, or any while it is
+open, is handed back as a give it wants nothing of. An item of the set may name a placed object
+that stands in the world only while the offering holds that item. As the last item comes, those go
+and the offering's `opens` stand for everyone for `lasts` seconds; then they go and it holds
+nothing again. What it holds and how long it stays open last over a restart. A quest step the give
+triggers runs instead; an item not of the set is the object's as any other give. An object takes
+one offering.
+
+| field | | meaning |
+|---|---|---|
+| `key` | required | lowercase letters, digits and hyphens |
+| `object` | required | the placed object given to: `key@XXYY`, or `pack:key@XXYY` in another pack |
+| `takes` | required | `{ item, shows }`, at least one, each item once: an item of the set, and the placed object that stands while it is held (named as `object`; none when left out) |
+| `opens` | required | the placed objects that stand once it holds the whole set, at least one, named as `object` |
+| `lasts` | required | how long they stand, in seconds, above 0 |
 | `prov` | required | where it came from |
 
 #### `[[worn]]`

@@ -611,6 +611,15 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                     }
                 }
             }
+            Row::Offering(r) => {
+                let shows = r.takes.iter().filter_map(|(_, s)| s.as_ref());
+                let named = std::iter::once(("object", &r.object))
+                    .chain(shows.map(|s| ("takes", s)))
+                    .chain(r.opens.iter().map(|o| ("opens", o)));
+                for (field, name) in named {
+                    check_placed(field, name, l, &objects, &mut |m| problems.push(at(m)));
+                }
+            }
             Row::DeathTreasure(r) => {
                 if let Some(camp) = &r.camp {
                     let (pack, key) = split_ref(camp, &l.pack);

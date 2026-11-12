@@ -6967,3 +6967,78 @@ fn a_lever_row_names_its_levers_and_doors_by_placement_and_compiles_to_the_lever
         check(&bad)
     );
 }
+
+fn offering_world() -> Files {
+    let mut files = with_lever(fixture());
+    files.insert(
+        "town/server/offerings.toml".into(),
+        "[[offering]]\nkey = \"altar\"\nobject = \"keeper@77B7\"\n\
+         takes = [{ item = 0x47002224, shows = \"lever@77B7\" }, { item = 0x470020BB }]\n\
+         opens = [\"gate@77B7\"]\nlasts = 300\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    files
+}
+
+#[test]
+fn an_offering_row_names_its_object_parts_and_what_it_opens_and_compiles_to_the_offering_table() {
+    use yalain_content::offerings::{Offering, Part};
+    let files = offering_world();
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let keeper = t
+        .content
+        .objects
+        .iter()
+        .position(|o| o.template == 0x4700_33D0)
+        .expect("the keeper");
+    let flare = placed_at(&t, 0x4077_B700_0000_0003);
+    let gate = placed_at(&t, 0x4077_B700_0000_0001);
+    assert_eq!(
+        t.content.offerings.offerings,
+        vec![Offering {
+            key: "altar".into(),
+            object: keeper,
+            takes: vec![
+                Part {
+                    item: 0x4700_2224,
+                    shows: Some(flare)
+                },
+                Part {
+                    item: 0x4700_20BB,
+                    shows: None
+                },
+            ],
+            opens: vec![gate],
+            lasts: 300,
+        }]
+    );
+
+    let mut twice = offering_world();
+    edit(
+        &mut twice,
+        "town/server/offerings.toml",
+        "{ item = 0x470020BB }",
+        "{ item = 0x47002224 }",
+    );
+    assert!(
+        check(&twice).iter().any(|p| p
+            .to_string()
+            .contains("takes: at least one, each item once")),
+        "{:?}",
+        check(&twice)
+    );
+    let mut two = offering_world();
+    two.get_mut("town/server/offerings.toml").unwrap().push_str(
+        "\n[[offering]]\nkey = \"altar-2\"\nobject = \"keeper@77B7\"\n\
+         takes = [{ item = 0x470020BB }]\nopens = [\"gate@77B7\"]\nlasts = 60\n\
+         prov = { from = \"authored\" }\n",
+    );
+    let problems = compile(&merge(&read(&two).unwrap()).unwrap(), &Fake::new()).unwrap_err();
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.to_string().contains("takes another row's offering")),
+        "{problems:?}"
+    );
+}

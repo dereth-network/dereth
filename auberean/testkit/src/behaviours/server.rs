@@ -5949,6 +5949,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.gives.offering-opens-the-way-once-it-holds-its-set",
+        says: "An object that takes a set of items keeps each one given it, whoever gives it, and stands \
+               the object shown for it; as the last comes those go and its own objects stand for \
+               everyone for its time, then go, and it holds nothing again; an item it holds, or any \
+               while it is open, is handed back. What it holds outlasts a restart.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-OFFERINGS"),
+        station: "yalain-testkit::cpu::play::offerings::an_offering_keeps_each_part_and_opens_its_portal_for_its_time_once_it_holds_them_all",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.gives.one-give-at-a-time",
         says: "A person takes one give at a time: another player's give to it while one is under way is \
                refused at once as the target busy, with no walk; an object takes both; a giver's second \

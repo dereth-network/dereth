@@ -1881,7 +1881,8 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             | Row::Clearing(_)
             | Row::Store(_)
             | Row::DeathTreasure(_)
-            | Row::Lever(_) => {}
+            | Row::Lever(_)
+            | Row::Offering(_) => {}
         }
     }
     for (l, scene) in door_scenes {
@@ -2015,19 +2016,63 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     cx.problems.extend(crate::check::tallies(
         &merged.rows.iter().collect::<Vec<_>>(),
     ));
-    // Levers, once every placed object has its place in the content pack.
+    // Levers and offerings, once every placed object has its place in the content pack.
     for l in &merged.rows {
-        let Row::Lever(r) = &l.row else { continue };
-        let levers = placed_objects(&mut cx, &objects_at, l, "levers", &r.levers);
-        let opens = placed_objects(&mut cx, &objects_at, l, "opens", &r.opens);
-        if let (Some(levers), Some(opens)) = (levers, opens) {
-            t.content.levers.rows.push(yalain_content::levers::Lever {
-                key: r.key.clone(),
-                levers,
-                opens,
-                open_for: r.open_for,
-                within: r.within,
-            });
+        match &l.row {
+            Row::Lever(r) => {
+                let levers = placed_objects(&mut cx, &objects_at, l, "levers", &r.levers);
+                let opens = placed_objects(&mut cx, &objects_at, l, "opens", &r.opens);
+                if let (Some(levers), Some(opens)) = (levers, opens) {
+                    t.content.levers.rows.push(yalain_content::levers::Lever {
+                        key: r.key.clone(),
+                        levers,
+                        opens,
+                        open_for: r.open_for,
+                        within: r.within,
+                    });
+                }
+            }
+            Row::Offering(r) => {
+                let object = placed_object(&mut cx, &objects_at, l, "object", &r.object);
+                let opens = placed_objects(&mut cx, &objects_at, l, "opens", &r.opens);
+                let mut takes = Vec::new();
+                let mut ok = true;
+                for (item, shows) in &r.takes {
+                    ok &= cx.template(l, "takes", *item);
+                    let shows = match shows {
+                        Some(name) => match placed_object(&mut cx, &objects_at, l, "takes", name) {
+                            Some(i) => Some(i),
+                            None => {
+                                ok = false;
+                                None
+                            }
+                        },
+                        None => None,
+                    };
+                    takes.push(yalain_content::offerings::Part { item: *item, shows });
+                }
+                let (Some(object), Some(opens), true) = (object, opens, ok) else {
+                    continue;
+                };
+                if t.content.offerings.of_object(object).is_some() {
+                    cx.problem(
+                        l,
+                        format!("object: {} takes another row's offering", r.object),
+                    );
+                    continue;
+                }
+                t.content
+                    .offerings
+                    .offerings
+                    .push(yalain_content::offerings::Offering {
+                        key: r.key.clone(),
+                        object,
+                        takes,
+                        opens,
+                        lasts: r.lasts,
+                    });
+            }
+            _ => {}
         }
     }
     // What people say, once every placed person has its place in the content pack.

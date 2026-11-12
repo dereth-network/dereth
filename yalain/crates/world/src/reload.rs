@@ -10,7 +10,7 @@
 //!   objects, the camps and the veins, and the areas of player conflict (a player whose
 //!   landblock's status changed is told it at once), the scheduled events (those on end, and
 //!   the new ones start at the next step as their times say), the levers (pulls waiting on
-//!   others start over), the kingdom rows (what raises
+//!   others start over), the offerings (each keeps what it holds), the kingdom rows (what raises
 //!   kingdom points, and the steps and gives for one kingdom alone), the tips (what each
 //!   moment shows; who has been shown one stays so), the item rows (what items' uses do,
 //!   what books and people show, what new characters are given), the creature rows (whom
@@ -157,6 +157,7 @@ pub mod table {
     pub const EVENTS: &str = "scheduled events";
     pub const TALLIES: &str = "tallies";
     pub const LEVERS: &str = "levers";
+    pub const OFFERINGS: &str = "offerings";
     pub const ESCORTS: &str = "escorts";
     pub const KINGDOMS: &str = "kingdom rows";
     pub const POPUPS: &str = "tips";
@@ -266,12 +267,19 @@ impl<S: Store> Server<S> {
                 .counts
                 .retain(|k, _| tallies.tally(k).is_some());
         }
-        // The levers: pulls waiting on others start over.
+        // The levers: pulls waiting on others start over. The offerings: each keeps what it holds
+        // by its key, and what the world no longer names is dropped.
         let changed = t.content.levers != self.content.levers;
         r.note(table::LEVERS, changed, true);
         if changed {
             self.content.levers = std::mem::take(&mut t.content.levers);
             self.levers = crate::usable::levers::Levers::default();
+        }
+        let changed = t.content.offerings != self.content.offerings;
+        r.note(table::OFFERINGS, changed, true);
+        if changed {
+            self.content.offerings = std::mem::take(&mut t.content.offerings);
+            self.offerings.keep_only(&self.content.offerings);
         }
         // The escorts: those following now keep following as their rows said when they were made.
         let changed = t.content.escorts != self.content.escorts;

@@ -56,11 +56,12 @@ pub fn camp_stands<S: Store>(s: &Server<S>, camp: usize) -> bool {
 }
 
 /// Is the placed object at this place in the world's list kept from the world now: it names an
-/// event that is off.
+/// event that is off, or an offering keeps it ([`crate::offerings::hides`]).
 #[must_use]
 pub fn hides<S: Store>(s: &Server<S>, object: usize) -> bool {
     let t = &s.content.events;
-    !t.is_empty() && t.of_object(object).is_some_and(|e| !is_on(s, e))
+    (!t.is_empty() && t.of_object(object).is_some_and(|e| !is_on(s, e)))
+        || crate::offerings::hides(s, object)
 }
 
 /// The placed object of an id, unless it is kept from the world now.
