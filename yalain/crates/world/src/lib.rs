@@ -122,6 +122,7 @@ pub mod pack;
 pub mod personal;
 pub mod pets;
 pub mod places;
+pub mod placing;
 pub mod plants;
 pub mod player;
 pub mod popups;

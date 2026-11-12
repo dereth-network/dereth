@@ -925,6 +925,10 @@ pub fn apply_on<S: Store>(
             }
             true
         }
+        // What a rule says an effect places stands at its player.
+        (Kind::Places(p), On::Player(world)) => {
+            crate::placing::place(s, net, world, *p, clock).is_some()
+        }
         (Kind::Taunt(share), On::Creature(id)) => {
             crate::ai::taunted(s, id, cast.caster, *share, clock.local.0);
             true
@@ -939,7 +943,8 @@ pub fn apply_on<S: Store>(
             | Kind::VitaeRestore(_)
             | Kind::Reset(_)
             | Kind::GrantSkill(_)
-            | Kind::GrantItem(_),
+            | Kind::GrantItem(_)
+            | Kind::Places(_),
             On::Creature(_),
         )
         | (Kind::Aura(_), _) => false,
@@ -2597,6 +2602,7 @@ pub fn toggled_on<S: Store>(
             | Kind::Reset(_)
             | Kind::GrantSkill(_)
             | Kind::GrantItem(_)
+            | Kind::Places(_)
             | Kind::Aura(_)
             | Kind::Pet { .. }
             | Kind::Recall(_)

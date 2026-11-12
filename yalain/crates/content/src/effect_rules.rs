@@ -1,7 +1,7 @@
 //! What the world database says of effects where their own data says nothing: what a ward keeps
 //! off, the share of its holder's vitae an effect takes or the vitae it gives back, what an
 //! immunity leaves as it ends, the complete reset of skills an effect grants, the skill an
-//! effect trains, and the items an effect gives.
+//! effect trains, the items an effect gives, and what an effect places in the world.
 
 use std::collections::BTreeMap;
 
@@ -53,6 +53,16 @@ pub struct Grant {
     pub count: u32,
 }
 
+/// What an effect places in the world at its user: an object of a template, at an offset in
+/// meters from the user as it faces (`[across, ahead]`), on the ground and facing as the user
+/// faces, standing so many seconds (none: until a tally clears it, or the world stops).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Placing {
+    pub template: u32,
+    pub offset: [f32; 2],
+    pub lasts: Option<u32>,
+}
+
 /// The world's effect rules, by the effect's saved state.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EffectRules {
@@ -72,4 +82,9 @@ pub struct EffectRules {
     pub skills: BTreeMap<u32, u32>,
     /// The effects that give their player items when they are put on.
     pub grants: BTreeMap<u32, Grant>,
+    /// The effects that place an object in the world at their player when they are put on.
+    pub places: BTreeMap<u32, Placing>,
+    /// The same, for effects the install names (an item's use naming one) but holds no saved
+    /// state of, by the name.
+    pub places_named: BTreeMap<String, Placing>,
 }

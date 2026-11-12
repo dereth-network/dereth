@@ -4135,6 +4135,21 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.effects.a-rule-places-what-an-effect-places",
+        says: "An effect a world's `[[effect_rule]]` `places` a template for makes an object of \
+               it standing in the world at its player, at the row's offset as the player faces \
+               (its feet when left out), on the ground, no one's to take or use: an effect with a \
+               saved state wherever it is put on a player, and one the install names but holds no \
+               state of as an item whose template names it is used, after the use is answered, \
+               the item spent. It stands for the row's `lasts` seconds, else until a tally that \
+               clears its template resets; an item whose use would place what the world can't \
+               make is kept.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-EFFECT-PLACES"),
+        station: "yalain-testkit::cpu::play::placings::an_items_use_places_what_its_effects_row_names_at_its_user",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.effects.buff-record-runs-out",
         says: "A buff puts a record on its target at the skill's hook, with its own id, its \
                timeout and spellcraft at the skill's rating, timed; the player's speed sent when \

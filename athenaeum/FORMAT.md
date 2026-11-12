@@ -950,7 +950,7 @@ What an effect of the install does where its own data says nothing. One row per 
 
 | field | | meaning |
 |---|---|---|
-| `effect` | required | its saved state, one the install holds |
+| `effect` | required | its saved state, one the install holds; or, for an effect the install's templates name (an item's use) but holds no saved state of, its name as text, such a rule naming only `places` |
 | `ward` | | `{ classes, effects, chance }`: what a player holding it keeps off |
 | `vitae_share` | | the share of its player's vitae it takes when it is put on, above 0 and at most 1 |
 | `vitae_restore` | | `{ points, fellows }`, the vitae it gives back when it is put on |
@@ -959,6 +959,9 @@ What an effect of the install does where its own data says nothing. One row per 
 | `skill` | | a skill, by its number: putting it on trains its player that skill for good, at level 1 by the grant, unraisable and at no cost, told with the effect's own line and appearance; a player who holds it gains nothing |
 | `gives` | | a template: putting it on makes items of it in its player's pack, as the server's gift, with no line of their own; for an effect that names no item it gives, such as one that hands over a quest's item |
 | `count` | | with `gives`: how many, above 0; 1 when left out |
+| `places` | | a template: putting the effect on (by name: using an item whose template names it, after the use is answered) makes an object of it standing in the world at its player, no one's to take or use |
+| `offset` | | with `places`: `[across, ahead]`, meters from the player as it faces, on the ground; `[0, 0]` when left out |
+| `lasts` | | with `places`: seconds it stands, above 0; left out, until a `[[tally]]` that `clears` it resets, or the server stops (what is placed is not kept across a restart) |
 | `prov` | required | where it came from |
 
 #### `[[points_bonus]]`

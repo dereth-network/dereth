@@ -491,6 +491,11 @@ fn use_thing<S: Store>(
         crate::things::Kind::Node => crate::mining::begin(s, net, world, u, clock),
         crate::things::Kind::Portal => crate::usable::portals::at_portal(s, net, world, u, clock),
         crate::things::Kind::Plant => crate::plants::begin(s, net, world, u, clock),
+        // What an effect placed is no one's to use.
+        crate::things::Kind::Placed => {
+            let no = use_refused(&u, me, None, 0.0, USE_STATUS_OK);
+            send(net, world, BlobKind::PRIVATE, &no);
+        }
         crate::things::Kind::Creature => {
             let distance = s
                 .things

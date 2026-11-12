@@ -370,9 +370,15 @@ pub fn install_problems(p: &data::Portal, db: &rows::Database) -> Result<Vec<Pro
                 ));
             }
         }
-        if let rows::Row::EffectRule(r) = &l.row {
+        // A rule naming its effect by name has no state to check: the compile checks what it
+        // places.
+        let rule = match &l.row {
+            rows::Row::EffectRule(r) => r.effect.state().map(|e| (r, e)),
+            _ => None,
+        };
+        if let Some((r, rule)) = rule {
             let warded = r.ward.iter().flat_map(|w| w.effects.iter().copied());
-            let named: Vec<(&str, u32)> = std::iter::once(("effect", r.effect))
+            let named: Vec<(&str, u32)> = std::iter::once(("effect", rule))
                 .chain(warded.map(|e| ("ward effect", e)))
                 .chain(r.then.map(|e| ("then", e)))
                 .collect();
@@ -385,7 +391,7 @@ pub fn install_problems(p: &data::Portal, db: &rows::Database) -> Result<Vec<Pro
                         l.line,
                         format!(
                             "[[effect_rule]] {:#010x}: {what} {effect:#010x}: the install holds no such effect",
-                            r.effect
+                            rule
                         ),
                     ));
                 }
@@ -403,7 +409,7 @@ pub fn install_problems(p: &data::Portal, db: &rows::Database) -> Result<Vec<Pro
                         l.line,
                         format!(
                             "[[effect_rule]] {:#010x}: skill {skill}: the install has no such skill",
-                            r.effect
+                            rule
                         ),
                     ));
                 }

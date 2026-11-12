@@ -806,8 +806,8 @@ struct Requires {
 /// the complete reset of skills it grants, the skill it trains, the items it gives.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EffectRule {
-    /// The effect, by its saved state.
-    pub effect: u32,
+    /// The effect, by its saved state, or by its name for one the install holds no state of.
+    pub effect: EffectOf,
     pub ward: Option<yalain_content::effect_rules::Ward>,
     pub vitae_share: Option<f32>,
     /// The vitae it gives back, and to whom.
@@ -820,7 +820,28 @@ pub struct EffectRule {
     pub skill: Option<u32>,
     /// The items it gives its player: a template and how many.
     pub gives: Option<yalain_content::effect_rules::Grant>,
+    /// What it places in the world at its player.
+    pub places: Option<yalain_content::effect_rules::Placing>,
     pub prov: Prov,
+}
+
+/// The effect an `[[effect_rule]]` is of: a saved state of the install, or a name the install's
+/// templates give an effect it holds no state of.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EffectOf {
+    State(u32),
+    Name(String),
+}
+
+impl EffectOf {
+    /// Its saved state, when it has one.
+    #[must_use]
+    pub fn state(&self) -> Option<u32> {
+        match self {
+            Self::State(s) => Some(*s),
+            Self::Name(_) => None,
+        }
+    }
 }
 
 /// `[[mine]]`: what a mining craft skill's nodes play, answer and unearth, and the node a delving
@@ -1719,6 +1740,9 @@ pub const FIELDS: [(&str, &[&str]); 59] = [
             "skill",
             "gives",
             "count",
+            "places",
+            "offset",
+            "lasts",
             "prov",
         ],
     ),
@@ -2907,7 +2931,11 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             })
         }
         "effect_rule" => {
-            let effect = f.req_id("effect")?;
+            let effect = match f.get("effect").map(toml::Value::as_str) {
+                None => return f.missing("effect"),
+                Some(Some(_)) => EffectOf::Name(f.ident("effect")?),
+                Some(None) => EffectOf::State(f.id("effect")?),
+            };
             let ward = match f.get("ward") {
                 Some(_) => Some(f.ward()?),
                 None => None,
@@ -2918,7 +2946,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 None => None,
             };
             let then = f.id("then");
-            if then == Some(effect) {
+            if then.is_some() && then == effect.state() {
                 f.bad("then", "an immunity leaves another effect than itself");
                 return None;
             }
@@ -2952,18 +2980,26 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                     None
                 }
             };
-            if ward.is_none()
-                && vitae_share.is_none()
-                && vitae_restore.is_none()
-                && then.is_none()
-                && reset.is_none()
-                && skill.is_none()
-                && gives.is_none()
-            {
+            let places = f.placing()?;
+            let others = ward.is_some()
+                || vitae_share.is_some()
+                || vitae_restore.is_some()
+                || then.is_some()
+                || reset.is_some()
+                || skill.is_some()
+                || gives.is_some();
+            if !others && places.is_none() {
                 f.bad(
-                    "ward, vitae_share, vitae_restore, then, reset, skill, gives",
+                    "ward, vitae_share, vitae_restore, then, reset, skill, gives, places",
                     "a rule names a ward, a share of vitae, vitae given back, what an immunity leaves, \
-                     a reset it grants, a skill it trains or an item it gives",
+                     a reset it grants, a skill it trains, an item it gives or what it places",
+                );
+                return None;
+            }
+            if others && matches!(effect, EffectOf::Name(_)) {
+                f.bad(
+                    "effect",
+                    "an effect named by its name, with no saved state, only places: name its saved state for the rest",
                 );
                 return None;
             }
@@ -2976,6 +3012,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 reset,
                 skill,
                 gives,
+                places,
                 prov: f.req_prov()?,
             })
         }
@@ -5146,6 +5183,42 @@ impl<'a> Fields<'a> {
             );
         }
         read
+    }
+
+    /// An `[[effect_rule]]`'s `places`, a template, with its `offset` (`[across, ahead]` in
+    /// meters, `[0, 0]` when left out) and its `lasts` (seconds, above 0; left out, until cleared);
+    /// neither of those without `places`.
+    fn placing(&mut self) -> Option<Option<yalain_content::effect_rules::Placing>> {
+        if self.get("places").is_none() {
+            for k in ["offset", "lasts"] {
+                if self.get(k).is_some() {
+                    self.bad(k, "an offset and a time are of what a rule places");
+                    return None;
+                }
+            }
+            return Some(None);
+        }
+        let template = self.id("places")?;
+        let offset = match self.get("offset") {
+            None => [0.0, 0.0],
+            Some(_) => match self.req_floats("offset")?.as_slice() {
+                [x, y] if x.is_finite() && y.is_finite() => [*x, *y],
+                _ => {
+                    self.bad("offset", "[across, ahead]: two numbers of meters");
+                    return None;
+                }
+            },
+        };
+        let lasts = self.u32("lasts");
+        if self.get("lasts").is_some() && lasts.is_none_or(|t| t == 0) {
+            self.bad("lasts", "a number of seconds above 0");
+            return None;
+        }
+        Some(Some(yalain_content::effect_rules::Placing {
+            template,
+            offset,
+            lasts,
+        }))
     }
 
     /// A share, above 0 and at most 1.

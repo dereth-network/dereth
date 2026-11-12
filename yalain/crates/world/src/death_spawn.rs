@@ -225,7 +225,11 @@ fn makes<S: Store>(
 }
 
 /// A place at an offset from another, as that one faces, on the ground.
-fn at_offset<S: Store>(s: &Server<S>, from: &StoredPosition, offset: [f32; 2]) -> StoredPosition {
+pub(crate) fn at_offset<S: Store>(
+    s: &Server<S>,
+    from: &StoredPosition,
+    offset: [f32; 2],
+) -> StoredPosition {
     let (x, y) = turned(from.rotation, offset);
     let (x, y) = (from.origin[0] + x, from.origin[1] + y);
     let (cell, x, y) = if presence::indoors(from.cell) {

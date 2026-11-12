@@ -619,7 +619,8 @@ fn profile_bytes<S: Store>(
             }
             crate::things::Kind::Corpse
             | crate::things::Kind::Node
-            | crate::things::Kind::Portal => {
+            | crate::things::Kind::Portal
+            | crate::things::Kind::Placed => {
                 profile::npc(req.asked, profile::item_name(&t.facts), &t.facts)
             }
         }

@@ -34,6 +34,8 @@ pub enum Kind {
     Portal,
     /// A dye plant a player planted.
     Plant,
+    /// An object an effect placed in the world ([`crate::placing`]), no one's.
+    Placed,
 }
 
 /// What a creature is doing.

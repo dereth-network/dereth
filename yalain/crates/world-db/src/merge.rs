@@ -61,7 +61,10 @@ pub fn item(l: &Located) -> Option<Item> {
             key: r.tally.key.clone(),
         },
         Row::PointsBonus(r) => Item::PointsBonus { effect: r.effect },
-        Row::EffectRule(r) => Item::EffectRule { effect: r.effect },
+        Row::EffectRule(r) => match &r.effect {
+            crate::rows::EffectOf::State(effect) => Item::EffectRule { effect: *effect },
+            crate::rows::EffectOf::Name(name) => Item::EffectRuleNamed { name: name.clone() },
+        },
         Row::Popup(r) => Item::Popup {
             on: r.on.word().to_string(),
         },

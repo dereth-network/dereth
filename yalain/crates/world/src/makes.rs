@@ -89,6 +89,8 @@ pub fn by_the_rows(rows: Rows<'_>) -> Vec<u32> {
         .chain(rows.death_spawns.values().map(|d| d.template))
         .chain(rows.plants.templates())
         .chain(rows.effect_rules.grants.values().map(|g| g.template))
+        .chain(rows.effect_rules.places.values().map(|p| p.template))
+        .chain(rows.effect_rules.places_named.values().map(|p| p.template))
         .collect()
 }
 

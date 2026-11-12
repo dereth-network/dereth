@@ -228,6 +228,8 @@ pub enum Item {
     Popup { on: String },
     /// What the world says of an effect, by the effect's saved state.
     EffectRule { effect: u32 },
+    /// What the world says an effect the install holds no saved state of does, by its name.
+    EffectRuleNamed { name: String },
     /// The values treasure is drawn worth, by the level of the creature that leaves it.
     TreasureValue { level: u32 },
     /// The rules every treasure item draws by: the world has one.
@@ -363,8 +365,11 @@ impl Item {
                 name: identifier(name)?,
             },
             ["popup", on] => Self::Popup { on: symbol(on)? },
-            ["effect_rule", effect] => Self::EffectRule {
-                effect: number(effect)?,
+            ["effect_rule", effect] => match number(effect) {
+                Some(effect) => Self::EffectRule { effect },
+                None => Self::EffectRuleNamed {
+                    name: identifier(effect)?,
+                },
             },
             ["treasure_value", level] => Self::TreasureValue {
                 level: number(level)?,
@@ -496,6 +501,7 @@ impl fmt::Display for Item {
             Self::PointsBonus { effect } => write!(f, "points_bonus {effect:#010x}"),
             Self::Popup { on } => write!(f, "popup {on}"),
             Self::EffectRule { effect } => write!(f, "effect_rule {effect:#010x}"),
+            Self::EffectRuleNamed { name } => write!(f, "effect_rule {name}"),
             Self::TreasureValue { level } => write!(f, "treasure_value {level}"),
             Self::TreasureRules => write!(f, "treasure_rules"),
             Self::TreasureSort { sort } => write!(f, "treasure_sort {sort}"),

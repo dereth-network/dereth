@@ -31,7 +31,7 @@ use yalain_content::{
 
 use crate::merge::Merged;
 use crate::rows::{
-    At, Gate, Located, Need, ObjectKind, Prov, Row, Source, StrRef, Trigger, Update,
+    At, EffectOf, Gate, Located, Need, ObjectKind, Prov, Row, Source, StrRef, Trigger, Update,
 };
 use crate::Problem;
 
@@ -1497,27 +1497,42 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 }
             }
             Row::EffectRule(r) => {
+                if let Some(p) = r.places {
+                    if cx.template(l, "places", p.template) {
+                        match &r.effect {
+                            EffectOf::State(e) => {
+                                t.effect_rules.places.insert(*e, p);
+                            }
+                            EffectOf::Name(n) => {
+                                t.effect_rules.places_named.insert(n.clone(), p);
+                            }
+                        }
+                    }
+                }
+                let Some(effect) = r.effect.state() else {
+                    continue;
+                };
                 if let Some(ward) = &r.ward {
-                    t.effect_rules.wards.insert(r.effect, ward.clone());
+                    t.effect_rules.wards.insert(effect, ward.clone());
                 }
                 if let Some(share) = r.vitae_share {
-                    t.effect_rules.vitae_taps.insert(r.effect, share);
+                    t.effect_rules.vitae_taps.insert(effect, share);
                 }
                 if let Some(restore) = r.vitae_restore {
-                    t.effect_rules.vitae_restores.insert(r.effect, restore);
+                    t.effect_rules.vitae_restores.insert(effect, restore);
                 }
                 if let Some(then) = r.then {
-                    t.effect_rules.immunities.insert(r.effect, then);
+                    t.effect_rules.immunities.insert(effect, then);
                 }
                 if let Some(reset) = r.reset {
-                    t.effect_rules.resets.insert(r.effect, reset);
+                    t.effect_rules.resets.insert(effect, reset);
                 }
                 if let Some(skill) = r.skill {
-                    t.effect_rules.skills.insert(r.effect, skill);
+                    t.effect_rules.skills.insert(effect, skill);
                 }
                 if let Some(g) = r.gives {
                     if cx.template(l, "gives", g.template) {
-                        t.effect_rules.grants.insert(r.effect, g);
+                        t.effect_rules.grants.insert(effect, g);
                     }
                 }
             }

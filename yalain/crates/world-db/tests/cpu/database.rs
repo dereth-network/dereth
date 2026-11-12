@@ -1602,6 +1602,72 @@ fn an_effect_rule_row_gives_a_ward_of_classes_or_effects_at_a_chance() {
     assert!(merge(&read(&files).unwrap()).is_err());
 }
 
+#[test]
+fn an_effect_rule_places_a_template_by_an_effects_state_or_by_a_name_with_no_state() {
+    use yalain_content::effect_rules::Placing;
+    let mut files = fixture();
+    files.insert(
+        "town/server/effects.toml".into(),
+        "[[effect_rule]]\neffect = 0x6F000E94\nplaces = 0x47002224\nprov = { from = \"authored\" }\n\n\
+         [[effect_rule]]\neffect = \"Eff_PlaceTorchFestival\"\nplaces = 0x47002224\noffset = [0.5, 2.0]\n\
+         lasts = 600\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let t = compile(&merged, &Fake::new()).unwrap();
+    assert_eq!(
+        t.effect_rules.places.get(&0x6F00_0E94),
+        Some(&Placing {
+            template: 0x4700_2224,
+            offset: [0.0, 0.0],
+            lasts: None
+        })
+    );
+    assert_eq!(
+        t.effect_rules.places_named.get("Eff_PlaceTorchFestival"),
+        Some(&Placing {
+            template: 0x4700_2224,
+            offset: [0.5, 2.0],
+            lasts: Some(600)
+        })
+    );
+    // The item a named rule sets is named by the name.
+    assert!(merged
+        .rows
+        .iter()
+        .filter_map(yalain_world_db::merge::item)
+        .any(|i| i.to_string() == "effect_rule Eff_PlaceTorchFestival"));
+    // What it places must be the install's.
+    files.insert(
+        "town/server/effects.toml".into(),
+        "[[effect_rule]]\neffect = \"Eff_PlaceTorchFestival\"\nplaces = 0x47009999\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    let problems = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new())
+        .err()
+        .unwrap_or_default();
+    assert!(
+        problems.iter().any(|p| p.message.contains("places")),
+        "{problems:?}"
+    );
+    // A rule by name only places; an offset and a time go only with what it places.
+    for bad in [
+        "effect = \"Eff_PlaceTorchFestival\"\nward = { classes = [93], chance = 1.0 }",
+        "effect = \"Eff_PlaceTorchFestival\"\nplaces = 0x47002224\nward = { classes = [93], chance = 1.0 }",
+        "effect = 0x6F000E94\noffset = [0.0, 1.0]\nskill = 925",
+        "effect = 0x6F000E94\nplaces = 0x47002224\noffset = [1.0]",
+        "effect = 0x6F000E94\nplaces = 0x47002224\nlasts = 0",
+        "effect = \"not a name\"\nplaces = 0x47002224",
+    ] {
+        files.insert(
+            "town/server/effects.toml".into(),
+            format!("[[effect_rule]]\n{bad}\nprov = {{ from = \"authored\" }}\n"),
+        );
+        assert!(read(&files).is_err(), "{bad}");
+    }
+}
+
 /// A mine row's fields, as the iron mine of 2017 writes them, with the template it may name.
 fn mine_row(skill: &str, node: u32, tool: u32) -> String {
     format!(

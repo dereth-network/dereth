@@ -159,7 +159,7 @@ mod watcher_flag {
 }
 
 /// What a ward keeps off, where its own data names nothing: the world's `[[effect_rule]]` rows.
-pub use yalain_content::effect_rules::{EffectRules, Grant, Reset, VitaeRestore, Ward};
+pub use yalain_content::effect_rules::{EffectRules, Grant, Placing, Reset, VitaeRestore, Ward};
 
 /// The kind of an effect a world's row makes a ward: its chance the same at any spellcraft.
 #[must_use]
@@ -331,6 +331,8 @@ pub enum Kind {
     GrantSkill(u32),
     /// Gives its player so many items of a template, made in its pack, once.
     GrantItem(Grant),
+    /// Places an object in the world at its player, once ([`crate::placing`]).
+    Places(Placing),
     /// Gives its player so many points of craft experience to spend, at its spellcraft, once.
     CraftExperience(Scale),
     /// Anything else (kept as a record only).
@@ -390,6 +392,7 @@ impl EffectDef {
                     | Kind::Reset(_)
                     | Kind::GrantSkill(_)
                     | Kind::GrantItem(_)
+                    | Kind::Places(_)
                     | Kind::CraftExperience(_)
                     | Kind::Instants(_)
             )
@@ -886,13 +889,16 @@ pub struct EffectTable {
     /// The line an effect's application tells (string id, table), by saved state: the line of
     /// its own name's table, where that table holds one ([`EffectTable::read_lines`]).
     pub lines: HashMap<u32, (u32, u32)>,
+    /// What effects the install names but holds no saved state of place in the world, by name.
+    pub placings: HashMap<String, Placing>,
 }
 
 impl EffectTable {
     /// The definitions of these saved states and of the effects they add in turn (a state that
     /// does not read is left out), each the world's `rules` name (by saved state) an immunity
     /// leaving the effect they name, a ward keeping off what it names, a tap of its share of vitae,
-    /// vitae given back, a complete reset of skills granted, a skill trained, or items given.
+    /// vitae given back, a complete reset of skills granted, a skill trained, items given, or an
+    /// object placed; and what the effects the rules name by name alone place.
     #[must_use]
     pub fn read(
         lib: &Library,
@@ -900,7 +906,14 @@ impl EffectTable {
         graph: &dyn Fn(u32) -> Option<Graph>,
         rules: &EffectRules,
     ) -> Self {
-        let mut t = Self::default();
+        let mut t = Self {
+            placings: rules
+                .places_named
+                .iter()
+                .map(|(n, p)| (n.clone(), *p))
+                .collect(),
+            ..Self::default()
+        };
         let mut todo: Vec<u32> = states.to_vec();
         while let Some(s) = todo.pop() {
             if s == 0 || t.effects.contains_key(&s) {
@@ -928,6 +941,9 @@ impl EffectTable {
                 }
                 if let Some(grant) = rules.grants.get(&s) {
                     d.kind = Kind::GrantItem(*grant);
+                }
+                if let Some(p) = rules.places.get(&s) {
+                    d.kind = Kind::Places(*p);
                 }
                 if let Some(text) = EffectDef::description_of(lib, &g) {
                     t.descriptions.insert(s, text);

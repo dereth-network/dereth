@@ -400,6 +400,7 @@ pub fn begin<S: Store>(
         && !seed
         && !own
         && !crate::death_spawn::names_one(s, &t.props)
+        && !crate::placing::names_one(s, &t.props)
         && crate::pets::made_by_use(s, template, &t.props).is_empty()
     {
         return false;
@@ -520,6 +521,9 @@ fn cannot_make<S: Store>(s: &Server<S>, template: u32, props: &Props) -> bool {
     }
     if crate::death_spawn::names_one(s, props) {
         return !crate::death_spawn::can_make_all(s, props);
+    }
+    if crate::placing::names_one(s, props) && !crate::placing::can_make_all(s, props) {
+        return true;
     }
     let names_unmade = (1..=8)
         .filter_map(|i| props.text(&format!("{}{i}", USED.0)))
@@ -951,7 +955,7 @@ fn carry_out<S: Store>(
     }
     // One that makes what a world's row names moves the quest it names too, before it's answered
     // (2017: a practice gem's quest 0.06 s before its answer, 4 of 4).
-    if crate::death_spawn::names_one(s, &t.props) {
+    if crate::death_spawn::names_one(s, &t.props) || crate::placing::names_one(s, &t.props) {
         for e in crate::quests::named_for_use(s, &t.props) {
             crate::quests::moves(s, net, world, e, true, clock);
         }
@@ -1010,6 +1014,7 @@ fn carry_out<S: Store>(
     let done = crate::places::use_done(&u, me, f, false, 0.0);
     progress::private(net, world, &done);
     crate::death_spawn::used(s, net, world, &t.props, clock);
+    crate::placing::used(s, net, world, &t.props, clock);
     // An item a row says wears (a forager's food) wears with each use, and goes at its last.
     if let Some(uses) = s.item_rows.wears(template) {
         crate::butchery::wear_tool_by(s, net, world, u.item, 1.0, uses);
