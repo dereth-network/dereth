@@ -16,7 +16,7 @@ fn the_interaction_tables_read_as_the_data_defines_them() {
     let t = p.interactions(&[IRON_KEY, BELL], &[]);
     let key = p.template(IRON_KEY);
     let on = t
-        .between(&key.props, IRON_STOCKPILE)
+        .between(&key.props, IRON_STOCKPILE, 0)
         .expect("the stockpile");
     assert_eq!(on.targets, [IRON_STOCKPILE]);
     assert!((on.reach - 7.0).abs() < 1e-6);
@@ -32,7 +32,7 @@ fn the_interaction_tables_read_as_the_data_defines_them() {
     assert!(list
         .iter()
         .all(|i| !i.uses_up && i.message.is_none() && (i.reach - 8.0).abs() < 1e-6));
-    assert!(t.between(&bell.props, IRON_STOCKPILE).is_none());
+    assert!(t.between(&bell.props, IRON_STOCKPILE, 0).is_none());
 }
 
 const SIGNIFICATOR: u32 = 0x4700_13D7;
@@ -55,7 +55,7 @@ fn a_significators_outcome_takes_the_meld_and_a_melds_the_lesser_trump() {
         .expect("a table")];
     assert_eq!(list.len(), 18, "the melds");
     let on = t
-        .between(&significator.props, GATEWAY_APPRENTICE)
+        .between(&significator.props, GATEWAY_APPRENTICE, 0)
         .expect("a gateway");
     assert!(!on.uses_up && on.uses_up_target);
     assert!((on.reach - 3.0).abs() < 1e-6);
@@ -63,7 +63,7 @@ fn a_significators_outcome_takes_the_meld_and_a_melds_the_lesser_trump() {
     assert!(list.iter().all(|i| !i.uses_up && i.uses_up_target));
     let meld = p.template(TWIN_MOONS);
     let on = t
-        .between(&meld.props, ACE_OF_SWORDS)
+        .between(&meld.props, ACE_OF_SWORDS, 0)
         .expect("a lesser trump");
     assert!(!on.uses_up && on.uses_up_target);
 }
@@ -86,11 +86,11 @@ fn a_table_naming_a_class_counts_the_templates_of_that_class() {
         .collect();
     let t = p.interactions(&[CAN, REQUIESCAT], &targets);
     let can = p.template(CAN);
-    let on = t.between(&can.props, DYE_PLANT).expect("the dye plant");
+    let on = t.between(&can.props, DYE_PLANT, 0).expect("the dye plant");
     assert_eq!(on.behavior, None);
     assert!(!on.uses_up);
     assert!((on.reach - 4.0).abs() < 1e-6);
-    assert!(t.between(&can.props, IRON_STOCKPILE).is_none());
+    assert!(t.between(&can.props, IRON_STOCKPILE, 0).is_none());
     assert_eq!(
         p.template(DYE_PLANT)
             .props
@@ -98,9 +98,9 @@ fn a_table_naming_a_class_counts_the_templates_of_that_class() {
         Some(yalain_world::usable::interactions::PLANT_BEHAVIOR)
     );
     let requiescat = p.template(REQUIESCAT);
-    let on = t.between(&requiescat.props, AXE).expect("the axe");
+    let on = t.between(&requiescat.props, AXE, 0).expect("the axe");
     assert!(on.uses_up);
-    assert!(t.between(&requiescat.props, DYE_PLANT).is_none());
+    assert!(t.between(&requiescat.props, DYE_PLANT, 0).is_none());
     assert_eq!(
         requiescat
             .props
@@ -124,7 +124,7 @@ fn a_tables_classes_count_their_own_templates_alone() {
     assert!(t.counts_in(AXES, AXE));
     assert!(!t.counts_in(BOWS, AXE));
     let on = t
-        .between(&p.template(BLANK_EMBLEM).props, AXE)
+        .between(&p.template(BLANK_EMBLEM).props, AXE, 0)
         .expect("the axe");
     assert!(on.uses_up);
     assert_eq!(on.message, Some((0x401B_5816, 0x2500_1FE8)));
@@ -272,5 +272,86 @@ fn a_placed_lifestone_of_the_lifestone_class_binds_its_user() {
             .iter()
             .any(|(k, _)| *k == kind::LIFESTONE);
         assert!(bound, "{t:08X} binds");
+    }
+}
+
+/// The six card melds, Deck of Fortune to Twin Moons.
+const CARD_MELDS: [u32; 6] = [
+    0x4700_13B0,
+    0x4700_13B1,
+    0x4700_13B2,
+    0x4700_13B3,
+    0x4700_13B4,
+    0x4700_13B5,
+];
+/// The four suits' Aces (each suit's fourteen cards follow its Ace), in their tables' order, and
+/// their classes: swords, scepters, skulls, drums.
+const ACES: [(u32, u32); 4] = [
+    (0x4700_1375, 10262),
+    (0x4700_1359, 10260),
+    (0x4700_1367, 10261),
+    (0x4700_134B, 10259),
+];
+/// "You transform the lesser trump into an optimal fate card!" and "... into a fate card!"
+const OPTIMAL: u32 = 0x3EBB_8F3B;
+const PLAIN: u32 = 0xAF1E_F93B;
+
+/// Each card meld's table names each of the 56 lesser trumps for the characters whose number leaves
+/// its rank (Ace 0 to King 13) divided by 14, with the optimal text, then each suit's class for
+/// anyone, with the plain one, every interaction keeping the meld and taking the trump: a
+/// character of each of the fourteen numbers meets the optimal interaction on the trumps of its own
+/// rank alone.
+/// Behaviour: server.interactions.an-interaction-for-some-characters-only
+#[test]
+fn the_card_melds_tables_give_each_rank_of_lesser_trump_to_one_character_number_in_fourteen() {
+    use yalain_world::usable::interactions::Gate;
+    let p = Portal::open();
+    let mut targets = Vec::new();
+    for (ace, _) in ACES {
+        for r in 0..14 {
+            let t = ace + r;
+            targets.push((t, p.template(t).description.package));
+        }
+    }
+    let t = p.interactions(&CARD_MELDS, &targets);
+    for meld in CARD_MELDS {
+        let props = &p.template(meld).props;
+        let list = &t.tables[&props.word("Usage_ItemInteractionTable").expect("a table")];
+        assert_eq!(list.len(), 60, "{meld:08X}");
+        for (i, (ace, class)) in ACES.iter().enumerate() {
+            for r in 0..14u32 {
+                let entry = &list[i * 14 + r as usize];
+                assert_eq!(entry.targets, [ace + r], "{meld:08X}");
+                assert_eq!(
+                    entry.gate,
+                    Gate::of(14, i32::try_from(r).expect("a rank")),
+                    "{meld:08X}"
+                );
+                assert_eq!(entry.message.map(|m| m.0), Some(OPTIMAL));
+            }
+            assert!(t.counts_in(*class, *ace), "{meld:08X}");
+        }
+        for anyone in &list[56..] {
+            assert_eq!(anyone.gate, None, "{meld:08X}");
+            assert_eq!(anyone.message.map(|m| m.0), Some(PLAIN));
+        }
+        assert!(list.iter().all(|e| !e.uses_up && e.uses_up_target));
+        for number in 0..14u64 {
+            let character = yalain_world::login::PLAYER_ID_BASE | (1_000 + number);
+            for (ace, _) in ACES {
+                for r in 0..14u32 {
+                    let met = t
+                        .between(props, ace + r, character)
+                        .expect("an interaction");
+                    let own = (1_000 + number) % 14 == u64::from(r);
+                    assert_eq!(
+                        met.message.map(|m| m.0),
+                        Some(if own { OPTIMAL } else { PLAIN }),
+                        "{meld:08X} number {number} rank {r}"
+                    );
+                    assert_eq!(met.gate.is_some(), own);
+                }
+            }
+        }
     }
 }

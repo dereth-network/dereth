@@ -37,11 +37,22 @@
 //! (the cans, bags and pollens name the dye plants' class, the Requiescat the weapons'). An object
 //! the user holds is used on where the user stands.
 //!
+//! **For some players only.** An interaction may be for some players only: those whose character's
+//! number, the low word of its id read as a signed number, leaves a given remainder divided by a
+//! given number. A use takes the first interaction naming the object that its user's character
+//! may have, so the same character always meets the same one and characters spread across them
+//! by their numbers: the six card melds' tables name each lesser trump for the one character
+//! number in fourteen of its rank (Ace 0 to King 13), "You transform the lesser trump into an
+//! optimal fate card!", then every lesser trump by its suit for anyone, "... into a fate card!"
+//! (no other table of the install has such an interaction). A table that names the object only in
+//! interactions the user's character may not have refuses the use, the item kept (10053).
+//!
 //! **What it makes.** Where the world's `[[interaction]]` rows say what an item used so makes (the
 //! table's outcome names nothing made), the use carried out gives its user that item, after the
 //! quest steps it triggers and before the item is used up: the row for the item that names the
 //! target's template, else the first whose class the target counts in (an emblem used on a held
-//! sword of the swords' class makes that weapon's emblem).
+//! sword of the swords' class makes that weapon's emblem); where the interaction met is for some
+//! players only, the row's `gated_gives` when it names one.
 //!
 //! **What it uses up of the object.** An outcome that destroys its target (the script library's
 //! outcome flag 2) uses up an object the user holds, one off its stack, after what the use makes
@@ -76,6 +87,9 @@ pub const ON_AN_OBJECT: u32 = 4;
 /// The refusal of a player too far from the object.
 pub const TOO_FAR: u32 = 10_056;
 
+/// The refusal of a player whose character may have none of the interactions naming the object.
+pub const NOT_FOR_THIS_CHARACTER: u32 = 10_053;
+
 /// The answer to an interaction whose outcome names no text: "You successfully use {the} %1 on
 /// {the} %2.", with the object's name and the item's.
 pub mod text {
@@ -99,6 +113,33 @@ pub struct Interaction {
     pub uses_up: bool,
     /// The outcome destroys the object it is used on.
     pub uses_up_target: bool,
+    /// The characters it is for, when it is for some only.
+    pub gate: Option<Gate>,
+}
+
+/// The characters an interaction is for: those whose number leaves `leaves` divided by `every`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Gate {
+    pub every: i32,
+    pub leaves: i32,
+}
+
+impl Gate {
+    /// The gate a table's numbers make: none where the divisor is 1 (every number leaves 0) or
+    /// below.
+    #[must_use]
+    pub fn of(every: i32, leaves: i32) -> Option<Self> {
+        (every > 1).then_some(Self { every, leaves })
+    }
+
+    /// May a character of this id have the interaction? Its number is the low word of its id,
+    /// read as a signed number, and its remainder takes the number's sign.
+    #[must_use]
+    pub fn admits(&self, character: u64) -> bool {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+        let number = character as u32 as i32;
+        number % self.every == self.leaves
+    }
 }
 
 /// Every interaction table the item templates name, by its saved state.
@@ -143,13 +184,36 @@ impl Interactions {
             .is_some_and(|m| m.contains(&template))
     }
 
-    /// The interaction an item of a template (its properties given) has with objects of another.
+    /// The interaction an item of a template (its properties given) has with objects of another,
+    /// for a character of this id: the first naming the target that the character may have.
     #[must_use]
-    pub fn between(&self, props: &yalain_content::Props, target: u32) -> Option<&Interaction> {
-        self.tables
-            .get(&props.word(TABLE)?)?
-            .iter()
-            .find(|i| i.targets.contains(&target))
+    pub fn between(
+        &self,
+        props: &yalain_content::Props,
+        target: u32,
+        character: u64,
+    ) -> Option<&Interaction> {
+        self.naming(props, target)
+            .find(|i| i.gate.is_none_or(|g| g.admits(character)))
+    }
+
+    /// Does an item's table name objects of a template at all, for any character?
+    #[must_use]
+    pub fn names(&self, props: &yalain_content::Props, target: u32) -> bool {
+        self.naming(props, target).next().is_some()
+    }
+
+    fn naming<'a>(
+        &'a self,
+        props: &yalain_content::Props,
+        target: u32,
+    ) -> impl Iterator<Item = &'a Interaction> + 'a {
+        props
+            .word(TABLE)
+            .and_then(|t| self.tables.get(&t))
+            .into_iter()
+            .flatten()
+            .filter(move |i| i.targets.contains(&target))
     }
 }
 
@@ -216,6 +280,11 @@ fn table_of(lib: &Library, g: &Graph, templates: &[(u32, u32)]) -> Option<Table>
             message,
             uses_up: flags & DESTROYS_ITEM != 0,
             uses_up_target: flags & DESTROYS_TARGET != 0,
+            gate: Gate::of(
+                nav.field(ti, "m_nIIDMod").map_or(1, u32::cast_signed),
+                nav.field(ti, "m_nIIDModRequiredResult")
+                    .map_or(0, u32::cast_signed),
+            ),
         });
     }
     Some((out, members))
@@ -318,8 +387,19 @@ pub fn used<S: Store>(
     let Some(props) = s.catalog.get(item).map(|t| t.props.clone()) else {
         return false;
     };
-    let Some(how) = s.interactions.between(&props, target).cloned() else {
-        return false;
+    let me = s.players.get(&world).map_or(0, |p| p.character);
+    let Some(how) = s.interactions.between(&props, target, me).cloned() else {
+        if !s.interactions.names(&props, target) {
+            return false;
+        }
+        let distance = s
+            .players
+            .get(&world)
+            .and_then(|p| places::reach(&p.position, at.cell, at.origin))
+            .unwrap_or(0.0);
+        let m = places::use_answer_on(u, FLAGS_KEPT, distance, NOT_FOR_THIS_CHARACTER);
+        progress::private(net, world, &m);
+        return true;
     };
     // A step that takes the player somewhere plays the use and its trip instead; a table that
     // plays a behavior of its own (no 2017 use of one on an object was recorded) goes on as any
@@ -402,7 +482,8 @@ pub fn played<S: Store>(
     let Some(props) = s.catalog.get(item).map(|t| &t.props) else {
         return;
     };
-    if s.interactions.between(props, target).is_none() {
+    let me = s.players.get(&world).map_or(0, |p| p.character);
+    if s.interactions.between(props, target, me).is_none() {
         return;
     }
     carry_out(s, net, world, u, true, clock);
@@ -424,10 +505,11 @@ fn carry_out<S: Store>(
     let Some((target, at, target_name)) = target_of(s, world, u.target) else {
         return;
     };
+    let me = s.players.get(&world).map_or(0, |p| p.character);
     let Some(how) = s
         .catalog
         .get(item)
-        .and_then(|t| s.interactions.between(&t.props, target))
+        .and_then(|t| s.interactions.between(&t.props, target, me))
         .cloned()
     else {
         return;
@@ -450,7 +532,7 @@ fn carry_out<S: Store>(
     let made = s
         .item_rows
         .made_by(item, target, |c| s.interactions.counts_in(c, target))
-        .map(|r| (r.gives, r.count));
+        .map(|r| (r.gives_where(how.gate.is_some()), r.count));
     if let Some((gives, count)) = made {
         crate::inventory::give(s, net, world, gives, count);
     }
@@ -460,7 +542,6 @@ fn carry_out<S: Store>(
     } else if played {
         crate::butchery::wear_tool_by(s, net, world, u.item, 1.0, 0);
     }
-    let me = s.players.get(&world).map_or(0, |p| p.character);
     if how.uses_up_target && u.target != u.item && held_by(s, u.target, me) {
         crate::craft::use_up(s, net, world, u.target, 1);
     }

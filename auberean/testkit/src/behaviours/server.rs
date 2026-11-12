@@ -6068,6 +6068,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.interactions.an-interaction-for-some-characters-only",
+        says: "An interaction may be for the characters whose number (the low word of the id) leaves \
+               a given remainder divided by a given number: a use takes the first interaction naming \
+               the object that the user's character may have, so a character always meets the same one; \
+               where it met one of these, the world's row gives its gated_gives; a table naming the \
+               object for other characters only refuses the use, the item kept.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-INTERACTION-FOR-SOME-CHARACTERS"),
+        station: "yalain-testkit::cpu::play::interactions::a_card_meld_on_a_drum_makes_the_fate_card_only_for_the_characters_whose_rank_it_is",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.interactions.an-item-gone-while-it-plays-does-nothing",
         says: "An item put down while its use on an object plays: nothing comes of the use, \
                as for a use from the pack.",

@@ -1135,13 +1135,15 @@ pub struct StartItem {
 
 /// `[[interaction]]`: what an item used on another makes, where the item's interaction table lets
 /// it be used so and the table's outcome names nothing made: the item used, what it is used on (a
-/// template, or a class the table names), and what it gives the user, how many.
+/// template, or a class the table names), and what it gives the user, how many, and instead where
+/// the table's interaction the use met is for some characters only.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Interaction {
     pub key: String,
     pub item: u32,
     pub on: yalain_content::item_rows::On,
     pub gives: u32,
+    pub gated_gives: Option<u32>,
     pub count: u32,
     pub prov: Prov,
 }
@@ -1825,7 +1827,16 @@ pub const FIELDS: [(&str, &[&str]); 59] = [
     ("start_item", &["template", "count", "prov"]),
     (
         "interaction",
-        &["key", "item", "on", "on_class", "gives", "count", "prov"],
+        &[
+            "key",
+            "item",
+            "on",
+            "on_class",
+            "gives",
+            "gated_gives",
+            "count",
+            "prov",
+        ],
     ),
     (
         "object_states",
@@ -2734,6 +2745,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 }
             };
             let gives = f.req_id("gives")?;
+            let gated_gives = f.id("gated_gives");
             let count = f.u32("count").unwrap_or(1);
             let count = f.held("count", count, count > 0, "above 0")?;
             Row::Interaction(Interaction {
@@ -2741,6 +2753,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 item,
                 on,
                 gives,
+                gated_gives,
                 count,
                 prov: f.req_prov()?,
             })

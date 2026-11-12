@@ -40,6 +40,17 @@ pub struct Interaction {
     /// The template of what it makes, and how many.
     pub gives: u32,
     pub count: u32,
+    /// What it makes instead where the interaction the use met is for some characters only.
+    pub gated_gives: Option<u32>,
+}
+
+impl Interaction {
+    /// What a use makes: `gated_gives` where the interaction it met is for some characters only
+    /// and the row names one, else `gives`.
+    #[must_use]
+    pub fn gives_where(&self, gated: bool) -> u32 {
+        self.gated_gives.filter(|_| gated).unwrap_or(self.gives)
+    }
 }
 
 /// What an item is used on: a template, or a class (a script package) the item's interaction table
@@ -158,10 +169,11 @@ impl ItemRows {
 
     /// Every template the rows give.
     pub fn given(&self) -> impl Iterator<Item = u32> + '_ {
-        self.start_items
-            .keys()
-            .copied()
-            .chain(self.interactions.iter().map(|i| i.gives))
+        self.start_items.keys().copied().chain(
+            self.interactions
+                .iter()
+                .flat_map(|i| std::iter::once(i.gives).chain(i.gated_gives)),
+        )
     }
 
     /// What an item of a template used on one of another makes: the first row for the item that

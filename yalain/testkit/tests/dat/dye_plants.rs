@@ -97,7 +97,7 @@ fn each_species_seed_plant_plant_item_pollen_and_ripe_look_agree_with_the_instal
         if let Some(pollen) = sp.pollen {
             let t = p.interactions(&[pollen], &[(sp.plant, plant.description.package)]);
             let on = t
-                .between(&p.template(pollen).props, sp.plant)
+                .between(&p.template(pollen).props, sp.plant, 0)
                 .expect("the pollen on its plant");
             assert!(on.uses_up);
         }

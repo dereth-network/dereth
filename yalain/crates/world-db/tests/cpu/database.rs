@@ -4528,7 +4528,7 @@ fn interaction_rows_compile_and_bad_ones_are_problems() {
     let mut files = fixture();
     files.insert(
         "town/server/items.toml".into(),
-        "[[interaction]]\nkey = \"by-class\"\nitem = 0x4700115B\non_class = 4441\ngives = 0x47002224\nprov = { from = \"authored\" }\n\n\
+        "[[interaction]]\nkey = \"by-class\"\nitem = 0x4700115B\non_class = 4441\ngives = 0x47002224\ngated_gives = 0x4700115B\nprov = { from = \"authored\" }\n\n\
          [[interaction]]\nkey = \"by-template\"\nitem = 0x4700115B\non = 0x47002224\ngives = 0x47002224\ncount = 2\nprov = { from = \"authored\" }\n"
             .into(),
     );
@@ -4543,15 +4543,26 @@ fn interaction_rows_compile_and_bad_ones_are_problems() {
                 on: On::Class(4441),
                 gives: 0x4700_2224,
                 count: 1,
+                gated_gives: Some(0x4700_115B),
             },
             Interaction {
                 item: 0x4700_115B,
                 on: On::Template(0x4700_2224),
                 gives: 0x4700_2224,
                 count: 2,
+                gated_gives: None,
             },
         ],
         "in the rows' order, one when the count is left out"
+    );
+    assert_eq!(
+        (
+            t.items.interactions[0].gives_where(true),
+            t.items.interactions[0].gives_where(false),
+            t.items.interactions[1].gives_where(true),
+        ),
+        (0x4700_115B, 0x4700_2224, 0x4700_2224),
+        "a row's gated_gives where the interaction met is for some characters only"
     );
     assert!(
         t.items.given().any(|g| g == 0x4700_2224),
@@ -4563,6 +4574,7 @@ fn interaction_rows_compile_and_bad_ones_are_problems() {
         "item = 0x47009999\non_class = 4441\ngives = 0x47002224",
         "item = 0x4700115B\non = 0x47009999\ngives = 0x47002224",
         "item = 0x4700115B\non_class = 4441\ngives = 0x47009999",
+        "item = 0x4700115B\non_class = 4441\ngives = 0x47002224\ngated_gives = 0x47009999",
     ] {
         let mut lost = fixture();
         lost.insert(
@@ -4602,6 +4614,7 @@ fn interaction_rows_compile_and_bad_ones_are_problems() {
         "item = 0x4700115B\non_class = 4441\ngives = 0x47002224",
         "key = \"x\"\nitem = 0x4700115B\non_class = 4441\ngives = 0x47002224\ncount = 0",
         "key = \"x\"\nitem = 0x4700115B\non_class = 4441\ngives = [0x47002224]",
+        "key = \"x\"\nitem = 0x4700115B\non_class = 4441\ngives = 0x47002224\ngated_gives = \"no\"",
     ] {
         let mut f = fixture();
         f.insert(

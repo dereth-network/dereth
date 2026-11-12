@@ -1410,7 +1410,11 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     On::Template(x) => cx.template(l, "on", x),
                     On::Class(_) => true,
                 };
-                let known = cx.template(l, "item", r.item) & on & cx.template(l, "gives", r.gives);
+                let gated = r
+                    .gated_gives
+                    .is_none_or(|g| cx.template(l, "gated_gives", g));
+                let known =
+                    cx.template(l, "item", r.item) & on & cx.template(l, "gives", r.gives) & gated;
                 if known {
                     t.items
                         .interactions
@@ -1419,6 +1423,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                             on: r.on,
                             gives: r.gives,
                             count: r.count,
+                            gated_gives: r.gated_gives,
                         });
                 }
             }
