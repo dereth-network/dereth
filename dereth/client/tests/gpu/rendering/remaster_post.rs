@@ -1,6 +1,7 @@
 //! The remaster's post passes: the scene in linear light, the temporal anti-aliasing, the bloom
 //! and the tone map. Off, they leave the frame drawn without them; on, a still view settles to a still
-//! picture, the motion finds last frame's surfaces on a moving camera and on moving parts, the
+//! picture, the motion finds last frame's surfaces on a moving camera and on moving parts (and
+//! the far land's to a small part of a pixel as the screens before the world turn their view), the
 //! frames laid over each other come nearer a finer picture, and linear light goes past where
 //! retail clamps while the tone map brings it back.
 //!
@@ -22,7 +23,7 @@ use dereth_scene::world_scene::{
 };
 
 use crate::instruments::remaster_frames;
-use crate::instruments::stations::{self, Shot, Station};
+use crate::instruments::stations::{self, Clock, Place, Shot, Station};
 
 const W: u32 = 640;
 const H: u32 = 480;
@@ -346,6 +347,100 @@ fn the_motion_finds_last_frames_surfaces_on_a_moving_camera() {
         assert!(off * 3.0 < same, "{off:.2} levels off against {same:.2}");
         assert!(wrong * 3 < unmoved, "{wrong} wrong against {unmoved}");
     }
+}
+
+/// The view the screens before the world show behind them: Holtburg from the camera such a scene
+/// starts with, high over the town and looking down at it, mid-morning on a clear day.
+fn backdrop() -> Station {
+    Station {
+        name: "backdrop",
+        why: "the screens before the world: Holtburg from the camera they start with",
+        place: Place::Start { block: 0xA9B4 },
+        clock: Clock::Sunny(0.4),
+        weather: false,
+        land_radius: 8,
+    }
+}
+
+/// How far `found` sits from `now` as a whole, in pixels, across and down: the shift of `now`'s
+/// brightness that best explains how `found` differs from it, by least squares on its slopes,
+/// over the pixels `kept` names. Both are `w` by `h`.
+fn shift(
+    now: &[[f32; 4]],
+    found: &[[f32; 4]],
+    (w, h): (usize, usize),
+    kept: &dyn Fn(usize) -> bool,
+) -> (f64, f64) {
+    let luma = |c: [f32; 4]| f64::from(0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]);
+    let (mut xx, mut xy, mut yy, mut xd, mut yd) = (0.0, 0.0, 0.0, 0.0, 0.0);
+    for y in 1..h - 1 {
+        for x in 1..w - 1 {
+            let i = y * w + x;
+            if !(kept(i) && kept(i - 1) && kept(i + 1) && kept(i - w) && kept(i + w)) {
+                continue;
+            }
+            let gx = (luma(now[i + 1]) - luma(now[i - 1])) * 0.5;
+            let gy = (luma(now[i + w]) - luma(now[i - w])) * 0.5;
+            let d = luma(found[i]) - luma(now[i]);
+            xx += gx * gx;
+            xy += gx * gy;
+            yy += gy * gy;
+            xd += gx * d;
+            yd += gy * d;
+        }
+    }
+    let det = xx * yy - xy * xy;
+    ((yy * xd - xy * yd) / det, (xx * yd - xy * xd) / det)
+}
+
+/// **The motion finds the far land's last place to a small part of a pixel**: over Holtburg from
+/// high up, as the screens before the world show it, the camera turning and tilting slowly at
+/// sixty frames a second, last frame's picture found where each pixel's surface was (the
+/// projection unmoved while checking) sits where this frame's does to within a twentieth of a
+/// pixel, frame after frame. Found through the frame's space, a far pixel's barely known depth
+/// threw it a fifth to two thirds of a pixel off its line of sight and back from one frame to the
+/// next, and the upscalers and the anti-aliasing laid each frame over the last that far off: the
+/// whole view bobbed.
+#[test]
+fn the_motion_finds_the_far_lands_last_place_as_the_view_turns_and_tilts() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let (w, h) = (1280u32, 720u32);
+    let turning = Run {
+        post: RemasterPost {
+            taa: true,
+            check: true,
+            ..RemasterPost::default()
+        },
+        size: (w, h),
+        seconds: 1.0 / 60.0,
+        before: &|k, shot, _, start| {
+            #[allow(clippy::cast_precision_loss)] // a few frames
+            let t = k as f32 / 60.0;
+            shot.hold_camera(
+                start.position,
+                start.yaw + 0.035 * t,
+                start.pitch + 0.02 * t,
+            );
+        },
+        ..Run::default()
+    };
+    let frames = run(&store, &backdrop(), &turning, 16, 12);
+    let size = (w as usize, h as usize);
+    let mut worst = 0.0f64;
+    for (k, f) in frames.iter().enumerate() {
+        let p = f.post.as_ref().expect("the passes ran");
+        let class = &f.capture.class;
+        // The land and what stands on it, found last frame: never the sky, whose clouds move.
+        let kept = |i: usize| p.shown[i][3] > 0.5 && class[i] != 0 && class[i] != 5;
+        let (x, y) = shift(&p.scene, &p.shown, size, &kept);
+        eprintln!("frame {k}: last frame found {x:.3} across and {y:.3} down");
+        worst = worst.max((x * x + y * y).sqrt());
+    }
+    assert!(
+        worst < 0.05,
+        "last frame was found {worst:.3} pixels off at worst"
+    );
 }
 
 /// **Moving parts carry their own motion**: a person standing four metres ahead of the held

@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Remaster: the view no longer bobs up and down as it turns with smoothing or an upscaler on.
 - Remaster: no more hitch when crossing into a new area.
 - Remaster: no more dry-looking strips at the water's edge.
 - Remaster: shallow water near the shore is see-through, and things in it stand on its bed.

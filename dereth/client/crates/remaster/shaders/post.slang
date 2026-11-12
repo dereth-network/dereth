@@ -27,6 +27,9 @@ import retail;
 //   8     the grade's tables (as uints): xyz the three tables blended, w the tables' picture (~0:
 //         none, the frame is not graded by them)
 //   9     xyz the three tables' weights, w how many tables the picture holds
+//   10..13 this frame's clip space, as drawn, straight to last frame's, unmoved: where a pixel's
+//         surface was, taken from its place and depth without passing through the frame's space,
+//         so a depth only roughly known (as a far one is) moves it along its own line of sight
 static const uint POST_PREVIOUS = 0;
 static const uint POST_STATE = 4;
 static const uint POST_TAA = 5;
@@ -34,6 +37,7 @@ static const uint POST_TONE = 6;
 static const uint POST_GRADE = 7;
 static const uint POST_TABLES = 8;
 static const uint POST_TABLE_WEIGHTS = 9;
+static const uint POST_REPROJECT = 10;
 // The steps of a grade table's side.
 static const float TABLE_SIDE = 32.0;
 
@@ -85,15 +89,6 @@ uint class_at(int2 p)
 uint depth_of(uint cls)
 {
     return (cls == CLASS_GROUND || cls == CLASS_SUN) ? push.outdoor_depth : push.depth;
-}
-
-// A pixel position's place in the frame's space, at depth `d`.
-float3 world_at(float2 pos, float d)
-{
-    float2 extent = row(push.frame, FRAME_EXTENT).xy;
-    float2 ndc = float2(pos.x / extent.x * 2.0 - 1.0, 1.0 - pos.y / extent.y * 2.0);
-    float4 h = transform(push.frame, FRAME_INV_VIEW_PROJ, float4(ndc, d, 1.0));
-    return h.xyz / h.w;
 }
 
 // A point in clip space's place on the target, in pixels.
@@ -200,8 +195,9 @@ Found found_at(int2 p)
     }
     else
     {
-        float3 world = world_at(float2(p) + 0.5, at(depth_of(cls), p).x);
-        float4 c = transform(push.post, POST_PREVIOUS, float4(world, 1.0));
+        float2 pos = float2(p) + 0.5;
+        float2 ndc = float2(pos.x / extent.x * 2.0 - 1.0, 1.0 - pos.y / extent.y * 2.0);
+        float4 c = transform(push.post, POST_REPROJECT, float4(ndc, at(depth_of(cls), p).x, 1.0));
         behind = c.w <= 0.0;
         last_ndc = c.xy / c.w;
     }

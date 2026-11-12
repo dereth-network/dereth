@@ -14,7 +14,8 @@ struct Push
     uint frame;
     // The post passes' constants: rows 0..3 the last frame's view and projection, unmoved, in this
     // frame's space; row 4 xy how far this frame's projection is moved, in clip space, z 1 when the
-    // view held still since the last frame.
+    // view held still since the last frame; rows 10..13 this frame's clip space, as drawn,
+    // straight to last frame's, unmoved.
     uint post;
     uint depth;
     uint outdoor_depth;
@@ -68,8 +69,10 @@ void cs_main(uint3 id : SV_DispatchThreadID)
     }
     else if (state.z < 0.5)
     {
-        float4 h = transform(push.frame, FRAME_INV_VIEW_PROJ, float4(ndc, d, 1.0));
-        float4 c = transform(push.post, 0, float4(h.xyz / h.w, 1.0));
+        // Straight from this frame's clip space to last frame's: a depth only roughly known, as a
+        // far one is, then moves the point along its own line of sight, which a turning view
+        // does not see.
+        float4 c = transform(push.post, 10, float4(ndc, d, 1.0));
         // A point behind last frame's eye was on no picture: it reprojects off this one.
         motion = c.w > 0.0 ? uv_of(c.xy / c.w) - now : float2(4.0, 4.0);
     }

@@ -112,6 +112,9 @@ pub(crate) enum Place {
     /// tilt, behind a player whose feet are at block-local `feet` in `block` and who faces `yaw`
     /// radians from north. No body is drawn.
     Orbit { block: u16, feet: Vec3, yaw: f32 },
+    /// The free camera a scene of `block` with no body starts with: where the screens before the
+    /// world show it.
+    Start { block: u16 },
 }
 
 /// One station.
@@ -139,7 +142,8 @@ impl Station {
             | Place::Ground { block, .. }
             | Place::Look { block, .. }
             | Place::Facing { block, .. }
-            | Place::Orbit { block, .. } => block,
+            | Place::Orbit { block, .. }
+            | Place::Start { block } => block,
             #[allow(clippy::cast_possible_truncation)] // LINT-OK: the high half of a cell id
             Place::Body { cell, .. } => (cell >> 16) as u16,
         }
@@ -1681,6 +1685,7 @@ impl Shot {
                 scene.camera.pitch = DEFAULT_PITCH;
                 scene.set_weather_enabled(station.weather);
             }
+            Place::Start { .. } => scene.set_weather_enabled(station.weather),
             Place::Body { cell, origin, yaw } => {
                 let region =
                     dereth_world_data::landblock::load_region(store).expect("the region decodes");
