@@ -1744,6 +1744,7 @@ fn a_quest_an_admin_takes_off_a_player_takes_its_subquests_too() {
         ],
         steps: [(PARENT, 2u32), (PARENT, 3)]
             .map(|(quest, to)| Step {
+                key: String::new(),
                 quest,
                 needs: to - 1,
                 trigger: Trigger::Use(USED),

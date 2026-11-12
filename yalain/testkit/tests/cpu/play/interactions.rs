@@ -154,6 +154,7 @@ fn hall() -> Harness {
         cancel_wait: None,
     });
     h.server.quests.steps.push(Step {
+        key: String::new(),
         quest: ENTER_QUEST,
         needs: 0,
         trigger: Trigger::UseOn(KEY_TEMPLATE, STOCKPILE_TEMPLATE),
@@ -375,6 +376,7 @@ fn an_item_used_on_an_object_while_its_step_waits_for_another_phase_is_answered_
         Props::default(),
     ));
     h.server.quests.steps.push(Step {
+        key: String::new(),
         quest: HALL_QUEST,
         needs: 6,
         trigger: Trigger::UseOn(GLYPH_TEMPLATE, STOCKPILE_TEMPLATE),

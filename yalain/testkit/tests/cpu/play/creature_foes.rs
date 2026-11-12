@@ -323,6 +323,7 @@ fn two_players(fights: bool) -> (Harness, u64, u64, u64, u64, u32) {
     let (mut h, attacker, target) = world(fights, false, 2_000);
     h.server.quests.quests.push(q);
     h.server.quests.steps.push(Step {
+        key: String::new(),
         quest,
         needs: 1,
         trigger: Trigger::KillNear(TARGET, 30),

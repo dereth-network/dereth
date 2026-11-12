@@ -476,6 +476,17 @@ pub fn tell<S: Store>(
         return;
     };
     let msg = crate::talk::text_for(line, &crate::player::world_name(&p.name, p.sex));
+    tell_text(net, world, teller, teller_name, msg);
+}
+
+/// A person tells the player a text as it is.
+pub fn tell_text(
+    net: &mut ServerNet,
+    world: ConnId,
+    teller: u64,
+    teller_name: TextInfo,
+    msg: TextInfo,
+) {
     let m = session::call(
         crate::chat::function::HEAR_TELL,
         &[
@@ -560,7 +571,10 @@ fn may_run_at_any_level<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_u
         return false;
     };
     let held = &p.play.quests;
-    if phase_of(held, st.quest) != st.needs || !crate::events::step_runs(s, st) {
+    if phase_of(held, st.quest) != st.needs
+        || !crate::events::step_runs(s, st)
+        || !crate::tallies::step_for(s, st)
+    {
         return false;
     }
     // A step whose gift can't be made doesn't run: it would take what it takes for nothing.
@@ -1393,6 +1407,7 @@ pub fn give_for<S: Store>(
         // One whose gift can't be made takes nothing: the item goes back to its giver.
         g.gives.iter().all(|t| crate::makes::can_make(s, *t))
             && s.kingdom_rows.give_for(g, kingdom)
+            && crate::tallies::give_for(s, g)
             && !crate::kingdom_skills::would_do_nothing(s, &p.qualities, g)
             && g.requires.iter().all(|(q, need)| match need {
                 Need::Phase(n) => phase_of(held, *q) == *n,
@@ -1463,6 +1478,9 @@ fn run_with<S: Store>(
     given: Option<crate::gives::Given>,
     clock: Clock,
 ) -> Vec<u32> {
+    // What it adds to the world's tallies comes first, so what is said with it names the count it
+    // made.
+    crate::tallies::step_ran(s, step, clock);
     if let Some((teller, name)) = who {
         if let Some(line) = &step.tell {
             let told = crate::presence::content_by_id(&s.content.objects, teller)

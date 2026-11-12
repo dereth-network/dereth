@@ -521,6 +521,7 @@ fn a_give_requiring_a_quest_and_a_kingdom_needs_both() {
 #[test]
 fn a_step_for_one_kingdom_runs_only_for_its_players() {
     let step = Step {
+        key: String::new(),
         quest: QUEST,
         needs: 0,
         trigger: Trigger::Give(SLIVER, SHRINE_T),

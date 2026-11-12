@@ -94,6 +94,7 @@ fn quest(id: u32, table: u32, phases: usize) -> QuestDef {
 
 fn step(quest: u32, needs: u32, trigger: Trigger, update: Update) -> Step {
     Step {
+        key: String::new(),
         quest,
         needs,
         trigger,

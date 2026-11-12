@@ -16,6 +16,10 @@
 //! host's clock counts in), whether its holder is in the world then or not. A player who comes into the world while one is on is given it at the
 //! next step; one who already holds a running record of the effect is given no second.
 //!
+//! **Started by a tally.** An event a full tally starts ([`crate::tallies`]) is on for the window
+//! the tally's fill gives it, as if its own windows said so; an event with no windows is on only
+//! so.
+//!
 //! A world with no events does none of this.
 
 use std::collections::BTreeSet;
@@ -73,17 +77,33 @@ pub fn step_runs<S: Store>(s: &Server<S>, step: &yalain_content::quests::Step) -
     t.is_empty() || t.of_step(step).all(|e| is_on(s, e))
 }
 
-/// Switch the events by the clock, and give the players in the world the effects of those on.
+/// The window of an event that holds `unix`: one of its own, else one a full tally gave it.
+fn window<S: Store>(
+    s: &Server<S>,
+    e: &yalain_content::events::Event,
+    unix: i64,
+) -> Option<(i64, i64)> {
+    e.running(unix)
+        .or_else(|| crate::tallies::started(s, &e.key, unix))
+}
+
+/// Switch the events by the clock and the tallies, give the players in the world the effects of
+/// those on, and reset the tallies due to.
 pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
     if s.content.events.is_empty() {
+        crate::tallies::step(s, net, &BTreeSet::new(), clock);
         return;
+    }
+    // The tallies are read before the events they start are worked out.
+    if !s.content.tallies.is_empty() {
+        crate::tallies::ensure(s);
     }
     let now: BTreeSet<String> = s
         .content
         .events
         .events
         .iter()
-        .filter(|e| e.running(clock.unix).is_some())
+        .filter(|e| window(s, e, clock.unix).is_some())
         .map(|e| e.key.clone())
         .collect();
     let ended: Vec<String> = s.events.on.difference(&now).cloned().collect();
@@ -97,6 +117,8 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
         starts(s, net, key);
     }
     give_effects(s, net, clock);
+    let on = s.events.on.clone();
+    crate::tallies::step(s, net, &on, clock);
 }
 
 /// Every event on ends, as the world's events are replaced.
@@ -152,7 +174,7 @@ fn gated_objects<S: Store>(s: &Server<S>, key: &str) -> Vec<usize> {
 fn give_effects<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
     let mut due: Vec<(u32, f32)> = Vec::new();
     for e in &s.content.events.events {
-        let Some((_, until)) = e.running(clock.unix) else {
+        let Some((_, until)) = window(s, e, clock.unix) else {
             continue;
         };
         #[allow(clippy::cast_precision_loss)]

@@ -268,7 +268,19 @@ impl Install for Fake {
     fn label(&self, template: u32) -> String {
         format!("template {template:08X}")
     }
+
+    fn variables(&self, string: u32, table: u32) -> Option<Vec<u32>> {
+        Some(if (string, table) == COUNT_LINE {
+            vec![COUNT_VARIABLE]
+        } else {
+            Vec::new()
+        })
+    }
 }
+
+/// A string of the made-up install that takes one variable, and that variable.
+const COUNT_LINE: (u32, u32) = (0x0378_A89C, 0x2500_2A76);
+const COUNT_VARIABLE: u32 = 0x5A17_0001;
 
 #[test]
 fn the_test_world_reads_checks_and_merges_without_problems() {
@@ -3859,6 +3871,323 @@ fn an_event_row_reads_its_windows_and_gates_compile_to_the_event_table() {
         );
         assert!(read(&f).is_err(), "{bad}");
     }
+}
+
+/// The test world with a tally of supplies that starts and resets on an event with no windows of
+/// its own, the bestowing step waiting on it not yet full and adding to it, a give adding to it,
+/// the greeting said only while it is full and a line saying its count.
+fn tally_world() -> Files {
+    let mut files = fixture();
+    files.insert(
+        "town/server/events.toml".into(),
+        "[[event]]\nkey = \"festival\"\nprov = { from = \"authored\" }\n\n\
+         [[tally]]\nkey = \"supplies\"\nfull = 100\n\
+         starts = { event = \"festival\", after = 120, lasts = 1800 }\n\
+         resets = { event = \"festival\" }\nclears = [0x470020B9]\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "update = \"bestow\"\n",
+        "update = \"bestow\"\nrequires = [{ tally = \"supplies\", full = false }]\n\
+         adds = { tally = \"supplies\", by = 25 }\n",
+    );
+    files.insert(
+        "town/server/gives/470033D0.toml".into(),
+        "[[give]]\nkey = \"wood\"\nto = 0x470033D0\nitem = 0x470020BB\n\
+         requires = [{ tally = \"supplies\", full = false }]\n\
+         adds = { tally = \"supplies\", by = 10 }\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    edit(
+        &mut files,
+        "town/server/talk/470033D0.toml",
+        "role = \"near\"\n",
+        "role = \"near\"\nrequires = [{ tally = \"supplies\", full = true }]\n",
+    );
+    let talk = files.get_mut("town/server/talk/470033D0.toml").unwrap();
+    talk.push_str(
+        "\n[[talk]]\nkey = \"count\"\nwho = 0x470033D0\n\
+         line = { table = 0x25002A76, string = 0x0378A89C }\nrole = \"use\"\nwhen = \"use\"\n\
+         fills = \"supplies\"\nfull_line = { table = 0x25002A76, string = 0x5B21F83D }\n\
+         prov = { from = \"authored\" }\n",
+    );
+    files
+}
+
+#[test]
+fn a_tally_row_reads_and_its_gates_adds_and_counted_lines_compile_to_the_tally_table() {
+    use yalain_content::tallies::{Adds, Gate, Holds, Reset, Start};
+    let files = tally_world();
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let db = read(&files).unwrap();
+    let tally = db
+        .rows()
+        .find_map(|l| match &l.row {
+            Row::Tally(t) => Some(t.tally.clone()),
+            _ => None,
+        })
+        .expect("the tally");
+    assert_eq!(tally.full, 100);
+    assert_eq!(
+        tally.starts,
+        Some(Start {
+            event: "festival".into(),
+            after: 120,
+            lasts: 1800
+        })
+    );
+    assert_eq!(tally.resets, Reset::Ends("festival".into()));
+    assert_eq!(tally.clears, vec![0x4700_20B9]);
+    let t = compile(&merge(&db).unwrap(), &Fake::new()).unwrap();
+    let ev = &t.content.events;
+    assert!(
+        ev.event("festival").is_some_and(|e| e.windows.is_empty()),
+        "an event with no windows"
+    );
+    let x = &t.content.tallies;
+    assert_eq!(x.tallies, vec![tally]);
+    let not_full = Gate {
+        tally: "supplies".into(),
+        holds: Holds::NotFull,
+    };
+    assert_eq!(x.steps.len(), 1);
+    assert_eq!(x.steps[0].0.update, Update::Bestow);
+    assert_eq!(x.steps[0].1, not_full);
+    assert_eq!(
+        x.step_adds
+            .iter()
+            .map(|(_, a)| a.clone())
+            .collect::<Vec<_>>(),
+        vec![Adds {
+            tally: "supplies".into(),
+            by: 25
+        }]
+    );
+    assert_eq!(x.gives.len(), 1);
+    assert_eq!(x.gives[0].0.item, Some(0x4700_20BB));
+    assert_eq!(x.give_adds[0].1.by, 10);
+    assert_eq!(x.lines.len(), 1);
+    assert_eq!(x.lines[0].0.role, Some(Role::Near));
+    assert_eq!(x.lines[0].1.holds, Holds::Full);
+    // A count at least and below so many is two gates; one the tally never reaches is a problem.
+    let mut f = files.clone();
+    edit(
+        &mut f,
+        "town/server/talk/470033D0.toml",
+        "{ tally = \"supplies\", full = true }",
+        "{ tally = \"supplies\", at_least = 20, below = 40 }",
+    );
+    let t = compile(&merge(&read(&f).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let held: Vec<Holds> = t
+        .content
+        .tallies
+        .lines
+        .iter()
+        .map(|(_, g)| g.holds)
+        .collect();
+    assert_eq!(held, vec![Holds::AtLeast(20), Holds::Below(40)]);
+    edit(
+        &mut f,
+        "town/server/talk/470033D0.toml",
+        "at_least = 20, below = 40",
+        "at_least = 120",
+    );
+    assert!(
+        check(&f)
+            .iter()
+            .any(|p| p.message.contains("never reaches 120")),
+        "{:?}",
+        check(&f)
+    );
+    let f = x
+        .fill_of(&Words::Ref(COUNT_LINE.0, COUNT_LINE.1))
+        .expect("the count line");
+    assert_eq!(f.tally, "supplies");
+    assert_eq!(f.variable, COUNT_VARIABLE, "the line's one variable");
+    assert_eq!(f.full, Some(Words::Ref(0x5B21_F83D, 0x2500_2A76)));
+    // A tally a row names and no row is, and an event no tally starts or a tally's start names,
+    // are problems.
+    for (path, from, to, problem) in [
+        (
+            "town/server/quests/40000088.toml",
+            "tally = \"supplies\", full",
+            "tally = \"stores\", full",
+            "requires: no [[tally]] stores",
+        ),
+        (
+            "town/server/quests/40000088.toml",
+            "adds = { tally = \"supplies\"",
+            "adds = { tally = \"stores\"",
+            "adds: no [[tally]] stores",
+        ),
+        (
+            "town/server/talk/470033D0.toml",
+            "fills = \"supplies\"",
+            "fills = \"stores\"",
+            "fills: no [[tally]] stores",
+        ),
+        (
+            "town/server/events.toml",
+            "starts = { event = \"festival\"",
+            "starts = { event = \"fair\"",
+            "starts: no [[event]] fair",
+        ),
+    ] {
+        let mut f = files.clone();
+        edit(&mut f, path, from, to);
+        let problems = check(&f);
+        assert!(
+            problems.iter().any(|p| p.message.contains(problem)),
+            "{problem}: {problems:?}"
+        );
+    }
+    let mut f = files.clone();
+    edit(
+        &mut f,
+        "town/server/events.toml",
+        "starts = { event = \"festival\", after = 120, lasts = 1800 }\n",
+        "",
+    );
+    assert!(
+        check(&f)
+            .iter()
+            .any(|p| p.message.contains("an event with no windows")),
+        "{:?}",
+        check(&f)
+    );
+    // The count fills one variable of the install's text: a literal, or a string of none, is a
+    // problem; and a full line goes only with a count.
+    for (from, to, problem) in [
+        (
+            "line = { table = 0x25002A76, string = 0x0378A89C }\nrole = \"use\"",
+            "line_text = \"Ready: |\"\nrole = \"use\"",
+            "fills: the count fills a variable",
+        ),
+        (
+            "line = { table = 0x25002A76, string = 0x0378A89C }\nrole = \"use\"",
+            "line = { table = 0x25002A76, string = 0x0378A89D }\nrole = \"use\"",
+            "takes 0 variables",
+        ),
+        (
+            "fills = \"supplies\"\n",
+            "",
+            "full_line: a line says another",
+        ),
+    ] {
+        let mut f = files.clone();
+        edit(&mut f, "town/server/talk/470033D0.toml", from, to);
+        let problems = compile(&merge(&read(&f).unwrap()).unwrap(), &Fake::new())
+            .err()
+            .unwrap_or_default();
+        assert!(
+            problems.iter().any(|p| p.message.contains(problem)),
+            "{problem}: {problems:?}"
+        );
+    }
+    // Rows that break the schema.
+    for (path, from, to) in [
+        ("town/server/events.toml", "full = 100", "full = 0"),
+        ("town/server/events.toml", "lasts = 1800", "lasts = 0"),
+        (
+            "town/server/events.toml",
+            "resets = { event = \"festival\" }",
+            "resets = { every = 0 }",
+        ),
+        (
+            "town/server/events.toml",
+            "resets = { event = \"festival\" }",
+            "resets = { event = \"festival\", every = 86400 }",
+        ),
+        ("town/server/quests/40000088.toml", "by = 25", "by = 0"),
+        (
+            "town/server/quests/40000088.toml",
+            "{ tally = \"supplies\", full = false }",
+            "{ tally = \"supplies\" }",
+        ),
+        (
+            "town/server/talk/470033D0.toml",
+            "{ tally = \"supplies\", full = true }",
+            "{ quest = 0x40000088, done = true }",
+        ),
+        (
+            "town/server/talk/470033D0.toml",
+            "full = true",
+            "at_least = 0",
+        ),
+        (
+            "town/server/talk/470033D0.toml",
+            "full = true",
+            "at_least = 30, below = 30",
+        ),
+        (
+            "town/server/talk/470033D0.toml",
+            "full = true",
+            "full = true, at_least = 30",
+        ),
+    ] {
+        let mut f = files.clone();
+        edit(&mut f, path, from, to);
+        assert!(read(&f).is_err(), "{to}");
+    }
+}
+
+/// Two steps alike but for their tally gates and adds keep their own, by their keys: the bestowing
+/// step waits on the supplies not full and adds 25; its twin, which waits on them full, adds
+/// nothing.
+#[test]
+fn steps_alike_but_for_their_tallies_keep_their_own_gates_and_adds() {
+    use yalain_content::tallies::{Adds, Gate, Holds};
+    let mut files = tally_world();
+    let quest = files.get_mut("town/server/quests/40000088.toml").unwrap();
+    quest.push_str(
+        "\n[[step]]\nkey = \"s1-full\"\nquest = 0x40000088\nneeds = 0\ntrigger = { use = 0x470033D0 }\n\
+         tell = { table = 0x25002881, string = 0x2824FD4C }\nupdate = \"bestow\"\n\
+         requires = [{ tally = \"supplies\", full = true }]\nprov = { from = \"authored\" }\n",
+    );
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let step = |key: &str| {
+        t.quests
+            .steps
+            .iter()
+            .find(|s| s.key == key)
+            .unwrap_or_else(|| panic!("step {key}"))
+    };
+    let (short, full) = (step("s1"), step("s1-full"));
+    assert_eq!(
+        yalain_content::quests::Step {
+            key: String::new(),
+            ..short.clone()
+        },
+        yalain_content::quests::Step {
+            key: String::new(),
+            ..full.clone()
+        },
+        "alike but for their keys"
+    );
+    let x = &t.content.tallies;
+    let gate = |holds| Gate {
+        tally: "supplies".into(),
+        holds,
+    };
+    assert_eq!(
+        x.of_step(short).cloned().collect::<Vec<_>>(),
+        [gate(Holds::NotFull)]
+    );
+    assert_eq!(
+        x.of_step(full).cloned().collect::<Vec<_>>(),
+        [gate(Holds::Full)]
+    );
+    assert_eq!(
+        x.step_adds(short).cloned().collect::<Vec<_>>(),
+        [Adds {
+            tally: "supplies".into(),
+            by: 25
+        }]
+    );
+    assert_eq!(x.step_adds(full).count(), 0);
 }
 
 #[test]

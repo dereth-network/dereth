@@ -157,6 +157,7 @@ pub mod step_timer;
 pub mod store;
 pub mod storms;
 pub mod talk;
+pub mod tallies;
 pub mod things;
 pub mod timings;
 pub mod trade;
@@ -418,6 +419,8 @@ pub struct Server<S: Store> {
     pub creature_effects: effects::CreatureRecords,
     /// Which of the world's scheduled events are on.
     pub events: events::Events,
+    /// The world's tallies' counts.
+    pub tallies: tallies::Tallies,
     pub crafting: craft::Crafting,
     /// The vitae cost table: the experience to raise vitae by one at full vitae, by level from 1.
     pub vitae_costs: Vec<u64>,
@@ -848,6 +851,7 @@ impl<S: Store> Server<S> {
             effect_table: effect_defs::EffectTable::default(),
             creature_effects: effects::CreatureRecords::default(),
             events: events::Events::default(),
+            tallies: tallies::Tallies::default(),
             crafting: craft::Crafting::default(),
             vitae_costs: Vec::new(),
             last_step: None,

@@ -14966,6 +14966,55 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.tallies.a-count-outlives-a-restart",
+        says: "A tally's count, the moment it filled and the events it resets on that were on are \
+               the world's record, written in the pass that changes them, so a restart keeps the \
+               count and the event a full tally started is on again for what is left of its time.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TALLY-KEPT"),
+        station: "yalain-testkit::cpu::play::tallies::a_tally_keeps_its_count_and_its_events_time_across_a_restart",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.tallies.a-full-count-starts-an-event-and-resets",
+        says: "A tally that `starts` an event turns it on its `after` seconds past the moment it \
+               filled, for its `lasts` seconds, an event with no windows of its own being on only \
+               so. A tally resets to nothing as the event it names ends (also when it ended while \
+               the world was down, by the events its record kept as on, or when the start it made \
+               is over), or at each new period of `every` seconds by the calendar; as it resets, \
+               every object of the templates it `clears` standing in the world that the world made, \
+               held by no one and no creature, leaves it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TALLY-STARTS-RESETS"),
+        station: "yalain-testkit::cpu::play::tallies::a_full_tally_starts_its_event_and_resets_as_the_event_ends_clearing_what_it_clears",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.tallies.lines-wait-on-and-say-a-count",
+        says: "A line that `fills` with a tally takes the tally's count, as a percent of its full \
+               rounded down, as its one variable, and once the tally is full its `full_line` is \
+               said in its place; a line that requires a tally full or not yet full, or its count \
+               at least or below so many, is said only then, so each stage of a count says its own \
+               line.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TALLY-LINES"),
+        station: "yalain-testkit::cpu::play::tallies::a_line_says_a_tallys_percent_until_it_is_full_and_lines_wait_on_its_stage",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.tallies.steps-and-gives-fill-a-shared-count",
+        says: "A world's `[[tally]]` is one count for the whole world. A quest step or a give that \
+               `adds` to it adds as it runs, before anything it says, never past the tally's \
+               `full`; a step runs and a give takes its item only while each tally it requires is \
+               as it says (full or not yet full, its count at least or below so many), and \
+               otherwise the give hands the item back. A world with no tallies keeps no record of \
+               them.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TALLY-FILLS"),
+        station: "yalain-testkit::cpu::play::tallies::a_step_adds_to_a_tally_never_past_full_and_what_waits_on_it_runs_once_it_is_full",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.timings.blows-land-at-their-clips-hooks",
         says: "What a body plays for a behavior, in its stance, is its clip's cycle: a story's hook \
                numbered n lands at the clip's n-th story hook over the time scale, or at the \

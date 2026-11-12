@@ -108,6 +108,11 @@ pub trait Install {
     fn label(&self, _template: u32) -> String {
         String::new()
     }
+    /// The variables a string of the install's text takes, by their ids in its order, when the
+    /// text is at hand (an empty list for a string it does not hold).
+    fn variables(&self, _string: u32, _table: u32) -> Option<Vec<u32>> {
+        None
+    }
 }
 
 /// The server's tables.
@@ -670,6 +675,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     // The steps an event gates, by their row in the quest table, to copy once each is whole.
     let mut event_steps: Vec<(usize, String)> = Vec::new();
     let mut kingdom_steps: Vec<(usize, u32)> = Vec::new();
+    // The steps a tally gates or adds to, likewise.
+    let mut tally_steps: Vec<(usize, yalain_content::tallies::Gate)> = Vec::new();
+    let mut tally_step_adds: Vec<(usize, yalain_content::tallies::Adds)> = Vec::new();
     let mut act_steps: Vec<(&Located, usize, u32)> = Vec::new();
     // The scenes a new character holds, by their order.
     let mut door_scenes: Vec<(&Located, u32)> = Vec::new();
@@ -1179,6 +1187,12 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 for e in &s.events {
                     event_steps.push((t.quests.steps.len(), e.clone()));
                 }
+                for g in &s.tallies {
+                    tally_steps.push((t.quests.steps.len(), g.clone()));
+                }
+                if let Some(a) = &s.adds {
+                    tally_step_adds.push((t.quests.steps.len(), (**a).clone()));
+                }
                 if let Some(k) = s.kingdom {
                     kingdom_steps.push((t.quests.steps.len(), k));
                 }
@@ -1186,6 +1200,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     act_steps.push((l, t.quests.steps.len(), *a));
                 }
                 t.quests.steps.push(TableStep {
+                    key: s.key.clone(),
                     quest: s.quest,
                     needs: s.needs,
                     trigger,
@@ -1272,6 +1287,15 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 });
                 if let (Some(k), Some(give)) = (g.kingdom, t.quests.gives.last()) {
                     t.kingdoms.gives.push((give.clone(), k));
+                }
+                if let Some(give) = t.quests.gives.last() {
+                    let tallies = &mut t.content.tallies;
+                    for gate in &g.tallies {
+                        tallies.gives.push((give.clone(), gate.clone()));
+                    }
+                    if let Some(a) = &g.adds {
+                        tallies.give_adds.push((give.clone(), a.clone()));
+                    }
                 }
             }
             Row::Craft(c) => {
@@ -1639,6 +1663,15 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 windows: r.when.clone(),
                 on_players: r.on_players.clone(),
             }),
+            Row::Tally(r) => {
+                let mut known = true;
+                for c in &r.tally.clears {
+                    known &= cx.template(l, "clears", *c);
+                }
+                if known {
+                    t.content.tallies.tallies.push(r.tally.clone());
+                }
+            }
             Row::Weapon(r) => {
                 if cx.template(l, "template", r.template) {
                     t.weapons.insert(r.name.clone(), r.template);
@@ -1794,6 +1827,17 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             t.content.events.steps.push((st.clone(), e));
         }
     }
+    // The steps tallies gate and fill, whole, likewise.
+    for (i, g) in tally_steps {
+        if let Some(st) = t.quests.steps.get(i) {
+            t.content.tallies.steps.push((st.clone(), g));
+        }
+    }
+    for (i, a) in tally_step_adds {
+        if let Some(st) = t.quests.steps.get(i) {
+            t.content.tallies.step_adds.push((st.clone(), a));
+        }
+    }
     // The steps a kingdom gates, whole, once every camp's kill has its camp.
     for (i, k) in kingdom_steps {
         if let Some(st) = t.quests.steps.get(i) {
@@ -1829,6 +1873,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             }
         }
     }
+    cx.problems.extend(crate::check::tallies(
+        &merged.rows.iter().collect::<Vec<_>>(),
+    ));
     // What people say, once every placed person has its place in the content pack.
     for l in &merged.rows {
         let Row::Talk(r) = &l.row else { continue };
@@ -1860,6 +1907,50 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
         if !ok {
             continue;
         }
+        if let Some(key) = &r.fills {
+            let &Words::Ref(string, table) = &words else {
+                cx.problem(
+                    l,
+                    "fills: the count fills a variable of the install's text: name the line by `line`",
+                );
+                continue;
+            };
+            let variable = match install.variables(string, table).as_deref() {
+                Some([one]) => *one,
+                Some(other) => {
+                    cx.problem(
+                        l,
+                        format!(
+                            "fills: the line {string:08X} of {table:08X} takes {} variables, not one",
+                            other.len()
+                        ),
+                    );
+                    continue;
+                }
+                None => {
+                    cx.warn(
+                        l,
+                        "fills: the install's text is not at hand to name the line's variable, so the line is said without its count",
+                    );
+                    0
+                }
+            };
+            t.content.tallies.fills.push((
+                words.clone(),
+                yalain_content::tallies::Fill {
+                    tally: key.clone(),
+                    variable,
+                    full: self::words(r.full_line, r.full_line_text.as_ref()),
+                },
+            ));
+        } else if r.full_line.is_some() || r.full_line_text.is_some() {
+            cx.problem(
+                l,
+                "full_line: a line says another once a tally is full only with fills",
+            );
+            continue;
+        }
+        let gates: Vec<yalain_content::tallies::Gate> = r.requires.clone();
         t.talk.lines.push(Line {
             who: r.who,
             object,
@@ -1875,6 +1966,11 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             measured: r.prov.source == Source::Capture,
             placed: prov_text(&r.prov),
         });
+        if let Some(line) = t.talk.lines.last() {
+            for g in gates {
+                t.content.tallies.lines.push((line.clone(), g));
+            }
+        }
     }
     // A portal a row makes leads where its template's destination names, once every place is known:
     // the place named by the template, else the place of the destination's name.

@@ -584,7 +584,104 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
     }
     problems.extend(crate::pools_check::check(db));
     problems.extend(check_events(db));
+    problems.extend(tallies(&db.rows().collect::<Vec<_>>()));
     problems
+}
+
+/// Every `[[tally]]` a step, a give or a line names is one of these rows', and a count it waits
+/// on is one the tally reaches; every `[[event]]` a tally starts or resets on is too; and an event
+/// with no windows of its own is one a tally starts.
+pub(crate) fn tallies(rows: &[&Located]) -> Vec<Problem> {
+    use yalain_content::tallies::Reset;
+    let tallies: BTreeMap<&str, &yalain_content::tallies::Tally> = rows
+        .iter()
+        .filter_map(|l| match &l.row {
+            Row::Tally(t) => Some((t.tally.key.as_str(), &t.tally)),
+            _ => None,
+        })
+        .collect();
+    let events: BTreeSet<&str> = rows
+        .iter()
+        .filter_map(|l| match &l.row {
+            Row::Event(e) => Some(e.key.as_str()),
+            _ => None,
+        })
+        .collect();
+    let mut out = Vec::new();
+    for l in rows {
+        let mut at = |m: String| out.push(Problem::new(&l.file, l.line, m));
+        let named: Vec<(&str, &str)> = match &l.row {
+            Row::Step(s) => s
+                .tallies
+                .iter()
+                .map(|g| ("requires", g.tally.as_str()))
+                .chain(s.adds.iter().map(|a| ("adds", a.tally.as_str())))
+                .collect(),
+            Row::Give(g) => g
+                .tallies
+                .iter()
+                .map(|g| ("requires", g.tally.as_str()))
+                .chain(g.adds.iter().map(|a| ("adds", a.tally.as_str())))
+                .collect(),
+            Row::Talk(r) => r
+                .requires
+                .iter()
+                .map(|g| ("requires", g.tally.as_str()))
+                .chain(r.fills.iter().map(|k| ("fills", k.as_str())))
+                .collect(),
+            Row::Tally(r) => {
+                let x = &r.tally;
+                let resets = match &x.resets {
+                    Reset::Ends(e) => Some(("resets", e.as_str())),
+                    _ => None,
+                };
+                for (field, e) in x
+                    .starts
+                    .iter()
+                    .map(|st| ("starts", st.event.as_str()))
+                    .chain(resets)
+                {
+                    if !events.contains(e) {
+                        at(format!("{field}: no [[event]] {e}"));
+                    }
+                }
+                Vec::new()
+            }
+            Row::Event(e) if e.when.is_empty() => {
+                let started = tallies
+                    .values()
+                    .any(|x| x.starts.as_ref().is_some_and(|st| st.event == e.key));
+                if !started {
+                    at("when: an event with no windows is on only while a tally starts it, and no [[tally]] does".into());
+                }
+                Vec::new()
+            }
+            _ => Vec::new(),
+        };
+        for (field, key) in named {
+            if !tallies.contains_key(key) {
+                at(format!("{field}: no [[tally]] {key}"));
+            }
+        }
+        let gates: &[yalain_content::tallies::Gate] = match &l.row {
+            Row::Step(s) => &s.tallies,
+            Row::Give(g) => &g.tallies,
+            Row::Talk(r) => &r.requires,
+            _ => &[],
+        };
+        for g in gates {
+            let full = tallies.get(g.tally.as_str()).map(|x| x.full);
+            if let (yalain_content::tallies::Holds::AtLeast(n), Some(full)) = (g.holds, full) {
+                if n > full {
+                    at(format!(
+                        "requires: {} never reaches {n}: it is full at {full}",
+                        g.tally
+                    ));
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Every camp, object and step that names an `[[event]]` names one the database has.

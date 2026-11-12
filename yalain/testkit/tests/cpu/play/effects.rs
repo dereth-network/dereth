@@ -704,6 +704,7 @@ fn a_quest_steps_effects_come_after_its_gifts_and_before_its_update() {
         cancel_wait: None,
     });
     let step = Step {
+        key: String::new(),
         quest,
         needs: 0,
         trigger: Trigger::Use(0x4700_31ED),

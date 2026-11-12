@@ -416,6 +416,7 @@ fn takes<S: Store>(
         });
         crate::places::to_knowers(s, net, speaker.id, &played);
     }
+    crate::tallies::give_ran(s, row, clock);
     for line in crate::talk::with_give(s, who, Some(i), given.template) {
         crate::talk::say(s, net, world, &speaker, &line.words, line.how);
     }

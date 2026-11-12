@@ -108,6 +108,7 @@ fn hidden_quest() -> QuestDef {
 
 fn grant_step() -> Step {
     Step {
+        key: String::new(),
         quest: QUEST,
         needs: 0,
         trigger: Trigger::Use(PERSON_T),

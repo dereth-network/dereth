@@ -1010,6 +1010,7 @@ fn a_kill_by_a_player_the_creature_could_not_reach_pays_no_one_and_moves_no_ques
             cancel_wait: None,
         });
         h.server.quests.steps.push(Step {
+            key: String::new(),
             quest: QUEST,
             needs: 0,
             trigger: Trigger::Kill(template),

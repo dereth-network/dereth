@@ -48,9 +48,7 @@ pub enum Sends {
 #[must_use]
 pub fn sends<S: Store>(s: &Server<S>, i: usize, item: u32) -> Sends {
     let who = s.content.objects[i].template;
-    let lines: Vec<Option<u32>> = s
-        .talk
-        .of(who, Some(i))
+    let lines: Vec<Option<u32>> = crate::talk::lines_of(s, who, Some(i))
         .filter(|l| l.when == yalain_content::talk::When::Give && l.role == Some(Role::Teleport))
         .map(|l| l.item)
         .collect();

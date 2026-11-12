@@ -90,6 +90,7 @@ fn quest(id: u32, xp: u64, challenge: i32) -> QuestDef {
 
 pub(super) fn step(quest: u32, needs: u32, trigger: Trigger, update: Update) -> Step {
     Step {
+        key: String::new(),
         quest,
         needs,
         trigger,

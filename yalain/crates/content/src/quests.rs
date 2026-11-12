@@ -30,7 +30,8 @@
 //!   give how many of the item it wants (empty for whatever is given), the levels it is for
 //!   (`LEAST:MOST`), the share of a level it pays, for a give that makes its player a hero, the
 //!   transformation (`SECONDS:FX/FX...:BEHAVIOR:STRING:TABLE:NAME`, hex but the seconds, empty
-//!   parts for none), and the chance it runs when it may (empty: always);
+//!   parts for none), the chance it runs when it may (empty: always), whether its effects tell no
+//!   line (0/1), the recipes it teaches (joined by `,`) and its key among its quest's steps;
 //! - `give`: what a person or an object does with an item given it that moves no quest: the template
 //!   given to, the item's template (empty: any item), how many of it it wants (empty: whatever is
 //!   given), the items given back (templates joined by `,`, a count after `x`), its effects (saved
@@ -257,6 +258,8 @@ pub struct Room {
 /// One step of a quest.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Step {
+    /// Its name among its quest's steps (empty for one no row makes).
+    pub key: String,
     pub quest: u32,
     /// The phase the quest must be at (0: not under way).
     pub needs: u32,
@@ -653,7 +656,7 @@ impl QuestTable {
             });
             let _ = writeln!(
                 out,
-                "step\t{:08X}\t{}\t{trigger}\t{}\t{update}\t{}\t{gives}\t{}\t{requires}\t{takes}\t{to}\t{effects}\t{text}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{recipes}",
+                "step\t{:08X}\t{}\t{trigger}\t{}\t{update}\t{}\t{gives}\t{}\t{requires}\t{takes}\t{to}\t{effects}\t{text}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{recipes}\t{}",
                 s.quest,
                 s.needs,
                 s.tell.as_ref().map(Words::to_text).unwrap_or_default(),
@@ -669,6 +672,7 @@ impl QuestTable {
                     .map_or_else(String::new, Transformation::word),
                 s.chance.map_or_else(String::new, |c| c.to_string()),
                 u8::from(s.effects_quiet),
+                s.key,
             );
         }
         for g in &self.gives {
@@ -828,7 +832,7 @@ impl QuestTable {
                         _ => None,
                     },
                 }),
-                "step" if (9..=22).contains(&c.len()) => {
+                "step" if (9..=23).contains(&c.len()) => {
                     let (kind, tpl) = c[3]
                         .split_once(':')
                         .ok_or_else(|| at(format!("a trigger is kind:template, not {}", c[3])))?;
@@ -920,6 +924,7 @@ impl QuestTable {
                         _ => return Err(at(format!("an update {}", c[5]))),
                     };
                     t.steps.push(Step {
+                        key: col(22).to_string(),
                         quest: hex(c[1]).map_err(at)?,
                         needs: num(c[2]).map_err(at)?,
                         trigger,

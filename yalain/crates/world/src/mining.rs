@@ -890,6 +890,7 @@ pub fn quest_mine_done<S: Store>(
             yalain_content::quests::Update::Advance(phase + 1)
         };
         let step = yalain_content::quests::Step {
+            key: String::new(),
             quest: m.quest,
             needs: phase,
             trigger: yalain_content::quests::Trigger::Use(w.template),

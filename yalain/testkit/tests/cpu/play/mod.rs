@@ -90,6 +90,7 @@ mod storms;
 mod story;
 mod summoned_portals;
 mod talk;
+mod tallies;
 mod trade;
 mod trading;
 mod treasure_pools;

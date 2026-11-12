@@ -332,6 +332,7 @@ fn a_step_says_its_line_then_the_lines_heard_with_its_update_in_order() {
             cancel_wait: None,
         }],
         steps: vec![Step {
+            key: String::new(),
             quest: QUEST,
             needs: 0,
             trigger: Trigger::Use(TEMPLATE),

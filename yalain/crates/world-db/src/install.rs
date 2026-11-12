@@ -463,6 +463,14 @@ impl Install for DatInstall<'_> {
             _ => String::new(),
         }
     }
+
+    fn variables(&self, string: u32, table: u32) -> Option<Vec<u32>> {
+        self.local.as_ref()?;
+        Some(
+            self.entry(table, string, |e| e.variables.clone())
+                .unwrap_or_default(),
+        )
+    }
 }
 
 /// The calls a quest's setup makes to say how many times it may be done, and how a kill's move on

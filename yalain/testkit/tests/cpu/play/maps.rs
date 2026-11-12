@@ -427,6 +427,7 @@ fn a_map_found_at_its_place_moves_on_the_quest_it_is_part_of() {
         cancel_wait: None,
     });
     h.server.quests.steps.push(Step {
+        key: String::new(),
         quest,
         needs: 1,
         trigger: Trigger::Use(MAP),

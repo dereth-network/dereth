@@ -560,6 +560,7 @@ fn a_wrong_use_takes_the_quest_away_and_the_order_starts_over() {
 #[test]
 fn without_such_rows_a_use_runs_its_step_and_a_give_is_refused() {
     let step = Step {
+        key: String::new(),
         quest: SHORT,
         needs: 0,
         trigger: Trigger::Use(A),

@@ -48,6 +48,7 @@ fn object() -> ContentObject {
 
 fn step() -> Step {
     Step {
+        key: String::new(),
         quest: QUEST,
         needs: 1,
         trigger: Trigger::Use(TEMPLATE),

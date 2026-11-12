@@ -57,6 +57,9 @@ pub fn item(l: &Located) -> Option<Item> {
             name: r.name.clone(),
         },
         Row::Event(r) => Item::Event { key: r.key.clone() },
+        Row::Tally(r) => Item::Tally {
+            key: r.tally.key.clone(),
+        },
         Row::PointsBonus(r) => Item::PointsBonus { effect: r.effect },
         Row::EffectRule(r) => Item::EffectRule { effect: r.effect },
         Row::Popup(r) => Item::Popup {
@@ -193,6 +196,7 @@ fn value(row: &Row) -> String {
         Row::TreasurePool(x) => x.prov = crate::rows::Prov::default(),
         Row::EffectName(x) => x.prov = crate::rows::Prov::default(),
         Row::Event(x) => x.prov = crate::rows::Prov::default(),
+        Row::Tally(x) => x.prov = crate::rows::Prov::default(),
         Row::PointsBonus(x) => x.prov = crate::rows::Prov::default(),
         Row::Popup(x) => x.prov = crate::rows::Prov::default(),
         Row::EffectRule(x) => x.prov = crate::rows::Prov::default(),

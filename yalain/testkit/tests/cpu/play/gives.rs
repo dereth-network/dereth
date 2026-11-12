@@ -98,6 +98,7 @@ fn quest(id: u32, phases: u32) -> QuestDef {
 
 fn step(quest: u32, needs: u32, trigger: Trigger, update: Update) -> Step {
     Step {
+        key: String::new(),
         quest,
         needs,
         trigger,
@@ -1590,6 +1591,57 @@ fn a_give_moving_no_quest_keeps_the_item_says_its_lines_and_gives_its_items() {
         |m| matches!(m, ServerMessage::DoFx(e) if e.sender.id == PERSON && e.action.fx == TOKEN_FX),
     );
     assert!(played, "the person plays what the row says");
+}
+
+/// A give that moves no quest and adds to a tally adds as it takes each item, never past the tally's
+/// full; one that waits on the tally not yet full refuses the item once it is, handing it back.
+///
+/// Behaviour: server.tallies.steps-and-gives-fill-a-shared-count
+#[test]
+fn a_give_moving_no_quest_adds_to_a_tally_until_it_is_full() {
+    use yalain_content::tallies::{Adds, Gate, Holds, Reset, Tally, TallyTable};
+    let mut h = world();
+    let row = taking(Some(OFFERING));
+    h.server.quests.gives.push(row.clone());
+    h.server.content.tallies = TallyTable {
+        tallies: vec![Tally {
+            key: "supplies".into(),
+            full: 3,
+            starts: None,
+            resets: Reset::Never,
+            clears: Vec::new(),
+        }],
+        gives: vec![(
+            row.clone(),
+            Gate {
+                tally: "supplies".into(),
+                holds: Holds::NotFull,
+            },
+        )],
+        give_adds: vec![(
+            row,
+            Adds {
+                tally: "supplies".into(),
+                by: 2,
+            },
+        )],
+        ..TallyTable::default()
+    };
+    let (b, me) = player(&mut h, "one", "Elara");
+    let count = |h: &Harness| yalain_world::tallies::count(&h.server, "supplies");
+    let offering = hold(&mut h, me, OFFERING, 1);
+    give_ashes(&mut h, b, me, offering, 1);
+    assert!(!holds(&h, me, offering.0), "taken");
+    assert_eq!(count(&h), 2);
+    let offering = hold(&mut h, me, OFFERING, 1);
+    give_ashes(&mut h, b, me, offering, 1);
+    assert!(!holds(&h, me, offering.0), "taken");
+    assert_eq!(count(&h), 3, "never past full");
+    let offering = hold(&mut h, me, OFFERING, 1);
+    let (lines, _) = give_ashes(&mut h, b, me, offering, 1);
+    assert!(holds(&h, me, offering.0), "refused once it is full");
+    assert_eq!(lines, vec![PLAIN_REFUSAL]);
+    assert_eq!(count(&h), 3);
 }
 
 /// A give whose gift this world can't make takes nothing: the item goes back to its giver, whole.

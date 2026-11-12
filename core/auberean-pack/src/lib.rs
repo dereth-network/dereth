@@ -220,6 +220,8 @@ pub enum Item {
     EffectName { name: String },
     /// A scheduled event, by its key.
     Event { key: String },
+    /// A count the whole world keeps, by its key.
+    Tally { key: String },
     /// What an effect does to kingdom points, by the effect's saved state.
     PointsBonus { effect: u32 },
     /// The tip a player is shown once, by the moment it is shown at.
@@ -353,6 +355,7 @@ impl Item {
                 name: identifier(name)?,
             },
             ["event", key] => Self::Event { key: symbol(key)? },
+            ["tally", key] => Self::Tally { key: symbol(key)? },
             ["points_bonus", effect] => Self::PointsBonus {
                 effect: number(effect)?,
             },
@@ -489,6 +492,7 @@ impl fmt::Display for Item {
             Self::TreasurePool { name } => write!(f, "treasure_pool {name}"),
             Self::EffectName { name } => write!(f, "effect_name {name}"),
             Self::Event { key } => write!(f, "event {key}"),
+            Self::Tally { key } => write!(f, "tally {key}"),
             Self::PointsBonus { effect } => write!(f, "points_bonus {effect:#010x}"),
             Self::Popup { on } => write!(f, "popup {on}"),
             Self::EffectRule { effect } => write!(f, "effect_rule {effect:#010x}"),

@@ -45,6 +45,7 @@ pub mod spawns;
 pub mod stores;
 pub mod story;
 pub mod talk;
+pub mod tallies;
 pub mod treasure_effects;
 pub mod treasure_looks;
 pub mod treasure_tables;
@@ -725,6 +726,9 @@ pub struct ContentPack {
     /// The world's scheduled events and what they gate. Not part of the text form: the world
     /// database's events fill it.
     pub events: events::EventTable,
+    /// The world's tallies and what fills, waits on and says them. Not part of the text form: the
+    /// world database's tallies fill it.
+    pub tallies: tallies::TallyTable,
 }
 
 /// The kind of player conflict a place allows.
@@ -1094,6 +1098,7 @@ impl ContentPack {
             objects,
             conflict: BTreeMap::new(),
             events: events::EventTable::default(),
+            tallies: tallies::TallyTable::default(),
         })
     }
 

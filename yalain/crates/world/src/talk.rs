@@ -31,6 +31,9 @@
 //! it goes after a player, and one with dying lines one as it dies. A creature that marks the
 //! players coming within its perception says its line for each, aloud, naming that player.
 //!
+//! **Tallies.** A line that names tallies is said only while each is as it says, full or not yet
+//! full; a line that fills with one says its count ([`crate::tallies`]).
+//!
 //! **How.** A tell reaches the player, naming the speaker; a saying is heard by every client that
 //! knows the speaker; an emote is text in the player's chat window, which names the speaker
 //! itself; a broadcast reaches every player in the speaker's landblock and the eight around it
@@ -42,7 +45,7 @@ use auberean_protocol::script::{ClientCall, FunctionId, ObjectCall, ScriptArgs};
 use auberean_protocol::types::ObjectStamp;
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
-use auberean_script::native_object::TextInfo;
+use auberean_script::native_object::{TextInfo, Variable};
 use yalain_content::quests::Update;
 use yalain_content::talk::{How, Line, Role, TalkUpdate, When, Words};
 use yalain_net::{BlobKind, ConnId, ServerNet};
@@ -169,6 +172,27 @@ fn speaker_cell<S: Store>(s: &Server<S>, id: u64) -> Option<u32> {
         .map(|(_, o)| o.cell)
 }
 
+/// The lines a template's people say (and, for `object`, those of that one person) that may be
+/// said now, by the tallies they name, in the table's order.
+pub(crate) fn lines_of<S: Store>(
+    s: &Server<S>,
+    who: u32,
+    object: Option<usize>,
+) -> impl Iterator<Item = &Line> {
+    s.talk
+        .of(who, object)
+        .filter(move |l| crate::tallies::line_for(s, l))
+}
+
+/// Words as a player reads them, with the count a tally gives them, if any.
+fn counted(words: &Words, name: &str, count: Option<&Variable>) -> TextInfo {
+    let mut text = text_for(words, name);
+    if let Some(v) = count {
+        text.set_variable(v.clone());
+    }
+    text
+}
+
 /// A speaker says words to the player of `world`, as `how` says.
 pub fn say<S: Store>(
     s: &Server<S>,
@@ -178,13 +202,21 @@ pub fn say<S: Store>(
     words: &Words,
     how: How,
 ) {
+    let (words, count) = crate::tallies::said(s, words);
+    let (words, count) = (&words, count.as_ref());
     match how {
-        How::Tell => quests::tell(s, net, world, speaker.id, speaker.told_as(), words),
+        How::Tell => {
+            let Some(p) = s.players.get(&world) else {
+                return;
+            };
+            let text = counted(words, &crate::player::world_name(&p.name, p.sex), count);
+            quests::tell_text(net, world, speaker.id, speaker.told_as(), text);
+        }
         How::Emote => {
             let Some(p) = s.players.get(&world) else {
                 return;
             };
-            let text = text_for(words, &crate::player::world_name(&p.name, p.sex));
+            let text = counted(words, &crate::player::world_name(&p.name, p.sex), count);
             progress::private(net, world, &chat::show_text(EMOTE_TEXT, text));
         }
         How::Broadcast => {
@@ -192,9 +224,9 @@ pub fn say<S: Store>(
                 .players
                 .get(&world)
                 .map(|p| crate::player::world_name(&p.name, p.sex));
-            broadcast(s, net, speaker, words, named.as_deref());
+            broadcast(s, net, speaker, words, named.as_deref(), count);
         }
-        How::Say => aloud(s, net, world, speaker, words, None),
+        How::Say => aloud(s, net, world, speaker, words, None, count),
     }
 }
 
@@ -214,7 +246,8 @@ pub fn say_of<S: Store>(
     else {
         return;
     };
-    aloud(s, net, world, speaker, words, Some(&named));
+    let (words, count) = crate::tallies::said(s, words);
+    aloud(s, net, world, speaker, &words, Some(&named), count.as_ref());
 }
 
 /// A saying heard by every client that knows the speaker, and the player of `world`'s: naming
@@ -226,14 +259,15 @@ fn aloud<S: Store>(
     speaker: &Speaker,
     words: &Words,
     named: Option<&str>,
+    count: Option<&Variable>,
 ) {
     for (conn, p) in &s.players {
         if *conn != world && !p.known.contains_key(&speaker.id) {
             continue;
         }
         let text = match named {
-            Some(n) => text_for(words, n),
-            None => text_for(words, &crate::player::world_name(&p.name, p.sex)),
+            Some(n) => counted(words, n, count),
+            None => counted(words, &crate::player::world_name(&p.name, p.sex), count),
         };
         let Ok(args) = ScriptArgs::from_values(&[Arg::Int(0), chat::text_arg(text)]) else {
             continue;
@@ -258,14 +292,18 @@ fn broadcast<S: Store>(
     speaker: &Speaker,
     words: &Words,
     named: Option<&str>,
+    count: Option<&Variable>,
 ) {
     let Some(at) = speaker_cell(s, speaker.id) else {
         return;
     };
-    let text = match (words, named) {
+    let mut text = match (words, named) {
         (Words::Ref(string, table), None) => progress::text((*string, *table)),
         (_, name) => text_for(words, name.unwrap_or_default()),
     };
+    if let Some(v) = count {
+        text.set_variable(v.clone());
+    }
     let Ok(args) = ScriptArgs::from_values(&[Arg::Int(BROADCAST_KIND), chat::text_arg(text)])
     else {
         return;
@@ -313,9 +351,7 @@ pub fn with_update<S: Store>(
         return Vec::new();
     }
     let (up, phase) = update_of(update);
-    let mut lines: Vec<&Line> = s
-        .talk
-        .of(who, object)
+    let mut lines: Vec<&Line> = lines_of(s, who, object)
         .filter(|l| {
             l.quest == Some(quest)
                 && l.update == Some(up)
@@ -351,9 +387,7 @@ fn pick<S: Store>(s: &mut Server<S>, pool: &[Line]) -> Option<Line> {
 /// What a person who gives several quests says when it gave one too lately to give another: its
 /// too-soon line (2017: Stubby's "Come back later ..." 18 of 18, Lupe's 7 of 7).
 pub fn too_soon_line<S: Store>(s: &mut Server<S>, who: u32, object: Option<usize>) -> Option<Line> {
-    let pool: Vec<Line> = s
-        .talk
-        .of(who, object)
+    let pool: Vec<Line> = lines_of(s, who, object)
         .filter(|l| l.role == Some(Role::TooSoon))
         .cloned()
         .collect();
@@ -369,9 +403,7 @@ pub fn refusal_for<S: Store>(
     object: Option<usize>,
     quest: u32,
 ) -> Option<Line> {
-    let pool: Vec<Line> = s
-        .talk
-        .of(who, object)
+    let pool: Vec<Line> = lines_of(s, who, object)
         .filter(|l| {
             l.when == When::Use
                 && l.role == Some(Role::RefuseUse)
@@ -394,9 +426,7 @@ pub fn at_use<S: Store>(
     object: Option<usize>,
 ) -> Option<Line> {
     let held = s.players.get(&world).map(|p| p.play.quests.clone())?;
-    let lines: Vec<Line> = s
-        .talk
-        .of(who, object)
+    let lines: Vec<Line> = lines_of(s, who, object)
         .filter(|l| l.when == When::Use && l.update.is_none())
         .cloned()
         .collect();
@@ -432,9 +462,7 @@ pub fn at_give<S: Store>(
     object: Option<usize>,
     item: u32,
 ) -> Option<Line> {
-    let lines: Vec<Line> = s
-        .talk
-        .of(who, object)
+    let lines: Vec<Line> = lines_of(s, who, object)
         .filter(|l| {
             l.when == When::Give
                 && l.quest.is_none()
@@ -477,9 +505,7 @@ pub fn at_wrong_count<S: Store>(
     quest: u32,
     item: u32,
 ) -> Option<Line> {
-    let lines: Vec<Line> = s
-        .talk
-        .of(who, object)
+    let lines: Vec<Line> = lines_of(s, who, object)
         .filter(|l| {
             l.when == When::Give
                 && l.role == Some(Role::RefuseGive)
@@ -503,9 +529,7 @@ pub fn with_give<S: Store>(
     object: Option<usize>,
     item: u32,
 ) -> Vec<Line> {
-    let taking: Vec<Line> = s
-        .talk
-        .of(who, object)
+    let taking: Vec<Line> = lines_of(s, who, object)
         .filter(|l| {
             l.when == When::Give
                 && l.role == Some(Role::Accept)
@@ -536,9 +560,7 @@ pub fn at_give_as<S: Store>(
     role: Role,
     item: u32,
 ) -> Option<Line> {
-    let lines: Vec<Line> = s
-        .talk
-        .of(who, object)
+    let lines: Vec<Line> = lines_of(s, who, object)
         .filter(|l| l.when == When::Give && l.role == Some(role))
         .cloned()
         .collect();
@@ -587,9 +609,7 @@ fn say_one_of<S: Store>(
     else {
         return;
     };
-    let pool: Vec<Line> = s
-        .talk
-        .of(template, None)
+    let pool: Vec<Line> = lines_of(s, template, None)
         .filter(|l| l.when == when)
         .cloned()
         .collect();
@@ -643,9 +663,7 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
                 continue;
             }
             s.greeted.insert((*character, i), now);
-            let pool: Vec<Line> = s
-                .talk
-                .of(template, Some(i))
+            let pool: Vec<Line> = lines_of(s, template, Some(i))
                 .filter(|l| l.when == When::Near)
                 .cloned()
                 .collect();
@@ -663,9 +681,7 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
             rotation: o.rotation,
         };
         let template = o.template;
-        let pool: Vec<Line> = s
-            .talk
-            .of(template, Some(i))
+        let pool: Vec<Line> = lines_of(s, template, Some(i))
             .filter(|l| l.when == When::Idle)
             .cloned()
             .collect();
@@ -700,7 +716,8 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
         if let Some(line) = pick(s, &pool) {
             let speaker = content_speaker(s, i);
             if line.how == How::Broadcast {
-                broadcast(s, net, &speaker, &line.words, None);
+                let (words, count) = crate::tallies::said(s, &line.words);
+                broadcast(s, net, &speaker, &words, None, count.as_ref());
             } else {
                 say(s, net, world, &speaker, &line.words, line.how);
             }

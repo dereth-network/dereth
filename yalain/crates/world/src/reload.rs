@@ -154,6 +154,7 @@ pub mod table {
     pub const VEINS: &str = "veins";
     pub const CONFLICT: &str = "conflict areas";
     pub const EVENTS: &str = "scheduled events";
+    pub const TALLIES: &str = "tallies";
     pub const KINGDOMS: &str = "kingdom rows";
     pub const POPUPS: &str = "tips";
     pub const ITEMS: &str = "item rows";
@@ -250,6 +251,17 @@ impl<S: Store> Server<S> {
         if changed {
             crate::events::end_all(self, net);
             self.content.events = std::mem::take(&mut t.content.events);
+        }
+        // The tallies: each keeps its count by its key, and one the world no longer has is
+        // dropped.
+        let changed = t.content.tallies != self.content.tallies;
+        r.note(table::TALLIES, changed, true);
+        if changed {
+            self.content.tallies = std::mem::take(&mut t.content.tallies);
+            let tallies = &self.content.tallies;
+            self.tallies
+                .counts
+                .retain(|k, _| tallies.tally(k).is_some());
         }
         // The placed objects as the world holds them: with camps, the camps keep the creatures.
         if !t.spawns.camps.is_empty() {

@@ -42,7 +42,7 @@ world.lock                         ids given to authored rows, kept across build
 <pack>/server/worn.toml            [[worn]]
 <pack>/server/pools.toml           [[treasure_pool]]
 <pack>/server/effects.toml         [[effect_name]], [[effect_rule]]
-<pack>/server/events.toml          [[event]]
+<pack>/server/events.toml          [[event]], [[tally]]
 <pack>/server/values.toml          [[treasure_value]]
 <pack>/server/routes.toml          [[route]]
 <pack>/server/areas.toml           [[area]]
@@ -125,7 +125,7 @@ Every row sets one **item**, named by its key:
 | item | key |
 |---|---|
 | `object KEY@XXYY`, `camp KEY@XXYY`, `clearing KEY@XXYY` | the row's `key`, unique within its landblock in its pack |
-| `place KEY`, `talk KEY`, `give KEY`, `route KEY`, `event KEY`, `death_treasure KEY`, `object_states KEY`, `sequence KEY` | the row's `key` |
+| `place KEY`, `talk KEY`, `give KEY`, `route KEY`, `event KEY`, `tally KEY`, `death_treasure KEY`, `object_states KEY`, `sequence KEY` | the row's `key` |
 | `loot 0xVALUE` | the death-loot profile's value |
 | `keeper 0xTEMPLATE` | the storekeeper template |
 | `store KEY` | the shop's `key`, unique in the world |
@@ -322,6 +322,9 @@ rows whose moment and quest match, picking at random among several.
 | `quest`, `update`, `phase` | | the quest update the line comes with (`bestow`, `advance` and its phase, `complete`, `fail`); a `remind` line names its `quest` and no `update` |
 | `item` | | the item given, for a line said when one is |
 | `order` | | its place in a speech of several lines (0 first) |
+| `requires` | | tallies that must be as they say for it to be said: full or not yet full (`[{ tally = "key", full = true }]`), or a count at least and below so many (`{ tally = "key", at_least = 3, below = 4 }`, either or both) |
+| `fills` | | a tally's key: the line's one variable is the tally's count as a percent of its `full`, rounded down. Only with `line`, a string of the install's that takes one variable |
+| `full_line`, `full_line_text` | | with `fills`: what is said in the line's place once the tally is full |
 | `prov` | required | where it came from |
 
 #### `[[quest]]`
@@ -369,7 +372,8 @@ What moves a quest on, in its quest's file.
 | `effects`, `text`, `effects_last` | | the effects it puts on the player, by their saved states; a text shown after them; `effects_last = true` tells the quest's update before them |
 | `effects_quiet` | | true: its effects tell none of their own lines (a recipe or a skill they grant is granted in silence); its `text` is still told. Only with `effects` |
 | `recipes` | | recipes it teaches, by id: the install's, or the world's `[[recipe]]` rows'; learned after its update and its effects |
-| `requires` | | other quests it needs (`{ quest, phase }`, `{ quest, done = true }`, `{ quest, free = true }`, `{ quest, failed = true }`: failed, by a step or its time run out, and for a step of a quest under way given since that quest was, so a hidden timer given with the quest is waited on until it runs out), an event that must be on (`{ event = "key" }`), acts that must be whole (`{ act = A }`: seven of the act's scenes held, its hidden ones aside; a scene of the act must be served) and one kingdom (`{ kingdom = "order" }`: `neutral`, `shadow`, `order` or `dominion`) |
+| `requires` | | other quests it needs (`{ quest, phase }`, `{ quest, done = true }`, `{ quest, free = true }`, `{ quest, failed = true }`: failed, by a step or its time run out, and for a step of a quest under way given since that quest was, so a hidden timer given with the quest is waited on until it runs out), an event that must be on (`{ event = "key" }`), a tally that must be full or not yet full (`{ tally = "key", full = true }` or `full = false`) or whose count must be at least, and below, so many (`{ tally = "key", at_least = 3, below = 4 }`, either or both: `at_least` above 0 and at most the tally's `full`, `below` above `at_least`), acts that must be whole (`{ act = A }`: seven of the act's scenes held, its hidden ones aside; a scene of the act must be served) and one kingdom (`{ kingdom = "order" }`: `neutral`, `shadow`, `order` or `dominion`) |
+| `adds` | | `{ tally = "key", by = N }`: as it runs it adds N (above 0) to the tally, never past its `full`, before anything it says |
 | `takes` | | templates of items taken from the player's pack, which the player must hold |
 | `to` | | a place it takes the player to, through portal space; a recall the quest's definition names for the update then stays put. Without `to`, such a recall takes the player itself, the update told as the player comes out |
 | `races` | | the races it is for, by number: 1 human, 2 Lugian, 4 Tumerok, 8 Drudge, 16 Empyrean; every race when left out |
@@ -408,7 +412,8 @@ template given to.
 | `effects`, `text` | | what it puts on the player, cast by the person, and a text after them |
 | `effects_quiet` | | true: its effects tell none of their own lines; its `text` is still told. Only with `effects` |
 | `fx` | | what the person or the object plays as it takes the item |
-| `requires` | | as a step's; not met, the item is refused |
+| `requires` | | as a step's, its events and acts aside; not met, the item is refused |
+| `adds` | | as a step's: what taking the item adds to a tally |
 | `prov` | required | where it came from |
 
 #### `[[scene]]`
@@ -980,15 +985,30 @@ A tip a player is shown once, the first time a moment comes for its character. O
 
 #### `[[event]]`
 
-A named state of the world, on for its times. A camp's or an object's `event`, and a step's
-`requires = [{ event = "key" }]`, name one.
+A named state of the world, on for its times, and while a full tally starts it. A camp's or an
+object's `event`, and a step's `requires = [{ event = "key" }]`, name one.
 
 | field | | meaning |
 |---|---|---|
 | `key` | required | lowercase letters, digits and hyphens |
 | `game_event` | | a value of the install's game events it stands for |
-| `when` | | at least one window: `{ from, until }` dated (UTC times `YYYY-MM-DDTHH:MMZ`), or `{ days, from, until }` weekly (`days` from `mon` ... `sun`, times `HH:MM`, UTC) |
+| `when` | | at least one window: `{ from, until }` dated (UTC times `YYYY-MM-DDTHH:MMZ`), or `{ days, from, until }` weekly (`days` from `mon` ... `sun`, times `HH:MM`, UTC); left out, it is on only while a tally's `starts` names it, and one must |
 | `on_players` | | effects every player in the world holds while it is on |
+| `prov` | required | where it came from |
+
+#### `[[tally]]`
+
+A count the whole world keeps, the same for every player: steps and gives `adds` to it as they
+run, never past its `full`; steps, gives and lines may `require` it full or not yet full; and a
+line may say it (`fills`). The count, and when it filled, are kept across a restart.
+
+| field | | meaning |
+|---|---|---|
+| `key` | required | lowercase letters, digits and hyphens |
+| `full` | required | the count at which it is full, above 0 |
+| `starts` | | `{ event, after, lasts }`: as it fills, the `[[event]]` comes on `after` seconds later (0 when left out) for `lasts` seconds (above 0) |
+| `resets` | | when it goes back to 0: `{ event = "key" }`, as that event ends (also when it ended while the server was down); `{ every = S }`, every S seconds by the calendar, counted from 00:00 UTC on 1 January 1970 (86400: each day at 00:00 UTC); left out, never |
+| `clears` | | templates: as it resets, every object of them standing in the world that the world made while it ran (what effects placed, items left on the ground; no creature, nothing held) leaves it |
 | `prov` | required | where it came from |
 
 #### `[[item_use]]`

@@ -275,6 +275,7 @@ fn a_day_of_heals_and_crafts() -> Vec<ServerMessage> {
             cancel_wait: None,
         });
     let step = Step {
+        key: String::new(),
         quest,
         needs: 0,
         trigger: Trigger::Use(0x4700_31ED),
@@ -655,6 +656,7 @@ fn a_visit() -> Vec<ServerMessage> {
             cancel_wait: None,
         }],
         steps: vec![Step {
+            key: String::new(),
             quest: 0x4000_0088,
             needs: 0,
             trigger: Trigger::Use(0x4700_2DFD),

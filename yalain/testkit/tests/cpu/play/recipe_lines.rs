@@ -137,6 +137,7 @@ fn dip(text: Option<(u32, u32)>) -> Give {
 /// A step of the quest that puts this effect on, with this text after it.
 fn step(effect: u32, text: Option<(u32, u32)>) -> Step {
     Step {
+        key: String::new(),
         recipes: Vec::new(),
         quest: QUEST,
         needs: 0,

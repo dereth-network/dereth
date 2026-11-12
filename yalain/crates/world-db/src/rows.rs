@@ -520,10 +520,14 @@ pub struct Step {
     pub requires: Vec<(u32, Need)>,
     /// The `[[event]]`s it runs only while they run.
     pub events: Vec<String>,
+    /// The `[[tally]]`s it runs only while they are full, or not yet full.
+    pub tallies: Vec<yalain_content::tallies::Gate>,
     /// The kingdom it runs for alone (a player in none counting as of the neutral one).
     pub kingdom: Option<u32>,
     /// The acts it runs for only once they are whole (the scenes an act needs held).
     pub acts: Vec<u32>,
+    /// What it adds to a `[[tally]]` as it runs (boxed: few steps add).
+    pub adds: Option<Box<yalain_content::tallies::Adds>>,
     /// The items it takes from the player's pack, which the player must hold.
     pub takes: Vec<u32>,
     /// The place it takes the player to, its update made on arrival.
@@ -574,8 +578,12 @@ pub struct Give {
     pub fx: Option<u32>,
     /// The quests it requires.
     pub requires: Vec<(u32, Need)>,
+    /// The `[[tally]]`s it takes the item only while they are full, or not yet full.
+    pub tallies: Vec<yalain_content::tallies::Gate>,
     /// The kingdom it takes the item from alone (a player in none counting as of the neutral one).
     pub kingdom: Option<u32>,
+    /// What it adds to a `[[tally]]` as it takes the item.
+    pub adds: Option<yalain_content::tallies::Adds>,
     pub prov: Prov,
 }
 
@@ -599,6 +607,13 @@ pub struct Talk {
     pub phase: Option<u32>,
     pub item: Option<u32>,
     pub order: Option<u32>,
+    /// The `[[tally]]`s it is said only while they are full, or not yet full.
+    pub requires: Vec<yalain_content::tallies::Gate>,
+    /// The `[[tally]]` whose count, as a percent, is its one variable.
+    pub fills: Option<String>,
+    /// What is said in its place once that tally is full.
+    pub full_line: Option<StrRef>,
+    pub full_line_text: Option<String>,
     pub prov: Prov,
 }
 
@@ -650,6 +665,7 @@ pub enum Row {
     TreasurePool(TreasurePool),
     EffectName(EffectName),
     Event(Event),
+    Tally(Tally),
     PointsBonus(PointsBonus),
     Popup(Popup),
     EffectRule(EffectRule),
@@ -738,8 +754,17 @@ pub struct Event {
     pub key: String,
     /// The install's game event it stands for (a value of its game-event enumeration).
     pub game_event: Option<u32>,
+    /// Its windows; none for an event a `[[tally]]` alone starts.
     pub when: Vec<yalain_content::events::Window>,
     pub on_players: Vec<u32>,
+    pub prov: Prov,
+}
+
+/// `[[tally]]`: a count the whole world keeps, which steps and gives fill: when it is full, what
+/// it starts then, when it goes back to nothing, and what goes with it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Tally {
+    pub tally: yalain_content::tallies::Tally,
     pub prov: Prov,
 }
 
@@ -771,6 +796,7 @@ pub struct Popup {
 struct Requires {
     quests: Vec<(u32, Need)>,
     events: Vec<String>,
+    tallies: Vec<yalain_content::tallies::Gate>,
     kingdom: Option<u32>,
     acts: Vec<u32>,
 }
@@ -1201,6 +1227,7 @@ impl Row {
             Self::TreasurePool(_) => "treasure_pool",
             Self::EffectName(_) => "effect_name",
             Self::Event(_) => "event",
+            Self::Tally(_) => "tally",
             Self::PointsBonus(_) => "points_bonus",
             Self::Popup(_) => "popup",
             Self::EffectRule(_) => "effect_rule",
@@ -1265,6 +1292,7 @@ impl Row {
             Self::TreasurePool(r) => Some(&r.prov),
             Self::EffectName(r) => Some(&r.prov),
             Self::Event(r) => Some(&r.prov),
+            Self::Tally(r) => Some(&r.prov),
             Self::PointsBonus(r) => Some(&r.prov),
             Self::Popup(r) => Some(&r.prov),
             Self::EffectRule(r) => Some(&r.prov),
@@ -1301,7 +1329,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 58] = [
+pub const KINDS: [&str; 59] = [
     "object",
     "camp",
     "loot",
@@ -1330,6 +1358,7 @@ pub const KINDS: [&str; 58] = [
     "treasure_pool",
     "effect_name",
     "event",
+    "tally",
     "points_bonus",
     "popup",
     "effect_rule",
@@ -1363,7 +1392,7 @@ pub const KINDS: [&str; 58] = [
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 58] = [
+pub const FIELDS: [(&str, &[&str]); 59] = [
     (
         "object",
         &[
@@ -1527,6 +1556,7 @@ pub const FIELDS: [(&str, &[&str]); 58] = [
             "xp_share",
             "transforms",
             "chance",
+            "adds",
             "prov",
         ],
     ),
@@ -1544,6 +1574,7 @@ pub const FIELDS: [(&str, &[&str]); 58] = [
             "effects_quiet",
             "fx",
             "requires",
+            "adds",
             "prov",
         ],
     ),
@@ -1579,6 +1610,10 @@ pub const FIELDS: [(&str, &[&str]); 58] = [
             "phase",
             "item",
             "order",
+            "requires",
+            "fills",
+            "full_line",
+            "full_line_text",
             "prov",
         ],
     ),
@@ -1665,6 +1700,10 @@ pub const FIELDS: [(&str, &[&str]); 58] = [
     (
         "event",
         &["key", "game_event", "when", "on_players", "prov"],
+    ),
+    (
+        "tally",
+        &["key", "full", "starts", "resets", "clears", "prov"],
     ),
     ("points_bonus", &["effect", "add", "up_to", "prov"]),
     ("popup", &["on", "effect", "prov"]),
@@ -2412,6 +2451,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             let Requires {
                 quests: requires,
                 events,
+                tallies,
                 kingdom,
                 acts,
             } = f.requires_and_events("requires", true);
@@ -2432,8 +2472,10 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 recipes: f.ids("recipes"),
                 requires,
                 events,
+                tallies,
                 kingdom,
                 acts,
+                adds: f.adds().map(Box::new),
                 takes: f.ids("takes"),
                 to: f.symbol("to"),
                 races: f.ids("races"),
@@ -2455,6 +2497,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
         "give" => {
             let Requires {
                 quests: requires,
+                tallies,
                 kingdom,
                 ..
             } = f.requires_and_events("requires", false);
@@ -2470,7 +2513,9 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 effects_quiet: f.bool("effects_quiet").unwrap_or(false),
                 fx: f.id("fx"),
                 requires,
+                tallies,
                 kingdom,
+                adds: f.adds(),
                 prov: f.req_prov()?,
             })
         }
@@ -2514,6 +2559,10 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 phase: f.u32("phase"),
                 item: f.id("item"),
                 order: f.u32("order"),
+                requires: f.tally_gates("requires"),
+                fills: f.key("fills"),
+                full_line: f.strref("full_line"),
+                full_line_text: f.text("full_line_text"),
                 prov: f.req_prov()?,
             })
         }
@@ -2796,8 +2845,28 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 prov: f.req_prov()?,
             })
         }
+        "tally" => {
+            let key = f.req_symbol("key")?;
+            let full = f.req_u32("full")?;
+            let full = f.held("full", full, full > 0, "above 0")?;
+            let starts = f.tally_start()?;
+            let resets = f.tally_reset()?;
+            Row::Tally(Tally {
+                tally: yalain_content::tallies::Tally {
+                    key,
+                    full,
+                    starts,
+                    resets,
+                    clears: f.ids("clears"),
+                },
+                prov: f.req_prov()?,
+            })
+        }
         "event" => {
-            let when = f.windows("when")?;
+            let when = match f.get("when") {
+                Some(_) => f.windows("when")?,
+                None => Vec::new(),
+            };
             Row::Event(Event {
                 key: f.req_symbol("key")?,
                 game_event: f.id("game_event"),
@@ -4385,7 +4454,8 @@ impl<'a> Fields<'a> {
 
     /// A step's or a give's `requires`: other quests (`{ quest, phase }`, `{ quest, done = true }`,
     /// `{ quest, free = true }` or `{ quest, failed = true }`); `{ kingdom = "word" }`, the one kingdom it is for, a word of
-    /// [`yalain_content::kingdoms::kingdom::WORDS`]; and, for a step (`events`),
+    /// [`yalain_content::kingdoms::kingdom::WORDS`]; `{ tally = "key", full = true|false }`, a
+    /// `[[tally]]` that must be full or not yet full; and, for a step (`events`),
     /// `{ event = "key" }`, an `[[event]]` that must be on, and `{ act = A }`, an act that must be
     /// whole.
     fn requires_and_events(&mut self, name: &str, events: bool) -> Requires {
@@ -4393,21 +4463,28 @@ impl<'a> Fields<'a> {
         enum Req {
             Quest(u32, Need),
             Event(String),
+            Tally(Vec<yalain_content::tallies::Gate>),
             Kingdom(u32),
             Act(u32),
         }
         let (what, keys): (&str, &[&str]) = if events {
             (
-                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { quest, failed = true }, { event }, { act } or { kingdom } (neutral, shadow, order or dominion)",
-                &["quest", "phase", "done", "free", "failed", "event", "act", "kingdom"],
+                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { quest, failed = true }, { event }, { tally, full }, { tally, at_least, below }, { act } or { kingdom } (neutral, shadow, order or dominion)",
+                &["quest", "phase", "done", "free", "failed", "event", "tally", "full", "at_least", "below", "act", "kingdom"],
             )
         } else {
             (
-                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { quest, failed = true } or { kingdom } (neutral, shadow, order or dominion)",
-                &["quest", "phase", "done", "free", "failed", "kingdom"],
+                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { quest, failed = true }, { tally, full }, { tally, at_least, below } or { kingdom } (neutral, shadow, order or dominion)",
+                &["quest", "phase", "done", "free", "failed", "tally", "full", "at_least", "below", "kingdom"],
             )
         };
         let all = self.list_of(name, what, keys, |t| {
+            if t.contains_key("tally") {
+                return tally_gate(t).map(Req::Tally);
+            }
+            if t.contains_key("at_least") || t.contains_key("below") {
+                return None;
+            }
             if let Some(e) = t.get("event") {
                 return (t.len() == 1)
                     .then(|| e.as_str().filter(|s| is_symbol(s)).map(str::to_string))
@@ -4441,12 +4518,14 @@ impl<'a> Fields<'a> {
         });
         let mut quests = Vec::new();
         let mut named = Vec::new();
+        let mut tallies = Vec::new();
         let mut kingdoms = Vec::new();
         let mut acts = Vec::new();
         for r in all {
             match r {
                 Req::Quest(q, n) => quests.push((q, n)),
                 Req::Event(e) => named.push(e),
+                Req::Tally(g) => tallies.extend(g),
                 Req::Kingdom(k) => kingdoms.push(k),
                 Req::Act(a) => acts.push(a),
             }
@@ -4457,9 +4536,108 @@ impl<'a> Fields<'a> {
         Requires {
             quests,
             events: named,
+            tallies,
             kingdom: kingdoms.first().copied(),
             acts,
         }
+    }
+
+    /// A line's `requires`: `[[tally]]`s that must be full or not yet full, each
+    /// `{ tally = "key", full = true|false }`.
+    fn tally_gates(&mut self, name: &str) -> Vec<yalain_content::tallies::Gate> {
+        self.list_of(
+            name,
+            "a list of { tally, full } (true for while it is full, false for while it is not) or { tally, at_least, below } (its count at least, and below, so many; either or both)",
+            &["tally", "full", "at_least", "below"],
+            tally_gate,
+        )
+        .into_iter()
+        .flatten()
+        .collect()
+    }
+
+    /// A step's or a give's `adds`: `{ tally = "key", by = N }`, N above 0.
+    fn adds(&mut self) -> Option<yalain_content::tallies::Adds> {
+        let v = self.get("adds")?;
+        let read = v.as_table().and_then(|t| {
+            if t.keys().any(|k| !["tally", "by"].contains(&k.as_str())) {
+                return None;
+            }
+            let tally = t.get("tally")?.as_str().filter(|s| is_symbol(s))?;
+            let by = as_u32(t.get("by")?).filter(|n| *n > 0)?;
+            Some(yalain_content::tallies::Adds {
+                tally: tally.to_string(),
+                by,
+            })
+        });
+        if read.is_none() {
+            self.bad(
+                "adds",
+                "{ tally, by }: a tally's key, and how much it adds, above 0",
+            );
+        }
+        read
+    }
+
+    /// A `[[tally]]`'s `starts`: `{ event, after, lasts }`, the event it starts as it fills, the
+    /// seconds from its filling to the event (0 when left out), and how long the event lasts,
+    /// above 0.
+    fn tally_start(&mut self) -> Option<Option<yalain_content::tallies::Start>> {
+        let Some(v) = self.get("starts") else {
+            return Some(None);
+        };
+        let read = v.as_table().and_then(|t| {
+            if t.keys()
+                .any(|k| !["event", "after", "lasts"].contains(&k.as_str()))
+            {
+                return None;
+            }
+            let event = t.get("event")?.as_str().filter(|s| is_symbol(s))?;
+            let after = match t.get("after") {
+                Some(a) => as_u32(a)?,
+                None => 0,
+            };
+            let lasts = as_u32(t.get("lasts")?).filter(|n| *n > 0)?;
+            Some(yalain_content::tallies::Start {
+                event: event.to_string(),
+                after,
+                lasts,
+            })
+        });
+        if read.is_none() {
+            self.bad(
+                "starts",
+                "{ event, after, lasts }: an event's key, the seconds from the tally's filling to it (0 when left out), and how long it lasts in seconds, above 0",
+            );
+            return None;
+        }
+        Some(read)
+    }
+
+    /// A `[[tally]]`'s `resets`: `{ event = "key" }`, as that event ends, or `{ every = S }`, every
+    /// S seconds by the calendar (above 0); left out, never.
+    fn tally_reset(&mut self) -> Option<yalain_content::tallies::Reset> {
+        use yalain_content::tallies::Reset;
+        let Some(v) = self.get("resets") else {
+            return Some(Reset::Never);
+        };
+        let read = v
+            .as_table()
+            .and_then(|t| match (t.len(), t.get("event"), t.get("every")) {
+                (1, Some(e), None) => e
+                    .as_str()
+                    .filter(|s| is_symbol(s))
+                    .map(|e| Reset::Ends(e.to_string())),
+                (1, None, Some(n)) => as_u32(n).filter(|n| *n > 0).map(Reset::Every),
+                _ => None,
+            });
+        if read.is_none() {
+            self.bad(
+                "resets",
+                "{ event = \"key\" } (as that event ends) or { every = S } (every S seconds by the calendar, above 0)",
+            );
+        }
+        read
     }
 
     /// An `[[event]]`'s `when`: at least one window, each `{ from, until }` (UTC times,
@@ -5155,6 +5333,39 @@ fn pair_of(v: &toml::Value) -> Option<(f32, f32)> {
 
 fn as_u32(v: &toml::Value) -> Option<u32> {
     v.as_integer().and_then(|i| u32::try_from(i).ok())
+}
+
+/// `{ tally = "key", full = true|false }`: a tally that must be full, or not yet full; or
+/// `{ tally = "key", at_least = N, below = M }`, either or both: its count at least N (above 0),
+/// and below M (above N).
+fn tally_gate(t: &toml::Table) -> Option<Vec<yalain_content::tallies::Gate>> {
+    use yalain_content::tallies::{Gate, Holds};
+    let tally = t.get("tally")?.as_str().filter(|s| is_symbol(s))?;
+    let gate = |holds| Gate {
+        tally: tally.to_string(),
+        holds,
+    };
+    if let Some(full) = t.get("full") {
+        let full = full.as_bool()?;
+        return (t.len() == 2).then(|| vec![gate(if full { Holds::Full } else { Holds::NotFull })]);
+    }
+    let at_least = t.get("at_least").map(as_u32);
+    let below = t.get("below").map(as_u32);
+    let (at_least, below) = match (at_least, below) {
+        (Some(None), _) | (_, Some(None)) | (None, None) => return None,
+        (a, b) => (a.flatten(), b.flatten()),
+    };
+    if at_least == Some(0) || below.is_some_and(|b| b <= at_least.unwrap_or(0)) {
+        return None;
+    }
+    Some(
+        at_least
+            .map(Holds::AtLeast)
+            .into_iter()
+            .chain(below.map(Holds::Below))
+            .map(gate)
+            .collect(),
+    )
 }
 
 #[allow(clippy::cast_precision_loss)]

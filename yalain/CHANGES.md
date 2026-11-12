@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Worlds can now keep a shared count that players' errands fill.
 - Quests whose name the game files lack now show a readable name.
 - Worlds can now have items whose use opens a portal.
 - Worlds can now say what an effect that grants an item gives.

@@ -3464,6 +3464,7 @@ mod world_recipes {
         assert_eq!(execute(&mut h, b, THREE, &slots), error::BAD_RECIPE);
         assert_eq!(execute(&mut h, b, FUSE, &slots), error::BAD_RECIPE);
         let step = Step {
+            key: String::new(),
             quest: 0,
             needs: 0,
             trigger: Trigger::Use(0x4700_314D),

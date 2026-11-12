@@ -466,6 +466,7 @@ fn a_kills_step_runs_first_and_its_quest_is_not_moved_again_by_the_effect() {
     let template = kill(&mut h, me, &[]);
     assert_eq!(phase(&h, me), 1);
     h.server.quests.steps.push(Step {
+        key: String::new(),
         quest: QUEST,
         needs: 1,
         trigger: Trigger::Kill(template),
@@ -602,6 +603,7 @@ fn a_kill_or_a_step_gives_a_quest_only_with_the_quest_it_requires_at_its_status(
 /// A step that gives the quest.
 fn giving_step() -> Step {
     Step {
+        key: String::new(),
         quest: QUEST,
         needs: 0,
         trigger: Trigger::Use(0x4700_0001),
@@ -710,6 +712,7 @@ fn an_item_acquired_moves_the_quest_its_template_names() {
     assert_eq!(updates(&h, b, from), vec![(0, update::ADVANCE | 3)]);
     holds(&mut h, me, status::UNDERWAY, 1);
     h.server.quests.steps.push(Step {
+        key: String::new(),
         quest: QUEST,
         needs: 1,
         trigger: Trigger::Take(ITEM),
@@ -747,6 +750,7 @@ fn an_item_acquired_moves_the_quest_its_template_names() {
         ..quest(5)
     });
     h.server.quests.steps.push(Step {
+        key: String::new(),
         quest: OTHER,
         needs: 0,
         trigger: Trigger::Use(PERSON),
@@ -801,6 +805,7 @@ fn a_kills_step_that_leads_somewhere_sends_the_killer() {
         heading: 127,
     };
     let step = |needs: u32, to| Step {
+        key: String::new(),
         quest: QUEST,
         needs,
         trigger: Trigger::Kill(template),
@@ -861,6 +866,7 @@ fn land(h: &mut Harness) {
 /// A step of the test quest for a kill of this template, leading to this place.
 pub(super) fn leading_step(template: u32, needs: u32, to: yalain_content::quests::Place) -> Step {
     Step {
+        key: String::new(),
         quest: QUEST,
         needs,
         trigger: Trigger::Kill(template),
@@ -1064,6 +1070,7 @@ fn a_kills_step_sends_the_killer_to_a_free_room_of_its_row() {
     };
     h.server.quests.rooms = vec![vec![room(0), room(1), room(2)]];
     h.server.quests.steps = vec![Step {
+        key: String::new(),
         quest: QUEST,
         needs: 1,
         trigger: Trigger::Kill(template),
@@ -1257,6 +1264,7 @@ fn a_named_camps_creature_goes_by_its_name_and_only_its_kill_moves_the_camps_ste
         Some(template)
     );
     h.server.quests.steps.push(Step {
+        key: String::new(),
         quest: QUEST,
         needs: 1,
         trigger: Trigger::KillIn(template, 1),
@@ -1316,6 +1324,7 @@ const GEM: u32 = yalain_testkit::TEST_ITEM;
 /// by this chance.
 fn chance_step(template: u32, chance: f32) -> Step {
     Step {
+        key: String::new(),
         quest: QUEST,
         needs: 1,
         trigger: Trigger::Kill(template),
