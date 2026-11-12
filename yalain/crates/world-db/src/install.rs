@@ -644,8 +644,8 @@ fn read_setup(lib: &Library, start: usize, end: usize) -> Setup {
 /// says: a weapon's damage, variance, vigor and speed; its value; a garment's and a shield's armor
 /// and delay; its least level and race; the quest and its status that taking it asks; how long a
 /// creature's corpse lasts; whether it is bound to whoever holds it; the key it carries; whether
-/// its use destroys it.
-const CLASS_SETTERS: [(u32, &str); 19] = [
+/// its use destroys it; the generator profile a chest's contents come from.
+const CLASS_SETTERS: [(u32, &str); 20] = [
     (0x019E_000D, "Weapon_Damage"),
     (0x019E_000E, "Weapon_Variance"),
     (0x019E_001E, "Weapon_VigorCost"),
@@ -665,6 +665,7 @@ const CLASS_SETTERS: [(u32, &str); 19] = [
     (0x0172_005D, ATTUNABLE),
     (0x0172_008A, KEY_ID),
     (0x0172_0035, DESTROYED_ON_USE),
+    (0x0137_0013, "GeneratorProfile"),
 ];
 
 /// The key a key's or a glyph's class gives it.

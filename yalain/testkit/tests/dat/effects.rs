@@ -1949,6 +1949,21 @@ fn a_template_with_no_properties_has_what_its_class_says() {
     );
 }
 
+/// A chest whose template names nothing has the generator profile its class sets for its contents:
+/// the Frozen Ravine's tyrant chest and Eeruk's three treasury chests their own hoards, a tier chest
+/// its tier's.
+/// Behaviour: server.items.class-properties
+#[test]
+fn a_chest_with_no_properties_has_the_contents_its_class_says() {
+    let p = Portal::open();
+    let profile = |t: u32| p.template(t).props.word("GeneratorProfile");
+    assert_eq!(profile(0x4700_129F), Some(0x360), "the tyrant's chest");
+    assert_eq!(profile(0x4700_1463), Some(0x362), "Eeruk's, human");
+    assert_eq!(profile(0x4700_1464), Some(0x363), "Eeruk's, Lugian");
+    assert_eq!(profile(0x4700_1465), Some(0x364), "Eeruk's, Tumerok");
+    assert_eq!(profile(0x4700_0EDF), Some(858), "the first tier's");
+}
+
 /// A class's own value stands, though it be nothing and its base sets one; a class that sets none
 /// takes its base's.
 /// Behaviour: server.items.class-properties

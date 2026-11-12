@@ -6906,7 +6906,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.items.class-properties",
-        says: "A template that names nothing itself has what its class's code says: its value, armor, delay, weapon damage, speed, vigor, least level and race.",
+        says: "A template that names nothing itself has what its class's code says: its value, armor, delay, weapon damage, speed, vigor, least level and race, and a chest's contents.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-ITEM-CLASS-PROPERTIES"),
         station: "yalain-testkit::dat::effects::a_template_with_no_properties_has_what_its_class_says",
