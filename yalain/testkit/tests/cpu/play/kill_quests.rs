@@ -47,6 +47,8 @@ pub(super) fn quest(phases: u32) -> QuestDef {
         subquests: Vec::new(),
         min_level: 0,
         fails_on_death: false,
+        fails_on_logout: false,
+        fails_on_teleport: false,
         once: false,
         fellows: Fellows::default(),
         ranges: Vec::new(),
@@ -1374,7 +1376,8 @@ fn a_recall_on_a_kills_trip_leaves_it_and_its_step() {
         origin: [12.5, 34.5, 2.0],
         rotation: [1.0, 0.0, 0.0, 0.0],
     };
-    yalain_world::places::recall_trip(&mut h.server, &mut h.net, world, elsewhere, None);
+    let clock = h.clock();
+    yalain_world::places::recall_trip(&mut h.server, &mut h.net, world, elsewhere, None, clock);
     let p = &h.server.players[&world];
     assert_eq!(p.trip.as_ref().map(|t| t.to.cell), Some(ARENA.cell));
     assert!(

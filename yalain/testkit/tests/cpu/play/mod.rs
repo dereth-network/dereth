@@ -73,6 +73,7 @@ mod player_fights;
 mod popups;
 mod portal_doors;
 mod puzzles;
+mod quest_fail_flags;
 mod quest_uses;
 mod quests;
 mod ratings;

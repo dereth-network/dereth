@@ -348,7 +348,9 @@ it on to, is missing) is said in the words of the quest's name in the install's 
 | `cancellable` | | whether its player may cancel it |
 | `visible` | † | false: kept for its player but never shown |
 | `min_level` | | the least level a player is given it at |
-| `fails_on_death` | | true: it fails when its player dies |
+| `fails_on_death` | | true: it fails when its player dies; false: not; left out, as its setup says |
+| `fails_on_logout` | | true: it fails when its player leaves the world (logs off, or its client goes away); left out, as its setup says |
+| `fails_on_teleport` | | true: it fails when its player goes through portal space (a portal, a door, a recall, a shard, any sending but a dead player's return); left out, as its setup says |
 | `once` | | true: given only once; false: given again; left out, as its setup says |
 | `fellows` | | true: a kill's move on it reaches the killer's fellows; false: only the killer |
 | `companion_of` | | a quest whose holder this one goes with, below; another quest with a row |

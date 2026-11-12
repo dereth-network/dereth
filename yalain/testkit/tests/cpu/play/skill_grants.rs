@@ -96,6 +96,8 @@ fn hidden_quest() -> QuestDef {
         subquests: Vec::new(),
         min_level: 0,
         fails_on_death: false,
+        fails_on_logout: false,
+        fails_on_teleport: false,
         once: true,
         fellows: yalain_content::quests::Fellows::default(),
         ranges: Vec::new(),

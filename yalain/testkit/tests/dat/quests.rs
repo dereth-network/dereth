@@ -1,5 +1,5 @@
 //! Quests' definitions as the server's world compile reads them from the September 2013 data: the
-//! phases done by other quests.
+//! phases done by other quests, and what fails a quest.
 
 use yalain_content::quests::{CompletionPay, Subquests};
 use yalain_testkit::authored::Portal;
@@ -426,4 +426,50 @@ fn the_craft_gateways_quests_pay_their_craft_experience_at_their_records_spellcr
         let at = points.at(spellcraft).expect("an amount").floor();
         assert!((at - pays).abs() < f32::EPSILON, "{quest:08X}: {at}");
     }
+}
+
+/// What fails a quest is its setup's: the totem's emerald fails on its player's death, leaving the
+/// world and portal space alike; the Mist Opal's on death alone; the totem's protecting companion
+/// on none, nor a quest whose setup says nothing; and of the install's quests, five fail on death,
+/// two on leaving and two on portal space.
+/// Behaviour: server.quests.fails-as-its-setup-says
+#[test]
+fn a_quests_setup_says_what_fails_it() {
+    let p = Portal::open();
+    let states = p
+        .dat
+        .entries_in(0x6F00_0000, 0x6FFF_FFFF)
+        .map(|e| e.id)
+        .collect();
+    let lib = p.library();
+    let install = DatInstall::new(
+        Box::new(|id| p.dat.read(id).ok()),
+        p.ctx.clone(),
+        &lib,
+        states,
+    )
+    .expect("install");
+    let fails = |q: u32| {
+        install
+            .quest_definition(None, q)
+            .map(|d| (d.fails.death, d.fails.logout, d.fails.teleport))
+    };
+    assert_eq!(fails(0x4000_005C), Some((true, true, true)), "the emerald");
+    assert_eq!(fails(0x4000_01FA), Some((true, true, true)), "the sword");
+    assert_eq!(fails(0x4000_005B), Some((true, false, false)), "the opal");
+    assert_eq!(
+        fails(0x4000_005D),
+        Some((false, false, false)),
+        "a companion"
+    );
+    assert_eq!(fails(0x8000_00B7), Some((false, false, false)), "no setup");
+    let (mut death, mut logout, mut teleport) = (0, 0, 0);
+    for q in (0x4000_0000..0x4000_0800).chain(0x8000_0000..0x8000_0400) {
+        if let Some((d, l, t)) = fails(q) {
+            death += usize::from(d);
+            logout += usize::from(l);
+            teleport += usize::from(t);
+        }
+    }
+    assert_eq!((death, logout, teleport), (5, 2, 2));
 }

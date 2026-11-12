@@ -1816,6 +1816,7 @@ pub(crate) fn through_portal<S: Store>(
             updates: Vec::new(),
         });
     }
+    crate::quests::teleported(s, net, world, clock);
     s.after(
         clock,
         IN_PORTAL_SPACE,
@@ -1952,6 +1953,7 @@ fn through_door<S: Store>(
         said: None,
         updates: Vec::new(),
     });
+    crate::quests::teleported(s, net, world, clock);
     s.after(
         clock,
         IN_PORTAL_SPACE,
@@ -2205,6 +2207,7 @@ pub fn recall_trip<S: Store>(
     world: ConnId,
     to: StoredPosition,
     said: Option<TextInfo>,
+    clock: Clock,
 ) {
     if on_a_trip(s, world) {
         return;
@@ -2221,6 +2224,7 @@ pub fn recall_trip<S: Store>(
             updates: Vec::new(),
         });
     }
+    crate::quests::teleported(s, net, world, clock);
 }
 
 /// A recall comes out of portal space where it lands.
@@ -2258,6 +2262,7 @@ pub fn sent_away<S: Store>(
             updates: Vec::new(),
         });
     }
+    crate::quests::teleported(s, net, world, clock);
     s.after(
         clock,
         IN_PORTAL_SPACE,
@@ -2294,6 +2299,7 @@ pub fn item_trip<S: Store>(
             updates: Vec::new(),
         });
     }
+    crate::quests::teleported(s, net, world, clock);
     s.after(
         clock,
         IN_PORTAL_SPACE,
@@ -2425,6 +2431,7 @@ pub fn step<S: Store>(
                 &crate::chat::show_text(8, teleporting),
             );
             enter_portal_space(s, net, world, true);
+            crate::quests::teleported(s, net, world, clock);
             s.after(
                 clock,
                 IN_PORTAL_SPACE,
@@ -2450,6 +2457,7 @@ pub fn step<S: Store>(
                 return;
             }
             flash_and_go(s, net, world, by);
+            crate::quests::teleported(s, net, world, clock);
             s.after(
                 clock,
                 IN_PORTAL_SPACE,

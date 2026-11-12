@@ -451,7 +451,8 @@ fn a_hated_only_turret_takes_on_the_marked_past_a_nearer_striker_and_never_turns
         rotation: [1.0, 0.0, 0.0, 0.0],
     };
     let world = world_of(&h, marked);
-    yalain_world::places::recall_trip(&mut h.server, &mut h.net, world, elsewhere, None);
+    let clock = h.clock();
+    yalain_world::places::recall_trip(&mut h.server, &mut h.net, world, elsewhere, None, clock);
     for _ in 0..300 {
         h.step();
         assert_ne!(target_of(&h, turret_id), Some(striker), "never the striker");
@@ -486,7 +487,8 @@ fn a_teleport_takes_the_mark_off_and_the_turret_gives_up() {
         rotation: [1.0, 0.0, 0.0, 0.0],
     };
     let leaving = h.bots[b].inbox.len();
-    yalain_world::places::recall_trip(&mut h.server, &mut h.net, world_id, elsewhere, None);
+    let clock = h.clock();
+    yalain_world::places::recall_trip(&mut h.server, &mut h.net, world_id, elsewhere, None, clock);
     assert!(marks_on(&h, me).is_empty(), "gone as it goes");
     h.run(5);
     assert_eq!(removed(&h, b, leaving), 1, "told gone");

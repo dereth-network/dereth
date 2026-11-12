@@ -21,7 +21,7 @@ use yalain_content::stores::SaleGate;
 use yalain_content::talk::Words;
 use yalain_content::{FactIds, Prop, Props, FACT_NAMES};
 
-use crate::compile::{Install, InstallSale, QuestDefinition};
+use crate::compile::{FailsOn, Install, InstallSale, QuestDefinition};
 
 /// The generator-profile names' enumeration (loot profiles among them).
 pub const PROFILE_NAMES: u32 = 0x2300_0100;
@@ -447,6 +447,7 @@ impl Install for DatInstall<'_> {
             min_level: setup.min_level,
             hero_only: setup.hero_only,
             monarch_only: setup.monarch_only,
+            fails: setup.fails,
             xp: setup.xp,
             pay: setup.pay,
             // The status to be in; one naming no status is to be completed, as an item's is.
@@ -493,6 +494,12 @@ const SET_REQUIRED_NAMED: u32 = 0x01A7_0091;
 const SET_REQUIRED_STATUS: u32 = 0x01A7_001B;
 const SET_MONARCH_ONLY: u32 = 0x01A7_0057;
 
+/// The calls a quest's setup makes to say what fails it: its player's death, its leaving the world,
+/// its being taken through portal space.
+const SET_FAILS_ON_DEATH: u32 = 0x01A7_0011;
+const SET_FAILS_ON_LOGOUT: u32 = 0x01A7_004A;
+const SET_FAILS_ON_TELEPORT: u32 = 0x01A7_0068;
+
 /// The calls a quest's setup makes to say what its completion pays: an amount, or a share of what
 /// the player's level takes to reach the next, with what limits that, and whether the amount is
 /// paid whole whatever the quest's challenge; and what it adds to the player's quest rating.
@@ -520,6 +527,9 @@ struct Setup {
     hero_only: bool,
     /// For the monarch of an allegiance alone.
     monarch_only: bool,
+    /// What fails it: its player's death, its leaving the world, its being taken through portal
+    /// space; a setup that says nothing of one is not failed by it.
+    fails: FailsOn,
     /// What its completion pays: an amount, or how a share works out.
     xp: u64,
     pay: yalain_content::quests::CompletionPay,
@@ -607,6 +617,9 @@ fn read_setup(lib: &Library, start: usize, end: usize) -> Setup {
                         out.required_status = literal.and_then(|v| u32::try_from(v).ok());
                     }
                     SET_MONARCH_ONLY => out.monarch_only = literal == Some(1),
+                    SET_FAILS_ON_DEATH => out.fails.death = literal == Some(1),
+                    SET_FAILS_ON_LOGOUT => out.fails.logout = literal == Some(1),
+                    SET_FAILS_ON_TELEPORT => out.fails.teleport = literal == Some(1),
                     SET_XP => out.xp = amount(literal),
                     SET_XP_SHARE => out.pay.share = float.unwrap_or(0.0),
                     SET_XP_LEAST => out.pay.least = amount(literal),

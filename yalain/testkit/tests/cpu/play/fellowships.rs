@@ -1001,6 +1001,8 @@ fn a_kill_by_a_player_the_creature_could_not_reach_pays_no_one_and_moves_no_ques
             subquests: Vec::new(),
             min_level: 0,
             fails_on_death: false,
+            fails_on_logout: false,
+            fails_on_teleport: false,
             once: false,
             fellows: yalain_content::quests::Fellows::default(),
             ranges: Vec::new(),

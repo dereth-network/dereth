@@ -18,7 +18,9 @@
 //!   move on it reaches the killer's fellows (added up: 1 it does, 2 only those near the killer's
 //!   level, 4 only those near the killer), the range each phase is counted in from the first
 //!   (joined by `,`; empty: every phase's is 1), the one phase its duration runs in (0 or left out:
-//!   all of them), and the wait after a cancel in seconds (empty: the rule's);
+//!   all of them), the wait after a cancel in seconds (empty: the rule's), whether it fails when its
+//!   player leaves the world (0/1) and whether it fails when its player is taken through portal
+//!   space (0/1);
 //! - `step`: quest, the phase it needs (0: the quest not under way), the trigger (`use:TEMPLATE`,
 //!   `useon:ITEM:TARGET`, `give:ITEM:TARGET`, `arrive:TEMPLATE`, `take:TEMPLATE`, `kill:TEMPLATE`, `done:QUEST`, `given:QUEST`), the giver's line
 //!   (`string:table`, `=` and literal text, or empty), the update (`bestow`, `advance:N`, `complete`), experience, items
@@ -77,6 +79,11 @@ pub struct QuestDef {
     pub min_level: i32,
     /// Whether it fails when its player dies.
     pub fails_on_death: bool,
+    /// Whether it fails when its player leaves the world (logs off, its client goes away).
+    pub fails_on_logout: bool,
+    /// Whether it fails when its player is taken through portal space (a portal, a recall, a
+    /// door, a shard, a trip a use or an effect sends it on).
+    pub fails_on_teleport: bool,
     /// Whether it is given only once: done, it is never given again (else it is given again once
     /// its wait is over, at once when it has none). The install's setup of the quest says so; a
     /// world's row may say otherwise.
@@ -587,7 +594,7 @@ impl QuestTable {
                 .join(",");
             let _ = writeln!(
                 out,
-                "quest\t{:08X}\t{}\t{}\t{:08X}\t{}\t{j}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{effects}\t{subs}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                "quest\t{:08X}\t{}\t{}\t{:08X}\t{}\t{j}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{effects}\t{subs}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 q.id,
                 q.name.to_text(),
                 r(q.description),
@@ -615,6 +622,8 @@ impl QuestTable {
                 q.pay.word(),
                 q.timed_phase,
                 q.cancel_wait.map_or_else(String::new, |w| w.to_string()),
+                u8::from(q.fails_on_logout),
+                u8::from(q.fails_on_teleport),
             );
         }
         for s in &self.steps {
@@ -798,7 +807,7 @@ impl QuestTable {
                         .map_err(at)?;
                     t.rooms.push(row);
                 }
-                "quest" if (13..=26).contains(&c.len()) => t.quests.push(QuestDef {
+                "quest" if (13..=28).contains(&c.len()) => t.quests.push(QuestDef {
                     id: hex(c[1]).map_err(at)?,
                     name: Words::from_text(c[2]).map_err(at)?,
                     description: pair(c[3]).map_err(at)?,
@@ -840,6 +849,8 @@ impl QuestTable {
                         _ => 0,
                     },
                     fails_on_death: c.get(17) == Some(&"1"),
+                    fails_on_logout: c.get(26) == Some(&"1"),
+                    fails_on_teleport: c.get(27) == Some(&"1"),
                     once: c.get(18) == Some(&"1"),
                     fellows: match c.get(19) {
                         Some(v) if !v.is_empty() => Fellows::of_word(num(v).map_err(at)?),

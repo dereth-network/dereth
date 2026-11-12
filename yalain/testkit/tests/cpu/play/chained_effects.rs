@@ -181,6 +181,8 @@ fn only_the_chains_items_quests_and_recipes_lead_to_put_anything_on() {
             subquests: Vec::new(),
             min_level: 0,
             fails_on_death: false,
+            fails_on_logout: false,
+            fails_on_teleport: false,
             once: false,
             fellows: yalain_content::quests::Fellows::default(),
             ranges: Vec::new(),

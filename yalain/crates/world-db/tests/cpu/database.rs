@@ -14,7 +14,7 @@ use yalain_content::quests::{Need, Trigger, Update};
 use yalain_content::talk::{How, Role, TalkUpdate, When};
 use yalain_content::{FactIds, Kind, Words};
 use yalain_world_db::check::{check, check_read};
-use yalain_world_db::compile::{compile, Install, InstallSale, QuestDefinition};
+use yalain_world_db::compile::{compile, FailsOn, Install, InstallSale, QuestDefinition};
 use yalain_world_db::merge::merge;
 use yalain_world_db::release::{self, Host};
 use yalain_world_db::rows::{read, Row};
@@ -110,6 +110,8 @@ struct Fake {
     min_level: i32,
     setup_xp: u64,
     setup_pay: yalain_content::quests::CompletionPay,
+    /// What the quest's setup says fails it.
+    fails: FailsOn,
 }
 
 impl Fake {
@@ -187,6 +189,7 @@ impl Fake {
             min_level: 0,
             setup_xp: 0,
             setup_pay: yalain_content::quests::CompletionPay::default(),
+            fails: FailsOn::default(),
         }
     }
 }
@@ -260,6 +263,7 @@ impl Install for Fake {
             min_level: self.min_level,
             hero_only: false,
             monarch_only: false,
+            fails: self.fails,
             xp: self.setup_xp,
             pay: self.setup_pay,
             required: None,
@@ -2503,6 +2507,65 @@ fn a_quests_least_level_is_its_setups_unless_its_row_names_one() {
     );
     let t = compile(&merge(&read(&files).unwrap()).unwrap(), &install).unwrap();
     assert_eq!(t.quests.quests[0].min_level, 3);
+}
+
+/// What fails a quest (its player's death, leaving the world, a trip through portal space) is its
+/// setup's, each unless its row says; and it survives the tables' text.
+/// Behaviour: server.quests.fails-as-its-setup-says
+#[test]
+fn what_fails_a_quest_is_its_setups_unless_its_row_says() {
+    use yalain_content::quests::QuestTable;
+    let install = Fake {
+        fails: FailsOn {
+            death: true,
+            logout: true,
+            teleport: true,
+        },
+        ..Fake::new()
+    };
+    let fails = |install: &Fake, extra: &str| {
+        let mut files = fixture();
+        edit(
+            &mut files,
+            "town/server/quests/40000088.toml",
+            "duration = 72000",
+            &format!(
+                "duration = 72000
+{extra}"
+            ),
+        );
+        let t = compile(&merge(&read(&files).unwrap()).unwrap(), install).unwrap();
+        let back = QuestTable::from_text(&t.quests.to_text()).expect("reads");
+        let q = &back.quests[0];
+        (q.fails_on_death, q.fails_on_logout, q.fails_on_teleport)
+    };
+    assert_eq!(
+        fails(&install, ""),
+        (true, true, true),
+        "left out: the setup's"
+    );
+    assert_eq!(
+        fails(&install, "fails_on_teleport = false"),
+        (true, true, false),
+        "the row's"
+    );
+    assert_eq!(
+        fails(
+            &install,
+            "fails_on_death = false
+fails_on_logout = false"
+        ),
+        (false, false, true)
+    );
+    assert_eq!(
+        fails(&Fake::new(), ""),
+        (false, false, false),
+        "a setup that says none"
+    );
+    assert_eq!(
+        fails(&Fake::new(), "fails_on_logout = true"),
+        (false, true, false)
+    );
 }
 
 /// What a quest adds to a quest rating is its setup's, unless its row says, whatever else the row

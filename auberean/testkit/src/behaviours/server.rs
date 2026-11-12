@@ -13416,12 +13416,43 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.fails-as-its-setup-says",
+        says: "Whether a quest fails when its player dies, leaves the world or goes through portal \
+               space is read from its setup in the data, each unless its row says otherwise; a \
+               setup that does not say is not failed by it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-FAIL-FLAGS"),
+        station: "yalain-testkit::dat::quests::a_quests_setup_says_what_fails_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.quests.fails-on-death",
         says: "A quest that fails when its player dies fails as the player dies, told before the \
                death's message.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-FAILS-ON-DEATH"),
         station: "yalain-testkit::cpu::play::quest_uses::a_quest_that_fails_on_death_fails_as_its_player_dies",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.fails-on-leaving",
+        says: "A quest that fails when its player leaves the world fails as the character goes \
+               out of it, logged off or its client gone, its fellows' companions of it with it; one \
+               still under way as the character next enters fails as of when it was last kept.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-FAILS-ON-LEAVING"),
+        station: "yalain-testkit::cpu::play::quest_fail_flags::a_quest_that_fails_on_leaving_fails_as_its_player_logs_off",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.fails-on-portal-space",
+        says: "A quest that fails when its player goes through portal space fails once the player is \
+               told it is in portal space, on any trip (a portal, a door, a recall, a shard, a step's, \
+               an item's or an effect's sending) but a dead player's return, its companions with it; \
+               other quests under way are kept.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-FAILS-AT-PORTALS"),
+        station: "yalain-testkit::cpu::play::quest_fail_flags::a_quest_that_fails_on_portal_space_fails_as_its_player_goes_through_a_portal",
         tier: Tier::Cpu,
     },
     behaviour! {

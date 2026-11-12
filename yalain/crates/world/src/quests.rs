@@ -37,6 +37,21 @@
 //! the time played where all of it was recorded; 1,651 waits to be taken again fell by the time
 //! that passed, of which 1,583 had a character away a minute or more.
 //!
+//! **Death, leaving and portals.** A quest may fail when its player dies, when its player leaves
+//! the world, or when its player is taken through portal space; the quest's setup in the install
+//! says which, and a world's row may say otherwise. A death fails it in the death's tick, before
+//! the death's message (2017: the Mist Opal's, 2 of 2). Leaving fails it as a logging off goes into
+//! its last portal space, with the effects that end at logout, or as a character whose client went
+//! away goes out of the world; one the server never saw leave (it stopped) fails as the character
+//! next enters, as of when it was last kept. Any trip through portal space
+//! fails it once the player is in portal space: a portal, a door, a recall, a shard, a step's or an
+//! item's or an effect's sending, an operator's; not the return of a dead player, which its death
+//! has already settled (2017: a totem's quest and its companion failed in the tick the player went
+//! into portal space at a town's portal, after its portal space's call and effect; of 1,981 times
+//! some other quest was under way as its player went into portal space, 205 quests, none failed
+//! then). Of the install's 584 setups, 5 fail their quest on its player's death, 2 on leaving the
+//! world and 2 on portal space.
+//!
 //! **A fellowship's step.** A step may make its update for the player's fellows too: each fellow
 //! in the world for whom it may run is given the same update, told it alone.
 //!
@@ -56,8 +71,7 @@
 //!
 //! **Waits, levels and deaths.** A quest that failed or was cancelled is given again only once its
 //! wait is over, as a done one is; one with a least level is given only to a player of that level,
-//! the person saying why when it is not; one that fails when its player dies fails as the player
-//! dies.
+//! the person saying why when it is not.
 //!
 //! **Kills.** A creature's template names the effects its death has, and a quest effect moves its
 //! quest for the killer (the one credited with the kill) and, where the quest says so, for the
@@ -2238,18 +2252,60 @@ fn subquest_moved<S: Store>(
 /// A player dies: its quests under way that fail when their player dies fail (2017: the Mist
 /// Opal's, 2 of 2, in the death's tick before the death's message).
 pub fn died<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
-    let failing: Vec<u32> = s.players.get(&world).map_or_else(Vec::new, |p| {
+    for q in under_way_failing(s, world, |d| d.fails_on_death) {
+        fail(s, net, world, q, clock);
+    }
+}
+
+/// A player is in portal space on its way somewhere (not back from its death): its quests under way
+/// that fail when their player is taken through portal space fail. Called once the trip is the
+/// player's, so an effect of a failure that would send it somewhere leaves it to the trip it is on.
+pub fn teleported<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
+    for q in under_way_failing(s, world, |d| d.fails_on_teleport) {
+        fail(s, net, world, q, clock);
+    }
+}
+
+/// A character is leaving the world (its logging off at its end, or going out of the world): its
+/// quests under way that fail when their player leaves fail, while its fellowship still holds it.
+pub fn leaves_world<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
+    for q in under_way_failing(s, world, |d| d.fails_on_logout) {
+        fail(s, net, world, q, clock);
+    }
+}
+
+/// The quests under way that fail when their player leaves the world, still under way as the
+/// character enters (the server stopped before it saw the character leave), fail as of `left_unix`,
+/// when it was last kept.
+pub fn failed_on_leaving(
+    table: &yalain_content::QuestTable,
+    held: &mut [QuestState],
+    left_unix: i64,
+) {
+    for st in held.iter_mut().filter(|q| q.status == status::UNDERWAY) {
+        if table.quest(st.quest).is_some_and(|d| d.fails_on_logout) {
+            st.status = status::FAILED;
+            st.phase = 0;
+            st.updated = left_unix;
+        }
+    }
+}
+
+/// The quests a player holds under way whose definitions `fails` says fail now.
+fn under_way_failing<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    fails: impl Fn(&QuestDef) -> bool,
+) -> Vec<u32> {
+    s.players.get(&world).map_or_else(Vec::new, |p| {
         p.play
             .quests
             .iter()
             .filter(|q| q.status == status::UNDERWAY)
-            .filter(|q| s.quests.quest(q.quest).is_some_and(|d| d.fails_on_death))
+            .filter(|q| s.quests.quest(q.quest).is_some_and(&fails))
             .map(|q| q.quest)
             .collect()
-    });
-    for q in failing {
-        fail(s, net, world, q, clock);
-    }
+    })
 }
 
 /// Put on a player the effects a quest's definition names for an update of this kind, cast by the

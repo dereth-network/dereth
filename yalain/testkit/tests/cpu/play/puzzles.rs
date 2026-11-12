@@ -94,6 +94,8 @@ fn quest(id: u32, phases: u32) -> QuestDef {
         subquests: Vec::new(),
         min_level: 0,
         fails_on_death: false,
+        fails_on_logout: false,
+        fails_on_teleport: false,
         once: true,
         fellows: yalain_content::quests::Fellows::default(),
         ranges: Vec::new(),

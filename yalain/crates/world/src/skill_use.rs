@@ -772,7 +772,7 @@ pub fn effect_recall<S: Store>(
     };
     let told = !matches!(recall, Recall::Named { told: false, .. });
     let said = told.then(|| progress::text((text::RECALLED, table)));
-    crate::places::recall_trip(s, net, world, to, said);
+    crate::places::recall_trip(s, net, world, to, said, clock);
     s.after(
         clock,
         RECALL_IN_PORTAL,
@@ -2829,7 +2829,7 @@ fn recall_portal<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
     };
     let told = !matches!(recall, Recall::Named { told: false, .. });
     let said = told.then(|| progress::text((text::RECALLED, table)));
-    crate::places::recall_trip(s, net, world, to, said);
+    crate::places::recall_trip(s, net, world, to, said, clock);
     s.after(
         clock,
         RECALL_IN_PORTAL,

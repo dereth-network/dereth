@@ -706,10 +706,12 @@ pub fn enter<S: Store>(
     // gone before its session starts.
     crate::effects::prune(&mut p.play, &s.effect_table, game_now);
     crate::effects::bound_kept(&mut p.play, p.character);
-    // So have the quests with no time left when it left; the others' time stood still.
+    // So have the quests with no time left when it left, and those that fail as it leaves the world
+    // and were still under way; the others' time stood still.
     #[allow(clippy::cast_possible_truncation)]
     let away_s = away as i64;
     crate::quests::ran_out_before_leaving(&s.quests, &mut p.play.quests, clock.unix - away_s);
+    crate::quests::failed_on_leaving(&s.quests, &mut p.play.quests, clock.unix - away_s);
     crate::quests::time_stood_still(&mut p.play.quests, away_s, clock.unix);
     let effects = crate::effects::registry(s, &p);
     let held = crate::skills::held(
@@ -1084,6 +1086,8 @@ pub fn log_off_step<S: Store>(
             for eid in gone {
                 crate::effects::remove(s, net, world, eid);
             }
+            // So do its quests that fail as it leaves the world, told while it still hears.
+            crate::quests::leaves_world(s, net, world, clock);
             let Some(p) = s.players.get_mut(&world) else {
                 return;
             };

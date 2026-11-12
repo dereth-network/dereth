@@ -443,8 +443,11 @@ pub struct Quest {
     pub visible: Option<bool>,
     /// The least level a player is given it at.
     pub min_level: Option<i32>,
-    /// Whether it fails when its player dies.
+    /// Whether it fails when its player dies, leaves the world, or is taken through portal space;
+    /// each left out, as the quest's setup in the install says.
     pub fails_on_death: Option<bool>,
+    pub fails_on_logout: Option<bool>,
+    pub fails_on_teleport: Option<bool>,
     /// Whether it is given only once.
     pub once: Option<bool>,
     /// Whether a kill's move on it reaches the killer's fellows; left out, as the quest's setup in
@@ -1571,6 +1574,8 @@ pub const FIELDS: [(&str, &[&str]); 59] = [
             "visible",
             "min_level",
             "fails_on_death",
+            "fails_on_logout",
+            "fails_on_teleport",
             "once",
             "fellows",
             "companion_of",
@@ -2500,6 +2505,8 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             visible: f.bool("visible"),
             min_level: f.int("min_level").and_then(|v| i32::try_from(v).ok()),
             fails_on_death: f.bool("fails_on_death"),
+            fails_on_logout: f.bool("fails_on_logout"),
+            fails_on_teleport: f.bool("fails_on_teleport"),
             once: f.bool("once"),
             fellows: f.bool("fellows"),
             companion_of: f.id("companion_of"),

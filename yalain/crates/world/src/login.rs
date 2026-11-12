@@ -1206,6 +1206,8 @@ pub(crate) fn logged_off<S: Store>(
     world: ConnId,
     clock: Clock,
 ) {
+    // Its quests that fail as it leaves the world fail first, while its fellowship holds it.
+    crate::quests::leaves_world(s, net, world, clock);
     let still = s
         .sessions
         .get(&login)

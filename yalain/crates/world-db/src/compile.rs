@@ -75,12 +75,23 @@ pub struct QuestDefinition {
     /// For the monarch of an allegiance alone, as its package's setup says. Read, and nothing yet
     /// holds a quest to it.
     pub monarch_only: bool,
+    /// What fails it, as its package's setup says.
+    pub fails: FailsOn,
     /// The experience its completion pays, as its package's setup says.
     pub xp: u64,
     /// How its completion's experience is worked out, as its package's setup says.
     pub pay: yalain_content::quests::CompletionPay,
     /// A quest a player is to have at a status to be given it, as its package's setup says.
     pub required: Option<(u32, u32)>,
+}
+
+/// What fails a quest under way, as its setup says: its player's death, its leaving the world, its
+/// being taken through portal space.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct FailsOn {
+    pub death: bool,
+    pub logout: bool,
+    pub teleport: bool,
 }
 
 /// What a compile reads from the user's install.
@@ -504,7 +515,9 @@ fn subquest_definitions(quests: &mut yalain_content::QuestTable, install: &dyn I
             effects: def.effects,
             subquests: def.subquests,
             min_level: def.min_level,
-            fails_on_death: false,
+            fails_on_death: def.fails.death,
+            fails_on_logout: def.fails.logout,
+            fails_on_teleport: def.fails.teleport,
             once: def.once,
             fellows: def.fellows,
             ranges: def.ranges,
@@ -1143,7 +1156,10 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     effects: def.effects,
                     subquests: def.subquests,
                     min_level: q.min_level.unwrap_or(def.min_level),
-                    fails_on_death: q.fails_on_death.unwrap_or(false),
+                    // What fails it: as its row says, else as its setup does.
+                    fails_on_death: q.fails_on_death.unwrap_or(def.fails.death),
+                    fails_on_logout: q.fails_on_logout.unwrap_or(def.fails.logout),
+                    fails_on_teleport: q.fails_on_teleport.unwrap_or(def.fails.teleport),
                     once: q.once.unwrap_or(def.once),
                     // A row says whether; left out, the setup does, and a quest with no setup
                     // stays the killer's. A row that shares a quest whose setup says nothing has

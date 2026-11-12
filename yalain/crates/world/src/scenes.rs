@@ -283,6 +283,7 @@ pub fn bestow<S: Store>(
         progress::private(net, world, &play_scenes(scenes));
     }
     places::shard_portal_space(s, net, world);
+    crate::quests::teleported(s, net, world, clock);
     s.after(
         clock,
         IN_PORTAL_SPACE,

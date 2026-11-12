@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Quests now fail on death, logout or portal as the game's own quest data says.
 - Fixed some chests opening empty.
 - Fixed some kill quests counting the wrong creatures or never finishing.
 - Worlds can now have a use, a quest or a hand-in give one of several items by chance.
