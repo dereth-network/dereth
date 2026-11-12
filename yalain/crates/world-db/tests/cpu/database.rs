@@ -2301,6 +2301,61 @@ fn a_person_holds_no_kingdom_or_heroes_alone() {
         .any(|p| p.to_string().contains("hero, kingdom: a person")));
 }
 
+/// A static object whose template a quest step is triggered by using answers a use as a person
+/// does, so a kingdom, heroes alone, a quest gate or a least level on it would keep no one out: the
+/// check refuses each.
+#[test]
+fn a_static_a_step_uses_holds_no_kingdom_heroes_gate_or_least_level() {
+    for (field, row) in [
+        ("hero", "hero = true"),
+        ("kingdom", "kingdom = 2"),
+        ("requires", "requires = { quest = 0x40000088, done = true }"),
+        ("min_level", "min_level = 6"),
+    ] {
+        let mut files = fixture();
+        edit(
+            &mut files,
+            "town/server/landblocks/77B7.toml",
+            "to = \"inn\"\nprov = { from = \"authored\" }",
+            &format!("to = \"inn\"\n{row}\nprov = {{ from = \"authored\" }}"),
+        );
+        files
+            .get_mut("town/server/quests/40000088.toml")
+            .unwrap()
+            .push_str(
+                "\n[[step]]\nkey = \"s1-gate\"\nquest = 0x40000088\nneeds = 0\n\
+                 trigger = { use = 0x4700115B }\nupdate = \"bestow\"\nprov = { from = \"authored\" }\n",
+            );
+        let problems = check(&files);
+        assert!(
+            problems.iter().any(|p| {
+                let p = p.to_string();
+                p.contains("77B7.toml")
+                    && p.contains(&format!("{field}: a person is talked to"))
+                    && p.contains("0x4700115B")
+            }),
+            "{field}: {problems:?}"
+        );
+    }
+}
+
+/// A static object no step uses keeps its kingdom, heroes alone, quest gate and least level, even
+/// when a step uses another object on it or arrives through it.
+#[test]
+fn a_static_no_step_uses_keeps_its_kingdom_heroes_gate_and_least_level() {
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/landblocks/77B7.toml",
+        "to = \"inn\"\nprov = { from = \"authored\" }",
+        "to = \"inn\"\nhero = true\nkingdom = 2\nrequires = { quest = 0x40000088, done = true }\n\
+         min_level = 6\nprov = { from = \"authored\" }",
+    );
+    let quest = &files["town/server/quests/40000088.toml"];
+    assert!(quest.contains("on = 0x4700115B") && quest.contains("arrive = 0x4700115B"));
+    assert_eq!(check(&files), Vec::new());
+}
+
 /// A placed object's least level reads and compiles over its template's, and the content's text
 /// keeps it; left out, the object has its template's.
 /// Behaviour: server.places.portal-least-level-row

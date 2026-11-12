@@ -314,6 +314,8 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
     let mut ids: BTreeMap<u64, (BTreeSet<u32>, bool)> = BTreeMap::new();
     // Each camp, by its key and landblock in whichever pack: the templates it makes.
     let mut camp_makes: BTreeMap<(String, u16), BTreeSet<u32>> = BTreeMap::new();
+    // The templates a quest step is triggered by using, whose objects answer a use as a person's.
+    let mut step_used: BTreeSet<u32> = BTreeSet::new();
     for l in db.rows() {
         let lb = l.landblock.unwrap_or(0);
         match &l.row {
@@ -340,6 +342,11 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
             }
             Row::Store(r) => {
                 shops.insert(r.key.clone());
+            }
+            Row::Step(r) => {
+                if let Trigger::Use(template) = r.trigger {
+                    step_used.insert(template);
+                }
             }
             _ => {}
         }
@@ -392,6 +399,24 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                         "hero, kingdom: a person is talked to; only a static object keeps a player out"
                             .into(),
                     ));
+                }
+                if r.kind == crate::rows::ObjectKind::Static && step_used.contains(&r.template) {
+                    let held: Vec<&str> = [
+                        ("hero", r.hero),
+                        ("kingdom", r.kingdom.is_some()),
+                        ("requires", r.requires.is_some()),
+                        ("min_level", r.min_level.is_some()),
+                    ]
+                    .into_iter()
+                    .filter_map(|(field, set)| set.then_some(field))
+                    .collect();
+                    if !held.is_empty() {
+                        problems.push(at(format!(
+                            "{}: a person is talked to, and a step's use of template {:#010X} makes this object one; only an object no step uses keeps a player out",
+                            held.join(", "),
+                            r.template
+                        )));
+                    }
                 }
                 if r.kingdom.is_some_and(|k| ![1, 2, 4].contains(&k)) {
                     problems.push(at(
