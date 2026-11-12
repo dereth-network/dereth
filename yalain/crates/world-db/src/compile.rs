@@ -1490,6 +1490,11 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 if let Some(skill) = r.skill {
                     t.effect_rules.skills.insert(r.effect, skill);
                 }
+                if let Some(g) = r.gives {
+                    if cx.template(l, "gives", g.template) {
+                        t.effect_rules.grants.insert(r.effect, g);
+                    }
+                }
             }
             Row::Mine(r) => {
                 let m = &r.mine;

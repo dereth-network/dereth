@@ -159,7 +159,7 @@ mod watcher_flag {
 }
 
 /// What a ward keeps off, where its own data names nothing: the world's `[[effect_rule]]` rows.
-pub use yalain_content::effect_rules::{EffectRules, Reset, VitaeRestore, Ward};
+pub use yalain_content::effect_rules::{EffectRules, Grant, Reset, VitaeRestore, Ward};
 
 /// The kind of an effect a world's row makes a ward: its chance the same at any spellcraft.
 #[must_use]
@@ -329,6 +329,8 @@ pub enum Kind {
     Reset(Reset),
     /// Trains its player this skill for good (by its number), once.
     GrantSkill(u32),
+    /// Gives its player so many items of a template, made in its pack, once.
+    GrantItem(Grant),
     /// Gives its player so many points of craft experience to spend, at its spellcraft, once.
     CraftExperience(Scale),
     /// Anything else (kept as a record only).
@@ -387,6 +389,7 @@ impl EffectDef {
                     | Kind::VitaeRestore(_)
                     | Kind::Reset(_)
                     | Kind::GrantSkill(_)
+                    | Kind::GrantItem(_)
                     | Kind::CraftExperience(_)
                     | Kind::Instants(_)
             )
@@ -889,7 +892,7 @@ impl EffectTable {
     /// The definitions of these saved states and of the effects they add in turn (a state that
     /// does not read is left out), each the world's `rules` name (by saved state) an immunity
     /// leaving the effect they name, a ward keeping off what it names, a tap of its share of vitae,
-    /// vitae given back, a complete reset of skills granted, or a skill trained.
+    /// vitae given back, a complete reset of skills granted, a skill trained, or items given.
     #[must_use]
     pub fn read(
         lib: &Library,
@@ -922,6 +925,9 @@ impl EffectTable {
                 }
                 if let Some(skill) = rules.skills.get(&s) {
                     d.kind = Kind::GrantSkill(*skill);
+                }
+                if let Some(grant) = rules.grants.get(&s) {
+                    d.kind = Kind::GrantItem(*grant);
                 }
                 if let Some(text) = EffectDef::description_of(lib, &g) {
                     t.descriptions.insert(s, text);

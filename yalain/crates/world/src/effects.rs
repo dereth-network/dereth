@@ -913,6 +913,18 @@ pub fn apply_on<S: Store>(
             }
             true
         }
+        // The items an effect gives are made in its player's pack as the server's gift, told by
+        // nothing but their arrival (2017: 7 of 7 such gifts, each a gift's move with no line of
+        // its own).
+        (Kind::GrantItem(g), On::Player(world)) => {
+            if crate::inventory::give(s, net, world, g.template, g.count).is_none() {
+                return false;
+            }
+            if def.fx != 0 {
+                show_fx(s, net, world, def.fx);
+            }
+            true
+        }
         (Kind::Taunt(share), On::Creature(id)) => {
             crate::ai::taunted(s, id, cast.caster, *share, clock.local.0);
             true
@@ -923,7 +935,11 @@ pub fn apply_on<S: Store>(
         )
         | (Kind::Taunt(_), On::Player(_))
         | (
-            Kind::VitaeTap(_) | Kind::VitaeRestore(_) | Kind::Reset(_) | Kind::GrantSkill(_),
+            Kind::VitaeTap(_)
+            | Kind::VitaeRestore(_)
+            | Kind::Reset(_)
+            | Kind::GrantSkill(_)
+            | Kind::GrantItem(_),
             On::Creature(_),
         )
         | (Kind::Aura(_), _) => false,
@@ -2580,6 +2596,7 @@ pub fn toggled_on<S: Store>(
             | Kind::VitaeRestore(_)
             | Kind::Reset(_)
             | Kind::GrantSkill(_)
+            | Kind::GrantItem(_)
             | Kind::Aura(_)
             | Kind::Pet { .. }
             | Kind::Recall(_)

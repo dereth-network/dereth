@@ -777,7 +777,7 @@ struct Requires {
 
 /// `[[effect_rule]]`: what the world says of an effect where its own data says nothing: what a ward
 /// keeps off, the share of its player's vitae it takes, the effect an immunity leaves as it ends,
-/// the complete reset of skills it grants, the skill it trains.
+/// the complete reset of skills it grants, the skill it trains, the items it gives.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EffectRule {
     /// The effect, by its saved state.
@@ -792,6 +792,8 @@ pub struct EffectRule {
     pub reset: Option<yalain_content::effect_rules::Reset>,
     /// The skill it trains its player for good, by its number.
     pub skill: Option<u32>,
+    /// The items it gives its player: a template and how many.
+    pub gives: Option<yalain_content::effect_rules::Grant>,
     pub prov: Prov,
 }
 
@@ -1671,6 +1673,8 @@ pub const FIELDS: [(&str, &[&str]); 58] = [
             "then",
             "reset",
             "skill",
+            "gives",
+            "count",
             "prov",
         ],
     ),
@@ -2859,17 +2863,33 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             if f.get("skill").is_some() && skill.is_none() {
                 return None;
             }
+            let gives = match f.get("gives") {
+                Some(_) => {
+                    let template = f.req_id("gives")?;
+                    let count = f.u32("count").unwrap_or(1);
+                    let count = f.held("count", count, count > 0, "above 0")?;
+                    Some(yalain_content::effect_rules::Grant { template, count })
+                }
+                None => {
+                    if f.get("count").is_some() {
+                        f.bad("count", "a count is of the items a rule gives");
+                        return None;
+                    }
+                    None
+                }
+            };
             if ward.is_none()
                 && vitae_share.is_none()
                 && vitae_restore.is_none()
                 && then.is_none()
                 && reset.is_none()
                 && skill.is_none()
+                && gives.is_none()
             {
                 f.bad(
-                    "ward, vitae_share, vitae_restore, then, reset, skill",
+                    "ward, vitae_share, vitae_restore, then, reset, skill, gives",
                     "a rule names a ward, a share of vitae, vitae given back, what an immunity leaves, \
-                     a reset it grants or a skill it trains",
+                     a reset it grants, a skill it trains or an item it gives",
                 );
                 return None;
             }
@@ -2881,6 +2901,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 then,
                 reset,
                 skill,
+                gives,
                 prov: f.req_prov()?,
             })
         }

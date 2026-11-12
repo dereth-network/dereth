@@ -4493,6 +4493,7 @@ fn everything_the_worlds_rows_make_reads_from_the_install() {
         pets: &t.pet_kinds,
         items: &items,
         plants: &t.plants,
+        effect_rules: &t.effect_rules,
     });
     for template in named {
         assert_eq!(portal.template(template).id, template);

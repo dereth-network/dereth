@@ -744,6 +744,7 @@ impl Portal {
                     pets: &t.pet_kinds,
                     items: &t.items,
                     plants: &t.plants,
+                    effect_rules: &t.effect_rules,
                 },
             ));
         // The looks treasure draws: the world's, else the server's own.

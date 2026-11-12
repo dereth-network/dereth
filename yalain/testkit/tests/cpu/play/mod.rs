@@ -31,6 +31,7 @@ mod doors;
 mod drops;
 mod dye_plants;
 mod dying;
+mod effect_grants;
 mod effects;
 mod events;
 mod experience;

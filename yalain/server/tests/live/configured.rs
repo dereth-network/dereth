@@ -371,6 +371,7 @@ fn a_real_start_describes_everything_a_worlds_rows_make() {
         pets: &t.pet_kinds,
         items: &t.items,
         plants: &t.plants,
+        effect_rules: &t.effect_rules,
     });
     assert!(!named.is_empty());
     let log = answered(&named, "yalain-live-catalog-rows");

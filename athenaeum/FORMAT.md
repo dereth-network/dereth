@@ -942,6 +942,8 @@ What an effect of the install does where its own data says nothing. One row per 
 | `then` | | the effect is an immunity under way and leaves this effect as it ends |
 | `reset` | | `skills` or `hero-skills`: putting it on grants its player one complete reset of that kind, which `/skills reset` or `/heroskills reset` uses |
 | `skill` | | a skill, by its number: putting it on trains its player that skill for good, at level 1 by the grant, unraisable and at no cost, told with the effect's own line and appearance; a player who holds it gains nothing |
+| `gives` | | a template: putting it on makes items of it in its player's pack, as the server's gift, with no line of their own; for an effect that names no item it gives, such as one that hands over a quest's item |
+| `count` | | with `gives`: how many, above 0; 1 when left out |
 | `prov` | required | where it came from |
 
 #### `[[points_bonus]]`

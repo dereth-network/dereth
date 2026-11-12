@@ -2808,6 +2808,70 @@ fn an_effect_rule_row_may_name_the_skill_an_effect_trains() {
     }
 }
 
+/// An `[[effect_rule]]` row may name what an effect gives, a template of the install and a count (1
+/// when left out); a template the install lacks is a problem, and a count needs `gives` and is
+/// above 0.
+/// Behaviour: server.effects.a-rule-names-what-an-effect-gives
+#[test]
+fn an_effect_rule_row_may_name_the_items_an_effect_gives() {
+    use yalain_content::effect_rules::Grant;
+    let mut files = fixture();
+    files.insert(
+        "town/server/effects.toml".into(),
+        "[[effect_rule]]\neffect = 0x6F000D90\ngives = 0x4700115B\nprov = { from = \"authored\" }\n\n\
+         [[effect_rule]]\neffect = 0x6F000D98\ngives = 0x47002224\ncount = 3\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.effect_rules.grants,
+        std::collections::BTreeMap::from([
+            (
+                0x6F00_0D90,
+                Grant {
+                    template: 0x4700_115B,
+                    count: 1
+                }
+            ),
+            (
+                0x6F00_0D98,
+                Grant {
+                    template: 0x4700_2224,
+                    count: 3
+                }
+            ),
+        ])
+    );
+    files.insert(
+        "town/server/effects.toml".into(),
+        "[[effect_rule]]\neffect = 0x6F000D90\ngives = 0x47009999\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    let problems = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap_err();
+    assert!(
+        problems.iter().any(|p| p
+            .to_string()
+            .contains("gives: template 47009999 is not in the install")),
+        "{problems:?}"
+    );
+    for bad in [
+        "gives = 0x4700115B\ncount = 0",
+        "gives = 0x4700115B\ncount = -1",
+        "gives = [0x4700115B]",
+        "gives = \"hide\"",
+        "count = 2",
+    ] {
+        files.insert(
+            "town/server/effects.toml".into(),
+            format!(
+                "[[effect_rule]]\neffect = 0x6F000D90\n{bad}\nprov = {{ from = \"authored\" }}\n"
+            ),
+        );
+        assert!(read(&files).is_err(), "{bad}");
+    }
+}
+
 /// A step's `requires` may name an act that must be whole: the step is served with it, an act no
 /// served scene is of is a problem, and a give names none.
 /// Behaviour: server.quests.a-step-waits-for-its-act-whole

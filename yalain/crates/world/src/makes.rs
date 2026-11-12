@@ -55,12 +55,14 @@ pub struct Rows<'a> {
     pub items: &'a yalain_content::item_rows::ItemRows,
     /// The dye plants, the world's rows.
     pub plants: &'a plants::DyePlants,
+    /// What the world says of effects: the items they give among it.
+    pub effect_rules: &'a crate::effect_defs::EffectRules,
 }
 
 /// What a world's rows make or hand on: placed objects (a chest's lock and contents, a door's), its
 /// kinds of pet, what every new character is given, what stores sell, what quest steps and people give, what is taken up for a step and what's
-/// handed in for a gift, what butchery yields, what a death makes, and the dye plants and what
-/// they give. Camps and loot are the
+/// handed in for a gift, what butchery yields, what a death makes, the dye plants and what they
+/// give, and what effects give. Camps and loot are the
 /// catalog's own, and the recipes' products and materials [`crate::craft::Crafting::templates`].
 #[must_use]
 pub fn by_the_rows(rows: Rows<'_>) -> Vec<u32> {
@@ -86,6 +88,7 @@ pub fn by_the_rows(rows: Rows<'_>) -> Vec<u32> {
         )
         .chain(rows.death_spawns.values().map(|d| d.template))
         .chain(rows.plants.templates())
+        .chain(rows.effect_rules.grants.values().map(|g| g.template))
         .collect()
 }
 

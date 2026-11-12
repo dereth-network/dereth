@@ -4123,6 +4123,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.effects.a-rule-names-what-an-effect-gives",
+        says: "An effect a world's `[[effect_rule]]` names an item for (`gives`, `count`, 1 when left \
+               out) gives its player that many of it wherever it is put on, alone or in a chain: made \
+               in its pack as the server's gift, told by its arrival and no line of its own; without \
+               a rule an effect whose data names no item gives nothing, and a creature is given \
+               nothing. The rule's template must be the install's, and the world holds it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-EFFECT-GIVES-ITEM"),
+        station: "yalain-testkit::cpu::play::effect_grants::an_effect_a_rule_names_an_item_for_gives_it_to_its_player_as_a_gift",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.effects.buff-record-runs-out",
         says: "A buff puts a record on its target at the skill's hook, with its own id, its \
                timeout and spellcraft at the skill's rating, timed; the player's speed sent when \

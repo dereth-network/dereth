@@ -2066,6 +2066,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
                         pets: &pet_kinds,
                         items: &item_rows,
                         plants: &plants,
+                        effect_rules: &effect_rules,
                     },
                 ))
                 .chain(craft.templates())

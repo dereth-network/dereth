@@ -2107,6 +2107,7 @@ mod tests {
                     pets: &BTreeMap::new(),
                     items: &rows,
                     plants: &yalain_world::plants::DyePlants::default(),
+                    effect_rules: &yalain_world::effect_defs::EffectRules::default(),
                 },
             ))
             .collect();
@@ -2279,6 +2280,7 @@ mod tests {
                     pets: &BTreeMap::new(),
                     items: &yalain_content::item_rows::ItemRows::default(),
                     plants: &plants,
+                    effect_rules: &yalain_world::effect_defs::EffectRules::default(),
                 },
             ))
             .collect();
@@ -2526,6 +2528,85 @@ mod tests {
         let problems = crate::world::install_problems(&p, &db).expect("checks");
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(problems[0].message.contains("skill 99999"), "{problems:?}");
+    }
+
+    /// An effect rule's items: the install's five effects that hand over a Curse of the Undead's
+    /// leather hide name no item of their own and read as giving nothing; each with a rule naming
+    /// its hide reads as giving it, once, with no appearance, and the catalog holds the hide.
+    /// Behaviour: server.effects.a-rule-names-what-an-effect-gives
+    #[test]
+    fn an_effect_rule_names_the_item_an_effect_that_names_none_gives() {
+        use yalain_world::effect_defs::{EffectRules, Grant, Kind};
+        let (dat, _) = tallied(&DatName::Portal);
+        let p = Portal::over(dat, Vec::new(), None).expect("a context");
+        let hides = [
+            (0x6F00_0D90, 0x4700_0806),
+            (0x6F00_0D98, 0x4700_0807),
+            (0x6F00_0D9F, 0x4700_0808),
+            (0x6F00_0DA6, 0x4700_0809),
+            (0x6F00_0DAD, 0x4700_080A),
+        ];
+        let states: Vec<u32> = hides.iter().map(|(e, _)| *e).collect();
+        let bare = effect_table(&p, &states, &EffectRules::default()).expect("the effects");
+        for (effect, _) in hides {
+            let d = bare
+                .get(effect)
+                .unwrap_or_else(|| panic!("{effect:08X} read"));
+            assert!(
+                !matches!(d.kind, Kind::GrantItem(_)),
+                "{effect:08X}: {:?}",
+                d.kind
+            );
+        }
+        let rules = EffectRules {
+            grants: hides
+                .iter()
+                .map(|(e, t)| {
+                    (
+                        *e,
+                        Grant {
+                            template: *t,
+                            count: 1,
+                        },
+                    )
+                })
+                .collect(),
+            ..EffectRules::default()
+        };
+        let t = effect_table(&p, &states, &rules).expect("the effects");
+        for (effect, hide) in hides {
+            let d = t.get(effect).unwrap_or_else(|| panic!("{effect:08X} read"));
+            let grant = Grant {
+                template: hide,
+                count: 1,
+            };
+            assert_eq!(d.kind, Kind::GrantItem(grant), "{effect:08X}");
+            assert_eq!(d.fx, 0, "{effect:08X}");
+            assert!(!d.lasts(), "{effect:08X}: once");
+        }
+        let more = yalain_world::makes::by_the_rows(yalain_world::makes::Rows {
+            objects: &[],
+            stores: &yalain_content::StoreTable::default(),
+            quests: &yalain_content::QuestTable::default(),
+            crafting: &yalain_content::CraftStart::default(),
+            death_spawns: &BTreeMap::new(),
+            pets: &BTreeMap::new(),
+            items: &yalain_content::item_rows::ItemRows::default(),
+            plants: &yalain_world::plants::DyePlants::default(),
+            effect_rules: &rules,
+        });
+        let (c, _) = catalog(
+            &p,
+            &SpawnTable::default(),
+            &LootTable::default(),
+            &more,
+            &TreasureTables::default(),
+            yalain_testkit::test_worn_looks(),
+        )
+        .expect("the catalog");
+        for (_, hide) in hides {
+            assert!(c.templates.contains_key(&hide), "{hide:08X}");
+        }
     }
 
     /// The line each effect's application tells reads from its own name's table in the English
