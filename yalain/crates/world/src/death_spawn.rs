@@ -19,6 +19,9 @@
 //! none of its business: an item is used up for what it makes, and what others have made doesn't
 //! take that from its user. What a use makes takes an item each time, so it is held to the items
 //! there are.
+//!
+//! **A portal.** A row whose template names a destination makes a portal there, standing as
+//! [`portals`] says.
 
 use dereth_primitives::num::math;
 use yalain_net::{ConnId, ServerNet};
@@ -27,6 +30,7 @@ use yalain_store::{Store, StoredPosition};
 use crate::effect_defs::Kind;
 use crate::effects::{Cast, On};
 use crate::things::Mode;
+use crate::usable::portals;
 use crate::{presence, Clock, Server};
 
 /// The most of one death effect's that live at once.
@@ -93,17 +97,18 @@ pub fn names_one<S: Store>(s: &Server<S>, props: &yalain_content::Props) -> bool
         .any(|e| s.death_spawns.contains_key(e))
 }
 
-/// Can this world make everything a template's use names of a world's rows, as creatures?
+/// Can this world make everything a template's use names of a world's rows: creatures, or portals
+/// to places it holds?
 #[must_use]
 pub fn can_make_all<S: Store>(s: &Server<S>, props: &yalain_content::Props) -> bool {
     let (name, _) = crate::item_use::USED;
     (1..=8)
         .filter_map(|i| props.text(&format!("{name}{i}")))
         .filter_map(|e| s.death_spawns.get(e))
-        .all(|spawn| {
-            s.catalog
-                .get(spawn.template)
-                .is_some_and(|t| yalain_content::CreatureStats::from_props(&t.props).is_some())
+        .all(|spawn| match s.catalog.get(spawn.template) {
+            Some(t) if portals::is_portal(&t.props) => portals::leads_to(s, t.id).is_some(),
+            Some(t) => yalain_content::CreatureStats::from_props(&t.props).is_some(),
+            None => false,
         })
 }
 
@@ -153,16 +158,35 @@ fn makes<S: Store>(
     if let Some((name, _)) = most {
         let things = &s.things;
         let live = s.death_spawned.entry(name.to_string()).or_default();
+        // A creature lives until it dies; a portal until it goes.
         live.retain(|id| {
             things
                 .get(*id)
-                .and_then(|t| t.creature.as_ref())
-                .is_some_and(|c| c.mode != Mode::Dead)
+                .is_some_and(|t| t.creature.as_ref().is_none_or(|c| c.mode != Mode::Dead))
         });
     }
+    let portal = portals::is_portal(&template.props);
     for _ in 0..spawn.count {
         let full = most.is_some_and(|(name, n)| s.death_spawned.get(name).map_or(0, Vec::len) >= n);
         if full || !s.rng.chance(spawn.chance) {
+            continue;
+        }
+        if portal {
+            let at = at_offset(s, &killer_at, spawn.offset);
+            let made = portals::made(
+                s,
+                net,
+                spawn.template,
+                at,
+                (spawn.kingdom, spawn.lasts),
+                clock,
+            );
+            if let (Some(id), Some((name, _))) = (made, most) {
+                s.death_spawned
+                    .entry(name.to_string())
+                    .or_default()
+                    .push(id);
+            }
             continue;
         }
         let Some(stats) = yalain_content::CreatureStats::from_props(&template.props) else {

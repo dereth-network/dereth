@@ -2287,12 +2287,13 @@ pub fn item_trip<S: Store>(
 }
 
 /// Does using this portal leave its user a place to recall to (its portal flags)? A portal of the
-/// world whose flags say so, used itself (not an item used on it); a summoned portal never does.
+/// world whose flags say so, or one an item's use made whose template's do, used itself (not an
+/// item used on it); a summoned portal never does.
 fn recalled_to<S: Store>(s: &Server<S>, u: &Use) -> bool {
-    u.target == 0
-        && presence::content_by_id(&s.content.objects, u.item).is_some_and(|i| {
-            s.content.objects[i].facts.portal & yalain_content::portal::RECALL != 0
-        })
+    let flags = presence::content_by_id(&s.content.objects, u.item)
+        .map(|i| s.content.objects[i].facts.portal)
+        .or_else(|| crate::usable::portals::portal(s, u.item).map(|t| t.facts.portal));
+    u.target == 0 && flags.is_some_and(|f| f & yalain_content::portal::RECALL != 0)
 }
 
 /// Where a dead player returns: the lifestone it is bound to; never bound, beside the nearest
@@ -2535,9 +2536,11 @@ fn arrive<S: Store>(
         .filter(|u| u.target == 0 && from_pack.is_none())
     {
         // The portal's own effects, put on the player as it comes out, before the use is answered
-        // (2017: 3 of 3 such portals' uses: quests given and moved on, and what they put on).
+        // (2017: 3 of 3 such portals' uses: quests given and moved on, and what they put on). A
+        // portal standing in the world carries its template's as a placed one does.
         let template = presence::content_by_id(&s.content.objects, u.item)
-            .map(|i| s.content.objects[i].template);
+            .map(|i| s.content.objects[i].template)
+            .or_else(|| crate::usable::portals::portal(s, u.item).map(|t| t.template));
         let effects = template
             .and_then(|t| s.item_uses.get(&t).cloned())
             .unwrap_or_default();
@@ -2666,6 +2669,16 @@ fn arrive<S: Store>(
         crate::quests::triggered(s, net, world, Trigger::Arrive(template), None, clock);
         let from = Trigger::ArriveFrom(template, object);
         crate::quests::triggered(s, net, world, from, None, clock);
+    } else if let Some(template) = trip
+        .used
+        .as_ref()
+        .filter(|u| u.target == 0 && trip.step.is_none())
+        .and_then(|u| crate::usable::portals::portal(s, u.item))
+        .map(|t| t.template)
+    {
+        // One standing in the world moves those of its template: it is no placed portal (2017: a
+        // master vault's portal, seen made at three places, gave its quest on arrival, 2 sessions).
+        crate::quests::triggered(s, net, world, Trigger::Arrive(template), None, clock);
     }
     // Its pets come out beside it.
     crate::pets::owner_arrives(s, net, world, time);

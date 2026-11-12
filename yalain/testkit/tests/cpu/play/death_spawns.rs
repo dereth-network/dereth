@@ -149,6 +149,7 @@ fn a_death_spawn_stands_at_its_offset_from_the_killer_as_the_killer_faces() {
             chance: 1.0,
             offset: [0.0, -3.0],
             lasts: None,
+            kingdom: None,
         },
     );
     // A quarter turn about the vertical.
@@ -193,6 +194,7 @@ fn a_killer_far_from_the_death_makes_nothing() {
             chance: 1.0,
             offset: [0.0, 2.0],
             lasts: None,
+            kingdom: None,
         },
     );
     let beetle = *living(&h).last().expect("a beetle");
@@ -245,6 +247,7 @@ fn a_death_spawn_with_no_chance_makes_nothing() {
             chance: 0.0,
             offset: [0.0, 2.0],
             lasts: None,
+            kingdom: None,
         },
     );
     let before = living(&h).len();
@@ -267,6 +270,7 @@ fn only_so_many_of_a_death_effects_creatures_live_at_once() {
             chance: 1.0,
             offset: [0.0, 2.0],
             lasts: None,
+            kingdom: None,
         },
     );
     for _ in 0..yalain_world::death_spawn::MOST {
@@ -294,6 +298,55 @@ fn only_so_many_of_a_death_effects_creatures_live_at_once() {
     assert!(live >= yalain_world::death_spawn::MOST - 5, "{live}");
 }
 
+/// A death effect whose row makes a portal makes it at its offset from the killer, and the portals
+/// standing count toward how many of the effect's there may be, as creatures living do.
+/// Behaviour: server.creatures.death-spawns-limited
+#[test]
+fn a_death_effects_portals_standing_count_toward_its_limit() {
+    use yalain_content::{Prop, Props};
+    const PORTAL: u32 = 0x4700_9102;
+    let (mut h, me) = world();
+    let mut props = Props::default();
+    props.set("PortalDestination", Prop::Text("Somewhere".into()));
+    let template = yalain_testkit::test_template(PORTAL, 0xF12, props);
+    h.server.places_by_name.insert(
+        "somewhere".into(),
+        yalain_content::Place {
+            cell: 0x7000_0001,
+            origin: [10.0, 10.0, 50.0],
+            rotation: [1.0, 0.0, 0.0, 0.0],
+        },
+    );
+    h.server.death_spawns.insert(
+        EFFECT.into(),
+        DeathSpawn {
+            template: PORTAL,
+            count: 20,
+            chance: 1.0,
+            offset: [0.0, 2.0],
+            lasts: None,
+            kingdom: None,
+        },
+    );
+    let standing = |h: &Harness| {
+        h.server
+            .things
+            .by_id
+            .values()
+            .filter(|t| t.template == PORTAL)
+            .count()
+    };
+    for _ in 0..2 {
+        // A world's creatures come with a catalog of their own.
+        h.add_creatures(1);
+        h.server.catalog.insert(template.clone());
+        h.run(1);
+        kill(&mut h, me, &[EFFECT]);
+        h.run(2);
+    }
+    assert_eq!(standing(&h), yalain_world::death_spawn::MOST);
+}
+
 /// An item whose use names such an effect makes what it makes at its offset from its user, as the
 /// use is done, the item spent; used again with no more, it makes no more.
 /// Behaviour: server.creatures.an-items-use-makes-what-it-names
@@ -315,6 +368,7 @@ fn an_items_use_makes_what_its_effect_names_before_its_user() {
             chance: 1.0,
             offset: [0.0, 2.0],
             lasts: None,
+            kingdom: None,
         },
     );
     let mut props = Props::default();
@@ -405,6 +459,7 @@ fn a_gem_whose_row_makes_what_cannot_be_made_is_refused_and_kept() {
             chance: 1.0,
             offset: [0.0, 2.0],
             lasts: None,
+            kingdom: None,
         },
     );
     let mut props = Props::default();
@@ -486,6 +541,7 @@ fn gem(h: &mut Harness, lasts: Option<f32>) -> u64 {
             chance: 1.0,
             offset: [0.0, 2.0],
             lasts,
+            kingdom: None,
         },
     );
     let mut props = Props::default();

@@ -101,8 +101,9 @@ pub struct WeaponRule {
     pub stance: Option<u32>,
 }
 
-/// What a creature's death effect makes around its killer, in place of what the install can say.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// What a creature's death effect makes around its killer, or an item's use effect around its user,
+/// in place of what the install can say: creatures, or a portal.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct DeathSpawn {
     /// The template of what it makes.
     pub template: u32,
@@ -112,8 +113,12 @@ pub struct DeathSpawn {
     pub chance: f32,
     /// Where each is made, in meters from the killer, as the killer faces.
     pub offset: [f32; 2],
-    /// How long each stands, in seconds, where it doesn't stay until killed.
+    /// How long each stands, in seconds, where it doesn't stay until killed (a portal: until the
+    /// server stops).
     pub lasts: Option<f32>,
+    /// The kingdom a player must be of to use a portal it makes, as a description's faction names
+    /// it.
+    pub kingdom: Option<u32>,
 }
 
 /// Whom a kind of pet tends.

@@ -1662,6 +1662,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                             chance: r.chance,
                             offset: [r.offset.x, r.offset.y],
                             lasts: r.lasts,
+                            kingdom: r.kingdom,
                         },
                     );
                 }
@@ -1873,6 +1874,32 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             measured: r.prov.source == Source::Capture,
             placed: prov_text(&r.prov),
         });
+    }
+    // A portal a row makes leads where its template's destination names, once every place is known:
+    // the place named by the template, else the place of the destination's name.
+    for l in &merged.rows {
+        let Row::DeathSpawn(r) = &l.row else { continue };
+        let props = yalain_content::Props::of(r.template, &entity, &|id| install.property_name(id));
+        match props.text("PortalDestination") {
+            Some(name) => {
+                let known = t.places_named.contains_key(&r.template)
+                    || t.places_by_name.contains_key(&name.to_ascii_lowercase());
+                if !known {
+                    cx.warn(
+                        l,
+                        format!(
+                            "template: no place is named by {:08X} or is named {name}, where its portal leads, so none is made",
+                            r.template
+                        ),
+                    );
+                }
+            }
+            None if r.kingdom.is_some() => cx.warn(
+                l,
+                "kingdom: only a portal it makes keeps players of other kingdoms out",
+            ),
+            None => {}
+        }
     }
     death_treasures(merged, &camp_keys, &mut t, &mut cx);
     subquest_definitions(&mut t.quests, install);

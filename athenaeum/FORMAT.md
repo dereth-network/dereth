@@ -814,17 +814,25 @@ own.
 #### `[[death_spawn]]`
 
 What a creature's death effect makes around its killer, or an item's use effect around its user,
-where the install names it by a name it doesn't resolve.
+where the install names it by a name it doesn't resolve: creatures, or a portal.
 
 | field | | meaning |
 |---|---|---|
 | `effect` | required | the effect, as templates name it |
-| `template` | required | what it makes |
+| `template` | required | what it makes: a creature, or a portal whose template names a destination |
 | `count` | | how many it tries to make; 1 when left out |
 | `chance` | | that each is made; 1 when left out |
-| `offset` | required | where each stands, in meters from the killer as the killer faces, `[x, y, z]` |
-| `lasts` | | how long each stands, in seconds; left out, until killed |
+| `offset` | required | where each stands, in meters from the killer or user as it faces, `[x, y, z]` |
+| `lasts` | | how long each stands, in seconds; left out, a creature until killed, a portal until the server stops |
+| `kingdom` | | a portal's: the kingdom a player must be of to use it, 1 (Shadow), 2 (Order) or 4 (Dominion) |
 | `prov` | required | where it came from |
+
+A portal leads where its template's destination names: the `[[place]]` whose `named_by` holds the
+template, else the one whose `destination` is the template's destination's name. With neither, the
+row makes nothing and the item whose use names it is kept. Anyone may use the portal while it
+stands, as a placed portal of its template: its least level, its heroes-only flag, the quest it
+needs and its use effects are the template's, and its portal flags say whether its user may recall
+to where it leads.
 
 #### `[[pet]]`
 

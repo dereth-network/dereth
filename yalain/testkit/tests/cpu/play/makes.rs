@@ -95,6 +95,7 @@ fn a_give_rows_gift_and_a_death_spawn_are_named_with_the_other_rows() {
             chance: 1.0,
             offset: [0.0, 0.0],
             lasts: None,
+            kingdom: None,
         },
     );
     let named = by_the_rows(Rows {

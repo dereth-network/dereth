@@ -11244,6 +11244,46 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.a-made-portal-keeps-out",
+        says: "A portal an item's use made keeps out whom its template and its row keep out, refused \
+               at once wherever the player stands: below the template's least level, of another \
+               kingdom than the row's (10011), no hero when the template is for heroes alone (10049), \
+               without the quest the template needs; one it is for goes through.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MADE-PORTAL-KEEPS-OUT"),
+        station: "yalain-testkit::cpu::play::made_portals::a_made_portal_refuses_those_its_template_and_row_keep_out",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.a-made-portal-leads-nowhere",
+        says: "An item whose use makes a portal to a place the world doesn't hold makes nothing: the \
+               use is refused as a summoning that fails, and the item is kept.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MADE-PORTAL-NOWHERE"),
+        station: "yalain-testkit::cpu::play::made_portals::a_gem_whose_portal_leads_nowhere_here_is_refused_and_kept",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.a-made-portal-lets-anyone-in",
+        says: "Anyone may use a portal an item's use made, its maker too: through portal space to where \
+               it leads, its template's use effects on the user as it comes out, the quests its \
+               template's arrival moves moved, and a place to recall to there when the template's \
+               portal flags allow it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MADE-PORTAL-USE"),
+        station: "yalain-testkit::cpu::play::made_portals::anyone_may_use_a_made_portal_and_its_templates_effects_come_on_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.a-made-portal-stands-its-rows-time",
+        says: "A portal an item's use made goes when the time its row gives is up, told to those who \
+               see it, and not before.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MADE-PORTAL-LASTS"),
+        station: "yalain-testkit::cpu::play::made_portals::a_made_portal_goes_when_its_rows_time_is_up",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.a-place-given-starts-the-reckoning-again",
         says: "Where a trip ends, the player's next report there is taken, and its reach is reckoned from \
                that place and the moment the trip ended, not from before the trip; a place told back \
@@ -11336,6 +11376,18 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-ALLEGIANCE-RECALL"),
         station: "yalain-testkit::cpu::play::recalls::allegiance_recall_with_no_hall_bound_fails_and_says_so",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.an-items-use-makes-a-portal",
+        says: "An item whose use effect a world's row names with a portal template makes that portal \
+               2 m straight ahead of its user at its height, facing its way, told to those who see it, \
+               leading where the world names for the template or its destination; the item is spent \
+               as its template says, and with no time on its row the portal stands until the server \
+               stops.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MADE-PORTAL"),
+        station: "yalain-testkit::cpu::play::made_portals::a_gems_use_makes_its_portal_two_meters_ahead_leading_where_its_template_names",
         tier: Tier::Cpu,
     },
     behaviour! {

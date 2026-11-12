@@ -58,6 +58,9 @@ const STARTING_SKILL_2: u32 = 0x4100_0004;
 const DRAWABLE: u32 = 0x4000_0001;
 const MINE_OBJECT: u32 = 0x4100_0005;
 const WORN_FILE: u32 = 0x4100_0006;
+const PORTAL_DESTINATION: u32 = 0x4100_0007;
+/// A portal of the made-up install that names its destination.
+const NAMED_PORTAL: u32 = 0x4700_0C8C;
 /// A garment of the made-up install that names its own worn look.
 const GARMENT: u32 = 0x4700_0C8B;
 /// A node of the made-up install, giving a material when mined.
@@ -139,6 +142,17 @@ impl Fake {
         );
         entities.insert(0x4700_2224, entity(CLASS, 0x0E00, vec![look.clone()]));
         entities.insert(
+            NAMED_PORTAL,
+            entity(
+                CLASS,
+                0x0F12,
+                vec![(
+                    PORTAL_DESTINATION,
+                    PropertyValue::String("Lair_Landing".into()),
+                )],
+            ),
+        );
+        entities.insert(
             GARMENT,
             entity(
                 CLASS,
@@ -201,6 +215,7 @@ impl Install for Fake {
             STARTING_SKILL_2 => Some("NPC_StartingSkill2".into()),
             MINE_OBJECT => Some("Mine_Object".into()),
             WORN_FILE => Some("Item_WornAppearanceFile1".into()),
+            PORTAL_DESTINATION => Some("PortalDestination".into()),
             _ => None,
         }
     }
@@ -5258,6 +5273,57 @@ fn a_plant_row_reads_how_many_one_seed_plants_its_ripening_its_care_and_its_line
         assert!(rows.contains(from), "{from}");
         files.insert("town/server/plants.toml".into(), rows.replacen(from, to, 1));
         assert!(read(&files).is_err(), "{from} to {to}");
+    }
+}
+
+#[test]
+fn a_death_spawn_row_making_a_portal_reads_its_kingdom_and_is_warned_where_nothing_is_its_destination(
+) {
+    const PATH: &str = "town/server/death_spawns.toml";
+    const PLACES: &str = "town/server/lairs.toml";
+    let mut files = fixture();
+    let row = "[[death_spawn]]\neffect = \"Eff_OpensTheLair\"\ntemplate = 0x47000C8C\n\
+               offset = [0.0, 2.0, 0.0]\nkingdom = 1\nprov = { from = \"authored\" }\n";
+    files.insert(PATH.into(), row.to_string());
+    let leads_nowhere = |t: &yalain_world_db::compile::Tables| -> Vec<String> {
+        t.warnings
+            .iter()
+            .map(ToString::to_string)
+            .filter(|w| w.contains("where its portal leads"))
+            .collect()
+    };
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let made = t.death_spawns["Eff_OpensTheLair"];
+    assert_eq!(
+        (made.template, made.kingdom, made.lasts, made.offset),
+        (NAMED_PORTAL, Some(1), None, [0.0, 2.0])
+    );
+    assert_eq!(leads_nowhere(&t).len(), 1, "no place: {:?}", t.warnings);
+    // A place named for the portal, or one of its destination's name in any case.
+    let place = |by: &str| {
+        format!(
+            "[[place]]\nkey = \"lair\"\ncell = 0x77B80003\nat = [2.0, 50.0, 183.8]\n{by}\n\
+             prov = {{ from = \"authored\" }}\n"
+        )
+    };
+    for by in ["named_by = [0x47000C8C]", "destination = \"lair_landing\""] {
+        files.insert(PLACES.into(), place(by));
+        let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+        assert!(leads_nowhere(&t).is_empty(), "{by}: {:?}", t.warnings);
+    }
+    // A kingdom on a row that makes a creature keeps nobody out.
+    files.insert(PATH.into(), row.replacen("0x47000C8C", "0x47002224", 1));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert!(
+        t.warnings
+            .iter()
+            .any(|w| w.to_string().contains("only a portal it makes")),
+        "{:?}",
+        t.warnings
+    );
+    for no in ["kingdom = 3", "kingdom = 0"] {
+        files.insert(PATH.into(), row.replacen("kingdom = 1", no, 1));
+        assert!(read(&files).is_err(), "{no}");
     }
 }
 

@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Worlds can now have items whose use opens a portal.
 - Worlds can now say what an effect that grants an item gives.
 - Fixed wide lifestones and people doing nothing after a player walks up to them.
 - Creatures can now follow players into and out of caves whose mouth opens on the land.

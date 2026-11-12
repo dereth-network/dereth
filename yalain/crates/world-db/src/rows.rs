@@ -912,7 +912,8 @@ pub struct Area {
     pub prov: Prov,
 }
 
-/// `[[death_spawn]]`: what a creature's death effect makes around its killer.
+/// `[[death_spawn]]`: what a creature's death effect makes around its killer, or an item's use effect
+/// before its user: creatures, or a portal.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeathSpawn {
     /// The death effect, as a creature's template names it.
@@ -921,8 +922,12 @@ pub struct DeathSpawn {
     pub count: u32,
     pub chance: f32,
     pub offset: At,
-    /// How long each stands, in seconds; it stays until killed when left out.
+    /// How long each stands, in seconds; it stays until killed when left out (a portal until the
+    /// server stops).
     pub lasts: Option<f32>,
+    /// The kingdom a player must be of to use a portal it makes, as a description's faction names
+    /// it.
+    pub kingdom: Option<u32>,
     pub prov: Prov,
 }
 
@@ -1615,7 +1620,7 @@ pub const FIELDS: [(&str, &[&str]); 58] = [
     (
         "death_spawn",
         &[
-            "effect", "template", "count", "chance", "offset", "lasts", "prov",
+            "effect", "template", "count", "chance", "offset", "lasts", "kingdom", "prov",
         ],
     ),
     (
@@ -3328,6 +3333,14 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 f.bad("lasts", "a time is a number of seconds above 0");
                 return None;
             }
+            let kingdom = f.int("kingdom");
+            if kingdom.is_some_and(|k| ![1, 2, 4].contains(&k)) {
+                f.bad(
+                    "kingdom",
+                    "a kingdom is 1 (Shadow), 2 (Order) or 4 (Dominion)",
+                );
+                return None;
+            }
             Row::DeathSpawn(DeathSpawn {
                 effect,
                 template: f.req_id("template")?,
@@ -3338,6 +3351,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 chance,
                 offset: f.req_at("offset")?,
                 lasts,
+                kingdom: kingdom.and_then(|v| u32::try_from(v).ok()),
                 prov: f.req_prov()?,
             })
         }

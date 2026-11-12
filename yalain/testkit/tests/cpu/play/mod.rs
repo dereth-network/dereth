@@ -49,6 +49,7 @@ mod kill_quests;
 mod kingdom_points;
 mod kingdoms;
 mod lying_client;
+mod made_portals;
 mod makes;
 mod map_trips;
 mod maps;
