@@ -740,6 +740,11 @@ The nodes a region's surveyor's maps lead to.
 | `nodes` | required | at least one `{ effect, node }`: the name of an effect a map's use names, and the node it conjures |
 | `prov` | required | where it came from |
 
+An item whose template gives a rectangle to be used in and whose use names no surveyor's node (a
+reckoning gem, a treasure map) needs no row to lead to its place: it leads to one in its rectangle
+as a surveyor's map does, and only there does its use go on, its quest steps or its effects (what
+`[[effect_rule]]` `places` and `[[death_spawn]]` rows say it makes among them).
+
 #### `[[map_recipes]]`
 
 A region's surveyor's map recipes, which wait together. One row per region.

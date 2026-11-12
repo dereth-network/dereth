@@ -2244,6 +2244,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.map-leads-to-its-place-for-its-use",
+        says: "An item whose template gives a rectangle to be used in and whose use names no surveyor's \
+               node (a reckoning gem, a treasure map) leads to a place in the rectangle as a surveyor's \
+               map does: away from it, it is refused and tells how far (with a marker and bearings \
+               where it tells the distance, by its band's text alone where it tells the direction); \
+               within its radius its use goes on as any held item's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PLACE-MAPS"),
+        station: "yalain-testkit::cpu::play::maps::a_map_that_conjures_no_node_is_used_only_at_its_place",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.map-recipes-by-world-rows",
         says: "The recipes a surveyor's map drawing has wait, and how long, are the world's \
                `[[map_recipes]]` row's whose effect the drawing puts on.",

@@ -7,6 +7,16 @@
 //!
 //! The node a map conjures is the one its world's `[[map_region]]` rows give its summoning effect;
 //! in a world with none, no map is a surveyor's map.
+//!
+//! **Other maps.** An item whose template gives a rectangle to be used in, and whose use names no
+//! surveyor's node (a reckoning gem, a treasure map), leads to a place in its rectangle the same
+//! way, chosen at its first use and kept with it. Used farther off than its radius it is refused
+//! and says how far, as a surveyor's map does where it tells the distance; one that tells the
+//! direction says only how near it is (the gem "glows softly", "remains completely dark"), with no
+//! marker and no bearings. Used within its radius its use goes on as any held item's: the quest
+//! steps it triggers, else the effects its template names for its use (what a world's
+//! `[[effect_rule]]` or `[[death_spawn]]` rows say they make among them), the item spent as its
+//! template says.
 
 use auberean_protocol::types::BehaviorParams;
 use auberean_protocol::ServerMessage;
@@ -158,13 +168,17 @@ pub struct MapDef {
     pub bands: [f32; 4],
     pub table: u32,
     pub animation: u32,
-    pub node: u32,
+    /// The node it conjures; none for a map that leads to its place for its use to go on there.
+    pub node: Option<u32>,
+    /// It tells the distance to its place, with a marker and bearings; else only how near it is.
+    pub tells_distance: bool,
     /// The region whose map recipes the map's find lets be drawn again, when its usage says so.
     pub resets: Option<String>,
 }
 
 /// A template's map, if it is a surveyor's map whose effect conjures a node of the world's map
-/// regions; it lets the map recipes be drawn again whose row names its other effect.
+/// regions (it lets the map recipes be drawn again whose row names its other effect), or another
+/// item that leads to a place in its rectangle: one whose use names no surveyor's node at all.
 #[must_use]
 pub fn map_def(
     props: &yalain_content::Props,
@@ -173,7 +187,11 @@ pub fn map_def(
 ) -> Option<MapDef> {
     let node = ["Usage_Effect1", "Usage_Effect2"]
         .iter()
-        .find_map(|k| props.text(k).and_then(|e| gathering.map_node(e)))?;
+        .find_map(|k| props.text(k).and_then(|e| gathering.map_node(e)));
+    // A surveyor's map whose region this world has no rows of is no map at all.
+    if node.is_none() && region(props).is_some() {
+        return None;
+    }
     let fixed = props
         .place("Usage_RequiredLocation")
         .map(|(cell, origin)| StoredPosition {
@@ -188,6 +206,13 @@ pub fn map_def(
     if fixed.is_none() && rectangle.is_none() {
         return None;
     }
+    // An item held to a fixed place of its own is refused away from it as any item is.
+    if node.is_none() && rectangle.is_none() {
+        return None;
+    }
+    let tells_distance = node.is_some()
+        || props.word("Usage_RequiredLocationFeedbackType")
+            == Some(crate::item_use::feedback::DISTANCE);
     let band = |k: &str, d: f32| props.float(k).unwrap_or(d);
     Some(MapDef {
         fixed,
@@ -204,10 +229,12 @@ pub fn map_def(
             .unwrap_or(0x2500_1B52),
         animation: props.word("Usage_Animation").unwrap_or(0x4100_00FC),
         node,
+        tells_distance,
         resets: ["Usage_Effect1", "Usage_Effect2"]
             .iter()
             .find_map(|k| props.text(k).and_then(|e| crafts.map_recipes_found(e)))
-            .map(|m| m.region.clone()),
+            .map(|m| m.region.clone())
+            .filter(|_| node.is_some()),
     })
 }
 
@@ -268,7 +295,9 @@ fn show<S: Store>(_s: &Server<S>, net: &mut ServerNet, world: ConnId, kind: u32,
     progress::private(net, world, &crate::chat::show_text(kind, progress::text(t)));
 }
 
-/// A player uses an item it holds: a surveyor's map is answered. Returns false for any other item.
+/// A player uses an item it holds: a surveyor's map is answered, and so is another map away from
+/// its place. Returns false for any other item, and for another map at its place, whose use goes on
+/// as any held item's.
 pub fn used<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -292,57 +321,101 @@ pub fn used<S: Store>(
     };
     let (me, here, name) = (p.character, p.position, p.name.clone());
     let d = ground_distance(&here, &to);
+    let Some(node) = def.node else {
+        if d <= def.radius {
+            if def.tells_distance {
+                clear_markers(net, world);
+            }
+            return false;
+        }
+        not_there(s, net, world, u, &def, (here, d));
+        return true;
+    };
     if d <= def.radius {
         // A node that can't be made takes no map: it's kept, and the summoning fails.
-        if !crate::makes::can_make(s, def.node) {
+        if !crate::makes::can_make(s, node) {
             show(s, net, world, SHOWN_AS, crate::pets::text::SUMMONING_FAILS);
             let no = crate::places::use_refused(u, me, None, 0.0, crate::places::USE_STATUS_OK);
             progress::private(net, world, &no);
             return true;
         }
-        found(s, net, world, u, &def, me, &name, clock);
+        found(s, net, world, u, (&def, node), me, &name, clock);
         crate::world::keep_player(s, world);
         return true;
     }
-    // Not there: how far, with a marker, and the bearings compared.
-    if let Some(b) = band_of(&def.bands, d) {
-        let (sid, marker) = text::BANDS[b];
-        let band = (sid, def.table);
-        show(s, net, world, SHOWN_AS, band);
-        let m = session::call(
-            function::DISPLAY_MARKER,
-            &[
-                Arg::Int(MARKER_KIND),
-                Arg::LongInt(0),
-                Arg::Int(here.cell),
-                Arg::Int(marker),
-                crate::chat::text_arg(progress::text(band)),
-            ],
-        )
-        .expect("a marker packs");
-        progress::private(net, world, &m);
-        let bearing = s.things.get(u.item).and_then(|t| t.bearing);
-        let (said, take) = match bearing {
-            None => (text::FIRST, true),
-            Some((at, _)) if ground_distance(&at, &here) < STILL_WITHIN => (text::STILL, false),
-            Some((_, before)) => {
-                let t = progress_text(d - before);
-                (t, t != text::PROGRESS[3])
-            }
-        };
-        show(s, net, world, SHOWN_AS, (said, def.table));
-        if take {
-            if let Some(t) = s.things.get_mut(u.item) {
-                t.bearing = Some((here, d));
-            }
+    not_there(s, net, world, u, &def, (here, d));
+    true
+}
+
+fn clear_markers(net: &mut ServerNet, world: ConnId) {
+    let clear =
+        session::call(function::CLEAR_MARKERS, &[Arg::Int(MARKER_KIND)]).expect("an integer packs");
+    progress::private(net, world, &clear);
+}
+
+/// A map used away from its place: how far, with a marker and the bearings compared (only how
+/// near, for one that tells no distance), and the use refused.
+fn not_there<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    u: &Use,
+    def: &MapDef,
+    (here, d): (StoredPosition, f32),
+) {
+    match band_of(&def.bands, d) {
+        Some(b) if !def.tells_distance => {
+            show(s, net, world, SHOWN_AS, (text::BANDS[b].0, def.table));
         }
-    } else {
-        show(s, net, world, SHOWN_AS, (text::OUTSIDE, def.table));
+        Some(b) => bearings(s, net, world, u, def, (here, d), b),
+        None => show(s, net, world, SHOWN_AS, (text::OUTSIDE, def.table)),
     }
     let no = crate::places::use_refused(u, 0, Some(NOT_THERE_FLAGS), 0.0, NOT_THERE);
     progress::private(net, world, &no);
     crate::world::keep_player(s, world);
-    true
+}
+
+/// How far a map's place is, by its band, with a marker, and whether the player is going the right
+/// way since it last took its bearings.
+fn bearings<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    u: &Use,
+    def: &MapDef,
+    (here, d): (StoredPosition, f32),
+    b: usize,
+) {
+    let (sid, marker) = text::BANDS[b];
+    let band = (sid, def.table);
+    show(s, net, world, SHOWN_AS, band);
+    let m = session::call(
+        function::DISPLAY_MARKER,
+        &[
+            Arg::Int(MARKER_KIND),
+            Arg::LongInt(0),
+            Arg::Int(here.cell),
+            Arg::Int(marker),
+            crate::chat::text_arg(progress::text(band)),
+        ],
+    )
+    .expect("a marker packs");
+    progress::private(net, world, &m);
+    let bearing = s.things.get(u.item).and_then(|t| t.bearing);
+    let (said, take) = match bearing {
+        None => (text::FIRST, true),
+        Some((at, _)) if ground_distance(&at, &here) < STILL_WITHIN => (text::STILL, false),
+        Some((_, before)) => {
+            let t = progress_text(d - before);
+            (t, t != text::PROGRESS[3])
+        }
+    };
+    show(s, net, world, SHOWN_AS, (said, def.table));
+    if take {
+        if let Some(t) = s.things.get_mut(u.item) {
+            t.bearing = Some((here, d));
+        }
+    }
 }
 
 /// The map's place is found: the map's animation, the surveying skill's experience, the find
@@ -354,7 +427,7 @@ fn found<S: Store>(
     net: &mut ServerNet,
     world: ConnId,
     u: &Use,
-    def: &MapDef,
+    (def, node): (&MapDef, u32),
     me: u64,
     name: &str,
     clock: Clock,
@@ -402,11 +475,9 @@ fn found<S: Store>(
         None,
         clock,
     );
-    let clear =
-        session::call(function::CLEAR_MARKERS, &[Arg::Int(MARKER_KIND)]).expect("an integer packs");
-    progress::private(net, world, &clear);
+    clear_markers(net, world);
     crate::inventory::take_item(s, net, world, u.item, template);
     let done = crate::places::use_done(u, me, FOUND_FLAGS, false, 0.0);
     progress::private(net, world, &done);
-    crate::mining::conjure(s, net, world, def.node, true, clock);
+    crate::mining::conjure(s, net, world, node, true, clock);
 }

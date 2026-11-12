@@ -678,3 +678,128 @@ fn a_maps_find_lets_its_regions_map_recipes_be_drawn_again() {
         assert!(rec.use_again <= now, "{r:08X} may be drawn now");
     }
 }
+
+/// A treasure map: its use names an effect a world's row says places a chest, no surveyor's node.
+const TREASURE_MAP: u32 = 0x4700_141E;
+const SUMMON_CHEST: &str = "Eff_SummonTestCargoChest";
+const CARGO_CHEST: u32 = 0x4700_0F01;
+
+/// The world with a treasure map of the iron map's rectangle, telling the distance (`feedback` 2)
+/// or the direction (1), whose use places the cargo chest; a player holding one, as [`with_map`].
+fn treasure_world(feedback: u32) -> (Harness, usize, u64, yalain_net::ConnId, u64) {
+    let mut h = world();
+    let mut map = Props::default();
+    map.set("Usage_Effect1", Prop::Text(SUMMON_CHEST.into()))
+        .set(
+            "Usage_RequiredLocationTsysMin",
+            Prop::Place(MIN_CELL, [0.0; 3]),
+        )
+        .set(
+            "Usage_RequiredLocationTsysMax",
+            Prop::Place(MAX_CELL, [0.0; 3]),
+        )
+        .set("Usage_RequiredLocationRadius", Prop::Int(30))
+        .set("Usage_RequiredLocationFeedbackType", Prop::Word(feedback))
+        .set("Usage_ErrorMessagesTableID", Prop::Word(0x2500_1B52))
+        .set("Item_IsDestroyOnUse", Prop::Bool(true));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(TREASURE_MAP, 0x1BF8, map));
+    h.server.catalog.insert(yalain_testkit::test_template(
+        CARGO_CHEST,
+        0x0777,
+        Props::default(),
+    ));
+    h.server.effect_table.placings.insert(
+        SUMMON_CHEST.into(),
+        yalain_content::effect_rules::Placing {
+            template: CARGO_CHEST,
+            offset: [0.0, 2.0],
+            lasts: None,
+        },
+    );
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let world = *h.server.players.keys().next().expect("in");
+    let map = yalain_world::inventory::give(&mut h.server, &mut h.net, world, TREASURE_MAP, 1)
+        .expect("given");
+    h.run(3);
+    (h, b, me, world, map)
+}
+
+fn cargo_chests(h: &Harness) -> usize {
+    h.server
+        .things
+        .by_id
+        .values()
+        .filter(|t| t.template == CARGO_CHEST && t.at.is_some())
+        .count()
+}
+
+/// A map whose use names no surveyor's node leads to a place in its rectangle as a surveyor's map
+/// does: far from it, it is refused and tells how far, with a marker and its bearings, and makes
+/// nothing; within its radius the markers are cleared and its use goes on as any item's, placing
+/// what its effect's row places, the map spent.
+/// Behaviour: server.craft.map-leads-to-its-place-for-its-use
+#[test]
+fn a_map_that_conjures_no_node_is_used_only_at_its_place() {
+    let (mut h, b, me, world, map) = treasure_world(2);
+    let (gx, gy) = (0x80 as f32 * 160.0 + 50.0, 0x62 as f32 * 160.0 + 70.0);
+    h.server.things.get_mut(map).expect("map").destination = Some(maps::place_of(gx, gy));
+    stand(&mut h, world, gx + 150.0, gy);
+    let from = use_map(&mut h, b, me, map);
+    assert_eq!(
+        told(&h, b, from),
+        [
+            format!("text {:08X}", text::BANDS[1].0),
+            format!("marker {:08X}", text::BANDS[1].1),
+            format!("text {:08X}", text::FIRST),
+            format!("done {}", maps::NOT_THERE),
+        ]
+    );
+    assert_eq!(cargo_chests(&h), 0, "nothing made away from its place");
+    assert!(h.server.things.get(map).is_some(), "kept");
+    stand(&mut h, world, gx + 10.0, gy);
+    let from = use_map(&mut h, b, me, map);
+    let there = told(&h, b, from);
+    assert_eq!(
+        there.first().map(String::as_str),
+        Some("markers cleared"),
+        "{there:?}"
+    );
+    assert!(there.contains(&"done 0".to_string()), "{there:?}");
+    assert_eq!(cargo_chests(&h), 1, "its effect's row places the chest");
+    assert!(h.server.things.get(map).is_none(), "spent");
+}
+
+/// Such a map that tells the direction of its place says only how near it is, by its band's text
+/// in its own table, with no marker and no bearings.
+/// Behaviour: server.craft.map-leads-to-its-place-for-its-use
+#[test]
+fn a_map_that_tells_the_direction_says_only_how_near_its_place_is() {
+    let (mut h, b, me, world, map) = treasure_world(1);
+    let (dx, dy) = (0x80 as f32 * 160.0 + 50.0, 0x62 as f32 * 160.0 + 70.0);
+    h.server.things.get_mut(map).expect("map").destination = Some(maps::place_of(dx, dy));
+    stand(&mut h, world, dx + 150.0, dy);
+    let from = use_map(&mut h, b, me, map);
+    assert_eq!(
+        told(&h, b, from),
+        [
+            format!("text {:08X}", text::BANDS[1].0),
+            format!("done {}", maps::NOT_THERE),
+        ]
+    );
+    stand(&mut h, world, dx + 2000.0, dy);
+    let from = use_map(&mut h, b, me, map);
+    assert_eq!(
+        told(&h, b, from),
+        [
+            format!("text {:08X}", text::OUTSIDE),
+            format!("done {}", maps::NOT_THERE),
+        ]
+    );
+    stand(&mut h, world, dx + 10.0, dy);
+    let from = use_map(&mut h, b, me, map);
+    assert!(!told(&h, b, from).contains(&"markers cleared".to_string()));
+    assert_eq!(cargo_chests(&h), 1);
+}

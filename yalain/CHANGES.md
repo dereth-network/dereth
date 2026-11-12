@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Treasure maps and reckoning gems now lead to their spot and work only there.
 - Worlds can now have an object that opens the way for a while once it's given a set of items.
 - Worlds can now have levers that open doors for a while.
 - Fixed taking everything from a corpse also taking items your quest won't let you take.
