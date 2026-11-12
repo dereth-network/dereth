@@ -40,6 +40,7 @@ fn row(from: Dropper, chance: f32) -> DeathTreasure {
         from,
         item: TREASURE,
         chance,
+        requires: None,
         placed: "authored for a test".into(),
         confidence: "authored".into(),
     }
@@ -166,6 +167,24 @@ fn creatures_without_a_death_treasure_leave_what_they_did_before() {
     let mut own = held.clone();
     assert_eq!(own.pop(), Some((TREASURE, 0)), "its treasure, last");
     assert_eq!(&own, &plain[id], "its own loot as without the row");
+}
+
+/// A row that names a quest is a chest's alone: a creature of its template never leaves it, at a
+/// chance of 1, over 50 kills.
+/// Behaviour: server.loot.death-treasure-for-a-quest-not-a-creatures
+#[test]
+fn a_creature_never_leaves_a_death_treasure_that_names_a_quest() {
+    let gated = DeathTreasure {
+        requires: Some(yalain_content::QuestGate {
+            quest: 0x4000_0D6D,
+            status: yalain_world::quests::status::UNDERWAY,
+        }),
+        ..row(Dropper::Template(TEST_CREATURE), 1.0)
+    };
+    let mut h = camp_world(5, 1.0, vec![gated], 13);
+    let (corpses, died) = rounds(&mut h, 10);
+    assert_eq!((died, corpses.len()), (50, 50), "a corpse for every death");
+    assert_eq!(holding(&corpses), 0);
 }
 
 /// A camp's row gives its own creatures its treasure and no other camp's, though they are of one

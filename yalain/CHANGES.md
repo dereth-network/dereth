@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Worlds can now put a quest's item in a chest.
 - Worlds can now say what an effect places in the world.
 - Worlds can now keep a shared count that players' errands fill.
 - Quests whose name the game files lack now show a readable name.

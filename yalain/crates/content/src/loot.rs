@@ -4,8 +4,9 @@
 //! are not in this table. Every row says where it came from.
 //!
 //! Beside the profiles, the death treasures: a fixed item that every creature or chest of a
-//! template, or every creature a camp keeps, leaves at a chance of its own; and the values a
-//! treasure item a creature leaves draws its own value from, by the creature's level.
+//! template, or every creature a camp keeps, leaves at a chance of its own (a chest's, for its
+//! opener alone while a quest is where it needs it); and the values a treasure item a creature
+//! leaves draws its own value from, by the creature's level.
 //!
 //! The text form is tab-separated, one profile per line; the death treasures follow under a header
 //! of their own, one a line, then the pools and the values, each under a line of its own.
@@ -69,6 +70,9 @@ pub struct DeathTreasure {
     pub item: u32,
     /// The chance it is left, from above 0 to 1.
     pub chance: f32,
+    /// The quest a chest's opener must hold, and where, for the chest to hold it at that opening
+    /// (whether or not a key paid for it); a creature never leaves one that names a quest.
+    pub requires: Option<crate::QuestGate>,
     pub placed: String,
     pub confidence: String,
 }
@@ -102,7 +106,14 @@ pub const COLUMNS: [&str; 7] = [
 ];
 
 /// The death treasures' columns, in order; their header line starts their part of the text.
-pub const TREASURE_COLUMNS: [&str; 5] = ["treasure from", "item", "chance", "placed", "confidence"];
+pub const TREASURE_COLUMNS: [&str; 6] = [
+    "treasure from",
+    "item",
+    "chance",
+    "placed",
+    "confidence",
+    "requires",
+];
 
 fn hex(s: &str) -> Result<u32, String> {
     u32::from_str_radix(s, 16).map_err(|e| format!("{s}: {e}"))
@@ -173,11 +184,12 @@ impl LootTable {
                 };
                 let _ = writeln!(
                     out,
-                    "{from}\t{:08X}\t{}\t{}\t{}",
+                    "{from}\t{:08X}\t{}\t{}\t{}\t{}",
                     t.item,
                     t.chance,
                     t.placed.replace(['\t', '\n'], " "),
-                    t.confidence
+                    t.confidence,
+                    t.requires.map_or_else(String::new, |g| g.to_text())
                 );
             }
         }
@@ -263,6 +275,11 @@ impl LootTable {
             from,
             item: hex(c[1])?,
             chance: c[2].parse::<f32>().map_err(|e| format!("{}: {e}", c[2]))?,
+            requires: if c[5].is_empty() {
+                None
+            } else {
+                Some(crate::QuestGate::from_text(c[5])?)
+            },
             placed: c[3].to_string(),
             confidence: c[4].to_string(),
         })

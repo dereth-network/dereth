@@ -1402,6 +1402,7 @@ fn a_chests_death_treasure_comes_only_with_an_opening_its_key_paid_for() {
             from: yalain_content::Dropper::Template(template),
             item: TREASURE,
             chance: 1.0,
+            requires: None,
             placed: "authored for a test".into(),
             confidence: "authored".into(),
         }];
@@ -1453,4 +1454,118 @@ fn a_chests_death_treasure_comes_only_with_an_opening_its_key_paid_for() {
         [0, 0, 0],
         "no key"
     );
+}
+
+/// What an open chest holds of a template.
+fn held_of(h: &Harness, template: u32) -> Vec<u64> {
+    h.server.chests.by_id[&CHEST]
+        .contents
+        .iter()
+        .copied()
+        .filter(|i| {
+            h.server
+                .things
+                .get(*i)
+                .is_some_and(|t| t.template == template && t.container == Some(CHEST))
+        })
+        .collect()
+}
+
+/// A chest's death treasure that names a quest is in the chest for an opener whose quest is where
+/// it needs it, at every such opening, though no key opens the chest: a chest with no draw and no
+/// lock holds nothing for a player without the quest; with the quest at its phase it holds the item
+/// at each opening, the one left from before cleared, so one is in the world at a time; taken, and
+/// the quest moved on as its taking moves it, the next opening holds nothing, and the one taken
+/// stays in the pack.
+/// Behaviour: server.places.chest-holds-a-quests-item
+#[test]
+fn a_chest_holds_a_quests_item_for_its_opener_only_while_the_quest_is_where_it_needs_it() {
+    const PIECE: u32 = 0x4700_0F23;
+    const QUEST: u32 = 0x4000_0D6D;
+    let mut h = hall(SMALL, false, false);
+    // No draw of its own and no lock, as a quest's chest is.
+    h.server.catalog.insert(yalain_testkit::test_template(
+        SMALL,
+        PACKAGE,
+        Props::default(),
+    ));
+    h.server.catalog.insert(yalain_testkit::test_template(
+        PIECE,
+        0x3A1,
+        Props::default(),
+    ));
+    h.server.loot.treasures = vec![yalain_content::DeathTreasure {
+        from: yalain_content::Dropper::Template(SMALL),
+        item: PIECE,
+        chance: 1.0,
+        requires: Some(yalain_content::QuestGate {
+            quest: QUEST,
+            status: yalain_world::quests::status::UNDERWAY | 1,
+        }),
+        placed: "authored for a test".into(),
+        confidence: "authored".into(),
+    }];
+    let (a, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let world = *h.server.players.keys().next().expect("in");
+    send_use(&mut h, a, me, CHEST, 0, 4.0);
+    assert_eq!(
+        held_of(&h, PIECE),
+        Vec::<u64>::new(),
+        "nothing without the quest"
+    );
+    close(&mut h, a, 3.0);
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("in")
+        .play
+        .quests
+        .push(yalain_world::state::QuestState {
+            quest: QUEST,
+            status: yalain_world::quests::status::UNDERWAY,
+            phase: 1,
+            started: 0,
+            updated: 0,
+        });
+    send_use(&mut h, a, me, CHEST, 0, 4.0);
+    let first = held_of(&h, PIECE);
+    assert_eq!(first.len(), 1, "at its phase");
+    close(&mut h, a, 3.0);
+    send_use(&mut h, a, me, CHEST, 0, 4.0);
+    let again = held_of(&h, PIECE);
+    assert_eq!(again.len(), 1, "again at the next opening");
+    assert_ne!(again, first, "made anew");
+    assert!(
+        h.server.things.get(first[0]).is_none(),
+        "the one left before is gone from the world"
+    );
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            yalain_world::pack::function::TAKE_ALL,
+            &[take_all_request(CHEST, me)],
+        ),
+    );
+    run_for(&mut h, 3.0);
+    let pack = |h: &Harness| -> Vec<u64> {
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .filter(|i| i.template == PIECE)
+            .map(|i| i.id)
+            .collect()
+    };
+    assert_eq!(pack(&h), again, "taken into the pack");
+    h.server.players.get_mut(&world).expect("in").play.quests[0].phase = 2;
+    close(&mut h, a, 3.0);
+    send_use(&mut h, a, me, CHEST, 0, 4.0);
+    assert_eq!(
+        held_of(&h, PIECE),
+        Vec::<u64>::new(),
+        "nothing once the quest has moved on"
+    );
+    assert_eq!(pack(&h), again, "the one taken is kept");
 }

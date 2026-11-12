@@ -796,8 +796,8 @@ fn corpse_profile<S: Store>(s: &mut Server<S>, creature: &Thing) -> Vec<u32> {
 }
 
 /// The death treasures a creature leaves: each of its template's and its camp's rolled once at its
-/// chance, each item once; none for a creature no camp keeps. Nothing is drawn for a creature with
-/// no row.
+/// chance, each item once; none for a creature no camp keeps, and none that names a quest (a
+/// chest's alone). Nothing is drawn for a creature with no row.
 fn death_treasures<S: Store>(s: &mut Server<S>, creature: &Thing) -> Vec<u32> {
     let Some(camp) = creature
         .creature
@@ -811,6 +811,7 @@ fn death_treasures<S: Store>(s: &mut Server<S>, creature: &Thing) -> Vec<u32> {
     let rows: Vec<(u32, f32)> = s
         .loot
         .treasures_of(creature.template, Some(&camp))
+        .filter(|t| t.requires.is_none())
         .map(|t| (t.item, t.chance))
         .collect();
     let mut out: Vec<u32> = Vec::new();

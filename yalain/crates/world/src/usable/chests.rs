@@ -22,7 +22,11 @@
 //! **Death treasures.** A world's fixed item for a chest's template is rolled once at its chance at
 //! an opening its key paid for: a key used up on the chest pays for its next opening alone. A chest
 //! is filled anew at every opening, with no wait, so this is what holds its treasure to its chance;
-//! a chest no key opens never holds one.
+//! a chest no key opens never holds one. One that names a quest is rolled instead at every opening
+//! whose opener holds that quest where it needs it, a key or none: so a quest's item is in the chest
+//! for its opener alone at each such opening, and gone from the next once the quest has moved on
+//! (2017: a chest whose kind names a quest for taking, opened with that quest at its first phase,
+//! held the quest's item; taken, the quest moved on).
 //!
 //! **Quests.** A chest a quest keeps refuses at once a player whose quest is not at the phase it
 //! names, or, for a chest whose kind needs its quest able to be given, a player who may not be given
@@ -510,21 +514,39 @@ pub fn key_at_chest<S: Store>(
 
 /// What a chest holds at an opening: its profile's extras and its draw, at most its size; each with
 /// the worth and level it holds of its own, if its profile's row says; and, at an opening its key
-/// paid for, its death treasures, which its size never pushes out.
-fn fill<S: Store>(s: &mut Server<S>, kind: &Kind, paid: bool) -> Vec<(u32, Option<(u32, i32)>)> {
+/// paid for, its death treasures, and at one whose opener holds a treasure's quest where it needs
+/// it, that treasure; neither is ever pushed out by its size.
+fn fill<S: Store>(
+    s: &mut Server<S>,
+    kind: &Kind,
+    paid: bool,
+    opener: ConnId,
+    clock: Clock,
+) -> Vec<(u32, Option<(u32, i32)>)> {
     let mut out = profile_fill(s, kind.profile, kind.most);
-    if paid {
-        let rows: Vec<(u32, f32)> = s
-            .loot
-            .treasures_of(kind.template, None)
-            .map(|t| (t.item, t.chance))
-            .collect();
-        let mut treasures: Vec<u32> = Vec::new();
-        for (item, chance) in rows {
-            if !treasures.contains(&item) && s.rng.chance(chance) {
-                treasures.push(item);
+    let held = s
+        .players
+        .get(&opener)
+        .map_or(&[][..], |p| p.play.quests.as_slice());
+    let rows: Vec<(u32, f32)> = s
+        .loot
+        .treasures_of(kind.template, None)
+        .filter(|t| match t.requires {
+            None => paid,
+            Some(g) => {
+                let retry = s.quests.quest(g.quest).map_or(0.0, |d| d.retry);
+                crate::item_use::quest_refusal(held, g.quest, g.status, retry, clock.unix).is_none()
             }
+        })
+        .map(|t| (t.item, t.chance))
+        .collect();
+    let mut treasures: Vec<u32> = Vec::new();
+    for (item, chance) in rows {
+        if !treasures.contains(&item) && s.rng.chance(chance) {
+            treasures.push(item);
         }
+    }
+    if !treasures.is_empty() {
         let most = kind.most.unwrap_or(usize::MAX);
         out.truncate(most.saturating_sub(treasures.len()));
         out.extend(treasures.into_iter().map(|t| (t, None)));
@@ -620,7 +642,7 @@ fn open<S: Store>(
         .is_some_and(|c| std::mem::take(&mut c.paid));
     // What it held before is gone or elsewhere: it is filled anew, in its order.
     s.chests.by_id.entry(id).or_default().contents.clear();
-    for (template, own) in fill(s, kind, paid) {
+    for (template, own) in fill(s, kind, paid, waiting.world, clock) {
         let value = own.map_or(0, |(value, _)| value);
         if let Some(item) = crate::inventory::make_item(s, template, 1, value) {
             if let Some((_, level)) = own {

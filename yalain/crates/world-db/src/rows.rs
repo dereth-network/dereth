@@ -989,6 +989,10 @@ pub struct DeathTreasure {
     pub camp: Option<String>,
     pub item: u32,
     pub chance: f32,
+    /// The quest a chest's opener must hold, and where, for the chest to hold it at that opening:
+    /// `{ quest, phase }`, `{ quest, underway = true }`, `{ quest, done = true }` or
+    /// `{ quest, had = true }`.
+    pub requires: Option<(u32, Gate)>,
     pub prov: Prov,
 }
 
@@ -1711,7 +1715,9 @@ pub const FIELDS: [(&str, &[&str]); 59] = [
     ("pet_limit", &["skill", "limits", "prov"]),
     (
         "death_treasure",
-        &["key", "template", "camp", "item", "chance", "prov"],
+        &[
+            "key", "template", "camp", "item", "chance", "requires", "prov",
+        ],
     ),
     (
         "treasure_pool",
@@ -3415,12 +3421,21 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 f.bad("chance", "a chance is a number above 0, at most 1");
                 return None;
             }
+            let requires = f.gate("requires");
+            if requires.is_some() && camp.is_some() {
+                f.bad(
+                    "requires",
+                    "a death treasure for a quest is a chest's: name the chest's template, not a camp",
+                );
+                return None;
+            }
             Row::DeathTreasure(DeathTreasure {
                 key,
                 template,
                 camp,
                 item: f.req_id("item")?,
                 chance,
+                requires,
                 prov: f.req_prov()?,
             })
         }

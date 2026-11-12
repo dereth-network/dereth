@@ -1589,6 +1589,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.content.death-treasure-for-a-quest-row",
+        says: "A chest's death treasure row may name the quest its opener must hold, and where, as an \
+               object's `requires` does; it compiles into the loot table, which reads back as written; a \
+               camp's row may not name one, and a quest with no row is warned of.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DEATH-TREASURE-QUEST-ROW"),
+        station: "yalain-world-db::cpu::database::a_death_treasure_row_may_name_the_quest_a_chests_opener_must_hold",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.content.death-treasure-row",
         says: "A death treasure row names a template or a camp, an item and a chance above 0 and at most 1; it compiles into the loot table, which reads back as written, and no creature or chest is given one item by two rows.",
         since: RETAIL,
@@ -7431,6 +7441,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.death-treasure-for-a-quest-not-a-creatures",
+        says: "A death treasure row that names a quest is a chest's alone: a creature of its template never leaves it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DEATH-TREASURE-QUEST-CHEST-ONLY"),
+        station: "yalain-testkit::cpu::play::death_treasures::a_creature_never_leaves_a_death_treasure_that_names_a_quest",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.death-treasure-in-the-catalog",
         says: "The server's catalog holds every item a death treasure names, though no camp or loot profile names it.",
         since: RETAIL,
@@ -11488,6 +11506,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CHEST-QUEST-GIVABLE"),
         station: "yalain-testkit::cpu::play::chests::a_chest_needing_its_quest_able_to_be_given_opens_for_one_who_may_be_given_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.chest-holds-a-quests-item",
+        says: "A chest's death treasure that names a quest is in the chest at every opening whose opener \
+               holds the quest where it needs it, though no key opened it, the one left from before \
+               cleared; it is not there for a player without the quest, nor once the quest has moved on.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHEST-QUEST-ITEM"),
+        station: "yalain-testkit::cpu::play::chests::a_chest_holds_a_quests_item_for_its_opener_only_while_the_quest_is_where_it_needs_it",
         tier: Tier::Cpu,
     },
     behaviour! {

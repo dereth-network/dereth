@@ -311,6 +311,19 @@ pub fn heading_rotation(degrees: f32) -> [f32; 4] {
 const QUEST_COMPLETED: u32 = 0x3000_0000;
 const QUEST_UNDERWAY: u32 = 0x1000_0000;
 
+/// A row's `requires` as the gate the server judges, its status written as a template's is.
+const fn quest_gate((quest, g): (u32, Gate)) -> yalain_content::QuestGate {
+    yalain_content::QuestGate {
+        quest,
+        status: match g {
+            Gate::Done => QUEST_COMPLETED,
+            Gate::UnderWay => QUEST_UNDERWAY,
+            Gate::Phase(n) => QUEST_UNDERWAY | n,
+            Gate::Had => yalain_content::QuestGate::HAD,
+        },
+    }
+}
+
 const fn pair(r: StrRef) -> (u32, u32) {
     (r.string, r.table)
 }
@@ -742,15 +755,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         None => continue,
                     },
                 };
-                let gate = o.requires.map(|(quest, g)| yalain_content::QuestGate {
-                    quest,
-                    status: match g {
-                        Gate::Done => QUEST_COMPLETED,
-                        Gate::UnderWay => QUEST_UNDERWAY,
-                        Gate::Phase(n) => QUEST_UNDERWAY | n,
-                        Gate::Had => yalain_content::QuestGate::HAD,
-                    },
-                });
+                let gate = o.requires.map(quest_gate);
                 if let Some((quest, _)) = o.requires {
                     if !quest_rows.contains(&quest) {
                         cx.warn(
@@ -2013,7 +2018,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             None => {}
         }
     }
-    death_treasures(merged, &camp_keys, &mut t, &mut cx);
+    death_treasures(merged, (&camp_keys, &quest_rows), &mut t, &mut cx);
     subquest_definitions(&mut t.quests, install);
     t.quests.rooms = rooms.into_values().collect();
     t.treasure = treasure_rows(merged);
@@ -2146,10 +2151,11 @@ pub fn treasure_warnings(merged: &Merged) -> Vec<Problem> {
 
 /// The death treasures, once every camp has its id in the spawn table: each names what is in the
 /// install and a camp that is served, and no creature or chest is given one item by two rows (a
-/// camp's row and its creatures' template's among them).
+/// camp's row and its creatures' template's among them). One a quest gates names a quest a row
+/// defines, or is warned of.
 fn death_treasures(
     merged: &Merged,
-    camp_keys: &BTreeMap<&str, usize>,
+    (camp_keys, quest_rows): (&BTreeMap<&str, usize>, &std::collections::BTreeSet<u32>),
     t: &mut Tables,
     cx: &mut Ctx<'_>,
 ) {
@@ -2190,6 +2196,14 @@ fn death_treasures(
             }
             (None, None) => continue,
         };
+        if let Some((quest, _)) = r.requires {
+            if !quest_rows.contains(&quest) {
+                cx.warn(
+                    l,
+                    format!("requires: quest {quest:08X} has no row, so no player ever holds it"),
+                );
+            }
+        }
         if ok {
             rows.push((
                 l,
@@ -2197,6 +2211,7 @@ fn death_treasures(
                     from,
                     item: r.item,
                     chance: r.chance,
+                    requires: r.requires.map(quest_gate),
                     placed: prov_text(&r.prov),
                     confidence: confidence_word(&r.prov),
                 },

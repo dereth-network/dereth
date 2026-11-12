@@ -2910,6 +2910,7 @@ mod tests {
                 from: yalain_content::Dropper::Template(0x4700_2C30),
                 item: ITEM,
                 chance: 0.5,
+                requires: None,
                 placed: "authored for a test".into(),
                 confidence: "authored".into(),
             }],

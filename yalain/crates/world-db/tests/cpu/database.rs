@@ -3736,6 +3736,87 @@ fn a_death_treasure_row_names_a_template_or_a_camp_and_compiles_into_the_loot_ta
     }
 }
 
+/// A chest's death treasure row may name the quest its opener must hold, and where (`requires`, as
+/// an object's): it compiles into the loot table with that gate, which reads back as written; a
+/// camp's may not; one whose quest has no row is warned of.
+/// Behaviour: server.content.death-treasure-for-a-quest-row
+#[test]
+fn a_death_treasure_row_may_name_the_quest_a_chests_opener_must_hold() {
+    use yalain_content::{LootTable, QuestGate};
+    let row = |dropper: &str, requires: &str| {
+        format!(
+            "[[death_treasure]]\nkey = \"piece\"\n{dropper}\nitem = 0x47000001\nchance = 1.0\n\
+             requires = {requires}\nprov = {{ from = \"authored\", note = \"a test\" }}\n"
+        )
+    };
+    let with = |text: String| {
+        let mut files = fixture();
+        files.insert("town-fixes/server/death_treasures.toml".into(), text);
+        files
+    };
+    for (requires, status) in [
+        ("{ quest = 0x40000088, phase = 1 }", 0x1000_0001),
+        ("{ quest = 0x40000088, underway = true }", 0x1000_0000),
+        ("{ quest = 0x40000088, done = true }", 0x3000_0000),
+    ] {
+        let files = with(row("template = 0x47002224", requires));
+        assert_eq!(check(&files), Vec::new(), "{requires}");
+        let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+        assert_eq!(
+            t.loot
+                .treasures
+                .iter()
+                .map(|d| d.requires)
+                .collect::<Vec<_>>(),
+            [Some(QuestGate {
+                quest: 0x4000_0088,
+                status
+            })],
+            "{requires}"
+        );
+        assert!(
+            !t.warnings
+                .iter()
+                .any(|w| w.to_string().contains("requires")),
+            "{:?}",
+            t.warnings
+        );
+        assert_eq!(
+            LootTable::from_text(&t.loot.to_text()).unwrap(),
+            t.loot,
+            "it reads back as written"
+        );
+    }
+    let problems = check(&with(row(
+        "camp = \"town:beetles@77B7\"",
+        "{ quest = 0x40000088, phase = 1 }",
+    )));
+    assert!(
+        problems.iter().any(|p| p.to_string().contains("a chest's")),
+        "{problems:?}"
+    );
+    let problems = check(&with(row(
+        "template = 0x47002224",
+        "{ quest = 0x40000088 }",
+    )));
+    assert!(
+        problems.iter().any(|p| p.to_string().contains("requires")),
+        "a gate with no status: {problems:?}"
+    );
+    let files = with(row(
+        "template = 0x47002224",
+        "{ quest = 0x40009999, phase = 1 }",
+    ));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert!(
+        t.warnings
+            .iter()
+            .any(|w| w.to_string().contains("quest 40009999 has no row")),
+        "{:?}",
+        t.warnings
+    );
+}
+
 #[test]
 fn treasure_pools_and_a_profiles_draws_compile_and_bad_ones_are_problems() {
     let with = |pools: &str, loot: &str| {
