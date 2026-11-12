@@ -65,9 +65,9 @@ pub struct QuestDefinition {
     pub once: bool,
     /// How a kill's move on it reaches the killer's fellows, as its package's setup says.
     pub fellows: yalain_content::quests::Fellows,
-    /// Its last phase waits for something other than a kill to end it: the phase's range is more
-    /// than one.
-    pub last_waits: bool,
+    /// The range each phase is counted in, from the first (empty: every phase's is 1), as the
+    /// definition's phases say.
+    pub ranges: Vec<u32>,
     /// The least level a player is given it at (0: any), as its package's setup says.
     pub min_level: i32,
     /// Given only to heroes, as its package's setup says.
@@ -507,7 +507,7 @@ fn subquest_definitions(quests: &mut yalain_content::QuestTable, install: &dyn I
             fails_on_death: false,
             once: def.once,
             fellows: def.fellows,
-            last_waits: def.last_waits,
+            ranges: def.ranges,
             hero_only: def.hero_only,
             required: def.required,
             pay: yalain_content::quests::CompletionPay::default(),
@@ -1158,7 +1158,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                             near_by: true,
                         },
                     },
-                    last_waits: def.last_waits,
+                    ranges: def.ranges,
                     hero_only: def.hero_only,
                     required: def.required,
                     pay: yalain_content::quests::CompletionPay {

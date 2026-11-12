@@ -151,7 +151,7 @@ fn a_vaults_shard_completes_its_quest_as_the_player_comes_out() {
         fails_on_death: false,
         once: false,
         fellows: yalain_content::quests::Fellows::default(),
-        last_waits: false,
+        ranges: Vec::new(),
         hero_only: false,
         pay: yalain_content::quests::CompletionPay {
             points: 400,

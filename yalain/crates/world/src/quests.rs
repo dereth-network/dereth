@@ -1126,13 +1126,14 @@ pub const KILL_LEVELS: i32 = 10;
 /// A creature died with its kill credited to a player: the steps the kill triggers run for the
 /// killer (those of its template, then those of the one camp that made it, each quest moved at most
 /// once), then the template's quest effects on each quest no step moved, then on the killer's
-/// fellows the effects whose quests reach them.
+/// fellows the effects whose quests reach them. Each effect names with its stat the range of its
+/// quest's phases it moves.
 pub fn killed<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     killer: ConnId,
     (creature, template, camp): (u64, u32, Option<usize>),
-    effects: &[String],
+    effects: &[(String, u32)],
     clock: Clock,
 ) {
     let mut moved = Vec::new();
@@ -1143,21 +1144,21 @@ pub fn killed<S: Store>(
         let trigger = Trigger::KillIn(template, camp);
         run_triggered(s, net, killer, trigger, who, None, clock, &mut moved);
     }
-    let named: Vec<QuestEffect> = effects
+    let named: Vec<(QuestEffect, u32)> = effects
         .iter()
-        .filter_map(|n| effect_named(n, |q| s.quest_ids.get(q).copied()))
+        .filter_map(|(n, range)| Some((effect_named(n, |q| s.quest_ids.get(q).copied())?, *range)))
         .collect();
     if named.is_empty() {
         return;
     }
-    for e in named.iter().filter(|e| !moved.contains(&e.quest)) {
-        moves(s, net, killer, *e, true, clock);
+    for (e, range) in named.iter().filter(|(e, _)| !moved.contains(&e.quest)) {
+        moves_by_kill(s, net, killer, *e, *range, true, clock);
     }
     let fellows = crate::fellowship::fellows_in_world(s, killer);
     for w in fellows {
-        for e in &named {
+        for (e, range) in &named {
             if reaches(s, *e, killer, w) {
-                moves(s, net, w, *e, false, clock);
+                moves_by_kill(s, net, w, *e, *range, false, clock);
             }
         }
     }
@@ -1241,7 +1242,37 @@ pub fn moves<S: Store>(
     told: bool,
     clock: Clock,
 ) {
-    match decide(s, world, e, clock) {
+    let decision = decide(s, world, e, None, clock);
+    carry_out(s, net, world, e, decision, told, clock);
+}
+
+/// A kill's quest effect on a player, as [`moves`] but for its increment: that moves only a phase
+/// of the range its creature's death names (`range`, the effect's stat), and from the last phase of
+/// that range ends the quest. A phase of another range is counted by other kills, or waits for
+/// something other than a kill.
+fn moves_by_kill<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    e: QuestEffect,
+    range: u32,
+    told: bool,
+    clock: Clock,
+) {
+    let decision = decide(s, world, e, Some(range), clock);
+    carry_out(s, net, world, e, decision, told, clock);
+}
+
+fn carry_out<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    e: QuestEffect,
+    decision: Decision,
+    told: bool,
+    clock: Clock,
+) {
+    match decision {
         Decision::Moves(up) => apply(s, net, world, e.quest, up, 0, clock),
         Decision::Fails => fail(s, net, world, e.quest, clock),
         Decision::Refused(def, why) => refuse(s, net, world, &def, why, told, clock),
@@ -1254,7 +1285,7 @@ pub fn moves<S: Store>(
 #[must_use]
 pub fn would_move<S: Store>(s: &Server<S>, world: ConnId, e: QuestEffect, clock: Clock) -> bool {
     matches!(
-        decide(s, world, e, clock),
+        decide(s, world, e, None, clock),
         Decision::Moves(_) | Decision::Fails
     )
 }
@@ -1268,7 +1299,15 @@ enum Decision {
     Nothing,
 }
 
-fn decide<S: Store>(s: &Server<S>, world: ConnId, e: QuestEffect, clock: Clock) -> Decision {
+/// What a quest effect does to a player's quest now; an increment of a kill's moves only a phase of
+/// its `range`.
+fn decide<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    e: QuestEffect,
+    range: Option<u32>,
+    clock: Clock,
+) -> Decision {
     let Some(def) = s.quests.quest(e.quest) else {
         return Decision::Nothing;
     };
@@ -1303,8 +1342,11 @@ fn decide<S: Store>(s: &Server<S>, world: ConnId, e: QuestEffect, clock: Clock) 
             }
         }
         _ if phase == 0 => return Decision::Nothing,
+        Move::Increment if range.is_some_and(|r| def.range(phase) != r) => {
+            return Decision::Nothing;
+        }
         Move::Increment if phase < last => Update::Advance(phase + 1),
-        Move::Increment if def.last_waits => return Decision::Nothing,
+        Move::Increment if range.is_none() && def.last_waits() => return Decision::Nothing,
         Move::Increment => Update::Complete,
         Move::Advance(n) if n == phase + 1 => Update::Advance(n),
         Move::Advance(_) => return Decision::Nothing,

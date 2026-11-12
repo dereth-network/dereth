@@ -16,9 +16,9 @@
 //!   ANY 1 when one of them is enough, joined by `,`), the least level it is given at (0 for any),
 //!   whether it fails when its player dies (0/1), whether it is given only once (0/1), how a kill's
 //!   move on it reaches the killer's fellows (added up: 1 it does, 2 only those near the killer's
-//!   level, 4 only those near the killer), whether its last phase waits for something other than
-//!   a kill to end it (0/1), the one phase its duration runs in (0 or left out: all of them), and
-//!   the wait after a cancel in seconds (empty: the rule's);
+//!   level, 4 only those near the killer), the range each phase is counted in from the first
+//!   (joined by `,`; empty: every phase's is 1), the one phase its duration runs in (0 or left out:
+//!   all of them), and the wait after a cancel in seconds (empty: the rule's);
 //! - `step`: quest, the phase it needs (0: the quest not under way), the trigger (`use:TEMPLATE`,
 //!   `useon:ITEM:TARGET`, `give:ITEM:TARGET`, `arrive:TEMPLATE`, `take:TEMPLATE`, `kill:TEMPLATE`, `done:QUEST`, `given:QUEST`), the giver's line
 //!   (`string:table`, `=` and literal text, or empty), the update (`bestow`, `advance:N`, `complete`), experience, items
@@ -83,9 +83,11 @@ pub struct QuestDef {
     pub once: bool,
     /// How a kill's move on it reaches the killer's fellows.
     pub fellows: Fellows,
-    /// Its last phase waits for something other than a kill to end it (a phase that reads "return
-    /// to" someone).
-    pub last_waits: bool,
+    /// The range each phase is counted in, from the first (empty, or a phase past its end: 1). A
+    /// kill moves only a phase of the range its creature's death names, and ends the quest from a
+    /// last phase of that range; a phase of another range waits for something else (a phase that
+    /// reads "return to" someone, or one that is given an item).
+    pub ranges: Vec<u32>,
     /// Given only to heroes.
     pub hero_only: bool,
     /// How its completion's experience is worked out, beyond its own amount.
@@ -93,6 +95,25 @@ pub struct QuestDef {
     /// A quest a player is to have at a status to be given it: the status as its update names it (a
     /// status, or under way at a phase).
     pub required: Option<(u32, u32)>,
+}
+
+impl QuestDef {
+    /// The range a phase is counted in (1 where the definition names none).
+    #[must_use]
+    pub fn range(&self, phase: u32) -> u32 {
+        phase
+            .checked_sub(1)
+            .and_then(|i| self.ranges.get(usize::try_from(i).ok()?))
+            .copied()
+            .unwrap_or(1)
+    }
+
+    /// Its last phase waits for something other than a move on to end it: its range isn't 1.
+    #[must_use]
+    pub fn last_waits(&self) -> bool {
+        let last = u32::try_from(self.journals.len()).unwrap_or(u32::MAX);
+        self.range(last) != 1
+    }
 }
 
 /// A status a required quest is to be in when its setup names none: completed.
@@ -583,7 +604,11 @@ impl QuestTable {
                 u8::from(q.fails_on_death),
                 u8::from(q.once),
                 q.fellows.word(),
-                u8::from(q.last_waits),
+                q.ranges
+                    .iter()
+                    .map(u32::to_string)
+                    .collect::<Vec<_>>()
+                    .join(","),
                 u8::from(q.hero_only),
                 q.required
                     .map_or_else(String::new, |(q, st)| format!("{q:08X}:{st:08X}")),
@@ -820,7 +845,15 @@ impl QuestTable {
                         Some(v) if !v.is_empty() => Fellows::of_word(num(v).map_err(at)?),
                         _ => Fellows::default(),
                     },
-                    last_waits: c.get(20) == Some(&"1"),
+                    ranges: c
+                        .get(20)
+                        .copied()
+                        .unwrap_or("")
+                        .split(',')
+                        .filter(|x| !x.is_empty())
+                        .map(num)
+                        .collect::<Result<_, _>>()
+                        .map_err(at)?,
                     hero_only: c.get(21) == Some(&"1"),
                     required: match c.get(22) {
                         Some(v) if !v.is_empty() => Some(pair(v).map_err(at)?),

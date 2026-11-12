@@ -256,7 +256,7 @@ impl Install for Fake {
             subquests: Vec::new(),
             once: false,
             fellows: self.fellows,
-            last_waits: false,
+            ranges: Vec::new(),
             min_level: self.min_level,
             hero_only: false,
             monarch_only: false,

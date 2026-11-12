@@ -1145,7 +1145,7 @@ fn a_kill_sends_the_updates_recorded_kills_were_sent() {
             },
             (0, update::ADVANCE) => (Some((kind & 0xFFFF) - 1), *moves),
             // A last phase that waits is ended by someone used, not by a kill.
-            (0, update::COMPLETE) if t.quests.quest(quest).is_some_and(|d| d.last_waits) => {
+            (0, update::COMPLETE) if t.quests.quest(quest).is_some_and(|d| d.last_waits()) => {
                 continue
             }
             (0, update::COMPLETE) => (Some(last), *moves),
@@ -1194,7 +1194,7 @@ fn a_kill_sends_the_updates_recorded_kills_were_sent() {
     assert!(wrong.is_empty(), "{:08X?}", &wrong[..wrong.len().min(6)]);
     // A last phase that waits: the first kill quest of the people's is told nothing more.
     let waits = 0x8000_00B7;
-    assert!(t.quests.quest(waits).is_some_and(|d| d.last_waits));
+    assert!(t.quests.quest(waits).is_some_and(|d| d.last_waits()));
     let last = t.quests.quest(waits).expect("a row").journals.len();
     let last = u32::try_from(last).expect("a few phases");
     for p in h.server.players.values_mut() {
@@ -1580,7 +1580,7 @@ fn the_death_spawns_name_creatures() {
     assert!(sentry
         .death_effects
         .iter()
-        .any(|e| t.death_spawns.contains_key(e)));
+        .any(|(e, _)| t.death_spawns.contains_key(e)));
 }
 
 /// A Gauntlet: its band's use of the Master gives it, the Portal sends to the first arena, each kill
@@ -3628,7 +3628,7 @@ fn an_ulkas_mine_is_given_by_a_guard_after_its_toll_and_its_last_gem_ends_the_to
                 &mut h.net,
                 world,
                 (0, guard, None),
-                &[effect.to_string()],
+                &[(effect.to_string(), 1)],
                 clock,
             );
             h.run(2);

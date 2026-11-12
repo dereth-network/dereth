@@ -385,6 +385,7 @@ impl Install for DatInstall<'_> {
             }
         }
         phases.sort_by_key(|(p, _)| *p);
+        ranges.sort_by_key(|(p, _)| *p);
         subquests.sort_by_key(|p| p.phase);
         // The effects each kind of update puts on: a list of effect records by the kind.
         let mut effects = Vec::new();
@@ -410,12 +411,16 @@ impl Install for DatInstall<'_> {
             }
         }
         effects.sort_by_key(|(k, _, _)| *k);
-        // A last phase of one kill's range ends the quest as it is moved on; one of any other range
-        // waits for a use to end it (its journal says so: "Return to ...", "Report ...").
-        let last_waits = ranges
-            .iter()
-            .max_by_key(|(p, _)| *p)
-            .is_some_and(|(_, r)| *r != 1);
+        // Each phase's range: a kill moves a phase of the range its death names alone (Rat-Smasher's
+        // Tanglefoot Vermin the ten phases of range 1, its Dank Vermin the ten of range 2), and a
+        // phase of a range no kill names waits for something else (its journal says so: "Return to
+        // ...", "Report ...", "Return the Tiny Wooden Talisman"). Kept only where some phase's
+        // isn't 1.
+        let ranges: Vec<u32> = if ranges.iter().all(|(_, r)| *r == 1) {
+            Vec::new()
+        } else {
+            ranges.into_iter().map(|(_, r)| r).collect()
+        };
         let setup = setup_of(self.lib, root.package_id());
         // A name the language file can't write (its text was never shipped with the install) is
         // said as the quest's own name in the enumeration, in words.
@@ -438,7 +443,7 @@ impl Install for DatInstall<'_> {
             subquests,
             once: setup.once,
             fellows: setup.fellows,
-            last_waits,
+            ranges,
             min_level: setup.min_level,
             hero_only: setup.hero_only,
             monarch_only: setup.monarch_only,

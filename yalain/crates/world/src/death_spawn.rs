@@ -47,7 +47,7 @@ pub fn killed<S: Store>(
     killer: ConnId,
     creature: u64,
     template: u32,
-    effects: &[String],
+    effects: &[(String, u32)],
     clock: Clock,
 ) {
     let lasting: Vec<(u32, f32)> = s
@@ -80,7 +80,7 @@ pub fn killed<S: Store>(
     if !near {
         return;
     }
-    for name in effects {
+    for (name, _) in effects {
         if let Some(spawn) = s.death_spawns.get(name).copied() {
             let most = Some((name.as_str(), MOST));
             makes(s, net, killer, most, spawn, clock);

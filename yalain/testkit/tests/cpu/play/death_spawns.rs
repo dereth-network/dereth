@@ -42,7 +42,7 @@ fn kill(h: &mut Harness, by: u64, effects: &[&str]) -> (u32, u64) {
     let template = t.template;
     let c = t.creature.as_mut().expect("a creature");
     c.stats.attacks_first = false;
-    c.stats.death_effects = effects.iter().map(ToString::to_string).collect();
+    c.stats.death_effects = effects.iter().map(|e| ((*e).to_string(), 1)).collect();
     let clock = h.clock();
     combat::hurt_creature(&mut h.server, &mut h.net, beetle, by, 50, clock);
     (template, beetle)
@@ -279,7 +279,7 @@ fn only_so_many_of_a_death_effects_creatures_live_at_once() {
         let beetle = *living(&h).first().expect("a beetle");
         let t = h.server.things.get_mut(beetle).expect("the beetle");
         t.health = 1;
-        t.creature.as_mut().expect("a creature").stats.death_effects = vec![EFFECT.into()];
+        t.creature.as_mut().expect("a creature").stats.death_effects = vec![(EFFECT.into(), 1)];
         t.creature.as_mut().expect("a creature").stats.attacks_first = false;
         let clock = h.clock();
         combat::hurt_creature(&mut h.server, &mut h.net, beetle, me, 50, clock);

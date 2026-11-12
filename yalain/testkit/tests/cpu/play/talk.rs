@@ -325,7 +325,7 @@ fn a_step_says_its_line_then_the_lines_heard_with_its_update_in_order() {
             fails_on_death: false,
             once: false,
             fellows: yalain_content::quests::Fellows::default(),
-            last_waits: false,
+            ranges: Vec::new(),
             hero_only: false,
             pay: yalain_content::quests::CompletionPay::default(),
             required: None,

@@ -379,8 +379,9 @@ pub struct CreatureStats {
     pub loot_quality: Option<i64>,
     /// Fixed drops: the item template and the chance of it.
     pub trophies: Vec<(u32, f32)>,
-    /// The effects its death applies to its killer, by name.
-    pub death_effects: Vec<String>,
+    /// The effects its death applies to its killer, by name, each with the stat its template names
+    /// for it (1 where none): for an effect on a quest, the range of the quest's phases it moves.
+    pub death_effects: Vec<(String, u32)>,
     /// The weapon it wields (a template's name), how many of it, and the item it holds beside it
     /// (a shield, a second weapon).
     pub weapon: Option<String>,
@@ -564,7 +565,14 @@ impl CreatureStats {
             }
         }
         let death_effects = (1..=6)
-            .filter_map(|n| p.text(&format!("NPC_DeathEffect{n}")).map(str::to_string))
+            .filter_map(|n| {
+                let name = p.text(&format!("NPC_DeathEffect{n}"))?.to_string();
+                let stat = p
+                    .int(&format!("NPC_DeathEffect{n}Stat"))
+                    .and_then(|v| u32::try_from(v).ok())
+                    .unwrap_or(1);
+                Some((name, stat))
+            })
             .collect();
         let mut stats = Self {
             level,

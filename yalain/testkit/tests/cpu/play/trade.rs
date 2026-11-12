@@ -907,7 +907,7 @@ fn quests() -> QuestTable {
             fails_on_death: false,
             once: false,
             fellows: yalain_content::quests::Fellows::default(),
-            last_waits: false,
+            ranges: Vec::new(),
             hero_only: false,
             pay: yalain_content::quests::CompletionPay::default(),
             required: None,

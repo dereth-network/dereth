@@ -49,7 +49,7 @@ pub(super) fn quest(phases: u32) -> QuestDef {
         fails_on_death: false,
         once: false,
         fellows: Fellows::default(),
-        last_waits: false,
+        ranges: Vec::new(),
         hero_only: false,
         pay: yalain_content::quests::CompletionPay::default(),
         required: None,
@@ -70,6 +70,12 @@ fn world(q: QuestDef) -> (Harness, usize, u64) {
 
 /// A new beetle naming these effects, hurt to death by this character.
 fn kill(h: &mut Harness, by: u64, effects: &[&str]) -> u32 {
+    let at_one: Vec<(&str, u32)> = effects.iter().map(|e| (*e, 1)).collect();
+    kill_naming(h, by, &at_one)
+}
+
+/// A new beetle naming these effects, each with its stat, hurt to death by this character.
+fn kill_naming(h: &mut Harness, by: u64, effects: &[(&str, u32)]) -> u32 {
     h.add_creatures(1);
     h.run(2);
     let dead = h.server.things.by_id.keys().copied().max();
@@ -93,7 +99,10 @@ fn kill(h: &mut Harness, by: u64, effects: &[&str]) -> u32 {
     let template = t.template;
     let c = t.creature.as_mut().expect("a creature");
     c.stats.attacks_first = false;
-    c.stats.death_effects = effects.iter().map(ToString::to_string).collect();
+    c.stats.death_effects = effects
+        .iter()
+        .map(|(e, n)| ((*e).to_string(), *n))
+        .collect();
     let clock = h.clock();
     combat::hurt_creature(&mut h.server, &mut h.net, beetle, by, 50, clock);
     h.run(2);
@@ -256,7 +265,7 @@ fn a_kill_moves_on_no_quest_its_killer_does_not_have_under_way() {
 #[test]
 fn a_last_phase_that_waits_for_something_else_is_not_ended_by_a_kill() {
     let (mut h, b, me) = world(QuestDef {
-        last_waits: true,
+        ranges: vec![1, 1, 2],
         hero_only: false,
         pay: yalain_content::quests::CompletionPay::default(),
         required: None,
@@ -267,6 +276,64 @@ fn a_last_phase_that_waits_for_something_else_is_not_ended_by_a_kill() {
     kill(&mut h, me, &[INCREMENT]);
     kill(&mut h, me, &[INCREMENT]);
     assert_eq!(phase(&h, me), 3);
+    assert_eq!(updates(&h, b, from), vec![(0, update::ADVANCE | 3)]);
+}
+
+/// **A kill moves only a phase of the range its death names, and ends the quest from that range's
+/// last phase**: of a quest of two kills of one kind then two of another (ranges 1, 1, 2, 2), a kill
+/// naming the second range moves nothing during the first two phases, one naming the first nothing
+/// during the last two, and the second range's last kill completes it.
+/// Behaviour: server.quests.a-kill-moves-only-its-ranges-phases
+#[test]
+fn a_kill_moves_only_the_phases_of_the_range_its_death_names() {
+    let (mut h, b, me) = world(QuestDef {
+        ranges: vec![1, 1, 2, 2],
+        ..quest(4)
+    });
+    let (first, second) = ([(INCREMENT, 1)], [(INCREMENT, 2)]);
+    holds(&mut h, me, status::UNDERWAY, 1);
+    let from = h.bots[b].inbox.len();
+    kill_naming(&mut h, me, &second);
+    assert_eq!(phase(&h, me), 1, "the second range's kill waits its turn");
+    kill_naming(&mut h, me, &first);
+    kill_naming(&mut h, me, &first);
+    assert_eq!(phase(&h, me), 3);
+    kill_naming(&mut h, me, &first);
+    assert_eq!(phase(&h, me), 3, "the first range is done");
+    kill_naming(&mut h, me, &second);
+    assert_eq!(phase(&h, me), 4);
+    kill_naming(&mut h, me, &second);
+    assert_eq!(state(&h, me).map(|s| s.0), Some(status::COMPLETED));
+    assert_eq!(
+        updates(&h, b, from),
+        vec![
+            (0, update::ADVANCE | 2),
+            (0, update::ADVANCE | 3),
+            (0, update::ADVANCE | 4),
+            (0, update::COMPLETE)
+        ]
+    );
+}
+
+/// **A phase of a range no kill names waits for something else**: a quest that sends its player to
+/// someone, then counts kills, then sends it back (ranges 0, 1, 0) moves on a kill at the kills'
+/// phase alone.
+/// Behaviour: server.quests.a-kill-moves-only-its-ranges-phases
+#[test]
+fn a_kill_moves_no_phase_that_waits_for_a_give_or_a_return() {
+    let (mut h, b, me) = world(QuestDef {
+        ranges: vec![0, 1, 0],
+        ..quest(3)
+    });
+    holds(&mut h, me, status::UNDERWAY, 1);
+    let from = h.bots[b].inbox.len();
+    kill(&mut h, me, &[INCREMENT]);
+    assert_eq!(phase(&h, me), 1, "the first errand is not a kill's");
+    holds(&mut h, me, status::UNDERWAY, 2);
+    kill(&mut h, me, &[INCREMENT]);
+    kill(&mut h, me, &[INCREMENT]);
+    assert_eq!(phase(&h, me), 3, "the return is not a kill's");
+    assert_eq!(state(&h, me).map(|s| s.0), Some(status::UNDERWAY));
     assert_eq!(updates(&h, b, from), vec![(0, update::ADVANCE | 3)]);
 }
 

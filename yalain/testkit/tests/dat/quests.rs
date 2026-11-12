@@ -106,7 +106,7 @@ fn a_quests_setup_says_how_a_kill_reaches_fellows_and_its_definition_whether_its
                 d.fellows.shared,
                 d.fellows.near_level,
                 d.fellows.near_by,
-                d.last_waits,
+                d.ranges.last().is_some_and(|r| *r != 1),
             )
         })
     };
@@ -137,6 +137,54 @@ fn a_quests_setup_says_how_a_kill_reaches_fellows_and_its_definition_whether_its
         Some(true),
         "a last phase of no range"
     );
+}
+
+/// The ranges kills count are the install's: Rat-Smasher's ten phases of Tanglefoot Vermin then ten of
+/// Dank Vermin are ranges 1 and 2, and each vermin's death effect on it names its own; a quest that
+/// sends its player to someone, counts kills, then sends it back has ranges 0, 1, 0; a quest of kills
+/// alone keeps none (every phase's is 1).
+/// Behaviour: server.quests.a-kills-ranges-from-the-install
+#[test]
+fn a_quests_phases_and_its_creatures_death_effects_name_the_ranges_kills_count() {
+    let p = Portal::open();
+    let states = p
+        .dat
+        .entries_in(0x6F00_0000, 0x6FFF_FFFF)
+        .map(|e| e.id)
+        .collect();
+    let lib = p.library();
+    let install = DatInstall::new(
+        Box::new(|id| p.dat.read(id).ok()),
+        p.ctx.clone(),
+        &lib,
+        states,
+    )
+    .expect("install");
+    let ranges = |q: u32| install.quest_definition(None, q).map(|d| d.ranges);
+    let rat_smasher: Vec<u32> = [1; 10].into_iter().chain([2; 10]).collect();
+    assert_eq!(ranges(0x4000_000C), Some(rat_smasher));
+    assert_eq!(ranges(0x4000_028B), Some(vec![0, 1, 1, 1, 0, 0]));
+    assert_eq!(ranges(0x4000_000A), Some(Vec::new()), "kills alone");
+    let prop_name = |id: u32| {
+        p.ctx
+            .properties()
+            .and_then(|l| l.names.name(id))
+            .map(str::to_string)
+    };
+    let entity = |id: u32| -> Option<auberean_assets::entity::Entity> {
+        auberean_assets::decode(id, &p.dat.read(id).ok()?, &p.ctx).ok()
+    };
+    let named = |template: u32| {
+        let props = yalain_content::Props::of(template, &entity, &prop_name);
+        yalain_content::CreatureStats::from_props(&props)
+            .expect("a creature")
+            .death_effects
+            .into_iter()
+            .find(|(n, _)| n == "Eff_IncrementQuestRatSmasher")
+            .map(|(_, range)| range)
+    };
+    assert_eq!(named(0x4700_2D2D), Some(1), "a Tanglefoot Vermin");
+    assert_eq!(named(0x4700_2D26), Some(2), "a Dank Vermin");
 }
 
 /// Every effect a creature template names that reads as a quest effect names a quest of the install.
@@ -173,7 +221,7 @@ fn every_quest_effect_a_creature_names_names_a_quest_of_the_install() {
         let Some(stats) = yalain_content::CreatureStats::from_props(&props) else {
             continue;
         };
-        for n in &stats.death_effects {
+        for (n, _) in &stats.death_effects {
             let lower = n.to_ascii_lowercase();
             if ![
                 "eff_increment",

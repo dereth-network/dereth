@@ -12836,6 +12836,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-kill-moves-only-its-ranges-phases",
+        says: "A kill moves a quest under way only at a phase of the range its death effect's stat names, and ends the quest from the last phase of that range; a phase of another range is counted by other kills or waits for something other than a kill.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KILL-PHASE-RANGES"),
+        station: "yalain-testkit::cpu::play::kill_quests::a_kill_moves_only_the_phases_of_the_range_its_death_names",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-kill-reaches-fellows-as-its-quest-says",
         says: "A kill's move reaches the killer's fellows when the quest shares, those it limits \
                only within ten levels of the killer (inferred) and within 160 meters of it; a fellow is moved \
@@ -12875,6 +12883,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-KILL-LEAST-LEVEL"),
         station: "yalain-testkit::cpu::play::kill_quests::a_killer_under_a_quests_least_level_is_refused_it_and_told",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.a-kills-ranges-from-the-install",
+        says: "The range each quest phase is counted in is read from the quest's definition, and the range each death effect moves from its template's stat for it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KILL-RANGES-INSTALL"),
+        station: "yalain-testkit::dat::quests::a_quests_phases_and_its_creatures_death_effects_name_the_ranges_kills_count",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.quests.a-kills-reach-from-setup",
