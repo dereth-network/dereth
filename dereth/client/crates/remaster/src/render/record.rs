@@ -546,7 +546,9 @@ impl Renderer {
         )?;
         // The scene's acceleration structures, kept while anything traces rays; and the passes
         // that trace them where they stand in for the cascades' look-up and the occlusion.
-        let ao = self.ao.prepare(&mut self.gfx, &camera, &targets)?;
+        let ao = self
+            .ao
+            .prepare(&mut self.gfx, &camera, self.post.drawn_jitter(), &targets)?;
         let wanted = self.rt_kept
             || (self.rt_shadow.wants_rays() && shadow.is_some())
             || (self.rt_ao.wants_rays() && ao.is_some())

@@ -1,6 +1,7 @@
 //! The remaster's ambient occlusion: off it is 1 everywhere; on, a still view settles to a still
 //! picture of it; open ground keeps its sky while what stands close round a pixel takes some of
-//! it; and rooms and what is in them take none unless asked.
+//! it; rooms and what is in them take none unless asked; and as the view turns, the far land's
+//! occlusion is gathered from where it was last frame.
 //!
 //! Fixture: the retail dats (`DERETH_TEST_DAT_DIR`) and a hardware Vulkan 1.3 device.
 //!
@@ -285,4 +286,118 @@ fn the_occlusion_only_darkens_and_only_the_light_per_pixel() {
         })
         .count();
     assert_eq!(lit_changed, 0, "the light per vertex is retail's own");
+}
+
+/// The most the occlusion of the land past [`TURNING_FROM`] meters (away from its edges) may move
+/// on average from one frame to the next, at worst over the frames, while the screens before the
+/// world turn their view. Measured: 0.0016; 0.0024 while a pixel's last place was found through
+/// the frame's space.
+const TURNING_MOVES: f64 = 0.002;
+
+/// How far off the land counted while the view turns is, meters.
+const TURNING_FROM: f64 = 300.0;
+
+/// **The gathered occlusion finds the far land's last place as the view turns**: over Holtburg
+/// from high up, as the screens before the world show it, the camera turning and tilting slowly
+/// at sixty frames a second, the occlusion of the ground past [`TURNING_FROM`] meters moves by
+/// under [`TURNING_MOVES`] on average from one frame to the next. Found through the frame's space,
+/// a far pixel's barely known depth threw its last place off its line of sight by part of a pixel,
+/// and the gathering took another pixel's occlusion for its own.
+#[test]
+fn the_gathered_occlusion_finds_the_far_lands_last_place_as_the_view_turns() {
+    use crate::instruments::far_shadow_frames::occlusion_moved;
+    use crate::instruments::stations::{Clock, Place};
+    use dereth_client_runtime::render_prefs::FidelityPreferences;
+
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let cfg = DeviceConfig {
+        width: 1280,
+        height: 720,
+        remaster: true,
+        ..DeviceConfig::default()
+    };
+    let mut gpu = Gpu::new_on(crate::common::remaster_backend(), None, &cfg).expect("a device");
+    assert_eq!(
+        gpu.adapter_kind(),
+        dereth_render::device::AdapterKind::Hardware,
+        "{} is a software rasterizer",
+        gpu.adapter_name()
+    );
+    let backdrop = Station {
+        name: "backdrop",
+        why: "the screens before the world: Holtburg from the camera they start with",
+        place: Place::Start { block: 0xA9B4 },
+        clock: Clock::Sunny(0.4),
+        weather: false,
+        land_radius: 8,
+    };
+    let mut shot = Shot::open(&store, &mut gpu, &backdrop);
+    shot.frame_seconds = 1.0 / 60.0;
+    shot.scene.draw.cfg.render.fidelity =
+        FidelityPreferences::parse_switch("Remaster=1,RemasterOcclusion=1")
+            .expect("the boxes read");
+    shot.poll(&mut gpu);
+    if !shot.scene.draw.remaster_on() {
+        shot.scene
+            .draw
+            .set_remaster(true, &store, &mut gpu)
+            .expect("the remaster starts");
+        shot.poll(&mut gpu);
+    }
+    shot.step_held(&mut gpu);
+    shot.scene.wait_for_remaster_ground();
+    for _ in 0..30 {
+        shot.step_held(&mut gpu);
+    }
+    let start = shot.scene.camera;
+    let mut last: Option<Frame> = None;
+    let mut worst = 0.0f64;
+    for k in 0..40 {
+        #[allow(clippy::cast_precision_loss)] // a few frames
+        let t = k as f32 / 60.0;
+        shot.hold_camera(
+            start.position,
+            start.yaw + 0.035 * t,
+            start.pitch + 0.02 * t,
+        );
+        shot.step_held(&mut gpu);
+        if k < 10 {
+            continue;
+        }
+        let capture = shot
+            .scene
+            .draw
+            .remaster_capture(&mut gpu)
+            .expect("the remaster drew");
+        let (_, _, ao) = shot
+            .scene
+            .draw
+            .remaster_ao_picture(&mut gpu)
+            .expect("the occlusion drew");
+        if let Some(was) = last.as_ref() {
+            let m = occlusion_moved(
+                (&was.capture, &was.ao),
+                (&capture, &ao),
+                1,
+                (TURNING_FROM, f64::INFINITY),
+            );
+            assert!(
+                m.pixels > 100_000,
+                "too little far land: {} pixels",
+                m.pixels
+            );
+            eprintln!("frame {k}: the far land's occlusion moved {:.5}", m.mean);
+            worst = worst.max(m.mean);
+        }
+        last = Some(Frame { ao, capture });
+    }
+    shot.scene
+        .draw
+        .set_remaster(false, &store, &mut gpu)
+        .expect("the remaster stops");
+    assert!(
+        worst < TURNING_MOVES,
+        "the far land's occlusion moves as the view turns: {worst:.5} in a frame"
+    );
 }

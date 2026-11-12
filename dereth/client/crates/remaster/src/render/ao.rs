@@ -14,6 +14,7 @@ use dereth_gfx::{
 use glam::Mat4;
 
 use super::light::Rows;
+use super::post::reprojection;
 use super::{push_words, shader, PerFrame, Targets};
 use crate::scene::Camera;
 use crate::shaders::Entry;
@@ -225,7 +226,8 @@ impl AoPass {
 
     /// The frame's constants, and the plan its passes are recorded from; `None` when the pass is
     /// off. `camera` is the frame's camera before the anti-aliasing moved its projection: the
-    /// view holds still when it does.
+    /// view holds still when it does; `jitter` is how far its projection was moved, in clip
+    /// space, as the frame is drawn.
     ///
     /// # Errors
     /// What the device refuses.
@@ -233,6 +235,7 @@ impl AoPass {
         &mut self,
         gfx: &mut Device,
         camera: &Camera,
+        jitter: [f32; 2],
         t: &Targets,
     ) -> Result<Option<AoPlan>, dereth_gfx::Error> {
         if !self.settings.on {
@@ -252,7 +255,10 @@ impl AoPass {
         let s = self.settings;
         let frames = s.frames.max(1);
         let mut rows = Rows::default();
-        for c in previous.to_cols_array_2d() {
+        // Where a pixel's surface was last frame, straight from this frame's clip space: a far
+        // pixel's barely known depth then moves it along its own line of sight, where rebuilding
+        // it in the frame's space first threw it off that line by part of a pixel.
+        for c in reprojection(previous, view_proj, jitter).to_cols_array_2d() {
             rows.0.push(c.map(f32::to_bits));
         }
         #[allow(clippy::cast_precision_loss)] // small counts

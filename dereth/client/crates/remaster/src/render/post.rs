@@ -526,6 +526,13 @@ impl PostPass {
         held
     }
 
+    /// How far this frame's projection is moved, in clip space, by the anti-aliasing or an
+    /// upscaler: nothing while neither moves it.
+    #[must_use]
+    pub fn drawn_jitter(&self) -> [f32; 2] {
+        self.jitter
+    }
+
     /// Move `camera`'s projection by this frame's part of a pixel, for a world of `extent`
     /// pixels, when the anti-aliasing runs; the camera as it was.
     pub fn jitter(&mut self, camera: &mut Camera, extent: (u32, u32)) -> Camera {

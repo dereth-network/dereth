@@ -18,14 +18,17 @@ import bindless;
 import retail;
 
 // This pass's own constants, in buffer `ao` as float4 rows:
-//   0..3  the last frame's view and projection together, as four columns
+//   0..3  this frame's clip space, as drawn, straight to last frame's, unmoved, as four columns:
+//         where a pixel's surface was, taken from its place and depth without passing through
+//         the frame's space, so a depth only roughly known (as a far one is) moves it along its
+//         own line of sight
 //   4     x the radius searched (metres), y where the falloff begins (a share of the radius),
 //         z the strength (a power on the occlusion), w the frame's place in the sequence
 //   5     the half-resolution extent, xy; z 1 when the view held still since the last frame;
 //         w 1 when rooms and what is in them take the occlusion
 //   6     x the frames of the sequence, y the slices, z the steps each way, w 1 when nothing
 //         has been gathered yet
-static const uint AO_PREVIOUS = 0;
+static const uint AO_REPROJECT = 0;
 static const uint AO_SEARCH = 4;
 static const uint AO_HALF = 5;
 static const uint AO_SEQUENCE = 6;
@@ -269,8 +272,12 @@ float4 fs_gather(float4 position : SV_Position) : SV_Target0
     }
     bool still = half_row.z > 0.5;
     // Where this pixel's surface was last frame, in half-resolution pixels.
-    float3 world = world_at(float2(p) + 0.5, at(depth_of(cls), p).x);
-    float4 c = transform(push.ao, AO_PREVIOUS, float4(world, 1.0));
+    float d = at(depth_of(cls), p).x;
+    float3 world = world_at(float2(p) + 0.5, d);
+    float2 extent = row(push.frame, FRAME_EXTENT).xy;
+    float2 pos = float2(p) + 0.5;
+    float2 now_ndc = float2(pos.x / extent.x * 2.0 - 1.0, 1.0 - pos.y / extent.y * 2.0);
+    float4 c = transform(push.ao, AO_REPROJECT, float4(now_ndc, d, 1.0));
     float2 ndc = c.xy / c.w;
     float2 half_extent = half_row.xy;
     float2 last = float2((ndc.x + 1.0) * 0.5, (1.0 - ndc.y) * 0.5) * half_extent;
