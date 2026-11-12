@@ -12702,6 +12702,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-give-or-take-that-leads-on",
+        says: "A give's step and a take's step that lead somewhere run as a use's does: the update is \
+               told, then the player goes through portal space to the step's place, the trip flashing \
+               on the person given to or on the item taken. Without `to`, they take no one.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-LEADS-ON"),
+        station: "yalain-testkit::cpu::play::gives::a_give_or_a_takes_step_that_leads_somewhere_tells_its_update_then_takes_the_player",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-give-teaches-its-recipe-on-a-real-start",
         says: "A start reads the effects only a give names and the recipes they teach: Pumping Iron \
                finishes, its anthracite from the garland the shrine teaches for a blossom.",

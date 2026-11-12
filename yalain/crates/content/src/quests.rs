@@ -281,8 +281,8 @@ pub struct Step {
     pub requires: Vec<(u32, Need)>,
     /// The items it takes from the pack.
     pub takes: Vec<u32>,
-    /// Where it takes the player: an item's use on an object makes its update on arrival, a use of
-    /// a person or an object before the trip.
+    /// Where it takes the player: an item's use on an object makes its update on arrival; a use of a
+    /// person or an object, a give to one and a take before the trip.
     pub to: Option<Place>,
     /// The races it is for (none: every race).
     pub races: Vec<u32>,

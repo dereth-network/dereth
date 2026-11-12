@@ -2005,3 +2005,68 @@ fn a_hand_in_shared_with_the_fellowship_gives_its_items_to_the_giver_alone() {
     );
     assert!(!imbued(&h, you), "the fellow given nothing");
 }
+
+/// A give's step that leads somewhere keeps the item, tells its update and then takes the player
+/// through portal space to its place; so does a take's step, as the item comes into the pack.
+///
+/// Behaviour: server.quests.a-give-or-take-that-leads-on
+#[test]
+fn a_give_or_a_takes_step_that_leads_somewhere_tells_its_update_then_takes_the_player() {
+    const ENTER_PORTAL_SPACE: u32 = 0x8212_0020;
+    let at = |cell: u32| yalain_content::quests::Place {
+        cell,
+        origin: [100.0, 20.0, 50.0],
+        heading: 0,
+    };
+    let (there, then) = (0x6CB9_0029, 0x6CB9_0030);
+    let mut h = world();
+    h.server.quests.steps = vec![
+        Step {
+            takes: vec![ASHES],
+            to: Some(at(there)),
+            ..step(QUEST, 2, Trigger::Give(ASHES, PERSON_T), Update::Advance(3))
+        },
+        Step {
+            to: Some(at(then)),
+            ..step(QUEST, 3, Trigger::Take(SLIVER), Update::Complete)
+        },
+    ];
+    let (b, me) = player(&mut h, "one", "Elara");
+    at_phase(&mut h, QUEST, 2);
+    let (ashes, slot) = hold(&mut h, me, ASHES, 1);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(true, queue::WEENIE, &give(me, ashes, slot, PERSON, 1));
+    h.run(steps(HANDED_AFTER) + 8);
+    assert!(!holds(&h, me, ashes), "kept");
+    let calls = h.functions(b, from);
+    let told = calls.iter().position(|f| *f == UPDATE_QUEST);
+    let went = calls.iter().position(|f| *f == ENTER_PORTAL_SPACE);
+    assert!(
+        told.is_some() && went.is_some() && told < went,
+        "the update, then portal space: {calls:08X?}"
+    );
+    h.run(steps(12.0));
+    let p = &h.server.players[&world_of(&h, me)];
+    assert_eq!(p.position.cell, there, "at the give's place");
+    assert!(p.trip.is_none());
+    // The take: the sliver comes into the pack.
+    hold(&mut h, me, SLIVER, 1);
+    let from = h.bots[b].inbox.len();
+    let (world, clock) = (world_of(&h, me), h.clock());
+    yalain_world::quests::took(&mut h.server, &mut h.net, world, SLIVER, clock);
+    h.run(5);
+    let calls = h.functions(b, from);
+    let told = calls.iter().position(|f| *f == UPDATE_QUEST);
+    let went = calls.iter().position(|f| *f == ENTER_PORTAL_SPACE);
+    assert!(
+        told.is_some() && went.is_some() && told < went,
+        "the update, then portal space: {calls:08X?}"
+    );
+    assert_eq!(updates(&h, b, from), vec![(0x3000_0000, QUEST, 0)]);
+    h.run(steps(12.0));
+    assert_eq!(
+        h.server.players[&world_of(&h, me)].position.cell,
+        then,
+        "at the take's place"
+    );
+}

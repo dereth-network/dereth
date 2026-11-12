@@ -767,12 +767,29 @@ fn run_triggered<S: Store>(
         Trigger::Use(_) => givings(s, trigger),
         _ => Vec::new(),
     };
-    // A step that leads somewhere is run by a use of a person or an object, or a kill; an item's use
-    // on one is the trip's first, its update on arrival.
+    // A step that leads somewhere is run by a use of a person or an object, a give to one, a kill
+    // or a take; an item's use on one is the trip's first, its update on arrival. A take's trip
+    // flashes on the item taken.
+    let by = who.map(|(id, _)| id).or_else(|| match trigger {
+        Trigger::Take(t) => s.players.get(&world).and_then(|p| {
+            p.play
+                .items
+                .iter()
+                .rev()
+                .find(|h| h.template == t)
+                .map(|h| h.id)
+        }),
+        _ => None,
+    });
     let leads_on = matches!(
         trigger,
-        Trigger::Use(_) | Trigger::Kill(_) | Trigger::KillIn(..) | Trigger::KillNear(..)
-    ) && who.is_some();
+        Trigger::Use(_)
+            | Trigger::Give(..)
+            | Trigger::Take(_)
+            | Trigger::Kill(_)
+            | Trigger::KillIn(..)
+            | Trigger::KillNear(..)
+    ) && by.is_some();
     let used = matches!(trigger, Trigger::Use(_));
     // A use runs one step of the server's errands: the person's next comes at the next use.
     let mut errand_ran = false;
@@ -829,12 +846,12 @@ fn run_triggered<S: Store>(
             continue;
         }
         let free = trip.is_none();
-        let sent = step.to.zip(who);
+        let sent = step.to.zip(by);
         let kill = matches!(
             trigger,
             Trigger::Kill(_) | Trigger::KillIn(..) | Trigger::KillNear(..)
         );
-        if let (true, true, Some((place, (by, _)))) = (free, kill, sent) {
+        if let (true, true, Some((place, by))) = (free, kill, sent) {
             // A kill's step goes with the trip, its update told on landing (2017: 47 of 47 Gauntlet
             // kills, in portal space's exit's tick; the trip within 0.1 s of the death, 42 of 42
             // whose death was seen).
@@ -843,7 +860,7 @@ fn run_triggered<S: Store>(
             continue;
         }
         let received = run_with(s, net, world, &step, who, given, clock);
-        if let Some((place, (by, _))) = sent {
+        if let Some((place, by)) = sent {
             // One already on its way goes nowhere, whichever room.
             if s.players.get(&world).is_some_and(|p| p.trip.is_none()) {
                 let place = room_for(s, place);
