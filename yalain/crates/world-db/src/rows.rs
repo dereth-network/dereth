@@ -707,6 +707,7 @@ pub enum Row {
     Interaction(Interaction),
     ObjectStates(ObjectStatesRow),
     Sequence(SequenceRow),
+    Lever(LeverRow),
     MapRecipes(MapRecipes),
     Spellbinding(Spellbinding),
     Refining(Refining),
@@ -1186,6 +1187,20 @@ pub struct SequenceRow {
     pub prov: Prov,
 }
 
+/// `[[lever]]`: placed objects whose pulls open doors: its levers and the doors they open (each
+/// `key@XXYY`, or `pack:key@XXYY` in another pack), how long the doors stay open (until a use closes
+/// them when left out) and how long a pull waits for the others (for as long as it takes when left
+/// out).
+#[derive(Debug, Clone, PartialEq)]
+pub struct LeverRow {
+    pub key: String,
+    pub levers: Vec<String>,
+    pub opens: Vec<String>,
+    pub open_for: Option<f64>,
+    pub within: Option<f64>,
+    pub prov: Prov,
+}
+
 /// `[[tool]]`: what a gathering tool yields when it was not made (a made one's yield is its own).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tool {
@@ -1299,6 +1314,7 @@ impl Row {
             Self::Interaction(_) => "interaction",
             Self::ObjectStates(_) => "object_states",
             Self::Sequence(_) => "sequence",
+            Self::Lever(_) => "lever",
             Self::MapRecipes(_) => "map_recipes",
             Self::Spellbinding(_) => "spellbinding",
             Self::Refining(_) => "refining",
@@ -1364,6 +1380,7 @@ impl Row {
             Self::Interaction(r) => Some(&r.prov),
             Self::ObjectStates(r) => Some(&r.prov),
             Self::Sequence(r) => Some(&r.prov),
+            Self::Lever(r) => Some(&r.prov),
             Self::MapRecipes(r) => Some(&r.prov),
             Self::Spellbinding(r) => Some(&r.prov),
             Self::Refining(r) => Some(&r.prov),
@@ -1382,7 +1399,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 59] = [
+pub const KINDS: [&str; 60] = [
     "object",
     "camp",
     "loot",
@@ -1430,6 +1447,7 @@ pub const KINDS: [&str; 59] = [
     "interaction",
     "object_states",
     "sequence",
+    "lever",
     "map_recipes",
     "spellbinding",
     "refining",
@@ -1445,7 +1463,7 @@ pub const KINDS: [&str; 59] = [
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 59] = [
+pub const FIELDS: [(&str, &[&str]); 60] = [
     (
         "object",
         &[
@@ -1873,6 +1891,10 @@ pub const FIELDS: [(&str, &[&str]); 59] = [
     (
         "sequence",
         &["key", "quest", "uses", "right", "wrong", "to", "prov"],
+    ),
+    (
+        "lever",
+        &["key", "levers", "opens", "open_for", "within", "prov"],
     ),
     (
         "map_recipes",
@@ -2920,6 +2942,29 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                     to: None,
                 },
                 to,
+                prov: f.req_prov()?,
+            })
+        }
+        "lever" => {
+            let key = f.req_symbol("key")?;
+            let levers = f.req_references("levers")?;
+            let ok = !levers.is_empty();
+            let levers = f.held("levers", levers, ok, "at least one")?;
+            let opens = f.req_references("opens")?;
+            let ok = !opens.is_empty();
+            let opens = f.held("opens", opens, ok, "at least one")?;
+            let open_for = f.float("open_for");
+            let ok = open_for.is_none_or(|t| t > 0.0);
+            let open_for = f.held("open_for", open_for, ok, "above 0")?;
+            let within = f.float("within");
+            let ok = within.is_none_or(|t| t > 0.0);
+            let within = f.held("within", within, ok, "above 0")?;
+            Row::Lever(LeverRow {
+                key,
+                levers,
+                opens,
+                open_for,
+                within,
                 prov: f.req_prov()?,
             })
         }
@@ -4185,6 +4230,23 @@ impl<'a> Fields<'a> {
                 .filter(|s| !s.is_empty() && s.chars().count() <= TEXT_LIMIT)
                 .map(str::to_string)
         })
+    }
+
+    /// A list of references to placed objects (`key@XXYY`, or `pack:key@XXYY`); missing is wrong.
+    fn req_references(&mut self, name: &str) -> Option<Vec<String>> {
+        match self.t.get(name) {
+            Some(_) => self.typed(
+                name,
+                "a list of placed objects (key@XXYY, or pack:key@XXYY from another pack)",
+                |v| {
+                    v.as_array()?
+                        .iter()
+                        .map(|x| x.as_str().filter(|s| is_reference(s)).map(str::to_string))
+                        .collect::<Option<Vec<_>>>()
+                },
+            ),
+            None => self.missing(name),
+        }
     }
 
     fn strings(&mut self, name: &str) -> Vec<String> {

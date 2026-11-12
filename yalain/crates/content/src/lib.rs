@@ -34,6 +34,7 @@ pub mod events;
 pub mod gathering;
 pub mod item_rows;
 pub mod kingdoms;
+pub mod levers;
 pub mod locks;
 pub mod loot;
 pub mod movement;
@@ -746,6 +747,9 @@ pub struct ContentPack {
     /// done; as it fails or is cancelled, they fail. Not part of the text form: the world
     /// database's quests fill it.
     pub companions: BTreeMap<u32, Vec<u32>>,
+    /// The levers whose pulls open doors. Not part of the text form: the world database's levers
+    /// fill it.
+    pub levers: levers::LeverTable,
 }
 
 /// The kind of player conflict a place allows.
@@ -1120,6 +1124,7 @@ impl ContentPack {
             craft_gates: crafts::CraftGates::default(),
             class_gives: BTreeMap::new(),
             companions: BTreeMap::new(),
+            levers: levers::LeverTable::default(),
         })
     }
 

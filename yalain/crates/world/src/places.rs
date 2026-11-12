@@ -970,6 +970,10 @@ pub fn use_object<S: Store>(
         send(net, world, BlobKind::PRIVATE, &done);
         return;
     }
+    if crate::usable::levers::is_lever(s, u.item) {
+        crate::usable::levers::used(s, net, world, u, clock);
+        return;
+    }
     if crate::usable::doors::door(s, u.item).is_some() {
         crate::usable::doors::used(s, net, world, u, clock);
         return;
@@ -1707,6 +1711,10 @@ fn carry_out<S: Store>(
         );
         let id = p.character;
         to_all_knowing(s, net, id, &stop);
+    }
+    if crate::usable::levers::is_lever(s, u.item) {
+        crate::usable::levers::at_lever(s, net, world, &u, clock);
+        return;
     }
     if crate::usable::doors::door(s, u.item).is_some() {
         crate::usable::doors::at_door(s, net, world, u, clock);

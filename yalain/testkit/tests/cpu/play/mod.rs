@@ -50,6 +50,7 @@ mod items;
 mod kill_quests;
 mod kingdom_points;
 mod kingdoms;
+mod levers;
 mod lying_client;
 mod made_portals;
 mod makes;

@@ -54,7 +54,7 @@ world.lock                         ids given to authored rows, kept across build
 <pack>/server/treasure_potions.toml [[treasure_potion]]
 <pack>/server/treasure_families.toml [[treasure_family]]
 <pack>/server/items.toml           [[item_use]], [[book]], [[start_item]], [[interaction]]
-<pack>/server/puzzles.toml         [[object_states]], [[sequence]]
+<pack>/server/puzzles.toml         [[object_states]], [[sequence]], [[lever]]
 <pack>/server/creatures.toml       [[concealing]], [[npc_table]], [[friend_table]], [[creature]]
 ```
 
@@ -125,7 +125,7 @@ Every row sets one **item**, named by its key:
 | item | key |
 |---|---|
 | `object KEY@XXYY`, `camp KEY@XXYY`, `clearing KEY@XXYY` | the row's `key`, unique within its landblock in its pack |
-| `place KEY`, `talk KEY`, `give KEY`, `route KEY`, `event KEY`, `tally KEY`, `death_treasure KEY`, `object_states KEY`, `sequence KEY` | the row's `key` |
+| `place KEY`, `talk KEY`, `give KEY`, `route KEY`, `event KEY`, `tally KEY`, `death_treasure KEY`, `object_states KEY`, `sequence KEY`, `lever KEY` | the row's `key` |
 | `loot 0xVALUE` | the death-loot profile's value |
 | `keeper 0xTEMPLATE` | the storekeeper template |
 | `store KEY` | the shop's `key`, unique in the world |
@@ -1150,6 +1150,27 @@ use of an object a row names runs no quest step of its own.
 | `uses` | required | `{ use, state }` in order: the template used and the state its object must be in (`[[object_states]]`, loaded before; any state when left out) |
 | `right`, `wrong` | | what the object used says at a right use and at a wrong one, `{ table, string }` |
 | `to` | | the place the last right use takes the player to, through portal space (`key`, or `pack:key`), in place of a recall the quest's definition names for that update; without it, such a recall takes the player |
+| `prov` | required | where it came from |
+
+#### `[[lever]]`
+
+Placed objects whose use opens doors of the world for everyone. A player who uses a lever is walked
+to within three meters of it and pulls it, playing a key's turning, while the lever plays its
+template's use animation. Once every lever of the row is pulled (a single lever at each pull; several
+each within `within` seconds of the last, when the row names it), the row's doors open as a use
+opens a door, whatever their locks, and stay open `open_for` seconds in place of a door's own ten,
+then close by themselves; with no `open_for` they stay open until a use closes them. A pull while
+they stand open holds them so again from then. A door `locked` with no `lock` is one no key opens:
+from its front only a lever opens it, from behind anyone may. A lever may be in several rows, and
+one pull counts in each.
+
+| field | | meaning |
+|---|---|---|
+| `key` | required | lowercase letters, digits and hyphens |
+| `levers` | required | the placed objects pulled, at least one: `key@XXYY`, or `pack:key@XXYY` in another pack |
+| `opens` | required | the doors their pulls open, at least one, named as `levers` |
+| `open_for` | | how long the doors stay open, in seconds, above 0; until a use closes them when left out |
+| `within` | | how long a pull waits for the row's other levers, in seconds, above 0; for as long as it takes when left out |
 | `prov` | required | where it came from |
 
 #### `[[worn]]`

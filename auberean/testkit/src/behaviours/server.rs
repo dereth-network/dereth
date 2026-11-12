@@ -11816,6 +11816,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.lever-opens-its-doors-for-a-while",
+        says: "A lever a world's row names, used, is walked to within three meters and pulled, the use \
+               answered; once every lever of the row is pulled, within the row's time when it names one, \
+               the row's doors open for everyone whatever their locks and stay open the row's time, or \
+               until a use closes them when it names none.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-LEVERS"),
+        station: "yalain-testkit::cpu::play::levers::a_lever_pulled_opens_its_locked_door_for_everyone_for_its_time",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.lifestone-bind-and-recall",
         says: "Using a lifestone binds the player where it stands; the lifestone recall (a weapon in hand) then powers up, tells its story, and takes the player through portal space to the place and heading it had as it bound, with a newer teleport stamp; its end gives the skill's information and starts the wait every skill shares.",
         since: RETAIL,

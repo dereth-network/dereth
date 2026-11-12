@@ -12,12 +12,14 @@
 //! - [`vaults`]: a vault takes a player to its dungeon only on its glyph, which is used up; a
 //!   locked portal door carries a player through only on its key.
 //! - [`shrines`]: a faction shrine records the player's kingdom rating.
+//! - [`levers`]: a lever a world's rows name opens their doors for everyone, for a while.
 //! - [`portals`]: a portal a player summons to its lifestone or its last portal's place, or an
 //!   item's use makes where its template leads, which anyone it is for may use while it stands.
 
 pub mod chests;
 pub mod doors;
 pub mod interactions;
+pub mod levers;
 pub mod maps;
 pub mod portals;
 pub mod shrines;

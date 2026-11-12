@@ -260,6 +260,8 @@ pub enum Item {
     ObjectStates { key: String },
     /// An order of uses judged against objects' states, by its key.
     Sequence { key: String },
+    /// Levers whose pulls open doors, by the row's key.
+    Lever { key: String },
     /// A region's surveyor's map recipes, by the region's key.
     MapRecipes { region: String },
     /// The totem spellbinding makes of a sort of item, by the sort's name.
@@ -410,6 +412,7 @@ impl Item {
             ["interaction", key] => Self::Interaction { key: symbol(key)? },
             ["object_states", key] => Self::ObjectStates { key: symbol(key)? },
             ["sequence", key] => Self::Sequence { key: symbol(key)? },
+            ["lever", key] => Self::Lever { key: symbol(key)? },
             ["map_recipes", region] => Self::MapRecipes {
                 region: symbol(region)?,
             },
@@ -517,6 +520,7 @@ impl fmt::Display for Item {
             Self::Interaction { key } => write!(f, "interaction {key}"),
             Self::ObjectStates { key } => write!(f, "object_states {key}"),
             Self::Sequence { key } => write!(f, "sequence {key}"),
+            Self::Lever { key } => write!(f, "lever {key}"),
             Self::MapRecipes { region } => write!(f, "map_recipes {region}"),
             Self::Spellbinding { sort } => write!(f, "spellbinding {sort}"),
             Self::Refining { recipe } => write!(f, "refining {recipe}"),

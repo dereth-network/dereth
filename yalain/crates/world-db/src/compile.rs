@@ -1880,7 +1880,8 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             | Row::Remove(_)
             | Row::Clearing(_)
             | Row::Store(_)
-            | Row::DeathTreasure(_) => {}
+            | Row::DeathTreasure(_)
+            | Row::Lever(_) => {}
         }
     }
     for (l, scene) in door_scenes {
@@ -2014,6 +2015,21 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     cx.problems.extend(crate::check::tallies(
         &merged.rows.iter().collect::<Vec<_>>(),
     ));
+    // Levers, once every placed object has its place in the content pack.
+    for l in &merged.rows {
+        let Row::Lever(r) = &l.row else { continue };
+        let levers = placed_objects(&mut cx, &objects_at, l, "levers", &r.levers);
+        let opens = placed_objects(&mut cx, &objects_at, l, "opens", &r.opens);
+        if let (Some(levers), Some(opens)) = (levers, opens) {
+            t.content.levers.rows.push(yalain_content::levers::Lever {
+                key: r.key.clone(),
+                levers,
+                opens,
+                open_for: r.open_for,
+                within: r.within,
+            });
+        }
+    }
     // What people say, once every placed person has its place in the content pack.
     for l in &merged.rows {
         let Row::Talk(r) = &l.row else { continue };
@@ -2148,6 +2164,54 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
         cx.problems.sort();
         Err(cx.problems)
     }
+}
+
+/// The place in the content pack of the placed object a row names (`key@XXYY`, or `pack:key@XXYY`
+/// in another pack; a bare `key` in the row's own landblock), or a problem naming the field.
+fn placed_object(
+    cx: &mut Ctx<'_>,
+    objects_at: &BTreeMap<(String, String, u16), usize>,
+    l: &Located,
+    field: &str,
+    name: &str,
+) -> Option<usize> {
+    let (pack, key) = match name.split_once(':') {
+        Some((p, k)) => (p.to_string(), k.to_string()),
+        None => (l.pack.clone(), name.to_string()),
+    };
+    let (key, lb) = match key.split_once('@') {
+        Some((k, b)) => (k.to_string(), u16::from_str_radix(b, 16).unwrap_or(0)),
+        None => (key, l.landblock.unwrap_or(0)),
+    };
+    let found = objects_at.get(&(pack, key, lb)).copied();
+    if found.is_none() {
+        cx.problem(l, format!("{field}: no placed object {name} is served"));
+    }
+    found
+}
+
+/// The places in the content pack of the placed objects a row names, each once; none when one is
+/// not served.
+fn placed_objects(
+    cx: &mut Ctx<'_>,
+    objects_at: &BTreeMap<(String, String, u16), usize>,
+    l: &Located,
+    field: &str,
+    names: &[String],
+) -> Option<Vec<usize>> {
+    let mut found = Vec::new();
+    let mut ok = true;
+    for name in names {
+        match placed_object(cx, objects_at, l, field, name) {
+            Some(i) if !found.contains(&i) => found.push(i),
+            Some(_) => {
+                cx.problem(l, format!("{field}: {name} is named twice"));
+                ok = false;
+            }
+            None => ok = false,
+        }
+    }
+    ok.then_some(found)
 }
 
 /// What the world's rows give of the treasure numbers: each kind only where it has rows, its words,

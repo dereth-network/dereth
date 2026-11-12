@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Worlds can now have levers that open doors for a while.
 - Fixed taking everything from a corpse also taking items your quest won't let you take.
 - Wielding the Sword of the Doomed Hero now moves its quest on.
 - Weapons now put their effects on what they hit, so the Empowered Warath can be slain.

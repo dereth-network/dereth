@@ -48,8 +48,8 @@
 //!   against those states.
 //! - [`mounts`]: saddles and mount eggs put their user on a beast; riding, dismounting and the
 //!   ride's end.
-//! - [`usable`]: doors, chests, their locks and keys, surveyor's maps, items used on the objects
-//!   their interaction tables name (a hoard's key on its stockpile).
+//! - [`usable`]: doors, chests, their locks and keys, levers, surveyor's maps, items used on the
+//!   objects their interaction tables name (a hoard's key on its stockpile).
 //! - [`made`]: what a recipe's item level makes a product carry of its own.
 //! - [`treasure`]: what a treasure item carries of its own, chosen as it drops.
 //! - [`walkers`]: placed people walking their routes.
@@ -423,6 +423,8 @@ pub struct Server<S: Store> {
     pub events: events::Events,
     /// The world's tallies' counts.
     pub tallies: tallies::Tallies,
+    /// The lever pulls waiting on a row's other levers.
+    pub levers: usable::levers::Levers,
     pub crafting: craft::Crafting,
     /// The vitae cost table: the experience to raise vitae by one at full vitae, by level from 1.
     pub vitae_costs: Vec<u64>,
@@ -860,6 +862,7 @@ impl<S: Store> Server<S> {
             creature_effects: effects::CreatureRecords::default(),
             events: events::Events::default(),
             tallies: tallies::Tallies::default(),
+            levers: usable::levers::Levers::default(),
             crafting: craft::Crafting::default(),
             vitae_costs: Vec::new(),
             last_step: None,

@@ -23,6 +23,10 @@
 //! does not use doors (the summoned creatures) cannot: it stands at a closed door until someone
 //! else opens it. A lock holds a creature as it holds a player, from the door's front, except at
 //! the doors whose kind or template lets creatures through their locks.
+//!
+//! **Levers.** A world's lever ([`crate::usable::levers`]) opens a door as a use does, whatever its
+//! lock, and holds it open its own time in place of the ten seconds, or until a use closes it. A
+//! pull while the door is open holds it so again from then.
 
 use std::collections::{HashMap, HashSet};
 
@@ -200,6 +204,17 @@ pub struct Door {
     pub closing_since: f64,
     /// A use that shut it while it closed, answered when that closing would have ended.
     pub cut_short: Option<Waiting>,
+    /// How long a lever holds it open, from its next opening (or from now, when it is open).
+    pub held: Option<Held>,
+}
+
+/// How long a lever holds a door open.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Held {
+    /// This many seconds, then it closes by itself.
+    For(f64),
+    /// Until a use closes it.
+    UntilClosed,
 }
 
 /// The doors' states, the kinds of door by their script packages, and the packages whose doors
@@ -751,6 +766,49 @@ fn shown_open<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, open: b
     places::to_knowers(s, net, id, &m);
 }
 
+/// A lever opens a door for everyone, whatever its lock: one closed or closing opens as a use opens
+/// it (a use waiting on its closing answered first), one opening goes on; either then stays open as
+/// the lever holds it. One open already is held so from now.
+pub fn held_open<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    id: u64,
+    held: Held,
+    clock: Clock,
+) {
+    let Some((kind, _)) = door(s, id) else {
+        return;
+    };
+    let d = s.doors.by_id.entry(id).or_default();
+    match d.phase {
+        Phase::Opening => d.held = Some(held),
+        Phase::Open => {
+            // The close its opening set is let go, and the hold's own set.
+            d.generation = d.generation.wrapping_add(1);
+            let generation = d.generation;
+            if let Held::For(seconds) = held {
+                s.after(
+                    clock,
+                    seconds,
+                    Timer::Door {
+                        door: id,
+                        generation,
+                        step: Step::Close,
+                    },
+                );
+            }
+        }
+        Phase::Closed | Phase::Closing => {
+            d.held = Some(held);
+            let waiting = d.waiting.take();
+            if let Some(w) = waiting {
+                answer_waiting(s, net, id, w);
+            }
+            open(s, net, id, kind, None, clock);
+        }
+    }
+}
+
 /// The door begins to open (a use waiting for it to be open, unless a creature opens it).
 fn open<S: Store>(
     s: &mut Server<S>,
@@ -911,15 +969,23 @@ pub fn step<S: Store>(
                 }
                 None => shown_open(s, net, id, true),
             }
-            s.after(
-                clock,
-                STAYS_OPEN,
-                Timer::Door {
-                    door: id,
-                    generation,
-                    step: Step::Close,
-                },
-            );
+            // A lever's hold, once, in place of the door's own time.
+            let stays = match s.doors.by_id.get_mut(&id).and_then(|d| d.held.take()) {
+                Some(Held::For(seconds)) => Some(seconds),
+                Some(Held::UntilClosed) => None,
+                None => Some(STAYS_OPEN),
+            };
+            if let Some(seconds) = stays {
+                s.after(
+                    clock,
+                    seconds,
+                    Timer::Door {
+                        door: id,
+                        generation,
+                        step: Step::Close,
+                    },
+                );
+            }
         }
         Step::Close => close(s, net, id, kind, clock),
         Step::CutShortEnds => {}

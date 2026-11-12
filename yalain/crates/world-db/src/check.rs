@@ -294,6 +294,26 @@ fn placed(key: &str, here: u16) -> (String, u16) {
     }
 }
 
+/// A placed object a row names (`key@XXYY`, or `pack:key@XXYY`; a bare `key` in a landblock's own
+/// file) must be one of the world's.
+fn check_placed(
+    field: &str,
+    name: &str,
+    l: &Located,
+    objects: &BTreeSet<(String, String, u16)>,
+    out: &mut dyn FnMut(String),
+) {
+    let (pack, key) = split_ref(name, &l.pack);
+    if !key.contains('@') && l.landblock.is_none() {
+        out(format!("{field}: a placed object is named key@XXYY"));
+        return;
+    }
+    let (key, lb) = placed(&key, l.landblock.unwrap_or(0));
+    if !objects.contains(&(pack, key.clone(), lb)) {
+        out(format!("{field}: no object {key}@{lb:04X}"));
+    }
+}
+
 /// A step or a give that keeps its effects' lines quiet with no effects to keep quiet.
 const QUIET_WITHOUT_EFFECTS: &str =
     "effects_quiet: only a row with effects keeps their lines quiet";
@@ -584,6 +604,13 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                 }
             }
             Row::Talk(r) => check_talk(r, l, &objects, &mut |m| problems.push(at(m))),
+            Row::Lever(r) => {
+                for (field, names) in [("levers", &r.levers), ("opens", &r.opens)] {
+                    for name in names {
+                        check_placed(field, name, l, &objects, &mut |m| problems.push(at(m)));
+                    }
+                }
+            }
             Row::DeathTreasure(r) => {
                 if let Some(camp) = &r.camp {
                     let (pack, key) = split_ref(camp, &l.pack);

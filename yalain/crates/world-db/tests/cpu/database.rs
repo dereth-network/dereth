@@ -6885,3 +6885,85 @@ prov = {{ from = \"authored\" }}
         );
     }
 }
+
+/// The test world with one more static object, `lever@77B7`, a sign beside the gate.
+fn with_lever(mut files: Files) -> Files {
+    files
+        .get_mut("town/server/landblocks/77B7.toml")
+        .unwrap()
+        .push_str(
+            "\n[[object]]\nkey = \"lever\"\nkind = \"static\"\nid = 0x4077B70000000003\n\
+             template = 0x4700115B\nat = [119.0, 111.0, 250.0]\nprov = { from = \"authored\" }\n",
+        );
+    files
+}
+
+/// The place in the compiled pack of the test world's placed object of this id.
+fn placed_at(t: &yalain_world_db::compile::Tables, id: u64) -> usize {
+    t.content
+        .objects
+        .iter()
+        .position(|o| o.object == Some(id))
+        .expect("placed")
+}
+
+#[test]
+fn a_lever_row_names_its_levers_and_doors_by_placement_and_compiles_to_the_lever_table() {
+    let mut files = with_lever(fixture());
+    files.insert(
+        "town/server/levers.toml".into(),
+        "[[lever]]\nkey = \"gate-lever\"\nlevers = [\"lever@77B7\"]\nopens = [\"gate@77B7\"]\n\
+         open_for = 20\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let lever = placed_at(&t, 0x4077_B700_0000_0003);
+    let gate = placed_at(&t, 0x4077_B700_0000_0001);
+    assert_eq!(
+        t.content.levers.rows,
+        vec![yalain_content::levers::Lever {
+            key: "gate-lever".into(),
+            levers: vec![lever],
+            opens: vec![gate],
+            open_for: Some(20.0),
+            within: None,
+        }]
+    );
+
+    let mut bad = files.clone();
+    edit(
+        &mut bad,
+        "town/server/levers.toml",
+        "opens = [\"gate@77B7\"]",
+        "opens = [\"nowhere@77B7\"]",
+    );
+    assert!(
+        check(&bad)
+            .iter()
+            .any(|p| p.to_string().contains("opens: no object nowhere@77B7")),
+        "{:?}",
+        check(&bad)
+    );
+    let problems = compile(&merge(&read(&bad).unwrap()).unwrap(), &Fake::new()).unwrap_err();
+    assert!(
+        problems.iter().any(|p| p
+            .to_string()
+            .contains("opens: no placed object nowhere@77B7 is served")),
+        "{problems:?}"
+    );
+    let mut bad = files;
+    edit(
+        &mut bad,
+        "town/server/levers.toml",
+        "open_for = 20",
+        "open_for = 0",
+    );
+    assert!(
+        check(&bad)
+            .iter()
+            .any(|p| p.to_string().contains("open_for: above 0")),
+        "{:?}",
+        check(&bad)
+    );
+}
