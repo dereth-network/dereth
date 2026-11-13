@@ -118,6 +118,92 @@ impl VertexArray {
             bounds,
         })
     }
+
+    /// Each vertex's place, normal and first pair of picture coordinates, read by the format's
+    /// layout ([`vertex_size`]'s order); `None` when the bytes do not fit the format and count, or
+    /// the format stores no place.
+    #[must_use]
+    pub fn attributes(&self) -> Option<Vec<StoredVertex>> {
+        let stride = vertex_size(self.format);
+        let count = usize::try_from(self.count).ok()?;
+        if self.format & 0xE == 0 || stride == 0 || self.bytes.len() != stride * count {
+            return None;
+        }
+        let o = attribute_offsets(self.format);
+        let f = |b: &[u8], k: usize| f32::from_le_bytes([b[k], b[k + 1], b[k + 2], b[k + 3]]);
+        let v3 = |b: &[u8], k: usize| Vec3::new(f(b, k), f(b, k + 4), f(b, k + 8));
+        Some(
+            self.bytes
+                .chunks_exact(stride)
+                .map(|b| StoredVertex {
+                    position: v3(b, 0),
+                    normal: o.normal.map(|k| v3(b, k)),
+                    uv: o.uv.map(|k| [f(b, k), f(b, k + 4)]),
+                })
+                .collect(),
+        )
+    }
+}
+
+/// One vertex as stored: its place, its normal and its first pair of picture coordinates, where
+/// its format has them.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct StoredVertex {
+    pub position: Vec3,
+    pub normal: Option<Vec3>,
+    pub uv: Option<[f32; 2]>,
+}
+
+/// Where a format's normal and first coordinate pair sit in a vertex.
+struct AttributeOffsets {
+    normal: Option<usize>,
+    uv: Option<usize>,
+}
+
+/// The offsets of a vertex's normal and first coordinate pair, in [`vertex_size`]'s order: the
+/// place, the blend weights, the normal, the point size, the two colors, the three extra vectors,
+/// then the pairs.
+const fn attribute_offsets(format: u32) -> AttributeOffsets {
+    let mut at = if format & 0xE != 0 { 12 } else { 0 };
+    at += 4 * match format & 0xE {
+        6 => 1,
+        8 => 2,
+        10 => 3,
+        12 => 4,
+        14 => 5,
+        _ => 0,
+    };
+    let normal = if format & 0x10 != 0 {
+        at += 12;
+        Some(at - 12)
+    } else {
+        None
+    };
+    if format & 0x20 != 0 {
+        at += 4;
+    }
+    if format & 0x40 != 0 {
+        at += 4;
+    }
+    if format & 0x80 != 0 {
+        at += 4;
+    }
+    if format & 0x1000_0000 != 0 {
+        at += 12;
+    }
+    if format & 0x2000_0000 != 0 {
+        at += 12;
+    }
+    if format & 0x4000_0000 != 0 {
+        at += 12;
+    }
+    let pairs = format & 0xF00;
+    let uv = if matches!(pairs, 0x100..=0x800) {
+        Some(at)
+    } else {
+        None
+    };
+    AttributeOffsets { normal, uv }
 }
 
 /// The triangles of one material at one level of detail.
@@ -398,5 +484,47 @@ mod vertex_array_tests {
         let mut w = Writer::new();
         a.write(&mut w);
         assert_eq!(w.finish().len(), 8 + 24 + 24);
+    }
+    #[test]
+    fn a_vertex_reads_its_place_normal_and_first_coordinates_past_what_comes_between() {
+        // Place, one blend weight, normal, diffuse color, two coordinate pairs.
+        let format = 0x6 | 0x10 | 0x40 | 0x200;
+        assert_eq!(vertex_size(format), 12 + 4 + 12 + 4 + 16);
+        let mut bytes = Vec::new();
+        for k in 0..2u8 {
+            let base = f32::from(k) * 10.0;
+            for v in [base + 1.0, base + 2.0, base + 3.0, 0.5, 0.0, 0.0, 1.0] {
+                bytes.extend_from_slice(&f32::to_le_bytes(v));
+            }
+            bytes.extend_from_slice(&[9, 9, 9, 9]);
+            for v in [0.25 + base, 0.75, 7.0, 8.0] {
+                bytes.extend_from_slice(&f32::to_le_bytes(v));
+            }
+        }
+        let a = VertexArray {
+            format,
+            count: 2,
+            bytes,
+            bounds: BBox::default(),
+        };
+        let v = a.attributes().expect("two vertices");
+        assert_eq!(v[1].position, Vec3::new(11.0, 12.0, 13.0));
+        assert_eq!(v[0].normal, Some(Vec3::new(0.0, 0.0, 1.0)));
+        assert_eq!(v[1].uv, Some([10.25, 0.75]));
+        // No normal and no coordinates: a bare place.
+        let bare = VertexArray {
+            format: 0x2,
+            count: 1,
+            bytes: [1.0f32, 2.0, 3.0]
+                .iter()
+                .flat_map(|f| f.to_le_bytes())
+                .collect(),
+            bounds: BBox::default(),
+        };
+        let v = bare.attributes().expect("one vertex");
+        assert_eq!((v[0].normal, v[0].uv), (None, None));
+        // Bytes that do not fit the count are refused.
+        let short = VertexArray { count: 2, ..bare };
+        assert!(short.attributes().is_none());
     }
 }

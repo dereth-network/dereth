@@ -1,0 +1,33 @@
+# The AC2 look's rocks: each fitted wholly inside its AC1 setup's collision. "inside" fits one
+# rock; "spheres" puts one in each sphere that collides, the small rock in those under two
+# meters across.
+version = 1
+small_rock = 0x4700000A
+solid_spheres = 2
+tolerance = 0.05
+
+[[model]]
+setup = 0x020005C9
+height = 1.91
+entity = 0x4700000A
+category = "rock"
+foliage = false
+cylinder = 1.15
+fit = "inside"
+
+[[model]]
+setup = 0x020005CE
+height = 1.91
+entity = 0x47000456
+category = "rock"
+foliage = false
+cylinder = 1.15
+fit = "inside"
+
+[[model]]
+setup = 0x0200035F
+height = 7.46
+entity = 0x47000452
+category = "rock"
+foliage = false
+fit = "spheres"

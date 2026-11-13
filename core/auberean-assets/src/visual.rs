@@ -160,6 +160,17 @@ impl VisualDesc {
     }
 }
 
+impl VisualDesc {
+    /// The setups its part groups are built from, in the order the part groups are stored, with
+    /// each group's key; a part group with no setup is passed over.
+    pub fn setups(&self) -> impl Iterator<Item = (u32, DataId)> + '_ {
+        self.part_groups
+            .iter()
+            .flatten()
+            .filter_map(|(key, g)| g.setup.map(|s| (*key, s)))
+    }
+}
+
 impl Decode for VisualDesc {
     /// A standalone description stores its own id as its id field.
     // D2-13837, D2-13849, D2-05043, D2-13838, D2-13834, D2-13807
@@ -678,5 +689,36 @@ impl Appearance {
                 s.sub_ids(gathering, out);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod setup_tests {
+    //! Behaviour: none (a visual description's setups, on a hand-made description)
+    use super::*;
+
+    #[test]
+    fn a_description_lists_its_part_groups_setups_in_their_stored_order() {
+        let group = |setup: Option<u32>| PartGroup {
+            setup: setup.map(DataId),
+            ..PartGroup::default()
+        };
+        let v = VisualDesc {
+            part_groups: Some(vec![
+                (0x8100_0002, group(Some(0x0400_0002))),
+                (0x8100_0001, group(None)),
+                (0x8100_0003, group(Some(0x0400_0001))),
+            ]),
+            ..VisualDesc::default()
+        };
+        let got: Vec<(u32, DataId)> = v.setups().collect();
+        assert_eq!(
+            got,
+            [
+                (0x8100_0002, DataId(0x0400_0002)),
+                (0x8100_0003, DataId(0x0400_0001))
+            ]
+        );
+        assert_eq!(VisualDesc::default().setups().count(), 0);
     }
 }

@@ -1,0 +1,121 @@
+# The AC2 look's ground: each AC1 terrain type's AC2 terrain kind, by its index in the region.
+# Its first (flat) group's base picture is laid as the type's ground and its last (steepest)
+# group's on the type's steep slopes, unless the row names other groups; a kind with one group
+# and `steep_flat` lays its flat picture on its slopes too.
+version = 1
+picture_limit = 1024
+relief_strength = 6
+
+[[ground]]
+type = 0
+kind = 10
+
+[[ground]]
+type = 1
+kind = 1
+
+[[ground]]
+type = 2
+kind = 2
+
+[[ground]]
+type = 3
+kind = 58
+
+[[ground]]
+type = 4
+kind = 17
+
+[[ground]]
+type = 5
+kind = 6
+
+[[ground]]
+type = 6
+kind = 40
+
+[[ground]]
+type = 7
+kind = 41
+steep_flat = true
+
+[[ground]]
+type = 8
+kind = 47
+steep_flat = true
+
+[[ground]]
+type = 9
+kind = 42
+
+[[ground]]
+type = 10
+kind = 31
+
+[[ground]]
+type = 11
+kind = 43
+
+[[ground]]
+type = 12
+kind = 4
+
+[[ground]]
+type = 13
+kind = 39
+
+[[ground]]
+type = 14
+kind = 38
+
+[[ground]]
+type = 15
+kind = 46
+
+[[ground]]
+type = 21
+kind = 21
+
+[[ground]]
+type = 23
+kind = 7
+flat = 1
+steep = 1
+
+[[ground]]
+type = 24
+kind = 0
+
+[[ground]]
+type = 25
+kind = 50
+
+[[ground]]
+type = 26
+kind = 44
+
+[[ground]]
+type = 27
+kind = 2
+
+[[ground]]
+type = 28
+kind = 12
+
+[[ground]]
+type = 29
+kind = 55
+
+[[ground]]
+type = 30
+kind = 57
+
+[[ground]]
+type = 31
+kind = 49
+
+# The red desert: these types' ground drawn under their own group's coloring color, relative
+# to the reference (the grass's, so grass is unchanged).
+[red_desert]
+types = [10]
+reference = [204, 205, 204]

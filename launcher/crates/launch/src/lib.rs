@@ -62,6 +62,7 @@
 //! | [`outside`] | asking the Dereth Network's hub to try a hosted world from outside, and its answer |
 //! | [`plugins`] | the plugins it installs for the Dereth client: the sources it reads them from, what each lists, installing and updating them |
 //! | [`art`] | the art packs it installs for the Dereth client: their sources, installing and updating them, and the order they are drawn in |
+//! | [`ac2_look`] | the AC2 look, an art pack it builds from the player's own Asheron's Call 2 files: its parts, where it is kept, and when it is built again |
 //! | [`join`] | a join link (`dereth://join?...`, or the site's page for it): a world to add, and the scheme's registration |
 //!
 //! The launcher's window is one front end over this. The web client's front page is another: it
@@ -70,6 +71,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod ac2_look;
 pub mod art;
 pub mod auberean;
 pub mod built_in;

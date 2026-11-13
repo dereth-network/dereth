@@ -2256,6 +2256,41 @@ function artRow(key, r, sourceName, line, buttons, extra) {
   return open ? `<div class="plugin open">${row}${artDetail(r, extra)}</div>` : row;
 }
 
+// The Asheron's Call 2 art pack: Asheron's Call 2's ground, trees, rocks and sky, built here from the
+// player's own Asheron's Call 2 data set, with the parts they tick.
+function ac2Look() {
+  const l = ui.snap.ac2_look;
+  if (!l) return "";
+  const going = !!l.progress;
+  const busy = going || !!ui.art.busy;
+  const ticks = l.parts.map((p) => `<label class="check small"><input type="checkbox" data-look-part="${esc(p.id)}" ${p.on ? "checked" : ""} ${busy ? "disabled" : ""}>${esc(p.label)}</label>`).join("");
+  const from = l.install
+    ? `<div class="sub muted small path" title="${esc(l.install)}">${esc(l.install)}</div>${l.install_ok ? "" : `<div class="sub bad">These files do not check.</div>`}`
+    : `<div class="sub warn">No Asheron's Call 2 data set yet.</div>`;
+  const said = going ? `${esc(l.progress.doing)}…` : l.stale ? "A newer version is ready." : l.built ? `Built ${esc(l.built)}.` : "Not built yet.";
+  const can = l.tool && l.install_ok && l.parts.some((p) => p.on) && !busy;
+  return libFold("art.ac2look", "ASHERON'S CALL 2 ART",
+    `<p class="muted small">Create an art pack bringing Asheron's Call 2 art into Dereth from your own Asheron's Call 2 data files.</p>
+    <div class="list"><div class="row static"><div class="grow"><div class="name">Asheron's Call 2 data set</div>${from}</div>
+      <div class="btns"><button class="btn" data-act="ac2-look-folder" ${busy ? "disabled" : ""}>Choose folder…</button></div></div></div>
+    <div class="plugin-line">${ticks}</div>
+    <div class="plugin-line add"><span class="muted small">${said}</span>
+      <button class="btn" data-act="ac2-look-build" ${can ? "" : "disabled"}>${l.built ? "Rebuild" : "Build"}</button></div>
+    ${l.tool ? "" : `<p class="muted small">This Dereth has no art tool.</p>`}`, { sub: true });
+}
+
+// Choose the Asheron's Call 2 folder the art pack is built from; cancelling changes nothing.
+async function pickAc2LookFolder() {
+  try {
+    const said = await api("pick_ac2_look_folder");
+    if (said) toast(said);
+  } catch (e) {
+    toast(String(e), true);
+  }
+  await pull();
+  render();
+}
+
 // The Library's art packs: those installed, the first winning where two replace the same thing,
 // each on or off; those the sources list; and the sources.
 function artPacks() {
@@ -2298,6 +2333,7 @@ function artPacks() {
   const refresh = `<button class="btn mini-btn" data-act="art-refresh" ${busy ? "disabled" : ""}>Refresh</button>`;
   return libFold("art", "ART PACKS",
     `<div class="lib-explain"><p class="muted small">Art packs replace Dereth's visuals (only while Remaster is enabled). You can layer and combine packs as you see fit to dial in your perfect vision of Dereth.</p>${refresh}</div>`
+    + ac2Look()
     + libFold("art.installed", `INSTALLED<span class="muted small">${a.installed.length}</span>`, `<div class="list">${installed}</div>${addFile}`, { sub: true })
     + libFold("art.available", `AVAILABLE<span class="muted small">${a.available.length}</span>`, `<div class="list">${available}</div>`, { sub: true, closed: true })
     + libFold("art.sources", `SOURCES<span class="muted small">${a.sources.length}</span>`, `<div class="list">${sources}</div>${add}`, { sub: true, closed: true }),
@@ -3125,6 +3161,8 @@ document.addEventListener("click", async (ev) => {
     case "art-source-confirm": await addArtSource(true); break;
     case "art-source-cancel": ui.art.confirm = false; render(); break;
     case "art-file-add": await addArtFile(); break;
+    case "ac2-look-build": await artFetch("build_ac2_look", {}); break;
+    case "ac2-look-folder": await pickAc2LookFolder(); break;
     case "plugin-source-add": await addPluginSource(false); break;
     case "plugin-source-confirm": await addPluginSource(true); break;
     case "plugin-source-cancel": ui.plugin.confirm = false; render(); break;
@@ -3283,6 +3321,7 @@ document.addEventListener("change", async (ev) => {
   if (t.id === "discord-presence") { await act("set_discord_presence", { on: t.checked }); return; }
   if (t.id === "update-components") { await act("set_update_components", { on: t.checked }); return; }
   if (t.dataset.artOn) { await act("set_art_pack_on", { id: t.dataset.artOn, on: t.checked }); return; }
+  if (t.dataset.lookPart) { await act("set_ac2_look_part", { part: t.dataset.lookPart, on: t.checked }); return; }
   if (t.id === "plugin-updates") { await act("set_plugin_updates", { setting: t.value }); return; }
   if (t.tagName === "SELECT" && t.dataset.lyField && ui.lyceumDraft) { ui.lyceumDraft[t.dataset.lyField] = t.value; return; }
   if (t.dataset.publishPick) { ui.publishPick[t.dataset.publishPick] = t.value; render(); return; }

@@ -254,7 +254,7 @@ pack holding its `current.dat`).
 chosen with the system's file picker. The launcher reads its manifest as it reads a download's: a
 file that is not a pack, names no id or version, or has an id under `network.dereth.` or one already
 on the list is refused. It goes to the top, on, and moves and turns off like any other; its row says
-**This computer** and gives its path. The launcher keeps the path, not a copy, so a pack rebuilt in
+**local** and gives its path. The launcher keeps the path, not a copy, so a pack rebuilt in
 place is what the client gets at the next Play, and its manifest is read again at the next start. It
 never updates, and Remove takes it off the list without deleting the file. A file that is gone shows
 **File not found** and is left out of what the client is given. These packs are kept in

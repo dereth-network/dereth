@@ -300,12 +300,32 @@
   }
   const artView = () => ({
     sources: artSources.map((x) => ({ url: x.url, name: x.name, first_party: x.first_party, github: x.github, packs: Object.keys(x.packs).length, error: x.error, skipped: x.skipped })),
-    installed: [...artInstalled].reverse().map((p) => ({ file: null, missing: false, ...p, source_name: p.file ? "This computer" : artSources.find((x) => x.url === p.source)?.name ?? "removed",
+    installed: [...artInstalled].reverse().map((p) => ({ file: null, missing: false, ...p, source_name: p.file ? "local" : artSources.find((x) => x.url === p.source)?.name ?? "removed",
       source_removed: !p.file && !artSources.some((x) => x.url === p.source), update: null })),
     available: artSources.flatMap((x) => Object.entries(x.packs).filter(([id]) => !artInstalled.some((p) => p.id === id))
       .map(([id, release]) => ({ id, source: x.url, source_name: x.name, installable: !id.startsWith("network.dereth.") || x.first_party, release }))),
   });
+  // The Asheron's Call 2 art pack, as the backend's: every part ticked, not built until Build.
+  const ac2Look = {
+    tool: true, install: "C:\\Games\\Asheron's Call 2", install_ok: true, ac1: true,
+    parts: [["terrain", "Terrain"], ["red-desert", "Red Desert"], ["trees", "Trees and Ground Cover"], ["rocks", "Rocks"], ["sky", "Sky"]]
+      .map(([id, label]) => ({ id, label, on: true })),
+    built: null, stale: false, progress: null,
+  };
   const artDemo = () => ({
+    // Built, it joins the packs on this computer, or is read again where it stands.
+    build_ac2_look: () => {
+      ac2Look.built = "0.1.4";
+      const labels = ac2Look.parts.filter((p) => p.on).map((p) => p.label).join(", ");
+      const release = { ...artRelease("Asheron's Call 2 Art Pack", "0.1.4", 268435456,
+        `Asheron's Call 2 art pack generated from your own data set.\nIncludes: ${labels}`), authors: [], license: "", made_for: [], released: "" };
+      const had = artInstalled.find((p) => p.id === "local.ac2-look");
+      if (had) had.release = release;
+      else artInstalled.push({ id: "local.ac2-look", source: "", file: "C:\\Users\\you\\AppData\\Roaming\\Dereth\\art\\ac2-look\\ac2-look.dat", release, on: true });
+      return "Built the Asheron's Call 2 Art Pack 0.1.4.";
+    },
+    set_ac2_look_part: ({ part, on }) => { const p = ac2Look.parts.find((x) => x.id === part); if (p) p.on = on; },
+    pick_ac2_look_folder: () => null,
     refresh_art: () => "",
     set_library_open: ({ key, open }) => { state.settings.library_open = { ...(state.settings.library_open ?? {}), [key]: open }; },
     add_art_source: ({ url }) => {
@@ -699,6 +719,7 @@
       plugins: pluginsView(),
       art: artView(),
       art_progress: null,
+      ac2_look: structuredClone(ac2Look),
       downloads: { offers: OFFERS, status: download && { ...download }, guide: "https://www.accpp.net/manual-installation" },
     }),
     get_dats: ({ id }) => { getDats(id); },

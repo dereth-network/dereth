@@ -12,6 +12,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod ac2_look;
 mod art;
 mod auberean;
 mod backend;
@@ -303,6 +304,38 @@ async fn pick_art_file(app: tauri::AppHandle) -> Cmd<Option<PathBuf>> {
 #[tauri::command]
 fn add_art_file(b: State<'_, Shared>, file: PathBuf) -> Cmd<String> {
     lock(&b).add_art_file(&file)
+}
+
+/// Build the AC2 look from the player's own Asheron's Call 2 files, with the parts ticked.
+#[tauri::command]
+async fn build_ac2_look(b: State<'_, Shared>) -> Cmd<String> {
+    let shared = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        Backend::build_ac2_look(&shared, &ac2_look::run_tool)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Tick or untick a part of the AC2 look for the next build.
+#[tauri::command]
+fn set_ac2_look_part(b: State<'_, Shared>, part: String, on: bool) -> Cmd<()> {
+    lock(&b).set_ac2_look_part(&part, on)
+}
+
+/// Choose the Asheron's Call 2 install the AC2 look is built from. `None` when the player
+/// cancels.
+#[tauri::command]
+async fn pick_ac2_look_folder(app: tauri::AppHandle, b: State<'_, Shared>) -> Cmd<Option<String>> {
+    let picked = app
+        .dialog()
+        .file()
+        .set_title("Choose your Asheron's Call 2 folder")
+        .blocking_pick_folder();
+    let Some(dir) = picked.and_then(|p| p.into_path().ok()) else {
+        return Ok(None);
+    };
+    lock(&b).set_ac2_look_folder(&dir).map(Some)
 }
 
 /// Build a new plugin: the name and the repository are checked, then the player chooses an empty
@@ -958,6 +991,14 @@ fn main() {
                     &art::fetch_pack,
                 );
             });
+            // The AC2 look is built again when the art tool came with a newer table than one it
+            // was built from.
+            let look = shared.clone();
+            std::thread::spawn(move || {
+                if let Some(Err(e)) = Backend::rebuild_stale_ac2_look(&look, &ac2_look::run_tool) {
+                    eprintln!("dereth-launcher: {e}");
+                }
+            });
             // The author's tool's copy in each folder Make Your Own wrote in is this launcher's
             // tool again: after an update, the new release's.
             let keeping = shared.clone();
@@ -1150,6 +1191,9 @@ fn main() {
             move_art_pack,
             pick_art_file,
             add_art_file,
+            build_ac2_look,
+            set_ac2_look_part,
+            pick_ac2_look_folder,
             create_plugin,
             pick_plugin_folder,
             add_plugin_folder,
@@ -1440,8 +1484,37 @@ mod tests {
         }
         assert_eq!(
             dereth_launch::art::THIS_COMPUTER,
-            "This computer",
+            "local",
             "where the row says it is from"
+        );
+    }
+
+    /// The Asheron's Call 2 art section: its title and what it does, the data set it is made
+    /// from with the folder under it, the parts by name, and Built with the version and Build or
+    /// Rebuild.
+    #[test]
+    fn the_asherons_call_2_art_section_says_what_it_makes_and_from_what() {
+        let look = page_function("ac2Look");
+        assert!(look.contains(r#"libFold("art.ac2look", "ASHERON'S CALL 2 ART","#));
+        assert!(look.contains(
+            "Create an art pack bringing Asheron's Call 2 art into Dereth from your own Asheron's Call 2 data files."
+        ));
+        assert!(look.contains(r#"<div class="name">Asheron's Call 2 data set</div>${from}"#));
+        assert!(look.contains(r#"l.built ? `Built ${esc(l.built)}.`"#));
+        assert!(look.contains(r#"${l.built ? "Rebuild" : "Build"}"#));
+        let labels: Vec<&str> = dereth_launch::ac2_look::PARTS
+            .iter()
+            .map(|(_, label)| *label)
+            .collect();
+        assert_eq!(
+            labels,
+            [
+                "Terrain",
+                "Red Desert",
+                "Trees and Ground Cover",
+                "Rocks",
+                "Sky"
+            ]
         );
     }
 

@@ -285,6 +285,7 @@ jobs:
               launcher="smoke/dereth-$VERSION/dereth.exe"
               client="smoke/dereth-$VERSION/dereth-client.exe"
               bundled="smoke/dereth-$VERSION/dereth-plugin.exe"
+              art="smoke/dereth-$VERSION/dereth-art.exe"
               relay="smoke/dereth-$VERSION/empyrean-relay.exe"
               relay_notices="smoke/dereth-$VERSION"
               tool="smoke/dereth-plugin-$VERSION/dereth-plugin.exe"
@@ -295,6 +296,7 @@ jobs:
               launcher="smoke/squashfs-root/usr/bin/dereth"
               client="smoke/squashfs-root/usr/bin/dereth-client"
               bundled="smoke/squashfs-root/usr/bin/dereth-plugin"
+              art="smoke/squashfs-root/usr/bin/dereth-art"
               relay="smoke/squashfs-root/usr/bin/empyrean-relay"
               relay_notices="smoke/squashfs-root/usr/bin"
               tar -xzf "dist/dereth-plugin-$VERSION-linux-x86_64.tar.gz" -C smoke
@@ -307,6 +309,7 @@ jobs:
               launcher="smoke/Dereth.app/Contents/MacOS/dereth"
               client="smoke/Dereth.app/Contents/MacOS/dereth-client"
               bundled="smoke/Dereth.app/Contents/MacOS/dereth-plugin"
+              art="smoke/Dereth.app/Contents/MacOS/dereth-art"
               relay="smoke/Dereth.app/Contents/MacOS/empyrean-relay"
               relay_notices="smoke/Dereth.app/Contents/Resources"
               tar -xzf "dist/dereth-plugin-$VERSION-macos-$arch.tar.gz" -C smoke
@@ -325,6 +328,9 @@ jobs:
           # The same tool comes with Dereth, beside the client.
           run "$bundled" --version | tee version-bundled-tool.txt
           cmp version-tool.txt version-bundled-tool.txt
+          # The art tool comes with Dereth, beside the client, with its tables.
+          run "$art" ac2-look --versions | tee versions-art.txt
+          grep -q "^look " versions-art.txt
           # The relay comes with Dereth too, at Empyrean's version, with its own license and notice.
           run "$relay" --version | tee version-relay.txt
           grep -qx "empyrean-relay $RELAY" version-relay.txt

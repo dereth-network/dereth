@@ -1,0 +1,4 @@
+# The AC2 look's sky: AC2's clouds drawn on AC1's cloud decks.
+version = 1
+clouds = 0x4000022C
+decks = [0x0500146E, 0x0500146F, 0x05001470, 0x050014D0, 0x05001501, 0x05001503]

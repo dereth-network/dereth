@@ -226,7 +226,8 @@ fn release_files_are_named_for_version_and_platform_and_read_back() {
 }
 
 /// The Windows zip is what the launcher's own update installs: one top-level folder holding
-/// `dereth.exe` and the client, the plugin author's tool, the relay with its license and notice,
+/// `dereth.exe` and the client, the plugin author's tool, the art tool, the relay with its license
+/// and notice,
 /// and the retail client's friends library beside it, and NVIDIA's DLSS library where it carries
 /// it.
 #[test]
@@ -243,6 +244,7 @@ fn the_windows_launcher_zip_holds_the_launcher_and_the_client_in_one_folder() {
             "NOTICE.txt",
             "THIRD-PARTY-LICENSES.html",
             "auberean_friends.dll",
+            "dereth-art.exe",
             "dereth-client.exe",
             "dereth-plugin.exe",
             "dereth.exe",
@@ -291,6 +293,36 @@ fn the_launchers_release_configuration_names_no_machine_folder() {
             guard::local_paths_in(text.as_bytes(), &[ws.display().to_string()]).is_empty(),
             "{text}"
         );
+    }
+}
+
+/// The art tool comes with Dereth beside the client, where the launcher looks for it, and a release
+/// file without it is refused.
+#[test]
+fn a_release_carries_the_art_tool_beside_the_client() {
+    assert_eq!(dereth::art_in_release(target(WINDOWS)), "dereth-art.exe");
+    assert_eq!(
+        dereth::art_in_release(target(MAC_ARM)),
+        "Contents/MacOS/dereth-art"
+    );
+    assert_eq!(dereth::art_in_release(target(LINUX)), "dereth-art");
+    for t in [WINDOWS, MAC_ARM] {
+        let t = target(t);
+        let (required, _) = dereth::contents(t);
+        let name = dereth::art_in_release(t);
+        assert!(required.contains(&name), "{name}: {required:?}");
+        let without: Vec<Entry> = required
+            .iter()
+            .filter(|n| **n != name)
+            .map(|n| Entry {
+                path: n.clone(),
+                kind: Kind::File,
+                size: 1,
+                head: Vec::new(),
+            })
+            .collect();
+        let findings = guard::scan_tree(&without, &required, &[], 1 << 20, 1 << 20);
+        assert!(findings.iter().any(|f| f.contains(&name)), "{findings:?}");
     }
 }
 

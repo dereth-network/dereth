@@ -616,7 +616,7 @@ fn a_pack_file_joins_the_stack_last_and_on_from_where_it_is() {
     let view = shelf.view();
     let shown = &view.installed[0];
     assert_eq!(shown.id, "org.example.flowers");
-    assert_eq!(shown.source_name, "This computer");
+    assert_eq!(shown.source_name, "local");
     assert_eq!(shown.file, Some(file.display().to_string()));
     assert!(!shown.missing && !shown.source_removed && shown.update.is_none());
     assert!(
@@ -777,6 +777,38 @@ fn a_pack_file_never_updates_and_removing_it_leaves_the_players_file() {
         "the player's file stays"
     );
     assert!(Shelf::open(&dir).packs.is_empty(), "off the list for good");
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(mine);
+}
+
+#[test]
+fn a_pack_file_made_again_in_place_is_read_again_where_it_stands_in_the_stack() {
+    let dir = temp("file-refresh");
+    let mine = temp("file-refresh-mine");
+    let mut shelf = Shelf::open(&dir);
+    let first = players_file(&mine, "first.dat", &pack("org.example.first", "1.0.0"));
+    shelf.add_file(&first).unwrap();
+    // Not on the list yet: added, last.
+    let file = players_file(&mine, "look.dat", &pack("local.look", "0.1.4"));
+    let done = shelf.refresh_file(&file).unwrap();
+    assert!(!done.updated);
+    shelf.set_on("local.look", false).unwrap();
+    shelf.move_pack("local.look", false).unwrap();
+    // Made again: its new version, in the same place, still off.
+    players_file(&mine, "look.dat", &pack("local.look", "0.1.5"));
+    let done = shelf.refresh_file(&file).unwrap();
+    assert_eq!((done.version.as_str(), done.updated), ("0.1.5", true));
+    assert_eq!(shelf.packs.len(), 2);
+    assert_eq!(shelf.packs[0].id, "local.look");
+    assert_eq!(shelf.packs[0].release.version, "0.1.5");
+    assert!(!shelf.packs[0].on);
+    assert_eq!(Shelf::open(&dir).packs[0].release.version, "0.1.5", "kept");
+    // Made again under the other pack's id: refused.
+    players_file(&mine, "look.dat", &pack("org.example.first", "2.0.0"));
+    assert!(matches!(
+        shelf.refresh_file(&file),
+        Err(ArtError::InstalledFrom { .. })
+    ));
     let _ = std::fs::remove_dir_all(dir);
     let _ = std::fs::remove_dir_all(mine);
 }

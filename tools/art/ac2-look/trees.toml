@@ -1,0 +1,1012 @@
+# The AC2 look's trees and plants: each AC1 setup's AC2 entity, the height it stands, and how
+# its trunk is fitted to the setup's collision cylinder (its radius, measured): "girth" draws
+# only the bark in or out, "narrow" narrows the whole model.
+version = 1
+clear_share = 0.25
+clear_size = 128
+
+[[model]]
+setup = 0x02000258
+height = 24.0
+entity = 0x4700003E
+category = "tree"
+foliage = true
+cylinder = 1.09
+fit = "girth"
+
+[[model]]
+setup = 0x020002D3
+height = 35.8
+entity = 0x47000412
+category = "tree"
+foliage = true
+cylinder = 1.53
+fit = "girth"
+
+[[model]]
+setup = 0x020002D9
+height = 35.8
+entity = 0x47000412
+category = "tree"
+foliage = true
+cylinder = 1.53
+fit = "girth"
+
+[[model]]
+setup = 0x020002DB
+height = 44.4
+entity = 0x47000412
+category = "tree"
+foliage = true
+cylinder = 1.53
+fit = "girth"
+
+[[model]]
+setup = 0x020002D8
+height = 33.4
+entity = 0x47000412
+category = "tree"
+foliage = true
+cylinder = 1.53
+fit = "girth"
+
+[[model]]
+setup = 0x020002DA
+height = 62.7
+entity = 0x47000412
+category = "tree"
+foliage = true
+cylinder = 2.6
+fit = "girth"
+
+[[model]]
+setup = 0x02000256
+height = 13.5
+entity = 0x47000487
+category = "tree"
+foliage = true
+cylinder = 0.93
+fit = "girth"
+
+[[model]]
+setup = 0x02000257
+height = 6.75
+entity = 0x470000DA
+category = "tree"
+foliage = true
+cylinder = 0.54
+
+[[model]]
+setup = 0x020003A2
+height = 6.75
+entity = 0x470000DA
+category = "tree"
+foliage = true
+cylinder = 0.54
+
+[[model]]
+setup = 0x020003A3
+height = 13.5
+entity = 0x47000487
+category = "tree"
+foliage = true
+cylinder = 0.93
+fit = "girth"
+
+[[model]]
+setup = 0x020003A4
+height = 24.0
+entity = 0x4700003E
+category = "tree"
+foliage = true
+cylinder = 1.09
+fit = "girth"
+
+[[model]]
+setup = 0x020003A7
+height = 33.4
+entity = 0x47000412
+category = "tree"
+foliage = true
+cylinder = 1.53
+fit = "girth"
+
+[[model]]
+setup = 0x02000246
+height = 8.05
+entity = 0x47000025
+category = "tree"
+foliage = true
+cylinder = 0.85
+fit = "girth"
+
+[[model]]
+setup = 0x02000240
+height = 5.63
+entity = 0x47000025
+category = "tree"
+foliage = true
+
+[[model]]
+setup = 0x020002D7
+height = 17.6
+entity = 0x47000025
+category = "tree"
+foliage = true
+cylinder = 1.34
+fit = "girth"
+
+[[model]]
+setup = 0x020007D4
+height = 28.7
+entity = 0x47000421
+category = "tree"
+foliage = true
+cylinder = 1.29
+fit = "girth"
+
+[[model]]
+setup = 0x0200062C
+height = 11.25
+entity = 0x47000016
+category = "tree"
+foliage = true
+cylinder = 0.36
+fit = "girth"
+
+[[model]]
+setup = 0x0200062B
+height = 11.25
+entity = 0x47000016
+category = "tree"
+foliage = true
+cylinder = 0.41
+fit = "girth"
+
+[[model]]
+setup = 0x020004BE
+height = 21.3
+entity = 0x47000014
+category = "tree"
+foliage = true
+cylinder = 1.25
+fit = "girth"
+
+[[model]]
+setup = 0x020012FC
+height = 10.4
+entity = 0x47000024
+category = "tree"
+foliage = true
+cylinder = 1.52
+fit = "girth"
+
+[[model]]
+setup = 0x020003EE
+height = 39.25
+entity = 0x47000024
+category = "tree"
+foliage = true
+cylinder = 1.33
+fit = "girth"
+
+[[model]]
+setup = 0x020003EF
+height = 25.7
+entity = 0x47000024
+category = "tree"
+foliage = true
+cylinder = 1.33
+fit = "girth"
+
+[[model]]
+setup = 0x020003ED
+height = 19.9
+entity = 0x47000024
+category = "tree"
+foliage = true
+cylinder = 1.33
+fit = "girth"
+
+[[model]]
+setup = 0x020004B1
+height = 9.97
+entity = 0x470003BD
+category = "tree"
+foliage = true
+cylinder = 0.4
+fit = "narrow"
+
+[[model]]
+setup = 0x020007DA
+height = 14.2
+entity = 0x470003BA
+category = "tree"
+foliage = true
+cylinder = 0.45
+fit = "narrow"
+
+[[model]]
+setup = 0x020004B2
+height = 2.43
+entity = 0x4700001A
+category = "plant"
+foliage = true
+cylinder = 0.5
+
+[[model]]
+setup = 0x020004BC
+height = 1.5
+entity = 0x47000401
+category = "plant"
+foliage = true
+cylinder = 0.12
+
+[[model]]
+setup = 0x020004BB
+height = 1.5
+entity = 0x47000401
+category = "plant"
+foliage = true
+cylinder = 0.12
+
+[[model]]
+setup = 0x020007D9
+height = 15.4
+entity = 0x47000421
+category = "tree"
+foliage = true
+
+[[model]]
+setup = 0x02000E71
+height = 5.96
+entity = 0x470003BB
+category = "plant"
+foliage = true
+cylinder = 1.0
+
+[[model]]
+setup = 0x02000E72
+height = 6.54
+entity = 0x470003BB
+category = "plant"
+foliage = true
+cylinder = 0.5
+
+[[model]]
+setup = 0x020002F2
+height = 3.84
+entity = 0x470002E5
+category = "plant"
+foliage = true
+
+[[model]]
+setup = 0x020002F5
+height = 3.85
+entity = 0x470002E5
+category = "plant"
+foliage = true
+
+[[model]]
+setup = 0x020002F4
+height = 3.85
+entity = 0x4700000B
+category = "plant"
+foliage = true
+
+[[model]]
+setup = 0x02001293
+height = 1.04
+entity = 0x470002E9
+category = "plant"
+foliage = true
+
+[[model]]
+setup = 0x02001294
+height = 0.64
+entity = 0x470002E9
+category = "plant"
+foliage = true
+
+[[model]]
+setup = 0x02001063
+height = 0.6
+entity = 0x470000D6
+category = "plant"
+foliage = true
+
+[[model]]
+setup = 0x02001064
+height = 1.6
+entity = 0x470000D6
+category = "plant"
+foliage = true
+
+[[model]]
+setup = 0x02001065
+height = 3.96
+entity = 0x470000D6
+category = "plant"
+foliage = true
+
+[[model]]
+setup = 0x020007A3
+height = 1.05
+entity = 0x47000011
+category = "plant"
+foliage = true
+
+[[model]]
+setup = 0x020007A4
+height = 0.99
+entity = 0x4700000B
+category = "plant"
+foliage = true
+
+[[model]]
+setup = 0x020007A2
+height = 0.75
+entity = 0x4700040F
+category = "plant"
+foliage = true
+
+[[model]]
+setup = 0x020007A5
+height = 0.45
+entity = 0x47000411
+category = "plant"
+foliage = true
+
+[[model]]
+setup = 0x020007A6
+height = 0.45
+entity = 0x470003FE
+category = "plant"
+foliage = true
+
+[[model]]
+setup = 0x020005AC
+height = 0.35
+entity = 0x47000407
+category = "plant"
+foliage = true
+
+[[model]]
+setup = 0x02001292
+height = 0.71
+entity = 0x470000AC
+category = "plant"
+foliage = true
+
+[[model]]
+setup = 0x020003D3
+height = 6.01
+entity = 0x470000AB
+category = "plant"
+foliage = true
+
+# Ground cover: each frill grows on the AC1 types named, this many on 100 square meters,
+# standing at its own height.
+[cover_all]
+scale = [0.8, 1.2]
+max_slope = 0.7
+reach = 40
+no_flowers = [1, 3, 9, 21]
+
+[[cover]]
+types = [1, 3, 9]
+entity = 0x470003FE
+density = 5.0
+height = 0.466
+
+[[cover]]
+types = [1, 3, 9]
+entity = 0x470003FF
+density = 5.0
+height = 0.437
+
+[[cover]]
+types = [1, 3, 9]
+entity = 0x47000400
+density = 5.0
+height = 0.509
+
+[[cover]]
+types = [1, 3, 9]
+entity = 0x4700040F
+density = 5.0
+height = 0.562
+
+[[cover]]
+types = [1, 3, 9]
+entity = 0x47000410
+density = 5.0
+height = 0.562
+
+[[cover]]
+types = [1, 3, 9]
+entity = 0x47000411
+density = 5.0
+height = 0.552
+
+[[cover]]
+types = [21]
+entity = 0x470000AC
+density = 5.556
+height = 1.074
+
+[[cover]]
+types = [21]
+entity = 0x470000D6
+density = 8.333
+height = 1.139
+
+[[cover]]
+types = [21]
+entity = 0x470000D7
+density = 2.778
+height = 2.088
+
+[[cover]]
+types = [21]
+entity = 0x470003FE
+density = 2.778
+height = 0.466
+
+[[cover]]
+types = [21]
+entity = 0x470003FF
+density = 2.778
+height = 0.437
+
+[[cover]]
+types = [21]
+entity = 0x47000400
+density = 2.778
+height = 0.509
+
+[[cover]]
+types = [12]
+entity = 0x4700000C
+density = 1.365
+height = 1.404
+
+[[cover]]
+types = [12]
+entity = 0x47000026
+density = 2.347
+height = 1.709
+
+[[cover]]
+types = [12]
+entity = 0x470000D6
+density = 0.328
+height = 1.139
+
+[[cover]]
+types = [12]
+entity = 0x470001FE
+density = 0.055
+height = 0.461
+
+[[cover]]
+types = [12]
+entity = 0x47000310
+density = 0.218
+height = 0.384
+
+[[cover]]
+types = [12]
+entity = 0x47000416
+density = 0.164
+height = 0.492
+
+[[cover]]
+types = [12]
+entity = 0x47000417
+density = 0.164
+height = 0.342
+
+[[cover]]
+types = [12]
+entity = 0x47000418
+density = 0.164
+height = 0.555
+
+[[cover]]
+types = [12]
+entity = 0x4700048A
+density = 0.033
+height = 0.185
+
+[[cover]]
+types = [12]
+entity = 0x4700048B
+density = 0.011
+height = 0.72
+
+[[cover]]
+types = [12]
+entity = 0x4700048D
+density = 0.033
+height = 0.196
+
+[[cover]]
+types = [12]
+entity = 0x4700049D
+density = 0.055
+height = 0.682
+
+[[cover]]
+types = [12]
+entity = 0x4700049E
+density = 0.066
+height = 0.45
+
+[[cover]]
+types = [4]
+entity = 0x47000273
+density = 2.143
+height = 1.789
+
+[[cover]]
+types = [4]
+entity = 0x47000274
+density = 1.714
+height = 2.641
+
+[[cover]]
+types = [4]
+entity = 0x470002EF
+density = 2.143
+height = 1.753
+
+[[cover]]
+types = [10]
+entity = 0x4700002B
+density = 1.5
+height = 1.709
+
+[[cover]]
+types = [15]
+entity = 0x4700000C
+density = 0.094
+height = 1.404
+
+[[cover]]
+types = [15]
+entity = 0x470001FE
+density = 0.094
+height = 0.461
+
+[[cover]]
+types = [15]
+entity = 0x47000310
+density = 0.376
+height = 0.384
+
+[[cover]]
+types = [15]
+entity = 0x47000489
+density = 0.094
+height = 0.856
+
+[[cover]]
+types = [15]
+entity = 0x4700048A
+density = 0.714
+height = 0.185
+
+[[cover]]
+types = [15]
+entity = 0x4700048B
+density = 0.488
+height = 0.72
+
+[[cover]]
+types = [15]
+entity = 0x4700048C
+density = 0.751
+height = 1.309
+
+[[cover]]
+types = [15]
+entity = 0x4700048D
+density = 0.714
+height = 0.196
+
+[[cover]]
+types = [15]
+entity = 0x4700048E
+density = 0.188
+height = 0.787
+
+[[cover]]
+types = [15]
+entity = 0x4700048F
+density = 0.282
+height = 1.117
+
+[[cover]]
+types = [15]
+entity = 0x4700049D
+density = 0.094
+height = 0.682
+
+[[cover]]
+types = [15]
+entity = 0x4700049E
+density = 0.113
+height = 0.45
+
+[[cover]]
+types = [2, 27]
+entity = 0x4700000C
+density = 0.1
+height = 1.404
+
+[[cover]]
+types = [2, 27]
+entity = 0x470000B2
+density = 0.498
+height = 0.318
+
+[[cover]]
+types = [2, 27]
+entity = 0x470001FE
+density = 0.239
+height = 0.461
+
+[[cover]]
+types = [2, 27]
+entity = 0x47000310
+density = 0.637
+height = 0.384
+
+[[cover]]
+types = [2, 27]
+entity = 0x47000489
+density = 0.08
+height = 0.856
+
+[[cover]]
+types = [2, 27]
+entity = 0x4700048A
+density = 0.517
+height = 0.185
+
+[[cover]]
+types = [2, 27]
+entity = 0x4700048B
+density = 0.338
+height = 0.72
+
+[[cover]]
+types = [2, 27]
+entity = 0x4700048C
+density = 0.498
+height = 1.309
+
+[[cover]]
+types = [2, 27]
+entity = 0x4700048D
+density = 0.537
+height = 0.196
+
+[[cover]]
+types = [2, 27]
+entity = 0x4700048E
+density = 0.159
+height = 0.787
+
+[[cover]]
+types = [2, 27]
+entity = 0x4700048F
+density = 0.179
+height = 1.117
+
+[[cover]]
+types = [2, 27]
+entity = 0x4700049D
+density = 0.1
+height = 0.682
+
+[[cover]]
+types = [2, 27]
+entity = 0x4700049E
+density = 0.119
+height = 0.45
+
+[[cover]]
+types = [0]
+entity = 0x4700000C
+density = 0.241
+height = 1.404
+
+[[cover]]
+types = [0]
+entity = 0x470000B2
+density = 0.602
+height = 0.318
+
+[[cover]]
+types = [0]
+entity = 0x470001F8
+density = 0.386
+height = 1.252
+
+[[cover]]
+types = [0]
+entity = 0x470001FE
+density = 0.41
+height = 0.461
+
+[[cover]]
+types = [0]
+entity = 0x47000310
+density = 1.253
+height = 0.384
+
+[[cover]]
+types = [0]
+entity = 0x47000489
+density = 0.024
+height = 0.856
+
+[[cover]]
+types = [0]
+entity = 0x4700048A
+density = 0.193
+height = 0.185
+
+[[cover]]
+types = [0]
+entity = 0x4700048B
+density = 0.072
+height = 0.72
+
+[[cover]]
+types = [0]
+entity = 0x4700048C
+density = 0.024
+height = 1.309
+
+[[cover]]
+types = [0]
+entity = 0x4700048D
+density = 0.217
+height = 0.196
+
+[[cover]]
+types = [0]
+entity = 0x4700048E
+density = 0.048
+height = 0.787
+
+[[cover]]
+types = [0]
+entity = 0x4700049D
+density = 0.241
+height = 0.682
+
+[[cover]]
+types = [0]
+entity = 0x4700049E
+density = 0.289
+height = 0.45
+
+[[cover]]
+types = [28]
+entity = 0x4700001C
+density = 0.119
+height = 1.447
+
+[[cover]]
+types = [28]
+entity = 0x4700001D
+density = 0.478
+height = 1.701
+
+[[cover]]
+types = [28]
+entity = 0x4700001E
+density = 0.119
+height = 0.971
+
+[[cover]]
+types = [28]
+entity = 0x470002E5
+density = 0.358
+height = 1.77
+
+[[cover]]
+types = [28]
+entity = 0x470002E6
+density = 0.358
+height = 1.456
+
+[[cover]]
+types = [28]
+entity = 0x470002E7
+density = 0.239
+height = 1.762
+
+[[cover]]
+types = [28]
+entity = 0x470002E8
+density = 0.239
+height = 2.399
+
+[[cover]]
+types = [28]
+entity = 0x470002E9
+density = 0.597
+height = 1.064
+
+[[cover]]
+types = [28]
+entity = 0x470002EA
+density = 0.119
+height = 0.86
+
+[[cover]]
+types = [28]
+entity = 0x470002F5
+density = 0.358
+height = 1.648
+
+[[cover]]
+types = [28]
+entity = 0x470002F6
+density = 0.537
+height = 0.973
+
+[[cover]]
+types = [28]
+entity = 0x47000401
+density = 0.179
+height = 1.1
+
+[[cover]]
+types = [28]
+entity = 0x47000402
+density = 0.179
+height = 1.77
+
+[[cover]]
+types = [28]
+entity = 0x47000403
+density = 0.896
+height = 1.055
+
+[[cover]]
+types = [28]
+entity = 0x47000404
+density = 0.537
+height = 0.457
+
+[[cover]]
+types = [28]
+entity = 0x47000405
+density = 0.716
+height = 0.341
+
+[[cover]]
+types = [28]
+entity = 0x47000406
+density = 0.537
+height = 0.537
+
+[[cover]]
+types = [28]
+entity = 0x47000407
+density = 0.537
+height = 0.576
+
+[[cover]]
+types = [28]
+entity = 0x47000408
+density = 0.537
+height = 0.537
+
+[[cover]]
+types = [28]
+entity = 0x4700041A
+density = 0.358
+height = 0.509
+
+[[cover]]
+types = [29]
+entity = 0x4700001C
+density = 0.279
+height = 1.447
+
+[[cover]]
+types = [29]
+entity = 0x4700001D
+density = 1.116
+height = 1.701
+
+[[cover]]
+types = [29]
+entity = 0x4700001E
+density = 0.279
+height = 0.971
+
+[[cover]]
+types = [29]
+entity = 0x470002E5
+density = 0.419
+height = 1.77
+
+[[cover]]
+types = [29]
+entity = 0x470002E6
+density = 0.419
+height = 1.456
+
+[[cover]]
+types = [29]
+entity = 0x470002E7
+density = 0.279
+height = 1.762
+
+[[cover]]
+types = [29]
+entity = 0x470002E8
+density = 0.279
+height = 2.399
+
+[[cover]]
+types = [29]
+entity = 0x470002E9
+density = 0.698
+height = 1.064
+
+[[cover]]
+types = [29]
+entity = 0x470002EA
+density = 0.14
+height = 0.86
+
+[[cover]]
+types = [29]
+entity = 0x470002F5
+density = 0.419
+height = 1.648
+
+[[cover]]
+types = [29]
+entity = 0x470002F6
+density = 0.419
+height = 0.973
+
+[[cover]]
+types = [29]
+entity = 0x47000404
+density = 0.419
+height = 0.457
+
+[[cover]]
+types = [29]
+entity = 0x47000405
+density = 0.419
+height = 0.341
+
+[[cover]]
+types = [29]
+entity = 0x4700041A
+density = 0.419
+height = 0.509
+
+[[cover]]
+types = [11]
+entity = 0x4700000B
+density = 0.909
+height = 1.093
+
+[[cover]]
+types = [11]
+entity = 0x4700000C
+density = 1.091
+height = 1.404

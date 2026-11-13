@@ -355,6 +355,8 @@ pub struct Snapshot {
     pub art: dereth_launch::art::ArtView,
     /// The art pack being fetched, when one is.
     pub art_progress: Option<ArtProgress>,
+    /// The AC2 look the launcher builds from the player's own Asheron's Call 2 files.
+    pub ac2_look: crate::ac2_look::View,
     /// The data sets the Library can download, and the last download's status.
     pub downloads: DownloadsView,
 }
@@ -756,6 +758,10 @@ pub struct Backend {
     plugins: Shelf,
     art: dereth_launch::art::Shelf,
     art_progress: Option<ArtProgress>,
+    /// The art tool's tables' versions, asked once it is known to be there.
+    ac2_look_versions: Option<dereth_launch::ac2_look::Versions>,
+    /// The AC2 look being built, when it is.
+    ac2_look_progress: Option<crate::ac2_look::Progress>,
     /// The last data set download's status, and the flag that stops one going.
     download: Option<crate::downloads::Status>,
     download_cancel: Arc<AtomicBool>,
@@ -884,6 +890,8 @@ impl Backend {
             plugins,
             art,
             art_progress: None,
+            ac2_look_versions: None,
+            ac2_look_progress: None,
             download: None,
             download_cancel: Arc::new(AtomicBool::new(false)),
             job_cancel: Arc::new(AtomicBool::new(false)),
@@ -1025,6 +1033,7 @@ impl Backend {
             plugins: self.plugins.view(),
             art: self.art.view(),
             art_progress: self.art_progress.clone(),
+            ac2_look: self.ac2_look_view(),
             downloads: DownloadsView {
                 offers: dereth_launch::downloads::offers(catalogue()),
                 status: self.download.clone(),
@@ -2766,6 +2775,212 @@ impl Backend {
             .map_err(|e| e.to_string())
     }
 
+    // ----- the AC2 look ---------------------------------------------------------------------------
+
+    /// The AC2 look's folder in the art folder.
+    fn ac2_look_dir(&self) -> PathBuf {
+        self.folders.art().join(dereth_launch::ac2_look::FOLDER)
+    }
+
+    /// The art tool beside the client in use, when it is there.
+    fn art_tool(&self) -> Option<PathBuf> {
+        let d = self.dereth.as_ref()?;
+        let tool = d.path.join(format!(
+            "{}{}",
+            dereth_launch::ac2_look::PROGRAM,
+            std::env::consts::EXE_SUFFIX
+        ));
+        tool.is_file().then_some(tool)
+    }
+
+    /// The Asheron's Call 2 install the look is built from: the folder the player chose for it,
+    /// else the Library's.
+    fn ac2_look_install(&self, choices: &dereth_launch::ac2_look::Choices) -> Option<PathBuf> {
+        choices
+            .install
+            .clone()
+            .or_else(|| self.state.auberean_default_set().map(|s| s.path.clone()))
+    }
+
+    fn ac2_look_view(&self) -> crate::ac2_look::View {
+        use dereth_launch::ac2_look::{Built, Choices, FILE};
+        let dir = self.ac2_look_dir();
+        let choices = Choices::load(&dir);
+        let install = self.ac2_look_install(&choices);
+        let built = Built::load(&dir).filter(|_| dir.join(FILE).is_file());
+        crate::ac2_look::View {
+            tool: self.art_tool().is_some(),
+            install_ok: install
+                .as_deref()
+                .is_some_and(|d| dereth_launch::auberean::check_install(d).ok),
+            install: install.map(|d| d.display().to_string()),
+            ac1: self.state.shared_set().is_some(),
+            parts: crate::ac2_look::parts_view(&choices.parts),
+            stale: match (&built, &self.ac2_look_versions) {
+                (Some(b), Some(now)) => b.stale(now),
+                _ => false,
+            },
+            built: built.map(|b| b.versions.look),
+            progress: self.ac2_look_progress.clone(),
+        }
+    }
+
+    /// Tick or untick a part of the AC2 look for the next build.
+    ///
+    /// # Errors
+    /// Not a part, or the choices will not write.
+    pub fn set_ac2_look_part(&mut self, part: &str, on: bool) -> Result<(), String> {
+        use dereth_launch::ac2_look::{known_parts, Choices};
+        if known_parts(&[part.to_owned()]).is_empty() {
+            return Err(format!(
+                "{part} is not a part of the Asheron's Call 2 Art Pack"
+            ));
+        }
+        let dir = self.ac2_look_dir();
+        let mut c = Choices::load(&dir);
+        c.parts.retain(|p| p != part);
+        if on {
+            c.parts.push(part.to_owned());
+        }
+        c.parts = known_parts(&c.parts);
+        c.save(&dir).map_err(|e| e.to_string())
+    }
+
+    /// Build the AC2 look from the Asheron's Call 2 install in `folder` from now on.
+    ///
+    /// # Errors
+    /// Its files do not check, in words for the page, or the choice will not write.
+    pub fn set_ac2_look_folder(&mut self, folder: &Path) -> Result<String, String> {
+        let check = dereth_launch::auberean::check_install(folder);
+        if !check.ok {
+            return Err(check.summary);
+        }
+        let dir = self.ac2_look_dir();
+        let mut c = dereth_launch::ac2_look::Choices::load(&dir);
+        c.install = Some(folder.to_owned());
+        c.save(&dir).map_err(|e| e.to_string())?;
+        Ok(format!(
+            "The Asheron's Call 2 Art Pack is built from {}.",
+            folder.display()
+        ))
+    }
+
+    /// The art tool's tables' versions, asked of it the first time (a thread's work: it runs the
+    /// tool). `None` with no tool, or one that will not say.
+    pub fn ac2_look_versions(
+        shared: &Shared,
+        run: &crate::ac2_look::RunTool<'_>,
+    ) -> Option<dereth_launch::ac2_look::Versions> {
+        let tool = {
+            let b = lock(shared);
+            if let Some(v) = &b.ac2_look_versions {
+                return Some(v.clone());
+            }
+            b.art_tool()?
+        };
+        let v = crate::ac2_look::versions(run, &tool).ok()?;
+        lock(shared).ac2_look_versions = Some(v.clone());
+        Some(v)
+    }
+
+    /// Build the AC2 look with the parts ticked (a thread's work: it runs the art tool, showing
+    /// how far it has got), and add it to the art packs on this computer, or read it again there.
+    /// One at a time.
+    ///
+    /// # Errors
+    /// No tool, no install, no part ticked, Dereth running with the look in use, or the build.
+    pub fn build_ac2_look(
+        shared: &Shared,
+        run: &crate::ac2_look::RunTool<'_>,
+    ) -> Result<String, String> {
+        use dereth_launch::ac2_look::{self as look, Built, Choices};
+        let versions = Self::ac2_look_versions(shared, run);
+        let (tool, args, dir, out, choices, install) = {
+            let mut b = lock(shared);
+            if b.ac2_look_progress.is_some() {
+                return Err("The Asheron's Call 2 Art Pack is being built.".into());
+            }
+            let tool = b
+                .art_tool()
+                .ok_or("This Dereth has no art tool beside it.")?;
+            let dir = b.ac2_look_dir();
+            let choices = Choices::load(&dir);
+            if choices.parts.is_empty() {
+                return Err("Tick at least one part of the Asheron's Call 2 Art Pack.".into());
+            }
+            let install = b
+                .ac2_look_install(&choices)
+                .ok_or("Add your Asheron's Call 2 data set first.")?;
+            let check = dereth_launch::auberean::check_install(&install);
+            if !check.ok {
+                return Err(check.summary);
+            }
+            let ac1 = if choices.parts.iter().any(|p| p == look::NEEDS_AC1) {
+                Some(
+                    b.state
+                        .shared_set()
+                        .map(|s| s.path.clone())
+                        .ok_or("The rocks need Asheron's Call's data files. Add them first.")?,
+                )
+            } else {
+                None
+            };
+            let out = dir.join(look::FILE);
+            if b.dereth_running() && b.art.stack().contains(&out) {
+                return Err("Close Dereth to rebuild the Asheron's Call 2 Art Pack.".into());
+            }
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            let args = look::build_args(&install, ac1.as_deref(), &out, &choices.parts);
+            b.ac2_look_progress = Some(crate::ac2_look::Progress::default());
+            (tool, args, dir, out, choices, install)
+        };
+        let progress_to = shared.clone();
+        let made = crate::ac2_look::build(run, &tool, &args, &mut |p| {
+            if let Some(at) = lock(&progress_to).ac2_look_progress.as_mut() {
+                *at = p;
+            }
+        });
+        let mut b = lock(shared);
+        b.ac2_look_progress = None;
+        let (file, version) = made?;
+        if file != out {
+            return Err(format!(
+                "The art tool wrote {}, not {}.",
+                file.display(),
+                out.display()
+            ));
+        }
+        let built = Built {
+            parts: choices.parts,
+            versions: versions.unwrap_or_else(|| look::Versions {
+                look: version.clone(),
+                ..look::Versions::default()
+            }),
+            install,
+        };
+        built.save(&dir).map_err(|e| e.to_string())?;
+        b.art.refresh_file(&out).map_err(|e| e.to_string())?;
+        Ok(format!("Built the Asheron's Call 2 Art Pack {version}."))
+    }
+
+    /// Build the AC2 look again when the art tool has come with a newer table than one it was
+    /// built from (a thread's work, at start). What it said, when it built.
+    pub fn rebuild_stale_ac2_look(
+        shared: &Shared,
+        run: &crate::ac2_look::RunTool<'_>,
+    ) -> Option<Result<String, String>> {
+        use dereth_launch::ac2_look::{Built, FILE};
+        let now = Self::ac2_look_versions(shared, run)?;
+        let stale = {
+            let b = lock(shared);
+            let dir = b.ac2_look_dir();
+            dir.join(FILE).is_file()
+                && Built::load(&dir).is_some_and(|built| built.stale(&now))
+                && !b.dereth_running()
+        };
+        stale.then(|| Self::build_ac2_look(shared, run))
+    }
+
     /// Which plugins update without the player: `none`, `all` or `first_party`.
     ///
     /// # Errors
@@ -3691,6 +3906,102 @@ mod tests {
     /// An art pack is fetched into its own file and checked, and the client is given the packs
     /// that are on, in their order. An installed pack updates on its own only while the Library's
     /// setting to update components is on; off, the update waits for the player.
+    /// The AC2 look builds through the art tool beside the client, from the install the player
+    /// chose, with the parts ticked; joins the art packs on this computer; and is built again,
+    /// in the same place in the stack, only when the tool comes with a newer table.
+    #[test]
+    fn the_ac2_look_builds_joins_the_art_packs_and_is_built_again_when_a_table_is_newer() {
+        use dereth_launch::ac2_look::{Built, FILE, FOLDER};
+        use std::sync::atomic::{AtomicU32, Ordering};
+        let (b, dir) = backend("ac2-look");
+        let shared: Shared = Arc::new(Mutex::new(b));
+        // Before the tool is there, nothing builds.
+        let never: &crate::ac2_look::RunTool<'_> = &|_, _, _| Err("not run".into());
+        assert_eq!(
+            Backend::build_ac2_look(&shared, never),
+            Err("This Dereth has no art tool beside it.".into())
+        );
+        let tool = dir.join("client").join(format!(
+            "{}{}",
+            dereth_launch::ac2_look::PROGRAM,
+            std::env::consts::EXE_SUFFIX
+        ));
+        std::fs::write(&tool, b"a stand-in").unwrap();
+        let ac2 = dir.join("ac2");
+        write_auberean_set(&ac2, dereth_launch::auberean::END_OF_RETAIL);
+        let said = lock(&shared).set_ac2_look_folder(&ac2).unwrap();
+        assert!(said.contains("built from"), "{said}");
+        lock(&shared).set_ac2_look_part("rocks", false).unwrap();
+        assert!(lock(&shared).set_ac2_look_part("dungeons", true).is_err());
+        // The stand-in: its tables at `table`, and a build writes a pack at the look's version.
+        let table = AtomicU32::new(1);
+        let asked = Mutex::new(Vec::<Vec<String>>::new());
+        let run = |_: &Path, args: &[std::ffi::OsString], line: &mut dyn FnMut(&str)| {
+            let words: Vec<String> = args
+                .iter()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect();
+            let n = table.load(Ordering::SeqCst);
+            if words.iter().any(|w| w == "--versions") {
+                line(&format!("look 0.1.{n}"));
+                line(&format!("terrain {n}"));
+                line("sky 1");
+                return Ok(());
+            }
+            let out = &words[words.iter().position(|w| w == "--out").unwrap() + 1];
+            std::fs::write(
+                out,
+                dereth_launch::testing::art_pack("local.ac2-look", &format!("0.1.{n}")),
+            )
+            .unwrap();
+            line("step ground GrassLand");
+            line(&format!("built {out} 0.1.{n}"));
+            asked.lock().unwrap().push(words);
+            Ok(())
+        };
+        assert_eq!(
+            Backend::build_ac2_look(&shared, &run),
+            Ok("Built the Asheron's Call 2 Art Pack 0.1.1.".into())
+        );
+        let words = asked.lock().unwrap()[0].clone();
+        assert!(
+            words.contains(&"terrain,red-desert,trees,sky".to_owned()),
+            "{words:?}"
+        );
+        assert!(
+            !words.contains(&"--ac1".to_owned()),
+            "no rocks, no Asheron's Call files"
+        );
+        let view = lock(&shared).snapshot();
+        assert_eq!(view.ac2_look.built.as_deref(), Some("0.1.1"));
+        assert!(!view.ac2_look.stale && view.ac2_look.progress.is_none());
+        let shown = &view.art.installed[0];
+        assert_eq!(
+            (shown.id.as_str(), shown.release.version.as_str()),
+            ("local.ac2-look", "0.1.1")
+        );
+        // The same tables: nothing to build again.
+        assert!(Backend::rebuild_stale_ac2_look(&shared, &run).is_none());
+        // A newer table, with a launcher that has asked afresh: built again, still one pack.
+        table.store(2, Ordering::SeqCst);
+        lock(&shared).ac2_look_versions = None;
+        assert_eq!(
+            Backend::rebuild_stale_ac2_look(&shared, &run),
+            Some(Ok("Built the Asheron's Call 2 Art Pack 0.1.2.".into()))
+        );
+        let view = lock(&shared).snapshot();
+        assert_eq!(view.art.installed.len(), 1);
+        assert_eq!(view.art.installed[0].release.version, "0.1.2");
+        let built = Built::load(&lock(&shared).folders.art().join(FOLDER)).unwrap();
+        assert_eq!(built.versions.parts.get("terrain"), Some(&2));
+        assert!(lock(&shared)
+            .folders
+            .art()
+            .join(FOLDER)
+            .join(FILE)
+            .is_file());
+    }
+
     #[test]
     fn art_packs_install_reach_the_client_in_order_and_update_as_the_setting_says() {
         use dereth_launch::art::FIRST_PARTY as ART;
@@ -3837,7 +4148,7 @@ mod tests {
             Ok("Added org.example.flowers 0.3.0.".to_owned())
         );
         let shown = &b.snapshot().art.installed[0];
-        assert_eq!(shown.source_name, "This computer");
+        assert_eq!(shown.source_name, "local");
         assert_eq!(shown.file, Some(file.display().to_string()));
         assert_eq!(b.art.stack(), std::slice::from_ref(&file));
 

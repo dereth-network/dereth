@@ -72,7 +72,7 @@ pub const INSTALLED_FILE: &str = "installed.json";
 pub const FILES_FILE: &str = "files.json";
 
 /// What the page calls where a pack on this computer comes from.
-pub const THIS_COMPUTER: &str = "This computer";
+pub const THIS_COMPUTER: &str = "local";
 
 /// The installed file's name in a pack's folder.
 pub const PACK_FILE: &str = "current.dat";
@@ -925,6 +925,40 @@ impl Shelf {
             on: true,
             file: Some(file.to_owned()),
         });
+        self.save_installed()?;
+        Ok(done)
+    }
+
+    /// The packed pack in `file` read again, when it is on the list (its name and version may have
+    /// changed: it was made again in place), else added as [`Shelf::add_file`] adds it.
+    ///
+    /// # Errors
+    /// As [`Shelf::add_file`]'s, or a pack made again under another pack's id.
+    pub fn refresh_file(&mut self, file: &Path) -> Result<Done, ArtError> {
+        let Some(at) = self
+            .packs
+            .iter()
+            .position(|p| p.file.as_deref() == Some(file))
+        else {
+            return self.add_file(file);
+        };
+        let (id, release) = read_file(file)?;
+        if let Some(other) = self.packs.iter().position(|p| p.id == id) {
+            if other != at {
+                return Err(ArtError::InstalledFrom {
+                    source: self.packs[other].origin(),
+                    id,
+                });
+            }
+        }
+        let done = Done {
+            name: release.name.clone(),
+            version: release.version.clone(),
+            updated: true,
+        };
+        let p = &mut self.packs[at];
+        p.id = id;
+        p.release = release;
         self.save_installed()?;
         Ok(done)
     }

@@ -24,7 +24,8 @@
 //!    as a program), and nothing uses the world builder's; a core crate's
 //!    tests may use the client's test kit and the server's network crate (the server double), the
 //!    server's tests the client's test kit. Nothing of the first game's uses any of them, but the
-//!    launcher's knowledge the friends stream's codec ([`OUTSIDE_MAY_USE`]). No crate
+//!    launcher's knowledge the friends stream's codec and the art tool the install's records
+//!    ([`OUTSIDE_MAY_USE`]). No crate
 //!    but a test kit names a test kit outside its tests, and no library names a log subscriber
 //!    ([`super::LIBRARY_NO_SUBSCRIBER`]): only an executable installs one, and the libraries in
 //!    [`OUTERMOST`], loaded by a program that is not ours.
@@ -165,8 +166,16 @@ pub const ATHENAEUM_MAY_USE: &[&str] = &[
 /// The crates of the second game's a crate outside the four parts may use, by that crate: the
 /// launcher's knowledge, which serves both games, asks a world whether it serves the friends stream
 /// and writes the friends ticket with the stream's own codec (a core crate with no I/O and no
-/// dependencies), rather than a copy of its framing.
-pub const OUTSIDE_MAY_USE: &[(&str, &str)] = &[("dereth-launch", "auberean-friends")];
+/// dependencies), rather than a copy of its framing; and the art tool reads a player's install to
+/// build the AC2 look from it.
+pub const OUTSIDE_MAY_USE: &[(&str, &str)] = &[
+    ("dereth-launch", "auberean-friends"),
+    // The art tool builds the AC2 look from the player's own install: it reads the install's
+    // records and its region, and nothing of the second game's client, server or world builder.
+    ("dereth-art", "auberean-assets"),
+    ("dereth-art", "auberean-dat"),
+    ("dereth-art", "auberean-world"),
+];
 
 /// The four parts' folders.
 const PARTS: [&str; 4] = ["core/auberean-", "auberean/", "yalain/", "athenaeum/"];

@@ -1,6 +1,6 @@
 [package]
 name = "dereth-art"
-description = "Surveys the models the world is built from: where each one is used, how often, what it is made of, and a picture of it; and packs an art pack's folder into one file."
+description = "Surveys the models the world is built from: where each one is used, how often, what it is made of, and a picture of it; packs an art pack's folder into one file; and builds the AC2 look from a player's own Asheron's Call 2 files."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,8 +9,9 @@ publish = false
 autotests = false
 
 [features]
-# Tier switch only: no code is gated on it. It un-ignores the unit test that surveys real
-# landblocks from the retail dats under $DERETH_TEST_DAT_DIR.
+# Tier switch only: no code is gated on it. It un-ignores the unit tests that survey real
+# landblocks from the retail dats under $DERETH_TEST_DAT_DIR and build the AC2 look from the
+# Asheron's Call 2 install under $AUBEREAN_TEST_DAT_DIR.
 retail-dats = []
 
 [dependencies]
@@ -34,10 +35,19 @@ png.workspace = true
 # A skeleton's transforms.
 glam.workspace = true
 serde_json.workspace = true
+# The AC2 look's tables.
+serde.workspace = true
+toml.workspace = true
+# The AC2 look: the player's own Asheron's Call 2 files, their records and their region.
+auberean-assets.workspace = true
+auberean-dat = { workspace = true, features = ["fs"] }
+auberean-world.workspace = true
 
 [dev-dependencies]
 # `dereth_dat::testing`: where the retail-data test finds the dats.
 dereth-dat = { workspace = true, features = ["test-support"] }
+# `auberean_dat::testing`: where the retail-data test finds the Asheron's Call 2 install.
+auberean-dat = { workspace = true, features = ["fs", "test-support"] }
 
 [lints]
 workspace = true

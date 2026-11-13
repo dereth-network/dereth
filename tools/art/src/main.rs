@@ -6,6 +6,8 @@
 //! dereth-art pack <folder> [--out <file>] [--check]
 //! dereth-art mesh <id> [--dat-dir <dir>]
 //! dereth-art skeleton <setup> [--dat-dir <dir>] [--out <dir>] [--anim <id>@<fps>,...]
+//! dereth-art ac2-look --ac2 <dir> [--ac1 <dir>] [--out <file>] [--parts <part>,...] [--keep-folder]
+//! dereth-art ac2-look --versions
 //! ```
 //!
 //! `survey`: `--dat-dir` defaults to `DERETH_TEST_DAT_DIR`, `--out` to `target/art-survey`,
@@ -21,6 +23,14 @@
 //! `skeleton`: the setup as a glTF skeleton with its parts as a reference body
 //! ([`dereth_art::skeleton`]), in `--out` (default `target/skeleton/<setup>`), with each animation of
 //! `--anim` as a clip at its rate.
+//!
+//! `ac2-look`: the AC2 look built from the Asheron's Call 2 install in `--ac2` and the Asheron's
+//! Call files in `--ac1` (default `DERETH_TEST_DAT_DIR`; only the rocks read them) into the packed
+//! file `--out` (default `ac2-look.dat`), with the parts `--parts` names (default all: terrain,
+//! red-desert, trees, rocks, sky) ([`dereth_art::ac2_look`]). It says what it is doing a line at a
+//! time on the standard output, `step <what>`, and last `built <file> <version>`; with
+//! `--keep-folder` the pack's folder stays beside the file. `--versions` prints the look's version
+//! and each part's table version, `<part> <version>` a line, and builds nothing.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -29,7 +39,9 @@ const USAGE: &str = "dereth-art survey [--dat-dir <dir>] [--out <dir>] [--spawns
 [--tags <tags.tsv>] [--landblocks <XXYY,XXYY,...>] [--threads <n>] [--no-thumbnails] [--pixels]
        dereth-art pack <folder> [--out <file>] [--check]
        dereth-art mesh <id> [--dat-dir <dir>]
-       dereth-art skeleton <setup> [--dat-dir <dir>] [--out <dir>] [--anim <id>@<fps>,...]";
+       dereth-art skeleton <setup> [--dat-dir <dir>] [--out <dir>] [--anim <id>@<fps>,...]
+       dereth-art ac2-look --ac2 <dir> [--ac1 <dir>] [--out <file>] [--parts <part>,...] [--keep-folder]
+       dereth-art ac2-look --versions";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -59,6 +71,7 @@ usage: {USAGE}"
                 ExitCode::from(2)
             }
         },
+        Some("ac2-look") => ac2_look(&args[1..]),
         Some("-h" | "--help") => {
             println!("usage: {USAGE}");
             ExitCode::SUCCESS
@@ -370,6 +383,93 @@ parents: {}",
         }
         Err(e) => {
             eprintln!("dereth-art skeleton: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn ac2_look_request(args: &[String]) -> Result<dereth_art::ac2_look::build::Request, String> {
+    use dereth_art::ac2_look::tables::Part;
+    let mut ac2 = None;
+    let mut ac1 = std::env::var_os("DERETH_TEST_DAT_DIR").map(PathBuf::from);
+    let mut out = PathBuf::from("ac2-look.dat");
+    let mut parts: std::collections::BTreeSet<Part> = Part::ALL.into_iter().collect();
+    let mut keep_folder = false;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let mut value = || {
+            it.next()
+                .cloned()
+                .ok_or_else(|| format!("{a} needs a value"))
+        };
+        match a.as_str() {
+            "--ac2" => ac2 = Some(PathBuf::from(value()?)),
+            "--ac1" => ac1 = Some(PathBuf::from(value()?)),
+            "--out" => out = PathBuf::from(value()?),
+            "--parts" => {
+                parts = value()?
+                    .split(',')
+                    .filter(|s| !s.trim().is_empty())
+                    .map(|s| Part::from_name(s.trim()).ok_or_else(|| format!("no part {s:?}")))
+                    .collect::<Result<_, String>>()?;
+            }
+            "--keep-folder" => keep_folder = true,
+            other => return Err(format!("unknown argument {other:?}")),
+        }
+    }
+    Ok(dereth_art::ac2_look::build::Request {
+        ac2: ac2.ok_or("--ac2 names no install")?,
+        ac1,
+        out,
+        parts,
+        keep_folder,
+    })
+}
+
+fn ac2_look(args: &[String]) -> ExitCode {
+    use dereth_art::ac2_look::{build, tables::Tables};
+    let tables = match Tables::built_in() {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("dereth-art ac2-look: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    if args == ["--versions"] {
+        println!("look {}", build::version(&tables));
+        for (part, v) in tables.versions() {
+            println!("{} {v}", part.name());
+        }
+        return ExitCode::SUCCESS;
+    }
+    let req = match ac2_look_request(args) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!(
+                "dereth-art ac2-look: {e}
+usage: {USAGE}"
+            );
+            return ExitCode::from(2);
+        }
+    };
+    let started = std::time::Instant::now();
+    let mut progress = |what: &str| println!("step {what}");
+    match build::build(&tables, &req, &mut progress) {
+        Ok(b) => {
+            for line in &b.left_out {
+                eprintln!("left out: {line}");
+            }
+            eprintln!(
+                "{} records, {} MB, in {:.1} s",
+                b.records,
+                b.bytes / 1_000_000,
+                started.elapsed().as_secs_f64()
+            );
+            println!("built {} {}", b.out.display(), b.version);
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("dereth-art ac2-look: {e}");
             ExitCode::FAILURE
         }
     }

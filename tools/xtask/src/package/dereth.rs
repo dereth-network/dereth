@@ -7,7 +7,7 @@
 //! cargo xtask package dereth --gather <dir>
 //! ```
 //!
-//! `--build-only` builds the client, the tool and the relay for each target as packaging builds
+//! `--build-only` builds the client, the tool, the art tool and the relay for each target as packaging builds
 //! them, and nothing else: a release job runs it while the launcher's release is still being made,
 //! so the packaging after it finds them built.
 //!
@@ -18,9 +18,9 @@
 //!
 //! | system | the release file |
 //! |---|---|
-//! | Windows | `dereth-<v>-windows-x86_64.zip`: `dereth.exe`, `dereth-client.exe`, `dereth-plugin.exe`, `empyrean-relay.exe` and the notices, under `dereth-<v>/` |
-//! | macOS | `Dereth-<v>-macos-<arch>.app.tar.gz`: `Dereth.app`, the client, the tool and the relay in `Contents/MacOS`, MoltenVK in `Contents/Frameworks` |
-//! | Linux | `Dereth-<v>-linux-x86_64.AppImage`, the client, the tool and the relay inside it |
+//! | Windows | `dereth-<v>-windows-x86_64.zip`: `dereth.exe`, `dereth-client.exe`, `dereth-plugin.exe`, `dereth-art.exe`, `empyrean-relay.exe` and the notices, under `dereth-<v>/` |
+//! | macOS | `Dereth-<v>-macos-<arch>.app.tar.gz`: `Dereth.app`, the client, the tool, the art tool and the relay in `Contents/MacOS`, MoltenVK in `Contents/Frameworks` |
+//! | Linux | `Dereth-<v>-linux-x86_64.AppImage`, the client, the tool, the art tool and the relay inside it |
 //!
 //! The plugin author's tool, `dereth-plugin`, comes inside each one beside the client
 //! ([`tool_in_release`]), so a player who installed Dereth has it. Beside the release file it is
@@ -28,6 +28,9 @@
 //! `dereth-plugin-<v>-<platform>.zip` on Windows, `.tar.gz` on macOS and Linux, `dereth-plugin` and
 //! its notices under `dereth-plugin-<v>/`. A plugin repository's workflows download that one from
 //! the release its pin names and check it against `SHA256SUMS`.
+//!
+//! The art tool, `dereth-art`, comes inside each one beside the client too ([`art_in_release`]):
+//! the launcher runs it to build the AC2 look from the player's own Asheron's Call 2 files.
 //!
 //! The relay, `empyrean-relay`, comes inside each one beside the client too ([`relay_in_release`]):
 //! the launcher starts it to play a world that speaks another wire format. It is Empyrean's program,
@@ -178,6 +181,22 @@ pub const TOOL: &str = "dereth-plugin";
 /// The tool's crate, by its manifest.
 const TOOL_MANIFEST: &str = "tools/plugin/Cargo.toml";
 
+/// The art tool the launcher runs to build the AC2 look, by its package and program.
+pub const ART: &str = "dereth-art";
+
+/// The art tool's crate, by its manifest.
+const ART_MANIFEST: &str = "tools/art/Cargo.toml";
+
+/// Where the art tool is in the release file for `target`, beside the client: below the archive's
+/// folder on Windows and macOS, among the AppImage's programs on Linux.
+pub fn art_in_release(target: Target) -> String {
+    match target.os {
+        Os::Windows => format!("{ART}{}", target.exe_suffix()),
+        Os::Mac => format!("Contents/MacOS/{ART}"),
+        Os::Linux => ART.to_owned(),
+    }
+}
+
 /// The relay the launcher starts for a world of another wire format, by its package and program.
 pub const RELAY: &str = "empyrean-relay";
 
@@ -306,6 +325,7 @@ pub fn contents(target: Target) -> (Vec<String>, Vec<String>) {
             required.push(format!("dereth{exe}"));
             required.push(format!("dereth-client{exe}"));
             required.push(tool_in_release(target));
+            required.push(art_in_release(target));
             required.push(relay_in_release(target));
             required.push(super::friends_dll::FILE.to_owned());
             required.extend(notices_in(""));
@@ -322,6 +342,7 @@ pub fn contents(target: Target) -> (Vec<String>, Vec<String>) {
             ]));
             required.push(format!("Contents/Resources/{}", super::friends_dll::FILE));
             required.push(tool_in_release(target));
+            required.push(art_in_release(target));
             required.push(relay_in_release(target));
             required.extend(notices_in("Contents/Resources/"));
             required.extend(
@@ -707,7 +728,7 @@ pub fn build_packages(
     Ok(out_dir)
 }
 
-/// `--build-only`: the client, the tool and the relay for each of `triples`, built as
+/// `--build-only`: the client, the tool, the art tool and the relay for each of `triples`, built as
 /// [`build_packages`] builds them, so that its builds then find them built. Where they are staged.
 pub fn build_programs(ws: &Path, triples: &[String], allow_dirty: bool) -> Result<PathBuf, String> {
     let version = Product::Dereth.version(ws)?;
@@ -744,6 +765,7 @@ pub fn build_programs(ws: &Path, triples: &[String], allow_dirty: bool) -> Resul
         };
         job.build_client()?;
         job.build_tool()?;
+        job.build_art()?;
         job.build_relay()?;
     }
     Ok(base.join("stage"))
@@ -1039,6 +1061,7 @@ impl Job<'_> {
     fn run(&self, launcher: &BuiltLauncher) -> Result<(), String> {
         let client = self.build_client()?;
         let tool = self.build_tool()?;
+        let art = self.build_art()?;
         let relay = self.build_relay()?;
         let notices = self.notices()?;
         match self.target.os {
@@ -1047,6 +1070,7 @@ impl Job<'_> {
                     ("dereth.exe".to_owned(), launcher.bundle.clone()),
                     ("dereth-client.exe".to_owned(), client),
                     (tool_in_release(self.target), tool.clone()),
+                    (art_in_release(self.target), art),
                     (relay_in_release(self.target), relay),
                     (
                         super::friends_dll::FILE.to_owned(),
@@ -1065,13 +1089,16 @@ impl Job<'_> {
                 }
                 self.write_archive(&members)
             }
-            Os::Linux => self.write_appimage(&launcher.bundle, &client, &tool, &relay, &notices),
-            Os::Mac => self.write_app(&launcher.bundle, &client, &tool, &relay, &notices),
+            Os::Linux => {
+                self.write_appimage(&launcher.bundle, &client, &tool, &art, &relay, &notices)
+            }
+            Os::Mac => self.write_app(&launcher.bundle, &client, &tool, &art, &relay, &notices),
         }?;
         self.package_tool(&tool)
     }
 
-    /// macOS: the launcher's bundle with the client, the tool, the relay, MoltenVK and this package's
+    /// macOS: the launcher's bundle with the client, the tool, the art tool, the relay, MoltenVK and
+    /// this package's
     /// notices put in, and the whole signed again: what's added is signed first, then the bundle over
     /// it.
     fn write_app(
@@ -1079,6 +1106,7 @@ impl Job<'_> {
         launcher: &Path,
         client: &Path,
         tool: &Path,
+        art: &Path,
         relay: &Path,
         notices: &Path,
     ) -> Result<(), String> {
@@ -1088,11 +1116,13 @@ impl Job<'_> {
         let (dylib, _) = self.moltenvk.ok_or("a macOS package needs MoltenVK")?;
         let client_in = "Contents/MacOS/dereth-client".to_owned();
         let tool_in = tool_in_release(self.target);
+        let art_in = art_in_release(self.target);
         let relay_in = relay_in_release(self.target);
         let library_in = "Contents/Frameworks/libMoltenVK.dylib".to_owned();
         for (from, name) in [
             (client, &client_in),
             (tool, &tool_in),
+            (art, &art_in),
             (relay, &relay_in),
             (dylib.as_path(), &library_in),
         ] {
@@ -1109,6 +1139,7 @@ impl Job<'_> {
             &[
                 library_in.clone(),
                 tool_in.clone(),
+                art_in.clone(),
                 relay_in.clone(),
                 client_in.clone(),
             ],
@@ -1145,6 +1176,12 @@ impl Job<'_> {
         let tool = staged.pop().ok_or("no tool")?;
         let client = staged.pop().ok_or("no client")?;
         Ok((client, tool))
+    }
+
+    /// The art tool, built with cargo in the workspace as the client is, and staged as the client
+    /// is: it goes into the release file beside the client.
+    fn build_art(&self) -> Result<PathBuf, String> {
+        self.build_console_program(ART)
     }
 
     /// The relay, built with cargo in the workspace as the client is, and staged as the client is:
@@ -1289,6 +1326,7 @@ impl Job<'_> {
         let mut all_crates = crates_of(self.ws, &launcher_manifest, "dereth-launcher", t)?;
         all_crates.extend(crates_of(self.ws, "Cargo.toml", "dereth-client", t)?);
         all_crates.extend(crates_of(self.ws, "Cargo.toml", TOOL, t)?);
+        all_crates.extend(crates_of(self.ws, "Cargo.toml", ART, t)?);
         all_crates.sort();
         all_crates.dedup();
         let mit = String::from_utf8_lossy(&read(&self.ws.join("LICENSE"))?).into_owned();
@@ -1312,6 +1350,7 @@ impl Job<'_> {
         let launcher_page = page(&launcher_manifest, "dereth")?;
         let client_page = page("dereth/client/Cargo.toml", "dereth-client")?;
         let tool_page = page(TOOL_MANIFEST, TOOL)?;
+        let art_page = page(ART_MANIFEST, ART)?;
         let relay_page = about_page(self.ws, RELAY_ABOUT, RELAY_MANIFEST, t, &about, RELAY)?;
 
         let dir = self.stage.join("notices");
@@ -1356,11 +1395,13 @@ impl Job<'_> {
         let client_name = format!("dereth-client{exe}");
         let launcher_name = format!("dereth{exe}");
         let tool_name = format!("{TOOL}{exe}");
+        let art_name = format!("{ART}{exe}");
         let relay_name = format!("{RELAY}{exe}");
         let pages = [
             (launcher_name.as_str(), launcher_page),
             (client_name.as_str(), client_page),
             (tool_name.as_str(), tool_page),
+            (art_name.as_str(), art_page),
             (relay_name.as_str(), relay_page),
         ];
         write(
@@ -1533,10 +1574,11 @@ impl Job<'_> {
         let d = self.check_tool(&read(&dir.join(&tool))?)?;
         println!("  {tool}: {d}");
         described.push((tool, d));
-        let relay = relay_in_release(t);
-        let d = self.check_console_program(RELAY, &read(&dir.join(&relay))?)?;
-        println!("  {relay}: {d}");
-        described.push((relay, d));
+        for (name, at) in [(ART, art_in_release(t)), (RELAY, relay_in_release(t))] {
+            let d = self.check_console_program(name, &read(&dir.join(&at))?)?;
+            println!("  {at}: {d}");
+            described.push((at, d));
+        }
         if t.os == Os::Mac {
             let name = "Contents/Frameworks/libMoltenVK.dylib";
             if !is_macho_library(&read(&dir.join(name))?) {
@@ -1553,6 +1595,7 @@ impl Job<'_> {
                     executable: executable(&path)
                         || programs(t).contains(&e.path)
                         || e.path == tool_in_release(t)
+                        || e.path == art_in_release(t)
                         || e.path == relay_in_release(t),
                 });
             }
@@ -1597,6 +1640,7 @@ impl Job<'_> {
         launcher: &Path,
         client: &Path,
         tool: &Path,
+        art: &Path,
         relay: &Path,
         notices: &Path,
     ) -> Result<(), String> {
@@ -1615,6 +1659,7 @@ impl Job<'_> {
             added: &[
                 ("dereth-client", client, true),
                 (TOOL, tool, true),
+                (ART, art, true),
                 (RELAY, relay, true),
                 (relay_license, &notices.join(relay_license), false),
                 (relay_notice, &notices.join(relay_notice), false),
@@ -1637,10 +1682,15 @@ impl Job<'_> {
         let d = self.check_tool(&bytes)?;
         println!("  {}: {d}", tool_in_release(t));
         lines.push((tool_in_release(t), bytes, d));
-        let bytes = read(relay)?;
-        let d = self.check_console_program(RELAY, &bytes)?;
-        println!("  {}: {d}", relay_in_release(t));
-        lines.push((relay_in_release(t), bytes, d));
+        for (name, path, at) in [
+            (ART, art, art_in_release(t)),
+            (RELAY, relay, relay_in_release(t)),
+        ] {
+            let bytes = read(path)?;
+            let d = self.check_console_program(name, &bytes)?;
+            println!("  {at}: {d}");
+            lines.push((at, bytes, d));
+        }
         // The AppImage compresses what it holds, so its programs are looked at as built.
         let named: Vec<(&str, &[u8])> = lines
             .iter()

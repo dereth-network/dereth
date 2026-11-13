@@ -54,6 +54,41 @@ impl MaterialParameter {
     }
 }
 
+/// The name of a parameter that is the first diffuse picture (a texture, `0x40...`).
+pub const DIFFUSE_MAP: u32 = 3000;
+/// The name of a parameter that is the diffuse color.
+pub const DIFFUSE_COLOR: u32 = 2000;
+/// The data type of a color parameter: four floats, red, green, blue and alpha.
+pub const COLOR_DATA: u32 = 2000;
+/// The data type of a texture parameter: one id.
+pub const TEXTURE_DATA: u32 = 3000;
+
+impl MaterialParameter {
+    /// The texture it names, when it is a texture parameter.
+    #[must_use]
+    pub fn texture(&self) -> Option<DataId> {
+        let b: [u8; 4] = self.data.as_slice().try_into().ok()?;
+        (self.data_type == TEXTURE_DATA).then(|| DataId(u32::from_le_bytes(b)))
+    }
+
+    /// The color it holds, when it is a color parameter.
+    #[must_use]
+    pub fn color(&self) -> Option<[f32; 4]> {
+        if self.data_type != COLOR_DATA || self.data.len() != 16 {
+            return None;
+        }
+        let f = |k: usize| {
+            f32::from_le_bytes([
+                self.data[k],
+                self.data[k + 1],
+                self.data[k + 2],
+                self.data[k + 3],
+            ])
+        };
+        Some([f(0), f(4), f(8), f(12)])
+    }
+}
+
 /// Named parameters that modify a material (`.mm`); also the parameters a material carries.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct MaterialModifier {
@@ -69,6 +104,26 @@ impl MaterialModifier {
         let id = r.u32()?;
         let parameters = r.list(16, MaterialParameter::read)?;
         Ok(Self { id, parameters })
+    }
+}
+
+impl MaterialModifier {
+    /// The texture its first parameter named `name` gives, when that one is a texture.
+    #[must_use]
+    pub fn texture(&self, name: u32) -> Option<DataId> {
+        self.parameters
+            .iter()
+            .find(|p| p.name == name && p.texture().is_some())
+            .and_then(MaterialParameter::texture)
+    }
+
+    /// The color its first parameter named `name` gives, when that one is a color.
+    #[must_use]
+    pub fn color(&self, name: u32) -> Option<[f32; 4]> {
+        self.parameters
+            .iter()
+            .find(|p| p.name == name && p.color().is_some())
+            .and_then(MaterialParameter::color)
     }
 }
 
@@ -308,6 +363,30 @@ pub struct Material {
     pub sort_mode: u32,
 }
 
+impl Material {
+    /// The picture it is drawn with first: its first layer's first stage's texture, else the
+    /// diffuse picture its own parameters name (none when neither does).
+    #[must_use]
+    pub fn first_texture(&self) -> Option<DataId> {
+        self.layers
+            .first()
+            .and_then(|l| l.stages.first())
+            .map(|s| s.texture)
+            .filter(|t| t.0 != 0)
+            .or_else(|| {
+                self.parameters
+                    .parameters
+                    .iter()
+                    .find(|p| p.name == DIFFUSE_MAP && p.data.len() == 4)
+                    .map(|p| {
+                        DataId(u32::from_le_bytes([
+                            p.data[0], p.data[1], p.data[2], p.data[3],
+                        ]))
+                    })
+            })
+    }
+}
+
 impl Decode for Material {
     /// The id, the parameters (with their own id word), a counted list of layers, the sort mode.
     // D2-10180
@@ -345,5 +424,73 @@ impl Decode for MaterialInstance {
             kind,
             modifiers,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (reading a material's pictures and colors, on hand-made records)
+    use super::*;
+
+    fn parameter(name: u32, data_type: u32, data: Vec<u8>) -> MaterialParameter {
+        MaterialParameter {
+            name,
+            data_type,
+            data,
+            fields: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_modifier_gives_its_first_parameter_of_a_name_that_holds_the_kind_asked() {
+        let color: Vec<u8> = [0.5f32, 0.25, 1.0, 1.0]
+            .iter()
+            .flat_map(|f| f.to_le_bytes())
+            .collect();
+        let m = MaterialModifier {
+            id: 0x3000_0001,
+            parameters: vec![
+                parameter(DIFFUSE_MAP, COLOR_DATA, color.clone()),
+                parameter(
+                    DIFFUSE_MAP,
+                    TEXTURE_DATA,
+                    0x4000_0123u32.to_le_bytes().to_vec(),
+                ),
+                parameter(
+                    DIFFUSE_MAP,
+                    TEXTURE_DATA,
+                    0x4000_0456u32.to_le_bytes().to_vec(),
+                ),
+                parameter(DIFFUSE_COLOR, COLOR_DATA, color),
+            ],
+        };
+        assert_eq!(m.texture(DIFFUSE_MAP), Some(DataId(0x4000_0123)));
+        assert_eq!(m.color(DIFFUSE_COLOR), Some([0.5, 0.25, 1.0, 1.0]));
+        assert_eq!(m.texture(DIFFUSE_COLOR), None);
+    }
+
+    #[test]
+    fn a_material_is_drawn_first_with_its_first_stage_else_its_own_diffuse_picture() {
+        let own = MaterialModifier {
+            id: 0,
+            parameters: vec![parameter(
+                DIFFUSE_MAP,
+                TEXTURE_DATA,
+                0x4000_0777u32.to_le_bytes().to_vec(),
+            )],
+        };
+        let mut m = Material {
+            parameters: own,
+            layers: Vec::new(),
+            sort_mode: 0,
+        };
+        assert_eq!(m.first_texture(), Some(DataId(0x4000_0777)));
+        let mut layer = MaterialLayer::default();
+        layer.stages.push(TextureStage {
+            texture: DataId(0x4000_0111),
+            ..TextureStage::default()
+        });
+        m.layers.push(layer);
+        assert_eq!(m.first_texture(), Some(DataId(0x4000_0111)));
     }
 }
