@@ -11441,6 +11441,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.a-made-portal-keeps-its-templates-kingdom",
+        says: "A portal a world's row makes (a use's, a death's, a defended device's) whose row \
+               names no kingdom is for the kingdom its template requires: anyone of another \
+               kingdom, or of none, is refused at once (10011); one of its kingdom goes through.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MADE-PORTAL-KINGDOM"),
+        station: "yalain-testkit::cpu::play::made_portals::a_made_portal_whose_row_names_no_kingdom_is_for_the_kingdom_its_template_requires",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.a-made-portal-keeps-out",
         says: "A portal an item's use made keeps out whom its template and its row keep out, refused \
                at once wherever the player stands: below the template's least level, of another \

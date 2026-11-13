@@ -806,3 +806,43 @@ fn a_creatures_own_row_without_a_place_makes_its_creatures_where_it_died_whereve
         "{got:?} from {died:?}"
     );
 }
+
+/// A creature's row whose portal template requires a kingdom, and that names none itself, stands a
+/// portal for that kingdom alone.
+/// Behaviour: server.places.a-made-portal-keeps-its-templates-kingdom
+#[test]
+fn a_creatures_death_portal_is_for_the_kingdom_its_template_requires() {
+    let (mut h, me, portal) = portal_world();
+    let mut t = h.server.catalog.get(portal).cloned().expect("the portal");
+    t.props
+        .set("Usage_RequiredFaction", yalain_content::Prop::Word(4));
+    h.server.catalog.insert(t);
+    let template = beetle_template(&h);
+    h.server.death_spawns.insert(
+        DeathSpawn::of_creature(template),
+        DeathSpawn {
+            template: portal,
+            count: 1,
+            chance: 1.0,
+            offset: [0.0, 0.0],
+            lasts: Some(60.0),
+            kingdom: None,
+            at: None,
+            to: Some(yalain_content::Place {
+                cell: 0x7000_0001,
+                origin: [10.0, 10.0, 50.0],
+                rotation: [1.0, 0.0, 0.0, 0.0],
+            }),
+        },
+    );
+    kill(&mut h, me, &[]);
+    let kingdoms: Vec<Option<u32>> = h
+        .server
+        .things
+        .by_id
+        .values()
+        .filter(|t| t.kind == yalain_world::things::Kind::Portal)
+        .map(|t| t.facts.kingdom)
+        .collect();
+    assert_eq!(kingdoms, [Some(4)], "the template's kingdom");
+}

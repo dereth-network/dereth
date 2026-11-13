@@ -29,11 +29,12 @@
 //! and one went 300 s after).
 //!
 //! Anyone may use it while it stands, as a placed portal of its template: refused at once, wherever
-//! the user stands, below the template's least level, of another kingdom than the row's, no hero
-//! when the template is for heroes alone, or without the quest the template needs. What the
-//! template names for its use comes on its user as it comes out, and the quests its template's
-//! arrival moves move, as a placed portal's do; its portal flags say whether its user may recall to
-//! where it led (2017: the gem's maker came out through its portal 9.1 s after it was made).
+//! the user stands, below the template's least level, of another kingdom than the row's (or, where
+//! the row names none, than the one the template requires), no hero when the template is for
+//! heroes alone, or without the quest the template needs. What the template names for its use comes
+//! on its user as it comes out, and the quests its template's arrival moves move, as a placed
+//! portal's do; its portal flags say whether its user may recall to where it led (2017: the gem's
+//! maker came out through its portal 9.1 s after it was made).
 
 use yalain_net::{ConnId, ServerNet};
 use yalain_store::{Store, StoredPosition};
@@ -155,9 +156,9 @@ pub fn is_portal(props: &yalain_content::Props) -> bool {
 }
 
 /// A portal of a template a world's row makes stands at `at`, leading to the row's place, else
-/// where its template names, for `kingdom` alone when the row names one, and for `lasts` seconds
-/// (until the server stops when it gives none). Returns its id; none is made where the world holds
-/// no place it leads to.
+/// where its template names, for `kingdom` alone when the row names one, else for the kingdom its
+/// template requires, and for `lasts` seconds (until the server stops when it gives none). Returns
+/// its id; none is made where the world holds no place it leads to.
 pub fn made<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -180,7 +181,7 @@ pub fn made<S: Store>(
     let flags = of.props.word("PortalFlags").unwrap_or(0);
     t.facts.portal = flags & (RECALL | SUMMON);
     t.facts.hero = of.props.flag("Usage_HeroOnly");
-    t.facts.kingdom = kingdom;
+    t.facts.kingdom = kingdom.or_else(|| required_kingdom(&of.props));
     t.facts.min_level = t.facts.min_level.or_else(|| {
         of.props
             .int("Usage_MinLevel")
@@ -192,6 +193,12 @@ pub fn made<S: Store>(
         s.after(clock, f64::from(seconds), Timer::Vanish { id });
     }
     Some(id)
+}
+
+/// The kingdom a template's use requires, if it requires one.
+#[must_use]
+pub fn required_kingdom(props: &yalain_content::Props) -> Option<u32> {
+    props.word("Usage_RequiredFaction").filter(|k| *k != 0)
 }
 
 /// Why a player may not use a portal standing in the world, if it may not, as a placed portal of

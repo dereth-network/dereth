@@ -890,7 +890,7 @@ world, or where the creature died.
 | `at` | | a `creature` row's, in place of `offset`: the `[[place]]` (`key`, or `pack:key`) each stands at, facing as it does; one of the row's stands there at a time, and a death while it stands makes none |
 | `to` | | a portal's: the `[[place]]` it leads to, in place of where its template's destination names |
 | `lasts` | | how long each stands, in seconds; left out, a creature until killed, a portal until the server stops |
-| `kingdom` | | a portal's: the kingdom a player must be of to use it, 1 (Shadow), 2 (Order) or 4 (Dominion) |
+| `kingdom` | | a portal's: the kingdom a player must be of to use it, 1 (Shadow), 2 (Order) or 4 (Dominion); left out, the kingdom its template requires, if any |
 | `prov` | required | where it came from |
 
 A portal leads to its `to`, else where its template's destination names: the `[[place]]` whose
@@ -1000,7 +1000,7 @@ once, each one killed replaced `regen` seconds after its death. Each appears `ra
 the device, in a direction picked at random, and goes at it, turning from it only to a player that
 hurts it. Once the device has stood `holds` seconds it goes, with no fall and no corpse, and `then`
 stands where it stood: a portal leading where its template names, anyone's to use as a placed one
-is; a creature; or another object, no one's. A device killed first leaves nothing. What it made stays
+is (its template's least level, heroes-only flag, required kingdom and quest kept); a creature; or another object, no one's. A device killed first leaves nothing. What it made stays
 until killed. Nothing of this is kept across a restart. Players are kept from harming a device by
 its template's `[[creature]]` row (`players_kept_out`), not by this one.
 

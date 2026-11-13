@@ -125,7 +125,7 @@ pub struct DeathSpawn {
     /// server stops).
     pub lasts: Option<f32>,
     /// The kingdom a player must be of to use a portal it makes, as a description's faction names
-    /// it.
+    /// it; none, the kingdom the portal's template requires, if any.
     pub kingdom: Option<u32>,
     /// Where each stands, for a creature's own row: a place of the world, in place of its offset
     /// from where the creature died.

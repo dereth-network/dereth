@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Fixed portals a quest makes letting in players of the wrong kingdom.
 - Worlds can now have events that follow the game's day, night and hours.
 - Worlds can now ask for several alike objects to be used in an order.
 - Worlds can now have a creature's death open a portal for a while.

@@ -390,6 +390,63 @@ fn a_made_portal_refuses_those_its_template_and_row_keep_out() {
     );
 }
 
+/// A made portal whose row names no kingdom keeps the one its template requires: anyone of another
+/// kingdom, or of none, is refused at once (10011); one of its kingdom goes through.
+/// Behaviour: server.places.a-made-portal-keeps-its-templates-kingdom
+#[test]
+fn a_made_portal_whose_row_names_no_kingdom_is_for_the_kingdom_its_template_requires() {
+    let (mut h, a, me, _, gem) = world(false, true, None, None);
+    let mut t = h
+        .server
+        .catalog
+        .get(PORTAL)
+        .cloned()
+        .expect("the portal's template");
+    t.props.set("Usage_RequiredFaction", Prop::Word(ORDER));
+    h.server.catalog.insert(t);
+    uses(&mut h, a, me, gem);
+    let portal = portals(&h)[0];
+    let (b, other) = h.player_in_world("two", "Tysis");
+    h.run(10);
+    let w = world_of(&h, other);
+    let before = position_of(&h, other);
+    for (kingdom, why) in [
+        (None, "of no kingdom"),
+        (Some(SHADOW), "of another kingdom"),
+    ] {
+        if let Some(k) = kingdom {
+            yalain_world::kingdoms::set_kingdom(
+                &mut h.server.players.get_mut(&w).expect("in").qualities,
+                k,
+            );
+        }
+        let from = uses(&mut h, b, other, portal);
+        let statuses: Vec<u32> = super::items::answers(&h, b, from)
+            .iter()
+            .map(|x| x.status)
+            .collect();
+        assert_eq!(statuses, [refusal::WRONG_KINGDOM], "{why}");
+    }
+    h.run(60);
+    let kept = position_of(&h, other);
+    assert_eq!(
+        (kept.cell, kept.origin),
+        (before.cell, before.origin),
+        "kept out"
+    );
+    yalain_world::kingdoms::set_kingdom(
+        &mut h.server.players.get_mut(&w).expect("in").qualities,
+        ORDER,
+    );
+    uses(&mut h, b, other, portal);
+    h.run(60);
+    assert_eq!(
+        position_of(&h, other).cell,
+        LANDING.cell,
+        "one of its kingdom goes"
+    );
+}
+
 /// A made portal keeps out, as a placed portal of its template would, a player below the
 /// template's least level (10009) and one without the quest the template needs (10019); one who
 /// has both goes through.
