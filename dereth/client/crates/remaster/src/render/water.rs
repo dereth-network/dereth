@@ -1,8 +1,7 @@
 //! The water pass: the water drawn over the resolved world, where the ground is water, with its
-//! ripples, the rings round the bodies standing in it, its reflection and the sun's glint; and, on
-//! a rainy day, the puddles flat ground gathers, as their own switch. Near the eye the water is
-//! simulated ([`super::wake`]), so the bodies wading in it leave a wake; the rings stand in for it
-//! elsewhere.
+//! ripples, its reflection and the sun's glint; and, on a rainy day, the puddles flat ground
+//! gathers, as their own switch. Near the eye the water is simulated ([`super::wake`]), so the
+//! bodies wading in it leave a wake.
 //!
 //! The reflection is traced through the scene's acceleration structures where the device traces
 //! rays and the reflections are asked to be traced; otherwise, on the water nearest the eye, it is
@@ -45,10 +44,8 @@ pub struct WaterSettings {
     pub puddles: bool,
     /// How strong the ripples are, 1 as they are made.
     pub waves: f32,
-    /// Whether the bodies standing in the water ring it.
-    pub rings: bool,
     /// Whether the water near the eye is simulated, so the bodies wading in it leave a wake of
-    /// ripples there; off, the rings alone.
+    /// ripples there.
     pub wake: bool,
     /// To check the reflection: each water pixel shows what its reflection found, red a surface
     /// it met, green the land, blue the sky.
@@ -71,7 +68,6 @@ impl Default for WaterSettings {
             on: false,
             puddles: false,
             waves: 1.0,
-            rings: true,
             wake: true,
             check: false,
             absorption: 1.0,
@@ -89,76 +85,53 @@ impl WaterSettings {
     }
 }
 
-/// The most bodies the water rings round.
-pub const WADERS: usize = 8;
-/// The most rings the water draws at once, and how long a ring lasts, seconds.
-pub const RINGS: usize = 32;
-const RING_AGE: f64 = 3.0;
-/// How often a body sends out a ring, seconds: walking, and standing still.
-const RING_EVERY_MOVING: f64 = 0.22;
-const RING_EVERY_STILL: f64 = 1.4;
-/// The speed under which a body stands still, metres a second.
-const STILL: f32 = 0.3;
-
-/// A ring a body sent out over the water: where it stood, when, and how strongly.
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct Ring {
-    at: Vec3,
-    born: f64,
-    strength: f32,
-}
-
-/// The rings the bodies within reach send out at clock `now`, each at most every so often as it
-/// walks or stands, the rings older than [`RING_AGE`] let go and the oldest past [`RINGS`]; a
-/// clock that runs back starts them again.
-fn send_rings(
-    rings: &mut Vec<Ring>,
-    sent: &mut Vec<(crate::scene::ObjectKey, f64)>,
-    bodies: &[(crate::scene::ObjectKey, Vec3, f32)],
-    now: f64,
-) {
-    if rings.iter().any(|r| r.born > now) || sent.iter().any(|s| s.1 > now) {
-        rings.clear();
-        sent.clear();
-    }
-    for &(key, at, speed) in bodies {
-        let every = if speed > STILL {
-            RING_EVERY_MOVING
-        } else {
-            RING_EVERY_STILL
-        };
-        let last = sent.iter().position(|s| s.0 == key);
-        if last.is_some_and(|k| now - sent[k].1 < every) {
-            continue;
-        }
-        match last {
-            Some(k) => sent[k].1 = now,
-            None => sent.push((key, now)),
-        }
-        rings.push(Ring {
-            at,
-            born: now,
-            strength: 0.25 + (speed / 2.0).min(1.0),
-        });
-    }
-    rings.retain(|r| now - r.born < RING_AGE);
-    sent.retain(|s| now - s.1 < RING_AGE);
-    if rings.len() > RINGS {
-        rings.drain(..rings.len() - RINGS);
-    }
-}
-
-/// The constants' row the traced reflection's words start at, after the bodies'.
-const TRACE_ROW: usize = 11 + WADERS;
-/// How far from the eye a body stands for the water to ring round it, metres.
-const WADERS_WITHIN: f32 = 60.0;
-/// How long the clock runs before it starts again, seconds: the puddles' waves and the rings
-/// repeat over it, and it keeps the clock's fraction precise.
+/// The constants' row the traced reflection's words start at, after the ripples' layers'.
+const TRACE_ROW: usize = 11;
+/// How far from the eye a body stands for it to stir the water, meters.
+const STIR_WITHIN: f32 = 60.0;
+/// How long the clock runs before it starts again, seconds: the puddles' waves repeat over it,
+/// and it keeps the clock's fraction precise.
 const CLOCK_PERIOD: f64 = 3600.0;
-/// A landscape block's side, meters.
+/// A landscape block's side, meters, and a landscape cell's.
 const BLOCK: f64 = 192.0;
-/// The constants' row the wake's start at, after the rings', and its steps' after its kernel's.
-const WAKE_ROW: usize = 33 + 2 * RINGS;
+const LAND_CELL: f64 = 24.0;
+/// How near the water's edge the player's own body stands for the wake to follow it, meters.
+const OWN_NEAR: f32 = 8.0;
+
+/// Whether world point `(x, y)`, meters, lies in the water or within [`OWN_NEAR`] of its edge, by
+/// `world`'s vertices: how far each lies inside the water, blended across the cell. The edge the
+/// ground draws wanders a few meters from that blend, which the margin takes in.
+fn near_water(world: &crate::scene::DrawnWorld, x: f64, y: f64) -> bool {
+    let side = world.side as usize;
+    if side < 2 || world.water.len() != side * side {
+        return false;
+    }
+    let (qx, qy) = (x / LAND_CELL, y / LAND_CELL);
+    let (cx, cy) = (qx.floor(), qy.floor());
+    // LINT-OK: the world's vertices along a side, a few thousand.
+    #[allow(clippy::cast_precision_loss)]
+    let last = (side - 2) as f64;
+    if !(0.0..=last).contains(&cx) || !(0.0..=last).contains(&cy) {
+        return false;
+    }
+    // LINT-OK: a cell within the world, checked above; where in it, 0..1.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
+    let ((i, j), (fx, fy)) = (
+        (cx as usize, cy as usize),
+        ((qx - cx) as f32, (qy - cy) as f32),
+    );
+    let at = |dx: usize, dy: usize| world.water[(j + dy) * side + i + dx][0];
+    let inside = (at(0, 0) * (1.0 - fx) + at(1, 0) * fx) * (1.0 - fy)
+        + (at(0, 1) * (1.0 - fx) + at(1, 1) * fx) * fy;
+    inside > -OWN_NEAR
+}
+/// The constants' row the wake's start at, after the mirrored scene's, and its steps' after its
+/// kernel's.
+const WAKE_ROW: usize = 24;
 const WAKE_STEPS_ROW: usize = WAKE_ROW + 2 + wake::KERNEL_ROWS;
 /// The bytes of the wake's cells: four floats each.
 const WAKE_BYTES: u64 = (wake::SIDE as u64) * (wake::SIDE as u64) * 16;
@@ -191,13 +164,6 @@ pub struct WaterPass {
     pub(crate) without_picture: bool,
     /// The index of the sampler the ripples' picture repeats under.
     wrap: u32,
-    /// Where each body stood last frame, by its place among the frame's objects' keys, and the
-    /// clock then.
-    last: Vec<(crate::scene::ObjectKey, Vec3)>,
-    last_clock: f64,
-    /// The rings the bodies have sent out, the oldest first, and when each body last sent one.
-    rings: Vec<Ring>,
-    sent: Vec<(crate::scene::ObjectKey, f64)>,
     /// The wake near the eye: its state, its step's pipeline, its kernel's rows, its two sets of
     /// cells and their indices while it runs, and which of them holds the water as it stands.
     wake: Wake,
@@ -324,10 +290,6 @@ impl WaterPass {
             ripples: None,
             without_picture: false,
             wrap,
-            last: Vec::new(),
-            last_clock: 0.0,
-            rings: Vec::new(),
-            sent: Vec::new(),
             wake: Wake::default(),
             wake_pipeline,
             wake_kernel: None,
@@ -373,13 +335,11 @@ impl WaterPass {
         ))
     }
 
-    /// The bodies the water rings round: each object's feet (its lowest part) and how fast it
-    /// moves, the nearest the eye first, within [`WADERS_WITHIN`].
-    fn waders(&mut self, frame: &FrameDelta) -> Vec<(crate::scene::ObjectKey, [f32; 4])> {
-        let dt = (frame.clock - self.last_clock).max(1e-3);
+    /// The bodies that stir the water: each object's feet (its lowest part), the nearest the eye
+    /// first, within [`STIR_WITHIN`], [`wake::BODIES`] at the most.
+    fn bodies(frame: &FrameDelta) -> Vec<(crate::scene::ObjectKey, Vec3)> {
         let eye = frame.camera.eye;
-        let mut now = Vec::with_capacity(frame.objects.len());
-        let mut out: Vec<(f32, (crate::scene::ObjectKey, [f32; 4]))> = Vec::new();
+        let mut out: Vec<(f32, (crate::scene::ObjectKey, Vec3))> = Vec::new();
         for o in &frame.objects {
             let Some(first) = o.parts.first() else {
                 continue;
@@ -390,24 +350,13 @@ impl WaterPass {
                 .map(|p| p.transform.w_axis.z)
                 .fold(f32::INFINITY, f32::min);
             let at = Vec3::new(first.transform.w_axis.x, first.transform.w_axis.y, low);
-            now.push((o.key, at));
             let near = at.distance(eye);
-            if near > WADERS_WITHIN {
-                continue;
+            if near <= STIR_WITHIN {
+                out.push((near, (o.key, at)));
             }
-            let was = self
-                .last
-                .iter()
-                .find(|(k, _)| *k == o.key)
-                .map_or(at, |(_, p)| *p);
-            #[allow(clippy::cast_possible_truncation)] // a frame's seconds
-            let speed = (at - was).truncate().length() / dt as f32;
-            out.push((near, (o.key, [at.x, at.y, at.z, speed.min(20.0)])));
         }
         out.sort_by(|a, b| a.0.total_cmp(&b.0));
-        self.last = now;
-        self.last_clock = frame.clock;
-        out.into_iter().take(WADERS).map(|(_, w)| w).collect()
+        out.into_iter().take(wake::BODIES).map(|(_, b)| b).collect()
     }
 
     /// The frame's constants and the copy of the resolved world, and the plan the pass is
@@ -431,13 +380,11 @@ impl WaterPass {
         } else {
             super::COLOR
         };
-        let waders = self.waders(frame);
-        let bodies: Vec<_> = waders
-            .iter()
-            .map(|(k, w)| (*k, Vec3::new(w[0], w[1], w[2]), w[3]))
-            .collect();
-        send_rings(&mut self.rings, &mut self.sent, &bodies, frame.clock);
-        let waders: Vec<[f32; 4]> = waders.into_iter().map(|(_, w)| w).collect();
+        let bodies = Self::bodies(frame);
+        let global = [
+            f64::from(frame.origin[0]) * BLOCK,
+            f64::from(frame.origin[1]) * BLOCK,
+        ];
         if !s.on {
             if let Some((texture, _)) = self.ripples.take() {
                 gfx.destroy_texture(texture);
@@ -446,15 +393,22 @@ impl WaterPass {
         // The wake runs where the water is drawn and the drawn ground says where it lies.
         let wakes = s.on && s.wake && inputs.heights.is_some() && inputs.shore.is_some();
         let wake_plan = if wakes {
-            let near: Vec<_> = bodies.iter().map(|(k, at, _)| (*k, *at)).collect();
+            let own_wet = frame.drawn.as_ref().is_some_and(|d| {
+                bodies.iter().any(|(k, b)| {
+                    *k == crate::scene::ObjectKey::Body
+                        && near_water(
+                            &d.world,
+                            f64::from(b.x) + global[0],
+                            f64::from(b.y) + global[1],
+                        )
+                })
+            });
             Some(self.wake.plan(&wake::Stir {
                 clock: frame.clock,
-                global: [
-                    f64::from(frame.origin[0]) * BLOCK,
-                    f64::from(frame.origin[1]) * BLOCK,
-                ],
+                global,
                 eye: frame.camera.eye,
-                bodies: &near,
+                bodies: &bodies,
+                own_wet,
             }))
         } else {
             self.wake = Wake::default();
@@ -516,26 +470,22 @@ impl WaterPass {
             }
             self.ripples = Some((texture, gfx.bind_texture(texture)?));
         }
-        let global = [
-            f64::from(frame.origin[0]) * BLOCK,
-            f64::from(frame.origin[1]) * BLOCK,
-        ];
         let mut rows = Rows::default();
-        #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
-        // The clock within its period, and a few bodies.
+        #[allow(clippy::cast_possible_truncation)]
+        // The clock within its period.
         {
             rows.0.push(
                 [
                     frame.clock.rem_euclid(CLOCK_PERIOD) as f32,
                     s.waves.max(0.0),
-                    if s.rings { 1.0 } else { 0.0 },
+                    0.0,
                     if s.puddles && rainy { 1.0 } else { 0.0 },
                 ]
                 .map(f32::to_bits),
             );
             rows.0.push(
                 [
-                    waders.len() as f32,
+                    0.0,
                     if s.on { 1.0 } else { 0.0 },
                     if s.check { 1.0 } else { 0.0 },
                     s.absorption.max(0.0),
@@ -551,10 +501,6 @@ impl WaterPass {
                 .push([l.repeat, l.strength, cos, sin].map(f32::to_bits));
             let [across, down] = ripples::moved(l, global, frame.clock);
             rows.0.push([across, down, 0.0, 0.0].map(f32::to_bits));
-        }
-        for k in 0..WADERS {
-            rows.0
-                .push(waders.get(k).map_or([0; 4], |w| w.map(f32::to_bits)));
         }
         debug_assert_eq!(rows.0.len(), TRACE_ROW);
         let [indices, vertices, materials, sampler, instances, ground_vertices, ground_cells] =
@@ -610,16 +556,6 @@ impl WaterPass {
                 rows.0.extend([[0; 4]; 4]);
             }
         }
-        #[allow(clippy::cast_possible_truncation)] // a ring's age, seconds
-        {
-            rows.0
-                .push([u32::try_from(self.rings.len()).unwrap_or(0), 0, 0, 0]);
-            for r in &self.rings {
-                let age = (frame.clock - r.born) as f32;
-                rows.0.push([r.at.x, r.at.y, r.at.z, age].map(f32::to_bits));
-                rows.0.push([r.strength, 0.0, 0.0, 0.0].map(f32::to_bits));
-            }
-        }
         let wake = self.wake_rows(gfx, &mut rows, wake_plan)?;
         self.constants.write(gfx, &rows.bytes())?;
         Ok(Some(WaterPlan {
@@ -638,7 +574,7 @@ impl WaterPass {
         }))
     }
 
-    /// The wake's rows, after the rings': the cells the water is drawn from and the square they
+    /// The wake's rows, after the mirrored scene's: the cells the water is drawn from and the square they
     /// hold, the kernel, and each of the frame's steps; and the steps to record. Its cells are
     /// made the first time it runs.
     fn wake_rows(
@@ -647,7 +583,7 @@ impl WaterPass {
         rows: &mut Rows,
         plan: Option<wake::WakePlan>,
     ) -> Result<Option<WakeSteps>, dereth_gfx::Error> {
-        rows.0.resize(WAKE_ROW, [0; 4]);
+        debug_assert_eq!(rows.0.len(), WAKE_ROW);
         let Some(plan) = plan else {
             rows.0.push([NONE, 0, 0, 0]);
             rows.0.push([0; 4]);
@@ -853,31 +789,28 @@ mod tests {
     //! Behaviour: none (experimental)
     use super::*;
 
-    /// A body walking sends out a ring every few frames, one standing now and then; the rings
-    /// go as they age, the oldest first past the most the water draws; and a clock run back
-    /// starts them again.
+    /// The player's own body counts as in or near the water inside it and a few meters out from
+    /// its edge, and not farther out, nor off the world.
     #[test]
-    fn a_walking_body_sends_out_rings_often_and_a_standing_one_seldom() {
-        use crate::scene::ObjectKey;
-        let (mut rings, mut sent) = (Vec::new(), Vec::new());
-        let walker = (ObjectKey::Body, Vec3::ZERO, 1.5);
-        let stander = (ObjectKey::Server(7), Vec3::new(5.0, 0.0, 0.0), 0.0);
-        for k in 0..60 {
-            let now = f64::from(k) / 30.0;
-            send_rings(&mut rings, &mut sent, &[walker, stander], now);
-        }
-        let of = |x: f32| rings.iter().filter(|r: &&Ring| r.at.x == x).count();
-        assert!(of(0.0) >= 8, "walking: {}", of(0.0));
-        assert!((1..=2).contains(&of(5.0)), "standing: {}", of(5.0));
-        assert!(rings.iter().all(|r| 59.0 / 30.0 - r.born < RING_AGE));
-        for k in 0..400 {
-            let now = 2.0 + f64::from(k) / 30.0;
-            send_rings(&mut rings, &mut sent, &[walker, stander], now);
-            assert!(rings.len() <= RINGS);
-        }
-        assert!(rings.iter().all(|r| r.born > 2.0), "the oldest go");
-        send_rings(&mut rings, &mut sent, &[], 0.0);
-        assert!(rings.is_empty(), "a clock run back starts them again");
+    fn the_players_own_body_is_near_the_water_inside_it_and_a_few_meters_out() {
+        // Three vertices a side: the west column water 12 meters in, the rest land 12 meters
+        // and 36 meters out.
+        let world = crate::scene::DrawnWorld {
+            side: 3,
+            water: std::sync::Arc::new(
+                [12.0, -12.0, -36.0]
+                    .repeat(3)
+                    .into_iter()
+                    .map(|i| [i, 0.0])
+                    .collect(),
+            ),
+            ..Default::default()
+        };
+        assert!(near_water(&world, 2.0, 10.0), "in the water");
+        assert!(near_water(&world, 15.0, 10.0), "a few meters out");
+        assert!(!near_water(&world, 30.0, 10.0), "farther out");
+        assert!(!near_water(&world, -1.0, 10.0) && !near_water(&world, 50.0, 10.0));
+        assert!(!near_water(&crate::scene::DrawnWorld::default(), 2.0, 10.0));
     }
 
     /// Off, the pass draws nothing: neither the water nor the puddles; either alone runs it.

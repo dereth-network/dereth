@@ -1,9 +1,10 @@
 //! The remaster's water at the views its reflections and its wading are judged from: a lake with
 //! the camera tilted up toward the sky, level, and down until no sky shows; the same lake from far
 //! off; puddles at the viewer's feet on a rainy day; a body standing in a pond, seen from above and
-//! from beside it; a strip of frames as the body walks through the pond, and through a river. Each
-//! is written as a picture, with the remaster's time on the device and the water pass's share of
-//! it printed, and for a walk the wake's share as the body walks.
+//! from beside it; a strip of frames as the body walks through the pond, through a river, and
+//! through a marsh's water in a cell whose water corners lie on a diagonal. Each is written as a
+//! picture, with the remaster's time on the device and the water pass's share of it printed, and
+//! for a walk the wake's share as the body walks.
 //!
 //! Fixture: the retail dats (`DERETH_TEST_DAT_DIR`) and a hardware device.
 //!
@@ -16,7 +17,7 @@
 //! - `DERETH_ART_PACK`: the art pack the remaster's pack boxes draw (default none).
 //! - `DERETH_WATER_CHECK`: set, each water pixel shows what its reflection found instead: red a
 //!   surface, green the land, blue the sky.
-//! - `DERETH_WATER_WAKE`: `off` draws the water with no wake, the rings alone.
+//! - `DERETH_WATER_WAKE`: `off` draws the water with no wake.
 //! - `DERETH_WATER_EVERY_FRAME`: set, a walk is three seconds long and each of its frames is also
 //!   written as `<view>-<tag>-NNN.png`, for a video.
 
@@ -61,8 +62,12 @@ const TREE: &str = "dereth report 1; loc 0xA9B5001C [83.963875 82.829918 27.9049
 /// The same tree seen across the lake from some twenty meters off, the body standing in the water.
 const TREE_ACROSS: &str = "dereth report 1; loc 0xA9B50024 [94.0 76.5 27.9] 0.6088 0.0 0.0 0.7934";
 
+/// A body standing in a marsh's water, in a cell whose two water corners lie on a diagonal: water
+/// the ground draws, which a straight blend of the cell's corners would take for land.
+const DIAGONAL: &str = "dereth report 1; loc 0x3F310004 [9.482313 82.167168 -0.095000] -0.179143                         0.000000 0.000000 -0.983823";
+
 /// Every view: its name, then how it is drawn.
-const SCENES: [&str; 19] = [
+const SCENES: [&str; 21] = [
     "lake-up",
     "lake-level",
     "lake-down",
@@ -77,6 +82,8 @@ const SCENES: [&str; 19] = [
     "wade-deep-walk",
     "wade-river",
     "wade-river-walk",
+    "wade-diagonal",
+    "wade-diagonal-walk",
     "login-river",
     "shore-night",
     "pillar-night",
@@ -194,6 +201,7 @@ fn view(name: &str) -> View {
         },
         "wade-up" => report(POND, 0.0, -3.0, 0.75),
         "wade-river" | "wade-river-walk" => report(RIVER, 0.0, 0.0, 0.0),
+        "wade-diagonal" | "wade-diagonal-walk" => report(DIAGONAL, 0.0, 0.0, 0.0),
         "wade-deep" | "wade-deep-walk" => View::Walked {
             line: LAKE,
             ahead: 30.0,

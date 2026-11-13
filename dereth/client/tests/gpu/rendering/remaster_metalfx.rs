@@ -131,7 +131,6 @@ fn print_the_frame_cost_under_the_upscaler() {
             all.terrain.horizon = true;
             all.water.on = true;
             all.water.puddles = true;
-            all.water.rings = true;
             all.weather.on = true;
             // God Rays at the strength `DERETH_REMASTER_GOD_RAYS` names, 0 to 2: off by default.
             if let Some(level) = env("DERETH_REMASTER_GOD_RAYS").and_then(|v| v.trim().parse().ok())

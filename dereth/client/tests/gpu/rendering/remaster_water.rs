@@ -1,8 +1,8 @@
 //! The remaster's water: drawn only where the ground is water, and off the frame drawn without it;
 //! what it reflects the same however the camera turns; drawn over a body standing in it, below
 //! its surface; the trees and pillars
-//! standing in it meeting it, near and far; rings round a body walking in it from the first step;
-//! a wake behind a body walking through it, held still with the clock; froth at its legs as it
+//! standing in it meeting it, near and far; a wake behind a body walking through it, held still
+//! with the clock; froth at its legs as it
 //! walks, settling once it stands;
 //! its ripples and its color over a lowered bed; its reflections traced over its own level; and
 //! the puddles of a rainy day as a switch of their own, changing nothing but themselves.
@@ -245,7 +245,6 @@ fn turning_the_camera_down_leaves_what_the_water_reflects() {
     ] {
         let still = RemasterWater {
             waves: 0.0,
-            rings: false,
             traced,
             planar,
             ..water()
@@ -327,106 +326,8 @@ const POND: &str = "dereth report 1; loc 0xA8B60012 [55.615215 30.300829 27.5549
                     yaw -2.9129736 pitch -0.6300002 cell 0xA8B60012; time 0.771; clock \
                     306486294.7270536; weather auto";
 
-/// The pond's frames, the ground drawn from its splats (so the water reaches the shore as it
-/// blends), the waves still, the rings as `rings` says, the body walking (`walk`) or standing,
-/// each step a thirtieth of a second.
-fn wading(
-    store: &Arc<RetailDatStore>,
-    rings: bool,
-    walk: bool,
-    frames: usize,
-) -> Vec<RemasterCapture> {
-    let report = VisualReport::parse(POND).expect("the report reads");
-    let st = report_station(&report, Some(3));
-    let mut gpu = device();
-    let mut shot = Shot::open(store, &mut gpu, &st);
-    shot.apply_report(&report);
-    shot.poll(&mut gpu);
-    shot.scene.draw.set_remaster_water(
-        RemasterWater {
-            rings,
-            waves: 0.0,
-            ..water()
-        },
-        &mut gpu,
-    );
-    shot.scene.draw.set_remaster_terrain(
-        dereth_scene::world_scene::RemasterTerrain {
-            splat: true,
-            ..Default::default()
-        },
-        &mut gpu,
-    );
-    shot.scene
-        .draw
-        .set_remaster(true, store, &mut gpu)
-        .expect("the remaster starts");
-    shot.scene
-        .draw
-        .set_remaster_light(RemasterLight::Pixel, &mut gpu);
-    shot.step_held(&mut gpu);
-    shot.input.forward = walk;
-    let mut out = Vec::new();
-    for _ in 0..frames {
-        shot.step_by(&mut gpu, 1.0 / 30.0);
-        out.push(
-            shot.scene
-                .draw
-                .remaster_capture(&mut gpu)
-                .expect("the remaster drew"),
-        );
-    }
-    shot.scene
-        .draw
-        .set_remaster(false, store, &mut gpu)
-        .expect("the remaster stops");
-    drop(shot);
-    drop(gpu);
-    let errors = dereth_render::vulkan::take_validation_errors();
-    assert!(errors.is_empty(), "the validation layer: {errors:#?}");
-    out
-}
-
-/// **Rings spread round a body walking in the water from its first step**: in the pond, a body
-/// walking forward rings the water in every frame from the first step on (the frames with the
-/// rings differ from the same frames without them by thousands of pixels each), the rings it sends
-/// out spread over more of the water as it walks, and it rings it more walking than standing.
-#[test]
-fn rings_spread_round_a_body_walking_in_the_water_from_its_first_step() {
-    let _gpu = crate::common::gpu_lock();
-    let store = crate::common::dats();
-    let frames = 10;
-    let calm = wading(&store, false, true, frames);
-    let ringed = wading(&store, true, true, frames);
-    let standing_calm = wading(&store, false, false, frames);
-    let standing = wading(&store, true, false, frames);
-    let ringing = |a: &RemasterCapture, b: &RemasterCapture| {
-        (0..a.kind.len())
-            .filter(|i| {
-                a.kind[*i] == WATER && a.color[i * 4..i * 4 + 3] != b.color[i * 4..i * 4 + 3]
-            })
-            .count()
-    };
-    let walking: Vec<usize> = calm
-        .iter()
-        .zip(&ringed)
-        .map(|(a, b)| ringing(a, b))
-        .collect();
-    let still = ringing(&standing_calm[frames - 1], &standing[frames - 1]);
-    eprintln!("pond: ringing pixels walking {walking:?}; standing, the last frame {still}");
-    assert!(
-        walking.iter().all(|n| *n > 3_000),
-        "rings from the first step: {walking:?}"
-    );
-    assert!(
-        walking[frames - 1] > walking[0] + 500,
-        "the rings spread as it walks: {walking:?}"
-    );
-    assert!(walking[frames - 1] > still, "more walking than standing");
-}
-
 /// The pond's frames seen from beside the body standing in it, low over the water, the ground as
-/// the player draws it (its bed lowered under the water), the waves still and no rings, the water
+/// the player draws it (its bed lowered under the water), the waves still, the water
 /// drawn or not as `on` says, each step a thirtieth of a second.
 fn wading_seen(store: &Arc<RetailDatStore>, on: bool, frames: usize) -> Vec<RemasterCapture> {
     let mut report = VisualReport::parse(POND).expect("the report reads");
@@ -442,7 +343,6 @@ fn wading_seen(store: &Arc<RetailDatStore>, on: bool, frames: usize) -> Vec<Rema
     shot.scene.draw.set_remaster_water(
         RemasterWater {
             on,
-            rings: false,
             waves: 0.0,
             ..RemasterWater::default()
         },
@@ -532,7 +432,7 @@ fn the_water_covers_a_body_standing_in_it_below_its_surface() {
 }
 
 /// The pond's frames as a body walks through it, the camera held over it, the ground as the
-/// player draws it, the waves still and no rings, the wake as `wake` says: each step a thirtieth
+/// player draws it, the waves still, the wake as `wake` says: each step a thirtieth
 /// of a second; then `stand` more steps standing still, and two more with the clock held. At the
 /// report's time, or at `clock` where it is given; from the place `line` reports, where it is
 /// given.
@@ -553,7 +453,6 @@ fn wading_through(
     shot.poll(&mut gpu);
     shot.scene.draw.set_remaster_water(
         RemasterWater {
-            rings: false,
             waves: 0.0,
             wake,
             ..water()
@@ -618,7 +517,7 @@ fn body_in(c: &RemasterCapture) -> (glam::Vec2, usize) {
 }
 
 /// **A body walking through still water leaves a wake behind it**: in the still pond (no wind
-/// ripples, no rings), a body walks forward from where it stood; the water where it started, now
+/// ripples), a body walks forward from where it stood; the water where it started, now
 /// behind it, differs by thousands of pixels from the same frame drawn with no wake, water far
 /// from its way does not, and with the clock held the wake holds still.
 #[test]
@@ -726,7 +625,7 @@ const TREE_BANK: &str = "dereth report 1; loc 0xA9B5001C [83.963875 82.829918 27
 const TREE_ACROSS: &str = "dereth report 1; loc 0xA9B50024 [94.0 76.5 27.9] 0.6088 0.0 0.0 0.7934";
 
 /// The place `line` reports, the camera behind the body once it has stood a second in the water,
-/// the ground as the player draws it, the waves still and no rings, the water drawn or not as `on`
+/// the ground as the player draws it, the waves still, the water drawn or not as `on`
 /// says.
 fn bank_seen(store: &Arc<RetailDatStore>, line: &str, on: bool) -> RemasterCapture {
     let report = VisualReport::parse(line).expect("the report reads");
@@ -738,7 +637,6 @@ fn bank_seen(store: &Arc<RetailDatStore>, line: &str, on: bool) -> RemasterCaptu
     shot.scene.draw.set_remaster_water(
         RemasterWater {
             on,
-            rings: false,
             waves: 0.0,
             ..RemasterWater::default()
         },
@@ -832,7 +730,7 @@ fn what_stands_on_the_dry_bank_seen_across_the_water_is_not_covered_by_it() {
 }
 
 /// The shore's frame at `size`, with the camera carried `back` metres back along its view and
-/// `up` metres up, the ground drawn as `ground` says, the waves still and no rings, and the water
+/// `up` metres up, the ground drawn as `ground` says, the waves still, and the water
 /// as `check` says (its check view or its own colors).
 fn shore_from(
     store: &Arc<RetailDatStore>,
@@ -848,7 +746,6 @@ fn shore_from(
         ground,
         RemasterWater {
             waves: 0.0,
-            rings: false,
             check,
             ..water()
         },
@@ -1108,7 +1005,6 @@ fn the_water_ripples_near_lies_calm_far_and_takes_retails_color_over_its_bed() {
     let store = crate::common::dats();
     let still = RemasterWater {
         waves: 0.0,
-        rings: false,
         ..water()
     };
     let ground = RemasterTerrain::player();
@@ -1161,16 +1057,7 @@ fn the_water_ripples_near_lies_calm_far_and_takes_retails_color_over_its_bed() {
     // the picture's: with no picture to lay, the water lies as it does with no ripples at all.
     let view = (0.0, 0.0, 0.0);
     let calm = shore_looking(&store, (W, H), view, ground, still);
-    let rippled = shore_looking(
-        &store,
-        (W, H),
-        view,
-        ground,
-        RemasterWater {
-            rings: false,
-            ..water()
-        },
-    );
+    let rippled = shore_looking(&store, (W, H), view, ground, water());
     let inv = glam::Mat4::from_cols_array(&calm.view_projection).inverse();
     let eye = glam::Vec3::from(calm.eye);
     let (mut near, mut moved, mut far, mut far_moved) = (0usize, 0usize, 0usize, 0usize);
@@ -1198,19 +1085,7 @@ fn the_water_ripples_near_lies_calm_far_and_takes_retails_color_over_its_bed() {
         far_moved * 100 <= far,
         "the far water lies calm: {far_moved} of {far}"
     );
-    let bare = shore_seen(
-        &store,
-        (W, H),
-        view,
-        (
-            ground,
-            RemasterWater {
-                rings: false,
-                ..water()
-            },
-            true,
-        ),
-    );
+    let bare = shore_seen(&store, (W, H), view, (ground, water(), true));
     let (mut water_pixels, mut bare_moved) = (0usize, 0usize);
     for i in 0..calm.kind.len() {
         if calm.kind[i] == WATER {
@@ -1237,7 +1112,6 @@ fn a_film_of_water_over_the_bank_shows_the_wet_ground() {
     let ground = RemasterTerrain::player();
     let still = RemasterWater {
         waves: 0.0,
-        rings: false,
         ..water()
     };
     let from = (0.0, 8.0, 0.2);
@@ -1278,7 +1152,6 @@ fn a_reflection_traced_off_still_water_never_meets_its_own_level() {
     let store = crate::common::dats();
     let still = RemasterWater {
         waves: 0.0,
-        rings: false,
         traced: true,
         check: true,
         ..water()

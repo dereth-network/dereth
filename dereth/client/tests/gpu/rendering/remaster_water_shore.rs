@@ -75,7 +75,6 @@ fn lake(heading: f32, water: impl Fn(RemasterWater) -> RemasterWater) -> Remaste
     shot.scene.draw.set_remaster_water(
         water(RemasterWater {
             waves: 0.0,
-            rings: false,
             wake: false,
             ..w
         }),
@@ -206,7 +205,6 @@ fn still_water_placed(
     shot.scene.draw.set_remaster_water(
         RemasterWater {
             waves: 0.0,
-            rings: false,
             wake: false,
             absorption,
             ..w

@@ -3,8 +3,9 @@
 //! device (`cs_wake` in `shaders/water.slang`); the water pass records them before it draws the
 //! water, which reads the cells they leave.
 //!
-//! The square is centered on the body nearest the eye, or on the eye where none stands near, and
-//! moves a whole cell at a time. It steps at a fixed rate, by the whole steps the scene's clock has
+//! The square is centered on the player's own body where it stands in or near the water, otherwise
+//! on the body nearest the eye, or on the eye where none stands near, and moves a whole cell at a
+//! time. It steps at a fixed rate, by the whole steps the scene's clock has
 //! passed and a few a frame at the most, so a held clock holds the water still, a long pause does
 //! not run it on to catch up, and the same clock always draws the same water. Each body pushes the
 //! water from where it stood at the last step to where it stands, spread over the frame's steps; a
@@ -83,6 +84,9 @@ pub struct Stir<'a> {
     pub eye: Vec3,
     /// The bodies near the eye, nearest first: each one's feet, the frame's space.
     pub bodies: &'a [(ObjectKey, Vec3)],
+    /// Whether the player's own body ([`ObjectKey::Body`]) stands in or near the water: the square
+    /// then follows it rather than the body nearest the eye.
+    pub own_wet: bool,
 }
 
 impl Wake {
@@ -117,12 +121,20 @@ impl Wake {
             })
             .collect();
         let eye = s.eye.truncate();
-        let center = s
+        let own = s
             .bodies
             .iter()
+            .find(|(k, _)| s.own_wet && *k == ObjectKey::Body)
             .map(|(_, b)| b.truncate())
-            .filter(|b| b.distance(eye) < CENTER_WITHIN)
-            .min_by(|a, b| a.distance(eye).total_cmp(&b.distance(eye)))
+            .filter(|b| b.distance(eye) < CENTER_WITHIN);
+        let center = own
+            .or_else(|| {
+                s.bodies
+                    .iter()
+                    .map(|(_, b)| b.truncate())
+                    .filter(|b| b.distance(eye) < CENTER_WITHIN)
+                    .min_by(|a, b| a.distance(eye).total_cmp(&b.distance(eye)))
+            })
             .unwrap_or(eye);
         let half = i64::from(SIDE / 2);
         let first = [
@@ -298,6 +310,7 @@ mod tests {
             global: GLOBAL,
             eye: Vec3::new(0.0, -5.0, 3.0),
             bodies,
+            own_wet: false,
         }
     }
 
@@ -481,6 +494,42 @@ mod tests {
         let _ = w.plan(&at(10.2, &far));
         let (_, [x, y]) = w.plan(&at(10.3, &far)).square.expect("a square");
         assert!(x < 0.0 && 0.0 < x + side && y < -5.0 && -5.0 < y + side);
+    }
+
+    /// Where the player's own body stands in or near the water, the square follows it, though
+    /// another body stands nearer the eye; elsewhere it follows the body nearest the eye.
+    #[test]
+    fn the_square_follows_the_players_own_body_where_it_stands_in_the_water() {
+        let bodies = [
+            (ObjectKey::Server(7), Vec3::new(0.0, -2.0, 0.0)),
+            (ObjectKey::Body, Vec3::new(0.0, 20.0, 0.0)),
+        ];
+        let side = f64::from(SIDE) * CELL;
+        // LINT-OK: test meters.
+        #[allow(clippy::cast_possible_truncation)]
+        let side = side as f32;
+        let holds = |own_wet: bool, y: f32| {
+            let mut w = Wake::default();
+            let first = Stir {
+                own_wet,
+                ..at(10.0, &bodies)
+            };
+            let _ = w.plan(&first);
+            let then = Stir {
+                own_wet,
+                ..at(10.1, &bodies)
+            };
+            let (_, [_, low]) = w.plan(&then).square.expect("a square");
+            low < y && y < low + side
+        };
+        assert!(
+            holds(true, 20.0) && !holds(true, -2.0),
+            "the player's own body"
+        );
+        assert!(
+            holds(false, -2.0) && !holds(false, 20.0),
+            "the body nearest the eye"
+        );
     }
 
     #[test]

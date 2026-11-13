@@ -2,22 +2,19 @@
 // and, with puddles asked for, where the ground gathers them: the share the weather lays in the
 // ground's material on a rainy day, held down far off and at grazing angles.
 //
-// For each such pixel the surface's normal is the water's level bent by its ripples and by the rings
-// round the bodies standing in it; what it reflects is found along the reflected ray, and laid
-// over the pixel's own color by the Fresnel share; and the sun glints off it where the sun reaches.
+// For each such pixel the surface's normal is the water's level bent by its ripples and, near the
+// eye, by the wake of the bodies wading in it; what it reflects is found along the reflected ray,
+// and laid over the pixel's own color by the Fresnel share; and the sun glints off it where the
+// sun reaches.
 //
 // - **Ripples** are one small picture of wind ripples laid several times over the water, at
 //   different sizes and turns, each drifting with the scene's clock alone, so a held clock draws a
 //   still frame; they calm with distance, so far water lies smooth, and a ripple finer than a pixel
 //   is left out, so it never shimmers. Puddles keep a few small waves of their own.
-// - **Rings**: the water swells round the legs of each body standing in it, and each sends out
-//   rings as it goes, every so often walking and now and then standing, each a short train of
-//   crests spreading from where it was sent and fading as it ages, so a walking body leaves a wake
-//   behind it. Near the eye the wake is simulated instead (`cs_wake`): what the bodies stir
-//   spreads as ripples that cross, turn back from the shore and die away, a bow wave runs before a
-//   body moving, the water about its legs is sheltered from the ripples, and it froths where it
-//   laps them as it moves, settling once it stands still. The rings stay where it is not
-//   simulated.
+// - **The wake**: near the eye the water is simulated (`cs_wake`): what the bodies stir spreads as
+//   ripples that cross, turn back from the shore and die away, a bow wave runs before a body
+//   moving, the water about its legs is sheltered from the ripples, and it froths where it laps
+//   them as it moves, settling once it stands still.
 // - **The reflection**, where the device traces rays (`fs_traced`), is the scene itself: the ray
 //   is traced through the scene's acceleration structures, and what it meets is lit as the resolve
 //   lights it, whether it is on screen or not. Elsewhere (`fs_main`), on the water nearest the eye
@@ -41,41 +38,36 @@ import retail;
 import rt;
 
 // The pass's constants, in buffer `water` as float4 rows:
-//   0  x the scene's clock (seconds), y the waves' strength, z the rings' strength, w 1 where
-//      puddles are drawn
-//   1  x the bodies standing in the water, y 1 where the water is drawn, z 1 to check the
-//      reflection: each water pixel shows what its reflection found, w how strongly the water
-//      takes the light of what is seen through it over a lowered bed
+//   0  x the scene's clock (seconds), y the waves' strength, z nought, w 1 where puddles are
+//      drawn
+//   1  x nought, y 1 where the water is drawn, z 1 to check the reflection: each water pixel
+//      shows what its reflection found, w how strongly the water takes the light of what is seen
+//      through it over a lowered bed
 //   2  xy where the frame's space's origin lies in the world, meters
 //   3..10 the ripples' layers, two rows each: x meters a repeat, y how much it bends the surface,
 //      zw the cosine and sine of its turn; then xy the share of a repeat its picture is moved
-//   11..18 the bodies: where their feet are (the frame's space), and how fast they move (metres a
-//      second); eight rows always, those past the bodies' count nought
-//   19..21 (words) where the reflections are traced through the scene: the top-level structure,
+//   11..13 (words) where the reflections are traced through the scene: the top-level structure,
 //      the statics' and the objects' geometry tables, the scene's indices; its vertices, its
 //      materials, the sampler its textures are read with, its instances; the ground's vertices
 //      and cells, the statics' and the objects' entries (~0 where nothing is traced)
-//   22 (words) x how many statics come first among the instances; y the sky's constants, z its
+//   14 (words) x how many statics come first among the instances; y the sky's constants, z its
 //      sky-view table and w the sampler it is read with (~0 without the sky's tables)
-//   23 (words) x the world's vertex heights, y where the water lies about each vertex (how far
+//   15 (words) x the world's vertex heights, y where the water lies about each vertex (how far
 //      inside it, and how far over its level; two floats each) (~0 where the drawn ground is not
 //      drawn)
-//   24 the viewer's own body: where its feet are (the frame's space), w 1 where there is one
-//   25, 26 (words) the sky all round the eye: its pictures east, west, north, south, up and down,
+//   16 the viewer's own body: where its feet are (the frame's space), w 1 where there is one
+//   17, 18 (words) the sky all round the eye: its pictures east, west, north, south, up and down,
 //      and the sampler they are read with (~0 where it is not drawn)
-//   27 the scene mirrored in the water nearest the eye: (words) x its colors, y the sampler
+//   19 the scene mirrored in the water nearest the eye: (words) x its colors, y the sampler
 //      they are read with (~0 where it is not drawn), z (a float's bits) the water's level it is
 //      mirrored in
-//   28..31 its view and projection together, as four columns
-//   32 (words) x how many rings the bodies have sent out over the water
-//   33.. the rings, two rows each: where the body stood (the frame's space) and how long ago,
-//      seconds; then x how strongly
-//   97 (words) the wake: x the cells as they stand (~0 where it is not simulated), yz the
+//   20..23 its view and projection together, as four columns
+//   24 (words) the wake: x the cells as they stand (~0 where it is not simulated), yz the
 //      square's first world cell (signed)
-//   98 the wake's square: xy its south-west corner (the frame's space)
-//   99..107 the wake's kernel: how hard a cell's neighbor pulls it, by how far off it lies, a
+//   25 the wake's square: xy its south-west corner (the frame's space)
+//   26..34 the wake's kernel: how hard a cell's neighbor pulls it, by how far off it lies, a
 //      quarter of it, six a row
-//   108.. the wake's steps, nineteen rows each: (signed words) the square's first world cell, and
+//   35.. the wake's steps, nineteen rows each: (signed words) the square's first world cell, and
 //      the first cell of the square the step before held; xy its south-west corner (the frame's
 //      space), z gravity's pull over a step, cells, w how much of its motion the water loses a
 //      step; (words) x the step's count within the bodies' sway, y how many bodies stir it; then
@@ -88,20 +80,15 @@ static const uint D_BED = 6;
 static const uint WATER_GLOBAL = 2;
 static const uint WATER_LAYERS = 3;
 static const uint LAYERS = 4;
-static const uint WATER_WADERS = 11;
-static const uint WADERS = 8;
-static const uint WATER_TRACE = 19;
-static const uint WATER_SKY = 22;
-static const uint WATER_LAND = 23;
-static const uint WATER_VIEWER = 24;
-static const uint WATER_PROBE = 25;
-static const uint WATER_PLANAR = 27;
-static const uint WATER_RING_COUNT = 32;
-static const uint WATER_RINGS = 33;
-static const uint RINGS = 32;
-static const uint WATER_WAKE = 97;
-static const uint WAKE_KERNEL = 99;
-static const uint WAKE_STEPS = 108;
+static const uint WATER_TRACE = 11;
+static const uint WATER_SKY = 14;
+static const uint WATER_LAND = 15;
+static const uint WATER_VIEWER = 16;
+static const uint WATER_PROBE = 17;
+static const uint WATER_PLANAR = 19;
+static const uint WATER_WAKE = 24;
+static const uint WAKE_KERNEL = 26;
+static const uint WAKE_STEPS = 35;
 static const uint WAKE_STEP_ROWS = 19;
 static const uint NONE = 0xFFFFFFFF;
 
@@ -339,72 +326,6 @@ float3 hue_at(float2 p)
         }
     }
     return n > 0.0 ? sum / n : row(push.drawn, D_COLORS + WATER_FIRST).rgb;
-}
-
-// How fast a ring spreads over the water, metres a second; how long it lasts, seconds for most
-// of it; and the length of its crests, metres.
-static const float RING_SPEED = 0.8;
-static const float RING_LIFE = 1.1;
-static const float RING_CREST = 0.3;
-
-// How the surface leans at `p` from the bodies standing in the water: the water heaped a little
-// round where each stands, more as it moves; and the rings each sends out as it goes, each a short
-// train of crests spreading from where the body stood when it sent it, wider and fainter as it
-// ages, so a body walking draws a wake of rings behind it and a body standing still now and then
-// a faint one.
-float2 rings(float3 p, float t, float strength)
-{
-    float2 slope = float2(0.0, 0.0);
-    if (strength <= 0.0)
-    {
-        return slope;
-    }
-    uint n = min(uint(row(push.water, WATER_DRAWN).x + 0.5), WADERS);
-    for (uint i = 0; i < n; i++)
-    {
-        float4 w = row(push.water, WATER_WADERS + i);
-        if (abs(p.z - w.z) > 1.5)
-        {
-            continue;
-        }
-        float2 d = p.xy - w.xy;
-        float r = length(d);
-        if (r > 2.0 || r < 1e-3)
-        {
-            continue;
-        }
-        // A swell round the legs: highest at them, gone a metre or so out.
-        float a = 0.012 + 0.03 * saturate(w.w / 2.0);
-        float x = r - 0.25;
-        slope += (d / r) * (-2.0 * x / 0.16) * exp(-x * x / 0.16) * a;
-    }
-    uint count = min(row_u(push.water, WATER_RING_COUNT).x, RINGS);
-    float k = 2.0 * PI / RING_CREST;
-    for (uint j = 0; j < count; j++)
-    {
-        float4 o = row(push.water, WATER_RINGS + j * 2);
-        float4 e = row(push.water, WATER_RINGS + j * 2 + 1);
-        if (abs(p.z - o.z) > 1.5)
-        {
-            continue;
-        }
-        float age = o.w;
-        float2 d = p.xy - o.xy;
-        float r = length(d);
-        float front = 0.25 + RING_SPEED * age;
-        float width = 0.18 + 0.12 * age;
-        float x = r - front;
-        if (abs(x) > 2.5 * width || r < 1e-3)
-        {
-            continue;
-        }
-        // A couple of centimetres high, fainter as it ages and as it spreads over a wider ring.
-        float a = e.x * 0.02 * exp(-age / RING_LIFE) * saturate(age * 12.0 + 0.25) * rsqrt(max(front, 0.3));
-        float envelope = exp(-x * x / (width * width));
-        float rise = a * envelope * (k * cos(k * x) - 2.0 * x / (width * width) * sin(k * x));
-        slope += (d / r) * rise;
-    }
-    return slope * strength;
 }
 
 // The sky that shows above pixel `px`, the first pixel of sky up its column, a few steps at most;
@@ -780,9 +701,31 @@ float over_level(uint shore, int2 g)
     return asfloat(buffers[NonUniformResourceIndex(shore)].Load(uint(c.y * SIDE + c.x) * 8 + 4));
 }
 
-// How far inside the water world `p` lies, meters, negative on land, between the vertices; far
-// outside it where the ground does not say where the water lies.
-float inside_water(float2 p)
+// How far outside the water the drawn ground draws its edge smoothly and broken by noise, meters:
+// farther out, between the vertices.
+static const float SHORE_NEAR = 40.0;
+
+// The weights at `t` of the smooth curve through four values a step apart, between the middle two.
+float4 catmull(float t)
+{
+    float t2 = t * t;
+    float t3 = t2 * t;
+    return 0.5 * float4(-t3 + 2.0 * t2 - t, 3.0 * t3 - 5.0 * t2 + 2.0, -3.0 * t3 + 4.0 * t2 + t, t3 - t2);
+}
+
+// How much of a wander `cell` meters across shows in a pixel that covers `foot` meters.
+float shore_resolved(float cell, float foot)
+{
+    return 1.0 - smoothstep(0.25 * cell, 0.5 * cell, foot);
+}
+
+// How far inside the water world `p` lies, meters, negative on land, where the drawn ground draws
+// the water's edge for a pixel covering `foot` meters: smoothly through the vertices, and broken
+// by a little noise. So what stands in water the ground draws stands in this water, however the
+// edge runs between the vertices: in a cell whose water corners lie on a diagonal, a straight
+// blend of its corners takes two of its quarters for land. Far outside it where the ground does
+// not say where the water lies.
+float shore_inside(float2 p, float foot)
 {
     uint shore = row_u(push.water, WATER_LAND).y;
     if (shore == NONE)
@@ -790,15 +733,33 @@ float inside_water(float2 p)
         return -1000.0;
     }
     float2 q = p / CELL;
-    int2 g = int2(floor(q));
-    float2 f = saturate(q - float2(g));
-    float s[4];
-    for (int k = 0; k < 4; k++)
+    int2 c = int2(floor(q));
+    float2 f = saturate(q - float2(c));
+    ByteAddressBuffer b = buffers[NonUniformResourceIndex(shore)];
+    float s[16];
+    for (int k = 0; k < 16; k++)
     {
-        int2 c = clamp(g + int2(k & 1, k >> 1), int2(0, 0), int2(SIDE - 1, SIDE - 1));
-        s[k] = asfloat(buffers[NonUniformResourceIndex(shore)].Load(uint(c.y * SIDE + c.x) * 8));
+        int2 g = clamp(c + int2(k % 4 - 1, k / 4 - 1), int2(0, 0), int2(SIDE - 1, SIDE - 1));
+        s[k] = asfloat(b.Load(uint(g.y * SIDE + g.x) * 8));
     }
-    return lerp(lerp(s[0], s[1], f.x), lerp(s[2], s[3], f.x), f.y);
+    if (max(max(s[5], s[6]), max(s[9], s[10])) < -SHORE_NEAR)
+    {
+        return lerp(lerp(s[5], s[6], f.x), lerp(s[9], s[10], f.x), f.y);
+    }
+    float4 wx = catmull(f.x);
+    float4 wy = catmull(f.y);
+    float inside = 0.0;
+    for (int i = 0; i < 4; i++)
+    {
+        float column = 0.0;
+        for (int j = 0; j < 4; j++)
+        {
+            column += wy[j] * s[j * 4 + i];
+        }
+        inside += wx[i] * column;
+    }
+    return inside + (value_noise(p, 9.0) - 0.5) * 6.0 * shore_resolved(9.0, foot)
+           + (value_noise(p + float2(31.7, 12.9), 3.5) - 0.5) * 2.0 * shore_resolved(3.5, foot);
 }
 
 // The water's level at world `p`, across retail's triangles: level everywhere the water reaches,
@@ -1007,8 +968,8 @@ void cs_wake(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint inde
     uint at = wake_place(w);
     float2 q = place.xy + (float2(rel) + 0.5) * WAKE_CELL;
     float2 world = q + row(push.water, WATER_GLOBAL).xy;
-    // On land the water holds its level.
-    float inside = inside_water(world);
+    // On land the water holds its level: land where the drawn ground draws it.
+    float inside = shore_inside(world, WAKE_CELL);
     if (inside <= 0.0)
     {
         rw_buffers[NonUniformResourceIndex(push.wake_to)].Store4(at, uint4(0, 0, 0, 0));
@@ -1064,15 +1025,13 @@ void cs_wake(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint inde
 }
 
 // The wake where a pixel sees it: how it leans east and north and how it curves (positive in a
-// trough); how much of it is drawn there; how much its square reaches there, where the rings give
-// way to it; the shelter and the line where it meets a body's legs; and where it lies, fixed in
-// the world, meters, for what is laid over it.
+// trough); how much of it is drawn there; the shelter and the line where it meets a body's legs;
+// and where it lies, fixed in the world, meters, for what is laid over it.
 struct Wake
 {
     float2 slope;
     float curve;
     float shown;
-    float reach;
     float shelter;
     float line;
     float2 fixed;
@@ -1084,7 +1043,6 @@ Wake no_wake()
     k.slope = float2(0.0, 0.0);
     k.curve = 0.0;
     k.shown = 0.0;
-    k.reach = 0.0;
     k.shelter = 0.0;
     k.line = 0.0;
     k.fixed = float2(0.0, 0.0);
@@ -1122,8 +1080,7 @@ Wake wake_seen(float2 p, float foot)
     float side = float(WAKE_SIDE) * WAKE_CELL;
     float2 r = p - corner;
     float edge = min(min(r.x, r.y), min(side - r.x, side - r.y));
-    k.reach = smoothstep(0.5, 2.0, edge);
-    k.shown = k.reach * (1.0 - smoothstep(0.16, 0.45, foot));
+    k.shown = smoothstep(0.5, 2.0, edge) * (1.0 - smoothstep(0.16, 0.45, foot));
     if (k.shown <= 0.0)
     {
         return k;
@@ -1588,9 +1545,10 @@ bool first_hit(uint accel, uint statics, uint objects, uint indices, uint vertic
 }
 
 // Whether world `x` (the frame's space), a point of retail's ground, lies under the water as the
-// ground is drawn: inside the water, or at or under its level where there is water. The ground
-// the acceleration structures hold there is the water's own level, or a bank the drawn ground
-// lowers under it, which a reflection off the water passes over.
+// ground is drawn: inside the water where the ground draws its edge (finely, as near the eye), or
+// at or under its level where there is water. The ground the acceleration structures hold there
+// is the water's own level, or a bank the drawn ground lowers under it, which a reflection off the
+// water passes over.
 bool on_the_water(float3 x)
 {
     uint heights = row_u(push.water, WATER_LAND).x;
@@ -1599,7 +1557,7 @@ bool on_the_water(float3 x)
         return false;
     }
     float2 p = x.xy + row(push.water, WATER_GLOBAL).xy;
-    return inside_water(p) > 0.0 || (water_share(p) > 0.0 && x.z <= water_level(heights, p) + 0.05);
+    return shore_inside(p, 0.1) > 0.0 || (water_share(p) > 0.0 && x.z <= water_level(heights, p) + 0.05);
 }
 
 // The scene along the ray from `from` the way `dir` goes, traced through its acceleration
@@ -1890,7 +1848,6 @@ float4 shade<R : IReflection>(float4 position, R reflection)
     float3 v = (eye - world) / max(dist, 1e-4);
     float t = state.x;
     float2 slope;
-    float2 ringed = float2(0.0, 0.0);
     Wake wake = no_wake();
     float3 n;
     if (water)
@@ -1903,17 +1860,14 @@ float4 shade<R : IReflection>(float4 position, R reflection)
         float cap = dist * 0.01 + 0.01;
         dx *= min(1.0, cap / max(length(dx), 1e-6));
         dy *= min(1.0, cap / max(length(dy), 1e-6));
-        // Near the eye, the wake: the water about a body's legs sheltered from the ripples, and
-        // the rings given way to it.
+        // Near the eye, the wake: the water about a body's legs sheltered from the ripples.
         wake = wake_seen(world.xy, foot);
         float2 rippled = ripples(world.xy, dist, dx, dy, foot, state.y);
         rippled *= 1.0 - 0.65 * wake.shelter;
-        ringed = rings(world, t, state.z) * (1.0 - wake.reach);
-        slope = rippled + ringed + wake.slope;
+        slope = rippled + wake.slope;
         // Reflected off a surface bent half as much as the ripples and the wake bend the light
-        // through it, so the reflections waver rather than break up; the rings' crests whole, so
-        // they stand out.
-        n = normalize(float3(-((rippled + wake.slope) * 0.5 + ringed), 1.0));
+        // through it, so the reflections waver rather than break up.
+        n = normalize(float3(-slope * 0.5, 1.0));
     }
     else
     {
@@ -1976,10 +1930,6 @@ float4 shade<R : IReflection>(float4 position, R reflection)
     if (water)
     {
         c = lerp(own, seen.color * REFLECTED_TINT, saturate(fresnel * REFLECTED * share * reflects));
-        // A ring's steep faces catch what the water reflects at a low angle, seen from above as
-        // well: the rings show as light lines on the water.
-        float sheen = saturate(length(ringed) * 1.5) * 0.3 * reflects;
-        c = lerp(c, seen.color * REFLECTED_TINT, sheen);
         // The wake's crests catch a little of the sky's light: enough to see them by.
         float crest = saturate(-wake.curve * 0.02) * 0.06 * reflects;
         c += sky_toward(world, float3(0.0, 0.0, 1.0)) * crest;
