@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- `@god` and `@ungod` work on a character of any era, not only the end of retail's.
+
 ## 0.3.14 (2026-11-14)
 - Fixed attacks, spells and items failing for seconds after jumping in place.
 - Federation links now tell a proxy's refusal from the hub's.
