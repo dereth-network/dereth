@@ -49,7 +49,10 @@ public static const uint SPLAT_STEEP = 2 * SPLAT_LAYERS;
 // Then what a pack lays by the water: the grass grown over a muddy bank, the land laid in place of
 // retail's water ground, and the bed well inside the water, each as a steep row is.
 public static const uint SPLAT_BANK = 4 * SPLAT_LAYERS;
-public static const uint SPLAT_ROWS = SPLAT_BANK + 3;
+// Then a detail row for each row from the maps' to the water's (its detail picture, the
+// picture's repeats across a cell and its strength), this many rows after the row it is for.
+public static const uint SPLAT_DETAIL = SPLAT_BANK + 3 - SPLAT_LAYERS;
+public static const uint SPLAT_ROWS = SPLAT_BANK + 3 + SPLAT_DETAIL;
 // The base row's flags: where it holds what a pack lays by the water.
 public static const uint SPLAT_HAS_BANK = 64;
 // And where the land it lays in place of retail's water ground is the bed: a cell with no ground
@@ -121,6 +124,9 @@ static const float GRAIN_NEAR = 3.0;
 static const float GRAIN_FAR = 22.0;
 static const float COARSE_NEAR = 14.0;
 static const float COARSE_FAR = 110.0;
+// Where a pack's detail picture starts to fade and where it has gone, meters from the eye.
+static const float DETAIL_NEAR = 20.0;
+static const float DETAIL_FAR = 50.0;
 // How close to the eye a material's height moves its edge, and where that has gone.
 static const float HEIGHTS_NEAR = 12.0;
 static const float HEIGHTS_FAR = 90.0;
@@ -177,13 +183,15 @@ public float height_share(float under, float over, float t, float dist)
 // A pack's material laid at cell coordinate `uv`, `t` repeats to a cell (`m` its maps' row, as
 // `layer_maps` takes it, with the retail picture it replaces in its last word): laid out in that
 // picture's broad patches; far off a coarser repeat of it mixed in, so the repeats do not show;
-// close by a finer repeat lending it its grain.
-void pack_layer(uint tile, float t, uint4 m, uint wrap, uint rot, float2 uv, float2 dx, float2 dy, PackPlace place, out float4 c, out float3 bend, out float roughness)
+// close by a finer repeat lending it its grain; and its detail picture (`d`, its detail row)
+// multiplied in close by.
+void pack_layer(uint tile, float t, uint4 m, uint4 d, uint wrap, uint rot, float2 uv, float2 dx, float2 dy, PackPlace place, out float4 c, out float3 bend, out float roughness)
 {
     c = sampled(tile, wrap, uv * t, dx * t, dy * t);
     layer_maps(m, wrap, rot, uv * t, dx * t, dy * t, bend, roughness);
     if (!place.varies)
     {
+        detail_of(d, wrap, uv, dx, dy, place, c);
         return;
     }
     if (m.w != 0)
@@ -215,6 +223,29 @@ void pack_layer(uint tile, float t, uint4 m, uint wrap, uint rot, float2 uv, flo
             bend = normalize(bend + float3(lean.xy * near * 0.5, 0.0));
         }
     }
+    detail_of(d, wrap, uv, dx, dy, place, c);
+}
+
+// A pack material's detail picture, its row `d` (the picture, its repeats across a cell and its
+// strength), multiplied into `c` at twice its value at cell coordinate `uv`, in display values:
+// mid-gray leaves it as it is, and the strength scales how far the rest moves it. It fades out by
+// `DETAIL_FAR`; where the pixel's distance is not known, its own smaller levels (which average
+// to its mean) carry it off.
+void detail_of(uint4 d, uint wrap, float2 uv, float2 dx, float2 dy, PackPlace place, inout float4 c)
+{
+    if (d.x == 0xFFFFFFFF)
+    {
+        return;
+    }
+    float k = asfloat(d.y);
+    float fade = place.varies ? 1.0 - smoothstep(DETAIL_NEAR, DETAIL_FAR, place.dist) : 1.0;
+    float amount = fade * asfloat(d.z);
+    if (amount <= 0.001)
+    {
+        return;
+    }
+    float3 g = sampled(d.x, wrap, uv * k, dx * k, dy * k).rgb;
+    c.rgb *= max(1.0 + (2.0 * g - 1.0) * amount, 0.0);
 }
 
 // One layer's maps at `uv`, its row `m` (the normal picture, the surface picture and the normal's
@@ -266,18 +297,21 @@ public SplatSample splat_at(uint splats, uint wrap, uint held, uint at, uint rot
     uint tile = b.x;
     float t = float(max(b.y, 1u));
     uint4 maps = row_u(splats, at + 1 + SPLAT_OVERLAYS);
+    uint4 detail = row_u(splats, at + 1 + SPLAT_OVERLAYS + SPLAT_DETAIL);
+    uint4 land_detail = row_u(splats, at + SPLAT_BANK + 1 + SPLAT_DETAIL);
     if (as_land && (b.w & 1) != 0)
     {
         tile = land.x;
         t = float(land.y & 0xFF);
         maps = steep_maps(land, 0);
+        detail = land_detail;
         o.mud = float((land.y >> 29) & 1);
     }
     if (tile != 0xFFFFFFFF)
     {
         if (mapped)
         {
-            pack_layer(tile, t, maps, wrap, rot, uv, dx, dy, place, c, o.bend, o.roughness);
+            pack_layer(tile, t, maps, detail, wrap, rot, uv, dx, dy, place, c, o.bend, o.roughness);
             o.pack = place.varies && maps.x != 0xFFFFFFFF ? 1.0 : 0.0;
         }
         else
@@ -302,18 +336,20 @@ public SplatSample splat_at(uint splats, uint wrap, uint held, uint at, uint rot
         tile = l.z;
         t = float(max(l.w, 1u));
         maps = row_u(splats, at + 2 + SPLAT_OVERLAYS + k);
+        detail = row_u(splats, at + 2 + SPLAT_OVERLAYS + k + SPLAT_DETAIL);
         if (as_land && ((l.y >> 2) & 1) != 0)
         {
             tile = land.x;
             t = float(land.y & 0xFF);
             maps = steep_maps(land, 0);
+            detail = land_detail;
             mud = float((land.y >> 29) & 1);
         }
         if (tile != 0xFFFFFFFF)
         {
             if (mapped)
             {
-                pack_layer(tile, t, maps, wrap, rot, uv, dx, dy, place, s, bend, roughness);
+                pack_layer(tile, t, maps, detail, wrap, rot, uv, dx, dy, place, s, bend, roughness);
                 pack = place.varies && maps.x != 0xFFFFFFFF ? 1.0 : 0.0;
             }
             else
@@ -359,9 +395,10 @@ public struct SteepSample
     public float height;
 };
 
-// One layer's steep material, its row `r`: its color at `uv` and its maps, and how much of it the
-// layer takes, snow taking `on_snow` of it; varied as `place` says, in the retail picture `broad`.
-void steep_layer(uint4 r, uint wrap, uint rot, float2 uv, float2 dx, float2 dy, float on_snow, uint broad, PackPlace place, inout float3 color, out float cover, out float own, out float3 bend, out float roughness, out float height)
+// One layer's steep material, its row `r` and its detail row `d`: its color at `uv` and its maps,
+// and how much of it the layer takes, snow taking `on_snow` of it; varied as `place` says, in the
+// retail picture `broad`.
+void steep_layer(uint4 r, uint4 d, uint wrap, uint rot, float2 uv, float2 dx, float2 dy, float on_snow, uint broad, PackPlace place, inout float3 color, out float cover, out float own, out float3 bend, out float roughness, out float height)
 {
     cover = 0.0;
     own = 0.0;
@@ -373,7 +410,7 @@ void steep_layer(uint4 r, uint wrap, uint rot, float2 uv, float2 dx, float2 dy, 
         return;
     }
     float4 c;
-    pack_layer(r.x, float(r.y & 0xFF), steep_maps(r, broad), wrap, rot, uv, dx, dy, place, c, bend, roughness);
+    pack_layer(r.x, float(r.y & 0xFF), steep_maps(r, broad), d, wrap, rot, uv, dx, dy, place, c, bend, roughness);
     color = c.rgb;
     height = c.a;
     cover = (r.y >> 31) != 0 ? on_snow : 1.0;
@@ -395,7 +432,7 @@ public SteepSample steep_at(uint splats, uint wrap, uint held, uint at, uint rot
     uint maps = at + 1 + SPLAT_OVERLAYS;
     SteepSample o;
     o.color = float3(0.0, 0.0, 0.0);
-    steep_layer(row_u(splats, first), wrap, rot, uv, dx, dy, on_snow, row_u(splats, maps).w, place, o.color, o.cover, o.own, o.bend, o.roughness, o.height);
+    steep_layer(row_u(splats, first), row_u(splats, first + SPLAT_DETAIL), wrap, rot, uv, dx, dy, on_snow, row_u(splats, maps).w, place, o.color, o.cover, o.own, o.bend, o.roughness, o.height);
     for (uint k = 0; k < overlays; k++)
     {
         uint4 l = row_u(splats, at + 1 + k);
@@ -411,7 +448,7 @@ public SteepSample steep_at(uint splats, uint wrap, uint held, uint at, uint rot
         float3 bend;
         float roughness;
         float height;
-        steep_layer(row_u(splats, first + 1 + k), wrap, rot, uv, dx, dy, on_snow, row_u(splats, maps + 1 + k).w, place, color, cover, own, bend, roughness, height);
+        steep_layer(row_u(splats, first + 1 + k), row_u(splats, first + 1 + k + SPLAT_DETAIL), wrap, rot, uv, dx, dy, on_snow, row_u(splats, maps + 1 + k).w, place, color, cover, own, bend, roughness, height);
         o.color = lerp(color, o.color, a);
         o.cover = lerp(cover, o.cover, a);
         o.own = lerp(own, o.own, a);
@@ -429,7 +466,7 @@ public SteepSample bank_row(uint splats, uint wrap, uint at, uint rot, float2 uv
 {
     SteepSample o;
     o.color = float3(0.0, 0.0, 0.0);
-    steep_layer(row_u(splats, at + SPLAT_BANK + which), wrap, rot, uv, dx, dy, 1.0, 0, place, o.color, o.cover, o.own, o.bend, o.roughness, o.height);
+    steep_layer(row_u(splats, at + SPLAT_BANK + which), row_u(splats, at + SPLAT_BANK + which + SPLAT_DETAIL), wrap, rot, uv, dx, dy, 1.0, 0, place, o.color, o.cover, o.own, o.bend, o.roughness, o.height);
     return o;
 }
 

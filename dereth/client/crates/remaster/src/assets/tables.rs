@@ -632,7 +632,7 @@ impl AssetTables {
         if let Some(s) = value {
             let maps = |m: &Option<terrain::GroundMaps>| {
                 m.iter()
-                    .flat_map(|m| m.normal.iter().chain(m.surface.iter()))
+                    .flat_map(|m| m.normal.iter().chain(&m.surface).chain(&m.detail))
                     .cloned()
                     .collect::<Vec<_>>()
             };

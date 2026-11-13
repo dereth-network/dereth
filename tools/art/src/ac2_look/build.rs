@@ -112,7 +112,11 @@ fn tint_of(g: &MaterialGroup, reference: [u8; 3]) -> Option<[f64; 3]> {
     Some([0, 1, 2].map(|k| f64::from(rgb[k]) / f64::from(reference[k])))
 }
 
-/// The ground: each terrain type's flat and steep pictures and the road's, with their relief.
+/// A ground row's detail picture, as the manifest names it, and the meters a repeat of it covers.
+type Detail = Option<(String, f32)>;
+
+/// The ground: each terrain type's flat and steep pictures and the road's, with their relief, and
+/// each one's detail picture when the table asks for them.
 #[allow(clippy::too_many_lines)]
 fn ground(
     ac2: &Ac2,
@@ -163,17 +167,63 @@ fn ground(
         done.insert(key, made.clone());
         Ok(made)
     };
-    let row =
-        |manifest: &mut String, steep: bool, ground: &str, name: &str, kind: &str, tile: f32| {
-            let size = if tile == 0.0 { 4.0 } else { tile };
-            let _ = write!(
-                manifest,
-                "# AC2 {kind}\n[[{}]]\nground = {ground}\nbase_color = \"ground/{name}.png\"\n\
-             normal = \"ground/{name}_normal.png\"\nheight = \"ground/{name}_height.png\"\n\
-             size = {size}\n{CREDIT}\n",
-                if steep { "steep" } else { "terrain" }
-            );
+    // Each detail picture written once, by its picture list: its file, or none where it would not
+    // read.
+    let mut details: BTreeMap<u32, Option<String>> = BTreeMap::new();
+    let mut detail_of =
+        |group: &MaterialGroup, progress: &mut dyn FnMut(&str)| -> Result<Detail, String> {
+            if !t.terrain.detail {
+                return Ok(None);
+            }
+            let Some(d) = group.detail.first() else {
+                return Ok(None);
+            };
+            let list = ac2.ground_picture(d.material.0);
+            if list == 0 {
+                return Ok(None);
+            }
+            let file = match details.get(&list) {
+                Some(f) => f.clone(),
+                None => {
+                    let file = format!("ground/detail_{list:08X}.png");
+                    progress(&format!("detail {list:08X}"));
+                    let made = match ac2.picture(list, limit) {
+                        Some(p) => {
+                            folder.picture(&file, &p)?;
+                            Some(file)
+                        }
+                        None => None,
+                    };
+                    details.insert(list, made.clone());
+                    made
+                }
+            };
+            let size = if d.tile_width > 0.0 {
+                d.tile_width
+            } else {
+                1.0
+            };
+            Ok(file.map(|f| (f, size)))
         };
+    let row = |manifest: &mut String,
+               steep: bool,
+               ground: &str,
+               name: &str,
+               kind: &str,
+               tile: f32,
+               detail: &Detail| {
+        let size = if tile == 0.0 { 4.0 } else { tile };
+        let detail = detail.as_ref().map_or_else(String::new, |(file, size)| {
+            format!("detail = \"{file}\"\ndetail_size = {size}\n")
+        });
+        let _ = write!(
+            manifest,
+            "# AC2 {kind}\n[[{}]]\nground = {ground}\nbase_color = \"ground/{name}.png\"\n\
+             normal = \"ground/{name}_normal.png\"\nheight = \"ground/{name}_height.png\"\n\
+             size = {size}\n{detail}{CREDIT}\n",
+            if steep { "steep" } else { "terrain" }
+        );
+    };
     for g in &t.terrain.ground {
         let desert = t.terrain.red_desert.types.contains(&g.ground_type);
         if !(terrain || (red && desert)) {
@@ -210,7 +260,7 @@ fn ground(
         let steep_at = g.steep.unwrap_or(groups.len() - 1);
         // The flat row laid, and whether a steep one was: a kind with one group that lays its flat
         // picture on its slopes too gets a steep row of the same.
-        let mut flat_row: Option<(String, f32)> = None;
+        let mut flat_row: Option<(String, f32, Detail)> = None;
         let mut steep_row = false;
         for (steep, at) in [
             (false, Some(flat)),
@@ -241,6 +291,7 @@ fn ground(
                 None
             };
             if let Some(name) = write_ground(&stem, list, tint, progress)? {
+                let detail = detail_of(group, progress)?;
                 row(
                     manifest,
                     steep,
@@ -248,15 +299,16 @@ fn ground(
                     &name,
                     &kind.name,
                     base.tile_width,
+                    &detail,
                 );
                 if steep {
                     steep_row = true;
                 } else {
-                    flat_row = Some((name, base.tile_width));
+                    flat_row = Some((name, base.tile_width, detail));
                 }
             }
         }
-        if let (true, false, Some((name, tile))) = (g.steep_flat, steep_row, flat_row) {
+        if let (true, false, Some((name, tile, detail))) = (g.steep_flat, steep_row, flat_row) {
             row(
                 manifest,
                 true,
@@ -264,6 +316,7 @@ fn ground(
                 &name,
                 &kind.name,
                 tile,
+                &detail,
             );
         }
     }
@@ -272,11 +325,20 @@ fn ground(
             .surface
             .roads
             .iter()
-            .find_map(|r| r.groups.first().and_then(|g| g.base.first()));
-        if let Some(base) = road {
+            .find_map(|r| r.groups.first().and_then(|g| Some((g, g.base.first()?))));
+        if let Some((group, base)) = road {
             let list = ac2.ground_picture(base.material.0);
             if let Some(name) = write_ground("road", list, None, progress)? {
-                row(manifest, false, "\"road\"", &name, "road", base.tile_width);
+                let detail = detail_of(group, progress)?;
+                row(
+                    manifest,
+                    false,
+                    "\"road\"",
+                    &name,
+                    "road",
+                    base.tile_width,
+                    &detail,
+                );
             }
         }
     }
@@ -586,6 +648,63 @@ mod tests {
             folder_of(Path::new("a/look.dat")),
             Path::new("a/look.folder")
         );
+    }
+
+    /// The ground from this machine's AC2 install: every ground and the road carry the one detail
+    /// picture AC2's ground names, at its own repeat, written once; and none when the table says.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn every_ground_carries_its_detail_picture_when_the_table_asks() {
+        let mut t = Tables::built_in().expect("the tables");
+        assert!(t.terrain.detail);
+        let ac2 = auberean_dat::testing::require_target_install();
+        let dir =
+            std::env::temp_dir().join(format!("dereth-art-ac2-detail-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let manifest = |t: &Tables, name: &str| {
+            let req = Request {
+                ac2: ac2.clone(),
+                ac1: None,
+                out: dir.join(name),
+                parts: [Part::Terrain].into(),
+                keep_folder: true,
+            };
+            let built = build(t, &req, &mut |_| {});
+            let root = folder_of(&req.out);
+            let text = std::fs::read_to_string(root.join(dereth_assets::art_pack::MANIFEST_FILE));
+            let details = std::fs::read_dir(root.join("ground")).map(|d| {
+                d.filter_map(Result::ok)
+                    .filter(|e| e.file_name().to_string_lossy().starts_with("detail_"))
+                    .count()
+            });
+            (built.map(|b| b.left_out), text, details)
+        };
+        let with = manifest(&t, "with.dat");
+        t.terrain.detail = false;
+        let without = manifest(&t, "without.dat");
+        let _ = std::fs::remove_dir_all(&dir);
+        let (left_out, text, details) = with;
+        assert_eq!(left_out.expect("builds"), Vec::<String>::new());
+        let m = dereth_assets::art_pack::ArtPackManifest::parse(&text.expect("a manifest"))
+            .expect("reads");
+        assert!(
+            m.grounds.len() > t.terrain.ground.len(),
+            "{}",
+            m.grounds.len()
+        );
+        for g in &m.grounds {
+            assert!(g.detail.is_some(), "{:?} has no detail", g.grounds);
+            assert!((g.detail_size - 3.0).abs() < 1e-6, "{:?}", g.grounds);
+        }
+        assert_eq!(details.expect("the ground folder"), 1);
+        let (_, text, details) = without;
+        let m = dereth_assets::art_pack::ArtPackManifest::parse(&text.expect("a manifest"))
+            .expect("reads");
+        assert!(m.grounds.iter().all(|g| g.detail.is_none()));
+        assert_eq!(details.expect("the ground folder"), 0);
     }
 
     /// The whole look from this machine's installs: nothing left out, every model and ground in

@@ -22,6 +22,8 @@
 //!   (`model:color:0.5:-:tree/bark.png`), so a path holding a `:` is still told apart;
 //! - a ground material's three pictures: `ground` and the paths of its base color, normal,
 //!   height, roughness and occlusion, empty where it names none;
+//! - a ground material's detail picture: `detail` and its path, one record however many grounds
+//!   name it;
 //! - a material's three: `material`, the paths of its base color, normal, roughness and
 //!   occlusion, and its normal scale.
 //!
@@ -97,6 +99,12 @@ pub fn ground_key(entry: &ManifestGround) -> String {
         path(&entry.roughness),
         path(&entry.occlusion),
     )
+}
+
+/// What a packed pack keeps a ground's detail picture under: its path.
+#[must_use]
+pub fn detail_key(path: &str) -> String {
+    format!("detail:{path}")
 }
 
 /// What a packed pack keeps a material's three pictures under: the paths of the pictures they
@@ -531,6 +539,8 @@ ground = "road"
 base_color = "g/b.png"
 roughness = "g/b_r.png"
 size = 8
+detail = "g/grain.png"
+detail_size = 2
 author = "a"
 tool = "t"
 license = "CC0-1.0"
@@ -540,6 +550,7 @@ base_color = "g/a.png"
 height = "g/a_h.png"
 normal = "g/a_n.png"
 size = 6
+detail = "g/grain.png"
 author = "a"
 tool = "t"
 license = "CC0-1.0"
@@ -607,6 +618,10 @@ license = "CC0-1.0"
         put("g/a_n.png", png_of(8, 8, &ramp(8, 8, [110, 150, 255, 255])));
         put("g/b.png", png_of(4, 4, &ramp(4, 4, [10, 20, 30, 255])));
         put("g/b_r.png", png_of(4, 4, &ramp(4, 4, [180, 0, 0, 255])));
+        put(
+            "g/grain.png",
+            png_of(8, 8, &ramp(8, 8, [128, 128, 128, 255])),
+        );
         put("m/wall.png", png_of(8, 8, &ramp(8, 8, [120, 90, 60, 255])));
         put(
             "m/wall_n.png",
@@ -648,6 +663,18 @@ license = "CC0-1.0"
         assert!(folder.images.iter().all(|i| i.format.is_some()));
         assert!(folder.images[2].srgb && !folder.images[3].srgb);
         assert_eq!(folder.grounds.len(), 4);
+        // Two grounds name one detail picture: made once, both drawn with it.
+        let details: Vec<&Image> = folder
+            .grounds
+            .iter()
+            .filter_map(|g| g.detail.as_ref())
+            .collect();
+        assert_eq!(details.len(), 2);
+        assert!(std::sync::Arc::ptr_eq(
+            &details[0].levels[0],
+            &details[1].levels[0]
+        ));
+        assert_eq!(details[0].format, Some(BlockFormat::Bc7));
         assert_eq!(folder.materials.len(), 3);
         assert_eq!(folder.problems.len(), 2, "{:?}", folder.problems);
         let packed = packed();
@@ -661,6 +688,14 @@ license = "CC0-1.0"
             .filter(|r| r.kind == Kind::File)
             .all(|r| !r.key.ends_with(".png")));
         assert!(records.iter().any(|r| r.kind == Kind::Pictures));
+        assert_eq!(
+            records
+                .iter()
+                .filter(|r| r.key.starts_with("detail:"))
+                .count(),
+            1,
+            "one detail record for both grounds"
+        );
         assert_eq!(
             packed.records,
             records.iter().filter(|r| r.size > 0).count() + 1

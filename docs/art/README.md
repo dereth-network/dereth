@@ -141,12 +141,17 @@ height = "ground/grass_height.png"         # red channel; where layers meet, the
 roughness = "ground/grass_roughness.png"   # red channel
 occlusion = "ground/grass_occlusion.png"   # red channel
 size = 4.0                 # meters covered by one tile of the textures
+detail = "ground/grain.png"                # a fine grain over the ground close by
+detail_size = 1.0          # meters covered by one tile of the detail texture
+detail_strength = 1.0      # how strongly the detail texture changes the ground; 0 = not at all
 author = "Someone"
 tool = "Substance Designer"
 license = "CC0-1.0"
 ```
 
 Only `base_color`, `size` and the credits are required. Ground textures must be square, tile seamlessly, and be viewed straight from above with north up.
+
+The `detail` texture is a fine grain drawn over the material close by and faded out over the first few tens of meters. It repeats every `detail_size` meters (1 if not set) and is multiplied in at twice its value: mid-gray (128) leaves the ground unchanged, lighter brightens it and darker darkens it. A gray texture averaging 128 keeps the ground's color. It is part of the pack's look, so it draws wherever the pack's ground draws, whatever the game's Landscape Detail Textures setting says (that setting covers only the game's own ground), and turns off with the rest of the pack's ground. Grounds that name the same detail texture share it. `detail_strength` scales how far the detail texture moves the ground from its own color: 1 (the default) as the texture is made, 0 not at all, above 1 further.
 
 A `[[steep]]` material takes the same keys and is applied to steep slopes of the terrain types it lists, like an obsidian cliff or a sandstone face. Without one, the remaster puts its own scree and rock on steep ground. Each terrain type can have one flat material and one steep material.
 

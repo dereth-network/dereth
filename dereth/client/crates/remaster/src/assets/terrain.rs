@@ -74,13 +74,20 @@ pub struct SteepTile {
 
 /// A ground layer's maps beyond its picture, laid as its picture is: a normal picture (its red and
 /// green the normal's lean along the picture's first coordinate and up its rows) and a surface
-/// picture (its red the roughness), each optional, and how strongly the normal is bent.
+/// picture (its red the roughness), each optional, and how strongly the normal is bent; and a
+/// detail picture, a fine grain multiplied in at twice its value close by, with its own repeats
+/// and strength.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct GroundMaps {
     pub normal: Option<TextureKey>,
     pub surface: Option<TextureKey>,
     /// The normal's strength, in thousandths: 1000 as it was made.
     pub normal_scale: u32,
+    pub detail: Option<TextureKey>,
+    /// The detail picture's repeats across a ground cell, in thousandths.
+    pub detail_repeats: u32,
+    /// How strongly the detail picture changes the ground, in thousandths: 1000 as it was made.
+    pub detail_strength: u32,
 }
 
 /// One layer of a [`Splat`]: where its alpha map keeps what is beneath it (alpha 1) and where it

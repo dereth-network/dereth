@@ -69,6 +69,9 @@
 //! roughness = "ground/grass_roughness.png"   # red
 //! occlusion = "ground/grass_occlusion.png"   # red
 //! size = 4.0                 # metres one repeat of the pictures covers
+//! detail = "ground/grain.png"                # a fine grain over the ground close by
+//! detail_size = 1.0          # meters one repeat of the detail covers
+//! detail_strength = 1.0      # how strongly the detail changes the ground: 0 not at all
 //! author = "..."
 //! tool = "..."
 //! license = "..."
@@ -76,6 +79,17 @@
 //!
 //! Only `base_color`, `size` and the credit are required. The pictures of every material are
 //! square and repeat seamlessly, seen from straight above with north up.
+//!
+//! The detail picture is a fine grain laid over the material close by, repeating every
+//! `detail_size` meters (1 unless named) and fading out over the first few tens of meters. It is
+//! multiplied in at twice its value, in display values: mid-gray (128) leaves the ground as it is,
+//! lighter brightens it and darker darkens it, so a gray picture of mean 128 keeps the ground's
+//! tone. It is part of the pack's look: drawn wherever the pack's ground is drawn, whatever the
+//! game's own detail-texture setting says (that setting is for the game's own ground), and gone
+//! with the rest of the pack's ground when that is turned off. The Asheron's Call 2 look fills it
+//! with AC2's own ground grain, which AC2 itself loaded but never drew. `detail_strength` scales
+//! how far the detail moves the ground from its own color: 1 (unless named) as the picture is
+//! made, 0 not at all, and more than 1 further.
 //!
 //! A `[[steep]]` material, with the same keys, is laid on the steep slopes of the terrain types
 //! it names, in place of the scree and rock the presentation lays on steep ground of a type with
@@ -492,6 +506,12 @@ pub struct ManifestGround {
     pub size: f32,
     /// How strongly the normal picture bends the normal.
     pub normal_scale: f32,
+    /// The detail picture: a fine grain multiplied in at twice its value close by.
+    pub detail: Option<String>,
+    /// How many meters one repeat of the detail picture covers.
+    pub detail_size: f32,
+    /// How strongly the detail picture changes the ground: 1 as made, 0 not at all.
+    pub detail_strength: f32,
     /// Laid on the steep slopes of its grounds rather than on their flat ground: a `[[steep]]`
     /// table's.
     pub steep: bool,
@@ -930,6 +950,16 @@ fn ground(t: &toml::Table) -> Result<ManifestGround, ManifestError> {
         Some(s) => return fail(format!("normal_scale {s} is not a number from 0")),
         None => 1.0,
     };
+    let detail_size = match number("detail_size")? {
+        Some(s) if s.is_finite() && s > 0.0 => s,
+        Some(s) => return fail(format!("detail_size {s} is not a positive number")),
+        None => 1.0,
+    };
+    let detail_strength = match number("detail_strength")? {
+        Some(s) if s.is_finite() && s >= 0.0 => s,
+        Some(s) => return fail(format!("detail_strength {s} is not a number from 0")),
+        None => 1.0,
+    };
     Ok(ManifestGround {
         grounds,
         base_color,
@@ -939,6 +969,9 @@ fn ground(t: &toml::Table) -> Result<ManifestGround, ManifestError> {
         occlusion: picture("occlusion")?,
         size,
         normal_scale,
+        detail: picture("detail")?,
+        detail_size,
+        detail_strength,
         steep: false,
         credit: Credit {
             author: text(t, "author")?.to_owned(),
@@ -1659,6 +1692,9 @@ ground = "road"
 base_color = "ground/road_albedo.png"
 size = 8.5
 normal_scale = 0.5
+detail = "ground/grain.png"
+detail_size = 3
+detail_strength = 0.4
 author = "a"
 tool = "t"
 license = "CC0-1.0"
@@ -1678,9 +1714,24 @@ license = "CC0-1.0"
             (grass.normal_scale - 1.0).abs() < 1e-6,
             "a full bend unless named"
         );
+        assert_eq!(grass.detail, None);
+        assert!(
+            (grass.detail_strength - 1.0).abs() < 1e-6,
+            "the detail as made unless named"
+        );
         let road = m.ground(Ground::Road).expect("the road's material");
         assert!((road.size - 8.5).abs() < 1e-6);
         assert!((road.normal_scale - 0.5).abs() < 1e-6);
+        assert_eq!(road.detail.as_deref(), Some("ground/grain.png"));
+        assert!((road.detail_size - 3.0).abs() < 1e-6);
+        assert!((road.detail_strength - 0.4).abs() < 1e-6);
+        let unnamed =
+            ArtPackManifest::parse(&GROUND.replace("detail_size = 3\n", "")).expect("reads");
+        let road = unnamed.ground(Ground::Road).expect("the road's material");
+        assert!(
+            (road.detail_size - 1.0).abs() < 1e-6,
+            "a meter a repeat unless named"
+        );
         assert!(
             m.ground(Ground::Type(3)).is_none(),
             "an unnamed type keeps retail's"
@@ -1699,6 +1750,21 @@ license = "CC0-1.0"
             ),
             ("size = 4\n", "size = 0\n", "not a positive number"),
             ("size = 4\n", "", "no size"),
+            (
+                "detail_size = 3\n",
+                "detail_size = -1\n",
+                "detail_size -1 is not a positive number",
+            ),
+            (
+                "detail = \"ground/grain.png\"",
+                "detail = \"/grain.png\"",
+                "detail is not a path inside the pack",
+            ),
+            (
+                "detail_strength = 0.4\n",
+                "detail_strength = -0.5\n",
+                "detail_strength -0.5 is not a number from 0",
+            ),
             (
                 "base_color = \"ground/grass_albedo.png\"",
                 "",
@@ -1770,6 +1836,10 @@ license = "CC0-1.0"
         assert!(m.steep_ground(Ground::Type(1)).is_none());
         let bad = text.replace("ground = [9, 13]", "ground = [9, 40]");
         assert!(ArtPackManifest::parse(&bad).is_err());
+        let strength = text.replace("size = 8\n", "size = 8\ndetail_strength = 2\n");
+        let m = ArtPackManifest::parse(&strength).expect("reads");
+        let steep = m.steep_ground(Ground::Type(9)).expect("type 9's steep");
+        assert!((steep.detail_strength - 2.0).abs() < 1e-6);
         let twice = format!(
             "{text}
 [[steep]]

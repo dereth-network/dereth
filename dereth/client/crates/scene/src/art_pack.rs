@@ -258,6 +258,13 @@ pub struct PackGround {
     pub size: f32,
     /// How strongly the normal picture bends the normal.
     pub normal_scale: f32,
+    /// Its detail picture, a fine grain multiplied in at twice its value close by, with its
+    /// levels and compressed; grounds naming the same picture share it.
+    pub detail: Option<Image>,
+    /// How many meters one repeat of the detail picture covers.
+    pub detail_size: f32,
+    /// How strongly the detail picture changes the ground: 1 as made, 0 not at all.
+    pub detail_strength: f32,
     /// Laid on the steep slopes of its grounds rather than on their flat ground.
     pub steep: bool,
     /// Who made it, with what, and under which license.
@@ -276,10 +283,26 @@ impl PackGround {
             surface,
             size: entry.size,
             normal_scale: entry.normal_scale,
+            detail: None,
+            detail_size: entry.detail_size,
+            detail_strength: entry.detail_strength,
             steep: entry.steep,
             credit: entry.credit.clone(),
         }
     }
+}
+
+/// A ground's detail picture from its file: its own size, with its levels averaged as data (a
+/// grain about mid-gray stays mid-gray far off), compressed in BC7.
+fn detail_picture(bytes: &[u8], path: &str) -> Result<Image, String> {
+    let (w, h, rgba) = images::decode_png(bytes).map_err(|e| format!("{path}: {e}"))?;
+    if w == 0 || h == 0 {
+        return Err(format!("{path}: an empty picture"));
+    }
+    Ok(images::compressed(
+        images::with_levels(w, h, rgba, false, None),
+        images::BlockFormat::Bc7,
+    ))
 }
 
 /// What a ground material takes where it names no picture: a level height, a flat normal, a
@@ -1499,10 +1522,55 @@ impl ArtPack {
                 }
             }
         }
+        // Each detail picture once, however many grounds name it.
+        let detail_paths: Vec<&str> = {
+            let mut seen = HashSet::new();
+            made.iter()
+                .filter(|(_, g)| g.is_ok())
+                .filter_map(|(entry, _)| entry.detail.as_deref())
+                .filter(|p| seen.insert(*p))
+                .collect()
+        };
+        let details: HashMap<&str, Result<Image, String>> = match pictures {
+            Pictures::Made => {
+                let files: Vec<(&str, Result<Vec<u8>, String>)> = detail_paths
+                    .iter()
+                    .map(|p| (*p, reader.for_picture(p)))
+                    .collect();
+                images::par_map(files, &|(p, bytes)| {
+                    (p, bytes.and_then(|b| detail_picture(&b, p)))
+                })
+            }
+            Pictures::Packed(file) => detail_paths
+                .iter()
+                .map(|p| (*p, file.picture(&packed::detail_key(p))))
+                .collect(),
+        }
+        .into_iter()
+        .collect();
+        if let Some(r) = recording.as_deref_mut() {
+            for (path, d) in &details {
+                if let Ok(d) = d {
+                    r.pictures.insert(packed::detail_key(path), vec![d.clone()]);
+                }
+            }
+        }
         let mut grounds: Vec<PackGround> = Vec::with_capacity(made.len());
         for (entry, g) in made {
             match g {
-                Ok(g) => grounds.push(g),
+                Ok(mut g) => {
+                    if let Some(path) = entry.detail.as_deref() {
+                        match details.get(path) {
+                            Some(Ok(d)) => g.detail = Some(d.clone()),
+                            Some(Err(e)) => problems.push(format!(
+                                "ground {:?}: {e}; drawn without its detail",
+                                entry.grounds
+                            )),
+                            None => {}
+                        }
+                    }
+                    grounds.push(g);
+                }
                 Err(e) => problems.push(format!("ground {:?}: {e}", entry.grounds)),
             }
         }
@@ -2169,6 +2237,9 @@ license = "CC0-1.0"
             surface: one,
             size: 4.0,
             normal_scale: 1.0,
+            detail: None,
+            detail_size: 1.0,
+            detail_strength: 1.0,
             steep: false,
             credit: Credit::default(),
         });

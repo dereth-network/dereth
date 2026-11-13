@@ -268,9 +268,15 @@ pub struct GroundGpu {
 pub const VERTEX_BYTES: u32 = 64;
 
 /// The rows of one splat in the device's table: the base, each overlay, then the maps of the base
-/// and of each overlay, what each lays on steep ground, and what a pack lays by the water.
+/// and of each overlay, what each lays on steep ground, and what a pack lays by the water; then
+/// the detail of each row from the maps' to the water's.
 #[allow(clippy::cast_possible_truncation)] // LINT-OK: five overlays.
-pub const SPLAT_ROWS: u32 = 4 * (1 + crate::assets::terrain::SPLAT_OVERLAYS as u32) + 3;
+pub const SPLAT_ROWS: u32 =
+    4 * (1 + crate::assets::terrain::SPLAT_OVERLAYS as u32) + 3 + SPLAT_DETAIL;
+
+/// How many rows after a row from the maps' to the water's its detail row is: one for each.
+#[allow(clippy::cast_possible_truncation)] // LINT-OK: five overlays.
+pub const SPLAT_DETAIL: u32 = 3 * (1 + crate::assets::terrain::SPLAT_OVERLAYS as u32) + 3;
 
 /// One placed part's draw items, by level.
 #[derive(Debug, Clone, Default)]
@@ -1595,6 +1601,19 @@ impl Sink<'_> {
             })
             .unwrap_or(0)
         };
+        // The detail rows, in the order of the rows they are for: the picture, its repeats
+        // across a cell and its strength.
+        let mut details: Vec<u32> = Vec::with_capacity(SPLAT_DETAIL as usize * 4);
+        let mut detail_row = |m: Option<&crate::assets::terrain::GroundMaps>| match m {
+            #[allow(clippy::cast_precision_loss)] // thousandths, a few million at most
+            Some(m) if m.detail.is_some() => details.extend([
+                tex(m.detail.as_ref()),
+                (m.detail_repeats as f32 / 1000.0).to_bits(),
+                (m.detail_strength as f32 / 1000.0).to_bits(),
+                0,
+            ]),
+            _ => details.extend([NONE, 1.0f32.to_bits(), 0, 0]),
+        };
         let maps_row = |m: Option<&crate::assets::terrain::GroundMaps>, b: u32| match m {
             #[allow(clippy::cast_precision_loss)] // thousandths, a few thousand at most
             Some(m) => [
@@ -1606,12 +1625,14 @@ impl Sink<'_> {
             None => [NONE, NONE, 1.0f32.to_bits(), 0],
         };
         w.extend(maps_row(s.base_maps.as_ref(), broad(s.base_broad.as_ref())));
+        detail_row(s.base_maps.as_ref());
         for k in 0..crate::assets::terrain::SPLAT_OVERLAYS {
             let o = s.overlays.get(k);
             w.extend(maps_row(
                 o.and_then(|o| o.maps.as_ref()),
                 broad(o.and_then(|o| o.broad.as_ref())),
             ));
+            detail_row(o.and_then(|o| o.maps.as_ref()));
         }
         // A picture laid by the slope or the water: its picture, its repeats (with its normal's
         // strength in thousandths from bit 8), and its normal and surface pictures.
@@ -1645,6 +1666,7 @@ impl Sink<'_> {
                     }
                     None => w.extend([NONE, 1, NONE, NONE]),
                 }
+                detail_row(steep.and_then(|t| t.maps.as_ref()));
             }
         }
         // What a pack lays by the water: the grass, the land (whether it is mud at bit 29 of its
@@ -1656,13 +1678,18 @@ impl Sink<'_> {
                 land[1] |= u32::from(bank.land_is_mud) << 29;
                 w.extend(land);
                 w.extend(laid(&bank.bed));
+                for t in [&bank.grass, &bank.land, &bank.bed] {
+                    detail_row(t.maps.as_ref());
+                }
             }
             None => {
                 for _ in 0..3 {
                     w.extend([NONE, 1, NONE, NONE]);
+                    detail_row(None);
                 }
             }
         }
+        w.extend(details);
         let b = words(&w);
         self.scene.splats.write(self.d, index, &b)?;
         self.scene.uploaded += b.len() as u64;

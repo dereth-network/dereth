@@ -65,6 +65,8 @@ const MATERIAL_SURFACES: u32 = 0xE0_0000;
 const GROUND_PICTURES: u32 = 0xA0_0000;
 const GROUND_NORMALS: u32 = 0xA8_0000;
 const GROUND_SURFACES: u32 = 0xB0_0000;
+/// Where the pack's grounds' detail pictures are named from, by the first ground drawn with each.
+const GROUND_DETAILS: u32 = 0xB8_0000;
 
 /// A pack picture as a texture key.
 fn picture_key(picture: u32) -> TextureKey {
@@ -120,6 +122,27 @@ pub(crate) struct PackAssets {
     /// made when they are first asked for.
     skin_tops: Mutex<HashMap<SkinTop, Option<f32>>>,
     model_points: Mutex<HashMap<u32, Option<Arc<[Point]>>>>,
+    /// Each ground's detail picture, as the place of the first ground drawn with the same one:
+    /// grounds sharing a picture share its texture.
+    detail_slots: Vec<Option<u32>>,
+}
+
+/// Each of `grounds`' detail pictures as the place of the first ground drawn with the same one.
+fn detail_slots(grounds: &[crate::art_pack::PackGround]) -> Vec<Option<u32>> {
+    let same = |a: &Image, b: &Image| match (a.levels.first(), b.levels.first()) {
+        (Some(x), Some(y)) => Arc::ptr_eq(x, y) || a == b,
+        _ => a == b,
+    };
+    grounds
+        .iter()
+        .map(|g| {
+            let d = g.detail.as_ref()?;
+            let first = grounds
+                .iter()
+                .position(|o| o.detail.as_ref().is_some_and(|od| same(od, d)))?;
+            u32::try_from(first).ok()
+        })
+        .collect()
 }
 
 /// A point of a body or a model, as the world measures its objects.
@@ -157,6 +180,7 @@ impl PackAssets {
             })
             .collect();
         let filled = Arc::new(Mutex::new(HashMap::new()));
+        let detail_slots = detail_slots(&pack.grounds);
         if folder.is_some() || pack.image_sources.iter().any(|s| s.folder.is_some()) {
             let folder = folder.clone();
             // Every cut-out picture made again ahead of the frames that will want it.
@@ -209,6 +233,7 @@ impl PackAssets {
             skin_models: Mutex::new(HashMap::new()),
             skin_tops: Mutex::new(HashMap::new()),
             model_points: Mutex::new(HashMap::new()),
+            detail_slots,
         }
     }
 
@@ -688,11 +713,40 @@ impl PackAssets {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         // A strength of a few at most, in thousandths.
         let normal_scale = (self.pack.grounds[i].normal_scale.max(0.0) * 1000.0).round() as u32;
+        let (detail, detail_repeats, detail_strength) = self.detail_of(i);
         Some(GroundMaps {
             normal: Some(picture_key(GROUND_NORMALS + at)),
             surface: Some(picture_key(GROUND_SURFACES + at)),
             normal_scale,
+            detail,
+            detail_repeats,
+            detail_strength,
         })
+    }
+
+    /// The pack's ground `i`'s detail picture, its repeats across a ground cell and its
+    /// strength, both in thousandths; none and nought where it has none or its strength is
+    /// nought.
+    fn detail_of(&self, i: usize) -> (Option<TextureKey>, u32, u32) {
+        let (Some(Some(slot)), Some(g)) = (self.detail_slots.get(i), self.pack.grounds.get(i))
+        else {
+            return (None, 0, 0);
+        };
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // A cell's repeats of a picture of a meter or a few, in thousandths: a few hundred
+        // thousand at most; and a strength of a few at most.
+        let (repeats, strength) = (
+            (dereth_terrain::consts::CELL_SIZE / g.detail_size.max(0.01) * 1000.0)
+                .round()
+                .clamp(1.0, 2_400_000.0) as u32,
+            (g.detail_strength.max(0.0) * 1000.0)
+                .round()
+                .min(1_000_000.0) as u32,
+        );
+        if strength == 0 {
+            return (None, 0, 0);
+        }
+        (Some(picture_key(GROUND_DETAILS + slot)), repeats, strength)
     }
 
     /// The pack's ground laid on the flat of the retail ground `ground` (a terrain type, or the
@@ -751,6 +805,7 @@ impl PackAssets {
                 .clamp(1.0, 64.0) as u32,
             (g.normal_scale.max(0.0) * 1000.0).round() as u32,
         );
+        let (detail, detail_repeats, detail_strength) = self.detail_of(i);
         Some(SteepTile {
             tile: picture_key(GROUND_PICTURES + at),
             tiling,
@@ -758,6 +813,9 @@ impl PackAssets {
                 normal: Some(picture_key(GROUND_NORMALS + at)),
                 surface: Some(picture_key(GROUND_SURFACES + at)),
                 normal_scale,
+                detail,
+                detail_repeats,
+                detail_strength,
             }),
             own,
         })
@@ -801,6 +859,10 @@ impl PackAssets {
         if k >= MATERIAL_NORMALS {
             let m = self.pack.materials.get((k - MATERIAL_NORMALS) as usize)?;
             return texture_of(&m.normal);
+        }
+        if k >= GROUND_DETAILS {
+            let g = self.pack.grounds.get((k - GROUND_DETAILS) as usize)?;
+            return texture_of(g.detail.as_ref()?);
         }
         if k >= GROUND_SURFACES {
             let g = self.pack.grounds.get((k - GROUND_SURFACES) as usize)?;
@@ -1341,6 +1403,100 @@ mod tests {
         };
         let t = texture_of(&bc7).expect("a texture");
         assert_eq!((t.format, t.levels[0].len()), (TextureFormat::Bc7, 16));
+    }
+
+    /// A pack's grounds as the remaster lays them: two naming one detail picture share its
+    /// texture, each repeating it as often across a cell and as strongly as it says, one with
+    /// none has none, nor does one whose strength is nought.
+    #[test]
+    fn grounds_naming_one_detail_picture_share_it() {
+        let png = |w: u32, h: u32, rgba: &[u8]| {
+            let mut bytes = Vec::new();
+            {
+                let mut enc = png::Encoder::new(&mut bytes, w, h);
+                enc.set_color(png::ColorType::Rgba);
+                enc.set_depth(png::BitDepth::Eight);
+                let mut w = enc.write_header().expect("header");
+                w.write_image_data(rgba).expect("data");
+            }
+            bytes
+        };
+        let credit = "author = \"a\"
+tool = \"t\"
+license = \"CC0-1.0\"
+";
+        let manifest = format!(
+            "[pack]
+name = \"Grounds\"
+format = 1
+             [[terrain]]
+ground = 1
+base_color = \"g/red.png\"
+size = 4
+             detail = \"g/grain.png\"
+detail_size = 3
+{credit}             [[terrain]]
+ground = \"road\"
+base_color = \"g/red.png\"
+size = 4
+             detail = \"g/grain.png\"
+detail_size = 0.5
+detail_strength = 0.25
+{credit}             [[terrain]]
+ground = 9
+base_color = \"g/red.png\"
+size = 4
+{credit}             [[terrain]]
+ground = 12
+base_color = \"g/red.png\"
+size = 4
+detail = \"g/grain.png\"
+detail_strength = 0
+{credit}"
+        );
+        let red = png(8, 8, &[200, 40, 20, 255].repeat(64));
+        let grain = png(8, 8, &[128, 128, 128, 255].repeat(64));
+        let pack = ArtPack::open(&manifest, &mut |p: &str| match p {
+            "g/red.png" => Ok(red.clone()),
+            "g/grain.png" => Ok(grain.clone()),
+            _ => Err(format!("{p}: missing")),
+        })
+        .expect("the pack opens");
+        assert!(pack.problems.is_empty(), "{:?}", pack.problems);
+        let p = PackAssets::new(Arc::new(pack), None);
+        let road = dereth_terrain::consts::ROAD_TERRAIN_TYPE;
+        let (grass, road_maps, patchy) = (
+            p.ground_maps(1).expect("type 1's maps"),
+            p.ground_maps(road).expect("the road's maps"),
+            p.ground_maps(9).expect("type 9's maps"),
+        );
+        assert!(grass.detail.is_some());
+        assert_eq!(
+            grass.detail, road_maps.detail,
+            "one texture for one picture"
+        );
+        assert_eq!(
+            grass.detail_repeats, 8000,
+            "24 m across a cell, 3 m a repeat"
+        );
+        assert_eq!(road_maps.detail_repeats, 48_000);
+        assert_eq!(
+            (grass.detail_strength, road_maps.detail_strength),
+            (1000, 250),
+            "as made unless named"
+        );
+        assert_eq!((patchy.detail, patchy.detail_repeats), (None, 0));
+        let unseen = p.ground_maps(12).expect("type 12's maps");
+        assert_eq!(
+            (unseen.detail, unseen.detail_strength),
+            (None, 0),
+            "a detail of no strength is not drawn"
+        );
+        let Some(TextureKey::Dat { picture, .. }) = grass.detail else {
+            panic!("a pack picture");
+        };
+        let t = p.texture(picture).expect("the detail picture");
+        assert_eq!((t.format, t.width), (TextureFormat::Bc7, 8));
     }
 
     /// A surface picture (roughness in red, occlusion in green), as block pictures and as four

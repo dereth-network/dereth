@@ -115,6 +115,10 @@ pub struct TerrainTable {
     pub picture_limit: u32,
     /// How strongly a ground's relief bends its normal.
     pub relief_strength: f32,
+    /// Whether each ground carries its own detail picture, the fine grain AC2's ground names
+    /// beside its picture.
+    #[serde(default)]
+    pub detail: bool,
     pub ground: Vec<Ground>,
     pub red_desert: RedDesert,
 }

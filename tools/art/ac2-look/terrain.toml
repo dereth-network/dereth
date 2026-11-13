@@ -1,10 +1,13 @@
 # The AC2 look's ground: each AC1 terrain type's AC2 terrain kind, by its index in the region.
 # Its first (flat) group's base picture is laid as the type's ground and its last (steepest)
 # group's on the type's steep slopes, unless the row names other groups; a kind with one group
-# and `steep_flat` lays its flat picture on its slopes too.
-version = 1
+# and `steep_flat` lays its flat picture on its slopes too. With `detail`, each ground and the
+# road also carry the detail picture their group names, at its own repeat (AC2 itself loaded
+# this grain but never drew it).
+version = 2
 picture_limit = 1024
 relief_strength = 6
+detail = true
 
 [[ground]]
 type = 0
