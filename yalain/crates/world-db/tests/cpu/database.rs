@@ -6887,6 +6887,8 @@ fn object_states_and_sequence_rows_compile_into_the_item_rows() {
             key: "one".into(),
             quest: 0x4000_0088,
             uses: vec![(0x4700_115B, Some("white".into())), (0x4700_2224, None)],
+            objects: Vec::new(),
+            wrong_starts_over: true,
             right: Some((0x257C_1464, 0x2500_29AC)),
             wrong: Some((0xFFFB_8534, 0x2500_29AC)),
             to: Some(yalain_content::quests::Place {
@@ -7484,4 +7486,111 @@ fn an_offering_row_names_its_object_parts_and_what_it_opens_and_compiles_to_the_
             .any(|p| p.to_string().contains("takes another row's offering")),
         "{problems:?}"
     );
+}
+
+/// A sequence row's use may name a placed object (`key@XXYY`) in place of a template: it compiles to
+/// that object's place in the pack and its template, a use naming a template to none; a row may
+/// start over only for an object already used. An object the world lacks is a problem to the
+/// check and the build, and a use naming both a template and an object is refused.
+/// Behaviour: server.puzzles.rows
+#[test]
+fn a_sequence_row_names_its_uses_by_placement_and_whether_a_wrong_use_starts_over() {
+    let mut files = with_lever(fixture());
+    files
+        .get_mut("town/server/landblocks/77B7.toml")
+        .unwrap()
+        .push_str(
+            "\n[[object]]\nkey = \"pillar\"\nkind = \"static\"\nid = 0x4077B70000000004\n\
+             template = 0x4700115B\nat = [121.0, 111.0, 250.0]\nprov = { from = \"authored\" }\n",
+        );
+    let row = "[[sequence]]\nkey = \"pillars\"\nquest = 0x40000088\n\
+               uses = [{ object = \"pillar@77B7\" }, { object = \"lever@77B7\" }, { use = 0x47002224 }]\n\
+               wrong_starts_over = false\nprov = { from = \"authored\" }\n";
+    files.insert("town/server/puzzles.toml".into(), row.to_string());
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let pillar = placed_at(&t, 0x4077_B700_0000_0004);
+    let lever = placed_at(&t, 0x4077_B700_0000_0003);
+    let q = &t.items.sequences[0];
+    assert_eq!(
+        q.uses,
+        vec![
+            (0x4700_115B, None),
+            (0x4700_115B, None),
+            (0x4700_2224, None)
+        ]
+    );
+    assert_eq!(q.objects, vec![Some(pillar), Some(lever), None]);
+    assert!(!q.wrong_starts_over);
+    let mut bad = files.clone();
+    edit(
+        &mut bad,
+        "town/server/puzzles.toml",
+        "pillar@77B7",
+        "nowhere@77B7",
+    );
+    assert!(
+        check(&bad)
+            .iter()
+            .any(|p| p.to_string().contains("uses: no object nowhere@77B7")),
+        "{:?}",
+        check(&bad)
+    );
+    let problems = compile(&merge(&read(&bad).unwrap()).unwrap(), &Fake::new()).unwrap_err();
+    assert!(
+        problems.iter().any(|p| p
+            .to_string()
+            .contains("uses: no placed object nowhere@77B7")),
+        "{problems:?}"
+    );
+    let mut bad = files;
+    edit(
+        &mut bad,
+        "town/server/puzzles.toml",
+        "{ object = \"pillar@77B7\" }",
+        "{ object = \"pillar@77B7\", use = 0x4700115B }",
+    );
+    assert!(read(&bad).is_err());
+}
+
+/// An event's windows may follow the game's clock: its hours (a 24-hour clock of the game's day)
+/// or its day or night; a window of the game's names nothing else.
+/// Behaviour: server.events.windows-by-the-game
+#[test]
+fn an_event_row_reads_windows_of_the_games_hours_day_and_night() {
+    use yalain_content::events::Window;
+    let mut files = fixture();
+    let row = "[[event]]\nkey = \"daylight\"\n\
+               when = [{ game = \"day\" }, { game = \"night\" }, \
+               { game = \"hours\", from = \"06:00\", until = \"18:30\" }]\n\
+               prov = { from = \"authored\" }\n";
+    files.insert("town/server/events.toml".into(), row.to_string());
+    let db = read(&files).unwrap();
+    let when = db
+        .rows()
+        .find_map(|l| match &l.row {
+            Row::Event(e) => Some(e.when.clone()),
+            _ => None,
+        })
+        .expect("the event");
+    assert_eq!(
+        when,
+        vec![
+            Window::GameDay { night: false },
+            Window::GameDay { night: true },
+            Window::GameHours {
+                from: 6 * 3600,
+                until: 18 * 3600 + 1800
+            },
+        ]
+    );
+    for (from, to) in [
+        ("{ game = \"day\" }", "{ game = \"day\", from = \"06:00\" }"),
+        ("{ game = \"day\" }", "{ game = \"noon\" }"),
+        ("from = \"06:00\", ", ""),
+        ("game = \"hours\", ", "game = \"hours\", days = [\"mon\"], "),
+    ] {
+        files.insert("town/server/events.toml".into(), row.replacen(from, to, 1));
+        assert!(read(&files).is_err(), "{from} to {to}");
+    }
 }

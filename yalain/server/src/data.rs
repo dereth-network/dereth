@@ -291,6 +291,23 @@ pub fn level_table(p: &Portal) -> Result<yalain_world::levels::LevelTable, Strin
 /// The world's calendar, by its region's first sky.
 #[must_use]
 pub fn calendar(p: &Portal) -> Option<auberean_world::calendar::GameClock> {
+    game_time(p).map(auberean_world::calendar::GameClock::new)
+}
+
+/// The parts of the game's day, by the world's calendar: where each begins (a share of the day)
+/// and whether it is night.
+#[must_use]
+pub fn day_parts(p: &Portal) -> Vec<(f32, bool)> {
+    game_time(p).map_or_else(Vec::new, |c| {
+        c.day_parts
+            .iter()
+            .map(|d| (d.begin, d.night != 0))
+            .collect()
+    })
+}
+
+/// The calendar of the region's first sky.
+fn game_time(p: &Portal) -> Option<auberean_assets::region::GameTime> {
     use auberean_assets::region::{GameTime, Region, SkyDesc};
     const REGION_MAPPING: u32 = 0x4000_0007;
     let (_, path) = p.files.iter().find(|(n, _)| *n == DatName::Portal)?;
@@ -300,9 +317,7 @@ pub fn calendar(p: &Portal) -> Option<auberean_world::calendar::GameClock> {
     let sky = db.get::<Region>(record)?.skies.first()?.record.0;
     let game_time = db.get::<SkyDesc>(sky)?.game_time.0;
     let calendar = db.get::<GameTime>(game_time)?;
-    Some(auberean_world::calendar::GameClock::new(
-        (*calendar.arc()).clone(),
-    ))
+    Some((*calendar.arc()).clone())
 }
 
 /// The vitae cost table (the experience to raise vitae by one at full vitae, by level from 1),

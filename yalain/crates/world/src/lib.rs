@@ -418,6 +418,9 @@ pub struct Server<S: Store> {
     pub levels: levels::LevelTable,
     /// The world's calendar, which says when it is night; none, never.
     pub calendar: Option<auberean_world::calendar::GameClock>,
+    /// The parts of the game's day, by the calendar: where each begins (a share of the day) and
+    /// whether it is night.
+    pub day_parts: Vec<(f32, bool)>,
     /// The skills' definitions and advancement tables.
     pub skill_table: skills::SkillTable,
     /// The effects' definitions, and the recipes' and craft skills'.
@@ -869,6 +872,7 @@ impl<S: Store> Server<S> {
             levels: levels::LevelTable::default(),
             skill_table: skills::SkillTable::default(),
             calendar: None,
+            day_parts: Vec::new(),
             effect_table: effect_defs::EffectTable::default(),
             creature_effects: effects::CreatureRecords::default(),
             events: events::Events::default(),

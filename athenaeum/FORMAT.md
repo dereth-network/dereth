@@ -1084,7 +1084,7 @@ object's `event`, and a step's `requires = [{ event = "key" }]`, name one.
 |---|---|---|
 | `key` | required | lowercase letters, digits and hyphens |
 | `game_event` | | a value of the install's game events it stands for |
-| `when` | | at least one window: `{ from, until }` dated (UTC times `YYYY-MM-DDTHH:MMZ`), or `{ days, from, until }` weekly (`days` from `mon` ... `sun`, times `HH:MM`, UTC); left out, it is on only while a tally's `starts` names it, and one must |
+| `when` | | at least one window: `{ from, until }` dated (UTC times `YYYY-MM-DDTHH:MMZ`), or `{ days, from, until }` weekly (`days` from `mon` ... `sun`, times `HH:MM`, UTC); or by the game's own clock: `{ game = "hours", from, until }`, each game day from one hour to another of a 24-hour clock of the game's day (`HH:MM`, into the next day when the end is not after the start), `{ game = "day" }` and `{ game = "night" }`, while the part of the game's day is not night, or is, by the world's calendar; left out, it is on only while a tally's `starts` names it, and one must |
 | `on_players` | | effects every player in the world holds while it is on |
 | `prov` | required | where it came from |
 
@@ -1202,7 +1202,8 @@ use of an object a row names runs no quest step of its own.
 |---|---|---|
 | `key` | required | lowercase letters, digits and hyphens |
 | `quest` | required | the quest whose phase counts the right uses |
-| `uses` | required | `{ use, state }` in order: the template used and the state its object must be in (`[[object_states]]`, loaded before; any state when left out) |
+| `uses` | required | `{ use, state }` or `{ object, state }` in order: the template used, or the one placed object used (`key@XXYY`, or `pack:key@XXYY`), and the state its object must be in (`[[object_states]]`, loaded before; any state when left out). Named by placement, objects of one template each take their own turn |
+| `wrong_starts_over` | | false: only a use of an object already used in the order takes the quest away; a use of one further on is told `wrong` and moves nothing, so the order may be found by trying. True when left out |
 | `right`, `wrong` | | what the object used says at a right use and at a wrong one, `{ table, string }` |
 | `to` | | the place the last right use takes the player to, through portal space (`key`, or `pack:key`), in place of a recall the quest's definition names for that update; without it, such a recall takes the player |
 | `prov` | required | where it came from |

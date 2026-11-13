@@ -4859,6 +4859,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.events.windows-by-the-game",
+        says: "An event's window may follow the game's clock: the game's hours, each game day from its start \
+               to its end on a 24-hour clock of the game's day (into the next day when the end is not after \
+               the start), or the game's day or night, while the part of the game's day is not, or is, night \
+               by the world's calendar, across its parts and the day's turn; an effect it puts on lasts to the \
+               window's end. A world with no calendar keeps such windows shut.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-EVENTS-GAME-TIMES"),
+        station: "yalain-testkit::cpu::play::events::an_events_window_of_the_games_day_holds_while_the_part_of_the_day_is_not_night",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.events.windows-in-utc",
         says: "An event's weekly window runs on its days from its time to its end, into the next \
                day when the end is not after the start; a dated one from its start to its end, the \
@@ -12941,6 +12953,17 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PUZZLE-ORDER-TRIP"),
         station: "yalain-testkit::cpu::play::puzzles::the_last_right_use_takes_the_player_where_its_row_says",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.puzzles.uses-by-placement",
+        says: "An order of uses may name each use by its placed object instead of its template, so objects of \
+               one template stand in an order of their own: a use fits only its own object. An order may start \
+               over only for an object already used: a use of one further on is told the wrong line and moves \
+               nothing, so the order may be found by trying.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SEQUENCE-BY-PLACEMENT"),
+        station: "yalain-testkit::cpu::play::puzzles::uses_named_by_placement_fit_only_their_own_objects_of_one_template",
         tier: Tier::Cpu,
     },
     behaviour! {

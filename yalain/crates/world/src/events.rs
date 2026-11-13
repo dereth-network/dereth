@@ -16,6 +16,12 @@
 //! host's clock counts in), whether its holder is in the world then or not. A player who comes into the world while one is on is given it at the
 //! next step; one who already holds a running record of the effect is given no second.
 //!
+//! **By the game's clock.** A window of the game's hours or of its day or night holds by the
+//! world's calendar at the game time of the step: the share of the game's day passed, and the
+//! night word of the part of the day it is in. A world with no calendar has no game times, and such
+//! a window never holds. An effect it puts on lasts to the window's end, worked out from the day's
+//! length.
+//!
 //! **Started by a tally.** An event a full tally starts ([`crate::tallies`]) is on for the window
 //! the tally's fill gives it, as if its own windows said so; an event with no windows is on only
 //! so.
@@ -83,14 +89,40 @@ pub fn step_runs<S: Store>(s: &Server<S>, step: &yalain_content::quests::Step) -
     t.is_empty() || t.of_step(step).all(|e| is_on(s, e))
 }
 
-/// The window of an event that holds `unix`: one of its own, else one a full tally gave it.
+/// The window of an event that holds `unix`: one of its own by the host's clock, else one of its
+/// own by the game's, else one a full tally gave it.
 fn window<S: Store>(
     s: &Server<S>,
     e: &yalain_content::events::Event,
     unix: i64,
 ) -> Option<(i64, i64)> {
     e.running(unix)
+        .or_else(|| by_the_game(s, e, unix))
         .or_else(|| crate::tallies::started(s, &e.key, unix))
+}
+
+/// The window of the game's clock an event is on in now, if it has one that holds: never in a
+/// world with no calendar.
+fn by_the_game<S: Store>(
+    s: &Server<S>,
+    e: &yalain_content::events::Event,
+    unix: i64,
+) -> Option<(i64, i64)> {
+    if !e
+        .windows
+        .iter()
+        .any(yalain_content::events::Window::by_the_game)
+    {
+        return None;
+    }
+    let mut clock = s.calendar.clone()?;
+    clock.use_time(s.game_now);
+    let now = yalain_content::events::GameNow {
+        through: f64::from(clock.time_of_day()),
+        day_length: f64::from(clock.day_length_seconds()),
+        parts: &s.day_parts,
+    };
+    e.running_by_the_game(unix, &now)
 }
 
 /// Switch the events by the clock and the tallies, give the players in the world the effects of

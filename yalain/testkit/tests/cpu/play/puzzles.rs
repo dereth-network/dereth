@@ -135,6 +135,8 @@ fn sequences() -> Vec<Sequence> {
                 (B, Some("white".into())),
                 (C, None),
             ],
+            objects: Vec::new(),
+            wrong_starts_over: true,
             right: Some((RIGHT, TABLE)),
             wrong: Some((WRONG, TABLE)),
             to: Some(AWAY),
@@ -143,6 +145,8 @@ fn sequences() -> Vec<Sequence> {
             key: "short".into(),
             quest: SHORT,
             uses: vec![(A, Some("white".into())), (C, None)],
+            objects: Vec::new(),
+            wrong_starts_over: true,
             right: Some((RIGHT, TABLE)),
             wrong: Some((WRONG, TABLE)),
             to: None,
@@ -605,5 +609,79 @@ fn without_such_rows_a_use_runs_its_step_and_a_give_is_refused() {
     let (a, one) = player(&mut h, "one", "Elara");
     let from = use_tile(&mut h, a, one, TILE_A);
     assert_eq!(phase(&h, one, SHORT), 0, "judged by its orders alone");
+    assert_eq!(tells(&h, a, from), [WRONG]);
+}
+
+/// Three pillars of one template, and an order naming each by placement: the second, the first,
+/// then the third.
+fn pillars(wrong_starts_over: bool) -> (Harness, [u64; 3]) {
+    const PILLARS: [u64; 3] = [
+        0x8130_0000_0000_0911,
+        0x8130_0000_0000_0912,
+        0x8130_0000_0000_0913,
+    ];
+    let mut h = hall(true);
+    h.server.content.objects = PILLARS
+        .iter()
+        .zip([59.0, 60.0, 61.0])
+        .map(|(id, x)| tile(*id, A, x))
+        .collect();
+    h.server.item_rows = ItemRows {
+        sequences: vec![Sequence {
+            key: "pillars".into(),
+            quest: LONG,
+            uses: vec![(A, None), (A, None), (A, None)],
+            objects: vec![Some(1), Some(0), Some(2)],
+            wrong_starts_over,
+            right: Some((RIGHT, TABLE)),
+            wrong: Some((WRONG, TABLE)),
+            to: None,
+        }],
+        ..ItemRows::default()
+    };
+    (h, PILLARS)
+}
+
+/// An order's uses named by placement fit only their own objects, though all are of one template:
+/// the second pillar first, then the first, then the third, each moving the quest on with the
+/// right line; a pillar out of its turn is a wrong use, and the order starts over.
+/// Behaviour: server.puzzles.uses-by-placement
+#[test]
+fn uses_named_by_placement_fit_only_their_own_objects_of_one_template() {
+    let (mut h, p) = pillars(true);
+    let (a, one) = player(&mut h, "one", "Elara");
+    let from = use_tile(&mut h, a, one, p[0]);
+    assert_eq!(phase(&h, one, LONG), 0, "not the first of the order");
+    assert_eq!(tells(&h, a, from), [WRONG], "not its turn");
+    let from = use_tile(&mut h, a, one, p[1]);
+    assert_eq!(phase(&h, one, LONG), 1);
+    assert_eq!(tells(&h, a, from), [RIGHT]);
+    let from = use_tile(&mut h, a, one, p[2]);
+    assert_eq!(phase(&h, one, LONG), 0, "out of its turn: started over");
+    assert_eq!(tells(&h, a, from), [WRONG]);
+    for (k, want) in [(1, 1), (0, 2), (2, 3)] {
+        let from = use_tile(&mut h, a, one, p[k]);
+        assert_eq!(phase(&h, one, LONG), want, "pillar {k}");
+        assert_eq!(tells(&h, a, from), [RIGHT]);
+    }
+}
+
+/// An order that starts over only for an object already used lets a pillar further on be tried:
+/// told the wrong line, nothing moved; one already used starts it over.
+/// Behaviour: server.puzzles.uses-by-placement
+#[test]
+fn an_order_starting_over_only_for_a_used_object_lets_one_further_on_be_tried() {
+    let (mut h, p) = pillars(false);
+    let (a, one) = player(&mut h, "one", "Elara");
+    use_tile(&mut h, a, one, p[1]);
+    assert_eq!(phase(&h, one, LONG), 1);
+    let from = use_tile(&mut h, a, one, p[2]);
+    assert_eq!(phase(&h, one, LONG), 1, "tried: nothing moved");
+    assert_eq!(tells(&h, a, from), [WRONG]);
+    let from = use_tile(&mut h, a, one, p[0]);
+    assert_eq!(phase(&h, one, LONG), 2);
+    assert_eq!(tells(&h, a, from), [RIGHT]);
+    let from = use_tile(&mut h, a, one, p[1]);
+    assert_eq!(phase(&h, one, LONG), 0, "one already used: started over");
     assert_eq!(tells(&h, a, from), [WRONG]);
 }

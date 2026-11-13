@@ -1527,42 +1527,13 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     t.items.object_states.push(st.clone());
                 }
             }
-            Row::Sequence(r) => {
-                let mut q = r.sequence.clone();
-                if let Some(to) = &r.to {
-                    let Some(p) = cx.place(&places, l, to) else {
-                        continue;
-                    };
-                    q.to = Some(StepPlace {
-                        cell: p.cell,
-                        origin: p.origin,
-                        heading: heading_byte(rotation_heading(p.rotation)),
-                    });
-                }
-                let mut known = true;
-                for (template, state) in &q.uses {
-                    known &= cx.template(l, "uses", *template);
-                    let Some(state) = state else {
-                        continue;
-                    };
-                    let held = t
-                        .items
-                        .states_of(*template)
-                        .is_some_and(|st| st.states.contains(state));
-                    if !held {
-                        cx.problem(
-                            l,
-                            format!(
-                                "uses: {template:08X} holds no state {state} (an [[object_states]] row loaded before this one names it)"
-                            ),
-                        );
-                        known = false;
-                    }
-                }
-                if known {
+            // One naming placed objects waits until every placed object has its place.
+            Row::Sequence(r) if r.objects.iter().all(Option::is_none) => {
+                if let Some(q) = sequence(&mut cx, &t, &places, l, r.sequence.clone(), r) {
                     t.items.sequences.push(q);
                 }
             }
+            Row::Sequence(_) => {}
             Row::Concealing(r) => {
                 t.creatures.concealing.insert((r.effect, r.class), r.regard);
             }
@@ -2086,10 +2057,33 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     cx.problems.extend(crate::check::tallies(
         &merged.rows.iter().collect::<Vec<_>>(),
     ));
-    // Levers, offerings and guarded objects, once every placed object has its place in the content
-    // pack (and every camp its row in the spawn table).
+    // Levers, offerings, guarded objects and orders of uses of placed objects, once every placed
+    // object has its place in the content pack (and every camp its row in the spawn table).
     for l in &merged.rows {
         match &l.row {
+            Row::Sequence(r) if r.objects.iter().any(Option::is_some) => {
+                let mut q = r.sequence.clone();
+                let mut ok = true;
+                for (i, name) in r.objects.iter().enumerate() {
+                    let Some(name) = name else {
+                        q.objects.push(None);
+                        continue;
+                    };
+                    match placed_object(&mut cx, &objects_at, l, "uses", name) {
+                        Some(o) => {
+                            q.uses[i].0 = t.content.objects[o].template;
+                            q.objects.push(Some(o));
+                        }
+                        None => ok = false,
+                    }
+                }
+                if !ok {
+                    continue;
+                }
+                if let Some(q) = sequence(&mut cx, &t, &places, l, q, r) {
+                    t.items.sequences.push(q);
+                }
+            }
             Row::Lever(r) => {
                 let levers = placed_objects(&mut cx, &objects_at, l, "levers", &r.levers);
                 let opens = placed_objects(&mut cx, &objects_at, l, "opens", &r.opens);
@@ -2312,6 +2306,47 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
         cx.problems.sort();
         Err(cx.problems)
     }
+}
+
+/// An order of uses as a row gives it, its uses' templates known: its place taken from the world's
+/// places, and each state a use names held by its template; none, with problems, otherwise.
+fn sequence(
+    cx: &mut Ctx<'_>,
+    t: &Tables,
+    places: &BTreeMap<(String, String), &Located>,
+    l: &Located,
+    mut q: yalain_content::item_rows::Sequence,
+    r: &crate::rows::SequenceRow,
+) -> Option<yalain_content::item_rows::Sequence> {
+    if let Some(to) = &r.to {
+        let p = cx.place(places, l, to)?;
+        q.to = Some(StepPlace {
+            cell: p.cell,
+            origin: p.origin,
+            heading: heading_byte(rotation_heading(p.rotation)),
+        });
+    }
+    let mut known = true;
+    for (template, state) in &q.uses {
+        known &= cx.template(l, "uses", *template);
+        let Some(state) = state else {
+            continue;
+        };
+        let held = t
+            .items
+            .states_of(*template)
+            .is_some_and(|st| st.states.contains(state));
+        if !held {
+            cx.problem(
+                l,
+                format!(
+                    "uses: {template:08X} holds no state {state} (an [[object_states]] row loaded before this one names it)"
+                ),
+            );
+            known = false;
+        }
+    }
+    known.then_some(q)
 }
 
 /// The place in the content pack of the placed object a row names (`key@XXYY`, or `pack:key@XXYY`

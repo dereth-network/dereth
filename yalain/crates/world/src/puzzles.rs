@@ -19,6 +19,12 @@
 //! given again, is not judged. The object says the right line of the first row a use moved on,
 //! else the wrong line of the first row it judged that has one, else nothing; a use of an object a
 //! row names is answered by nothing else.
+//!
+//! **By placed object.** A row's use may name one placed object instead of a template, so several
+//! objects of one template stand in an order of their own: the use fits only that object, and a
+//! use of another of its template is another object's. A row may also start over only for an
+//! object already used in the order: a use of one further on is told the row's wrong line and
+//! changes nothing, so the order may be found by trying.
 
 use std::collections::HashMap;
 
@@ -113,7 +119,11 @@ pub fn used<S: Store>(
         .item_rows
         .sequences
         .iter()
-        .filter(|q| q.uses.iter().any(|(t, _)| *t == template))
+        .filter(|q| {
+            q.uses.iter().enumerate().any(|(k, (t, _))| {
+                *t == template && q.objects.get(k).copied().flatten().is_none_or(|o| o == i)
+            })
+        })
         .cloned()
         .collect();
     let mut right = None;
@@ -129,11 +139,23 @@ pub fn used<S: Store>(
         if at == 0 && !crate::quests::given_again(&def, &held, clock.unix) {
             continue;
         }
-        let Some((next, wants)) = usize::try_from(at).ok().and_then(|n| q.uses.get(n)) else {
+        let Some(n) = usize::try_from(at).ok() else {
             continue;
         };
-        let fits = *next == template && wants.as_ref().is_none_or(|w| state.as_ref() == Some(w));
+        let Some((_, wants)) = q.uses.get(n) else {
+            continue;
+        };
+        // The use of this object at a place in the order: its own, or any of its template's.
+        let is = |k: usize| {
+            q.uses[k].0 == template && q.objects.get(k).copied().flatten().is_none_or(|o| o == i)
+        };
+        let fits = is(n) && wants.as_ref().is_none_or(|w| state.as_ref() == Some(w));
         wrong = wrong.or(q.wrong);
+        // An object further on, where only a used one starts the order over: told, nothing moved.
+        if !fits && !q.wrong_starts_over && !(0..n).any(is) {
+            continue;
+        }
+
         if fits {
             let up = if at == 0 {
                 Update::Bestow

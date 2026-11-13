@@ -8,6 +8,11 @@
 //! day). A world's players live in every timezone and its recorded sessions keep UTC, so one zone
 //! is named for all of them.
 //!
+//! **Game times** follow the world's own clock instead: a window of the game's hours runs each
+//! game day from one hour to another (the game's day split into 24 hours, into the next day when
+//! the end is not after the start), and a window of the game's day or night runs while the part of
+//! the game's day is not, or is, night by the world's calendar.
+//!
 //! A world with no events gates nothing: every camp, object and step is as it would be without
 //! this table.
 
@@ -26,6 +31,83 @@ pub enum Window {
     /// the day (UTC) to `until` seconds into it, or into the next day when `until` is not after
     /// `from`.
     Weekly { days: u8, from: u32, until: u32 },
+    /// Every game day, by the game's clock: from `from` to `until`, each in seconds of a 24-hour
+    /// clock of the game's day, into the next game day when `until` is not after `from`.
+    GameHours { from: u32, until: u32 },
+    /// While the part of the game's day is night (`night`), or is not.
+    GameDay { night: bool },
+}
+
+/// Where the game's day stands now, by the world's calendar: how far through the day (a share in
+/// `[0, 1)`), the day's length in seconds, and its parts (where each begins, as a share of the
+/// day, and whether it is night), in order.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GameNow<'a> {
+    pub through: f64,
+    pub day_length: f64,
+    pub parts: &'a [(f32, bool)],
+}
+
+impl GameNow<'_> {
+    /// When the window of the game's day from share `from` to share `until` (into the next day when
+    /// `until` is not after `from`) that holds now began and ends, in host seconds from `unix`, if
+    /// one does.
+    fn span(&self, unix: i64, from: f64, until: f64) -> Option<(i64, i64)> {
+        let length = (until - from).rem_euclid(1.0);
+        let length = if length == 0.0 { 1.0 } else { length };
+        let since = (self.through - from).rem_euclid(1.0);
+        if since >= length {
+            return None;
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        let began = unix - (since * self.day_length).round() as i64;
+        #[allow(clippy::cast_possible_truncation)]
+        let ends = began + (length * self.day_length).round() as i64;
+        Some((began, ends))
+    }
+
+    /// The part of the day now: its place in the list (the first until the second begins).
+    fn part(&self) -> Option<usize> {
+        if self.parts.is_empty() {
+            return None;
+        }
+        let mut u = 0;
+        while u + 1 < self.parts.len() && self.through >= f64::from(self.parts[u + 1].0) {
+            u += 1;
+        }
+        Some(u)
+    }
+
+    /// Where the part `i` begins, as a share of the day: the first part at the day's start.
+    fn begins(&self, i: usize) -> f64 {
+        if i == 0 {
+            0.0
+        } else {
+            f64::from(self.parts[i].0)
+        }
+    }
+
+    /// The run of parts about now that are night (`night`), or are not: when it began and ends.
+    fn run(&self, unix: i64, night: bool) -> Option<(i64, i64)> {
+        let now = self.part()?;
+        let n = self.parts.len();
+        if self.parts[now].1 != night {
+            return None;
+        }
+        if self.parts.iter().all(|p| p.1 == night) {
+            return self.span(unix, 0.0, 0.0);
+        }
+        // Back to the first of the run, and on to the first part past it.
+        let mut first = now;
+        while self.parts[(first + n - 1) % n].1 == night {
+            first = (first + n - 1) % n;
+        }
+        let mut past = (now + 1) % n;
+        while self.parts[past].1 == night {
+            past = (past + 1) % n;
+        }
+        self.span(unix, self.begins(first), self.begins(past))
+    }
 }
 
 impl Window {
@@ -49,7 +131,28 @@ impl Window {
                         .then_some((start, start + length))
                 })
             }
+            Self::GameHours { .. } | Self::GameDay { .. } => None,
         }
+    }
+
+    /// When the window of the game's clock that holds now began and ends, in host seconds from
+    /// `unix`, if one does; none for a window of the host's clock.
+    #[must_use]
+    pub fn holding_game(&self, unix: i64, now: &GameNow<'_>) -> Option<(i64, i64)> {
+        match *self {
+            Self::GameHours { from, until } => {
+                let day = 86_400.0;
+                now.span(unix, f64::from(from) / day, f64::from(until) / day)
+            }
+            Self::GameDay { night } => now.run(unix, night),
+            Self::Dated { .. } | Self::Weekly { .. } => None,
+        }
+    }
+
+    /// Does the window follow the game's clock?
+    #[must_use]
+    pub const fn by_the_game(&self) -> bool {
+        matches!(self, Self::GameHours { .. } | Self::GameDay { .. })
     }
 }
 
@@ -73,10 +176,16 @@ pub struct Event {
 }
 
 impl Event {
-    /// When the window it is on in at `unix` began and ends, if it is on.
+    /// When the window of the host's clock it is on in at `unix` began and ends, if it is on.
     #[must_use]
     pub fn running(&self, unix: i64) -> Option<(i64, i64)> {
         self.windows.iter().find_map(|w| w.holding(unix))
+    }
+
+    /// When the window of the game's clock it is on in now began and ends, if it is on.
+    #[must_use]
+    pub fn running_by_the_game(&self, unix: i64, now: &GameNow<'_>) -> Option<(i64, i64)> {
+        self.windows.iter().find_map(|w| w.holding_game(unix, now))
     }
 }
 

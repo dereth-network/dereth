@@ -121,7 +121,8 @@ pub struct StateChange {
 /// Uses in an order, judged against the used objects' states: each use of the next object, in the
 /// state it names, moves the row's quest on a phase (the first gives it), and the last takes the
 /// player where the row says; a use of another, or of the next in another state, takes the quest
-/// away from a player who has it under way, and the order starts over.
+/// away from a player who has it under way, and the order starts over (unless the row starts over
+/// only for an object already used). A use names a template, or one placed object of it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Sequence {
     /// The row's key.
@@ -130,6 +131,13 @@ pub struct Sequence {
     pub quest: u32,
     /// The uses in order: the template used and the state its object must be in (none: any).
     pub uses: Vec<(u32, Option<String>)>,
+    /// The placed object each use must be of, by its place in the world's list of placed objects,
+    /// where the row names one; none, or empty: any object of the use's template.
+    pub objects: Vec<Option<usize>>,
+    /// Whether a use of any object the row names other than the next starts the order over: else
+    /// only one of an object already used does, and a use of one further on is told the wrong
+    /// line and changes nothing.
+    pub wrong_starts_over: bool,
     /// What the object used says at a right use and at a wrong one: (string, table).
     pub right: Option<(u32, u32)>,
     pub wrong: Option<(u32, u32)>,

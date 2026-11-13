@@ -854,6 +854,7 @@ struct Play {
     files: yalain_world::download::InstallFiles,
     levels: yalain_world::levels::LevelTable,
     calendar: Option<auberean_world::calendar::GameClock>,
+    day_parts: Vec<(f32, bool)>,
     skills: yalain_world::skills::SkillTable,
     effects: yalain_world::effect_defs::EffectTable,
     item_effects: std::collections::HashMap<u32, Vec<yalain_world::profile::ItemEffect>>,
@@ -1074,6 +1075,7 @@ fn run<S: Store>(
     server.data = Some(Box::new(files));
     server.levels = play.levels;
     server.calendar = play.calendar;
+    server.day_parts = play.day_parts;
     server.skill_table = play.skills;
     server.effect_table = play.effects;
     server.item_effects = play.item_effects;
@@ -2160,7 +2162,12 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         let levels = data::level_table(portal)?;
         tracing::info!(levels = levels.levels.len(), "the level table read");
         let calendar = data::calendar(portal);
-        tracing::info!(read = calendar.is_some(), "the calendar");
+        let day_parts = data::day_parts(portal);
+        tracing::info!(
+            read = calendar.is_some(),
+            parts = day_parts.len(),
+            "the calendar"
+        );
         let vitae_costs = data::vitae_costs(portal)?;
         let item_effects = data::item_effects(portal, &catalog)?;
         // The effects the items' uses put on, read with the rest.
@@ -2310,6 +2317,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             walls,
             levels,
             calendar,
+            day_parts,
             skills,
             effects,
             item_effects,

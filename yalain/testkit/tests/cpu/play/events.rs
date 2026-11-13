@@ -373,3 +373,120 @@ fn objects_alike_at_one_place_each_wait_on_their_own_event() {
         .collect();
     assert_eq!(made_ids, vec![OBJECT], "only the fair's object is made");
 }
+
+/// A calendar of a 100-second day: night to a quarter of the day, two parts of day to three
+/// quarters, then night again.
+fn short_days(h: &mut Harness) {
+    use auberean_assets::region::{DayPart, GameTime};
+    let part = |begin, night| DayPart {
+        begin,
+        night,
+        name: 0,
+    };
+    let parts = vec![part(0.0, 1), part(0.25, 0), part(0.5, 0), part(0.75, 1)];
+    h.server.day_parts = parts.iter().map(|p| (p.begin, p.night != 0)).collect();
+    h.server.calendar = Some(auberean_world::calendar::GameClock::new(GameTime {
+        day_length: 100.0,
+        days_per_year: 360,
+        day_parts: parts,
+        ..GameTime::default()
+    }));
+}
+
+/// Is it day in the world now, by its calendar?
+fn day_now(h: &Harness) -> bool {
+    !h.server.is_night(h.server.game_now)
+}
+
+/// An event whose window is the game's day is on while the part of the game's day is not night, by
+/// the world's calendar and the game's clock, and off through the night: its object is made as day
+/// comes and forgotten as night falls, and its effect, put on as day comes, lasts to the day's end
+/// across both of its parts.
+/// Behaviour: server.events.windows-by-the-game
+#[test]
+fn an_events_window_of_the_games_day_holds_while_the_part_of_the_day_is_not_night() {
+    let (mut h, b, me) = world(vec![Window::GameDay { night: false }]);
+    short_days(&mut h);
+    // Into the night first.
+    while day_now(&h) {
+        h.step_by(1.0);
+    }
+    h.run(4);
+    assert!(
+        !yalain_world::events::is_on(&h.server, "fair"),
+        "off at night"
+    );
+    let from = h.bots[b].inbox.len();
+    while !day_now(&h) {
+        h.step_by(1.0);
+    }
+    h.run(4);
+    assert!(yalain_world::events::is_on(&h.server, "fair"), "on by day");
+    assert!(made(&h, b, from), "its object made as day comes");
+    let e = h.server.players[&world_of(&h, me)]
+        .play
+        .effects
+        .iter()
+        .find(|e| e.state == BOOST)
+        .copied()
+        .expect("its effect");
+    assert!(
+        (45.0..=51.0).contains(&e.timeout),
+        "to the end of both day parts, half a day: {}",
+        e.timeout
+    );
+    let from = h.bots[b].inbox.len();
+    while day_now(&h) {
+        h.step_by(1.0);
+    }
+    h.run(4);
+    assert!(
+        !yalain_world::events::is_on(&h.server, "fair"),
+        "off at nightfall"
+    );
+    assert!(forgotten(&h, b, from), "its object forgotten");
+}
+
+/// A window of the game's hours holds each game day from its start to its end (a 24-hour clock of
+/// the game's day), into the next day when the end is not after the start; a window of the game's
+/// night holds through the night's parts, across the day's turn. A world with no calendar keeps
+/// game windows shut.
+/// Behaviour: server.events.windows-by-the-game
+#[test]
+fn an_events_windows_of_the_games_hours_and_night_hold_by_the_games_day() {
+    use yalain_content::events::GameNow;
+    let parts = [(0.0, true), (0.25, false), (0.75, true)];
+    let at = |through: f64| GameNow {
+        through,
+        day_length: 1000.0,
+        parts: &parts,
+    };
+    let unix = 1_700_000_000;
+    let late = Window::GameHours {
+        from: 22 * 3600,
+        until: 2 * 3600,
+    };
+    // 23:00 of the game's day: begun a game hour ago (of 1000 s / 24), three hours left.
+    let (began, ends) = late.holding_game(unix, &at(23.0 / 24.0)).expect("on");
+    assert!((began - (unix - 42)).abs() <= 1 && (ends - (unix + 125)).abs() <= 1);
+    assert!(
+        late.holding_game(unix, &at(1.0 / 24.0)).is_some(),
+        "past midnight"
+    );
+    assert!(late.holding_game(unix, &at(0.5)).is_none(), "not at noon");
+    let night = Window::GameDay { night: true };
+    // Late in the evening: the night from three quarters to a quarter of the next day.
+    assert_eq!(
+        night.holding_game(unix, &at(0.9)),
+        Some((unix - 150, unix + 350))
+    );
+    assert_eq!(
+        night.holding_game(unix, &at(0.1)),
+        Some((unix - 350, unix + 150))
+    );
+    assert_eq!(night.holding_game(unix, &at(0.5)), None, "day");
+    assert_eq!(late.holding(unix), None, "no window of the host's clock");
+    // No calendar: shut.
+    let (h, _, _) = world(vec![Window::GameDay { night: false }]);
+    assert!(!yalain_world::events::is_on(&h.server, "fair"));
+}

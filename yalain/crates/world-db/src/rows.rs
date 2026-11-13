@@ -1204,6 +1204,8 @@ pub struct ObjectStatesRow {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SequenceRow {
     pub sequence: yalain_content::item_rows::Sequence,
+    /// The placed object each use names (`key@XXYY`), where it names one in place of a template.
+    pub objects: Vec<Option<String>>,
     pub to: Option<String>,
     pub prov: Prov,
 }
@@ -1959,7 +1961,16 @@ pub const FIELDS: [(&str, &[&str]); 63] = [
     ),
     (
         "sequence",
-        &["key", "quest", "uses", "right", "wrong", "to", "prov"],
+        &[
+            "key",
+            "quest",
+            "uses",
+            "wrong_starts_over",
+            "right",
+            "wrong",
+            "to",
+            "prov",
+        ],
     ),
     (
         "lever",
@@ -3034,18 +3045,31 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             let quest = f.req_id("quest")?;
             let uses = f.list_of(
                 "uses",
-                "a list of { use, state }: the template used and the state its object must be in (any when left out)",
-                &["use", "state"],
+                "a list of { use, state } or { object, state }: the template used, or the placed object (key@XXYY), and the state its object must be in (any when left out)",
+                &["use", "object", "state"],
                 |t| {
                     let state = match t.get("state") {
                         Some(v) => Some(v.as_str().filter(|s| is_symbol(s))?.to_string()),
                         None => None,
                     };
-                    Some((as_u32(t.get("use")?)?, state))
+                    match (t.get("use"), t.get("object")) {
+                        (Some(u), None) => Some((as_u32(u)?, None, state)),
+                        (None, Some(o)) => {
+                            let o = o.as_str().filter(|o| is_reference(o))?.to_string();
+                            Some((0, Some(o), state))
+                        }
+                        _ => None,
+                    }
                 },
             );
             let ok = !uses.is_empty();
             let uses = f.held("uses", uses, ok, "at least one")?;
+            let objects: Vec<Option<String>> = uses.iter().map(|u| u.1.clone()).collect();
+            let uses = uses.into_iter().map(|(t, _, st)| (t, st)).collect();
+            let wrong_starts_over = match f.t.get("wrong_starts_over") {
+                Some(_) => f.bool("wrong_starts_over")?,
+                None => true,
+            };
             let right = f.strref("right").map(|r| (r.string, r.table));
             let wrong = f.strref("wrong").map(|r| (r.string, r.table));
             let to = f.symbol("to");
@@ -3054,10 +3078,13 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                     key,
                     quest,
                     uses,
+                    objects: Vec::new(),
+                    wrong_starts_over,
                     right,
                     wrong,
                     to: None,
                 },
+                objects,
                 to,
                 prov: f.req_prov()?,
             })
@@ -5217,9 +5244,29 @@ impl<'a> Fields<'a> {
         let empty = v.as_array().is_some_and(Vec::is_empty);
         let w = self.list_of(
             name,
-            "a list of { from, until } (UTC: \"2026-12-24T09:00Z\", the end after the start) or { days, from, until } (days \"mon\" to \"sun\", UTC times of day \"HH:MM\")",
-            &["days", "from", "until"],
+            "a list of { from, until } (UTC: \"2026-12-24T09:00Z\", the end after the start), { days, from, until } (days \"mon\" to \"sun\", UTC times of day \"HH:MM\"), { game = \"hours\", from, until } (the game's hours \"HH:MM\") or { game = \"day\" } or { game = \"night\" }",
+            &["days", "from", "until", "game"],
             |t| {
+                match t.get("game").map(toml::Value::as_str) {
+                    None => {}
+                    Some(Some(day @ ("day" | "night"))) => {
+                        let alone = t.len() == 1;
+                        return alone.then_some(Window::GameDay {
+                            night: day == "night",
+                        });
+                    }
+                    Some(Some("hours")) => {
+                        let (from, until) = (t.get("from")?.as_str()?, t.get("until")?.as_str()?);
+                        if t.contains_key("days") {
+                            return None;
+                        }
+                        return Some(Window::GameHours {
+                            from: time_of_day(from)?,
+                            until: time_of_day(until)?,
+                        });
+                    }
+                    Some(_) => return None,
+                }
                 let (from, until) = (t.get("from")?.as_str()?, t.get("until")?.as_str()?);
                 match t.get("days") {
                     None => {

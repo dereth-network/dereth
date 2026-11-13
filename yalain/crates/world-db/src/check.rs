@@ -611,6 +611,11 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                     }
                 }
             }
+            Row::Sequence(r) => {
+                for name in r.objects.iter().flatten() {
+                    check_placed("uses", name, l, &objects, &mut |m| problems.push(at(m)));
+                }
+            }
             Row::Offering(r) => {
                 let shows = r.takes.iter().filter_map(|(_, s)| s.as_ref());
                 let named = std::iter::once(("object", &r.object))

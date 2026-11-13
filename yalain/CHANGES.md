@@ -6,6 +6,8 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Worlds can now have events that follow the game's day, night and hours.
+- Worlds can now ask for several alike objects to be used in an order.
 - Worlds can now have a creature's death open a portal for a while.
 - Worlds can now have plants grown in a garden with care items of their own.
 - Worlds can now have a device you must defend from attackers until it opens the way.
