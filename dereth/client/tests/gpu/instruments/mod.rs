@@ -24,4 +24,5 @@ mod smooth_animation_frames;
 mod smooth_movement_frames;
 pub(crate) mod stations;
 mod still_frames;
+pub(crate) mod sway_shadow_frames;
 mod turn_pop_frames;

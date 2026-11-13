@@ -9,7 +9,9 @@
 //!   in whole steps, so it moves only when the view moves it by a texel. The blocks' parts and
 //!   ground are drawn into a cache once, and again only when the cascade moves, the sun moves,
 //!   the frame's origin moves or what is resident changes. Each frame the cache is copied into
-//!   the cascade's map and the objects drawn over it.
+//!   the cascade's map and the objects drawn over it. While the wind sways an art pack's models
+//!   by more than a cascade's texel, that cascade is drawn again every frame, so their shadows
+//!   sway with them rather than stand where they stood when the cache was drawn.
 //! - **The sun's share.** Each pixel lit by the sun (the ground and what stands in the sun) is
 //!   looked up in the first cascade that covers it, offset along its normal by a texel and
 //!   compared against the casters with a 4 x 4 tent filter, blended into the next cascade over
@@ -101,6 +103,18 @@ pub struct ShadowStats {
     pub last_dynamic_items: u32,
     /// The bytes the last frame's shadows wrote to the device.
     pub last_bytes: u64,
+}
+
+/// How strongly the wind blows that an art pack's models sway in, meters a second, from the
+/// frame's constants `rows`: 0 where the sway is off and the wind is stilled.
+fn wind_strength(rows: &[u8]) -> f32 {
+    let at = super::light::FRAME_WIND * 16;
+    let f = |k: usize| {
+        rows.get(at + k * 4..at + k * 4 + 4)
+            .and_then(|b| b.try_into().ok())
+            .map_or(0.0, f32::from_le_bytes)
+    };
+    dereth_primitives::num::math::hypotf(f(0), f(1))
 }
 
 /// What places one cascade: when this is the same, the cascade's cached casters are the same.
@@ -317,6 +331,9 @@ pub struct ShadowPass {
     /// a cascade, for every cascade.
     spheres: Vec<(Vec3, f32, bool)>,
     block_boxes: Vec<(Vec3, Vec3)>,
+    /// How far the wind bends the most-bent vertex of any resident model, meters at a wind of a
+    /// meter a second, and the meshes' generation it was found at.
+    bend: (Option<u64>, f32),
     pub stats: ShadowStats,
 }
 
@@ -456,6 +473,7 @@ impl ShadowPass {
             written: BTreeMap::new(),
             spheres: Vec::new(),
             block_boxes: Vec::new(),
+            bend: (None, 0.0),
             stats: ShadowStats::default(),
         })
     }
@@ -586,6 +604,17 @@ impl ShadowPass {
         self.maps(d)?;
         let (visibility, visibility_index) = self.visibility(d, area.0, area.1)?;
         let cascades = cascades(camera, sun, self.size);
+        // How far the wind moves the models it sways this frame: a cascade whose texels are
+        // smaller is drawn again every frame.
+        if self.bend.0 != Some(scene.mesh_generation) {
+            let most = scene
+                .meshes
+                .values()
+                .fold(0.0f32, |most, m| most.max(m.sway));
+            self.bend = (Some(scene.mesh_generation), most);
+        }
+        let swayed = self.bend.1 * wind_strength(frame_rows);
+        let swaying = |c: &Cascade| swayed > c.texel;
         let origin = frame.origin;
         let resident = scene.static_generation;
         let drawn_mode = self.settings.casters == Casters::InView;
@@ -654,6 +683,7 @@ impl ShadowPass {
         // block's: a cascade its box misses has none of the block's parts.
         let redraws = cascades.iter().enumerate().any(|(c, cascade)| {
             drawn_mode
+                || swaying(cascade)
                 || self.keys[c]
                     != Some(CacheKey {
                         cascade: cascade.key,
@@ -692,7 +722,7 @@ impl ShadowPass {
                 resident,
                 origin,
             };
-            let redraw = drawn_mode || self.keys[c] != Some(key);
+            let redraw = drawn_mode || swaying(cascade) || self.keys[c] != Some(key);
             if redraw {
                 redraw_bits |= 1 << c;
             }
@@ -1075,6 +1105,28 @@ mod tests {
     }
 
     const SUN: Vec3 = Vec3::new(0.3, -0.4, 0.866);
+
+    /// The wind the trees sway in is read from the frame's constants as they are written: its
+    /// strength, and none once the sway is off and the wind stilled.
+    #[test]
+    fn the_wind_the_trees_sway_in_is_read_from_the_frames_constants() {
+        let f = crate::scene::FrameDelta {
+            clock: 1234.5,
+            ..crate::scene::FrameDelta::default()
+        };
+        let rows = super::super::light::frame_rows(
+            &f,
+            0.0,
+            super::super::light::LightMode::Vertex,
+            (640, 480),
+        );
+        let w = super::super::light::wind_row(&f);
+        let blowing = wind_strength(&rows.bytes());
+        assert!((blowing - math::hypotf(w[0], w[1])).abs() < 1e-6 && blowing > 0.0);
+        let still = super::super::light::swaying(rows, false).bytes();
+        assert_eq!(wind_strength(&still), 0.0);
+        assert_eq!(wind_strength(&[]), 0.0, "no constants: no wind");
+    }
 
     /// A cascade holds still, and so does its cache, while the view moves less than one of its
     /// texels; it moves when the view crosses one.

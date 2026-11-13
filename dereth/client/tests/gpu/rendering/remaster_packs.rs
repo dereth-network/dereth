@@ -74,7 +74,7 @@ fn png(w: u32, h: u32, rgba: &[u8]) -> Vec<u8> {
 
 /// The leaf: a green disk, its texels kept, in a magenta key the cut leaves out; few texels, so
 /// a card near the eye is drawn from the picture magnified, each texel blended with the next.
-fn leaf() -> Vec<u8> {
+pub(crate) fn leaf() -> Vec<u8> {
     let side = 16u32;
     let mut rgba = Vec::new();
     for y in 0..side {
@@ -93,7 +93,7 @@ fn leaf() -> Vec<u8> {
 
 /// An upright card `width` across and `height` high, as glTF (its height on the second axis),
 /// cut at half its picture's alpha and drawn from both sides.
-fn card(width: f32, height: f32) -> (String, Vec<u8>) {
+pub(crate) fn card(width: f32, height: f32) -> (String, Vec<u8>) {
     let hw = width / 2.0;
     quad(
         [
@@ -219,7 +219,7 @@ fn level_leaves(trees: &[&str], height: f32) -> HashMap<String, Vec<u8>> {
 }
 
 /// The pack of `files`, opened from memory.
-fn in_memory(files: &HashMap<String, Vec<u8>>) -> Arc<ArtPack> {
+pub(crate) fn in_memory(files: &HashMap<String, Vec<u8>>) -> Arc<ArtPack> {
     let manifest = String::from_utf8(files["manifest.toml"].clone()).expect("text");
     Arc::new(
         ArtPack::open(&manifest, &mut |path| {
@@ -2833,4 +2833,39 @@ fn the_rain_never_hazes_the_trees() {
         added < LEAF_VEIL,
         "the rain hazed the trees: {added:+.2} levels laid over the leaves"
     );
+}
+
+/// **A swaying pack tree's shadow sways with it**: over the forest, with the pack's trees
+/// swaying and the clock running two seconds, the shadows' nearest cascade is drawn again every
+/// frame, and the sun's share at the last frame is the one every cascade drawn afresh at that
+/// moment gives: no pixel differs by more than a quarter. With the sway off it is the same.
+#[test]
+fn a_swaying_pack_trees_shadow_sways_with_it() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let st = station(&store, "forest");
+    let pack = in_memory(&files(None));
+    let boxes = "Remaster=1,RemasterShadows=1,RemasterArtPack=1";
+    for sway in [true, false] {
+        let r = crate::instruments::sway_shadow_frames::run(
+            &store,
+            (&st, None),
+            &pack,
+            boxes,
+            sway,
+            ((W, H), 60),
+        );
+        eprintln!(
+            "sway {sway}: cascades drawn again {:?}, stale {:.5}",
+            r.redrawn, r.stale
+        );
+        if sway {
+            assert!(
+                r.redrawn.iter().all(|n| *n >= 1),
+                "the nearest cascade is drawn again every frame: {:?}",
+                r.redrawn
+            );
+        }
+        assert!(r.stale == 0.0, "sway {sway}: stale {}", r.stale);
+    }
 }
