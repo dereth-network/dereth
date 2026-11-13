@@ -82,6 +82,22 @@ pub(crate) enum Pending {
     },
 }
 
+impl Pending {
+    /// Whether it writes `b`, or reads it to write another.
+    fn writes_buffer(&self, b: Buffer) -> bool {
+        match self {
+            Self::Buffer { dst, .. } => *dst == b,
+            Self::Device { src, dst, .. } => *src == b || *dst == b,
+            Self::Texture { .. } => false,
+        }
+    }
+
+    /// Whether it writes `t`.
+    fn writes_texture(&self, t: Texture) -> bool {
+        matches!(self, Self::Texture { dst, .. } if *dst == t)
+    }
+}
+
 /// The smallest staging arena.
 const ARENA_BYTES: u64 = 8 << 20;
 
@@ -205,6 +221,9 @@ impl Device {
 
     /// Destroy a buffer once the work recorded so far is done with it.
     pub fn destroy_buffer(&mut self, b: Buffer) {
+        // A write staged for it is dropped: its slot may hold another buffer by the time the
+        // writes are recorded.
+        self.pending.retain(|p| !p.writes_buffer(b));
         if let Some(e) = self.buffers.remove(b.0) {
             if let Some(i) = e.bindless {
                 self.defer(Garbage::BufferIndex(i));
@@ -519,6 +538,7 @@ impl Device {
     /// forgotten, at once: its owner keeps it alive for the work, and may need every reference to
     /// it gone before its next call (a swap chain's buffers, before they are resized).
     pub fn destroy_texture(&mut self, t: Texture) {
+        self.pending.retain(|p| !p.writes_texture(t));
         if let Some(e) = self.textures.remove(t.0) {
             if let Some(i) = e.bindless {
                 self.defer(Garbage::TextureIndex(i));

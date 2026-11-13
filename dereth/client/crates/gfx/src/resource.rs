@@ -254,6 +254,9 @@ impl Device {
 
     /// Destroy a buffer once the work recorded so far is done with it.
     pub fn destroy_buffer(&mut self, b: Buffer) {
+        // A write staged for it is dropped: its slot may hold another buffer by the time the
+        // writes are recorded.
+        self.pending.retain(|p| !p.writes_buffer(b));
         if let Some(e) = self.buffers.remove(b.0) {
             if let Some(i) = e.bindless {
                 self.defer(Garbage::BufferIndex(i));
@@ -583,6 +586,7 @@ impl Device {
     /// Destroy a texture once the work recorded so far is done with it. A lent image is only
     /// forgotten.
     pub fn destroy_texture(&mut self, t: Texture) {
+        self.pending.retain(|p| !p.writes_texture(t));
         if let Some(e) = self.textures.remove(t.0) {
             if let Some(i) = e.bindless {
                 self.defer(Garbage::TextureIndex(i));

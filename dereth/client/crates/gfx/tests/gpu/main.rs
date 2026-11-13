@@ -15,6 +15,7 @@ mod bindless;
 mod compute;
 mod draw;
 mod rt;
+mod upload;
 
 use dereth_gfx::{Backend, Device, DeviceDesc};
 

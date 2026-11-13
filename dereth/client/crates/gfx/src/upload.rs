@@ -28,6 +28,22 @@ pub(crate) enum PendingCopy {
     Device { src: Buffer, dst: Buffer, size: u64 },
 }
 
+impl PendingCopy {
+    /// Whether it writes `b`, or reads it to write another.
+    pub(crate) fn writes_buffer(&self, b: Buffer) -> bool {
+        match *self {
+            Self::Buffer { dst, .. } => dst == b,
+            Self::Device { src, dst, .. } => src == b || dst == b,
+            Self::Texture { .. } => false,
+        }
+    }
+
+    /// Whether it writes `t`.
+    pub(crate) fn writes_texture(&self, t: Texture) -> bool {
+        matches!(*self, Self::Texture { dst, .. } if dst == t)
+    }
+}
+
 impl Device {
     /// Record every staged copy into `cmd`, at the head of the recording that retires at `at`,
     /// and leave what they
