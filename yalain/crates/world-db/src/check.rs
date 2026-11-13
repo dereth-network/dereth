@@ -625,6 +625,11 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                     check_placed(field, name, l, &objects, &mut |m| problems.push(at(m)));
                 }
             }
+            Row::Shifting(r) => {
+                for name in &r.objects {
+                    check_placed("objects", name, l, &objects, &mut |m| problems.push(at(m)));
+                }
+            }
             Row::Guarded(r) => {
                 for name in &r.objects {
                     check_placed("objects", name, l, &objects, &mut |m| problems.push(at(m)));

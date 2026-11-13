@@ -1925,7 +1925,8 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             | Row::DeathTreasure(_)
             | Row::Lever(_)
             | Row::Offering(_)
-            | Row::Guarded(_) => {}
+            | Row::Guarded(_)
+            | Row::Shifting(_) => {}
         }
     }
     for (l, scene) in door_scenes {
@@ -2173,6 +2174,29 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     hidden: r.hidden,
                     gone_for: r.gone_for,
                 });
+            }
+            Row::Shifting(r) => {
+                let Some(objects) = placed_objects(&mut cx, &objects_at, l, "objects", &r.objects)
+                else {
+                    continue;
+                };
+                if let Some(o) = objects
+                    .iter()
+                    .find(|o| t.content.shifting.of_object(**o).is_some())
+                {
+                    let name = &r.objects[objects.iter().position(|x| x == o).unwrap_or(0)];
+                    cx.problem(l, format!("objects: {name} shifts in another row"));
+                    continue;
+                }
+                t.content
+                    .shifting
+                    .rows
+                    .push(yalain_content::shifting::Shifting {
+                        key: r.key.clone(),
+                        objects,
+                        gone_for: r.gone_for,
+                        moves_after: r.moves_after,
+                    });
             }
             _ => {}
         }

@@ -161,6 +161,7 @@ pub mod table {
     pub const LEVERS: &str = "levers";
     pub const OFFERINGS: &str = "offerings";
     pub const GUARDED: &str = "guarded objects";
+    pub const SHIFTING: &str = "shifting objects";
     pub const DEFENSES: &str = "defended devices";
     pub const ESCORTS: &str = "escorts";
     pub const KINGDOMS: &str = "kingdom rows";
@@ -291,6 +292,13 @@ impl<S: Store> Server<S> {
         if changed {
             self.content.guards = std::mem::take(&mut t.content.guards);
             self.guards = crate::guards::Guards::default();
+        }
+        // The shifting objects: what stood is forgotten, and each row stands one again.
+        let changed = t.content.shifting != self.content.shifting;
+        r.note(table::SHIFTING, changed, true);
+        if changed {
+            crate::shifting::forget_all(self, net);
+            self.content.shifting = std::mem::take(&mut t.content.shifting);
         }
         // The defended devices: those standing go on as their rows now say, by their place.
         let changed = t.content.defenses != self.content.defenses;

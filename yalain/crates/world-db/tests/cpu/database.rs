@@ -5247,11 +5247,11 @@ fn hero_requirements_compile_beside_their_steps_and_gives() {
             "town/server/gives/470033D0.toml".into(),
             format!(
                 "[[give]]\n\
-         key = \"medal\"\n\
-         to = 0x470033D0\n\
-         item = 0x470020BB\n\
-         {bad}\n\
-         prov = {{ from = \"authored\" }}\n"
+                 key = \"medal\"\n\
+                 to = 0x470033D0\n\
+                 item = 0x470020BB\n\
+                 {bad}\n\
+                 prov = {{ from = \"authored\" }}\n"
             ),
         );
         let problems = check(&f);
@@ -7408,6 +7408,77 @@ fn a_guarded_row_names_its_camp_and_objects_by_placement_and_compiles_to_the_gua
             check(&bad)
         );
     }
+}
+
+#[test]
+fn a_shifting_row_names_its_objects_by_placement_and_compiles_to_the_shift_table() {
+    let mut files = with_lever(fixture());
+    files.insert(
+        "town/server/puzzles.toml".into(),
+        "[[shifting]]\n\
+         key = \"remains\"\n\
+         objects = [\"lever@77B7\", \"gate@77B7\"]\n\
+         gone_for = 30\n\
+         moves_after = 600\n\
+         prov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let gate = placed_at(&t, 0x4077_B700_0000_0001);
+    assert_eq!(
+        t.content.shifting.rows,
+        vec![yalain_content::shifting::Shifting {
+            key: "remains".into(),
+            objects: vec![placed_at(&t, 0x4077_B700_0000_0003), gate],
+            gone_for: Some(30.0),
+            moves_after: Some(600.0),
+        }]
+    );
+
+    for (from, to, says) in [
+        (
+            "\"gate@77B7\"]",
+            "\"nowhere@77B7\"]",
+            "objects: no object nowhere@77B7",
+        ),
+        (
+            "objects = [\"lever@77B7\", \"gate@77B7\"]",
+            "objects = [\"lever@77B7\"]",
+            "objects: at least two",
+        ),
+        ("gone_for = 30", "gone_for = 0", "gone_for: above 0"),
+        (
+            "moves_after = 600",
+            "moves_after = -1",
+            "moves_after: above 0",
+        ),
+    ] {
+        let mut bad = files.clone();
+        edit(&mut bad, "town/server/puzzles.toml", from, to);
+        assert!(
+            check(&bad).iter().any(|p| p.to_string().contains(says)),
+            "{to}: {:?}",
+            check(&bad)
+        );
+    }
+    // An object in two rows is a problem of the compile.
+    let mut twice = files.clone();
+    twice.get_mut("town/server/puzzles.toml").unwrap().push_str(
+        "\n\
+         [[shifting]]\n\
+         key = \"again\"\n\
+         objects = [\"gate@77B7\", \"lever@77B7\"]\n\
+         prov = { from = \"authored\" }\n",
+    );
+    let problems =
+        compile(&merge(&read(&twice).unwrap()).unwrap(), &Fake::new()).expect_err("refused");
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.to_string().contains("shifts in another row")),
+        "{problems:?}"
+    );
 }
 
 #[test]

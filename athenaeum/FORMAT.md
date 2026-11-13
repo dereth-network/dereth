@@ -54,7 +54,7 @@ world.lock                         ids given to authored rows, kept across build
 <pack>/server/treasure_potions.toml [[treasure_potion]]
 <pack>/server/treasure_families.toml [[treasure_family]]
 <pack>/server/items.toml           [[item_use]], [[book]], [[start_item]], [[interaction]]
-<pack>/server/puzzles.toml         [[object_states]], [[sequence]], [[lever]], [[offering]], [[guarded]]
+<pack>/server/puzzles.toml         [[object_states]], [[sequence]], [[lever]], [[offering]], [[guarded]], [[shifting]]
 <pack>/server/creatures.toml       [[concealing]], [[npc_table]], [[friend_table]], [[creature]], [[defense]]
 ```
 
@@ -125,7 +125,7 @@ Every row sets one **item**, named by its key:
 | item | key |
 |---|---|
 | `object KEY@XXYY`, `camp KEY@XXYY`, `clearing KEY@XXYY` | the row's `key`, unique within its landblock in its pack |
-| `place KEY`, `talk KEY`, `give KEY`, `route KEY`, `event KEY`, `tally KEY`, `death_treasure KEY`, `object_states KEY`, `sequence KEY`, `lever KEY`, `offering KEY`, `guarded KEY` | the row's `key` |
+| `place KEY`, `talk KEY`, `give KEY`, `route KEY`, `event KEY`, `tally KEY`, `death_treasure KEY`, `object_states KEY`, `sequence KEY`, `lever KEY`, `offering KEY`, `guarded KEY`, `shifting KEY` | the row's `key` |
 | `loot 0xVALUE` | the death-loot profile's value |
 | `keeper 0xTEMPLATE` | the storekeeper template |
 | `store KEY` | the shop's `key`, unique in the world |
@@ -1271,6 +1271,24 @@ restart.
 | `refused` | | what an object says to a use it refuses, `{ table, string }`; nothing when left out |
 | `hidden` | | true: the objects stand in the world only while every creature of the camp is dead |
 | `gone_for` | | seconds above 0 a use carried out takes an object from the world for |
+| `prov` | required | where it came from |
+
+#### `[[shifting]]`
+
+Placed objects of which one stands at a time, moving to another of their places after each use:
+remains that crumble once searched and lie somewhere else next time. As the world starts one of
+them, picked at random, stands; the others are kept from the world. A use of the one standing that
+is carried out (for an object a quest step makes a person, a use whose step ran) takes it from the
+world for everyone, and another of them, never the same, stands in its place: at once, or
+`gone_for` seconds later. A row naming `moves_after` also moves one on that has stood that long
+unused. What stood is not kept across a restart.
+
+| field | | meaning |
+|---|---|---|
+| `key` | required | lowercase letters, digits and hyphens |
+| `objects` | required | the placed objects, at least two, each `key@XXYY` or `pack:key@XXYY`, none in another `[[shifting]]` row |
+| `gone_for` | | seconds above 0 none stands after a use; the next stands at once when left out |
+| `moves_after` | | seconds above 0 one stands unused before it moves on; until it is used when left out |
 | `prov` | required | where it came from |
 
 #### `[[worn]]`

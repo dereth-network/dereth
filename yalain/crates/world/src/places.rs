@@ -1726,8 +1726,17 @@ fn carry_out<S: Store>(
         crate::guards::refused(s, net, world, &u, i);
         return;
     }
+    // One a shifting row keeps from the world does nothing; the one it stands moves on once used
+    // (a person once its step has run).
+    if crate::shifting::refused(s, net, world, &u, i) {
+        return;
+    }
+    let person = talks_to(s, &o);
     carried_out(s, net, world, u, i, o, clock);
     crate::guards::used(s, net, i, clock);
+    if !person {
+        crate::shifting::used(s, net, i, clock);
+    }
 }
 
 /// What a use of a placed object does, the player in reach and the use allowed.
@@ -1784,7 +1793,9 @@ fn carried_out<S: Store>(
             );
             return;
         }
-        crate::store::talk(s, net, world, u.item, &o, clock);
+        if crate::store::talk(s, net, world, u.item, &o, clock) {
+            crate::shifting::used(s, net, i, clock);
+        }
         return;
     }
     // A portal walked into that its quest keeps the player out of refuses as a use does (2017: 19

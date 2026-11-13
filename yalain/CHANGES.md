@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Worlds can now have an object that turns up somewhere else each time it's used.
 - Worlds can now have quest steps and hand-ins for heroes alone.
 - Fixed portals a quest makes letting in players of the wrong kingdom.
 - Worlds can now have events that follow the game's day, night and hours.

@@ -88,7 +88,7 @@ pub fn stock_id(sale: &Sale) -> u64 {
 }
 
 /// A player has used a person (in reach, the use answered): the quest step it triggers, else its
-/// store.
+/// store. Returns whether a quest step ran.
 pub fn talk<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -96,10 +96,10 @@ pub fn talk<S: Store>(
     id: u64,
     o: &ContentObject,
     clock: Clock,
-) {
+) -> bool {
     if crate::puzzles::judges(s, o.template) {
         crate::puzzles::used(s, net, world, id, clock);
-        return;
+        return false;
     }
     let name = o.description.name.or(o.facts.name);
     if crate::quests::triggered(
@@ -110,7 +110,7 @@ pub fn talk<S: Store>(
         Some((id, name)),
         clock,
     ) {
-        return;
+        return true;
     }
     let object = crate::presence::content_by_id(&s.content.objects, id);
     if let Some(quest) = crate::quests::too_low(s, world, Trigger::Use(o.template), clock.unix) {
@@ -129,7 +129,7 @@ pub fn talk<S: Store>(
                 |i| crate::talk::content_speaker(s, i),
             );
             crate::talk::say(s, net, world, &speaker, &line.words, line.how);
-            return;
+            return false;
         }
     }
     if crate::quests::too_soon(s, world, Trigger::Use(o.template), clock.unix) {
@@ -148,7 +148,7 @@ pub fn talk<S: Store>(
                 |i| crate::talk::content_speaker(s, i),
             );
             crate::talk::say(s, net, world, &speaker, &line.words, line.how);
-            return;
+            return false;
         }
     }
     let keeper = s.stores.keeper(o.template).cloned();
@@ -176,7 +176,7 @@ pub fn talk<S: Store>(
         crate::talk::say(s, net, world, &speaker, &line.words, line.how);
     }
     let Some(k) = keeper else {
-        return;
+        return false;
     };
     let view = page(s, world, id, k.store, 0, function::ENTER_STORE);
     progress::private(net, world, &view);
@@ -184,6 +184,7 @@ pub fn talk<S: Store>(
         p.shopping = Some((id, k.store, 0));
     }
     crate::market::follow(s, world, id, clock);
+    false
 }
 
 /// A list of references.

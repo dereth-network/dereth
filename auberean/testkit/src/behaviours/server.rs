@@ -11610,6 +11610,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.an-object-turns-up-elsewhere-once-used",
+        says: "Of the placed objects a world's row names one stands at a time, the others kept \
+               from the world; a use of it that is carried out (a person's: its step ran) takes it \
+               from the world and another, never the same, stands at once or after the row's time; \
+               one left unused the row's time moves on too.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SHIFTING-OBJECTS"),
+        station: "yalain-testkit::cpu::play::shifting_objects::one_of_a_shifting_rows_objects_stands_and_a_use_that_runs_its_step_moves_it_elsewhere",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.an-object-works-only-while-its-guards-are-dead",
         says: "A placed object a world's row ties to a camp is refused, once the player has come \
                to it, while a creature of the camp lives: it says the row's line and no quest step \

@@ -718,6 +718,7 @@ pub enum Row {
     Lever(LeverRow),
     Offering(OfferingRow),
     Guarded(GuardedRow),
+    Shifting(ShiftingRow),
     MapRecipes(MapRecipes),
     Spellbinding(Spellbinding),
     Refining(Refining),
@@ -1265,6 +1266,18 @@ pub struct GuardedRow {
     pub prov: Prov,
 }
 
+/// `[[shifting]]`: placed objects of which one stands at a time, moving to another after each use:
+/// the objects (`key@XXYY`, or `pack:key@XXYY`), how long none stands after a use, and how long one
+/// stands unused before it moves on.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShiftingRow {
+    pub key: String,
+    pub objects: Vec<String>,
+    pub gone_for: Option<f64>,
+    pub moves_after: Option<f64>,
+    pub prov: Prov,
+}
+
 /// `[[tool]]`: what a gathering tool yields when it was not made (a made one's yield is its own).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tool {
@@ -1381,6 +1394,7 @@ impl Row {
             Self::Lever(_) => "lever",
             Self::Offering(_) => "offering",
             Self::Guarded(_) => "guarded",
+            Self::Shifting(_) => "shifting",
             Self::MapRecipes(_) => "map_recipes",
             Self::Spellbinding(_) => "spellbinding",
             Self::Refining(_) => "refining",
@@ -1450,6 +1464,7 @@ impl Row {
             Self::Lever(r) => Some(&r.prov),
             Self::Offering(r) => Some(&r.prov),
             Self::Guarded(r) => Some(&r.prov),
+            Self::Shifting(r) => Some(&r.prov),
             Self::MapRecipes(r) => Some(&r.prov),
             Self::Spellbinding(r) => Some(&r.prov),
             Self::Refining(r) => Some(&r.prov),
@@ -1469,7 +1484,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 63] = [
+pub const KINDS: [&str; 64] = [
     "object",
     "camp",
     "loot",
@@ -1520,6 +1535,7 @@ pub const KINDS: [&str; 63] = [
     "lever",
     "offering",
     "guarded",
+    "shifting",
     "map_recipes",
     "spellbinding",
     "refining",
@@ -1536,7 +1552,7 @@ pub const KINDS: [&str; 63] = [
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 63] = [
+pub const FIELDS: [(&str, &[&str]); 64] = [
     (
         "object",
         &[
@@ -1990,6 +2006,10 @@ pub const FIELDS: [(&str, &[&str]); 63] = [
         &[
             "key", "camp", "objects", "refused", "hidden", "gone_for", "prov",
         ],
+    ),
+    (
+        "shifting",
+        &["key", "objects", "gone_for", "moves_after", "prov"],
     ),
     (
         "map_recipes",
@@ -3178,6 +3198,25 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 refused,
                 hidden,
                 gone_for,
+                prov: f.req_prov()?,
+            })
+        }
+        "shifting" => {
+            let key = f.req_symbol("key")?;
+            let objects = f.req_references("objects")?;
+            let ok = objects.len() >= 2;
+            let objects = f.held("objects", objects, ok, "at least two")?;
+            let gone_for = f.float("gone_for");
+            let ok = gone_for.is_none_or(|t| t > 0.0);
+            let gone_for = f.held("gone_for", gone_for, ok, "above 0")?;
+            let moves_after = f.float("moves_after");
+            let ok = moves_after.is_none_or(|t| t > 0.0);
+            let moves_after = f.held("moves_after", moves_after, ok, "above 0")?;
+            Row::Shifting(ShiftingRow {
+                key,
+                objects,
+                gone_for,
+                moves_after,
                 prov: f.req_prov()?,
             })
         }

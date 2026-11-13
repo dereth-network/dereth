@@ -92,6 +92,7 @@ mod resting;
 mod resurrections;
 mod rules;
 mod sequences;
+mod shifting_objects;
 mod skill_grants;
 mod skill_resets;
 mod skills;

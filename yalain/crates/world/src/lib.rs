@@ -153,6 +153,7 @@ pub mod rules;
 pub mod saves;
 pub mod scenes;
 pub mod session;
+pub mod shifting;
 pub mod shutdown;
 pub mod skill_use;
 pub mod skills;
@@ -437,6 +438,8 @@ pub struct Server<S: Store> {
     pub levers: usable::levers::Levers,
     /// The guarded objects' rows as the world keeps them.
     pub guards: guards::Guards,
+    /// The shifting objects' rows as the world keeps them.
+    pub shifts: shifting::Shifts,
     /// The defended devices standing, and what each keeps about it.
     pub defenses: defenses::Defenses,
     pub crafting: craft::Crafting,
@@ -880,6 +883,7 @@ impl<S: Store> Server<S> {
             offerings: offerings::Offerings::default(),
             levers: usable::levers::Levers::default(),
             guards: guards::Guards::default(),
+            shifts: shifting::Shifts::default(),
             defenses: defenses::Defenses::default(),
             crafting: craft::Crafting::default(),
             vitae_costs: Vec::new(),
@@ -1215,6 +1219,7 @@ impl<S: Store> Server<S> {
             offerings::step(self, net, clock);
             spawn::step(self, net, clock);
             guards::step(self, net, clock);
+            shifting::step(self, net, clock);
             defenses::step(self, net, clock);
         }
         self.saves.piece_begins();

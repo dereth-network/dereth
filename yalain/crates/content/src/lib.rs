@@ -47,6 +47,7 @@ pub mod pools;
 pub mod popups;
 pub mod props;
 pub mod quests;
+pub mod shifting;
 pub mod spawns;
 pub mod stores;
 pub mod story;
@@ -785,6 +786,9 @@ pub struct ContentPack {
     /// The devices creatures come to attack. Not part of the text form: the world database's
     /// defense rows fill it.
     pub defenses: defenses::DefenseTable,
+    /// The placed objects of which one stands at a time, moving on after each use. Not part of the
+    /// text form: the world database's shifting rows fill it.
+    pub shifting: shifting::ShiftTable,
 }
 
 /// The kind of player conflict a place allows.
@@ -1164,6 +1168,7 @@ impl ContentPack {
             levers: levers::LeverTable::default(),
             offerings: offerings::OfferingTable::default(),
             guards: guards::GuardTable::default(),
+            shifting: shifting::ShiftTable::default(),
             defenses: defenses::DefenseTable::default(),
         })
     }
