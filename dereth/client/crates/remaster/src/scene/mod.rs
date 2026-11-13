@@ -369,9 +369,10 @@ pub struct FrameDelta {
     pub degrade: DegradeBias,
     /// The game's weather: whether it is drawn, and the form the player asked it to fall in.
     pub weather: FrameWeather,
-    /// The hue an art pack's leaves are pulled toward, in turns, and how far (0 not at all): the
-    /// look's.
-    pub foliage: [f32; 2],
+    /// How far from the eye the blocks whose own objects stand in the world reach at the least,
+    /// meters: past them the far forest draws a block's trees as pictures, so a tree is wholly
+    /// its impostor before it could stand there. 0 where nothing marks it.
+    pub scenery_reach: f32,
 }
 
 /// The game's weather, as a frame carries it.
@@ -463,8 +464,20 @@ pub struct FarPackModel {
     /// Its color factor, in display values, and where its pictures' coverage is cut.
     pub color: [f32; 4],
     pub cut: f32,
-    /// Whether it is foliage, its pictures pulled toward the look's foliage hue.
+    /// Whether it is foliage.
     pub foliage: bool,
+    /// The meshes it is drawn with, each where it stands in the model's own space, when its far
+    /// pictures are made on the device as the impostors' are; none where they are its own
+    /// pictures ([`FarPictures`]), its views laid out as [`Self::views`] says.
+    pub parts: Vec<FarPart>,
+}
+
+/// One mesh a far tree is drawn with: a graphics object, at its finest level, and where it
+/// stands in the tree's own space (its offset, its turn and its scale).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FarPart {
+    pub gfxobj: u32,
+    pub frame: Mat4,
 }
 
 /// Where a pack's far pictures are read from: a model's color (coverage in alpha) and its normals

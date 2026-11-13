@@ -125,6 +125,10 @@ pub enum Entry {
     ImpostorVsDraw,
     /// `fs_draw` in `impostor.slang`, the fragment stage.
     ImpostorFsDraw,
+    /// `fs_gather` in `impostor.slang`, the fragment stage.
+    ImpostorFsGather,
+    /// `fs_chain` in `impostor.slang`, the fragment stage.
+    ImpostorFsChain,
     /// `cs_cull` in `forest.slang`, the compute stage.
     ForestCsCull,
     /// `vs_far` in `forest.slang`, the vertex stage.
@@ -191,7 +195,7 @@ pub enum Entry {
 
 impl Entry {
     /// Every entry point, in `shaders.toml`'s order.
-    pub const ALL: [Self; 92] = [Self::AirFsAir, Self::CloudShadowFsMain, Self::StampVsMain, Self::FullscreenVsMain, Self::CopyFsMain, Self::GbufferVsMain, Self::GbufferFsMain, Self::GbufferFsForward, Self::GbufferFsEdge, Self::TerrainVsMain, Self::TerrainFsMain, Self::ResolveFsVertex, Self::ResolveFsPixel, Self::CompositeFsMain, Self::CullCsMain, Self::InstancesCsChoose, Self::InstancesCsScan, Self::InstancesCsWrite, Self::SkinCsMain, Self::GbufferFsCaster, Self::ShadowMaskFsMain, Self::AoFsGtao, Self::AoFsGather, Self::AoFsUpsample, Self::LampsCsClusters, Self::LampsFsLamps, Self::HaloVsHalo, Self::HaloFsHalo, Self::PostFsTaa, Self::PostFsTaaCheck, Self::PostFsBloomDown, Self::PostFsBloomUp, Self::PostFsTonemap, Self::MotionVsMain, Self::MotionFsMain, Self::SkyTablesFsTransmittance, Self::SkyTablesFsMultiple, Self::SkyTablesFsSkyView, Self::SkyFsSky, Self::SkyFsVeil, Self::FogVolumeCsMain, Self::DrawnVsGround, Self::DrawnFsGround, Self::DrawnVsCaster, Self::DrawnCsProbe, Self::DrawnCsGrass, Self::GrassVsBlade, Self::GrassFsBlade, Self::GrassVsBladeMotion, Self::GrassFsBladeMotion, Self::DrawnCsScatter, Self::GrassVsScatter, Self::GrassFsScatter, Self::WaterFsMain, Self::WaterFsTraced, Self::WaterCsWake, Self::LiftCsBases, Self::ImpostorVsBake, Self::ImpostorFsBake, Self::ImpostorVsDraw, Self::ImpostorFsDraw, Self::ForestCsCull, Self::ForestVsFar, Self::ForestFsFar, Self::RainFsSplash, Self::RainVsFall, Self::RainFsFall, Self::RtCsInstances, Self::RtCheckCsCheck, Self::GiCsUpdate, Self::GiFsProbes, Self::GiFsScreen, Self::GiFsBlur, Self::GiTraceCsTrace, Self::RtShadowFsMain, Self::RtAoFsRays, Self::RtAoFsFilter, Self::UpscaleInputsCsMain, Self::Fsr3PassesCsClearReconstructed, Self::Fsr3PassesCsPrepareInputs, Self::Fsr3PassesCsFarthestHalf, Self::Fsr3PassesCsShadingLevelZero, Self::Fsr3PassesCsShadingLevel, Self::Fsr3PassesCsShadingChange, Self::Fsr3PassesCsReactivity, Self::Fsr3PassesCsLumaInstability, Self::Fsr3PassesCsAccumulate, Self::Fsr3PassesCsRcas, Self::Fsr3PassesFsShow, Self::Fsr3PassesCsReactiveInput, Self::Fsr3PassesCsExposure, Self::Fsr3PassesFsInputsAsPictures];
+    pub const ALL: [Self; 94] = [Self::AirFsAir, Self::CloudShadowFsMain, Self::StampVsMain, Self::FullscreenVsMain, Self::CopyFsMain, Self::GbufferVsMain, Self::GbufferFsMain, Self::GbufferFsForward, Self::GbufferFsEdge, Self::TerrainVsMain, Self::TerrainFsMain, Self::ResolveFsVertex, Self::ResolveFsPixel, Self::CompositeFsMain, Self::CullCsMain, Self::InstancesCsChoose, Self::InstancesCsScan, Self::InstancesCsWrite, Self::SkinCsMain, Self::GbufferFsCaster, Self::ShadowMaskFsMain, Self::AoFsGtao, Self::AoFsGather, Self::AoFsUpsample, Self::LampsCsClusters, Self::LampsFsLamps, Self::HaloVsHalo, Self::HaloFsHalo, Self::PostFsTaa, Self::PostFsTaaCheck, Self::PostFsBloomDown, Self::PostFsBloomUp, Self::PostFsTonemap, Self::MotionVsMain, Self::MotionFsMain, Self::SkyTablesFsTransmittance, Self::SkyTablesFsMultiple, Self::SkyTablesFsSkyView, Self::SkyFsSky, Self::SkyFsVeil, Self::FogVolumeCsMain, Self::DrawnVsGround, Self::DrawnFsGround, Self::DrawnVsCaster, Self::DrawnCsProbe, Self::DrawnCsGrass, Self::GrassVsBlade, Self::GrassFsBlade, Self::GrassVsBladeMotion, Self::GrassFsBladeMotion, Self::DrawnCsScatter, Self::GrassVsScatter, Self::GrassFsScatter, Self::WaterFsMain, Self::WaterFsTraced, Self::WaterCsWake, Self::LiftCsBases, Self::ImpostorVsBake, Self::ImpostorFsBake, Self::ImpostorVsDraw, Self::ImpostorFsDraw, Self::ImpostorFsGather, Self::ImpostorFsChain, Self::ForestCsCull, Self::ForestVsFar, Self::ForestFsFar, Self::RainFsSplash, Self::RainVsFall, Self::RainFsFall, Self::RtCsInstances, Self::RtCheckCsCheck, Self::GiCsUpdate, Self::GiFsProbes, Self::GiFsScreen, Self::GiFsBlur, Self::GiTraceCsTrace, Self::RtShadowFsMain, Self::RtAoFsRays, Self::RtAoFsFilter, Self::UpscaleInputsCsMain, Self::Fsr3PassesCsClearReconstructed, Self::Fsr3PassesCsPrepareInputs, Self::Fsr3PassesCsFarthestHalf, Self::Fsr3PassesCsShadingLevelZero, Self::Fsr3PassesCsShadingLevel, Self::Fsr3PassesCsShadingChange, Self::Fsr3PassesCsReactivity, Self::Fsr3PassesCsLumaInstability, Self::Fsr3PassesCsAccumulate, Self::Fsr3PassesCsRcas, Self::Fsr3PassesFsShow, Self::Fsr3PassesCsReactiveInput, Self::Fsr3PassesCsExposure, Self::Fsr3PassesFsInputsAsPictures];
 
     /// The source file that defines it.
     #[must_use]
@@ -258,6 +262,8 @@ impl Entry {
             Self::ImpostorFsBake => "impostor.slang",
             Self::ImpostorVsDraw => "impostor.slang",
             Self::ImpostorFsDraw => "impostor.slang",
+            Self::ImpostorFsGather => "impostor.slang",
+            Self::ImpostorFsChain => "impostor.slang",
             Self::ForestCsCull => "forest.slang",
             Self::ForestVsFar => "forest.slang",
             Self::ForestFsFar => "forest.slang",
@@ -357,6 +363,8 @@ impl Entry {
             Self::ImpostorFsBake => "fs_bake",
             Self::ImpostorVsDraw => "vs_draw",
             Self::ImpostorFsDraw => "fs_draw",
+            Self::ImpostorFsGather => "fs_gather",
+            Self::ImpostorFsChain => "fs_chain",
             Self::ForestCsCull => "cs_cull",
             Self::ForestVsFar => "vs_far",
             Self::ForestFsFar => "fs_far",
@@ -456,6 +464,8 @@ impl Entry {
             Self::ImpostorFsBake => Stage::Fragment,
             Self::ImpostorVsDraw => Stage::Vertex,
             Self::ImpostorFsDraw => Stage::Fragment,
+            Self::ImpostorFsGather => Stage::Fragment,
+            Self::ImpostorFsChain => Stage::Fragment,
             Self::ForestCsCull => Stage::Compute,
             Self::ForestVsFar => Stage::Vertex,
             Self::ForestFsFar => Stage::Fragment,
@@ -555,6 +565,8 @@ impl Entry {
             Self::ImpostorFsBake => include_bytes!("spirv/impostor.fs_bake.spv"),
             Self::ImpostorVsDraw => include_bytes!("spirv/impostor.vs_draw.spv"),
             Self::ImpostorFsDraw => include_bytes!("spirv/impostor.fs_draw.spv"),
+            Self::ImpostorFsGather => include_bytes!("spirv/impostor.fs_gather.spv"),
+            Self::ImpostorFsChain => include_bytes!("spirv/impostor.fs_chain.spv"),
             Self::ForestCsCull => include_bytes!("spirv/forest.cs_cull.spv"),
             Self::ForestVsFar => include_bytes!("spirv/forest.vs_far.spv"),
             Self::ForestFsFar => include_bytes!("spirv/forest.fs_far.spv"),
@@ -654,6 +666,8 @@ impl Entry {
             Self::ImpostorFsBake => include_bytes!("dxil/impostor.fs_bake.dxil"),
             Self::ImpostorVsDraw => include_bytes!("dxil/impostor.vs_draw.dxil"),
             Self::ImpostorFsDraw => include_bytes!("dxil/impostor.fs_draw.dxil"),
+            Self::ImpostorFsGather => include_bytes!("dxil/impostor.fs_gather.dxil"),
+            Self::ImpostorFsChain => include_bytes!("dxil/impostor.fs_chain.dxil"),
             Self::ForestCsCull => include_bytes!("dxil/forest.cs_cull.dxil"),
             Self::ForestVsFar => include_bytes!("dxil/forest.vs_far.dxil"),
             Self::ForestFsFar => include_bytes!("dxil/forest.fs_far.dxil"),

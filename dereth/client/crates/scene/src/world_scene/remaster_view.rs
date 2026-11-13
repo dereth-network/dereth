@@ -329,6 +329,20 @@ impl SceneDraw {
         })
     }
 
+    /// The remaster's last frame's impostor cards: each tree's first level's GfxObj, the centre
+    /// of the sphere its pictures are of (render space) and its radius, the turn of the tree's x
+    /// axis about its z axis (radians), and how much of the tree the card draws.
+    #[cfg(feature = "test-support")]
+    pub fn remaster_impostor_cards(&self, gpu: &mut Gpu) -> Vec<(u32, [f32; 3], f32, f32, f32)> {
+        remaster(gpu).map_or_else(Vec::new, |r| {
+            r.renderer()
+                .impostor_cards()
+                .into_iter()
+                .map(|c| (c.gfxobj, c.centre.to_array(), c.radius, c.turn, c.share))
+                .collect()
+        })
+    }
+
     /// Draw the remaster's water with no ripples' picture: for the check that its ripples are
     /// that picture's.
     #[cfg(feature = "test-support")]

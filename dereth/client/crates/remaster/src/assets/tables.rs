@@ -19,6 +19,9 @@ enum User {
     Sky,
     /// One particle card's graphics object, held from the first frame that draws it.
     Particle(u32),
+    /// One graphics object pictures are made of from round it, held from the first frame that
+    /// asks for them.
+    Impostor(u32),
 }
 
 /// A material as one subset draws it: the material, and whether the subset is two-sided and
@@ -109,6 +112,8 @@ pub struct AssetTables {
     object_materials: BTreeMap<ObjectKey, Vec<Vec<Vec<MaterialKey>>>>,
     /// Each particle card's materials, per subset of its graphics object.
     particle_materials: BTreeMap<u32, Vec<MaterialKey>>,
+    /// Each graphics object's materials pictures are made of, per subset.
+    impostor_materials: BTreeMap<u32, Vec<MaterialKey>>,
     /// Entries made since the last upload, in the order they were made.
     made: Vec<AssetKey>,
     /// Entries let go since the last upload.
@@ -219,6 +224,20 @@ impl AssetTables {
             }
             _ => {}
         }
+        self.textures_wanted(materials, src, &mut seen, &mut out);
+        out
+    }
+
+    /// The pictures `materials` draw with that these tables do not hold yet, onto `out`, each
+    /// once (`seen`), with the clip map its first material names. The materials not held are read
+    /// now and kept for the change that holds them.
+    fn textures_wanted(
+        &mut self,
+        materials: Vec<(MaterialKey, Use)>,
+        src: &mut dyn AssetSource,
+        seen: &mut BTreeSet<TextureKey>,
+        out: &mut Vec<(TextureKey, bool)>,
+    ) {
         for (key, used) in materials {
             let (texture, clip_map, maps) = match self.materials.get(&key) {
                 Some(e) => (
@@ -246,7 +265,40 @@ impl AssetTables {
                 }
             }
         }
+    }
+
+    /// The pictures holding the GfxObj `id` for the pictures made of it ([`Self::impostor_in`])
+    /// would have these tables hold that they do not hold yet, as [`Self::pictures_wanted`]
+    /// finds a change's.
+    pub fn impostor_pictures_wanted(
+        &mut self,
+        id: u32,
+        src: &mut dyn AssetSource,
+    ) -> Vec<(TextureKey, bool)> {
+        let mut materials = Vec::new();
+        self.wanted_gfxobj(id, None, Use::Static, src, &mut materials);
+        let mut out = Vec::new();
+        self.textures_wanted(materials, src, &mut BTreeSet::new(), &mut out);
         out
+    }
+
+    /// Hold the GfxObj `id`, with its materials as a block's placements draw it, for the pictures
+    /// made of it from round it: the far trees' and the impostors'. It is kept as long as the
+    /// tables are, as those pictures are.
+    pub fn impostor_in(&mut self, id: u32, src: &mut dyn AssetSource) {
+        if id == 0 || self.impostor_materials.contains_key(&id) {
+            return;
+        }
+        let mut h = Holdings::default();
+        let materials = self.hold_gfxobj(&mut h, id, None, Use::Static, src);
+        self.impostor_materials.insert(id, materials);
+        self.users.insert(User::Impostor(id), h);
+    }
+
+    /// A GfxObj held for the pictures made of it: its materials, per subset.
+    #[must_use]
+    pub fn impostor_materials(&self, id: u32) -> Option<&[MaterialKey]> {
+        self.impostor_materials.get(&id).map(Vec::as_slice)
     }
 
     /// Let go of the meshes and materials read ahead for changes that will not come.
@@ -980,7 +1032,7 @@ impl AssetTables {
             match u {
                 User::Block(_) => c.blocks += 1,
                 User::Object(_) => c.objects += 1,
-                User::Sky | User::Particle(_) => {}
+                User::Sky | User::Particle(_) | User::Impostor(_) => {}
             }
         }
         c

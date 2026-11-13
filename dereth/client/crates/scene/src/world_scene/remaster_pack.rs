@@ -78,22 +78,47 @@ fn picture_key(picture: u32) -> TextureKey {
     }
 }
 
-/// Where the remaster reads the pack's far pictures from: each far model's color and normal
-/// pictures, by their place in the pack.
+/// Where the remaster reads the pack's far pictures from: each far model's own level of pictures
+/// (its color and normal pictures, by their place in the pack), in the far models' order; `None`
+/// for a tree whose pictures are made on the device from its nearest level.
 #[derive(Debug)]
 struct PackFarPictures {
     pack: Arc<ArtPack>,
-    images: Vec<[u32; 2]>,
+    images: Vec<Option<[u32; 2]>>,
 }
 
 impl dereth_remaster::scene::FarPictures for PackFarPictures {
     fn pictures(&self, model: usize) -> Option<[TextureData; 2]> {
-        let [base, normal] = *self.images.get(model)?;
+        let [base, normal] = (*self.images.get(model)?)?;
         Some([
             texture_of(self.pack.images.get(base as usize)?)?,
             texture_of(self.pack.images.get(normal as usize)?)?,
         ])
     }
+}
+
+/// Level `level` of the pack's model `m` as its far model's bounds are found: its triangles.
+fn pack_shape(m: &crate::art_pack::PackModel, level: usize) -> super::far_retail::Shape {
+    let mut shape = super::far_retail::Shape::default();
+    let Some(lod) = m.lods.get(level) else {
+        return shape;
+    };
+    let floats = crate::art_pack::VERTEX_FLOATS;
+    for p in &lod.primitives {
+        let vertex = |i: u32| {
+            p.vertices
+                .get(i as usize * floats..(i as usize + 1) * floats)
+        };
+        for t in p.indices.as_chunks::<3>().0 {
+            let (Some(a), Some(b), Some(c)) = (vertex(t[0]), vertex(t[1]), vertex(t[2])) else {
+                continue;
+            };
+            shape.triangles.push(super::far_retail::Triangle {
+                p: [a, b, c].map(|v| Vec3::new(v[0], v[1], v[2])),
+            });
+        }
+    }
+    shape
 }
 
 /// The opened pack, as the remaster's entries are made from it.
@@ -315,17 +340,35 @@ impl PackAssets {
     }
 
     /// The pack's far pictures: of each model, the last level of pictures with a quad to draw and
-    /// both its pictures.
+    /// both its pictures; and of each tree with no level of pictures, its nearest level drawn into
+    /// the view, whose pictures are made on the device as retail's own trees' are.
     pub(crate) fn far_pack(&self) -> dereth_remaster::scene::FarPack {
         let mut models = Vec::new();
         let mut images = Vec::new();
-        for m in &self.pack.models {
+        for (index, m) in (0u32..).zip(&self.pack.models) {
             let level = m.lods.iter().rev().find_map(|l| {
                 let p = l.primitives.first()?;
                 let views = l.views?;
                 (p.indices.len() == 6 && !p.vertices.is_empty()).then_some((p, views))
             });
             let Some((p, views)) = level else {
+                // A tree with no pictures of its own: pictures of its nearest level, made when
+                // the far forest first asks for them.
+                let nearest = self
+                    .view_levels
+                    .get(index as usize)
+                    .and_then(|l| l.first().copied());
+                if let (crate::art_pack::Category::Tree, Some(nearest)) = (m.category, nearest) {
+                    let mut shape = pack_shape(m, nearest);
+                    shape.parts.push(dereth_remaster::scene::FarPart {
+                        gfxobj: pack_mesh(index, 0),
+                        frame: glam::Mat4::IDENTITY,
+                    });
+                    if let Some(model) = super::far_retail::model_of(m.id.0, &shape) {
+                        models.push(model);
+                        images.push(None);
+                    }
+                }
                 continue;
             };
             let (Some(base), Some(normal)) = (p.material.base_color_image, p.material.normal_image)
@@ -351,8 +394,9 @@ impl PackAssets {
                 color: display_color(p.material.base_color),
                 cut: p.material.alpha_cutoff.unwrap_or(0.0),
                 foliage: m.foliage,
+                parts: Vec::new(),
             });
-            images.push([base, normal]);
+            images.push(Some([base, normal]));
         }
         dereth_remaster::scene::FarPack {
             serial: self.pack.serial,
@@ -362,6 +406,15 @@ impl PackAssets {
                 images,
             }),
         }
+    }
+
+    /// The objects the pack draws its own models for, those of the kinds `on` switches on.
+    pub(crate) fn swapped(&self, on: PackSettings) -> std::collections::HashSet<u32> {
+        self.by_id
+            .keys()
+            .copied()
+            .filter(|id| self.model(*id, on).is_some())
+            .collect()
     }
 
     /// The pack's model for the object `id`, when its kind is switched on.
@@ -1409,6 +1462,172 @@ mod tests {
         assert!((g - 1.0).abs() < 1e-5);
         assert!((b - 0.735).abs() < 1e-3, "{b}");
         assert_eq!(a, 0.25);
+    }
+
+    /// A pack of two models with no level of pictures: a tree, a cross of two upright quads
+    /// ten meters tall whose picture keeps its left half, and a rock of the same shape.
+    fn pack_of_a_tree_and_a_rock() -> ArtPack {
+        let floats = crate::art_pack::VERTEX_FLOATS;
+        let mut vertices = Vec::new();
+        for (x, y) in [(-3.0, 0.0), (3.0, 0.0), (0.0, -3.0), (0.0, 3.0)] {
+            for (z, v) in [(0.0f32, 1.0f32), (10.0, 0.0)] {
+                let mut row = vec![0.0f32; floats];
+                row[0..3].copy_from_slice(&[x, y, z]);
+                row[3..6].copy_from_slice(&[0.0, 0.0, 1.0]);
+                row[10..12].copy_from_slice(&[if x + y < 0.0 { 0.0 } else { 1.0 }, v]);
+                row[12..16].copy_from_slice(&[1.0; 4]);
+                vertices.extend(row);
+            }
+        }
+        let primitive = crate::art_pack::PackPrimitive {
+            vertices: Arc::new(vertices),
+            indices: Arc::new(vec![0, 1, 3, 0, 3, 2, 4, 5, 7, 4, 7, 6]),
+            material: crate::art_pack::PackMaterial {
+                base_color: [1.0; 4],
+                base_color_image: Some(0),
+                normal_image: None,
+                normal_scale: 1.0,
+                metal_rough_image: None,
+                metallic: 0.0,
+                roughness: 1.0,
+                occlusion_image: None,
+                occlusion_strength: 1.0,
+                alpha_cutoff: Some(0.5),
+                double_sided: true,
+            },
+        };
+        let model = |id: u32, category| crate::art_pack::PackModel {
+            id: dereth_primitives::DataId(id),
+            foliage: true,
+            category,
+            lods: vec![crate::art_pack::PackLod {
+                distance: f32::INFINITY,
+                primitives: vec![primitive.clone()],
+                views: None,
+                shadows_only: false,
+            }],
+            bounds: ([0.0, 0.0, 5.0], 6.0),
+            credit: dereth_assets::art_pack::Credit::default(),
+        };
+        // Green, kept on its left half and cut away on its right.
+        let mut rgba = Vec::new();
+        for _ in 0..4 {
+            for x in 0..4 {
+                rgba.extend([30, 160, 40, if x < 2 { 255 } else { 0 }]);
+            }
+        }
+        ArtPack {
+            name: "trees".to_owned(),
+            serial: 1,
+            hash: String::new(),
+            models: vec![
+                model(0x0200_0258, crate::art_pack::Category::Tree),
+                model(0x0100_0A7E, crate::art_pack::Category::Rock),
+            ],
+            skins: Vec::new(),
+            keep: std::collections::BTreeSet::new(),
+            keep_launchers: false,
+            images: vec![Image {
+                width: 4,
+                height: 4,
+                srgb: true,
+                levels: vec![Arc::new(rgba)],
+                format: None,
+            }],
+            image_sources: Vec::new(),
+            grounds: Vec::new(),
+            materials: Vec::new(),
+            covers: Vec::new(),
+            problems: Vec::new(),
+            lighting: None,
+        }
+    }
+
+    /// A tree of a pack with no level of pictures of its own is drawn far off from pictures made
+    /// on the device of its nearest level: its quad as wide and tall as the tree, the level's mesh
+    /// named where it stands, and no pictures of the pack's. A rock has none.
+    #[test]
+    fn a_pack_tree_with_no_pictures_of_its_own_is_drawn_far_off_from_its_nearest_level() {
+        let assets = PackAssets::new(Arc::new(pack_of_a_tree_and_a_rock()), None);
+        let far = assets.far_pack();
+        assert_eq!(far.models.len(), 1, "the tree alone");
+        let m = &far.models[0];
+        assert_eq!(m.id, 0x0200_0258);
+        assert_eq!(m.quad, [3.0, 0.0, 10.0]);
+        let index = *assets.by_id.get(&m.id).expect("the tree's place");
+        assert_eq!(
+            m.parts,
+            vec![dereth_remaster::scene::FarPart {
+                gfxobj: pack_mesh(index, 0),
+                frame: glam::Mat4::IDENTITY,
+            }],
+            "its nearest level, where it stands"
+        );
+        assert!(far.pictures.pictures(0).is_none(), "none of the pack's");
+        assert_eq!(
+            assets.pack().models.len(),
+            2,
+            "the pack itself is as it was"
+        );
+    }
+
+    /// Where each tree of the pack `DERETH_ART_PACK` hands its levels over, and over to its
+    /// impostor, as the remaster's levels of detail work it out: on a screen 540 and 2160 lines
+    /// tall, and with the scenery window's reach of one ring of blocks.
+    #[test]
+    #[ignore = "instrument: prints a pack's trees' hand-over distances; run with --ignored --nocapture"]
+    fn print_a_packs_tree_hand_overs() {
+        use dereth_remaster::render::lod;
+        let path = PathBuf::from(std::env::var("DERETH_ART_PACK").expect("DERETH_ART_PACK"));
+        let pack = Arc::new(ArtPack::open_path(&path).expect("the pack opens"));
+        let assets = PackAssets::new(Arc::clone(&pack), None);
+        let bias = dereth_remaster::scene::DegradeBias::default();
+        let cap = lod::impostor_cap(168.0, lod::FADE_BAND, &bias);
+        for m in &pack.models {
+            let Some(model) = assets.model(m.id.0, PackSettings::all()) else {
+                continue;
+            };
+            if model.category != dereth_remaster::assets::pack::Category::Tree {
+                continue;
+            }
+            let meshes: Vec<_> = model
+                .levels
+                .iter()
+                .filter_map(|l| assets.mesh(l.mesh))
+                .collect();
+            let Some(full) = meshes.first() else {
+                continue;
+            };
+            let radius = full.sphere.map_or(0.0, |s| s.1);
+            let mut errors: Vec<f32> = meshes
+                .iter()
+                .enumerate()
+                .map(|(i, l)| {
+                    if i == 0 {
+                        0.0
+                    } else {
+                        lod::level_error(full, Some(l), false)
+                    }
+                })
+                .collect();
+            errors.push(lod::IMPOSTOR_ERROR * radius);
+            let mut switches: Vec<f32> = model.levels[..model.levels.len() - 1]
+                .iter()
+                .map(|l| l.distance)
+                .collect();
+            switches.push(0.0);
+            for height in [540, 2160] {
+                let k = lod::pixels_at_one_metre(height, 1.0);
+                let mut h = lod::hand_overs(&errors, &switches, 1.0, k, 10.0, lod::FADE_BAND);
+                let open = h.clone();
+                lod::pull_in(&mut h, cap, lod::FADE_BAND);
+                println!(
+                    "{:08X} r {radius:5.1} m, {height} lines: levels {:?} errors {errors:.2?}                      hand-overs {open:.0?} capped {h:.0?}",
+                    m.id.0,
+                    model.levels.iter().map(|l| l.distance).collect::<Vec<_>>(),
+                );
+            }
+        }
     }
 
     /// A color's parts to `0xAARRGGBB`, and a picture's texels to blue, green, red, alpha.

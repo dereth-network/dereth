@@ -15,6 +15,7 @@ pub mod ao;
 #[cfg(all(feature = "dlss", windows))]
 pub mod dlss;
 pub mod drawn;
+pub mod far_pictures;
 pub mod forest;
 pub mod gi;
 pub mod grade;
@@ -109,6 +110,9 @@ pub const NORMAL: Format = Format::Rg16Snorm;
 pub const LIGHT: Format = Format::Rgba16Float;
 pub const MATERIAL: Format = Format::Rgba8Unorm;
 pub const DEPTH: Format = Format::D32Float;
+
+/// The meshes the far trees' pictures are made of that a frame holds, at most.
+const FAR_MESHES_A_FRAME: usize = 16;
 pub const COLOR: Format = Format::Rgba8Unorm;
 
 /// The commands one cull bucket holds at most.
@@ -1136,6 +1140,12 @@ impl Renderer {
         self.impostors.bases().to_vec()
     }
 
+    /// The last frame's impostor cards.
+    #[must_use]
+    pub fn impostor_cards(&self) -> Vec<impostor::DrawnCard> {
+        self.impostors.drawn().to_vec()
+    }
+
     /// How the ground's cells are drawn, from the next frame the scene hands over.
     pub fn set_terrain(&mut self, s: terrain::TerrainSettings) {
         self.terrain = s;
@@ -1282,6 +1292,24 @@ impl Renderer {
         self.lod.take(&deltas, &frame.levels);
         self.tables
             .particles_in(frame.particles.iter().map(|p| p.gfx), src);
+        // The meshes the far trees' pictures are made of, held once their own pictures are ready.
+        for id in self
+            .forest
+            .wanted_meshes()
+            .iter()
+            .take(FAR_MESHES_A_FRAME)
+            .copied()
+            .collect::<Vec<_>>()
+        {
+            let ready = self
+                .tables
+                .impostor_pictures_wanted(id, src)
+                .into_iter()
+                .all(|(k, clip)| self.tables.holds_texture(&k) || src.prepare(&k, clip));
+            if ready {
+                self.tables.impostor_in(id, src);
+            }
+        }
         self.scene.upload(&mut self.gfx, &mut self.tables);
         if switched {
             if let Err(e) = self.scene.rewrite_ground_cells(&mut self.gfx, &self.tables) {
@@ -2033,10 +2061,18 @@ impl Renderer {
                         .push([m.luminosity, m.diffusion, m.translucency, 1.0]);
                     i
                 });
+                // With the atmosphere drawn, the sky's own objects stand over the eye: as far off
+                // as the sky, they move neither as the eye walks nor when the frame's block
+                // changes. Retail stands them at the corner of the viewer's block.
+                let mut at = o.frame;
+                if self.atmosphere.settings.atmosphere && o.properties & 4 == 0 {
+                    at.w_axis.x = frame.camera.eye.x;
+                    at.w_axis.y = frame.camera.eye.y;
+                }
                 out.instances.push((
                     s.instance,
                     GpuScene::instance_bytes_scrolled(
-                        o.frame,
+                        at,
                         Vec3::ONE,
                         NONE,
                         scene::class::SKY,

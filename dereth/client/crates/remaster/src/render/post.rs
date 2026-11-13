@@ -533,6 +533,18 @@ impl PostPass {
         self.jitter
     }
 
+    /// This frame's place in the anti-aliasing's sequence and the sequence's length, while the
+    /// anti-aliasing lays the frames of a sequence over each other; `None` while it does not.
+    #[must_use]
+    pub fn dither(&self) -> Option<(u32, u32)> {
+        let s = self.settings;
+        if !s.runs() || !s.taa || s.check {
+            return None;
+        }
+        let frames = s.frames.clamp(1, 8);
+        Some((self.frame % frames, frames))
+    }
+
     /// Move `camera`'s projection by this frame's part of a pixel, for a world of `extent`
     /// pixels, when the anti-aliasing runs; the camera as it was.
     pub fn jitter(&mut self, camera: &mut Camera, extent: (u32, u32)) -> Camera {

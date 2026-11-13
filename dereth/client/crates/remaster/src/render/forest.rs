@@ -4,7 +4,9 @@
 //!
 //! The trees are written block by block as [`Slots`] says, so walking on writes a ring of blocks,
 //! not every tree within reach. A model's pictures come to the device a few a frame, and its trees
-//! wait for them.
+//! wait for them: most models' are made on the device as the impostors' are
+//! ([`super::far_pictures`]), from its meshes once they are held; an art pack's own pictures of a
+//! model are sent from the pack.
 
 use dereth_gfx::{
     Buffer, BufferDesc, BufferUsage, ColorAttachment, ColorTarget, Compare, ComputeDesc, Cull,
@@ -17,15 +19,23 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::Range;
 use std::sync::Arc;
 
+use super::far_pictures::{BakeMesh, FarPictures, MakePlan, PictureKey, Source, MADE_A_FRAME};
+use super::impostor::ImpostorPass;
 use super::scene::{gpu_format, GpuScene};
 use super::{push_words, shader, Targets, ALBEDO, DEPTH, LIGHT, MATERIAL, NORMAL};
-use crate::scene::{BlockId, FarKnobs, FarPack, FarTree, FarTreeSet, ForestCover, FrameDelta};
+use crate::assets::{AssetTables, MeshKey};
+use crate::scene::{
+    BlockId, FarKnobs, FarPack, FarPackModel, FarTree, FarTreeSet, ForestCover, FrameDelta,
+};
 use crate::shaders::Entry;
 
 /// The bytes of one tree: its foot and scale, its rotation, and its model, number and slot.
 const TREE_BYTES: usize = 48;
-/// The bytes of one model: its bounds, its quad and cut, its color, its pictures.
-const MODEL_BYTES: usize = 64;
+/// The bytes of one model: its bounds, the sphere its pictures are made round and where their space
+/// stands, its quad and cut, its color, its pictures, and its impostor's atlas row.
+const MODEL_BYTES: usize = 16 * 10;
+/// A model's flag: its pictures are made on the device.
+const MADE: u32 = 2;
 /// The bytes of one tree kept: its place, how much of its size it keeps, how much wider it stands.
 const KEPT_BYTES: u64 = 12;
 /// The words of the excluded blocks' bits: a bit a block.
@@ -409,6 +419,11 @@ pub struct ForestStats {
     /// The bytes the trees' buffers and the cover take on the device; the pictures' bytes.
     pub bytes: u64,
     pub picture_bytes: u64,
+    /// Far pictures made on the device, in all, those the last frame made, and the bytes they
+    /// take there.
+    pub made: u32,
+    pub made_now: u32,
+    pub made_bytes: u64,
 }
 
 /// What a frame's far trees record.
@@ -431,6 +446,10 @@ pub struct ForestPlan {
     weather: (u32, Option<Texture>),
     /// The world's vertex heights, `NONE` before they are read.
     heights: u32,
+    /// The far pictures the frame makes, before its trees are drawn; and every picture the trees
+    /// read that a pass makes.
+    making: MakePlan,
+    read: Vec<Texture>,
 }
 
 /// What the pass needs of a frame.
@@ -451,6 +470,117 @@ pub struct ForestInputs<'a> {
     /// The world's vertex heights on the device (`NONE` before they are read): what tells a far
     /// tree standing on the skyline.
     pub heights: u32,
+    /// The tables, whose materials a model's meshes draw with as its pictures are made; the
+    /// impostors, whose atlas rows a tree of one mesh reads; and the sampler that repeats.
+    pub tables: &'a AssetTables,
+    pub impostors: &'a ImpostorPass,
+    pub wrap: u32,
+}
+
+/// A model whose pictures are made on the device: what they are made of, where the space they are
+/// made in stands in the model's own, the sphere they are made round, the slot of its far picture
+/// once it is being made, and its impostor's atlas row (its page's color and normal pictures and
+/// the row) where the atlas holds one.
+#[derive(Debug, Clone, PartialEq)]
+struct Made {
+    key: PictureKey,
+    frame: Mat4,
+    sphere: (Vec3, f32),
+    slot: Option<u32>,
+    row: Option<[u32; 3]>,
+}
+
+/// The meshes, materials and spheres a model's pictures are made of, once each of its meshes and
+/// their materials are on the device; else the meshes not yet held for them.
+fn made_of(m: &FarPackModel, scene: &GpuScene, tables: &AssetTables) -> Result<Made, Vec<u32>> {
+    let mut missing = Vec::new();
+    for part in &m.parts {
+        let on = scene.meshes.contains_key(&MeshKey::GfxObj(part.gfxobj))
+            && tables
+                .impostor_materials(part.gfxobj)
+                .is_some_and(|keys| keys.iter().all(|k| scene.material_index.contains_key(k)));
+        if !on {
+            if tables.impostor_materials(part.gfxobj).is_none() {
+                missing.push(part.gfxobj);
+            }
+            // Held, and on the device on the frame that takes them there.
+            if missing.is_empty() {
+                missing.push(u32::MAX);
+            }
+        }
+    }
+    if !missing.is_empty() {
+        missing.retain(|g| *g != u32::MAX);
+        return Err(missing);
+    }
+    // A model of one mesh is pictured as its impostor is, round the mesh's own sphere, and shares
+    // its pictures with every other model of that mesh alone.
+    if let [part] = m.parts.as_slice() {
+        if let Some((centre, radius)) = scene
+            .meshes
+            .get(&MeshKey::GfxObj(part.gfxobj))
+            .and_then(|g| g.sphere)
+            .filter(|(_, r)| *r > 0.0)
+        {
+            return Ok(Made {
+                key: PictureKey::Mesh(part.gfxobj),
+                frame: part.frame,
+                sphere: (Vec3::from(centre), radius),
+                slot: None,
+                row: None,
+            });
+        }
+    }
+    Ok(Made {
+        key: PictureKey::Model(m.id),
+        frame: Mat4::IDENTITY,
+        sphere: m.bounds,
+        slot: None,
+        row: None,
+    })
+}
+
+/// The meshes `made`'s pictures are drawn from, each where it stands in the space pictured.
+fn bake_meshes(
+    m: &FarPackModel,
+    made: &Made,
+    scene: &GpuScene,
+    tables: &AssetTables,
+) -> Vec<BakeMesh> {
+    let mut out = Vec::with_capacity(m.parts.len());
+    for part in &m.parts {
+        let (Some(mesh), Some(keys)) = (
+            scene.meshes.get(&MeshKey::GfxObj(part.gfxobj)),
+            tables.impostor_materials(part.gfxobj),
+        ) else {
+            continue;
+        };
+        let draws = mesh
+            .subsets
+            .iter()
+            .zip(keys)
+            .filter_map(|(s, k)| {
+                let g = scene.material_index.get(k)?;
+                let flags = if s.tiled { super::scene::ITEM_TILED } else { 0 };
+                Some([
+                    mesh.indices.start + s.first_index,
+                    s.index_count,
+                    mesh.vertices.start,
+                    g.index,
+                    flags,
+                ])
+            })
+            .collect();
+        out.push(BakeMesh {
+            frame: if matches!(made.key, PictureKey::Mesh(_)) {
+                Mat4::IDENTITY
+            } else {
+                part.frame
+            },
+            draws,
+        });
+    }
+    out
 }
 
 /// The far forest's pass: its pipelines, its buffers and its pictures.
@@ -472,21 +602,63 @@ pub struct ForestPass {
     trees: Option<Trees>,
     cover: Option<Cover>,
     stats: ForestStats,
+    /// The far pictures made on the device; each model's whose are made so, by its place; and the
+    /// meshes the last frame's models wanted held to make theirs.
+    far: FarPictures,
+    made: Vec<Option<Made>>,
+    wanted_meshes: Vec<u32>,
+    /// The models whose own pictures have been sent to the device.
+    sent: u32,
 }
 
-/// The bytes of a model's row with `pictures` on the device, or none.
-fn model_row(m: &crate::scene::FarPackModel, pictures: Option<&Pictures>) -> Vec<u8> {
+/// The bytes of a model's row: with its own `pictures` on the device, or none; or, where they are
+/// made on the device, as `made` says, its far picture in `far`.
+fn model_row(
+    m: &FarPackModel,
+    pictures: Option<&Pictures>,
+    made: Option<&Made>,
+    far: &FarPictures,
+) -> Vec<u8> {
     let mut out = Vec::with_capacity(MODEL_BYTES);
+    let mut row = |v: [f32; 4]| {
+        for f in v {
+            out.extend_from_slice(&f.to_le_bytes());
+        }
+    };
     let (centre, radius) = m.bounds;
-    for f in [
-        centre.x, centre.y, centre.z, radius, m.quad[0], m.quad[1], m.quad[2], m.cut, m.color[0],
-        m.color[1], m.color[2], m.color[3],
-    ] {
-        out.extend_from_slice(&f.to_le_bytes());
-    }
-    let (base, normal) = pictures.map_or((NO_PICTURES, NO_PICTURES), |p| (p.base.1, p.normal.1));
-    let views = (m.views[0] & 0xFFFF) | (m.views[1].min(0xFFFF) << 16);
-    for w in [base, normal, views, u32::from(m.foliage)] {
+    row([centre.x, centre.y, centre.z, radius]);
+    let ((at, r), frame) =
+        made.map_or(((Vec3::ZERO, 0.0), Mat4::IDENTITY), |d| (d.sphere, d.frame));
+    row([at.x, at.y, at.z, r]);
+    let rows = frame.transpose();
+    row(rows.x_axis.to_array());
+    row(rows.y_axis.to_array());
+    row(rows.z_axis.to_array());
+    row([m.quad[0], m.quad[1], m.quad[2], m.cut]);
+    row(m.color);
+    let words = if m.parts.is_empty() {
+        let (base, normal) =
+            pictures.map_or((NO_PICTURES, NO_PICTURES), |p| (p.base.1, p.normal.1));
+        let views = (m.views[0] & 0xFFFF) | (m.views[1].min(0xFFFF) << 16);
+        [base, normal, views, u32::from(m.foliage)]
+    } else {
+        match made.and_then(|d| far.place(d.slot?)) {
+            Some(([color, normal, ..], place)) => [color, normal, place, MADE],
+            None => [NO_PICTURES, NO_PICTURES, 0, MADE],
+        }
+    };
+    let even = made
+        .and_then(|d| far.place(d.slot?))
+        .map_or([NO_PICTURES; 4], |([.., c, n], _)| [c, n, 0, 0]);
+    let atlas = made
+        .and_then(|d| d.row)
+        .unwrap_or([NO_PICTURES, NO_PICTURES, 0]);
+    for w in words
+        .into_iter()
+        .chain(atlas)
+        .chain([super::impostor::ROWS])
+        .chain(even)
+    {
         out.extend_from_slice(&w.to_le_bytes());
     }
     out
@@ -543,7 +715,19 @@ impl ForestPass {
             trees: None,
             cover: None,
             stats: ForestStats::default(),
+            far: FarPictures::new(gfx)?,
+            made: Vec::new(),
+            wanted_meshes: Vec::new(),
+            sent: 0,
         })
+    }
+
+    /// The meshes the far trees' models wait to have held before their pictures are made, as
+    /// the last frame found them: each held for the pictures made of it
+    /// ([`AssetTables::impostor_in`]).
+    #[must_use]
+    pub fn wanted_meshes(&self) -> &[u32] {
+        &self.wanted_meshes
     }
 
     /// What the far forest did.
@@ -640,7 +824,7 @@ impl ForestPass {
         }
         let mut bytes = Vec::with_capacity(pack.models.len() * MODEL_BYTES);
         for m in &pack.models {
-            bytes.extend(model_row(m, None));
+            bytes.extend(model_row(m, None, None, &self.far));
         }
         let models = bound(
             gfx,
@@ -655,9 +839,10 @@ impl ForestPass {
         self.place = (0u32..).zip(&pack.models).map(|(k, m)| (m.id, k)).collect();
         self.pictures = vec![None; pack.models.len()];
         self.asked = vec![false; pack.models.len()];
+        self.made = vec![None; pack.models.len()];
         self.queue.clear();
         self.pack = Some(Arc::clone(pack));
-        self.stats.pictures = 0;
+        self.sent = 0;
         self.stats.picture_bytes = 0;
         Ok(())
     }
@@ -671,6 +856,14 @@ impl ForestPass {
         let mut bytes = 0u64;
         let mut later = Vec::new();
         for m in std::mem::take(&mut self.queue) {
+            // Pictures made on the device are not sent.
+            if pack
+                .models
+                .get(m as usize)
+                .is_none_or(|p| !p.parts.is_empty())
+            {
+                continue;
+            }
             if bytes >= PICTURE_BYTES_A_FRAME {
                 later.push(m);
                 continue;
@@ -704,12 +897,12 @@ impl ForestPass {
                 self.stats.picture_bytes += size;
                 bytes += size;
             }
-            let row = model_row(&pack.models[m as usize], Some(&on));
+            let row = model_row(&pack.models[m as usize], Some(&on), None, &self.far);
             gfx.write_buffer(models.buffer, u64::from(m) * MODEL_BYTES as u64, &row)?;
             self.pictures[m as usize] = Some(on);
             sent += 1;
         }
-        self.stats.pictures += sent;
+        self.sent += sent;
         self.queue = later;
         Ok(())
     }
@@ -779,6 +972,7 @@ impl ForestPass {
                 self.trees = Some(made);
             }
         }
+        let making = self.make_pictures(gfx, i)?;
         let (Some(trees), Some(models)) = (self.trees.as_mut(), self.models) else {
             return Ok(None);
         };
@@ -802,7 +996,14 @@ impl ForestPass {
         gfx.write_buffer(
             self.constants.buffer,
             0,
-            &constants(i.clip, i.eye, ground.global, k, i.pixels, trees.held.count),
+            &constants(
+                i.clip,
+                i.eye,
+                ground.global,
+                k,
+                (i.pixels, i.frame.scenery_reach),
+                trees.held.count,
+            ),
         )?;
         // The draw's command: every tree, in its own place; the culling leaves those it does not
         // draw at nought.
@@ -824,7 +1025,113 @@ impl ForestPass {
             clamp: i.clamp,
             weather: i.weather,
             heights: i.heights,
+            making,
+            read: self.far.textures().chain(i.impostors.pages()).collect(),
         }))
+    }
+
+    /// The far pictures of the models whose trees stand within reach made on the device, a few a
+    /// frame, once their meshes are on the device; and their rows written as they change: the far
+    /// picture once it is being made, and the impostor's atlas row as the atlas comes to hold
+    /// one. What the frame records to make them.
+    fn make_pictures(
+        &mut self,
+        gfx: &mut Device,
+        i: &ForestInputs<'_>,
+    ) -> Result<MakePlan, dereth_gfx::Error> {
+        self.wanted_meshes.clear();
+        let mut makings = Vec::new();
+        let (Some(pack), Some(models)) = (self.pack.clone(), self.models) else {
+            return Ok(self.plan_making(makings, i));
+        };
+        for (k, m) in pack.models.iter().enumerate() {
+            if m.parts.is_empty() || !self.asked.get(k).copied().unwrap_or(false) {
+                continue;
+            }
+            let before = self.made[k].clone();
+            if before.is_none() {
+                match made_of(m, i.scene, i.tables) {
+                    Ok(made) => self.made[k] = Some(made),
+                    Err(missing) => {
+                        self.wanted_meshes.extend(missing);
+                        continue;
+                    }
+                }
+            }
+            let Some(mut made) = self.made[k].clone() else {
+                continue;
+            };
+            if made.slot.is_none() {
+                made.slot = self.far.slot(made.key);
+            }
+            if made.slot.is_none() && makings.len() < MADE_A_FRAME {
+                let row = match made.key {
+                    PictureKey::Mesh(g) => i.impostors.atlas_row(g),
+                    PictureKey::Model(_) => None,
+                };
+                let source = match row {
+                    Some(a) => Source::Row {
+                        albedo: a.albedo,
+                        normal: a.normal,
+                        row: a.row,
+                    },
+                    None => Source::Bake {
+                        centre: made.sphere.0,
+                        radius: made.sphere.1,
+                        meshes: bake_meshes(m, &made, i.scene, i.tables),
+                    },
+                };
+                let making = self.far.make(gfx, made.key, source)?;
+                made.slot = Some(making.slot);
+                makings.push(making);
+            }
+            if let PictureKey::Mesh(g) = made.key {
+                made.row = i
+                    .impostors
+                    .atlas_row(g)
+                    .map(|a| [a.albedo.1, a.normal.1, a.row]);
+            }
+            if before.as_ref() != Some(&made) {
+                let bytes = model_row(m, None, Some(&made), &self.far);
+                gfx.write_buffer(models.buffer, k as u64 * MODEL_BYTES as u64, &bytes)?;
+                self.made[k] = Some(made);
+            }
+        }
+        self.wanted_meshes.sort_unstable();
+        self.wanted_meshes.dedup();
+        Ok(self.plan_making(makings, i))
+    }
+
+    /// What the frame records to make `makings`, and the far pictures' tally.
+    fn plan_making(
+        &mut self,
+        makings: Vec<super::far_pictures::Making>,
+        i: &ForestInputs<'_>,
+    ) -> MakePlan {
+        let (made, bytes) = self.far.held();
+        let made_models = self
+            .made
+            .iter()
+            .flatten()
+            .filter(|d| d.slot.is_some())
+            .count();
+        self.stats.pictures = self
+            .sent
+            .saturating_add(u32::try_from(made_models).unwrap_or(u32::MAX));
+        self.stats.made = made;
+        self.stats.made_now = u32::try_from(makings.len()).unwrap_or(u32::MAX);
+        self.stats.made_bytes = bytes;
+        let s = i.scene;
+        self.far.plan(
+            makings,
+            i.impostors.bake_pipeline(),
+            (
+                (s.vertices.buffer, s.vertices.index),
+                (s.materials.buffer, s.materials.index),
+                s.indices.buffer,
+            ),
+            [i.wrap, i.clamp],
+        )
     }
 
     /// The culling, recorded before the world is drawn.
@@ -868,15 +1175,17 @@ impl ForestPass {
         r: &mut Recorder<'_>,
         t: &Targets,
     ) -> Result<(), dereth_gfx::Error> {
-        r.timestamp("far trees");
         let keep = [t.albedo, t.normal, t.light, t.material].map(|texture| ColorAttachment {
             texture,
             load: Load::Keep,
         });
+        plan.making.record(r)?;
+        r.timestamp("far trees");
         let mut touches = vec![
             Touch::Buffer(plan.kept.buffer, Use::StorageRead),
             Touch::Buffer(plan.args.buffer, Use::Indirect),
         ];
+        touches.extend(plan.read.iter().map(|t| Touch::Texture(*t, Use::Sampled)));
         if let Some(cover) = plan.weather.1 {
             touches.push(Touch::Texture(cover, Use::Sampled));
         }
@@ -924,7 +1233,7 @@ fn constants(
     eye: Vec3,
     global: Vec2,
     k: &FarKnobs,
-    pixels: f32,
+    (pixels, scenery): (f32, f32),
     count: u32,
 ) -> Vec<u8> {
     let mut c: Vec<f32> = Vec::with_capacity(CONSTANT_BYTES / 4);
@@ -936,7 +1245,12 @@ fn constants(
     let reach = k.reach.max(0.0);
     c.extend([global.x, global.y, reach, k.thin_from.min(reach)]);
     c.extend([k.widen, FADE, pixels, LEAST_PIXELS]);
-    c.extend([SINK, k.soften.max(0.0), k.skyline.clamp(0.0, 1.0), 0.0]);
+    c.extend([
+        SINK,
+        k.soften.max(0.0),
+        k.skyline.clamp(0.0, 1.0),
+        scenery.max(0.0),
+    ]);
     c.iter().flat_map(|f| f.to_le_bytes()).collect()
 }
 

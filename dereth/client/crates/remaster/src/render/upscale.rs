@@ -630,6 +630,13 @@ impl UpscalePass {
         Some(jitter_in_clip_space(self.jitter, render))
     }
 
+    /// How many frames it has jittered, while it is on: the screen patterns a tree's pictures are
+    /// cut by turn on with them.
+    #[must_use]
+    pub fn dither(&self) -> Option<u32> {
+        self.settings.runs().then_some(self.place)
+    }
+
     /// Off, what it keeps is let go.
     pub fn idle(&mut self, gfx: &mut Device) {
         #[cfg(target_os = "macos")]

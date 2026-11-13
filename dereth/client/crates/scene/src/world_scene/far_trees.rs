@@ -7,8 +7,9 @@
 //! would if it were near, and nothing else of it is loaded. A thread of its own works each
 //! block's trees out, nearest first, and the scene keeps them while the block is within reach.
 //!
-//! A tree stands on the drawn ground's far surface, at the lowest of it or of retail's ground
-//! within a few meters, so the far mesh, coarser the farther it lies, leaves no gap beneath it.
+//! A tree stands on the drawn ground's far surface where it stands, as a tree of the blocks round
+//! the viewer stands on it there, so a tree handed between the two stands where it stood; the
+//! presentation sinks it the farther off it stands, where the far mesh is coarser.
 //! The presentation leaves out the trees of a block whose own objects stand in the world: those
 //! it draws from the block's placements.
 
@@ -24,8 +25,6 @@ use dereth_terrain::scenery::{generate_scenery, outside_cell_index, SceneryEnv, 
 
 use super::forest_cover::{cover_models, forest_cover, Cover};
 
-/// How far round a tree's foot the ground is looked at for the lowest of it, meters.
-const FOOT_REACH: f32 = 3.0;
 /// The blocks a side of the world.
 const WORLD_BLOCKS: i32 = 255;
 
@@ -88,18 +87,10 @@ fn mix(mut v: u32) -> u32 {
     v ^ (v >> 16)
 }
 
-/// The lowest of the drawn ground's far surface and retail's ground at world `(x, y)` and
-/// [`FOOT_REACH`] round it.
+/// The drawn ground's far surface at world `(x, y)`.
 fn foot(world: &Land, knobs: &Knobs, x: f32, y: f32) -> f32 {
-    let r = FOOT_REACH;
-    [(0.0, 0.0), (r, 0.0), (-r, 0.0), (0.0, r), (0.0, -r)]
-        .into_iter()
-        .map(|(dx, dy)| {
-            let p = Point::at(world, x + dx, y + dy);
-            p.retail
-                .min(p.retail + drawn::far_offset(&p, x + dx, y + dy, knobs))
-        })
-        .fold(f32::MAX, f32::min)
+    let p = Point::at(world, x, y);
+    p.retail + drawn::far_offset(&p, x, y, knobs)
 }
 
 /// Block `(bx, by)`'s trees that the art pack has far pictures for, where retail's scenery

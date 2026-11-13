@@ -348,6 +348,19 @@ source = "impostor.slang"
 entry = "fs_draw"
 stage = "fragment"
 
+# A row of a tree's pictures from the same pictures drawn finer, a texel from each square of
+# pixels.
+[[entry]]
+source = "impostor.slang"
+entry = "fs_gather"
+stage = "fragment"
+
+# A far picture's smaller copies, made from a row of views.
+[[entry]]
+source = "impostor.slang"
+entry = "fs_chain"
+stage = "fragment"
+
 # The art pack's far trees: culled on the device, then its far pictures drawn into the G-buffer.
 [[entry]]
 source = "forest.slang"

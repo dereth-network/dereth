@@ -34,8 +34,10 @@ public static const uint FRAME_EXTENT = 20;
 // Where the near ground gives way to the far, meters from the eye (x, y), and z 1 while a far
 // ground is drawn: what stands on the ground is lifted onto it mixed the same way.
 public static const uint FRAME_LIFT = 22;
-// The hue an art pack's leaves are pulled toward, in turns (x), and how far (y, 0 not at all).
-public static const uint FRAME_FOLIAGE = 23;
+// How far round the screen patterns a tree's pictures are cut by are turned this frame, while the
+// smoothing or an upscaler lays frames over each other: x the pattern that picks a card's view, y
+// the one that cuts its coverage, 0 to 1; z 1 while they turn at all, 0 while they hold still.
+public static const uint FRAME_DITHER = 23;
 // The wind an art pack's trees sway in: xy its push east and north, meters a second; z the
 // weather's clock within its period, seconds.
 public static const uint FRAME_WIND = 24;
@@ -112,21 +114,6 @@ float3 rgb_of(float3 hsv)
 {
     float3 k = frac(hsv.x + float3(1.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0;
     return hsv.z * lerp(float3(1.0, 1.0, 1.0), saturate(abs(k) - 1.0), hsv.y);
-}
-
-// An art pack's leaf color `c` pulled toward the frame's foliage hue: its hue taken that share of
-// the way, by the shorter way round, its saturation and value as they were.
-public float3 pack_foliage(uint frame, float3 c)
-{
-    float4 f = row(frame, FRAME_FOLIAGE);
-    if (f.y <= 0.0)
-    {
-        return c;
-    }
-    float3 hsv = hsv_of(c);
-    float off = frac(hsv.x - f.x + 0.5) - 0.5;
-    hsv.x = frac(f.x + off * (1.0 - f.y));
-    return rgb_of(hsv);
 }
 
 // The light classes, which the material target's first channel carries.

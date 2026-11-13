@@ -285,10 +285,6 @@ Targets fs_main(Varyings in)
     {
         t *= in.color;
     }
-    if ((m.y & PACK_FOLIAGE) != 0)
-    {
-        t.rgb = pack_foliage(push.frame, t.rgb);
-    }
     float a = t.a * in.alpha;
     // The alpha test, where the surface has one: kept at or above the reference.
     if ((m.y & 1) != 0 && a - float(m.z) / 255.0 + 1e-6 < 0.0)

@@ -265,38 +265,13 @@ fn a_day_groups_name_says_its_kind() {
     assert_eq!(DayKind::of_group("Stormy"), None);
 }
 
-/// **An art pack's leaves are pulled toward one green unless a look says otherwise**: a look that
-/// names neither foliage value leaves the remaster's own pull, which the identity still counts as
-/// changing none of retail's light; a pack or the player names the hue and how far, a day kind its
-/// own; and the frame's constants carry the pull, its hue in turns.
+/// **An art pack's trees keep their own colors**: a look that still names the pull toward one
+/// hue it once had is read, the pull passed over, and the identity changes none of retail's light.
 #[test]
-fn an_art_packs_leaves_take_the_looks_foliage_pull_or_the_remasters_own() {
-    let own = [FOLIAGE.0 / 360.0, FOLIAGE.1];
-    assert_eq!(Look::IDENTITY.foliage(), own);
+fn a_look_naming_the_old_foliage_pull_is_read_and_the_pull_passed_over() {
     assert!(Look::IDENTITY.leaves_light_alone());
+    let toml = LookToml::parse("foliage_hue = 120\n[rainy]\nfoliage_pull = 0.5\n").unwrap();
     let mut stack = LookStack::new();
-    stack.set(
-        Layer::ArtPack,
-        Some(LookToml::parse("foliage_hue = 120\n[rainy]\nfoliage_pull = 0.5\n").unwrap()),
-    );
-    let sunny = stack.look(Some(DayKind::Sunny), 0.5);
-    assert_eq!(sunny.foliage(), [120.0 / 360.0, FOLIAGE.1]);
-    assert!(sunny.leaves_light_alone(), "the pull is no light");
-    let rainy = stack.look(Some(DayKind::Rainy), 0.5);
-    assert_eq!(rainy.foliage(), [120.0 / 360.0, 0.5]);
-    stack.set(
-        Layer::Player,
-        Some(LookToml::parse("foliage_pull = 0\n").unwrap()),
-    );
-    assert_eq!(stack.look(Some(DayKind::Rainy), 0.5).foliage()[1], 0.0);
-    for text in ["foliage_pull = 2\n", "foliage_hue = 400\n"] {
-        assert!(LookToml::parse(text).is_err(), "{text}");
-    }
-    let frame = FrameDelta {
-        foliage: [0.25, 0.8],
-        ..FrameDelta::default()
-    };
-    let bytes = frame_rows(&frame, 0.0, LightMode::Pixel, (960, 540)).bytes();
-    let row = &bytes[23 * 16..23 * 16 + 8];
-    assert_eq!(row, [0.25f32.to_le_bytes(), 0.8f32.to_le_bytes()].concat());
+    stack.set(Layer::ArtPack, Some(toml));
+    assert_eq!(stack.look(Some(DayKind::Rainy), 0.5), Look::IDENTITY);
 }

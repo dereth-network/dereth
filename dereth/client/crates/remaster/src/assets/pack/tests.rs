@@ -188,6 +188,33 @@ fn a_placement_the_pack_has_a_model_for_is_drawn_as_the_model() {
     assert_eq!(b.degrades.len(), 1);
 }
 
+/// A tree of one level still has a degrade record, of that level alone: far off it is drawn as
+/// its impostor, as a tree of many levels is past its last.
+#[test]
+fn a_tree_of_one_level_still_has_a_degrade_record() {
+    let mut b = block();
+    let one = || PackModel {
+        category: Category::Tree,
+        levels: vec![PackLevel {
+            mesh: pack_mesh(9, 0),
+            distance: f32::INFINITY,
+        }],
+        cover: false,
+    };
+    swap_placements(&mut b, &mut |id| (id == TREE).then(one));
+    assert_eq!(
+        b.placements[0].parts,
+        vec![Part {
+            frame: b.placements[0].frame,
+            scale: Vec3::splat(1.5),
+            ..part(pack_mesh(9, 0), Some(1))
+        }]
+    );
+    assert_eq!(b.degrades.len(), 2);
+    assert_eq!(b.degrades[1].levels, [pack_mesh(9, 0)]);
+    assert_eq!(b.degrades[1].scale_z, 1.5);
+}
+
 /// An object the server built (a lifestone: standing stones and a crystal) has each part the
 /// pack has a model for, by the GfxObj it draws, drawn as the model at every level it had; its
 /// other parts, its levels that draw nothing and its look stay; counted with the placements.

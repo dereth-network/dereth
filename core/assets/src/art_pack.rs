@@ -56,6 +56,16 @@
 //! far the surface stands along the view from the plane through the axis (0.5 on the plane, 0
 //! and 1 half the quad's width nearer and farther).
 //!
+//! **A tree's levels far off.** A model of `category = "tree"` walks down its levels by their
+//! distances, each taking over no nearer than the distance its level names (farther on a large
+//! screen, where a coarse level would still show), fading into the next. Past its last level
+//! drawn into the view it is drawn as pictures of its nearest level, which the client makes, and
+//! is wholly those pictures before the edge of the blocks round the viewer: a tree of one level
+//! does so too. Past the blocks round the viewer, where the client grows the
+//! world's trees as pictures alone, it is drawn from its level that names `views` when it has
+//! one, and otherwise from pictures the client makes of its nearest level: a pack need not
+//! draw its own.
+//!
 //! A pack may also lay the ground: a material for each retail terrain type it covers, drawn in
 //! place of that type's ground picture wherever retail lays it, through retail's own blend
 //! masks. A type the pack names no material for keeps retail's picture.

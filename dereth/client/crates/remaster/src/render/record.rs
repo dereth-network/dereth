@@ -8,8 +8,8 @@ use dereth_gfx::{
 };
 
 use super::light::{
-    air_drawn, drawn_linear, frame_rows, frame_rows_seen, light_rows, pack_lit, set_rows,
-    sky_projection, swaying,
+    air_drawn, dithered, drawn_linear, frame_rows, frame_rows_seen, free_turns, light_rows,
+    pack_lit, sequence_turns, set_rows, sky_projection, swaying,
 };
 use super::scene::{Bucket, CULLED_BUCKETS, GROUP_BUCKETS, NONE};
 use super::{push_words, Pipelines, Renderer, Targets, BUCKET_CAPACITY};
@@ -146,7 +146,6 @@ impl Renderer {
         };
         // Every pass lights the frame by the intent: retail's light with the look laid over it.
         frame.light = self.intents.of(&frame).light.clone();
-        frame.foliage = self.intents.last().look.foliage();
         // With an upscaler on the world is drawn at the render size, which is otherwise the
         // display's, and the post passes bring the frame up to the display's.
         let display = (area.width, area.height);
@@ -154,9 +153,17 @@ impl Renderer {
         self.use_mip_bias(self.upscale.settings().mip_bias(display))?;
         self.post
             .set_upscaling(self.upscale.settings().runs().then_some(display));
-        let camera = match self.upscale.next_jitter(render, display) {
-            Some(clip) => self.post.jitter_by(&mut frame.camera, clip),
-            None => self.post.jitter(&mut frame.camera, render),
+        let (camera, dither) = match self.upscale.next_jitter(render, display) {
+            Some(clip) => (
+                self.post.jitter_by(&mut frame.camera, clip),
+                self.upscale.dither().map(free_turns),
+            ),
+            None => (
+                self.post.jitter(&mut frame.camera, render),
+                self.post
+                    .dither()
+                    .map(|(place, count)| sequence_turns(place, count)),
+            ),
         };
         let targets = self.targets_for(render.0, render.1)?;
         self.area = (
@@ -251,15 +258,18 @@ impl Renderer {
             && frame.landscape
             && !frame.sky.is_empty()
             && !drawn.inside;
-        let rows = swaying(
-            air_drawn(
-                pack_lit(
-                    drawn_linear(frame_rows(&frame, gamma, mode, render), self.post.linear()),
-                    self.pack_look || self.landscape.air,
+        let rows = dithered(
+            swaying(
+                air_drawn(
+                    pack_lit(
+                        drawn_linear(frame_rows(&frame, gamma, mode, render), self.post.linear()),
+                        self.pack_look || self.landscape.air,
+                    ),
+                    air,
                 ),
-                air,
+                self.landscape.sway,
             ),
-            self.landscape.sway,
+            dither,
         )
         .bytes();
         bytes += put(&mut self.constants, &mut self.gfx, rows.clone())?;
@@ -714,6 +724,9 @@ impl Renderer {
                     .as_ref()
                     .map_or((NONE, None), |w| (w.table, Some(w.cover()))),
                 heights: self.drawn_ground.heights().unwrap_or(NONE),
+                tables: &self.tables,
+                impostors: &self.impostors,
+                wrap: samplers[0],
             },
         )?;
         let l = self.landscape;

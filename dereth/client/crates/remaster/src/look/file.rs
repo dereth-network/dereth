@@ -22,8 +22,8 @@
 //! height = 0.9
 //! ```
 //!
-//! The values: `sun`, `sky`, `tint`, `fog_density`, `fog_color`, `night_floor`, `exposure`,
-//! `foliage_hue` (degrees, 0 to 360) and `foliage_pull` (0 to 1). The tables: `sunny`, `rainy`,
+//! The values: `sun`, `sky`, `tint`, `fog_density`, `fog_color`, `night_floor` and `exposure`
+//! (`foliage_hue` and `foliage_pull`, which looks once had, are passed over). The tables: `sunny`, `rainy`,
 //! `clear` and `cloudy`; `grade.<table>` (`noon`, `morning`, `evening`, `night`, `rain`, `overcast`),
 //! each of `lift`, `gamma`, `gain` (three numbers), `saturation`, `greens`, `green_turn` and
 //! `contrast`; and `grass.<terrain type, 0 to 31>`, each of `share`, `height`, `dryness`, `patchy`
@@ -67,8 +67,6 @@ fn range(name: &str) -> (f32, f32) {
         "exposure" => (-16.0, 16.0),
         "night_floor" => (0.0, 1.0),
         "fog_density" => (0.001, 100.0),
-        "foliage_hue" => (0.0, 360.0),
-        "foliage_pull" => (0.0, 1.0),
         _ => (0.0, 100.0),
     }
 }
@@ -129,8 +127,9 @@ fn values(table: &toml::Table, at: &str, days: bool) -> Result<Values, LookError
             "fog_density" => &mut v.fog_density,
             "night_floor" => &mut v.night_floor,
             "exposure" => &mut v.exposure,
-            "foliage_hue" => &mut v.foliage_hue,
-            "foliage_pull" => &mut v.foliage_pull,
+            // An art pack's trees keep their own colors: the pull toward one hue looks once
+            // named is passed over.
+            "foliage_hue" | "foliage_pull" => continue,
             "fog_color" => {
                 let c = value
                     .as_array()
@@ -153,7 +152,7 @@ fn values(table: &toml::Table, at: &str, days: bool) -> Result<Values, LookError
             other => {
                 return Err(err(format!(
                     "{at}{other} is not a value a look has (sun, sky, tint, fog_density, \
-                     fog_color, night_floor, exposure, foliage_hue, foliage_pull){}",
+                     fog_color, night_floor, exposure){}",
                     if days {
                         ", nor a kind of day (sunny, rainy, clear, cloudy)"
                     } else {

@@ -107,6 +107,12 @@ A model has one or more LODs, listed closest first. Every LOD except the last se
 
 A LOD with `shadows_only = true` is rendered only into the sun's shadow maps, for cases where shadows can use a coarser mesh than the view. It's never visible: the view skips straight from the LOD before it to the one after it. Its `distance` is optional. The first and last LODs are always drawn in the view.
 
+### Trees far away
+
+A model with `category = "tree"` steps down its LODs by distance, fading from one to the next. No LOD takes over nearer than its `distance`; on a large screen it may take over farther out, where a coarser LOD would still be noticeable. Past its last LOD the client draws the tree as pictures of its first LOD, which it makes itself, and it always switches to them before the edge of the landblocks around the player. A tree with only one LOD gets them too.
+
+Beyond the landblocks around the player, the client draws trees as pictures only. It uses the model's `views` LOD if it has one (below), and otherwise makes pictures of its first LOD, so a pack doesn't need to supply its own.
+
 ### Impostors
 
 A LOD that sets `views` is an impostor: pre-rendered images of the model instead of geometry, for use far away. Its glTF holds a single upright quad across the model's axis (the model's first axis running across, its height running up), which rotates around the model's vertical axis to face the camera.
@@ -199,7 +205,6 @@ The available keys:
 - `fog_density` and `fog_color`
 - `night_floor`: the minimum ambient level
 - `exposure`: in stops, for HDR
-- `foliage_hue` and `foliage_pull`: the hue (in degrees) the pack's foliage is pulled toward, and how strongly (0 to 1)
 
 Any key can be overridden for a specific weather type: `sunny`, `rainy`, `clear` or `cloudy`.
 

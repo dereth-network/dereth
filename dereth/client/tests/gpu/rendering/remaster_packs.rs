@@ -418,14 +418,13 @@ fn the_packs_trees_take_the_place_of_the_trees_it_has_a_model_for() {
 /// drawn from the pack's folder, whose cut-out pictures the remaster makes again with their
 /// cut-away texels filled from the edge, show no magenta-tinted pixel more than the forest
 /// without the pack does; the same pack opened from memory, its pictures as the pack made them,
-/// shows a fringe of them. The leaves are drawn with no pull toward the look's foliage hue, so the
-/// key's color is seen as it is.
+/// shows a fringe of them.
 #[test]
 fn a_cut_out_pictures_edge_carries_none_of_the_color_its_cut_leaves_out() {
     let _gpu = crate::common::gpu_lock();
     let store = crate::common::dats();
     let st = station(&store, "forest");
-    let f = files(Some("foliage_pull = 0.0"));
+    let f = files(None);
     let none = run(&store, &st, None, RemasterPacks::default(), 6);
     let made = run(&store, &st, Some((in_memory(&f), None)), trees(), 6);
     let (pack, dir) = in_a_folder(&f, "leaf");
@@ -2653,61 +2652,45 @@ fn hue_near(c: &RemasterCapture, i: usize, degrees: f32) -> bool {
     off.abs() < 60.0
 }
 
-/// **An art pack's leaves are pulled toward one green, and nothing else is**: in the forest, a
-/// pack's trees with red leaves are drawn green; with the pack's own lighting saying to pull them
-/// not at all, they are drawn red; and between the two frames no pixel changes but the leaves'.
+/// **An art pack's trees keep their own colors**: in the forest, a pack's trees with red leaves
+/// are drawn red (the rest of them in shade, too dark to show a hue), none of their leaves pulled
+/// toward a green.
 #[test]
-fn a_packs_leaves_are_pulled_toward_one_green_and_nothing_else_is() {
+fn a_packs_trees_keep_their_own_colors() {
     let _gpu = crate::common::gpu_lock();
     let store = crate::common::dats();
     let st = station(&store, "forest");
-    let pulled = run(
+    let none = run(&store, &st, None, RemasterPacks::default(), 6);
+    let red_leaves = run(
         &store,
         &st,
         Some((in_memory(&red_leaf_files(None)), None)),
         trees(),
         6,
     );
-    let as_made = run(
-        &store,
-        &st,
-        Some((in_memory(&red_leaf_files(Some("foliage_pull = 0.0"))), None)),
-        trees(),
-        6,
-    );
-    // The leaves are what changes between the two frames.
-    let changed: Vec<usize> = (0..pulled.capture.class.len())
+    // The pack's leaves: the foliage the pack changed.
+    let c = &red_leaves.capture;
+    let leaves: Vec<usize> = (0..c.class.len())
         .filter(|&i| {
-            pulled.capture.color[i * 4..i * 4 + 3] != as_made.capture.color[i * 4..i * 4 + 3]
+            c.class[i] == 2
+                && c.kind[i] == FOLIAGE
+                && c.color[i * 4..i * 4 + 3] != none.capture.color[i * 4..i * 4 + 3]
         })
         .collect();
-    let red = changed
-        .iter()
-        .filter(|&&i| hue_near(&as_made.capture, i, 10.0))
-        .count();
-    let green = changed
-        .iter()
-        .filter(|&&i| hue_near(&pulled.capture, i, 100.0))
-        .count();
-    eprintln!(
-        "{} pixels changed: {red} of them red as made, {green} green pulled",
-        changed.len()
-    );
+    let red = leaves.iter().filter(|&&i| hue_near(c, i, 10.0)).count();
+    let green = leaves.iter().filter(|&&i| hue_near(c, i, 100.0)).count();
+    eprintln!("{} leaf pixels: {red} red, {green} green", leaves.len());
     assert!(
-        changed.len() > 2_000,
+        leaves.len() > 2_000,
         "the leaves are drawn: {}",
-        changed.len()
+        leaves.len()
     );
     assert!(
-        red * 50 >= changed.len() * 49,
-        "nothing but the red leaves changes: {red} of {} changed pixels",
-        changed.len()
+        red * 2 >= leaves.len(),
+        "most are red as made: {red} of {}",
+        leaves.len()
     );
-    assert!(
-        green * 10 >= changed.len() * 9,
-        "pulled, they are green: {green} of {} changed pixels",
-        changed.len()
-    );
+    assert!(green * 25 <= leaves.len(), "hardly any green: {green}");
 }
 
 /// The foliage's kind among the material's kinds.

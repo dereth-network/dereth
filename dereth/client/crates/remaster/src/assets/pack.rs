@@ -166,7 +166,8 @@ pub struct PackModel {
 /// `block` with each placement the pack has a model for (`model` of the placement's object)
 /// drawn as that model: its parts made one, at the placement's own frame and scale, whose mesh
 /// is the model's nearest level and whose degrade record, added after the block's own, holds its
-/// levels. Returns how many placements it swapped.
+/// levels. A tree has a record even with one level: far off it is drawn as its impostor. Returns
+/// how many placements it swapped.
 pub fn swap_placements(
     block: &mut Block,
     model: &mut dyn FnMut(u32) -> Option<PackModel>,
@@ -182,7 +183,7 @@ pub fn swap_placements(
         let Some(first) = m.levels.first() else {
             continue;
         };
-        let degrade = (m.levels.len() > 1).then(|| {
+        let degrade = (m.levels.len() > 1 || m.category == Category::Tree).then(|| {
             // Its distance is measured from where the model stands, over its scale; it has no
             // bands of retail's, so the levels' own distances choose them.
             block.degrades.push(Degrade {

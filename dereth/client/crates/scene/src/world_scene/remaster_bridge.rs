@@ -1515,6 +1515,7 @@ pub(super) fn publish(draw: &SceneDraw, bridge: &mut Bridge, ws: &WorldState, si
         disabled: g.degrades_disabled,
         force: g.force_level,
     };
+    frame.scenery_reach = scenery_reach(draw.cfg.scenery_radius);
 
     // --- the ground drawn over retail's ---------------------------------------------------
     frame.drawn = drawn_ground(draw, ws, &mut sh.drawn_world);
@@ -1527,6 +1528,21 @@ pub(super) fn publish(draw: &SceneDraw, bridge: &mut Bridge, ws: &WorldState, si
 /// (sent anew only when read anew, `world` keeping the last), and while the scene draws its offset
 /// the offset round the viewer, its knobs and the bodies the fine relief is leveled under.
 /// One tree far off, as the remaster draws it.
+/// How far the eye may stand from the viewer's body, meters, as the camera follows it.
+const CAMERA_REACH: f32 = 24.0;
+
+/// How far from the eye the blocks whose own scenery stands in the world reach at the least, with
+/// `radius` rings of blocks round the viewer's asked to grow it: a block leaves them, or comes
+/// into them, only once the viewer stands a whole ring of blocks from it. Scenery grows only on
+/// the blocks the landscape meshes at full detail, the viewer's and the ring round it, however
+/// many rings are asked. 0 for none.
+fn scenery_reach(radius: u32) -> f32 {
+    // LINT-OK: a radius of a few blocks.
+    #[allow(clippy::cast_precision_loss)]
+    let r = radius.min(1) as f32;
+    (r * 192.0 - CAMERA_REACH).max(0.0)
+}
+
 pub(crate) type FarTree = rm::FarTree;
 
 impl super::far_trees::Tree for rm::FarTree {
@@ -1573,10 +1589,26 @@ fn forest(draw: &SceneDraw, sh: &mut Shadow) -> Option<rm::Forest> {
         sh.far_cover = None;
         return None;
     }
-    let serial = super::far_retail::set_serial(pack.map(|p| p.pack().serial), retail_models);
+    // The objects the pack draws its own models for near, whatever their kind, and which kinds.
+    let kinds = dereth_remaster::assets::pack::Category::ALL
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| view.packs.models(**c))
+        .fold(0u64, |bits, (k, _)| bits | 1 << k);
+    let serial = super::far_retail::set_serial(pack.map(|p| p.pack().serial), retail_models)
+        ^ view
+            .pack
+            .as_ref()
+            .map_or(0, |p| p.pack().serial.rotate_left(29) ^ kinds << 56);
     if sh.far_pack.as_ref().is_none_or(|p| p.serial != serial) {
-        sh.far_pack = super::far_retail::far_pack(pack.map(|p| p.far_pack()), retail)
-            .map(std::sync::Arc::new);
+        let swapped = view
+            .pack
+            .as_ref()
+            .map(|p| p.swapped(view.packs))
+            .unwrap_or_default();
+        sh.far_pack =
+            super::far_retail::far_pack(pack.map(|p| p.far_pack()), retail, &swapped, serial)
+                .map(std::sync::Arc::new);
     }
     if sh.far_trees.as_ref().is_none_or(|t| t.serial != far.serial) {
         let blocks = far

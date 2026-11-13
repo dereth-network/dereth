@@ -1081,9 +1081,9 @@ impl super::SceneDraw {
 
 impl super::WorldScene {
     /// Wait for the far trees and forest cover the remaster draws to be worked out where they are
-    /// being worked out, and for the far pictures of retail's trees asked for so far to be drawn:
-    /// for a capture that has to draw them from its first frames. The frame after this draws
-    /// them.
+    /// being worked out, and for which of retail's objects are trees: for a capture that has to
+    /// draw them from its first frames. Their pictures are made on the device over the frames
+    /// after this.
     pub fn wait_for_remaster_far_trees(&mut self) {
         self.draw.remaster_ground.wait_for_world();
         if let Some(r) = self.draw.remaster_retail_far.as_ref() {

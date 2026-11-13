@@ -134,9 +134,78 @@ pub fn frame_rows_seen(
     // How the scene's colors are drawn: in display values, as retail draws them.
     r.f([0.0; 4]);
     r.f(lift_row(frame));
-    r.f([frame.foliage[0], frame.foliage[1], 0.0, 0.0]);
+    // The screen patterns held still ([`dithered`] turns them).
+    r.f([0.0; 4]);
     r.f(wind_row(frame));
     r
+}
+
+/// The frame constants' row that turns the screen patterns a tree's pictures are cut by.
+pub const FRAME_DITHER: usize = 23;
+
+/// `rows` with the screen patterns a tree's pictures are cut by turned on by `turns`: the share of
+/// the way round that the pattern that picks a card's view and the one that cuts its coverage are
+/// each turned this frame ([`sequence_turns`], [`free_turns`]). `None` holds them still.
+#[must_use]
+pub fn dithered(mut rows: Rows, turns: Option<[f32; 2]>) -> Rows {
+    if let Some(r) = rows.0.get_mut(FRAME_DITHER) {
+        let row = turns.map_or([0.0; 4], |[view, cut]| [view, cut, 1.0, 0.0]);
+        *r = row.map(f32::to_bits);
+    }
+    rows
+}
+
+/// The patterns' turns at `place` in a sequence of `count` frames that the smoothing lays over
+/// each other and settles on once it has gathered them: the pattern that picks the view a
+/// `count`th of the way round each frame, so over the sequence each pixel's thresholds spread
+/// evenly across the way and it shows each view, and is kept, in the share of the frames its
+/// coverage gives it; the pattern that cuts by [`cut_stride`] steps a frame, so the two patterns'
+/// thresholds pair up evenly too. A still view draws the same frames again each sequence.
+#[must_use]
+pub fn sequence_turns(place: u32, count: u32) -> [f32; 2] {
+    let count = count.max(1);
+    let place = place % count;
+    #[allow(clippy::cast_precision_loss)] // a short sequence
+    [
+        place as f32 / count as f32,
+        (place * cut_stride(count) % count) as f32 / count as f32,
+    ]
+}
+
+/// The patterns' turns for frame `frame` of an upscaler, which gathers its frames itself and
+/// takes what repeats with its own jitter for a fine pattern on the surface: turned on each frame
+/// by the golden ratio's step and the plastic number's, which never repeat and each spread a
+/// pixel's thresholds evenly over the frames.
+#[must_use]
+pub fn free_turns(frame: u32) -> [f32; 2] {
+    const STEPS: [f64; 2] = [0.618_033_988_749_894_9, 0.754_877_666_246_692_8];
+    #[allow(clippy::cast_possible_truncation)] // a share of the way, 0 to 1
+    STEPS.map(|s| (f64::from(frame) * s).fract() as f32)
+}
+
+/// The steps a frame the pattern that cuts a tree's pictures moves on through a sequence of
+/// `count` frames: the whole number nearest `count` over the golden ratio that shares no factor
+/// with `count`, so it meets every step of the sequence once and pairs with the other pattern's
+/// steps as evenly as a short sequence allows.
+#[must_use]
+pub fn cut_stride(count: u32) -> u32 {
+    const fn shares_none(mut a: u32, mut b: u32) -> bool {
+        while b != 0 {
+            (a, b) = (b, a % b);
+        }
+        a == 1
+    }
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
+    // LINT-OK: a short sequence's length
+    let mut stride = ((count as f32 * 0.618_034).round() as u32).max(1);
+    while count > 1 && !shares_none(stride, count) {
+        stride += 1;
+    }
+    stride
 }
 
 /// The wind an art pack's trees sway in: its push east and north, meters a second, and the
@@ -410,8 +479,8 @@ mod tests {
 
     /// The frame's constants are 25 rows, with the ground's ambient its color's bytes times its
     /// level, the fog off when the frame has none, the colors in display values unless the frame
-    /// is drawn linear, nothing lifted while no ground is drawn over retail's, and no pull on an
-    /// art pack's leaves until the look gives one, and the wind last.
+    /// is drawn linear, nothing lifted while no ground is drawn over retail's, the screen patterns
+    /// held still until a sequence of frames turns them, and the wind last.
     #[test]
     fn the_frames_constants_are_twenty_five_rows() {
         let mut f = FrameDelta::default();
@@ -423,7 +492,7 @@ mod tests {
         assert_eq!(r.0.len(), 25);
         assert_eq!(r.0[24].map(f32::from_bits), wind_row(&f));
         assert_eq!(r.0[22], [0; 4], "no ground drawn over retail's");
-        assert_eq!(r.0[23], [0; 4], "no pull on an art pack's leaves");
+        assert_eq!(r.0[FRAME_DITHER], [0; 4], "the screen patterns held still");
         let row = |i: usize| r.0[i].map(f32::from_bits);
         assert!((row(11)[0] - 0.5).abs() < 1e-6);
         assert!((row(11)[1] - 128.0 * BYTE * 0.5).abs() < 1e-6);
@@ -433,6 +502,59 @@ mod tests {
         let linear = drawn_linear(r.clone(), true);
         assert_eq!(linear.0[FRAME_POST][0], 1.0f32.to_bits());
         assert_eq!(drawn_linear(linear, false), r);
+    }
+
+    /// The screen patterns turn a step of a sequence a frame, round to the start, the cutting
+    /// pattern by its stride; under an upscaler they turn on without repeating; and they hold still
+    /// without frames laid over each other.
+    #[test]
+    fn the_screen_patterns_turn_a_step_of_their_sequence_a_frame() {
+        let r = frame_rows(&FrameDelta::default(), 0.0, LightMode::Vertex, (640, 480));
+        let row = |rows: Rows| rows.0[FRAME_DITHER].map(f32::from_bits);
+        assert_eq!(row(dithered(r.clone(), None)), [0.0; 4]);
+        assert_eq!(
+            row(dithered(r, Some(sequence_turns(3, 8)))),
+            [0.375, 0.875, 1.0, 0.0]
+        );
+        assert_eq!(sequence_turns(19, 17), [2.0 / 17.0, 5.0 / 17.0]);
+        assert_eq!(sequence_turns(8, 8), sequence_turns(0, 8));
+        // Over a sequence each pattern meets every step of it once.
+        for k in [0usize, 1] {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            // LINT-OK: a step of a short sequence, 0 to 7
+            let mut steps: Vec<u32> = (0..8)
+                .map(|place| (sequence_turns(place, 8)[k] * 8.0).round() as u32)
+                .collect();
+            steps.sort_unstable();
+            assert_eq!(steps, (0..8).collect::<Vec<u32>>(), "pattern {k}");
+        }
+        let free: Vec<[f32; 2]> = (0..64).map(free_turns).collect();
+        assert!(free.iter().flatten().all(|t| (0.0..1.0).contains(t)));
+        for k in [0usize, 1] {
+            let mut seen: Vec<f32> = free.iter().map(|t| t[k]).collect();
+            seen.sort_by(f32::total_cmp);
+            // Low discrepancy: no gap between neighboring turns over the 64 frames wider than
+            // a few 64ths of the way.
+            let gap = seen.windows(2).map(|w| w[1] - w[0]).fold(0.0f32, f32::max);
+            assert!(gap < 3.0 / 64.0, "pattern {k}: a gap of {gap}");
+        }
+    }
+
+    /// The cutting pattern's stride meets every step of its sequence once, near the sequence over
+    /// the golden ratio.
+    #[test]
+    fn the_cutting_patterns_stride_meets_every_step_of_its_sequence() {
+        for count in 2..=40u32 {
+            let stride = cut_stride(count);
+            let mut met: Vec<u32> = (0..count).map(|k| k * stride % count).collect();
+            met.sort_unstable();
+            met.dedup();
+            assert_eq!(met.len(), count as usize, "{count}: stride {stride}");
+            #[allow(clippy::cast_precision_loss)] // small counts
+            let off = (stride as f32 - count as f32 * 0.618_034).abs();
+            assert!(off < 3.0, "{count}: stride {stride}");
+        }
+        assert_eq!([cut_stride(8), cut_stride(17), cut_stride(32)], [5, 11, 21]);
     }
 
     /// With the trees' sway off the frame's wind is still, its clock kept; on, it is as it blows.

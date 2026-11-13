@@ -4,14 +4,19 @@
 //! to the eye, drawn into the G-buffer after the meshes, showing the pictures either side of the
 //! eye's direction and lit as the sun lights what stands outdoors.
 //!
+//! The pictures are drawn [`FINE`] times finer each way than the row keeps them ([`Fine`]), and
+//! each texel of the row takes the share of its square of pixels the mesh covers, with its color
+//! multiplied by that share: a crown's needles, each thinner than a texel, keep their coverage
+//! rather than thinning to a few blots with holes between.
+//!
 //! A tree's pictures are made the frame it is first drawn so, and kept while the renderer is.
 
 use std::collections::HashMap;
 
 use dereth_gfx::{
     Buffer, BufferDesc, BufferUsage, ColorAttachment, ColorTarget, Compare, Cull, DepthAttachment,
-    DepthState, Device, Format, GraphicsDesc, IndexType, Load, Location, Pipeline, RasterPass,
-    Recorder, Rect, Texture, TextureDesc, TextureUsage, Touch, Use,
+    DepthState, Device, Draw, Format, GraphicsDesc, IndexType, Load, Location, Pipeline,
+    RasterPass, Recorder, Rect, Texture, TextureDesc, TextureUsage, Touch, Use,
 };
 use glam::{Mat4, Vec3, Vec4Swizzles};
 
@@ -24,13 +29,228 @@ use crate::shaders::Entry;
 pub const VIEWS: u32 = 16;
 
 /// A picture's side, pixels.
-pub const TILE: u32 = 128;
+pub const TILE: u32 = 256;
 
 /// The trees an atlas page holds, a row each.
-pub const ROWS: u32 = 16;
+pub const ROWS: u32 = 8;
 
 /// The pages' format: a picture's color and coverage, and its normals.
-const PICTURE: Format = Format::Rgba8Unorm;
+pub(crate) const PICTURE: Format = Format::Rgba8Unorm;
+
+/// How many times finer each way a tree's pictures are drawn than they are kept: each texel kept
+/// is gathered from a square of this many pixels a side.
+pub const FINE: u32 = 2;
+
+/// The views drawn finer at once.
+const SPAN: u32 = 2;
+
+/// Where a row's views are drawn finer before they are gathered into it, [`SPAN`] at a time:
+/// their colors and coverage and their normals, each with its index in the table, and their
+/// depth; and the pipeline that gathers them.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Fine {
+    color: (Texture, u32),
+    normal: (Texture, u32),
+    depth: Texture,
+    gather: Pipeline,
+}
+
+impl Fine {
+    /// The bytes it holds on the device.
+    pub(crate) const BYTES: u64 = (SPAN * TILE * FINE) as u64 * (TILE * FINE) as u64 * 4 * 3;
+
+    /// The pipeline that gathers a row's texels from its views drawn finer.
+    ///
+    /// # Errors
+    /// What the device refuses.
+    pub(crate) fn gather_pipeline(gfx: &mut Device) -> Result<Pipeline, dereth_gfx::Error> {
+        let targets = [PICTURE, PICTURE].map(|format| ColorTarget {
+            format,
+            blend: None,
+            write_alpha: true,
+        });
+        gfx.create_graphics_pipeline(&GraphicsDesc {
+            label: "remaster tree pictures gathered",
+            vertex: shader(Entry::FullscreenVsMain),
+            fragment: Some(shader(Entry::ImpostorFsGather)),
+            color: &targets,
+            depth: None,
+            cull: Cull::None,
+        })
+    }
+
+    /// Its pictures made on `gfx`, gathered by `gather`.
+    ///
+    /// # Errors
+    /// What the device refuses.
+    pub(crate) fn new(gfx: &mut Device, gather: Pipeline) -> Result<Self, dereth_gfx::Error> {
+        let (width, height) = (SPAN * TILE * FINE, TILE * FINE);
+        let mut make = |label, format, usage| {
+            gfx.create_texture(&TextureDesc {
+                label,
+                width,
+                height,
+                mips: 1,
+                format,
+                usage,
+            })
+        };
+        let both = TextureUsage::COLOR_TARGET | TextureUsage::SAMPLED;
+        let color = make("remaster tree pictures drawn finer", PICTURE, both)?;
+        let normal = make("remaster tree normals drawn finer", PICTURE, both)?;
+        let depth = make(
+            "remaster tree pictures' depth",
+            DEPTH,
+            TextureUsage::DEPTH_TARGET,
+        )?;
+        Ok(Self {
+            color: (color, gfx.bind_texture(color)?),
+            normal: (normal, gfx.bind_texture(normal)?),
+            depth,
+            gather,
+        })
+    }
+
+    /// Record a row of a tree's views into `into` (a page's color and normal pictures), its top
+    /// `y` texels down: [`SPAN`] views at a time drawn finer by `draw` (given the pass, with
+    /// `bake` and `indices` bound, and the view), each pass over what `touches` names, then
+    /// gathered into the row.
+    ///
+    /// # Errors
+    /// What the layer refuses.
+    pub(crate) fn record(
+        &self,
+        r: &mut Recorder<'_>,
+        (bake, indices): (Pipeline, Buffer),
+        touches: &[Touch],
+        into: (Texture, Texture),
+        y: u32,
+        draw: &mut dyn FnMut(&mut Draw<'_>, u32) -> Result<(), dereth_gfx::Error>,
+    ) -> Result<(), dereth_gfx::Error> {
+        let side = TILE * FINE;
+        for first in (0..VIEWS).step_by(SPAN as usize) {
+            r.raster(
+                &RasterPass {
+                    name: "tree pictures drawn finer",
+                    color: &[
+                        ColorAttachment {
+                            texture: self.color.0,
+                            load: Load::Clear([0.0; 4]),
+                        },
+                        ColorAttachment {
+                            texture: self.normal.0,
+                            load: Load::Clear([0.5, 0.5, 1.0, 0.0]),
+                        },
+                    ],
+                    depth: Some(DepthAttachment {
+                        texture: self.depth,
+                        clear: Some(1.0),
+                        write: true,
+                    }),
+                    touches,
+                    area: Some(Rect {
+                        x: 0,
+                        y: 0,
+                        width: SPAN * side,
+                        height: side,
+                    }),
+                },
+                |d| {
+                    d.set_pipeline(bake)?;
+                    d.bind_index_buffer(indices, 0, IndexType::U32)?;
+                    for k in 0..SPAN {
+                        let tile = Rect {
+                            x: i32::try_from(k * side).unwrap_or(0),
+                            y: 0,
+                            width: side,
+                            height: side,
+                        };
+                        d.set_viewport(tile);
+                        d.set_scissor(tile);
+                        draw(d, first + k)?;
+                    }
+                    Ok(())
+                },
+            )?;
+            let (x, width) = (first * TILE, SPAN * TILE);
+            r.raster(
+                &RasterPass {
+                    name: "tree pictures gathered",
+                    color: &[
+                        ColorAttachment {
+                            texture: into.0,
+                            load: Load::Keep,
+                        },
+                        ColorAttachment {
+                            texture: into.1,
+                            load: Load::Keep,
+                        },
+                    ],
+                    depth: None,
+                    touches: &[
+                        Touch::Texture(self.color.0, Use::Sampled),
+                        Touch::Texture(self.normal.0, Use::Sampled),
+                    ],
+                    area: Some(Rect {
+                        x: i32::try_from(x).unwrap_or(0),
+                        y: i32::try_from(y).unwrap_or(0),
+                        width,
+                        height: TILE,
+                    }),
+                },
+                |d| {
+                    d.set_pipeline(self.gather)?;
+                    d.push(0, &push_words(&[self.color.1, self.normal.1, FINE, x, y]))?;
+                    d.draw(3, 1, 0, 0);
+                    Ok(())
+                },
+            )?;
+        }
+        Ok(())
+    }
+}
+
+/// Where a tree's impostor pictures are in the atlas: its page's color and normal pictures, each
+/// with its index in the table, its row, and the sphere round the mesh they are of, in its own
+/// space.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AtlasRow {
+    pub albedo: (Texture, u32),
+    pub normal: (Texture, u32),
+    pub row: u32,
+    pub centre: Vec3,
+    pub radius: f32,
+}
+
+/// The push words that draw view `view` of a mesh's pictures: its sphere (`centre`, `radius`),
+/// the mesh placed by `frame` in the space pictured; drawn by the draw items it names (`items`'s
+/// index) or, where `items` is `NONE`, as `own` says: its first vertex, its material and its
+/// flags.
+#[must_use]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn bake_words(
+    items: u32,
+    vertices: u32,
+    materials: u32,
+    samplers: [u32; 2],
+    view: u32,
+    (centre, radius): (Vec3, f32),
+    frame: Mat4,
+    own: [u32; 3],
+) -> Vec<u8> {
+    let mut words = push_words(&[items, vertices, materials, samplers[0], samplers[1], view]);
+    let rows = frame.transpose();
+    for x in [centre.x, centre.y, centre.z, radius]
+        .into_iter()
+        .chain(rows.x_axis.to_array())
+        .chain(rows.y_axis.to_array())
+        .chain(rows.z_axis.to_array())
+    {
+        words.extend_from_slice(&x.to_le_bytes());
+    }
+    words.extend(push_words(&own));
+    words
+}
 
 /// One tree a frame draws as an impostor: its block, its place among the block's parts, how
 /// much of it the impostor draws (1 all of it), and the tree's first level's GfxObj.
@@ -76,7 +296,7 @@ struct Bake {
 pub struct ImpostorPlan {
     bakes: Vec<Bake>,
     pages: Vec<Page>,
-    depth: Option<Texture>,
+    fine: Option<Fine>,
     cards: Buffer,
     cards_index: u32,
     count: u32,
@@ -111,8 +331,9 @@ pub struct ImpostorInputs<'a> {
 pub struct ImpostorPass {
     bake: Pipeline,
     draw: Pipeline,
+    gather: Pipeline,
     pages: Vec<Page>,
-    depth: Option<Texture>,
+    fine: Option<Fine>,
     // ORDER-OK: looked up by tree.
     slots: HashMap<u32, Slot>,
     cards: Buffer,
@@ -121,6 +342,20 @@ pub struct ImpostorPass {
     stats: ImpostorStats,
     /// Where the last frame's cards stand their trees' bases, and how far each was lifted.
     bases: Vec<(Vec3, f32)>,
+    /// The last frame's cards.
+    drawn: Vec<DrawnCard>,
+}
+
+/// A card the last frame drew: its tree's first level's GfxObj, the centre of the sphere its
+/// pictures are of (the frame's space) and its radius, the turn of the tree's x axis about its z
+/// axis (radians), and how much of the tree the card draws (1 all of it).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DrawnCard {
+    pub gfxobj: u32,
+    pub centre: Vec3,
+    pub radius: f32,
+    pub turn: f32,
+    pub share: f32,
 }
 
 /// What the impostors did.
@@ -174,6 +409,7 @@ impl ImpostorPass {
             depth,
             cull: Cull::None,
         })?;
+        let gather = Fine::gather_pipeline(gfx)?;
         let cards_size = 1 << 16;
         let cards = gfx.create_buffer(&BufferDesc {
             label: "remaster impostor cards",
@@ -185,14 +421,16 @@ impl ImpostorPass {
         Ok(Self {
             bake,
             draw,
+            gather,
             pages: Vec::new(),
-            depth: None,
+            fine: None,
             slots: HashMap::new(),
             cards,
             cards_index,
             cards_size,
             stats: ImpostorStats::default(),
             bases: Vec::new(),
+            drawn: Vec::new(),
         })
     }
 
@@ -203,10 +441,42 @@ impl ImpostorPass {
         &self.bases
     }
 
+    /// The last frame's cards.
+    #[must_use]
+    pub fn drawn(&self) -> &[DrawnCard] {
+        &self.drawn
+    }
+
     /// What the last frame drew.
     #[must_use]
     pub fn stats(&self) -> ImpostorStats {
         self.stats
+    }
+
+    /// Where the impostor pictures of the mesh `gfxobj` are in the atlas, once made: from the
+    /// frame that makes them, whose recording makes them before anything else reads them.
+    #[must_use]
+    pub fn atlas_row(&self, gfxobj: u32) -> Option<AtlasRow> {
+        let s = self.slots.get(&gfxobj)?;
+        let p = self.pages.get(s.page)?;
+        Some(AtlasRow {
+            albedo: (p.albedo, p.albedo_index),
+            normal: (p.normal, p.normal_index),
+            row: s.row,
+            centre: s.centre,
+            radius: s.radius,
+        })
+    }
+
+    /// The atlas's pages, their colors and normals.
+    pub fn pages(&self) -> impl Iterator<Item = Texture> + '_ {
+        self.pages.iter().flat_map(|p| [p.albedo, p.normal])
+    }
+
+    /// The pipeline that draws a mesh's pictures from round it.
+    #[must_use]
+    pub(crate) fn bake_pipeline(&self) -> Pipeline {
+        self.bake
     }
 
     /// A row for a tree's pictures: the next free one, on a new page when the last is full.
@@ -236,15 +506,8 @@ impl ImpostorPass {
             });
             self.stats.pages += 1;
         }
-        if self.depth.is_none() {
-            self.depth = Some(gfx.create_texture(&TextureDesc {
-                label: "remaster impostor depth",
-                width: VIEWS * TILE,
-                height: ROWS * TILE,
-                mips: 1,
-                format: DEPTH,
-                usage: TextureUsage::DEPTH_TARGET,
-            })?);
+        if self.fine.is_none() {
+            self.fine = Some(Fine::new(gfx, self.gather)?);
         }
         Ok((page, row))
     }
@@ -262,6 +525,7 @@ impl ImpostorPass {
         self.stats.cards = 0;
         self.stats.baked = 0;
         self.bases.clear();
+        self.drawn.clear();
         if inputs.draws.is_empty() {
             return Ok(None);
         }
@@ -342,6 +606,13 @@ impl ImpostorPass {
                     rows.extend_from_slice(&x.to_le_bytes());
                 }
             };
+            self.drawn.push(DrawnCard {
+                gfxobj: d.gfxobj,
+                centre,
+                radius: slot.radius * scale,
+                turn: dereth_primitives::num::math::atan2f(t.x_axis.y, t.x_axis.x),
+                share: d.share,
+            });
             f([centre.x, centre.y, centre.z, slot.radius * scale]);
             f([t.x_axis.x, t.x_axis.y, t.x_axis.z, d.share]);
             // The kind: foliage.
@@ -375,7 +646,7 @@ impl ImpostorPass {
         Ok(Some(ImpostorPlan {
             bakes,
             pages: self.pages.clone(),
-            depth: self.depth,
+            fine: self.fine,
             cards: self.cards,
             cards_index: self.cards_index,
             count,
@@ -401,69 +672,38 @@ impl ImpostorPass {
         r: &mut Recorder<'_>,
         t: &Targets,
     ) -> Result<(), dereth_gfx::Error> {
-        if let Some(depth) = plan.depth {
+        if let Some(fine) = plan.fine {
+            let touches = [
+                Touch::Buffer(plan.items.0, Use::StorageRead),
+                Touch::Buffer(plan.vertices.0, Use::StorageRead),
+                Touch::Buffer(plan.materials.0, Use::StorageRead),
+                Touch::Buffer(plan.indices, Use::Index),
+            ];
             for b in &plan.bakes {
                 let page = plan.pages[b.page];
-                let area = Rect {
-                    x: 0,
-                    y: i32::try_from(b.row * TILE).unwrap_or(0),
-                    width: VIEWS * TILE,
-                    height: TILE,
-                };
                 r.timestamp("impostor pictures");
-                r.raster(
-                    &RasterPass {
-                        name: "impostor pictures",
-                        color: &[
-                            ColorAttachment {
-                                texture: page.albedo,
-                                load: Load::Clear([0.0; 4]),
-                            },
-                            ColorAttachment {
-                                texture: page.normal,
-                                load: Load::Clear([0.5, 0.5, 1.0, 0.0]),
-                            },
-                        ],
-                        depth: Some(DepthAttachment {
-                            texture: depth,
-                            clear: Some(1.0),
-                            write: true,
-                        }),
-                        touches: &[
-                            Touch::Buffer(plan.items.0, Use::StorageRead),
-                            Touch::Buffer(plan.vertices.0, Use::StorageRead),
-                            Touch::Buffer(plan.materials.0, Use::StorageRead),
-                            Touch::Buffer(plan.indices, Use::Index),
-                        ],
-                        area: Some(area),
-                    },
-                    |d| {
-                        d.set_pipeline(plan.bake)?;
-                        d.bind_index_buffer(plan.indices, 0, IndexType::U32)?;
-                        for v in 0..VIEWS {
-                            let tile = Rect {
-                                x: i32::try_from(v * TILE).unwrap_or(0),
-                                y: area.y,
-                                width: TILE,
-                                height: TILE,
-                            };
-                            d.set_viewport(tile);
-                            d.set_scissor(tile);
-                            let mut words = push_words(&[
+                fine.record(
+                    r,
+                    (plan.bake, plan.indices),
+                    &touches,
+                    (page.albedo, page.normal),
+                    b.row * TILE,
+                    &mut |d, v| {
+                        d.push(
+                            0,
+                            &bake_words(
                                 plan.items.1,
                                 plan.vertices.1,
                                 plan.materials.1,
-                                plan.samplers[0],
-                                plan.samplers[1],
+                                plan.samplers,
                                 v,
-                            ]);
-                            for x in [b.centre.x, b.centre.y, b.centre.z, b.radius] {
-                                words.extend_from_slice(&x.to_le_bytes());
-                            }
-                            d.push(0, &words)?;
-                            for (item, first, count) in &b.items {
-                                d.draw_indexed(*count, 1, *first, 0, *item);
-                            }
+                                (b.centre, b.radius),
+                                Mat4::IDENTITY,
+                                [0; 3],
+                            ),
+                        )?;
+                        for (item, first, count) in &b.items {
+                            d.draw_indexed(*count, 1, *first, 0, *item);
                         }
                         Ok(())
                     },
@@ -542,7 +782,7 @@ mod tests {
 
     #[test]
     fn an_atlas_page_holds_a_row_of_pictures_for_each_of_its_trees() {
-        assert_eq!(VIEWS * TILE, 2048);
+        assert_eq!(VIEWS * TILE, 4096);
         assert_eq!(ROWS * TILE, 2048);
         assert_eq!(CARD_ROWS * 16, 80);
     }

@@ -1700,10 +1700,6 @@ Found traced_scene(float3 from, float3 dir, float dist)
         {
             albedo *= tint;
         }
-        if ((m.y & PACK_FOLIAGE) != 0)
-        {
-            albedo = pack_foliage(push.frame, albedo);
-        }
         uint4 info = row_u(instances, entry.x * INSTANCE_ROWS + 5);
         cls = info.y;
         leaf = uint(row(materials, g.z * 2 + 1).z) == KIND_FOLIAGE;

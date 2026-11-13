@@ -20,7 +20,13 @@
 //! impostor ([`super::impostor`]), pictures of its full mesh from round it on an upright card.
 //! The impostor takes the place of the level that draws nothing, or comes after the last, and
 //! errs by how far the full mesh turns between two of its pictures ([`IMPOSTOR_ERROR`]); past it
-//! the tree is drawn as far as its block is.
+//! the tree is drawn as far as its block is. Past the blocks whose own objects stand in the world
+//! the far forest draws the trees as pictures, so a tree has wholly become its impostor before
+//! it could stand there ([`impostor_cap`]): a step that moves those blocks changes nothing seen.
+//!
+//! An art pack's model hands its levels over at the distances its pack gives them
+//! ([`pack_switches`]), never nearer than they stray by the bar; a tree of a pack takes its
+//! impostor after its last level, as retail's trees do, however many levels it has.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -115,6 +121,65 @@ fn retail_switches_into(d: &Degrade, bias: &DegradeBias, out: &mut Vec<f32>) {
         };
         (threshold + bias.distance) * z
     }));
+}
+
+/// The distances at which a pack model's levels hand over, from the distances its pack gives
+/// them (`distances`, each level's but the last), under `bias`: as the pack gives them, which is
+/// where retail's own levels stand at the farthest the bias slides them; never, while degrades
+/// are off; and a forced level from the first, as retail forces its own.
+#[must_use]
+pub fn pack_switches(distances: &[f32], bias: &DegradeBias) -> Vec<f32> {
+    let mut out = Vec::new();
+    pack_switches_into(distances, bias, &mut out);
+    out
+}
+
+/// [`pack_switches`], appended to `out`.
+fn pack_switches_into(distances: &[f32], bias: &DegradeBias, out: &mut Vec<f32>) {
+    if bias.disabled {
+        out.extend(std::iter::repeat_n(f32::INFINITY, distances.len()));
+        return;
+    }
+    if bias.force >= 0 {
+        // LINT-OK: a level index from a small console value.
+        #[allow(clippy::cast_sign_loss)]
+        let forced = bias.force as usize;
+        out.extend((0..distances.len()).map(|i| if i < forced { 0.0 } else { f32::INFINITY }));
+        return;
+    }
+    out.extend_from_slice(distances);
+}
+
+/// The farthest a tree hands over to its impostor, fade and all, where the blocks whose own
+/// objects stand in the world reach `reach` meters from the eye at the least (0 for unknown):
+/// infinite where nothing marks the reach, or while degrades are off or a level is forced.
+#[must_use]
+pub fn impostor_cap(reach: f32, band: f32, bias: &DegradeBias) -> f32 {
+    if reach <= 0.0 || bias.disabled || bias.force >= 0 {
+        return f32::INFINITY;
+    }
+    reach / (1.0 + band.max(0.0))
+}
+
+/// How far apart, at the least, hand-overs drawn in to the cap stay: a share of the fade band, so
+/// each level still fades into the next, however many are drawn in.
+pub const PULLED_GAP: f32 = 0.25;
+
+/// `hand_overs` drawn in so the last comes no farther than `cap`, each no nearer to the next than
+/// [`PULLED_GAP`] of the fade `band`: those that come early enough are kept where they are. So a
+/// tree keeps each level out to where it hands it over, or as near the cap as the levels after it
+/// leave room for; and as the bar moves a hand-over, the others never fall together, so no part
+/// passes over a level all at once.
+pub fn pull_in(hand_overs: &mut [f32], cap: f32, band: f32) {
+    if !cap.is_finite() {
+        return;
+    }
+    let gap = 1.0 + band.max(0.0) * PULLED_GAP;
+    let mut limit = cap;
+    for h in hand_overs.iter_mut().rev() {
+        *h = h.min(limit);
+        limit = *h / gap;
+    }
 }
 
 /// How far `level` strays from `full`, in the meshes' own units: the farthest any corner of the
@@ -568,6 +633,7 @@ impl Lod {
             bias: frame.degrade.bias.max(1.0),
             ..frame.degrade
         };
+        let cap = impostor_cap(frame.scenery_reach, fade, &frame.degrade);
         let Self {
             records,
             record_groups,
@@ -624,7 +690,7 @@ impl Lod {
                         );
                         group.switches_frame = frame_no;
                     }
-                    switches.extend_from_slice(&group.switches);
+                    pack_switches_into(&group.switches, &farthest, switches);
                 }
                 let Some(e) = group.errors.as_ref() else {
                     return (None, None);
@@ -660,6 +726,12 @@ impl Lod {
                     fade,
                     &mut scratch.hand_overs,
                 );
+                // A tree is wholly its impostor before it could stand where the far forest draws
+                // its block's trees as pictures: the hand-overs past it come at it, and the
+                // levels nearer keep their own.
+                if impostor.is_some() {
+                    pull_in(&mut scratch.hand_overs, cap, fade);
+                }
                 let p = pick(&scratch.hand_overs, (r.centre + offset).distance(eye), fade);
                 (Some(p), impostor)
             };
@@ -1429,6 +1501,232 @@ mod tests {
         assert_ne!(g[2], g[0], "turning otherwise");
         assert_ne!(g[4], g[0], "other levels");
         assert_ne!(g[4], g[2]);
+    }
+
+    /// A pack's levels hand over where the pack says, at the farthest retail's bias slides its
+    /// own; never while degrades are off; and from the first when a level is forced.
+    #[test]
+    fn a_packs_levels_hand_over_where_it_says_unless_degrades_are_off_or_forced() {
+        let d = [40.0, 90.0];
+        let even = DegradeBias::default();
+        assert_eq!(pack_switches(&d, &even), vec![40.0, 90.0]);
+        assert_eq!(
+            pack_switches(&d, &DegradeBias { bias: -1.0, ..even }),
+            vec![40.0, 90.0]
+        );
+        let off = DegradeBias {
+            disabled: true,
+            ..even
+        };
+        assert!(pack_switches(&d, &off).iter().all(|s| s.is_infinite()));
+        let forced = DegradeBias { force: 1, ..even };
+        assert_eq!(pack_switches(&d, &forced), vec![0.0, f32::INFINITY]);
+    }
+
+    /// A tree's impostor has wholly taken over, fade and all, before the reach of the blocks
+    /// whose objects stand in the world; with no reach, or degrades off or forced, nothing caps it.
+    #[test]
+    fn a_trees_impostor_has_wholly_taken_over_before_the_reach() {
+        let even = DegradeBias::default();
+        let cap = impostor_cap(168.0, FADE_BAND, &even);
+        assert!((cap * (1.0 + FADE_BAND) - 168.0).abs() < 1e-3, "{cap}");
+        assert!(impostor_cap(0.0, FADE_BAND, &even).is_infinite());
+        let off = DegradeBias {
+            disabled: true,
+            ..even
+        };
+        assert!(impostor_cap(168.0, FADE_BAND, &off).is_infinite());
+        let forced = DegradeBias { force: 0, ..even };
+        assert!(impostor_cap(168.0, FADE_BAND, &forced).is_infinite());
+        // The hand-overs past the cap are drawn in to it, a little apart; those nearer stay.
+        let gap = 1.0 + FADE_BAND * PULLED_GAP;
+        let mut h = [100.0, 200.0, 300.0];
+        pull_in(&mut h, 150.0, FADE_BAND);
+        assert_eq!(h, [100.0, 150.0 / gap, 150.0]);
+        let mut near = [10.0, 20.0];
+        pull_in(&mut near, 150.0, FADE_BAND);
+        assert_eq!(near, [10.0, 20.0]);
+        let mut never = [40.0, f32::INFINITY];
+        pull_in(&mut never, 150.0, FADE_BAND);
+        assert_eq!(never, [40.0, 150.0]);
+    }
+
+    /// GfxObj 1: a tree of one level, a ten-meter triangle of leaves.
+    struct Leaves;
+
+    impl crate::assets::AssetSource for Leaves {
+        fn gfxobj(&mut self, _id: u32) -> Option<Mesh> {
+            let corner = |x: f32, y: f32| Vertex {
+                position: [x, y, 0.0],
+                normal: [0.0, 0.0, 1.0],
+                uv: [x, y],
+            };
+            Some(Mesh::from_triangle_lists([(
+                crate::assets::SubsetInfo {
+                    surface: crate::assets::SurfaceRef::Surface(7),
+                    two_sided: true,
+                    tiled: false,
+                },
+                vec![corner(0.0, 0.0), corner(10.0, 0.0), corner(0.0, 10.0)],
+            )]))
+        }
+
+        fn cell_piece(&mut self, key: crate::assets::CellPieceKey) -> Option<Mesh> {
+            Levels.cell_piece(key)
+        }
+
+        fn appearance(
+            &mut self,
+            surface: u32,
+            look: Option<&crate::scene::PartLook>,
+        ) -> crate::assets::Appearance {
+            Levels.appearance(surface, look)
+        }
+
+        fn material(
+            &mut self,
+            key: &crate::assets::MaterialKey,
+            used: crate::assets::Use,
+        ) -> crate::assets::Material {
+            crate::assets::Material {
+                kind: crate::assets::Kind::Foliage,
+                ..Levels.material(key, used)
+            }
+        }
+
+        fn texture(
+            &mut self,
+            key: &crate::assets::TextureKey,
+            clip_map: bool,
+        ) -> Option<crate::assets::Texture> {
+            Levels.texture(key, clip_map)
+        }
+
+        fn terrain_cells(
+            &mut self,
+            block: BlockId,
+            t: &crate::scene::Terrain,
+        ) -> Vec<crate::assets::TerrainCell> {
+            Levels.terrain_cells(block, t)
+        }
+
+        fn sky_objects(&mut self) -> Vec<u32> {
+            Vec::new()
+        }
+
+        fn sky(&mut self, _id: u32) -> Option<Mesh> {
+            None
+        }
+    }
+
+    /// The level a tree of one level, its record alone in a block, draws `d` meters from the
+    /// eye, with the blocks whose objects stand in the world reaching `reach` meters.
+    fn tree_at(d: f32, reach: f32) -> PartDraw {
+        const BLOCK: BlockId = 0xA9B4;
+        let block = crate::scene::Block {
+            block: BLOCK,
+            generation: 1,
+            terrain: crate::scene::Terrain {
+                side: 1,
+                vertices: vec![Vec3::ZERO; 4],
+                cuts: vec![false],
+                words: [4; 81],
+            },
+            placements: vec![crate::scene::Placement {
+                id: 0x0100_0001,
+                kind: crate::scene::PlacementKind::Object,
+                frame: Mat4::from_translation(Vec3::new(d, 0.0, 0.0)),
+                scale: 1.0,
+                lifts: [0.0; 2],
+                parts: vec![crate::scene::Part {
+                    gfxobj: 1,
+                    frame: Mat4::from_translation(Vec3::new(d, 0.0, 0.0)),
+                    scale: Vec3::ONE,
+                    degrade: Some(0),
+                }],
+            }],
+            degrades: vec![Degrade {
+                levels: vec![1],
+                modes: vec![1],
+                scale_z: 1.0,
+                centre: Vec3::new(d, 0.0, 0.0),
+                ..Degrade::default()
+            }],
+            rooms: Vec::new(),
+            lights: Vec::new(),
+            lamps: Vec::new(),
+        };
+        let came = SceneDelta::BlockIn(Box::new(block));
+        let mut tables = AssetTables::new();
+        tables.apply(&came, &mut Leaves);
+        let mut lod = Lod::default();
+        lod.set_settings(LodSettings::ON);
+        lod.take(std::slice::from_ref(&came), &[]);
+        let mut frame = FrameDelta::default();
+        frame.camera.fov_y = 1.0;
+        frame.origin = [0xA9, 0xB4];
+        frame.scenery_reach = reach;
+        lod.prepare(&frame, &tables, 2160, &|_| None);
+        let part = PartItems {
+            degrade: Some(0),
+            ..PartItems::default()
+        };
+        lod.part(BLOCK, &part, 0, true)
+    }
+
+    /// A tree an art pack draws with one level fades into its impostor by distance, as retail's
+    /// trees do past their last level; and has wholly become it before the reach of the blocks
+    /// whose objects stand in the world, however large it stands on the screen.
+    #[test]
+    fn a_pack_tree_of_one_level_hands_over_to_its_impostor_before_the_reach() {
+        // Near, the mesh alone.
+        let near = tree_at(20.0, 0.0);
+        assert_eq!((near.level, near.impostor), (0, 0.0), "{near:?}");
+        // Far, by its error on a tall screen, the impostor alone.
+        let far = tree_at(2000.0, 0.0);
+        assert_eq!((far.level, far.impostor), (1, 1.0), "{far:?}");
+        // At 170 m the error alone keeps the mesh, but the blocks reach only 168 m.
+        let open = tree_at(170.0, 0.0);
+        assert_eq!(open.impostor, 0.0, "{open:?}");
+        let capped = tree_at(170.0, 168.0);
+        assert_eq!((capped.level, capped.impostor), (1, 1.0), "{capped:?}");
+        // On its way, the two drawn together.
+        let fading = tree_at(155.0, 168.0);
+        assert!(
+            fading.impostor > 0.0 && fading.impostor < 1.0 && fading.fade.is_some(),
+            "{fading:?}"
+        );
+    }
+
+    /// A large tree of many levels, whose levels stray by more than the bar until well past the
+    /// blocks round the viewer, keeps its full mesh out to most of the way to where it must
+    /// become its impostor, then fades through its levels into the impostor; a smaller one keeps
+    /// each level that comes before then where it comes. As the bar moves, no two hand-overs
+    /// fall together, so a part never passes over a level at once.
+    #[test]
+    fn a_tree_keeps_its_full_mesh_out_to_most_of_the_way_to_its_impostor() {
+        let cap = impostor_cap(168.0, FADE_BAND, &DegradeBias::default());
+        // A pine 23 m across, its five levels and its impostor, on a screen 2160 lines tall.
+        let mut big = [307.0, 353.0, 405.0, 466.0, 722.0, 898.0];
+        pull_in(&mut big, cap, FADE_BAND);
+        assert_eq!(pick(&big, 60.0, FADE_BAND), Pick::only(0), "{big:?}");
+        assert_eq!(pick(&big, 115.0, FADE_BAND), Pick::only(0), "{big:?}");
+        assert_eq!(pick(&big, 168.0, FADE_BAND), Pick::only(6));
+        let gap = 1.0 + FADE_BAND * PULLED_GAP;
+        assert!(
+            big.windows(2).all(|w| w[1] >= w[0] * gap * 0.999),
+            "{big:?}"
+        );
+        // A smaller tree's first levels come before the cap, and are kept there.
+        let mut small = [42.0, 70.0, 93.0, 373.0];
+        pull_in(&mut small, cap, FADE_BAND);
+        assert_eq!(small, [42.0, 70.0, 93.0, cap]);
+        // A hand-over the bar moves toward the cap stops short of the next, never meeting it.
+        for raw in [100.0, 120.0, 140.0, 160.0, 400.0] {
+            let mut h = [raw, 500.0];
+            pull_in(&mut h, cap, FADE_BAND);
+            assert!(h[0] < h[1], "{h:?}");
+        }
     }
 
     /// Records the device chooses levels for are never walked here: a frame chooses only the
