@@ -4399,8 +4399,18 @@ pub fn handle_god(w: &mut World, session: Option<SessionId>, _parameters: &[Stri
     );
 }
 
-/// The number of `=`-separated entries a well-formed `GodState` string has.
-const GOD_STATE_ENTRIES: usize = 240;
+/// The `=`-separated entries a `GodState` string has before its skills (with the trailing empty one).
+const GOD_STATE_BASE_ENTRIES: usize = 50;
+/// The entries each skill adds to a `GodState` string.
+const GOD_STATE_SKILL_ENTRIES: usize = 5;
+
+/// Whether a `GodState` string of `entries` entries is well formed. Divergence: V520, ACE wants
+/// exactly 240 (the end of retail's 38 skills); an earlier era's character has fewer.
+#[must_use]
+pub fn god_state_is_well_formed(entries: usize) -> bool {
+    entries >= GOD_STATE_BASE_ENTRIES
+        && (entries - GOD_STATE_BASE_ENTRIES).is_multiple_of(GOD_STATE_SKILL_ENTRIES)
+}
 
 // ACE: AdminCommands.DoGodMode
 /// Saves the return state in `GodState` (unless re-entering after a failed `ungod`), then raises
@@ -4439,10 +4449,8 @@ fn do_god_mode(w: &mut World, player_saved: bool, session: SessionId, exception_
         let return_state = god_return_state(w, current_player);
 
         // Check string is correctly formatted before altering stats
-        // correctly formatted return string should have 240 entries
-        // if the construction of the string changes - this will need to be updated to match
         let entries = return_state.split('=').count();
-        if entries != GOD_STATE_ENTRIES {
+        if !god_state_is_well_formed(entries) {
             send_server_message(
                 w,
                 Some(session),
@@ -4654,9 +4662,7 @@ pub fn handle_ungod(w: &mut World, session: Option<SessionId>, _parameters: &[St
 
     let return_string_arr: Vec<&str> = return_string.split('=').collect();
 
-    // correctly formatted return string should have 240 entries
-    // if the construction of the string changes - this will need to be updated to match
-    if return_string_arr.len() != GOD_STATE_ENTRIES {
+    if !god_state_is_well_formed(return_string_arr.len()) {
         console_write_line(&format!(
             "The returnString was not set to the correct length while {} was attempting to return to normal from godmode.",
             name_of(w, current_player)
@@ -4801,6 +4807,8 @@ fn ungod_restore(
             message: "Index was outside the bounds of the array.".to_owned(),
         })
     };
+    // DIVERGE: V520, the last entry ends the string at any length, not only at 239.
+    let end = return_string_arr.len() - 1;
     let mut i = 2usize;
     while i < return_string_arr.len() {
         match i {
@@ -4845,7 +4853,7 @@ fn ungod_restore(
                 enqueue_send(w, session, m);
                 i += 5;
             }
-            n if n <= 238 => {
+            n if n < end => {
                 let key = Skill(parse_int(arr(i)?)?);
                 let ranks = parse_ushort(arr(i + 1)?)?;
 
@@ -4870,8 +4878,8 @@ fn ungod_restore(
                 enqueue_send(w, session, m);
                 i += 5;
             }
-            239 => {
-                // end of returnString, this will need to be updated if the length of the string changes
+            n if n == end => {
+                // end of returnString
                 let o = obj_mut(w, current_player);
                 let not_null = || CaughtException {
                     source: "System.Private.CoreLib",
