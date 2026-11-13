@@ -90,6 +90,25 @@ pub struct GroundMaps {
     pub detail_strength: u32,
 }
 
+/// Where the presentation's own pebbles may lie: on each terrain type's ground, its flat and its
+/// slopes, and along the road's edges. Everywhere, unless the ground drawn there keeps them off.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PebbleGrounds {
+    /// By terrain type.
+    pub types: [bool; 32],
+    /// Along the road's edges.
+    pub road: bool,
+}
+
+impl Default for PebbleGrounds {
+    fn default() -> Self {
+        Self {
+            types: [true; 32],
+            road: true,
+        }
+    }
+}
+
 /// One layer of a [`Splat`]: where its alpha map keeps what is beneath it (alpha 1) and where it
 /// lays its tile (alpha 0). The alpha map spans the cell once, turned by `rotation` quarter turns;
 /// the tile repeats `tiling` times across the cell. A missing tile lays retail's debug green.

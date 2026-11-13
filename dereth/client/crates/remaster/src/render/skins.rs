@@ -342,6 +342,9 @@ impl AssetSource for WithSkins<'_> {
     fn ground_colors(&mut self) -> Option<[[f32; 4]; 32]> {
         self.src.ground_colors()
     }
+    fn pebble_grounds(&mut self) -> crate::assets::terrain::PebbleGrounds {
+        self.src.pebble_grounds()
+    }
     fn sky_objects(&mut self) -> Vec<u32> {
         self.src.sky_objects()
     }

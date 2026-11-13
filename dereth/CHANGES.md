@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Remaster: pebbles and grass take the color of an art pack's ground.
 - Remaster: art packs can give the ground a detail texture.
 - Explore mode: fly a camera anywhere in the world with no server.
 - Remaster: art packs can replace creatures with animated bodies of their own.

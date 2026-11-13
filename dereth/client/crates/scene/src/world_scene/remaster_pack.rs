@@ -36,7 +36,9 @@ use dereth_remaster::assets::pack::{
     pack_surface, Category, PackLevel, PackModel, PackSettings,
 };
 use dereth_remaster::assets::skin::{of_skin_surface, skin_surface, SkinModel, Slot};
-use dereth_remaster::assets::terrain::{GroundMaps, LayerSlopes, SplatBank, SteepTile};
+use dereth_remaster::assets::terrain::{
+    GroundMaps, LayerSlopes, PebbleGrounds, SplatBank, SteepTile,
+};
 use dereth_remaster::assets::{
     kind::Kind, BlendFactor, Material, MaterialMaps, Mesh, Subset, SubsetInfo, SurfaceRef,
     TextureKey, Vertex,
@@ -705,6 +707,20 @@ impl PackAssets {
         ))
     }
 
+    /// The mean color of the pack's tile for the retail ground `ground` (a terrain type), in
+    /// display values, when the pack lays that ground: its smallest level.
+    pub(crate) fn ground_color(&self, ground: u32) -> Option<[f32; 4]> {
+        let g = &self.pack.grounds[self.ground_of(ground)?];
+        let k = g.albedo.levels.len().checked_sub(1)?;
+        let level = g.albedo.levels.get(k)?;
+        let texel: Vec<u8> = match g.albedo.format {
+            Some(f) => dereth_render::block_codec::decode(f, 1, 1, level),
+            None => level.as_ref().clone(),
+        };
+        let c = |i: usize| f32::from(*texel.get(i).unwrap_or(&128)) / 255.0;
+        Some([c(0), c(1), c(2), 1.0])
+    }
+
     /// The normal and surface pictures of the pack's tile for the retail ground `ground`, laid
     /// as [`Self::ground_tile`]'s picture is.
     pub(crate) fn ground_maps(&self, ground: u32) -> Option<GroundMaps> {
@@ -747,6 +763,21 @@ impl PackAssets {
             return (None, 0, 0);
         }
         (Some(picture_key(GROUND_DETAILS + slot)), repeats, strength)
+    }
+
+    /// Where the presentation's own pebbles may lie while the pack's ground is drawn: off each
+    /// terrain type, and off the road's edges, whose material the pack keeps them off.
+    pub(crate) fn pebble_grounds(&self) -> PebbleGrounds {
+        let lie = |ground: u32| {
+            self.ground_of(ground)
+                .is_none_or(|i| self.pack.grounds[i].pebbles)
+        };
+        let mut out = PebbleGrounds::default();
+        for (t, l) in (0u32..).zip(out.types.iter_mut()) {
+            *l = lie(t);
+        }
+        out.road = lie(dereth_terrain::consts::ROAD_TERRAIN_TYPE);
+        out
     }
 
     /// The pack's ground laid on the flat of the retail ground `ground` (a terrain type, or the
@@ -1407,9 +1438,10 @@ mod tests {
 
     /// A pack's grounds as the remaster lays them: two naming one detail picture share its
     /// texture, each repeating it as often across a cell and as strongly as it says, one with
-    /// none has none, nor does one whose strength is nought.
+    /// none has none, nor does one whose strength is nought; and each ground's color far off is
+    /// its tile's mean.
     #[test]
-    fn grounds_naming_one_detail_picture_share_it() {
+    fn grounds_naming_one_detail_picture_share_it_and_take_their_tiles_mean_color() {
         let png = |w: u32, h: u32, rgba: &[u8]| {
             let mut bytes = Vec::new();
             {
@@ -1454,7 +1486,14 @@ detail = \"g/grain.png\"
 detail_strength = 0
 {credit}"
         );
-        let red = png(8, 8, &[200, 40, 20, 255].repeat(64));
+        // Stripes of two colors, a texel each: the tile's mean is neither.
+        let red = png(
+            8,
+            8,
+            &[[200, 40, 20, 255], [100, 140, 60, 255]]
+                .concat()
+                .repeat(32),
+        );
         let grain = png(8, 8, &[128, 128, 128, 255].repeat(64));
         let pack = ArtPack::open(&manifest, &mut |p: &str| match p {
             "g/red.png" => Ok(red.clone()),
@@ -1497,6 +1536,53 @@ detail_strength = 0
         };
         let t = p.texture(picture).expect("the detail picture");
         assert_eq!((t.format, t.width), (TextureFormat::Bc7, 8));
+        let c = p.ground_color(1).expect("type 1's color");
+        for (got, want) in c.iter().zip([150.0, 90.0, 40.0, 255.0]) {
+            assert!((got * 255.0 - want).abs() < 3.0, "{c:?}");
+        }
+        assert_eq!(p.ground_color(3), None, "a ground the pack does not lay");
+    }
+
+    /// The presentation's pebbles lie on every ground but those whose pack material keeps them
+    /// off: a type's, and the road's edges where the road's material does.
+    #[test]
+    fn a_packs_ground_keeps_the_pebbles_off_where_its_material_says() {
+        let credit = "author = \"a\"\ntool = \"t\"\nlicense = \"CC0-1.0\"\n";
+        let row = |ground: &str, pebbles: &str| {
+            format!(
+                "[[terrain]]\nground = {ground}\nbase_color = \"g/a.png\"\nsize = 4\n\
+                 {pebbles}{credit}"
+            )
+        };
+        let red = {
+            let mut bytes = Vec::new();
+            {
+                let mut enc = png::Encoder::new(&mut bytes, 4, 4);
+                enc.set_color(png::ColorType::Rgba);
+                enc.set_depth(png::BitDepth::Eight);
+                let mut w = enc.write_header().expect("header");
+                w.write_image_data(&[200, 40, 20, 255].repeat(16))
+                    .expect("data");
+            }
+            bytes
+        };
+        let open = |rows: &[String]| {
+            let manifest = format!("[pack]\nname = \"P\"\nformat = 1\n{}", rows.concat());
+            let pack = ArtPack::open(&manifest, &mut |_: &str| Ok(red.clone())).expect("opens");
+            assert!(pack.problems.is_empty(), "{:?}", pack.problems);
+            PackAssets::new(Arc::new(pack), None).pebble_grounds()
+        };
+        let all = open(&[row("[1, 12]", ""), row("\"road\"", "")]);
+        assert_eq!(all, PebbleGrounds::default());
+        let some = open(&[
+            row("[1]", ""),
+            row("[12, 14]", "pebbles = false\n"),
+            row("\"road\"", "pebbles = false\n"),
+        ]);
+        assert!(!some.types[12] && !some.types[14] && !some.road);
+        assert!(some.types[1], "a ground that keeps them");
+        assert!(some.types[0], "a ground the pack does not lay");
+        assert_eq!(some.types.iter().filter(|l| !**l).count(), 2);
     }
 
     /// A surface picture (roughness in red, occlusion in green), as block pictures and as four

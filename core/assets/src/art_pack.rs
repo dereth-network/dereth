@@ -72,6 +72,7 @@
 //! detail = "ground/grain.png"                # a fine grain over the ground close by
 //! detail_size = 1.0          # meters one repeat of the detail covers
 //! detail_strength = 1.0      # how strongly the detail changes the ground: 0 not at all
+//! pebbles = true             # whether the presentation's own pebbles lie on these grounds
 //! author = "..."
 //! tool = "..."
 //! license = "..."
@@ -91,9 +92,15 @@
 //! how far the detail moves the ground from its own color: 1 (unless named) as the picture is
 //! made, 0 not at all, and more than 1 further.
 //!
-//! A `[[steep]]` material, with the same keys, is laid on the steep slopes of the terrain types
-//! it names, in place of the scree and rock the presentation lays on steep ground of a type with
-//! none: an obsidian cliff, a sandstone face. A type may have one of each kind.
+//! The presentation lays small pebbles of its own on bare ground, on slopes and along the
+//! road's edges. `pebbles = false` keeps them off the grounds the material names wherever the
+//! pack's ground is drawn: their flat ground and their slopes, and for the road, its edges. Only
+//! a `[[terrain]]` material names it; the slopes of its grounds follow it whatever `[[steep]]`
+//! material lies there.
+//!
+//! A `[[steep]]` material, with the same keys but `pebbles`, is laid on the steep slopes of the
+//! terrain types it names, in place of the scree and rock the presentation lays on steep ground of
+//! a type with none: an obsidian cliff, a sandstone face. A type may have one of each kind.
 //!
 //! A pack may also grow ground cover: small models of its own (flowers, ferns, reeds, litter)
 //! scattered over the terrain types each names, near the eye, beside whatever retail places there.
@@ -512,6 +519,9 @@ pub struct ManifestGround {
     pub detail_size: f32,
     /// How strongly the detail picture changes the ground: 1 as made, 0 not at all.
     pub detail_strength: f32,
+    /// Whether the presentation's own pebbles lie on its grounds: on their flat, their slopes
+    /// and, for the road, along its edges. Only a `[[terrain]]` table names it.
+    pub pebbles: bool,
     /// Laid on the steep slopes of its grounds rather than on their flat ground: a `[[steep]]`
     /// table's.
     pub steep: bool,
@@ -682,6 +692,12 @@ impl ArtPackManifest {
                 let mut ground =
                     ground(g).map_err(|e| ManifestError(format!("{kind} {}: {}", i + 1, e.0)))?;
                 ground.steep = steep;
+                if steep && g.contains_key("pebbles") {
+                    return fail(format!(
+                        "{kind} {}: pebbles is named on the [[terrain]] material of its grounds",
+                        i + 1
+                    ));
+                }
                 for k in &ground.grounds {
                     if grounds
                         .iter()
@@ -960,6 +976,13 @@ fn ground(t: &toml::Table) -> Result<ManifestGround, ManifestError> {
         Some(s) => return fail(format!("detail_strength {s} is not a number from 0")),
         None => 1.0,
     };
+    let pebbles = match t.get("pebbles") {
+        None => true,
+        Some(v) => match v.as_bool() {
+            Some(b) => b,
+            None => return fail("pebbles is not true or false"),
+        },
+    };
     Ok(ManifestGround {
         grounds,
         base_color,
@@ -972,6 +995,7 @@ fn ground(t: &toml::Table) -> Result<ManifestGround, ManifestError> {
         detail: picture("detail")?,
         detail_size,
         detail_strength,
+        pebbles,
         steep: false,
         credit: Credit {
             author: text(t, "author")?.to_owned(),
@@ -1695,6 +1719,7 @@ normal_scale = 0.5
 detail = "ground/grain.png"
 detail_size = 3
 detail_strength = 0.4
+pebbles = false
 author = "a"
 tool = "t"
 license = "CC0-1.0"
@@ -1719,12 +1744,14 @@ license = "CC0-1.0"
             (grass.detail_strength - 1.0).abs() < 1e-6,
             "the detail as made unless named"
         );
+        assert!(grass.pebbles, "the pebbles lie unless named");
         let road = m.ground(Ground::Road).expect("the road's material");
         assert!((road.size - 8.5).abs() < 1e-6);
         assert!((road.normal_scale - 0.5).abs() < 1e-6);
         assert_eq!(road.detail.as_deref(), Some("ground/grain.png"));
         assert!((road.detail_size - 3.0).abs() < 1e-6);
         assert!((road.detail_strength - 0.4).abs() < 1e-6);
+        assert!(!road.pebbles);
         let unnamed =
             ArtPackManifest::parse(&GROUND.replace("detail_size = 3\n", "")).expect("reads");
         let road = unnamed.ground(Ground::Road).expect("the road's material");
@@ -1764,6 +1791,11 @@ license = "CC0-1.0"
                 "detail_strength = 0.4\n",
                 "detail_strength = -0.5\n",
                 "detail_strength -0.5 is not a number from 0",
+            ),
+            (
+                "pebbles = false\n",
+                "pebbles = 0\n",
+                "pebbles is not true or false",
             ),
             (
                 "base_color = \"ground/grass_albedo.png\"",
@@ -1840,6 +1872,13 @@ license = "CC0-1.0"
         let m = ArtPackManifest::parse(&strength).expect("reads");
         let steep = m.steep_ground(Ground::Type(9)).expect("type 9's steep");
         assert!((steep.detail_strength - 2.0).abs() < 1e-6);
+        let pebbles = text.replace("size = 8\n", "size = 8\npebbles = false\n");
+        let e = ArtPackManifest::parse(&pebbles).expect_err("pebbles on a steep material");
+        assert!(
+            e.0.contains("steep 1: pebbles is named on the [[terrain]]"),
+            "{}",
+            e.0
+        );
         let twice = format!(
             "{text}
 [[steep]]

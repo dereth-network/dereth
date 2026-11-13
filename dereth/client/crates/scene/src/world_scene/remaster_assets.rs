@@ -535,7 +535,28 @@ impl AssetSource for DatAssets<'_> {
             let mean = |s: u64| s as f32 / n as f32 / 255.0;
             *color = [mean(sum[0]), mean(sum[1]), mean(sum[2]), 1.0];
         }
+        // Where the pack lays a land ground, its tile's: what grows and lies on that ground (the
+        // grass, the pebbles) and the ground far off take the color drawn there.
+        if let Some((p, _)) = self.pack.as_ref().filter(|(_, on)| on.ground) {
+            for (t, color) in (0u32..).zip(out.iter_mut()) {
+                if dereth_remaster::assets::kind::is_water_type(t) {
+                    continue;
+                }
+                if let Some(c) = p.ground_color(t) {
+                    *color = c;
+                }
+            }
+        }
         Some(out)
+    }
+
+    fn pebble_grounds(&mut self) -> dereth_remaster::assets::terrain::PebbleGrounds {
+        // Where the pack's ground is drawn, its materials say.
+        self.pack
+            .as_ref()
+            .filter(|(_, on)| on.ground)
+            .map(|(p, _)| p.pebble_grounds())
+            .unwrap_or_default()
     }
 
     fn splat(&mut self, key: u32) -> Option<Splat> {

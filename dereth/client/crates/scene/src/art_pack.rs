@@ -265,6 +265,8 @@ pub struct PackGround {
     pub detail_size: f32,
     /// How strongly the detail picture changes the ground: 1 as made, 0 not at all.
     pub detail_strength: f32,
+    /// Whether the presentation's own pebbles lie on its grounds.
+    pub pebbles: bool,
     /// Laid on the steep slopes of its grounds rather than on their flat ground.
     pub steep: bool,
     /// Who made it, with what, and under which license.
@@ -286,6 +288,7 @@ impl PackGround {
             detail: None,
             detail_size: entry.detail_size,
             detail_strength: entry.detail_strength,
+            pebbles: entry.pebbles,
             steep: entry.steep,
             credit: entry.credit.clone(),
         }
@@ -2240,6 +2243,7 @@ license = "CC0-1.0"
             detail: None,
             detail_size: 1.0,
             detail_strength: 1.0,
+            pebbles: true,
             steep: false,
             credit: Credit::default(),
         });

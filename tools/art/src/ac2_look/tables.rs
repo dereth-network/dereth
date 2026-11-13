@@ -119,8 +119,16 @@ pub struct TerrainTable {
     /// beside its picture.
     #[serde(default)]
     pub detail: bool,
+    /// Whether the presentation's own pebbles lie on the grounds the look lays.
+    #[serde(default = "pebbles_lie")]
+    pub pebbles: bool,
     pub ground: Vec<Ground>,
     pub red_desert: RedDesert,
+}
+
+/// The presentation's pebbles lie on a look's grounds unless its table says not.
+const fn pebbles_lie() -> bool {
+    true
 }
 
 /// How a model is fitted to the collision of the setup it stands for.

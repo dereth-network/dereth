@@ -216,11 +216,17 @@ fn ground(
         let detail = detail.as_ref().map_or_else(String::new, |(file, size)| {
             format!("detail = \"{file}\"\ndetail_size = {size}\n")
         });
+        // A flat material's grounds' slopes follow it.
+        let pebbles = if steep || t.terrain.pebbles {
+            ""
+        } else {
+            "pebbles = false\n"
+        };
         let _ = write!(
             manifest,
             "# AC2 {kind}\n[[{}]]\nground = {ground}\nbase_color = \"ground/{name}.png\"\n\
              normal = \"ground/{name}_normal.png\"\nheight = \"ground/{name}_height.png\"\n\
-             size = {size}\n{detail}{CREDIT}\n",
+             size = {size}\n{detail}{pebbles}{CREDIT}\n",
             if steep { "steep" } else { "terrain" }
         );
     };
@@ -651,15 +657,18 @@ mod tests {
     }
 
     /// The ground from this machine's AC2 install: every ground and the road carry the one detail
-    /// picture AC2's ground names, at its own repeat, written once; and none when the table says.
+    /// picture AC2's ground names, at its own repeat, written once, and none when the table says;
+    /// and every flat ground and the road keep the presentation's pebbles off, as the table says,
+    /// and lay them again when it says not.
     #[test]
     #[cfg_attr(
         not(feature = "retail-dats"),
         ignore = "reads the retail dats: --features retail-dats"
     )]
-    fn every_ground_carries_its_detail_picture_when_the_table_asks() {
+    fn every_ground_carries_its_detail_picture_and_keeps_pebbles_off_when_the_table_asks() {
         let mut t = Tables::built_in().expect("the tables");
         assert!(t.terrain.detail);
+        assert!(!t.terrain.pebbles);
         let ac2 = auberean_dat::testing::require_target_install();
         let dir =
             std::env::temp_dir().join(format!("dereth-art-ac2-detail-{}", std::process::id()));
@@ -684,6 +693,7 @@ mod tests {
         };
         let with = manifest(&t, "with.dat");
         t.terrain.detail = false;
+        t.terrain.pebbles = true;
         let without = manifest(&t, "without.dat");
         let _ = std::fs::remove_dir_all(&dir);
         let (left_out, text, details) = with;
@@ -698,12 +708,23 @@ mod tests {
         for g in &m.grounds {
             assert!(g.detail.is_some(), "{:?} has no detail", g.grounds);
             assert!((g.detail_size - 3.0).abs() < 1e-6, "{:?}", g.grounds);
+            assert!(
+                (g.detail_strength - 1.0).abs() < 1e-6,
+                "{:?} at the detail as made",
+                g.grounds
+            );
+            assert!(g.steep || !g.pebbles, "{:?} lays pebbles", g.grounds);
         }
+        assert!(
+            m.ground(dereth_assets::art_pack::Ground::Road).is_some(),
+            "the road among them"
+        );
         assert_eq!(details.expect("the ground folder"), 1);
         let (_, text, details) = without;
         let m = dereth_assets::art_pack::ArtPackManifest::parse(&text.expect("a manifest"))
             .expect("reads");
         assert!(m.grounds.iter().all(|g| g.detail.is_none()));
+        assert!(m.grounds.iter().all(|g| g.pebbles));
         assert_eq!(details.expect("the ground folder"), 0);
     }
 

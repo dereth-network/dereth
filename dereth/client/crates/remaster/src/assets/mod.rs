@@ -418,6 +418,11 @@ pub trait AssetSource {
     fn ground_colors(&mut self) -> Option<[[f32; 4]; 32]> {
         None
     }
+    /// Where the presentation's own pebbles may lie, as the ground drawn there allows: everywhere
+    /// unless the source says otherwise.
+    fn pebble_grounds(&mut self) -> terrain::PebbleGrounds {
+        terrain::PebbleGrounds::default()
+    }
     /// Every sky object the region's days can show, GfxObjs and Setups, in id order.
     fn sky_objects(&mut self) -> Vec<u32>;
     /// A sky object's mesh, every part in it at its place; `None` when it draws nothing.

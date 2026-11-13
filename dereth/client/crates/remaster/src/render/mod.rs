@@ -1237,6 +1237,7 @@ impl Renderer {
                 self.ground_colors = true;
             }
         }
+        self.grass.set_pebbles(src.pebble_grounds());
         // The ground switched between its composites and its splats: every held block's cells
         // are written again once the tables have handed over the other form.
         let switched = self.tables.splat() != self.terrain.splat;
