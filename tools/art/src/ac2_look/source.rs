@@ -29,8 +29,12 @@ impl std::fmt::Debug for Ac2 {
     }
 }
 
-/// One mesh of an entity, as the look draws it: its vertices, and the triangles of its most
-/// detailed level by material.
+/// One level's triangles by material: the material's place in its mesh's materials, and the
+/// indices.
+pub type Fragments = Vec<(usize, Vec<u16>)>;
+
+/// One mesh of an entity, as the look draws it: its vertices, the triangles of its most detailed
+/// level by material, and its coarser levels with the distances Asheron's Call 2 draws them from.
 #[derive(Debug, Clone)]
 pub struct MeshPart {
     pub id: u32,
@@ -38,7 +42,57 @@ pub struct MeshPart {
     pub materials: Vec<u32>,
     pub vertices: Vec<StoredVertex>,
     /// The most detailed level's triangles: the material's place in `materials`, and the indices.
-    pub fragments: Vec<(usize, Vec<u16>)>,
+    pub fragments: Fragments,
+    /// Its coarser levels, each after the one before, and the distance from the eye each is
+    /// drawn from at the highest model detail, at the entity's own size.
+    pub coarser: Vec<(f64, Fragments)>,
+}
+
+/// The highest of the three model details, whose distances and levels the look takes.
+const MODEL_DETAIL: usize = 2;
+
+/// The places of a mesh's levels marked for the highest model detail, in their order: all of
+/// them when none is marked.
+fn marked_levels(levels: &[auberean_assets::mesh::DetailLevel]) -> Vec<usize> {
+    let bit = 1u32 << MODEL_DETAIL;
+    let marked: Vec<usize> = (0..levels.len())
+        .filter(|&k| levels[k].detail & bit != 0)
+        .collect();
+    if marked.is_empty() {
+        (0..levels.len()).collect()
+    } else {
+        marked
+    }
+}
+
+/// How far from the eye Asheron's Call 2 draws a part whose setup gives `d` at detail `t` (1 full
+/// to 0 least): its detail falls from full at its near distance, through half at its ideal one,
+/// to none at its far one.
+fn distance_at_detail(d: &auberean_assets::setup::DetailDistances, t: f64) -> f64 {
+    let (near, ideal, far) = (
+        f64::from(d.near_degrade),
+        f64::from(d.ideal_degrade),
+        f64::from(d.far_degrade),
+    );
+    if t >= 0.5 {
+        near + (ideal - near) * 2.0 * (1.0 - t)
+    } else {
+        ideal + (far - ideal) * (1.0 - 2.0 * t)
+    }
+}
+
+/// The distances from which Asheron's Call 2 draws each of `count` marked levels after the first
+/// (`count - 1` of them): level `i` of `count` is drawn once the detail falls to `1 - i / (count -
+/// 1)`.
+#[must_use]
+pub fn level_distances(d: &auberean_assets::setup::DetailDistances, count: usize) -> Vec<f64> {
+    if count < 2 {
+        return Vec::new();
+    }
+    let last = (count - 1) as f64;
+    (1..count)
+        .map(|i| distance_at_detail(d, 1.0 - i as f64 / last))
+        .collect()
 }
 
 /// A picture expanded to red, green, blue and alpha, a row at a time from the top.
@@ -107,7 +161,8 @@ impl Ac2 {
 
     /// The entity's meshes at rest: each part group's setup's meshes in order, each with at least
     /// four vertices and a level of detail, at its most detailed level (the first of the most
-    /// triangles).
+    /// triangles), with the levels marked for the highest model detail that come after it and the
+    /// distances its setup draws them from.
     ///
     /// # Errors
     /// A record on the way will not read.
@@ -141,21 +196,37 @@ impl Ac2 {
                 let total = |l: &auberean_assets::mesh::DetailLevel| {
                     l.fragments.iter().map(|f| f.indices.len()).sum::<usize>()
                 };
-                let mut best = &m.levels[0];
-                for l in &m.levels[1..] {
-                    if total(l) > total(best) {
-                        best = l;
+                let mut best = 0;
+                for (k, l) in m.levels.iter().enumerate().skip(1) {
+                    if total(l) > total(&m.levels[best]) {
+                        best = k;
                     }
                 }
+                let fragments = |l: &auberean_assets::mesh::DetailLevel| -> Fragments {
+                    l.fragments
+                        .iter()
+                        .map(|f| (f.material as usize, f.indices.to_vec()))
+                        .collect()
+                };
+                // The marked levels after the most detailed, from where it stands among them.
+                let marked = marked_levels(&m.levels);
+                let from = marked.iter().position(|k| *k == best).unwrap_or(0);
+                let distances = level_distances(&s.detail[MODEL_DETAIL], marked.len());
+                let coarser = marked
+                    .iter()
+                    .enumerate()
+                    .skip(from + 1)
+                    .filter_map(|(i, k)| {
+                        let l = &m.levels[*k];
+                        (total(l) > 0).then(|| (distances[i - 1], fragments(l)))
+                    })
+                    .collect();
                 out.push(MeshPart {
                     id: mesh.0,
                     materials: m.materials.iter().map(|d| d.0).collect(),
                     vertices,
-                    fragments: best
-                        .fragments
-                        .iter()
-                        .map(|f| (f.material as usize, f.indices.to_vec()))
-                        .collect(),
+                    fragments: fragments(&m.levels[best]),
+                    coarser,
                 });
             }
         }
@@ -359,6 +430,24 @@ mod tests {
                 .unwrap_or_else(|| panic!("{list:08X} gives no picture"));
             assert_eq!(p.width * p.height, largest, "{list:08X}: {levels:?}");
         }
+    }
+
+    /// A part's levels come in where Asheron's Call 2's detail reaches them: the second of five
+    /// halfway from the near distance to the ideal one, the middle at the ideal, the fourth
+    /// halfway on to the far, and the last at the far.
+    #[test]
+    fn a_parts_levels_come_in_where_its_detail_reaches_them() {
+        let d = auberean_assets::setup::DetailDistances {
+            visible: 400.0,
+            near_degrade: 20.0,
+            ideal_degrade: 60.0,
+            far_degrade: 160.0,
+            high_detail: 0.0,
+            medium_detail: 0.0,
+        };
+        assert_eq!(level_distances(&d, 5), vec![40.0, 60.0, 110.0, 160.0]);
+        assert_eq!(level_distances(&d, 2), vec![160.0]);
+        assert!(level_distances(&d, 1).is_empty());
     }
 
     #[test]

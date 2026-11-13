@@ -217,6 +217,10 @@ pub struct Cover {
 #[serde(deny_unknown_fields)]
 pub struct TreesTable {
     pub version: u32,
+    /// Whether each tree carries the coarser levels Asheron's Call 2 draws it at, or only its
+    /// most detailed.
+    #[serde(default)]
+    pub levels: bool,
     /// A material is drawn cut out when this share of its texels is clear...
     pub clear_share: f64,
     /// ...in its picture this many texels a side.

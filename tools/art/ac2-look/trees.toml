@@ -1,7 +1,11 @@
 # The AC2 look's trees and plants: each AC1 setup's AC2 entity, the height it stands, and how
 # its trunk is fitted to the setup's collision cylinder (its radius, measured): "girth" draws
 # only the bark in or out, "narrow" narrows the whole model.
-version = 1
+#
+# `levels`: whether each tree carries the coarser levels AC2 draws it at, each handing over at
+# AC2's own distance. Off, a tree is its most detailed mesh alone until it fades to its impostor.
+version = 4
+levels = true
 clear_share = 0.25
 clear_size = 128
 

@@ -96,12 +96,19 @@ impl Folder {
     }
 
     fn model(&self, dir: &str, g: &Gltf) -> Result<(), String> {
-        for (name, p) in &g.pictures {
-            self.picture(&format!("{dir}/{name}"), p)?;
+        self.model_named(dir, "model", g)
+    }
+
+    /// `g` written as `{dir}/{name}.gltf`, its buffer `{name}.bin` beside it, with its pictures.
+    fn model_named(&self, dir: &str, name: &str, g: &Gltf) -> Result<(), String> {
+        for (file, p) in &g.pictures {
+            self.picture(&format!("{dir}/{file}"), p)?;
         }
-        self.write(&format!("{dir}/model.bin"), &g.bin)?;
-        let text = serde_json::to_string_pretty(&g.json).map_err(|e| e.to_string())?;
-        self.write(&format!("{dir}/model.gltf"), text.as_bytes())
+        self.write(&format!("{dir}/{name}.bin"), &g.bin)?;
+        let mut json = g.json.clone();
+        json["buffers"][0]["uri"] = serde_json::Value::String(format!("{name}.bin"));
+        let text = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+        self.write(&format!("{dir}/{name}.gltf"), text.as_bytes())
     }
 }
 
@@ -379,13 +386,27 @@ fn recipe(t: &Tables, height: f64, foliage: bool) -> Recipe {
     }
 }
 
-/// One model as its table row says: its trunk fitted, or fitted inside its collision.
+/// A model's level's file name in its folder, without its extension: `model` for its most
+/// detailed, `lod1`, `lod2`, ... for the coarser.
+fn level_name(k: usize) -> String {
+    if k == 0 {
+        "model".to_owned()
+    } else {
+        format!("lod{k}")
+    }
+}
+
+/// One model as its table row says: its trunk fitted, or fitted inside its collision. A tree
+/// comes with every level Asheron's Call 2 draws it at when the table says so, each with how far
+/// from the eye it is drawn out to (`None` for the last); anything else with its most detailed
+/// alone.
 fn build_model(
     ac2: &Ac2,
     t: &Tables,
     m: &Model,
     ac1: Option<&dereth_dat::RetailDatStore>,
-) -> Result<Gltf, String> {
+) -> Result<Vec<(Option<f64>, Gltf)>, String> {
+    let one = |g: Gltf| vec![(None, g)];
     let base = recipe(t, m.height, m.foliage);
     let shape = |store: Option<&dereth_dat::RetailDatStore>| -> Result<source::Shape, String> {
         let store = store.ok_or("the rocks need the Asheron's Call files")?;
@@ -396,7 +417,7 @@ fn build_model(
             let shape = shape(ac1)?;
             let (mut g, _) = model::static_model(ac2, m.entity, &base)?;
             model::refit(&mut g, &shape, t.rocks.tolerance);
-            Ok(g)
+            Ok(one(g))
         }
         Some(Fit::Spheres) => {
             let shape = shape(ac1)?;
@@ -418,7 +439,7 @@ fn build_model(
                 model::refit(&mut g, &one, t.rocks.tolerance);
                 parts.push(g);
             }
-            Ok(model::merge(&parts))
+            Ok(one(model::merge(&parts)))
         }
         fit => {
             let r = Recipe {
@@ -426,7 +447,8 @@ fn build_model(
                 fit,
                 ..base
             };
-            model::static_model(ac2, m.entity, &r).map(|(g, _)| g)
+            let levels = t.trees.levels && m.category == super::tables::Category::Tree;
+            model::static_levels(ac2, m.entity, &r, levels).map(|(g, _)| g)
         }
     }
 }
@@ -494,15 +516,18 @@ pub fn build(t: &Tables, req: &Request, progress: &mut dyn FnMut(&str)) -> Resul
     if req.parts.contains(&Part::Rocks) {
         models.extend(&t.rocks.model);
     }
-    let mut written: BTreeSet<String> = BTreeSet::new();
+    // Each model's folder written once, with how far each of its levels is drawn out to.
+    let mut written: BTreeMap<String, Vec<Option<f64>>> = BTreeMap::new();
     for m in models {
         let dir = model_dir(m);
-        if !written.contains(&dir) {
+        if !written.contains_key(&dir) {
             progress(&format!("model {dir}"));
             match build_model(&ac2, t, m, ac1.as_ref()) {
-                Ok(g) => {
-                    folder.model(&dir, &g)?;
-                    written.insert(dir.clone());
+                Ok(levels) => {
+                    for (k, (_, g)) in levels.iter().enumerate() {
+                        folder.model_named(&dir, &level_name(k), g)?;
+                    }
+                    written.insert(dir.clone(), levels.iter().map(|(d, _)| *d).collect());
                 }
                 Err(e) => {
                     left_out.push(format!("model {:#010X}: {e}", m.setup));
@@ -512,12 +537,22 @@ pub fn build(t: &Tables, req: &Request, progress: &mut dyn FnMut(&str)) -> Resul
         }
         let _ = write!(
             manifest,
-            "[[model]]\nid = \"0x{:08X}\"\ncategory = \"{}\"\nfoliage = {}\n{CREDIT}\n\
-             [[model.lod]]\nfile = \"{dir}/model.gltf\"\n\n",
+            "[[model]]\nid = \"0x{:08X}\"\ncategory = \"{}\"\nfoliage = {}\n{CREDIT}\n",
             m.setup,
             m.category.name(),
             m.foliage
         );
+        for (k, distance) in written[&dir].iter().enumerate() {
+            let _ = write!(
+                manifest,
+                "[[model.lod]]\nfile = \"{dir}/{}.gltf\"\n",
+                level_name(k)
+            );
+            if let Some(d) = distance {
+                let _ = writeln!(manifest, "distance = {}", short((d * 10.0).round() / 10.0));
+            }
+        }
+        manifest.push('\n');
     }
     if req.parts.contains(&Part::Sky) {
         progress("sky");
@@ -654,6 +689,39 @@ mod tests {
             folder_of(Path::new("a/look.dat")),
             Path::new("a/look.folder")
         );
+    }
+
+    /// The big pine from this machine's AC2 install: its most detailed mesh alone while the table
+    /// leaves AC2's levels off, and every level AC2 draws it at, each drawn out farther than the
+    /// one before, once the table turns them on.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn a_tree_carries_ac2s_coarser_levels_only_when_the_table_asks() {
+        let mut t = Tables::built_in().expect("the tables");
+        let ac2 = Ac2::open(&auberean_dat::testing::require_target_install()).expect("the install");
+        let pine = t
+            .trees
+            .model
+            .iter()
+            .find(|m| m.setup == 0x0200_02D3)
+            .cloned()
+            .expect("the big pine's row");
+        assert_eq!(pine.category, Category::Tree);
+        t.trees.levels = false;
+        let alone = build_model(&ac2, &t, &pine, None).expect("the pine builds");
+        assert_eq!(alone.len(), 1);
+        assert_eq!(alone[0].0, None, "drawn out to its picture");
+        t.trees.levels = true;
+        let levels = build_model(&ac2, &t, &pine, None).expect("the pine builds");
+        assert!(levels.len() > 2, "{} levels", levels.len());
+        let distances: Vec<Option<f64>> = levels.iter().map(|(d, _)| *d).collect();
+        assert_eq!(distances.last(), Some(&None));
+        let reach: Vec<f64> = distances.iter().flatten().copied().collect();
+        assert_eq!(reach.len(), levels.len() - 1, "{distances:?}");
+        assert!(reach.windows(2).all(|w| w[1] > w[0]), "{reach:?}");
     }
 
     /// The ground from this machine's AC2 install: every ground and the road carry the one detail

@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use dereth_primitives::num::math::hypot;
 use serde_json::{json, Value};
 
-use super::source::{Ac2, Rgba, Shape};
+use super::source::{Ac2, MeshPart, Rgba, Shape};
 use super::tables::Fit;
 
 /// The share of a trunk's height its slab starts at and ends at.
@@ -153,12 +153,77 @@ fn gl(p: [f64; 3]) -> [f32; 3] {
     [single(p[0]), single(p[2]), single(-p[1])]
 }
 
-/// The entity `entity` as a static model made as `recipe` says.
+/// Distances closer than this share of the farther are taken as one.
+const SAME_DISTANCE: f64 = 0.02;
+
+/// The levels a model of `parts` is drawn at, nearest first: for each, how far from the eye it is
+/// drawn out to (`None` for the last) and which of each part's levels it draws (0 its most
+/// detailed, `i` its `i`th coarser). Each level comes in where Asheron's Call 2 draws a coarser
+/// level of any part, `scale` times farther as the model stands `scale` times taller; distances
+/// all but alike are one.
+#[must_use]
+pub fn level_plan(parts: &[MeshPart], scale: f64) -> Vec<(Option<f64>, Vec<usize>)> {
+    let mut at: Vec<f64> = parts
+        .iter()
+        .flat_map(|p| p.coarser.iter().map(|(d, _)| d * scale))
+        .filter(|d| d.is_finite() && *d > 0.0)
+        .collect();
+    at.sort_by(f64::total_cmp);
+    let mut steps: Vec<f64> = Vec::new();
+    for d in at {
+        if steps.last().is_none_or(|l| d - l > SAME_DISTANCE * d) {
+            steps.push(d);
+        }
+    }
+    let drawn = |from: f64| -> Vec<usize> {
+        parts
+            .iter()
+            .map(|p| {
+                p.coarser
+                    .iter()
+                    .filter(|(d, _)| d * scale <= from * (1.0 + SAME_DISTANCE))
+                    .count()
+            })
+            .collect()
+    };
+    let mut out = vec![(steps.first().copied(), vec![0; parts.len()])];
+    for (k, from) in steps.iter().enumerate() {
+        out.push((steps.get(k + 1).copied(), drawn(*from)));
+    }
+    out
+}
+
+/// The entity `entity` as a static model made as `recipe` says, at its most detailed level.
+///
+/// # Errors
+/// A record on the way will not read, or the entity has no mesh to draw.
+pub fn static_model(ac2: &Ac2, entity: u32, recipe: &Recipe) -> Result<(Gltf, Measured), String> {
+    let (levels, measured) = static_levels(ac2, entity, recipe, false)?;
+    let (_, g) = levels
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("entity {entity:08X} has no mesh to draw"))?;
+    Ok((g, measured))
+}
+
+/// A model's levels, nearest first: each with how far from the eye it is drawn out to (`None` for
+/// the last), and what it measured.
+pub type Levels = (Vec<(Option<f64>, Gltf)>, Measured);
+
+/// The entity `entity` as a static model made as `recipe` says, at each of its levels
+/// ([`level_plan`]) when `levels`, else at its most detailed alone: each level with how far from
+/// the eye it is drawn out to (`None` for the last). Every level is the same vertices, fitted as
+/// the most detailed is.
 ///
 /// # Errors
 /// A record on the way will not read, or the entity has no mesh to draw.
 #[allow(clippy::too_many_lines)]
-pub fn static_model(ac2: &Ac2, entity: u32, recipe: &Recipe) -> Result<(Gltf, Measured), String> {
+pub fn static_levels(
+    ac2: &Ac2,
+    entity: u32,
+    recipe: &Recipe,
+    levels: bool,
+) -> Result<Levels, String> {
     let parts = ac2.meshes(entity)?;
     if parts.is_empty() {
         return Err(format!("entity {entity:08X} has no mesh to draw"));
@@ -295,6 +360,39 @@ pub fn static_model(ac2: &Ac2, entity: u32, recipe: &Recipe) -> Result<(Gltf, Me
         let after = girth(&bark_points(&scaled), top).or_else(|| girth(&all_points(&scaled), top));
         measured.girth = Some((r, after.map_or(r, |a| a.2)));
     }
+    let plan = if levels {
+        level_plan(&parts, k)
+    } else {
+        vec![(None, vec![0; parts.len()])]
+    };
+    let mut made = Vec::with_capacity(plan.len());
+    for (distance, chosen) in plan {
+        made.push((
+            distance,
+            gltf_of(ac2, &parts, &scaled, recipe, &textures, &chosen),
+        ));
+    }
+    Ok((made, measured))
+}
+
+/// `parts` at the places `scaled` gives their vertices, written as glTF: per part, its places,
+/// normals and coordinates, and a primitive per fragment of the level `chosen` names for it (0 its
+/// most detailed, `i` its `i`th coarser).
+fn gltf_of(
+    ac2: &Ac2,
+    parts: &[MeshPart],
+    scaled: &[Vec<[f64; 3]>],
+    recipe: &Recipe,
+    textures: &BTreeMap<u32, (Option<u32>, f64)>,
+    chosen: &[usize],
+) -> Gltf {
+    let level = |pi: usize| -> &[(usize, Vec<u16>)] {
+        let p = &parts[pi];
+        match chosen.get(pi).copied().unwrap_or(0) {
+            0 => &p.fragments,
+            i => p.coarser.get(i - 1).map_or(&p.fragments, |(_, f)| f),
+        }
+    };
     // The glTF: per part, its places, normals and coordinates, and a primitive per fragment.
     let mut j = json!({
         "asset": {"version": "2.0", "generator": "dereth-art"},
@@ -332,7 +430,7 @@ pub fn static_model(ac2: &Ac2, entity: u32, recipe: &Recipe) -> Result<(Gltf, Me
         let vu = view(&mut j, &mut bin, &uv, 34962);
         let a_uv = accessor(&mut j, vu, 5126, p.vertices.len(), "VEC2");
         let mut prims = Vec::new();
-        for (m, ix) in &p.fragments {
+        for (m, ix) in level(pi) {
             if ix.is_empty() {
                 continue;
             }
@@ -390,14 +488,11 @@ pub fn static_model(ac2: &Ac2, entity: u32, recipe: &Recipe) -> Result<(Gltf, Me
             j.as_object_mut().expect("an object").remove(key);
         }
     }
-    Ok((
-        Gltf {
-            json: j,
-            bin,
-            pictures,
-        },
-        measured,
-    ))
+    Gltf {
+        json: j,
+        bin,
+        pictures,
+    }
 }
 
 /// The accessors a model's primitives use for `key`, each once, in the order first used.
@@ -765,6 +860,40 @@ pub fn measure(pts: &[[f64; 3]], shape: &Shape, tolerance: f64) -> (f64, f64) {
 mod tests {
     //! Behaviour: none (tooling: the AC2 look's fits)
     use super::*;
+
+    fn part(coarser: &[f64]) -> MeshPart {
+        MeshPart {
+            id: 0x0600_0001,
+            materials: Vec::new(),
+            vertices: Vec::new(),
+            fragments: Vec::new(),
+            coarser: coarser.iter().map(|d| (*d, Vec::new())).collect(),
+        }
+    }
+
+    /// A model's levels come in wherever any part's coarser level does, as far again as the model
+    /// stands taller; each part draws the coarsest of its levels come in by then, and distances
+    /// all but alike are one.
+    #[test]
+    fn a_models_levels_come_in_where_any_parts_coarser_level_does() {
+        let parts = [part(&[40.0, 80.0]), part(&[60.0, 80.5])];
+        let plan = level_plan(&parts, 2.0);
+        assert_eq!(
+            plan,
+            vec![
+                (Some(80.0), vec![0, 0]),
+                (Some(120.0), vec![1, 0]),
+                (Some(160.0), vec![1, 1]),
+                (None, vec![2, 2]),
+            ]
+        );
+        // A part with no coarser level draws its most detailed at every level.
+        assert_eq!(
+            level_plan(&[part(&[]), part(&[50.0])], 1.0),
+            vec![(Some(50.0), vec![0, 0]), (None, vec![0, 1])]
+        );
+        assert_eq!(level_plan(&[part(&[])], 1.0), vec![(None, vec![0])]);
+    }
 
     #[test]
     fn a_trunks_girth_is_its_slabs_share_of_distances_from_its_middle() {
