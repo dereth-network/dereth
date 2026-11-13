@@ -1215,3 +1215,62 @@ fn a_saved_size_is_cut_to_the_monitor_it_opens_on_and_never_under_the_login_size
     assert_eq!(fit((1437, 902), None), (1437, 902));
     assert_eq!(fit((1437, 902), Some((640, 480))), (800, 600));
 }
+
+/// Behaviour: none (tooling: `--explore`, a camera flown through the world with no server).
+#[test]
+fn explore_never_connects_leaves_the_body_out_and_starts_where_its_location_says() {
+    // A location as `/loc` writes it, unquoted, its negative numbers no switches; then another
+    // switch.
+    let cfg = parse(&[
+        "--explore",
+        "0xB2AA003E",
+        "[178.5",
+        "137.3",
+        "52.0]",
+        "-0.991022",
+        "0",
+        "0",
+        "-0.133696",
+        "-a",
+        "acct",
+        "-h",
+        "127.0.0.1",
+        "--no-sound",
+    ])
+    .expect("parses");
+    assert!(cfg.explore);
+    assert!(!cfg.will_connect(), "explore never connects");
+    assert!(!cfg.character && !cfg.plugins);
+    assert!(!cfg.sound, "the switch after the location is still read");
+    assert_eq!(cfg.landblock, 0xB2AA);
+    let start = cfg.explore_start.expect("a start");
+    assert_eq!((start.origin.x, start.origin.y), (178.5, 137.3));
+    // A camera flown fast is not held up for the landscape.
+    assert!(cfg.scene_config().stream_budget.is_some());
+
+    // The same location as one word.
+    let quoted = parse(&["--explore", "0xB2AA003E [178.5 137.3 52.0]"]).expect("parses");
+    assert_eq!(quoted.explore_start.map(|s| s.origin), Some(start.origin));
+
+    // None given: over Holtburg, as an offline run starts.
+    let bare = parse(&["--explore", "--no-sound"]).expect("parses");
+    assert!(bare.explore && bare.explore_start.is_none());
+    assert_eq!(
+        bare.landblock,
+        dereth_world_data::landblock::DEFAULT_LANDBLOCK
+    );
+
+    let bad = parse(&["--explore", "Holtburg"]).expect_err("no location");
+    assert!(bad.detail.contains("--explore"), "{}", bad.detail);
+    // It says why in one short line, where every retail switch's failure says only to use the
+    // launcher.
+    assert_eq!(
+        bad.to_string(),
+        "Explore: can't read the location \"Holtburg\"."
+    );
+    let retail = parse(&["-port"]).expect_err("needs a value");
+    assert_eq!(
+        retail.to_string(),
+        crate::corestrings::display_string(crate::corestrings::ID_LAUNCHER_ONLY, &[])
+    );
+}

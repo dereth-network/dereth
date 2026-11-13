@@ -29,6 +29,7 @@ pub use probe::{AppProbe, AppProbeMut};
 
 mod access;
 mod display;
+mod explore;
 mod frame;
 mod hook;
 mod hud;
@@ -941,6 +942,8 @@ pub struct App<S: Shell> {
     window_has_no_extent: bool,
     /// The performance capture `@perfcapture` started, while it records.
     pub perf_capture: Option<crate::perf_capture::PerfCapture>,
+    /// `--explore`'s state while the mode runs: how fast its camera flies.
+    pub explore: Option<crate::explore::Explore>,
     /// The commit the program was built from, as its host names it, for `@report`.
     pub build_commit: &'static str,
     /// Time when `0x0013` made the session playable, used by `--linger`.

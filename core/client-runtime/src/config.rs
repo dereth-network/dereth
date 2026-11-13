@@ -24,17 +24,29 @@ use crate::corestrings::{display_string, ID_LAUNCHER_ONLY};
 /// The parse failed. Every one of these surfaces to the user as corestrings 205, because
 /// finalizing error output discards the accumulated text and shows that one string;
 /// the `detail` is what the retail client would have put in its full output text and thrown away.
+/// A switch of this client's own may say instead what was wrong ([`Self::said`]).
 #[derive(Debug, thiserror::Error)]
-#[error("{}", display_string(ID_LAUNCHER_ONLY, &[]))]
+#[error("{}", self.said.clone().unwrap_or_else(|| display_string(ID_LAUNCHER_ONLY, &[])))]
 pub struct ConfigError {
     /// What was given. Never shown by the retail client.
     pub detail: String,
+    /// The line shown in place of corestrings 205, for a switch the retail client never had.
+    pub said: Option<String>,
 }
 
 impl ConfigError {
     fn new(detail: impl Into<String>) -> Self {
         Self {
             detail: detail.into(),
+            said: None,
+        }
+    }
+
+    /// A failure that says `said` to the player.
+    fn saying(said: impl Into<String>, detail: impl Into<String>) -> Self {
+        Self {
+            detail: detail.into(),
+            said: Some(said.into()),
         }
     }
 }
@@ -425,6 +437,11 @@ pub struct Config {
     /// `--no-character`: leave the body out and fly the free camera over the static scene.
     /// Kept reachable so the static-scene regression does not disappear.
     pub character: bool,
+    /// `--explore [LOC]`: the world with no server and no body, and a free camera flown through
+    /// it ([`crate::explore`]). It never connects, and leaves the body and the plugins out.
+    pub explore: bool,
+    /// Where `--explore` starts the camera; `None` over Holtburg, as an offline run starts.
+    pub explore_start: Option<crate::report::ReportCamera>,
 
     // ---- the adaptive degrade ----
     /// Run the degradation governor, so its multiplier follows the measured frame rate and every
@@ -618,6 +635,8 @@ impl Default for Config {
             object_identity_ms: None,
             world: true,
             character: true,
+            explore: false,
+            explore_start: None,
             auto_degrades: true,
             time_of_day: None,
             connect: true,
@@ -1005,6 +1024,12 @@ const REBUILD_SWITCHES: &[Switch] = &[
         short: None,
         arity: Arity::None,
     },
+    // Fly a camera through the world with no server, from a location or over Holtburg.
+    Switch {
+        long: "explore",
+        short: None,
+        arity: Arity::Optional,
+    },
     // The adaptive degrade.
     Switch {
         long: "auto-degrades",
@@ -1151,6 +1176,15 @@ fn is_switch(tok: &str) -> bool {
     tok.chars().next().is_some_and(|c| CMD_CHARS.contains(&c))
 }
 
+/// Whether `tok` names a switch rather than being a word that merely starts like one: a command
+/// character followed by a letter or a second command character, so `-0.99` is a number.
+fn names_a_switch(tok: &str) -> bool {
+    let mut c = tok.chars();
+    c.next().is_some_and(|c| CMD_CHARS.contains(&c))
+        && c.next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || CMD_CHARS.contains(&c))
+}
+
 /// Strip **exactly one** leading command character, which is why `--rodat` is looked up as the long
 /// name `-rodat` and fails.
 fn strip_one(tok: &str) -> &str {
@@ -1279,8 +1313,8 @@ impl Config {
             stream_budget: match self.stream_budget_ms {
                 Some(0) => None,
                 Some(ms) => Some(std::time::Duration::from_millis(u64::from(ms))),
-                None => self
-                    .will_connect()
+                // A camera flown fast is never held up for the landscape either.
+                None => (self.will_connect() || self.explore)
                     .then_some(std::time::Duration::from_millis(4)),
             },
             // `[Render] TerrainBlending`, the only control there is for it.
@@ -1293,8 +1327,7 @@ impl Config {
             object_identity_budget: match self.object_identity_ms {
                 Some(0) => None,
                 Some(ms) => Some(std::time::Duration::from_millis(u64::from(ms))),
-                None => self
-                    .will_connect()
+                None => (self.will_connect() || self.explore)
                     .then_some(crate::app::IDENTITY_BACKGROUND_BUDGET),
             },
             ..crate::scene::SceneConfig::default()
@@ -1613,6 +1646,7 @@ impl Config {
                 continue;
             };
 
+            let joined: String;
             let value: Option<&str> = match sw.arity {
                 Arity::None => None,
                 Arity::Required => {
@@ -1630,6 +1664,16 @@ impl Config {
                             continue;
                         }
                     }
+                }
+                // `--explore`'s location may be given unquoted, as `/loc` writes it: every word
+                // up to the next switch, a negative number in it not being one.
+                Arity::Optional if table_is_rebuild && sw.long == "explore" => {
+                    let from = i;
+                    while argv.get(i).is_some_and(|v| !names_a_switch(v)) {
+                        i += 1;
+                    }
+                    joined = argv[from..i].join(" ");
+                    (from < i).then_some(joined.as_str())
                 }
                 Arity::Optional => match argv.get(i) {
                     Some(v) if !is_switch(v) => {
@@ -2038,6 +2082,25 @@ impl Config {
             }
             "no-world" => self.world = false,
             "no-character" => self.character = false,
+            "explore" => {
+                self.explore = true;
+                self.connect = false;
+                self.character = false;
+                self.plugins = false;
+                self.explore_start = if v.trim().is_empty() {
+                    None
+                } else {
+                    Some(crate::explore::parse_start(v).map_err(|e| {
+                        ConfigError::saying(
+                            format!("Explore: can't read the location \"{}\".", v.trim()),
+                            format!("--explore: {e}"),
+                        )
+                    })?)
+                };
+                if let Some(start) = self.explore_start {
+                    self.landblock = start.block;
+                }
+            }
             // Leave the interior cells' baked objects out, so the same station can be
             // looked at with and without them. Always on in the client.
             "no-cell-statics" => self.cell_statics = false,

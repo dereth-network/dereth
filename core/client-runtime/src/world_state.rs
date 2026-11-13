@@ -121,6 +121,9 @@ impl HookObject for WorldObject {
 #[derive(Debug)]
 pub struct WorldState {
     pub camera: FreeCamera,
+    /// How fast the free camera flies, meters a second, when something other than its own walk
+    /// sets it (`--explore`); `None` flies it at its own.
+    pub fly_speed: Option<f32>,
     /// The residency window and the viewer's cell within its own
     /// block, as the `crate::world_stream::WorldStreamer` the scene owns and drives.
     pub streamer: crate::world_stream::WorldStreamer,

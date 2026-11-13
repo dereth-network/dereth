@@ -257,6 +257,10 @@ impl<S: Shell> App<S> {
         self.last_time = self.timer.cur_time;
         let input = self.input;
         let char_input = self.char_input;
+        // `--explore` flies the free camera at the speed the player chose.
+        if let (Some(explore), Some(ws)) = (self.explore, self.world.as_mut()) {
+            ws.fly_speed = Some(explore.meters_per_second());
+        }
         // The rising-edge controls are consumed here, once, so a key press cannot be issued twice.
         self.char_input.jump = false;
         let now = dereth_primitives::LocalTime(self.timer.cur_time);

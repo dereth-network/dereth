@@ -265,6 +265,7 @@ impl<S: Shell> App<S> {
         });
         #[cfg(feature = "fidelity")]
         let horizon_interface = cfg.render.fidelity.interface;
+        let explore = cfg.explore.then(crate::explore::Explore::default);
         let mut app = Self {
             cfg,
             state: AppState::Startup,
@@ -339,6 +340,7 @@ impl<S: Shell> App<S> {
             perf_font: false,
             window_has_no_extent: false,
             perf_capture: None,
+            explore,
             build_commit: "unknown",
             playable_at: None,
             // The reporter seeds `last_sent_position_time` with the clock start, not zero.
@@ -419,6 +421,12 @@ impl<S: Shell> App<S> {
             })?;
         if let Some(mut world) = self.present.scene_mut(self.world.as_mut()) {
             world.set_environment_override_state(self.environment_override.clone());
+        }
+        // `--explore`'s camera starts where its location says.
+        if let (Some(start), Some(ws)) = (self.cfg.explore_start, self.world.as_mut()) {
+            if let Some(block) = ws.viewer_block() {
+                ws.camera = start.to_render(block);
+            }
         }
         Ok(())
     }

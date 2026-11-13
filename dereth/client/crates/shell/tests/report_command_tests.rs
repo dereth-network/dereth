@@ -14,12 +14,12 @@ use std::cell::RefCell;
 
 thread_local! {
     /// What the host's clipboard has been given, on this thread.
-    static COPIED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    pub(super) static COPIED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 }
 
 /// A clipboard that keeps what it is given.
 #[derive(Debug, Default, Clone, Copy)]
-struct Recording;
+pub(super) struct Recording;
 
 impl HostClipboard for Recording {
     fn set_text(&mut self, text: &str) -> Result<(), ClipboardError> {
@@ -36,7 +36,7 @@ impl HostClipboard for Recording {
 
 /// The host with nothing under it but a clipboard that records, and a name and a commit.
 #[derive(Debug, Clone, Copy, Default)]
-struct ReportHost;
+pub(super) struct ReportHost;
 
 impl Host for ReportHost {
     const BUILD_ID: &'static str = "dereth-client 9.8.7";

@@ -63,6 +63,7 @@ impl WorldState {
         Self {
             // Replaced once the centre block's height is known.
             camera: FreeCamera::new(Vec3::ZERO, 0.0, -0.42),
+            fly_speed: None,
             streamer: crate::world_stream::WorldStreamer::new(cfg.land_radius),
             released_interiors: Vec::new(),
             entering_world: Vec::new(),

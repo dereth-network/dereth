@@ -69,7 +69,9 @@ impl ArtSource for DatIcons {
 }
 
 /// The game's label font from its data, as the kit draws it; `None` where the data has none.
-fn retail_font(store: &dereth_dat::RetailDatStore) -> Option<dereth_ui_kit::art::GivenFont> {
+pub(super) fn retail_font(
+    store: &dereth_dat::RetailDatStore,
+) -> Option<dereth_ui_kit::art::GivenFont> {
     use dereth_assets::Decode;
     use dereth_primitives::AssetSource;
     let did = dereth_primitives::DataId(dereth_plugin_ui::skin::FONT);
@@ -169,7 +171,7 @@ fn classic_font(art: &dereth_classic_ui::art::ClassicArt) -> Option<dereth_ui_ki
 const CLASSIC_FONT: &str = "15-6";
 
 /// A presentation as the kit's texture sink.
-struct Sink<'a>(&'a mut dyn ClientPresentation);
+pub(super) struct Sink<'a>(pub(super) &'a mut dyn ClientPresentation);
 
 impl TextureSink for Sink<'_> {
     fn size(&self) -> (u32, u32) {

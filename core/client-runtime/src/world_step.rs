@@ -216,7 +216,13 @@ pub fn step_physics(
             ws.last_bodyless_tick = now.0;
             true
         };
-        ws.camera.update(input, dt);
+        match ws.fly_speed {
+            Some(speed) => {
+                ws.camera.fly(input, dt, speed);
+                crate::explore::hold_over_the_world(ws);
+            }
+            None => ws.camera.update(input, dt),
+        }
     }
     let mut d = ObjectStepStats::default();
     crate::object_step::finish_object_physics(&mut ws.objects, &mut ws.character, &mut d);

@@ -50,6 +50,8 @@ pub mod connect_failure;
 /// conversion, the error box, the audio endpoint and the other host answers.
 pub mod platform;
 
+/// `--explore`: a camera flown through the world with no server.
+pub mod explore;
 /// The frame's step list: what `App::frame` did, in order.
 pub mod frame;
 /// The frame's event log. `App`'s ~30 test-only counters are one-line reads over it, and a

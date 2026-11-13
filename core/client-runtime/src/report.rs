@@ -486,7 +486,7 @@ fn parse_block_point(v: &str) -> Option<(u16, Vec3, &str)> {
 }
 
 /// `0xXXYY [x y z] yaw Y pitch P[ cell 0xCCCCCCCC]`.
-fn parse_camera(v: &str) -> Option<ReportCamera> {
+pub(crate) fn parse_camera(v: &str) -> Option<ReportCamera> {
     let (block, origin, tail) = parse_block_point(v)?;
     let w: Vec<&str> = tail.split_whitespace().collect();
     let mut c = ReportCamera {

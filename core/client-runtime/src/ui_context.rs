@@ -915,6 +915,40 @@ impl<'a, S: Shell> UiContext<'a, S> {
     pub fn flycam_sink(&mut self, held: bool) {
         self.app.flycam_sink(held);
     }
+
+    /// Whether the client runs in explore mode (`--explore`).
+    #[must_use]
+    pub fn exploring(&self) -> bool {
+        self.app.exploring()
+    }
+
+    /// Explore mode's camera: one of its ways held or let go.
+    pub fn explore_fly(&mut self, way: crate::explore::Fly, held: bool) {
+        self.app.explore_fly(way, held);
+    }
+
+    /// Explore mode's camera `steps` speeds faster, or slower below zero.
+    pub fn explore_speed(&mut self, steps: i32) {
+        self.app.explore_speed(steps);
+    }
+
+    /// What explore mode's screen says; `None` outside the mode.
+    #[must_use]
+    pub fn explore_status(&self) -> Option<crate::explore::Status> {
+        self.app.explore_status()
+    }
+
+    /// The camera's spot as `@loc` says a place; `None` before the world is up.
+    #[must_use]
+    pub fn camera_location_line(&self) -> Option<String> {
+        self.app.camera_location_line()
+    }
+
+    /// The visual report's line for the frame last drawn, as `@report` writes it.
+    #[must_use]
+    pub fn visual_report_line(&self, shell: &S) -> String {
+        self.app.visual_report(shell).line()
+    }
 }
 
 /// A UI's answer to one talk-focus notice: handed the current talk focus and the notice, it says

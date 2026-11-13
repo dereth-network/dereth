@@ -98,12 +98,17 @@ impl FreeCamera {
     /// Advance by `dt` seconds under `input`. Movement is along the pitched forward vector, which is
     /// what makes it a flycam rather than a walk.
     pub fn update(&mut self, input: CameraInput, dt: f32) {
+        self.fly(input, dt, MOVE_SPEED);
+    }
+
+    /// [`Self::update`] at `speed` meters a second in place of [`MOVE_SPEED`].
+    pub fn fly(&mut self, input: CameraInput, dt: f32, speed: f32) {
         let axis = |neg: bool, pos: bool| f32::from(u8::from(pos)) - f32::from(u8::from(neg));
         self.yaw += LOOK_SPEED * dt * axis(input.look_right, input.look_left);
         self.pitch += LOOK_SPEED * dt * axis(input.look_down, input.look_up);
         self.pitch = self.pitch.clamp(-PITCH_LIMIT, PITCH_LIMIT);
 
-        let speed = MOVE_SPEED * dt * if input.fast { FAST_MULTIPLIER } else { 1.0 };
+        let speed = speed * dt * if input.fast { FAST_MULTIPLIER } else { 1.0 };
         let f = self.forward();
         let r = self.right();
         let fwd = axis(input.back, input.forward) * speed;
