@@ -75,6 +75,7 @@ mod pet_kinds;
 mod pet_skills;
 mod pets;
 mod placings;
+mod plant_care;
 mod player_fights;
 mod popups;
 mod portal_doors;

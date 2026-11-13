@@ -1713,12 +1713,20 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 }
             }
             Row::Plant(r) => {
+                use yalain_content::plants::{FERTILIZER, WATERING_CAN};
                 let sp = r.species;
                 let held = [
                     ("plant", Some(sp.plant)),
                     ("seed", Some(sp.seed)),
                     ("pollen", sp.pollen),
                     ("harvest", Some(sp.harvest)),
+                    // The care items a row names (the dye plants' are the server's own).
+                    ("water", Some(sp.water).filter(|w| *w != WATERING_CAN)),
+                    (
+                        "fertilizer",
+                        Some(sp.fertilizer).filter(|f| *f != FERTILIZER),
+                    ),
+                    ("garden", sp.garden.map(|g| g.template)),
                 ]
                 .into_iter()
                 .filter_map(|(field, t)| t.map(|t| (field, t)))

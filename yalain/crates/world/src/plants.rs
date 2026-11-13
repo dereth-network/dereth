@@ -28,6 +28,21 @@
 //! fertilizer its need of fertilizer. A need that grows past "Death imminent!", or a plant cared
 //! for past "Far too much!", withers the plant: its planter is told why, and it is gone.
 //!
+//! **A species' own care.** A world's row may name the items that water and fertilize its plants,
+//! in place of the can and the bag; it may plant its seed in a garden instead (below); and it may
+//! give a plant that needs care lines of its own. Such a plant keeps its own look as it grows; its
+//! withering, a harvest too early and a harvest by another player are told in its own lines where
+//! its row names them; and examined while it grows it shows its stage's line and how it fares, in
+//! place of its needs and pollen: healthy (no need above "None needed", none below it), or each of
+//! dry (water "Needed" or more), overwatered ("Too much" or less), hungry and overfed (the same of
+//! fertilizer) that holds, in that order.
+//!
+//! **A garden.** A seed whose species names a garden is not planted by its use: it is given to an
+//! object of the garden's template, which keeps the seed (one of a stack) and says its planting
+//! line, and the plant stands where the garden stands, facing as it faces, its giver's plant. A
+//! garden holds one plant at a time: while its plant stands, a seed given to it is handed back
+//! with its busy line. A quest step the give triggers runs instead.
+//!
 //! **Pollen** used on a plant brushes onto its leaves ("You brush the pollen on to the plants'
 //! leaves.", after the use's answer); a plant already pollinated does not take another (the
 //! breeze blows it away). Examining a plant shows its needs, its pollen and the time until it is
@@ -54,6 +69,7 @@ use auberean_protocol::physics::ObjectEvent;
 use auberean_protocol::table::{Table, SMALL};
 use auberean_protocol::types::{BehaviorParams, IconLayer, PartGroupDesc, VisualDesc};
 use auberean_protocol::ServerMessage;
+use yalain_content::talk::{How, Words};
 use yalain_net::{ConnId, ServerNet};
 use yalain_store::{Store, StoredPosition};
 
@@ -61,7 +77,9 @@ use crate::places::Use;
 use crate::things::{Kind, Thing};
 use crate::{progress, Clock, Server, Timer};
 
-pub use yalain_content::plants::{Cross, DyePlants, Species, Texts, RIPE_SECONDS};
+pub use yalain_content::plants::{
+    Conditions, Cross, DyePlants, Garden, Species, Texts, FERTILIZER, RIPE_SECONDS, WATERING_CAN,
+};
 
 /// The kinds of dye plant row a world has none of: it has no species or crosses of such a kind.
 #[must_use]
@@ -74,10 +92,6 @@ pub fn kinds_missing(rows: &DyePlants) -> Vec<&'static str> {
     .filter_map(|(kind, none)| none.then_some(kind))
     .collect()
 }
-
-/// The watering can and the bag of fertilizer.
-pub const WATERING_CAN: u32 = 0x4700_145F;
-pub const FERTILIZER: u32 = 0x4700_1445;
 
 /// The planting behavior (a seed's use behavior), and how long it plays before the plant stands,
 /// in seconds.
@@ -183,6 +197,8 @@ pub struct Plant {
     pub fertilizer: i32,
     /// The pollen brushed on it.
     pub pollen: Option<u32>,
+    /// The garden it stands in (its place in the world's list of placed objects), if any.
+    pub garden: Option<usize>,
 }
 
 /// Each species' ripe look, by its plant item.
@@ -263,18 +279,22 @@ pub fn growing_look(stage: u8) -> VisualDesc {
     }
 }
 
-/// The string table of a species' lines, and the ids of its countdown label, its ripe line and its
-/// harvest's line (where its harvest gives no pollen and no seeds).
-fn lines(species: &Species) -> (u32, u32, u32, Option<u32>) {
-    species
-        .texts
-        .map_or((text::TABLE, text::MATURITY_IN, text::MATURE, None), |t| {
-            (t.table, t.maturity_in, t.mature, Some(t.harvest))
-        })
+/// The string table of a species' lines, and the ids of its countdown label (none: no countdown),
+/// its ripe line and its harvest's line (where its harvest gives no pollen and no seeds).
+fn lines(species: &Species) -> (u32, Option<u32>, u32, Option<u32>) {
+    species.texts.map_or(
+        (text::TABLE, Some(text::MATURITY_IN), text::MATURE, None),
+        |t| (t.table, t.maturity_in, t.mature, Some(t.harvest)),
+    )
+}
+
+/// A species' line in its own table for a moment its row names, else the dye plants' id there.
+fn own_line(species: &Species, of: impl Fn(&Texts) -> Option<u32>, dye: u32) -> u32 {
+    species.texts.as_ref().and_then(of).unwrap_or(dye)
 }
 
 /// The dye plants' lines for an examination: their table, the countdown's label and the ripe line.
-pub const DYE_LINES: (u32, u32, u32) = (text::TABLE, text::MATURITY_IN, text::MATURE);
+pub const DYE_LINES: (u32, Option<u32>, u32) = (text::TABLE, Some(text::MATURITY_IN), text::MATURE);
 
 /// A text of a species' table naming a player.
 fn told(table: u32, id: u32, name: &str) -> ServerMessage {
@@ -333,7 +353,7 @@ fn ahead<S: Store>(s: &Server<S>, at: &StoredPosition, off: f32) -> StoredPositi
     }
 }
 
-/// Is an item template a seed of one of the world's dye plants?
+/// Is an item template a seed one of the world's species plants where it is used?
 #[must_use]
 pub fn is_seed<S: Store>(s: &Server<S>, template: u32) -> bool {
     s.plants.kinds.sown_by(template).is_some()
@@ -351,22 +371,28 @@ pub fn sow<S: Store>(
     let Some(species) = s.plants.kinds.sown_by(seed) else {
         return Vec::new();
     };
+    let Some(from) = s.players.get(&world).map(|p| p.position) else {
+        return Vec::new();
+    };
     (0..species.count)
-        .filter_map(|k| plant(s, net, world, species, off_heading(k, species.count), clock))
+        .filter_map(|k| {
+            let at = ahead(s, &from, off_heading(k, species.count));
+            plant(s, net, world, species, (at, None), clock)
+        })
         .collect()
 }
 
-/// One plant of a species stands for a planter at an angle off its heading.
+/// One plant of a species stands for a planter at a place, in a garden or not.
 fn plant<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
     species: Species,
-    off: f32,
+    (at, garden): (StoredPosition, Option<usize>),
     clock: Clock,
 ) -> Option<u64> {
     let template = s.catalog.get(species.plant)?.clone();
-    let (owner, at) = s.players.get(&world).map(|p| (p.character, p.position))?;
+    let owner = s.players.get(&world).map(|p| p.character)?;
     let id = s.things.new_id();
     let name = template.description.name.unwrap_or_default();
     progress::private(
@@ -375,7 +401,7 @@ fn plant<S: Store>(
         &crate::pets::added(id, progress::text(name), 0, PET_CLASS, PET_FLAGS),
     );
     let mut t = Thing::of(id, &template, Kind::Plant);
-    t.at = Some(ahead(s, &at, off));
+    t.at = Some(at);
     let health = template
         .props
         .int("GameplayStatistics_MaxHealth")
@@ -402,6 +428,7 @@ fn plant<S: Store>(
             water: NEW_NEED,
             fertilizer: NEW_NEED,
             pollen: None,
+            garden,
         },
     );
     crate::presence::thing_appears(s, net, id);
@@ -451,7 +478,10 @@ pub fn thinks<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: 
         if let Some(q) = s.plants.by_id.get_mut(&id) {
             q.stage = stage;
         }
-        let look = if stage >= STAGES {
+        // A species with lines of its own keeps its own look.
+        let look = if p.species.texts.is_some() {
+            None
+        } else if stage >= STAGES {
             s.plants.looks.get(&p.species.harvest).cloned()
         } else {
             Some(growing_look(stage))
@@ -503,6 +533,7 @@ fn withers<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, why: u32) 
     let Some(p) = s.plants.by_id.remove(&id) else {
         return;
     };
+    let why = own_line(&p.species, |t| t.withers, why);
     if let Some((world, name)) = named(s, p.owner) {
         progress::private(net, world, &told(lines(&p.species).0, why, &name));
         progress::private(net, world, &crate::pets::removed(id));
@@ -522,24 +553,27 @@ pub fn not_planted_by<S: Store>(s: &Server<S>, world: ConnId, target: u64) -> bo
 
 /// A player leaves alone a plant it did not plant: it is told so, as at a harvest.
 pub fn left_alone<S: Store>(s: &Server<S>, net: &mut ServerNet, world: ConnId, plant: u64) {
-    let table = s
+    let (table, said) = s
         .plants
         .by_id
         .get(&plant)
-        .map_or(text::TABLE, |p| lines(&p.species).0);
+        .map_or((text::TABLE, text::NOT_YOURS), |p| {
+            let said = own_line(&p.species, |t| t.not_yours, text::NOT_YOURS);
+            (lines(&p.species).0, said)
+        });
     if let Some(name) = s
         .players
         .get(&world)
         .map(|q| crate::player::world_name(&q.name, q.sex))
     {
-        progress::private(net, world, &told(table, text::NOT_YOURS, &name));
+        progress::private(net, world, &told(table, said, &name));
     }
 }
 
-/// An item used on an object has been carried out and answered: when the object is a plant, a
-/// watering can or a bag of fertilizer lowers its need by one level (a plant cared for past the
-/// first level withers; a ripe plant's needs no longer count), and a pollen brushes onto it (onto
-/// one not yet pollinated).
+/// An item used on an object has been carried out and answered: when the object is a plant, its
+/// species' water or fertilizer (a watering can or a bag of fertilizer, unless its row names
+/// others) lowers its need by one level (a plant cared for past the first level withers; a ripe
+/// plant's needs no longer count), and a pollen brushes onto it (onto one not yet pollinated).
 pub fn cared<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -552,13 +586,14 @@ pub fn cared<S: Store>(
         return;
     };
     let p_species = p.species;
+    let (water, fertilizer) = (p.species.water, p.species.fertilizer);
     // A ripe plant's needs no longer count, and one that needs no care has none.
     let ripe = ripe_at(p, clock.local.0);
-    if (ripe || !p.species.tended) && (item == WATERING_CAN || item == FERTILIZER) {
+    if (ripe || !p.species.tended) && (item == water || item == fertilizer) {
         return;
     }
-    if item == WATERING_CAN || item == FERTILIZER {
-        let (need, why) = if item == WATERING_CAN {
+    if item == water || item == fertilizer {
+        let (need, why) = if item == water {
             (&mut p.water, text::TOO_MUCH_WATER)
         } else {
             (&mut p.fertilizer, text::TOO_MUCH_FERTILIZER)
@@ -606,8 +641,8 @@ pub fn used<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, u: 
     }
 }
 
-/// A player at a plant begins to harvest it: it plays the plants' behavior, and the harvest comes
-/// when that has played out.
+/// A player at a plant begins to harvest it: it plays the behavior its template names for a use,
+/// the plants' own where it names none, and the harvest comes when that has played out.
 pub fn begin<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -615,11 +650,12 @@ pub fn begin<S: Store>(
     u: Use,
     clock: Clock,
 ) {
+    use crate::usable::interactions::{PLANT_BEHAVIOR, USER_BEHAVIOR};
     let Some(behavior) = s
         .things
         .get(u.item)
         .and_then(|t| s.catalog.get(t.template))
-        .and_then(|t| t.props.word(crate::usable::interactions::USER_BEHAVIOR))
+        .map(|t| t.props.word(USER_BEHAVIOR).unwrap_or(PLANT_BEHAVIOR))
     else {
         return;
     };
@@ -681,11 +717,13 @@ pub fn harvested<S: Store>(
     progress::private(net, world, &done);
     let (table, _, _, own_harvest) = lines(&p.species);
     if p.owner != me {
-        progress::private(net, world, &told(table, text::NOT_YOURS, &name));
+        let said = own_line(&p.species, |t| t.not_yours, text::NOT_YOURS);
+        progress::private(net, world, &told(table, said, &name));
         return;
     }
     if !ripe_at(&p, clock.local.0) {
-        progress::private(net, world, &told(table, text::NOT_MATURE, &name));
+        let said = own_line(&p.species, |t| t.not_mature, text::NOT_MATURE);
+        progress::private(net, world, &told(table, said, &name));
         return;
     }
     let crossed = p
@@ -715,6 +753,53 @@ pub fn harvested<S: Store>(
     crate::world::keep_player(s, world);
 }
 
+/// A seed given to a placed object: when the seed's species is planted in a garden of the object's
+/// template, its plant stands there, or, while the garden's plant stands, the seed is refused with
+/// the garden's busy line. Returns `Some(true)` for a seed kept and planted, `Some(false)` for one
+/// refused (to be handed back), and `None` for a give that is no garden's.
+pub fn given<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    garden: usize,
+    given: crate::gives::Given,
+    clock: Clock,
+) -> Option<bool> {
+    let o = s.content.objects.get(garden)?;
+    let species = s.plants.kinds.sown_in(given.template, o.template)?;
+    let g = species.garden?;
+    let at = StoredPosition {
+        cell: o.cell,
+        origin: o.origin,
+        rotation: o.rotation,
+    };
+    let speaker = crate::talk::content_speaker(s, garden);
+    let say = |s: &Server<S>, net: &mut ServerNet, line: Option<(u32, u32)>| {
+        if let Some((string, table)) = line {
+            let words = Words::Ref(string, table);
+            crate::talk::say(s, net, world, &speaker, &words, How::Emote);
+        }
+    };
+    if s.plants.by_id.values().any(|p| p.garden == Some(garden)) {
+        say(s, net, g.busy);
+        return Some(false);
+    }
+    s.catalog.get(species.plant)?;
+    crate::gives::keep(
+        s,
+        net,
+        world,
+        crate::gives::Given {
+            quantity: 1,
+            ..given
+        },
+    );
+    say(s, net, g.planted);
+    plant(s, net, world, species, (at, Some(garden)), clock);
+    crate::world::keep_player(s, world);
+    Some(true)
+}
+
 /// A planter leaves the world: its plants leave it too.
 pub fn owner_leaves<S: Store>(s: &mut Server<S>, net: &mut ServerNet, owner: u64) {
     let mine: Vec<u64> = s
@@ -732,11 +817,46 @@ pub fn owner_leaves<S: Store>(s: &mut Server<S>, net: &mut ServerNet, owner: u64
 
 /// What a growing plant's examination shows of it: its needs (levels of [`NEED_LEVELS`]) and its
 /// pollen's name among the plants' texts ([`text::NO_POLLEN`] for none), for one that needs care;
-/// and the game time it is ripe at.
+/// or, for one with lines of its own for it, how it fares; and the game time it is ripe at.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Growing {
     pub needs: Option<Needs>,
+    pub fares: Option<Fares>,
     pub ripe_game: f64,
+}
+
+/// How a growing plant fares, as its own lines show it: its stage's line, and the lines of its
+/// conditions (healthy, or each that holds), in its species' table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Fares {
+    pub stage: Option<u32>,
+    pub conditions: [Option<u32>; 4],
+}
+
+/// How a plant with these needs (levels of [`NEED_LEVELS`]) fares, by its species' lines: healthy,
+/// or each of dry, overwatered, hungry and overfed that holds, in that order.
+#[must_use]
+pub fn fares(c: &Conditions, water: i32, fertilizer: i32) -> [Option<u32>; 4] {
+    // "Needed" and past it; "Too much" and before it.
+    let (needed, too_much) = (4, 1);
+    let held = [
+        (water >= needed, c.dry),
+        (water <= too_much, c.overwatered),
+        (fertilizer >= needed, c.hungry),
+        (fertilizer <= too_much, c.overfed),
+    ];
+    let mut out = [None; 4];
+    let mut n = 0;
+    for (holds, line) in held {
+        if holds {
+            out[n] = Some(line);
+            n += 1;
+        }
+    }
+    if n == 0 {
+        out[0] = Some(c.healthy);
+    }
+    out
 }
 
 /// A growing plant's needs and pollen, as its examination shows them.
@@ -759,15 +879,15 @@ pub struct Shown {
 }
 
 /// A plant's examination profile: its name (a quest creature's), an empty description; growing,
-/// its water, fertilizer and pollen (one that needs care) and a countdown to its ripening, else that
-/// it is ripe, in its species' lines (`lines`: their table, the countdown's label and the ripe
-/// line); its level, kingdom, health, vigor and armor.
+/// its water, fertilizer and pollen (one that needs care) or how it fares, and a countdown to its
+/// ripening where its species has one, else that it is ripe, in its species' lines (`lines`: their
+/// table, the countdown's label and the ripe line); its level, kingdom, health, vigor and armor.
 #[must_use]
 pub fn profile_of(
     asked: u32,
     shown: &Shown,
     growing: Option<Growing>,
-    (table, maturity_in, mature): (u32, u32, u32),
+    (table, maturity_in, mature): (u32, Option<u32>, u32),
 ) -> crate::profile::Profile {
     use crate::profile::{self as pr, look, GENERAL};
     let mut prof = pr::Profile::new(asked);
@@ -791,9 +911,21 @@ pub fn profile_of(
             prof.text(GENERAL, look::VALUE, line(n.pollen));
             prof.brk(GENERAL);
         }
-        prof.text(GENERAL, look::LABEL, line(maturity_in));
-        prof.countdown(GENERAL, look::VALUE, g.ripe_game);
-        prof.brk(GENERAL);
+        if let Some(f) = g.fares {
+            for l in f
+                .stage
+                .into_iter()
+                .chain(f.conditions.into_iter().flatten())
+            {
+                prof.text(GENERAL, look::LABEL, line(l));
+                prof.brk(GENERAL);
+            }
+        }
+        if let Some(label) = maturity_in {
+            prof.text(GENERAL, look::LABEL, line(label));
+            prof.countdown(GENERAL, look::VALUE, g.ripe_game);
+            prof.brk(GENERAL);
+        }
     } else {
         prof.text(GENERAL, look::LABEL, line(mature));
         prof.brk(GENERAL);
@@ -822,20 +954,34 @@ pub fn profile<S: Store>(
         .by_id
         .get(&t.id)
         .filter(|p| !ripe_at(p, now))
-        .map(|p| Growing {
-            needs: p.species.tended.then(|| Needs {
-                water: p.water,
-                fertilizer: p.fertilizer,
-                pollen: p
-                    .pollen
-                    .and_then(|x| s.plants.kinds.pollen_of(x))
-                    .map_or(text::NO_POLLEN, |x| x.name),
-            }),
-            ripe_game: p.ripe_game,
+        .map(|p| {
+            // One that needs care and has lines of its own for how it fares shows those.
+            let own = p
+                .species
+                .texts
+                .and_then(|t| t.conditions.map(|c| (t, c)))
+                .filter(|_| p.species.tended);
+            Growing {
+                needs: (p.species.tended && own.is_none()).then(|| Needs {
+                    water: p.water,
+                    fertilizer: p.fertilizer,
+                    pollen: p
+                        .pollen
+                        .and_then(|x| s.plants.kinds.pollen_of(x))
+                        .map_or(text::NO_POLLEN, |x| x.name),
+                }),
+                fares: own.map(|(t, c)| Fares {
+                    stage: t
+                        .stages
+                        .map(|st| st[usize::from(stage_at(now - p.planted).min(STAGES - 1))]),
+                    conditions: fares(&c, p.water, p.fertilizer),
+                }),
+                ripe_game: p.ripe_game,
+            }
         });
     let own = s.plants.by_id.get(&t.id).map(|p| lines(&p.species));
     let (table, maturity_in, mature, _) =
-        own.unwrap_or((text::TABLE, text::MATURITY_IN, text::MATURE, None));
+        own.unwrap_or((text::TABLE, Some(text::MATURITY_IN), text::MATURE, None));
     let armor = s
         .catalog
         .get(t.template)

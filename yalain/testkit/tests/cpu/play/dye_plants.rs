@@ -797,6 +797,7 @@ fn examining_a_plant_shows_its_needs_its_pollen_and_when_it_is_ripe() {
             fertilizer: 5,
             pollen: text::NO_POLLEN,
         }),
+        fares: None,
         ripe_game: p.ripe_game,
     };
     let vitals = yalain_world::examine::Vitals {
@@ -971,9 +972,14 @@ const SHEAF: u32 = 0x4700_F163;
 const CROP_TABLE: u32 = 0x2500_F164;
 const CROP_LINES: plants::Texts = plants::Texts {
     table: CROP_TABLE,
-    maturity_in: 0xA0BE_B96C,
+    maturity_in: Some(0xA0BE_B96C),
     mature: 0x9D26_22AC,
     harvest: 0x39D2_1C3D,
+    not_mature: None,
+    not_yours: None,
+    withers: None,
+    stages: None,
+    conditions: None,
 };
 const CROP_NAME: (u32, u32) = (0xA860_7CEC, CROP_TABLE);
 const CROP_QUEST: u32 = 0x4000_0F16;
@@ -1306,6 +1312,7 @@ fn examining_a_plant_needing_no_care_shows_only_its_countdown_from_its_own_table
     );
     let growing = plants::Growing {
         needs: None,
+        fares: None,
         ripe_game: p.ripe_game,
     };
     assert_eq!(last_profile(&h, a, from), Some(want(Some(growing))));

@@ -12355,6 +12355,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.plants.care-items-by-world-rows",
+        says: "A world's `[[plant]]` row may name the items whose use on its plants lowers their need of \
+               water and of fertilizer, each a level a use, in place of the dye plants' watering can and bag of \
+               fertilizer, which then lower nothing on them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PLANTS-CARE-ITEMS"),
+        station: "yalain-testkit::cpu::play::plant_care::a_plants_own_care_items_lower_its_needs_and_the_dye_plants_can_does_not",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.plants.cared-for-by-their-planter",
         says: "A watering can, a bag of fertilizer or a pollen used on another player's dye plant \
                plays its use, and is answered when it has played out with the item kept (316), \
@@ -12397,6 +12407,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.plants.examined-by-own-lines",
+        says: "A growing plant that needs care and has its own lines of how it fares shows, examined, its look \
+               stage's line and how it fares in place of its needs and pollen: healthy, or each of dry \
+               (water Needed or more), overwatered (Too much or less), hungry and overfed (the same of \
+               fertilizer) that holds, in that order; no countdown unless its row names one; ripe, its ripe \
+               line. It keeps its own look as it grows.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PLANTS-OWN-FARES"),
+        station: "yalain-testkit::cpu::play::plant_care::a_plant_with_its_own_lines_shows_its_stage_and_how_it_fares_and_keeps_its_own_look",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.plants.examined-without-needs",
         says: "Examined, a growing plant that needs no care shows only the countdown to its ripening \
                under its own table's label, and once ripe its own table's ripe line.",
@@ -12427,6 +12449,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.plants.harvested-with-the-plants-behavior",
+        says: "A plant whose template names no behavior for a use is harvested all the same, its harvester \
+               playing the plants' own behavior, and gives its harvest.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PLANTS-HARVEST-BEHAVIOR"),
+        station: "yalain-testkit::cpu::play::plant_care::a_plant_whose_template_names_no_use_behavior_is_harvested_with_the_plants_own",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.plants.leave-with-their-planter",
         says: "A planter leaving the world takes its dye plants (its pets) out of it, as any pet's \
                owner does.",
@@ -12443,6 +12474,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-DYE-PLANT-CARE"),
         station: "yalain-testkit::cpu::play::dye_plants::a_watering_can_and_a_bag_of_fertilizer_each_lower_their_need_by_one_level",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.plants.own-lines",
+        says: "A plant whose row names its own lines withers in its own withering line, whatever withered it, \
+               and is refused in its own lines when harvested too early or by another player; ripe, its \
+               planter's harvest says its harvest line and gives its plant item.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PLANTS-OWN-LINES"),
+        station: "yalain-testkit::cpu::play::plant_care::a_plant_with_its_own_lines_withers_refuses_and_is_harvested_in_them",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -12482,6 +12523,17 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-DYE-PLANTING"),
         station: "yalain-testkit::cpu::play::dye_plants::a_seed_used_in_its_garden_stands_its_plant_two_meters_ahead_once_its_planting_has_played",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.plants.planted-in-a-garden",
+        says: "A seed whose species names a garden plants nothing where it is used: given to an object of the \
+               garden's template it is kept, one of a stack, the garden says its planting line and the plant \
+               stands where the garden stands, facing as it faces, its giver's; while that plant stands a seed \
+               given to the garden is handed back with its busy line.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PLANTS-GARDEN"),
+        station: "yalain-testkit::cpu::play::plant_care::a_seed_given_to_its_species_garden_is_kept_and_its_plant_stands_where_the_garden_stands",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -6268,9 +6268,14 @@ fn a_plant_row_reads_how_many_one_seed_plants_its_ripening_its_care_and_its_line
         own.texts,
         Some(yalain_content::plants::Texts {
             table: 0x2500_2B42,
-            maturity_in: 0xA0BE_B96C,
+            maturity_in: Some(0xA0BE_B96C),
             mature: 0x9D26_22AC,
             harvest: 0x39D2_1C3D,
+            not_mature: None,
+            not_yours: None,
+            withers: None,
+            stages: None,
+            conditions: None,
         })
     );
     // Left out: one a seed, the dye plants' ripening, care and lines.
@@ -6289,6 +6294,95 @@ fn a_plant_row_reads_how_many_one_seed_plants_its_ripening_its_care_and_its_line
         assert!(rows.contains(from), "{from}");
         files.insert("town/server/plants.toml".into(), rows.replacen(from, to, 1));
         assert!(read(&files).is_err(), "{from} to {to}");
+    }
+}
+
+#[test]
+fn a_plant_row_reads_its_care_items_its_garden_and_its_own_lines_of_how_it_fares() {
+    let mut files = fixture();
+    let rows = "[[plant]]\nplant = 0x47002224\nseed = 0x4700115B\nharvest = 0x470020BB\n\
+                water = 0x47000846\nfertilizer = 0x47000001\n\
+                garden = { template = 0x470033D0, \
+                planted = { table = 0x25002ADA, string = 0xC84AF9AA }, \
+                busy = { table = 0x25002ADA, string = 0x75BB918D } }\n\
+                texts = { table = 0x25002ADF, mature = 0x979A5B8B, harvest = 0x54AC9502, \
+                not_mature = 0xA544694A, not_yours = 0xA544694A, withers = 0x200C71DD, \
+                stages = [0xA8AE7D4D, 0x2B64913D, 0xAFA119CC], \
+                conditions = { healthy = 0xF312FCF9, dry = 0xCD52FC4E, \
+                overwatered = 0x99448784, hungry = 0x28A10E7C, overfed = 0xFCA8EFAF } }\n\
+                prov = { from = \"authored\" }\n";
+    files.insert("town/server/plants.toml".into(), rows.to_string());
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let t = compile(&merged, &Fake::new()).unwrap();
+    assert!(
+        t.plants.sown_by(0x4700_115B).is_none(),
+        "a garden's seed plants nothing where it is used"
+    );
+    let sp = t
+        .plants
+        .sown_in(0x4700_115B, 0x4700_33D0)
+        .expect("given to its garden");
+    assert_eq!((sp.water, sp.fertilizer), (0x4700_0846, 0x4700_0001));
+    assert_eq!(
+        sp.garden,
+        Some(yalain_content::plants::Garden {
+            template: 0x4700_33D0,
+            planted: Some((0xC84A_F9AA, 0x2500_2ADA)),
+            busy: Some((0x75BB_918D, 0x2500_2ADA)),
+        })
+    );
+    let texts = sp.texts.expect("its lines");
+    assert_eq!(texts.maturity_in, None, "no countdown");
+    assert_eq!(
+        (texts.not_mature, texts.not_yours, texts.withers),
+        (Some(0xA544_694A), Some(0xA544_694A), Some(0x200C_71DD))
+    );
+    assert_eq!(texts.stages, Some([0xA8AE_7D4D, 0x2B64_913D, 0xAFA1_19CC]));
+    assert_eq!(
+        texts.conditions,
+        Some(yalain_content::plants::Conditions {
+            healthy: 0xF312_FCF9,
+            dry: 0xCD52_FC4E,
+            overwatered: 0x9944_8784,
+            hungry: 0x28A1_0E7C,
+            overfed: 0xFCA8_EFAF,
+        })
+    );
+    // Left out, a species' care is the dye plants' can and bag.
+    let dye = yalain_content::plants::Species::new(1, 2, None, 3, 0);
+    assert_eq!(
+        (dye.water, dye.fertilizer, dye.garden),
+        (
+            yalain_content::plants::WATERING_CAN,
+            yalain_content::plants::FERTILIZER,
+            None
+        )
+    );
+    for (from, to) in [
+        ("stages = [0xA8AE7D4D, ", "stages = ["),
+        ("overfed = 0xFCA8EFAF ", ""),
+        (
+            "busy = { table = 0x25002ADA, string = 0x75BB918D }",
+            "busy = 1",
+        ),
+        ("garden = { template", "garden = { place"),
+        (
+            "harvest = 0x470020BB\n",
+            "harvest = 0x470020BB\ntended = false\n",
+        ),
+    ] {
+        assert!(rows.contains(from), "{from}");
+        files.insert("town/server/plants.toml".into(), rows.replacen(from, to, 1));
+        assert!(read(&files).is_err(), "{from} to {to}");
+    }
+    // A care item or a garden the install lacks.
+    for (from, to) in [
+        ("water = 0x47000846", "water = 0x47009999"),
+        ("template = 0x470033D0", "template = 0x47009999"),
+    ] {
+        files.insert("town/server/plants.toml".into(), rows.replacen(from, to, 1));
+        let merged = merge(&read(&files).unwrap()).unwrap();
+        assert!(compile(&merged, &Fake::new()).is_err(), "{from} to {to}");
     }
 }
 

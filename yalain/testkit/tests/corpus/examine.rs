@@ -1432,6 +1432,7 @@ fn dye_plant_profiles_are_built_as_2017_built_them() {
                         fertilizer,
                         pollen,
                     }),
+                    fares: None,
                     ripe_game,
                 }),
                 _ => None,

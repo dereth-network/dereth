@@ -2035,7 +2035,18 @@ pub const FIELDS: [(&str, &[&str]); 63] = [
     (
         "plant",
         &[
-            "plant", "seed", "pollen", "name", "harvest", "count", "ripe", "tended", "texts",
+            "plant",
+            "seed",
+            "pollen",
+            "name",
+            "harvest",
+            "count",
+            "ripe",
+            "tended",
+            "water",
+            "fertilizer",
+            "garden",
+            "texts",
             "prov",
         ],
     ),
@@ -3697,12 +3708,28 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 .unwrap_or(yalain_content::plants::RIPE_SECONDS);
             let ripe = f.held("ripe", ripe, ripe > 0.0, "above 0")?;
             let tended = f.bool("tended").unwrap_or(true);
+            let water = f.id("water");
+            let fertilizer = f.id("fertilizer");
+            let garden = f.plant_garden();
             let texts = f.plant_texts();
+            let cares = water.is_some()
+                || fertilizer.is_some()
+                || texts.is_some_and(|t| t.conditions.is_some() || t.stages.is_some());
+            if cares && !tended {
+                f.bad(
+                    "water, fertilizer, texts",
+                    "care items and how a plant fares are of one that needs care (tended)",
+                );
+                return None;
+            }
             Row::Plant(Plant {
                 species: yalain_content::plants::Species {
                     count,
                     ripe,
                     tended,
+                    water: water.unwrap_or(yalain_content::plants::WATERING_CAN),
+                    fertilizer: fertilizer.unwrap_or(yalain_content::plants::FERTILIZER),
+                    garden,
                     texts,
                     ..yalain_content::plants::Species::new(
                         plant,
@@ -5229,24 +5256,104 @@ impl<'a> Fields<'a> {
         read
     }
 
-    /// `{ table, maturity_in, mature, harvest }`: where a plant's lines are.
+    /// `{ table, maturity_in, mature, harvest, not_mature, not_yours, withers, stages, conditions }`:
+    /// where a plant's lines are (`table`, `mature` and `harvest` required).
     fn plant_texts(&mut self) -> Option<yalain_content::plants::Texts> {
+        const KEYS: [&str; 9] = [
+            "table",
+            "maturity_in",
+            "mature",
+            "harvest",
+            "not_mature",
+            "not_yours",
+            "withers",
+            "stages",
+            "conditions",
+        ];
+        const CONDITIONS: [&str; 5] = ["healthy", "dry", "overwatered", "hungry", "overfed"];
         let v = self.get("texts")?;
         let read = v.as_table().and_then(|t| {
             let id = |k: &str| t.get(k).and_then(as_u32);
-            let known = t
-                .keys()
-                .all(|k| ["table", "maturity_in", "mature", "harvest"].contains(&k.as_str()));
-            known.then_some(())?;
+            // A key given must read; one left out is none.
+            let opt = |k: &str| match t.get(k) {
+                Some(v) => as_u32(v).map(Some),
+                None => Some(None),
+            };
+            t.keys().all(|k| KEYS.contains(&k.as_str())).then_some(())?;
+            let stages = match t.get("stages") {
+                Some(v) => {
+                    let a = v.as_array()?;
+                    let ids: Vec<u32> = a.iter().map(as_u32).collect::<Option<_>>()?;
+                    Some(<[u32; 3]>::try_from(ids).ok()?)
+                }
+                None => None,
+            };
+            let conditions = match t.get("conditions") {
+                Some(v) => {
+                    let c = v.as_table()?;
+                    (c.len() == CONDITIONS.len()).then_some(())?;
+                    let line = |k: &str| c.get(k).and_then(as_u32);
+                    Some(yalain_content::plants::Conditions {
+                        healthy: line("healthy")?,
+                        dry: line("dry")?,
+                        overwatered: line("overwatered")?,
+                        hungry: line("hungry")?,
+                        overfed: line("overfed")?,
+                    })
+                }
+                None => None,
+            };
             Some(yalain_content::plants::Texts {
                 table: id("table")?,
-                maturity_in: id("maturity_in")?,
+                maturity_in: opt("maturity_in")?,
                 mature: id("mature")?,
                 harvest: id("harvest")?,
+                not_mature: opt("not_mature")?,
+                not_yours: opt("not_yours")?,
+                withers: opt("withers")?,
+                stages,
+                conditions,
             })
         });
         if read.is_none() {
-            self.bad("texts", "{ table, maturity_in, mature, harvest }");
+            self.bad(
+                "texts",
+                "{ table, mature, harvest } and any of maturity_in, not_mature, not_yours, withers \
+                 (string ids), stages (three string ids) and conditions \
+                 ({ healthy, dry, overwatered, hungry, overfed }, string ids)",
+            );
+        }
+        read
+    }
+
+    /// `{ template, planted, busy }`: the garden a plant's seed is given to, and its lines (string
+    /// references, each left out or given).
+    fn plant_garden(&mut self) -> Option<yalain_content::plants::Garden> {
+        let v = self.get("garden")?;
+        let line = |v: Option<&toml::Value>| match v {
+            None => Some(None),
+            Some(v) => {
+                let t = v.as_table()?;
+                (t.len() == 2).then_some(())?;
+                Some(Some((as_u32(t.get("string")?)?, as_u32(t.get("table")?)?)))
+            }
+        };
+        let read = v.as_table().and_then(|t| {
+            t.keys()
+                .all(|k| ["template", "planted", "busy"].contains(&k.as_str()))
+                .then_some(())?;
+            Some(yalain_content::plants::Garden {
+                template: as_u32(t.get("template")?)?,
+                planted: line(t.get("planted"))?,
+                busy: line(t.get("busy"))?,
+            })
+        });
+        if read.is_none() {
+            self.bad(
+                "garden",
+                "{ template, planted, busy }: the template given to, and its lines \
+                 (string references { table, string })",
+            );
         }
         read
     }
