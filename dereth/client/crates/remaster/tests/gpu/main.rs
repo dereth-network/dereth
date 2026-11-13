@@ -2,8 +2,8 @@
 //! back.
 //!
 //! Fixture: a hardware adapter with Vulkan 1.3, or with Direct3D 12 at shader model 6.6 when
-//! `DERETH_TEST_RENDERER=d3d12` asks for it. These tests run with `--features retail-dats`, the
-//! switch every device tier sits behind, one GPU run at a time.
+//! `DERETH_TEST_RENDERER=d3d12` asks for it. These tests run with `--features retail-dats,gpu`, one
+//! GPU run at a time; `retail-dats` alone does not build them.
 
 // The tests' sizes and indices are small and bounded.
 #![allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]

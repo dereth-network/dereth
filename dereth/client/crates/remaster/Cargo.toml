@@ -16,9 +16,11 @@ test-support = []
 # the Windows release carries it. Off, without the DLL, or on another system (where it builds
 # nothing), the upscaler's DLSS modes are drawn by FSR.
 dlss = ["dep:libloading", "dep:ash"]
-# Tier switch only: no code is gated on it. The device tests draw on the hardware GPU, which every
-# device tier sits behind; without it they are not built.
+# Tier switch only: no code is gated on it. The device tests sit behind it and `gpu`.
 retail-dats = []
+# Tier switch only, beside `retail-dats`: the device tests draw on the hardware GPU, so a run with
+# `retail-dats` alone builds no device test, and only a GPU run asks for both.
+gpu = []
 
 [dependencies]
 # The scene's deltas carry their transforms and vectors as `glam` values.
@@ -50,7 +52,7 @@ objc2 = "0.6"
 [[test]]
 name = "gpu"
 path = "tests/gpu/main.rs"
-required-features = ["retail-dats"]
+required-features = ["retail-dats", "gpu"]
 
 [lints.rust]
 unsafe_code = "deny"

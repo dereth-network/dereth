@@ -936,7 +936,8 @@ pub fn collect_all(mut running: Vec<Running>, t0: Instant) -> Vec<ShardResult> {
 }
 
 /// The features a tier binary needs. `dat`, `gpu` and `local` sit behind `retail-dats`; `gpu` also
-/// needs the crate's device feature, `vulkan` or `d3d12`. Each is asked for only when the crate's
+/// needs the crate's device feature, `vulkan` or `d3d12`, and its `gpu` switch where it has one, so
+/// that `retail-dats` alone never reaches the device. Each is asked for only when the crate's
 /// own manifest declares it: cargo refuses a feature its package does not have, builds nothing and
 /// prints no result, so a crate without the switch would never have its tier run.
 pub fn tier_features(crate_dir: &Path, tier: &str) -> Vec<String> {
@@ -967,6 +968,9 @@ fn features_for(manifest: &str, tier: &str) -> Vec<String> {
             .find(|d| declared.contains(*d))
         {
             feats.push(dev.to_owned());
+        }
+        if declared.contains("gpu") {
+            feats.push("gpu".to_owned());
         }
     }
     feats
@@ -2028,6 +2032,10 @@ mod tests {
             features_for(d3d12_only, "gpu"),
             s(&["retail-dats", "d3d12"])
         );
+        // A crate whose device tests sit behind a `gpu` switch of their own gets it on `gpu` only.
+        let switched = "[features]\nretail-dats = []\ngpu = []\n";
+        assert_eq!(features_for(switched, "gpu"), s(&["retail-dats", "gpu"]));
+        assert_eq!(features_for(switched, "dat"), s(&["retail-dats"]));
         // A crate with neither switch, and one with no feature table at all.
         let capture_only = "[package]\nname = \"h\"\n\n[features]\ncapture = []\n";
         assert!(features_for(capture_only, "gpu").is_empty());
