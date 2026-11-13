@@ -18,6 +18,7 @@
 //!          [--size 1280x960] [--dev-login ACCOUNT:PASSWORD [--dev-character NAME]]
 //!          [--dev-overlay] [--dev-script FILE] [--shots DIR] [--no-window SECONDS] [--no-sound]
 //!          [--world-overlays] [--verbose]
+//! auberean --dats <install folder> --explore [LOCATION]
 //! ```
 //!
 //! The install folder is the September 2013 client's: its data files are the world and the
@@ -37,6 +38,11 @@
 //! `--world-overlays` says the world takes this client's own word that it keeps a world's overlay
 //! over its data files (a Yalain world does, and the launcher says so for one); without it the
 //! client answers the world's question of which data it has as the September 2013 client does.
+//!
+//! `--explore` opens the world with no server and no character and flies a free camera through it
+//! (`auberean_shell::explore`): from a location as the game writes one (a position, `0x6FA90015
+//! [45.24 90.51 85.26] 178`, or map coordinates, `41.2S, 12.6E`), quoted or not, or from a lawn in
+//! block 6FA9 with none. A location that does not read stops the client, saying why.
 //!
 //! `--glsticketdirect` gives the login its secret directly, as the September 2013 client's own option
 //! does (it stands for the password after `--account`).
@@ -154,11 +160,13 @@ struct Options {
     user: Option<String>,
     /// The character named to make and play.
     create: Option<String>,
+    /// `--explore`, with the location it starts from (empty for the default start).
+    explore: Option<String>,
 }
 
 /// This program's own options, beside the September 2013 client's: each one's form (what it takes
 /// and keeps), long name, help and a switch's value.
-const OWN_OPTIONS: [(u32, &str, &str, i32); 15] = [
+const OWN_OPTIONS: [(u32, &str, &str, i32); 16] = [
     (
         0x11,
         "adminclient",
@@ -224,6 +232,12 @@ const OWN_OPTIONS: [(u32, &str, &str, i32); 15] = [
         "<seconds>: Run with no window for that long.",
         0,
     ),
+    (
+        0x33,
+        "explore",
+        "[location]: Fly a camera through the world with no server.",
+        0,
+    ),
 ];
 
 /// The command line: the September 2013 client's options, read as it reads them, and this
@@ -285,6 +299,7 @@ impl Reader for Line {
             "verbose" => self.o.verbose = true,
             "no-sound" => self.o.no_sound = true,
             "world-overlays" => self.o.world_overlays = true,
+            "explore" => self.o.explore = Some(value.to_owned()),
             "no-window" => match value.parse() {
                 Ok(v) => self.o.no_window = Some(v),
                 Err(e) => return self.fail(&format!("--no-window: {e} (want seconds)")),
@@ -326,7 +341,7 @@ impl Reader for Line {
 
 // D2-00096
 fn options() -> Result<Options, String> {
-    let words: Vec<String> = std::env::args().collect();
+    let words = join_explore(std::env::args().collect());
     let words: Vec<&str> = words.iter().map(String::as_str).collect();
     let mut line = Line::default();
     if !parse_args(&mut line, &words, true) {
@@ -380,6 +395,34 @@ fn options() -> Result<Options, String> {
     o.user.clone_from(&c.user);
     o.create.clone_from(&c.create);
     Ok(o)
+}
+
+/// The words of a command line with `--explore`'s location, which may be given unquoted as it is
+/// copied, made one word: every word after the option up to the next option, a negative number
+/// not being one.
+fn join_explore(words: Vec<String>) -> Vec<String> {
+    let names_an_option = |w: &str| {
+        let mut c = w.chars();
+        matches!(c.next(), Some('-' | '/'))
+            && c.next()
+                .is_some_and(|c| c.is_ascii_alphabetic() || matches!(c, '-' | '/' | '?'))
+    };
+    let mut out = Vec::with_capacity(words.len());
+    let mut words = words.into_iter().peekable();
+    while let Some(w) = words.next() {
+        let explore = names_an_option(&w) && w.trim_start_matches(['-', '/']) == "explore";
+        out.push(w);
+        if explore {
+            let mut location = Vec::new();
+            while let Some(next) = words.next_if(|v| !names_an_option(v)) {
+                location.push(next);
+            }
+            if !location.is_empty() {
+                out.push(location.join(" "));
+            }
+        }
+    }
+    out
 }
 
 /// Where the friends service is: where the options name it, else nowhere.
@@ -1142,6 +1185,10 @@ fn world_overlay(
 // D2-00130, D2-01703
 fn run() -> Result<(), String> {
     let o = options()?;
+    let explore = match o.explore.as_deref() {
+        None => None,
+        Some(text) => Some(explore_start(text)?),
+    };
     tracing_subscriber::fmt()
         .with_max_level(if o.verbose {
             tracing::Level::DEBUG
@@ -1201,7 +1248,7 @@ fn run() -> Result<(), String> {
             password.clone(),
             o.character.clone(),
         ));
-    } else if o.account.is_none() {
+    } else if o.account.is_none() && o.explore.is_none() {
         tracing::warn!("no account: log in with --account ACCOUNT:PASSWORD");
     }
     let interface: Box<dyn Interface> = Box::new(retail);
@@ -1235,6 +1282,9 @@ fn run() -> Result<(), String> {
     shell.dev_overlay = o.overlay;
     shell.friends = friends_service(&o);
     shell.world_takes_overlays = o.world_overlays;
+    if let Some(camera) = explore {
+        shell.start_explore(camera);
+    }
     if let Some(s) = o.size {
         shell.size = s;
     }
@@ -1276,6 +1326,22 @@ fn run() -> Result<(), String> {
         return Err(e);
     }
     Ok(())
+}
+
+/// Where `--explore` starts the camera: at `text`, or at the default start when it is empty. A
+/// location that does not read says why, in a box as well, since a release build has no console.
+fn explore_start(text: &str) -> Result<auberean_scene::explore::FreeCamera, String> {
+    use auberean_scene::explore::{parse_start, DEFAULT_START};
+    let text = if text.trim().is_empty() {
+        DEFAULT_START
+    } else {
+        text
+    };
+    parse_start(text).map_err(|why| {
+        let said = format!("Explore: {why}.");
+        dereth_console::error_box("Auberean", &said, 0);
+        said
+    })
 }
 
 /// Run with no window for `seconds`: the session, the world and its frames, no picture.
@@ -1364,6 +1430,38 @@ fn next_free_shot(dir: &std::path::Path, after: u32) -> (u32, PathBuf) {
             return (n, path);
         }
         n += 1;
+    }
+}
+
+#[cfg(test)]
+mod explore_tests {
+    //! Behaviour: none (tooling: a developer's camera flown through the world with no server)
+    use super::join_explore;
+
+    #[test]
+    fn an_unquoted_explore_location_is_read_as_one_word() {
+        let words = |s: &str| s.split(' ').map(str::to_owned).collect::<Vec<_>>();
+        assert_eq!(
+            join_explore(words(
+                "auberean --dats d --explore 0x6FA90015 [45.2 90.5 85.3] -0.99 0 0 0.13 --verbose"
+            )),
+            [
+                "auberean",
+                "--dats",
+                "d",
+                "--explore",
+                "0x6FA90015 [45.2 90.5 85.3] -0.99 0 0 0.13",
+                "--verbose"
+            ]
+        );
+        assert_eq!(
+            join_explore(words("auberean /explore 41.2S, 12.6E")),
+            ["auberean", "/explore", "41.2S, 12.6E"]
+        );
+        // With no location, and quoted (one word already), the line is as it was.
+        for line in ["auberean --explore --dats d", "auberean --dats d -explore"] {
+            assert_eq!(join_explore(words(line)), words(line), "{line}");
+        }
     }
 }
 

@@ -32,11 +32,15 @@
 //! another cell or the moment moves on), the interior cells the player's cell sees when the player
 //! is inside, and the bodies.
 //!
+//! Explore mode ([`explore`]) draws the world about a free camera instead, with no client and no
+//! body: [`Scene::build_explore`] builds what [`Scene::frames`] hands out.
+//!
 //! **Must never** reach a device, a window, a socket or a clock: time arrives from the shell.
 
 pub mod camera;
 mod camera_object;
 pub mod cells;
+pub mod explore;
 mod figures;
 mod followed;
 mod fx;

@@ -27,6 +27,9 @@
 //! 6. the frame to draw is the scene's, with the interface's overlay (and the developer's status
 //!    overlay when asked for, [`dev`]) over it.
 //!
+//! In explore mode ([`explore`]) there is no interface and no session: each event goes to the free
+//! camera's keys, and each frame is the world drawn from that camera with a line in the corner.
+//!
 //! **Must never** name a platform (a window system, the operating system, a sound device): the
 //! host brings those (`cargo xtask seams`).
 
@@ -34,6 +37,7 @@ pub mod calls;
 pub mod command_line;
 pub mod controls;
 pub mod dev;
+pub mod explore;
 pub mod host;
 pub mod input;
 pub mod input_manager;
@@ -177,6 +181,8 @@ pub struct Shell<'w, H: Host> {
     pub world_takes_overlays: bool,
     /// The game's sound.
     pub sound: sound::Sound,
+    /// Explore mode, while it runs ([`explore`]): no interface, no session, a free camera.
+    pub explore: Option<explore::Explore>,
 }
 
 /// Where a session finds the friends service.
@@ -324,6 +330,7 @@ impl<'w, H: Host> Shell<'w, H> {
             friends: FriendsService::default(),
             world_takes_overlays: false,
             sound,
+            explore: None,
         }
     }
 
@@ -346,8 +353,13 @@ impl<'w, H: Host> Shell<'w, H> {
         }
     }
 
-    /// One event from the host: the interface first, then the world's controls.
+    /// One event from the host: the interface first, then the world's controls; in explore mode,
+    /// the camera's alone.
     pub fn event(&mut self, e: &Event) {
+        if self.explore.is_some() {
+            self.explore_event(e);
+            return;
+        }
         if !self.input.admit(e) {
             return;
         }
@@ -794,6 +806,9 @@ impl<'w, H: Host> Shell<'w, H> {
     /// One frame: the network, the interface, the world, the client; the world's frame, what is
     /// placed over it; then what to show.
     pub fn frame(&mut self) -> Output<'_> {
+        if self.explore.is_some() {
+            return self.explore_frame();
+        }
         self.input.frame_begins();
         let now = self.host.now();
         #[allow(clippy::cast_possible_truncation)]
@@ -1042,6 +1057,18 @@ impl<'w, H: Host> Shell<'w, H> {
     #[must_use]
     pub fn status_lines(&self) -> Vec<String> {
         let s = &self.scene.status;
+        if let Some(x) = &self.explore {
+            let mut l = vec![format!(
+                "EXPLORE  {} FPS  {} BATCHES  {}K+{}K VERTICES  MS {:.1}",
+                self.frames.len(),
+                s.batches,
+                s.vertices.0 / 1000,
+                s.vertices.1 / 1000,
+                self.costs[2] * 1000.0
+            )];
+            l.extend(x.lines(self.host.now()).into_iter().take(1));
+            return l;
+        }
         let mut l = vec![format!(
             "{:?}  {} FPS  {} BATCHES  {}K+{}K VERTICES  MS {:.1} {:.1} {:.1}",
             self.phase(),

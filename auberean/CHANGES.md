@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that a player would notice. 
 not how it was done.
 
 ## Unreleased
+- Explore mode: fly a camera anywhere in the world with no server.
 - Fixed walking into and out of caves whose mouth opens on the land.
 - Shops with a title of their own now show it.
 - Launcher: a new first run, and the Library downloads the data files for you.
