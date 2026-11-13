@@ -13278,6 +13278,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-step-for-heroes-alone",
+        says: "A step or a give a world's row has for heroes alone runs only for a hero: a \
+               bestowing step a player meets all else of but this has its person say its refusal \
+               of that quest; a give hands the item back with the person's line for it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-HERO-STEPS"),
+        station: "yalain-testkit::cpu::play::quest_uses::a_step_for_heroes_alone_gives_its_quest_only_to_a_hero_and_the_person_says_why",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-step-leads-to-one-of-its-rooms",
         says: "A step leading to a room of a row of like rooms sends the player to one with no player \
                in it and its creature standing, else one with no player, else any.",

@@ -5188,6 +5188,81 @@ fn craft_skill_requirements_compile_beside_their_steps_and_gives_and_bad_ones_ar
 }
 
 #[test]
+fn hero_requirements_compile_beside_their_steps_and_gives() {
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "update = \"bestow\"\n",
+        "update = \"bestow\"\n\
+         requires = [{ hero = true }]\n",
+    );
+    files.insert(
+        "town/server/gives/470033D0.toml".into(),
+        "[[give]]\n\
+         key = \"medal\"\n\
+         to = 0x470033D0\n\
+         item = 0x470020BB\n\
+         requires = [{ quest = 0x40000016, done = true }, { hero = true }]\n\
+         prov = { from = \"authored\" }\n\
+         \n\
+         [[give]]\n\
+         key = \"plain\"\n\
+         to = 0x470033D0\n\
+         item = 0x470020B9\n\
+         prov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let gates = &t.content.hero_gates;
+    assert_eq!(gates.steps.len(), 1);
+    assert_eq!(gates.steps[0].trigger, Trigger::Use(0x4700_33D0));
+    assert!(
+        t.quests.steps.contains(&gates.steps[0]),
+        "the step itself is served"
+    );
+    assert_eq!(gates.gives.len(), 1, "only the give for heroes");
+    let give = &gates.gives[0];
+    assert_eq!(give.item, Some(0x4700_20BB));
+    assert_eq!(
+        give.requires,
+        [(0x4000_0016, Need::Done)],
+        "the quest it requires is kept beside the hero"
+    );
+    assert!(t.quests.gives.contains(give), "the give itself is served");
+    assert!(
+        t.content.untraining_gates.is_empty(),
+        "nothing else is gated"
+    );
+
+    // `true` alone in its table.
+    for bad in [
+        "requires = [{ hero = false }]",
+        "requires = [{ hero = 1 }]",
+        "requires = [{ hero = true, quest = 0x40000016 }]",
+    ] {
+        let mut f = files.clone();
+        f.insert(
+            "town/server/gives/470033D0.toml".into(),
+            format!(
+                "[[give]]\n\
+         key = \"medal\"\n\
+         to = 0x470033D0\n\
+         item = 0x470020BB\n\
+         {bad}\n\
+         prov = {{ from = \"authored\" }}\n"
+            ),
+        );
+        let problems = check(&f);
+        assert!(
+            problems.iter().any(|p| p.message.contains("requires")),
+            "{bad}: {problems:?}"
+        );
+    }
+}
+
+#[test]
 fn untraining_requirements_compile_beside_their_steps_and_gives_and_an_effect_rule_may_finish_one()
 {
     let mut files = fixture();

@@ -543,6 +543,64 @@ fn a_quest_waiting_on_a_craft_skill_is_given_only_at_its_level_and_the_person_sa
     );
 }
 
+/// A quest step for heroes alone does not give its quest to a player who is none: the person says
+/// its refusal of that quest instead (a beacon of a raid whose crystal only a hero may use); a hero
+/// is given it.
+/// Behaviour: server.quests.a-step-for-heroes-alone
+#[test]
+fn a_step_for_heroes_alone_gives_its_quest_only_to_a_hero_and_the_person_says_why() {
+    use yalain_content::heroes::HeroGates;
+    const RAID: u32 = 0x4000_0355;
+    const BEACON: u32 = 0x4700_1486;
+    const NOT_HERO: u32 = 0xD236_9908;
+    let gift = step(RAID, 0, Trigger::Use(BEACON), Update::Bestow);
+    let mut h = Harness::new();
+    h.server.content = ContentPack {
+        objects: vec![object(0x8130_0000_0000_0702, BEACON, [61.0, 241.0, -44.6])],
+        hero_gates: HeroGates {
+            steps: vec![gift.clone()],
+            gives: Vec::new(),
+        },
+        ..ContentPack::default()
+    };
+    h.server.quests = QuestTable {
+        quests: vec![quest(RAID, 0x2500_1706, 1)],
+        steps: vec![gift],
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
+    h.server.talk = TalkTable {
+        lines: vec![line(
+            BEACON,
+            NOT_HERO,
+            Role::RefuseUse,
+            How::Tell,
+            Some(RAID),
+        )],
+    };
+    let (b, me) = h.player_in_world("one", "Elara");
+    let id = 0x8130_0000_0000_0702;
+    let from = use_it(&mut h, b, me, id);
+    assert!(
+        updates(&h, b, from).is_empty(),
+        "not given to one who is no hero"
+    );
+    assert_eq!(
+        texts(&h, b, from),
+        vec![(HEAR_TELL, NOT_HERO)],
+        "the refusal"
+    );
+    for p in h.server.players.values_mut() {
+        yalain_world::focus::set_hero_kept(&mut p.qualities, true);
+    }
+    let from = use_it(&mut h, b, me, id);
+    assert_eq!(updates(&h, b, from).len(), 1, "given to a hero");
+    assert!(
+        !texts(&h, b, from).contains(&(HEAR_TELL, NOT_HERO)),
+        "and not refused"
+    );
+}
+
 /// A quest that fails when its player dies fails as the player dies, told before the death's
 /// message; one that does not is kept.
 /// Behaviour: server.quests.fails-on-death

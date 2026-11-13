@@ -540,6 +540,8 @@ pub struct Step {
     pub crafts: Vec<yalain_content::crafts::CraftGate>,
     /// It runs only for a player with an untraining under way.
     pub untraining: bool,
+    /// It runs only for a hero.
+    pub heroes: bool,
     /// What it adds to a `[[tally]]` as it runs (boxed: few steps add).
     pub adds: Option<Box<yalain_content::tallies::Adds>>,
     /// The items it takes from the player's pack, which the player must hold.
@@ -608,6 +610,8 @@ pub struct Give {
     pub crafts: Vec<yalain_content::crafts::CraftGate>,
     /// It takes the item only from a player with an untraining under way.
     pub untraining: bool,
+    /// It takes the item only from a hero.
+    pub heroes: bool,
     /// What it adds to a `[[tally]]` as it takes the item.
     pub adds: Option<yalain_content::tallies::Adds>,
     pub prov: Prov,
@@ -823,8 +827,8 @@ pub struct Popup {
 }
 
 /// What a step's or a give's `requires` names: other quests, the `[[event]]`s that must be on, the
-/// one kingdom it is for, the acts that must be whole, the craft skills it waits on and whether it
-/// waits on an untraining under way.
+/// one kingdom it is for, the acts that must be whole, the craft skills it waits on, whether it
+/// waits on an untraining under way and whether it is for heroes alone.
 struct Requires {
     quests: Vec<(u32, Need)>,
     events: Vec<String>,
@@ -833,6 +837,7 @@ struct Requires {
     acts: Vec<u32>,
     crafts: Vec<yalain_content::crafts::CraftGate>,
     untraining: bool,
+    heroes: bool,
 }
 
 /// `[[effect_rule]]`: what the world says of an effect where its own data says nothing: what a ward
@@ -2676,6 +2681,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 acts,
                 crafts,
                 untraining,
+                heroes,
             } = f.requires_and_events("requires", true);
             Row::Step(Box::new(Step {
                 key: f.req_symbol("key")?,
@@ -2700,6 +2706,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 acts,
                 crafts,
                 untraining,
+                heroes,
                 adds: f.adds().map(Box::new),
                 takes: f.ids("takes"),
                 to: f.symbol("to"),
@@ -2728,6 +2735,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 kingdom,
                 crafts,
                 untraining,
+                heroes,
                 ..
             } = f.requires_and_events("requires", false);
             let item = f.id("item");
@@ -2754,6 +2762,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 kingdom,
                 crafts,
                 untraining,
+                heroes,
                 adds: f.adds(),
                 prov: f.req_prov()?,
             })
@@ -4989,7 +4998,7 @@ impl<'a> Fields<'a> {
     /// [`yalain_content::kingdoms::kingdom::WORDS`]; `{ tally = "key", full = true|false }`, a
     /// `[[tally]]` that must be full or not yet full; `{ craft = S, at_least = N }`, a craft skill
     /// (or `craft = [S, ...]`, any one of several) at level N or above; `{ untraining = true }`, an
-    /// untraining under way; and, for a step (`events`),
+    /// untraining under way; `{ hero = true }`, a hero; and, for a step (`events`),
     /// `{ event = "key" }`, an `[[event]]` that must be on, and `{ act = A }`, an act that must be
     /// whole.
     fn requires_and_events(&mut self, name: &str, events: bool) -> Requires {
@@ -5002,16 +5011,17 @@ impl<'a> Fields<'a> {
             Act(u32),
             Craft(yalain_content::crafts::CraftGate),
             Untraining,
+            Hero,
         }
         let (what, keys): (&str, &[&str]) = if events {
             (
-                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { quest, failed = true }, { event }, { tally, full }, { tally, at_least, below }, { craft, at_least }, { untraining = true }, { act } or { kingdom } (neutral, shadow, order or dominion)",
-                &["quest", "phase", "done", "free", "failed", "event", "tally", "full", "at_least", "below", "craft", "untraining", "act", "kingdom"],
+                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { quest, failed = true }, { event }, { tally, full }, { tally, at_least, below }, { craft, at_least }, { untraining = true }, { hero = true }, { act } or { kingdom } (neutral, shadow, order or dominion)",
+                &["quest", "phase", "done", "free", "failed", "event", "tally", "full", "at_least", "below", "craft", "untraining", "hero", "act", "kingdom"],
             )
         } else {
             (
-                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { quest, failed = true }, { tally, full }, { tally, at_least, below }, { craft, at_least }, { untraining = true } or { kingdom } (neutral, shadow, order or dominion)",
-                &["quest", "phase", "done", "free", "failed", "tally", "full", "at_least", "below", "craft", "untraining", "kingdom"],
+                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { quest, failed = true }, { tally, full }, { tally, at_least, below }, { craft, at_least }, { untraining = true }, { hero = true } or { kingdom } (neutral, shadow, order or dominion)",
+                &["quest", "phase", "done", "free", "failed", "tally", "full", "at_least", "below", "craft", "untraining", "hero", "kingdom"],
             )
         };
         let all = self.list_of(name, what, keys, |t| {
@@ -5026,6 +5036,9 @@ impl<'a> Fields<'a> {
             }
             if let Some(u) = t.get("untraining") {
                 return (t.len() == 1 && u.as_bool() == Some(true)).then_some(Req::Untraining);
+            }
+            if let Some(h) = t.get("hero") {
+                return (t.len() == 1 && h.as_bool() == Some(true)).then_some(Req::Hero);
             }
             if let Some(e) = t.get("event") {
                 return (t.len() == 1)
@@ -5065,6 +5078,7 @@ impl<'a> Fields<'a> {
         let mut acts = Vec::new();
         let mut crafts = Vec::new();
         let mut untraining = false;
+        let mut heroes = false;
         for r in all {
             match r {
                 Req::Quest(q, n) => quests.push((q, n)),
@@ -5074,6 +5088,7 @@ impl<'a> Fields<'a> {
                 Req::Act(a) => acts.push(a),
                 Req::Craft(c) => crafts.push(c),
                 Req::Untraining => untraining = true,
+                Req::Hero => heroes = true,
             }
         }
         if kingdoms.len() > 1 {
@@ -5087,6 +5102,7 @@ impl<'a> Fields<'a> {
             acts,
             crafts,
             untraining,
+            heroes,
         }
     }
 

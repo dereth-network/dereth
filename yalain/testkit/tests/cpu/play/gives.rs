@@ -1695,6 +1695,39 @@ fn a_give_waiting_on_a_craft_skill_takes_the_item_only_at_its_level() {
     assert!(!holds(&h, me, offering.0), "taken at the level");
 }
 
+/// A give that moves no quest and is for heroes alone refuses the item to a player who is none,
+/// handing it back; from a hero it takes it.
+///
+/// Behaviour: server.quests.a-step-for-heroes-alone
+#[test]
+fn a_give_for_heroes_alone_takes_the_item_only_from_a_hero() {
+    use yalain_content::heroes::HeroGates;
+    let mut h = world();
+    let row = taking(Some(OFFERING));
+    h.server.quests.gives.push(row.clone());
+    h.server.content.hero_gates = HeroGates {
+        steps: Vec::new(),
+        gives: vec![row],
+    };
+    let (b, me) = player(&mut h, "one", "Elara");
+    let offering = hold(&mut h, me, OFFERING, 1);
+    let (lines, _) = give_ashes(&mut h, b, me, offering, 1);
+    assert!(holds(&h, me, offering.0), "refused to one who is no hero");
+    assert_eq!(lines, vec![PLAIN_REFUSAL]);
+    let world = world_of(&h, me);
+    yalain_world::focus::set_hero_kept(
+        &mut h
+            .server
+            .players
+            .get_mut(&world)
+            .expect("in the world")
+            .qualities,
+        true,
+    );
+    give_ashes(&mut h, b, me, offering, 1);
+    assert!(!holds(&h, me, offering.0), "taken from a hero");
+}
+
 /// A quest step or a give naming several items to pick from gives one of them each time it runs,
 /// by their weights, beside what it always gives: an offering handed in again and again brings
 /// one gem or the other, never both and never none.

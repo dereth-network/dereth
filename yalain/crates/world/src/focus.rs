@@ -3,7 +3,8 @@
 //! **Heroes.** Only a hero (its hero quality true) earns focus (2017: the focus quality was in
 //! exactly the 434 character descriptions of heroes). Becoming one sets its focus to its greatest
 //! (2017: the one character seen becoming a hero was sent its hero quality and 100 focus at once).
-//! Nothing in play makes a hero here: the operator's console, or a test, does.
+//! Nothing in play makes a hero here: the operator's console, or a test, does. A world's step or
+//! give may be for heroes alone: it runs for no one else.
 //!
 //! **Its greatest** is 100 and the character's own focus quality above it (with what its effects
 //! add); an award past it stops there (2017: 12 of 12 sent 100), and an award at it sends nothing
@@ -43,6 +44,33 @@ pub const SHARE_RANGE: f32 = 100.0;
 #[must_use]
 pub fn is_hero(qualities: &[u8]) -> bool {
     quals::bool(qualities, HERO).unwrap_or(false)
+}
+
+/// May a step run for a player, by whether it is for heroes alone?
+#[must_use]
+pub fn allows_step<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    step: &yalain_content::quests::Step,
+) -> bool {
+    let gates = &s.content.hero_gates;
+    gates.is_empty() || !gates.of_step(step) || hero_in_world(s, world)
+}
+
+/// May a give take its item from a player, by whether it is for heroes alone?
+#[must_use]
+pub fn allows_give<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    give: &yalain_content::quests::Give,
+) -> bool {
+    let gates = &s.content.hero_gates;
+    gates.is_empty() || !gates.of_give(give) || hero_in_world(s, world)
+}
+
+/// Is a player in the world a hero?
+fn hero_in_world<S: Store>(s: &Server<S>, world: ConnId) -> bool {
+    s.players.get(&world).is_some_and(|p| is_hero(&p.qualities))
 }
 
 /// A player's greatest focus.

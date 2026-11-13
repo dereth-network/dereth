@@ -34,6 +34,7 @@ pub mod escorts;
 pub mod events;
 pub mod gathering;
 pub mod guards;
+pub mod heroes;
 pub mod item_rows;
 pub mod kingdoms;
 pub mod levers;
@@ -759,6 +760,9 @@ pub struct ContentPack {
     /// The steps and gives that wait on their player having an untraining under way. Not part of
     /// the text form: the world database's steps and gives fill it.
     pub untraining_gates: untraining::UntrainingGates,
+    /// The steps and gives that run only for heroes. Not part of the text form: the world
+    /// database's steps and gives fill it.
+    pub hero_gates: heroes::HeroGates,
     /// The gives that move no quest and take any item of a class: the class (a script package, by
     /// number) of each, by the give's place among the quest table's gives. Not part of the text
     /// form: the world database's gives fill it.
@@ -1154,6 +1158,7 @@ impl ContentPack {
             escorts: escorts::EscortTable::default(),
             craft_gates: crafts::CraftGates::default(),
             untraining_gates: untraining::UntrainingGates::default(),
+            hero_gates: heroes::HeroGates::default(),
             class_gives: BTreeMap::new(),
             companions: BTreeMap::new(),
             levers: levers::LeverTable::default(),

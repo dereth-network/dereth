@@ -717,6 +717,8 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     let mut craft_steps: Vec<(usize, yalain_content::crafts::CraftGate)> = Vec::new();
     // The steps an untraining under way gates, likewise.
     let mut untraining_steps: Vec<usize> = Vec::new();
+    // The steps for heroes alone, likewise.
+    let mut hero_steps: Vec<usize> = Vec::new();
     // The steps that also give one of several items, likewise.
     let mut pick_steps: Vec<(usize, Vec<(u32, u32)>)> = Vec::new();
     // The steps a tally gates or adds to, likewise.
@@ -1264,6 +1266,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 if s.untraining {
                     untraining_steps.push(t.quests.steps.len());
                 }
+                if s.heroes {
+                    hero_steps.push(t.quests.steps.len());
+                }
                 for a in &s.acts {
                     act_steps.push((l, t.quests.steps.len(), *a));
                 }
@@ -1366,6 +1371,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     }
                     if g.untraining {
                         t.content.untraining_gates.gives.push(give.clone());
+                    }
+                    if g.heroes {
+                        t.content.hero_gates.gives.push(give.clone());
                     }
                     if !g.gives_one_of.is_empty() {
                         t.items
@@ -2017,6 +2025,12 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     for i in untraining_steps {
         if let Some(st) = t.quests.steps.get(i) {
             t.content.untraining_gates.steps.push(st.clone());
+        }
+    }
+    // The steps for heroes alone, likewise.
+    for i in hero_steps {
+        if let Some(st) = t.quests.steps.get(i) {
+            t.content.hero_gates.steps.push(st.clone());
         }
     }
     // The steps that also give one of several items, likewise.
