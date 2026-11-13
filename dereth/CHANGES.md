@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Remaster: cliff feet blend into the ground instead of banding.
 - Remaster: distant trees are sharper and no longer pop to full detail as you walk.
 - Remaster: an art pack's trees keep their own colors, and far forests show them.
 - Remaster: pebbles and grass take the color of an art pack's ground.

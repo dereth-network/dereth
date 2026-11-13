@@ -168,6 +168,50 @@ float smooth_height(float2 p)
     return h;
 }
 
+// The rises over a cell between which a vertex's slope is eased toward its gentler side's: the
+// scene's own.
+static const float EASE_FROM = 0.8391 * CELL;
+static const float EASE_TO = 1.1325 * CELL;
+
+// The slope at the middle of three heights a cell apart, meters a cell: the smooth surface's,
+// eased toward one that keeps to the gentler step where the steeper is steep. The scene's own
+// arithmetic.
+float eased_slope(float a, float b, float c)
+{
+    float d0 = b - a;
+    float d1 = c - b;
+    float mean = 0.5 * (d0 + d1);
+    float kept = d0 * d1 <= 0.0 ? 0.0 : 2.0 * d0 * d1 / (d0 + d1);
+    return mean + (kept - mean) * smoothstep(EASE_FROM, EASE_TO, max(abs(d0), abs(d1)));
+}
+
+// The cubic from `h0` to `h1` over a cell, leaving with slope `m0` and arriving with `m1`.
+float hermite(float h0, float h1, float m0, float m1, float t)
+{
+    float t2 = t * t;
+    float t3 = t2 * t;
+    return h0 * (2.0 * t3 - 3.0 * t2 + 1.0) + h1 * (3.0 * t2 - 2.0 * t3) + m0 * (t3 - 2.0 * t2 + t) + m1 * (t3 - t2);
+}
+
+// The smooth surface eased where gentle ground meets a steep face, so it meets level ground
+// level, at world `p`: the scene's own arithmetic.
+float eased_height(float2 p)
+{
+    float2 q = p / CELL;
+    int2 c = int2(floor(q));
+    float2 f = clamp(q - float2(c), 0.0, 1.0);
+    float rows[4];
+    for (int j = 0; j < 4; j++)
+    {
+        float h0 = vertex_height(c + int2(-1, j - 1));
+        float h1 = vertex_height(c + int2(0, j - 1));
+        float h2 = vertex_height(c + int2(1, j - 1));
+        float h3 = vertex_height(c + int2(2, j - 1));
+        rows[j] = hermite(h1, h2, eased_slope(h0, h1, h2), eased_slope(h1, h2, h3), f.x);
+    }
+    return hermite(rows[1], rows[2], eased_slope(rows[0], rows[1], rows[2]), eased_slope(rows[1], rows[2], rows[3]), f.y);
+}
+
 // A lattice point's hash, 0..1: the scene's own arithmetic.
 float lattice_hash(int2 p)
 {
@@ -645,6 +689,15 @@ float3 smooth_normal(float2 p, float e)
     return normalize(float3(-hx / e, -hy / e, 1.0));
 }
 
+// The eased smooth surface's normal at world `p`, by differences `e` meters on.
+float3 eased_normal(float2 p, float e)
+{
+    float h = eased_height(p);
+    float hx = eased_height(p + float2(e, 0.0)) - h;
+    float hy = eased_height(p + float2(0.0, e)) - h;
+    return normalize(float3(-hx / e, -hy / e, 1.0));
+}
+
 
 // How far a pack's bank blends from the cell beside it into a cell, meters: where the cell beside
 // lays the bed in place of retail's water ground and this one lays the land beside the water, the
@@ -980,6 +1033,7 @@ Targets fs_ground(Varyings in)
     float4 parts = drawn_at(p, dist, in.fine_share, foot);
     float e = max(clamp(dist * 0.002, 0.1, 6.0), foot);
     float3 n = drawn_normal(p, dist, e, parts.x, in.fine_share, foot);
+    float3 drawn_n = n;
     // Where no offset is laid the ground is retail's, shaded with the smooth surface's normal as
     // the retail grid's vertex normals shade it, not with its triangles' own.
     float drawn_share = lerp(parts.y, 1.0, parts.w);
@@ -991,18 +1045,28 @@ Targets fs_ground(Varyings in)
     float3 bend;
     float roughness;
     float takes;
-    // How steep the ground is for what is laid by its slope: on walkable ground by the smooth
-    // surface's slope, as much as asked, so the materials sweep over retail's facets; on
-    // unwalkable ground by the drawn ground's own, so the rock bands' treads and risers take them
-    // apart. x the scree's share, y the rock's, z how far from walkable it is.
+    // How steep the ground is for what is laid by its slope: by the drawn ground's own shape, its
+    // rounding, pins and rock bands but not the fine relief, over at least a meter so its
+    // samples do not show; where no offset is laid, by the smooth surface it is rounded to, eased
+    // where it meets a steep face. On walkable ground that surface's slope is taken as much as
+    // asked. x the scree's share, y the rock's, z how far from walkable it is.
     float3 steep = float3(0.0, 0.0, 0.0);
     float4 sloped = row(push.drawn, D_SLOPE2);
     if (sloped.x > 0.0)
     {
         float4 from = row(push.drawn, D_SLOPE);
-        float level = smooth_normal(p, max(e, 0.5)).z;
+        float es = max(e, 1.0);
+        float smooth_up = eased_normal(p, max(e, 0.5)).z;
+        // Without the fine relief and over a meter or more, the shading's own normal.
+        float3 shape = drawn_n;
+        if (in.fine_share > 0.0 || e < 1.0)
+        {
+            float shaped = in.fine_share > 0.0 ? drawn_at(p, dist, 0.0, foot).x : parts.x;
+            shape = drawn_normal(p, dist, es, shaped, 0.0, foot);
+        }
+        float level = lerp(smooth_up, shape.z, drawn_share);
         steep.z = 1.0 - smoothstep(WALKABLE_Z - 0.04, WALKABLE_Z + 0.04, level);
-        float up = lerp(n.z, level, sloped.y * (1.0 - steep.z));
+        float up = lerp(level, smooth_up, sloped.y * (1.0 - steep.z));
         float angle = degrees(acos(clamp(up, -1.0, 1.0)));
         steep.x = smoothstep(from.x, from.x + max(from.y, 0.1), angle);
         steep.y = smoothstep(from.z, from.z + max(from.w, 0.1), angle);

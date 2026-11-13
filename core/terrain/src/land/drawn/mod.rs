@@ -6,12 +6,17 @@
 //! **The offset** is worked out a block at a time, a sample a meter, from retail's own records:
 //! - **Walkable ground** takes the smooth surface through every retail vertex (a bicubic through
 //!   the 24-meter vertex grid), its distance from retail's flat triangles reached softly up to a
-//!   cap. It is nought at every retail vertex, where the two surfaces meet.
-//! - **Unwalkable ground** (steeper than bodies stand on) takes rock bands: retail's own surface
-//!   cut into treads and risers, nought within an edge of walkable ground (where a body stands at
-//!   the brink) and with room growing past it up to a cap, a larger one on tall faces. The bands
-//!   are kept apart in the field ([`BlockField::bands`]), so they can be drawn everywhere, only
-//!   far from the eye, or nowhere ([`CliffShelves`]) without working the field out again.
+//!   cap. It is nought at every retail vertex, where the two surfaces meet. Where gentle ground
+//!   meets a steep face the surface is eased ([`Point::eased`]): its slope at the vertex between
+//!   them keeps to the gentle ground's, so it neither dips in front of the face's foot nor bulges
+//!   over its brink.
+//! - **Unwalkable ground** (steeper than bodies stand on) is rounded the same way, and below
+//!   retail's surface it may go further, to a cap of its own: the foot of a face bends down to
+//!   meet the ground at its foot. Past an edge of walkable ground it may take rock bands: retail's
+//!   own surface cut into treads and risers, nought within the edge (where a body stands at the
+//!   brink) and with room growing past it up to a cap, a larger one on tall faces. The bands are
+//!   kept apart in the field ([`BlockField::bands`]), so they can be drawn everywhere, only far
+//!   from the eye, or nowhere ([`CliffShelves`]) without working the field out again.
 //! - **Pins**: buildings, static objects, roads and water keep retail's height, the offset rising
 //!   from them over a fade.
 //! - **Bodies** stand on the offset averaged over their stance (the low-pass, [`body_offset`]); the
@@ -185,6 +190,11 @@ pub struct Point {
     pub retail: f32,
     /// The smooth surface through retail's vertices.
     pub smooth: f32,
+    /// The smooth surface eased where gentle ground meets a steep face: at a vertex between a
+    /// step steeper than bodies stand on and a gentler one, its slope keeps to the gentler
+    /// side's, so it meets level ground level rather than dipping in front of the face or
+    /// bulging over its brink. Where no step round the point is steep, the smooth surface.
+    pub eased: f32,
     /// Retail's triangle's rise east and north.
     pub gradient: (f32, f32),
     /// Whether retail's triangle is walkable.
@@ -195,6 +205,61 @@ pub struct Point {
     pub water: f32,
     /// The height range of the 6 by 6 vertices about the cell: how tall the face it is on is.
     pub relief: f32,
+}
+
+/// The rise over a cell from which a vertex's slope starts to be eased toward its gentler side's
+/// ([`Point::eased`]): 40 degrees.
+const EASE_FROM: f32 = 0.839_1 * CELL_SIZE;
+/// The rise over a cell from which it is wholly eased: the steepest walkable plane's.
+const EASE_TO: f32 = 1.132_5 * CELL_SIZE;
+
+/// The slope at the middle of three heights a cell apart, meters a cell: the smooth surface's
+/// (the mean of the two steps), eased toward one that keeps to the gentler step (their harmonic
+/// mean, level where the steps go opposite ways) as the steeper step grows from [`EASE_FROM`] to
+/// [`EASE_TO`].
+fn eased_slope(a: f32, b: f32, c: f32) -> f32 {
+    let (d0, d1) = (b - a, c - b);
+    let mean = 0.5 * (d0 + d1);
+    let kept = if d0 * d1 <= 0.0 {
+        0.0
+    } else {
+        2.0 * d0 * d1 / (d0 + d1)
+    };
+    mean + (kept - mean) * smoothstep(EASE_FROM, EASE_TO, d0.abs().max(d1.abs()))
+}
+
+/// The cubic from `h0` to `h1` over a cell, leaving with slope `m0` and arriving with `m1`
+/// (meters a cell), at `t`.
+fn hermite(h0: f32, h1: f32, m0: f32, m1: f32, t: f32) -> f32 {
+    let (t2, t3) = (t * t, t * t * t);
+    h0 * (2.0 * t3 - 3.0 * t2 + 1.0)
+        + h1 * (3.0 * t2 - 2.0 * t3)
+        + m0 * (t3 - 2.0 * t2 + t)
+        + m1 * (t3 - t2)
+}
+
+/// [`Point::eased`] in the cell of `s` at `(fx, fy)` across it: along each of the four rows of
+/// vertices about the cell, then across them, each a cubic through the heights with the eased
+/// slopes. Where no step is steep it is the smooth surface's own bicubic.
+fn eased_height(s: &Stencil, fx: f32, fy: f32) -> f32 {
+    let mut rows = [0.0f32; 4];
+    for (j, r) in rows.iter_mut().enumerate() {
+        let h = |i: usize| s.h[i][j + 1];
+        *r = hermite(
+            h(2),
+            h(3),
+            eased_slope(h(1), h(2), h(3)),
+            eased_slope(h(2), h(3), h(4)),
+            fx,
+        );
+    }
+    hermite(
+        rows[1],
+        rows[2],
+        eased_slope(rows[0], rows[1], rows[2]),
+        eased_slope(rows[1], rows[2], rows[3]),
+        fy,
+    )
 }
 
 /// Catmull-Rom weights at `t`.
@@ -277,6 +342,7 @@ impl Point {
         Self {
             retail,
             smooth,
+            eased: eased_height(s, fx, fy),
             gradient,
             walkable,
             road,
@@ -535,15 +601,29 @@ pub fn bands_kept(distance: f32, fade: (f32, f32)) -> f32 {
 }
 
 /// The offset of the near ground at a point before the pins, and the part of it the rock bands
-/// make: the walkable rounding, and the rock bands of unwalkable ground `to_walkable` meters from
-/// walkable ground. The offset less that part is the ground drawn without the bands.
+/// make: the rounding, which on unwalkable ground `to_walkable` meters from walkable ground goes
+/// further below retail's surface past the edge, and the rock bands there. The offset less that
+/// part is the ground drawn without the bands.
 fn near_raw(p: &Point, x: f32, y: f32, to_walkable: f32, knobs: &Knobs) -> (f32, f32) {
     let walk_cap = knobs.get(Knob::WalkCap);
-    let round = soft_cap(knobs.get(Knob::Round) * (p.smooth - p.retail), walk_cap);
-    if p.walkable || !knobs.on(Knob::Cliffs) {
+    let smooth = p.smooth + knobs.get(Knob::Ease) * (p.eased - p.smooth);
+    let lift = knobs.get(Knob::Round) * (smooth - p.retail);
+    let round = soft_cap(lift, walk_cap);
+    if p.walkable {
         return (round, 0.0);
     }
     let edge = knobs.get(Knob::CliffEdge);
+    let past = smoothstep(0.0, edge.max(1e-3), to_walkable);
+    // Below retail's surface, past the edge, a face bends as far as its foot asks.
+    let below = if lift < 0.0 {
+        soft_cap(lift, knobs.get(Knob::CliffFoot).max(walk_cap))
+    } else {
+        round
+    };
+    let plain = round + (below - round) * past;
+    if !knobs.on(Knob::Cliffs) {
+        return (plain, 0.0);
+    }
     let tall = smoothstep(
         knobs.get(Knob::CliffTallRelief) * 0.8,
         knobs.get(Knob::CliffTallRelief) * 1.2,
@@ -559,9 +639,10 @@ fn near_raw(p: &Point, x: f32, y: f32, to_walkable: f32, knobs: &Knobs) -> (f32,
         * knobs.get(Knob::CliffNoise);
     let bands = |c: f32| band_offset(p.retail, band * c, riser, wander * band * c);
     let banded = bands(small) + (bands(big) - bands(small)) * tall;
-    let offset =
-        round * (1.0 - smoothstep(0.0, edge.max(1e-3), to_walkable)) + soft_cap(banded, room);
-    (offset, offset - round)
+    // Past the edge the bands take the place of the rounding above retail's surface, and keep
+    // the bend below it.
+    let offset = round * (1.0 - past) + below.min(0.0) * past + soft_cap(banded, room);
+    (offset, offset - plain)
 }
 
 /// The near offset of one block, a sample a meter: [`SIDE`] by [`SIDE`], row by row from the

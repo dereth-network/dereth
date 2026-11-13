@@ -63,6 +63,10 @@ pub enum Knob {
     CliffNear,
     /// How far from the eye they are whole.
     CliffFar,
+    /// How much the smooth surface eases level where gentle ground meets a steep face.
+    Ease,
+    /// The most a face bends below retail's surface toward its foot.
+    CliffFoot,
     /// Bodies, items and the camera drawn on the drawn ground.
     BodyShift,
     /// The height over retail's ground the shift starts to fade at.
@@ -289,7 +293,7 @@ const fn switch(
 }
 
 /// How many knobs there are.
-pub const KNOB_COUNT: usize = 104;
+pub const KNOB_COUNT: usize = 106;
 
 /// Every knob, in [`Knob`]'s order.
 pub const KNOBS: [KnobSpec; KNOB_COUNT] = [
@@ -318,6 +322,8 @@ pub const KNOBS: [KnobSpec; KNOB_COUNT] = [
     num(Knob::CliffNoiseScale, "cliff_noise_scale", 6.0, (1.0, 48.0), "m", "cliffs", "how far apart the bands' edges wander"),
     num(Knob::CliffNear, "cliff_near", 150.0, (0.0, 500.0), "m", "cliffs", "while the rock bands are drawn far off only, how near the eye they are gone: nearer, the face is drawn as it is without them"),
     num(Knob::CliffFar, "cliff_far", 300.0, (0.0, 500.0), "m", "cliffs", "while the rock bands are drawn far off only, how far from the eye they are whole"),
+    num(Knob::Ease, "ease", 1.0, (0.0, 1.0), "", "cliffs", "how much the smooth surface eases level where gentle ground meets a steep face, so the face's foot bends into the ground below it and its brink into the ground above: 0 the plain smooth surface, which dips in front of a face and bulges over its brink"),
+    num(Knob::CliffFoot, "cliff_foot", 4.0, (0.0, 16.0), "m", "cliffs", "the most unwalkable ground bends below retail's surface where the foot of a face eases into the ground: at walk_cap or less, no further than walkable ground"),
     switch(Knob::BodyShift, "body_shift", true, "bodies", "bodies, items, scenery and the camera drawn on the drawn ground; off leaves them at retail's heights"),
     num(Knob::ShiftFade, "shift_fade", 3.0, (0.0, 20.0), "m", "bodies", "the height over retail's ground a thing's shift starts to fade at"),
     num(Knob::ShiftGone, "shift_gone", 6.0, (0.0, 40.0), "m", "bodies", "the height the shift is gone at"),
@@ -348,11 +354,11 @@ pub const KNOBS: [KnobSpec; KNOB_COUNT] = [
     num(Knob::ForestCanopy, "forest_canopy", 0.5, (0.0, 1.0), "", "far", "how high the forest cover raises the far ground at the skyline, a share of its trees' height"),
     switch(Knob::Slope, "slope", true, "slope", "scree and rock laid on the ground by its drawn slope"),
     num(Knob::ScreeFrom, "scree_from", 28.0, (0.0, 80.0), "deg", "slope", "the slope scree is laid from"),
-    num(Knob::ScreeBlend, "scree_blend", 6.0, (0.5, 30.0), "deg", "slope", "the slopes scree blends in over"),
+    num(Knob::ScreeBlend, "scree_blend", 15.0, (0.5, 30.0), "deg", "slope", "the slopes scree blends in over"),
     num(Knob::RockFrom, "rock_from", 36.0, (0.0, 80.0), "deg", "slope", "the slope rock is laid from"),
-    num(Knob::RockBlend, "rock_blend", 6.0, (0.5, 30.0), "deg", "slope", "the slopes rock blends in over"),
+    num(Knob::RockBlend, "rock_blend", 15.0, (0.5, 30.0), "deg", "slope", "the slopes rock blends in over"),
     num(Knob::SlopeStrength, "slope_strength", 1.0, (0.0, 1.0), "", "slope", "how much of the scree and rock is laid over the ground's own material"),
-    num(Knob::SlopeSmooth, "slope_smooth", 1.0, (0.0, 1.0), "", "slope", "how much the slope that lays scree and rock is the smooth surface's: 1 lays them in smooth sweeps, 0 by the drawn ground's own facets and bands"),
+    num(Knob::SlopeSmooth, "slope_smooth", 0.0, (0.0, 1.0), "", "slope", "how much the slope that lays scree and rock on walkable ground is the smooth surface's rather than the drawn ground's own: 0 lays them where the ground is drawn steep, 1 in the smooth surface's sweeps"),
     num(Knob::SlopeOnSnow, "slope_on_snow", 0.25, (0.0, 1.0), "", "slope", "how much scree and rock show through snow and ice on steep ground: 0 keeps the snow whole"),
     num(Knob::ScreeGround, "scree_ground", 14.0, (0.0, 31.0), "type", "slope", "the terrain type whose material scree is drawn with: 14 mossy rock, 8 patchy dirt, 12 rocky sand"),
     num(Knob::RockGround, "rock_ground", 0.0, (0.0, 31.0), "type", "slope", "the terrain type whose material rock is drawn with: 0 barren rock"),

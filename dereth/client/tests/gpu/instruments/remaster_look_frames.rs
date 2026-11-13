@@ -12,6 +12,9 @@
 //! - `DERETH_REMASTER_CAPTURE_DIR`: where the pictures go (none are written without it).
 //! - `DERETH_REMASTER_LOOK_PLACES`: a comma list of stations and of this module's report places
 //!   (default all of [`PLACES`]).
+//! - `DERETH_REMASTER_LOOK_REPORTS`: more report places, `name=report line` entries joined by `|`,
+//!   named in the places as the module's own are. A report with a time of day and no clock is
+//!   drawn on a sunny day at that time.
 //! - `DERETH_REMASTER_LOOK_BOXES`: the boxes, as `--fidelity` takes them (default [`EVERY_BOX`]).
 //! - `DERETH_REMASTER_LOOK_TAG`: a word in the remaster's pictures' names, to keep runs apart.
 //! - `DERETH_REMASTER_SIZE`: `WIDTHxHEIGHT` (default 960x540).
@@ -73,11 +76,37 @@ fn env(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|v| !v.trim().is_empty())
 }
 
+/// The report places `DERETH_REMASTER_LOOK_REPORTS` adds, by name.
+fn more_reports() -> Vec<(String, String)> {
+    env("DERETH_REMASTER_LOOK_REPORTS")
+        .map(|v| {
+            v.split('|')
+                .filter_map(|e| e.split_once('='))
+                .map(|(n, l)| (n.trim().to_owned(), l.trim().to_owned()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// A place's station and the report that holds its camera, if it is one.
 fn place(store: &Arc<RetailDatStore>, name: &str) -> (Station, Option<VisualReport>) {
-    if let Some((_, line)) = REPORTS.iter().find(|r| r.0 == name) {
-        let report = VisualReport::parse(line).expect("the place's report reads");
-        return (report_station(&report, Some(8)), Some(report));
+    let line = REPORTS
+        .iter()
+        .find(|r| r.0 == name)
+        .map(|r| r.1.to_owned())
+        .or_else(|| {
+            more_reports()
+                .into_iter()
+                .find(|r| r.0 == name)
+                .map(|r| r.1)
+        });
+    if let Some(line) = line {
+        let report = VisualReport::parse(&line).expect("the place's report reads");
+        let mut station = report_station(&report, Some(8));
+        if let Some(t) = report.time.as_ref().filter(|t| t.clock == 0.0) {
+            station.clock = stations::Clock::Sunny(t.fraction);
+        }
+        return (station, Some(report));
     }
     let station = stations::stations(store)
         .into_iter()
