@@ -1897,7 +1897,8 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             | Row::Store(_)
             | Row::DeathTreasure(_)
             | Row::Lever(_)
-            | Row::Offering(_) => {}
+            | Row::Offering(_)
+            | Row::Guarded(_) => {}
         }
     }
     for (l, scene) in door_scenes {
@@ -2037,7 +2038,8 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     cx.problems.extend(crate::check::tallies(
         &merged.rows.iter().collect::<Vec<_>>(),
     ));
-    // Levers and offerings, once every placed object has its place in the content pack.
+    // Levers, offerings and guarded objects, once every placed object has its place in the content
+    // pack (and every camp its row in the spawn table).
     for l in &merged.rows {
         match &l.row {
             Row::Lever(r) => {
@@ -2092,6 +2094,29 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         opens,
                         lasts: r.lasts,
                     });
+            }
+            Row::Guarded(r) => {
+                let objects = placed_objects(&mut cx, &objects_at, l, "objects", &r.objects);
+                let key = r.camp.split_once(':').map_or(r.camp.as_str(), |(_, k)| k);
+                let (key, lb) = match key.split_once('@') {
+                    Some((k, b)) => (k, u16::from_str_radix(b, 16).ok()),
+                    None => (key, l.landblock),
+                };
+                let camp = lb.and_then(|lb| camps_at.get(&(key, lb)).copied());
+                if camp.is_none() {
+                    cx.problem(l, format!("camp: no camp {} is served", r.camp));
+                }
+                let (Some(objects), Some(camp)) = (objects, camp) else {
+                    continue;
+                };
+                t.content.guards.rows.push(yalain_content::guards::Guarded {
+                    key: r.key.clone(),
+                    camp,
+                    objects,
+                    refused: r.refused.map(|s| (s.string, s.table)),
+                    hidden: r.hidden,
+                    gone_for: r.gone_for,
+                });
             }
             _ => {}
         }

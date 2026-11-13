@@ -32,6 +32,7 @@ pub mod effect_rules;
 pub mod escorts;
 pub mod events;
 pub mod gathering;
+pub mod guards;
 pub mod item_rows;
 pub mod kingdoms;
 pub mod levers;
@@ -758,6 +759,9 @@ pub struct ContentPack {
     /// The objects that take a set of items and then open the way for a while. Not part of the
     /// text form: the world database's offerings fill it.
     pub offerings: offerings::OfferingTable,
+    /// The objects usable only while every creature of a camp is dead. Not part of the text form:
+    /// the world database's guarded rows fill it.
+    pub guards: guards::GuardTable,
 }
 
 /// The kind of player conflict a place allows.
@@ -1135,6 +1139,7 @@ impl ContentPack {
             companions: BTreeMap::new(),
             levers: levers::LeverTable::default(),
             offerings: offerings::OfferingTable::default(),
+            guards: guards::GuardTable::default(),
         })
     }
 

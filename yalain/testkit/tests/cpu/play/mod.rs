@@ -43,6 +43,7 @@ mod fights;
 mod focus;
 mod follow;
 mod gives;
+mod guarded_objects;
 mod holds;
 mod integrity;
 mod interactions;

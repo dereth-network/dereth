@@ -54,7 +54,7 @@ world.lock                         ids given to authored rows, kept across build
 <pack>/server/treasure_potions.toml [[treasure_potion]]
 <pack>/server/treasure_families.toml [[treasure_family]]
 <pack>/server/items.toml           [[item_use]], [[book]], [[start_item]], [[interaction]]
-<pack>/server/puzzles.toml         [[object_states]], [[sequence]], [[lever]], [[offering]]
+<pack>/server/puzzles.toml         [[object_states]], [[sequence]], [[lever]], [[offering]], [[guarded]]
 <pack>/server/creatures.toml       [[concealing]], [[npc_table]], [[friend_table]], [[creature]]
 ```
 
@@ -125,7 +125,7 @@ Every row sets one **item**, named by its key:
 | item | key |
 |---|---|
 | `object KEY@XXYY`, `camp KEY@XXYY`, `clearing KEY@XXYY` | the row's `key`, unique within its landblock in its pack |
-| `place KEY`, `talk KEY`, `give KEY`, `route KEY`, `event KEY`, `tally KEY`, `death_treasure KEY`, `object_states KEY`, `sequence KEY`, `lever KEY`, `offering KEY` | the row's `key` |
+| `place KEY`, `talk KEY`, `give KEY`, `route KEY`, `event KEY`, `tally KEY`, `death_treasure KEY`, `object_states KEY`, `sequence KEY`, `lever KEY`, `offering KEY`, `guarded KEY` | the row's `key` |
 | `loot 0xVALUE` | the death-loot profile's value |
 | `keeper 0xTEMPLATE` | the storekeeper template |
 | `store KEY` | the shop's `key`, unique in the world |
@@ -1212,6 +1212,28 @@ one offering.
 | `takes` | required | `{ item, shows }`, at least one, each item once: an item of the set, and the placed object that stands while it is held (named as `object`; none when left out) |
 | `opens` | required | the placed objects that stand once it holds the whole set, at least one, named as `object` |
 | `lasts` | required | how long they stand, in seconds, above 0 |
+| `prov` | required | where it came from |
+
+#### `[[guarded]]`
+
+Placed objects usable only while every creature of a camp is dead: a rift no one may close while
+its keeper stands. A camp's creatures are dead once it has made them and keeps none alive now; until
+it first fills, its objects are guarded. A use of a guarded object while one of the camp's creatures
+lives is refused where the player has walked to it: the object says `refused` to the player, and no
+quest step runs. A row that `hidden` keeps its objects from the world while one lives: they come for
+everyone as its last creature dies, and go as one comes back. A row naming `gone_for` takes an object
+from the world for that long at each use of it that is carried out, for everyone; then it comes back,
+unless the camp's creature is back and the row hides it. What is gone or hidden is not kept across a
+restart.
+
+| field | | meaning |
+|---|---|---|
+| `key` | required | lowercase letters, digits and hyphens |
+| `camp` | required | the camp whose creatures guard: `key@XXYY`, or `pack:key@XXYY` in another pack |
+| `objects` | required | the placed objects they guard, at least one, named as `camp` |
+| `refused` | | what an object says to a use it refuses, `{ table, string }`; nothing when left out |
+| `hidden` | | true: the objects stand in the world only while every creature of the camp is dead |
+| `gone_for` | | seconds above 0 a use carried out takes an object from the world for |
 | `prov` | required | where it came from |
 
 #### `[[worn]]`

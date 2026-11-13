@@ -157,6 +157,7 @@ pub fn item(l: &Located) -> Option<Item> {
         },
         Row::Lever(r) => Item::Lever { key: r.key.clone() },
         Row::Offering(r) => Item::Offering { key: r.key.clone() },
+        Row::Guarded(r) => Item::Guarded { key: r.key.clone() },
         Row::Concealing(r) => Item::Concealing {
             effect: r.effect,
             class: r.class,
@@ -241,6 +242,7 @@ fn value(row: &Row) -> String {
         Row::Sequence(x) => x.prov = crate::rows::Prov::default(),
         Row::Lever(x) => x.prov = crate::rows::Prov::default(),
         Row::Offering(x) => x.prov = crate::rows::Prov::default(),
+        Row::Guarded(x) => x.prov = crate::rows::Prov::default(),
         Row::Concealing(x) => x.prov = crate::rows::Prov::default(),
         Row::NpcTable(x) => x.prov = crate::rows::Prov::default(),
         Row::FriendTable(x) => x.prov = crate::rows::Prov::default(),

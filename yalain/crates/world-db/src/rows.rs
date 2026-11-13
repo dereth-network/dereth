@@ -713,6 +713,7 @@ pub enum Row {
     Sequence(SequenceRow),
     Lever(LeverRow),
     Offering(OfferingRow),
+    Guarded(GuardedRow),
     MapRecipes(MapRecipes),
     Spellbinding(Spellbinding),
     Refining(Refining),
@@ -1226,6 +1227,21 @@ pub struct OfferingRow {
     pub prov: Prov,
 }
 
+/// `[[guarded]]`: placed objects usable only while every creature of a camp is dead: the camp
+/// (`key@XXYY`, or `pack:key@XXYY`), the objects (named so too), the line an object says to a use
+/// it refuses, whether the objects stand only while the camp's creatures are dead, and how long a
+/// use takes an object from the world.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GuardedRow {
+    pub key: String,
+    pub camp: String,
+    pub objects: Vec<String>,
+    pub refused: Option<StrRef>,
+    pub hidden: bool,
+    pub gone_for: Option<f64>,
+    pub prov: Prov,
+}
+
 /// `[[tool]]`: what a gathering tool yields when it was not made (a made one's yield is its own).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tool {
@@ -1341,6 +1357,7 @@ impl Row {
             Self::Sequence(_) => "sequence",
             Self::Lever(_) => "lever",
             Self::Offering(_) => "offering",
+            Self::Guarded(_) => "guarded",
             Self::MapRecipes(_) => "map_recipes",
             Self::Spellbinding(_) => "spellbinding",
             Self::Refining(_) => "refining",
@@ -1408,6 +1425,7 @@ impl Row {
             Self::Sequence(r) => Some(&r.prov),
             Self::Lever(r) => Some(&r.prov),
             Self::Offering(r) => Some(&r.prov),
+            Self::Guarded(r) => Some(&r.prov),
             Self::MapRecipes(r) => Some(&r.prov),
             Self::Spellbinding(r) => Some(&r.prov),
             Self::Refining(r) => Some(&r.prov),
@@ -1426,7 +1444,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 61] = [
+pub const KINDS: [&str; 62] = [
     "object",
     "camp",
     "loot",
@@ -1476,6 +1494,7 @@ pub const KINDS: [&str; 61] = [
     "sequence",
     "lever",
     "offering",
+    "guarded",
     "map_recipes",
     "spellbinding",
     "refining",
@@ -1491,7 +1510,7 @@ pub const KINDS: [&str; 61] = [
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 61] = [
+pub const FIELDS: [(&str, &[&str]); 62] = [
     (
         "object",
         &[
@@ -1929,6 +1948,12 @@ pub const FIELDS: [(&str, &[&str]); 61] = [
     (
         "offering",
         &["key", "object", "takes", "opens", "lasts", "prov"],
+    ),
+    (
+        "guarded",
+        &[
+            "key", "camp", "objects", "refused", "hidden", "gone_for", "prov",
+        ],
     ),
     (
         "map_recipes",
@@ -3045,6 +3070,30 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 takes,
                 opens,
                 lasts,
+                prov: f.req_prov()?,
+            })
+        }
+        "guarded" => {
+            let key = f.req_symbol("key")?;
+            let camp = match f.get("camp") {
+                Some(_) => f.symbol("camp")?,
+                None => return f.missing("camp"),
+            };
+            let objects = f.req_references("objects")?;
+            let ok = !objects.is_empty();
+            let objects = f.held("objects", objects, ok, "at least one")?;
+            let refused = f.strref("refused");
+            let hidden = f.bool("hidden").unwrap_or(false);
+            let gone_for = f.float("gone_for");
+            let ok = gone_for.is_none_or(|t| t > 0.0);
+            let gone_for = f.held("gone_for", gone_for, ok, "above 0")?;
+            Row::Guarded(GuardedRow {
+                key,
+                camp,
+                objects,
+                refused,
+                hidden,
+                gone_for,
                 prov: f.req_prov()?,
             })
         }

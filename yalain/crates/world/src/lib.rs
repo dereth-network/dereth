@@ -105,6 +105,7 @@ pub mod follow;
 pub mod gives;
 pub mod graph;
 pub mod guard;
+pub mod guards;
 pub mod holding;
 pub mod inventory;
 pub mod item_use;
@@ -430,6 +431,8 @@ pub struct Server<S: Store> {
     pub offerings: offerings::Offerings,
     /// The lever pulls waiting on a row's other levers.
     pub levers: usable::levers::Levers,
+    /// The guarded objects' rows as the world keeps them.
+    pub guards: guards::Guards,
     pub crafting: craft::Crafting,
     /// The vitae cost table: the experience to raise vitae by one at full vitae, by level from 1.
     pub vitae_costs: Vec<u64>,
@@ -869,6 +872,7 @@ impl<S: Store> Server<S> {
             tallies: tallies::Tallies::default(),
             offerings: offerings::Offerings::default(),
             levers: usable::levers::Levers::default(),
+            guards: guards::Guards::default(),
             crafting: craft::Crafting::default(),
             vitae_costs: Vec::new(),
             last_step: None,
@@ -1202,6 +1206,7 @@ impl<S: Store> Server<S> {
             events::step(self, net, clock);
             offerings::step(self, net, clock);
             spawn::step(self, net, clock);
+            guards::step(self, net, clock);
         }
         self.saves.piece_begins();
         // A swing comes when it is due, not at the world's next step (2017: 1,880 of 2,881 sword

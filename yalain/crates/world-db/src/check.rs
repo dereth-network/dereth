@@ -620,6 +620,20 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                     check_placed(field, name, l, &objects, &mut |m| problems.push(at(m)));
                 }
             }
+            Row::Guarded(r) => {
+                for name in &r.objects {
+                    check_placed("objects", name, l, &objects, &mut |m| problems.push(at(m)));
+                }
+                let (pack, key) = split_ref(&r.camp, &l.pack);
+                if key.contains('@') || l.landblock.is_some() {
+                    let (key, lb) = placed(&key, l.landblock.unwrap_or(0));
+                    if !camps.contains(&(pack, key.clone(), lb)) {
+                        problems.push(at(format!("camp: no camp {key}@{lb:04X}")));
+                    }
+                } else {
+                    problems.push(at("camp: a camp is named key@XXYY".into()));
+                }
+            }
             Row::DeathTreasure(r) => {
                 if let Some(camp) = &r.camp {
                     let (pack, key) = split_ref(camp, &l.pack);

@@ -7113,6 +7113,69 @@ fn a_lever_row_names_its_levers_and_doors_by_placement_and_compiles_to_the_lever
     );
 }
 
+#[test]
+fn a_guarded_row_names_its_camp_and_objects_by_placement_and_compiles_to_the_guard_table() {
+    let mut files = with_lever(fixture());
+    files.insert(
+        "town/server/puzzles.toml".into(),
+        "[[guarded]]\nkey = \"rift\"\ncamp = \"beetles@77B7\"\nobjects = [\"lever@77B7\"]\n\
+         refused = { table = 0x250028EF, string = 0xC844788A }\nhidden = true\ngone_for = 30\n\
+         prov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let camp = t
+        .spawns
+        .camps
+        .iter()
+        .position(|c| c.id == "beetles")
+        .unwrap();
+    assert_eq!(
+        t.content.guards.rows,
+        vec![yalain_content::guards::Guarded {
+            key: "rift".into(),
+            camp,
+            objects: vec![placed_at(&t, 0x4077_B700_0000_0003)],
+            refused: Some((0xC844_788A, 0x2500_28EF)),
+            hidden: true,
+            gone_for: Some(30.0),
+        }]
+    );
+
+    for (from, to, says) in [
+        (
+            "camp = \"beetles@77B7\"",
+            "camp = \"wasps@77B7\"",
+            "camp: no camp wasps@77B7",
+        ),
+        (
+            "camp = \"beetles@77B7\"",
+            "camp = \"beetles\"",
+            "camp: a camp is named key@XXYY",
+        ),
+        (
+            "objects = [\"lever@77B7\"]",
+            "objects = [\"nowhere@77B7\"]",
+            "objects: no object nowhere@77B7",
+        ),
+        ("gone_for = 30", "gone_for = 0", "gone_for: above 0"),
+        (
+            "objects = [\"lever@77B7\"]",
+            "objects = []",
+            "objects: at least one",
+        ),
+    ] {
+        let mut bad = files.clone();
+        edit(&mut bad, "town/server/puzzles.toml", from, to);
+        assert!(
+            check(&bad).iter().any(|p| p.to_string().contains(says)),
+            "{to}: {:?}",
+            check(&bad)
+        );
+    }
+}
+
 fn offering_world() -> Files {
     let mut files = with_lever(fixture());
     files.insert(

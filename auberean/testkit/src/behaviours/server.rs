@@ -11565,6 +11565,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.an-object-works-only-while-its-guards-are-dead",
+        says: "A placed object a world's row ties to a camp is refused, once the player has come \
+               to it, while a creature of the camp lives: it says the row's line and no quest step \
+               runs; once every creature of the camp is dead its use runs as any other. A row may \
+               keep it from the world while one lives, and take it from the world for its time at \
+               each use carried out.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-GUARDED-OBJECTS"),
+        station: "yalain-testkit::cpu::play::guarded_objects::a_guarded_object_is_refused_while_its_camps_creature_lives_and_works_once_it_is_dead",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.arramora-recall",
         says: "Arramora's recall takes the player to its place as the cities' recalls do, protected the \
                same, with no word of where it came out.",

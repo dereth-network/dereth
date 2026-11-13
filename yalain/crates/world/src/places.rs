@@ -1720,6 +1720,26 @@ fn carry_out<S: Store>(
         let id = p.character;
         to_all_knowing(s, net, id, &stop);
     }
+    // An object a camp's living creature guards refuses the use; one carried out may take a
+    // guarded object from the world for a while.
+    if crate::guards::guarded(s, i) {
+        crate::guards::refused(s, net, world, &u, i);
+        return;
+    }
+    carried_out(s, net, world, u, i, o, clock);
+    crate::guards::used(s, net, i, clock);
+}
+
+/// What a use of a placed object does, the player in reach and the use allowed.
+fn carried_out<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    u: Use,
+    i: usize,
+    o: yalain_content::ContentObject,
+    clock: Clock,
+) {
     if crate::usable::levers::is_lever(s, u.item) {
         crate::usable::levers::at_lever(s, net, world, &u, clock);
         return;

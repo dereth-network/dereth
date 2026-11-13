@@ -264,6 +264,8 @@ pub enum Item {
     Lever { key: String },
     /// An object that takes a set of items and then opens the way, by the row's key.
     Offering { key: String },
+    /// Placed objects a camp's creatures guard, by the row's key.
+    Guarded { key: String },
     /// A region's surveyor's map recipes, by the region's key.
     MapRecipes { region: String },
     /// The totem spellbinding makes of a sort of item, by the sort's name.
@@ -416,6 +418,7 @@ impl Item {
             ["sequence", key] => Self::Sequence { key: symbol(key)? },
             ["lever", key] => Self::Lever { key: symbol(key)? },
             ["offering", key] => Self::Offering { key: symbol(key)? },
+            ["guarded", key] => Self::Guarded { key: symbol(key)? },
             ["map_recipes", region] => Self::MapRecipes {
                 region: symbol(region)?,
             },
@@ -525,6 +528,7 @@ impl fmt::Display for Item {
             Self::Sequence { key } => write!(f, "sequence {key}"),
             Self::Lever { key } => write!(f, "lever {key}"),
             Self::Offering { key } => write!(f, "offering {key}"),
+            Self::Guarded { key } => write!(f, "guarded {key}"),
             Self::MapRecipes { region } => write!(f, "map_recipes {region}"),
             Self::Spellbinding { sort } => write!(f, "spellbinding {sort}"),
             Self::Refining { recipe } => write!(f, "refining {recipe}"),

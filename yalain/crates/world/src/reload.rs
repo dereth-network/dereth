@@ -160,6 +160,7 @@ pub mod table {
     pub const TALLIES: &str = "tallies";
     pub const LEVERS: &str = "levers";
     pub const OFFERINGS: &str = "offerings";
+    pub const GUARDED: &str = "guarded objects";
     pub const ESCORTS: &str = "escorts";
     pub const KINGDOMS: &str = "kingdom rows";
     pub const POPUPS: &str = "tips";
@@ -282,6 +283,13 @@ impl<S: Store> Server<S> {
         if changed {
             self.content.offerings = std::mem::take(&mut t.content.offerings);
             self.offerings.keep_only(&self.content.offerings);
+        }
+        // The guarded objects: what was gone a while and what was found dead are found again.
+        let changed = t.content.guards != self.content.guards;
+        r.note(table::GUARDED, changed, true);
+        if changed {
+            self.content.guards = std::mem::take(&mut t.content.guards);
+            self.guards = crate::guards::Guards::default();
         }
         // The escorts: those following now keep following as their rows said when they were made.
         let changed = t.content.escorts != self.content.escorts;

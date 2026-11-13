@@ -56,13 +56,14 @@ pub fn camp_stands<S: Store>(s: &Server<S>, camp: usize) -> bool {
 }
 
 /// Is the placed object at this place in the world's list kept from the world now: it names an
-/// event that is off, an offering keeps it ([`crate::offerings::hides`]), or it is a chest gone once
-/// closed.
+/// event that is off, an offering keeps it ([`crate::offerings::hides`]), a guarded row keeps it
+/// ([`crate::guards::hides`]), or it is a chest gone once closed.
 #[must_use]
 pub fn hides<S: Store>(s: &Server<S>, object: usize) -> bool {
     let t = &s.content.events;
     (!t.is_empty() && t.of_object(object).is_some_and(|e| !is_on(s, e)))
         || crate::offerings::hides(s, object)
+        || crate::guards::hides(s, object)
         || (!s.chests.gone.is_empty()
             && s.chests
                 .gone
