@@ -24,6 +24,7 @@
 //! | [`marks`] | lines and dots a front end places in the world, drawn against its depth |
 //! | [`textures`], [`mip_worker`] | the dat texture lookup, and compressed mip chains built off thread |
 //! | [`render_prefs`] | the `Render.*` owners on the device and on the scene |
+//! | [`world_map`] | the world map's picture, drawn from the landblocks off the frame |
 //! | [`camera`] | camera comparisons against the renderer's view matrix |
 //! | `art_pack` | art packs' models and which look draws an object, behind the `art-pack` feature (which `remaster` turns on) |
 
@@ -55,4 +56,5 @@ pub mod textures;
 /// The drawn world. The simulation and the residency window are `dereth-client-runtime`'s; this
 /// is the presentation half, and the type it exists for is `WorldScene`.
 pub mod workers;
+pub mod world_map;
 pub mod world_scene;

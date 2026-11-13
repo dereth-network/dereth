@@ -42,6 +42,7 @@ files!(
     "font-3.png",
     "font-4.png",
     "font-5.png",
+    "map-places.json",
 );
 
 /// The interface's art as a host hands it over: each of [`FILES`] by its name.

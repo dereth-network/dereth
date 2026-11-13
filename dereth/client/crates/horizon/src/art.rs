@@ -60,6 +60,8 @@ fn ac_source(art: &Art) -> Option<Arc<dyn ArtSource>> {
 pub trait AcArt {
     /// Hand the art the Asheron's Call data, for the game's own icons.
     fn set_ac_store(&self, store: Arc<dereth_dat::RetailDatStore>);
+    /// The Asheron's Call data the art was handed, if any.
+    fn ac_data(&self) -> Option<Arc<dereth_dat::RetailDatStore>>;
     /// The Asheron's Call picture `did` (a spell, item or effect icon), decoded.
     fn ac_icon(&self, did: u32) -> Option<Sprite>;
     /// An item's picture as the game's item lists compose it: the item type's tile, the item's
@@ -88,6 +90,10 @@ impl AcArt for Art {
             store,
             composites: Mutex::new(HashMap::new()),
         }));
+    }
+
+    fn ac_data(&self) -> Option<Arc<dereth_dat::RetailDatStore>> {
+        ac_store(self)
     }
 
     fn ac_icon(&self, did: u32) -> Option<Sprite> {
