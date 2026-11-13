@@ -1987,15 +1987,35 @@ pub struct Harness<S: Store = MemoryStore> {
 }
 
 impl Harness<MemoryStore> {
-    /// A server with an in-memory store, the default settings and the test bodies.
+    /// A server with an in-memory store, the default settings and the test bodies. Its dice are
+    /// the default seed's, or `YALAIN_TEST_SEED`'s when that is set (hex with `0x`, or decimal;
+    /// `_` allowed), so a run under another seed shows a test that passes only on a lucky draw.
+    ///
+    /// # Panics
+    ///
+    /// When `YALAIN_TEST_SEED` is set to something that is not a number.
     #[must_use]
     pub fn new() -> Self {
-        Self::with(
-            ServerConfig::default(),
-            MemoryStore::default(),
-            test_rules(),
-        )
+        let mut cfg = ServerConfig::default();
+        if let Some(seed) = test_seed() {
+            cfg.seed = seed;
+        }
+        Self::with(cfg, MemoryStore::default(), test_rules())
     }
+}
+
+/// The seed `YALAIN_TEST_SEED` names, if it is set.
+fn test_seed() -> Option<u64> {
+    let raw = std::env::var("YALAIN_TEST_SEED").ok()?;
+    let digits = raw.trim().replace('_', "");
+    let seed = match digits
+        .strip_prefix("0x")
+        .or_else(|| digits.strip_prefix("0X"))
+    {
+        Some(hex) => u64::from_str_radix(hex, 16),
+        None => digits.parse(),
+    };
+    Some(seed.unwrap_or_else(|_| panic!("YALAIN_TEST_SEED is not a number: {raw:?}")))
 }
 
 impl Default for Harness<MemoryStore> {
