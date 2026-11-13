@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Fixed fellows sometimes landing in the same room as a fellow sent along with them.
 - Worlds can now have an order of uses a whole fellowship works through together.
 - Worlds can now give a portal they make a name of its own.
 - Worlds can now have an object that turns up somewhere else each time it's used.

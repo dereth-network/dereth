@@ -1240,6 +1240,61 @@ fn a_fellowship_taken_along_to_a_row_of_rooms_is_sent_to_free_rooms() {
     }
 }
 
+/// A fellowship taken along to a row of rooms in one moment is split over the row: a fellow is
+/// never sent to the room the killer is already on its way to.
+/// Behaviour: server.quests.a-step-takes-the-fellowship-along
+#[test]
+fn a_fellowship_taken_along_to_a_row_of_rooms_never_shares_a_room() {
+    use yalain_content::quests::{Place, Room};
+    let mut q = quest(3);
+    q.effects = Vec::new();
+    let (mut h, a, me) = world(q);
+    let (b, you) = fellows(&mut h, (a, me), 2.0);
+    h.bots[b].send(
+        true,
+        auberean_protocol::queue::WEENIE,
+        &auberean_protocol::ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    let template = kill(&mut h, me, &[]);
+    let room = |i: u32| Room {
+        place: Place {
+            cell: 0x049E_0138 + i,
+            #[allow(clippy::cast_precision_loss)]
+            origin: [-120.4 + 60.0 * i as f32, -84.7, 3.06],
+            heading: 127,
+        },
+        holds: 0x049E_0160 + i,
+    };
+    h.server.quests.rooms = vec![vec![room(0), room(1), room(2)]];
+    h.server.quests.steps = vec![Step {
+        to_fellows: true,
+        update: Update::Advance(1),
+        ..leading_step(template, 1, room(1).place)
+    }];
+    holds(&mut h, me, status::UNDERWAY, 1);
+    h.run(2);
+    for _ in 0..20 {
+        kill(&mut h, me, &[]);
+        let mut sent = Vec::new();
+        for who in [me, you] {
+            let p = h
+                .server
+                .players
+                .values_mut()
+                .find(|p| p.character == who)
+                .expect("in the world");
+            sent.push(p.trip.take().expect("sent").to.cell);
+            // Back as though it had landed and drawn its scene.
+            p.scene_drawn = true;
+        }
+        assert_ne!(
+            sent[0], sent[1],
+            "the killer and its fellow each to a room of its own"
+        );
+        holds(&mut h, me, status::UNDERWAY, 1);
+    }
+}
+
 /// Another kill of the kind while the first's trip is under way moves nothing: the quest moves one
 /// phase, on landing, even where the creature's own effects name it.
 /// Behaviour: server.quests.a-kills-update-comes-on-landing

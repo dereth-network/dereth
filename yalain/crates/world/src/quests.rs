@@ -962,11 +962,14 @@ pub(crate) fn room_for<S: Store>(
     let taken: Vec<bool> = {
         let mut taken = vec![false; row.len()];
         for p in s.players.values() {
+            // A player on its way to a room has taken it already: a fellowship sent along in one
+            // moment is split over the row, each landing somewhere its fellows aren't headed.
+            let there = p.trip.as_ref().map_or(&p.position, |trip| &trip.to);
             let nearest = row
                 .iter()
                 .enumerate()
                 .filter_map(|(i, r)| {
-                    crate::presence::distance(&at(r.place), &p.position)
+                    crate::presence::distance(&at(r.place), there)
                         .filter(|d| *d <= ROOM_REACH)
                         .map(|d| (i, d))
                 })
