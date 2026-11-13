@@ -47,7 +47,8 @@
 //! <pack>/server/items.toml       [[item_use]], [[book]], [[start_item]], [[interaction]]
 //! <pack>/server/puzzles.toml     [[object_states]], [[sequence]], [[lever]], [[offering]],
 //!                                [[guarded]]
-//! <pack>/server/creatures.toml   [[concealing]], [[npc_table]], [[friend_table]], [[creature]]
+//! <pack>/server/creatures.toml   [[concealing]], [[npc_table]], [[friend_table]], [[creature]],
+//!                                [[defense]]
 //! <pack>/server/routes.toml       [[route]]
 //! <pack>/server/areas.toml        [[area]]
 //! ```

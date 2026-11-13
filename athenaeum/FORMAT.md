@@ -55,7 +55,7 @@ world.lock                         ids given to authored rows, kept across build
 <pack>/server/treasure_families.toml [[treasure_family]]
 <pack>/server/items.toml           [[item_use]], [[book]], [[start_item]], [[interaction]]
 <pack>/server/puzzles.toml         [[object_states]], [[sequence]], [[lever]], [[offering]], [[guarded]]
-<pack>/server/creatures.toml       [[concealing]], [[npc_table]], [[friend_table]], [[creature]]
+<pack>/server/creatures.toml       [[concealing]], [[npc_table]], [[friend_table]], [[creature]], [[defense]]
 ```
 
 `[[object]]`, `[[camp]]` and `[[clearing]]` rows must be written in their landblock's file. Every
@@ -143,6 +143,7 @@ Every row sets one **item**, named by its key:
 | `treasure_pool NAME` | the pool's name |
 | `pet 0xEFFECT` | the pet effect (or the contract's template) |
 | `pet_limit 0xSKILL` | the summoning skill |
+| `defense 0xTEMPLATE` | the device's template |
 | `treasure_rules` | the world's one row |
 | `treasure_sort SORT` | the sort: `weapon`, `armor`, `shield` or `jewelry` |
 | `treasure_word SORT 0xWORD` | the sort and the word's string |
@@ -982,6 +983,35 @@ row gives at least one of these.
 
 A world with no rows of `[[concealing]]`, `[[npc_table]]`, `[[friend_table]]` or `[[creature]]`
 has the server's own of that kind.
+
+#### `[[defense]]`
+
+A device creatures come to attack while it stands, and what it leaves once it has stood long
+enough: a portal transit or a portal bore an item's use sets down. A creature of the device's
+template, however it comes into the world (a `[[death_spawn]]` an item's use names, a camp), fights
+no one, and keeps the row's attackers about it as a camp keeps its creatures: its `population` at
+once, each one killed replaced `regen` seconds after its death. Each appears `radius` meters from
+the device, in a direction picked at random, and goes at it, turning from it only to a player that
+hurts it. Once the device has stood `holds` seconds it goes, with no fall and no corpse, and `then`
+stands where it stood: a portal leading where its template names, anyone's to use as a placed one
+is; a creature; or another object, no one's. A device killed first leaves nothing. What it made stays
+until killed. Nothing of this is kept across a restart. Players are kept from harming a device by
+its template's `[[creature]]` row (`players_kept_out`), not by this one.
+
+| field | | meaning |
+|---|---|---|
+| `device` | required | the device's template, a creature's; one row each |
+| `holds` | required | seconds it must stand, above 0 |
+| `spawns` | required | what attacks it: `{ template, weight }`, at least one, each a creature's template |
+| `population` | required | how many it keeps alive at once, at least 1 |
+| `regen` | | seconds from an attacker's death to its replacement, above 0; the device's template's generator period (`GeneratorRegenPeriod`) when left out, else 30 |
+| `radius` | | how far from the device each appears, in meters; 10 when left out |
+| `then` | | the template that stands in its place once it has held |
+| `then_lasts` | | with `then`: seconds it stands, above 0; left out, a portal until the server stops, a creature until killed, an object until a tally clears it |
+| `says` | | what the device says aloud of itself as it stands, heard by everyone who sees it: `{ at, line }`, `line` a string reference said `at` seconds after it came (0: as it comes; at most `holds`), in order of their times |
+| `hurt_line` | | what it says aloud once, as its health first falls below half, a string reference |
+| `held_line` | | what it says aloud as it holds, before it goes, a string reference |
+| `prov` | required | where it came from |
 
 ### Effects, events and items
 

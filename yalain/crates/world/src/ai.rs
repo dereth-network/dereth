@@ -548,6 +548,11 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                 if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
                     c.next_look = now + LOOK_EVERY;
                 }
+                // One a defended device made goes at its device before anything else.
+                if let Some(device) = crate::defenses::device_of(s, id, &at, perception) {
+                    engage(s, net, id, device, clock);
+                    return;
+                }
                 let player = notice(s, &at, perception, class_of(s, id), attacks_first);
                 let foe = foe_near(s, id, &at, perception);
                 let player_gap = player.and_then(|p| {
@@ -1153,6 +1158,18 @@ fn call_kin<S: Store>(s: &mut Server<S>, id: u64, player: u64, now: f64) {
 
 /// A creature takes on a player: its combat mode, how it fights, when it first attacks. One that
 /// takes on only the players it hates takes on no other, nor a pet.
+/// A creature at rest takes on a creature as it would a foe its friend table fights: one a defended
+/// device makes, going at the device.
+pub fn take_on<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    id: u64,
+    target: u64,
+    clock: Clock,
+) {
+    engage(s, net, id, target, clock);
+}
+
 fn engage<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, player: u64, clock: Clock) {
     if only_hated(s, id)
         && !s

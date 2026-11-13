@@ -28,6 +28,7 @@ use auberean_assets::script::Qualities;
 
 pub mod crafts;
 pub mod creature_rows;
+pub mod defenses;
 pub mod effect_rules;
 pub mod escorts;
 pub mod events;
@@ -762,6 +763,9 @@ pub struct ContentPack {
     /// The objects usable only while every creature of a camp is dead. Not part of the text form:
     /// the world database's guarded rows fill it.
     pub guards: guards::GuardTable,
+    /// The devices creatures come to attack. Not part of the text form: the world database's
+    /// defense rows fill it.
+    pub defenses: defenses::DefenseTable,
 }
 
 /// The kind of player conflict a place allows.
@@ -1140,6 +1144,7 @@ impl ContentPack {
             levers: levers::LeverTable::default(),
             offerings: offerings::OfferingTable::default(),
             guards: guards::GuardTable::default(),
+            defenses: defenses::DefenseTable::default(),
         })
     }
 

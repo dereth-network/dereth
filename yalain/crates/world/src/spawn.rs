@@ -375,6 +375,7 @@ pub fn make<S: Store>(
     });
     s.things.insert(t);
     crate::arms::arm(s, id);
+    crate::defenses::made(s, id, template.id, now);
     id
 }
 

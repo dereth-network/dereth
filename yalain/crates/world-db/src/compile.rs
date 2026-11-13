@@ -1584,6 +1584,19 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     }
                 }
             }
+            Row::Defense(r) => {
+                let d = &r.defense;
+                let mut ok = cx.template(l, "device", d.device);
+                for (s, _) in &d.spawns {
+                    ok &= cx.template(l, "spawns", *s);
+                }
+                if let Some(then) = d.then {
+                    ok &= cx.template(l, "then", then);
+                }
+                if ok {
+                    t.content.defenses.rows.push(d.clone());
+                }
+            }
             Row::EffectRule(r) => {
                 if let Some(p) = r.places {
                     if cx.template(l, "places", p.template) {

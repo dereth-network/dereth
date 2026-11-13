@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Worlds can now have a device you must defend from attackers until it opens the way.
 - Worlds can now have an object that works only while a creature lies dead.
 - Worlds can now have a person who finishes your untraining for a price.
 - Worlds can now have a chest turn up again now and then in the same area.

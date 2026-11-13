@@ -2853,6 +2853,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.creatures.a-defended-device-holds-against-its-attackers",
+        says: "A creature of a device a world's row names fights no one and keeps the row's \
+               attackers about it, made at the row's distance and going at it, each killed one \
+               replaced after the row's time; once it has stood its time it goes and what the row \
+               names stands where it stood; killed first, it leaves nothing and no more come.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DEFENDED-DEVICES"),
+        station: "yalain-testkit::cpu::play::defended_devices::a_device_stands_its_time_against_its_attackers_and_leaves_what_its_row_names",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.a-detaunt-takes-from-the-draw",
         says: "A detaunt on a creature takes its share of the creature's whole health, at the low end \
                of its script's range, from its caster's weight at the draw for twenty seconds, down to \

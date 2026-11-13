@@ -7176,6 +7176,84 @@ fn a_guarded_row_names_its_camp_and_objects_by_placement_and_compiles_to_the_gua
     }
 }
 
+#[test]
+fn a_defense_row_names_its_device_attackers_and_what_it_leaves_and_bad_ones_are_problems() {
+    use yalain_content::defenses::Defense;
+    let mut files = fixture();
+    files.insert(
+        "town/server/creatures.toml".into(),
+        "[[defense]]\ndevice = 0x4700115B\nholds = 180\nspawns = [{ template = 0x47002224, weight = 1 }]\n\
+         population = 3\nradius = 12\nthen = 0x470020B9\nthen_lasts = 120\n\
+         says = [{ at = 0, line = { table = 0x250026BE, string = 0x8B69133E } }, { at = 90, line = { table = 0x250026BE, string = 0xBB6BB931 } }]\n\
+         hurt_line = { table = 0x250026BE, string = 0x2FA8FC8E }\nheld_line = { table = 0x250026BE, string = 0xFF1D266D }\n\
+         prov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.content.defenses.rows,
+        vec![Defense {
+            device: 0x4700_115B,
+            holds: 180.0,
+            spawns: vec![(0x4700_2224, 1)],
+            population: 3,
+            regen: None,
+            radius: 12.0,
+            then: Some(0x4700_20B9),
+            then_lasts: Some(120),
+            says: vec![
+                (0.0, (0x8B69_133E, 0x2500_26BE)),
+                (90.0, (0xBB6B_B931, 0x2500_26BE))
+            ],
+            hurt_line: Some((0x2FA8_FC8E, 0x2500_26BE)),
+            held_line: Some((0xFF1D_266D, 0x2500_26BE)),
+        }]
+    );
+    assert!(merge(&read(&files).unwrap())
+        .unwrap()
+        .rows
+        .iter()
+        .filter_map(yalain_world_db::merge::item)
+        .any(|i| i.to_string() == "defense 0x4700115b"));
+
+    for (from, to) in [
+        ("holds = 180", "holds = 0"),
+        ("population = 3", "population = 0"),
+        (
+            "spawns = [{ template = 0x47002224, weight = 1 }]",
+            "spawns = []",
+        ),
+        (
+            "spawns = [{ template = 0x47002224, weight = 1 }]",
+            "spawns = [{ template = 0x47002224, weight = 0 }]",
+        ),
+        ("then = 0x470020B9\n", ""),
+        ("then_lasts = 120", "then_lasts = 0"),
+        ("at = 90", "at = 200"),
+        ("at = 0,", "at = 100,"),
+        ("at = 0,", "at = -1,"),
+    ] {
+        let mut bad = files.clone();
+        edit(&mut bad, "town/server/creatures.toml", from, to);
+        assert!(read(&bad).is_err(), "{to}");
+    }
+    let mut bad = files;
+    edit(
+        &mut bad,
+        "town/server/creatures.toml",
+        "device = 0x4700115B",
+        "device = 0x47009999",
+    );
+    let problems = compile(&merge(&read(&bad).unwrap()).unwrap(), &Fake::new()).unwrap_err();
+    assert!(
+        problems.iter().any(|p| p
+            .to_string()
+            .contains("device: template 47009999 is not in the install")),
+        "{problems:?}"
+    );
+}
+
 fn offering_world() -> Files {
     let mut files = with_lever(fixture());
     files.insert(

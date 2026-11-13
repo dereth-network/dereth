@@ -169,6 +169,9 @@ pub fn item(l: &Located) -> Option<Item> {
         Row::Creature(r) => Item::Creature {
             template: r.template,
         },
+        Row::Defense(r) => Item::Defense {
+            device: r.defense.device,
+        },
         Row::Remove(_) => return None,
     })
 }
@@ -247,6 +250,7 @@ fn value(row: &Row) -> String {
         Row::NpcTable(x) => x.prov = crate::rows::Prov::default(),
         Row::FriendTable(x) => x.prov = crate::rows::Prov::default(),
         Row::Creature(x) => x.prov = crate::rows::Prov::default(),
+        Row::Defense(x) => x.prov = crate::rows::Prov::default(),
         Row::Remove(_) => {}
     }
     format!("{r:?}")

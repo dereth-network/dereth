@@ -723,6 +723,7 @@ pub enum Row {
     NpcTable(NpcTable),
     FriendTable(FriendTable),
     Creature(Creature),
+    Defense(DefenseRow),
     Plant(Plant),
     PlantCross(PlantCross),
     Worn(WornRow),
@@ -1227,6 +1228,14 @@ pub struct OfferingRow {
     pub prov: Prov,
 }
 
+/// `[[defense]]`: a device creatures come to attack while it stands, and what it leaves once it has
+/// stood long enough.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DefenseRow {
+    pub defense: yalain_content::defenses::Defense,
+    pub prov: Prov,
+}
+
 /// `[[guarded]]`: placed objects usable only while every creature of a camp is dead: the camp
 /// (`key@XXYY`, or `pack:key@XXYY`), the objects (named so too), the line an object says to a use
 /// it refuses, whether the objects stand only while the camp's creatures are dead, and how long a
@@ -1367,6 +1376,7 @@ impl Row {
             Self::NpcTable(_) => "npc_table",
             Self::FriendTable(_) => "friend_table",
             Self::Creature(_) => "creature",
+            Self::Defense(_) => "defense",
             Self::Plant(_) => "plant",
             Self::PlantCross(_) => "plant_cross",
             Self::Worn(_) => "worn",
@@ -1435,6 +1445,7 @@ impl Row {
             Self::NpcTable(r) => Some(&r.prov),
             Self::FriendTable(r) => Some(&r.prov),
             Self::Creature(r) => Some(&r.prov),
+            Self::Defense(r) => Some(&r.prov),
             Self::Plant(r) => Some(&r.prov),
             Self::PlantCross(r) => Some(&r.prov),
             Self::Worn(r) => Some(&r.prov),
@@ -1444,7 +1455,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 62] = [
+pub const KINDS: [&str; 63] = [
     "object",
     "camp",
     "loot",
@@ -1504,13 +1515,14 @@ pub const KINDS: [&str; 62] = [
     "npc_table",
     "friend_table",
     "creature",
+    "defense",
     "plant",
     "plant_cross",
     "worn",
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 62] = [
+pub const FIELDS: [(&str, &[&str]); 63] = [
     (
         "object",
         &[
@@ -2000,6 +2012,23 @@ pub const FIELDS: [(&str, &[&str]); 62] = [
             "only_hated",
             "players_kept_out",
             "kept_out_line",
+            "prov",
+        ],
+    ),
+    (
+        "defense",
+        &[
+            "device",
+            "holds",
+            "spawns",
+            "population",
+            "regen",
+            "radius",
+            "then",
+            "then_lasts",
+            "says",
+            "hurt_line",
+            "held_line",
             "prov",
         ],
     ),
@@ -3599,6 +3628,57 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 only_hated,
                 players_kept_out,
                 kept_out_line,
+                prov: f.req_prov()?,
+            })
+        }
+        "defense" => {
+            let device = f.req_id("device")?;
+            let holds = match f.float("holds") {
+                Some(t) => t,
+                None => return f.missing("holds"),
+            };
+            let holds = f.held("holds", holds, holds > 0.0, "above 0")?;
+            let spawns = f.weighted("spawns");
+            let ok = !spawns.is_empty() && spawns.iter().all(|(_, w)| *w > 0);
+            let spawns = f.held("spawns", spawns, ok, "at least one, each weight above 0")?;
+            let population = f.req_u32("population")?;
+            let population = f.held("population", population, population > 0, "at least 1")?;
+            let regen = f.float("regen");
+            let ok = regen.is_none_or(|t| t > 0.0);
+            let regen = f.held("regen", regen, ok, "above 0")?;
+            let radius = f.float("radius").unwrap_or(10.0);
+            let radius = f.held("radius", radius, radius >= 0.0, "0 or above")?;
+            let then = f.id("then");
+            let then_lasts = f.u32("then_lasts");
+            if then_lasts.is_some() && then.is_none() {
+                f.bad(
+                    "then_lasts",
+                    "a time is of what stands in the device's place",
+                );
+                return None;
+            }
+            let ok = then_lasts.is_none_or(|t| t > 0);
+            let then_lasts = f.held("then_lasts", then_lasts, ok, "above 0")?;
+            let says = f.timed_lines("says")?;
+            let ok = says.iter().all(|(at, _)| *at <= holds);
+            let says = f.held("says", says, ok, "each at or before holds")?;
+            let line = |l: Option<StrRef>| l.map(|l| (l.string, l.table));
+            let hurt_line = line(f.strref("hurt_line"));
+            let held_line = line(f.strref("held_line"));
+            Row::Defense(DefenseRow {
+                defense: yalain_content::defenses::Defense {
+                    device,
+                    holds,
+                    spawns,
+                    population,
+                    regen,
+                    radius: to_f32(radius),
+                    then,
+                    then_lasts,
+                    says,
+                    hurt_line,
+                    held_line,
+                },
                 prov: f.req_prov()?,
             })
         }
@@ -5712,6 +5792,39 @@ impl<'a> Fields<'a> {
                 "transforms",
                 "{ seconds, fx, behavior, text, name }: its seconds from 0, the appearances and the behavior played meanwhile, the text the hero is told ({ table, string }) and the variable its name fills, which needs the text",
             );
+        }
+        read
+    }
+
+    /// A list of lines said at times: `{ at, line }`, `at` seconds (0 or above), `line` a string
+    /// reference `{ table, string }`, in order of their times; none when left out. `None` when one
+    /// is wrong.
+    fn timed_lines(&mut self, name: &str) -> Option<Vec<(f64, (u32, u32))>> {
+        let Some(v) = self.get(name) else {
+            return Some(Vec::new());
+        };
+        let read = v.as_array().and_then(|a| {
+            a.iter()
+                .map(|e| {
+                    let t = e.as_table().filter(|t| t.len() == 2)?;
+                    let at = t
+                        .get("at")
+                        .and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64)))?;
+                    let l = t.get("line")?.as_table().filter(|l| l.len() == 2)?;
+                    let line = (as_u32(l.get("string")?)?, as_u32(l.get("table")?)?);
+                    (at >= 0.0).then_some((at, line))
+                })
+                .collect::<Option<Vec<_>>>()
+        });
+        let ordered = read
+            .as_ref()
+            .is_some_and(|l| l.windows(2).all(|w| w[0].0 <= w[1].0));
+        if !ordered {
+            self.bad(
+                name,
+                "{ at, line }: seconds (0 or above) and a string reference { table, string }, in order of their times",
+            );
+            return None;
         }
         read
     }

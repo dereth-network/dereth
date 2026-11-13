@@ -91,6 +91,7 @@ pub mod craft;
 pub mod creature_rows;
 pub mod death;
 pub mod death_spawn;
+pub mod defenses;
 pub mod download;
 pub mod drops;
 pub mod effect_defs;
@@ -433,6 +434,8 @@ pub struct Server<S: Store> {
     pub levers: usable::levers::Levers,
     /// The guarded objects' rows as the world keeps them.
     pub guards: guards::Guards,
+    /// The defended devices standing, and what each keeps about it.
+    pub defenses: defenses::Defenses,
     pub crafting: craft::Crafting,
     /// The vitae cost table: the experience to raise vitae by one at full vitae, by level from 1.
     pub vitae_costs: Vec<u64>,
@@ -873,6 +876,7 @@ impl<S: Store> Server<S> {
             offerings: offerings::Offerings::default(),
             levers: usable::levers::Levers::default(),
             guards: guards::Guards::default(),
+            defenses: defenses::Defenses::default(),
             crafting: craft::Crafting::default(),
             vitae_costs: Vec::new(),
             last_step: None,
@@ -1207,6 +1211,7 @@ impl<S: Store> Server<S> {
             offerings::step(self, net, clock);
             spawn::step(self, net, clock);
             guards::step(self, net, clock);
+            defenses::step(self, net, clock);
         }
         self.saves.piece_begins();
         // A swing comes when it is due, not at the world's next step (2017: 1,880 of 2,881 sword

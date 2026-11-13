@@ -161,6 +161,7 @@ pub mod table {
     pub const LEVERS: &str = "levers";
     pub const OFFERINGS: &str = "offerings";
     pub const GUARDED: &str = "guarded objects";
+    pub const DEFENSES: &str = "defended devices";
     pub const ESCORTS: &str = "escorts";
     pub const KINGDOMS: &str = "kingdom rows";
     pub const POPUPS: &str = "tips";
@@ -290,6 +291,24 @@ impl<S: Store> Server<S> {
         if changed {
             self.content.guards = std::mem::take(&mut t.content.guards);
             self.guards = crate::guards::Guards::default();
+        }
+        // The defended devices: those standing go on as their rows now say, by their place.
+        let changed = t.content.defenses != self.content.defenses;
+        r.note(table::DEFENSES, changed, true);
+        if changed {
+            self.content.defenses = std::mem::take(&mut t.content.defenses);
+            let rows = &self.content.defenses;
+            let things = &self.things;
+            self.defenses.running.retain(|id, run| {
+                let template = things.get(*id).map_or(0, |t| t.template);
+                match rows.of_device(template) {
+                    Some(row) => {
+                        run.row = row;
+                        true
+                    }
+                    None => false,
+                }
+            });
         }
         // The escorts: those following now keep following as their rows said when they were made.
         let changed = t.content.escorts != self.content.escorts;

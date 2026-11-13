@@ -226,7 +226,7 @@ pub fn say<S: Store>(
                 .map(|p| crate::player::world_name(&p.name, p.sex));
             broadcast(s, net, speaker, words, named.as_deref(), count);
         }
-        How::Say => aloud(s, net, world, speaker, words, None, count),
+        How::Say => aloud(s, net, Some(world), speaker, words, None, count),
     }
 }
 
@@ -247,22 +247,37 @@ pub fn say_of<S: Store>(
         return;
     };
     let (words, count) = crate::tallies::said(s, words);
-    aloud(s, net, world, speaker, &words, Some(&named), count.as_ref());
+    aloud(
+        s,
+        net,
+        Some(world),
+        speaker,
+        &words,
+        Some(&named),
+        count.as_ref(),
+    );
 }
 
-/// A saying heard by every client that knows the speaker, and the player of `world`'s: naming
-/// `named`, else each hearer itself.
+/// A speaker says a line of itself aloud, no player's act behind it: every client that knows the
+/// speaker reads it.
+pub fn said_aloud<S: Store>(s: &Server<S>, net: &mut ServerNet, speaker: &Speaker, words: &Words) {
+    let (words, count) = crate::tallies::said(s, words);
+    aloud(s, net, None, speaker, &words, None, count.as_ref());
+}
+
+/// A saying heard by every client that knows the speaker, and the player of `world`'s (if any):
+/// naming `named`, else each hearer itself.
 fn aloud<S: Store>(
     s: &Server<S>,
     net: &mut ServerNet,
-    world: ConnId,
+    world: Option<ConnId>,
     speaker: &Speaker,
     words: &Words,
     named: Option<&str>,
     count: Option<&Variable>,
 ) {
     for (conn, p) in &s.players {
-        if *conn != world && !p.known.contains_key(&speaker.id) {
+        if Some(*conn) != world && !p.known.contains_key(&speaker.id) {
             continue;
         }
         let text = match named {
