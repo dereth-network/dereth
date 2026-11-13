@@ -876,22 +876,26 @@ own.
 #### `[[death_spawn]]`
 
 What a creature's death effect makes around its killer, or an item's use effect around its user,
-where the install names it by a name it doesn't resolve: creatures, or a portal.
+where the install names it by a name it doesn't resolve: creatures, or a portal. Or what the death
+of any creature of a template makes, where it names no death effect for it: at a place of the
+world, or where the creature died.
 
 | field | | meaning |
 |---|---|---|
-| `effect` | required | the effect, as templates name it |
+| `effect`, `creature` | one of them | the effect, as templates name it; or the template of the creatures whose death makes it, wherever their killer stands |
 | `template` | required | what it makes: a creature, or a portal whose template names a destination |
 | `count` | | how many it tries to make; 1 when left out |
 | `chance` | | that each is made; 1 when left out |
-| `offset` | required | where each stands, in meters from the killer or user as it faces, `[x, y, z]` |
+| `offset` | `effect` required | where each stands, in meters from the killer or user as it faces, `[x, y, z]`; for a `creature` row, from where the creature died, as it faced, `[0, 0, 0]` when left out |
+| `at` | | a `creature` row's, in place of `offset`: the `[[place]]` (`key`, or `pack:key`) each stands at, facing as it does; one of the row's stands there at a time, and a death while it stands makes none |
+| `to` | | a portal's: the `[[place]]` it leads to, in place of where its template's destination names |
 | `lasts` | | how long each stands, in seconds; left out, a creature until killed, a portal until the server stops |
 | `kingdom` | | a portal's: the kingdom a player must be of to use it, 1 (Shadow), 2 (Order) or 4 (Dominion) |
 | `prov` | required | where it came from |
 
-A portal leads where its template's destination names: the `[[place]]` whose `named_by` holds the
-template, else the one whose `destination` is the template's destination's name. With neither, the
-row makes nothing and the item whose use names it is kept. Anyone may use the portal while it
+A portal leads to its `to`, else where its template's destination names: the `[[place]]` whose
+`named_by` holds the template, else the one whose `destination` is the template's destination's
+name. With none of them, the row makes nothing and the item whose use names it is kept. Anyone may use the portal while it
 stands, as a placed portal of its template: its least level, its heroes-only flag, the quest it
 needs and its use effects are the template's, and its portal flags say whether its user may recall
 to where it leads.

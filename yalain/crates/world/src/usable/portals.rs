@@ -154,19 +154,23 @@ pub fn is_portal(props: &yalain_content::Props) -> bool {
     props.text("PortalDestination").is_some()
 }
 
-/// A portal of a template a world's row makes stands at `at`, leading where its template names,
-/// for `kingdom` alone when the row names one, and for `lasts` seconds (until the server stops when
-/// it gives none). Returns its id; none is made where the world holds no place it leads to.
+/// A portal of a template a world's row makes stands at `at`, leading to the row's place, else
+/// where its template names, for `kingdom` alone when the row names one, and for `lasts` seconds
+/// (until the server stops when it gives none). Returns its id; none is made where the world holds
+/// no place it leads to.
 pub fn made<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
-    template: u32,
+    (template, to): (u32, Option<StoredPosition>),
     at: StoredPosition,
     (kingdom, lasts): (Option<u32>, Option<f32>),
     clock: Clock,
 ) -> Option<u64> {
     use yalain_content::portal::{RECALL, SUMMON};
-    let to = leads_to(s, template)?;
+    let to = match to {
+        Some(to) => to,
+        None => leads_to(s, template)?,
+    };
     let of = s.catalog.get(template).cloned()?;
     let id = s.things.new_id();
     let mut t = Thing::of(id, &of, Kind::Portal);

@@ -2884,6 +2884,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.a-kill-opens-a-portal-for-a-while",
+        says: "A world's `[[death_spawn]]` row of a creature's own, for a template whose death names no \
+               effect for it, makes what it names at each death of one, wherever the killer stands: at the \
+               row's place, one standing at a time (a death while it stands makes none), else at its offset \
+               from where the creature died; a portal leads to the row's own place where it names one, and \
+               stands for the row's time.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KILL-OPENS-PORTAL"),
+        station: "yalain-testkit::cpu::play::death_spawns::a_creatures_death_stands_its_rows_portal_at_its_place_for_its_time_one_at_a_time",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.a-skills-harm-counts-by-its-points",
         says: "A skill's taunt bonus and damage-notice figure count its harm for that many percent \
                more at a creature's draw. This server's own stand-in: nothing recorded says what \
@@ -3132,7 +3144,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.creatures.death-spawn-near-the-death",
-        says: "What a creature's death makes appears only where its killer stands near the death; a \
+        says: "What a creature's death effect makes appears only where its killer stands near the death; a \
                killer far from it, or in another block's cells, makes nothing.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-SPAWN-NEAR-DEATH"),

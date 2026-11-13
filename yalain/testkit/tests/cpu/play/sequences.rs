@@ -823,6 +823,8 @@ fn gem_used(s: &mut Script, b: usize, me: u64, w: ConnId) -> String {
             offset: [0.0, 2.0],
             lasts: Some(3.0),
             kingdom: None,
+            at: None,
+            to: None,
         },
     );
     let Some(item) = inventory::give(&mut s.h.server, &mut s.h.net, w, MAKES_A_CREATURE, 1) else {

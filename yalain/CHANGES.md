@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Worlds can now have a creature's death open a portal for a while.
 - Worlds can now have plants grown in a garden with care items of their own.
 - Worlds can now have a device you must defend from attackers until it opens the way.
 - Worlds can now have an object that works only while a creature lies dead.

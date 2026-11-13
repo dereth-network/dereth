@@ -150,6 +150,8 @@ fn a_death_spawn_stands_at_its_offset_from_the_killer_as_the_killer_faces() {
             offset: [0.0, -3.0],
             lasts: None,
             kingdom: None,
+            at: None,
+            to: None,
         },
     );
     // A quarter turn about the vertical.
@@ -195,6 +197,8 @@ fn a_killer_far_from_the_death_makes_nothing() {
             offset: [0.0, 2.0],
             lasts: None,
             kingdom: None,
+            at: None,
+            to: None,
         },
     );
     let beetle = *living(&h).last().expect("a beetle");
@@ -248,6 +252,8 @@ fn a_death_spawn_with_no_chance_makes_nothing() {
             offset: [0.0, 2.0],
             lasts: None,
             kingdom: None,
+            at: None,
+            to: None,
         },
     );
     let before = living(&h).len();
@@ -271,6 +277,8 @@ fn only_so_many_of_a_death_effects_creatures_live_at_once() {
             offset: [0.0, 2.0],
             lasts: None,
             kingdom: None,
+            at: None,
+            to: None,
         },
     );
     for _ in 0..yalain_world::death_spawn::MOST {
@@ -326,6 +334,8 @@ fn a_death_effects_portals_standing_count_toward_its_limit() {
             offset: [0.0, 2.0],
             lasts: None,
             kingdom: None,
+            at: None,
+            to: None,
         },
     );
     let standing = |h: &Harness| {
@@ -369,6 +379,8 @@ fn an_items_use_makes_what_its_effect_names_before_its_user() {
             offset: [0.0, 2.0],
             lasts: None,
             kingdom: None,
+            at: None,
+            to: None,
         },
     );
     let mut props = Props::default();
@@ -460,6 +472,8 @@ fn a_gem_whose_row_makes_what_cannot_be_made_is_refused_and_kept() {
             offset: [0.0, 2.0],
             lasts: None,
             kingdom: None,
+            at: None,
+            to: None,
         },
     );
     let mut props = Props::default();
@@ -542,6 +556,8 @@ fn gem(h: &mut Harness, lasts: Option<f32>) -> u64 {
             offset: [0.0, 2.0],
             lasts,
             kingdom: None,
+            at: None,
+            to: None,
         },
     );
     let mut props = Props::default();
@@ -649,5 +665,144 @@ fn a_gem_makes_its_dummy_however_many_stand() {
             .get("Eff_Summons")
             .is_none_or(Vec::is_empty),
         "uses don't count against what kills may make"
+    );
+}
+
+/// The portals standing in the world: each one's id, where it stands and where it leads.
+fn portals(h: &Harness) -> Vec<(u64, [f32; 3], Option<[f32; 3]>)> {
+    let mut v: Vec<_> = h
+        .server
+        .things
+        .by_id
+        .values()
+        .filter(|t| t.kind == yalain_world::things::Kind::Portal)
+        .map(|t| {
+            (
+                t.id,
+                t.at.map_or([0.0; 3], |a| a.origin),
+                t.destination.map(|d| d.origin),
+            )
+        })
+        .collect();
+    v.sort_unstable_by_key(|p| p.0);
+    v
+}
+
+/// The world with three beetles, a portal template that leads nowhere the world knows, and a
+/// player.
+fn portal_world() -> (Harness, u64, u32) {
+    use yalain_content::{Prop, Props};
+    const PORTAL: u32 = 0x4700_9201;
+    let mut h = Harness::new();
+    h.add_creatures(3);
+    let mut props = Props::default();
+    props
+        .set("PortalDestination", Prop::Text("Nowhere_Known".into()))
+        .set("PortalFlags", Prop::Word(0x1000_0000));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(PORTAL, 0xF12, props));
+    let (_, me) = h.player_in_world("one", "Kestrel");
+    h.run(20);
+    (h, me, PORTAL)
+}
+
+/// A row of a creature's own, at a place: the death of one of its kind, which names no death effect,
+/// stands the row's portal at the row's place, leading to the row's own place, for the row's time;
+/// a death while it stands makes no second one; once it is gone, the next death stands another.
+/// Behaviour: server.creatures.a-kill-opens-a-portal-for-a-while
+#[test]
+fn a_creatures_death_stands_its_rows_portal_at_its_place_for_its_time_one_at_a_time() {
+    let (mut h, me, portal) = portal_world();
+    let platform = yalain_content::Place {
+        cell: 0x0299_0109,
+        origin: [70.0, 230.0, -44.6],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let below = yalain_content::Place {
+        cell: 0x7000_0001,
+        origin: [10.0, 10.0, 50.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let template = beetle_template(&h);
+    h.server.death_spawns.insert(
+        DeathSpawn::of_creature(template),
+        DeathSpawn {
+            template: portal,
+            count: 1,
+            chance: 1.0,
+            offset: [0.0, 0.0],
+            lasts: Some(60.0),
+            kingdom: None,
+            at: Some(platform),
+            to: Some(below),
+        },
+    );
+    assert!(portals(&h).is_empty());
+    kill(&mut h, me, &[]);
+    let stood = portals(&h);
+    assert_eq!(stood.len(), 1, "{stood:?}");
+    assert_eq!(stood[0].1, platform.origin, "at its place");
+    assert_eq!(stood[0].2, Some(below.origin), "leading to its own place");
+    kill(&mut h, me, &[]);
+    assert_eq!(portals(&h), stood, "one at a time");
+    let t = h.now.0;
+    while h.now.0 < t + 61.0 {
+        h.step();
+    }
+    assert!(portals(&h).is_empty(), "gone after its time");
+    kill(&mut h, me, &[]);
+    assert_eq!(portals(&h).len(), 1, "the next death stands another");
+}
+
+/// A row of a creature's own with no place stands what it makes at its offset from where the
+/// creature died, as it faced, wherever its killer stands.
+/// Behaviour: server.creatures.a-kill-opens-a-portal-for-a-while
+#[test]
+fn a_creatures_own_row_without_a_place_makes_its_creatures_where_it_died_wherever_its_killer_is() {
+    let (mut h, me) = world();
+    h.add_creatures(1);
+    let helper = beetle_template(&h);
+    h.server.death_spawns.insert(
+        DeathSpawn::of_creature(helper),
+        DeathSpawn {
+            template: helper,
+            count: 1,
+            chance: 1.0,
+            offset: [0.0, 2.0],
+            lasts: None,
+            kingdom: None,
+            at: None,
+            to: None,
+        },
+    );
+    let beetle = *living(&h).last().expect("a beetle");
+    let died = {
+        let t = h.server.things.get_mut(beetle).expect("the beetle");
+        let at = t.at.as_mut().expect("placed");
+        at.rotation = [1.0, 0.0, 0.0, 0.0];
+        *at
+    };
+    // The killer far off, in another landblock.
+    for p in h.server.players.values_mut() {
+        p.position.cell = 0x7000_0001;
+    }
+    let before = living(&h);
+    kill(&mut h, me, &[]);
+    let made: Vec<u64> = living(&h)
+        .into_iter()
+        .filter(|id| !before.contains(id))
+        .collect();
+    assert_eq!(made.len(), 1, "made though its killer is far");
+    let got = h
+        .server
+        .things
+        .get(made[0])
+        .and_then(|t| t.at)
+        .expect("placed");
+    assert!(
+        (got.origin[0] - died.origin[0]).abs() < 0.01
+            && (got.origin[1] - (died.origin[1] + 2.0)).abs() < 0.01,
+        "{got:?} from {died:?}"
     );
 }

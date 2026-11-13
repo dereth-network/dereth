@@ -285,7 +285,7 @@ fn held<S: Store>(
     #[allow(clippy::cast_precision_loss)]
     let seconds = row.then_lasts.map(|t| t as f32);
     if crate::usable::portals::is_portal(&template.props) {
-        crate::usable::portals::made(s, net, then, place, (None, seconds), clock);
+        crate::usable::portals::made(s, net, (then, None), place, (None, seconds), clock);
     } else if yalain_content::CreatureStats::from_props(&template.props).is_some() {
         crate::death_spawn::creature_at(s, net, &template, place, seconds, clock);
     } else {

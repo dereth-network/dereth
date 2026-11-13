@@ -6438,6 +6438,69 @@ fn a_death_spawn_row_making_a_portal_reads_its_kingdom_and_is_warned_where_nothi
 }
 
 #[test]
+fn a_death_spawn_row_of_a_creature_reads_its_place_and_where_its_portal_leads() {
+    const PATH: &str = "town/server/death_spawns.toml";
+    const PLACES: &str = "town/server/lairs.toml";
+    let mut files = fixture();
+    files.insert(
+        PLACES.into(),
+        "[[place]]\nkey = \"platform\"\ncell = 0x77B80003\nat = [2.0, 50.0, 183.8]\n\
+         prov = { from = \"authored\" }\n\n\
+         [[place]]\nkey = \"crypt\"\ncell = 0x77B80003\nat = [9.0, 40.0, 183.8]\n\
+         prov = { from = \"authored\" }\n"
+            .to_string(),
+    );
+    let row = "[[death_spawn]]\ncreature = 0x47002224\ntemplate = 0x47000C8C\nat = \"platform\"\n\
+               to = \"crypt\"\nlasts = 300.0\nprov = { from = \"authored\" }\n";
+    files.insert(PATH.into(), row.to_string());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let made = t.death_spawns[&yalain_content::DeathSpawn::of_creature(0x4700_2224)];
+    assert_eq!(made.template, NAMED_PORTAL);
+    assert_eq!(made.lasts, Some(300.0));
+    assert_eq!(made.at.map(|p| p.origin), Some([2.0, 50.0, 183.8]));
+    assert_eq!(made.to.map(|p| p.origin), Some([9.0, 40.0, 183.8]));
+    assert!(
+        !t.warnings
+            .iter()
+            .any(|w| w.to_string().contains("where its portal leads")),
+        "its own place to lead to: {:?}",
+        t.warnings
+    );
+    // Without a place, it stands at its offset from where the creature died; none given, there.
+    files.insert(PATH.into(), row.replacen("at = \"platform\"\n", "", 1));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let made = t.death_spawns[&yalain_content::DeathSpawn::of_creature(0x4700_2224)];
+    assert_eq!((made.at, made.offset), (None, [0.0, 0.0]));
+    // Both an effect and a creature; a place with an offset; a place on an effect's row.
+    for (from, to) in [
+        (
+            "creature = 0x47002224\n",
+            "creature = 0x47002224\neffect = \"Eff_X\"\n",
+        ),
+        (
+            "at = \"platform\"\n",
+            "at = \"platform\"\noffset = [0.0, 2.0, 0.0]\n",
+        ),
+        (
+            "creature = 0x47002224\n",
+            "effect = \"Eff_X\"\noffset = [0.0, 2.0, 0.0]\n",
+        ),
+    ] {
+        files.insert(PATH.into(), row.replacen(from, to, 1));
+        assert!(read(&files).is_err(), "{from} to {to}");
+    }
+    // A place the world lacks; a destination for what is no portal.
+    for (from, to) in [
+        ("to = \"crypt\"", "to = \"nowhere\""),
+        ("template = 0x47000C8C", "template = 0x47002224"),
+    ] {
+        files.insert(PATH.into(), row.replacen(from, to, 1));
+        let merged = merge(&read(&files).unwrap()).unwrap();
+        assert!(compile(&merged, &Fake::new()).is_err(), "{from} to {to}");
+    }
+}
+
+#[test]
 fn worn_rows_compile_to_each_templates_looks_in_their_order() {
     let mut files = fixture();
     let row = |template: &str, races: &str, sexes: &str, look: &str| {

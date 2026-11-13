@@ -109,7 +109,8 @@ pub struct WeaponRule {
 }
 
 /// What a creature's death effect makes around its killer, or an item's use effect around its user,
-/// in place of what the install can say: creatures, or a portal.
+/// in place of what the install can say: creatures, or a portal; or what the death of a creature of
+/// a template makes, at a place or where it died.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct DeathSpawn {
     /// The template of what it makes.
@@ -126,6 +127,20 @@ pub struct DeathSpawn {
     /// The kingdom a player must be of to use a portal it makes, as a description's faction names
     /// it.
     pub kingdom: Option<u32>,
+    /// Where each stands, for a creature's own row: a place of the world, in place of its offset
+    /// from where the creature died.
+    pub at: Option<Place>,
+    /// Where a portal it makes leads, in place of its template's destination.
+    pub to: Option<Place>,
+}
+
+impl DeathSpawn {
+    /// The key a creature's own row is found by among the effects' rows: its template, written
+    /// `0x` and eight hex digits.
+    #[must_use]
+    pub fn of_creature(template: u32) -> String {
+        format!("0x{template:08X}")
+    }
 }
 
 /// Whom a kind of pet tends.

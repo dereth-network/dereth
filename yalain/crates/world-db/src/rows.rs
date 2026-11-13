@@ -1000,12 +1000,19 @@ pub struct Area {
 /// before its user: creatures, or a portal.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeathSpawn {
-    /// The death effect, as a creature's template names it.
+    /// The death effect, as a creature's template names it; for a creature's own row, its template
+    /// as [`yalain_content::DeathSpawn::of_creature`] writes it.
     pub effect: String,
+    /// The creature whose death makes it, for a creature's own row.
+    pub creature: Option<u32>,
     pub template: u32,
     pub count: u32,
     pub chance: f32,
     pub offset: At,
+    /// The place (a `[[place]]` key) each stands at, for a creature's own row.
+    pub at: Option<String>,
+    /// The place a portal it makes leads to.
+    pub to: Option<String>,
     /// How long each stands, in seconds; it stays until killed when left out (a portal until the
     /// server stops).
     pub lasts: Option<f32>,
@@ -1793,7 +1800,8 @@ pub const FIELDS: [(&str, &[&str]); 63] = [
     (
         "death_spawn",
         &[
-            "effect", "template", "count", "chance", "offset", "lasts", "kingdom", "prov",
+            "effect", "creature", "template", "count", "chance", "offset", "at", "to", "lasts",
+            "kingdom", "prov",
         ],
     ),
     (
@@ -3813,10 +3821,35 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             })
         }
         "death_spawn" => {
-            if f.get("effect").is_none() {
-                return f.missing("effect");
+            let creature = f.id("creature");
+            let effect = match (f.get("effect").is_some(), creature) {
+                (true, None) => f.ident("effect")?,
+                (false, Some(c)) => yalain_content::DeathSpawn::of_creature(c),
+                (true, Some(_)) => {
+                    f.bad(
+                        "effect, creature",
+                        "a row is of a death effect or of a creature, not both",
+                    );
+                    return None;
+                }
+                (false, None) => return f.missing("effect"),
+            };
+            let at = f.symbol("at");
+            if at.is_some() && (creature.is_none() || f.get("offset").is_some()) {
+                f.bad(
+                    "at",
+                    "a place is for a creature's own row, in place of an offset",
+                );
+                return None;
             }
-            let effect = f.ident("effect")?;
+            let offset = match (creature, f.get("offset").is_some()) {
+                (Some(_), false) => At {
+                    x: 0.0,
+                    y: 0.0,
+                    z: None,
+                },
+                _ => f.req_at("offset")?,
+            };
             let chance = f.float("chance").map_or(1.0, to_f32);
             if !(0.0..=1.0).contains(&chance) {
                 f.bad("chance", "a share is a number from 0 to 1");
@@ -3837,13 +3870,16 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             }
             Row::DeathSpawn(DeathSpawn {
                 effect,
+                creature,
                 template: f.req_id("template")?,
                 count: f
                     .int("count")
                     .and_then(|v| u32::try_from(v).ok())
                     .unwrap_or(1),
                 chance,
-                offset: f.req_at("offset")?,
+                offset,
+                at,
+                to: f.symbol("to"),
                 lasts,
                 kingdom: kingdom.and_then(|v| u32::try_from(v).ok()),
                 prov: f.req_prov()?,

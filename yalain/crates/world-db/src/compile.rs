@@ -437,12 +437,24 @@ impl Ctx<'_> {
         l: &Located,
         to: &str,
     ) -> Option<TablePlace> {
+        self.place_for(places, l, "to", to)
+    }
+
+    /// Where the place a row's field names stands (`key`, or `pack:key`), or a problem naming the
+    /// field.
+    fn place_for(
+        &mut self,
+        places: &BTreeMap<(String, String), &Located>,
+        l: &Located,
+        field: &str,
+        to: &str,
+    ) -> Option<TablePlace> {
         let (pack, key) = match to.split_once(':') {
             Some((p, k)) => (p.to_string(), k.to_string()),
             None => (l.pack.clone(), to.to_string()),
         };
         let Some(pl) = places.get(&(pack, key)) else {
-            self.problem(l, format!("to: no place {to}"));
+            self.problem(l, format!("{field}: no place {to}"));
             return None;
         };
         self.place_row(pl)
@@ -1814,7 +1826,20 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 }
             }
             Row::DeathSpawn(r) => {
-                if cx.template(l, "template", r.template) {
+                let mut held = cx.template(l, "template", r.template);
+                if let Some(c) = r.creature {
+                    held &= cx.template(l, "creature", c);
+                }
+                let mut place = |field: &str, name: &Option<String>| match name {
+                    Some(n) => {
+                        let p = cx.place_for(&places, l, field, n);
+                        held &= p.is_some();
+                        p
+                    }
+                    None => None,
+                };
+                let (at, to) = (place("at", &r.at), place("to", &r.to));
+                if held {
                     t.death_spawns.insert(
                         r.effect.clone(),
                         yalain_content::DeathSpawn {
@@ -1824,6 +1849,8 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                             offset: [r.offset.x, r.offset.y],
                             lasts: r.lasts,
                             kingdom: r.kingdom,
+                            at,
+                            to,
                         },
                     );
                 }
@@ -2244,6 +2271,15 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
         let Row::DeathSpawn(r) = &l.row else { continue };
         let props = yalain_content::Props::of(r.template, &entity, &|id| install.property_name(id));
         match props.text("PortalDestination") {
+            // A row's own destination.
+            Some(_) if r.to.is_some() => {}
+            None if r.to.is_some() => cx.problem(
+                l,
+                format!(
+                    "to: {:08X} names no destination: only a portal leads anywhere",
+                    r.template
+                ),
+            ),
             Some(name) => {
                 let known = t.places_named.contains_key(&r.template)
                     || t.places_by_name.contains_key(&name.to_ascii_lowercase());
