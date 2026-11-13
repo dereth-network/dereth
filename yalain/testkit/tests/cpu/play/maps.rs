@@ -716,6 +716,7 @@ fn treasure_world(feedback: u32) -> (Harness, usize, u64, yalain_net::ConnId, u6
             template: CARGO_CHEST,
             offset: [0.0, 2.0],
             lasts: None,
+            name: None,
         },
     );
     let (b, me) = h.player_in_world("one", "Elara");

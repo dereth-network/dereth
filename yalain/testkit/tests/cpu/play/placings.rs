@@ -20,6 +20,7 @@ fn torch(lasts: Option<u32>) -> Placing {
         template: TORCH,
         offset: [0.0, 1.5],
         lasts,
+        name: None,
     }
 }
 
@@ -236,4 +237,30 @@ fn a_tally_that_clears_a_template_takes_what_was_placed_away_as_it_resets() {
     }
     h.run(4);
     assert!(torches(&h).is_empty(), "cleared as it reset");
+}
+
+/// A rule that names what it places has it told to its player's client by that name, here new
+/// prose, in place of its template's.
+/// Behaviour: server.places.a-made-thing-takes-its-rows-name
+#[test]
+fn what_a_rule_places_is_told_by_the_rules_name() {
+    let (mut h, _, me, item) = world(None);
+    h.server.effect_table.placings.insert(
+        PLACE_TORCH.into(),
+        Placing {
+            name: Some(yalain_content::Words::Literal("Festival Torch".into())),
+            ..torch(None)
+        },
+    );
+    let from = h.bots[0].inbox.len();
+    uses(&mut h, me, item);
+    let placed = torches(&h);
+    assert_eq!(placed.len(), 1, "one torch");
+    let told = h.world_messages(0, from).into_iter().find_map(|m| match m {
+        auberean_protocol::ServerMessage::CreateObject(o) if o.id == placed[0] => Some(o.weenie),
+        _ => None,
+    });
+    let name = told.expect("told to its client").name;
+    let shown: Vec<u16> = "Festival Torch".encode_utf16().collect();
+    assert_eq!(name.literal.map(|l| l.0), Some(shown));
 }

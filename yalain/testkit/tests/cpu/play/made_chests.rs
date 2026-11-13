@@ -99,6 +99,7 @@ fn world() -> (Harness, usize, u64, yalain_net::ConnId, u64, u64) {
             template: CACHE,
             offset: [0.0, 1.5],
             lasts: Some(60),
+            name: None,
         },
     );
     let mut stone = Props::default();
@@ -136,6 +137,7 @@ fn world() -> (Harness, usize, u64, yalain_net::ConnId, u64, u64) {
             template: DIG_POINT,
             offset: [0.0, 1.0],
             lasts: Some(300),
+            name: None,
         },
     );
     let world = *h.server.players.keys().next().expect("in");
@@ -268,11 +270,13 @@ fn a_machine_used_on_a_dig_point_makes_a_cache_and_its_guard_there() {
                     template: CACHE,
                     offset: [0.0, 0.0],
                     lasts: Some(1200),
+                    name: None,
                 },
                 Placing {
                     template: guard,
                     offset: [3.0, 0.0],
                     lasts: None,
+                    name: None,
                 },
             ],
         });
@@ -280,6 +284,7 @@ fn a_machine_used_on_a_dig_point_makes_a_cache_and_its_guard_there() {
         template: DIG_POINT,
         offset: [0.0, 1.0],
         lasts: Some(300),
+        name: None,
     };
     let clock = h.clock();
     let dig = yalain_world::placing::place(&mut h.server, &mut h.net, world, place, clock)
@@ -340,6 +345,7 @@ fn a_machine_whose_use_no_row_names_makes_nothing() {
         template: DIG_POINT,
         offset: [0.0, 1.0],
         lasts: Some(300),
+        name: None,
     };
     let clock = h.clock();
     let dig = yalain_world::placing::place(&mut h.server, &mut h.net, world, place, clock)

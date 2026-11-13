@@ -343,9 +343,9 @@ fn makes_at<S: Store>(
     if yalain_content::CreatureStats::from_props(&template.props).is_some() {
         #[allow(clippy::cast_precision_loss)]
         let lasts = p.lasts.map(|l| l as f32);
-        crate::death_spawn::creature_at(s, net, &template, at, lasts, clock);
+        crate::death_spawn::creature_at(s, net, &template, at, lasts, p.name.as_ref(), clock);
     } else {
-        crate::placing::place_at(s, net, (p.template, at), p.lasts, clock);
+        crate::placing::place_at(s, net, (p.template, at), (p.lasts, p.name.as_ref()), clock);
     }
 }
 

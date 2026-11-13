@@ -67,6 +67,7 @@ fn hall(device_health: i64) -> (Harness, usize) {
             says: vec![(0.0, (COMES, TABLE)), (HOLDS / 2.0, (HUMS, TABLE))],
             hurt_line: Some((HURT, TABLE)),
             held_line: Some((HOLDS_LINE, TABLE)),
+            then_name: None,
         }],
     };
     // The device comes once the player is in the world, so its client sees it come.
@@ -304,4 +305,34 @@ fn a_device_killed_before_its_time_leaves_nothing() {
     yalain_world::death::creature_dies(&mut h.server, &mut h.net, device, 0, clock);
     run_for(&mut h, HOLDS + 5.0);
     assert_eq!(markers(&h), 0, "a fallen device holds nothing");
+}
+
+/// A row that names what the device leaves: the marker is told to the clients that see it by the
+/// row's name in place of its template's.
+/// Behaviour: server.places.a-made-thing-takes-its-rows-name
+#[test]
+fn what_a_device_leaves_is_told_by_its_rows_name() {
+    use auberean_protocol::types::WeenieDesc;
+    const NAME: (u32, u32) = (0x6C45_9364, 0x2500_17D7);
+    let (mut h, b) = hall(100_000_000);
+    h.server.content.defenses.rows[0].then_name = Some(yalain_content::Words::Ref(NAME.0, NAME.1));
+    comes(&mut h);
+    let from = h.bots[b].inbox.len();
+    run_for(&mut h, HOLDS + 5.0);
+    assert_eq!(markers(&h), 1, "the marker in its place");
+    let marker = h
+        .server
+        .things
+        .by_id
+        .values()
+        .find(|t| t.template == MARKER)
+        .map(|t| t.id)
+        .expect("standing");
+    let told = h.world_messages(b, from).into_iter().find_map(|m| match m {
+        ServerMessage::CreateObject(o) if o.id == marker => Some(o.weenie),
+        _ => None,
+    });
+    let told = told.expect("told to the client");
+    assert_ne!(told.mask & WeenieDesc::NAME, 0, "named");
+    assert_eq!((told.name.string_id, told.name.table_id), NAME);
 }

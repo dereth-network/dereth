@@ -11491,6 +11491,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.a-made-thing-takes-its-rows-name",
+        says: "What a world's row makes (a `[[death_spawn]]`'s portal or creature, a `[[defense]]`'s \
+               `then`, an `[[effect_rule]]`'s `places`) is told to the clients that see it by the name \
+               the row gives it, in the name of its create, in place of its template's: a string \
+               reference, or new prose as literal text; and is examined by it. A row that names \
+               nothing leaves its template's.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MADE-THING-NAME"),
+        station: "yalain-testkit::cpu::play::death_spawns::a_portal_a_row_makes_is_told_and_examined_by_the_rows_name",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.a-place-given-starts-the-reckoning-again",
         says: "Where a trip ends, the player's next report there is taken, and its reach is reckoned from \
                that place and the moment the trip ended, not from before the trip; a place told back \

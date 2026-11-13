@@ -100,6 +100,7 @@ fn world(
             kingdom,
             at: None,
             to: None,
+            name: None,
         },
     );
     let mut props = Props::default();

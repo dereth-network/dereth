@@ -263,7 +263,7 @@ fn attacker<S: Store>(
         row.radius * math::sinf(angle),
     ];
     let at = crate::death_spawn::at_offset(s, place, offset);
-    crate::death_spawn::creature_at(s, net, &template, at, None, clock)
+    crate::death_spawn::creature_at(s, net, &template, at, None, None, clock)
 }
 
 /// A device has held: it goes, and what its row names stands where it stood.
@@ -284,11 +284,13 @@ fn held<S: Store>(
     };
     #[allow(clippy::cast_precision_loss)]
     let seconds = row.then_lasts.map(|t| t as f32);
+    let name = row.then_name.as_ref();
     if crate::usable::portals::is_portal(&template.props) {
-        crate::usable::portals::made(s, net, (then, None), place, (None, seconds), clock);
+        let made = (None, seconds);
+        crate::usable::portals::made(s, net, (then, None), place, made, name, clock);
     } else if yalain_content::CreatureStats::from_props(&template.props).is_some() {
-        crate::death_spawn::creature_at(s, net, &template, place, seconds, clock);
+        crate::death_spawn::creature_at(s, net, &template, place, seconds, name, clock);
     } else {
-        crate::placing::place_at(s, net, (then, place), row.then_lasts, clock);
+        crate::placing::place_at(s, net, (then, place), (row.then_lasts, name), clock);
     }
 }

@@ -938,7 +938,7 @@ impl EffectTable {
             placings: rules
                 .places_named
                 .iter()
-                .map(|(n, p)| (n.clone(), *p))
+                .map(|(n, p)| (n.clone(), p.clone()))
                 .collect(),
             ..Self::default()
         };
@@ -974,7 +974,7 @@ impl EffectTable {
                     d.kind = Kind::GrantItem(*grant);
                 }
                 if let Some(p) = rules.places.get(&s) {
-                    d.kind = Kind::Places(*p);
+                    d.kind = Kind::Places(p.clone());
                 }
                 if let Some(text) = EffectDef::description_of(lib, &g) {
                     t.descriptions.insert(s, text);

@@ -268,6 +268,22 @@ pub struct Thing {
 }
 
 impl Thing {
+    /// Give it the name a world's row gives what it makes, in place of its template's: a string
+    /// reference it is told by, examined by and (a creature) its corpse named after, or literal
+    /// text it is told and examined by.
+    pub fn name_as(&mut self, name: &yalain_content::Words) {
+        match name {
+            yalain_content::Words::Ref(string, table) => {
+                self.description.name = Some((*string, *table));
+                self.description.name_text = None;
+                self.facts.name = Some((*string, *table));
+            }
+            yalain_content::Words::Literal(text) => {
+                self.description.name_text = Some(text.clone());
+            }
+        }
+    }
+
     /// A thing of a template, nowhere yet.
     #[must_use]
     pub fn of(id: u64, t: &Template, kind: Kind) -> Self {
@@ -440,6 +456,9 @@ pub fn standing_create(t: &Thing) -> CreateObject {
     if let Some(n) = &t.named {
         weenie.mask |= WeenieDesc::NAME;
         weenie.name = n.clone();
+    } else if let Some(n) = &d.name_text {
+        weenie.mask |= WeenieDesc::NAME;
+        weenie.name = StringInfo::literal(n);
     } else if let Some((string_id, table_id)) = d.name {
         weenie.mask |= WeenieDesc::NAME;
         weenie.name = StringInfo {

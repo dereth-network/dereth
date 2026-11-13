@@ -36,16 +36,17 @@ pub fn place<S: Store>(
 ) -> Option<u64> {
     let from = s.players.get(&world)?.position;
     let at = crate::death_spawn::at_offset(s, &from, p.offset);
-    place_at(s, net, (p.template, at), p.lasts, clock)
+    place_at(s, net, (p.template, at), (p.lasts, p.name.as_ref()), clock)
 }
 
-/// Place an object of a template at a place, standing `lasts` seconds (until cleared, when none).
-/// Returns its id, if it was made: not past [`MOST`] of its template.
+/// Place an object of a template at a place, standing `lasts` seconds (until cleared, when none),
+/// named as a row names it (its template's name, when none). Returns its id, if it was made: not
+/// past [`MOST`] of its template.
 pub fn place_at<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     (template, at): (u32, yalain_store::StoredPosition),
-    lasts: Option<u32>,
+    (lasts, name): (Option<u32>, Option<&yalain_content::Words>),
     clock: Clock,
 ) -> Option<u64> {
     let of = s.catalog.get(template).cloned()?;
@@ -62,6 +63,9 @@ pub fn place_at<S: Store>(
     let mut t = Thing::of(id, &of, Kind::Placed);
     t.at = Some(at);
     t.fresh = true;
+    if let Some(name) = name {
+        t.name_as(name);
+    }
     s.things.insert(t);
     presence::thing_appears(s, net, id);
     if let Some(seconds) = lasts {
@@ -75,7 +79,7 @@ fn named<S: Store>(s: &Server<S>, props: &yalain_content::Props) -> Vec<Placing>
     let (name, _) = crate::item_use::USED;
     (1..=8)
         .filter_map(|i| props.text(&format!("{name}{i}")))
-        .filter_map(|e| s.effect_table.placings.get(e).copied())
+        .filter_map(|e| s.effect_table.placings.get(e).cloned())
         .collect()
 }
 

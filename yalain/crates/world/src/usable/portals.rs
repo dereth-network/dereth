@@ -157,14 +157,15 @@ pub fn is_portal(props: &yalain_content::Props) -> bool {
 
 /// A portal of a template a world's row makes stands at `at`, leading to the row's place, else
 /// where its template names, for `kingdom` alone when the row names one, else for the kingdom its
-/// template requires, and for `lasts` seconds (until the server stops when it gives none). Returns
-/// its id; none is made where the world holds no place it leads to.
+/// template requires, for `lasts` seconds (until the server stops when it gives none), and named as
+/// the row names it. Returns its id; none is made where the world holds no place it leads to.
 pub fn made<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     (template, to): (u32, Option<StoredPosition>),
     at: StoredPosition,
     (kingdom, lasts): (Option<u32>, Option<f32>),
+    name: Option<&yalain_content::Words>,
     clock: Clock,
 ) -> Option<u64> {
     use yalain_content::portal::{RECALL, SUMMON};
@@ -187,6 +188,9 @@ pub fn made<S: Store>(
             .int("Usage_MinLevel")
             .and_then(|l| i32::try_from(l).ok())
     });
+    if let Some(name) = name {
+        t.name_as(name);
+    }
     s.things.insert(t);
     presence::thing_appears(s, net, id);
     if let Some(seconds) = lasts {

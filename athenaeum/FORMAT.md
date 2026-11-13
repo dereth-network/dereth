@@ -891,6 +891,7 @@ world, or where the creature died.
 | `to` | | a portal's: the `[[place]]` it leads to, in place of where its template's destination names |
 | `lasts` | | how long each stands, in seconds; left out, a creature until killed, a portal until the server stops |
 | `kingdom` | | a portal's: the kingdom a player must be of to use it, 1 (Shadow), 2 (Order) or 4 (Dominion); left out, the kingdom its template requires, if any |
+| `name`, `name_text` | | the name what it makes is shown over it and examined by, in place of its template's (a portal named for where it leads); a creature takes a string reference alone, which its corpse is named after too |
 | `prov` | required | where it came from |
 
 A portal leads to its `to`, else where its template's destination names: the `[[place]]` whose
@@ -1014,6 +1015,7 @@ its template's `[[creature]]` row (`players_kept_out`), not by this one.
 | `radius` | | how far from the device each appears, in meters; 10 when left out |
 | `then` | | the template that stands in its place once it has held |
 | `then_lasts` | | with `then`: seconds it stands, above 0; left out, a portal until the server stops, a creature until killed, an object until a tally clears it |
+| `then_name`, `then_name_text` | | with `then`: the name it is shown over it and examined by, in place of its template's; a creature takes a string reference alone |
 | `says` | | what the device says aloud of itself as it stands, heard by everyone who sees it: `{ at, line }`, `line` a string reference said `at` seconds after it came (0: as it comes; at most `holds`), in order of their times |
 | `hurt_line` | | what it says aloud once, as its health first falls below half, a string reference |
 | `held_line` | | what it says aloud as it holds, before it goes, a string reference |
@@ -1051,6 +1053,7 @@ What an effect of the install does where its own data says nothing. One row per 
 | `places` | | a template: putting the effect on (by name: using an item whose template names it, after the use is answered) makes an object of it standing in the world at its player, no one's to take or use; one of a chest's template is a chest anyone may open, filled from its generator profile at each opening (a treasure map's cargo chest), and what it holds goes with it |
 | `offset` | | with `places`: `[across, ahead]`, meters from the player as it faces, on the ground; `[0, 0]` when left out |
 | `lasts` | | with `places`: seconds it stands, above 0; left out, until a `[[tally]]` that `clears` it resets, or the server stops (what is placed is not kept across a restart) |
+| `name`, `name_text` | | with `places`: the name it is shown over it and examined by, in place of its template's |
 | `prov` | required | where it came from |
 
 #### `[[points_bonus]]`

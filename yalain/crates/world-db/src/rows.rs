@@ -1025,6 +1025,9 @@ pub struct DeathSpawn {
     /// The kingdom a player must be of to use a portal it makes, as a description's faction names
     /// it.
     pub kingdom: Option<u32>,
+    /// The name what it makes is shown and examined by (`name`, a string reference, else
+    /// `name_text`), in place of its template's.
+    pub name: Option<yalain_content::Words>,
     pub prov: Prov,
 }
 
@@ -1823,8 +1826,19 @@ pub const FIELDS: [(&str, &[&str]); 64] = [
     (
         "death_spawn",
         &[
-            "effect", "creature", "template", "count", "chance", "offset", "at", "to", "lasts",
-            "kingdom", "prov",
+            "effect",
+            "creature",
+            "template",
+            "count",
+            "chance",
+            "offset",
+            "at",
+            "to",
+            "lasts",
+            "kingdom",
+            "name",
+            "name_text",
+            "prov",
         ],
     ),
     (
@@ -1894,6 +1908,8 @@ pub const FIELDS: [(&str, &[&str]); 64] = [
             "places",
             "offset",
             "lasts",
+            "name",
+            "name_text",
             "prov",
         ],
     ),
@@ -2070,6 +2086,8 @@ pub const FIELDS: [(&str, &[&str]); 64] = [
             "radius",
             "then",
             "then_lasts",
+            "then_name",
+            "then_name_text",
             "says",
             "hurt_line",
             "held_line",
@@ -3753,6 +3771,14 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             }
             let ok = then_lasts.is_none_or(|t| t > 0);
             let then_lasts = f.held("then_lasts", then_lasts, ok, "above 0")?;
+            let then_name = f.name_words("then_name", "then_name_text");
+            if then_name.is_some() && then.is_none() {
+                f.bad(
+                    "then_name",
+                    "a name is of what stands in the device's place",
+                );
+                return None;
+            }
             let says = f.timed_lines("says")?;
             let ok = says.iter().all(|(at, _)| *at <= holds);
             let says = f.held("says", says, ok, "each at or before holds")?;
@@ -3769,6 +3795,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                     radius: to_f32(radius),
                     then,
                     then_lasts,
+                    then_name,
                     says,
                     hurt_line,
                     held_line,
@@ -3957,6 +3984,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 to: f.symbol("to"),
                 lasts,
                 kingdom: kingdom.and_then(|v| u32::try_from(v).ok()),
+                name: f.name_words("name", "name_text"),
                 prov: f.req_prov()?,
             })
         }
@@ -4647,6 +4675,18 @@ impl<'a> Fields<'a> {
             let n: Option<Vec<f32>> = a.iter().map(|x| as_number(x).map(to_f32)).collect();
             n.map(|n| [n[0], n[1], n[2], n[3]])
         })
+    }
+
+    /// A name a row gives what it makes: the string reference `name`, else the new prose `text`;
+    /// none when it gives neither.
+    fn name_words(&mut self, name: &str, text: &str) -> Option<yalain_content::Words> {
+        let reference = self.strref(name);
+        let prose = self.text(text);
+        match (reference, prose) {
+            (Some(r), _) => Some(yalain_content::Words::Ref(r.string, r.table)),
+            (None, Some(t)) => Some(yalain_content::Words::Literal(t)),
+            (None, None) => None,
+        }
     }
 
     fn strref(&mut self, name: &str) -> Option<StrRef> {
@@ -5933,6 +5973,7 @@ impl<'a> Fields<'a> {
                             template,
                             offset,
                             lasts,
+                            name: None,
                         })
                     })
                     .collect::<Option<Vec<_>>>()
@@ -5946,9 +5987,9 @@ impl<'a> Fields<'a> {
     /// neither of those without `places`.
     fn placing(&mut self) -> Option<Option<yalain_content::effect_rules::Placing>> {
         if self.get("places").is_none() {
-            for k in ["offset", "lasts"] {
+            for k in ["offset", "lasts", "name", "name_text"] {
                 if self.get(k).is_some() {
-                    self.bad(k, "an offset and a time are of what a rule places");
+                    self.bad(k, "an offset, a time and a name are of what a rule places");
                     return None;
                 }
             }
@@ -5970,10 +6011,12 @@ impl<'a> Fields<'a> {
             self.bad("lasts", "a number of seconds above 0");
             return None;
         }
+        let name = self.name_words("name", "name_text");
         Some(Some(yalain_content::effect_rules::Placing {
             template,
             offset,
             lasts,
+            name,
         }))
     }
 

@@ -152,6 +152,7 @@ fn a_death_spawn_stands_at_its_offset_from_the_killer_as_the_killer_faces() {
             kingdom: None,
             at: None,
             to: None,
+            name: None,
         },
     );
     // A quarter turn about the vertical.
@@ -199,6 +200,7 @@ fn a_killer_far_from_the_death_makes_nothing() {
             kingdom: None,
             at: None,
             to: None,
+            name: None,
         },
     );
     let beetle = *living(&h).last().expect("a beetle");
@@ -254,6 +256,7 @@ fn a_death_spawn_with_no_chance_makes_nothing() {
             kingdom: None,
             at: None,
             to: None,
+            name: None,
         },
     );
     let before = living(&h).len();
@@ -279,6 +282,7 @@ fn only_so_many_of_a_death_effects_creatures_live_at_once() {
             kingdom: None,
             at: None,
             to: None,
+            name: None,
         },
     );
     for _ in 0..yalain_world::death_spawn::MOST {
@@ -336,6 +340,7 @@ fn a_death_effects_portals_standing_count_toward_its_limit() {
             kingdom: None,
             at: None,
             to: None,
+            name: None,
         },
     );
     let standing = |h: &Harness| {
@@ -381,6 +386,7 @@ fn an_items_use_makes_what_its_effect_names_before_its_user() {
             kingdom: None,
             at: None,
             to: None,
+            name: None,
         },
     );
     let mut props = Props::default();
@@ -474,6 +480,7 @@ fn a_gem_whose_row_makes_what_cannot_be_made_is_refused_and_kept() {
             kingdom: None,
             at: None,
             to: None,
+            name: None,
         },
     );
     let mut props = Props::default();
@@ -558,6 +565,7 @@ fn gem(h: &mut Harness, lasts: Option<f32>) -> u64 {
             kingdom: None,
             at: None,
             to: None,
+            name: None,
         },
     );
     let mut props = Props::default();
@@ -736,6 +744,7 @@ fn a_creatures_death_stands_its_rows_portal_at_its_place_for_its_time_one_at_a_t
             kingdom: None,
             at: Some(platform),
             to: Some(below),
+            name: None,
         },
     );
     assert!(portals(&h).is_empty());
@@ -774,6 +783,7 @@ fn a_creatures_own_row_without_a_place_makes_its_creatures_where_it_died_whereve
             kingdom: None,
             at: None,
             to: None,
+            name: None,
         },
     );
     let beetle = *living(&h).last().expect("a beetle");
@@ -833,6 +843,7 @@ fn a_creatures_death_portal_is_for_the_kingdom_its_template_requires() {
                 origin: [10.0, 10.0, 50.0],
                 rotation: [1.0, 0.0, 0.0, 0.0],
             }),
+            name: None,
         },
     );
     kill(&mut h, me, &[]);
@@ -845,4 +856,131 @@ fn a_creatures_death_portal_is_for_the_kingdom_its_template_requires() {
         .map(|t| t.facts.kingdom)
         .collect();
     assert_eq!(kingdoms, [Some(4)], "the template's kingdom");
+}
+
+/// The name a client is told an object by as it is made, if its create names one.
+fn told_name(
+    h: &Harness,
+    b: usize,
+    from: usize,
+    id: u64,
+) -> Option<auberean_protocol::text::StringInfo> {
+    use auberean_protocol::types::WeenieDesc;
+    h.world_messages(b, from).into_iter().find_map(|m| match m {
+        auberean_protocol::ServerMessage::CreateObject(o)
+            if o.id == id && o.weenie.mask & WeenieDesc::NAME != 0 =>
+        {
+            Some(o.weenie.name)
+        }
+        _ => None,
+    })
+}
+
+/// A creature's row that names what it makes: its portal is told to the killer's client by the
+/// row's name, a string reference, in place of its template's, and examined by it; a row naming it
+/// in new prose has it told and examined by that text; a row naming nothing leaves its template's.
+/// Behaviour: server.places.a-made-thing-takes-its-rows-name
+#[test]
+fn a_portal_a_row_makes_is_told_and_examined_by_the_rows_name() {
+    use yalain_content::Words;
+    const ROWS_NAME: (u32, u32) = (0x1B6D_27C1, 0x2500_1B44);
+    let template_name = (0x1111_2222, 0x2500_1E91);
+    for name in [
+        Some(Words::Ref(ROWS_NAME.0, ROWS_NAME.1)),
+        Some(Words::Literal("Way Below".into())),
+        None,
+    ] {
+        let (mut h, me, portal) = portal_world();
+        let mut named = h.server.catalog.get(portal).cloned().expect("its template");
+        named.description.name = Some(template_name);
+        named.facts.name = Some(template_name);
+        h.server.catalog.insert(named);
+        let template = beetle_template(&h);
+        h.server.death_spawns.insert(
+            DeathSpawn::of_creature(template),
+            DeathSpawn {
+                template: portal,
+                count: 1,
+                chance: 1.0,
+                offset: [0.0, 2.0],
+                lasts: None,
+                kingdom: None,
+                at: None,
+                to: Some(yalain_content::Place {
+                    cell: 0x7000_0001,
+                    origin: [10.0, 10.0, 50.0],
+                    rotation: [1.0, 0.0, 0.0, 0.0],
+                }),
+                name: name.clone(),
+            },
+        );
+        let from = h.bots[0].inbox.len();
+        kill(&mut h, me, &[]);
+        h.run(5);
+        let made = portals(&h);
+        assert_eq!(made.len(), 1, "{name:?}");
+        let told = told_name(&h, 0, from, made[0].0).expect("told with a name");
+        let examined = examined(&mut h, made[0].0);
+        let facts = h.server.things.get(made[0].0).expect("standing").facts;
+        // The profile of an object of that name: the request repeated, then its lines.
+        let of_name = |n| {
+            let name = yalain_world::profile::item_named(n);
+            yalain_world::profile::npc(0, name, &facts).packed(&[])
+        };
+        let want = match &name {
+            Some(Words::Ref(s, t)) => {
+                assert_eq!((told.string_id, told.table_id), (*s, *t));
+                assert_eq!(told.literal, None);
+                yalain_world::profile::string(*t, *s)
+            }
+            Some(Words::Literal(text)) => {
+                let shown: Vec<u16> = text.encode_utf16().collect();
+                assert_eq!(told.literal.map(|l| l.0), Some(shown));
+                yalain_world::profile::literal(text)
+            }
+            None => {
+                assert_eq!((told.string_id, told.table_id), template_name);
+                yalain_world::profile::string(template_name.1, template_name.0)
+            }
+        };
+        assert!(examined.ends_with(&of_name(want)), "examined: {name:?}");
+    }
+}
+
+/// What a client's examination of an object says: its profile's bytes.
+fn examined(h: &mut Harness, object: u64) -> Vec<u8> {
+    use auberean_script::native_object::NativeObject;
+    use yalain_world::calls::{self, Node};
+    let mut bytes = Vec::new();
+    for w in [0x4000_0002u32, 0] {
+        bytes.extend(w.to_le_bytes());
+    }
+    bytes.extend(object.to_le_bytes());
+    bytes.extend(0x3FFu32.to_le_bytes());
+    let mut b = yalain_world::graph::Builder::new();
+    b.native(154, NativeObject::Packed { ty: 154, bytes });
+    let about = auberean_script::args::Arg::Object(b.graph());
+    let from = h.bots[0].inbox.len();
+    h.bots[0].send(
+        true,
+        auberean_protocol::queue::WEENIE,
+        &yalain_testkit::play::server_call(yalain_world::requests::function::EXAMINE, &[about]),
+    );
+    h.run(30);
+    h.world_messages(0, from)
+        .into_iter()
+        .filter_map(|m| match m {
+            auberean_protocol::ServerMessage::PlayerCall(c)
+                if c.function.0 == yalain_world::profile::EXAMINATION_PROFILE =>
+            {
+                let v = calls::values(&c.args?.0).ok()?;
+                match v[0].root() {
+                    Some(Node::Native { ty: 153, bytes }) => Some(bytes.clone()),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .concat()
 }

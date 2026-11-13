@@ -65,6 +65,10 @@ const NAMED_PORTAL: u32 = 0x4700_0C8C;
 const GARMENT: u32 = 0x4700_0C8B;
 /// A node of the made-up install, giving a material when mined.
 const NODE: u32 = 0x4700_0C8A;
+const LEVEL: u32 = 0x4100_0008;
+const MAX_HEALTH: u32 = 0x4100_0009;
+/// A creature of the made-up install, of a level and health.
+const HOUND: u32 = 0x4700_2226;
 
 fn entity(kind: u32, object: u32, props: Vec<(u32, PropertyValue)>) -> Entity {
     Entity {
@@ -144,6 +148,18 @@ impl Fake {
         );
         entities.insert(0x4700_2224, entity(CLASS, 0x0E00, vec![look.clone()]));
         entities.insert(
+            HOUND,
+            entity(
+                CLASS,
+                0x0E00,
+                vec![
+                    look.clone(),
+                    (LEVEL, PropertyValue::Integer(10)),
+                    (MAX_HEALTH, PropertyValue::Integer(100)),
+                ],
+            ),
+        );
+        entities.insert(
             NAMED_PORTAL,
             entity(
                 CLASS,
@@ -219,6 +235,8 @@ impl Install for Fake {
             MINE_OBJECT => Some("Mine_Object".into()),
             WORN_FILE => Some("Item_WornAppearanceFile1".into()),
             PORTAL_DESTINATION => Some("PortalDestination".into()),
+            LEVEL => Some("GameplayStatistics_Level".into()),
+            MAX_HEALTH => Some("GameplayStatistics_MaxHealth".into()),
             _ => None,
         }
     }
@@ -1626,7 +1644,8 @@ fn an_effect_rule_places_a_template_by_an_effects_state_or_by_a_name_with_no_sta
         Some(&Placing {
             template: 0x4700_2224,
             offset: [0.0, 0.0],
-            lasts: None
+            lasts: None,
+            name: None,
         })
     );
     assert_eq!(
@@ -1634,7 +1653,8 @@ fn an_effect_rule_places_a_template_by_an_effects_state_or_by_a_name_with_no_sta
         Some(&Placing {
             template: 0x4700_2224,
             offset: [0.5, 2.0],
-            lasts: Some(600)
+            lasts: Some(600),
+            name: None,
         })
     );
     // The item a named rule sets is named by the name.
@@ -4865,11 +4885,13 @@ fn interaction_rows_may_name_what_they_make_at_their_object() {
                 template: 0x4700_20B9,
                 offset: [0.0, 0.0],
                 lasts: Some(1200),
+                name: None,
             },
             Placing {
                 template: 0x4700_20BB,
                 offset: [3.0, -1.5],
                 lasts: None,
+                name: None,
             },
         ]
     );
@@ -6478,7 +6500,7 @@ fn a_death_spawn_row_making_a_portal_reads_its_kingdom_and_is_warned_where_nothi
             .collect()
     };
     let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
-    let made = t.death_spawns["Eff_OpensTheLair"];
+    let made = &t.death_spawns["Eff_OpensTheLair"];
     assert_eq!(
         (made.template, made.kingdom, made.lasts, made.offset),
         (NAMED_PORTAL, Some(1), None, [0.0, 2.0])
@@ -6529,7 +6551,7 @@ fn a_death_spawn_row_of_a_creature_reads_its_place_and_where_its_portal_leads() 
                to = \"crypt\"\nlasts = 300.0\nprov = { from = \"authored\" }\n";
     files.insert(PATH.into(), row.to_string());
     let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
-    let made = t.death_spawns[&yalain_content::DeathSpawn::of_creature(0x4700_2224)];
+    let made = &t.death_spawns[&yalain_content::DeathSpawn::of_creature(0x4700_2224)];
     assert_eq!(made.template, NAMED_PORTAL);
     assert_eq!(made.lasts, Some(300.0));
     assert_eq!(made.at.map(|p| p.origin), Some([2.0, 50.0, 183.8]));
@@ -6544,7 +6566,7 @@ fn a_death_spawn_row_of_a_creature_reads_its_place_and_where_its_portal_leads() 
     // Without a place, it stands at its offset from where the creature died; none given, there.
     files.insert(PATH.into(), row.replacen("at = \"platform\"\n", "", 1));
     let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
-    let made = t.death_spawns[&yalain_content::DeathSpawn::of_creature(0x4700_2224)];
+    let made = &t.death_spawns[&yalain_content::DeathSpawn::of_creature(0x4700_2224)];
     assert_eq!((made.at, made.offset), (None, [0.0, 0.0]));
     // Both an effect and a creature; a place with an offset; a place on an effect's row.
     for (from, to) in [
@@ -7513,6 +7535,7 @@ fn a_defense_row_names_its_device_attackers_and_what_it_leaves_and_bad_ones_are_
             ],
             hurt_line: Some((0x2FA8_FC8E, 0x2500_26BE)),
             held_line: Some((0xFF1D_266D, 0x2500_26BE)),
+            then_name: None,
         }]
     );
     assert!(merge(&read(&files).unwrap())
@@ -7739,4 +7762,92 @@ fn an_event_row_reads_windows_of_the_games_hours_day_and_night() {
         files.insert("town/server/events.toml".into(), row.replacen(from, to, 1));
         assert!(read(&files).is_err(), "{from} to {to}");
     }
+}
+
+#[test]
+fn a_row_that_makes_something_reads_the_name_it_gives_it() {
+    use yalain_content::Words;
+    const PATH: &str = "town/server/made.toml";
+    let mut files = fixture();
+    let rows = "[[death_spawn]]\neffect = \"Eff_OpensTheLair\"\ntemplate = 0x47000C8C\n\
+                offset = [0.0, 2.0, 0.0]\nname = { table = 0x25001B44, string = 0x1B6D27C1 }\n\
+                prov = { from = \"authored\" }\n\n\
+                [[defense]]\ndevice = 0x4700115B\nholds = 180\nspawns = [{ template = 0x47002224, weight = 1 }]\n\
+                population = 3\nthen = 0x470020B9\nthen_name_text = \"Way Out\"\nprov = { from = \"authored\" }\n\n\
+                [[effect_rule]]\neffect = \"Eff_PlaceTorchFestival\"\nplaces = 0x47002224\n\
+                name_text = \"Festival Torch\"\nprov = { from = \"authored\" }\n";
+    files.insert(PATH.into(), rows.to_string());
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.death_spawns["Eff_OpensTheLair"].name,
+        Some(Words::Ref(0x1B6D_27C1, 0x2500_1B44))
+    );
+    assert_eq!(
+        t.content.defenses.rows[0].then_name,
+        Some(Words::Literal("Way Out".into()))
+    );
+    assert_eq!(
+        t.effect_rules.places_named["Eff_PlaceTorchFestival"].name,
+        Some(Words::Literal("Festival Torch".into()))
+    );
+    // A reference and prose: the reference names it.
+    files.insert(
+        PATH.into(),
+        rows.replacen(
+            "prov = { from = \"authored\" }\n\n[[defense]]",
+            "name_text = \"Ignored\"\nprov = { from = \"authored\" }\n\n[[defense]]",
+            1,
+        ),
+    );
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.death_spawns["Eff_OpensTheLair"].name,
+        Some(Words::Ref(0x1B6D_27C1, 0x2500_1B44))
+    );
+    // A name of nothing made; a name that is no reference.
+    for (from, to) in [
+        ("then = 0x470020B9\n", ""),
+        ("places = 0x47002224\n", ""),
+        (
+            "name = { table = 0x25001B44, string = 0x1B6D27C1 }",
+            "name = 7",
+        ),
+    ] {
+        files.insert(PATH.into(), rows.replacen(from, to, 1));
+        assert!(read(&files).is_err(), "{from} to {to}");
+    }
+    // A creature is named by a string reference alone, as its corpse is after it; so is what a
+    // device leaves.
+    files.insert(
+        PATH.into(),
+        rows.replacen("template = 0x47000C8C", "template = 0x47002226", 1)
+            .replacen(
+                "name = { table = 0x25001B44, string = 0x1B6D27C1 }",
+                "name_text = \"Hound\"",
+                1,
+            ),
+    );
+    let problems = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new())
+        .err()
+        .unwrap_or_default();
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.message.contains("name_text: a creature")),
+        "{problems:?}"
+    );
+    files.insert(
+        PATH.into(),
+        rows.replacen("then = 0x470020B9", "then = 0x47002226", 1),
+    );
+    let problems = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new())
+        .err()
+        .unwrap_or_default();
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.message.contains("then_name_text: a creature")),
+        "{problems:?}"
+    );
 }

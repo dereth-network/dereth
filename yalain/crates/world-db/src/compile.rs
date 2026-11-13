@@ -277,6 +277,27 @@ pub fn prov_text(p: &Prov) -> String {
 }
 
 /// What is said: the string reference a row gives, else its new prose as literal text.
+/// Is a row's name for what it makes one a creature may take, where the template is a creature's?
+/// A creature is named by a string reference alone, which its examination and its corpse are
+/// named by too; new prose alone is a problem.
+fn named_as_a_creature_is(
+    cx: &mut Ctx<'_>,
+    l: &Located,
+    field: &str,
+    name: &Option<Words>,
+    props: &yalain_content::Props,
+) -> bool {
+    let prose = matches!(name, Some(Words::Literal(_)));
+    if prose && yalain_content::CreatureStats::from_props(props).is_some() {
+        cx.problem(
+            l,
+            format!("{field}: a creature is named by a string reference, which its corpse is named after too"),
+        );
+        return false;
+    }
+    true
+}
+
 fn words(line: Option<StrRef>, text: Option<&String>) -> Option<Words> {
     match (line, text) {
         (Some(r), _) => Some(Words::Ref(r.string, r.table)),
@@ -1583,13 +1604,17 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 }
                 if let Some(then) = d.then {
                     ok &= cx.template(l, "then", then);
+                    let props =
+                        yalain_content::Props::of(then, &entity, &|id| install.property_name(id));
+                    ok &=
+                        named_as_a_creature_is(&mut cx, l, "then_name_text", &d.then_name, &props);
                 }
                 if ok {
                     t.content.defenses.rows.push(d.clone());
                 }
             }
             Row::EffectRule(r) => {
-                if let Some(p) = r.places {
+                if let Some(p) = r.places.clone() {
                     if cx.template(l, "places", p.template) {
                         match &r.effect {
                             EffectOf::State(e) => {
@@ -1830,6 +1855,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                             kingdom: r.kingdom,
                             at,
                             to,
+                            name: r.name.clone(),
                         },
                     );
                 }
@@ -2302,6 +2328,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     for l in &merged.rows {
         let Row::DeathSpawn(r) = &l.row else { continue };
         let props = yalain_content::Props::of(r.template, &entity, &|id| install.property_name(id));
+        named_as_a_creature_is(&mut cx, l, "name_text", &r.name, &props);
         match props.text("PortalDestination") {
             // A row's own destination.
             Some(_) if r.to.is_some() => {}

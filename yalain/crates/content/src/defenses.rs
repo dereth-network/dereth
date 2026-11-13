@@ -35,6 +35,8 @@ pub struct Defense {
     /// How long that stands, in seconds (none: a portal until the server stops, a creature until
     /// killed).
     pub then_lasts: Option<u32>,
+    /// The name that is shown and examined by, in place of its template's.
+    pub then_name: Option<crate::Words>,
     /// What the device says aloud of itself as it stands: each line (a string and its table) so many
     /// seconds after it came (0: as it comes), in order.
     pub says: Vec<(f64, (u32, u32))>,

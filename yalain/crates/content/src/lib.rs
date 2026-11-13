@@ -113,7 +113,7 @@ pub struct WeaponRule {
 /// What a creature's death effect makes around its killer, or an item's use effect around its user,
 /// in place of what the install can say: creatures, or a portal; or what the death of a creature of
 /// a template makes, at a place or where it died.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct DeathSpawn {
     /// The template of what it makes.
     pub template: u32,
@@ -134,6 +134,8 @@ pub struct DeathSpawn {
     pub at: Option<Place>,
     /// Where a portal it makes leads, in place of its template's destination.
     pub to: Option<Place>,
+    /// The name what it makes is shown and examined by, in place of its template's.
+    pub name: Option<Words>,
 }
 
 impl DeathSpawn {

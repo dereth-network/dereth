@@ -1572,7 +1572,7 @@ fn the_death_spawns_name_creatures() {
         ("Eff_FortTears_SpawnDrudgeHelper1", 0.7),
         ("Eff_SpawnShrethHelpers", 1.0),
     ] {
-        let spawn = t.death_spawns[name];
+        let spawn = &t.death_spawns[name];
         assert!((spawn.chance - want).abs() < f32::EPSILON, "{name}");
         assert!(stats(spawn.template).is_some(), "{name} makes a creature");
     }
@@ -4403,7 +4403,7 @@ fn a_practice_gem_makes_its_dummy_at_its_place_for_its_ninety_seconds() {
     h.server.death_spawns = t
         .death_spawns
         .iter()
-        .map(|(k, v)| (k.clone(), *v))
+        .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
     let quest = ids["Quest_DeadlyDummy30"];
     h.server.quest_ids = ids;

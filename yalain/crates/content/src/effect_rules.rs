@@ -56,12 +56,14 @@ pub struct Grant {
 
 /// What an effect places in the world at its user: an object of a template, at an offset in
 /// meters from the user as it faces (`[across, ahead]`), on the ground and facing as the user
-/// faces, standing so many seconds (none: until a tally clears it, or the world stops).
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// faces, standing so many seconds (none: until a tally clears it, or the world stops), named as
+/// the row names it (none: its template's name).
+#[derive(Debug, Clone, PartialEq)]
 pub struct Placing {
     pub template: u32,
     pub offset: [f32; 2],
     pub lasts: Option<u32>,
+    pub name: Option<crate::Words>,
 }
 
 /// The world's effect rules, by the effect's saved state.

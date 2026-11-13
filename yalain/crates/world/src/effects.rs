@@ -928,7 +928,7 @@ pub fn apply_on<S: Store>(
         }
         // What a rule says an effect places stands at its player.
         (Kind::Places(p), On::Player(world)) => {
-            crate::placing::place(s, net, world, *p, clock).is_some()
+            crate::placing::place(s, net, world, p.clone(), clock).is_some()
         }
         (Kind::Taunt(share), On::Creature(id)) => {
             crate::ai::taunted(s, id, cast.caster, *share, clock.local.0);

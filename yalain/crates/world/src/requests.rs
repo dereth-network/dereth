@@ -621,7 +621,12 @@ fn profile_bytes<S: Store>(
             | crate::things::Kind::Node
             | crate::things::Kind::Portal
             | crate::things::Kind::Placed => {
-                profile::npc(req.asked, profile::item_name(&t.facts), &t.facts)
+                // A name its row gave it as text, else its template's (or its row's reference).
+                let name = match t.description.name_text.as_deref() {
+                    Some(text) => profile::item_named(profile::literal(text)),
+                    None => profile::item_name(&t.facts),
+                };
+                profile::npc(req.asked, name, &t.facts)
             }
         }
     } else if let Some(i) = crate::presence::content_by_id(&s.content.objects, req.object) {

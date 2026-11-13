@@ -77,7 +77,7 @@ pub fn killed<S: Store>(
     }
     let died = s.things.get(creature).and_then(|t| t.at);
     let key = yalain_content::DeathSpawn::of_creature(template);
-    if let (Some(spawn), Some(died)) = (s.death_spawns.get(&key).copied(), died) {
+    if let (Some(spawn), Some(died)) = (s.death_spawns.get(&key).cloned(), died) {
         let most = if spawn.at.is_some() { 1 } else { MOST };
         makes(s, net, (died, Some((key.as_str(), most))), spawn, clock);
     }
@@ -92,7 +92,7 @@ pub fn killed<S: Store>(
         return;
     }
     for (name, _) in effects {
-        if let Some(spawn) = s.death_spawns.get(name).copied() {
+        if let Some(spawn) = s.death_spawns.get(name).cloned() {
             let Some(from) = s.players.get(&killer).map(|p| p.position) else {
                 return;
             };
@@ -140,7 +140,7 @@ pub fn used<S: Store>(
         let Some(effect) = props.text(&format!("{name}{i}")) else {
             continue;
         };
-        if let Some(spawn) = s.death_spawns.get(effect).copied() {
+        if let Some(spawn) = s.death_spawns.get(effect).cloned() {
             let Some(from) = s.players.get(&user).map(|p| p.position) else {
                 return;
             };
@@ -201,6 +201,7 @@ fn makes<S: Store>(
                 (spawn.template, spawn.to.map(stored)),
                 at,
                 (spawn.kingdom, spawn.lasts),
+                spawn.name.as_ref(),
                 clock,
             );
             if let (Some(id), Some((name, _))) = (made, most) {
@@ -211,7 +212,8 @@ fn makes<S: Store>(
             }
             continue;
         }
-        let Some(id) = creature_at(s, net, &template, at, spawn.lasts, clock) else {
+        let name = spawn.name.as_ref();
+        let Some(id) = creature_at(s, net, &template, at, spawn.lasts, name, clock) else {
             s.unhandled.note(format!(
                 "a death effect's template {:08X} is no creature",
                 spawn.template
@@ -228,18 +230,23 @@ fn makes<S: Store>(
 }
 
 /// Make a creature of a template at a place, facing as the place does, standing until killed or for
-/// `lasts` seconds. Returns its id; none for a template that is no creature.
+/// `lasts` seconds, named as a row names it. Returns its id; none for a template that is no
+/// creature.
 pub(crate) fn creature_at<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     template: &yalain_content::Template,
     at: StoredPosition,
     lasts: Option<f32>,
+    name: Option<&yalain_content::Words>,
     clock: Clock,
 ) -> Option<u64> {
     let stats = yalain_content::CreatureStats::from_props(&template.props)?;
     let heading = crate::world::heading_of_rotation(at.rotation);
     let id = crate::spawn::make(s, template, stats, (at, heading), None, None, clock.local.0);
+    if let (Some(name), Some(t)) = (name, s.things.get_mut(id)) {
+        t.name_as(name);
+    }
     if let Some(seconds) = lasts {
         s.after(
             clock,

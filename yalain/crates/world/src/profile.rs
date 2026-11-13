@@ -1045,6 +1045,12 @@ pub fn requirement_lines(p: &mut Profile, f: &Facts, quest: Option<QuestLine>) -
 #[must_use]
 pub fn item_name(f: &Facts) -> TextInfo {
     let name = f.name.map_or_else(|| literal(""), |(s, t)| string(t, s));
+    item_named(name)
+}
+
+/// An item's name composed of a name, as text, with no prefix or suffix.
+#[must_use]
+pub fn item_named(name: TextInfo) -> TextInfo {
     with_vars(
         line::ITEM_NAMES,
         line::ITEM_NAME,
