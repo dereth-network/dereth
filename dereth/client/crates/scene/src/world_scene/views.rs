@@ -85,13 +85,7 @@ impl SceneDraw {
         // The same over the remaster's ground, while it draws its offset.
         #[cfg(feature = "remaster")]
         if self.remaster_ground.active && ws.viewer_cell().is_none() {
-            let body = ws.character.as_ref().map(|c| c.render_frame().origin);
-            let offset = self.remaster_ground.camera_offset(eye.origin, body);
-            eye.origin = Vec3::new(
-                eye.origin.x + offset.x,
-                eye.origin.y + offset.y,
-                eye.origin.z + offset.z,
-            );
+            eye = self.remaster_ground.eye_over(eye, ws.character.as_ref());
         }
         eye
     }

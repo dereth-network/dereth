@@ -1022,10 +1022,7 @@ fn moving(draw: &SceneDraw, ws: &WorldState, sent: &HashMap<rm::ObjectKey, u64>)
                 &driver,
                 (&draw.character_part_levels, &draw.character_part_draw_pos),
                 c.position().cell.0,
-                (
-                    true,
-                    lift(is_outdoors(c.position().cell), c.render_frame().origin),
-                ),
+                (true, draw.remaster_ground.body_lift(c)),
             ));
         }
     }

@@ -50,7 +50,7 @@ pub(crate) fn stance(
         };
         if ws.player_object == Some(holder) {
             if let Some(c) = ws.character.as_ref() {
-                return c.render_frame().origin;
+                return drawn_feet(c);
             }
         }
         match ws.objects.get(&holder) {
@@ -60,6 +60,17 @@ pub(crate) fn stance(
     }
     object.frame.origin
 }
+
+/// Where the player's body is drawn this frame (render space): where physics has its feet, moved
+/// along its way between its ticks. The ground the body is lifted onto, and the camera's rise with
+/// it, are taken here, so both ride the drawn ground every frame: taken where physics has the
+/// feet, they would hold still between ticks and step with each one.
+pub(crate) fn drawn_feet(c: &dereth_client_runtime::character::Character) -> Vec3 {
+    let o = c.render_frame().origin;
+    let off = c.drawn_offset();
+    Vec3::new(o.x + off.x, o.y + off.y, o.z + off.z)
+}
+
 /// The most bodies the fine relief is leveled under.
 pub(crate) const LEVELED_BODIES: usize = 32;
 /// How far from the eye a body's ground is leveled, meters: past it the fine relief is too small
@@ -871,10 +882,37 @@ impl RemasterGround {
         h.finish() | 1
     }
 
+    /// How far the player's body `c` is drawn above where it is drawn between its ticks: outdoors,
+    /// by the ground under it where it is drawn ([`drawn_feet`]); nought indoors.
+    pub(crate) fn body_lift(&self, c: &dereth_client_runtime::character::Character) -> f32 {
+        if dereth_physics::landdefs::is_outdoors(c.position().cell) {
+            self.shift_at(drawn_feet(c))
+        } else {
+            0.0
+        }
+    }
+
+    /// Where the frame is drawn from for the camera at `eye` following the player's body `body`,
+    /// if any: moved by [`Self::camera_offset`] from the feet where the body is drawn
+    /// ([`drawn_feet`]).
+    pub(crate) fn eye_over(
+        &self,
+        mut eye: Frame,
+        body: Option<&dereth_client_runtime::character::Character>,
+    ) -> Frame {
+        let offset = self.camera_offset(eye.origin, body.map(drawn_feet));
+        eye.origin = Vec3::new(
+            eye.origin.x + offset.x,
+            eye.origin.y + offset.y,
+            eye.origin.z + offset.z,
+        );
+        eye
+    }
+
     /// How far the camera at render-space `eye` is drawn from where it stands, `body` the feet
-    /// (render space, where physics puts them) of the body it follows, if any: it rises as the
-    /// body does, is drawn in front of the drawn ground where the ground rises between it and
-    /// the body, and never closer to the ground than the camera's clearance.
+    /// (render space, where the body is drawn: [`drawn_feet`]) of the body it follows, if any: it
+    /// rises as the body does, is drawn in front of the drawn ground where the ground rises
+    /// between it and the body, and never closer to the ground than the camera's clearance.
     pub(crate) fn camera_offset(&self, eye: Vec3, body: Option<Vec3>) -> Vec3 {
         if !self.active || !self.knobs.on(Knob::BodyShift) || self.world.is_none() {
             return Vec3::ZERO;
@@ -1133,6 +1171,14 @@ impl super::WorldScene {
         g.lifts(at.x + g.global.0, at.y + g.global.1, at.z)
     }
 
+    /// How far the player's body is drawn above where it is drawn between its ticks on the
+    /// remaster's ground, as the remaster is handed it; `None` without a body.
+    #[must_use]
+    pub fn remaster_body_lift(&self) -> Option<f32> {
+        let c = self.world.character.as_ref()?;
+        Some(self.draw.remaster_ground.body_lift(c))
+    }
+
     /// How far server object `id` is drawn above where physics puts it on the remaster's
     /// ground, as the remaster is handed it; `None` for an object not in the world.
     #[cfg(feature = "test-support")]
@@ -1314,5 +1360,119 @@ mod tests {
         );
         assert_eq!(g.lifts(x, y, 28.0), [0.0; 2]);
         assert_eq!(g.lifts(sx, sy, 28.0), [0.0; 2]);
+    }
+
+    /// The root mean square and the worst of `v`'s second difference.
+    fn second_difference(v: &[f32]) -> (f32, f32) {
+        let d: Vec<f32> = v.windows(3).map(|w| w[2] - 2.0 * w[1] + w[0]).collect();
+        // LINT-OK: a few hundred frames.
+        #[allow(clippy::cast_precision_loss)]
+        let rms = (d.iter().map(|x| x * x).sum::<f32>() / d.len().max(1) as f32).sqrt();
+        (rms, d.iter().fold(0.0f32, |m, x| m.max(x.abs())))
+    }
+
+    /// One frame of a body running under the orbit camera at `fps`: the height its feet are
+    /// drawn at, on the ground, and the height of the eye the frame is drawn from; and how far
+    /// the body is lifted.
+    fn running_frame(
+        c: &mut dereth_client_runtime::character::Character,
+        g: &mut RemasterGround,
+        t: &mut f64,
+        fps: f64,
+    ) -> (f32, f32, f32) {
+        use dereth_client_runtime::camera::CameraInput;
+        *t += 1.0 / fps;
+        c.update(dereth_primitives::LocalTime(*t));
+        c.update_camera(
+            CameraInput::default(),
+            dereth_primitives::LocalTime(*t),
+            1.0 / fps,
+        );
+        let eye = c.camera_render_frame().expect("the eye is placed");
+        g.eye = eye.origin;
+        let lift = g.body_lift(c);
+        (
+            drawn_feet(c).z + lift,
+            g.eye_over(eye, Some(c)).origin.z,
+            lift,
+        )
+    }
+
+    /// **A body running over uneven drawn ground under the orbit camera, and the eye following
+    /// it, ride the ground every frame**: where retail's ground is level and the drawn ground
+    /// rises most of a meter off it, a body running at 120 frames a second, drawn between its
+    /// 30 Hz physics ticks, is lifted onto the ground where it is drawn, and the eye rises with
+    /// it. The height of each moves on evenly frame to frame, rather than holding still between
+    /// ticks and stepping at each one.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn a_running_body_and_the_eye_following_it_ride_the_drawn_ground_every_frame() {
+        let store = Arc::new(dereth_dat::testing::open_store_or_fail());
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region");
+        let block: u16 = 0x8A8C;
+        let (bx, by) = (i32::from(block >> 8), i32::from(block & 0xFF));
+        let mut c = dereth_client_runtime::character::Character::new(
+            &store,
+            &region,
+            block,
+            (122.75, 45.15),
+        )
+        .expect("a body");
+        let _ = c.set_viewer_block((bx, by));
+        // Facing north-west, over the rise.
+        c.face_heading(316.0);
+        c.camera.orbit_active = true;
+        c.drawn_between_ticks = true;
+        let table = dereth_terrain::land::mesh::height_table(&region);
+        // LINT-OK: block coordinates, far inside f32's exact range.
+        #[allow(clippy::cast_precision_loss)]
+        let global = (bx as f32 * BLOCK_METERS, by as f32 * BLOCK_METERS);
+        let mut g = RemasterGround {
+            world: Some(Arc::new(read_world(&store, &table))),
+            active: true,
+            viewer: (bx, by),
+            global,
+            // The offsets worked out on the frame's thread.
+            worker_tried: true,
+            ..RemasterGround::default()
+        };
+        for _ in 0..64 {
+            g.keep_fields_from(Some(&store));
+        }
+        let fps = 120.0;
+        let mut t = 10.0;
+        for _ in 0..60 {
+            running_frame(&mut c, &mut g, &mut t, fps);
+        }
+        c.input.forward = true;
+        c.input.run = true;
+        // Up to speed.
+        for _ in 0..60 {
+            running_frame(&mut c, &mut g, &mut t, fps);
+        }
+        let run: Vec<(f32, f32, f32)> = (0..240)
+            .map(|_| running_frame(&mut c, &mut g, &mut t, fps))
+            .collect();
+        let (low, high) = run
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(l, h), f| (l.min(f.2), h.max(f.2)));
+        assert!(
+            high - low > 0.5,
+            "the drawn ground leaves retail's along the way: lifted {low} to {high}"
+        );
+        for (what, heights) in [
+            ("the feet", run.iter().map(|f| f.0).collect::<Vec<_>>()),
+            ("the eye", run.iter().map(|f| f.1).collect::<Vec<_>>()),
+        ] {
+            let (rms, worst) = second_difference(&heights);
+            assert!(
+                rms < 0.002 && worst < 0.01,
+                "{what}: the height's second difference frame to frame is {rms} m on average, \
+                 {worst} m at worst"
+            );
+        }
     }
 }
