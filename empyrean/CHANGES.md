@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- `@god` and `@ungod` work on a character of any era, not only the end of retail's.
+
 ## 0.3.13 (2026-11-10)
 - Dereth players download a world's own data much faster.
 

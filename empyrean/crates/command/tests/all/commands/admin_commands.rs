@@ -720,3 +720,14 @@ fn a_dat_export_with_the_wrong_parameter_count_prints_its_usage_and_stops() {
         assert_eq!(console(&mut ts, handler, &[]), [usage]);
     }
 }
+
+/// V520: god mode takes a character of any era, whose skill list is shorter than the end of retail's.
+#[test]
+fn god_mode_takes_any_eras_skill_list() {
+    // 50 entries before the skills, 5 for each skill
+    assert!(ac::god_state_is_well_formed(240), "end of retail, 38 skills");
+    assert!(ac::god_state_is_well_formed(195), "February 2005, 29 skills");
+    assert!(ac::god_state_is_well_formed(50), "no skills");
+    assert!(!ac::god_state_is_well_formed(49));
+    assert!(!ac::god_state_is_well_formed(196));
+}
