@@ -1,9 +1,10 @@
 //! What the world database says of effects where their own data says nothing: what a ward keeps
 //! off, the share of its holder's vitae an effect takes or the vitae it gives back, what an
-//! immunity leaves as it ends, the complete reset of skills an effect grants, the skill an
-//! effect trains, the items an effect gives, and what an effect places in the world.
+//! immunity leaves as it ends, the complete reset of skills an effect grants, the untraining an
+//! effect finishes, the skill an effect trains, the items an effect gives, and what an effect
+//! places in the world.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// What a ward keeps off its holder: effects of these classes, and these effects by their saved
 /// states, each by its chance.
@@ -77,6 +78,9 @@ pub struct EffectRules {
     /// The effects that grant their player one complete reset of a kind of its skills when they
     /// are put on.
     pub resets: BTreeMap<u32, Reset>,
+    /// The effects that finish their player's untraining under way at once when they are put on,
+    /// as earning its experience again would.
+    pub untrains: BTreeSet<u32>,
     /// The effects that train their player a skill for good when they are put on: the skill, by
     /// its number.
     pub skills: BTreeMap<u32, u32>,

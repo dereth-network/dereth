@@ -24,7 +24,9 @@
 //!   the experience moves from the player to the skill.
 //! - **Untraining** a skill is refused while another is being untrained, when it is not trained,
 //!   may not be untrained or is not the player's to untrain, or a trained child or dependent stands
-//!   on it; nothing is trained on a skill being untrained.
+//!   on it; nothing is trained on a skill being untrained. An effect a world's rule names may
+//!   finish an untraining under way at once, as earning its experience again would (a person who
+//!   sells the finishing: a step or a give that waits on an untraining under way).
 //! - **A complete reset** of a player's skills, or of its hero skills, is held apart for each kind
 //!   (granted by an effect a world names, or by an admin) and used by asking to sell them all back:
 //!   every skill of the kind the player bought is untrained, its credits back, and the experience
@@ -1996,6 +1998,53 @@ pub fn earned<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, t
     quals::set_long(&mut p.qualities, progress::q::AVAILABLE_XP, available);
     let now = s.game_now;
     untrained(s, net, world, u.skill, u.xp, now);
+}
+
+/// An effect finishes a player's untraining under way at once, as earning its experience again
+/// would: the skill untrained, its credits back and its experience given back to spend, the player
+/// told. Whether there was one to finish.
+pub fn untrained_at_once<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) -> bool {
+    let Some(p) = s.players.get_mut(&world) else {
+        return false;
+    };
+    let Some(u) = p.untraining else {
+        return false;
+    };
+    let available = quals::long(&p.qualities, progress::q::AVAILABLE_XP).unwrap_or(0) + u.xp;
+    quals::set_long(&mut p.qualities, progress::q::AVAILABLE_XP, available);
+    progress::send_long(net, world, progress::q::AVAILABLE_XP, available);
+    let now = s.game_now;
+    untrained(s, net, world, u.skill, u.xp, now);
+    true
+}
+
+/// May a step run for a player, by an untraining it waits on: none, or one under way.
+#[must_use]
+pub fn untraining_allows_step<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    step: &yalain_content::quests::Step,
+) -> bool {
+    let gates = &s.content.untraining_gates;
+    gates.is_empty() || !gates.of_step(step) || under_way(s, world)
+}
+
+/// May a give take its item from a player, by an untraining it waits on.
+#[must_use]
+pub fn untraining_allows_give<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    give: &yalain_content::quests::Give,
+) -> bool {
+    let gates = &s.content.untraining_gates;
+    gates.is_empty() || !gates.of_give(give) || under_way(s, world)
+}
+
+/// Has a player an untraining under way?
+fn under_way<S: Store>(s: &Server<S>, world: ConnId) -> bool {
+    s.players
+        .get(&world)
+        .is_some_and(|p| p.untraining.is_some())
 }
 
 /// The qualities of a kind of reset: the resets held, and when one was last used.

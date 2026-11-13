@@ -10,6 +10,7 @@ mod auras;
 mod barrels_and_turrets;
 mod binding;
 mod books;
+mod bought_untrainings;
 mod butchery;
 mod chained_effects;
 mod chests;

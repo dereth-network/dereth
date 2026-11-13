@@ -895,6 +895,7 @@ pub fn apply_on<S: Store>(
             crate::skills::grant_reset(s, net, world, *kind);
             true
         }
+        (Kind::Untrains, On::Player(world)) => crate::skills::untrained_at_once(s, net, world),
         // A skill trained is told as 2017's were: the repository and the skill, then the effect's
         // own line of its table naming the effect and who gave it (none if its table holds none,
         // or if it is cast quiet), then its appearance. A player who holds the skill already gains
@@ -942,6 +943,7 @@ pub fn apply_on<S: Store>(
             Kind::VitaeTap(_)
             | Kind::VitaeRestore(_)
             | Kind::Reset(_)
+            | Kind::Untrains
             | Kind::GrantSkill(_)
             | Kind::GrantItem(_)
             | Kind::Places(_),
@@ -2600,6 +2602,7 @@ pub fn toggled_on<S: Store>(
             | Kind::VitaeTap(_)
             | Kind::VitaeRestore(_)
             | Kind::Reset(_)
+            | Kind::Untrains
             | Kind::GrantSkill(_)
             | Kind::GrantItem(_)
             | Kind::Places(_)

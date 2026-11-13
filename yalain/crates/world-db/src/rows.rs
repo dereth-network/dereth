@@ -538,6 +538,8 @@ pub struct Step {
     pub acts: Vec<u32>,
     /// The craft skills it runs for only at a level (any one of a gate's skills at it).
     pub crafts: Vec<yalain_content::crafts::CraftGate>,
+    /// It runs only for a player with an untraining under way.
+    pub untraining: bool,
     /// What it adds to a `[[tally]]` as it runs (boxed: few steps add).
     pub adds: Option<Box<yalain_content::tallies::Adds>>,
     /// The items it takes from the player's pack, which the player must hold.
@@ -604,6 +606,8 @@ pub struct Give {
     pub kingdom: Option<u32>,
     /// The craft skills it takes the item for only at a level (any one of a gate's skills at it).
     pub crafts: Vec<yalain_content::crafts::CraftGate>,
+    /// It takes the item only from a player with an untraining under way.
+    pub untraining: bool,
     /// What it adds to a `[[tally]]` as it takes the item.
     pub adds: Option<yalain_content::tallies::Adds>,
     pub prov: Prov,
@@ -817,7 +821,8 @@ pub struct Popup {
 }
 
 /// What a step's or a give's `requires` names: other quests, the `[[event]]`s that must be on, the
-/// one kingdom it is for and the acts that must be whole.
+/// one kingdom it is for, the acts that must be whole, the craft skills it waits on and whether it
+/// waits on an untraining under way.
 struct Requires {
     quests: Vec<(u32, Need)>,
     events: Vec<String>,
@@ -825,11 +830,13 @@ struct Requires {
     kingdom: Option<u32>,
     acts: Vec<u32>,
     crafts: Vec<yalain_content::crafts::CraftGate>,
+    untraining: bool,
 }
 
 /// `[[effect_rule]]`: what the world says of an effect where its own data says nothing: what a ward
 /// keeps off, the share of its player's vitae it takes, the effect an immunity leaves as it ends,
-/// the complete reset of skills it grants, the skill it trains, the items it gives.
+/// the complete reset of skills it grants, the untraining it finishes, the skill it trains, the
+/// items it gives.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EffectRule {
     /// The effect, by its saved state, or by its name for one the install holds no state of.
@@ -842,6 +849,8 @@ pub struct EffectRule {
     pub then: Option<u32>,
     /// The kind of skills a complete reset it grants gives back.
     pub reset: Option<yalain_content::effect_rules::Reset>,
+    /// It finishes its player's untraining under way at once.
+    pub untrains: bool,
     /// The skill it trains its player for good, by its number.
     pub skill: Option<u32>,
     /// The items it gives its player: a template and how many.
@@ -1816,6 +1825,7 @@ pub const FIELDS: [(&str, &[&str]); 61] = [
             "vitae_restore",
             "then",
             "reset",
+            "untrains",
             "skill",
             "gives",
             "count",
@@ -2581,6 +2591,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 kingdom,
                 acts,
                 crafts,
+                untraining,
             } = f.requires_and_events("requires", true);
             Row::Step(Box::new(Step {
                 key: f.req_symbol("key")?,
@@ -2604,6 +2615,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 kingdom,
                 acts,
                 crafts,
+                untraining,
                 adds: f.adds().map(Box::new),
                 takes: f.ids("takes"),
                 to: f.symbol("to"),
@@ -2631,6 +2643,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 tallies,
                 kingdom,
                 crafts,
+                untraining,
                 ..
             } = f.requires_and_events("requires", false);
             let item = f.id("item");
@@ -2656,6 +2669,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 tallies,
                 kingdom,
                 crafts,
+                untraining,
                 adds: f.adds(),
                 prov: f.req_prov()?,
             })
@@ -3185,19 +3199,22 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                     None
                 }
             };
+            let untrains = f.bool("untrains").unwrap_or(false);
             let places = f.placing()?;
             let others = ward.is_some()
                 || vitae_share.is_some()
                 || vitae_restore.is_some()
                 || then.is_some()
                 || reset.is_some()
+                || untrains
                 || skill.is_some()
                 || gives.is_some();
             if !others && places.is_none() {
                 f.bad(
-                    "ward, vitae_share, vitae_restore, then, reset, skill, gives, places",
+                    "ward, vitae_share, vitae_restore, then, reset, untrains, skill, gives, places",
                     "a rule names a ward, a share of vitae, vitae given back, what an immunity leaves, \
-                     a reset it grants, a skill it trains, an item it gives or what it places",
+                     a reset it grants, the untraining it finishes, a skill it trains, an item it \
+                     gives or what it places",
                 );
                 return None;
             }
@@ -3215,6 +3232,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 vitae_restore,
                 then,
                 reset,
+                untrains,
                 skill,
                 gives,
                 places,
@@ -4751,7 +4769,8 @@ impl<'a> Fields<'a> {
     /// `{ quest, free = true }` or `{ quest, failed = true }`); `{ kingdom = "word" }`, the one kingdom it is for, a word of
     /// [`yalain_content::kingdoms::kingdom::WORDS`]; `{ tally = "key", full = true|false }`, a
     /// `[[tally]]` that must be full or not yet full; `{ craft = S, at_least = N }`, a craft skill
-    /// (or `craft = [S, ...]`, any one of several) at level N or above; and, for a step (`events`),
+    /// (or `craft = [S, ...]`, any one of several) at level N or above; `{ untraining = true }`, an
+    /// untraining under way; and, for a step (`events`),
     /// `{ event = "key" }`, an `[[event]]` that must be on, and `{ act = A }`, an act that must be
     /// whole.
     fn requires_and_events(&mut self, name: &str, events: bool) -> Requires {
@@ -4763,16 +4782,17 @@ impl<'a> Fields<'a> {
             Kingdom(u32),
             Act(u32),
             Craft(yalain_content::crafts::CraftGate),
+            Untraining,
         }
         let (what, keys): (&str, &[&str]) = if events {
             (
-                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { quest, failed = true }, { event }, { tally, full }, { tally, at_least, below }, { craft, at_least }, { act } or { kingdom } (neutral, shadow, order or dominion)",
-                &["quest", "phase", "done", "free", "failed", "event", "tally", "full", "at_least", "below", "craft", "act", "kingdom"],
+                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { quest, failed = true }, { event }, { tally, full }, { tally, at_least, below }, { craft, at_least }, { untraining = true }, { act } or { kingdom } (neutral, shadow, order or dominion)",
+                &["quest", "phase", "done", "free", "failed", "event", "tally", "full", "at_least", "below", "craft", "untraining", "act", "kingdom"],
             )
         } else {
             (
-                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { quest, failed = true }, { tally, full }, { tally, at_least, below }, { craft, at_least } or { kingdom } (neutral, shadow, order or dominion)",
-                &["quest", "phase", "done", "free", "failed", "tally", "full", "at_least", "below", "craft", "kingdom"],
+                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { quest, failed = true }, { tally, full }, { tally, at_least, below }, { craft, at_least }, { untraining = true } or { kingdom } (neutral, shadow, order or dominion)",
+                &["quest", "phase", "done", "free", "failed", "tally", "full", "at_least", "below", "craft", "untraining", "kingdom"],
             )
         };
         let all = self.list_of(name, what, keys, |t| {
@@ -4784,6 +4804,9 @@ impl<'a> Fields<'a> {
             }
             if t.contains_key("at_least") || t.contains_key("below") {
                 return None;
+            }
+            if let Some(u) = t.get("untraining") {
+                return (t.len() == 1 && u.as_bool() == Some(true)).then_some(Req::Untraining);
             }
             if let Some(e) = t.get("event") {
                 return (t.len() == 1)
@@ -4822,6 +4845,7 @@ impl<'a> Fields<'a> {
         let mut kingdoms = Vec::new();
         let mut acts = Vec::new();
         let mut crafts = Vec::new();
+        let mut untraining = false;
         for r in all {
             match r {
                 Req::Quest(q, n) => quests.push((q, n)),
@@ -4830,6 +4854,7 @@ impl<'a> Fields<'a> {
                 Req::Kingdom(k) => kingdoms.push(k),
                 Req::Act(a) => acts.push(a),
                 Req::Craft(c) => crafts.push(c),
+                Req::Untraining => untraining = true,
             }
         }
         if kingdoms.len() > 1 {
@@ -4842,6 +4867,7 @@ impl<'a> Fields<'a> {
             kingdom: kingdoms.first().copied(),
             acts,
             crafts,
+            untraining,
         }
     }
 

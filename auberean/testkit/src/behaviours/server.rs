@@ -14290,6 +14290,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.skills.a-person-finishes-an-untraining-for-a-price",
+        says: "A step or a give a world's row has wait on an untraining under way runs only for a \
+               player untraining a skill: its effect that finishes it untrains the skill at once, \
+               as earning its experience again would (told, its credits back, its experience given \
+               back to spend); for a player untraining nothing the item is handed back with the \
+               person's line for it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-BOUGHT-UNTRAINING"),
+        station: "yalain-testkit::cpu::play::bought_untrainings::a_player_untraining_a_skill_who_pays_the_price_has_the_untraining_finished_at_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.skills.a-reset-may-be-used-again-for-an-hour",
         says: "For an hour of game time after a player uses a reset it may reset that kind of \
                skills again as often as it likes without another; the hour runs from the reset \

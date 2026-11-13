@@ -5188,6 +5188,81 @@ fn craft_skill_requirements_compile_beside_their_steps_and_gives_and_bad_ones_ar
 }
 
 #[test]
+fn untraining_requirements_compile_beside_their_steps_and_gives_and_an_effect_rule_may_finish_one()
+{
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "update = \"bestow\"\n",
+        "update = \"bestow\"\nrequires = [{ untraining = true }]\n",
+    );
+    files.insert(
+        "town/server/gives/470033D0.toml".into(),
+        "[[give]]\nkey = \"token\"\nto = 0x470033D0\nitem = 0x470020BB\nwants = 1\neffects = [0x6F00248D]\n\
+         requires = [{ quest = 0x40000016, done = true }, { untraining = true }]\n\
+         prov = { from = \"authored\" }\n\n\
+         [[give]]\nkey = \"plain\"\nto = 0x470033D0\nitem = 0x470020B9\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    files.insert(
+        "town/server/effects.toml".into(),
+        "[[effect_rule]]\neffect = 0x6F00248D\nuntrains = true\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let gates = &t.content.untraining_gates;
+    assert_eq!(gates.steps.len(), 1);
+    assert_eq!(gates.steps[0].trigger, Trigger::Use(0x4700_33D0));
+    assert!(
+        t.quests.steps.contains(&gates.steps[0]),
+        "the step itself is served"
+    );
+    assert_eq!(gates.gives.len(), 1, "only the give that waits on one");
+    let give = &gates.gives[0];
+    assert_eq!(give.item, Some(0x4700_20BB));
+    assert_eq!(
+        give.requires,
+        [(0x4000_0016, Need::Done)],
+        "the quest it requires is kept beside the untraining"
+    );
+    assert!(t.quests.gives.contains(give), "the give itself is served");
+    assert_eq!(
+        t.effect_rules.untrains,
+        std::collections::BTreeSet::from([0x6F00_248D])
+    );
+
+    // `true` alone in its table.
+    for bad in [
+        "requires = [{ untraining = false }]",
+        "requires = [{ untraining = 1 }]",
+        "requires = [{ untraining = true, quest = 0x40000016 }]",
+    ] {
+        let mut f = files.clone();
+        f.insert(
+            "town/server/gives/470033D0.toml".into(),
+            format!(
+                "[[give]]\nkey = \"token\"\nto = 0x470033D0\nitem = 0x470020BB\n{bad}\nprov = {{ from = \"authored\" }}\n"
+            ),
+        );
+        let problems = check(&f);
+        assert!(
+            problems.iter().any(|p| p.message.contains("requires")),
+            "{bad}: {problems:?}"
+        );
+    }
+    // An effect named by its name alone can only place something.
+    let mut f = files.clone();
+    f.insert(
+        "town/server/effects.toml".into(),
+        "[[effect_rule]]\neffect = \"Eff_FinishIt\"\nuntrains = true\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert!(read(&f).is_err(), "a name with no saved state");
+}
+
+#[test]
 fn treasure_values_compile_by_level_and_bad_ones_are_problems() {
     let with = |rows: &str| {
         let mut files = fixture();

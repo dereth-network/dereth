@@ -327,6 +327,8 @@ pub enum Kind {
     VitaeRestore(VitaeRestore),
     /// Grants its player one complete reset of this kind of its skills, once.
     Reset(Reset),
+    /// Finishes its player's untraining under way at once, once.
+    Untrains,
     /// Trains its player this skill for good (by its number), once.
     GrantSkill(u32),
     /// Gives its player so many items of a template, made in its pack, once.
@@ -390,6 +392,7 @@ impl EffectDef {
                     | Kind::VitaeTap(_)
                     | Kind::VitaeRestore(_)
                     | Kind::Reset(_)
+                    | Kind::Untrains
                     | Kind::GrantSkill(_)
                     | Kind::GrantItem(_)
                     | Kind::Places(_)
@@ -922,8 +925,8 @@ impl EffectTable {
     /// The definitions of these saved states and of the effects they add in turn (a state that
     /// does not read is left out), each the world's `rules` name (by saved state) an immunity
     /// leaving the effect they name, a ward keeping off what it names, a tap of its share of vitae,
-    /// vitae given back, a complete reset of skills granted, a skill trained, items given, or an
-    /// object placed; and what the effects the rules name by name alone place.
+    /// vitae given back, a complete reset of skills granted, an untraining finished, a skill trained,
+    /// items given, or an object placed; and what the effects the rules name by name alone place.
     #[must_use]
     pub fn read(
         lib: &Library,
@@ -960,6 +963,9 @@ impl EffectTable {
                 }
                 if let Some(reset) = rules.resets.get(&s) {
                     d.kind = Kind::Reset(*reset);
+                }
+                if rules.untrains.contains(&s) {
+                    d.kind = Kind::Untrains;
                 }
                 if let Some(skill) = rules.skills.get(&s) {
                     d.kind = Kind::GrantSkill(*skill);

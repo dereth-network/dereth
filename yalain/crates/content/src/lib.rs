@@ -53,6 +53,7 @@ pub mod treasure_effects;
 pub mod treasure_looks;
 pub mod treasure_tables;
 pub mod treasure_words;
+pub mod untraining;
 pub mod worn_table;
 
 pub use locks::{Lock, LockTable};
@@ -738,6 +739,9 @@ pub struct ContentPack {
     /// The steps and gives that wait on a player's craft skills. Not part of the text form: the
     /// world database's steps and gives fill it.
     pub craft_gates: crafts::CraftGates,
+    /// The steps and gives that wait on their player having an untraining under way. Not part of
+    /// the text form: the world database's steps and gives fill it.
+    pub untraining_gates: untraining::UntrainingGates,
     /// The gives that move no quest and take any item of a class: the class (a script package, by
     /// number) of each, by the give's place among the quest table's gives. Not part of the text
     /// form: the world database's gives fill it.
@@ -1126,6 +1130,7 @@ impl ContentPack {
             tallies: tallies::TallyTable::default(),
             escorts: escorts::EscortTable::default(),
             craft_gates: crafts::CraftGates::default(),
+            untraining_gates: untraining::UntrainingGates::default(),
             class_gives: BTreeMap::new(),
             companions: BTreeMap::new(),
             levers: levers::LeverTable::default(),

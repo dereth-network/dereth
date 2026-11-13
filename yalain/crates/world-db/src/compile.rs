@@ -703,6 +703,8 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     let mut kingdom_steps: Vec<(usize, u32)> = Vec::new();
     // The steps a craft skill gates, likewise.
     let mut craft_steps: Vec<(usize, yalain_content::crafts::CraftGate)> = Vec::new();
+    // The steps an untraining under way gates, likewise.
+    let mut untraining_steps: Vec<usize> = Vec::new();
     // The steps that also give one of several items, likewise.
     let mut pick_steps: Vec<(usize, Vec<(u32, u32)>)> = Vec::new();
     // The steps a tally gates or adds to, likewise.
@@ -1247,6 +1249,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 for c in &s.crafts {
                     craft_steps.push((t.quests.steps.len(), c.clone()));
                 }
+                if s.untraining {
+                    untraining_steps.push(t.quests.steps.len());
+                }
                 for a in &s.acts {
                     act_steps.push((l, t.quests.steps.len(), *a));
                 }
@@ -1346,6 +1351,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 if let Some(give) = t.quests.gives.last() {
                     for c in &g.crafts {
                         t.content.craft_gates.gives.push((give.clone(), c.clone()));
+                    }
+                    if g.untraining {
+                        t.content.untraining_gates.gives.push(give.clone());
                     }
                     if !g.gives_one_of.is_empty() {
                         t.items
@@ -1606,6 +1614,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 }
                 if let Some(reset) = r.reset {
                     t.effect_rules.resets.insert(effect, reset);
+                }
+                if r.untrains {
+                    t.effect_rules.untrains.insert(effect);
                 }
                 if let Some(skill) = r.skill {
                     t.effect_rules.skills.insert(effect, skill);
@@ -1980,6 +1991,12 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     for (i, c) in craft_steps {
         if let Some(st) = t.quests.steps.get(i) {
             t.content.craft_gates.steps.push((st.clone(), c));
+        }
+    }
+    // The steps an untraining under way gates, likewise.
+    for i in untraining_steps {
+        if let Some(st) = t.quests.steps.get(i) {
+            t.content.untraining_gates.steps.push(st.clone());
         }
     }
     // The steps that also give one of several items, likewise.

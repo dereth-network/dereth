@@ -2722,6 +2722,7 @@ pub fn test_effect_rules() -> yalain_world::effect_defs::EffectRules {
         )]),
         immunities: std::collections::BTreeMap::new(),
         resets: std::collections::BTreeMap::new(),
+        untrains: std::collections::BTreeSet::new(),
         skills: std::collections::BTreeMap::new(),
         grants: std::collections::BTreeMap::new(),
         places: std::collections::BTreeMap::new(),
