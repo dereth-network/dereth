@@ -560,13 +560,15 @@ pub fn failed_during(held: &[QuestState], quest: u32, during: Option<u32>) -> bo
 /// May a step run for a player now: its quest at the phase it needs (to be given: not under way,
 /// its wait to be taken again over, the player of its least level), the quests it requires where
 /// it requires them, the craft skills it waits on at their levels, an untraining under way where it
-/// waits on one, a hero where it is for heroes alone, and the items it takes held.
+/// waits on one, a hero where it is for heroes alone, the orders of uses it waits on where they
+/// stand, and the items it takes held.
 fn may_run<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_unix: i64) -> bool {
     may_run_at_any_level(s, world, st, now_unix)
         && level_allows(s, world, st)
         && crate::craft::step_allows(s, world, st)
         && crate::skills::untraining_allows_step(s, world, st)
         && crate::focus::allows_step(s, world, st)
+        && crate::puzzles::allows_step(s, world, st)
 }
 
 /// May a step run for a player now (a step due after a wait runs only if it still may).
@@ -1587,6 +1589,7 @@ pub fn give_for<S: Store>(
             && crate::craft::give_allows(s, world, g)
             && crate::skills::untraining_allows_give(s, world, g)
             && crate::focus::allows_give(s, world, g)
+            && crate::puzzles::allows_give(s, world, g)
             && !crate::kingdom_skills::would_do_nothing(s, &p.qualities, g)
             && g.requires.iter().all(|(q, need)| match need {
                 Need::Phase(n) => phase_of(held, *q) == *n,

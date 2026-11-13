@@ -277,6 +277,45 @@ pub fn prov_text(p: &Prov) -> String {
 }
 
 /// What is said: the string reference a row gives, else its new prose as literal text.
+/// Does a step's or a give's gate name an order of uses keeping its own count, at a count it may
+/// reach? A problem names the field where it does not.
+fn sequence_gate_holds(
+    cx: &mut Ctx<'_>,
+    t: &Tables,
+    l: &Located,
+    g: &yalain_content::item_rows::SequenceGate,
+) -> bool {
+    use yalain_content::item_rows::SequenceNeed;
+    let Some(q) = t.items.sequences.iter().find(|q| q.key == g.key) else {
+        cx.problem(l, format!("requires: no [[sequence]] {} is served", g.key));
+        return false;
+    };
+    if q.quest.is_some() {
+        cx.problem(
+            l,
+            format!(
+                "requires: [[sequence]] {} counts by its quest's phase: name the quest",
+                g.key
+            ),
+        );
+        return false;
+    }
+    if let SequenceNeed::At(n) = g.need {
+        if usize::try_from(n).map_or(true, |n| n > q.uses.len()) {
+            cx.problem(
+                l,
+                format!(
+                    "requires: [[sequence]] {} has {} uses, not {n}",
+                    g.key,
+                    q.uses.len()
+                ),
+            );
+            return false;
+        }
+    }
+    true
+}
+
 /// Is a row's name for what it makes one a creature may take, where the template is a creature's?
 /// A creature is named by a string reference alone, which its examination and its corpse are
 /// named by too; new prose alone is a problem.
@@ -742,6 +781,15 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     let mut hero_steps: Vec<usize> = Vec::new();
     // The steps that also give one of several items, likewise.
     let mut pick_steps: Vec<(usize, Vec<(u32, u32)>)> = Vec::new();
+    // The steps and gives an order of uses keeping its own count gates, likewise, checked once
+    // every order has its row.
+    let mut sequence_steps: Vec<(&Located, usize, yalain_content::item_rows::SequenceGate)> =
+        Vec::new();
+    let mut sequence_gives: Vec<(
+        &Located,
+        yalain_content::quests::Give,
+        yalain_content::item_rows::SequenceGate,
+    )> = Vec::new();
     // The steps a tally gates or adds to, likewise.
     let mut tally_steps: Vec<(usize, yalain_content::tallies::Gate)> = Vec::new();
     let mut tally_step_adds: Vec<(usize, yalain_content::tallies::Adds)> = Vec::new();
@@ -1266,6 +1314,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 if !s.gives_one_of.is_empty() {
                     pick_steps.push((t.quests.steps.len(), s.gives_one_of.clone()));
                 }
+                for g in &s.sequences {
+                    sequence_steps.push((l, t.quests.steps.len(), g.clone()));
+                }
                 for e in &s.events {
                     event_steps.push((t.quests.steps.len(), e.clone()));
                 }
@@ -1400,6 +1451,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         t.items
                             .give_picks
                             .push((give.clone(), g.gives_one_of.clone()));
+                    }
+                    for gate in &g.sequences {
+                        sequence_gives.push((l, give.clone(), gate.clone()));
                     }
                 }
                 if let Some(c) = g.item_class {
@@ -2357,6 +2411,20 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 "kingdom: only a portal it makes keeps players of other kingdoms out",
             ),
             None => {}
+        }
+    }
+    // The steps and gives an order of uses keeping its own count gates, once every order has its
+    // row: the order named must keep its own count, and have the uses counted.
+    for (l, i, g) in sequence_steps {
+        if sequence_gate_holds(&mut cx, &t, l, &g) {
+            if let Some(st) = t.quests.steps.get(i) {
+                t.items.sequence_steps.push((st.clone(), g));
+            }
+        }
+    }
+    for (l, give, g) in sequence_gives {
+        if sequence_gate_holds(&mut cx, &t, l, &g) {
+            t.items.sequence_gives.push((give, g));
         }
     }
     death_treasures(merged, (&camp_keys, &quest_rows), &mut t, &mut cx);

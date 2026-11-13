@@ -6982,7 +6982,8 @@ fn object_states_and_sequence_rows_compile_into_the_item_rows() {
         t.items.sequences,
         [Sequence {
             key: "one".into(),
-            quest: 0x4000_0088,
+            quest: Some(0x4000_0088),
+            forgets_after: None,
             uses: vec![(0x4700_115B, Some("white".into())), (0x4700_2224, None)],
             objects: Vec::new(),
             wrong_starts_over: true,
@@ -7850,4 +7851,85 @@ fn a_row_that_makes_something_reads_the_name_it_gives_it() {
             .any(|p| p.message.contains("then_name_text: a creature")),
         "{problems:?}"
     );
+}
+
+/// A sequence row with no quest keeps its own count, forgotten after its `forgets_after`; a step
+/// and a give may wait on it, at a count or done, and compile with their gates. A gate naming an
+/// order the world lacks, one counted by its quest, or a count past its uses is a problem; a time
+/// to forget on a quest's order, or a gate both at a count and done, is refused.
+#[test]
+fn a_sequence_row_of_its_own_count_and_the_steps_and_gives_waiting_on_it() {
+    use yalain_content::item_rows::{SequenceGate, SequenceNeed};
+    const PATH: &str = "town/server/temple.toml";
+    let mut files = fixture();
+    let rows = "[[sequence]]\nkey = \"pillars\"\n\
+                uses = [{ use = 0x4700115B }, { use = 0x47002224 }]\nforgets_after = 600\n\
+                prov = { from = \"authored\" }\n\n\
+                [[step]]\nkey = \"in\"\nquest = 0x40000088\nneeds = 0\ntrigger = { use = 0x470033D0 }\n\
+                update = \"bestow\"\nrequires = [{ sequence = \"pillars\", done = true }]\n\
+                prov = { from = \"authored\" }\n\n\
+                [[give]]\nkey = \"gem\"\nto = 0x470033D0\nitem = 0x470020BB\n\
+                requires = [{ sequence = \"pillars\", at = 1 }]\nprov = { from = \"authored\" }\n";
+    files.insert(PATH.into(), rows.to_string());
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let q = &t.items.sequences[0];
+    assert_eq!((q.quest, q.forgets_after), (None, Some(600.0)));
+    let gate = |need| SequenceGate {
+        key: "pillars".into(),
+        need,
+    };
+    let steps: Vec<_> = t
+        .items
+        .sequence_steps
+        .iter()
+        .map(|(s, g)| (s.key.as_str(), g.clone()))
+        .collect();
+    assert_eq!(steps, [("in", gate(SequenceNeed::Done))]);
+    let gives: Vec<_> = t
+        .items
+        .sequence_gives
+        .iter()
+        .map(|(_, g)| g.clone())
+        .collect();
+    assert_eq!(gives, [gate(SequenceNeed::At(1))]);
+    // Problems for the build.
+    for (from, to, says) in [
+        (
+            "sequence = \"pillars\", done",
+            "sequence = \"columns\", done",
+            "no [[sequence]] columns",
+        ),
+        ("at = 1", "at = 3", "has 2 uses, not 3"),
+        (
+            "forgets_after = 600\n",
+            "quest = 0x40000088\n",
+            "counts by its quest's phase",
+        ),
+    ] {
+        files.insert(PATH.into(), rows.replacen(from, to, 1));
+        let problems = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new())
+            .err()
+            .unwrap_or_default();
+        assert!(
+            problems.iter().any(|p| p.message.contains(says)),
+            "{to}: {problems:?}"
+        );
+    }
+    // Refused as read.
+    for (from, to) in [
+        (
+            "forgets_after = 600\n",
+            "forgets_after = 600\nquest = 0x40000088\n",
+        ),
+        ("forgets_after = 600", "forgets_after = 0"),
+        ("at = 1", "at = 1, done = true"),
+        (
+            "{ sequence = \"pillars\", at = 1 }",
+            "{ sequence = \"pillars\" }",
+        ),
+    ] {
+        files.insert(PATH.into(), rows.replacen(from, to, 1));
+        assert!(read(&files).is_err(), "{from} to {to}");
+    }
 }

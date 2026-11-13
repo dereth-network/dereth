@@ -12971,6 +12971,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.puzzles.an-order-counted-for-the-fellowship",
+        says: "A `[[sequence]]` that names no quest keeps its own count of the right uses made: one for \
+               each fellowship, which every fellow's uses move and a fellow's wrong use starts over for \
+               all, and one for each player in none. Once every use is made it judges no more of their \
+               uses; its count is forgotten its row's `forgets_after` seconds after the last right use, \
+               done or not. A quest step (or a give) whose `requires` names it at a count, or done, runs \
+               only for a player whose count stands so.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SEQUENCE-OWN-COUNT"),
+        station: "yalain-testkit::cpu::play::puzzles::an_order_of_its_own_counts_for_the_whole_fellowship_and_lets_every_fellow_in",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.puzzles.rows",
         says: "Object states rows and sequence rows read, are checked against the install and against \
                one another's states, and compile into the server's item rows.",

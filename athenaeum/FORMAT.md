@@ -389,7 +389,7 @@ What moves a quest on, in its quest's file.
 | `effects`, `text`, `effects_last` | | the effects it puts on the player, by their saved states; a text shown after them; `effects_last = true` tells the quest's update before them |
 | `effects_quiet` | | true: its effects tell none of their own lines (a recipe or a skill they grant is granted in silence); its `text` is still told. Only with `effects` |
 | `recipes` | | recipes it teaches, by id: the install's, or the world's `[[recipe]]` rows'; learned after its update and its effects |
-| `requires` | | other quests it needs (`{ quest, phase }`, `{ quest, done = true }`, `{ quest, free = true }`, `{ quest, failed = true }`: failed, by a step or its time run out, and for a step of a quest under way given since that quest was, so a hidden timer given with the quest is waited on until it runs out), an event that must be on (`{ event = "key" }`), a tally that must be full or not yet full (`{ tally = "key", full = true }` or `full = false`) or whose count must be at least, and below, so many (`{ tally = "key", at_least = 3, below = 4 }`, either or both: `at_least` above 0 and at most the tally's `full`, `below` above `at_least`), a craft skill at a level or above (`{ craft = S, at_least = 200 }`, S the skill's saved state, or `craft = [S, ...]` for any one of several; the level a making reads, with what the player's effects add; a bestowing step a player meets all else of but this refuses with its person's `refuse-use` line for its quest, as one under the quest's least level is), an untraining under way (`{ untraining = true }`: the player has begun untraining a skill and not yet finished or cancelled it), a hero (`{ hero = true }`: for heroes alone; a bestowing step a player meets all else of but this refuses with its person's `refuse-use` line for its quest, as for a craft skill), acts that must be whole (`{ act = A }`: seven of the act's scenes held, its hidden ones aside; a scene of the act must be served) and one kingdom (`{ kingdom = "order" }`: `neutral`, `shadow`, `order` or `dominion`) |
+| `requires` | | other quests it needs (`{ quest, phase }`, `{ quest, done = true }`, `{ quest, free = true }`, `{ quest, failed = true }`: failed, by a step or its time run out, and for a step of a quest under way given since that quest was, so a hidden timer given with the quest is waited on until it runs out), an event that must be on (`{ event = "key" }`), a tally that must be full or not yet full (`{ tally = "key", full = true }` or `full = false`) or whose count must be at least, and below, so many (`{ tally = "key", at_least = 3, below = 4 }`, either or both: `at_least` above 0 and at most the tally's `full`, `below` above `at_least`), a craft skill at a level or above (`{ craft = S, at_least = 200 }`, S the skill's saved state, or `craft = [S, ...]` for any one of several; the level a making reads, with what the player's effects add; a bestowing step a player meets all else of but this refuses with its person's `refuse-use` line for its quest, as one under the quest's least level is), an untraining under way (`{ untraining = true }`: the player has begun untraining a skill and not yet finished or cancelled it), a `[[sequence]]` keeping its own count at so many right uses or at all of them (`{ sequence = "key", at = N }`, N at most its uses, or `{ sequence = "key", done = true }`; read for the player's fellowship, or the player in none), a hero (`{ hero = true }`: for heroes alone; a bestowing step a player meets all else of but this refuses with its person's `refuse-use` line for its quest, as for a craft skill), acts that must be whole (`{ act = A }`: seven of the act's scenes held, its hidden ones aside; a scene of the act must be served) and one kingdom (`{ kingdom = "order" }`: `neutral`, `shadow`, `order` or `dominion`) |
 | `adds` | | `{ tally = "key", by = N }`: as it runs it adds N (above 0) to the tally, never past its `full`, before anything it says |
 | `takes` | | templates of items taken from the player's pack, which the player must hold |
 | `to` | | a place it takes the player to, through portal space, for a use, a give, a take or a kill: a use of a person or an object, a give and a take tell the update first, an item used on an object and a kill as the player arrives; a recall the quest's definition names for the update then stays put. Without `to`, such a recall takes the player itself, the update told as the player comes out |
@@ -1193,7 +1193,7 @@ of one row at most.
 #### `[[sequence]]`
 
 Uses in an order, judged against the used objects' states, and the quest whose phase counts the right
-uses a player has made: a use of the next in the state named moves the quest on a phase, the first
+uses a player has made (or, with no quest, a count of the row's own, below): a use of the next in the state named moves the quest on a phase, the first
 giving it, with what its definition names for that update, and the last takes the player to `to`; a use of any other object the row names, or
 of the next in another state, takes the quest away from a player who has it under way, and the order
 starts over. Every row naming the object used is judged at each use, so one use may move several on.
@@ -1204,12 +1204,20 @@ use of an object a row names runs no quest step of its own.
 | field | | meaning |
 |---|---|---|
 | `key` | required | lowercase letters, digits and hyphens |
-| `quest` | required | the quest whose phase counts the right uses |
+| `quest` | | the quest whose phase counts the right uses; left out, the row keeps its own count |
+| `forgets_after` | | with no `quest`: seconds after its last right use its count is forgotten, done or not, above 0; left out, never |
 | `uses` | required | `{ use, state }` or `{ object, state }` in order: the template used, or the one placed object used (`key@XXYY`, or `pack:key@XXYY`), and the state its object must be in (`[[object_states]]`, loaded before; any state when left out). Named by placement, objects of one template each take their own turn |
 | `wrong_starts_over` | | false: only a use of an object already used in the order takes the quest away; a use of one further on is told `wrong` and moves nothing, so the order may be found by trying. True when left out |
 | `right`, `wrong` | | what the object used says at a right use and at a wrong one, `{ table, string }` |
 | `to` | | the place the last right use takes the player to, through portal space (`key`, or `pack:key`), in place of a recall the quest's definition names for that update; without it, such a recall takes the player |
 | `prov` | required | where it came from |
+
+A row with no `quest` keeps its own count of the right uses: one for each fellowship, which every
+fellow's uses move and a fellow's wrong use starts over for them all, and one for each player in
+none. It gives and takes no quest; once every use is made it judges no more of their uses until the
+count is forgotten. A step or a give waits on it with `requires = [{ sequence = "key", done = true }]`
+(or `at = N`), so a portal's use step may let in every fellow once one of them has made the order.
+The counts are not kept across a restart.
 
 #### `[[lever]]`
 

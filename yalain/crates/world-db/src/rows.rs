@@ -542,6 +542,8 @@ pub struct Step {
     pub untraining: bool,
     /// It runs only for a hero.
     pub heroes: bool,
+    /// The orders of uses keeping their own count it waits on.
+    pub sequences: Vec<yalain_content::item_rows::SequenceGate>,
     /// What it adds to a `[[tally]]` as it runs (boxed: few steps add).
     pub adds: Option<Box<yalain_content::tallies::Adds>>,
     /// The items it takes from the player's pack, which the player must hold.
@@ -612,6 +614,8 @@ pub struct Give {
     pub untraining: bool,
     /// It takes the item only from a hero.
     pub heroes: bool,
+    /// The orders of uses keeping their own count it waits on.
+    pub sequences: Vec<yalain_content::item_rows::SequenceGate>,
     /// What it adds to a `[[tally]]` as it takes the item.
     pub adds: Option<yalain_content::tallies::Adds>,
     pub prov: Prov,
@@ -829,7 +833,8 @@ pub struct Popup {
 
 /// What a step's or a give's `requires` names: other quests, the `[[event]]`s that must be on, the
 /// one kingdom it is for, the acts that must be whole, the craft skills it waits on, whether it
-/// waits on an untraining under way and whether it is for heroes alone.
+/// waits on an untraining under way, whether it is for heroes alone and the orders of uses it
+/// waits on.
 struct Requires {
     quests: Vec<(u32, Need)>,
     events: Vec<String>,
@@ -839,6 +844,7 @@ struct Requires {
     crafts: Vec<yalain_content::crafts::CraftGate>,
     untraining: bool,
     heroes: bool,
+    sequences: Vec<yalain_content::item_rows::SequenceGate>,
 }
 
 /// `[[effect_rule]]`: what the world says of an effect where its own data says nothing: what a ward
@@ -2002,6 +2008,7 @@ pub const FIELDS: [(&str, &[&str]); 64] = [
             "key",
             "quest",
             "uses",
+            "forgets_after",
             "wrong_starts_over",
             "right",
             "wrong",
@@ -2720,6 +2727,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 crafts,
                 untraining,
                 heroes,
+                sequences,
             } = f.requires_and_events("requires", true);
             Row::Step(Box::new(Step {
                 key: f.req_symbol("key")?,
@@ -2745,6 +2753,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 crafts,
                 untraining,
                 heroes,
+                sequences,
                 adds: f.adds().map(Box::new),
                 takes: f.ids("takes"),
                 to: f.symbol("to"),
@@ -2774,6 +2783,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 crafts,
                 untraining,
                 heroes,
+                sequences,
                 ..
             } = f.requires_and_events("requires", false);
             let item = f.id("item");
@@ -2801,6 +2811,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 crafts,
                 untraining,
                 heroes,
+                sequences,
                 adds: f.adds(),
                 prov: f.req_prov()?,
             })
@@ -3089,7 +3100,17 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
         }
         "sequence" => {
             let key = f.req_symbol("key")?;
-            let quest = f.req_id("quest")?;
+            let quest = f.id("quest");
+            let forgets_after = f.float("forgets_after");
+            let ok = forgets_after.is_none_or(|t| t > 0.0);
+            let forgets_after = f.held("forgets_after", forgets_after, ok, "above 0")?;
+            if forgets_after.is_some() && quest.is_some() {
+                f.bad(
+                    "forgets_after",
+                    "a count of the row's own is forgotten; a quest's phase is the quest's",
+                );
+                return None;
+            }
             let uses = f.list_of(
                 "uses",
                 "a list of { use, state } or { object, state }: the template used, or the placed object (key@XXYY), and the state its object must be in (any when left out)",
@@ -3124,6 +3145,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 sequence: yalain_content::item_rows::Sequence {
                     key,
                     quest,
+                    forgets_after,
                     uses,
                     objects: Vec::new(),
                     wrong_starts_over,
@@ -5077,7 +5099,9 @@ impl<'a> Fields<'a> {
     /// [`yalain_content::kingdoms::kingdom::WORDS`]; `{ tally = "key", full = true|false }`, a
     /// `[[tally]]` that must be full or not yet full; `{ craft = S, at_least = N }`, a craft skill
     /// (or `craft = [S, ...]`, any one of several) at level N or above; `{ untraining = true }`, an
-    /// untraining under way; `{ hero = true }`, a hero; and, for a step (`events`),
+    /// untraining under way; `{ hero = true }`, a hero; `{ sequence = "key", at = N }` or
+    /// `{ sequence = "key", done = true }`, a `[[sequence]]` keeping its own count at so many right
+    /// uses, or at all of them; and, for a step (`events`),
     /// `{ event = "key" }`, an `[[event]]` that must be on, and `{ act = A }`, an act that must be
     /// whole.
     fn requires_and_events(&mut self, name: &str, events: bool) -> Requires {
@@ -5091,16 +5115,17 @@ impl<'a> Fields<'a> {
             Craft(yalain_content::crafts::CraftGate),
             Untraining,
             Hero,
+            Sequence(yalain_content::item_rows::SequenceGate),
         }
         let (what, keys): (&str, &[&str]) = if events {
             (
-                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { quest, failed = true }, { event }, { tally, full }, { tally, at_least, below }, { craft, at_least }, { untraining = true }, { hero = true }, { act } or { kingdom } (neutral, shadow, order or dominion)",
-                &["quest", "phase", "done", "free", "failed", "event", "tally", "full", "at_least", "below", "craft", "untraining", "hero", "act", "kingdom"],
+                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { quest, failed = true }, { event }, { tally, full }, { tally, at_least, below }, { craft, at_least }, { untraining = true }, { hero = true }, { sequence, at }, { sequence, done = true }, { act } or { kingdom } (neutral, shadow, order or dominion)",
+                &["quest", "phase", "done", "free", "failed", "event", "tally", "full", "at_least", "below", "craft", "untraining", "hero", "sequence", "at", "act", "kingdom"],
             )
         } else {
             (
-                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { quest, failed = true }, { tally, full }, { tally, at_least, below }, { craft, at_least }, { untraining = true }, { hero = true } or { kingdom } (neutral, shadow, order or dominion)",
-                &["quest", "phase", "done", "free", "failed", "tally", "full", "at_least", "below", "craft", "untraining", "hero", "kingdom"],
+                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { quest, failed = true }, { tally, full }, { tally, at_least, below }, { craft, at_least }, { untraining = true }, { hero = true }, { sequence, at }, { sequence, done = true } or { kingdom } (neutral, shadow, order or dominion)",
+                &["quest", "phase", "done", "free", "failed", "tally", "full", "at_least", "below", "craft", "untraining", "hero", "sequence", "at", "kingdom"],
             )
         };
         let all = self.list_of(name, what, keys, |t| {
@@ -5118,6 +5143,19 @@ impl<'a> Fields<'a> {
             }
             if let Some(h) = t.get("hero") {
                 return (t.len() == 1 && h.as_bool() == Some(true)).then_some(Req::Hero);
+            }
+            if let Some(q) = t.get("sequence") {
+                use yalain_content::item_rows::{SequenceGate, SequenceNeed};
+                let key = q.as_str().filter(|s| is_symbol(s))?.to_string();
+                let need = match (t.len(), t.get("at"), t.get("done")) {
+                    (2, Some(n), None) => SequenceNeed::At(as_u32(n)?),
+                    (2, None, Some(d)) if d.as_bool() == Some(true) => SequenceNeed::Done,
+                    _ => return None,
+                };
+                return Some(Req::Sequence(SequenceGate { key, need }));
+            }
+            if t.contains_key("at") {
+                return None;
             }
             if let Some(e) = t.get("event") {
                 return (t.len() == 1)
@@ -5158,6 +5196,7 @@ impl<'a> Fields<'a> {
         let mut crafts = Vec::new();
         let mut untraining = false;
         let mut heroes = false;
+        let mut sequences = Vec::new();
         for r in all {
             match r {
                 Req::Quest(q, n) => quests.push((q, n)),
@@ -5168,6 +5207,7 @@ impl<'a> Fields<'a> {
                 Req::Craft(c) => crafts.push(c),
                 Req::Untraining => untraining = true,
                 Req::Hero => heroes = true,
+                Req::Sequence(g) => sequences.push(g),
             }
         }
         if kingdoms.len() > 1 {
@@ -5182,6 +5222,7 @@ impl<'a> Fields<'a> {
             crafts,
             untraining,
             heroes,
+            sequences,
         }
     }
 

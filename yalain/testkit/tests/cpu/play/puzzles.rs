@@ -129,7 +129,8 @@ fn sequences() -> Vec<Sequence> {
     vec![
         Sequence {
             key: "long".into(),
-            quest: LONG,
+            quest: Some(LONG),
+            forgets_after: None,
             uses: vec![
                 (A, Some("white".into())),
                 (B, Some("white".into())),
@@ -143,7 +144,8 @@ fn sequences() -> Vec<Sequence> {
         },
         Sequence {
             key: "short".into(),
-            quest: SHORT,
+            quest: Some(SHORT),
+            forgets_after: None,
             uses: vec![(A, Some("white".into())), (C, None)],
             objects: Vec::new(),
             wrong_starts_over: true,
@@ -629,7 +631,8 @@ fn pillars(wrong_starts_over: bool) -> (Harness, [u64; 3]) {
     h.server.item_rows = ItemRows {
         sequences: vec![Sequence {
             key: "pillars".into(),
-            quest: LONG,
+            quest: Some(LONG),
+            forgets_after: None,
             uses: vec![(A, None), (A, None), (A, None)],
             objects: vec![Some(1), Some(0), Some(2)],
             wrong_starts_over,
@@ -684,4 +687,218 @@ fn an_order_starting_over_only_for_a_used_object_lets_one_further_on_be_tried() 
     let from = use_tile(&mut h, a, one, p[1]);
     assert_eq!(phase(&h, one, LONG), 0, "one already used: started over");
     assert_eq!(tells(&h, a, from), [WRONG]);
+}
+
+/// How long a count of its own lasts after its last right use, in the temple's order.
+const FORGETS: f64 = 120.0;
+/// The temple's way in: an object of another template beside the pillars.
+const WAY_IN: u64 = 0x8130_0000_0000_0914;
+
+/// The temple: three pillars of one template and an order of them keeping its own count (the
+/// second, the first, then the third), starting over only for a pillar already used, forgotten
+/// [`FORGETS`] after its last right use; and a way in whose step gives the short quest only where
+/// the order stands as `need` says.
+fn temple(need: yalain_content::item_rows::SequenceNeed) -> (Harness, [u64; 3]) {
+    use yalain_content::item_rows::SequenceGate;
+    let (mut h, p) = pillars(false);
+    h.server.content.objects.push(tile(WAY_IN, B, 62.0));
+    let q = &mut h.server.item_rows.sequences[0];
+    q.key = "temple".into();
+    q.quest = None;
+    q.forgets_after = Some(FORGETS);
+    let step = Step {
+        key: "in".into(),
+        quest: SHORT,
+        needs: 0,
+        trigger: Trigger::Use(B),
+        tell: Some(yalain_content::Words::Ref(STEP_LINE, TABLE)),
+        update: Update::Bestow,
+        xp: 0,
+        gives: Vec::new(),
+        counts: Vec::new(),
+        effects: Vec::new(),
+        text: None,
+        recipes: Vec::new(),
+        placed: "authored for a test".into(),
+        requires: Vec::new(),
+        takes: Vec::new(),
+        to: None,
+        races: Vec::new(),
+        effects_last: false,
+        effects_quiet: false,
+        fellows: false,
+        wants: None,
+        levels: None,
+        xp_share: 0.0,
+        transforms: None,
+        chance: None,
+        to_fellows: false,
+    };
+    h.server.quests.steps.push(step.clone());
+    h.server.item_rows.sequence_steps.push((
+        step,
+        SequenceGate {
+            key: "temple".into(),
+            need,
+        },
+    ));
+    (h, p)
+}
+
+/// Put players in one fellowship, the first leading.
+fn fellows(h: &mut Harness, ids: &[u64]) {
+    use yalain_world::fellowship::{Fellow, Fellowship, Vitals};
+    h.server.fellowships.list.push(Fellowship {
+        name: "The Band".into(),
+        leader: ids[0],
+        flags: 0x1,
+        room: 7,
+        fellows: ids
+            .iter()
+            .map(|id| Fellow {
+                id: *id,
+                joined: 0.0,
+                sent: Vitals::default(),
+                next_check: f64::MAX,
+            })
+            .collect(),
+        last_claimant: 0,
+    });
+}
+
+/// An order with no quest keeps its count for the fellowship: fellows' right uses add up in one
+/// count, told the right line, and give no quest; once it is done, every fellow is let in by the
+/// way in's step and the order judges no more of their uses; a player in no fellowship has a count
+/// of its own, none made, and is kept out.
+/// Behaviour: server.puzzles.an-order-counted-for-the-fellowship
+#[test]
+fn an_order_of_its_own_counts_for_the_whole_fellowship_and_lets_every_fellow_in() {
+    use yalain_content::item_rows::SequenceNeed;
+    let (mut h, p) = temple(SequenceNeed::Done);
+    let (a, one) = player(&mut h, "one", "Elara");
+    let (b, two) = player(&mut h, "two", "Tysis");
+    let (c, three) = player(&mut h, "three", "Orun");
+    fellows(&mut h, &[one, two]);
+    let from = use_tile(&mut h, a, one, p[1]);
+    assert_eq!(tells(&h, a, from), [RIGHT]);
+    let from = use_tile(&mut h, b, two, p[0]);
+    assert_eq!(tells(&h, b, from), [RIGHT], "a fellow's use counts on");
+    let from = use_tile(&mut h, a, one, p[2]);
+    assert_eq!(tells(&h, a, from), [RIGHT], "the last");
+    assert_eq!(phase(&h, one, LONG), 0, "no quest given");
+    let from = use_tile(&mut h, b, two, p[1]);
+    assert!(tells(&h, b, from).is_empty(), "done: not judged");
+    for (bot, me) in [(a, one), (b, two)] {
+        let from = use_tile(&mut h, bot, me, WAY_IN);
+        assert_eq!(tells(&h, bot, from), [STEP_LINE], "a fellow let in");
+        assert_eq!(phase(&h, me, SHORT), 1);
+    }
+    let from = use_tile(&mut h, c, three, WAY_IN);
+    assert_ne!(
+        tells(&h, c, from),
+        [STEP_LINE],
+        "one of no fellowship kept out"
+    );
+    assert_eq!(phase(&h, three, SHORT), 0);
+    // Its own count: the second pillar first moves it on.
+    let from = use_tile(&mut h, c, three, p[1]);
+    assert_eq!(tells(&h, c, from), [RIGHT], "a count of its own");
+}
+
+/// A fellow's use of a pillar already used starts the fellowship's count over for them all; one
+/// further on is only told the wrong line. A step waiting on so many right uses runs only at that
+/// count.
+/// Behaviour: server.puzzles.an-order-counted-for-the-fellowship
+#[test]
+fn a_fellows_wrong_use_starts_the_count_over_for_all_and_a_step_may_wait_on_a_count() {
+    use yalain_content::item_rows::SequenceNeed;
+    let (mut h, p) = temple(SequenceNeed::At(1));
+    let (a, one) = player(&mut h, "one", "Elara");
+    let (b, two) = player(&mut h, "two", "Tysis");
+    fellows(&mut h, &[one, two]);
+    use_tile(&mut h, a, one, p[1]);
+    let from = use_tile(&mut h, b, two, p[2]);
+    assert_eq!(tells(&h, b, from), [WRONG], "further on: told");
+    let from = use_tile(&mut h, b, two, WAY_IN);
+    assert_eq!(tells(&h, b, from), [STEP_LINE], "at one right use");
+    let from = use_tile(&mut h, b, two, p[1]);
+    assert_eq!(tells(&h, b, from), [WRONG], "already used: started over");
+    let from = use_tile(&mut h, a, one, WAY_IN);
+    assert_ne!(
+        tells(&h, a, from),
+        [STEP_LINE],
+        "started over for its fellows too"
+    );
+    assert_eq!(phase(&h, one, SHORT), 0);
+    let from = use_tile(&mut h, a, one, p[1]);
+    assert_eq!(tells(&h, a, from), [RIGHT], "from the first again");
+}
+
+/// A count of its own is forgotten its row's time after its last right use, done or not: the way in
+/// is shut to the fellowship again and the order is judged from its first use.
+/// Behaviour: server.puzzles.an-order-counted-for-the-fellowship
+#[test]
+fn an_orders_own_count_is_forgotten_its_rows_time_after_its_last_right_use() {
+    use yalain_content::item_rows::SequenceNeed;
+    let (mut h, p) = temple(SequenceNeed::Done);
+    let (a, one) = player(&mut h, "one", "Elara");
+    for k in [1, 0, 2] {
+        use_tile(&mut h, a, one, p[k]);
+    }
+    run_for(&mut h, FORGETS - 20.0);
+    let from = use_tile(&mut h, a, one, p[1]);
+    assert!(tells(&h, a, from).is_empty(), "still done");
+    run_for(&mut h, 20.0);
+    let from = use_tile(&mut h, a, one, WAY_IN);
+    assert_ne!(tells(&h, a, from), [STEP_LINE], "forgotten: kept out");
+    let from = use_tile(&mut h, a, one, p[1]);
+    assert_eq!(tells(&h, a, from), [RIGHT], "judged from the first again");
+}
+
+/// A give waiting on an order of its own takes its item only from a player whose count stands
+/// done; before, even with one use still to make, the item is handed back.
+/// Behaviour: server.puzzles.an-order-counted-for-the-fellowship
+#[test]
+fn a_give_waiting_on_an_order_of_its_own_takes_its_item_only_once_the_order_is_done() {
+    use yalain_content::item_rows::{SequenceGate, SequenceNeed};
+    let (mut h, p) = temple(SequenceNeed::Done);
+    let row = yalain_content::quests::Give {
+        to: B,
+        item: Some(GREEN_ORB),
+        wants: None,
+        gives: Vec::new(),
+        counts: Vec::new(),
+        effects: Vec::new(),
+        text: None,
+        effects_quiet: false,
+        fx: None,
+        requires: Vec::new(),
+        placed: "authored for a test".into(),
+    };
+    h.server.quests.gives.push(row.clone());
+    h.server.item_rows.sequence_gives.push((
+        row,
+        SequenceGate {
+            key: "temple".into(),
+            need: SequenceNeed::Done,
+        },
+    ));
+    let (a, one) = player(&mut h, "one", "Elara");
+    let orb = hold(&mut h, one, GREEN_ORB);
+    give(&mut h, a, one, orb, WAY_IN);
+    assert!(
+        holds(&h, one, orb.0),
+        "handed back before the order is begun"
+    );
+    for k in [1, 0] {
+        use_tile(&mut h, a, one, p[k]);
+    }
+    give(&mut h, a, one, orb, WAY_IN);
+    assert!(
+        holds(&h, one, orb.0),
+        "handed back with a use still to make"
+    );
+    use_tile(&mut h, a, one, p[2]);
+    give(&mut h, a, one, orb, WAY_IN);
+    assert!(!holds(&h, one, orb.0), "taken once it is");
 }

@@ -91,6 +91,26 @@ pub struct ItemRows {
     pub step_picks: Vec<(crate::quests::Step, Vec<(u32, u32)>)>,
     /// Gives that move no quest and also hand out one of several items, likewise.
     pub give_picks: Vec<(crate::quests::Give, Vec<(u32, u32)>)>,
+    /// Quest steps that run only where an order of uses keeping its own count stands as they
+    /// name: each step with its gate.
+    pub sequence_steps: Vec<(crate::quests::Step, SequenceGate)>,
+    /// Gives that move no quest and take their item only so, likewise.
+    pub sequence_gives: Vec<(crate::quests::Give, SequenceGate)>,
+}
+
+/// Where an order of uses keeping its own count must stand for a step or a give to run: its row's
+/// key, and the count it needs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SequenceGate {
+    pub key: String,
+    pub need: SequenceNeed,
+}
+
+/// The count an order of uses must stand at: so many right uses made, or every one of them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SequenceNeed {
+    At(u32),
+    Done,
 }
 
 /// The states the world's objects of some templates hold: each object one of them, its first at the
@@ -122,13 +142,17 @@ pub struct StateChange {
 /// state it names, moves the row's quest on a phase (the first gives it), and the last takes the
 /// player where the row says; a use of another, or of the next in another state, takes the quest
 /// away from a player who has it under way, and the order starts over (unless the row starts over
-/// only for an object already used). A use names a template, or one placed object of it.
+/// only for an object already used). A use names a template, or one placed object of it. A row with
+/// no quest keeps its own count of the right uses made, its fellowship's for a player in one.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Sequence {
     /// The row's key.
     pub key: String,
-    /// The quest whose phase counts the right uses made.
-    pub quest: u32,
+    /// The quest whose phase counts the right uses made; none: the row keeps its own count, one for
+    /// each fellowship and one for each player in none.
+    pub quest: Option<u32>,
+    /// Seconds after its last right use a count of its own is forgotten, done or not (none: never).
+    pub forgets_after: Option<f64>,
     /// The uses in order: the template used and the state its object must be in (none: any).
     pub uses: Vec<(u32, Option<String>)>,
     /// The placed object each use must be of, by its place in the world's list of placed objects,
@@ -216,6 +240,28 @@ impl ItemRows {
             .iter()
             .find(|(s, _)| s.quest == step.quest && s.key == step.key)
             .map(|(_, p)| p.as_slice())
+    }
+
+    /// The orders of uses a step waits on: the gates of the step of its quest and key.
+    pub fn step_sequences<'a>(
+        &'a self,
+        step: &'a crate::quests::Step,
+    ) -> impl Iterator<Item = &'a SequenceGate> + 'a {
+        self.sequence_steps
+            .iter()
+            .filter(move |(s, _)| s.quest == step.quest && s.key == step.key)
+            .map(|(_, g)| g)
+    }
+
+    /// The orders of uses a give waits on.
+    pub fn give_sequences<'a>(
+        &'a self,
+        give: &'a crate::quests::Give,
+    ) -> impl Iterator<Item = &'a SequenceGate> + 'a {
+        self.sequence_gives
+            .iter()
+            .filter(move |(g, _)| g == give)
+            .map(|(_, g)| g)
     }
 
     /// The one of several items a give also hands out, if it names some.
