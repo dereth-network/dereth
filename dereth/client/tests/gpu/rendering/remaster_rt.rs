@@ -13,7 +13,8 @@ use std::sync::Arc;
 
 use dereth_dat::RetailDatStore;
 use dereth_render::device::{Backend, DeviceConfig, Gpu};
-use dereth_scene::world_scene::{RemasterAcceleration, RemasterCapture};
+use dereth_scene::art_pack::ArtPack;
+use dereth_scene::world_scene::{RemasterAcceleration, RemasterCapture, RemasterPacks};
 
 use crate::instruments::remaster_frames;
 use crate::instruments::stations::{Shot, Station};
@@ -60,9 +61,26 @@ struct Traced {
 }
 
 fn traced(store: &Arc<RetailDatStore>, station: &Station) -> Option<Traced> {
+    traced_with(store, station, None, (STEP, ALL_BUT_BODY))
+}
+
+/// [`traced`] with `pack` drawn, every kind of its models, and the rays through every `step`th
+/// pixel a side checked against what `mask` names.
+fn traced_with(
+    store: &Arc<RetailDatStore>,
+    station: &Station,
+    pack: Option<Arc<ArtPack>>,
+    (step, mask): (u32, u8),
+) -> Option<Traced> {
     let mut gpu = device();
     let mut shot = Shot::open(store, &mut gpu, station);
     shot.poll(&mut gpu);
+    if let Some(p) = pack {
+        shot.scene.draw.set_remaster_pack(Some(p), None);
+        shot.scene
+            .draw
+            .set_remaster_packs(RemasterPacks::all(), &mut gpu);
+    }
     shot.scene
         .draw
         .set_remaster(true, store, &mut gpu)
@@ -75,6 +93,8 @@ fn traced(store: &Arc<RetailDatStore>, station: &Station) -> Option<Traced> {
         return None;
     }
     shot.scene.draw.set_remaster_acceleration(true, &mut gpu);
+    shot.step_held(&mut gpu);
+    shot.scene.wait_for_remaster_ground();
     for _ in 0..6 {
         shot.step_held(&mut gpu);
     }
@@ -91,7 +111,7 @@ fn traced(store: &Arc<RetailDatStore>, station: &Station) -> Option<Traced> {
     let rays = shot
         .scene
         .draw
-        .remaster_acceleration_check(&mut gpu, STEP, ALL_BUT_BODY)
+        .remaster_acceleration_check(&mut gpu, step, mask)
         .expect("the structures were built");
     shot.scene
         .draw
@@ -183,6 +203,79 @@ fn rays_cast_from_the_eye_find_what_the_picture_shows() {
         assert!(shown > 1000, "{name}: the world is in the picture: {a:?}");
         assert!(a.agree * 100 >= shown * 95, "{name}: {a:?}");
     }
+}
+
+/// An art pack's ground cover, as the structures mask it.
+const COVER: u8 = 32;
+
+/// How far from the eye the test's ground cover is drawn, meters.
+const COVER_REACH: f32 = 20.0;
+
+/// A pack scattering an upright card a meter high over every kind of ground, drawn out
+/// to [`COVER_REACH`] and no farther.
+fn cover_pack() -> Arc<ArtPack> {
+    use super::remaster_packs::{card, in_memory, leaf};
+    let grounds = (0..32)
+        .map(|g| g.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let manifest = format!(
+        "[pack]
+name = \"Cover\"
+format = 1
+         [[cover]]
+ground = [{grounds}]
+density = 2.0
+scale = [1.0, 1.0]
+max_slope = 1.0
+         foliage = false
+category = \"plant\"
+         author = \"a\"
+tool = \"t\"
+license = \"CC0-1.0\"
+         [[cover.lod]]
+file = \"cover/card.gltf\"
+distance = {COVER_REACH}
+"
+    );
+    let (gltf, bin) = card(0.6, 1.0);
+    let files = std::collections::HashMap::from([
+        ("manifest.toml".to_owned(), manifest.into_bytes()),
+        ("cover/card.gltf".to_owned(), gltf.into_bytes()),
+        ("cover/card.bin".to_owned(), bin),
+        ("cover/leaf.png".to_owned(), leaf()),
+    ]);
+    in_memory(&files)
+}
+
+/// **Ground cover is traced only as near as it is drawn**: up a grassy slope, with a pack's
+/// cover scattered over every kind of ground and drawn out to twenty meters, rays from the eye
+/// meet the cover near the eye, and never past its reach (and a card's own size): the cover
+/// standing farther off, which the frame does not draw, is left out of the structures.
+#[test]
+fn ground_cover_is_traced_only_as_near_as_it_is_drawn() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let st = station(&store, "ridge");
+    let Some(t) = traced_with(&store, &st, Some(cover_pack()), (2, COVER)) else {
+        return;
+    };
+    let hits: Vec<f32> = t.rays.iter().map(|r| r.0).filter(|d| *d >= 0.0).collect();
+    let farthest = hits.iter().copied().fold(0.0f32, f32::max);
+    eprintln!(
+        "{} of {} rays meet the cover, the farthest {farthest:.1} m",
+        hits.len(),
+        t.rays.len()
+    );
+    assert!(
+        hits.len() > 50,
+        "the cover near the eye is traced: {}",
+        hits.len()
+    );
+    assert!(
+        farthest <= COVER_REACH + 1.0,
+        "no cover is traced past its reach: {farthest} m"
+    );
 }
 
 /// **A device made without ray queries traces none, and the frame draws without them**: with

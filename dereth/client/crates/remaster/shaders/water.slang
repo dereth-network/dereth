@@ -1662,10 +1662,16 @@ Found traced_scene(float3 from, float3 dir, float dist)
     }
     else
     {
-        // A mesh: its corners' normals turned into the world, and its texture.
+        // A mesh: its corners' normals turned into the world, and its texture, read as the
+        // G-buffer reads it: moved by its instance's offset, and a pack's leaves turned toward the
+        // frame's green.
+        uint index = h.index;
+        uint4 entry = index < statics_first
+                          ? row_u(c.z, index * 2)
+                          : row_u(c.w, (index - statics_first) * 2);
         ByteAddressBuffer ib = buffers[NonUniformResourceIndex(indices)];
         float3 nl = float3(0.0, 0.0, 0.0);
-        float2 uv = float2(0.0, 0.0);
+        float2 uv = row(instances, entry.x * INSTANCE_ROWS + 6).xy;
         float3 tint = float3(0.0, 0.0, 0.0);
         for (uint v = 0; v < 3; v++)
         {
@@ -1690,14 +1696,14 @@ Found traced_scene(float3 from, float3 dir, float dist)
                          .rgb;
         }
         // A surface drawn under its vertices' colors.
-        if ((m.y & 512) != 0)
+        if ((m.y & VERTEX_COLORED) != 0)
         {
             albedo *= tint;
         }
-        uint index = h.index;
-        uint4 entry = index < statics_first
-                          ? row_u(c.z, index * 2)
-                          : row_u(c.w, (index - statics_first) * 2);
+        if ((m.y & PACK_FOLIAGE) != 0)
+        {
+            albedo = pack_foliage(push.frame, albedo);
+        }
         uint4 info = row_u(instances, entry.x * INSTANCE_ROWS + 5);
         cls = info.y;
         leaf = uint(row(materials, g.z * 2 + 1).z) == KIND_FOLIAGE;

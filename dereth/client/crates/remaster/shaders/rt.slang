@@ -175,8 +175,9 @@ struct InstancesPush
     uint instances;
     uint blocks;
     // The entries: two rows each, `uint4(instance or block slot, index of the user's, mask |
-    // kind << 8, 0)` and `uint4(the bottom-level structure's address, low and high, 0, 0)`, the
-    // kind 0 a placed instance, 1 a block's ground.
+    // kind << 8, reach)` and `uint4(the bottom-level structure's address, low and high, 0, 0)`,
+    // the kind 0 a placed instance, 1 a block's ground; the reach (a float's bits) how far from
+    // the eye the instance is held at all, 0 however far.
     uint entries;
     uint count;
     // Where the records go, read and written, and the first record this pass writes.
@@ -185,7 +186,9 @@ struct InstancesPush
 };
 
 // Each entry's record as a top-level build reads it: its transform, three rows of four, its
-// index and mask, its flags (neither face culled), and its bottom-level structure's address.
+// index and mask, its flags (neither face culled), and its bottom-level structure's address. An
+// instance standing farther from the eye than its reach (ground cover, which is drawn only so
+// far) takes no mask, so no ray meets it.
 [shader("compute")]
 [numthreads(64, 1, 1)]
 void cs_instances(uint3 id : SV_DispatchThreadID, uniform InstancesPush push)
@@ -220,11 +223,17 @@ void cs_instances(uint3 id : SV_DispatchThreadID, uniform InstancesPush push)
         // Standing on the ground as it is drawn.
         t.z += lifted(push.frame, push.instances, e.x, instance_origin(push.instances, push.blocks, e.x));
     }
+    uint mask = e.z & 0xFF;
+    float reach = asfloat(e.w);
+    if (reach > 0.0 && length(t - row(push.frame, FRAME_EYE).xyz) > reach)
+    {
+        mask = 0;
+    }
     uint base = (push.first + id.x) * 64;
     RWByteAddressBuffer o = rw_buffers[NonUniformResourceIndex(push.out)];
     o.Store4(base, asuint(float4(c0.x, c1.x, c2.x, t.x)));
     o.Store4(base + 16, asuint(float4(c0.y, c1.y, c2.y, t.y)));
     o.Store4(base + 32, asuint(float4(c0.z, c1.z, c2.z, t.z)));
     // Neither face culled: the instance flag 1, in the high byte.
-    o.Store4(base + 48, uint4((e.y & 0xFFFFFF) | ((e.z & 0xFF) << 24), 1u << 24, a.x, a.y));
+    o.Store4(base + 48, uint4((e.y & 0xFFFFFF) | (mask << 24), 1u << 24, a.x, a.y));
 }

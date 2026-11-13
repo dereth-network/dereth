@@ -320,6 +320,8 @@ impl RtPass {
     /// The frame's structures, when `wanted` and the device traces rays: the bottom-level ones
     /// the scene's resident meshes and grounds need made (built at the recording's head), the
     /// statics' entries made again when what is resident changed, the objects' every frame.
+    /// `cover_reach` says how far from the eye a ground cover whose finest level is a GfxObj is
+    /// drawn at all, at its own size: past it, the structures leave it out, as the frame does.
     ///
     /// # Errors
     /// What the device refuses.
@@ -328,6 +330,7 @@ impl RtPass {
         gfx: &mut Device,
         scene: &GpuScene,
         wanted: bool,
+        cover_reach: &dyn Fn(u32) -> Option<f32>,
     ) -> Result<Option<RtPlan>, dereth_gfx::Error> {
         let Some(pipeline) = self.pipeline else {
             return Ok(None);
@@ -360,7 +363,7 @@ impl RtPass {
             );
         }
         let vertex_counts = std::mem::take(&mut self.vertex_counts.1);
-        let made = self.make_frame(gfx, scene, &vertex_counts);
+        let made = self.make_frame(gfx, scene, &vertex_counts, cover_reach);
         self.vertex_counts.1 = vertex_counts;
         let (object_entries, object_rows) = made?;
         let objects = u32::try_from(object_entries.len()).unwrap_or(u32::MAX);
@@ -666,9 +669,10 @@ impl RtPass {
         gfx: &mut Device,
         scene: &GpuScene,
         facts: &MeshFacts,
+        cover_reach: &dyn Fn(u32) -> Option<f32>,
     ) -> Result<(Vec<Entry32>, Vec<u32>), dereth_gfx::Error> {
         if self.generation != Some(scene.static_generation) {
-            self.make_statics(gfx, scene, facts)?;
+            self.make_statics(gfx, scene, facts, cover_reach)?;
             self.generation = Some(scene.static_generation);
         }
         self.make_objects(gfx, scene, facts)
@@ -680,6 +684,7 @@ impl RtPass {
         gfx: &mut Device,
         scene: &GpuScene,
         facts: &MeshFacts,
+        cover_reach: &dyn Fn(u32) -> Option<f32>,
     ) -> Result<(), dereth_gfx::Error> {
         let mut entries: Vec<u8> = Vec::new();
         let mut static_count = 0u32;
@@ -752,7 +757,17 @@ impl RtPass {
                     } else {
                         mask::STATIC
                     };
-                    for w in entry(part.instance, custom, m, 0, address).words {
+                    // Ground cover is drawn only so far from the eye, its size's share of its
+                    // reach; past it, it is left out of the structures as the frame leaves it out.
+                    let reach = if part.cover {
+                        cover_reach(part.mesh).map_or(0.0, |r| r * part.scale.max_element())
+                    } else {
+                        0.0
+                    };
+                    for w in entry(part.instance, custom, m, 0, address)
+                        .reaching(reach)
+                        .words
+                    {
                         own.entries.extend_from_slice(&w.to_le_bytes());
                     }
                 }
@@ -959,7 +974,8 @@ impl RtPlan {
 }
 
 /// One entry: the instance (or block slot for a ground), its index of the user's, its mask and
-/// kind, and its bottom-level structure's address.
+/// kind, and its bottom-level structure's address; and how far from the eye it is held at all
+/// (0: however far), which [`Entry32::reaching`] sets.
 fn entry(instance: u32, custom: u32, mask: u8, kind: u32, address: u64) -> Entry32 {
     #[allow(clippy::cast_possible_truncation)] // the address's two halves
     Entry32 {
@@ -973,6 +989,15 @@ fn entry(instance: u32, custom: u32, mask: u8, kind: u32, address: u64) -> Entry
             0,
             0,
         ],
+    }
+}
+
+impl Entry32 {
+    /// The entry held only while it stands within `reach` meters of the eye (0: however far):
+    /// past it, its instance is in the top-level structure with no mask, which no ray meets.
+    fn reaching(mut self, reach: f32) -> Self {
+        self.words[3] = reach.to_bits();
+        self
     }
 }
 
@@ -1221,5 +1246,18 @@ mod tests {
     fn an_entry_carries_its_instance_index_mask_kind_and_address() {
         let e = entry(7, 9, mask::GROUND, 1, 0x1_2345_6789);
         assert_eq!(e.words, [7, 9, 4 | (1 << 8), 0, 0x2345_6789, 1, 0, 0]);
+    }
+
+    /// **A ground cover's entry carries how far from the eye it is held**: its reach in its
+    /// fourth word, as a float's bits, and nothing else of it changed; an entry with no reach
+    /// holds 0 there, which is held however far.
+    #[test]
+    fn a_ground_covers_entry_carries_how_far_from_the_eye_it_is_held() {
+        let e = entry(7, 9, mask::COVER, 0, 0x40);
+        let held = e.reaching(48.0);
+        assert_eq!(f32::from_bits(held.words[3]), 48.0);
+        assert_eq!(held.words[..3], e.words[..3]);
+        assert_eq!(held.words[4..], e.words[4..]);
+        assert_eq!(e.words[3], 0);
     }
 }

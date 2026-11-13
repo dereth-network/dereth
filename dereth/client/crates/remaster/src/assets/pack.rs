@@ -251,6 +251,9 @@ pub struct PackSwaps {
     distances: BTreeMap<u32, f32>,
     /// The meshes of the models the pack scatters as ground cover.
     cover: BTreeSet<u32>,
+    /// How far from the eye a ground cover's model is drawn at all, by each of its levels' meshes:
+    /// its last level's distance, past which it draws nothing.
+    reaches: BTreeMap<u32, f32>,
 }
 
 impl PackSwaps {
@@ -261,17 +264,31 @@ impl PackSwaps {
         deltas: Vec<SceneDelta>,
         model: &mut dyn FnMut(u32) -> Option<PackModel>,
     ) -> Vec<SceneDelta> {
-        let (meshes, distances, cover) = (&mut self.meshes, &mut self.distances, &mut self.cover);
+        let (meshes, distances, cover, reaches) = (
+            &mut self.meshes,
+            &mut self.distances,
+            &mut self.cover,
+            &mut self.reaches,
+        );
         let on = self.settings;
         let mut counted = |id: u32| {
             let m = model(id).filter(|m| on.models(m.category));
             if let Some(m) = &m {
                 // A level that draws nothing (past a ground cover's reach) is no mesh of the pack's.
+                let reach = m
+                    .levels
+                    .iter()
+                    .rev()
+                    .find(|l| l.mesh != 0)
+                    .map(|l| l.distance);
                 for l in m.levels.iter().filter(|l| l.mesh != 0) {
                     meshes.insert(l.mesh);
                     distances.insert(l.mesh, l.distance);
                     if m.cover && l.mesh != 0 {
                         cover.insert(l.mesh);
+                        if let Some(r) = reach.filter(|r| r.is_finite()) {
+                            reaches.insert(l.mesh, r);
+                        }
                     }
                 }
             }
@@ -297,6 +314,14 @@ impl PackSwaps {
     #[must_use]
     pub fn distance(&self, mesh: u32) -> Option<f32> {
         self.distances.get(&mesh).copied()
+    }
+
+    /// How far from the eye the ground cover whose level's mesh is `mesh` is drawn at all, at its
+    /// own size: past it, it draws nothing. `None` for a mesh that is not ground cover's, or one
+    /// drawn however far.
+    #[must_use]
+    pub fn cover_reach(&self, mesh: u32) -> Option<f32> {
+        self.reaches.get(&mesh).copied()
     }
 
     /// Whether `mesh` is a level of a model the pack scatters as ground cover.

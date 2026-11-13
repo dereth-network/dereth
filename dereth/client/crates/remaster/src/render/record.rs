@@ -564,7 +564,10 @@ impl Renderer {
             .map(|m| m.vertices.start)
             .collect();
         self.rt.set_posed(posed);
-        let rt = self.rt.prepare(&mut self.gfx, &self.scene, wanted)?;
+        let packs = &self.packs;
+        let rt = self.rt.prepare(&mut self.gfx, &self.scene, wanted, &|m| {
+            packs.cover_reach(m)
+        })?;
         let rt_shadow = self
             .rt_shadow
             .prepare(&frame, shadow.is_some(), rt.is_some());
