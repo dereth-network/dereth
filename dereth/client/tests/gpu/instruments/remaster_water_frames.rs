@@ -14,10 +14,16 @@
 //!   draws something of its own).
 //! - `DERETH_REMASTER_LOOK_TAG`: a word in the pictures' names, to keep runs apart.
 //! - `DERETH_REMASTER_SIZE`: `WIDTHxHEIGHT` (default 960x540).
-//! - `DERETH_ART_PACK`: the art pack the remaster's pack boxes draw (default none).
+//! - `DERETH_ART_PACK`: the art pack the remaster's pack boxes draw, or several joined by `;`,
+//!   bottom first (default none).
 //! - `DERETH_WATER_CHECK`: set, each water pixel shows what its reflection found instead: red a
 //!   surface, green the land, blue the sky.
 //! - `DERETH_WATER_WAKE`: `off` draws the water with no wake.
+//! - `DERETH_WATER_CREATURES`: creatures standing in the view, a semicolon list of
+//!   `setup:mtable@block:x,y,heading` (hex ids and block, block-local meters, heading in degrees),
+//!   as a server would place them.
+//! - `DERETH_WATER_UPSCALE`: `fsr` or `dlss`, drawn at two thirds of the pixels each way (none by
+//!   default).
 //! - `DERETH_WATER_EVERY_FRAME`: set, a walk is three seconds long and each of its frames is also
 //!   written as `<view>-<tag>-NNN.png`, for a video.
 
@@ -66,8 +72,12 @@ const TREE_ACROSS: &str = "dereth report 1; loc 0xA9B50024 [94.0 76.5 27.9] 0.60
 /// the ground draws, which a straight blend of the cell's corners would take for land.
 const DIAGONAL: &str = "dereth report 1; loc 0x3F310004 [9.482313 82.167168 -0.095000] -0.179143                         0.000000 0.000000 -0.983823";
 
+/// The lake at night, the body at its edge, the camera low over the water behind it, as a player
+/// reported its reflection with the sun's shadows and the occlusion traced.
+const NIGHT: &str = "dereth report 1; loc 0xA9B50024 [99.470543 95.769867 27.105000] -0.418959 0                      0 -0.908005; camera 0xA9B5 [104.0346 99.66284 28.48499] yaw -4.006189 pitch                      0.020000298 cell 0xA9B50025; time 0.983; clock 306486600.0; weather auto";
+
 /// Every view: its name, then how it is drawn.
-const SCENES: [&str; 21] = [
+const SCENES: [&str; 22] = [
     "lake-up",
     "lake-level",
     "lake-down",
@@ -89,6 +99,7 @@ const SCENES: [&str; 21] = [
     "pillar-night",
     "tree-bank",
     "tree-across",
+    "lake-night",
 ];
 
 /// Where a view is drawn from.
@@ -109,6 +120,8 @@ enum View {
         pitch: f32,
         hour: f32,
     },
+    /// A report's place at `hour` of a fair day.
+    Fair { line: &'static str, hour: f32 },
     /// A free camera `eye` metres over block-local `(x, y)` of `block`, at `hour` of a fair day.
     Free {
         block: u16,
@@ -199,6 +212,10 @@ fn view(name: &str) -> View {
             pitch: 0.0,
             hour: 0.55,
         },
+        "lake-night" => View::Fair {
+            line: NIGHT,
+            hour: 0.983,
+        },
         "wade-up" => report(POND, 0.0, -3.0, 0.75),
         "wade-river" | "wade-river-walk" => report(RIVER, 0.0, 0.0, 0.0),
         "wade-diagonal" | "wade-diagonal-walk" => report(DIAGONAL, 0.0, 0.0, 0.0),
@@ -235,6 +252,19 @@ fn place(store: &Arc<RetailDatStore>, v: &View) -> (Station, Option<VisualReport
                 },
             );
             st.clock = stations::Clock::Rainy(*hour);
+            (st, report)
+        }
+        View::Fair { line, hour } => {
+            let (mut st, report) = place(
+                store,
+                &View::Report {
+                    line,
+                    back: 0.0,
+                    up: 0.0,
+                    pitch: 0.0,
+                },
+            );
+            st.clock = stations::Clock::Sunny(*hour);
             (st, report)
         }
         View::Free {
@@ -371,30 +401,82 @@ fn capture_the_remasters_water() {
     let backend = crate::common::remaster_backend();
     for name in &names {
         let at = place(&store, &view(name));
-        let cfg = DeviceConfig {
+        #[allow(unused_mut)]
+        let mut cfg = DeviceConfig {
             width: size.0,
             height: size.1,
             remaster: true,
             ..DeviceConfig::default()
         };
+        // What DLSS asks of the device, as the client asks for it.
+        #[cfg(all(feature = "dlss", windows))]
+        {
+            cfg.remaster_extensions = dereth_scene::world_scene::remaster_device_extensions();
+        }
         let mut gpu = Gpu::new_on(backend, None, &cfg).expect("a device");
         let mut shot = Shot::open(&store, &mut gpu, &at.0);
         if let Some(r) = at.1.as_ref() {
             shot.apply_report(r);
         }
         shot.poll(&mut gpu);
-        if let Some(path) = env("DERETH_ART_PACK").map(std::path::PathBuf::from) {
-            let pack = Arc::new(ArtPack::open_path(&path).expect("the pack opens"));
-            let folder = path.is_dir().then(|| path.clone());
+        if let Some(list) = env("DERETH_ART_PACK") {
+            let paths: Vec<std::path::PathBuf> =
+                list.split(';').map(std::path::PathBuf::from).collect();
+            let pack = Arc::new(ArtPack::open_stack(&paths).expect("the packs open"));
+            let folder = paths
+                .first()
+                .filter(|p| paths.len() == 1 && p.is_dir())
+                .cloned();
             shot.scene.draw.set_remaster_pack(Some(pack), folder);
         }
         shot.scene.draw.cfg.render.fidelity =
             FidelityPreferences::parse_switch(&boxes).expect("the boxes read");
         shot.poll(&mut gpu);
+        let hex = |v: &str| u32::from_str_radix(v.trim().trim_start_matches("0x"), 16);
+        for (i, spot) in env("DERETH_WATER_CREATURES")
+            .unwrap_or_default()
+            .split(';')
+            .filter(|s| !s.trim().is_empty())
+            .enumerate()
+        {
+            let (ids, at) = spot
+                .split_once('@')
+                .expect("setup:mtable@block:x,y,heading");
+            let (setup, table) = ids.split_once(':').expect("setup:mtable");
+            let (block, rest) = at.split_once(':').expect("block:x,y,heading");
+            let n: Vec<f32> = rest
+                .split(',')
+                .map(|v| v.trim().parse().expect("a number"))
+                .collect();
+            let block = u16::try_from(hex(block).expect("a hex block")).expect("a block");
+            shot.create_object(
+                0x8300_0900 + u32::try_from(i).unwrap_or(0),
+                (hex(setup).expect("a hex setup"), hex(table).ok()),
+                block,
+                (n[0], n[1]),
+                n[2],
+            );
+        }
         if env("DERETH_WATER_WAKE").is_some_and(|v| v == "off") {
             let w = shot.scene.draw.remaster_water();
             shot.scene.draw.set_remaster_water(
                 dereth_scene::world_scene::RemasterWater { wake: false, ..w },
+                &mut gpu,
+            );
+        }
+        if let Some(mode) = env("DERETH_WATER_UPSCALE") {
+            use dereth_scene::world_scene::{RemasterUpscale, RemasterUpscaleMode};
+            let mode = match mode.as_str() {
+                "fsr" => RemasterUpscaleMode::Fsr,
+                "dlss" => RemasterUpscaleMode::DlssSr,
+                other => panic!("no upscaler {other}: fsr or dlss"),
+            };
+            shot.scene.draw.set_remaster_upscale(
+                RemasterUpscale {
+                    mode,
+                    scale: 0.67,
+                    ..RemasterUpscale::default()
+                },
                 &mut gpu,
             );
         }

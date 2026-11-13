@@ -507,6 +507,23 @@ impl Recorder<'_> {
         Ok(())
     }
 
+    /// Fit each of `blases` again to where its vertices are now, here: after everything recorded
+    /// so far that writes them. See [`crate::recorder::Recorder::refit_blas`].
+    ///
+    /// # Errors
+    /// As [`Device::refit_blas`].
+    pub fn refit_blas(&mut self, blases: &[crate::rt::Blas]) -> Result<(), Error> {
+        if blases.is_empty() {
+            return Ok(());
+        }
+        for b in blases {
+            self.dev.refit_blas(*b)?;
+        }
+        let list = self.list.clone();
+        self.dev.build_pending(&list, self.at);
+        Ok(())
+    }
+
     /// The device recorded on.
     pub(crate) fn device(&mut self) -> &mut Device {
         self.dev

@@ -118,8 +118,10 @@ pub struct Plan {
     planar: Option<super::planar::PlanarPlan>,
     /// The weather's frame, when any of it is drawn.
     weather: Option<super::weather::WeatherPlan>,
-    /// The scene's acceleration structures, when the frame traces rays.
+    /// The scene's acceleration structures, when the frame traces rays, and the structures of
+    /// the meshes posed this frame, refitted once they are posed.
     pub rt: Option<super::rt::RtPlan>,
+    rt_refitting: Vec<dereth_gfx::Blas>,
     /// The bounced light, when it is found.
     gi: Option<super::gi::GiPlan>,
     /// The scene's indices' index in the table.
@@ -796,6 +798,11 @@ impl Renderer {
             skins: self
                 .skin_pass
                 .plan((self.scene.vertices.buffer, self.scene.vertices.index)),
+            rt_refitting: if rt.is_some() {
+                self.rt.refitting().to_vec()
+            } else {
+                Vec::new()
+            },
             rt,
             gi,
             index_pool: self.scene.indices.index,
@@ -1200,9 +1207,16 @@ impl Plan {
             super::forest::ForestPass::record_cull(f, r)?;
         }
 
-        // 1b. The scene's acceleration structures, when the frame traces rays.
+        // 1b. The scene's acceleration structures, when the frame traces rays: the skinned
+        // bodies' structures fitted to the poses 0. recorded.
         if let Some(rt) = &self.rt {
-            rt.record(r, self.frame, self.instances, self.offsets)?;
+            rt.record(
+                r,
+                &self.rt_refitting,
+                self.frame,
+                self.instances,
+                self.offsets,
+            )?;
         }
 
         // The sun's shadow maps, when they are drawn: not while the sun's share is traced, unless

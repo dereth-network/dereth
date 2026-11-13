@@ -207,6 +207,24 @@ impl Recorder<'_> {
         Ok(())
     }
 
+    /// Fit each of `blases` again to where its vertices are now, here: after everything recorded
+    /// so far that writes them, rather than at the recording's head as [`Device::refit_blas`]
+    /// does. Each must have been made by [`Device::create_blas_refitted`]; any other structure
+    /// waiting to be built is built here too.
+    ///
+    /// # Errors
+    /// As [`Device::refit_blas`].
+    pub fn refit_blas(&mut self, blases: &[crate::rt::Blas]) -> Result<(), Error> {
+        if blases.is_empty() {
+            return Ok(());
+        }
+        for b in blases {
+            self.dev.refit_blas(*b)?;
+        }
+        self.dev.build_pending(self.cmd, self.at);
+        Ok(())
+    }
+
     /// The command buffer being recorded, for what the layer does not wrap.
     #[must_use]
     pub fn raw(&self) -> vk::CommandBuffer {

@@ -39,6 +39,8 @@
 //!   shot) and `stop` (running, then standing still).
 //! - `DERETH_SKIN_EXPORT`: a file to write the first skinned body drawn to, as JSON (its bind-space
 //!   vertices, triangles, influences and inverse binds).
+//! - `DERETH_SKIN_TRACED`: `1` draws the sun's shadows and the occlusion traced through the
+//!   scene's acceleration structures, where the device traces rays (default: neither drawn).
 //!
 //! It prints the time posing the bodies took, a body a frame (on the processor: all of it; on the
 //! device: the joints worked out here), and the device's skinning pass's time a frame.
@@ -56,7 +58,8 @@ use dereth_primitives::{LocalTime, Vec3};
 use dereth_render::device::{DeviceConfig, Gpu};
 use dereth_scene::art_pack::ArtPack;
 use dereth_scene::world_scene::{
-    RemasterLight, RemasterPacks, RemasterPost, SceneReads, SceneWrites, WorldScene,
+    RemasterAo, RemasterLight, RemasterPacks, RemasterPost, RemasterShadows, RemasterTracedAo,
+    RemasterTracedShadows, SceneReads, SceneWrites, WorldScene,
 };
 use {dereth_client_runtime::scene::SceneConfig, dereth_primitives::num::math};
 
@@ -139,6 +142,37 @@ fn frames(
     scene
         .draw
         .set_remaster_light(RemasterLight::Pixel, &mut gpu);
+    if env("DERETH_SKIN_TRACED").is_some_and(|v| v == "1") {
+        // The sun's shadows and the occlusion, both traced.
+        scene.draw.set_remaster_shadows(
+            RemasterShadows {
+                on: true,
+                ..RemasterShadows::default()
+            },
+            &mut gpu,
+        );
+        scene.draw.set_remaster_ao(
+            RemasterAo {
+                on: true,
+                ..RemasterAo::default()
+            },
+            &mut gpu,
+        );
+        scene.draw.set_remaster_traced_shadows(
+            RemasterTracedShadows {
+                on: true,
+                ..RemasterTracedShadows::default()
+            },
+            &mut gpu,
+        );
+        scene.draw.set_remaster_traced_ao(
+            RemasterTracedAo {
+                on: true,
+                ..RemasterTracedAo::default()
+            },
+            &mut gpu,
+        );
+    }
     scene.smooth_animation = env("DERETH_SKIN_SMOOTH").is_some_and(|v| v == "1");
     let motion = env("DERETH_SKIN_MOTION").is_some();
     if motion {

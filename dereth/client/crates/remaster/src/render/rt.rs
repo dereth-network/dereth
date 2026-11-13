@@ -16,8 +16,9 @@
 //!   G-buffer draws opaque or alpha-tested (blended and additive ones left out), one geometry
 //!   each, opaque unless alpha-tested. A skinned body's mesh is posed every frame, so its
 //!   structure is refitted to it every frame, in place ([`RtPass::set_posed`]): made once, as
-//!   the body comes, and fitted again at the head of each frame's recording, before that frame's
-//!   posing, so it holds the body as the last frame posed it: a frame behind the G-buffer.
+//!   the body comes, and fitted again each frame once that frame's posing is recorded, before the
+//!   top-level structure is built ([`RtPlan::record`]), so it holds the body as the G-buffer
+//!   draws it that frame.
 //! - The statics' entries and rows, made again only when what is resident changes.
 //! - The objects' entries and rows, every frame.
 
@@ -182,6 +183,9 @@ pub struct RtPass {
     vertex_counts: (Option<u64>, MeshFacts),
     /// The first vertex of each mesh posed this frame, whose structure is refitted.
     posed: BTreeSet<u32>,
+    /// The structures of the meshes posed this frame, refitted once the frame's posing is
+    /// recorded.
+    refitting: Vec<Blas>,
     static_count: u32,
     static_rows: u32,
     statics: Option<(PerFrame, PerFrame)>,
@@ -246,6 +250,7 @@ impl RtPass {
             block_statics: BTreeMap::new(),
             vertex_counts: (None, MeshFacts::default()),
             posed: BTreeSet::new(),
+            refitting: Vec::new(),
             static_count: 0,
             static_rows: 0,
             statics: None,
@@ -296,12 +301,20 @@ impl RtPass {
         self.vertex_counts = (None, MeshFacts::default());
         self.counts = RtCounts::default();
         self.last = None;
+        self.refitting.clear();
     }
 
     /// The meshes posed this frame, by their first vertex: their structures are refitted to them
     /// rather than kept as they stand.
     pub fn set_posed(&mut self, first_vertices: BTreeSet<u32>) {
         self.posed = first_vertices;
+    }
+
+    /// The structures of the meshes posed this frame, which [`RtPlan::record`] refits once the
+    /// frame's posing is recorded.
+    #[must_use]
+    pub fn refitting(&self) -> &[Blas] {
+        &self.refitting
     }
 
     /// The frame's structures, when `wanted` and the device traces rays: the bottom-level ones
@@ -326,6 +339,7 @@ impl RtPass {
             return Ok(None);
         }
         self.frame += 1;
+        self.refitting.clear();
         // What the structures take of each mesh, made again only when the meshes change.
         if self.vertex_counts.0 != Some(scene.mesh_generation) {
             self.vertex_counts = (
@@ -550,7 +564,8 @@ impl RtPass {
                 // Its pools moved: made again over their new buffers.
                 h.refitted = false;
             } else if stale && h.refitted {
-                gfx.refit_blas(h.blas)?;
+                // Refitted once the frame's posing is recorded.
+                self.refitting.push(h.blas);
                 self.refits += 1;
                 h.made_at = self.frame;
             }
@@ -580,7 +595,12 @@ impl RtPass {
             })
             .collect();
         let blas = if posed {
-            gfx.create_blas_refitted("remaster posed mesh", &geometries)?
+            // Built at the recording's head from the pose the pool holds, then fitted to the
+            // frame's own once it is posed.
+            let blas = gfx.create_blas_refitted("remaster posed mesh", &geometries)?;
+            self.refitting.push(blas);
+            self.refits += 1;
+            blas
         } else {
             gfx.create_blas("remaster mesh", &geometries)?
         };
@@ -890,18 +910,22 @@ impl RtPass {
 }
 
 impl RtPlan {
-    /// Write each instance's record from its rows, then build the top-level structure from them.
+    /// Fit the structures of the meshes posed this frame (`refitting`, [`RtPass::refitting`]) to
+    /// them, which must be recorded after the posing; write each instance's record from its rows;
+    /// then build the top-level structure from them.
     ///
     /// # Errors
     /// What the device refuses.
     pub fn record(
         &self,
         r: &mut Recorder<'_>,
+        refitting: &[Blas],
         frame: u32,
         instances: u32,
         blocks: u32,
     ) -> Result<(), dereth_gfx::Error> {
         r.timestamp("acceleration");
+        r.refit_blas(refitting)?;
         let total = self.statics + self.objects;
         if total > 0 {
             r.compute(&[Touch::Buffer(self.instances, Use::StorageWrite)], |c| {

@@ -849,11 +849,11 @@ fn met(rgba: &[u8], rays: &[(f32, u32)]) -> (usize, usize) {
     (shown, met)
 }
 
-/// **The traced structures hold a skinned body as it is posed**: running with the structures
-/// kept, the checked pixels showing either leg have their ray from the eye meet the viewer's body.
-/// Posed on the processor, the structures hold the frame's own pose: at least 90% meet it at every
-/// kept frame. Posed on the device, they hold the last frame's: at least 80% of the pixels showing
-/// a leg in the last frame meet it (the body has moved on a frame under them since).
+/// **The traced structures hold a skinned body as it is posed that frame**: running with the
+/// structures kept, the checked pixels showing either leg have their ray from the eye meet the
+/// viewer's body. Posed on the processor or on the device, the structures hold the frame's own
+/// pose, not the last frame's: at least 90% of the pixels showing a leg in the frame meet it at
+/// every kept frame.
 #[test]
 fn the_traced_structures_hold_a_skinned_body_as_it_is_posed() {
     let _gpu = crate::common::gpu_lock();
@@ -877,11 +877,10 @@ fn the_traced_structures_hold_a_skinned_body_as_it_is_posed() {
                 "device {device}, frame {}: this frame's legs {now:?}, the last's {before:?}",
                 k + 1
             );
-            let (shown, met) = if device { before } else { now };
+            let (shown, met) = now;
             assert!(shown > 20, "frame {}: legs drawn", k + 1);
-            let least = if device { 80 } else { 90 };
             assert!(
-                met * 100 >= shown * least,
+                met * 100 >= shown * 90,
                 "device {device}, frame {}: {met} of {shown}",
                 k + 1
             );

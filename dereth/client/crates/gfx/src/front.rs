@@ -842,6 +842,15 @@ impl Recorder<'_> {
         }
     }
 
+    /// Fit each of `blases` again to where its vertices are now, here in the recording: after
+    /// what it has recorded so far that writes them, such as a pass posing them.
+    ///
+    /// # Errors
+    /// See [`crate::recorder::Recorder::refit_blas`].
+    pub fn refit_blas(&mut self, blases: &[crate::rt::Blas]) -> Result<(), Error> {
+        rec!(&mut self.b, r => r.refit_blas(blases))
+    }
+
     /// Build `t` from `count` instances a shader wrote into `buffer` from `offset`, now.
     ///
     /// # Errors
