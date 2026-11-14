@@ -1751,6 +1751,36 @@ fn change_vital<S: Store>(
     }
 }
 
+/// A player's health falls by so much, at most what it has, as its own harm (a hazard's): told with
+/// itself as the one who harmed it, and with none left it dies, by misadventure.
+pub fn own_harm<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    points: i32,
+    clock: Clock,
+) {
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let me = p.character;
+    let max = max_vital(s, p, quality::HEALTH_MAX).max(1);
+    let was = quals::int(&p.qualities, quality::HEALTH).unwrap_or(max);
+    let points = points.min(was);
+    if points <= 0 {
+        return;
+    }
+    change_vital(
+        s,
+        net,
+        world,
+        (quality::HEALTH, quality::HEALTH_MAX),
+        -points,
+        (me, false),
+        clock,
+    );
+}
+
 /// Add a lasting effect as a record: its call (a player's), its appearance when it is the first to
 /// show it, the speed when it changes it; its end at its cast time plus its timeout, and its first
 /// change over time. Returns its id.

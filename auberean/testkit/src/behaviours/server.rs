@@ -11537,6 +11537,28 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.a-hazard-harms-whoever-comes-within-its-reach",
+        says: "A placed object or a spot a world's row makes a hazard harms a player who comes within \
+               its reach, by straight-line distance from its feet: its effects put on in order, then \
+               its harm, so much health or all of it (a death by misadventure); not again while the \
+               player stays within, again once it has left and come back. A hidden object, and a dead \
+               player, are out of it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-HAZARDS"),
+        station: "yalain-testkit::cpu::play::hazards::a_hazard_harms_a_player_coming_within_its_reach_once_until_it_leaves_and_comes_back",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.a-hazard-harms-whoever-uses-it",
+        says: "A placed object a world's row makes a hazard at a use is used as a person is: walked \
+               to, the use answered, then its effects put on its user at their spellcraft and its \
+               harm taken, after all else the use does.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-HAZARDS-USE"),
+        station: "yalain-testkit::cpu::play::hazards::a_hazard_harms_whoever_uses_it_with_its_effects_and_its_harm",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.a-key-gone-opens-no-chest",
         says: "A key out of its turner's pack when it has turned, or by the time the chest has opened, \
                is not used up, and the chest shows nothing and stays locked: the use is refused as the \

@@ -7645,6 +7645,99 @@ fn a_shifting_row_names_its_objects_by_placement_and_compiles_to_the_shift_table
 }
 
 #[test]
+fn a_hazard_row_names_its_objects_by_placement_and_its_spots_and_compiles_to_the_hazard_table() {
+    use yalain_content::hazards::{Harm, Hazard};
+    let mut files = with_lever(fixture());
+    files.insert(
+        "town/server/puzzles.toml".into(),
+        "[[hazard]]\n\
+         key = \"splendor\"\n\
+         objects = [\"gate@77B7\"]\n\
+         used = true\n\
+         touch = 2.5\n\
+         effects = [{ effect = 0x6F0011EF, spellcraft = 20 }, { effect = 0x6F001C66 }]\n\
+         kills = true\n\
+         prov = { from = \"authored\" }\n\
+         \n\
+         [[hazard]]\n\
+         key = \"floor\"\n\
+         spots = [{ cell = 0x77B70100, at = [10.0, 20.0, -0.9] }]\n\
+         touch = 6\n\
+         harm = 40\n\
+         prov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.content.hazards.rows,
+        vec![
+            Hazard {
+                key: "splendor".into(),
+                objects: vec![placed_at(&t, 0x4077_B700_0000_0001)],
+                spots: Vec::new(),
+                used: true,
+                touch: Some(2.5),
+                effects: vec![(0x6F00_11EF, 20.0), (0x6F00_1C66, 1.0)],
+                harm: Some(Harm::All),
+            },
+            Hazard {
+                key: "floor".into(),
+                objects: Vec::new(),
+                spots: vec![(0x77B7_0100, [10.0, 20.0, -0.9])],
+                used: false,
+                touch: Some(6.0),
+                effects: Vec::new(),
+                harm: Some(Harm::Points(40)),
+            },
+        ]
+    );
+
+    for (from, to, says) in [
+        (
+            "objects = [\"gate@77B7\"]",
+            "objects = [\"nowhere@77B7\"]",
+            "objects: no object nowhere@77B7",
+        ),
+        (
+            "objects = [\"gate@77B7\"]",
+            "spots = [{ cell = 0x77B70100, at = [1.0, 2.0, 3.0] }]",
+            "used: only a row with objects is used",
+        ),
+        (
+            "spots = [{ cell = 0x77B70100, at = [10.0, 20.0, -0.9] }]\n",
+            "",
+            "objects: at least one object or spot",
+        ),
+        ("touch = 6", "touch = 0", "touch: above 0"),
+        (
+            "touch = 6\n",
+            "",
+            "touch: a row harms at a use or a touch, or both",
+        ),
+        ("harm = 40", "harm = 0", "harm: above 0"),
+        (
+            "kills = true",
+            "kills = true\nharm = 3",
+            "harm: a row that kills takes no harm of its own",
+        ),
+        (
+            "harm = 40\n",
+            "",
+            "effects: a row puts effects on, harms or kills",
+        ),
+    ] {
+        let mut bad = files.clone();
+        edit(&mut bad, "town/server/puzzles.toml", from, to);
+        assert!(
+            check(&bad).iter().any(|p| p.to_string().contains(says)),
+            "{to}: {:?}",
+            check(&bad)
+        );
+    }
+}
+
+#[test]
 fn a_defense_row_names_its_device_attackers_and_what_it_leaves_and_bad_ones_are_problems() {
     use yalain_content::defenses::Defense;
     let mut files = fixture();

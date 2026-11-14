@@ -46,7 +46,7 @@
 //! <pack>/server/treasure_families.toml [[treasure_family]]
 //! <pack>/server/items.toml       [[item_use]], [[book]], [[start_item]], [[interaction]]
 //! <pack>/server/puzzles.toml     [[object_states]], [[sequence]], [[lever]], [[offering]],
-//!                                [[guarded]], [[shifting]]
+//!                                [[guarded]], [[shifting]], [[hazard]]
 //! <pack>/server/creatures.toml   [[concealing]], [[npc_table]], [[friend_table]], [[creature]],
 //!                                [[safe_passage]], [[creature_effect]], [[defense]]
 //! <pack>/server/routes.toml       [[route]]

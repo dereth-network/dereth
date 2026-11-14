@@ -887,6 +887,7 @@ pub fn leave<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
         crate::gives::left(s, net, world);
         crate::usable::chests::left(s, net, world);
         crate::usable::vaults::left(s, world);
+        crate::hazards::left(s, world);
         if let Some(w) = s.walls.as_mut() {
             w.forget_player(id);
         }
@@ -1402,6 +1403,7 @@ fn moved<S: Store>(
     crate::places::walk_interrupted(s, net, world, c.flags, c.move_to_stamp);
     crate::gives::moved(s, net, world, clock);
     crate::places::walked(s, net, world, clock);
+    crate::hazards::moved(s, net, world, clock);
     crate::usable::chests::moved(s, net, world, clock);
     crate::inventory::moved(s, net, world);
     crate::skill_use::moved(s, net, world, clock);

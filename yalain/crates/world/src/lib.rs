@@ -108,6 +108,7 @@ pub mod gives;
 pub mod graph;
 pub mod guard;
 pub mod guards;
+pub mod hazards;
 pub mod holding;
 pub mod inventory;
 pub mod item_use;
@@ -441,6 +442,8 @@ pub struct Server<S: Store> {
     pub guards: guards::Guards,
     /// The shifting objects' rows as the world keeps them.
     pub shifts: shifting::Shifts,
+    /// The hazards' reaches each player stands within.
+    pub hazards: hazards::Hazards,
     /// The defended devices standing, and what each keeps about it.
     pub defenses: defenses::Defenses,
     pub crafting: craft::Crafting,
@@ -885,6 +888,7 @@ impl<S: Store> Server<S> {
             levers: usable::levers::Levers::default(),
             guards: guards::Guards::default(),
             shifts: shifting::Shifts::default(),
+            hazards: hazards::Hazards::default(),
             defenses: defenses::Defenses::default(),
             crafting: craft::Crafting::default(),
             vitae_costs: Vec::new(),

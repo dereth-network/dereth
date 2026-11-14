@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Worlds can now have traps and objects that hurt or kill whoever uses or touches them.
 
 ## 0.4.0 (2026-11-14)
 - Worlds can now give creatures lasting effects and enchant a weapon handed in for a quest.

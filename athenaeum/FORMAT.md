@@ -54,7 +54,7 @@ world.lock                         ids given to authored rows, kept across build
 <pack>/server/treasure_potions.toml [[treasure_potion]]
 <pack>/server/treasure_families.toml [[treasure_family]]
 <pack>/server/items.toml           [[item_use]], [[book]], [[start_item]], [[interaction]]
-<pack>/server/puzzles.toml         [[object_states]], [[sequence]], [[lever]], [[offering]], [[guarded]], [[shifting]]
+<pack>/server/puzzles.toml         [[object_states]], [[sequence]], [[lever]], [[offering]], [[guarded]], [[shifting]], [[hazard]]
 <pack>/server/creatures.toml       [[concealing]], [[npc_table]], [[friend_table]], [[creature]], [[safe_passage]], [[creature_effect]], [[defense]]
 ```
 
@@ -125,7 +125,7 @@ Every row sets one **item**, named by its key:
 | item | key |
 |---|---|
 | `object KEY@XXYY`, `camp KEY@XXYY`, `clearing KEY@XXYY` | the row's `key`, unique within its landblock in its pack |
-| `place KEY`, `talk KEY`, `give KEY`, `route KEY`, `event KEY`, `tally KEY`, `death_treasure KEY`, `object_states KEY`, `sequence KEY`, `lever KEY`, `offering KEY`, `guarded KEY`, `shifting KEY` | the row's `key` |
+| `place KEY`, `talk KEY`, `give KEY`, `route KEY`, `event KEY`, `tally KEY`, `death_treasure KEY`, `object_states KEY`, `sequence KEY`, `lever KEY`, `offering KEY`, `guarded KEY`, `shifting KEY`, `hazard KEY` | the row's `key` |
 | `loot 0xVALUE` | the death-loot profile's value |
 | `keeper 0xTEMPLATE` | the storekeeper template |
 | `store KEY` | the shop's `key`, unique in the world |
@@ -1336,6 +1336,31 @@ unused. What stood is not kept across a restart.
 | `gone_for` | | seconds above 0 none stands after a use; the next stands at once when left out |
 | `moves_after` | | seconds above 0 one stands unused before it moves on; until it is used when left out |
 | `prov` | required | where it came from |
+
+#### `[[hazard]]`
+
+Placed objects, or spots, that harm a player who uses one or comes within its reach: a gate whose
+use is death, a trapped floor. A row that harms at a use harms a player who uses one of its objects,
+once it has come to it, after all else the use does (its line, its quest steps); an object nothing
+else makes usable is used as a person is, walked to and its use answered. A row that harms at a
+touch harms a player who comes within its reach of one of its objects (one standing in the world) or
+spots, by straight-line distance from the player's feet; not again while the player stays within it,
+and again once it has left and come back. Its harm is its effects, put on in order, cast by the
+object (by the player itself for a spot) at their spellcraft, then its health taken: so much, or all
+of it (a death by misadventure). A dead player is harmed by nothing.
+
+| field | | meaning |
+|---|---|---|
+| `key` | required | lowercase letters, digits and hyphens |
+| `objects`, `spots` | at least one of them | the placed objects (`key@XXYY`, or `pack:key@XXYY` in another pack), and places `{ cell, at }` with their height |
+| `used` | | true: a use of one of its objects harms its user; only with `objects` |
+| `touch` | | meters above 0: coming within that of one of its objects or spots harms; a row names `used`, `touch` or both |
+| `effects` | | `[{ effect, spellcraft }]`, effects by their saved states (ones the install holds), put on in order; spellcraft 1 when left out |
+| `harm` | | health it takes, above 0 |
+| `kills` | | true: it takes all of the player's health; never with `harm` |
+| `prov` | required | where it came from |
+
+A row puts effects on, harms or kills, or more than one of these.
 
 #### `[[worn]]`
 

@@ -46,6 +46,7 @@ mod follow;
 mod forces;
 mod gives;
 mod guarded_objects;
+mod hazards;
 mod holds;
 mod integrity;
 mod interactions;

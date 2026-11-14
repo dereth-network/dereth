@@ -35,6 +35,7 @@ pub mod events;
 pub mod fought;
 pub mod gathering;
 pub mod guards;
+pub mod hazards;
 pub mod heroes;
 pub mod item_rows;
 pub mod kingdoms;
@@ -798,6 +799,9 @@ pub struct ContentPack {
     /// The placed objects of which one stands at a time, moving on after each use. Not part of the
     /// text form: the world database's shifting rows fill it.
     pub shifting: shifting::ShiftTable,
+    /// The placed objects and spots that harm a player who uses one or comes within its reach. Not
+    /// part of the text form: the world database's hazard rows fill it.
+    pub hazards: hazards::HazardTable,
 }
 
 /// The kind of player conflict a place allows.
@@ -1181,6 +1185,7 @@ impl ContentPack {
             guards: guards::GuardTable::default(),
             shifting: shifting::ShiftTable::default(),
             defenses: defenses::DefenseTable::default(),
+            hazards: hazards::HazardTable::default(),
         })
     }
 

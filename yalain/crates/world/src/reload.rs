@@ -162,6 +162,7 @@ pub mod table {
     pub const OFFERINGS: &str = "offerings";
     pub const GUARDED: &str = "guarded objects";
     pub const SHIFTING: &str = "shifting objects";
+    pub const HAZARDS: &str = "hazards";
     pub const DEFENSES: &str = "defended devices";
     pub const ESCORTS: &str = "escorts";
     pub const KINGDOMS: &str = "kingdom rows";
@@ -299,6 +300,13 @@ impl<S: Store> Server<S> {
         if changed {
             crate::shifting::forget_all(self, net);
             self.content.shifting = std::mem::take(&mut t.content.shifting);
+        }
+        // The hazards: the reaches players stood within are measured afresh at their next reports.
+        let changed = t.content.hazards != self.content.hazards;
+        r.note(table::HAZARDS, changed, true);
+        if changed {
+            self.content.hazards = std::mem::take(&mut t.content.hazards);
+            self.hazards = crate::hazards::Hazards::default();
         }
         // The defended devices: those standing go on as their rows now say, by their place.
         let changed = t.content.defenses != self.content.defenses;

@@ -1012,6 +1012,8 @@ pub fn use_object<S: Store>(
     let lifestone = is_lifestone(s, o.description.package);
     let person = talks_to(s, o);
     let broker = crate::market::broker(s, o.template).is_some();
+    // An object a hazard harms at a use is used as a person is, walked to and answered.
+    let hazard = o.destination.is_none() && crate::hazards::harms_at_use(s, i);
     // An object for monarchs alone is refused at once, wherever the player stands, whatever else it
     // asks of the player (2017: the Allegiance Sign and the Binding Stone, 2 of 2, at 17.9 and
     // 5.7 m, the stone's quest not held).
@@ -1042,7 +1044,7 @@ pub fn use_object<S: Store>(
             return;
         }
     }
-    if o.destination.is_none() && !lifestone && !person && !broker {
+    if o.destination.is_none() && !lifestone && !person && !broker && !hazard {
         if s.cannot_use_packages.contains(&o.description.package) {
             let distance = reach(&u.from, o.cell, o.origin).unwrap_or(0.0);
             let no = use_refused(
@@ -1063,7 +1065,7 @@ pub fn use_object<S: Store>(
         LIFESTONE_REACH
     } else if broker {
         crate::market::BROKER_REACH
-    } else if person {
+    } else if person || hazard {
         PERSON_REACH
     } else {
         PORTAL_REACH
@@ -1737,6 +1739,8 @@ fn carry_out<S: Store>(
     if !person {
         crate::shifting::used(s, net, i, clock);
     }
+    // A hazard harms whoever uses it, after all else the use does.
+    crate::hazards::used(s, net, world, i, clock);
 }
 
 /// What a use of a placed object does, the player in reach and the use allowed.
@@ -1808,6 +1812,12 @@ fn carried_out<S: Store>(
         return;
     }
     let Some(to) = o.destination else {
+        // An object only a hazard makes usable: the use is answered, as a person's.
+        if crate::hazards::harms_at_use(s, i) {
+            let distance = reach(&u.from, o.cell, o.origin).unwrap_or(0.0);
+            let done = use_done(&u, p_id(s, world), USE_FLAGS_PERSON, false, distance);
+            send(net, world, BlobKind::PRIVATE, &done);
+        }
         return;
     };
     let to = StoredPosition {

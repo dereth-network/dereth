@@ -732,6 +732,7 @@ pub enum Row {
     Offering(OfferingRow),
     Guarded(GuardedRow),
     Shifting(ShiftingRow),
+    Hazard(HazardRow),
     MapRecipes(MapRecipes),
     Spellbinding(Spellbinding),
     Refining(Refining),
@@ -1329,6 +1330,22 @@ pub struct ShiftingRow {
     pub prov: Prov,
 }
 
+/// `[[hazard]]`: placed objects (`key@XXYY`, or `pack:key@XXYY`) or spots that harm a player who
+/// uses one or comes within its reach: whether a use harms, the reach in meters, the effects put
+/// on (saved state, spellcraft), and the health taken.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HazardRow {
+    pub key: String,
+    pub objects: Vec<String>,
+    pub spots: Vec<(u32, At)>,
+    pub used: bool,
+    pub touch: Option<f64>,
+    pub effects: Vec<(u32, f32)>,
+    pub harm: Option<u32>,
+    pub kills: bool,
+    pub prov: Prov,
+}
+
 /// `[[tool]]`: what a gathering tool yields when it was not made (a made one's yield is its own).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tool {
@@ -1446,6 +1463,7 @@ impl Row {
             Self::Offering(_) => "offering",
             Self::Guarded(_) => "guarded",
             Self::Shifting(_) => "shifting",
+            Self::Hazard(_) => "hazard",
             Self::MapRecipes(_) => "map_recipes",
             Self::Spellbinding(_) => "spellbinding",
             Self::Refining(_) => "refining",
@@ -1518,6 +1536,7 @@ impl Row {
             Self::Offering(r) => Some(&r.prov),
             Self::Guarded(r) => Some(&r.prov),
             Self::Shifting(r) => Some(&r.prov),
+            Self::Hazard(r) => Some(&r.prov),
             Self::MapRecipes(r) => Some(&r.prov),
             Self::Spellbinding(r) => Some(&r.prov),
             Self::Refining(r) => Some(&r.prov),
@@ -1539,7 +1558,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 66] = [
+pub const KINDS: [&str; 67] = [
     "object",
     "camp",
     "loot",
@@ -1591,6 +1610,7 @@ pub const KINDS: [&str; 66] = [
     "offering",
     "guarded",
     "shifting",
+    "hazard",
     "map_recipes",
     "spellbinding",
     "refining",
@@ -1609,7 +1629,7 @@ pub const KINDS: [&str; 66] = [
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 66] = [
+pub const FIELDS: [(&str, &[&str]); 67] = [
     (
         "object",
         &[
@@ -2083,6 +2103,12 @@ pub const FIELDS: [(&str, &[&str]); 66] = [
     (
         "shifting",
         &["key", "objects", "gone_for", "moves_after", "prov"],
+    ),
+    (
+        "hazard",
+        &[
+            "key", "objects", "spots", "used", "touch", "effects", "harm", "kills", "prov",
+        ],
     ),
     (
         "map_recipes",
@@ -3320,6 +3346,65 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 objects,
                 gone_for,
                 moves_after,
+                prov: f.req_prov()?,
+            })
+        }
+        "hazard" => {
+            let key = f.req_symbol("key")?;
+            let objects = match f.get("objects") {
+                Some(_) => f.req_references("objects")?,
+                None => Vec::new(),
+            };
+            let spots = f.spots("spots");
+            if objects.is_empty() && spots.is_empty() {
+                f.bad("objects", "at least one object or spot");
+                return None;
+            }
+            let used = f.bool("used").unwrap_or(false);
+            if used && objects.is_empty() {
+                f.bad("used", "only a row with objects is used");
+                return None;
+            }
+            let touch = f.float("touch");
+            let ok = touch.is_none_or(|t| t > 0.0);
+            let touch = f.held("touch", touch, ok, "above 0")?;
+            if !used && touch.is_none() {
+                f.bad("touch", "a row harms at a use or a touch, or both");
+                return None;
+            }
+            let effects = f.list_of(
+                "effects",
+                "a list of { effect, spellcraft } (spellcraft may be left out: 1)",
+                &["effect", "spellcraft"],
+                |t| {
+                    let spellcraft = match t.get("spellcraft") {
+                        Some(s) => number_of(s).filter(|s| *s >= 0.0)?,
+                        None => 1.0,
+                    };
+                    Some((as_u32(t.get("effect")?)?, spellcraft))
+                },
+            );
+            let harm = f.u32("harm");
+            let ok = harm.is_none_or(|h| h > 0);
+            let harm = f.held("harm", harm, ok, "above 0")?;
+            let kills = f.bool("kills").unwrap_or(false);
+            if kills && harm.is_some() {
+                f.bad("harm", "a row that kills takes no harm of its own");
+                return None;
+            }
+            if effects.is_empty() && harm.is_none() && !kills {
+                f.bad("effects", "a row puts effects on, harms or kills");
+                return None;
+            }
+            Row::Hazard(HazardRow {
+                key,
+                objects,
+                spots,
+                used,
+                touch,
+                effects,
+                harm,
+                kills,
                 prov: f.req_prov()?,
             })
         }

@@ -2027,6 +2027,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             | Row::Offering(_)
             | Row::Guarded(_)
             | Row::Shifting(_)
+            | Row::Hazard(_)
             | Row::SafePassage(_)
             | Row::CreatureEffect(_) => {}
         }
@@ -2338,6 +2339,37 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         gone_for: r.gone_for,
                         moves_after: r.moves_after,
                     });
+            }
+            Row::Hazard(r) => {
+                use yalain_content::hazards::{Harm, Hazard};
+                let Some(objects) = placed_objects(&mut cx, &objects_at, l, "objects", &r.objects)
+                else {
+                    continue;
+                };
+                let spots: Option<Vec<_>> = r
+                    .spots
+                    .iter()
+                    .map(|(cell, at)| cx.z(l, *at).map(|origin| (*cell, origin)))
+                    .collect();
+                let Some(spots) = spots else {
+                    continue;
+                };
+                let harm = match (r.kills, r.harm) {
+                    (true, _) => Some(Harm::All),
+                    (false, Some(points)) => Some(Harm::Points(points)),
+                    (false, None) => None,
+                };
+                #[allow(clippy::cast_possible_truncation)]
+                let touch = r.touch.map(|m| m as f32);
+                t.content.hazards.rows.push(Hazard {
+                    key: r.key.clone(),
+                    objects,
+                    spots,
+                    used: r.used,
+                    touch,
+                    effects: r.effects.clone(),
+                    harm,
+                });
             }
             Row::SafePassage(r) => {
                 use yalain_content::creature_rows::{Guards, Pass, SafePassage};

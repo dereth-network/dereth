@@ -268,6 +268,8 @@ pub enum Item {
     Guarded { key: String },
     /// Placed objects of which one stands at a time, by the row's key.
     Shifting { key: String },
+    /// Placed objects or spots that harm whoever uses one or comes near, by the row's key.
+    Hazard { key: String },
     /// A region's surveyor's map recipes, by the region's key.
     MapRecipes { region: String },
     /// The totem spellbinding makes of a sort of item, by the sort's name.
@@ -428,6 +430,7 @@ impl Item {
             ["offering", key] => Self::Offering { key: symbol(key)? },
             ["guarded", key] => Self::Guarded { key: symbol(key)? },
             ["shifting", key] => Self::Shifting { key: symbol(key)? },
+            ["hazard", key] => Self::Hazard { key: symbol(key)? },
             ["map_recipes", region] => Self::MapRecipes {
                 region: symbol(region)?,
             },
@@ -544,6 +547,7 @@ impl fmt::Display for Item {
             Self::Offering { key } => write!(f, "offering {key}"),
             Self::Guarded { key } => write!(f, "guarded {key}"),
             Self::Shifting { key } => write!(f, "shifting {key}"),
+            Self::Hazard { key } => write!(f, "hazard {key}"),
             Self::MapRecipes { region } => write!(f, "map_recipes {region}"),
             Self::Spellbinding { sort } => write!(f, "spellbinding {sort}"),
             Self::Refining { recipe } => write!(f, "refining {recipe}"),
