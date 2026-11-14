@@ -20,6 +20,8 @@ pub const TREES: &str = include_str!("../../ac2-look/trees.toml");
 pub const ROCKS: &str = include_str!("../../ac2-look/rocks.toml");
 /// The sky table.
 pub const SKY: &str = include_str!("../../ac2-look/sky.toml");
+/// The creatures table.
+pub const CREATURES: &str = include_str!("../../ac2-look/creatures.toml");
 
 /// One part of the look a player may take or leave.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -255,6 +257,147 @@ pub struct SkyTable {
     pub decks: Vec<u32>,
 }
 
+/// The motion slots a creature's body may carry a clip for, in the order its row lists them, and
+/// whether each loops (a loop closes on its first keys, anything else holds its last).
+pub const SLOTS: [(&str, bool); 24] = [
+    ("idle", true),
+    ("idle_melee", true),
+    ("idle_missile", true),
+    ("idle_magic", true),
+    ("walk", true),
+    ("walk_back", true),
+    ("run", true),
+    ("side_step", true),
+    ("turn", true),
+    ("melee_high", false),
+    ("melee_med", false),
+    ("melee_low", false),
+    ("special", false),
+    ("missile", false),
+    ("cast", false),
+    ("telegraph", false),
+    ("hit", false),
+    ("hit_heavy", false),
+    ("die", false),
+    ("dead", false),
+    ("emote", false),
+    ("cheer", false),
+    ("fall", true),
+    ("jump", false),
+];
+
+/// One slot's clip: the AC2 keyframe animation played, and what the client paces it by.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Clip {
+    pub animation: u32,
+    /// Seconds from its start to the blow.
+    pub hit: Option<f64>,
+    /// Meters of the body's own space one round of it covers.
+    pub stride: Option<f64>,
+}
+
+/// One body a creature is drawn with: an AC2 entity posed in its bind clip's first keys, scaled
+/// and placed onto an Asheron's Call setup's parts.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Body {
+    /// The body's folder in the pack.
+    pub folder: String,
+    pub entity: u32,
+    /// The keyframe animation whose first keys the body is bound in.
+    pub bind: u32,
+    /// How much larger it is drawn than AC2 draws it...
+    pub scale: f64,
+    /// ...and where it is moved to after (glTF's axes, meters).
+    pub offset: [f64; 3],
+    /// How many parts the setup it is drawn for has: the body is drawn in place of all of them.
+    pub parts: usize,
+    /// The first part's inverse bind matrix (column by column): where the body's bind space stands
+    /// in that part's own space at rest.
+    pub anchor: [f64; 16],
+    /// The bones (by place among the body's) whose skin is blended without dual quaternions.
+    #[serde(default)]
+    pub trunk: Vec<usize>,
+    /// The GfxObj each part must be drawing for the body to fit it; none for any.
+    pub gfxobj: Option<Vec<u32>>,
+    /// The pictures whose differences a masked look's tint is laid by, the body's own first.
+    pub mask: Option<Vec<u32>>,
+    pub clips: std::collections::BTreeMap<String, Clip>,
+}
+
+/// One body drawn under other pictures, for the looks whose palettes its rows name.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Look {
+    pub name: String,
+    /// The body's folder.
+    pub body: String,
+    /// The picture list drawn in place of the body's own.
+    pub picture: u32,
+    /// The color it is multiplied by, red, green and blue...
+    pub tint: [f64; 3],
+    /// ...only where the body's pictures differ from each other.
+    #[serde(default)]
+    pub masked: bool,
+    /// Every texel takes the color the tint makes of the picture's mean, as light or dark as it was.
+    #[serde(default)]
+    pub colorize: bool,
+    /// The body's other pictures take the tint too.
+    #[serde(default)]
+    pub every: bool,
+    /// A picture laid over it, repeated four times each way.
+    pub detail: Option<u32>,
+    /// A picture drawn as its normal map.
+    pub normal: Option<u32>,
+}
+
+/// One `[[skin]]` row: the body (or one of its looks) drawn for a setup, and for the objects whose
+/// look carries one of its palettes when it names any.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SkinRow {
+    pub setup: u32,
+    pub body: String,
+    pub look: Option<String>,
+    #[serde(default)]
+    pub palettes: Vec<u32>,
+}
+
+/// One creature the player may take or leave.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Creature {
+    /// Its name on a command line and in a build's record.
+    pub name: String,
+    /// Its name as the player reads it.
+    pub label: String,
+    /// Objects holding a launcher stay as Asheron's Call draws them.
+    pub keep_launchers: bool,
+    /// The weenies that stay as Asheron's Call draws them.
+    pub keep_weenies: Vec<u32>,
+    pub body: Vec<Body>,
+    #[serde(default)]
+    pub look: Vec<Look>,
+    pub skin: Vec<SkinRow>,
+}
+
+/// The creatures table.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CreaturesTable {
+    pub version: u32,
+    pub creature: Vec<Creature>,
+}
+
+impl CreaturesTable {
+    /// The creature named `name`.
+    #[must_use]
+    pub fn named(&self, name: &str) -> Option<&Creature> {
+        self.creature.iter().find(|c| c.name == name)
+    }
+}
+
 /// Every table.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tables {
@@ -262,6 +405,7 @@ pub struct Tables {
     pub trees: TreesTable,
     pub rocks: RocksTable,
     pub sky: SkyTable,
+    pub creatures: CreaturesTable,
 }
 
 fn parse<T: for<'de> Deserialize<'de>>(name: &str, text: &str) -> Result<T, String> {
@@ -274,19 +418,26 @@ impl Tables {
     /// # Errors
     /// A table does not read, or says something no build can do ([`Tables::check`]).
     pub fn built_in() -> Result<Self, String> {
-        Self::parse(TERRAIN, TREES, ROCKS, SKY)
+        Self::parse(TERRAIN, TREES, ROCKS, SKY, CREATURES)
     }
 
     /// Tables from their files' text.
     ///
     /// # Errors
     /// A table does not read, or says something no build can do ([`Tables::check`]).
-    pub fn parse(terrain: &str, trees: &str, rocks: &str, sky: &str) -> Result<Self, String> {
+    pub fn parse(
+        terrain: &str,
+        trees: &str,
+        rocks: &str,
+        sky: &str,
+        creatures: &str,
+    ) -> Result<Self, String> {
         let t = Self {
             terrain: parse("ground", terrain)?,
             trees: parse("trees", trees)?,
             rocks: parse("rocks", rocks)?,
             sky: parse("sky", sky)?,
+            creatures: parse("creatures", creatures)?,
         };
         t.check()?;
         Ok(t)
@@ -365,6 +516,68 @@ impl Tables {
         if self.sky.decks.iter().any(|d| d >> 24 != 0x05) {
             return Err("a cloud deck is not a picture".into());
         }
+        self.check_creatures()
+    }
+
+    /// Whether every creature is named once, apart from the parts; each body draws an entity in
+    /// a keyframe animation's first keys and plays known slots; each look and row names a body it
+    /// has, and each row a look it has.
+    fn check_creatures(&self) -> Result<(), String> {
+        let mut names = BTreeSet::new();
+        for c in &self.creatures.creature {
+            if Part::from_name(&c.name).is_some() || !names.insert(c.name.as_str()) {
+                return Err(format!("creature {} is named twice", c.name));
+            }
+            let mut folders = BTreeSet::new();
+            for b in &c.body {
+                if !folders.insert(b.folder.as_str()) {
+                    return Err(format!("{}: two bodies in {}", c.name, b.folder));
+                }
+                if b.entity >> 24 != 0x47 || b.bind >> 24 != 0x05 {
+                    return Err(format!(
+                        "{} {}: not an entity in an animation",
+                        c.name, b.folder
+                    ));
+                }
+                if !(b.scale > 0.0 && b.scale.is_finite()) || b.parts == 0 {
+                    return Err(format!("{} {}: a scale of {}", c.name, b.folder, b.scale));
+                }
+                if b.gfxobj.as_ref().is_some_and(|g| g.len() != b.parts) {
+                    return Err(format!("{} {}: a GfxObj a part, or none", c.name, b.folder));
+                }
+                for (slot, clip) in &b.clips {
+                    if !SLOTS.iter().any(|(s, _)| s == slot) || clip.animation >> 24 != 0x05 {
+                        return Err(format!("{} {}: slot {slot}", c.name, b.folder));
+                    }
+                }
+            }
+            let mut looks = BTreeSet::new();
+            for l in &c.look {
+                if !folders.contains(l.body.as_str()) || !looks.insert(l.name.as_str()) {
+                    return Err(format!("{}: look {} on body {}", c.name, l.name, l.body));
+                }
+                let masked = c
+                    .body
+                    .iter()
+                    .any(|b| b.folder == l.body && b.mask.is_some());
+                if l.masked && !masked {
+                    return Err(format!("{}: look {} masked by nothing", c.name, l.name));
+                }
+            }
+            for r in &c.skin {
+                let look_body = r.look.as_ref().map(|n| {
+                    c.look
+                        .iter()
+                        .find(|l| &l.name == n)
+                        .map(|l| l.body.as_str())
+                });
+                if !folders.contains(r.body.as_str())
+                    || look_body.is_some_and(|b| b != Some(r.body.as_str()))
+                {
+                    return Err(format!("{}: a row for {:#010X}", c.name, r.setup));
+                }
+            }
+        }
         Ok(())
     }
 
@@ -414,12 +627,34 @@ mod tests {
     #[test]
     fn a_table_that_names_a_type_twice_or_fits_a_tree_inside_is_refused() {
         let twice = format!("{TERRAIN}\n[[ground]]\ntype = 1\nkind = 1\n");
-        let e = Tables::parse(&twice, TREES, ROCKS, SKY).expect_err("two grounds");
+        let e = Tables::parse(&twice, TREES, ROCKS, SKY, CREATURES).expect_err("two grounds");
         assert!(e.contains("type 1 has two grounds"), "{e}");
         let inside = TREES.replacen("fit = \"girth\"", "fit = \"inside\"", 1);
-        let e = Tables::parse(TERRAIN, &inside, ROCKS, SKY).expect_err("a tree inside");
+        let e = Tables::parse(TERRAIN, &inside, ROCKS, SKY, CREATURES).expect_err("a tree inside");
         assert!(e.contains("a tree fitted Some(Inside)"), "{e}");
         let unknown = format!("{SKY}\nsun = 1\n");
-        assert!(Tables::parse(TERRAIN, TREES, ROCKS, &unknown).is_err());
+        assert!(Tables::parse(TERRAIN, TREES, ROCKS, &unknown, CREATURES).is_err());
+    }
+
+    #[test]
+    fn every_creature_is_named_once_and_its_rows_name_bodies_and_looks_it_has() {
+        let t = Tables::built_in().expect("the tables");
+        assert_eq!(t.creatures.creature.len(), 18);
+        for c in &t.creatures.creature {
+            assert!(!c.body.is_empty() && !c.skin.is_empty(), "{}", c.name);
+            assert!(
+                c.body.iter().all(|b| b.clips.contains_key("idle")),
+                "{}",
+                c.name
+            );
+        }
+        let olthoi = t.creatures.named("olthoi").expect("the olthoi");
+        assert!(olthoi.body.len() > 1, "a body for each of its setups");
+        let renamed = CREATURES.replacen("name = \"drudge\"", "name = \"rocks\"", 1);
+        let e = Tables::parse(TERRAIN, TREES, ROCKS, SKY, &renamed).expect_err("a part's name");
+        assert!(e.contains("rocks is named twice"), "{e}");
+        let no_body =
+            CREATURES.replacen("body = \"body\"\npicture", "body = \"body-x\"\npicture", 1);
+        assert!(Tables::parse(TERRAIN, TREES, ROCKS, SKY, &no_body).is_err());
     }
 }

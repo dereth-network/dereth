@@ -2816,6 +2816,7 @@ impl Backend {
             install: install.map(|d| d.display().to_string()),
             ac1: self.state.shared_set().is_some(),
             parts: crate::ac2_look::parts_view(&choices.parts),
+            creatures: crate::ac2_look::creatures_view(&choices.creatures),
             stale: match (&built, &self.ac2_look_versions) {
                 (Some(b), Some(now)) => b.stale(now),
                 _ => false,
@@ -2843,6 +2844,27 @@ impl Backend {
             c.parts.push(part.to_owned());
         }
         c.parts = known_parts(&c.parts);
+        c.save(&dir).map_err(|e| e.to_string())
+    }
+
+    /// Tick or untick a creature of the AC2 look for the next build.
+    ///
+    /// # Errors
+    /// Not a creature, or the choices will not write.
+    pub fn set_ac2_look_creature(&mut self, creature: &str, on: bool) -> Result<(), String> {
+        use dereth_launch::ac2_look::{known_creatures, Choices};
+        if known_creatures(&[creature.to_owned()]).is_empty() {
+            return Err(format!(
+                "{creature} is not a creature of the Asheron's Call 2 Art Pack"
+            ));
+        }
+        let dir = self.ac2_look_dir();
+        let mut c = Choices::load(&dir);
+        c.creatures.retain(|x| x != creature);
+        if on {
+            c.creatures.push(creature.to_owned());
+        }
+        c.creatures = known_creatures(&c.creatures);
         c.save(&dir).map_err(|e| e.to_string())
     }
 
@@ -2883,9 +2905,9 @@ impl Backend {
         Some(v)
     }
 
-    /// Build the AC2 look with the parts ticked (a thread's work: it runs the art tool, showing
-    /// how far it has got), and add it to the art packs on this computer, or read it again there.
-    /// One at a time.
+    /// Build the AC2 look with the parts and creatures ticked (a thread's work: it runs the art
+    /// tool, showing how far it has got), and add it to the art packs on this computer, or read it
+    /// again there. One at a time.
     ///
     /// # Errors
     /// No tool, no install, no part ticked, Dereth running with the look in use, or the build.
@@ -2905,7 +2927,7 @@ impl Backend {
                 .ok_or("This Dereth has no art tool beside it.")?;
             let dir = b.ac2_look_dir();
             let choices = Choices::load(&dir);
-            if choices.parts.is_empty() {
+            if choices.ticked().is_empty() {
                 return Err("Tick at least one part of the Asheron's Call 2 Art Pack.".into());
             }
             let install = b
@@ -2930,7 +2952,7 @@ impl Backend {
                 return Err("Close Dereth to rebuild the Asheron's Call 2 Art Pack.".into());
             }
             std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-            let args = look::build_args(&install, ac1.as_deref(), &out, &choices.parts);
+            let args = look::build_args(&install, ac1.as_deref(), &out, &choices.ticked());
             b.ac2_look_progress = Some(crate::ac2_look::Progress::default());
             (tool, args, dir, out, choices, install)
         };
@@ -2951,7 +2973,7 @@ impl Backend {
             ));
         }
         let built = Built {
-            parts: choices.parts,
+            parts: choices.ticked(),
             versions: versions.unwrap_or_else(|| look::Versions {
                 look: version.clone(),
                 ..look::Versions::default()
@@ -3907,8 +3929,8 @@ mod tests {
     /// that are on, in their order. An installed pack updates on its own only while the Library's
     /// setting to update components is on; off, the update waits for the player.
     /// The AC2 look builds through the art tool beside the client, from the install the player
-    /// chose, with the parts ticked; joins the art packs on this computer; and is built again,
-    /// in the same place in the stack, only when the tool comes with a newer table.
+    /// chose, with the parts and creatures ticked; joins the art packs on this computer; and is
+    /// built again, in the same place in the stack, only when the tool comes with a newer table.
     #[test]
     fn the_ac2_look_builds_joins_the_art_packs_and_is_built_again_when_a_table_is_newer() {
         use dereth_launch::ac2_look::{Built, FILE, FOLDER};
@@ -3933,6 +3955,20 @@ mod tests {
         assert!(said.contains("built from"), "{said}");
         lock(&shared).set_ac2_look_part("rocks", false).unwrap();
         assert!(lock(&shared).set_ac2_look_part("dungeons", true).is_err());
+        let creatures = dereth_launch::ac2_look::every_creature();
+        assert!(lock(&shared)
+            .snapshot()
+            .ac2_look
+            .creatures
+            .iter()
+            .all(|c| c.on));
+        for c in creatures
+            .iter()
+            .filter(|c| !["drudge", "wasp"].contains(&c.as_str()))
+        {
+            lock(&shared).set_ac2_look_creature(c, false).unwrap();
+        }
+        assert!(lock(&shared).set_ac2_look_creature("dragon", true).is_err());
         // The stand-in: its tables at `table`, and a build writes a pack at the look's version.
         let table = AtomicU32::new(1);
         let asked = Mutex::new(Vec::<Vec<String>>::new());
@@ -3965,7 +4001,7 @@ mod tests {
         );
         let words = asked.lock().unwrap()[0].clone();
         assert!(
-            words.contains(&"terrain,red-desert,trees,sky".to_owned()),
+            words.contains(&"terrain,red-desert,trees,sky,drudge,wasp".to_owned()),
             "{words:?}"
         );
         assert!(

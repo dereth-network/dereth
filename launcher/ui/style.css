@@ -823,6 +823,15 @@ h2.fold-head:hover { color: #fff; }
 .plugin-line { display: flex; align-items: center; gap: 8px; margin: 0 15px 6px; }
 .plugin-line .field { flex: 1; min-width: 0; }
 .plugin-line.add { margin-top: 14px; }
+/* The AC2 art pack's parts: one line that wraps whole labels on a narrow page. */
+.look-parts { flex-wrap: wrap; gap: 6px 12px; }
+.look-parts .check, .look-creatures .check { white-space: nowrap; }
+/* The AC2 art pack's creatures: a heading that folds them, then their tick boxes in columns that
+   wrap to the page's width. */
+.look-fold { display: inline-flex; align-items: center; margin: 6px 15px 6px; color: var(--muted); font-size: 15px; cursor: pointer; }
+.look-fold:hover { color: var(--text); }
+.look-fold .fold { display: inline-block; width: 16px; color: var(--gold); }
+.look-creatures { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 12px; margin: 0 15px 6px 31px; }
 .plugin-confirm { display: flex; align-items: center; gap: 8px; margin: 4px 15px 0; font-size: 15px; }
 .plugin-confirm > span { margin-right: 4px; }
 /* Where the last plugin made went, with a button that shows it. */

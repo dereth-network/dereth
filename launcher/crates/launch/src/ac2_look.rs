@@ -8,11 +8,15 @@
 //! rocks and the sky. The build is one pack, [`PACK_ID`], with the parts ticked; the rocks also read
 //! Asheron's Call's own files, for the collision each rock is fitted inside.
 //!
+//! **The creatures** ([`CREATURES`]) are tick boxes too, every one ticked at first: each draws
+//! Asheron's Call 2's own creature in place of Asheron's Call's, with its own animations. The tool
+//! takes them in the same list as the parts, and reports each with its table's version.
+//!
 //! **Where it is kept**: the art folder's `ac2-look/` ([`FOLDER`]): the pack ([`FILE`]), which
 //! joins the art packs on this computer; what it was built from ([`RECORD`]): the parts, the
 //! install and the version of each part's table; and the player's choices for the next build
-//! ([`CHOICES`]): the parts ticked, and the install's folder when the player chose one other than
-//! the Library's. The tables come with the art tool, each with its version, so
+//! ([`CHOICES`]): the parts and creatures ticked, and the install's folder when the player chose
+//! one other than the Library's. The tables come with the art tool, each with its version, so
 //! a newer tool may bring a newer table: a look built from an older one is built again
 //! ([`Built::stale`]).
 //!
@@ -56,6 +60,28 @@ pub const PARTS: [(&str, &str); 5] = [
     ("sky", "Sky"),
 ];
 
+/// The creatures, by the tool's name for each and the page's, in the order the page lists them.
+pub const CREATURES: [(&str, &str); 18] = [
+    ("armoredillo", "Armoredillo"),
+    ("banderling", "Banderling"),
+    ("burun", "Burun"),
+    ("drudge", "Drudge"),
+    ("golem", "Golem"),
+    ("grievver", "Grievver"),
+    ("moarsman", "Moarsman"),
+    ("monouga", "Monouga"),
+    ("mosswart", "Mosswart"),
+    ("niffis", "Niffis"),
+    ("olthoi", "Olthoi"),
+    ("olthoi-grub", "Olthoi Grub"),
+    ("rabbit", "Rabbit"),
+    ("reedshark", "Reedshark"),
+    ("shreth", "Shreth"),
+    ("skeleton", "Skeleton"),
+    ("virindi", "Virindi"),
+    ("wasp", "Wasp"),
+];
+
 /// The part that reads Asheron's Call's own files.
 pub const NEEDS_AC1: &str = "rocks";
 
@@ -75,12 +101,28 @@ pub fn known_parts(asked: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// Every creature, the default.
+#[must_use]
+pub fn every_creature() -> Vec<String> {
+    CREATURES.iter().map(|(c, _)| (*c).to_owned()).collect()
+}
+
+/// The creatures of `asked` the look knows, in its order, each once.
+#[must_use]
+pub fn known_creatures(asked: &[String]) -> Vec<String> {
+    CREATURES
+        .iter()
+        .filter(|(c, _)| asked.iter().any(|a| a == c))
+        .map(|(c, _)| (*c).to_owned())
+        .collect()
+}
+
 /// The tables' versions, as the art tool reports them.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Versions {
     /// The look's own version, which the pack is given.
     pub look: String,
-    /// Each part's table's version.
+    /// Each part's and each creature's table's version.
     pub parts: BTreeMap<String, u32>,
 }
 
@@ -108,7 +150,7 @@ impl Versions {
 /// What the look on this computer was built from.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Built {
-    /// The parts ticked.
+    /// The parts and creatures ticked.
     pub parts: Vec<String>,
     /// The tables it was built from.
     pub versions: Versions,
@@ -117,7 +159,7 @@ pub struct Built {
 }
 
 impl Built {
-    /// Whether a table any of its parts was built from has a newer version in `now`.
+    /// Whether a table any of its parts or creatures was built from has a newer version in `now`.
     #[must_use]
     pub fn stale(&self, now: &Versions) -> bool {
         self.parts.iter().any(|p| {
@@ -149,6 +191,9 @@ impl Built {
 pub struct Choices {
     /// The parts ticked.
     pub parts: Vec<String>,
+    /// The creatures ticked; every one in choices saved before there were any.
+    #[serde(default = "every_creature")]
+    pub creatures: Vec<String>,
     /// The install's folder, when the player chose one other than the Library's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub install: Option<PathBuf>,
@@ -158,13 +203,15 @@ impl Default for Choices {
     fn default() -> Self {
         Self {
             parts: every_part(),
+            creatures: every_creature(),
             install: None,
         }
     }
 }
 
 impl Choices {
-    /// The choices in the look's folder `dir`; the defaults (every part) when there are none.
+    /// The choices in the look's folder `dir`; the defaults (every part and creature) when there
+    /// are none.
     #[must_use]
     pub fn load(dir: &Path) -> Self {
         std::fs::read(dir.join(CHOICES))
@@ -172,9 +219,17 @@ impl Choices {
             .and_then(|b| serde_json::from_slice::<Self>(&b).ok())
             .map(|c| Self {
                 parts: known_parts(&c.parts),
+                creatures: known_creatures(&c.creatures),
                 ..c
             })
             .unwrap_or_default()
+    }
+
+    /// The parts and then the creatures ticked: what the tool is asked to build, and what a build
+    /// records.
+    #[must_use]
+    pub fn ticked(&self) -> Vec<String> {
+        self.parts.iter().chain(&self.creatures).cloned().collect()
     }
 
     /// Write the choices into the look's folder `dir`.
@@ -188,8 +243,9 @@ impl Choices {
     }
 }
 
-/// The art tool's arguments that build `parts` from the install `ac2` (and Asheron's Call's files
-/// `ac1`, for the rocks) into the file `out`.
+/// The art tool's arguments that build `parts` (the parts and creatures ticked,
+/// [`Choices::ticked`]) from the install `ac2` (and Asheron's Call's files `ac1`, for the rocks)
+/// into the file `out`.
 #[must_use]
 pub fn build_args(ac2: &Path, ac1: Option<&Path>, out: &Path, parts: &[String]) -> Vec<OsString> {
     let mut args: Vec<OsString> = vec![
@@ -252,6 +308,7 @@ pub fn step_words(step: &str) -> &'static str {
         Some("model") => "Trees and rocks",
         Some("cover") => "Ground cover",
         Some("sky") => "Sky",
+        Some("creature") => "Creatures",
         Some("packing") => "Packing",
         _ => "Building",
     }
@@ -308,6 +365,7 @@ mod tests {
         let fresh = Choices::load(&dir);
         let c = Choices {
             parts: vec!["sky".into(), "dungeons".into()],
+            creatures: vec!["wasp".into(), "dragon".into(), "drudge".into()],
             install: Some(PathBuf::from("D:/AC2")),
         };
         let saved = c.save(&dir);
@@ -315,8 +373,61 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         saved.expect("saves");
         assert_eq!(fresh.parts, every_part());
+        assert_eq!(fresh.creatures, every_creature());
+        assert_eq!(fresh.creatures.len(), 18);
         assert_eq!(read.parts, ["sky"]);
+        assert_eq!(read.creatures, ["drudge", "wasp"]);
         assert_eq!(read.install, Some(PathBuf::from("D:/AC2")));
+    }
+
+    #[test]
+    fn choices_saved_before_the_creatures_load_with_every_creature_ticked() {
+        let dir = std::env::temp_dir().join(format!("dereth-ac2-old-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let wrote = std::fs::write(dir.join(CHOICES), r#"{ "parts": ["terrain", "sky"] }"#);
+        let read = Choices::load(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        wrote.expect("writes");
+        assert_eq!(read.parts, ["terrain", "sky"]);
+        assert_eq!(read.creatures, every_creature());
+    }
+
+    #[test]
+    fn a_look_is_stale_when_a_creatures_table_it_holds_is_newer() {
+        let then = Versions::read("look 0.1.4\nsky 1\nwasp 1\ndrudge 1\n").expect("v");
+        let built = Built {
+            parts: vec!["sky".into(), "wasp".into()],
+            versions: then.clone(),
+            install: PathBuf::from("ac2"),
+        };
+        let drudge = Versions::read("look 0.1.4\nsky 1\nwasp 1\ndrudge 2\n").expect("v");
+        assert!(!built.stale(&drudge), "the drudge is not in it");
+        let wasp = Versions::read("look 0.1.4\nsky 1\nwasp 2\ndrudge 1\n").expect("v");
+        assert!(built.stale(&wasp));
+    }
+
+    #[test]
+    fn the_build_lists_the_creatures_ticked_after_the_parts() {
+        let c = Choices {
+            parts: vec!["terrain".into(), "sky".into()],
+            creatures: vec!["drudge".into(), "olthoi-grub".into()],
+            install: None,
+        };
+        assert_eq!(c.ticked(), ["terrain", "sky", "drudge", "olthoi-grub"]);
+        let args = build_args(Path::new("ac2"), None, Path::new("o"), &c.ticked());
+        assert_eq!(
+            args.last().map(|a| a.to_string_lossy().into_owned()),
+            Some("terrain,sky,drudge,olthoi-grub".to_owned())
+        );
+        let only = Choices {
+            parts: Vec::new(),
+            ..c
+        };
+        let args = build_args(Path::new("ac2"), None, Path::new("o"), &only.ticked());
+        assert_eq!(
+            args.last().map(|a| a.to_string_lossy().into_owned()),
+            Some("drudge,olthoi-grub".to_owned())
+        );
     }
 
     #[test]

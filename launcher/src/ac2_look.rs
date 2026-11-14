@@ -19,7 +19,7 @@ pub struct Progress {
     pub steps: usize,
 }
 
-/// One part's tick box.
+/// One part's or creature's tick box.
 #[derive(Debug, Clone, Serialize)]
 pub struct PartView {
     pub id: &'static str,
@@ -40,6 +40,7 @@ pub struct View {
     /// Asheron's Call's own files are here, which the rocks need.
     pub ac1: bool,
     pub parts: Vec<PartView>,
+    pub creatures: Vec<PartView>,
     /// The look's version when it has been built.
     pub built: Option<String>,
     /// A newer table than the one it was built from has come with the tool.
@@ -56,6 +57,19 @@ pub fn parts_view(on: &[String]) -> Vec<PartView> {
             id,
             label,
             on: on.iter().any(|p| p == id),
+        })
+        .collect()
+}
+
+/// The creatures' tick boxes, `on` as the player's choices say.
+#[must_use]
+pub fn creatures_view(on: &[String]) -> Vec<PartView> {
+    ac2_look::CREATURES
+        .iter()
+        .map(|(id, label)| PartView {
+            id,
+            label,
+            on: on.iter().any(|c| c == id),
         })
         .collect()
 }

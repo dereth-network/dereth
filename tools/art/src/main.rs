@@ -26,11 +26,12 @@
 //!
 //! `ac2-look`: the AC2 look built from the Asheron's Call 2 install in `--ac2` and the Asheron's
 //! Call files in `--ac1` (default `DERETH_TEST_DAT_DIR`; only the rocks read them) into the packed
-//! file `--out` (default `ac2-look.dat`), with the parts `--parts` names (default all: terrain,
-//! red-desert, trees, rocks, sky) ([`dereth_art::ac2_look`]). It says what it is doing a line at a
+//! file `--out` (default `ac2-look.dat`), with the parts and creatures `--parts` names (default
+//! all: terrain, red-desert, trees, rocks, sky, and every creature the creatures table lists)
+//! ([`dereth_art::ac2_look`]). It says what it is doing a line at a
 //! time on the standard output, `step <what>`, and last `built <file> <version>`; with
 //! `--keep-folder` the pack's folder stays beside the file. `--versions` prints the look's version
-//! and each part's table version, `<part> <version>` a line, and builds nothing.
+//! and each part's and creature's table version, `<part> <version>` a line, and builds nothing.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -388,12 +389,21 @@ parents: {}",
     }
 }
 
-fn ac2_look_request(args: &[String]) -> Result<dereth_art::ac2_look::build::Request, String> {
+fn ac2_look_request(
+    tables: &dereth_art::ac2_look::tables::Tables,
+    args: &[String],
+) -> Result<dereth_art::ac2_look::build::Request, String> {
     use dereth_art::ac2_look::tables::Part;
     let mut ac2 = None;
     let mut ac1 = std::env::var_os("DERETH_TEST_DAT_DIR").map(PathBuf::from);
     let mut out = PathBuf::from("ac2-look.dat");
     let mut parts: std::collections::BTreeSet<Part> = Part::ALL.into_iter().collect();
+    let mut creatures: std::collections::BTreeSet<String> = tables
+        .creatures
+        .creature
+        .iter()
+        .map(|c| c.name.clone())
+        .collect();
     let mut keep_folder = false;
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -407,11 +417,17 @@ fn ac2_look_request(args: &[String]) -> Result<dereth_art::ac2_look::build::Requ
             "--ac1" => ac1 = Some(PathBuf::from(value()?)),
             "--out" => out = PathBuf::from(value()?),
             "--parts" => {
-                parts = value()?
-                    .split(',')
-                    .filter(|s| !s.trim().is_empty())
-                    .map(|s| Part::from_name(s.trim()).ok_or_else(|| format!("no part {s:?}")))
-                    .collect::<Result<_, String>>()?;
+                parts.clear();
+                creatures.clear();
+                for s in value()?.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                    if let Some(p) = Part::from_name(s) {
+                        parts.insert(p);
+                    } else if tables.creatures.named(s).is_some() {
+                        creatures.insert(s.to_owned());
+                    } else {
+                        return Err(format!("no part {s:?}"));
+                    }
+                }
             }
             "--keep-folder" => keep_folder = true,
             other => return Err(format!("unknown argument {other:?}")),
@@ -422,6 +438,7 @@ fn ac2_look_request(args: &[String]) -> Result<dereth_art::ac2_look::build::Requ
         ac1,
         out,
         parts,
+        creatures,
         keep_folder,
     })
 }
@@ -440,9 +457,12 @@ fn ac2_look(args: &[String]) -> ExitCode {
         for (part, v) in tables.versions() {
             println!("{} {v}", part.name());
         }
+        for c in &tables.creatures.creature {
+            println!("{} {}", c.name, tables.creatures.version);
+        }
         return ExitCode::SUCCESS;
     }
-    let req = match ac2_look_request(args) {
+    let req = match ac2_look_request(&tables, args) {
         Ok(r) => r,
         Err(e) => {
             eprintln!(

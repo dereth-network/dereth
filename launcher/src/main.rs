@@ -323,6 +323,12 @@ fn set_ac2_look_part(b: State<'_, Shared>, part: String, on: bool) -> Cmd<()> {
     lock(&b).set_ac2_look_part(&part, on)
 }
 
+/// Tick or untick a creature of the AC2 look for the next build.
+#[tauri::command]
+fn set_ac2_look_creature(b: State<'_, Shared>, creature: String, on: bool) -> Cmd<()> {
+    lock(&b).set_ac2_look_creature(&creature, on)
+}
+
 /// Choose the Asheron's Call 2 install the AC2 look is built from. `None` when the player
 /// cancels.
 #[tauri::command]
@@ -1193,6 +1199,7 @@ fn main() {
             add_art_file,
             build_ac2_look,
             set_ac2_look_part,
+            set_ac2_look_creature,
             pick_ac2_look_folder,
             create_plugin,
             pick_plugin_folder,
@@ -1490,8 +1497,8 @@ mod tests {
     }
 
     /// The Asheron's Call 2 art section: its title and what it does, the data set it is made
-    /// from with the folder under it, the parts by name, and Built with the version and Build or
-    /// Rebuild.
+    /// from with the folder under it, the parts by name, the creatures folded under their own
+    /// heading, and Built with the version and Build or Rebuild.
     #[test]
     fn the_asherons_call_2_art_section_says_what_it_makes_and_from_what() {
         let look = page_function("ac2Look");
@@ -1515,6 +1522,19 @@ mod tests {
                 "Rocks",
                 "Sky"
             ]
+        );
+        // The creatures below the parts, under a heading that folds them, folded at first, each a
+        // tick box, and nothing about holding weapons.
+        assert!(look.contains(r#"data-lib-fold="art.ac2look.creatures" data-lib-closed="1""#));
+        assert!(look.contains(r#"libOpen("art.ac2look.creatures", true)"#));
+        assert!(look.contains("</span>Creatures</div>"));
+        assert!(look.contains("data-look-creature="));
+        assert!(look.find("${ticks}") < look.find("${creatureFold}"));
+        assert!(!look.to_lowercase().contains("weapon") && !look.to_lowercase().contains("hold"));
+        assert_eq!(dereth_launch::ac2_look::CREATURES.len(), 18);
+        assert_eq!(
+            dereth_launch::ac2_look::CREATURES[11],
+            ("olthoi-grub", "Olthoi Grub")
         );
     }
 

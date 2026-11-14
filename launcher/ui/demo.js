@@ -305,18 +305,23 @@
     available: artSources.flatMap((x) => Object.entries(x.packs).filter(([id]) => !artInstalled.some((p) => p.id === id))
       .map(([id, release]) => ({ id, source: x.url, source_name: x.name, installable: !id.startsWith("network.dereth.") || x.first_party, release }))),
   });
-  // The Asheron's Call 2 art pack, as the backend's: every part ticked, not built until Build.
+  // The Asheron's Call 2 art pack, as the backend's: every part and creature ticked, not built until
+  // Build.
   const ac2Look = {
     tool: true, install: "C:\\Games\\Asheron's Call 2", install_ok: true, ac1: true,
     parts: [["terrain", "Terrain"], ["red-desert", "Red Desert"], ["trees", "Trees and Ground Cover"], ["rocks", "Rocks"], ["sky", "Sky"]]
       .map(([id, label]) => ({ id, label, on: true })),
+    creatures: ["armoredillo", "banderling", "burun", "drudge", "golem", "grievver", "moarsman", "monouga", "mosswart",
+      "niffis", "olthoi", "olthoi-grub", "rabbit", "reedshark", "shreth", "skeleton", "virindi", "wasp"]
+      .map((id) => ({ id, label: id.split("-").map((w) => w[0].toUpperCase() + w.slice(1)).join(" "), on: true })),
     built: null, stale: false, progress: null,
   };
   const artDemo = () => ({
     // Built, it joins the packs on this computer, or is read again where it stands.
     build_ac2_look: () => {
       ac2Look.built = "0.1.4";
-      const labels = ac2Look.parts.filter((p) => p.on).map((p) => p.label).join(", ");
+      const labels = [...ac2Look.parts.filter((p) => p.on).map((p) => p.label),
+        ...(ac2Look.creatures.some((c) => c.on) ? ["Creatures"] : [])].join(", ");
       const release = { ...artRelease("Asheron's Call 2 Art Pack", "0.1.4", 268435456,
         `Asheron's Call 2 art pack generated from your own data set.\nIncludes: ${labels}`), authors: [], license: "", made_for: [], released: "" };
       const had = artInstalled.find((p) => p.id === "local.ac2-look");
@@ -325,6 +330,7 @@
       return "Built the Asheron's Call 2 Art Pack 0.1.4.";
     },
     set_ac2_look_part: ({ part, on }) => { const p = ac2Look.parts.find((x) => x.id === part); if (p) p.on = on; },
+    set_ac2_look_creature: ({ creature, on }) => { const c = ac2Look.creatures.find((x) => x.id === creature); if (c) c.on = on; },
     pick_ac2_look_folder: () => null,
     refresh_art: () => "",
     set_library_open: ({ key, open }) => { state.settings.library_open = { ...(state.settings.library_open ?? {}), [key]: open }; },

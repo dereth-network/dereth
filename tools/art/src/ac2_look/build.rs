@@ -33,6 +33,8 @@ pub struct Request {
     pub out: PathBuf,
     /// The parts to build.
     pub parts: BTreeSet<Part>,
+    /// The creatures to build, by name.
+    pub creatures: BTreeSet<String>,
     /// Keep the pack's folder beside the file, not only the file.
     pub keep_folder: bool,
 }
@@ -57,6 +59,7 @@ pub fn version(t: &Tables) -> String {
         t.trees.version,
         t.rocks.version,
         t.sky.version,
+        t.creatures.version,
     ]
     .iter()
     .sum();
@@ -453,9 +456,122 @@ fn build_model(
     }
 }
 
+/// The creatures asked for: each body, its pictures, its looks and its clips under
+/// `creatures/<name>/<body>/`, its `[[skin]]` rows, and the weenies every one keeps as Asheron's
+/// Call draws them.
+fn creatures(
+    ac2: &Ac2,
+    t: &Tables,
+    names: &BTreeSet<String>,
+    folder: &Folder,
+    manifest: &mut String,
+    left_out: &mut Vec<String>,
+    progress: &mut dyn FnMut(&str),
+) -> Result<(), String> {
+    use super::creature;
+    let mut weenies: BTreeSet<u32> = BTreeSet::new();
+    let mut launchers = false;
+    for c in t
+        .creatures
+        .creature
+        .iter()
+        .filter(|c| names.contains(&c.name))
+    {
+        let dir = format!("creatures/{}", c.name);
+        let mut made_bodies: BTreeSet<&str> = BTreeSet::new();
+        for b in &c.body {
+            progress(&format!("creature {} {}", c.name, b.folder));
+            let made = match creature::make(ac2, b) {
+                Ok(m) => m,
+                Err(e) => {
+                    left_out.push(format!("creature {} {}: {e}", c.name, b.folder));
+                    continue;
+                }
+            };
+            let file = creature::body_file(&made, b);
+            let at = format!("{dir}/{}", b.folder);
+            let mut own: BTreeMap<u32, Rgba> = BTreeMap::new();
+            for list in &file.images {
+                if own.contains_key(list) {
+                    continue;
+                }
+                let p = ac2.picture(*list, creature::PICTURE_LIMIT).ok_or_else(|| {
+                    format!("creature {}: picture {list:08X} will not read", c.name)
+                })?;
+                folder.picture(&format!("{at}/tex_{list:08X}.png"), &p)?;
+                own.insert(*list, p);
+            }
+            folder.write(&format!("{at}/body.bin"), &file.bin)?;
+            let text = serde_json::to_string(&file.json).map_err(|e| e.to_string())?;
+            folder.write(&format!("{at}/body.gltf"), text.as_bytes())?;
+            // The differences between the body's pictures, which a masked look's tint is laid by.
+            let mask = match &b.mask {
+                Some(lists) => {
+                    let mut pictures = Vec::new();
+                    for list in lists {
+                        let p = match own.get(list) {
+                            Some(p) => p.clone(),
+                            None => {
+                                ac2.picture(*list, creature::PICTURE_LIMIT).ok_or_else(|| {
+                                    format!("creature {}: picture {list:08X} will not read", c.name)
+                                })?
+                            }
+                        };
+                        pictures.push(picture::opaque(&p));
+                    }
+                    Some(picture::differences(&pictures))
+                }
+                None => None,
+            };
+            for l in c.look.iter().filter(|l| l.body == b.folder) {
+                match creature::look_files(ac2, l, &file, &own, mask.as_ref()) {
+                    Ok(look) => {
+                        for (name, p) in &look.pictures {
+                            folder.picture(&format!("{at}/{name}"), p)?;
+                        }
+                        let text = serde_json::to_string(&look.json).map_err(|e| e.to_string())?;
+                        folder.write(&format!("{at}/{}.gltf", l.name), text.as_bytes())?;
+                    }
+                    Err(e) => left_out.push(format!("creature {}: {e}", c.name)),
+                }
+            }
+            made_bodies.insert(b.folder.as_str());
+        }
+        let rows = super::tables::Creature {
+            skin: c
+                .skin
+                .iter()
+                .filter(|r| made_bodies.contains(r.body.as_str()))
+                .cloned()
+                .collect(),
+            ..c.clone()
+        };
+        let _ = write!(
+            manifest,
+            "# AC2's {} in place of Asheron's Call's\n{}\n",
+            c.label,
+            creature::rows(&rows, &dir, CREDIT.trim_end())
+        );
+        weenies.extend(&c.keep_weenies);
+        launchers |= c.keep_launchers;
+    }
+    if !weenies.is_empty() || launchers {
+        let list: Vec<String> = weenies.iter().map(u32::to_string).collect();
+        let _ = write!(
+            manifest,
+            "# Kept as Asheron's Call draws them\n[keep]\nlaunchers = {launchers}\nweenies = [{}]\n\n",
+            list.join(", ")
+        );
+    }
+    Ok(())
+}
+
 /// What the installed pack says it is: what it was made from, then a line of the parts it holds.
-fn description(parts: &BTreeSet<Part>) -> String {
-    let labels: Vec<&str> = parts.iter().map(|p| p.label()).collect();
+fn description(parts: &BTreeSet<Part>, creatures: bool) -> String {
+    let mut labels: Vec<&str> = parts.iter().map(|p| p.label()).collect();
+    if creatures {
+        labels.push("Creatures");
+    }
     format!(
         "Asheron's Call 2 art pack generated from your own data set.\nIncludes: {}",
         labels.join(", ")
@@ -463,12 +579,12 @@ fn description(parts: &BTreeSet<Part>) -> String {
 }
 
 /// The pack's `[pack]` table.
-fn head(t: &Tables, parts: &BTreeSet<Part>) -> String {
+fn head(t: &Tables, parts: &BTreeSet<Part>, creatures: bool) -> String {
     format!(
         "[pack]\nid = \"{PACK_ID}\"\nversion = \"{}\"\nname = \"{PACK_NAME}\"\nformat = 1\n\
          description = {}\n\n",
         version(t),
-        toml::Value::String(description(parts))
+        toml::Value::String(description(parts, creatures))
     )
 }
 
@@ -478,8 +594,13 @@ fn head(t: &Tables, parts: &BTreeSet<Part>) -> String {
 /// An install will not open, a file will not write, or the pack will not pack.
 #[allow(clippy::too_many_lines)]
 pub fn build(t: &Tables, req: &Request, progress: &mut dyn FnMut(&str)) -> Result<Built, String> {
-    if req.parts.is_empty() {
+    if req.parts.is_empty() && req.creatures.is_empty() {
         return Err("no part of the look was asked for".into());
+    }
+    for name in &req.creatures {
+        if t.creatures.named(name).is_none() {
+            return Err(format!("no creature {name}"));
+        }
     }
     let ac2 = Ac2::open(&req.ac2)?;
     let ac1 = if req.parts.contains(&Part::Rocks) {
@@ -496,7 +617,7 @@ pub fn build(t: &Tables, req: &Request, progress: &mut dyn FnMut(&str)) -> Resul
         std::fs::remove_dir_all(&root).map_err(|e| format!("{}: {e}", root.display()))?;
     }
     let folder = Folder { root: root.clone() };
-    let mut manifest = head(t, &req.parts);
+    let mut manifest = head(t, &req.parts, !req.creatures.is_empty());
     let mut left_out = Vec::new();
     if req.parts.contains(&Part::Terrain) || req.parts.contains(&Part::RedDesert) {
         ground(
@@ -616,6 +737,15 @@ pub fn build(t: &Tables, req: &Request, progress: &mut dyn FnMut(&str)) -> Resul
             let _ = write!(manifest, "[lighting.grass.{ty}]\nflowers = 0\n\n");
         }
     }
+    creatures(
+        &ac2,
+        t,
+        &req.creatures,
+        &folder,
+        &mut manifest,
+        &mut left_out,
+        progress,
+    )?;
     folder.write(dereth_assets::art_pack::MANIFEST_FILE, manifest.as_bytes())?;
     progress("packing");
     let report = crate::pack::pack(&root, &req.out)?;
@@ -668,7 +798,7 @@ mod tests {
     fn the_installed_pack_is_named_and_lists_the_parts_it_holds() {
         let t = Tables::built_in().expect("the tables");
         let parts: BTreeSet<Part> = [Part::Sky, Part::Terrain, Part::Trees].into();
-        let m = dereth_assets::art_pack::ArtPackManifest::parse(&head(&t, &parts))
+        let m = dereth_assets::art_pack::ArtPackManifest::parse(&head(&t, &parts, false))
             .expect("the manifest reads");
         assert_eq!(m.name, "Asheron's Call 2 Art Pack");
         assert_eq!(m.about.id, PACK_ID);
@@ -747,6 +877,7 @@ mod tests {
                 ac1: None,
                 out: dir.join(name),
                 parts: [Part::Terrain].into(),
+                creatures: BTreeSet::new(),
                 keep_folder: true,
             };
             let built = build(t, &req, &mut |_| {});
@@ -796,6 +927,49 @@ mod tests {
         assert_eq!(details.expect("the ground folder"), 0);
     }
 
+    /// Two creatures from this machine's AC2 install: a single-body one with per-look bodies and
+    /// one with two bodies whose looks tint every picture; the pack opens as the client opens it,
+    /// with nothing it cannot play, a body for every row the table has, each with an idle, and the
+    /// weenies the creatures keep.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn creatures_build_from_the_install_into_bodies_the_client_plays() {
+        let t = Tables::built_in().expect("the tables");
+        let ac2 = auberean_dat::testing::require_target_install();
+        let dir =
+            std::env::temp_dir().join(format!("dereth-art-ac2-creatures-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let req = Request {
+            ac2,
+            ac1: None,
+            out: dir.join("creatures.dat"),
+            parts: BTreeSet::new(),
+            creatures: ["rabbit".to_owned(), "shreth".to_owned()].into(),
+            keep_folder: false,
+        };
+        let built = build(&t, &req, &mut |_| {});
+        let pack = match &built {
+            Ok(b) => Some(dereth_scene::art_pack::ArtPack::open_path(&b.out)),
+            Err(_) => None,
+        };
+        let _ = std::fs::remove_dir_all(&dir);
+        let built = built.expect("the creatures build");
+        assert!(built.left_out.is_empty(), "{:?}", built.left_out);
+        let pack = pack.expect("a file").expect("the pack opens");
+        assert!(pack.problems.is_empty(), "{:?}", pack.problems);
+        let rows: usize = ["rabbit", "shreth"]
+            .iter()
+            .map(|n| t.creatures.named(n).expect("a creature").skin.len())
+            .sum();
+        assert_eq!(pack.skins.len(), rows);
+        assert!(pack.skins.iter().all(|s| !s.clips.is_empty()));
+        let rabbit = t.creatures.named("rabbit").expect("the rabbit");
+        assert!(rabbit.keep_weenies.iter().all(|w| pack.keep.contains(w)));
+    }
+
     /// The whole look from this machine's installs: nothing left out, every model and ground in
     /// the pack, a tree's trunk drawn in to its cylinder, and the same files give the same pack.
     #[test]
@@ -814,6 +988,7 @@ mod tests {
             ac1: Some(ac1.clone()),
             out: dir.join(out),
             parts: parts.iter().copied().collect(),
+            creatures: BTreeSet::new(),
             keep_folder: false,
         };
         let all = build(&t, &req("all.dat", &Part::ALL), &mut |_| {});

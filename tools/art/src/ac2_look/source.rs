@@ -139,6 +139,12 @@ impl Ac2 {
         })
     }
 
+    /// The record `id`, read as a `T`; `None` when it is missing or will not read.
+    #[must_use]
+    pub fn record<T: auberean_assets::Decode>(&self, id: u32) -> Option<T> {
+        self.records.get(id)
+    }
+
     /// The region: its terrain kinds, surfaces and roads.
     ///
     /// # Errors

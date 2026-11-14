@@ -1,0 +1,5830 @@
+# What each creature is drawn with: ids and numbers only.
+
+version = 1
+
+[[creature]]
+name = "armoredillo"
+label = "Armoredillo"
+keep_launchers = true
+keep_weenies = [1766, 26671, 26675, 29352, 33920, 33961, 38176, 72974, 72985]
+
+[[creature.body]]
+folder = "body"
+entity = 0x47000236
+bind = 0x05000398
+scale = 0.394656
+offset = [-0.0, 0.051081, -0.060016]
+parts = 26
+anchor = [-1.000001, 0.0, 0.0, 0.0, -0.0, 0.999941, -0.01085, 0.0, -0.0, -0.01085, -0.999942, 0.0, -0.0, -0.372801, -0.428347, 1.0]
+trunk = [1, 10, 11, 12, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]
+clips.idle = { animation = 0x05000398 }
+clips.idle_melee = { animation = 0x050003A6 }
+clips.idle_missile = { animation = 0x050003A6 }
+clips.idle_magic = { animation = 0x050003A6 }
+clips.walk = { animation = 0x05000396 }
+clips.walk_back = { animation = 0x050003A2 }
+clips.run = { animation = 0x05000397 }
+clips.turn = { animation = 0x050003A5 }
+clips.melee_high = { animation = 0x0500039B, hit = 0.639 }
+clips.melee_med = { animation = 0x0500039A, hit = 1.457 }
+clips.melee_low = { animation = 0x05000399, hit = 0.649 }
+clips.special = { animation = 0x0500039C, hit = 1.667 }
+clips.missile = { animation = 0x05000399, hit = 0.649 }
+clips.cast = { animation = 0x0500039A }
+clips.hit = { animation = 0x050004CC }
+clips.hit_heavy = { animation = 0x050004CC }
+clips.die = { animation = 0x050003A0 }
+clips.dead = { animation = 0x0500039F }
+clips.emote = { animation = 0x0500039C }
+clips.cheer = { animation = 0x0500039D }
+clips.fall = { animation = 0x05000397 }
+clips.jump = { animation = 0x05000397 }
+mask = [0x4000043D, 0x4000043D, 0x40000598, 0x40000598, 0x40000599, 0x40000599]
+
+[[creature.look]]
+name = "blighted-hoary-armoredillo-hoary-armoredillo"
+body = "body"
+picture = 0x40000599
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "freshwater-armoredillo"
+body = "body"
+picture = 0x4000043D
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "island-armoredillo"
+body = "body"
+picture = 0x40000598
+tint = [0.592, 0.952, 0.636]
+masked = true
+
+[[creature.look]]
+name = "plate-armoredillo-stinging-armoredillo"
+body = "body"
+picture = 0x4000043D
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "sandy-armoredillo-tamed-armoredillo"
+body = "body"
+picture = 0x4000043D
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "shore-armoredillo-stony-armoredillo-pup"
+body = "body"
+picture = 0x40000598
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "spiny-armoredillo"
+body = "body"
+picture = 0x40000599
+tint = [1.0, 1.0, 1.0]
+
+[[creature.skin]]
+setup = 0x02000004
+body = "body"
+
+[[creature.skin]]
+setup = 0x02000004
+body = "body"
+look = "shore-armoredillo-stony-armoredillo-pup"
+palettes = [0x04001B92]
+
+[[creature.skin]]
+setup = 0x02000004
+body = "body"
+look = "plate-armoredillo-stinging-armoredillo"
+palettes = [0x04001513]
+
+[[creature.skin]]
+setup = 0x02000004
+body = "body"
+look = "sandy-armoredillo-tamed-armoredillo"
+palettes = [0x04001B91]
+
+[[creature.skin]]
+setup = 0x02000004
+body = "body"
+look = "freshwater-armoredillo"
+palettes = [0x04001B8E]
+
+[[creature.skin]]
+setup = 0x02000004
+body = "body"
+look = "island-armoredillo"
+palettes = [0x04001B8F]
+
+[[creature.skin]]
+setup = 0x02000004
+body = "body"
+look = "blighted-hoary-armoredillo-hoary-armoredillo"
+palettes = [0x04001512]
+
+[[creature.skin]]
+setup = 0x02000004
+body = "body"
+look = "spiny-armoredillo"
+palettes = [0x04001B94]
+
+[[creature]]
+name = "banderling"
+label = "Banderling"
+keep_launchers = true
+keep_weenies = [184, 1240, 1241, 1356, 1497, 1520, 5658, 7086, 7088, 7333, 8258, 11983, 22898, 23479, 24274, 24275, 24277, 25562, 25568, 27487, 29351, 30635, 30636, 30637, 30638, 30639, 30685, 30898, 35338, 35341, 35342, 35343, 35572, 35629, 36816, 36817, 36820, 38943, 38982, 43165, 43485, 43488, 72955]
+
+[[creature.body]]
+folder = "body"
+entity = 0x470001C0
+bind = 0x050001F0
+scale = 0.449921
+offset = [0.000908, -0.009229, 0.055994]
+parts = 17
+anchor = [-0.938493, -0.051634, 0.341415, 0.0, -0.0, 0.988756, 0.149535, 0.0, -0.345298, 0.140338, -0.927941, 0.0, 0.001166, -0.795769, -0.119804, 1.0]
+trunk = [0, 1, 10, 11, 12, 13]
+gfxobj = [0x01002BF6, 0x01002BF7, 0x01002C03, 0x01002BFA, 0x01002BF8, 0x01002C04, 0x01002BFB, 0x01002BF9, 0x01002C05, 0x01002BFC, 0x01002BFE, 0x01002C06, 0x01002BFD, 0x01002BFF, 0x01002C00, 0x01002C02, 0x01002C02]
+clips.idle = { animation = 0x050001F0 }
+clips.idle_melee = { animation = 0x050001F1 }
+clips.idle_missile = { animation = 0x050001F1 }
+clips.idle_magic = { animation = 0x050001F1 }
+clips.walk = { animation = 0x050001DE, stride = 1.5872 }
+clips.walk_back = { animation = 0x050001EB, stride = 1.1585 }
+clips.run = { animation = 0x050001ED, stride = 5.1179 }
+clips.side_step = { animation = 0x05000240, stride = 1.5251 }
+clips.turn = { animation = 0x050001EF }
+clips.melee_high = { animation = 0x050001E3, hit = 0.793 }
+clips.melee_med = { animation = 0x050001E1, hit = 0.6 }
+clips.melee_low = { animation = 0x050001E2, hit = 0.48 }
+clips.special = { animation = 0x050002D6, hit = 1.157 }
+clips.missile = { animation = 0x0500023A, hit = 0.878 }
+clips.cast = { animation = 0x050002D6 }
+clips.telegraph = { animation = 0x050001F1 }
+clips.hit = { animation = 0x0500043E }
+clips.hit_heavy = { animation = 0x0500043E }
+clips.die = { animation = 0x050001DF }
+clips.dead = { animation = 0x050001E0 }
+clips.emote = { animation = 0x050001E4 }
+clips.cheer = { animation = 0x050001E7 }
+clips.fall = { animation = 0x050001F3 }
+clips.jump = { animation = 0x050001F3 }
+mask = [0x40000151, 0x4000059A, 0x4000059D]
+
+[[creature.look]]
+name = "banderling-aggressor-banderling-smasher"
+body = "body"
+picture = 0x40000151
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "banderling-bandit-banderling-raider"
+body = "body"
+picture = 0x40000151
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "banderling-berserker-banderling-chief"
+body = "body"
+picture = 0x40000151
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "banderling-chanter-banderling-savage"
+body = "body"
+picture = 0x4000059D
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "banderling-crusher-banderling-scalper"
+body = "body"
+picture = 0x40000151
+tint = [1.693, 1.286, 0.747]
+masked = true
+
+[[creature.look]]
+name = "banderling-enforcer"
+body = "body"
+picture = 0x40000151
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "banderling-guard-banderling-sentry"
+body = "body"
+picture = 0x40000151
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "banderling-hierophant-withered-banderling-hierophant"
+body = "body"
+picture = 0x40000151
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "banderling-mangler-banderling-mauler"
+body = "body"
+picture = 0x40000151
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "banderling-predator-chief-grogbash"
+body = "body"
+picture = 0x40000151
+tint = [1.95, 1.173, 1.373]
+masked = true
+
+[[creature.skin]]
+setup = 0x02000E08
+body = "body"
+
+[[creature.skin]]
+setup = 0x020012A6
+body = "body"
+
+[[creature.skin]]
+setup = 0x020012B4
+body = "body"
+
+[[creature.skin]]
+setup = 0x02000E08
+body = "body"
+look = "banderling-bandit-banderling-raider"
+palettes = [0x04001431]
+
+[[creature.skin]]
+setup = 0x020012A6
+body = "body"
+look = "banderling-bandit-banderling-raider"
+palettes = [0x04001431]
+
+[[creature.skin]]
+setup = 0x020012B4
+body = "body"
+look = "banderling-bandit-banderling-raider"
+palettes = [0x04001431]
+
+[[creature.skin]]
+setup = 0x02000E08
+body = "body"
+look = "banderling-hierophant-withered-banderling-hierophant"
+palettes = [0x04001516]
+
+[[creature.skin]]
+setup = 0x020012A6
+body = "body"
+look = "banderling-hierophant-withered-banderling-hierophant"
+palettes = [0x04001516]
+
+[[creature.skin]]
+setup = 0x020012B4
+body = "body"
+look = "banderling-hierophant-withered-banderling-hierophant"
+palettes = [0x04001516]
+
+[[creature.skin]]
+setup = 0x02000E08
+body = "body"
+look = "banderling-chanter-banderling-savage"
+palettes = [0x04001518]
+
+[[creature.skin]]
+setup = 0x020012A6
+body = "body"
+look = "banderling-chanter-banderling-savage"
+palettes = [0x04001518]
+
+[[creature.skin]]
+setup = 0x020012B4
+body = "body"
+look = "banderling-chanter-banderling-savage"
+palettes = [0x04001518]
+
+[[creature.skin]]
+setup = 0x02000E08
+body = "body"
+look = "banderling-mangler-banderling-mauler"
+palettes = [0x04001434]
+
+[[creature.skin]]
+setup = 0x020012A6
+body = "body"
+look = "banderling-mangler-banderling-mauler"
+palettes = [0x04001434]
+
+[[creature.skin]]
+setup = 0x020012B4
+body = "body"
+look = "banderling-mangler-banderling-mauler"
+palettes = [0x04001434]
+
+[[creature.skin]]
+setup = 0x02000E08
+body = "body"
+look = "banderling-aggressor-banderling-smasher"
+palettes = [0x04001517]
+
+[[creature.skin]]
+setup = 0x020012A6
+body = "body"
+look = "banderling-aggressor-banderling-smasher"
+palettes = [0x04001517]
+
+[[creature.skin]]
+setup = 0x020012B4
+body = "body"
+look = "banderling-aggressor-banderling-smasher"
+palettes = [0x04001517]
+
+[[creature.skin]]
+setup = 0x02000E08
+body = "body"
+look = "banderling-crusher-banderling-scalper"
+palettes = [0x0400151A]
+
+[[creature.skin]]
+setup = 0x020012A6
+body = "body"
+look = "banderling-crusher-banderling-scalper"
+palettes = [0x0400151A]
+
+[[creature.skin]]
+setup = 0x020012B4
+body = "body"
+look = "banderling-crusher-banderling-scalper"
+palettes = [0x0400151A]
+
+[[creature.skin]]
+setup = 0x02000E08
+body = "body"
+look = "banderling-enforcer"
+palettes = [0x04001433]
+
+[[creature.skin]]
+setup = 0x020012A6
+body = "body"
+look = "banderling-enforcer"
+palettes = [0x04001433]
+
+[[creature.skin]]
+setup = 0x020012B4
+body = "body"
+look = "banderling-enforcer"
+palettes = [0x04001433]
+
+[[creature.skin]]
+setup = 0x02000E08
+body = "body"
+look = "banderling-predator-chief-grogbash"
+palettes = [0x04001519]
+
+[[creature.skin]]
+setup = 0x020012A6
+body = "body"
+look = "banderling-predator-chief-grogbash"
+palettes = [0x04001519]
+
+[[creature.skin]]
+setup = 0x020012B4
+body = "body"
+look = "banderling-predator-chief-grogbash"
+palettes = [0x04001519]
+
+[[creature.skin]]
+setup = 0x02000E08
+body = "body"
+look = "banderling-guard-banderling-sentry"
+palettes = [0x04001439]
+
+[[creature.skin]]
+setup = 0x020012A6
+body = "body"
+look = "banderling-guard-banderling-sentry"
+palettes = [0x04001439]
+
+[[creature.skin]]
+setup = 0x020012B4
+body = "body"
+look = "banderling-guard-banderling-sentry"
+palettes = [0x04001439]
+
+[[creature.skin]]
+setup = 0x02000E08
+body = "body"
+look = "banderling-berserker-banderling-chief"
+palettes = [0x04001436]
+
+[[creature.skin]]
+setup = 0x020012A6
+body = "body"
+look = "banderling-berserker-banderling-chief"
+palettes = [0x04001436]
+
+[[creature.skin]]
+setup = 0x020012B4
+body = "body"
+look = "banderling-berserker-banderling-chief"
+palettes = [0x04001436]
+
+[[creature]]
+name = "burun"
+label = "Burun"
+keep_launchers = true
+keep_weenies = [27131, 27132, 27133, 27134, 27521, 27522, 27523, 28381, 28382, 28384, 28444, 28446, 34729, 34820, 34821, 34822, 34823, 34824, 34825, 34826, 34840, 34841, 34842, 34849, 34851, 34951, 34956, 35209]
+
+[[creature.body]]
+folder = "body"
+entity = 0x470001CB
+bind = 0x05000382
+scale = 0.839902
+offset = [0.0, -0.01022, -0.098601]
+parts = 20
+anchor = [-0.999589, -0.020981, 0.019554, 0.0, -0.013792, 0.949428, 0.31368, 0.0, -0.025146, 0.313282, -0.949327, 0.0, -0.000508, -0.818798, -0.904523, 1.0]
+trunk = [12, 13, 14, 33, 34, 35]
+clips.idle = { animation = 0x05000382 }
+clips.idle_melee = { animation = 0x05000383 }
+clips.idle_missile = { animation = 0x05000383 }
+clips.idle_magic = { animation = 0x05000383 }
+clips.walk = { animation = 0x05000380, stride = 1.2289 }
+clips.walk_back = { animation = 0x0500038D, stride = 1.954 }
+clips.run = { animation = 0x0500038F, stride = 4.9729 }
+clips.turn = { animation = 0x05000391 }
+clips.melee_high = { animation = 0x05000386, hit = 0.814 }
+clips.melee_med = { animation = 0x05000385, hit = 1.293 }
+clips.melee_low = { animation = 0x05000384, hit = 0.915 }
+clips.special = { animation = 0x05000389, hit = 2.306 }
+clips.missile = { animation = 0x05000384, hit = 0.915 }
+clips.cast = { animation = 0x05000384 }
+clips.telegraph = { animation = 0x05000383 }
+clips.hit = { animation = 0x050004C3 }
+clips.hit_heavy = { animation = 0x050004C3 }
+clips.die = { animation = 0x0500038B }
+clips.dead = { animation = 0x050004C7 }
+clips.emote = { animation = 0x05000388 }
+clips.cheer = { animation = 0x05000383 }
+clips.fall = { animation = 0x05000381 }
+clips.jump = { animation = 0x05000381 }
+
+[[creature.look]]
+name = "barluuk-burun-ruuk-seer"
+body = "body"
+picture = 0x4000043B
+tint = [0.743, 0.69, 1.614]
+colorize = true
+
+[[creature.look]]
+name = "burun-ruuk-adept-ruuk-ranger"
+body = "body"
+picture = 0x4000043B
+tint = [0.73, 0.892, 1.346]
+colorize = true
+
+[[creature.look]]
+name = "burun-ruuk-adherent-burun-ruuk-adherent-overseer"
+body = "body"
+picture = 0x4000043B
+tint = [0.581, 0.762, 1.288]
+colorize = true
+
+[[creature.look]]
+name = "burun-ruuk-fiend-ruuk-fiend-watcher"
+body = "body"
+picture = 0x4000043B
+tint = [0.623, 0.943, 1.388]
+colorize = true
+
+[[creature.look]]
+name = "burun-ruuk-lout"
+body = "body"
+picture = 0x4000043B
+tint = [0.719, 0.807, 1.389]
+colorize = true
+
+[[creature.look]]
+name = "burun-ruuk-ruffian"
+body = "body"
+picture = 0x4000043B
+tint = [0.664, 0.871, 1.548]
+colorize = true
+
+[[creature.look]]
+name = "burun-ruuk-savage"
+body = "body"
+picture = 0x4000043B
+tint = [0.695, 0.799, 1.721]
+colorize = true
+
+[[creature.look]]
+name = "burun-ruuk-scamp"
+body = "body"
+picture = 0x4000043B
+tint = [0.922, 0.591, 0.809]
+colorize = true
+
+[[creature.look]]
+name = "burun-ruuk-shaman-burun-ruuk-shaman-keeper"
+body = "body"
+picture = 0x4000043B
+tint = [0.585, 0.727, 1.806]
+colorize = true
+
+[[creature.look]]
+name = "burun-ruuk-soothsayer-burun-ruuk-soothsayer-leader"
+body = "body"
+picture = 0x4000043B
+tint = [0.519, 0.606, 1.151]
+colorize = true
+
+[[creature.look]]
+name = "kurket"
+body = "body"
+picture = 0x4000043B
+tint = [0.627, 0.893, 1.346]
+colorize = true
+
+[[creature.skin]]
+setup = 0x02001036
+body = "body"
+
+[[creature.skin]]
+setup = 0x02001036
+body = "body"
+look = "barluuk-burun-ruuk-seer"
+palettes = [0x040017AD]
+
+[[creature.skin]]
+setup = 0x02001036
+body = "body"
+look = "burun-ruuk-fiend-ruuk-fiend-watcher"
+palettes = [0x040017A9]
+
+[[creature.skin]]
+setup = 0x02001036
+body = "body"
+look = "burun-ruuk-shaman-burun-ruuk-shaman-keeper"
+palettes = [0x040017AF]
+
+[[creature.skin]]
+setup = 0x02001036
+body = "body"
+look = "kurket"
+palettes = [0x040017AE]
+
+[[creature.skin]]
+setup = 0x02001036
+body = "body"
+look = "burun-ruuk-lout"
+palettes = [0x040017A8]
+
+[[creature.skin]]
+setup = 0x02001036
+body = "body"
+look = "burun-ruuk-soothsayer-burun-ruuk-soothsayer-leader"
+palettes = [0x040017B2]
+
+[[creature.skin]]
+setup = 0x02001036
+body = "body"
+look = "burun-ruuk-savage"
+palettes = [0x040017AA]
+
+[[creature.skin]]
+setup = 0x02001036
+body = "body"
+look = "burun-ruuk-adherent-burun-ruuk-adherent-overseer"
+palettes = [0x040017AC]
+
+[[creature.skin]]
+setup = 0x02001036
+body = "body"
+look = "burun-ruuk-scamp"
+palettes = [0x040017B0]
+
+[[creature.skin]]
+setup = 0x02001036
+body = "body"
+look = "burun-ruuk-ruffian"
+palettes = [0x040017AB]
+
+[[creature.skin]]
+setup = 0x02001036
+body = "body"
+look = "burun-ruuk-adept-ruuk-ranger"
+palettes = [0x040017A7]
+
+[[creature]]
+name = "drudge"
+label = "Drudge"
+keep_launchers = true
+keep_weenies = [1242, 1255, 1321, 1322, 1521, 5196, 6384, 6442, 6443, 6644, 9172, 10708, 10709, 10711, 14342, 14343, 14344, 14345, 14346, 14347, 19196, 19223, 19224, 19288, 19740, 25569, 27414, 27415, 29403, 29405, 29407, 29418, 29419, 29420, 29421, 30490, 30548, 30552, 30648, 30891, 33918, 33962, 34612, 34613, 35573, 38953, 38981, 42131, 52445, 87367, 87383, 87388, 87432, 88154]
+
+[[creature.body]]
+folder = "body"
+entity = 0x470000C7
+bind = 0x05000195
+scale = 0.969685
+offset = [0.304952, -0.004125, -0.605301]
+parts = 17
+anchor = [-0.938493, -0.051634, 0.341415, 0.0, -0.0, 0.988756, 0.149535, 0.0, -0.345298, 0.140338, -0.927941, 0.0, 0.001166, -0.864868, -0.130254, 1.0]
+trunk = [1, 2, 3, 22]
+clips.idle = { animation = 0x05000195 }
+clips.idle_melee = { animation = 0x050001A6 }
+clips.idle_missile = { animation = 0x050001A6 }
+clips.idle_magic = { animation = 0x050001A6 }
+clips.walk = { animation = 0x05000198, stride = 1.0767 }
+clips.walk_back = { animation = 0x0500019F, stride = 0.9779 }
+clips.run = { animation = 0x050001A1, stride = 3.02 }
+clips.side_step = { animation = 0x050001A2 }
+clips.turn = { animation = 0x050001A5 }
+clips.melee_high = { animation = 0x0500019C, hit = 0.715 }
+clips.melee_med = { animation = 0x0500019B, hit = 0.836 }
+clips.melee_low = { animation = 0x0500019B, hit = 0.836 }
+clips.special = { animation = 0x05000251, hit = 1.956 }
+clips.missile = { animation = 0x05000250, hit = 1.015 }
+clips.cast = { animation = 0x05000251 }
+clips.telegraph = { animation = 0x050001A6 }
+clips.hit = { animation = 0x05000469 }
+clips.hit_heavy = { animation = 0x05000469 }
+clips.die = { animation = 0x0500019A }
+clips.dead = { animation = 0x05000199 }
+clips.emote = { animation = 0x05000252 }
+clips.cheer = { animation = 0x05000253 }
+clips.fall = { animation = 0x050001A8 }
+clips.jump = { animation = 0x050001A8 }
+
+[[creature.look]]
+name = "look-0f6d"
+body = "body"
+picture = 0x400005A2
+tint = [0.633, 0.655, 0.743]
+
+[[creature.look]]
+name = "look-0f6e"
+body = "body"
+picture = 0x400005A0
+tint = [0.93, 0.98, 0.939]
+
+[[creature.look]]
+name = "look-0f6f"
+body = "body"
+picture = 0x400000A5
+tint = [1.069, 1.205, 1.229]
+
+[[creature.look]]
+name = "look-0f70"
+body = "body"
+picture = 0x400000A5
+tint = [0.597, 0.477, 0.455]
+
+[[creature.look]]
+name = "look-0f71"
+body = "body"
+picture = 0x400000A5
+tint = [0.782, 0.929, 1.247]
+
+[[creature.look]]
+name = "look-0f72"
+body = "body"
+picture = 0x40000E06
+tint = [1.085, 0.868, 0.897]
+
+[[creature.look]]
+name = "look-0f73"
+body = "body"
+picture = 0x400005A0
+tint = [0.566, 0.747, 0.608]
+
+[[creature.look]]
+name = "look-0fbf"
+body = "body"
+picture = 0x40000E06
+tint = [0.722, 0.69, 0.673]
+
+[[creature.look]]
+name = "look-0fc3"
+body = "body"
+picture = 0x400005A0
+tint = [0.585, 0.684, 0.6]
+
+[[creature.look]]
+name = "look-1522"
+body = "body"
+picture = 0x400005A0
+tint = [0.43, 0.42, 0.744]
+
+[[creature.look]]
+name = "look-1523"
+body = "body"
+picture = 0x400005A2
+tint = [1.346, 0.793, 1.514]
+
+[[creature.look]]
+name = "look-1524"
+body = "body"
+picture = 0x400005A0
+tint = [0.986, 1.392, 1.583]
+
+[[creature.look]]
+name = "look-1525"
+body = "body"
+picture = 0x400005A2
+tint = [1.338, 0.958, 1.379]
+
+[[creature.look]]
+name = "look-1526"
+body = "body"
+picture = 0x400005A2
+tint = [1.939, 1.036, 1.241]
+
+[[creature.look]]
+name = "look-1527"
+body = "body"
+picture = 0x400005A0
+tint = [0.481, 0.676, 0.456]
+
+[[creature.look]]
+name = "look-1528"
+body = "body"
+picture = 0x400005A0
+tint = [0.491, 0.482, 0.492]
+
+[[creature.look]]
+name = "look-1529"
+body = "body"
+picture = 0x400000A5
+tint = [0.672, 1.067, 1.056]
+
+[[creature.look]]
+name = "look-152a"
+body = "body"
+picture = 0x40000E06
+tint = [0.662, 0.821, 0.739]
+
+[[creature.look]]
+name = "look-161d"
+body = "body"
+picture = 0x400005A0
+tint = [0.429, 0.425, 0.744]
+
+[[creature.skin]]
+setup = 0x020007DD
+body = "body"
+
+[[creature.skin]]
+setup = 0x020016EB
+body = "body"
+
+[[creature.skin]]
+setup = 0x020017C8
+body = "body"
+
+[[creature.skin]]
+setup = 0x020007DD
+body = "body"
+look = "look-1523"
+palettes = [0x04001523]
+
+[[creature.skin]]
+setup = 0x020016EB
+body = "body"
+look = "look-1523"
+palettes = [0x04001523]
+
+[[creature.skin]]
+setup = 0x020017C8
+body = "body"
+look = "look-1523"
+palettes = [0x04001523]
+
+[[creature.skin]]
+setup = 0x020007DD
+body = "body"
+look = "look-0fc3"
+palettes = [0x04000FC3]
+
+[[creature.skin]]
+setup = 0x020016EB
+body = "body"
+look = "look-0fc3"
+palettes = [0x04000FC3]
+
+[[creature.skin]]
+setup = 0x020017C8
+body = "body"
+look = "look-0fc3"
+palettes = [0x04000FC3]
+
+[[creature.skin]]
+setup = 0x020007DD
+body = "body"
+look = "look-0f6e"
+palettes = [0x04000F6E]
+
+[[creature.skin]]
+setup = 0x020016EB
+body = "body"
+look = "look-0f6e"
+palettes = [0x04000F6E]
+
+[[creature.skin]]
+setup = 0x020017C8
+body = "body"
+look = "look-0f6e"
+palettes = [0x04000F6E]
+
+[[creature.skin]]
+setup = 0x020007DD
+body = "body"
+look = "look-0fbf"
+palettes = [0x04000FBF]
+
+[[creature.skin]]
+setup = 0x020016EB
+body = "body"
+look = "look-0fbf"
+palettes = [0x04000FBF]
+
+[[creature.skin]]
+setup = 0x020017C8
+body = "body"
+look = "look-0fbf"
+palettes = [0x04000FBF]
+
+[[creature.skin]]
+setup = 0x020007DD
+body = "body"
+look = "look-0f72"
+palettes = [0x04000F72]
+
+[[creature.skin]]
+setup = 0x020016EB
+body = "body"
+look = "look-0f72"
+palettes = [0x04000F72]
+
+[[creature.skin]]
+setup = 0x020017C8
+body = "body"
+look = "look-0f72"
+palettes = [0x04000F72]
+
+[[creature.skin]]
+setup = 0x020007DD
+body = "body"
+look = "look-1525"
+palettes = [0x04001525]
+
+[[creature.skin]]
+setup = 0x020016EB
+body = "body"
+look = "look-1525"
+palettes = [0x04001525]
+
+[[creature.skin]]
+setup = 0x020017C8
+body = "body"
+look = "look-1525"
+palettes = [0x04001525]
+
+[[creature.skin]]
+setup = 0x020007DD
+body = "body"
+look = "look-0f6d"
+palettes = [0x04000F6D]
+
+[[creature.skin]]
+setup = 0x020016EB
+body = "body"
+look = "look-0f6d"
+palettes = [0x04000F6D]
+
+[[creature.skin]]
+setup = 0x020017C8
+body = "body"
+look = "look-0f6d"
+palettes = [0x04000F6D]
+
+[[creature.skin]]
+setup = 0x020007DD
+body = "body"
+look = "look-1524"
+palettes = [0x04001524]
+
+[[creature.skin]]
+setup = 0x020016EB
+body = "body"
+look = "look-1524"
+palettes = [0x04001524]
+
+[[creature.skin]]
+setup = 0x020017C8
+body = "body"
+look = "look-1524"
+palettes = [0x04001524]
+
+[[creature.skin]]
+setup = 0x020007DD
+body = "body"
+look = "look-0f73"
+palettes = [0x04000F73]
+
+[[creature.skin]]
+setup = 0x020016EB
+body = "body"
+look = "look-0f73"
+palettes = [0x04000F73]
+
+[[creature.skin]]
+setup = 0x020017C8
+body = "body"
+look = "look-0f73"
+palettes = [0x04000F73]
+
+[[creature.skin]]
+setup = 0x020007DD
+body = "body"
+look = "look-1526"
+palettes = [0x04001526]
+
+[[creature.skin]]
+setup = 0x020016EB
+body = "body"
+look = "look-1526"
+palettes = [0x04001526]
+
+[[creature.skin]]
+setup = 0x020017C8
+body = "body"
+look = "look-1526"
+palettes = [0x04001526]
+
+[[creature.skin]]
+setup = 0x020007DD
+body = "body"
+look = "look-152a"
+palettes = [0x0400152A]
+
+[[creature.skin]]
+setup = 0x020016EB
+body = "body"
+look = "look-152a"
+palettes = [0x0400152A]
+
+[[creature.skin]]
+setup = 0x020017C8
+body = "body"
+look = "look-152a"
+palettes = [0x0400152A]
+
+[[creature.skin]]
+setup = 0x020007DD
+body = "body"
+look = "look-1528"
+palettes = [0x04001528]
+
+[[creature.skin]]
+setup = 0x020016EB
+body = "body"
+look = "look-1528"
+palettes = [0x04001528]
+
+[[creature.skin]]
+setup = 0x020017C8
+body = "body"
+look = "look-1528"
+palettes = [0x04001528]
+
+[[creature.skin]]
+setup = 0x020007DD
+body = "body"
+look = "look-0f6f"
+palettes = [0x04000F6F]
+
+[[creature.skin]]
+setup = 0x020016EB
+body = "body"
+look = "look-0f6f"
+palettes = [0x04000F6F]
+
+[[creature.skin]]
+setup = 0x020017C8
+body = "body"
+look = "look-0f6f"
+palettes = [0x04000F6F]
+
+[[creature.skin]]
+setup = 0x020007DD
+body = "body"
+look = "look-1527"
+palettes = [0x04001527]
+
+[[creature.skin]]
+setup = 0x020016EB
+body = "body"
+look = "look-1527"
+palettes = [0x04001527]
+
+[[creature.skin]]
+setup = 0x020017C8
+body = "body"
+look = "look-1527"
+palettes = [0x04001527]
+
+[[creature.skin]]
+setup = 0x020007DD
+body = "body"
+look = "look-1529"
+palettes = [0x04001529]
+
+[[creature.skin]]
+setup = 0x020016EB
+body = "body"
+look = "look-1529"
+palettes = [0x04001529]
+
+[[creature.skin]]
+setup = 0x020017C8
+body = "body"
+look = "look-1529"
+palettes = [0x04001529]
+
+[[creature.skin]]
+setup = 0x020007DD
+body = "body"
+look = "look-0f71"
+palettes = [0x04000F71]
+
+[[creature.skin]]
+setup = 0x020016EB
+body = "body"
+look = "look-0f71"
+palettes = [0x04000F71]
+
+[[creature.skin]]
+setup = 0x020017C8
+body = "body"
+look = "look-0f71"
+palettes = [0x04000F71]
+
+[[creature.skin]]
+setup = 0x020007DD
+body = "body"
+look = "look-0f70"
+palettes = [0x04000F70]
+
+[[creature.skin]]
+setup = 0x020016EB
+body = "body"
+look = "look-0f70"
+palettes = [0x04000F70]
+
+[[creature.skin]]
+setup = 0x020017C8
+body = "body"
+look = "look-0f70"
+palettes = [0x04000F70]
+
+[[creature.skin]]
+setup = 0x020007DD
+body = "body"
+look = "look-1522"
+palettes = [0x04001522]
+
+[[creature.skin]]
+setup = 0x020016EB
+body = "body"
+look = "look-1522"
+palettes = [0x04001522]
+
+[[creature.skin]]
+setup = 0x020017C8
+body = "body"
+look = "look-1522"
+palettes = [0x04001522]
+
+[[creature.skin]]
+setup = 0x020007DD
+body = "body"
+look = "look-161d"
+palettes = [0x0400161D]
+
+[[creature.skin]]
+setup = 0x020016EB
+body = "body"
+look = "look-161d"
+palettes = [0x0400161D]
+
+[[creature.skin]]
+setup = 0x020017C8
+body = "body"
+look = "look-161d"
+palettes = [0x0400161D]
+
+[[creature]]
+name = "golem"
+label = "Golem"
+keep_launchers = true
+keep_weenies = [941, 5751, 6356, 6823, 7098, 7099, 7392, 7404, 7405, 9048, 9050, 9051, 9052, 9053, 9054, 9055, 9056, 9057, 9179, 10936, 11992, 11994, 16912, 19197, 19225, 19226, 19276, 19542, 19741, 20192, 21454, 21455, 21456, 21489, 22933, 23082, 23550, 24485, 25753, 25754, 26468, 27495, 27709, 28247, 29356, 29778, 29781, 29783, 29786, 30440, 31340, 31875, 31919, 31920, 32206, 34510, 34607, 34614, 34976, 35670, 36525, 36834, 38178, 38807, 40147, 40153, 40290, 40468, 42543, 43411, 43413, 43761, 43762, 43763, 43795, 43796, 43797, 44031, 44032, 44472, 46306, 46928, 46934, 46936, 47153, 48712, 48730, 48804, 48879, 48881, 48883, 48885, 48887, 48889, 48891, 48900, 52240, 53451, 70037, 70081, 70972, 80092, 87078, 87122, 87124, 87250, 87252, 87556]
+
+[[creature.body]]
+folder = "body"
+entity = 0x470024C6
+bind = 0x050011CE
+scale = 0.366742
+offset = [-0.0, 0.017244, -0.063735]
+parts = 21
+anchor = [-1.0, 0.0, 0.0, 0.0, -0.0, 1.0, -0.0, 0.0, -0.0, 0.0, -1.0, 0.0, -0.13906, -2.013056, -0.045134, 1.0]
+trunk = [1, 2, 3, 4, 5, 6, 7, 9, 10, 20]
+clips.idle = { animation = 0x050011CE }
+clips.idle_melee = { animation = 0x050011C1 }
+clips.idle_missile = { animation = 0x050011C1 }
+clips.idle_magic = { animation = 0x050011C1 }
+clips.walk = { animation = 0x050011C0, stride = 2.1127 }
+clips.walk_back = { animation = 0x050011D0, stride = 1.8489 }
+clips.run = { animation = 0x050011D2, stride = 2.7798 }
+clips.turn = { animation = 0x050011D4 }
+clips.melee_high = { animation = 0x050011C5, hit = 1.051 }
+clips.melee_med = { animation = 0x050011C4, hit = 0.819 }
+clips.melee_low = { animation = 0x050011C3, hit = 0.622 }
+clips.special = { animation = 0x050011C8, hit = 1.504 }
+clips.missile = { animation = 0x050011C4, hit = 0.819 }
+clips.cast = { animation = 0x050011C6 }
+clips.telegraph = { animation = 0x050011C1 }
+clips.hit = { animation = 0x050011CA }
+clips.hit_heavy = { animation = 0x050011CA }
+clips.die = { animation = 0x050011D7 }
+clips.dead = { animation = 0x05001000 }
+clips.fall = { animation = 0x050011C2 }
+clips.jump = { animation = 0x050011C2 }
+
+[[creature.look]]
+name = "crystal-amber-024-024-026"
+body = "body"
+picture = 0x400009E9
+tint = [0.24, 0.24, 0.26]
+colorize = true
+normal = 0x400009EA
+
+[[creature.look]]
+name = "crystal-amber-032-036-023"
+body = "body"
+picture = 0x400009E9
+tint = [0.32, 0.36, 0.23]
+colorize = true
+normal = 0x400009EA
+
+[[creature.look]]
+name = "crystal-amber-073-060-035"
+body = "body"
+picture = 0x400009E9
+tint = [0.73, 0.6, 0.35]
+colorize = true
+normal = 0x400009EA
+
+[[creature.look]]
+name = "crystal-amber-168-159-120"
+body = "body"
+picture = 0x400009E9
+tint = [1.68, 1.59, 1.2]
+colorize = true
+normal = 0x400009EA
+
+[[creature.look]]
+name = "crystal-aquamarine-077-094-130"
+body = "body"
+picture = 0x40000E40
+tint = [0.77, 0.94, 1.3]
+colorize = true
+normal = 0x400009EA
+
+[[creature.look]]
+name = "crystal-aquamarine-081-096-132"
+body = "body"
+picture = 0x40000E40
+tint = [0.81, 0.96, 1.32]
+colorize = true
+normal = 0x400009EA
+
+[[creature.look]]
+name = "crystal-aquamarine-107-088-100"
+body = "body"
+picture = 0x40000E40
+tint = [1.07, 0.88, 1.0]
+colorize = true
+normal = 0x400009EA
+
+[[creature.look]]
+name = "crystal-aquamarine"
+body = "body"
+picture = 0x40000E40
+tint = [1.0, 1.0, 1.0]
+normal = 0x400009EA
+
+[[creature.look]]
+name = "crystal-basalt-064-062-087"
+body = "body"
+picture = 0x40000E43
+tint = [0.64, 0.62, 0.87]
+colorize = true
+normal = 0x400009EA
+
+[[creature.look]]
+name = "crystal-basalt-066-089-053"
+body = "body"
+picture = 0x40000E43
+tint = [0.66, 0.89, 0.53]
+colorize = true
+normal = 0x400009EA
+
+[[creature.look]]
+name = "crystal-basalt-081-086-072"
+body = "body"
+picture = 0x40000E43
+tint = [0.81, 0.86, 0.72]
+colorize = true
+normal = 0x400009EA
+
+[[creature.look]]
+name = "crystal-basalt-168-159-120"
+body = "body"
+picture = 0x40000E43
+tint = [1.68, 1.59, 1.2]
+colorize = true
+normal = 0x400009EA
+
+[[creature.look]]
+name = "crystal-ivory-019-018-018"
+body = "body"
+picture = 0x40000E42
+tint = [0.19, 0.18, 0.18]
+colorize = true
+normal = 0x400009EA
+
+[[creature.look]]
+name = "crystal-ivory-033-033-038"
+body = "body"
+picture = 0x40000E42
+tint = [0.33, 0.33, 0.38]
+colorize = true
+normal = 0x400009EA
+
+[[creature.look]]
+name = "crystal-opal-051-042-036"
+body = "body"
+picture = 0x40000E41
+tint = [0.51, 0.42, 0.36]
+colorize = true
+normal = 0x400009EA
+
+[[creature.look]]
+name = "crystal-opal-125-115-132"
+body = "body"
+picture = 0x40000E41
+tint = [1.25, 1.15, 1.32]
+colorize = true
+normal = 0x400009EA
+
+[[creature.look]]
+name = "crystal-opal-128-121-103"
+body = "body"
+picture = 0x40000E41
+tint = [1.28, 1.21, 1.03]
+colorize = true
+normal = 0x400009EA
+
+[[creature.look]]
+name = "crystal-opal-152-093-127"
+body = "body"
+picture = 0x40000E41
+tint = [1.52, 0.93, 1.27]
+colorize = true
+normal = 0x400009EA
+
+[[creature.body]]
+folder = "body-rock"
+entity = 0x470024D1
+bind = 0x050011CE
+scale = 0.342346
+offset = [-0.0, 0.129118, -0.059495]
+parts = 21
+anchor = [-1.0, 0.0, 0.0, 0.0, -0.0, 1.0, -0.0, 0.0, -0.0, 0.0, -1.0, 0.0, -0.12981, -1.992166, -0.042132, 1.0]
+trunk = [1, 2, 3, 4, 6, 7, 8, 12]
+clips.idle = { animation = 0x050011CE }
+clips.idle_melee = { animation = 0x050011C1 }
+clips.idle_missile = { animation = 0x050011C1 }
+clips.idle_magic = { animation = 0x050011C1 }
+clips.walk = { animation = 0x050011C0, stride = 1.9722 }
+clips.walk_back = { animation = 0x050011D0, stride = 1.7259 }
+clips.run = { animation = 0x050011D2, stride = 2.5949 }
+clips.turn = { animation = 0x050011D4 }
+clips.melee_high = { animation = 0x050011C5, hit = 1.051 }
+clips.melee_med = { animation = 0x050011C4, hit = 0.819 }
+clips.melee_low = { animation = 0x050011C3, hit = 0.622 }
+clips.special = { animation = 0x050011C8, hit = 1.504 }
+clips.missile = { animation = 0x050011C4, hit = 0.819 }
+clips.cast = { animation = 0x050011C6 }
+clips.telegraph = { animation = 0x050011C1 }
+clips.hit = { animation = 0x050011CA }
+clips.hit_heavy = { animation = 0x050011CA }
+clips.die = { animation = 0x050011D7 }
+clips.dead = { animation = 0x05001000 }
+clips.fall = { animation = 0x050011C2 }
+clips.jump = { animation = 0x050011C2 }
+
+[[creature.look]]
+name = "rock-acid-274-312-247"
+body = "body-rock"
+picture = 0x400009EB
+tint = [2.74, 3.12, 2.47]
+colorize = true
+
+[[creature.look]]
+name = "rock-bark-080-083-120"
+body = "body-rock"
+picture = 0x400004CE
+tint = [0.8, 0.83, 1.2]
+colorize = true
+
+[[creature.look]]
+name = "rock-bark-094-081-095"
+body = "body-rock"
+picture = 0x400004CE
+tint = [0.94, 0.81, 0.95]
+colorize = true
+
+[[creature.look]]
+name = "rock-bark"
+body = "body-rock"
+picture = 0x400004CE
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "rock-earth-075-089-071"
+body = "body-rock"
+picture = 0x40000010
+tint = [0.75, 0.89, 0.71]
+colorize = true
+detail = 0x40000094
+normal = 0x40000BD4
+
+[[creature.look]]
+name = "rock-earth-077-085-114"
+body = "body-rock"
+picture = 0x40000010
+tint = [0.77, 0.85, 1.14]
+colorize = true
+detail = 0x40000094
+normal = 0x40000BD4
+
+[[creature.look]]
+name = "rock-earth-130-090-098"
+body = "body-rock"
+picture = 0x40000010
+tint = [1.3, 0.9, 0.98]
+colorize = true
+detail = 0x40000094
+normal = 0x40000BD4
+
+[[creature.look]]
+name = "rock-earth-221-189-225"
+body = "body-rock"
+picture = 0x40000010
+tint = [2.21, 1.89, 2.25]
+colorize = true
+detail = 0x40000094
+normal = 0x40000BD4
+
+[[creature.look]]
+name = "rock-limestone-063-072-067"
+body = "body-rock"
+picture = 0x40000019
+tint = [0.63, 0.72, 0.67]
+colorize = true
+
+[[creature.look]]
+name = "rock-magma-051-042-036"
+body = "body-rock"
+picture = 0x40000BED
+tint = [0.51, 0.42, 0.36]
+colorize = true
+
+[[creature.look]]
+name = "rock-magma-056-392-905"
+body = "body-rock"
+picture = 0x40000BED
+tint = [0.56, 3.92, 9.05]
+colorize = true
+
+[[creature.look]]
+name = "rock-magma-056-595-732"
+body = "body-rock"
+picture = 0x40000BED
+tint = [0.56, 5.95, 7.32]
+colorize = true
+
+[[creature.look]]
+name = "rock-magma-062-404-918"
+body = "body-rock"
+picture = 0x40000BED
+tint = [0.62, 4.04, 9.18]
+colorize = true
+
+[[creature.look]]
+name = "rock-magma-065-177-306"
+body = "body-rock"
+picture = 0x40000BED
+tint = [0.65, 1.77, 3.06]
+colorize = true
+
+[[creature.look]]
+name = "rock-magma-095-111-118"
+body = "body-rock"
+picture = 0x40000BED
+tint = [0.95, 1.11, 1.18]
+colorize = true
+
+[[creature.look]]
+name = "rock-magma-109-265-366"
+body = "body-rock"
+picture = 0x40000BED
+tint = [1.09, 2.65, 3.66]
+colorize = true
+
+[[creature.look]]
+name = "rock-magma-195-484-675"
+body = "body-rock"
+picture = 0x40000BED
+tint = [1.95, 4.84, 6.75]
+colorize = true
+
+[[creature.look]]
+name = "rock-magma-211-160-281"
+body = "body-rock"
+picture = 0x40000BED
+tint = [2.11, 1.6, 2.81]
+colorize = true
+
+[[creature.look]]
+name = "rock-magma-215-179-302"
+body = "body-rock"
+picture = 0x40000BED
+tint = [2.15, 1.79, 3.02]
+colorize = true
+
+[[creature.look]]
+name = "rock-magma"
+body = "body-rock"
+picture = 0x40000BED
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "rock-mud-115-080-076"
+body = "body-rock"
+picture = 0x400003D2
+tint = [1.15, 0.8, 0.76]
+colorize = true
+detail = 0x40000094
+normal = 0x400003D3
+
+[[creature.look]]
+name = "rock-sandstone-063-079-101"
+body = "body-rock"
+picture = 0x40000184
+tint = [0.63, 0.79, 1.01]
+colorize = true
+detail = 0x40000199
+
+[[creature.look]]
+name = "rock-sandstone-105-109-084"
+body = "body-rock"
+picture = 0x40000184
+tint = [1.05, 1.09, 0.84]
+colorize = true
+detail = 0x40000199
+
+[[creature.look]]
+name = "rock-sandstone"
+body = "body-rock"
+picture = 0x40000184
+tint = [1.0, 1.0, 1.0]
+detail = 0x40000199
+
+[[creature.look]]
+name = "rock-storm"
+body = "body-rock"
+picture = 0x40000BD9
+tint = [1.0, 1.0, 1.0]
+
+[[creature.skin]]
+setup = 0x020007CA
+body = "body"
+look = "crystal-amber-024-024-026"
+palettes = [0x04000F44]
+
+[[creature.skin]]
+setup = 0x020007CA
+body = "body-rock"
+look = "rock-limestone-063-072-067"
+palettes = [0x04000F75]
+
+[[creature.skin]]
+setup = 0x020007CA
+body = "body-rock"
+look = "rock-mud-115-080-076"
+palettes = [0x04000F46]
+
+[[creature.skin]]
+setup = 0x020007CA
+body = "body-rock"
+look = "rock-sandstone-105-109-084"
+palettes = [0x04000F76]
+
+[[creature.skin]]
+setup = 0x020007CA
+body = "body"
+look = "crystal-amber-032-036-023"
+palettes = [0x0400152C]
+
+[[creature.skin]]
+setup = 0x020007CA
+body = "body"
+look = "crystal-ivory-033-033-038"
+palettes = [0x0400152D]
+
+[[creature.skin]]
+setup = 0x020007CA
+body = "body-rock"
+look = "rock-magma-215-179-302"
+palettes = [0x04000FBB]
+
+[[creature.skin]]
+setup = 0x020007CA
+body = "body-rock"
+look = "rock-acid-274-312-247"
+palettes = [0x04000FBC]
+
+[[creature.skin]]
+setup = 0x020007CA
+body = "body"
+look = "crystal-ivory-019-018-018"
+palettes = [0x04001412]
+
+[[creature.skin]]
+setup = 0x020007CA
+body = "body"
+look = "crystal-basalt-066-089-053"
+palettes = [0x0400133B]
+
+[[creature.skin]]
+setup = 0x020007CA
+body = "body"
+look = "crystal-amber-168-159-120"
+palettes = [0x04001350]
+
+[[creature.skin]]
+setup = 0x020007CA
+body = "body"
+look = "crystal-amber-168-159-120"
+palettes = [0x04001375]
+
+[[creature.skin]]
+setup = 0x020007CA
+body = "body"
+look = "crystal-amber-168-159-120"
+palettes = [0x04001374]
+
+[[creature.skin]]
+setup = 0x020007CA
+body = "body-rock"
+look = "rock-magma-065-177-306"
+palettes = [0x04001F20]
+
+[[creature.skin]]
+setup = 0x020007CA
+body = "body-rock"
+look = "rock-magma-062-404-918"
+palettes = [0x04001907]
+
+[[creature.skin]]
+setup = 0x020007CA
+body = "body"
+look = "crystal-basalt-081-086-072"
+palettes = [0x04000F69]
+
+[[creature.skin]]
+setup = 0x020007CA
+body = "body"
+look = "crystal-basalt-168-159-120"
+
+[[creature.skin]]
+setup = 0x020007CB
+body = "body-rock"
+look = "rock-magma-095-111-118"
+
+[[creature.skin]]
+setup = 0x020007CC
+body = "body-rock"
+look = "rock-bark-094-081-095"
+palettes = [0x04001185]
+
+[[creature.skin]]
+setup = 0x020007CC
+body = "body-rock"
+look = "rock-earth-075-089-071"
+palettes = [0x0400130C]
+
+[[creature.skin]]
+setup = 0x020007CC
+body = "body-rock"
+look = "rock-bark-080-083-120"
+palettes = [0x0400133C]
+
+[[creature.skin]]
+setup = 0x020007CC
+body = "body-rock"
+look = "rock-bark-094-081-095"
+palettes = [0x040018B2]
+
+[[creature.skin]]
+setup = 0x020007CC
+body = "body-rock"
+look = "rock-bark-094-081-095"
+
+[[creature.skin]]
+setup = 0x020007D7
+body = "body"
+look = "crystal-opal-128-121-103"
+palettes = [0x04000F67]
+
+[[creature.skin]]
+setup = 0x020007D7
+body = "body"
+look = "crystal-opal-152-093-127"
+palettes = [0x0400119A]
+
+[[creature.skin]]
+setup = 0x020007D7
+body = "body"
+look = "crystal-opal-125-115-132"
+palettes = [0x0400136D]
+
+[[creature.skin]]
+setup = 0x020007D7
+body = "body"
+look = "crystal-aquamarine-081-096-132"
+palettes = [0x0400190A]
+
+[[creature.skin]]
+setup = 0x020007D7
+body = "body"
+look = "crystal-aquamarine-081-096-132"
+
+[[creature.skin]]
+setup = 0x020007D8
+body = "body"
+look = "crystal-basalt-064-062-087"
+palettes = [0x0400119B]
+
+[[creature.skin]]
+setup = 0x020007D8
+body = "body"
+look = "crystal-basalt-064-062-087"
+palettes = [0x04000F67]
+
+[[creature.skin]]
+setup = 0x020007D8
+body = "body"
+look = "crystal-basalt-064-062-087"
+
+[[creature.skin]]
+setup = 0x020007E6
+body = "body"
+look = "crystal-aquamarine"
+palettes = [0x04000F67]
+
+[[creature.skin]]
+setup = 0x020007E6
+body = "body"
+look = "crystal-aquamarine"
+
+[[creature.skin]]
+setup = 0x020008A2
+body = "body"
+look = "crystal-aquamarine"
+
+[[creature.skin]]
+setup = 0x020008A4
+body = "body-rock"
+look = "rock-storm"
+
+[[creature.skin]]
+setup = 0x02000BEC
+body = "body"
+look = "crystal-aquamarine-077-094-130"
+palettes = [0x04001336]
+
+[[creature.skin]]
+setup = 0x02000BEC
+body = "body"
+look = "crystal-aquamarine-107-088-100"
+palettes = [0x0400118D]
+
+[[creature.skin]]
+setup = 0x02000BEC
+body = "body"
+look = "crystal-aquamarine-077-094-130"
+
+[[creature.skin]]
+setup = 0x02001032
+body = "body-rock"
+look = "rock-magma-211-160-281"
+palettes = [0x04000FBB]
+
+[[creature.skin]]
+setup = 0x02001032
+body = "body-rock"
+look = "rock-magma-056-595-732"
+palettes = [0x04000FBC]
+
+[[creature.skin]]
+setup = 0x02001032
+body = "body-rock"
+look = "rock-magma-051-042-036"
+palettes = [0x04001F20]
+
+[[creature.skin]]
+setup = 0x02001032
+body = "body-rock"
+look = "rock-magma-056-392-905"
+palettes = [0x04001907]
+
+[[creature.skin]]
+setup = 0x02001032
+body = "body"
+look = "crystal-opal-051-042-036"
+
+[[creature.skin]]
+setup = 0x020013F7
+body = "body-rock"
+look = "rock-magma-195-484-675"
+palettes = [0x04001E4E]
+
+[[creature.skin]]
+setup = 0x020013F7
+body = "body-rock"
+look = "rock-magma-109-265-366"
+
+[[creature.skin]]
+setup = 0x020014C9
+body = "body"
+look = "crystal-amber-073-060-035"
+
+[[creature.skin]]
+setup = 0x020016AB
+body = "body-rock"
+look = "rock-magma"
+palettes = [0x04001E4F]
+
+[[creature.skin]]
+setup = 0x020016AB
+body = "body-rock"
+look = "rock-magma"
+
+[[creature.skin]]
+setup = 0x020016CA
+body = "body-rock"
+look = "rock-earth-130-090-098"
+palettes = [0x04000F46]
+
+[[creature.skin]]
+setup = 0x020016CA
+body = "body-rock"
+look = "rock-earth-077-085-114"
+
+[[creature.skin]]
+setup = 0x020016D2
+body = "body-rock"
+look = "rock-earth-221-189-225"
+palettes = [0x04000F46]
+
+[[creature.skin]]
+setup = 0x020016D2
+body = "body-rock"
+look = "rock-earth-221-189-225"
+
+[[creature.skin]]
+setup = 0x02001866
+body = "body-rock"
+look = "rock-bark"
+
+[[creature.skin]]
+setup = 0x02001AA5
+body = "body-rock"
+look = "rock-sandstone"
+
+[[creature.skin]]
+setup = 0x02001AA6
+body = "body-rock"
+look = "rock-sandstone-105-109-084"
+palettes = [0x04000F76]
+
+[[creature.skin]]
+setup = 0x02001AA6
+body = "body-rock"
+look = "rock-sandstone-063-079-101"
+
+[[creature.skin]]
+setup = 0x02001C27
+body = "body-rock"
+look = "rock-bark-094-081-095"
+
+[[creature]]
+name = "grievver"
+label = "Grievver"
+keep_launchers = true
+keep_weenies = [9176, 12700, 12701, 16913, 19198, 19227, 19228, 19267, 19742, 30888, 33972, 49051, 49052, 49053, 49054, 49055, 49056, 49057, 49058, 49059, 49060, 49061, 49062, 49063, 49064, 49065, 49066, 49067, 49068, 49069, 49070, 49071, 49072, 49073, 49074, 49075, 49076, 49077, 49078]
+
+[[creature.body]]
+folder = "body"
+entity = 0x47002593
+bind = 0x050011EA
+scale = 0.556376
+offset = [0.0, -0.030771, -0.0075]
+parts = 18
+anchor = [-1.0, 0.0, 0.0, 0.0, -0.0, 1.0, -0.0, 0.0, -0.0, 0.0, -1.0, 0.0, 0.0, -1.384086, -0.0075, 1.0]
+trunk = [14, 15, 16, 17, 18]
+clips.idle = { animation = 0x050011EA }
+clips.walk = { animation = 0x050011EC, stride = 1.4288 }
+clips.walk_back = { animation = 0x050011F9 }
+clips.turn = { animation = 0x050011EC }
+clips.melee_high = { animation = 0x050011F0, hit = 0.613 }
+clips.melee_med = { animation = 0x050011F0, hit = 0.613 }
+clips.melee_low = { animation = 0x050011EF, hit = 0.859 }
+clips.special = { animation = 0x050011F1, hit = 0.85 }
+clips.missile = { animation = 0x050011EF, hit = 0.859 }
+clips.cast = { animation = 0x050011F1 }
+clips.telegraph = { animation = 0x050011EE }
+clips.hit = { animation = 0x050011F4 }
+clips.hit_heavy = { animation = 0x050011F4 }
+clips.die = { animation = 0x050011FC }
+clips.dead = { animation = 0x050011FA }
+clips.emote = { animation = 0x050011F2 }
+clips.cheer = { animation = 0x050011EE }
+clips.fall = { animation = 0x050011ED }
+clips.jump = { animation = 0x050011EA }
+
+[[creature.look]]
+name = "bane-grievver-blighted-bane-grievver"
+body = "body"
+picture = 0x40000E47
+tint = [0.25, 0.281, 0.57]
+
+[[creature.look]]
+name = "banished-grievver-parasitic-grievver"
+body = "body"
+picture = 0x40000E47
+tint = [0.661, 0.766, 1.08]
+
+[[creature.look]]
+name = "bile-grievver-fallen-grievver"
+body = "body"
+picture = 0x40000E47
+tint = [0.25, 0.339, 0.25]
+
+[[creature.look]]
+name = "destroyer-grievver-grievver"
+body = "body"
+picture = 0x40000E47
+tint = [0.374, 0.551, 0.561]
+
+[[creature.look]]
+name = "greater-penumbral-horror-penumbral-horror"
+body = "body"
+picture = 0x40000E47
+tint = [0.25, 0.25, 0.25]
+
+[[creature.look]]
+name = "grievver-rufous-grievver"
+body = "body"
+picture = 0x40000E47
+tint = [0.763, 0.25, 0.439]
+
+[[creature.skin]]
+setup = 0x020008DA
+body = "body"
+
+[[creature.skin]]
+setup = 0x02001BB7
+body = "body"
+
+[[creature.skin]]
+setup = 0x02001445
+body = "body"
+
+[[creature.skin]]
+setup = 0x020008DA
+body = "body"
+look = "bane-grievver-blighted-bane-grievver"
+palettes = [0x04000FEA]
+
+[[creature.skin]]
+setup = 0x02001BB7
+body = "body"
+look = "bane-grievver-blighted-bane-grievver"
+palettes = [0x04000FEA]
+
+[[creature.skin]]
+setup = 0x02001445
+body = "body"
+look = "bane-grievver-blighted-bane-grievver"
+palettes = [0x04000FEA]
+
+[[creature.skin]]
+setup = 0x020008DA
+body = "body"
+look = "destroyer-grievver-grievver"
+palettes = [0x04000FEB]
+
+[[creature.skin]]
+setup = 0x02001BB7
+body = "body"
+look = "destroyer-grievver-grievver"
+palettes = [0x04000FEB]
+
+[[creature.skin]]
+setup = 0x02001445
+body = "body"
+look = "destroyer-grievver-grievver"
+palettes = [0x04000FEB]
+
+[[creature.skin]]
+setup = 0x020008DA
+body = "body"
+look = "bile-grievver-fallen-grievver"
+palettes = [0x0400152E]
+
+[[creature.skin]]
+setup = 0x02001BB7
+body = "body"
+look = "bile-grievver-fallen-grievver"
+palettes = [0x0400152E]
+
+[[creature.skin]]
+setup = 0x02001445
+body = "body"
+look = "bile-grievver-fallen-grievver"
+palettes = [0x0400152E]
+
+[[creature.skin]]
+setup = 0x020008DA
+body = "body"
+look = "banished-grievver-parasitic-grievver"
+palettes = [0x04001376]
+
+[[creature.skin]]
+setup = 0x02001BB7
+body = "body"
+look = "banished-grievver-parasitic-grievver"
+palettes = [0x04001376]
+
+[[creature.skin]]
+setup = 0x02001445
+body = "body"
+look = "banished-grievver-parasitic-grievver"
+palettes = [0x04001376]
+
+[[creature.skin]]
+setup = 0x020008DA
+body = "body"
+look = "greater-penumbral-horror-penumbral-horror"
+palettes = [0x04001E9B]
+
+[[creature.skin]]
+setup = 0x02001BB7
+body = "body"
+look = "greater-penumbral-horror-penumbral-horror"
+palettes = [0x04001E9B]
+
+[[creature.skin]]
+setup = 0x02001445
+body = "body"
+look = "greater-penumbral-horror-penumbral-horror"
+palettes = [0x04001E9B]
+
+[[creature.skin]]
+setup = 0x020008DA
+body = "body"
+look = "grievver-rufous-grievver"
+palettes = [0x04001310]
+
+[[creature.skin]]
+setup = 0x02001BB7
+body = "body"
+look = "grievver-rufous-grievver"
+palettes = [0x04001310]
+
+[[creature.skin]]
+setup = 0x02001445
+body = "body"
+look = "grievver-rufous-grievver"
+palettes = [0x04001310]
+
+[[creature]]
+name = "moarsman"
+label = "Moarsman"
+keep_launchers = true
+keep_weenies = [7182, 31913, 38280, 38281, 38282, 38283, 38349, 38351, 38360, 38651, 38652, 38955, 38988, 39479, 40472, 40473, 40474, 40475, 40476, 40477, 40478, 40481, 40482, 41183, 41184, 41185, 71104, 71106, 71107, 71108, 71109, 87217, 87474, 88070, 88076, 88347, 88362, 88365, 88366, 88367, 88369, 88370, 88371, 88372, 88373, 88398]
+
+[[creature.body]]
+folder = "body"
+entity = 0x470001CD
+bind = 0x050003E5
+scale = 0.584564
+offset = [0.0, -0.018169, -0.066167]
+parts = 17
+anchor = [-0.933697, -0.101836, 0.343279, 0.0, -0.146945, 0.983231, -0.107999, 0.0, -0.326524, -0.151282, -0.933004, 0.0, 0.089559, -0.599251, 0.065823, 1.0]
+trunk = [0, 1, 12, 13, 14, 15, 16, 17]
+clips.idle = { animation = 0x050003E5 }
+clips.idle_melee = { animation = 0x050003E6 }
+clips.idle_missile = { animation = 0x050003E6 }
+clips.idle_magic = { animation = 0x050003E6 }
+clips.walk = { animation = 0x050003E3, stride = 1.1168 }
+clips.walk_back = { animation = 0x050003F1, stride = 1.3461 }
+clips.run = { animation = 0x050003F6, stride = 1.8368 }
+clips.turn = { animation = 0x050003F5 }
+clips.melee_high = { animation = 0x050003E8, hit = 0.678 }
+clips.melee_med = { animation = 0x050003E9, hit = 1.151 }
+clips.melee_low = { animation = 0x050003E7, hit = 0.637 }
+clips.special = { animation = 0x050003EA, hit = 0.754 }
+clips.missile = { animation = 0x050003E9, hit = 1.151 }
+clips.cast = { animation = 0x050003EA }
+clips.telegraph = { animation = 0x050003E6 }
+clips.hit = { animation = 0x050004DC }
+clips.hit_heavy = { animation = 0x050004DC }
+clips.die = { animation = 0x050003EF }
+clips.dead = { animation = 0x050003EE }
+clips.emote = { animation = 0x050003EB }
+clips.cheer = { animation = 0x050003E5 }
+clips.fall = { animation = 0x050003E4 }
+clips.jump = { animation = 0x050003E4 }
+
+[[creature.look]]
+name = "ardent-moarsman-blighted-grimy-moarsman"
+body = "body"
+picture = 0x40000452
+tint = [0.518, 0.457, 0.746]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "blessed-moarsman-giant-blessed-moarsman"
+body = "body"
+picture = 0x40000452
+tint = [1.414, 1.399, 1.675]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "blighted-ardent-moarsman-moarsman-guard"
+body = "body"
+picture = 0x40000452
+tint = [0.684, 0.612, 0.58]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "blighted-desolation-moarsman-blighted-disgusting-moarsman"
+body = "body"
+picture = 0x40000452
+tint = [1.443, 0.824, 0.817]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "blighted-desolation-moarsman-blightfinger"
+body = "body"
+picture = 0x40000452
+tint = [1.696, 0.936, 0.712]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "blighted-miry-moarsman-miry-moarsman"
+body = "body"
+picture = 0x40000452
+tint = [0.745, 0.739, 0.458]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "blind-keeper-brood-mother"
+body = "body"
+picture = 0x40000452
+tint = [0.667, 1.016, 0.502]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "disgusting-moarsman"
+body = "body"
+picture = 0x40000452
+tint = [1.224, 0.58, 0.631]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "high-priest-of-t--thuun-high-priest--s-acolyte"
+body = "body"
+picture = 0x40000452
+tint = [0.603, 1.245, 0.305]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "prior-kothmox-viscous-moarsman"
+body = "body"
+picture = 0x40000452
+tint = [1.251, 0.785, 0.18]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "putrid-moarsman"
+body = "body"
+picture = 0x40000452
+tint = [0.504, 0.816, 1.014]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "squallid-moarsman"
+body = "body"
+picture = 0x40000452
+tint = [1.092, 0.731, 0.05]
+colorize = true
+every = true
+
+[[creature.skin]]
+setup = 0x02000992
+body = "body"
+
+[[creature.skin]]
+setup = 0x0200183E
+body = "body"
+
+[[creature.skin]]
+setup = 0x02001874
+body = "body"
+
+[[creature.skin]]
+setup = 0x02001875
+body = "body"
+
+[[creature.skin]]
+setup = 0x02000992
+body = "body"
+look = "blighted-desolation-moarsman-blighted-disgusting-moarsman"
+palettes = [0x04001045]
+
+[[creature.skin]]
+setup = 0x0200183E
+body = "body"
+look = "blighted-desolation-moarsman-blighted-disgusting-moarsman"
+palettes = [0x04001045]
+
+[[creature.skin]]
+setup = 0x02001874
+body = "body"
+look = "blighted-desolation-moarsman-blighted-disgusting-moarsman"
+palettes = [0x04001045]
+
+[[creature.skin]]
+setup = 0x02001875
+body = "body"
+look = "blighted-desolation-moarsman-blighted-disgusting-moarsman"
+palettes = [0x04001045]
+
+[[creature.skin]]
+setup = 0x02000992
+body = "body"
+look = "blighted-miry-moarsman-miry-moarsman"
+palettes = [0x040018E0]
+
+[[creature.skin]]
+setup = 0x0200183E
+body = "body"
+look = "blighted-miry-moarsman-miry-moarsman"
+palettes = [0x040018E0]
+
+[[creature.skin]]
+setup = 0x02001874
+body = "body"
+look = "blighted-miry-moarsman-miry-moarsman"
+palettes = [0x040018E0]
+
+[[creature.skin]]
+setup = 0x02001875
+body = "body"
+look = "blighted-miry-moarsman-miry-moarsman"
+palettes = [0x040018E0]
+
+[[creature.skin]]
+setup = 0x02000992
+body = "body"
+look = "putrid-moarsman"
+palettes = [0x04001047]
+
+[[creature.skin]]
+setup = 0x0200183E
+body = "body"
+look = "putrid-moarsman"
+palettes = [0x04001047]
+
+[[creature.skin]]
+setup = 0x02001874
+body = "body"
+look = "putrid-moarsman"
+palettes = [0x04001047]
+
+[[creature.skin]]
+setup = 0x02001875
+body = "body"
+look = "putrid-moarsman"
+palettes = [0x04001047]
+
+[[creature.skin]]
+setup = 0x02000992
+body = "body"
+look = "disgusting-moarsman"
+palettes = [0x040018E4]
+
+[[creature.skin]]
+setup = 0x0200183E
+body = "body"
+look = "disgusting-moarsman"
+palettes = [0x040018E4]
+
+[[creature.skin]]
+setup = 0x02001874
+body = "body"
+look = "disgusting-moarsman"
+palettes = [0x040018E4]
+
+[[creature.skin]]
+setup = 0x02001875
+body = "body"
+look = "disgusting-moarsman"
+palettes = [0x040018E4]
+
+[[creature.skin]]
+setup = 0x02000992
+body = "body"
+look = "blind-keeper-brood-mother"
+palettes = [0x04001046]
+
+[[creature.skin]]
+setup = 0x0200183E
+body = "body"
+look = "blind-keeper-brood-mother"
+palettes = [0x04001046]
+
+[[creature.skin]]
+setup = 0x02001874
+body = "body"
+look = "blind-keeper-brood-mother"
+palettes = [0x04001046]
+
+[[creature.skin]]
+setup = 0x02001875
+body = "body"
+look = "blind-keeper-brood-mother"
+palettes = [0x04001046]
+
+[[creature.skin]]
+setup = 0x02000992
+body = "body"
+look = "high-priest-of-t--thuun-high-priest--s-acolyte"
+palettes = [0x04001048]
+
+[[creature.skin]]
+setup = 0x0200183E
+body = "body"
+look = "high-priest-of-t--thuun-high-priest--s-acolyte"
+palettes = [0x04001048]
+
+[[creature.skin]]
+setup = 0x02001874
+body = "body"
+look = "high-priest-of-t--thuun-high-priest--s-acolyte"
+palettes = [0x04001048]
+
+[[creature.skin]]
+setup = 0x02001875
+body = "body"
+look = "high-priest-of-t--thuun-high-priest--s-acolyte"
+palettes = [0x04001048]
+
+[[creature.skin]]
+setup = 0x02000992
+body = "body"
+look = "blighted-desolation-moarsman-blightfinger"
+palettes = [0x04001044]
+
+[[creature.skin]]
+setup = 0x0200183E
+body = "body"
+look = "blighted-desolation-moarsman-blightfinger"
+palettes = [0x04001044]
+
+[[creature.skin]]
+setup = 0x02001874
+body = "body"
+look = "blighted-desolation-moarsman-blightfinger"
+palettes = [0x04001044]
+
+[[creature.skin]]
+setup = 0x02001875
+body = "body"
+look = "blighted-desolation-moarsman-blightfinger"
+palettes = [0x04001044]
+
+[[creature.skin]]
+setup = 0x02000992
+body = "body"
+look = "blighted-ardent-moarsman-moarsman-guard"
+palettes = [0x040018DF]
+
+[[creature.skin]]
+setup = 0x0200183E
+body = "body"
+look = "blighted-ardent-moarsman-moarsman-guard"
+palettes = [0x040018DF]
+
+[[creature.skin]]
+setup = 0x02001874
+body = "body"
+look = "blighted-ardent-moarsman-moarsman-guard"
+palettes = [0x040018DF]
+
+[[creature.skin]]
+setup = 0x02001875
+body = "body"
+look = "blighted-ardent-moarsman-moarsman-guard"
+palettes = [0x040018DF]
+
+[[creature.skin]]
+setup = 0x02000992
+body = "body"
+look = "prior-kothmox-viscous-moarsman"
+palettes = [0x040018E3]
+
+[[creature.skin]]
+setup = 0x0200183E
+body = "body"
+look = "prior-kothmox-viscous-moarsman"
+palettes = [0x040018E3]
+
+[[creature.skin]]
+setup = 0x02001874
+body = "body"
+look = "prior-kothmox-viscous-moarsman"
+palettes = [0x040018E3]
+
+[[creature.skin]]
+setup = 0x02001875
+body = "body"
+look = "prior-kothmox-viscous-moarsman"
+palettes = [0x040018E3]
+
+[[creature.skin]]
+setup = 0x02000992
+body = "body"
+look = "ardent-moarsman-blighted-grimy-moarsman"
+palettes = [0x04001EEE]
+
+[[creature.skin]]
+setup = 0x0200183E
+body = "body"
+look = "ardent-moarsman-blighted-grimy-moarsman"
+palettes = [0x04001EEE]
+
+[[creature.skin]]
+setup = 0x02001874
+body = "body"
+look = "ardent-moarsman-blighted-grimy-moarsman"
+palettes = [0x04001EEE]
+
+[[creature.skin]]
+setup = 0x02001875
+body = "body"
+look = "ardent-moarsman-blighted-grimy-moarsman"
+palettes = [0x04001EEE]
+
+[[creature.skin]]
+setup = 0x02000992
+body = "body"
+look = "squallid-moarsman"
+palettes = [0x040018DD]
+
+[[creature.skin]]
+setup = 0x0200183E
+body = "body"
+look = "squallid-moarsman"
+palettes = [0x040018DD]
+
+[[creature.skin]]
+setup = 0x02001874
+body = "body"
+look = "squallid-moarsman"
+palettes = [0x040018DD]
+
+[[creature.skin]]
+setup = 0x02001875
+body = "body"
+look = "squallid-moarsman"
+palettes = [0x040018DD]
+
+[[creature.skin]]
+setup = 0x02000992
+body = "body"
+look = "blessed-moarsman-giant-blessed-moarsman"
+palettes = [0x040018E2]
+
+[[creature.skin]]
+setup = 0x0200183E
+body = "body"
+look = "blessed-moarsman-giant-blessed-moarsman"
+palettes = [0x040018E2]
+
+[[creature.skin]]
+setup = 0x02001874
+body = "body"
+look = "blessed-moarsman-giant-blessed-moarsman"
+palettes = [0x040018E2]
+
+[[creature.skin]]
+setup = 0x02001875
+body = "body"
+look = "blessed-moarsman-giant-blessed-moarsman"
+palettes = [0x040018E2]
+
+[[creature]]
+name = "monouga"
+label = "Monouga"
+keep_launchers = true
+keep_weenies = [4119, 8129, 28555, 80150]
+
+[[creature.body]]
+folder = "body"
+entity = 0x470001C4
+bind = 0x050001C2
+scale = 0.364676
+offset = [0.000443, 0.01072, 0.023417]
+parts = 17
+anchor = [-0.938493, -0.051634, 0.341415, 0.0, -0.0, 0.988756, 0.149535, 0.0, -0.345298, 0.140338, -0.927941, 0.0, 0.001166, -0.792361, -0.119288, 1.0]
+trunk = [1, 2, 3, 4, 23]
+clips.idle = { animation = 0x050001C2 }
+clips.idle_melee = { animation = 0x050001D4 }
+clips.idle_missile = { animation = 0x050001D4 }
+clips.idle_magic = { animation = 0x050001D4 }
+clips.walk = { animation = 0x050001C5, stride = 0.8766 }
+clips.walk_back = { animation = 0x050001CE }
+clips.run = { animation = 0x050001D0, stride = 1.2159 }
+clips.turn = { animation = 0x050001D3 }
+clips.melee_high = { animation = 0x050001C8, hit = 0.938 }
+clips.melee_med = { animation = 0x050001C9, hit = 0.588 }
+clips.melee_low = { animation = 0x050001C7, hit = 0.54 }
+clips.special = { animation = 0x050002D9, hit = 0.89 }
+clips.missile = { animation = 0x05000257, hit = 2.306 }
+clips.cast = { animation = 0x050001C9 }
+clips.telegraph = { animation = 0x05000256 }
+clips.hit = { animation = 0x05000478 }
+clips.hit_heavy = { animation = 0x05000478 }
+clips.die = { animation = 0x050001C6 }
+clips.dead = { animation = 0x0500022A }
+clips.emote = { animation = 0x050001CA }
+clips.cheer = { animation = 0x050001CA }
+clips.fall = { animation = 0x050001D6 }
+clips.jump = { animation = 0x050001D6 }
+mask = [0x40000115, 0x400004D8, 0x400004DA]
+
+[[creature.look]]
+name = "banished-monouga-unruly-monouga"
+body = "body"
+picture = 0x400004DA
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "bloodthirsty-monouga"
+body = "body"
+picture = 0x400004DA
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "brutish-monouga"
+body = "body"
+picture = 0x40000115
+tint = [0.461, 0.402, 0.481]
+masked = true
+
+[[creature.look]]
+name = "colossal-monouga-outcast-monouga"
+body = "body"
+picture = 0x40000115
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "merciless-monouga"
+body = "body"
+picture = 0x400004D8
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "pugnacious-monouga"
+body = "body"
+picture = 0x40000115
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "tremendous-baby-monouga-tremendous-monouga"
+body = "body"
+picture = 0x400004D8
+tint = [1.0, 1.0, 1.0]
+
+[[creature.skin]]
+setup = 0x020002FF
+body = "body"
+
+[[creature.skin]]
+setup = 0x020002FF
+body = "body"
+look = "colossal-monouga-outcast-monouga"
+palettes = [0x04000C10]
+
+[[creature.skin]]
+setup = 0x020002FF
+body = "body"
+look = "banished-monouga-unruly-monouga"
+palettes = [0x04001537]
+
+[[creature.skin]]
+setup = 0x020002FF
+body = "body"
+look = "tremendous-baby-monouga-tremendous-monouga"
+palettes = [0x04000C11]
+
+[[creature.skin]]
+setup = 0x020002FF
+body = "body"
+look = "merciless-monouga"
+palettes = [0x04001535]
+
+[[creature.skin]]
+setup = 0x020002FF
+body = "body"
+look = "pugnacious-monouga"
+palettes = [0x04001538]
+
+[[creature.skin]]
+setup = 0x020002FF
+body = "body"
+look = "brutish-monouga"
+palettes = [0x040010B2]
+
+[[creature.skin]]
+setup = 0x020002FF
+body = "body"
+look = "bloodthirsty-monouga"
+palettes = [0x04001533]
+
+[[creature]]
+name = "mosswart"
+label = "Mosswart"
+keep_launchers = true
+keep_weenies = [1256, 1257, 1258, 1259, 8614, 9165, 12006, 12007, 12702, 14405, 14406, 14407, 14408, 14409, 19200, 19231, 19232, 19294, 19744, 26536, 27524, 27899, 34512, 38956, 38983, 42144, 70056, 72970, 72971, 72982, 72993, 87730, 87732, 87733]
+
+[[creature.body]]
+folder = "body"
+entity = 0x4700039E
+bind = 0x0500001C
+scale = 1.159637
+offset = [0.000908, -0.012008, -0.029408]
+parts = 17
+anchor = [-0.938493, -0.051634, 0.341415, 0.0, -0.0, 0.988756, 0.149535, 0.0, -0.345298, 0.140338, -0.927941, 0.0, 0.001166, -0.666569, -0.100264, 1.0]
+trunk = [0, 1, 2, 3, 22, 23]
+clips.idle = { animation = 0x0500001C }
+clips.idle_melee = { animation = 0x050012E4 }
+clips.idle_missile = { animation = 0x050012E4 }
+clips.walk = { animation = 0x0500001D, stride = 1.3501 }
+clips.walk_back = { animation = 0x0500001B, stride = 1.0419 }
+clips.run = { animation = 0x0500001E, stride = 2.8712 }
+clips.side_step = { animation = 0x0500001F, stride = 2.2273 }
+clips.melee_high = { animation = 0x050012E1, hit = 0.535 }
+clips.melee_med = { animation = 0x050012E0, hit = 0.791 }
+clips.melee_low = { animation = 0x050012DF, hit = 0.429 }
+clips.special = { animation = 0x0500027B, hit = 0.274 }
+clips.missile = { animation = 0x050012DF, hit = 0.429 }
+clips.cast = { animation = 0x0500027C }
+clips.telegraph = { animation = 0x0500027A }
+clips.die = { animation = 0x0500027F }
+clips.dead = { animation = 0x0500027E }
+clips.emote = { animation = 0x0500027B }
+clips.cheer = { animation = 0x0500027D }
+clips.fall = { animation = 0x05000016 }
+clips.jump = { animation = 0x05000017 }
+mask = [0x40000EB5, 0x40000EB8, 0x40000EB7]
+
+[[creature.look]]
+name = "ahumba-mosswart-bishop"
+body = "body"
+picture = 0x40000EB7
+tint = [0.667, 1.158, 0.521]
+masked = true
+
+[[creature.look]]
+name = "barker-mosswart"
+body = "body"
+picture = 0x40000EB5
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "big-chief-hagra-champion-bulgara"
+body = "body"
+picture = 0x40000EB7
+tint = [0.565, 1.052, 0.307]
+masked = true
+
+[[creature.look]]
+name = "enthralled-idolator"
+body = "body"
+picture = 0x40000EB8
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "mosswart-agitator"
+body = "body"
+picture = 0x40000EB7
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "mosswart-clinger"
+body = "body"
+picture = 0x40000EB8
+tint = [0.326, 0.895, 0.25]
+masked = true
+
+[[creature.look]]
+name = "mosswart-elder"
+body = "body"
+picture = 0x40000EB8
+tint = [0.395, 0.8, 0.552]
+masked = true
+
+[[creature.look]]
+name = "mosswart-fanatic-mosswart-idolator"
+body = "body"
+picture = 0x40000EB8
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "mosswart-keeper-mudlurk-mosswart"
+body = "body"
+picture = 0x40000EB7
+tint = [0.855, 1.371, 0.695]
+masked = true
+
+[[creature.look]]
+name = "mosswart-scavenger-mosswart-scrounger"
+body = "body"
+picture = 0x40000EB8
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "mosswart-soul-trapper-thieving-mosswart"
+body = "body"
+picture = 0x40000EB8
+tint = [1.0, 1.0, 1.0]
+
+[[creature.skin]]
+setup = 0x02000B4F
+body = "body"
+
+[[creature.skin]]
+setup = 0x020016EC
+body = "body"
+
+[[creature.skin]]
+setup = 0x020017C9
+body = "body"
+
+[[creature.skin]]
+setup = 0x02000B4F
+body = "body"
+look = "barker-mosswart"
+palettes = [0x040011BC]
+
+[[creature.skin]]
+setup = 0x020016EC
+body = "body"
+look = "barker-mosswart"
+palettes = [0x040011BC]
+
+[[creature.skin]]
+setup = 0x020017C9
+body = "body"
+look = "barker-mosswart"
+palettes = [0x040011BC]
+
+[[creature.skin]]
+setup = 0x02000B4F
+body = "body"
+look = "big-chief-hagra-champion-bulgara"
+palettes = [0x040011BD]
+
+[[creature.skin]]
+setup = 0x020016EC
+body = "body"
+look = "big-chief-hagra-champion-bulgara"
+palettes = [0x040011BD]
+
+[[creature.skin]]
+setup = 0x020017C9
+body = "body"
+look = "big-chief-hagra-champion-bulgara"
+palettes = [0x040011BD]
+
+[[creature.skin]]
+setup = 0x02000B4F
+body = "body"
+look = "ahumba-mosswart-bishop"
+palettes = [0x040011B9]
+
+[[creature.skin]]
+setup = 0x020016EC
+body = "body"
+look = "ahumba-mosswart-bishop"
+palettes = [0x040011B9]
+
+[[creature.skin]]
+setup = 0x020017C9
+body = "body"
+look = "ahumba-mosswart-bishop"
+palettes = [0x040011B9]
+
+[[creature.skin]]
+setup = 0x02000B4F
+body = "body"
+look = "enthralled-idolator"
+palettes = [0x04001885]
+
+[[creature.skin]]
+setup = 0x020016EC
+body = "body"
+look = "enthralled-idolator"
+palettes = [0x04001885]
+
+[[creature.skin]]
+setup = 0x020017C9
+body = "body"
+look = "enthralled-idolator"
+palettes = [0x04001885]
+
+[[creature.skin]]
+setup = 0x02000B4F
+body = "body"
+look = "mosswart-scavenger-mosswart-scrounger"
+palettes = [0x040018E7]
+
+[[creature.skin]]
+setup = 0x020016EC
+body = "body"
+look = "mosswart-scavenger-mosswart-scrounger"
+palettes = [0x040018E7]
+
+[[creature.skin]]
+setup = 0x020017C9
+body = "body"
+look = "mosswart-scavenger-mosswart-scrounger"
+palettes = [0x040018E7]
+
+[[creature.skin]]
+setup = 0x02000B4F
+body = "body"
+look = "mosswart-elder"
+palettes = [0x040011C1]
+
+[[creature.skin]]
+setup = 0x020016EC
+body = "body"
+look = "mosswart-elder"
+palettes = [0x040011C1]
+
+[[creature.skin]]
+setup = 0x020017C9
+body = "body"
+look = "mosswart-elder"
+palettes = [0x040011C1]
+
+[[creature.skin]]
+setup = 0x02000B4F
+body = "body"
+look = "mosswart-keeper-mudlurk-mosswart"
+palettes = [0x040011BF]
+
+[[creature.skin]]
+setup = 0x020016EC
+body = "body"
+look = "mosswart-keeper-mudlurk-mosswart"
+palettes = [0x040011BF]
+
+[[creature.skin]]
+setup = 0x020017C9
+body = "body"
+look = "mosswart-keeper-mudlurk-mosswart"
+palettes = [0x040011BF]
+
+[[creature.skin]]
+setup = 0x02000B4F
+body = "body"
+look = "mosswart-fanatic-mosswart-idolator"
+palettes = [0x040011BE]
+
+[[creature.skin]]
+setup = 0x020016EC
+body = "body"
+look = "mosswart-fanatic-mosswart-idolator"
+palettes = [0x040011BE]
+
+[[creature.skin]]
+setup = 0x020017C9
+body = "body"
+look = "mosswart-fanatic-mosswart-idolator"
+palettes = [0x040011BE]
+
+[[creature.skin]]
+setup = 0x02000B4F
+body = "body"
+look = "mosswart-soul-trapper-thieving-mosswart"
+palettes = [0x040011BA]
+
+[[creature.skin]]
+setup = 0x020016EC
+body = "body"
+look = "mosswart-soul-trapper-thieving-mosswart"
+palettes = [0x040011BA]
+
+[[creature.skin]]
+setup = 0x020017C9
+body = "body"
+look = "mosswart-soul-trapper-thieving-mosswart"
+palettes = [0x040011BA]
+
+[[creature.skin]]
+setup = 0x02000B4F
+body = "body"
+look = "mosswart-agitator"
+palettes = [0x040011C0]
+
+[[creature.skin]]
+setup = 0x020016EC
+body = "body"
+look = "mosswart-agitator"
+palettes = [0x040011C0]
+
+[[creature.skin]]
+setup = 0x020017C9
+body = "body"
+look = "mosswart-agitator"
+palettes = [0x040011C0]
+
+[[creature.skin]]
+setup = 0x02000B4F
+body = "body"
+look = "mosswart-clinger"
+palettes = [0x040011C3]
+
+[[creature.skin]]
+setup = 0x020016EC
+body = "body"
+look = "mosswart-clinger"
+palettes = [0x040011C3]
+
+[[creature.skin]]
+setup = 0x020017C9
+body = "body"
+look = "mosswart-clinger"
+palettes = [0x040011C3]
+
+[[creature]]
+name = "niffis"
+label = "Niffis"
+keep_launchers = true
+keep_weenies = [25874, 25875, 29350, 30389, 32034]
+
+[[creature.body]]
+folder = "body"
+entity = 0x47000238
+bind = 0x05001150
+scale = 1.257199
+offset = [0.005891, -0.180169, -0.121946]
+parts = 18
+anchor = [-1.0, 0.0, 0.0, 0.0, -0.0, 1.0, -0.0, 0.0, -0.0, 0.0, -1.0, 0.0, 0.004592, -2.321204, 0.050221, 1.0]
+trunk = [0, 1]
+clips.idle = { animation = 0x05001150 }
+clips.idle_melee = { animation = 0x0500115A }
+clips.idle_missile = { animation = 0x0500115A }
+clips.idle_magic = { animation = 0x0500115A }
+clips.walk = { animation = 0x0500114E, stride = 0.4815 }
+clips.walk_back = { animation = 0x0500115C }
+clips.run = { animation = 0x0500115E }
+clips.turn = { animation = 0x05001160 }
+clips.melee_high = { animation = 0x05001153, hit = 0.408 }
+clips.melee_med = { animation = 0x05001152, hit = 0.45 }
+clips.melee_low = { animation = 0x05001151, hit = 0.576 }
+clips.special = { animation = 0x05001154, hit = 2.957 }
+clips.missile = { animation = 0x05001152, hit = 0.45 }
+clips.cast = { animation = 0x05001152 }
+clips.hit = { animation = 0x05001156 }
+clips.hit_heavy = { animation = 0x05001156 }
+clips.die = { animation = 0x05001163 }
+clips.dead = { animation = 0x05001161 }
+clips.emote = { animation = 0x05001154 }
+clips.cheer = { animation = 0x0500114F }
+clips.fall = { animation = 0x0500114E }
+clips.jump = { animation = 0x0500114E }
+
+[[creature.look]]
+name = "astis-niffis"
+body = "body"
+picture = 0x40000456
+tint = [0.842, 0.544, 0.416]
+
+[[creature.look]]
+name = "benek-niffis"
+body = "body"
+picture = 0x40000456
+tint = [0.423, 0.722, 1.033]
+
+[[creature.look]]
+name = "ehlyis-niffis-opor-niffis"
+body = "body"
+picture = 0x40000456
+tint = [0.64, 0.741, 1.015]
+
+[[creature.look]]
+name = "glissnal-nefane"
+body = "body"
+picture = 0x40000456
+tint = [0.646, 0.543, 0.62]
+
+[[creature.look]]
+name = "glissnal-niffis-glissnal-niffling"
+body = "body"
+picture = 0x40000456
+tint = [0.767, 0.6, 0.662]
+
+[[creature.look]]
+name = "listris-niffis-listris-niffling"
+body = "body"
+picture = 0x40000456
+tint = [0.598, 0.803, 0.984]
+
+[[creature.look]]
+name = "niffis-fighter-sephal-niffis"
+body = "body"
+picture = 0x40000456
+tint = [0.662, 0.661, 1.142]
+
+[[creature.look]]
+name = "sephal-nefane"
+body = "body"
+picture = 0x40000456
+tint = [0.587, 0.596, 0.944]
+
+[[creature.skin]]
+setup = 0x02000926
+body = "body"
+
+[[creature.skin]]
+setup = 0x02000926
+body = "body"
+look = "niffis-fighter-sephal-niffis"
+palettes = [0x04000FEC]
+
+[[creature.skin]]
+setup = 0x02000926
+body = "body"
+look = "ehlyis-niffis-opor-niffis"
+palettes = [0x04000FEF]
+
+[[creature.skin]]
+setup = 0x02000926
+body = "body"
+look = "sephal-nefane"
+palettes = [0x040016CE]
+
+[[creature.skin]]
+setup = 0x02000926
+body = "body"
+look = "glissnal-niffis-glissnal-niffling"
+palettes = [0x04000FEE]
+
+[[creature.skin]]
+setup = 0x02000926
+body = "body"
+look = "listris-niffis-listris-niffling"
+palettes = [0x04000FED]
+
+[[creature.skin]]
+setup = 0x02000926
+body = "body"
+look = "glissnal-nefane"
+palettes = [0x040016CD]
+
+[[creature.skin]]
+setup = 0x02000926
+body = "body"
+look = "benek-niffis"
+palettes = [0x04001EF4]
+
+[[creature.skin]]
+setup = 0x02000926
+body = "body"
+look = "astis-niffis"
+palettes = [0x04001EF3]
+
+[[creature]]
+name = "olthoi"
+label = "Olthoi"
+keep_launchers = true
+keep_weenies = [11543, 14874, 72440, 72447, 72452]
+
+[[creature.body]]
+folder = "body"
+entity = 0x4700246A
+bind = 0x05001183
+scale = 0.844395
+offset = [0.0, 0.002938, -0.212254]
+parts = 25
+anchor = [-1.0, 0.000427, -0.000221, 0.0, 0.000335, 0.288505, -0.957478, 0.0, -0.000345, -0.957478, -0.288505, 0.0, -0.000407, -0.258231, 1.34164, 1.0]
+trunk = [1, 37]
+clips.idle = { animation = 0x05001183 }
+clips.idle_melee = { animation = 0x05001185 }
+clips.idle_missile = { animation = 0x05001185 }
+clips.idle_magic = { animation = 0x05001185 }
+clips.walk = { animation = 0x05001182, stride = 1.886 }
+clips.walk_back = { animation = 0x0500118F, stride = 1.6836 }
+clips.run = { animation = 0x05001190, stride = 4.1464 }
+clips.turn = { animation = 0x05001193 }
+clips.melee_high = { animation = 0x05001188, hit = 0.672 }
+clips.melee_med = { animation = 0x05001187, hit = 0.836 }
+clips.melee_low = { animation = 0x05001186, hit = 0.605 }
+clips.special = { animation = 0x05001188, hit = 0.672 }
+clips.missile = { animation = 0x05001187, hit = 0.836 }
+clips.cast = { animation = 0x05001186 }
+clips.telegraph = { animation = 0x05001185 }
+clips.hit = { animation = 0x0500118A }
+clips.hit_heavy = { animation = 0x0500118A }
+clips.die = { animation = 0x05001196 }
+clips.dead = { animation = 0x05000FAE }
+clips.emote = { animation = 0x05001189 }
+clips.cheer = { animation = 0x05001189 }
+clips.fall = { animation = 0x05001184 }
+clips.jump = { animation = 0x05001184 }
+
+[[creature.look]]
+name = "olthoi-legionary-olthoi-swarm-legionary"
+body = "body"
+picture = 0x40000BE2
+tint = [0.163, 0.358, 0.223]
+colorize = true
+
+[[creature.look]]
+name = "olthoi-soldier"
+body = "body"
+picture = 0x40000BE2
+tint = [1.602, 2.418, 1.324]
+colorize = true
+
+[[creature.body]]
+folder = "body-altered"
+entity = 0x4700246A
+bind = 0x05001183
+scale = 0.881386
+offset = [0.0, 0.003074, -0.221552]
+parts = 25
+anchor = [-1.0, 0.000427, -0.000221, 0.0, 0.000335, 0.288505, -0.957478, 0.0, -0.000345, -0.957478, -0.288505, 0.0, -0.000425, -0.269545, 1.400422, 1.0]
+trunk = [1, 37]
+clips.idle = { animation = 0x05001183 }
+clips.idle_melee = { animation = 0x05001185 }
+clips.idle_missile = { animation = 0x05001185 }
+clips.idle_magic = { animation = 0x05001185 }
+clips.walk = { animation = 0x05001182, stride = 1.9687 }
+clips.walk_back = { animation = 0x0500118F, stride = 1.7573 }
+clips.run = { animation = 0x05001190, stride = 4.328 }
+clips.turn = { animation = 0x05001193 }
+clips.melee_high = { animation = 0x05001188, hit = 0.672 }
+clips.melee_med = { animation = 0x05001187, hit = 0.836 }
+clips.melee_low = { animation = 0x05001186, hit = 0.605 }
+clips.special = { animation = 0x05001188, hit = 0.672 }
+clips.missile = { animation = 0x05001187, hit = 0.836 }
+clips.cast = { animation = 0x05001186 }
+clips.telegraph = { animation = 0x05001185 }
+clips.hit = { animation = 0x0500118A }
+clips.hit_heavy = { animation = 0x0500118A }
+clips.die = { animation = 0x05001196 }
+clips.dead = { animation = 0x05000FAE }
+clips.emote = { animation = 0x05001189 }
+clips.cheer = { animation = 0x05001189 }
+clips.fall = { animation = 0x05001184 }
+clips.jump = { animation = 0x05001184 }
+
+[[creature.look]]
+name = "altered-olthoi"
+body = "body-altered"
+picture = 0x40000BE2
+tint = [1.125, 2.315, 1.661]
+colorize = true
+
+[[creature.look]]
+name = "augmented-olthoi-crazed-olthoi"
+body = "body-altered"
+picture = 0x40000BE2
+tint = [1.929, 3.217, 2.08]
+colorize = true
+
+[[creature.body]]
+folder = "body-drone"
+entity = 0x4700246A
+bind = 0x05001183
+scale = 0.849718
+offset = [0.0, 0.002957, -0.213592]
+parts = 25
+anchor = [-1.0, 0.000427, -0.000221, 0.0, 0.000335, 0.288505, -0.957478, 0.0, -0.000345, -0.957478, -0.288505, 0.0, -0.00041, -0.259859, 1.350099, 1.0]
+trunk = [1, 37]
+clips.idle = { animation = 0x05001183 }
+clips.idle_melee = { animation = 0x05001185 }
+clips.idle_missile = { animation = 0x05001185 }
+clips.idle_magic = { animation = 0x05001185 }
+clips.walk = { animation = 0x05001182, stride = 1.8979 }
+clips.walk_back = { animation = 0x0500118F, stride = 1.6942 }
+clips.run = { animation = 0x05001190, stride = 4.1725 }
+clips.turn = { animation = 0x05001193 }
+clips.melee_high = { animation = 0x05001188, hit = 0.672 }
+clips.melee_med = { animation = 0x05001187, hit = 0.836 }
+clips.melee_low = { animation = 0x05001186, hit = 0.605 }
+clips.special = { animation = 0x05001188, hit = 0.672 }
+clips.missile = { animation = 0x05001187, hit = 0.836 }
+clips.cast = { animation = 0x05001186 }
+clips.telegraph = { animation = 0x05001185 }
+clips.hit = { animation = 0x0500118A }
+clips.hit_heavy = { animation = 0x0500118A }
+clips.die = { animation = 0x05001196 }
+clips.dead = { animation = 0x05000FAE }
+clips.emote = { animation = 0x05001189 }
+clips.cheer = { animation = 0x05001189 }
+clips.fall = { animation = 0x05001184 }
+clips.jump = { animation = 0x05001184 }
+
+[[creature.look]]
+name = "olthoi-drone-olthoi-gardener-olthoi-harvester"
+body = "body-drone"
+picture = 0x40000BE2
+tint = [0.498, 1.1, 0.566]
+colorize = true
+
+[[creature.look]]
+name = "olthoi-drone"
+body = "body-drone"
+picture = 0x40000BE2
+tint = [1.95, 3.408, 1.721]
+colorize = true
+
+[[creature.look]]
+name = "olthoi-gardener-olthoi-harvester-olthoi-slasher"
+body = "body-drone"
+picture = 0x40000BE2
+tint = [2.037, 3.592, 1.82]
+colorize = true
+
+[[creature.look]]
+name = "olthoi-slayer"
+body = "body-drone"
+picture = 0x40000BE2
+tint = [1.411, 2.154, 1.463]
+colorize = true
+
+[[creature.look]]
+name = "olthoi-worker"
+body = "body-drone"
+picture = 0x40000BE2
+tint = [1.531, 3.1, 1.305]
+colorize = true
+
+[[creature.body]]
+folder = "body-noble"
+entity = 0x4700246A
+bind = 0x05001183
+scale = 0.881386
+offset = [0.0, 0.003074, -0.221552]
+parts = 25
+anchor = [-1.0, 0.000427, -0.000221, 0.0, 0.000335, 0.288505, -0.957478, 0.0, -0.000345, -0.957478, -0.288505, 0.0, -0.000425, -0.269545, 1.400422, 1.0]
+trunk = [1, 37]
+clips.idle = { animation = 0x05001183 }
+clips.idle_melee = { animation = 0x05001185 }
+clips.idle_missile = { animation = 0x05001185 }
+clips.idle_magic = { animation = 0x05001185 }
+clips.walk = { animation = 0x05001182, stride = 1.9687 }
+clips.walk_back = { animation = 0x0500118F, stride = 1.7573 }
+clips.run = { animation = 0x05001190, stride = 4.328 }
+clips.turn = { animation = 0x05001193 }
+clips.melee_high = { animation = 0x05001188, hit = 0.672 }
+clips.melee_med = { animation = 0x05001187, hit = 0.836 }
+clips.melee_low = { animation = 0x05001186, hit = 0.605 }
+clips.special = { animation = 0x05001188, hit = 0.672 }
+clips.missile = { animation = 0x05001187, hit = 0.836 }
+clips.cast = { animation = 0x05001186 }
+clips.telegraph = { animation = 0x05001185 }
+clips.hit = { animation = 0x0500118A }
+clips.hit_heavy = { animation = 0x0500118A }
+clips.die = { animation = 0x05001196 }
+clips.dead = { animation = 0x05000FAE }
+clips.emote = { animation = 0x05001189 }
+clips.cheer = { animation = 0x05001189 }
+clips.fall = { animation = 0x05001184 }
+clips.jump = { animation = 0x05001184 }
+
+[[creature.look]]
+name = "olthoi-guard-olthoi-hive-guardian-olthoi-hive-noble"
+body = "body-noble"
+picture = 0x40000BE2
+tint = [0.446, 0.269, 0.514]
+colorize = true
+
+[[creature.look]]
+name = "olthoi-hive-guardian-olthoi-hive-mutilator"
+body = "body-noble"
+picture = 0x40000BE2
+tint = [0.144, 0.21, 0.213]
+colorize = true
+
+[[creature.body]]
+folder = "body-nymph"
+entity = 0x4700246A
+bind = 0x05001183
+scale = 0.888122
+offset = [0.0, 0.003098, -0.223245]
+parts = 23
+anchor = [-1.0, 0.000427, -0.000221, 0.0, 0.000335, 0.288505, -0.957478, 0.0, -0.000345, -0.957478, -0.288505, 0.0, -0.000429, -0.271606, 1.411125, 1.0]
+trunk = [1, 37]
+clips.idle = { animation = 0x05001183 }
+clips.idle_melee = { animation = 0x05001185 }
+clips.idle_missile = { animation = 0x05001185 }
+clips.idle_magic = { animation = 0x05001185 }
+clips.walk = { animation = 0x05001182, stride = 1.9837 }
+clips.walk_back = { animation = 0x0500118F, stride = 1.7708 }
+clips.run = { animation = 0x05001190, stride = 4.3611 }
+clips.turn = { animation = 0x05001193 }
+clips.melee_high = { animation = 0x05001188, hit = 0.672 }
+clips.melee_med = { animation = 0x05001187, hit = 0.836 }
+clips.melee_low = { animation = 0x05001186, hit = 0.605 }
+clips.special = { animation = 0x05001188, hit = 0.672 }
+clips.missile = { animation = 0x05001187, hit = 0.836 }
+clips.cast = { animation = 0x05001186 }
+clips.telegraph = { animation = 0x05001185 }
+clips.hit = { animation = 0x0500118A }
+clips.hit_heavy = { animation = 0x0500118A }
+clips.die = { animation = 0x05001196 }
+clips.dead = { animation = 0x05000FAE }
+clips.emote = { animation = 0x05001189 }
+clips.cheer = { animation = 0x05001189 }
+clips.fall = { animation = 0x05001184 }
+clips.jump = { animation = 0x05001184 }
+
+[[creature.look]]
+name = "olthoi-nymph-olthoi-swarm-nymph"
+body = "body-nymph"
+picture = 0x40000BE2
+tint = [1.399, 2.121, 1.43]
+colorize = true
+
+[[creature.look]]
+name = "olthoi-nymph"
+body = "body-nymph"
+picture = 0x40000BE2
+tint = [2.202, 3.311, 1.412]
+colorize = true
+
+[[creature.skin]]
+setup = 0x02000AAA
+body = "body"
+
+[[creature.skin]]
+setup = 0x02000AAA
+body = "body"
+look = "olthoi-legionary-olthoi-swarm-legionary"
+palettes = [0x04001165]
+
+[[creature.skin]]
+setup = 0x02000AAA
+body = "body"
+look = "olthoi-soldier"
+palettes = [0x04001503]
+
+[[creature.skin]]
+setup = 0x02000AAC
+body = "body-drone"
+
+[[creature.skin]]
+setup = 0x02000AAC
+body = "body-drone"
+look = "olthoi-gardener-olthoi-harvester-olthoi-slasher"
+palettes = [0x04001500]
+
+[[creature.skin]]
+setup = 0x02000AAC
+body = "body-drone"
+look = "olthoi-drone"
+palettes = [0x040014FF]
+
+[[creature.skin]]
+setup = 0x02000AAC
+body = "body-drone"
+look = "olthoi-worker"
+palettes = [0x04001502]
+
+[[creature.skin]]
+setup = 0x02000AAC
+body = "body-drone"
+look = "olthoi-drone-olthoi-gardener-olthoi-harvester"
+palettes = [0x04001163]
+
+[[creature.skin]]
+setup = 0x02000AAC
+body = "body-drone"
+look = "olthoi-slayer"
+palettes = [0x04001164]
+
+[[creature.skin]]
+setup = 0x02000AA9
+body = "body-noble"
+
+[[creature.skin]]
+setup = 0x02000AA9
+body = "body-noble"
+look = "olthoi-guard-olthoi-hive-guardian-olthoi-hive-noble"
+palettes = [0x04001162]
+
+[[creature.skin]]
+setup = 0x02000AA9
+body = "body-noble"
+look = "olthoi-hive-guardian-olthoi-hive-mutilator"
+palettes = [0x04001165]
+
+[[creature.skin]]
+setup = 0x02000C53
+body = "body-altered"
+
+[[creature.skin]]
+setup = 0x02000C53
+body = "body-altered"
+look = "augmented-olthoi-crazed-olthoi"
+palettes = [0x04001343]
+
+[[creature.skin]]
+setup = 0x02000C53
+body = "body-altered"
+look = "altered-olthoi"
+palettes = [0x04001342]
+
+[[creature.skin]]
+setup = 0x02000AAB
+body = "body-nymph"
+
+[[creature.skin]]
+setup = 0x02000AAB
+body = "body-nymph"
+look = "olthoi-nymph-olthoi-swarm-nymph"
+palettes = [0x04001164]
+
+[[creature.skin]]
+setup = 0x02000AAB
+body = "body-nymph"
+look = "olthoi-nymph"
+palettes = [0x04001501]
+
+[[creature]]
+name = "olthoi-grub"
+label = "Olthoi Grub"
+keep_launchers = true
+keep_weenies = [10924, 24961, 24963, 24964, 43698, 43699, 43700, 45193, 46436, 72425, 72426]
+
+[[creature.body]]
+folder = "body"
+entity = 0x47002469
+bind = 0x05001169
+scale = 1.035265
+offset = [0.0, -0.00424, -0.02]
+parts = 6
+anchor = [-0.990481, -0.000296, -0.137638, 0.0, -0.000299, 1.0, 0.0, 0.0, 0.137638, 4.1e-05, -0.990481, 0.0, 0.03552, -0.166093, -0.339051, 1.0]
+trunk = []
+clips.idle = { animation = 0x05001169 }
+clips.idle_melee = { animation = 0x0500116B }
+clips.idle_missile = { animation = 0x0500116B }
+clips.idle_magic = { animation = 0x0500116B }
+clips.walk = { animation = 0x05001168 }
+clips.walk_back = { animation = 0x05001176 }
+clips.run = { animation = 0x05001178 }
+clips.turn = { animation = 0x0500117A }
+clips.melee_high = { animation = 0x0500116E, hit = 0.763 }
+clips.melee_med = { animation = 0x0500116D, hit = 0.891 }
+clips.melee_low = { animation = 0x0500116C, hit = 0.58 }
+clips.special = { animation = 0x0500116F, hit = 1.046 }
+clips.missile = { animation = 0x0500116E, hit = 0.763 }
+clips.cast = { animation = 0x0500116E }
+clips.telegraph = { animation = 0x0500116B }
+clips.hit = { animation = 0x05001171 }
+clips.hit_heavy = { animation = 0x05001171 }
+clips.die = { animation = 0x0500117E }
+clips.dead = { animation = 0x0500117C }
+clips.emote = { animation = 0x05001170 }
+clips.cheer = { animation = 0x0500116B }
+clips.fall = { animation = 0x0500116A }
+clips.jump = { animation = 0x0500116A }
+
+[[creature.look]]
+name = "giant-maggot-olthoi-grub"
+body = "body"
+picture = 0x40000E2D
+tint = [1.075, 0.977, 0.871]
+colorize = true
+
+[[creature.look]]
+name = "olthoi-larvae"
+body = "body"
+picture = 0x40000E2D
+tint = [0.427, 1.278, 1.278]
+colorize = true
+
+[[creature.skin]]
+setup = 0x02000F3D
+body = "body"
+
+[[creature.skin]]
+setup = 0x02000F3D
+body = "body"
+look = "giant-maggot-olthoi-grub"
+palettes = [0x040014F6]
+
+[[creature.skin]]
+setup = 0x02000F3D
+body = "body"
+look = "olthoi-larvae"
+palettes = [0x040014FB]
+
+[[creature.skin]]
+setup = 0x020016FB
+body = "body"
+
+[[creature.skin]]
+setup = 0x020016FB
+body = "body"
+look = "giant-maggot-olthoi-grub"
+palettes = [0x040014F6]
+
+[[creature.skin]]
+setup = 0x020016FB
+body = "body"
+look = "olthoi-larvae"
+palettes = [0x040014FB]
+
+[[creature]]
+name = "rabbit"
+label = "Rabbit"
+keep_launchers = true
+keep_weenies = [2568, 4574, 4575, 4576, 4577, 4578, 4579, 4580, 4581, 4582, 6080, 7418, 8872, 9531, 9532, 9533, 9534, 9535, 9536, 32932, 35360, 87088, 87094]
+
+[[creature.body]]
+folder = "body"
+entity = 0x470001CC
+bind = 0x050003FE
+scale = 0.338265
+offset = [-0.0, -0.031482, -0.119721]
+parts = 13
+anchor = [-0.999999, 0.0, 0.0, 0.0, -0.0, 0.995889, -0.090581, 0.0, -0.0, -0.090581, -0.995888, 0.0, 0.0, -0.021556, 0.001961, 1.0]
+trunk = [0, 10, 11, 12]
+clips.idle = { animation = 0x050003FE }
+clips.idle_melee = { animation = 0x0500040D }
+clips.idle_missile = { animation = 0x0500040D }
+clips.walk = { animation = 0x050003FC }
+clips.walk_back = { animation = 0x05000408, stride = 0.3619 }
+clips.run = { animation = 0x05000409, stride = 0.4305 }
+clips.turn = { animation = 0x0500040C }
+clips.melee_high = { animation = 0x05000401, hit = 2.146 }
+clips.melee_med = { animation = 0x05000400, hit = 0.643 }
+clips.melee_low = { animation = 0x050003FF, hit = 1.117 }
+clips.special = { animation = 0x05000402, hit = 0.453 }
+clips.missile = { animation = 0x050003FF, hit = 1.117 }
+clips.cast = { animation = 0x05000402 }
+clips.hit = { animation = 0x0500109E }
+clips.hit_heavy = { animation = 0x0500109E }
+clips.die = { animation = 0x05000406 }
+clips.dead = { animation = 0x05000405 }
+clips.emote = { animation = 0x05000403 }
+clips.cheer = { animation = 0x05000403 }
+clips.fall = { animation = 0x050003FD }
+clips.jump = { animation = 0x050003FD }
+
+[[creature.look]]
+name = "desert-bunny-desert-rabbit"
+body = "body"
+picture = 0x40000455
+tint = [1.153, 0.859, 0.25]
+
+[[creature.look]]
+name = "twilight-rabbit"
+body = "body"
+picture = 0x40000455
+tint = [0.413, 0.438, 0.478]
+
+[[creature.skin]]
+setup = 0x02001083
+body = "body"
+
+[[creature.skin]]
+setup = 0x02001083
+body = "body"
+look = "desert-bunny-desert-rabbit"
+palettes = [0x04000AED]
+
+[[creature.skin]]
+setup = 0x0200047B
+body = "body"
+look = "desert-bunny-desert-rabbit"
+palettes = [0x04000AED]
+
+[[creature.skin]]
+setup = 0x02001083
+body = "body"
+look = "twilight-rabbit"
+palettes = [0x040009AB]
+
+[[creature.skin]]
+setup = 0x0200047B
+body = "body"
+look = "twilight-rabbit"
+palettes = [0x040009AB]
+
+[[creature]]
+name = "reedshark"
+label = "Reedshark"
+keep_launchers = true
+keep_weenies = [5687, 10944, 10945, 10946, 10947, 12018, 19201, 19233, 19234, 19297, 19745, 21282, 24060, 25848, 29355, 34000, 88212]
+
+[[creature.body]]
+folder = "body"
+entity = 0x470001C5
+bind = 0x0500011C
+scale = 0.499725
+offset = [-0.0, 0.011561, -0.342974]
+parts = 13
+anchor = [-1.0, -0.0, 0.0, 0.0, -0.0, 0.965597, 0.260042, 0.0, -0.0, 0.260042, -0.965597, 0.0, 0.0, -0.440329, -0.176696, 1.0]
+trunk = [0, 1]
+clips.idle = { animation = 0x0500011C }
+clips.walk = { animation = 0x0500012B, stride = 1.691 }
+clips.walk_back = { animation = 0x05000129, stride = 1.3936 }
+clips.run = { animation = 0x0500012C, stride = 5.7922 }
+clips.side_step = { animation = 0x0500012D, stride = 1.3161 }
+clips.turn = { animation = 0x0500012F }
+clips.melee_high = { animation = 0x05000125, hit = 1.169 }
+clips.melee_med = { animation = 0x05000126, hit = 0.766 }
+clips.melee_low = { animation = 0x0500011F, hit = 0.304 }
+clips.special = { animation = 0x0500011F, hit = 0.304 }
+clips.missile = { animation = 0x05000125, hit = 1.169 }
+clips.cast = { animation = 0x05000125 }
+clips.telegraph = { animation = 0x05000261 }
+clips.hit = { animation = 0x05000480 }
+clips.hit_heavy = { animation = 0x05000480 }
+clips.die = { animation = 0x05000487 }
+clips.dead = { animation = 0x05000484 }
+clips.emote = { animation = 0x05000123 }
+clips.cheer = { animation = 0x05000124 }
+clips.fall = { animation = 0x05000132 }
+clips.jump = { animation = 0x05000133 }
+mask = [0x4000009D, 0x40000E2E, 0x40000E2F, 0x40000E30, 0x40000E31]
+
+[[creature.look]]
+name = "adult-reedshark"
+body = "body"
+picture = 0x40000E2E
+tint = [0.652, 0.431, 0.379]
+masked = true
+
+[[creature.look]]
+name = "dune-reaper-dune-reaver"
+body = "body"
+picture = 0x4000009D
+tint = [0.506, 0.378, 0.415]
+masked = true
+
+[[creature.look]]
+name = "floeshark-jungle-reaver"
+body = "body"
+picture = 0x40000E2F
+tint = [0.272, 0.565, 0.636]
+masked = true
+
+[[creature.look]]
+name = "reaper-reedshark-ravager"
+body = "body"
+picture = 0x4000009D
+tint = [0.456, 0.636, 0.363]
+masked = true
+
+[[creature.look]]
+name = "reedshark-elder"
+body = "body"
+picture = 0x4000009D
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "reedshark-pup"
+body = "body"
+picture = 0x4000009D
+tint = [0.385, 0.332, 0.34]
+masked = true
+
+[[creature.look]]
+name = "silt-lurker-tamed-reaper"
+body = "body"
+picture = 0x4000009D
+tint = [0.399, 0.511, 0.553]
+masked = true
+
+[[creature.skin]]
+setup = 0x02000039
+body = "body"
+
+[[creature.skin]]
+setup = 0x02000039
+body = "body"
+look = "reaper-reedshark-ravager"
+palettes = [0x0400143C]
+
+[[creature.skin]]
+setup = 0x02000039
+body = "body"
+look = "silt-lurker-tamed-reaper"
+palettes = [0x040010B7]
+
+[[creature.skin]]
+setup = 0x02000039
+body = "body"
+look = "dune-reaper-dune-reaver"
+palettes = [0x040010B8]
+
+[[creature.skin]]
+setup = 0x02000039
+body = "body"
+look = "reedshark-pup"
+palettes = [0x040009B0]
+
+[[creature.skin]]
+setup = 0x02000039
+body = "body"
+look = "adult-reedshark"
+palettes = [0x040009AF]
+
+[[creature.skin]]
+setup = 0x02000039
+body = "body"
+look = "floeshark-jungle-reaver"
+palettes = [0x0400143B]
+
+[[creature.skin]]
+setup = 0x02000039
+body = "body"
+look = "reedshark-elder"
+palettes = [0x04000AEF]
+
+[[creature]]
+name = "shreth"
+label = "Shreth"
+keep_launchers = true
+keep_weenies = [26470]
+
+[[creature.body]]
+folder = "body"
+entity = 0x47000237
+bind = 0x050003C7
+scale = 0.86448
+offset = [0.097948, 0.051093, -1.653153]
+parts = 25
+anchor = [-1.000001, 0.0, 0.0, 0.0, -0.0, 0.697165, -0.716911, 0.0, -0.0, -0.716911, -0.697166, 0.0, 0.0, -0.629549, 0.647381, 1.0]
+trunk = [0, 1, 2, 3, 4, 5, 6, 7, 8, 13, 14, 19, 20, 21, 22, 24, 26, 27, 28]
+clips.idle = { animation = 0x050003C7 }
+clips.idle_melee = { animation = 0x050003C9 }
+clips.idle_missile = { animation = 0x050003C9 }
+clips.idle_magic = { animation = 0x050003C9 }
+clips.walk = { animation = 0x050003C8, stride = 2.9477 }
+clips.walk_back = { animation = 0x050003DA, stride = 3.3513 }
+clips.run = { animation = 0x050003DC, stride = 11.6727 }
+clips.turn = { animation = 0x050003DE }
+clips.melee_high = { animation = 0x050003CC, hit = 0.528 }
+clips.melee_med = { animation = 0x050003CB, hit = 0.593 }
+clips.melee_low = { animation = 0x050003CE, hit = 0.754 }
+clips.special = { animation = 0x050003D1, hit = 2.889 }
+clips.missile = { animation = 0x050003CE, hit = 0.754 }
+clips.cast = { animation = 0x050003CE }
+clips.telegraph = { animation = 0x050003CA }
+clips.hit = { animation = 0x050004D2 }
+clips.hit_heavy = { animation = 0x050004D2 }
+clips.die = { animation = 0x050004D9 }
+clips.dead = { animation = 0x050004D6 }
+clips.emote = { animation = 0x050003D0 }
+clips.cheer = { animation = 0x050003D5 }
+clips.fall = { animation = 0x050003C6 }
+clips.jump = { animation = 0x050003C6 }
+
+[[creature.look]]
+name = "blood-shreth-blood-shrethlet"
+body = "body"
+picture = 0x4000014C
+tint = [0.907, 0.445, 0.662]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "fire-shreth"
+body = "body"
+picture = 0x4000014C
+tint = [0.826, 0.289, 0.401]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "gauloth-shreth"
+body = "body"
+picture = 0x4000014C
+tint = [0.694, 0.758, 0.577]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "hunter-shreth-hunter-shrethlet"
+body = "body"
+picture = 0x4000014C
+tint = [0.87, 0.614, 0.542]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "malus-shreth"
+body = "body"
+picture = 0x4000014C
+tint = [0.79, 0.554, 0.515]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "rendeath-shreth"
+body = "body"
+picture = 0x4000014C
+tint = [0.768, 0.528, 0.477]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "vorous-shreth-vorous-shrethlet"
+body = "body"
+picture = 0x4000014C
+tint = [0.883, 0.756, 0.645]
+colorize = true
+every = true
+
+[[creature.body]]
+folder = "body-gnawer"
+entity = 0x47000237
+bind = 0x050003C7
+scale = 0.801361
+offset = [0.090797, 0.047583, -1.532451]
+parts = 25
+anchor = [-1.000001, 0.0, 0.0, 0.0, -0.0, 0.697165, -0.716911, 0.0, -0.0, -0.716911, -0.697166, 0.0, 0.0, -0.583737, 0.600271, 1.0]
+trunk = [0, 1, 2, 3, 4, 5, 6, 7, 8, 13, 14, 19, 20, 21, 22, 24, 26, 27, 28]
+clips.idle = { animation = 0x050003C7 }
+clips.idle_melee = { animation = 0x050003C9 }
+clips.idle_missile = { animation = 0x050003C9 }
+clips.idle_magic = { animation = 0x050003C9 }
+clips.walk = { animation = 0x050003C8, stride = 2.7324 }
+clips.walk_back = { animation = 0x050003DA, stride = 3.1066 }
+clips.run = { animation = 0x050003DC, stride = 10.8204 }
+clips.turn = { animation = 0x050003DE }
+clips.melee_high = { animation = 0x050003CC, hit = 0.528 }
+clips.melee_med = { animation = 0x050003CB, hit = 0.593 }
+clips.melee_low = { animation = 0x050003CE, hit = 0.754 }
+clips.special = { animation = 0x050003D1, hit = 2.889 }
+clips.missile = { animation = 0x050003CE, hit = 0.754 }
+clips.cast = { animation = 0x050003CE }
+clips.telegraph = { animation = 0x050003CA }
+clips.hit = { animation = 0x050004D2 }
+clips.hit_heavy = { animation = 0x050004D2 }
+clips.die = { animation = 0x050004D9 }
+clips.dead = { animation = 0x050004D6 }
+clips.emote = { animation = 0x050003D0 }
+clips.cheer = { animation = 0x050003D5 }
+clips.fall = { animation = 0x050003C6 }
+clips.jump = { animation = 0x050003C6 }
+
+[[creature.look]]
+name = "carrion-shreth-carrion-shrethlet"
+body = "body-gnawer"
+picture = 0x4000014C
+tint = [0.453, 0.509, 0.795]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "gnawer-shreth-gnawer-shrethlet"
+body = "body-gnawer"
+picture = 0x4000014C
+tint = [0.725, 0.324, 0.813]
+colorize = true
+every = true
+
+[[creature.skin]]
+setup = 0x020005A7
+body = "body"
+
+[[creature.skin]]
+setup = 0x020005A7
+body = "body"
+look = "hunter-shreth-hunter-shrethlet"
+palettes = [0x04000E12]
+
+[[creature.skin]]
+setup = 0x020005A7
+body = "body"
+look = "blood-shreth-blood-shrethlet"
+palettes = [0x04000E11]
+
+[[creature.skin]]
+setup = 0x020005A7
+body = "body"
+look = "malus-shreth"
+palettes = [0x04000FB0]
+
+[[creature.skin]]
+setup = 0x020005A7
+body = "body"
+look = "rendeath-shreth"
+palettes = [0x0400153D]
+
+[[creature.skin]]
+setup = 0x020005A7
+body = "body"
+look = "vorous-shreth-vorous-shrethlet"
+palettes = [0x04000E14]
+
+[[creature.skin]]
+setup = 0x020005A7
+body = "body"
+look = "gauloth-shreth"
+palettes = [0x0400153E]
+
+[[creature.skin]]
+setup = 0x020005A7
+body = "body"
+look = "fire-shreth"
+palettes = [0x040017C4]
+
+[[creature.skin]]
+setup = 0x020005C4
+body = "body-gnawer"
+
+[[creature.skin]]
+setup = 0x020005C4
+body = "body-gnawer"
+look = "gnawer-shreth-gnawer-shrethlet"
+palettes = [0x04000E15]
+
+[[creature.skin]]
+setup = 0x020005C4
+body = "body-gnawer"
+look = "carrion-shreth-carrion-shrethlet"
+palettes = [0x04000E13]
+
+[[creature]]
+name = "skeleton"
+label = "Skeleton"
+keep_launchers = true
+keep_weenies = [4125, 4126, 4897, 5656, 5682, 5684, 5685, 5931, 5932, 5933, 5934, 7372, 7401, 8543, 12027, 19204, 19239, 19240, 19282, 19309, 19749, 19750, 22049, 22050, 22052, 24061, 27799, 31361, 35378, 40924, 41938, 48762, 48763, 48764]
+
+[[creature.body]]
+folder = "body"
+entity = 0x47002475
+bind = 0x050011A0
+scale = 1.022269
+offset = [0.0, -0.000647, 0.060551]
+parts = 17
+anchor = [-0.998522, -0.036614, 0.040132, 0.0, -0.036644, 0.999328, -0.0, 0.0, -0.040105, -0.001471, -0.999193, 0.0, 0.035717, -0.974051, 0.0, 1.0]
+trunk = [1, 2, 3, 4, 24]
+gfxobj = [0x01003B50, 0x01003B40, 0x01003B5D, 0x01003B46, 0x01003B63, 0x01003B43, 0x01003B60, 0x01003B47, 0x01003B64, 0x01003B5A, 0x01003B4A, 0x01003B56, 0x01003B48, 0x01003B4D, 0x01003B58, 0x01003B49, 0x01003B65]
+clips.idle = { animation = 0x050011A0 }
+clips.idle_melee = { animation = 0x050011A2 }
+clips.idle_missile = { animation = 0x050011A2 }
+clips.idle_magic = { animation = 0x050011A2 }
+clips.walk = { animation = 0x0500119F, stride = 0.9058 }
+clips.walk_back = { animation = 0x050011AC, stride = 1.056 }
+clips.run = { animation = 0x050011AE, stride = 5.3277 }
+clips.turn = { animation = 0x050011B0 }
+clips.melee_high = { animation = 0x050011A5, hit = 0.847 }
+clips.melee_med = { animation = 0x050011A4, hit = 0.938 }
+clips.melee_low = { animation = 0x050011A3, hit = 0.938 }
+clips.special = { animation = 0x050011A5, hit = 0.847 }
+clips.missile = { animation = 0x050011A4, hit = 0.938 }
+clips.cast = { animation = 0x050011A4 }
+clips.telegraph = { animation = 0x050011A2 }
+clips.hit = { animation = 0x050011A7 }
+clips.hit_heavy = { animation = 0x050011A7 }
+clips.die = { animation = 0x050011B4 }
+clips.dead = { animation = 0x050011B2 }
+clips.emote = { animation = 0x050011A6 }
+clips.cheer = { animation = 0x050011A2 }
+clips.fall = { animation = 0x050011A1 }
+clips.jump = { animation = 0x050011A1 }
+mask = [0x40000BE9, 0x40000EF7, 0x40000EF9]
+
+[[creature.look]]
+name = "blood-fiend-bound-pyre-champion"
+body = "body"
+picture = 0x40000BE9
+tint = [0.25, 0.25, 0.306]
+masked = true
+
+[[creature.look]]
+name = "bronze-statue-of-a-skeleton-impious-superna-guardian"
+body = "body"
+picture = 0x40000EF7
+tint = [0.546, 0.762, 0.891]
+masked = true
+
+[[creature.look]]
+name = "chalicmere-legion-commander-dark-myrmidon"
+body = "body"
+picture = 0x40000BE9
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "skeletal-champion"
+body = "body"
+picture = 0x40000EF9
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "skeletal-fiend-tormenter"
+body = "body"
+picture = 0x40000EF7
+tint = [1.0, 1.0, 1.0]
+
+[[creature.skin]]
+setup = 0x02000059
+body = "body"
+
+[[creature.skin]]
+setup = 0x020013EE
+body = "body"
+
+[[creature.skin]]
+setup = 0x020016A5
+body = "body"
+
+[[creature.skin]]
+setup = 0x02000409
+body = "body"
+
+[[creature.skin]]
+setup = 0x02000408
+body = "body"
+
+[[creature.skin]]
+setup = 0x020016A6
+body = "body"
+
+[[creature.skin]]
+setup = 0x02000F7C
+body = "body"
+
+[[creature.skin]]
+setup = 0x020013EF
+body = "body"
+
+[[creature.skin]]
+setup = 0x020013E8
+body = "body"
+
+[[creature.skin]]
+setup = 0x020013EA
+body = "body"
+
+[[creature.skin]]
+setup = 0x020013E3
+body = "body"
+
+[[creature.skin]]
+setup = 0x020013E7
+body = "body"
+
+[[creature.skin]]
+setup = 0x020013E9
+body = "body"
+
+[[creature.skin]]
+setup = 0x020013EB
+body = "body"
+
+[[creature.skin]]
+setup = 0x020013E4
+body = "body"
+
+[[creature.skin]]
+setup = 0x020013E6
+body = "body"
+
+[[creature.skin]]
+setup = 0x020013EC
+body = "body"
+
+[[creature.skin]]
+setup = 0x020013E5
+body = "body"
+
+[[creature.skin]]
+setup = 0x020013E2
+body = "body"
+
+[[creature.skin]]
+setup = 0x020013ED
+body = "body"
+
+[[creature.skin]]
+setup = 0x020013F4
+body = "body"
+
+[[creature.skin]]
+setup = 0x020016EA
+body = "body"
+
+[[creature.skin]]
+setup = 0x02000059
+body = "body"
+look = "bronze-statue-of-a-skeleton-impious-superna-guardian"
+palettes = [0x04001DF6]
+
+[[creature.skin]]
+setup = 0x020013EE
+body = "body"
+look = "bronze-statue-of-a-skeleton-impious-superna-guardian"
+palettes = [0x04001DF6]
+
+[[creature.skin]]
+setup = 0x020016A5
+body = "body"
+look = "bronze-statue-of-a-skeleton-impious-superna-guardian"
+palettes = [0x04001DF6]
+
+[[creature.skin]]
+setup = 0x02000409
+body = "body"
+look = "bronze-statue-of-a-skeleton-impious-superna-guardian"
+palettes = [0x04001DF6]
+
+[[creature.skin]]
+setup = 0x02000408
+body = "body"
+look = "bronze-statue-of-a-skeleton-impious-superna-guardian"
+palettes = [0x04001DF6]
+
+[[creature.skin]]
+setup = 0x020016A6
+body = "body"
+look = "bronze-statue-of-a-skeleton-impious-superna-guardian"
+palettes = [0x04001DF6]
+
+[[creature.skin]]
+setup = 0x02000F7C
+body = "body"
+look = "bronze-statue-of-a-skeleton-impious-superna-guardian"
+palettes = [0x04001DF6]
+
+[[creature.skin]]
+setup = 0x020013EF
+body = "body"
+look = "bronze-statue-of-a-skeleton-impious-superna-guardian"
+palettes = [0x04001DF6]
+
+[[creature.skin]]
+setup = 0x020013E8
+body = "body"
+look = "bronze-statue-of-a-skeleton-impious-superna-guardian"
+palettes = [0x04001DF6]
+
+[[creature.skin]]
+setup = 0x020013EA
+body = "body"
+look = "bronze-statue-of-a-skeleton-impious-superna-guardian"
+palettes = [0x04001DF6]
+
+[[creature.skin]]
+setup = 0x020013E3
+body = "body"
+look = "bronze-statue-of-a-skeleton-impious-superna-guardian"
+palettes = [0x04001DF6]
+
+[[creature.skin]]
+setup = 0x020013E7
+body = "body"
+look = "bronze-statue-of-a-skeleton-impious-superna-guardian"
+palettes = [0x04001DF6]
+
+[[creature.skin]]
+setup = 0x020013E9
+body = "body"
+look = "bronze-statue-of-a-skeleton-impious-superna-guardian"
+palettes = [0x04001DF6]
+
+[[creature.skin]]
+setup = 0x020013EB
+body = "body"
+look = "bronze-statue-of-a-skeleton-impious-superna-guardian"
+palettes = [0x04001DF6]
+
+[[creature.skin]]
+setup = 0x020013E4
+body = "body"
+look = "bronze-statue-of-a-skeleton-impious-superna-guardian"
+palettes = [0x04001DF6]
+
+[[creature.skin]]
+setup = 0x020013E6
+body = "body"
+look = "bronze-statue-of-a-skeleton-impious-superna-guardian"
+palettes = [0x04001DF6]
+
+[[creature.skin]]
+setup = 0x020013EC
+body = "body"
+look = "bronze-statue-of-a-skeleton-impious-superna-guardian"
+palettes = [0x04001DF6]
+
+[[creature.skin]]
+setup = 0x020013E5
+body = "body"
+look = "bronze-statue-of-a-skeleton-impious-superna-guardian"
+palettes = [0x04001DF6]
+
+[[creature.skin]]
+setup = 0x020013E2
+body = "body"
+look = "bronze-statue-of-a-skeleton-impious-superna-guardian"
+palettes = [0x04001DF6]
+
+[[creature.skin]]
+setup = 0x020013ED
+body = "body"
+look = "bronze-statue-of-a-skeleton-impious-superna-guardian"
+palettes = [0x04001DF6]
+
+[[creature.skin]]
+setup = 0x020013F4
+body = "body"
+look = "bronze-statue-of-a-skeleton-impious-superna-guardian"
+palettes = [0x04001DF6]
+
+[[creature.skin]]
+setup = 0x020016EA
+body = "body"
+look = "bronze-statue-of-a-skeleton-impious-superna-guardian"
+palettes = [0x04001DF6]
+
+[[creature.skin]]
+setup = 0x02000059
+body = "body"
+look = "chalicmere-legion-commander-dark-myrmidon"
+palettes = [0x04001DEF]
+
+[[creature.skin]]
+setup = 0x020013EE
+body = "body"
+look = "chalicmere-legion-commander-dark-myrmidon"
+palettes = [0x04001DEF]
+
+[[creature.skin]]
+setup = 0x020016A5
+body = "body"
+look = "chalicmere-legion-commander-dark-myrmidon"
+palettes = [0x04001DEF]
+
+[[creature.skin]]
+setup = 0x02000409
+body = "body"
+look = "chalicmere-legion-commander-dark-myrmidon"
+palettes = [0x04001DEF]
+
+[[creature.skin]]
+setup = 0x02000408
+body = "body"
+look = "chalicmere-legion-commander-dark-myrmidon"
+palettes = [0x04001DEF]
+
+[[creature.skin]]
+setup = 0x020016A6
+body = "body"
+look = "chalicmere-legion-commander-dark-myrmidon"
+palettes = [0x04001DEF]
+
+[[creature.skin]]
+setup = 0x02000F7C
+body = "body"
+look = "chalicmere-legion-commander-dark-myrmidon"
+palettes = [0x04001DEF]
+
+[[creature.skin]]
+setup = 0x020013EF
+body = "body"
+look = "chalicmere-legion-commander-dark-myrmidon"
+palettes = [0x04001DEF]
+
+[[creature.skin]]
+setup = 0x020013E8
+body = "body"
+look = "chalicmere-legion-commander-dark-myrmidon"
+palettes = [0x04001DEF]
+
+[[creature.skin]]
+setup = 0x020013EA
+body = "body"
+look = "chalicmere-legion-commander-dark-myrmidon"
+palettes = [0x04001DEF]
+
+[[creature.skin]]
+setup = 0x020013E3
+body = "body"
+look = "chalicmere-legion-commander-dark-myrmidon"
+palettes = [0x04001DEF]
+
+[[creature.skin]]
+setup = 0x020013E7
+body = "body"
+look = "chalicmere-legion-commander-dark-myrmidon"
+palettes = [0x04001DEF]
+
+[[creature.skin]]
+setup = 0x020013E9
+body = "body"
+look = "chalicmere-legion-commander-dark-myrmidon"
+palettes = [0x04001DEF]
+
+[[creature.skin]]
+setup = 0x020013EB
+body = "body"
+look = "chalicmere-legion-commander-dark-myrmidon"
+palettes = [0x04001DEF]
+
+[[creature.skin]]
+setup = 0x020013E4
+body = "body"
+look = "chalicmere-legion-commander-dark-myrmidon"
+palettes = [0x04001DEF]
+
+[[creature.skin]]
+setup = 0x020013E6
+body = "body"
+look = "chalicmere-legion-commander-dark-myrmidon"
+palettes = [0x04001DEF]
+
+[[creature.skin]]
+setup = 0x020013EC
+body = "body"
+look = "chalicmere-legion-commander-dark-myrmidon"
+palettes = [0x04001DEF]
+
+[[creature.skin]]
+setup = 0x020013E5
+body = "body"
+look = "chalicmere-legion-commander-dark-myrmidon"
+palettes = [0x04001DEF]
+
+[[creature.skin]]
+setup = 0x020013E2
+body = "body"
+look = "chalicmere-legion-commander-dark-myrmidon"
+palettes = [0x04001DEF]
+
+[[creature.skin]]
+setup = 0x020013ED
+body = "body"
+look = "chalicmere-legion-commander-dark-myrmidon"
+palettes = [0x04001DEF]
+
+[[creature.skin]]
+setup = 0x020013F4
+body = "body"
+look = "chalicmere-legion-commander-dark-myrmidon"
+palettes = [0x04001DEF]
+
+[[creature.skin]]
+setup = 0x020016EA
+body = "body"
+look = "chalicmere-legion-commander-dark-myrmidon"
+palettes = [0x04001DEF]
+
+[[creature.skin]]
+setup = 0x02000059
+body = "body"
+look = "blood-fiend-bound-pyre-champion"
+palettes = [0x04001DED]
+
+[[creature.skin]]
+setup = 0x020013EE
+body = "body"
+look = "blood-fiend-bound-pyre-champion"
+palettes = [0x04001DED]
+
+[[creature.skin]]
+setup = 0x020016A5
+body = "body"
+look = "blood-fiend-bound-pyre-champion"
+palettes = [0x04001DED]
+
+[[creature.skin]]
+setup = 0x02000409
+body = "body"
+look = "blood-fiend-bound-pyre-champion"
+palettes = [0x04001DED]
+
+[[creature.skin]]
+setup = 0x02000408
+body = "body"
+look = "blood-fiend-bound-pyre-champion"
+palettes = [0x04001DED]
+
+[[creature.skin]]
+setup = 0x020016A6
+body = "body"
+look = "blood-fiend-bound-pyre-champion"
+palettes = [0x04001DED]
+
+[[creature.skin]]
+setup = 0x02000F7C
+body = "body"
+look = "blood-fiend-bound-pyre-champion"
+palettes = [0x04001DED]
+
+[[creature.skin]]
+setup = 0x020013EF
+body = "body"
+look = "blood-fiend-bound-pyre-champion"
+palettes = [0x04001DED]
+
+[[creature.skin]]
+setup = 0x020013E8
+body = "body"
+look = "blood-fiend-bound-pyre-champion"
+palettes = [0x04001DED]
+
+[[creature.skin]]
+setup = 0x020013EA
+body = "body"
+look = "blood-fiend-bound-pyre-champion"
+palettes = [0x04001DED]
+
+[[creature.skin]]
+setup = 0x020013E3
+body = "body"
+look = "blood-fiend-bound-pyre-champion"
+palettes = [0x04001DED]
+
+[[creature.skin]]
+setup = 0x020013E7
+body = "body"
+look = "blood-fiend-bound-pyre-champion"
+palettes = [0x04001DED]
+
+[[creature.skin]]
+setup = 0x020013E9
+body = "body"
+look = "blood-fiend-bound-pyre-champion"
+palettes = [0x04001DED]
+
+[[creature.skin]]
+setup = 0x020013EB
+body = "body"
+look = "blood-fiend-bound-pyre-champion"
+palettes = [0x04001DED]
+
+[[creature.skin]]
+setup = 0x020013E4
+body = "body"
+look = "blood-fiend-bound-pyre-champion"
+palettes = [0x04001DED]
+
+[[creature.skin]]
+setup = 0x020013E6
+body = "body"
+look = "blood-fiend-bound-pyre-champion"
+palettes = [0x04001DED]
+
+[[creature.skin]]
+setup = 0x020013EC
+body = "body"
+look = "blood-fiend-bound-pyre-champion"
+palettes = [0x04001DED]
+
+[[creature.skin]]
+setup = 0x020013E5
+body = "body"
+look = "blood-fiend-bound-pyre-champion"
+palettes = [0x04001DED]
+
+[[creature.skin]]
+setup = 0x020013E2
+body = "body"
+look = "blood-fiend-bound-pyre-champion"
+palettes = [0x04001DED]
+
+[[creature.skin]]
+setup = 0x020013ED
+body = "body"
+look = "blood-fiend-bound-pyre-champion"
+palettes = [0x04001DED]
+
+[[creature.skin]]
+setup = 0x020013F4
+body = "body"
+look = "blood-fiend-bound-pyre-champion"
+palettes = [0x04001DED]
+
+[[creature.skin]]
+setup = 0x020016EA
+body = "body"
+look = "blood-fiend-bound-pyre-champion"
+palettes = [0x04001DED]
+
+[[creature.skin]]
+setup = 0x02000059
+body = "body"
+look = "skeletal-champion"
+palettes = [0x04001DEB]
+
+[[creature.skin]]
+setup = 0x020013EE
+body = "body"
+look = "skeletal-champion"
+palettes = [0x04001DEB]
+
+[[creature.skin]]
+setup = 0x020016A5
+body = "body"
+look = "skeletal-champion"
+palettes = [0x04001DEB]
+
+[[creature.skin]]
+setup = 0x02000409
+body = "body"
+look = "skeletal-champion"
+palettes = [0x04001DEB]
+
+[[creature.skin]]
+setup = 0x02000408
+body = "body"
+look = "skeletal-champion"
+palettes = [0x04001DEB]
+
+[[creature.skin]]
+setup = 0x020016A6
+body = "body"
+look = "skeletal-champion"
+palettes = [0x04001DEB]
+
+[[creature.skin]]
+setup = 0x02000F7C
+body = "body"
+look = "skeletal-champion"
+palettes = [0x04001DEB]
+
+[[creature.skin]]
+setup = 0x020013EF
+body = "body"
+look = "skeletal-champion"
+palettes = [0x04001DEB]
+
+[[creature.skin]]
+setup = 0x020013E8
+body = "body"
+look = "skeletal-champion"
+palettes = [0x04001DEB]
+
+[[creature.skin]]
+setup = 0x020013EA
+body = "body"
+look = "skeletal-champion"
+palettes = [0x04001DEB]
+
+[[creature.skin]]
+setup = 0x020013E3
+body = "body"
+look = "skeletal-champion"
+palettes = [0x04001DEB]
+
+[[creature.skin]]
+setup = 0x020013E7
+body = "body"
+look = "skeletal-champion"
+palettes = [0x04001DEB]
+
+[[creature.skin]]
+setup = 0x020013E9
+body = "body"
+look = "skeletal-champion"
+palettes = [0x04001DEB]
+
+[[creature.skin]]
+setup = 0x020013EB
+body = "body"
+look = "skeletal-champion"
+palettes = [0x04001DEB]
+
+[[creature.skin]]
+setup = 0x020013E4
+body = "body"
+look = "skeletal-champion"
+palettes = [0x04001DEB]
+
+[[creature.skin]]
+setup = 0x020013E6
+body = "body"
+look = "skeletal-champion"
+palettes = [0x04001DEB]
+
+[[creature.skin]]
+setup = 0x020013EC
+body = "body"
+look = "skeletal-champion"
+palettes = [0x04001DEB]
+
+[[creature.skin]]
+setup = 0x020013E5
+body = "body"
+look = "skeletal-champion"
+palettes = [0x04001DEB]
+
+[[creature.skin]]
+setup = 0x020013E2
+body = "body"
+look = "skeletal-champion"
+palettes = [0x04001DEB]
+
+[[creature.skin]]
+setup = 0x020013ED
+body = "body"
+look = "skeletal-champion"
+palettes = [0x04001DEB]
+
+[[creature.skin]]
+setup = 0x020013F4
+body = "body"
+look = "skeletal-champion"
+palettes = [0x04001DEB]
+
+[[creature.skin]]
+setup = 0x020016EA
+body = "body"
+look = "skeletal-champion"
+palettes = [0x04001DEB]
+
+[[creature.skin]]
+setup = 0x02000059
+body = "body"
+look = "skeletal-fiend-tormenter"
+palettes = [0x04001DEC]
+
+[[creature.skin]]
+setup = 0x020013EE
+body = "body"
+look = "skeletal-fiend-tormenter"
+palettes = [0x04001DEC]
+
+[[creature.skin]]
+setup = 0x020016A5
+body = "body"
+look = "skeletal-fiend-tormenter"
+palettes = [0x04001DEC]
+
+[[creature.skin]]
+setup = 0x02000409
+body = "body"
+look = "skeletal-fiend-tormenter"
+palettes = [0x04001DEC]
+
+[[creature.skin]]
+setup = 0x02000408
+body = "body"
+look = "skeletal-fiend-tormenter"
+palettes = [0x04001DEC]
+
+[[creature.skin]]
+setup = 0x020016A6
+body = "body"
+look = "skeletal-fiend-tormenter"
+palettes = [0x04001DEC]
+
+[[creature.skin]]
+setup = 0x02000F7C
+body = "body"
+look = "skeletal-fiend-tormenter"
+palettes = [0x04001DEC]
+
+[[creature.skin]]
+setup = 0x020013EF
+body = "body"
+look = "skeletal-fiend-tormenter"
+palettes = [0x04001DEC]
+
+[[creature.skin]]
+setup = 0x020013E8
+body = "body"
+look = "skeletal-fiend-tormenter"
+palettes = [0x04001DEC]
+
+[[creature.skin]]
+setup = 0x020013EA
+body = "body"
+look = "skeletal-fiend-tormenter"
+palettes = [0x04001DEC]
+
+[[creature.skin]]
+setup = 0x020013E3
+body = "body"
+look = "skeletal-fiend-tormenter"
+palettes = [0x04001DEC]
+
+[[creature.skin]]
+setup = 0x020013E7
+body = "body"
+look = "skeletal-fiend-tormenter"
+palettes = [0x04001DEC]
+
+[[creature.skin]]
+setup = 0x020013E9
+body = "body"
+look = "skeletal-fiend-tormenter"
+palettes = [0x04001DEC]
+
+[[creature.skin]]
+setup = 0x020013EB
+body = "body"
+look = "skeletal-fiend-tormenter"
+palettes = [0x04001DEC]
+
+[[creature.skin]]
+setup = 0x020013E4
+body = "body"
+look = "skeletal-fiend-tormenter"
+palettes = [0x04001DEC]
+
+[[creature.skin]]
+setup = 0x020013E6
+body = "body"
+look = "skeletal-fiend-tormenter"
+palettes = [0x04001DEC]
+
+[[creature.skin]]
+setup = 0x020013EC
+body = "body"
+look = "skeletal-fiend-tormenter"
+palettes = [0x04001DEC]
+
+[[creature.skin]]
+setup = 0x020013E5
+body = "body"
+look = "skeletal-fiend-tormenter"
+palettes = [0x04001DEC]
+
+[[creature.skin]]
+setup = 0x020013E2
+body = "body"
+look = "skeletal-fiend-tormenter"
+palettes = [0x04001DEC]
+
+[[creature.skin]]
+setup = 0x020013ED
+body = "body"
+look = "skeletal-fiend-tormenter"
+palettes = [0x04001DEC]
+
+[[creature.skin]]
+setup = 0x020013F4
+body = "body"
+look = "skeletal-fiend-tormenter"
+palettes = [0x04001DEC]
+
+[[creature.skin]]
+setup = 0x020016EA
+body = "body"
+look = "skeletal-fiend-tormenter"
+palettes = [0x04001DEC]
+
+[[creature]]
+name = "virindi"
+label = "Virindi"
+keep_launchers = true
+keep_weenies = [8155, 8264, 8265, 8819, 8820, 9131, 9132, 9133, 9134, 9135, 9178, 9198, 9205, 9206, 9207, 9208, 9209, 9210, 9211, 9212, 9242, 9243, 9244, 9298, 9299, 9325, 9380, 9381, 9382, 9383, 10717, 10718, 10737, 10738, 10739, 10740, 10741, 10742, 10743, 10744, 10745, 10767, 10769, 10770, 10772, 10773, 10774, 10817, 10819, 10822, 10823, 10824, 10879, 11537, 11617, 11618, 11619, 11627, 11628, 11629, 11630, 11631, 11632, 11633, 11634, 11635, 11636, 11818, 11819, 11820, 11923, 11924, 11925, 11926, 11927, 11928, 11988, 12231, 12237, 12262, 12263, 12264, 12298, 12299, 12300, 14555, 14556, 14557, 14558, 14799, 16917, 19207, 19245, 19246, 19273, 19753, 20925, 21220, 22077, 22913, 22915, 23523, 24036, 24062, 24063, 24859, 25388, 25854, 25855, 25856, 25857, 25858, 27412, 27413, 27814, 29920, 30448, 30449, 30450, 30895, 32205, 34080, 34511, 34623, 35481, 35560, 36033, 36037, 36038, 36039, 36040, 36041, 36087, 36216, 36553, 36554, 36600, 36601, 36756, 36929, 36968, 36969, 36970, 37079, 37080, 37081, 40498, 40803, 40950, 40951, 40962, 40963, 40985, 40986, 41190, 41191, 41229, 41852, 42037, 43203, 43204, 43205, 43206, 43227, 43260, 43262, 45856, 45861, 45862, 45863, 45864, 45865, 45897, 45899, 45901, 46025, 46026, 46027, 49616, 49638, 49639, 51208, 51286, 51297, 51298, 51300, 51347, 51550, 51551, 51579, 51592, 51614, 51823, 51826, 51828, 51830, 51862, 51863, 51864, 51865, 51866, 51888, 51970, 51979, 51980, 51981, 51982, 51986, 51992, 52281, 53290, 70716, 72409, 72410, 72444, 72453, 72778, 72779, 73197, 87678, 87692]
+
+[[creature.body]]
+folder = "body"
+entity = 0x47002D79
+bind = 0x050013BD
+scale = 0.658678
+offset = [0.0, 0.007035, -0.012937]
+parts = 12
+anchor = [-0.999701, 0.001789, 0.024367, 0.0, 0.0, 0.997314, -0.073238, 0.0, -0.024432, -0.073216, -0.997016, 0.0, -0.0, -1.642352, 0.120607, 1.0]
+trunk = []
+clips.idle = { animation = 0x050013BD }
+clips.idle_melee = { animation = 0x050013BE }
+clips.idle_missile = { animation = 0x050013BE }
+clips.idle_magic = { animation = 0x050013BE }
+clips.walk = { animation = 0x050013BB }
+clips.walk_back = { animation = 0x050013C9 }
+clips.run = { animation = 0x050013CB }
+clips.turn = { animation = 0x050013CD }
+clips.melee_high = { animation = 0x050013C1, hit = 0.891 }
+clips.melee_med = { animation = 0x050013C0, hit = 0.95 }
+clips.melee_low = { animation = 0x050013BF, hit = 0.59 }
+clips.special = { animation = 0x050013C1, hit = 0.891 }
+clips.missile = { animation = 0x050013C0, hit = 0.95 }
+clips.cast = { animation = 0x050013C0 }
+clips.telegraph = { animation = 0x050013BE }
+clips.hit = { animation = 0x050013C4 }
+clips.hit_heavy = { animation = 0x050013C4 }
+clips.die = { animation = 0x050013D1 }
+clips.dead = { animation = 0x050013CF }
+clips.emote = { animation = 0x050013C3 }
+clips.cheer = { animation = 0x050013BD }
+clips.fall = { animation = 0x050013BC }
+clips.jump = { animation = 0x050013BC }
+mask = [0x40000D50, 0x40000EB1, 0x40000EB2, 0x40000EB3, 0x40000EB4]
+
+[[creature.look]]
+name = "adirred-the-theoretician-aerbax--s-apprentice"
+body = "body"
+picture = 0x40000EB3
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "artifex-of-the-living-darkness-renegade-virindi"
+body = "body"
+picture = 0x40000EB1
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "cragstone-tower-controller-puppet-hebian-to-tower-controller-puppet"
+body = "body"
+picture = 0x40000EB3
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "disciple-of-anger-disciple-of-hatred"
+body = "body"
+picture = 0x40000EB4
+tint = [1.0, 1.0, 1.0]
+
+[[creature.look]]
+name = "ephor-of-unity-martinate-virindi-inquisitor"
+body = "body"
+picture = 0x40000EB2
+tint = [0.833, 0.602, 0.92]
+masked = true
+
+[[creature.skin]]
+setup = 0x020009F6
+body = "body"
+
+[[creature.skin]]
+setup = 0x02000041
+body = "body"
+
+[[creature.skin]]
+setup = 0x02001A8B
+body = "body"
+
+[[creature.skin]]
+setup = 0x02000F47
+body = "body"
+
+[[creature.skin]]
+setup = 0x02000A04
+body = "body"
+
+[[creature.skin]]
+setup = 0x020019F4
+body = "body"
+
+[[creature.skin]]
+setup = 0x02001A8A
+body = "body"
+
+[[creature.skin]]
+setup = 0x02000A47
+body = "body"
+
+[[creature.skin]]
+setup = 0x0200173B
+body = "body"
+
+[[creature.skin]]
+setup = 0x02000C12
+body = "body"
+
+[[creature.skin]]
+setup = 0x02001011
+body = "body"
+
+[[creature.skin]]
+setup = 0x02001012
+body = "body"
+
+[[creature.skin]]
+setup = 0x0200173D
+body = "body"
+
+[[creature.skin]]
+setup = 0x02001C07
+body = "body"
+
+[[creature.skin]]
+setup = 0x02000A46
+body = "body"
+
+[[creature.skin]]
+setup = 0x02000C14
+body = "body"
+
+[[creature.skin]]
+setup = 0x02000C15
+body = "body"
+
+[[creature.skin]]
+setup = 0x02000C13
+body = "body"
+
+[[creature.skin]]
+setup = 0x0200100F
+body = "body"
+
+[[creature.skin]]
+setup = 0x02001014
+body = "body"
+
+[[creature.skin]]
+setup = 0x02001010
+body = "body"
+
+[[creature.skin]]
+setup = 0x02001A90
+body = "body"
+
+[[creature.skin]]
+setup = 0x0200173A
+body = "body"
+
+[[creature.skin]]
+setup = 0x020009F6
+body = "body"
+look = "adirred-the-theoretician-aerbax--s-apprentice"
+palettes = [0x04000B87]
+
+[[creature.skin]]
+setup = 0x02000041
+body = "body"
+look = "adirred-the-theoretician-aerbax--s-apprentice"
+palettes = [0x04000B87]
+
+[[creature.skin]]
+setup = 0x02001A8B
+body = "body"
+look = "adirred-the-theoretician-aerbax--s-apprentice"
+palettes = [0x04000B87]
+
+[[creature.skin]]
+setup = 0x02000F47
+body = "body"
+look = "adirred-the-theoretician-aerbax--s-apprentice"
+palettes = [0x04000B87]
+
+[[creature.skin]]
+setup = 0x02000A04
+body = "body"
+look = "adirred-the-theoretician-aerbax--s-apprentice"
+palettes = [0x04000B87]
+
+[[creature.skin]]
+setup = 0x020019F4
+body = "body"
+look = "adirred-the-theoretician-aerbax--s-apprentice"
+palettes = [0x04000B87]
+
+[[creature.skin]]
+setup = 0x02001A8A
+body = "body"
+look = "adirred-the-theoretician-aerbax--s-apprentice"
+palettes = [0x04000B87]
+
+[[creature.skin]]
+setup = 0x02000A47
+body = "body"
+look = "adirred-the-theoretician-aerbax--s-apprentice"
+palettes = [0x04000B87]
+
+[[creature.skin]]
+setup = 0x0200173B
+body = "body"
+look = "adirred-the-theoretician-aerbax--s-apprentice"
+palettes = [0x04000B87]
+
+[[creature.skin]]
+setup = 0x02000C12
+body = "body"
+look = "adirred-the-theoretician-aerbax--s-apprentice"
+palettes = [0x04000B87]
+
+[[creature.skin]]
+setup = 0x02001011
+body = "body"
+look = "adirred-the-theoretician-aerbax--s-apprentice"
+palettes = [0x04000B87]
+
+[[creature.skin]]
+setup = 0x02001012
+body = "body"
+look = "adirred-the-theoretician-aerbax--s-apprentice"
+palettes = [0x04000B87]
+
+[[creature.skin]]
+setup = 0x0200173D
+body = "body"
+look = "adirred-the-theoretician-aerbax--s-apprentice"
+palettes = [0x04000B87]
+
+[[creature.skin]]
+setup = 0x02001C07
+body = "body"
+look = "adirred-the-theoretician-aerbax--s-apprentice"
+palettes = [0x04000B87]
+
+[[creature.skin]]
+setup = 0x02000A46
+body = "body"
+look = "adirred-the-theoretician-aerbax--s-apprentice"
+palettes = [0x04000B87]
+
+[[creature.skin]]
+setup = 0x02000C14
+body = "body"
+look = "adirred-the-theoretician-aerbax--s-apprentice"
+palettes = [0x04000B87]
+
+[[creature.skin]]
+setup = 0x02000C15
+body = "body"
+look = "adirred-the-theoretician-aerbax--s-apprentice"
+palettes = [0x04000B87]
+
+[[creature.skin]]
+setup = 0x02000C13
+body = "body"
+look = "adirred-the-theoretician-aerbax--s-apprentice"
+palettes = [0x04000B87]
+
+[[creature.skin]]
+setup = 0x0200100F
+body = "body"
+look = "adirred-the-theoretician-aerbax--s-apprentice"
+palettes = [0x04000B87]
+
+[[creature.skin]]
+setup = 0x02001014
+body = "body"
+look = "adirred-the-theoretician-aerbax--s-apprentice"
+palettes = [0x04000B87]
+
+[[creature.skin]]
+setup = 0x02001010
+body = "body"
+look = "adirred-the-theoretician-aerbax--s-apprentice"
+palettes = [0x04000B87]
+
+[[creature.skin]]
+setup = 0x02001A90
+body = "body"
+look = "adirred-the-theoretician-aerbax--s-apprentice"
+palettes = [0x04000B87]
+
+[[creature.skin]]
+setup = 0x0200173A
+body = "body"
+look = "adirred-the-theoretician-aerbax--s-apprentice"
+palettes = [0x04000B87]
+
+[[creature.skin]]
+setup = 0x02000D80
+body = "body"
+look = "adirred-the-theoretician-aerbax--s-apprentice"
+palettes = [0x04000B87]
+
+[[creature.skin]]
+setup = 0x020014E0
+body = "body"
+look = "adirred-the-theoretician-aerbax--s-apprentice"
+palettes = [0x04000B87]
+
+[[creature.skin]]
+setup = 0x020009F6
+body = "body"
+look = "artifex-of-the-living-darkness-renegade-virindi"
+palettes = [0x040010B9]
+
+[[creature.skin]]
+setup = 0x02000041
+body = "body"
+look = "artifex-of-the-living-darkness-renegade-virindi"
+palettes = [0x040010B9]
+
+[[creature.skin]]
+setup = 0x02001A8B
+body = "body"
+look = "artifex-of-the-living-darkness-renegade-virindi"
+palettes = [0x040010B9]
+
+[[creature.skin]]
+setup = 0x02000F47
+body = "body"
+look = "artifex-of-the-living-darkness-renegade-virindi"
+palettes = [0x040010B9]
+
+[[creature.skin]]
+setup = 0x02000A04
+body = "body"
+look = "artifex-of-the-living-darkness-renegade-virindi"
+palettes = [0x040010B9]
+
+[[creature.skin]]
+setup = 0x020019F4
+body = "body"
+look = "artifex-of-the-living-darkness-renegade-virindi"
+palettes = [0x040010B9]
+
+[[creature.skin]]
+setup = 0x02001A8A
+body = "body"
+look = "artifex-of-the-living-darkness-renegade-virindi"
+palettes = [0x040010B9]
+
+[[creature.skin]]
+setup = 0x02000A47
+body = "body"
+look = "artifex-of-the-living-darkness-renegade-virindi"
+palettes = [0x040010B9]
+
+[[creature.skin]]
+setup = 0x0200173B
+body = "body"
+look = "artifex-of-the-living-darkness-renegade-virindi"
+palettes = [0x040010B9]
+
+[[creature.skin]]
+setup = 0x02000C12
+body = "body"
+look = "artifex-of-the-living-darkness-renegade-virindi"
+palettes = [0x040010B9]
+
+[[creature.skin]]
+setup = 0x02001011
+body = "body"
+look = "artifex-of-the-living-darkness-renegade-virindi"
+palettes = [0x040010B9]
+
+[[creature.skin]]
+setup = 0x02001012
+body = "body"
+look = "artifex-of-the-living-darkness-renegade-virindi"
+palettes = [0x040010B9]
+
+[[creature.skin]]
+setup = 0x0200173D
+body = "body"
+look = "artifex-of-the-living-darkness-renegade-virindi"
+palettes = [0x040010B9]
+
+[[creature.skin]]
+setup = 0x02001C07
+body = "body"
+look = "artifex-of-the-living-darkness-renegade-virindi"
+palettes = [0x040010B9]
+
+[[creature.skin]]
+setup = 0x02000A46
+body = "body"
+look = "artifex-of-the-living-darkness-renegade-virindi"
+palettes = [0x040010B9]
+
+[[creature.skin]]
+setup = 0x02000C14
+body = "body"
+look = "artifex-of-the-living-darkness-renegade-virindi"
+palettes = [0x040010B9]
+
+[[creature.skin]]
+setup = 0x02000C15
+body = "body"
+look = "artifex-of-the-living-darkness-renegade-virindi"
+palettes = [0x040010B9]
+
+[[creature.skin]]
+setup = 0x02000C13
+body = "body"
+look = "artifex-of-the-living-darkness-renegade-virindi"
+palettes = [0x040010B9]
+
+[[creature.skin]]
+setup = 0x0200100F
+body = "body"
+look = "artifex-of-the-living-darkness-renegade-virindi"
+palettes = [0x040010B9]
+
+[[creature.skin]]
+setup = 0x02001014
+body = "body"
+look = "artifex-of-the-living-darkness-renegade-virindi"
+palettes = [0x040010B9]
+
+[[creature.skin]]
+setup = 0x02001010
+body = "body"
+look = "artifex-of-the-living-darkness-renegade-virindi"
+palettes = [0x040010B9]
+
+[[creature.skin]]
+setup = 0x02001A90
+body = "body"
+look = "artifex-of-the-living-darkness-renegade-virindi"
+palettes = [0x040010B9]
+
+[[creature.skin]]
+setup = 0x0200173A
+body = "body"
+look = "artifex-of-the-living-darkness-renegade-virindi"
+palettes = [0x040010B9]
+
+[[creature.skin]]
+setup = 0x02000D80
+body = "body"
+look = "artifex-of-the-living-darkness-renegade-virindi"
+palettes = [0x040010B9]
+
+[[creature.skin]]
+setup = 0x020014E0
+body = "body"
+look = "artifex-of-the-living-darkness-renegade-virindi"
+palettes = [0x040010B9]
+
+[[creature.skin]]
+setup = 0x020009F6
+body = "body"
+look = "ephor-of-unity-martinate-virindi-inquisitor"
+palettes = [0x04001101]
+
+[[creature.skin]]
+setup = 0x02000041
+body = "body"
+look = "ephor-of-unity-martinate-virindi-inquisitor"
+palettes = [0x04001101]
+
+[[creature.skin]]
+setup = 0x02001A8B
+body = "body"
+look = "ephor-of-unity-martinate-virindi-inquisitor"
+palettes = [0x04001101]
+
+[[creature.skin]]
+setup = 0x02000F47
+body = "body"
+look = "ephor-of-unity-martinate-virindi-inquisitor"
+palettes = [0x04001101]
+
+[[creature.skin]]
+setup = 0x02000A04
+body = "body"
+look = "ephor-of-unity-martinate-virindi-inquisitor"
+palettes = [0x04001101]
+
+[[creature.skin]]
+setup = 0x020019F4
+body = "body"
+look = "ephor-of-unity-martinate-virindi-inquisitor"
+palettes = [0x04001101]
+
+[[creature.skin]]
+setup = 0x02001A8A
+body = "body"
+look = "ephor-of-unity-martinate-virindi-inquisitor"
+palettes = [0x04001101]
+
+[[creature.skin]]
+setup = 0x02000A47
+body = "body"
+look = "ephor-of-unity-martinate-virindi-inquisitor"
+palettes = [0x04001101]
+
+[[creature.skin]]
+setup = 0x0200173B
+body = "body"
+look = "ephor-of-unity-martinate-virindi-inquisitor"
+palettes = [0x04001101]
+
+[[creature.skin]]
+setup = 0x02000C12
+body = "body"
+look = "ephor-of-unity-martinate-virindi-inquisitor"
+palettes = [0x04001101]
+
+[[creature.skin]]
+setup = 0x02001011
+body = "body"
+look = "ephor-of-unity-martinate-virindi-inquisitor"
+palettes = [0x04001101]
+
+[[creature.skin]]
+setup = 0x02001012
+body = "body"
+look = "ephor-of-unity-martinate-virindi-inquisitor"
+palettes = [0x04001101]
+
+[[creature.skin]]
+setup = 0x0200173D
+body = "body"
+look = "ephor-of-unity-martinate-virindi-inquisitor"
+palettes = [0x04001101]
+
+[[creature.skin]]
+setup = 0x02001C07
+body = "body"
+look = "ephor-of-unity-martinate-virindi-inquisitor"
+palettes = [0x04001101]
+
+[[creature.skin]]
+setup = 0x02000A46
+body = "body"
+look = "ephor-of-unity-martinate-virindi-inquisitor"
+palettes = [0x04001101]
+
+[[creature.skin]]
+setup = 0x02000C14
+body = "body"
+look = "ephor-of-unity-martinate-virindi-inquisitor"
+palettes = [0x04001101]
+
+[[creature.skin]]
+setup = 0x02000C15
+body = "body"
+look = "ephor-of-unity-martinate-virindi-inquisitor"
+palettes = [0x04001101]
+
+[[creature.skin]]
+setup = 0x02000C13
+body = "body"
+look = "ephor-of-unity-martinate-virindi-inquisitor"
+palettes = [0x04001101]
+
+[[creature.skin]]
+setup = 0x0200100F
+body = "body"
+look = "ephor-of-unity-martinate-virindi-inquisitor"
+palettes = [0x04001101]
+
+[[creature.skin]]
+setup = 0x02001014
+body = "body"
+look = "ephor-of-unity-martinate-virindi-inquisitor"
+palettes = [0x04001101]
+
+[[creature.skin]]
+setup = 0x02001010
+body = "body"
+look = "ephor-of-unity-martinate-virindi-inquisitor"
+palettes = [0x04001101]
+
+[[creature.skin]]
+setup = 0x02001A90
+body = "body"
+look = "ephor-of-unity-martinate-virindi-inquisitor"
+palettes = [0x04001101]
+
+[[creature.skin]]
+setup = 0x0200173A
+body = "body"
+look = "ephor-of-unity-martinate-virindi-inquisitor"
+palettes = [0x04001101]
+
+[[creature.skin]]
+setup = 0x02000D80
+body = "body"
+look = "ephor-of-unity-martinate-virindi-inquisitor"
+palettes = [0x04001101]
+
+[[creature.skin]]
+setup = 0x020014E0
+body = "body"
+look = "ephor-of-unity-martinate-virindi-inquisitor"
+palettes = [0x04001101]
+
+[[creature.skin]]
+setup = 0x020009F6
+body = "body"
+look = "cragstone-tower-controller-puppet-hebian-to-tower-controller-puppet"
+palettes = [0x04000B88]
+
+[[creature.skin]]
+setup = 0x02000041
+body = "body"
+look = "cragstone-tower-controller-puppet-hebian-to-tower-controller-puppet"
+palettes = [0x04000B88]
+
+[[creature.skin]]
+setup = 0x02001A8B
+body = "body"
+look = "cragstone-tower-controller-puppet-hebian-to-tower-controller-puppet"
+palettes = [0x04000B88]
+
+[[creature.skin]]
+setup = 0x02000F47
+body = "body"
+look = "cragstone-tower-controller-puppet-hebian-to-tower-controller-puppet"
+palettes = [0x04000B88]
+
+[[creature.skin]]
+setup = 0x02000A04
+body = "body"
+look = "cragstone-tower-controller-puppet-hebian-to-tower-controller-puppet"
+palettes = [0x04000B88]
+
+[[creature.skin]]
+setup = 0x020019F4
+body = "body"
+look = "cragstone-tower-controller-puppet-hebian-to-tower-controller-puppet"
+palettes = [0x04000B88]
+
+[[creature.skin]]
+setup = 0x02001A8A
+body = "body"
+look = "cragstone-tower-controller-puppet-hebian-to-tower-controller-puppet"
+palettes = [0x04000B88]
+
+[[creature.skin]]
+setup = 0x02000A47
+body = "body"
+look = "cragstone-tower-controller-puppet-hebian-to-tower-controller-puppet"
+palettes = [0x04000B88]
+
+[[creature.skin]]
+setup = 0x0200173B
+body = "body"
+look = "cragstone-tower-controller-puppet-hebian-to-tower-controller-puppet"
+palettes = [0x04000B88]
+
+[[creature.skin]]
+setup = 0x02000C12
+body = "body"
+look = "cragstone-tower-controller-puppet-hebian-to-tower-controller-puppet"
+palettes = [0x04000B88]
+
+[[creature.skin]]
+setup = 0x02001011
+body = "body"
+look = "cragstone-tower-controller-puppet-hebian-to-tower-controller-puppet"
+palettes = [0x04000B88]
+
+[[creature.skin]]
+setup = 0x02001012
+body = "body"
+look = "cragstone-tower-controller-puppet-hebian-to-tower-controller-puppet"
+palettes = [0x04000B88]
+
+[[creature.skin]]
+setup = 0x0200173D
+body = "body"
+look = "cragstone-tower-controller-puppet-hebian-to-tower-controller-puppet"
+palettes = [0x04000B88]
+
+[[creature.skin]]
+setup = 0x02001C07
+body = "body"
+look = "cragstone-tower-controller-puppet-hebian-to-tower-controller-puppet"
+palettes = [0x04000B88]
+
+[[creature.skin]]
+setup = 0x02000A46
+body = "body"
+look = "cragstone-tower-controller-puppet-hebian-to-tower-controller-puppet"
+palettes = [0x04000B88]
+
+[[creature.skin]]
+setup = 0x02000C14
+body = "body"
+look = "cragstone-tower-controller-puppet-hebian-to-tower-controller-puppet"
+palettes = [0x04000B88]
+
+[[creature.skin]]
+setup = 0x02000C15
+body = "body"
+look = "cragstone-tower-controller-puppet-hebian-to-tower-controller-puppet"
+palettes = [0x04000B88]
+
+[[creature.skin]]
+setup = 0x02000C13
+body = "body"
+look = "cragstone-tower-controller-puppet-hebian-to-tower-controller-puppet"
+palettes = [0x04000B88]
+
+[[creature.skin]]
+setup = 0x0200100F
+body = "body"
+look = "cragstone-tower-controller-puppet-hebian-to-tower-controller-puppet"
+palettes = [0x04000B88]
+
+[[creature.skin]]
+setup = 0x02001014
+body = "body"
+look = "cragstone-tower-controller-puppet-hebian-to-tower-controller-puppet"
+palettes = [0x04000B88]
+
+[[creature.skin]]
+setup = 0x02001010
+body = "body"
+look = "cragstone-tower-controller-puppet-hebian-to-tower-controller-puppet"
+palettes = [0x04000B88]
+
+[[creature.skin]]
+setup = 0x02001A90
+body = "body"
+look = "cragstone-tower-controller-puppet-hebian-to-tower-controller-puppet"
+palettes = [0x04000B88]
+
+[[creature.skin]]
+setup = 0x0200173A
+body = "body"
+look = "cragstone-tower-controller-puppet-hebian-to-tower-controller-puppet"
+palettes = [0x04000B88]
+
+[[creature.skin]]
+setup = 0x02000D80
+body = "body"
+look = "cragstone-tower-controller-puppet-hebian-to-tower-controller-puppet"
+palettes = [0x04000B88]
+
+[[creature.skin]]
+setup = 0x020014E0
+body = "body"
+look = "cragstone-tower-controller-puppet-hebian-to-tower-controller-puppet"
+palettes = [0x04000B88]
+
+[[creature.skin]]
+setup = 0x020009F6
+body = "body"
+look = "disciple-of-anger-disciple-of-hatred"
+palettes = [0x040011B4]
+
+[[creature.skin]]
+setup = 0x02000041
+body = "body"
+look = "disciple-of-anger-disciple-of-hatred"
+palettes = [0x040011B4]
+
+[[creature.skin]]
+setup = 0x02001A8B
+body = "body"
+look = "disciple-of-anger-disciple-of-hatred"
+palettes = [0x040011B4]
+
+[[creature.skin]]
+setup = 0x02000F47
+body = "body"
+look = "disciple-of-anger-disciple-of-hatred"
+palettes = [0x040011B4]
+
+[[creature.skin]]
+setup = 0x02000A04
+body = "body"
+look = "disciple-of-anger-disciple-of-hatred"
+palettes = [0x040011B4]
+
+[[creature.skin]]
+setup = 0x020019F4
+body = "body"
+look = "disciple-of-anger-disciple-of-hatred"
+palettes = [0x040011B4]
+
+[[creature.skin]]
+setup = 0x02001A8A
+body = "body"
+look = "disciple-of-anger-disciple-of-hatred"
+palettes = [0x040011B4]
+
+[[creature.skin]]
+setup = 0x02000A47
+body = "body"
+look = "disciple-of-anger-disciple-of-hatred"
+palettes = [0x040011B4]
+
+[[creature.skin]]
+setup = 0x0200173B
+body = "body"
+look = "disciple-of-anger-disciple-of-hatred"
+palettes = [0x040011B4]
+
+[[creature.skin]]
+setup = 0x02000C12
+body = "body"
+look = "disciple-of-anger-disciple-of-hatred"
+palettes = [0x040011B4]
+
+[[creature.skin]]
+setup = 0x02001011
+body = "body"
+look = "disciple-of-anger-disciple-of-hatred"
+palettes = [0x040011B4]
+
+[[creature.skin]]
+setup = 0x02001012
+body = "body"
+look = "disciple-of-anger-disciple-of-hatred"
+palettes = [0x040011B4]
+
+[[creature.skin]]
+setup = 0x0200173D
+body = "body"
+look = "disciple-of-anger-disciple-of-hatred"
+palettes = [0x040011B4]
+
+[[creature.skin]]
+setup = 0x02001C07
+body = "body"
+look = "disciple-of-anger-disciple-of-hatred"
+palettes = [0x040011B4]
+
+[[creature.skin]]
+setup = 0x02000A46
+body = "body"
+look = "disciple-of-anger-disciple-of-hatred"
+palettes = [0x040011B4]
+
+[[creature.skin]]
+setup = 0x02000C14
+body = "body"
+look = "disciple-of-anger-disciple-of-hatred"
+palettes = [0x040011B4]
+
+[[creature.skin]]
+setup = 0x02000C15
+body = "body"
+look = "disciple-of-anger-disciple-of-hatred"
+palettes = [0x040011B4]
+
+[[creature.skin]]
+setup = 0x02000C13
+body = "body"
+look = "disciple-of-anger-disciple-of-hatred"
+palettes = [0x040011B4]
+
+[[creature.skin]]
+setup = 0x0200100F
+body = "body"
+look = "disciple-of-anger-disciple-of-hatred"
+palettes = [0x040011B4]
+
+[[creature.skin]]
+setup = 0x02001014
+body = "body"
+look = "disciple-of-anger-disciple-of-hatred"
+palettes = [0x040011B4]
+
+[[creature.skin]]
+setup = 0x02001010
+body = "body"
+look = "disciple-of-anger-disciple-of-hatred"
+palettes = [0x040011B4]
+
+[[creature.skin]]
+setup = 0x02001A90
+body = "body"
+look = "disciple-of-anger-disciple-of-hatred"
+palettes = [0x040011B4]
+
+[[creature.skin]]
+setup = 0x0200173A
+body = "body"
+look = "disciple-of-anger-disciple-of-hatred"
+palettes = [0x040011B4]
+
+[[creature.skin]]
+setup = 0x02000D80
+body = "body"
+look = "disciple-of-anger-disciple-of-hatred"
+palettes = [0x040011B4]
+
+[[creature.skin]]
+setup = 0x020014E0
+body = "body"
+look = "disciple-of-anger-disciple-of-hatred"
+palettes = [0x040011B4]
+
+[[creature]]
+name = "wasp"
+label = "Wasp"
+keep_launchers = true
+keep_weenies = [29358, 40308, 41799, 49136, 49137, 49138, 49139, 49140, 49141, 49143, 49144, 49145, 49146, 49147, 49148, 49150, 49151, 49152, 49153, 49154, 49155, 49157, 49158, 49159, 49160, 49161, 49162, 49514]
+
+[[creature.body]]
+folder = "body"
+entity = 0x470001C9
+bind = 0x050001B8
+scale = 0.72748
+offset = [0.000519, 1.013187, 0.003886]
+parts = 13
+anchor = [-0.999999, 0.0, 0.0, 0.0, 0.0, 0.943732, -0.330711, 0.0, -0.0, -0.330711, -0.943731, 0.0, 0.000519, -1.433928, 0.506608, 1.0]
+trunk = [1]
+clips.idle = { animation = 0x050001B8 }
+clips.idle_missile = { animation = 0x0500025D }
+clips.idle_magic = { animation = 0x0500025D }
+clips.walk = { animation = 0x050001BB }
+clips.walk_back = { animation = 0x050001B9 }
+clips.run = { animation = 0x050001BC }
+clips.turn = { animation = 0x050001BE }
+clips.melee_high = { animation = 0x0500025A, hit = 0.277 }
+clips.melee_med = { animation = 0x050001AE, hit = 0.447 }
+clips.melee_low = { animation = 0x050001AD, hit = 0.309 }
+clips.special = { animation = 0x0500025B, hit = 0.525 }
+clips.missile = { animation = 0x0500025B, hit = 0.525 }
+clips.cast = { animation = 0x0500025B }
+clips.telegraph = { animation = 0x05000259 }
+clips.hit = { animation = 0x050004B7 }
+clips.hit_heavy = { animation = 0x050004B7 }
+clips.die = { animation = 0x050001AF }
+clips.dead = { animation = 0x050001B0 }
+clips.emote = { animation = 0x050001B6 }
+clips.cheer = { animation = 0x050001B6 }
+clips.fall = { animation = 0x05000258 }
+clips.jump = { animation = 0x05000258 }
+
+[[creature.look]]
+name = "agitated-phyntos-wasp-red-phyntos-drone"
+body = "body"
+picture = 0x4000009A
+tint = [0.658, 0.25, 0.25]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "banished-phyntos-wasp-black-phyntos-wasp"
+body = "body"
+picture = 0x400005C3
+tint = [0.288, 0.257, 0.327]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "blue-phyntos-wasp-wasp"
+body = "body"
+picture = 0x400005C1
+tint = [0.473, 0.25, 0.87]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "carpenter-wasp-red-phyntos-wasp"
+body = "body"
+picture = 0x4000009A
+tint = [0.654, 0.303, 0.25]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "diseased-phyntos-wasp-green-phyntos-wasp"
+body = "body"
+picture = 0x400005C3
+tint = [0.25, 0.992, 0.25]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "giant-jungle-phyntos-wasp-jungle-phyntos-wasp"
+body = "body"
+picture = 0x400005C3
+tint = [0.448, 0.94, 0.25]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "giant-phyntos-wasp"
+body = "body"
+picture = 0x4000009A
+tint = [0.409, 0.451, 0.25]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "gold-phyntos-wasp-killer-phyntos-drone"
+body = "body"
+picture = 0x4000009A
+tint = [0.658, 0.701, 0.25]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "mire-phyntos-wasp"
+body = "body"
+picture = 0x400005C4
+tint = [1.206, 0.25, 0.871]
+colorize = true
+every = true
+
+[[creature.look]]
+name = "white-phyntos-wasp"
+body = "body"
+picture = 0x400005C3
+tint = [1.445, 1.282, 1.621]
+colorize = true
+every = true
+
+[[creature.skin]]
+setup = 0x02001121
+body = "body"
+
+[[creature.skin]]
+setup = 0x02001121
+body = "body"
+look = "carpenter-wasp-red-phyntos-wasp"
+palettes = [0x04001904]
+
+[[creature.skin]]
+setup = 0x02001121
+body = "body"
+look = "white-phyntos-wasp"
+palettes = [0x04001906]
+
+[[creature.skin]]
+setup = 0x02001121
+body = "body"
+look = "gold-phyntos-wasp-killer-phyntos-drone"
+palettes = [0x04001900]
+
+[[creature.skin]]
+setup = 0x02001121
+body = "body"
+look = "diseased-phyntos-wasp-green-phyntos-wasp"
+palettes = [0x04001901]
+
+[[creature.skin]]
+setup = 0x02001121
+body = "body"
+look = "giant-phyntos-wasp"
+palettes = [0x0400190B]
+
+[[creature.skin]]
+setup = 0x02001121
+body = "body"
+look = "banished-phyntos-wasp-black-phyntos-wasp"
+palettes = [0x0400190C]
+
+[[creature.skin]]
+setup = 0x02001121
+body = "body"
+look = "blue-phyntos-wasp-wasp"
+palettes = [0x040018FF]
+
+[[creature.skin]]
+setup = 0x02001121
+body = "body"
+look = "giant-jungle-phyntos-wasp-jungle-phyntos-wasp"
+palettes = [0x04001902]
+
+[[creature.skin]]
+setup = 0x02001121
+body = "body"
+look = "mire-phyntos-wasp"
+palettes = [0x04001903]
+
+[[creature.skin]]
+setup = 0x02001121
+body = "body"
+look = "agitated-phyntos-wasp-red-phyntos-drone"
+palettes = [0x04001905]

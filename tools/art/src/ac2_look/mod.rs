@@ -9,6 +9,7 @@
 //! [`picture`] tints a ground and derives its relief.
 
 pub mod build;
+pub mod creature;
 pub mod model;
 pub mod picture;
 pub mod source;
