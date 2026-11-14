@@ -328,7 +328,7 @@ rows whose moment and quest match, picking at random among several.
 | `quest`, `update`, `phase` | | the quest update the line comes with (`bestow`, `advance` and its phase, `complete`, `fail`); a `remind` line names its `quest` and no `update` |
 | `item` | | the item given, for a line said when one is |
 | `order` | | its place in a speech of several lines (0 first) |
-| `requires` | | tallies that must be as they say for it to be said: full or not yet full (`[{ tally = "key", full = true }]`), or a count at least and below so many (`{ tally = "key", at_least = 3, below = 4 }`, either or both) |
+| `requires` | | what must be as it says for it to be said: tallies full or not yet full (`[{ tally = "key", full = true }]`), or a count at least and below so many (`{ tally = "key", at_least = 3, below = 4 }`, either or both); events on (`{ event = "key" }`) or off (`{ event = "key", on = false }`) |
 | `fills` | | a tally's key: the line's one variable is the tally's count as a percent of its `full`, rounded down. Only with `line`, a string of the install's that takes one variable |
 | `full_line`, `full_line_text` | | with `fills`: what is said in the line's place once the tally is full |
 | `prov` | required | where it came from |
@@ -1117,9 +1117,10 @@ A tip a player is shown once, the first time a moment comes for its character. O
 #### `[[event]]`
 
 A named state of the world, on for its times, while a full tally starts it, and after a quest's
-failure starts it. A camp's or an object's `event`, and a step's `requires = [{ event = "key" }]`,
-name one. While it is on, the placed objects it `hides` are kept from the world: forgotten by every
-client as it starts, made again as it ends; a use of one or a give to one finds nothing meanwhile.
+failure starts it. A camp's or an object's `event`, a step's `requires = [{ event = "key" }]`, and a
+line's `requires` (on, or with `on = false` off), name one. While it is on, the placed objects it
+`hides` are kept from the world: forgotten by every client as it starts, made again as it ends; a
+use of one or a give to one finds nothing meanwhile.
 
 A `failure` row comes on, for everyone, at the world's step after its quest fails for any player:
 a step fails it, its time runs out while its player is in the world, or its player's death, a trip

@@ -1,12 +1,13 @@
 //! A world's tallies, on a clock the test drives: steps that fill one and wait on it, lines that
-//! wait on it and say its count, the event it starts as it fills, its resets (as that event ends,
-//! by the calendar, and across a restart) and what a reset clears. Fixture: two people beside the
-//! start, a quest step on each, and a tally the test gives its rules.
+//! wait on it and say its count, the event it starts as it fills and lines that wait on that event,
+//! its resets (as that event ends, by the calendar, and across a restart) and what a reset clears.
+//! Fixture: two people beside the start, a quest step on each, and a tally the test gives its
+//! rules.
 
 use auberean_protocol::queue;
 use auberean_script::args::Arg;
 use auberean_script::native_object::VariableValue;
-use yalain_content::events::{Event, EventTable, ObjectGate, Window};
+use yalain_content::events::{Event, EventTable, LineGate, ObjectGate, Window};
 use yalain_content::quests::{QuestDef, QuestTable, Step, Trigger, Update};
 use yalain_content::talk::{How, Line, Role, TalkTable, When, Words};
 use yalain_content::tallies::{Adds, Fill, Gate, Holds, Reset, Start, Tally, TallyTable};
@@ -444,6 +445,115 @@ fn lines_wait_on_a_tallys_count_at_least_and_below_so_many() {
     );
     use_it(&mut h, b, me, GATHERER);
     assert_eq!(told(&use_it(&mut h, b, me, HOST)), vec![ALL_SET], "40");
+}
+
+/// A line may wait on an event being on, or off, as well as on a tally: the host says its gathering
+/// line while the supplies are wanted, its all-set line once they are full and before the fair
+/// they start comes on, its fair line only while the fair is on, and its gathering line again as
+/// the fair ends and the supplies go back to nothing.
+/// Behaviour: server.events.lines-wait-on-an-event
+#[test]
+fn a_line_waiting_on_an_event_is_said_only_while_it_is_on_and_one_waiting_on_it_off_only_while_it_is_off(
+) {
+    let mut h = world(supplies());
+    h.server.quests.steps.retain(|s| s.quest == GATHER);
+    let (still, set, enjoy) = (
+        line(HOST_T, STILL_MUCH),
+        line(HOST_T, ALL_SET),
+        line(HOST_T, ENJOY),
+    );
+    h.server.talk = TalkTable {
+        lines: vec![still.clone(), set.clone(), enjoy.clone()],
+    };
+    h.server.content.tallies.lines = vec![(still, gate(false)), (set.clone(), gate(true))];
+    h.server.content.events.lines = vec![
+        (
+            set,
+            LineGate {
+                event: "fair".into(),
+                on: false,
+            },
+        ),
+        (
+            enjoy,
+            LineGate {
+                event: "fair".into(),
+                on: true,
+            },
+        ),
+    ];
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.run(4);
+    assert_eq!(
+        told(&use_it(&mut h, b, me, HOST)),
+        vec![STILL_MUCH],
+        "gathering"
+    );
+    let filled = fill(&mut h, b, me);
+    for _ in 0..4 {
+        assert_eq!(
+            told(&use_it(&mut h, b, me, HOST)),
+            vec![ALL_SET],
+            "full, the fair not yet on"
+        );
+    }
+    run_to_unix(&mut h, filled + 60);
+    assert!(h.server.events.on.contains("fair"));
+    for _ in 0..4 {
+        assert_eq!(
+            told(&use_it(&mut h, b, me, HOST)),
+            vec![ENJOY],
+            "the fair on: its line alone, though the supplies are still full"
+        );
+    }
+    run_to_unix(&mut h, filled + 60 + 300);
+    assert!(!h.server.events.on.contains("fair"));
+    assert_eq!(
+        told(&use_it(&mut h, b, me, HOST)),
+        vec![STILL_MUCH],
+        "the fair over and the supplies back to nothing"
+    );
+}
+
+/// An event on by its own window gates lines as one a tally starts does: before the window the
+/// line waiting on it off is said, during it the line waiting on it on, after it the first again.
+/// Behaviour: server.events.lines-wait-on-an-event
+#[test]
+fn a_line_waits_on_an_event_on_by_its_own_window() {
+    let start = 1_700_000_000 + 120;
+    let mut h = world(supplies());
+    h.server.quests.steps.clear();
+    h.server.content.events.events[0].windows = vec![Window::Dated {
+        from: start,
+        until: start + 300,
+    }];
+    let (off, on) = (line(HOST_T, ALL_SET), line(HOST_T, ENJOY));
+    h.server.talk = TalkTable {
+        lines: vec![off.clone(), on.clone()],
+    };
+    h.server.content.events.lines = vec![
+        (
+            off,
+            LineGate {
+                event: "fair".into(),
+                on: false,
+            },
+        ),
+        (
+            on,
+            LineGate {
+                event: "fair".into(),
+                on: true,
+            },
+        ),
+    ];
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.run(4);
+    assert_eq!(told(&use_it(&mut h, b, me, HOST)), vec![ALL_SET], "before");
+    run_to_unix(&mut h, start);
+    assert_eq!(told(&use_it(&mut h, b, me, HOST)), vec![ENJOY], "during");
+    run_to_unix(&mut h, start + 300);
+    assert_eq!(told(&use_it(&mut h, b, me, HOST)), vec![ALL_SET], "after");
 }
 
 /// A tally that starts an event turns it on its `after` seconds past the moment it filled, for its

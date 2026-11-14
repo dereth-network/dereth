@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Worlds can now have people say lines only while an event is on, or off.
 - Worlds can now have a creature's death open a way on from any object, not only a portal.
 - Worlds can now move a quest on when a creature is first hurt nearby.
 - Worlds can now have a failed quest turn a person into a creature until it is killed.

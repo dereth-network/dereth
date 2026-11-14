@@ -810,7 +810,7 @@ pub(crate) fn tallies(rows: &[&Located]) -> Vec<Problem> {
     out
 }
 
-/// Every camp, object and step that names an `[[event]]` names one the database has.
+/// Every camp, object, step and line that names an `[[event]]` names one the database has.
 fn check_events(db: &Database) -> Vec<Problem> {
     let keys: BTreeSet<&str> = db
         .rows()
@@ -821,18 +821,19 @@ fn check_events(db: &Database) -> Vec<Problem> {
         .collect();
     let mut out = Vec::new();
     for l in db.rows() {
-        let named: Vec<&String> = match &l.row {
-            Row::Object(o) => o.event.iter().collect(),
-            Row::Camp(c) => c.event.iter().collect(),
-            Row::Step(s) => s.events.iter().collect(),
+        let named: Vec<(&str, &String)> = match &l.row {
+            Row::Object(o) => o.event.iter().map(|e| ("event", e)).collect(),
+            Row::Camp(c) => c.event.iter().map(|e| ("event", e)).collect(),
+            Row::Step(s) => s.events.iter().map(|e| ("event", e)).collect(),
+            Row::Talk(t) => t.events.iter().map(|g| ("requires", &g.event)).collect(),
             _ => Vec::new(),
         };
-        for e in named {
+        for (field, e) in named {
             if !keys.contains(e.as_str()) {
                 out.push(Problem::new(
                     &l.file,
                     l.line,
-                    format!("event: no [[event]] {e}"),
+                    format!("{field}: no [[event]] {e}"),
                 ));
             }
         }

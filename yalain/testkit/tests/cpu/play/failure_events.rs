@@ -101,6 +101,7 @@ fn world(lasts: Option<u32>, until_killed: bool) -> (Harness, [(usize, u64); 2])
         camps: vec![("test".into(), "turned".into())],
         objects: Vec::new(),
         steps: Vec::new(),
+        lines: Vec::new(),
     };
     h.server.quests = QuestTable {
         quests: vec![quest(QUEST), quest(OTHER)],

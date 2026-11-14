@@ -1,6 +1,7 @@
 //! A world's scheduled events: named states of the world, each on for its times, and what follows
 //! them (camps and objects that stand only while one runs, quest steps that run only while one
-//! runs, effects on every player while one runs).
+//! runs, lines said only while one runs or only while it does not, effects on every player while
+//! one runs).
 //!
 //! **Times are UTC**, in seconds since 1970 as the host's clock gives them: a dated window runs
 //! from its start to its end; a weekly window starts on each of its days at its time of day and
@@ -18,8 +19,8 @@
 //! while it is on it may keep placed objects from the world (a person who stands aside while it
 //! runs).
 //!
-//! A world with no events gates nothing: every camp, object and step is as it would be without
-//! this table.
+//! A world with no events gates nothing: every camp, object, step and line is as it would be
+//! without this table.
 
 /// The days of the week, Monday first, as an event's weekly window names them.
 pub const DAYS: [&str; 7] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
@@ -219,6 +220,13 @@ pub struct ObjectGate {
     pub event: String,
 }
 
+/// What a line waits on of an event: that it runs (`on`), or that it does not.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineGate {
+    pub event: String,
+    pub on: bool,
+}
+
 /// A world's events and what each gates.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct EventTable {
@@ -228,6 +236,8 @@ pub struct EventTable {
     pub objects: Vec<ObjectGate>,
     /// Quest steps that run only while an event runs: the step and the event's key.
     pub steps: Vec<(crate::quests::Step, String)>,
+    /// Lines said only while an event runs, or only while it does not.
+    pub lines: Vec<(crate::talk::Line, LineGate)>,
 }
 
 impl EventTable {
@@ -286,6 +296,23 @@ impl EventTable {
             .iter()
             .filter(move |(s, _)| s == step)
             .map(|(_, e)| e.as_str())
+    }
+
+    /// What a line waits on of the events (the one placed person it may belong to aside: a line is
+    /// the same line wherever its person stands in the pack).
+    pub fn of_line<'a>(
+        &'a self,
+        line: &'a crate::talk::Line,
+    ) -> impl Iterator<Item = &'a LineGate> + 'a {
+        self.lines
+            .iter()
+            .filter(move |(l, _)| {
+                crate::talk::Line {
+                    object: line.object,
+                    ..l.clone()
+                } == *line
+            })
+            .map(|(_, g)| g)
     }
 }
 

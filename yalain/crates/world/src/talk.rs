@@ -34,6 +34,9 @@
 //! **Tallies.** A line that names tallies is said only while each is as it says, full or not yet
 //! full; a line that fills with one says its count ([`crate::tallies`]).
 //!
+//! **Events.** A line that names events is said only while each is as it says: on, or off
+//! ([`crate::events`]).
+//!
 //! **How.** A tell reaches the player, naming the speaker; a saying is heard by every client that
 //! knows the speaker; an emote is text in the player's chat window, which names the speaker
 //! itself; a broadcast reaches every player in the speaker's landblock and the eight around it
@@ -173,7 +176,7 @@ fn speaker_cell<S: Store>(s: &Server<S>, id: u64) -> Option<u32> {
 }
 
 /// The lines a template's people say (and, for `object`, those of that one person) that may be
-/// said now, by the tallies they name, in the table's order.
+/// said now, by the tallies and the events they name, in the table's order.
 pub(crate) fn lines_of<S: Store>(
     s: &Server<S>,
     who: u32,
@@ -181,7 +184,7 @@ pub(crate) fn lines_of<S: Store>(
 ) -> impl Iterator<Item = &Line> {
     s.talk
         .of(who, object)
-        .filter(move |l| crate::tallies::line_for(s, l))
+        .filter(move |l| crate::tallies::line_for(s, l) && crate::events::line_for(s, l))
 }
 
 /// Words as a player reads them, with the count a tally gives them, if any.

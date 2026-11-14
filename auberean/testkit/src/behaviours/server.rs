@@ -4976,6 +4976,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.events.lines-wait-on-an-event",
+        says: "A line that requires an event on is said only while it is on, and one that requires it \
+               off only while it is off, whether the event is on by its own window or by a tally that \
+               started it; beside its tallies, so a person's lines follow an event's stages: before \
+               it, while it runs, and after it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-EVENT-LINES"),
+        station: "yalain-testkit::cpu::play::tallies::a_line_waiting_on_an_event_is_said_only_while_it_is_on_and_one_waiting_on_it_off_only_while_it_is_off",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.events.windows-by-the-game",
         says: "An event's window may follow the game's clock: the game's hours, each game day from its start \
                to its end on a 24-hour clock of the game's day (into the next day when the end is not after \

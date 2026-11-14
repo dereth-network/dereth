@@ -4609,6 +4609,107 @@ fn a_tally_row_reads_and_its_gates_adds_and_counted_lines_compile_to_the_tally_t
     }
 }
 
+/// A line's `requires` may name an event on (`{ event }`, or `on = true`) or off (`on = false`)
+/// beside its tallies, and each compiles to the event table with the line; an event no row is,
+/// and a gate that mixes an event with a tally's fields, are refused.
+#[test]
+fn a_lines_requires_may_name_an_event_on_or_off_and_compiles_to_the_event_table() {
+    use yalain_content::events::LineGate;
+    use yalain_content::tallies::Holds;
+    let mut files = tally_world();
+    edit(
+        &mut files,
+        "town/server/talk/470033D0.toml",
+        "requires = [{ tally = \"supplies\", full = true }]\n",
+        "requires = [{ tally = \"supplies\", full = true }, { event = \"festival\", on = false }]\n",
+    );
+    files
+        .get_mut("town/server/talk/470033D0.toml")
+        .unwrap()
+        .push_str(
+            "\n[[talk]]\nkey = \"enjoy\"\nwho = 0x470033D0\n\
+             line = { table = 0x25002A76, string = 0x6ED648ED }\nrole = \"use\"\nwhen = \"use\"\n\
+             requires = [{ event = \"festival\" }]\nprov = { from = \"authored\" }\n",
+        );
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let gates: Vec<(Option<Role>, Words, LineGate)> = t
+        .content
+        .events
+        .lines
+        .iter()
+        .map(|(l, g)| (l.role, l.words.clone(), g.clone()))
+        .collect();
+    assert_eq!(
+        gates,
+        vec![
+            (
+                Some(Role::Near),
+                Words::Ref(0x2824_938C, 0x2500_2AFC),
+                LineGate {
+                    event: "festival".into(),
+                    on: false
+                }
+            ),
+            (
+                Some(Role::Use),
+                Words::Ref(0x6ED6_48ED, 0x2500_2A76),
+                LineGate {
+                    event: "festival".into(),
+                    on: true
+                }
+            ),
+        ]
+    );
+    let tallies = &t.content.tallies.lines;
+    assert_eq!(tallies.len(), 1, "the tally's gate kept beside the event's");
+    assert_eq!(tallies[0].1.holds, Holds::Full);
+    // `on = true` is the same as leaving it out.
+    let mut f = files.clone();
+    edit(
+        &mut f,
+        "town/server/talk/470033D0.toml",
+        "[{ event = \"festival\" }]",
+        "[{ event = \"festival\", on = true }]",
+    );
+    let t = compile(&merge(&read(&f).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert!(t.content.events.lines[1].1.on);
+    // An event no row is.
+    let mut f = files.clone();
+    edit(
+        &mut f,
+        "town/server/talk/470033D0.toml",
+        "[{ event = \"festival\" }]",
+        "[{ event = \"fair\" }]",
+    );
+    assert!(
+        check(&f)
+            .iter()
+            .any(|p| p.message.contains("requires: no [[event]] fair")),
+        "{:?}",
+        check(&f)
+    );
+    // Rows that break the schema.
+    for to in [
+        "[{ event = \"festival\", on = 1 }]",
+        "[{ event = \"festival\", full = true }]",
+        "[{ event = \"Festival\" }]",
+        "[{ event = \"festival\", on = false, at_least = 2 }]",
+        "[{ tally = \"supplies\", full = true, on = false }]",
+        "[{ tally = \"supplies\", at_least = 2, on = false }]",
+        "[{ on = false }]",
+    ] {
+        let mut f = files.clone();
+        edit(
+            &mut f,
+            "town/server/talk/470033D0.toml",
+            "[{ event = \"festival\" }]",
+            to,
+        );
+        assert!(read(&f).is_err(), "{to}");
+    }
+}
+
 /// Two steps alike but for their tally gates and adds keep their own, by their keys: the bestowing
 /// step waits on the supplies not full and adds 25; its twin, which waits on them full, adds
 /// nothing.

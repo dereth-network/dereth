@@ -120,6 +120,7 @@ fn world(windows: Vec<Window>) -> (Harness, usize, u64) {
             event: "fair".into(),
         }],
         steps: vec![(step(), "fair".into())],
+        lines: Vec::new(),
     };
     h.server.effect_table.effects.insert(BOOST, boost());
     let (b, me) = h.player_in_world("one", "Elara");

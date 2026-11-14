@@ -8,7 +8,8 @@
 //! leave the world as it ends, and the camp fills as it starts. An object that names one stands
 //! only while it is on: every client that sees it forgets it as it ends and is made it as it
 //! starts; while it is off it is made for nobody, and a use of it or a give to it finds nothing. A
-//! quest step that names events runs only while all of them are on.
+//! quest step that names events runs only while all of them are on. A line that names events is
+//! said only while each is as it says, on or off ([`crate::talk`]).
 //!
 //! **Effects on players.** While an event is on, every player in the world holds each of its
 //! effects, put on at spellcraft 1 (as an item's use with no spellcraft of its own puts one) and
@@ -107,6 +108,13 @@ pub fn content_standing<S: Store>(s: &Server<S>, id: u64) -> Option<usize> {
 pub fn step_runs<S: Store>(s: &Server<S>, step: &yalain_content::quests::Step) -> bool {
     let t = &s.content.events;
     t.is_empty() || t.of_step(step).all(|e| is_on(s, e))
+}
+
+/// May a line be said now, by the events it names: each on, or off, as it says.
+#[must_use]
+pub fn line_for<S: Store>(s: &Server<S>, line: &yalain_content::talk::Line) -> bool {
+    let t = &s.content.events;
+    t.lines.is_empty() || t.of_line(line).all(|g| is_on(s, &g.event) == g.on)
 }
 
 /// The window of an event that holds `unix`: one of its own by the host's clock, else one of its

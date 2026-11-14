@@ -654,6 +654,8 @@ pub struct Talk {
     pub order: Option<u32>,
     /// The `[[tally]]`s it is said only while they are full, or not yet full.
     pub requires: Vec<yalain_content::tallies::Gate>,
+    /// The `[[event]]`s it is said only while they are on, or off.
+    pub events: Vec<yalain_content::events::LineGate>,
     /// The `[[tally]]` whose count, as a percent, is its one variable.
     pub fills: Option<String>,
     /// What is said in its place once that tally is full.
@@ -2965,6 +2967,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 Some(None) => return None,
                 u => u.flatten(),
             };
+            let (requires, events) = f.line_gates("requires");
             Row::Talk(Talk {
                 key: f.req_symbol("key")?,
                 who: f.req_id("who")?,
@@ -2980,7 +2983,8 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 phase: f.u32("phase"),
                 item: f.id("item"),
                 order: f.u32("order"),
-                requires: f.tally_gates("requires"),
+                requires,
+                events,
                 fills: f.key("fills"),
                 full_line: f.strref("full_line"),
                 full_line_text: f.text("full_line_text"),
@@ -5565,17 +5569,49 @@ impl<'a> Fields<'a> {
     }
 
     /// A line's `requires`: `[[tally]]`s that must be full or not yet full, each
-    /// `{ tally = "key", full = true|false }`.
-    fn tally_gates(&mut self, name: &str) -> Vec<yalain_content::tallies::Gate> {
-        self.list_of(
+    /// `{ tally = "key", full = true|false }`, or whose count must be at least, and below, so many
+    /// (`{ tally, at_least, below }`); and `[[event]]`s that must be on (`{ event = "key" }`, or
+    /// `on = true`) or off (`{ event = "key", on = false }`).
+    fn line_gates(
+        &mut self,
+        name: &str,
+    ) -> (
+        Vec<yalain_content::tallies::Gate>,
+        Vec<yalain_content::events::LineGate>,
+    ) {
+        enum Req {
+            Tally(Vec<yalain_content::tallies::Gate>),
+            Event(yalain_content::events::LineGate),
+        }
+        let all = self.list_of(
             name,
-            "a list of { tally, full } (true for while it is full, false for while it is not) or { tally, at_least, below } (its count at least, and below, so many; either or both)",
-            &["tally", "full", "at_least", "below"],
-            tally_gate,
-        )
-        .into_iter()
-        .flatten()
-        .collect()
+            "a list of { tally, full } (true for while it is full, false for while it is not), { tally, at_least, below } (its count at least, and below, so many; either or both) or { event, on } (while the event is on, or with on = false while it is off; on when left out)",
+            &["tally", "full", "at_least", "below", "event", "on"],
+            |t| {
+                if t.contains_key("tally") {
+                    return (!t.contains_key("on")).then(|| tally_gate(t)).flatten().map(Req::Tally);
+                }
+                let event = t.get("event")?.as_str().filter(|s| is_symbol(s))?;
+                let on = match (t.len(), t.get("on")) {
+                    (1, None) => true,
+                    (2, Some(on)) => on.as_bool()?,
+                    _ => return None,
+                };
+                Some(Req::Event(yalain_content::events::LineGate {
+                    event: event.to_string(),
+                    on,
+                }))
+            },
+        );
+        let mut tallies = Vec::new();
+        let mut events = Vec::new();
+        for r in all {
+            match r {
+                Req::Tally(g) => tallies.extend(g),
+                Req::Event(g) => events.push(g),
+            }
+        }
+        (tallies, events)
     }
 
     /// A step's or a give's `adds`: `{ tally = "key", by = N }`, N above 0.

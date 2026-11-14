@@ -2600,6 +2600,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             continue;
         }
         let gates: Vec<yalain_content::tallies::Gate> = r.requires.clone();
+        let event_gates: Vec<yalain_content::events::LineGate> = r.events.clone();
         t.talk.lines.push(Line {
             who: r.who,
             object,
@@ -2618,6 +2619,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
         if let Some(line) = t.talk.lines.last() {
             for g in gates {
                 t.content.tallies.lines.push((line.clone(), g));
+            }
+            for g in event_gates {
+                t.content.events.lines.push((line.clone(), g));
             }
         }
     }
