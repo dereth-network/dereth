@@ -779,6 +779,10 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     let mut untraining_steps: Vec<usize> = Vec::new();
     // The steps for heroes alone, likewise.
     let mut hero_steps: Vec<usize> = Vec::new();
+    // The steps and gives that wait on their player having fought a camp's creature, with the camps
+    // they name, resolved once every camp has its row.
+    let mut fought_steps: Vec<(&Located, usize, &[String])> = Vec::new();
+    let mut fought_gives: Vec<(&Located, TableGive, &[String])> = Vec::new();
     // The steps that also give one of several items, likewise.
     let mut pick_steps: Vec<(usize, Vec<(u32, u32)>)> = Vec::new();
     // The steps and gives an order of uses keeping its own count gates, likewise, checked once
@@ -1341,6 +1345,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 if s.heroes {
                     hero_steps.push(t.quests.steps.len());
                 }
+                if !s.fought.is_empty() {
+                    fought_steps.push((l, t.quests.steps.len(), &s.fought));
+                }
                 for a in &s.acts {
                     act_steps.push((l, t.quests.steps.len(), *a));
                 }
@@ -1448,6 +1455,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     }
                     if g.heroes {
                         t.content.hero_gates.gives.push(give.clone());
+                    }
+                    if !g.fought.is_empty() {
+                        fought_gives.push((l, give.clone(), &g.fought));
                     }
                     if !g.gives_one_of.is_empty() {
                         t.items
@@ -2038,6 +2048,45 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 l,
                 format!("trigger: several camps are {camp}: name one as {camp}@XXYY"),
             ),
+        }
+    }
+    // The camps a step or a give waits on its player having fought: their rows.
+    let fought_rows = |cx: &mut Ctx, l: &Located, camps: &[String]| -> Option<Vec<u32>> {
+        let mut out = Vec::new();
+        for camp in camps {
+            let named = camp.split_once(':').map_or(camp.as_str(), |(_, k)| k);
+            let (key, lb) = match named.split_once('@') {
+                Some((k, b)) => (k, u16::from_str_radix(b, 16).ok()),
+                None => (named, None),
+            };
+            let mut rows = camps_at
+                .iter()
+                .filter(|((k, b), _)| *k == key && lb.is_none_or(|lb| lb == *b));
+            match (rows.next(), rows.next()) {
+                (Some((_, &row)), None) => out.push(u32::try_from(row).unwrap_or(u32::MAX)),
+                (None, _) => {
+                    cx.problem(l, format!("requires: no camp {camp} is served"));
+                    return None;
+                }
+                (Some(_), Some(_)) => {
+                    cx.problem(
+                        l,
+                        format!("requires: several camps are {camp}: name one as {camp}@XXYY"),
+                    );
+                    return None;
+                }
+            }
+        }
+        Some(out)
+    };
+    for (l, i, camps) in fought_steps {
+        if let (Some(rows), Some(st)) = (fought_rows(&mut cx, l, camps), t.quests.steps.get(i)) {
+            t.content.fought_gates.steps.push((st.clone(), rows));
+        }
+    }
+    for (l, give, camps) in fought_gives {
+        if let Some(rows) = fought_rows(&mut cx, l, camps) {
+            t.content.fought_gates.gives.push((give, rows));
         }
     }
     // The steps events gate, whole; and a gate names an event.

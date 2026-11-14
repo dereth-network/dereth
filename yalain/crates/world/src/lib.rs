@@ -103,6 +103,7 @@ pub mod examine;
 pub mod fellowship;
 pub mod focus;
 pub mod follow;
+pub mod fought;
 pub mod gives;
 pub mod graph;
 pub mod guard;

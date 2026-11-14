@@ -5347,6 +5347,84 @@ fn never_completed_requirements_compile_on_steps_and_gives() {
 }
 
 #[test]
+fn fight_requirements_compile_with_their_camps_rows_beside_their_steps_and_gives() {
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "update = \"bestow\"\n",
+        "update = \"bestow\"\n\
+         requires = [{ fought = \"beetles\" }]\n",
+    );
+    files.insert(
+        "town/server/gives/470033D0.toml".into(),
+        "[[give]]\n\
+         key = \"medal\"\n\
+         to = 0x470033D0\n\
+         item = 0x470020BB\n\
+         requires = [{ fought = \"beetles@77B7\" }]\n\
+         prov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let row = t
+        .spawns
+        .camps
+        .iter()
+        .position(|c| c.id == "beetles")
+        .map(|r| u32::try_from(r).unwrap())
+        .unwrap();
+    let gates = &t.content.fought_gates;
+    assert_eq!(gates.steps.len(), 1);
+    assert_eq!(gates.steps[0].0.trigger, Trigger::Use(0x4700_33D0));
+    assert_eq!(gates.steps[0].1, [row]);
+    assert!(t.quests.steps.contains(&gates.steps[0].0));
+    assert_eq!(gates.gives.len(), 1);
+    assert_eq!(gates.gives[0].0.item, Some(0x4700_20BB));
+    assert_eq!(gates.gives[0].1, [row]);
+    assert!(t.quests.gives.contains(&gates.gives[0].0));
+
+    // A camp the world serves, named alone in its table.
+    let mut f = files.clone();
+    edit(
+        &mut f,
+        "town/server/quests/40000088.toml",
+        "fought = \"beetles\"",
+        "fought = \"wasps\"",
+    );
+    let problems: Vec<String> = check(&f).iter().map(ToString::to_string).collect();
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.contains("requires: no camp wasps")),
+        "{problems:?}"
+    );
+    for bad in [
+        "requires = [{ fought = 3 }]",
+        "requires = [{ fought = \"beetles\", quest = 0x40000016 }]",
+    ] {
+        let mut f = files.clone();
+        f.insert(
+            "town/server/gives/470033D0.toml".into(),
+            format!(
+                "[[give]]\n\
+                 key = \"medal\"\n\
+                 to = 0x470033D0\n\
+                 item = 0x470020BB\n\
+                 {bad}\n\
+                 prov = {{ from = \"authored\" }}\n"
+            ),
+        );
+        let problems = check(&f);
+        assert!(
+            problems.iter().any(|p| p.message.contains("requires")),
+            "{bad}: {problems:?}"
+        );
+    }
+}
+
+#[test]
 fn untraining_requirements_compile_beside_their_steps_and_gives_and_an_effect_rule_may_finish_one()
 {
     let mut files = fixture();

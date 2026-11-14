@@ -353,17 +353,19 @@ impl<S: Store> Server<S> {
             || t.content.companions != self.content.companions
             || t.content.craft_gates != self.content.craft_gates
             || t.content.untraining_gates != self.content.untraining_gates
-            || t.content.hero_gates != self.content.hero_gates;
+            || t.content.hero_gates != self.content.hero_gates
+            || t.content.fought_gates != self.content.fought_gates;
         r.note(table::QUESTS, changed, true);
         self.quests = t.quests;
         // The classes the gives take go with the gives they name by place, the quests that go
-        // with others with the quests, and the craft skills, untrainings and heroes steps and gives
-        // wait on with them.
+        // with others with the quests, and the craft skills, untrainings, heroes and fights steps
+        // and gives wait on with them.
         self.content.class_gives = std::mem::take(&mut t.content.class_gives);
         self.content.companions = std::mem::take(&mut t.content.companions);
         self.content.craft_gates = std::mem::take(&mut t.content.craft_gates);
         self.content.untraining_gates = std::mem::take(&mut t.content.untraining_gates);
         self.content.hero_gates = std::mem::take(&mut t.content.hero_gates);
+        self.content.fought_gates = std::mem::take(&mut t.content.fought_gates);
 
         let changed = t.talk != self.talk;
         r.note(table::TALK, changed, true);

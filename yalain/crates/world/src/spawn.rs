@@ -60,12 +60,15 @@ pub fn is_summon(props: &yalain_content::Props) -> bool {
             .is_some_and(|t| t.starts_with("NPCTable_Pet"))
 }
 
-/// A camp's state: its creatures alive, and when each replacement is due.
+/// A camp's state: its creatures alive, when each replacement is due, and the characters that
+/// harmed its last creature to die (a pet's harm counted as its owner's; not kept across a
+/// restart).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CampState {
     pub alive: Vec<u64>,
     pub due: Vec<f64>,
     pub filled: bool,
+    pub fought: Vec<u64>,
 }
 
 /// The kind of NPC table practice dummies that send back a share of each attack on them stand

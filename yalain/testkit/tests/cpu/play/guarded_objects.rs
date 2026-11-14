@@ -1,7 +1,8 @@
 //! Guarded objects: a placed object a world's row ties to a camp is usable only while every
 //! creature of that camp is dead; a row may hide it while one lives, and take it from the world
-//! for a while at each use. Fixture: the test hall beside where a character starts, a camp of one
-//! made-up keeper, and a rift whose use gives a quest.
+//! for a while at each use; and a step may wait on its player having fought the camp's creature.
+//! Fixture: the test hall beside where a character starts, a camp of one made-up keeper, and a rift
+//! whose use gives a quest.
 
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
@@ -317,4 +318,81 @@ fn a_hidden_guarded_object_stands_only_while_its_guard_is_dead_and_goes_a_while_
     run_for(&mut h, 600.0);
     assert!(keeper(&h).is_some());
     assert_eq!(seen(&h, b, from), ["forgotten"]);
+}
+
+/// Kills the keeper, harmed by these characters, each by its share of the harm.
+fn kill_keeper_harmed_by(h: &mut Harness, by: &[u64]) {
+    let id = keeper(h).expect("the keeper stands");
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(id)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.taken_by = by.iter().map(|b| (*b, 50)).collect();
+    }
+    let clock = h.clock();
+    yalain_world::death::creature_dies(&mut h.server, &mut h.net, id, by[0], clock);
+}
+
+fn given_to(h: &Harness, me: u64) -> bool {
+    h.server
+        .players
+        .values()
+        .any(|p| p.character == me && phase_of(&p.play.quests, QUEST) == 1)
+}
+
+/// A step waiting on its player having fought a camp's creature runs, once that creature is dead,
+/// for a player who harmed it and for a fellow of one, not for another; the keeper killed again by
+/// someone else, the credit is theirs alone.
+/// Behaviour: server.quests.a-step-waits-on-its-player-having-fought
+#[test]
+fn a_step_waiting_on_a_fight_runs_only_for_those_who_harmed_the_camps_creature_and_their_fellows() {
+    use yalain_content::fought::FoughtGates;
+    use yalain_world::fellowship::{Fellow, Fellowship};
+    let (mut h, b, me) = hall(true, None, 60.0);
+    h.server.content.fought_gates = FoughtGates {
+        steps: vec![(closes(), vec![0])],
+        gives: Vec::new(),
+    };
+    let (b2, other) = h.player_in_world("two", "Tomas");
+    let (b3, third) = h.player_in_world("three", "Brin");
+    h.run(10);
+    kill_keeper_harmed_by(&mut h, &[me]);
+    run_for(&mut h, 1.0);
+
+    send_use(&mut h, b2, other);
+    assert!(!given_to(&h, other), "not for one who did not fight");
+    send_use(&mut h, b, me);
+    assert!(given_to(&h, me), "for the one who harmed it");
+    h.server.fellowships.list.push(Fellowship {
+        name: "Fighters".into(),
+        leader: me,
+        flags: 0,
+        room: 1,
+        fellows: [me, other]
+            .iter()
+            .map(|&id| Fellow {
+                id,
+                joined: 0.0,
+                sent: yalain_world::fellowship::Vitals::default(),
+                next_check: f64::INFINITY,
+            })
+            .collect(),
+        last_claimant: 0,
+    });
+    send_use(&mut h, b2, other);
+    assert!(given_to(&h, other), "for a fellow of one who harmed it");
+
+    // Back and killed by the third alone: the credit is the third's.
+    for p in h.server.players.values_mut() {
+        p.play.quests.clear();
+    }
+    run_for(&mut h, 60.0);
+    kill_keeper_harmed_by(&mut h, &[third]);
+    run_for(&mut h, 1.0);
+    send_use(&mut h, b, me);
+    assert!(!given_to(&h, me), "the earlier fight counts no more");
+    send_use(&mut h, b3, third);
+    assert!(given_to(&h, third));
 }

@@ -555,6 +555,11 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                         "to: a step made on arrival takes the player nowhere further".into(),
                     ));
                 }
+                for camp in &r.fought {
+                    if let Some(why) = fought_camp(camp, &camp_makes) {
+                        problems.push(at(why));
+                    }
+                }
                 if let Trigger::KillIn(template, camp) = &r.trigger {
                     let (key, lb) = match camp.split_once('@') {
                         Some((k, b)) => (k, u16::from_str_radix(b, 16).ok()),
@@ -590,6 +595,11 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                 }
             }
             Row::Give(r) => {
+                for camp in &r.fought {
+                    if let Some(why) = fought_camp(camp, &camp_makes) {
+                        problems.push(at(why));
+                    }
+                }
                 if r.wants == Some(0) {
                     problems.push(at("wants: a count of at least 1".into()));
                 }
@@ -896,5 +906,26 @@ fn check_prov(p: &Prov, out: &mut dyn FnMut(String)) {
     }
     for (k, f) in &p.fields {
         check_prov(f, &mut |m| out(format!("{k}: {m}")));
+    }
+}
+
+/// What is wrong with a camp a step's or a give's `requires` waits on its player having fought
+/// (`key`, `key@XXYY` or `pack:key@XXYY`), if anything: no camp of the world, or several.
+fn fought_camp(camp: &str, camps: &BTreeMap<(String, u16), BTreeSet<u32>>) -> Option<String> {
+    let named = camp.split_once(':').map_or(camp, |(_, k)| k);
+    let (key, lb) = match named.split_once('@') {
+        Some((k, b)) => (k, u16::from_str_radix(b, 16).ok()),
+        None => (named, None),
+    };
+    match camps
+        .keys()
+        .filter(|(k, b)| k == key && lb.is_none_or(|lb| lb == *b))
+        .count()
+    {
+        0 => Some(format!("requires: no camp {camp}")),
+        1 => None,
+        _ => Some(format!(
+            "requires: several camps are {camp}: name one as {camp}@XXYY"
+        )),
     }
 }

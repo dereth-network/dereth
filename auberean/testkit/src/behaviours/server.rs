@@ -13467,6 +13467,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-step-waits-on-its-player-having-fought",
+        says: "A step or a give whose `requires` names a camp with `fought` runs only for a player \
+               who harmed that camp's last creature to die, by its own hand or its pet's, or who is \
+               a fellow of one now; each death of the camp's creatures puts its own fighters in \
+               place of those before.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FOUGHT-CREDIT"),
+        station: "yalain-testkit::cpu::play::guarded_objects::a_step_waiting_on_a_fight_runs_only_for_those_who_harmed_the_camps_creature_and_their_fellows",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-steps-place-wins-over-its-updates-recall",
         says: "A step or an order of uses that names a place of its own takes its player there, once, \
                and the recall its quest's update carries stays put.",

@@ -32,6 +32,7 @@ pub mod defenses;
 pub mod effect_rules;
 pub mod escorts;
 pub mod events;
+pub mod fought;
 pub mod gathering;
 pub mod guards;
 pub mod heroes;
@@ -766,6 +767,9 @@ pub struct ContentPack {
     /// The steps and gives that run only for heroes. Not part of the text form: the world
     /// database's steps and gives fill it.
     pub hero_gates: heroes::HeroGates,
+    /// The steps and gives that wait on their player having fought a camp's last creature to die.
+    /// Not part of the text form: the world database's steps and gives fill it.
+    pub fought_gates: fought::FoughtGates,
     /// The gives that move no quest and take any item of a class: the class (a script package, by
     /// number) of each, by the give's place among the quest table's gives. Not part of the text
     /// form: the world database's gives fill it.
@@ -1165,6 +1169,7 @@ impl ContentPack {
             craft_gates: crafts::CraftGates::default(),
             untraining_gates: untraining::UntrainingGates::default(),
             hero_gates: heroes::HeroGates::default(),
+            fought_gates: fought::FoughtGates::default(),
             class_gives: BTreeMap::new(),
             companions: BTreeMap::new(),
             levers: levers::LeverTable::default(),

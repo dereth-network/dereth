@@ -247,6 +247,9 @@ pub fn creature_dies<S: Store>(
         t.facts.group,
     );
     let death_xp = worth_with_effects(s, id, death_xp);
+    if let Some(i) = camp {
+        crate::fought::record(s, i, &parts);
+    }
     paid_in_parts(
         s,
         net,

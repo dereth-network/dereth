@@ -2016,6 +2016,39 @@ fn a_give_requiring_a_quest_never_completed_refuses_one_who_ever_completed_it() 
     assert!(!holds(&h, me, ashes.0));
 }
 
+/// A give that waits on its player having fought a camp's creature takes the item from one who
+/// harmed the camp's last creature to die; from anyone else it is refused and handed back.
+///
+/// Behaviour: server.quests.a-step-waits-on-its-player-having-fought
+#[test]
+fn a_give_waiting_on_a_fight_takes_the_item_only_from_one_who_fought() {
+    use yalain_content::fought::FoughtGates;
+    let mut h = world();
+    let give = taking(Some(ASHES));
+    h.server.quests.gives.push(give.clone());
+    h.server.content.fought_gates = FoughtGates {
+        steps: Vec::new(),
+        gives: vec![(give, vec![0])],
+    };
+    h.server
+        .camps
+        .push(yalain_world::spawn::CampState::default());
+    h.server
+        .talk
+        .lines
+        .push(taking_line(Some(ASHES), TAKING_LINE, 0));
+    let (b, me) = player(&mut h, "one", "Elara");
+    let ashes = hold(&mut h, me, ASHES, 1);
+    h.server.camps[0].fought = vec![me + 1];
+    let (lines, _) = give_ashes(&mut h, b, me, ashes, 1);
+    assert_eq!(lines, vec![PLAIN_REFUSAL], "another fought it");
+    assert!(holds(&h, me, ashes.0), "handed back");
+    h.server.camps[0].fought = vec![me + 1, me];
+    let (lines, _) = give_ashes(&mut h, b, me, ashes, 1);
+    assert_eq!(lines, vec![TAKING_LINE], "fought it");
+    assert!(!holds(&h, me, ashes.0));
+}
+
 /// A give's effects go on the player, the person the caster, then its text.
 ///
 /// Behaviour: server.gives.row-keeps-and-gives
