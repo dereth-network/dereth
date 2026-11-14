@@ -6601,6 +6601,46 @@ fn a_step_may_be_moved_by_a_death_within_some_meters() {
     }
 }
 
+/// A step may be moved by a hurt of a creature of a template within some meters; it reads back as
+/// written, and no meters, 0, a reach that is no number and a camp in place of the meters are
+/// refused.
+#[test]
+fn a_step_may_be_moved_by_a_hurt_within_some_meters() {
+    const BEETLE: u32 = 0x4700_2224;
+    let quests = "town/server/quests/40000088.toml";
+    let mut files = fixture();
+    edit(
+        &mut files,
+        quests,
+        "trigger = { arrive = 0x4700115B }",
+        "trigger = { hurt = 0x47002224, within = 40 }",
+    );
+    assert_eq!(check(&files), []);
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(t.quests.steps[2].trigger, Trigger::HurtNear(BEETLE, 40));
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+        t.quests,
+        "the quest table reads back as written"
+    );
+    for reach in [
+        "",
+        ", within = 0",
+        ", within = 1.5",
+        ", within = \"near\"",
+        ", camp = \"c-1\"",
+    ] {
+        let mut files = fixture();
+        edit(
+            &mut files,
+            quests,
+            "trigger = { arrive = 0x4700115B }",
+            &format!("trigger = {{ hurt = 0x47002224{reach} }}"),
+        );
+        assert!(read(&files).is_err(), "{reach:?}");
+    }
+}
+
 #[test]
 fn plant_rows_compile_to_species_and_crosses() {
     let mut files = fixture();

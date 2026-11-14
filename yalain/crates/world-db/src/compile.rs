@@ -1288,6 +1288,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     // The camp's row comes once every camp has its own.
                     Trigger::KillIn(x, _) => (TableTrigger::KillIn(x, u32::MAX), vec![x]),
                     Trigger::KillNear(x, m) => (TableTrigger::KillNear(x, m), vec![x]),
+                    Trigger::HurtNear(x, m) => (TableTrigger::HurtNear(x, m), vec![x]),
                     Trigger::Done(q) => (TableTrigger::Done(q), Vec::new()),
                     Trigger::Given(q) => (TableTrigger::Given(q), Vec::new()),
                 };

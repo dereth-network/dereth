@@ -1,5 +1,5 @@
 //! Creatures that fight other creatures as the world's friend table rows say, a creature players may
-//! not harm, and a step moved by a death near the player whoever killed it. Fixture: the test
+//! not harm, and steps moved by a death or a hurt near the player whoever did it. Fixture: the test
 //! world's hall beside where a character starts, a camp of made-up attackers and a made-up target
 //! that never moves.
 
@@ -308,16 +308,16 @@ fn a_player_may_not_harm_a_creature_its_row_keeps_players_from() {
 /// Behaviour: server.quests.a-death-nearby-moves-a-step
 #[test]
 fn a_death_within_a_steps_meters_moves_it_for_each_player_that_near_whoever_kills_it() {
-    let (mut h, _, target, near, far, quest) = two_players(true);
+    let (mut h, _, target, near, far, quest) = two_players(true, Trigger::KillNear(TARGET, 30));
     assert!(h.run_until(12_000, |h| dead(h, target)), "struck down");
     h.run(4);
     assert_eq!(phase(&h, near, quest), 2, "near: moved");
     assert_eq!(phase(&h, far, quest), 1, "100 m off: not");
 }
 
-/// The quest's step on a death of the target within 30 m, the quest at its first phase for two
-/// players, the second 100 m off.
-fn two_players(fights: bool) -> (Harness, u64, u64, u64, u64, u32) {
+/// The quest's step on this trigger (a death or a hurt of the target within 30 m), the quest at its
+/// first phase for two players, the second 100 m off.
+fn two_players(fights: bool, trigger: Trigger) -> (Harness, u64, u64, u64, u64, u32) {
     let q = super::kill_quests::quest(3);
     let quest = q.id;
     let (mut h, attacker, target) = world(fights, false, 2_000);
@@ -326,7 +326,7 @@ fn two_players(fights: bool) -> (Harness, u64, u64, u64, u64, u32) {
         key: String::new(),
         quest,
         needs: 1,
-        trigger: Trigger::KillNear(TARGET, 30),
+        trigger,
         tell: None,
         update: Update::Advance(2),
         xp: 0,
@@ -377,7 +377,8 @@ fn phase(h: &Harness, who: u64, quest: u32) -> u32 {
 /// Behaviour: server.quests.a-death-nearby-moves-a-step
 #[test]
 fn a_players_kill_moves_a_death_nearbys_step_and_another_templates_death_does_not() {
-    let (mut h, attacker, target, near, far, quest) = two_players(false);
+    let (mut h, attacker, target, near, far, quest) =
+        two_players(false, Trigger::KillNear(TARGET, 30));
     let clock = h.clock();
     yalain_world::combat::hurt_creature(
         &mut h.server,
@@ -400,4 +401,71 @@ fn a_players_kill_moves_a_death_nearbys_step_and_another_templates_death_does_no
         "the target's, at the killer's hand"
     );
     assert_eq!(phase(&h, far, quest), 1, "100 m off");
+}
+
+/// A step moved by a hurt of the target's template within 30 m moves the quest of a player that
+/// near at the first blow another creature lands on it, long before it falls, and not of a player
+/// farther off.
+/// Behaviour: server.quests.a-hurt-nearby-moves-a-step
+#[test]
+fn a_hurt_within_a_steps_meters_moves_it_for_each_player_that_near_whoever_hurts_it() {
+    let (mut h, _, target, near, far, quest) = two_players(true, Trigger::HurtNear(TARGET, 30));
+    let whole = health(&h, target);
+    assert!(h.run_until(12_000, |h| health(h, target) < whole), "struck");
+    assert_eq!(phase(&h, near, quest), 2, "near: moved at the first hurt");
+    assert_eq!(phase(&h, far, quest), 1, "100 m off: not");
+    assert!(!dead(&h, target), "moved long before it falls");
+}
+
+/// A player's hurt moves a hurt nearby's step as another creature's does, for the players near and
+/// only once it takes health: a blow that takes none, and a hurt of a creature of another template
+/// there, move nothing. A player at the step's phase only after the first hurt, or come near only
+/// after it, moves at the next.
+/// Behaviour: server.quests.a-hurt-nearby-moves-a-step
+#[test]
+fn a_players_hurt_moves_a_hurt_nearbys_step_once_it_takes_health_and_moves_latecomers_at_the_next()
+{
+    let (mut h, attacker, target, near, far, quest) =
+        two_players(false, Trigger::HurtNear(TARGET, 30));
+    let hurt = |h: &mut Harness, id: u64, damage: i32| {
+        let clock = h.clock();
+        yalain_world::combat::hurt_creature(&mut h.server, &mut h.net, id, near, damage, clock);
+        h.run(4);
+    };
+    hurt(&mut h, attacker, 100);
+    assert_eq!(phase(&h, near, quest), 1, "another template's hurt");
+    hurt(&mut h, target, 0);
+    assert_eq!(phase(&h, near, quest), 1, "a blow that takes no health");
+    hurt(&mut h, target, 100);
+    assert!(!dead(&h, target));
+    assert_eq!(
+        phase(&h, near, quest),
+        2,
+        "the target's, at its hurter's hand"
+    );
+    assert_eq!(phase(&h, far, quest), 1, "100 m off");
+    // The one far off comes near, and the one near is put back at the step's phase.
+    for p in h.server.players.values_mut() {
+        if p.character == far {
+            p.position.origin[1] += 100.0;
+        }
+        if p.character == near {
+            p.play.quests.retain(|q| q.quest != quest);
+            p.play.quests.push(QuestState {
+                quest,
+                status: status::UNDERWAY,
+                phase: 1,
+                started: 1_000_000,
+                updated: 1_000_000,
+            });
+        }
+    }
+    hurt(&mut h, target, 100);
+    assert!(!dead(&h, target));
+    assert_eq!(phase(&h, far, quest), 2, "come near after the first hurt");
+    assert_eq!(
+        phase(&h, near, quest),
+        2,
+        "at the phase after the first hurt"
+    );
 }

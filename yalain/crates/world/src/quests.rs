@@ -108,6 +108,12 @@
 //! its quest by an area effect of 150 m on the players there, and players' guides say only those
 //! inside saw it move.
 //!
+//! **Hurts nearby.** A step may be moved likewise by a creature's hurt within some meters of the
+//! player, whoever hurt it (another creature too), at each hurt that takes health: a player at the
+//! step's phase is moved at the first hurt it is that near for. 2017: Destroy Saelar moved on for
+//! both players near the archon 1 to 2 s after he was first hurt, though neither had struck him,
+//! in both recordings of it.
+//!
 //! **Hidden quests.** A quest the world keeps without showing it (its definition shows none:
 //! no description, or it is set not to be shown) is held and moved on like any other, but never
 //! listed at entry and never told in an update; a use that needs one and finds it not where it
@@ -849,6 +855,7 @@ fn run_triggered<S: Store>(
             | Trigger::Kill(_)
             | Trigger::KillIn(..)
             | Trigger::KillNear(..)
+            | Trigger::HurtNear(..)
     ) && by.is_some();
     let used = matches!(trigger, Trigger::Use(_));
     // A use runs one step of the server's errands: the person's next comes at the next use.
@@ -1236,35 +1243,72 @@ pub fn died_near<S: Store>(
     at: &StoredPosition,
     clock: Clock,
 ) {
+    let reaches = near_steps(s, |t| match t {
+        Trigger::KillNear(t, m) if t == template => Some(m),
+        _ => None,
+    });
+    for meters in reaches {
+        let trigger = Trigger::KillNear(template, meters);
+        runs_near(s, net, (creature, trigger), at, meters, clock);
+    }
+}
+
+/// A creature was hurt (it lost health): the steps a hurt of its template within some meters
+/// triggers run for each player that far from it or nearer, whoever hurt it: in the world, out of
+/// portal space and alive.
+pub fn hurt_near<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    (creature, template): (u64, u32),
+    at: &StoredPosition,
+    clock: Clock,
+) {
+    let reaches = near_steps(s, |t| match t {
+        Trigger::HurtNear(t, m) if t == template => Some(m),
+        _ => None,
+    });
+    for meters in reaches {
+        let trigger = Trigger::HurtNear(template, meters);
+        runs_near(s, net, (creature, trigger), at, meters, clock);
+    }
+}
+
+/// The meters of the steps whose trigger this reads, each once, nearest first.
+fn near_steps<S: Store>(s: &Server<S>, meters: impl Fn(Trigger) -> Option<u32>) -> Vec<u32> {
     let mut reaches: Vec<u32> = s
         .quests
         .steps
         .iter()
-        .filter_map(|st| match st.trigger {
-            Trigger::KillNear(t, m) if t == template => Some(m),
-            _ => None,
-        })
+        .filter_map(|st| meters(st.trigger))
         .collect();
     reaches.sort_unstable();
     reaches.dedup();
-    for meters in reaches {
-        #[allow(clippy::cast_precision_loss)]
-        let within = meters as f32;
-        let near: Vec<ConnId> = s
-            .players
-            .iter()
-            .filter(|(_, p)| p.scene_drawn && p.trip.is_none() && !crate::combat::is_dead(p))
-            .filter(|(_, p)| {
-                crate::presence::distance(at, &p.position).is_some_and(|d| d <= within)
-            })
-            .map(|(w, _)| *w)
-            .collect();
-        let trigger = Trigger::KillNear(template, meters);
-        for world in near {
-            let mut moved = Vec::new();
-            let who = Some((creature, None));
-            run_triggered(s, net, world, trigger, who, None, clock, &mut moved);
-        }
+    reaches
+}
+
+/// Runs the steps of a trigger for each player within some meters of a place: in the world, out of
+/// portal space and alive.
+fn runs_near<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    (creature, trigger): (u64, Trigger),
+    at: &StoredPosition,
+    meters: u32,
+    clock: Clock,
+) {
+    #[allow(clippy::cast_precision_loss)]
+    let within = meters as f32;
+    let near: Vec<ConnId> = s
+        .players
+        .iter()
+        .filter(|(_, p)| p.scene_drawn && p.trip.is_none() && !crate::combat::is_dead(p))
+        .filter(|(_, p)| crate::presence::distance(at, &p.position).is_some_and(|d| d <= within))
+        .map(|(w, _)| *w)
+        .collect();
+    for world in near {
+        let mut moved = Vec::new();
+        let who = Some((creature, None));
+        run_triggered(s, net, world, trigger, who, None, clock, &mut moved);
     }
 }
 

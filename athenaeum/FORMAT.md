@@ -426,6 +426,7 @@ and has it again on entering while the quest still wants it. One follows a playe
 | `{ kill = T }` | kills a creature of template T |
 | `{ kill = T, camp = K }` | kills a creature of template T that the one camp K made (`key`, or `key@XXYY`) |
 | `{ kill = T, within = M }` | is within M meters (a whole number above 0) of a creature of template T as it dies, whoever kills it, in the world, out of portal space and alive |
+| `{ hurt = T, within = M }` | is within M meters (a whole number above 0) of a creature of template T as it loses health, whoever hurts it, in the world, out of portal space and alive; a player at the step's phase moves at the first such hurt |
 | `{ done = Q }` | completes quest Q |
 | `{ given = Q }` | is given quest Q, shown or kept hidden |
 

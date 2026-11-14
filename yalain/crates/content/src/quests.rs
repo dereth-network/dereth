@@ -238,6 +238,9 @@ pub enum Trigger {
     /// A creature of a template dying within some meters of the player, whoever kills it: its
     /// template, and the meters.
     KillNear(u32, u32),
+    /// A creature of a template hurt within some meters of the player, whoever hurts it: its
+    /// template, and the meters.
+    HurtNear(u32, u32),
     /// Completing a quest.
     Done(u32),
     /// Being given a quest, shown or hidden.
@@ -641,6 +644,7 @@ impl QuestTable {
                 Trigger::Kill(t) => format!("kill:{t:08X}"),
                 Trigger::KillIn(t, c) => format!("killin:{t:08X}:{c}"),
                 Trigger::KillNear(t, m) => format!("killnear:{t:08X}:{m}"),
+                Trigger::HurtNear(t, m) => format!("hurtnear:{t:08X}:{m}"),
                 Trigger::Done(q) => format!("done:{q:08X}"),
                 Trigger::Given(q) => format!("given:{q:08X}"),
             };
@@ -929,6 +933,13 @@ impl QuestTable {
                             })?;
                             let m = m.parse().map_err(|e| at(format!("meters: {e}")))?;
                             Trigger::KillNear(hex(t).map_err(at)?, m)
+                        }
+                        "hurtnear" => {
+                            let (t, m) = tpl.split_once(':').ok_or_else(|| {
+                                at(format!("hurtnear takes TEMPLATE:METERS, not {tpl}"))
+                            })?;
+                            let m = m.parse().map_err(|e| at(format!("meters: {e}")))?;
+                            Trigger::HurtNear(hex(t).map_err(at)?, m)
                         }
                         "done" => Trigger::Done(hex(tpl).map_err(at)?),
                         "given" => Trigger::Given(hex(tpl).map_err(at)?),

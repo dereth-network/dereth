@@ -479,6 +479,8 @@ pub enum Trigger {
     KillIn(u32, String),
     /// A creature of the template dying within some meters of the player, whoever kills it.
     KillNear(u32, u32),
+    /// A creature of the template hurt within some meters of the player, whoever hurts it.
+    HurtNear(u32, u32),
     Done(u32),
     Given(u32),
 }
@@ -5346,7 +5348,7 @@ impl<'a> Fields<'a> {
         }
         self.typed(
             name,
-            "one of { use = T }, { use = ITEM, on = TARGET }, { give = ITEM, to = TARGET }, { give_class = CLASS, to = TARGET }, { arrive = T }, { arrive = T, from = OBJECT }, { take = T }, { kill = T }, { kill = T, camp = KEY }, { kill = T, within = METERS }, { done = Q }, { given = Q }",
+            "one of { use = T }, { use = ITEM, on = TARGET }, { give = ITEM, to = TARGET }, { give_class = CLASS, to = TARGET }, { arrive = T }, { arrive = T, from = OBJECT }, { take = T }, { kill = T }, { kill = T, camp = KEY }, { kill = T, within = METERS }, { hurt = T, within = METERS }, { done = Q }, { given = Q }",
             |v| {
                 let t = v.as_table()?;
                 if let (2, Some(item), Some(on)) = (t.len(), t.get("use"), t.get("on")) {
@@ -5369,6 +5371,10 @@ impl<'a> Fields<'a> {
                 if let (2, Some(tpl), Some(m)) = (t.len(), t.get("kill"), t.get("within")) {
                     let m = as_u32(m).filter(|m| *m > 0)?;
                     return Some(Trigger::KillNear(as_u32(tpl)?, m));
+                }
+                if let (2, Some(tpl), Some(m)) = (t.len(), t.get("hurt"), t.get("within")) {
+                    let m = as_u32(m).filter(|m| *m > 0)?;
+                    return Some(Trigger::HurtNear(as_u32(tpl)?, m));
                 }
                 if t.len() != 1 {
                     return None;

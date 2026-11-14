@@ -13285,6 +13285,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-hurt-nearby-moves-a-step",
+        says: "A step moved by a hurt of a template within some meters moves the quest of each player \
+               that near, out of portal space and alive, at a hurt that takes health, whoever hurts \
+               the creature, another creature or a player: at the first such hurt long before it \
+               falls, and for one at the step's phase or come near only later, at the next; not of a \
+               player farther off, not at a blow that takes nothing, and not at another template's \
+               hurt.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-HURT-NEARBY"),
+        station: "yalain-testkit::cpu::play::creature_foes::a_hurt_within_a_steps_meters_moves_it_for_each_player_that_near_whoever_hurts_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-kill-advances-from-the-phase-before",
         says: "An effect that advances a quest to a phase moves it there only from the phase \
                before, and one that completes it only from its last phase; from any other phase \

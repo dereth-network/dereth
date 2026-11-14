@@ -1680,7 +1680,13 @@ fn hurt_creature_noticed<S: Store>(
             .retain(|(when, _, _)| now - when < crate::ai::HARM_REMEMBERED);
         c.harm.push((now, by, noticed));
     }
-    if t.health == 0 {
+    // Health taken moves the steps of a hurt nearby, ahead of its death's.
+    let hurt_at = t.at.filter(|_| taken > 0 && t.creature.is_some());
+    let (template, dead) = (t.template, t.health == 0);
+    if let Some(at) = hurt_at {
+        crate::quests::hurt_near(s, net, (id, template), &at, clock);
+    }
+    if dead {
         crate::death::creature_dies(s, net, id, by, clock);
     } else {
         wounded(s, net, id, share, was);
