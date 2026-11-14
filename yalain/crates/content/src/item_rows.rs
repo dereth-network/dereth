@@ -1,8 +1,9 @@
 //! What the world database says of items beyond their templates: what an item's use does where its
 //! template names nothing, what a book, card or person shows when used, what every new character
-//! is given as it first enters, and what an item used on another makes; the one of several items
-//! quest steps and gives hand out by chance; the states the world's objects of some templates
-//! hold, which items given them change, and the orders of uses judged against those states.
+//! is given as it first enters, how long an item lasts, and what an item used on another makes;
+//! the one of several items quest steps and gives hand out by chance; the states the world's
+//! objects of some templates hold, which items given them change, and the orders of uses judged
+//! against those states.
 
 use std::collections::BTreeMap;
 
@@ -96,6 +97,8 @@ pub struct ItemRows {
     pub books: BTreeMap<u32, Shows>,
     /// What every new character is given as it first enters: template, count.
     pub start_items: BTreeMap<u32, u32>,
+    /// How long items of some templates last from when each is made, in seconds, by template.
+    pub lives: BTreeMap<u32, u32>,
     /// What items used on others make, in the rows' order.
     pub interactions: Vec<Interaction>,
     /// The states objects of some templates hold, in the rows' order.

@@ -53,7 +53,7 @@ world.lock                         ids given to authored rows, kept across build
 <pack>/server/treasure_looks.toml  [[treasure_look]]
 <pack>/server/treasure_potions.toml [[treasure_potion]]
 <pack>/server/treasure_families.toml [[treasure_family]]
-<pack>/server/items.toml           [[item_use]], [[book]], [[start_item]], [[interaction]]
+<pack>/server/items.toml           [[item_use]], [[book]], [[start_item]], [[item_life]], [[interaction]]
 <pack>/server/puzzles.toml         [[object_states]], [[sequence]], [[lever]], [[offering]], [[guarded]], [[shifting]], [[hazard]], [[wanting]]
 <pack>/server/creatures.toml       [[concealing]], [[npc_table]], [[friend_table]], [[creature]], [[safe_passage]], [[creature_effect]], [[defense]]
 ```
@@ -1185,6 +1185,22 @@ What every new character is given as it first enters, beside its race's starting
 |---|---|---|
 | `template` | required | the item's template |
 | `count` | | above 0; 1 when left out |
+| `prov` | required | where it came from |
+
+#### `[[item_life]]`
+
+How long an item of a template lasts, where its template says nothing: a quest's seal that survives
+in a pack only so long after it is picked up. Each item of it is gone `lasts` seconds after it was
+made (given, bought, found or dropped), by the calendar, its holder in the world or not; a piece split
+from a stack keeps the stack's end. At the world's step after its end, one in a pack, worn or not, is
+taken out as an item used up, and one lying in the world goes from it; one in a corpse or a chest, or
+kept by a broker, goes once it comes out. A character entering the world with one whose end passed
+while it was away does not bring it in. One row per template.
+
+| field | | meaning |
+|---|---|---|
+| `template` | required | the item's template |
+| `lasts` | required | seconds, above 0 |
 | `prov` | required | where it came from |
 
 #### `[[interaction]]`

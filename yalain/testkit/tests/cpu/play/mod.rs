@@ -52,6 +52,7 @@ mod holds;
 mod integrity;
 mod interactions;
 mod item_effects;
+mod item_lives;
 mod items;
 mod kill_quests;
 mod kingdom_points;

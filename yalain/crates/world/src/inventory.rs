@@ -734,6 +734,7 @@ pub fn make_item<S: Store>(
     item.quantity = quantity.max(1);
     item.value = value;
     s.things.insert(item);
+    crate::item_lives::made(s, id);
     Some(id)
 }
 
@@ -2180,6 +2181,7 @@ pub fn enter<S: Store>(s: &mut Server<S>, world: ConnId) -> Vec<u64> {
             item.wielded = Some((owner, crate::equip::PRIMARY_HAND));
         }
         s.things.insert(item);
+        crate::item_lives::came_back(s, h.id);
         ids.push(h.id);
     }
     ids

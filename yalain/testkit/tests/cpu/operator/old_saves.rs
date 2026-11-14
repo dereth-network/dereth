@@ -134,6 +134,26 @@ const PLAY_24: &str = concat!(
     "0000000100000007000000746865204f6c64070000000100000002000000020000004a00008016000040",
 );
 
+/// A play state at the encoding's version 25: version 24's, waiting on two steps.
+const PLAY_25: &str = concat!(
+    "1900000009000000000000001900000002000000010000000000318101000047000000000000000025000000",
+    "02000000000031810200004701000000100000000100000001000000010000400000001002000000e8030000",
+    "000000004c0400000000000001000000840000000100000003000000050000000100000002000000bc020000",
+    "000000000100000001000000010000000400007000000000a3e1a14100007042070000000000000000003242",
+    "010000000800000000000000090000000a000000000000000300000004000000000000000050534001000000",
+    "0100006f0200000003000000000000000400000000000000010000000200006f000000000000294002000000",
+    "ffffffff030000000100000001000010000000000020564001000000840000000000000000a0504001000000",
+    "020000000000318107000000050000004d616b657229000000010000010000803f0000004000004040010000",
+    "00010000700000384101000000ff3f000005000000090000000200007000000642020000250000403f030000",
+    "00f40100001f0000000000803e110000000300000008000000020000000100000004000000030000005a0000",
+    "00020000000600000001000000030000700000b441341200000000003ff4010000090000004f6c6420776f72",
+    "6473050000004d616b65720600000001000020010000000000803e020000000000003f000000000000000001",
+    "0000000100002501000000000030210100000005000070000048410000008093dca441030000008051010000",
+    "0000000100000007000000746865204f6c64070000000100000002000000020000004a000080160000400200",
+    "00007f0200400d0000007363726f6c6c2d616e6b6f726f00f15365000000007f020040090000007363726f6c",
+    "6c2d7a75b8fc536500000000",
+);
+
 /// The consignments' record with its one sale's item at the encoding's version 20.
 const MARKET_20: &str = concat!(
     "020200000001000000010000000100000000003021010000000000f0400300006f0400006f02000000000031",
@@ -199,9 +219,10 @@ fn item() -> ItemState {
             }),
             hand: 1,
             suffix: Some(0x2500_0001),
-            // Added since that release: bound to no one, not attuned.
+            // Added since that release: bound to no one, not attuned, no end.
             bound_to: 0,
             attuned: false,
+            ends: None,
         },
         enchantments: vec![(0x7000_0003, 22.5)],
         // Added since that release: no effect of a skill's on it.
@@ -550,6 +571,63 @@ fn a_play_state_kept_at_version_twenty_four_reads_whole_waiting_on_no_step() {
         PlayState::from_bytes(&waits.to_bytes()).expect("reads"),
         waits,
         "the waits kept"
+    );
+}
+
+/// A play state kept at the version before an item's end was kept reads whole, its items with no
+/// end; what this build keeps of it reads the same, and so does one whose item has an end.
+/// Behaviour: server.operator.a-save-of-the-last-release-reads-whole
+#[test]
+fn a_play_state_kept_at_version_twenty_five_reads_whole_its_items_with_no_end() {
+    let old = bytes(PLAY_25);
+    assert_eq!(
+        old[..4],
+        25u32.to_le_bytes(),
+        "the bytes are of that version"
+    );
+    let read = PlayState::from_bytes(&old).expect("reads");
+    assert_eq!(
+        read,
+        PlayState {
+            clothes_made: true,
+            popups_shown: Moment::LevelUp.mark(),
+            completed_before: vec![0x8000_004A, 0x4000_0016],
+            step_waits: vec![
+                StepWait {
+                    quest: 0x4000_027F,
+                    key: "scroll-ankoro".into(),
+                    ran: 1_700_000_000,
+                },
+                StepWait {
+                    quest: 0x4000_027F,
+                    key: "scroll-zu".into(),
+                    ran: 1_700_003_000,
+                },
+            ],
+            ..play_20()
+        }
+    );
+    assert!(
+        read.item_states.iter().all(|k| k.own.ends.is_none()),
+        "no end"
+    );
+    let kept = read.to_bytes();
+    assert_ne!(kept, old, "kept at this build's own version");
+    assert_eq!(PlayState::from_bytes(&kept).expect("reads again"), read);
+    let ends = PlayState {
+        item_states: vec![ItemState {
+            own: Own {
+                ends: Some(1.25e8),
+                ..item_20().own
+            },
+            ..item_20()
+        }],
+        ..read
+    };
+    assert_eq!(
+        PlayState::from_bytes(&ends.to_bytes()).expect("reads"),
+        ends,
+        "the end kept"
     );
 }
 

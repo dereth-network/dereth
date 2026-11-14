@@ -44,7 +44,8 @@
 //! <pack>/server/treasure_looks.toml    [[treasure_look]]
 //! <pack>/server/treasure_potions.toml  [[treasure_potion]]
 //! <pack>/server/treasure_families.toml [[treasure_family]]
-//! <pack>/server/items.toml       [[item_use]], [[book]], [[start_item]], [[interaction]]
+//! <pack>/server/items.toml       [[item_use]], [[book]], [[start_item]], [[item_life]],
+//!                                [[interaction]]
 //! <pack>/server/puzzles.toml     [[object_states]], [[sequence]], [[lever]], [[offering]],
 //!                                [[guarded]], [[shifting]], [[hazard]],
 //!                                [[wanting]]

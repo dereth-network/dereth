@@ -1585,6 +1585,11 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     t.items.start_items.insert(r.template, r.count);
                 }
             }
+            Row::ItemLife(r) => {
+                if cx.template(l, "template", r.template) {
+                    t.items.lives.insert(r.template, r.lasts);
+                }
+            }
             Row::Interaction(r) => {
                 use yalain_content::item_rows::On;
                 let on = match r.on {

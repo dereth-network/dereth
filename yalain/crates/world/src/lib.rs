@@ -111,6 +111,7 @@ pub mod guards;
 pub mod hazards;
 pub mod holding;
 pub mod inventory;
+pub mod item_lives;
 pub mod item_use;
 pub mod kingdom_skills;
 pub mod kingdoms;
@@ -447,6 +448,8 @@ pub struct Server<S: Store> {
     pub wants: wanting::Wants,
     /// The hazards' reaches each player stands within.
     pub hazards: hazards::Hazards,
+    /// The items in the world that last only a while.
+    pub item_lives: item_lives::Lives,
     /// What objects hold of the effects uses of items on them left.
     pub held_here: usable::interactions::HeldHere,
     /// The defended devices standing, and what each keeps about it.
@@ -897,6 +900,7 @@ impl<S: Store> Server<S> {
             shifts: shifting::Shifts::default(),
             wants: wanting::Wants::default(),
             hazards: hazards::Hazards::default(),
+            item_lives: item_lives::Lives::default(),
             held_here: HashMap::new(),
             defenses: defenses::Defenses::default(),
             crafting: craft::Crafting::default(),
@@ -1238,6 +1242,7 @@ impl<S: Store> Server<S> {
             guards::step(self, net, clock);
             shifting::step(self, net, clock);
             defenses::step(self, net, clock);
+            item_lives::step(self, net);
         }
         self.saves.piece_begins();
         // A swing comes when it is due, not at the world's next step (2017: 1,880 of 2,881 sword

@@ -148,6 +148,9 @@ pub fn item(l: &Located) -> Option<Item> {
         Row::StartItem(r) => Item::StartItem {
             template: r.template,
         },
+        Row::ItemLife(r) => Item::ItemLife {
+            template: r.template,
+        },
         Row::Interaction(r) => Item::Interaction { key: r.key.clone() },
         Row::ObjectStates(r) => Item::ObjectStates {
             key: r.states.key.clone(),
@@ -245,6 +248,7 @@ fn value(row: &Row) -> String {
         Row::ItemUse(x) => x.prov = crate::rows::Prov::default(),
         Row::Book(x) => x.prov = crate::rows::Prov::default(),
         Row::StartItem(x) => x.prov = crate::rows::Prov::default(),
+        Row::ItemLife(x) => x.prov = crate::rows::Prov::default(),
         Row::Interaction(x) => x.prov = crate::rows::Prov::default(),
         Row::ObjectStates(x) => x.prov = crate::rows::Prov::default(),
         Row::Sequence(x) => x.prov = crate::rows::Prov::default(),

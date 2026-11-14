@@ -4988,6 +4988,71 @@ fn item_use_book_and_start_item_rows_compile_and_bad_ones_are_problems() {
     }
 }
 
+/// An item life row gives a template its lifetime in seconds: compiled by template, one row a
+/// template, a template the install lacks a problem, and a lifetime of 0 or none refused.
+/// Behaviour: server.content.item-life-rows
+#[test]
+fn item_life_rows_compile_by_template_and_bad_ones_are_problems() {
+    let mut files = fixture();
+    files.insert(
+        "town/server/items.toml".into(),
+        "[[item_life]]\ntemplate = 0x4700115B\nlasts = 14400\nprov = { from = \"authored\" }\n\n\
+         [[item_life]]\ntemplate = 0x47002224\nlasts = 1\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.items
+            .lives
+            .iter()
+            .map(|(t, n)| (*t, *n))
+            .collect::<Vec<_>>(),
+        [(0x4700_115B, 14_400), (0x4700_2224, 1)]
+    );
+
+    let mut lost = fixture();
+    lost.insert(
+        "town/server/items.toml".into(),
+        "[[item_life]]\ntemplate = 0x47009999\nlasts = 60\nprov = { from = \"authored\" }\n".into(),
+    );
+    let problems = compile(&merge(&read(&lost).unwrap()).unwrap(), &Fake::new()).unwrap_err();
+    assert!(
+        problems.iter().any(|p| p
+            .to_string()
+            .contains("template 47009999 is not in the install")),
+        "{problems:?}"
+    );
+
+    let mut twice = files.clone();
+    twice.insert(
+        "town/server/more.toml".into(),
+        "[[item_life]]\ntemplate = 0x4700115B\nlasts = 60\nprov = { from = \"authored\" }\n".into(),
+    );
+    assert!(
+        check(&twice)
+            .iter()
+            .any(|p| p.message.contains("set twice")),
+        "{:?}",
+        check(&twice)
+    );
+
+    for bad in [
+        "template = 0x4700115B",
+        "template = 0x4700115B\nlasts = 0",
+        "template = 0x4700115B\nlasts = -5",
+        "lasts = 60",
+        "template = 0x4700115B\nlasts = 60\nfor = 60",
+    ] {
+        let mut f = fixture();
+        f.insert(
+            "town/server/items.toml".into(),
+            format!("[[item_life]]\n{bad}\nprov = {{ from = \"authored\" }}\n"),
+        );
+        assert!(read(&f).is_err(), "{bad}");
+    }
+}
+
 /// An interaction row may instead, or as well, name effects its use puts on a camp's living
 /// creatures, effects the object used on holds after, and a line that object says to those near:
 /// the camp resolved to its row; a camp the world doesn't serve a problem; their shapes held.

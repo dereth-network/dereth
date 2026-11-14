@@ -139,7 +139,7 @@ impl Dialect for Ac2 {
          treasure_value <level>, treasure_rules, treasure_sort <sort>, treasure_word <sort> <word>, \
          treasure_look <template>, treasure_potion <kind>, \
          treasure_family <sort> <order>, item_use <template>, book <template>, \
-         start_item <template>, interaction <key>, recipe <id>, combination <key>, object_states <key>, \
+         start_item <template>, item_life <template>, interaction <key>, recipe <id>, combination <key>, object_states <key>, \
          sequence <key>, concealing <effect> <class|any>, npc_table <name>, \
          friend_table <table>, creature <template>, or landblock <XXYY>";
     const NAMES_BASE: bool = true;
@@ -254,6 +254,8 @@ pub enum Item {
     Book { template: u32 },
     /// What every new character is given as it first enters, by the template.
     StartItem { template: u32 },
+    /// How long an item lasts from when it is made, by the template.
+    ItemLife { template: u32 },
     /// What an item used on another makes, by its key.
     Interaction { key: String },
     /// The states objects of some templates hold, by the row's key.
@@ -425,6 +427,9 @@ impl Item {
             ["start_item", template] => Self::StartItem {
                 template: number(template)?,
             },
+            ["item_life", template] => Self::ItemLife {
+                template: number(template)?,
+            },
             ["interaction", key] => Self::Interaction { key: symbol(key)? },
             ["object_states", key] => Self::ObjectStates { key: symbol(key)? },
             ["sequence", key] => Self::Sequence { key: symbol(key)? },
@@ -543,6 +548,7 @@ impl fmt::Display for Item {
             Self::ItemUse { template } => write!(f, "item_use {template:#010x}"),
             Self::Book { template } => write!(f, "book {template:#010x}"),
             Self::StartItem { template } => write!(f, "start_item {template:#010x}"),
+            Self::ItemLife { template } => write!(f, "item_life {template:#010x}"),
             Self::Interaction { key } => write!(f, "interaction {key}"),
             Self::ObjectStates { key } => write!(f, "object_states {key}"),
             Self::Sequence { key } => write!(f, "sequence {key}"),

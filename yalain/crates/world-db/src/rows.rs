@@ -732,6 +732,7 @@ pub enum Row {
     ItemUse(ItemUse),
     Book(Book),
     StartItem(StartItem),
+    ItemLife(ItemLife),
     Interaction(Interaction),
     ObjectStates(ObjectStatesRow),
     Sequence(SequenceRow),
@@ -1252,6 +1253,14 @@ pub struct StartItem {
     pub prov: Prov,
 }
 
+/// `[[item_life]]`: how long an item of a template lasts from when it is made, in seconds.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ItemLife {
+    pub template: u32,
+    pub lasts: u32,
+    pub prov: Prov,
+}
+
 /// `[[interaction]]`: what an item used on another makes, where the item's interaction table lets
 /// it be used so and the table's outcome names nothing made: the item used, what it is used on (a
 /// template, or a class the table names), and what it gives the user, how many, and instead where
@@ -1498,6 +1507,7 @@ impl Row {
             Self::ItemUse(_) => "item_use",
             Self::Book(_) => "book",
             Self::StartItem(_) => "start_item",
+            Self::ItemLife(_) => "item_life",
             Self::Interaction(_) => "interaction",
             Self::ObjectStates(_) => "object_states",
             Self::Sequence(_) => "sequence",
@@ -1572,6 +1582,7 @@ impl Row {
             Self::ItemUse(r) => Some(&r.prov),
             Self::Book(r) => Some(&r.prov),
             Self::StartItem(r) => Some(&r.prov),
+            Self::ItemLife(r) => Some(&r.prov),
             Self::Interaction(r) => Some(&r.prov),
             Self::ObjectStates(r) => Some(&r.prov),
             Self::Sequence(r) => Some(&r.prov),
@@ -1602,7 +1613,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 68] = [
+pub const KINDS: [&str; 69] = [
     "object",
     "camp",
     "loot",
@@ -1647,6 +1658,7 @@ pub const KINDS: [&str; 68] = [
     "item_use",
     "book",
     "start_item",
+    "item_life",
     "interaction",
     "object_states",
     "sequence",
@@ -1674,7 +1686,7 @@ pub const KINDS: [&str; 68] = [
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 68] = [
+pub const FIELDS: [(&str, &[&str]); 69] = [
     (
         "object",
         &[
@@ -2106,6 +2118,7 @@ pub const FIELDS: [(&str, &[&str]); 68] = [
     ),
     ("book", &["template", "table", "picture", "prov"]),
     ("start_item", &["template", "count", "prov"]),
+    ("item_life", &["template", "lasts", "prov"]),
     (
         "interaction",
         &[
@@ -3123,6 +3136,16 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             Row::StartItem(StartItem {
                 template,
                 count,
+                prov: f.req_prov()?,
+            })
+        }
+        "item_life" => {
+            let template = f.req_id("template")?;
+            let lasts = f.req_u32("lasts")?;
+            let lasts = f.held("lasts", lasts, lasts > 0, "above 0")?;
+            Row::ItemLife(ItemLife {
+                template,
+                lasts,
                 prov: f.req_prov()?,
             })
         }

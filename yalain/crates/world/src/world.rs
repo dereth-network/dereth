@@ -410,7 +410,9 @@ pub fn enter<S: Store>(
             return Err(CharacterRefused::ERROR);
         }
     };
-    let (mut st, play) = kept_for_entry(s, &c)?;
+    let (mut st, mut play) = kept_for_entry(s, &c)?;
+    // What lasted only a while and ran out while it was away stays behind.
+    crate::item_lives::at_entry(&mut play, net.game_time(clock.local));
     let fresh = first_state(s, &c);
     if st.qualities.is_empty() {
         st.qualities = fresh.qualities;

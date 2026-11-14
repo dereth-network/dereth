@@ -71,6 +71,8 @@ pub struct Own {
     pub bound_to: u64,
     /// A recipe attuned it to whoever holds it.
     pub attuned: bool,
+    /// When it is gone, made of a template a world's row gives a lifetime (game time).
+    pub ends: Option<f64>,
 }
 
 /// What a treasure item drew of its look: the appearance table, and each key's value (no key, 0,
@@ -113,6 +115,7 @@ impl Own {
             && self.suffix.is_none()
             && self.bound_to == 0
             && !self.attuned
+            && self.ends.is_none()
     }
 }
 

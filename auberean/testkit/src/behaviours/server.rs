@@ -1691,6 +1691,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.content.item-life-rows",
+        says: "An `[[item_life]]` row gives a template a lifetime, seconds above 0: it compiles by \
+               template, one row a template; a template the install lacks, and a row with no lifetime \
+               or one of 0, are refused.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-LIFE-ROWS"),
+        station: "yalain-world-db::cpu::database::item_life_rows_compile_by_template_and_bad_ones_are_problems",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.content.take-gates-of-classes",
         says: "The items whose classes name a quest for taking them read with it.",
         since: RETAIL,
@@ -7179,6 +7189,36 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-ITEM-FOCUS"),
         station: "yalain-testkit::cpu::play::items::an_eggs_use_takes_five_from_the_focus",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.items.an-item-whose-end-passed-while-away-stays-behind",
+        says: "A character entering the world again does not bring in an item of a template with a \
+               lifetime whose end passed while it was away: its pack never lists it and its client is \
+               never shown it. One whose end has not come comes back with that end and goes at it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-LIFE-AWAY"),
+        station: "yalain-testkit::cpu::play::item_lives::an_item_whose_end_passed_while_its_holder_was_away_is_not_brought_back",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.items.an-item-with-a-lifetime-is-gone-from-a-pack-at-its-end",
+        says: "An item of a template a world's row gives a lifetime has its end that many seconds \
+               after it was made; it stays in its holder's pack until then, and at the world's step \
+               after it is taken out, the client told it is gone from the pack and forgetting it. An \
+               item of a template with no lifetime stays.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-LIFE-PACK"),
+        station: "yalain-testkit::cpu::play::item_lives::an_item_with_a_lifetime_stays_in_its_pack_until_its_end_and_is_gone_after",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.items.an-item-with-a-lifetime-is-gone-from-where-it-lies-at-its-end",
+        says: "An item with a lifetime lying in the world is gone from it at the world's step after \
+               its end, every client that sees it told to forget it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-LIFE-GROUND"),
+        station: "yalain-testkit::cpu::play::item_lives::an_item_with_a_lifetime_lying_in_the_world_is_gone_from_it_at_its_end",
         tier: Tier::Cpu,
     },
     behaviour! {
