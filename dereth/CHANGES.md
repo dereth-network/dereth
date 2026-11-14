@@ -13,6 +13,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+
+## 0.4.18 (2026-11-14)
 - Remaster: faster with lots of plants in view.
 - Remaster: smoother haze at dawn, with no hard-edged shadows in it.
 - Remaster: switching the art pack no longer leaves trees missing or the lamps off.
