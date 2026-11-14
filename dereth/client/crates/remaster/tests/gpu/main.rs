@@ -8,6 +8,7 @@
 // The tests' sizes and indices are small and bounded.
 #![allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
 
+mod blended;
 mod instances;
 mod sway;
 mod trees;

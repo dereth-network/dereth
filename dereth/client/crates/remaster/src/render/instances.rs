@@ -7,10 +7,11 @@
 //! nothing a part a frame.
 //!
 //! **Which parts.** A block's part is chosen on the device when it has at most [`MAX_LEVELS`]
-//! levels, none of them turns toward the viewer, and each of its items is drawn in the G-buffer's
-//! culled buckets. Everything else (a part with a blended surface or a cut-out's edges, which the
-//! forward and edge passes draw far to near; one that turns; a room's statics) is chosen on the
-//! processor as before ([`super::lod`]); the processor's walks of a block take only its other parts
+//! levels and none of them turns toward the viewer: its items drawn in the G-buffer's culled
+//! buckets, its cut-outs' edges, and its blended and added surfaces where the device blends a
+//! list of both in one pipeline (it takes a blend's factors from a second output). Everything else
+//! (one that turns; a room's statics; the objects) is chosen on the processor as before
+//! ([`super::lod`]); the processor's walks of a block take only its other parts
 //! ([`DeviceParts::cpu_parts`]).
 //!
 //! **The same choice.** A part's level, fade and impostor share are the processor's for it
@@ -24,10 +25,14 @@
 //! scale, and its distance and pick. A part is seen where its block is drawn and its sphere stands
 //! in the view, or in the mirrored view while the water's mirror draws; its card only in the view.
 //!
-//! **The lists.** Each part's commands follow the processor's in the G-buffer's two culled
-//! buckets, and its first level's go into each cascade it reaches as it is drawn again; ground
-//! cover casts into the nearest cascade alone. The cards are drawn after the processor's own. Every
-//! list is in the parts' order, frame after frame.
+//! **The lists.** The G-buffer's two culled buckets hold the device's parts' commands and the
+//! processor's in the walk's order: block by block as the frame drew them, each block's parts in
+//! their order, then the processor's other items. Each part's first level's items in those buckets
+//! go into each cascade it reaches as it is drawn again; ground cover casts into the nearest
+//! cascade alone. The cards are drawn after the processor's own. The cut-outs' edges and the
+//! blended surfaces of the parts in the view are keyed, each list's with the processor's own, and
+//! sorted on the device as the processor sorts them (`shaders/sort.slang`): farthest first, by
+//! item where two stand as far. Every list is in the same order, frame after frame.
 //!
 //! **Where the device takes no draw count from a buffer**, every part stays on the processor.
 
@@ -57,10 +62,24 @@ const MAX_HANDS: usize = 8;
 const ENTRY_BYTES: usize = 64;
 const RECORD_BYTES: usize = 32;
 const GROUP_WORDS: usize = 32;
-const CONSTANT_ROWS: usize = 28;
+const CONSTANT_ROWS: usize = 30;
+/// The bytes of one part's tallies, and of one workgroup's sums.
+const TALLY_BYTES: u64 = 32;
+const SUM_BYTES: u64 = 64;
+/// The walk's places a workgroup of its scan counts, and the most workgroups it has.
+const WALK_GROUP: u32 = 1024;
+const WALK_TOTAL: u32 = 4096;
+/// The keys a workgroup of the sort holds, and the threads a workgroup of its merges across runs
+/// and of its commands has.
+const RUN: u32 = 2048;
+const SORT_GROUP: u32 = 256;
+const EMIT_GROUP: u32 = 64;
+/// The lists keys are made for: the cut-outs' edges; the blended surfaces.
+const K_EDGES: u32 = 1;
+const K_FORWARD: u32 = 2;
 /// The bytes of one card.
 const CARD_BYTES: u64 = 80;
-/// The blocks' slots the drawn blocks' bits cover.
+/// The blocks' slots the walk's first places cover.
 const SLOTS: u32 = 1 << 12;
 /// A part's flags, as the shader reads them: ground cover; held.
 const M_COVER: u32 = 1;
@@ -113,10 +132,37 @@ struct Held {
     records: Range<u32>,
     cpu_parts: Vec<u32>,
     parts: Vec<u32>,
-    /// The items of the parts' first levels, together: what they add to the cascades' lists.
+    /// The items of the parts' first levels that cast, together: what they add to the cascades'
+    /// lists.
     first_items: u64,
     /// The parts that are trees, each of which may draw a card.
     trees: u64,
+    /// The most keys the parts make in a frame, edges and blended surfaces.
+    keys: [u64; 2],
+}
+
+/// The passes: the parts', in the order they are recorded, and the sort's.
+#[derive(Debug, Clone, Copy)]
+struct PartsPipelines {
+    choose: Pipeline,
+    walk_cpu: Pipeline,
+    scan: Pipeline,
+    walk_scan: Pipeline,
+    walk_groups: Pipeline,
+    write: Pipeline,
+    sort: [Pipeline; 4],
+}
+
+/// What the processor brings to a frame's lists: its blocks' parts' commands in the two outdoor
+/// buckets at their places in the walk, a place and both counts each; its other items in each of
+/// those buckets; and its keys for the cut-outs' edges and the blended surfaces, how far off (the
+/// squared distance) and which item.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct CpuLists<'a> {
+    pub walk: &'a [[u32; 2]],
+    pub tails: [u32; 2],
+    pub edges: &'a [(f32, u32)],
+    pub forward: &'a [(f32, u32, Bucket)],
 }
 
 /// A group of records the device picks levels for alike: the records of one group of levels
@@ -163,12 +209,10 @@ pub(crate) struct PartsTargets {
     pub offsets: (Buffer, u32),
     pub instances: (Buffer, u32),
     pub items: (Buffer, u32),
-    /// The G-buffer's commands and their counts, `capacity` commands a bucket, and how many of
-    /// each of its two culled buckets the processor's own take.
+    /// The G-buffer's commands and their counts, `capacity` commands a bucket.
     pub commands: (Buffer, u32),
     pub counts: (Buffer, u32),
     pub capacity: u32,
-    pub bases: [u32; 2],
     /// The trees' pictures' rows in the atlas, and the frame's constants as the G-buffer reads
     /// them.
     pub trees: (Buffer, u32),
@@ -186,13 +230,14 @@ pub(crate) struct PartsAsk<'a> {
     pub mirror: Option<Mat4>,
     pub cascades: Option<PartsCascades>,
     pub targets: PartsTargets,
+    pub cpu: CpuLists<'a>,
 }
 
 /// The parts' frame on the device.
 #[derive(Debug, Clone)]
 pub struct PartsPlan {
-    pipelines: [Pipeline; 3],
-    push: [u32; 25],
+    pipelines: PartsPipelines,
+    push: [u32; 30],
     count: u32,
     reads: Vec<Buffer>,
     writes: [Buffer; 3],
@@ -208,6 +253,35 @@ pub struct PartsPlan {
     cards_index: u32,
     card_parts: Buffer,
     card_draw: Buffer,
+    /// The walk: its places, their commands in each bucket and each thousand's; the processor's
+    /// parts in it, by buffer and how many.
+    walk: (Buffer, u32),
+    walk_sums: (Buffer, u32),
+    walk_places: u32,
+    cpu_walk: (Buffer, u32),
+    /// The sort: its keys, the device's and the processor's, the sorted keys and their commands,
+    /// the lists' counts, the room each list has, the push words of its passes, and which lists
+    /// the device sorts.
+    keys: Buffer,
+    cpu_keys: Buffer,
+    sorted: Buffer,
+    list_commands: Buffer,
+    list_counts: Buffer,
+    sort_push: [u32; 11],
+    lists: u32,
+}
+
+/// The lists the device sorted: the cut-outs' edges, and the blended surfaces where it sorts them,
+/// each drawn by one counted indirect draw.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DeviceLists {
+    /// The commands, `capacity` to a list, edges first, and the lists' counts.
+    pub commands: Buffer,
+    pub counts: Buffer,
+    pub capacity: u32,
+    pub command_bytes: u32,
+    pub edges: bool,
+    pub forward: bool,
 }
 
 /// One part's choice as the device made it, for the checks.
@@ -237,13 +311,25 @@ pub struct DeviceCard {
     pub rows: [[f32; 4]; 5],
 }
 
+/// A part's row as the device reads it, its first level's items that cast, whether it is a tree,
+/// and the most keys it makes in a frame, edges and blended surfaces.
+struct PartRow {
+    row: [u8; ENTRY_BYTES],
+    casters: u32,
+    tree: bool,
+    keys: [u32; 2],
+}
+
 /// The parts chosen on the device.
 #[derive(Debug)]
 pub struct DeviceParts {
     /// The passes; `None` where the device takes no draw count from a buffer.
-    pipelines: Option<[Pipeline; 3]>,
+    pipelines: Option<PartsPipelines>,
     /// Whether the parts are chosen on the device; off, every part is the processor's.
     on: bool,
+    /// Whether parts with blended or added surfaces are: where the device takes a blend's factors
+    /// from a second output.
+    forward: bool,
     /// Every block's rows to be written again at the next change.
     rebuild: bool,
     pool: Pool,
@@ -269,6 +355,16 @@ pub struct DeviceParts {
     card_draw: Option<Bound>,
     card_capacity: u32,
     trees: u64,
+    /// The walk's places' commands in each bucket, and its workgroups'; the keys, the device's,
+    /// sorted, and their commands; the lists' counts; and the room each list has.
+    walk: Option<Bound>,
+    walk_capacity: u32,
+    walk_sums: Option<Bound>,
+    keys: Option<Bound>,
+    sorted: Option<Bound>,
+    list_commands: Option<Bound>,
+    list_counts: Option<Bound>,
+    key_capacity: u32,
     // ORDER-OK: looked up by block, and walked in block order.
     blocks: BTreeMap<BlockId, Held>,
     /// The groups, by their place in the frame's table of groups, and what their rows are worked
@@ -279,7 +375,10 @@ pub struct DeviceParts {
     group_slot: HashMap<GroupKey, u32>,
     constants: PerFrame,
     group_rows: PerFrame,
-    drawn: PerFrame,
+    /// Each slot's first place in the walk; the processor's parts in it; the processor's keys.
+    walk_base: PerFrame,
+    cpu_walk: PerFrame,
+    cpu_keys: PerFrame,
     /// The rows written so far: none past it is held.
     high: u32,
     /// The last frame's origin, its blocks' offsets measured from it.
@@ -301,17 +400,28 @@ impl DeviceParts {
                     shader: shader(e),
                 })
             };
-            Some([
-                make("remaster parts choose", Entry::InstancesCsChoose)?,
-                make("remaster parts scan", Entry::InstancesCsScan)?,
-                make("remaster parts write", Entry::InstancesCsWrite)?,
-            ])
+            Some(PartsPipelines {
+                choose: make("remaster parts choose", Entry::InstancesCsChoose)?,
+                walk_cpu: make("remaster parts walk", Entry::InstancesCsWalkCpu)?,
+                scan: make("remaster parts scan", Entry::InstancesCsScan)?,
+                walk_scan: make("remaster parts walk scan", Entry::InstancesCsWalkScan)?,
+                walk_groups: make("remaster parts walk groups", Entry::InstancesCsWalkGroups)?,
+                write: make("remaster parts write", Entry::InstancesCsWrite)?,
+                sort: [
+                    make("remaster sort runs", Entry::SortCsLocal)?,
+                    make("remaster sort merge", Entry::SortCsGlobal)?,
+                    make("remaster sort merge runs", Entry::SortCsMerge)?,
+                    make("remaster sort commands", Entry::SortCsEmit)?,
+                ],
+            })
         } else {
             None
         };
+        let forward = d.caps().dual_source_blend;
         Ok(Self {
             pipelines,
             on: true,
+            forward,
             rebuild: false,
             pool: Pool::new(0),
             rows: Vec::new(),
@@ -333,6 +443,14 @@ impl DeviceParts {
             card_draw: None,
             card_capacity: 0,
             trees: 0,
+            walk: None,
+            walk_capacity: 0,
+            walk_sums: None,
+            keys: None,
+            sorted: None,
+            list_commands: None,
+            list_counts: None,
+            key_capacity: 0,
             blocks: BTreeMap::new(),
             groups: Vec::new(),
             scratch: RowScratch::default(),
@@ -344,12 +462,14 @@ impl DeviceParts {
                 BufferUsage::default(),
             )?,
             group_rows: PerFrame::new(d, "remaster parts groups", 1 << 12, BufferUsage::default())?,
-            drawn: PerFrame::new(
+            walk_base: PerFrame::new(
                 d,
-                "remaster parts drawn blocks",
-                u64::from(SLOTS / 8),
+                "remaster parts walk bases",
+                u64::from(SLOTS) * 4,
                 BufferUsage::default(),
             )?,
+            cpu_walk: PerFrame::new(d, "remaster parts walk", 1 << 12, BufferUsage::default())?,
+            cpu_keys: PerFrame::new(d, "remaster parts keys", 1 << 12, BufferUsage::default())?,
             high: 0,
             origin: [0; 2],
             generation: 0,
@@ -380,6 +500,47 @@ impl DeviceParts {
     #[must_use]
     pub fn count(&self) -> usize {
         self.blocks.values().map(|h| h.parts.len()).sum()
+    }
+
+    /// Whether the device sorts the blended surfaces' list as well as the edges': where it blends
+    /// a list of blended and added surfaces in one pipeline.
+    #[must_use]
+    pub fn sorts_forward(&self) -> bool {
+        self.forward
+    }
+
+    /// The last frame's sorted lists, the edges' and the blended surfaces', as the items of their
+    /// commands in order, after the device has finished: for the checks.
+    ///
+    /// # Errors
+    /// What the device refuses.
+    pub fn read_lists(&self, d: &mut Device) -> Result<[Vec<u32>; 2], dereth_gfx::Error> {
+        let (Some(commands), Some(counts)) = (self.list_commands, self.list_counts) else {
+            return Ok(Default::default());
+        };
+        let words = super::command_bytes(d) / 4;
+        let n = read_back(d, counts.buffer, 0, 8)?;
+        let mut out: [Vec<u32>; 2] = Default::default();
+        for (l, list) in out.iter_mut().enumerate() {
+            let count = u32::from_le_bytes([n[l * 4], n[l * 4 + 1], n[l * 4 + 2], n[l * 4 + 3]])
+                .min(self.key_capacity);
+            if count == 0 {
+                continue;
+            }
+            let at = l as u64 * u64::from(self.key_capacity) * u64::from(words) * 4;
+            let all = read_back(
+                d,
+                commands.buffer,
+                at,
+                u64::from(count) * u64::from(words) * 4,
+            )?;
+            // The item is each layout's last word.
+            for c in all.chunks_exact(words as usize * 4) {
+                let w = &c[c.len() - 4..];
+                list.push(u32::from_le_bytes([w[0], w[1], w[2], w[3]]));
+            }
+        }
+        Ok(out)
     }
 
     /// Block `block`'s parts the processor chooses and lists, by their place among its parts;
@@ -522,7 +683,7 @@ impl DeviceParts {
         let mut rows: Vec<u8> = Vec::new();
         let mut parts = Vec::new();
         let mut cpu_parts = Vec::new();
-        let (mut first_items, mut trees) = (0u64, 0u64);
+        let (mut first_items, mut trees, mut keys) = (0u64, 0u64, [0u64; 2]);
         for (k, p) in b.parts.iter().enumerate() {
             let k = u32::try_from(k).unwrap_or(u32::MAX);
             match self.row(
@@ -530,15 +691,17 @@ impl DeviceParts {
                 (scene, tables),
                 lod,
                 impostors,
-                (id, b.slot),
+                (id, b.slot, k),
                 &record_range,
                 p,
             )? {
-                Some((row, first, tree)) => {
-                    rows.extend_from_slice(&row);
+                Some(r) => {
+                    rows.extend_from_slice(&r.row);
                     parts.push(k);
-                    first_items += u64::from(first);
-                    trees += u64::from(tree);
+                    first_items += u64::from(r.casters);
+                    trees += u64::from(r.tree);
+                    keys[0] += u64::from(r.keys[0]);
+                    keys[1] += u64::from(r.keys[1]);
                 }
                 None => cpu_parts.push(k),
             }
@@ -605,6 +768,7 @@ impl DeviceParts {
                 parts,
                 first_items,
                 trees,
+                keys,
             },
         );
         self.write_retail(d, scene, lod, id)?;
@@ -640,13 +804,13 @@ impl DeviceParts {
         self.tallies = Some(bound(
             d,
             "remaster parts tallies",
-            entries * 16,
+            entries * TALLY_BYTES,
             BufferUsage::default(),
         )?);
         self.sums = Some(bound(
             d,
             "remaster parts sums",
-            entries.div_ceil(u64::from(GROUP)) * 32,
+            entries.div_ceil(u64::from(GROUP)) * SUM_BYTES,
             BufferUsage::default(),
         )?);
         self.states = Some(bound(
@@ -767,8 +931,9 @@ impl DeviceParts {
         Ok(())
     }
 
-    /// Part `p`'s row, its first level's items, and whether it is a tree, when the device chooses
-    /// it: block `block` standing at slot `slot`, its records' rows from `records`.
+    /// Part `p`'s row, its first level's items that cast, whether it is a tree, and the most keys
+    /// it makes in a frame, when the device chooses it: the `k`th part of block `block` standing
+    /// at slot `slot`, its records' rows from `records`.
     #[allow(clippy::too_many_arguments)]
     fn row(
         &mut self,
@@ -776,32 +941,39 @@ impl DeviceParts {
         (scene, tables): (&GpuScene, &AssetTables),
         lod: &mut Lod,
         impostors: &mut ImpostorPass,
-        (block, slot): (BlockId, u32),
+        (block, slot, k): (BlockId, u32, u32),
         records: &Range<u32>,
         p: &PartItems,
-    ) -> Result<Option<([u8; ENTRY_BYTES], u32, bool)>, dereth_gfx::Error> {
+    ) -> Result<Option<PartRow>, dereth_gfx::Error> {
         if p.turned.is_some() || p.levels.is_empty() || p.levels.len() > MAX_LEVELS {
             return Ok(None);
         }
-        // Each level's items, one run after another, each in the G-buffer's culled buckets.
+        // Each level's items, one run after another: in the G-buffer's culled buckets (their
+        // cut-outs' edges keyed too), or blended or added where the device blends both in one
+        // pipeline.
         let mut counts = [0u8; MAX_LEVELS];
-        for (k, r) in p.levels.iter().enumerate() {
-            if k > 0 && p.levels[k - 1].end != r.start {
+        let (mut casters, mut most) = (0u32, [0u32; 2]);
+        for (l, r) in p.levels.iter().enumerate() {
+            if l > 0 && p.levels[l - 1].end != r.start {
                 return Ok(None);
             }
             let Ok(n) = u8::try_from(r.end - r.start) else {
                 return Ok(None);
             };
-            counts[k] = n;
+            counts[l] = n;
+            let mut keys = [0u32; 2];
             for i in r.clone() {
-                let culled = matches!(
-                    scene.buckets.get(i as usize),
-                    Some(Bucket::Opaque | Bucket::OpaqueTwoSided)
-                );
-                if !culled || scene.item_draws.get(i as usize).is_none_or(|d| d.edge) {
-                    return Ok(None);
+                match scene.buckets.get(i as usize) {
+                    Some(Bucket::Opaque | Bucket::OpaqueTwoSided) => {
+                        let edge = scene.item_draws.get(i as usize).is_some_and(|d| d.edge);
+                        keys[0] += u32::from(edge);
+                        casters += u32::from(l == 0);
+                    }
+                    Some(Bucket::Blended | Bucket::Additive) if self.forward => keys[1] += 1,
+                    _ => return Ok(None),
                 }
             }
+            most = [most[0].max(keys[0]), most[1].max(keys[1])];
         }
         let (record, tree, card) = match p.degrade {
             Some(r) => {
@@ -882,8 +1054,10 @@ impl DeviceParts {
             p.levels[0].start,
             u32::from_le_bytes([counts[0], counts[1], counts[2], counts[3]]),
             u32::from_le_bytes([counts[4], counts[5], counts[6], counts[7]]),
-            M_LIVE | if p.cover { M_COVER } else { 0 },
-            u32::try_from(p.levels.len()).unwrap_or(0),
+            M_LIVE
+                | if p.cover { M_COVER } else { 0 }
+                | (u32::try_from(p.levels.len()).unwrap_or(0) << 8),
+            k,
         ];
         for (k, w) in words.iter().enumerate() {
             out[k * 4..k * 4 + 4].copy_from_slice(&w.to_le_bytes());
@@ -902,11 +1076,18 @@ impl DeviceParts {
         for (k, f) in floats.iter().enumerate() {
             out[32 + k * 4..36 + k * 4].copy_from_slice(&f.to_le_bytes());
         }
-        Ok(Some((out, u32::from(counts[0]), tree)))
+        // A part fading draws two levels: at most twice its most keyed.
+        Ok(Some(PartRow {
+            row: out,
+            casters,
+            tree,
+            keys: [most[0] * 2, most[1] * 2],
+        }))
     }
 
-    /// Write the frame's own state for the parts: the groups' rows, the constants and the drawn
-    /// blocks' bits. `None` when no part is held.
+    /// Write the frame's own state for the parts: the groups' rows, the constants, each drawn
+    /// block's first place in the walk, and the processor's own places and keys. `None` when no
+    /// part is held.
     ///
     /// # Errors
     /// What the device refuses.
@@ -993,8 +1174,8 @@ impl DeviceParts {
         );
         let redraw = ask.cascades.map_or(0, |s| s.redraw);
         c.extend(push_words(&[
-            ask.targets.bases[0].min(ask.targets.capacity),
-            ask.targets.bases[1].min(ask.targets.capacity),
+            0,
+            0,
             redraw,
             u32::try_from(self.groups.len()).unwrap_or(0),
         ]));
@@ -1017,18 +1198,71 @@ impl DeviceParts {
             f(&mut c, across);
             f(&mut c, [along[0], along[1], 0.0, 0.0]);
         }
-        self.constants.write(d, &c)?;
 
-        // The blocks the walk drew, a bit a slot.
-        let mut bits = vec![0u32; (SLOTS / 32) as usize];
+        // Each drawn block's first place in the walk, as the processor counts it: block by block
+        // as the frame drew them, each taking a place for each of its parts; and the most keys
+        // their parts make.
+        let mut bases = vec![NONE; SLOTS as usize];
+        let (mut places, mut most) = (0u32, [0u64; 2]);
         if frame.landscape {
             for id in &frame.drawn_blocks {
-                if let Some(b) = scene.blocks.get(id).filter(|b| b.slot < SLOTS) {
-                    bits[(b.slot / 32) as usize] |= 1 << (b.slot % 32);
+                let Some(b) = scene.blocks.get(id) else {
+                    continue;
+                };
+                if let Some(base) = bases.get_mut(b.slot as usize) {
+                    *base = places;
+                }
+                places = places.saturating_add(u32::try_from(b.parts.len()).unwrap_or(u32::MAX));
+                if let Some(h) = self.blocks.get(id) {
+                    most = [most[0] + h.keys[0], most[1] + h.keys[1]];
                 }
             }
         }
-        self.drawn.write(d, &push_words(&bits))?;
+        let places = places.min(WALK_GROUP * WALK_TOTAL);
+        self.walk_base.write(d, &push_words(&bases))?;
+        let cpu = ask.cpu;
+        let walk: Vec<u32> = cpu.walk.iter().flatten().copied().collect();
+        self.cpu_walk.write(d, &push_words(&walk))?;
+        let mut key_words = Vec::with_capacity((cpu.edges.len() + cpu.forward.len()) * 2);
+        for (far, item) in cpu
+            .edges
+            .iter()
+            .copied()
+            .chain(cpu.forward.iter().map(|(far, item, _)| (*far, *item)))
+        {
+            key_words.extend([!far.to_bits(), item]);
+        }
+        self.cpu_keys.write(d, &push_words(&key_words))?;
+        let cpu_keys = [
+            u32::try_from(cpu.edges.len()).unwrap_or(u32::MAX),
+            u32::try_from(cpu.forward.len()).unwrap_or(u32::MAX),
+        ];
+        let lists = K_EDGES | if self.forward { K_FORWARD } else { 0 };
+        let wanted = (u64::from(cpu_keys[0]) + most[0]).max(u64::from(cpu_keys[1]) + most[1]);
+        self.walk_fit(d, places)?;
+        self.keys_fit(d, wanted)?;
+        let (Some(walk_buf), Some(walk_sums), Some(keys), Some(sorted)) =
+            (self.walk, self.walk_sums, self.keys, self.sorted)
+        else {
+            return Ok(None);
+        };
+        let (Some(list_commands), Some(list_counts)) = (self.list_commands, self.list_counts)
+        else {
+            return Ok(None);
+        };
+        c.extend(push_words(&[
+            places,
+            u32::try_from(cpu.walk.len()).unwrap_or(u32::MAX),
+            cpu.tails[0],
+            cpu.tails[1],
+        ]));
+        c.extend(push_words(&[
+            cpu_keys[0],
+            cpu_keys[1],
+            self.key_capacity,
+            lists,
+        ]));
+        self.constants.write(d, &c)?;
 
         let t = ask.targets;
         let push = [
@@ -1037,7 +1271,7 @@ impl DeviceParts {
             self.group_rows.index,
             self.constants.index,
             t.offsets.1,
-            self.drawn.index,
+            self.walk_base.index,
             t.instances.1,
             t.items.1,
             t.commands.1,
@@ -1057,6 +1291,24 @@ impl DeviceParts {
             self.card_capacity,
             card_draw.index,
             t.frame,
+            walk_buf.index,
+            walk_sums.index,
+            self.cpu_walk.index,
+            keys.index,
+            list_counts.index,
+        ];
+        let sort_push = [
+            sorted.index,
+            keys.index,
+            self.cpu_keys.index,
+            cpu_keys[0],
+            cpu_keys[1],
+            list_counts.index,
+            self.key_capacity,
+            0,
+            0,
+            list_commands.index,
+            t.items.1,
         ];
         Ok(Some(PartsPlan {
             pipelines,
@@ -1067,7 +1319,7 @@ impl DeviceParts {
                 self.group_rows.buffer,
                 self.constants.buffer,
                 t.offsets.0,
-                self.drawn.buffer,
+                self.walk_base.buffer,
                 t.items.0,
                 records.buffer,
                 retail.buffer,
@@ -1086,7 +1338,96 @@ impl DeviceParts {
             cards_index: cards.index,
             card_parts: card_parts.buffer,
             card_draw: card_draw.buffer,
+            walk: (walk_buf.buffer, walk_buf.index),
+            walk_sums: (walk_sums.buffer, walk_sums.index),
+            walk_places: places,
+            cpu_walk: (
+                self.cpu_walk.buffer,
+                u32::try_from(cpu.walk.len()).unwrap_or(u32::MAX),
+            ),
+            keys: keys.buffer,
+            cpu_keys: self.cpu_keys.buffer,
+            sorted: sorted.buffer,
+            list_commands: list_commands.buffer,
+            list_counts: list_counts.buffer,
+            sort_push,
+            lists,
         }))
+    }
+
+    /// Room in the walk's buffers for `places` places.
+    fn walk_fit(&mut self, d: &mut Device, places: u32) -> Result<(), dereth_gfx::Error> {
+        if self.walk_sums.is_none() {
+            self.walk_sums = Some(bound(
+                d,
+                "remaster parts walk sums",
+                u64::from(WALK_TOTAL + 1) * 8,
+                BufferUsage::default(),
+            )?);
+        }
+        if places <= self.walk_capacity && self.walk.is_some() {
+            return Ok(());
+        }
+        let capacity = places.max(WALK_GROUP).next_power_of_two();
+        if let Some(w) = self.walk.take() {
+            d.destroy_buffer(w.buffer);
+        }
+        self.walk = Some(bound(
+            d,
+            "remaster parts walk",
+            u64::from(capacity) * 8,
+            BufferUsage::default(),
+        )?);
+        self.walk_capacity = capacity;
+        Ok(())
+    }
+
+    /// Room for `wanted` keys in each list, the sort's buffers and the lists' commands.
+    fn keys_fit(&mut self, d: &mut Device, wanted: u64) -> Result<(), dereth_gfx::Error> {
+        if self.list_counts.is_none() {
+            self.list_counts = Some(bound(
+                d,
+                "remaster sorted lists' counts",
+                16,
+                BufferUsage::INDIRECT,
+            )?);
+        }
+        if wanted <= u64::from(self.key_capacity) && self.keys.is_some() {
+            return Ok(());
+        }
+        let capacity =
+            u32::try_from(wanted.max(u64::from(RUN)).next_power_of_two()).unwrap_or(u32::MAX);
+        for b in [
+            self.keys.take(),
+            self.sorted.take(),
+            self.list_commands.take(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            d.destroy_buffer(b.buffer);
+        }
+        let keys = 2 * u64::from(capacity);
+        self.keys = Some(bound(
+            d,
+            "remaster parts keys",
+            keys * 8,
+            BufferUsage::default(),
+        )?);
+        self.sorted = Some(bound(
+            d,
+            "remaster sorted keys",
+            keys * 8,
+            BufferUsage::default(),
+        )?);
+        self.list_commands = Some(bound(
+            d,
+            "remaster sorted lists",
+            keys * u64::from(super::command_bytes(d)),
+            BufferUsage::INDIRECT,
+        )?);
+        self.key_capacity = capacity;
+        Ok(())
     }
 
     /// The device's last choice for every part, after it has finished: for the checks.
@@ -1336,15 +1677,21 @@ pub(crate) fn read_back(
 }
 
 impl PartsPlan {
-    /// Record the three passes: the parts chosen, the lists' places counted, the commands and
-    /// cards written. Recorded after the processor's own items' cull, whose commands come first.
+    /// Record the passes before the processor's own items' cull: the parts chosen, the walk's
+    /// counts gathered from the device's parts and the processor's, the lists' places counted,
+    /// and the walk's places and the outdoor buckets' counts worked out, which the cull places
+    /// the processor's items by. The counts are cleared first.
     ///
     /// # Errors
     /// What the layer refuses.
-    pub(crate) fn record(&self, r: &mut Recorder<'_>) -> Result<(), dereth_gfx::Error> {
+    pub(crate) fn record_choose(&self, r: &mut Recorder<'_>) -> Result<(), dereth_gfx::Error> {
         let groups = self.count.div_ceil(GROUP).max(1);
         let push = push_words(&self.push);
         let [tallies, sums, states] = self.writes;
+        let (walk, walk_sums) = (self.walk.0, self.walk_sums.0);
+        if self.walk_places > 0 {
+            r.fill_buffer(walk, 0, u64::from(self.walk_places) * 8, 0)?;
+        }
         let mut touches: Vec<Touch> = self
             .reads
             .iter()
@@ -1355,30 +1702,93 @@ impl PartsPlan {
             Touch::Buffer(tallies, Use::StorageWrite),
             Touch::Buffer(sums, Use::StorageWrite),
             Touch::Buffer(states, Use::StorageWrite),
+            Touch::Buffer(walk, Use::StorageWrite),
         ]);
         r.timestamp("parts choose");
         r.compute(&touches, |c| {
-            c.set_pipeline(self.pipelines[0])?;
+            c.set_pipeline(self.pipelines.choose)?;
             c.push(0, &push)?;
             c.dispatch(groups, 1, 1);
             Ok(())
         })?;
         let constants = self.reads[2];
+        if self.cpu_walk.1 > 0 {
+            r.compute(
+                &[
+                    Touch::Buffer(constants, Use::StorageRead),
+                    Touch::Buffer(self.cpu_walk.0, Use::StorageRead),
+                    Touch::Buffer(walk, Use::StorageWrite),
+                ],
+                |c| {
+                    c.set_pipeline(self.pipelines.walk_cpu)?;
+                    c.push(0, &push)?;
+                    c.dispatch(self.cpu_walk.1.div_ceil(GROUP), 1, 1);
+                    Ok(())
+                },
+            )?;
+        }
         r.compute(
             &[
                 Touch::Buffer(constants, Use::StorageRead),
                 Touch::Buffer(sums, Use::StorageWrite),
-                Touch::Buffer(self.counts, Use::StorageWrite),
                 Touch::Buffer(self.caster_counts, Use::StorageWrite),
                 Touch::Buffer(self.card_draw, Use::StorageWrite),
+                Touch::Buffer(self.list_counts, Use::StorageWrite),
             ],
             |c| {
-                c.set_pipeline(self.pipelines[1])?;
+                c.set_pipeline(self.pipelines.scan)?;
                 c.push(0, &push)?;
                 c.dispatch(1, 1, 1);
                 Ok(())
             },
         )?;
+        let walk_touches = [
+            Touch::Buffer(constants, Use::StorageRead),
+            Touch::Buffer(walk, Use::StorageWrite),
+            Touch::Buffer(walk_sums, Use::StorageWrite),
+        ];
+        if self.walk_places > 0 {
+            r.compute(&walk_touches, |c| {
+                c.set_pipeline(self.pipelines.walk_scan)?;
+                c.push(0, &push)?;
+                c.dispatch(self.walk_places.div_ceil(WALK_GROUP), 1, 1);
+                Ok(())
+            })?;
+        }
+        r.compute(
+            &[
+                Touch::Buffer(constants, Use::StorageRead),
+                Touch::Buffer(walk_sums, Use::StorageWrite),
+                Touch::Buffer(self.counts, Use::StorageWrite),
+            ],
+            |c| {
+                c.set_pipeline(self.pipelines.walk_groups)?;
+                c.push(0, &push)?;
+                c.dispatch(1, 1, 1);
+                Ok(())
+            },
+        )?;
+        r.touch(&[
+            Touch::Buffer(walk, Use::StorageRead),
+            Touch::Buffer(walk_sums, Use::StorageRead),
+        ])
+    }
+
+    /// The walk's places and their thousands' as the processor's cull reads them, by index.
+    #[must_use]
+    pub(crate) fn walk_indices(&self) -> [u32; 2] {
+        [self.walk.1, self.walk_sums.1]
+    }
+
+    /// Record the passes after the processor's own items' cull: the parts' commands, keys and
+    /// cards written, then the edges' and blended surfaces' keys sorted and made into commands.
+    ///
+    /// # Errors
+    /// What the layer refuses.
+    pub(crate) fn record_write(&self, r: &mut Recorder<'_>) -> Result<(), dereth_gfx::Error> {
+        let groups = self.count.div_ceil(GROUP).max(1);
+        let push = push_words(&self.push);
+        let [tallies, sums, states] = self.writes;
         let mut touches: Vec<Touch> = self
             .reads
             .iter()
@@ -1389,19 +1799,94 @@ impl PartsPlan {
             Touch::Buffer(tallies, Use::StorageRead),
             Touch::Buffer(sums, Use::StorageRead),
             Touch::Buffer(states, Use::StorageRead),
+            Touch::Buffer(self.walk.0, Use::StorageRead),
+            Touch::Buffer(self.walk_sums.0, Use::StorageRead),
             Touch::Buffer(self.commands, Use::StorageWrite),
             Touch::Buffer(self.casters, Use::StorageWrite),
             Touch::Buffer(self.cards, Use::StorageWrite),
             Touch::Buffer(self.card_parts, Use::StorageWrite),
+            Touch::Buffer(self.keys, Use::StorageWrite),
         ]);
         r.compute(&touches, |c| {
-            c.set_pipeline(self.pipelines[2])?;
+            c.set_pipeline(self.pipelines.write)?;
             c.push(0, &push)?;
             c.dispatch(groups, 1, 1);
             Ok(())
         })?;
+        self.record_sort(r)?;
         // The fades written into the instances' rows, for every pass that draws them.
         r.touch(&[Touch::Buffer(self.instances, Use::StorageRead)])
+    }
+
+    /// The edges' and the blended surfaces' keys sorted, both lists at once, and their commands
+    /// written: the runs sorted, then each merge, across runs while the pairs stand a run or more
+    /// apart and within each run after.
+    fn record_sort(&self, r: &mut Recorder<'_>) -> Result<(), dereth_gfx::Error> {
+        let cap = self.sort_push[6];
+        let runs = (cap / RUN).max(1);
+        let reads = [
+            Touch::Buffer(self.keys, Use::StorageRead),
+            Touch::Buffer(self.cpu_keys, Use::StorageRead),
+            Touch::Buffer(self.list_counts, Use::StorageRead),
+        ];
+        let [local, global, merge, emit] = self.pipelines.sort;
+        let pass = |r: &mut Recorder<'_>,
+                    p: Pipeline,
+                    (k, j): (u32, u32),
+                    groups: u32|
+         -> Result<(), dereth_gfx::Error> {
+            let mut words = self.sort_push;
+            words[7] = k;
+            words[8] = j;
+            let mut touches = reads.to_vec();
+            touches.push(Touch::Buffer(self.sorted, Use::StorageWrite));
+            r.compute(&touches, |c| {
+                c.set_pipeline(p)?;
+                c.push(0, &push_words(&words))?;
+                c.dispatch(groups, 2, 1);
+                Ok(())
+            })
+        };
+        r.timestamp("sort");
+        pass(r, local, (0, 0), runs)?;
+        let mut k = RUN * 2;
+        while k <= cap {
+            let mut j = k / 2;
+            while j >= RUN {
+                pass(r, global, (k, j), (cap / 2).div_ceil(SORT_GROUP))?;
+                j /= 2;
+            }
+            pass(r, merge, (k, 0), runs)?;
+            k *= 2;
+        }
+        let mut words = self.sort_push;
+        words[7] = 0;
+        r.compute(
+            &[
+                Touch::Buffer(self.sorted, Use::StorageRead),
+                Touch::Buffer(self.list_counts, Use::StorageRead),
+                Touch::Buffer(self.list_commands, Use::StorageWrite),
+            ],
+            |c| {
+                c.set_pipeline(emit)?;
+                c.push(0, &push_words(&words))?;
+                c.dispatch(cap.div_ceil(EMIT_GROUP), 2, 1);
+                Ok(())
+            },
+        )
+    }
+
+    /// The lists the device sorted, for the passes that draw them.
+    #[must_use]
+    pub(crate) fn lists(&self) -> DeviceLists {
+        DeviceLists {
+            commands: self.list_commands,
+            counts: self.list_counts,
+            capacity: self.sort_push[6],
+            command_bytes: self.command_bytes,
+            edges: self.lists & K_EDGES != 0,
+            forward: self.lists & K_FORWARD != 0,
+        }
     }
 
     /// Whether cascade `c`'s cache takes the parts' casters this frame: it is drawn again.

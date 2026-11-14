@@ -530,6 +530,7 @@ pub struct LodTally {
     finer: u32,
     coarser: u32,
     turned: u32,
+    impostors: u32,
 }
 
 impl LodTally {
@@ -546,6 +547,9 @@ impl LodTally {
             }
             if d.fade.is_some() {
                 self.fading += 1;
+            }
+            if d.impostor > 0.0 {
+                self.impostors += 1;
             }
         }
         if d.turned.is_some() {
@@ -568,6 +572,8 @@ pub struct LodStats {
     pub coarser: u32,
     /// Parts drawn turned toward the viewer, as retail turns its cards.
     pub turned: u32,
+    /// Trees drawn wholly or partly as their impostors, in view or not.
+    pub impostors: u32,
     /// Records whose levels' errors were measured, in all.
     pub measured: u32,
     /// Records whose hand-over distances the last frame worked out; the rest it kept from the
@@ -666,6 +672,7 @@ impl Lod {
         self.stats.finer = 0;
         self.stats.coarser = 0;
         self.stats.turned = 0;
+        self.stats.impostors = 0;
         self.stats.worked_out = 0;
         // Off, the blocks retail stands objects on draw its levels; those past them still have
         // their levels chosen here, as on.
@@ -1064,6 +1071,7 @@ impl Lod {
         self.stats.finer += tally.finer;
         self.stats.coarser += tally.coarser;
         self.stats.turned += tally.turned;
+        self.stats.impostors += tally.impostors;
         let mut out = Vec::new();
         let mut now = BTreeMap::new();
         for (block, k, d, _) in draws {

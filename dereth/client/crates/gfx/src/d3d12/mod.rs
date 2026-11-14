@@ -639,6 +639,7 @@ impl Device {
             packed_float_targets,
             ray_queries: rays.is_some(),
             indirect_count: true,
+            dual_source_blend: true,
         };
         // SAFETY: a live device; the fence is released with the layer.
         let fence: ID3D12Fence = hr("CreateFence", unsafe {

@@ -162,6 +162,9 @@ fn blend(f: Factor, alpha: bool) -> D3D12_BLEND {
         Factor::SrcColor => D3D12_BLEND_SRC_COLOR,
         Factor::DstColor if alpha => D3D12_BLEND_DEST_ALPHA,
         Factor::DstColor => D3D12_BLEND_DEST_COLOR,
+        Factor::Src1Alpha => D3D12_BLEND_SRC1_ALPHA,
+        Factor::OneMinusSrc1Color if alpha => D3D12_BLEND_INV_SRC1_ALPHA,
+        Factor::OneMinusSrc1Color => D3D12_BLEND_INV_SRC1_COLOR,
     }
 }
 

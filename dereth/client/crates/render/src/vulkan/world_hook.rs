@@ -344,6 +344,7 @@ pub(super) fn remaster_features(
     v12.shader_sampled_image_array_non_uniform_indexing = vk::TRUE;
     v12.shader_storage_buffer_array_non_uniform_indexing = vk::TRUE;
     v12.draw_indirect_count = h12.draw_indirect_count;
+    core.dual_src_blend = hc.dual_src_blend;
     v12.scalar_block_layout = vk::TRUE;
     v13.dynamic_rendering = vk::TRUE;
     v13.synchronization2 = vk::TRUE;

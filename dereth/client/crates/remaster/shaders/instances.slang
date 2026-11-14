@@ -1,22 +1,32 @@
 // The blocks' parts chosen and listed on the device: each one's level of detail, its fade into the
 // next, how much of it its impostor draws, whether it is seen, which of the sun's cascades it casts
-// into, and the indexed indirect commands that draw it, every frame, in three passes.
+// into, and the indexed indirect commands that draw it, every frame.
 //
 // - `cs_choose`, one part a thread: its level and fade from its distance, as the processor chooses
 //   a degrading part's (`render/lod.rs`): its group's hand-overs at its own scale, kept from levels
 //   coarser than retail's own and passed to its impostor where it is a tree; the fade written into
 //   its instance's row, as the G-buffer's fade reads it; whether it is seen (its block drawn, its
 //   sphere in the view or the mirrored view); the cascades it reaches; whether its impostor's card
-//   is drawn; and how many commands each list takes from it, summed over its workgroup.
+//   is drawn; how many commands each list takes from it, summed over its workgroup; and how many
+//   each of the G-buffer's buckets takes, at its place in the walk.
+// - `cs_walk_cpu`, one of the processor's parts a thread: how many commands each bucket takes from
+//   it, at its place in the walk.
 // - `cs_scan`, one workgroup: each list's workgroup sums made into each workgroup's first place,
 //   and each list's count written, the cards' as the instances of their indirect draw.
+// - `cs_walk_scan` and `cs_walk_groups`: the walk's counts made into each place's first command in
+//   each bucket, a thousand places a workgroup, then the workgroups'; and each bucket's count.
 // - `cs_write`, one part a thread: its first place in each list (its workgroup's, plus the parts
-//   before it in the workgroup), and its commands and its card written there.
+//   before it in the workgroup), and its commands, its keys and its card written there.
 //
-// A list's commands are in the parts' order, frame after frame: no race decides a place. The
-// G-buffer's two culled buckets take the parts' commands after the processor's own, from `base`;
-// each cascade has a list of its own, its parts' first levels, drawn into its cache. Ground cover
-// casts into the nearest cascade alone.
+// The walk is the order the processor lists the blocks' parts in: block by block as the frame
+// drew them, each block's parts in their order. The G-buffer's two culled buckets take the
+// commands of the device's parts and the processor's in it, so surfaces at equal depth resolve as
+// the walk has them; the processor's other items (the rooms', the objects') follow. Each cascade
+// has a list of its own, its parts' first levels, drawn into its cache. Ground cover casts into
+// the nearest cascade alone. The cut-outs' edges and the blended surfaces each get a list of keys,
+// how far off and which item, which `sort.slang` sorts far to near with the processor's own.
+//
+// Every list is in the same order frame after frame: no race decides a place.
 import bindless;
 import retail;
 import lift;
@@ -30,10 +40,10 @@ struct Push
     uint groups;
     // The frame's constants, below.
     uint constants;
-    // Each block's offset from the frame's origin, a row a slot; and a bit a slot for the blocks
-    // the walk drew.
+    // Each block's offset from the frame's origin, a row a slot; and each slot's first place in
+    // the walk, or `NONE` for a block the walk did not draw.
     uint blocks;
-    uint drawn;
+    uint walk_base;
     // The instances, eight rows each, and the draw items, two rows each.
     uint instances;
     uint items;
@@ -63,16 +73,27 @@ struct Push
     uint card_draw;
     // The frame's own constants, as the G-buffer reads them: the eye and how far a lift reaches.
     uint frame;
+    // Each place in the walk's commands in the two buckets, two words each, and each thousand
+    // places' (`WALK_TOTAL`: every place's); the processor's parts, two words each: the place,
+    // and its two counts.
+    uint walk;
+    uint walk_sums;
+    uint cpu_walk;
+    // The keys of the device's parts' edges and blended surfaces, `C_KEYS.z` of each list, two
+    // words each; and the lists' counts, the processor's keys with the device's.
+    uint keys;
+    uint list_counts;
 };
 
 [[vk::push_constant]]
 ConstantBuffer<Push> push;
 
 // The constants' rows: the eye and the pixels a meter covers at a meter; the error bar, the fade's
-// band, whether levels are chosen, and the flags; the processor's commands in each bucket, the
-// cascades drawn again and the groups' count; how far out a tree is wholly its impostor; the
-// view's six planes, the mirrored view's six; the sun's view; each cascade's box across the sun
-// and along it.
+// band, whether levels are chosen, and the flags; the cascades drawn again and the groups' count;
+// how far out a tree is wholly its impostor; the view's six planes, the mirrored view's six; the
+// sun's view; each cascade's box across the sun and along it; the walk's places, the processor's
+// parts in it, and the processor's other items in each bucket; the processor's keys in each list,
+// the room for each list's keys, and which lists the keys are made for.
 static const uint C_EYE = 0;
 static const uint C_CHOICE = 1;
 static const uint C_LISTS = 2;
@@ -81,6 +102,8 @@ static const uint C_VIEW = 4;
 static const uint C_MIRROR = 10;
 static const uint C_SUN = 16;
 static const uint C_CASCADES = 20;
+static const uint C_WALK = 28;
+static const uint C_KEYS = 29;
 
 // The flags: the mirrored view is drawn; the casters are those in the view alone.
 static const uint F_MIRROR = 1;
@@ -89,6 +112,13 @@ static const uint F_IN_VIEW = 2;
 // A part's flags: it is ground cover; it is held.
 static const uint M_COVER = 1;
 static const uint M_LIVE = 2;
+
+// An item's drawing word: its edges are drawn again blended.
+static const uint DRAW_EDGE = 1;
+
+// The lists keys are made for: the cut-outs' edges; the blended surfaces.
+static const uint K_EDGES = 1;
+static const uint K_FORWARD = 2;
 
 // A group's flags: its errors are measured; its own hand-over distances grow with the part's
 // scale; its last level is a tree's impostor.
@@ -99,12 +129,19 @@ static const uint G_IMPOSTOR = 4;
 // No record, group or tree.
 static const uint NONE = 0xFFFFFFFF;
 
-// The lists: the two culled buckets, the four cascades, then the cards.
-static const uint LISTS = 7;
+// The lists: the two culled buckets, the four cascades, the cards, then the edges' keys and the
+// blended surfaces'.
+static const uint LISTS = 9;
 static const uint CASCADES = 4;
 static const uint CARDS = 6;
+static const uint EDGES = 7;
+static const uint FORWARD = 8;
 static const uint MAX_LEVELS = 8;
 static const uint MAX_HANDS = 8;
+
+// The walk's places a workgroup counts, and where the sums keep every place's.
+static const uint WALK_GROUP = 1024;
+static const uint WALK_TOTAL = 4096;
 
 // A group's rows: its hand-overs' count, flags, impostor level and tree; its levels' errors,
 // twelve; its hand-overs' own distances, eight.
@@ -122,8 +159,12 @@ struct Choice
     bool seen;
     // Its block is drawn.
     bool drawn;
+    // Its block is drawn and its sphere is in the view: its edges and blended surfaces are keyed.
+    bool keyed;
     // A bit a cascade it casts into.
     uint casts;
+    // Its place in the walk, `NONE` where its block is not drawn.
+    uint walk;
 };
 
 Choice nothing()
@@ -136,14 +177,16 @@ Choice nothing()
     c.tree = NONE;
     c.seen = false;
     c.drawn = false;
+    c.keyed = false;
     c.casts = 0;
+    c.walk = NONE;
     return c;
 }
 
 // How many items a part's level `l` draws, and the first of them: none past its last level.
 uint2 level_items(uint4 head, uint4 counts, uint l)
 {
-    if (l >= min(counts.w, MAX_LEVELS))
+    if (l >= min((counts.z >> 8) & 0xFF, MAX_LEVELS))
     {
         return uint2(head.w, 0);
     }
@@ -154,6 +197,13 @@ uint2 level_items(uint4 head, uint4 counts, uint l)
     }
     uint n = ((l < 4 ? counts.x : counts.y) >> ((l & 3) * 8)) & 0xFF;
     return uint2(first, n);
+}
+
+// Item `item`'s bucket and its drawing word.
+uint2 item_kind(uint item)
+{
+    uint4 b = buffers[NonUniformResourceIndex(push.items)].Load4(item * 32 + 16);
+    return uint2(b.w, b.y);
 }
 
 // Whether a sphere stands inside six planes starting at constants row `at`.
@@ -417,10 +467,14 @@ Choice choose(uint m, out uint n[LISTS])
 
     float3 at = sphere.xyz + offset;
     uint flags = asuint(row(push.constants, C_CHOICE).w);
-    c.drawn = ((buffers[NonUniformResourceIndex(push.drawn)].Load((head.y >> 5) * 4) >> (head.y & 31)) & 1) != 0;
+    uint base = buffers[NonUniformResourceIndex(push.walk_base)].Load(head.y * 4);
+    c.drawn = base != NONE;
+    c.walk = c.drawn ? base + counts.w : NONE;
     bool in_view = inside(C_VIEW, at, sphere.w);
     bool in_mirror = (flags & F_MIRROR) != 0 && inside(C_MIRROR, at, sphere.w);
     c.seen = c.drawn && (in_view || in_mirror);
+    c.keyed = c.drawn && in_view;
+    uint keyed = c.keyed ? row_u(push.constants, C_KEYS).w : 0;
     if (c.seen)
     {
         for (uint k = 0; k < (fading ? 2u : 1u); k++)
@@ -428,10 +482,18 @@ Choice choose(uint m, out uint n[LISTS])
             uint2 r = level_items(head, counts, k == 0 ? c.level : c.next);
             for (uint i = 0; i < r.y; i++)
             {
-                uint bucket = buffers[NonUniformResourceIndex(push.items)].Load((r.x + i) * 32 + 28);
-                if (bucket < 2)
+                uint2 kind = item_kind(r.x + i);
+                if (kind.x < 2)
                 {
-                    n[bucket] += 1;
+                    n[kind.x] += 1;
+                    if ((kind.y & DRAW_EDGE) != 0 && (keyed & K_EDGES) != 0)
+                    {
+                        n[EDGES] += 1;
+                    }
+                }
+                else if ((keyed & K_FORWARD) != 0)
+                {
+                    n[FORWARD] += 1;
                 }
             }
         }
@@ -443,7 +505,6 @@ Choice choose(uint m, out uint n[LISTS])
         n[CARDS] = 1;
     }
     uint redraw = row_u(push.constants, C_LISTS).z;
-    uint first = level_items(head, counts, 0).y;
     for (uint k = 0; k < CASCADES; k++)
     {
         bool casts = ((redraw >> k) & 1) != 0
@@ -453,7 +514,20 @@ Choice choose(uint m, out uint n[LISTS])
         if (casts)
         {
             c.casts |= 1u << k;
-            n[2 + k] = first;
+        }
+    }
+    // Its first level's items in the G-buffer's buckets cast, into each cascade it reaches.
+    if (c.casts != 0)
+    {
+        uint2 first = level_items(head, counts, 0);
+        uint casters = 0;
+        for (uint i = 0; i < first.y; i++)
+        {
+            casters += item_kind(first.x + i).x < 2 ? 1u : 0u;
+        }
+        for (uint k = 0; k < CASCADES; k++)
+        {
+            n[2 + k] = ((c.casts >> k) & 1) != 0 ? casters : 0;
         }
     }
     return c;
@@ -480,10 +554,15 @@ void cs_choose(uint3 id : SV_DispatchThreadID, uint3 local : SV_GroupThreadID, u
         Choice c = choose(id.x, n);
         RWByteAddressBuffer states = rw_buffers[NonUniformResourceIndex(push.states)];
         uint flags = (c.seen ? 1u : 0u) | (c.fade > 0.0 ? 2u : 0u) | (c.casts << 2)
-            | (c.drawn ? 64u : 0u) | (n[CARDS] != 0 ? 128u : 0u);
+            | (c.drawn ? 64u : 0u) | (n[CARDS] != 0 ? 128u : 0u) | (c.keyed ? 256u : 0u);
         states.Store4(id.x * 16, uint4(c.level | (c.next << 8) | (flags << 16), asuint(c.fade), asuint(c.share), c.tree));
         RWByteAddressBuffer tallies = rw_buffers[NonUniformResourceIndex(push.tallies)];
-        tallies.Store4(id.x * 16, uint4(n[0] | (n[1] << 16), n[2] | (n[3] << 16), n[4] | (n[5] << 16), n[6]));
+        tallies.Store4(id.x * 32, uint4(n[0] | (n[1] << 16), n[2] | (n[3] << 16), n[4] | (n[5] << 16), n[6]));
+        tallies.Store4(id.x * 32 + 16, uint4(n[EDGES], n[FORWARD], c.walk, 0));
+        if (c.walk != NONE && c.walk < row_u(push.constants, C_WALK).x)
+        {
+            rw_buffers[NonUniformResourceIndex(push.walk)].Store2(c.walk * 8, uint2(n[0], n[1]));
+        }
         uint unused;
         for (uint l = 0; l < LISTS; l++)
         {
@@ -496,16 +575,32 @@ void cs_choose(uint3 id : SV_DispatchThreadID, uint3 local : SV_GroupThreadID, u
     GroupMemoryBarrierWithGroupSync();
     if (local.x < LISTS)
     {
-        rw_buffers[NonUniformResourceIndex(push.sums)].Store((group.x * 8 + local.x) * 4, gs_sums[local.x]);
+        rw_buffers[NonUniformResourceIndex(push.sums)].Store((group.x * 16 + local.x) * 4, gs_sums[local.x]);
     }
 }
 
 [shader("compute")]
-[numthreads(8, 1, 1)]
+[numthreads(64, 1, 1)]
+void cs_walk_cpu(uint3 id : SV_DispatchThreadID)
+{
+    uint4 w = row_u(push.constants, C_WALK);
+    if (id.x >= w.y)
+    {
+        return;
+    }
+    uint2 e = buffers[NonUniformResourceIndex(push.cpu_walk)].Load2(id.x * 8);
+    if (e.x < w.x)
+    {
+        rw_buffers[NonUniformResourceIndex(push.walk)].Store2(e.x * 8, uint2(e.y & 0xFFFF, e.y >> 16));
+    }
+}
+
+[shader("compute")]
+[numthreads(16, 1, 1)]
 void cs_scan(uint3 id : SV_DispatchThreadID)
 {
     uint l = id.x;
-    if (l >= LISTS)
+    if (l >= LISTS || l < 2)
     {
         return;
     }
@@ -514,14 +609,16 @@ void cs_scan(uint3 id : SV_DispatchThreadID)
     uint running = 0;
     for (uint g = 0; g < groups; g++)
     {
-        uint v = sums.Load((g * 8 + l) * 4);
-        sums.Store((g * 8 + l) * 4, running);
+        uint v = sums.Load((g * 16 + l) * 4);
+        sums.Store((g * 16 + l) * 4, running);
         running += v;
     }
-    if (l < 2)
+    if (l >= EDGES)
     {
-        uint base = row_u(push.constants, C_LISTS)[l];
-        rw_buffers[NonUniformResourceIndex(push.counts)].Store(l * 4, min(base + running, push.capacity));
+        // The list's keys: the processor's, then the device's.
+        uint4 keys = row_u(push.constants, C_KEYS);
+        uint cpu = l == EDGES ? keys.x : keys.y;
+        rw_buffers[NonUniformResourceIndex(push.list_counts)].Store((l - EDGES) * 4, min(cpu + running, keys.z));
     }
     else if (l < CARDS)
     {
@@ -541,6 +638,104 @@ void cs_scan(uint3 id : SV_DispatchThreadID)
         draw.Store4(0, uint4(6, cards, 0, 0));
 #endif
     }
+}
+
+groupshared uint2 gs_walk[1024];
+
+// The sums of each of the workgroup's first `n` threads' own values in `gs_walk` and those of
+// every thread before it, in place.
+void scan_shared(uint t, uint n)
+{
+    for (uint d = 1; d < n; d <<= 1)
+    {
+        GroupMemoryBarrierWithGroupSync();
+        uint2 v = t >= d && t < n ? gs_walk[t - d] : uint2(0, 0);
+        GroupMemoryBarrierWithGroupSync();
+        if (t < n)
+        {
+            gs_walk[t] += v;
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+}
+
+// A thousand places of the walk a workgroup, four a thread: each place's first command in each
+// bucket among its workgroup's, and the workgroup's sums.
+[shader("compute")]
+[numthreads(256, 1, 1)]
+void cs_walk_scan(uint3 local : SV_GroupThreadID, uint3 group : SV_GroupID)
+{
+    uint places = row_u(push.constants, C_WALK).x;
+    RWByteAddressBuffer walk = rw_buffers[NonUniformResourceIndex(push.walk)];
+    uint first = group.x * WALK_GROUP + local.x * 4;
+    uint2 v[4];
+    uint2 own = uint2(0, 0);
+    for (uint k = 0; k < 4; k++)
+    {
+        v[k] = first + k < places ? walk.Load2((first + k) * 8) : uint2(0, 0);
+        own += v[k];
+    }
+    gs_walk[local.x] = own;
+    scan_shared(local.x, 256);
+    uint2 before = gs_walk[local.x] - own;
+    for (uint k = 0; k < 4; k++)
+    {
+        if (first + k < places)
+        {
+            walk.Store2((first + k) * 8, before);
+        }
+        before += v[k];
+    }
+    if (local.x == 255)
+    {
+        rw_buffers[NonUniformResourceIndex(push.walk_sums)].Store2(group.x * 8, gs_walk[255]);
+    }
+}
+
+// The workgroups' sums made into each one's first command in each bucket, four a thread; every
+// place's at `WALK_TOTAL`; and the two buckets' counts: the walk's, then the processor's others.
+[shader("compute")]
+[numthreads(1024, 1, 1)]
+void cs_walk_groups(uint3 local : SV_GroupThreadID)
+{
+    uint4 w = row_u(push.constants, C_WALK);
+    uint groups = (w.x + WALK_GROUP - 1) / WALK_GROUP;
+    RWByteAddressBuffer sums = rw_buffers[NonUniformResourceIndex(push.walk_sums)];
+    uint first = local.x * 4;
+    uint2 v[4];
+    uint2 own = uint2(0, 0);
+    for (uint k = 0; k < 4; k++)
+    {
+        v[k] = first + k < groups ? sums.Load2((first + k) * 8) : uint2(0, 0);
+        own += v[k];
+    }
+    gs_walk[local.x] = own;
+    scan_shared(local.x, 1024);
+    uint2 before = gs_walk[local.x] - own;
+    for (uint k = 0; k < 4; k++)
+    {
+        if (first + k < groups)
+        {
+            sums.Store2((first + k) * 8, before);
+        }
+        before += v[k];
+    }
+    if (local.x == 1023)
+    {
+        uint2 total = gs_walk[1023];
+        sums.Store2(WALK_TOTAL * 8, total);
+        RWByteAddressBuffer counts = rw_buffers[NonUniformResourceIndex(push.counts)];
+        counts.Store(0, min(total.x + w.z, push.capacity));
+        counts.Store(4, min(total.y + w.w, push.capacity));
+    }
+}
+
+// The first command in bucket `bucket` of the walk's place `w`.
+uint walk_place(uint w, uint bucket)
+{
+    uint2 own = buffers[NonUniformResourceIndex(push.walk)].Load2(w * 8);
+    uint2 group = buffers[NonUniformResourceIndex(push.walk_sums)].Load2((w / WALK_GROUP) * 8);
+    return bucket == 0 ? own.x + group.x : own.y + group.y;
 }
 
 // Write one indexed indirect command at place `slot` of the list from command `first`: item
@@ -628,6 +823,17 @@ void card(uint m, uint at, uint4 head, float share, uint tree)
 
 groupshared uint gs_tallies[64 * LISTS];
 
+// Write key `key` at place `at` of list `list`'s device keys, where the list has room.
+void key(uint list, uint at, uint2 key)
+{
+    uint4 keys = row_u(push.constants, C_KEYS);
+    uint cpu = list == 0 ? keys.x : keys.y;
+    if (cpu + at < keys.z)
+    {
+        rw_buffers[NonUniformResourceIndex(push.keys)].Store2((list * keys.z + at) * 8, key);
+    }
+}
+
 [shader("compute")]
 [numthreads(64, 1, 1)]
 void cs_write(uint3 id : SV_DispatchThreadID, uint3 local : SV_GroupThreadID, uint3 group : SV_GroupID)
@@ -637,9 +843,11 @@ void cs_write(uint3 id : SV_DispatchThreadID, uint3 local : SV_GroupThreadID, ui
     {
         n[l] = 0;
     }
+    uint walk = NONE;
     if (id.x < push.count)
     {
-        uint4 t = buffers[NonUniformResourceIndex(push.tallies)].Load4(id.x * 16);
+        uint4 t = buffers[NonUniformResourceIndex(push.tallies)].Load4(id.x * 32);
+        uint4 u = buffers[NonUniformResourceIndex(push.tallies)].Load4(id.x * 32 + 16);
         n[0] = t.x & 0xFFFF;
         n[1] = t.x >> 16;
         n[2] = t.y & 0xFFFF;
@@ -647,6 +855,9 @@ void cs_write(uint3 id : SV_DispatchThreadID, uint3 local : SV_GroupThreadID, ui
         n[4] = t.z & 0xFFFF;
         n[5] = t.z >> 16;
         n[6] = t.w;
+        n[EDGES] = u.x;
+        n[FORWARD] = u.y;
+        walk = u.z;
     }
     for (uint l = 0; l < LISTS; l++)
     {
@@ -661,7 +872,7 @@ void cs_write(uint3 id : SV_DispatchThreadID, uint3 local : SV_GroupThreadID, ui
     uint place[LISTS];
     for (uint l = 0; l < LISTS; l++)
     {
-        uint before = buffers[NonUniformResourceIndex(push.sums)].Load((group.x * 8 + l) * 4);
+        uint before = buffers[NonUniformResourceIndex(push.sums)].Load((group.x * 16 + l) * 4);
         for (uint j = 0; j < local.x; j++)
         {
             before += gs_tallies[j * LISTS + l];
@@ -672,28 +883,63 @@ void cs_write(uint3 id : SV_DispatchThreadID, uint3 local : SV_GroupThreadID, ui
     uint flags = state.x >> 16;
     uint4 head = row_u(push.table, id.x * 4);
     uint4 counts = row_u(push.table, id.x * 4 + 1);
-    uint4 lists = row_u(push.constants, C_LISTS);
     if ((flags & 1) != 0)
     {
         uint level = state.x & 0xFF;
         uint next = (state.x >> 8) & 0xFF;
         bool fading = (flags & 2) != 0;
+        bool keyed = (flags & 256) != 0;
+        uint lists = keyed ? row_u(push.constants, C_KEYS).w : 0;
+        // How far off it stands, as the processor measures the items it sorts: its sphere's centre
+        // moved by its block's offset, less the eye; the key far to near, then by item.
+        uint far = 0;
+        if (lists != 0)
+        {
+            float4 sphere = row(push.table, id.x * 4 + 2);
+            float3 offset = row(push.blocks, head.y).xyz;
+            float3 eye = row(push.constants, C_EYE).xyz;
+            precise float3 at = sphere.xyz + offset;
+            precise float3 v = at - eye;
+            precise float dd = (v.x * v.x + v.y * v.y) + v.z * v.z;
+            far = ~asuint(dd);
+        }
+        // Its first command in each bucket, at its place in the walk.
+        uint slots[2] = { NONE, NONE };
+        if (walk != NONE && walk < row_u(push.constants, C_WALK).x)
+        {
+            slots[0] = walk_place(walk, 0);
+            slots[1] = walk_place(walk, 1);
+        }
         for (uint k = 0; k < (fading ? 2u : 1u); k++)
         {
             uint2 r = level_items(head, counts, k == 0 ? level : next);
             for (uint i = 0; i < r.y; i++)
             {
                 uint item = r.x + i;
-                uint bucket = buffers[NonUniformResourceIndex(push.items)].Load(item * 32 + 28);
-                if (bucket >= 2)
+                uint2 kind = item_kind(item);
+                if (kind.x >= 2)
+                {
+                    if ((lists & K_FORWARD) != 0)
+                    {
+                        key(1, place[FORWARD], uint2(far, item));
+                        place[FORWARD] += 1;
+                    }
+                    continue;
+                }
+                if ((kind.y & DRAW_EDGE) != 0 && (lists & K_EDGES) != 0)
+                {
+                    key(0, place[EDGES], uint2(far, item));
+                    place[EDGES] += 1;
+                }
+                uint slot = slots[kind.x];
+                if (slot == NONE)
                 {
                     continue;
                 }
-                uint slot = lists[bucket] + place[bucket];
-                place[bucket] += 1;
+                slots[kind.x] += 1;
                 if (slot < push.capacity)
                 {
-                    command(push.commands, bucket * push.capacity + slot, item);
+                    command(push.commands, kind.x * push.capacity + slot, item);
                 }
             }
         }
@@ -705,13 +951,18 @@ void cs_write(uint3 id : SV_DispatchThreadID, uint3 local : SV_GroupThreadID, ui
         {
             continue;
         }
+        uint at = place[2 + c];
         for (uint i = 0; i < first.y; i++)
         {
-            uint slot = place[2 + c] + i;
-            if (slot < push.caster_capacity)
+            if (item_kind(first.x + i).x >= 2)
             {
-                command(push.casters, c * push.caster_capacity + slot, first.x + i);
+                continue;
             }
+            if (at < push.caster_capacity)
+            {
+                command(push.casters, c * push.caster_capacity + at, first.x + i);
+            }
+            at += 1;
         }
     }
     if ((flags & 128) != 0 && place[CARDS] < push.card_capacity)

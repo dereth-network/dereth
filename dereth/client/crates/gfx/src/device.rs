@@ -166,6 +166,7 @@ impl Features {
         f.core.draw_indirect_first_instance = vk::TRUE;
         f.core.sampler_anisotropy = have.core.sampler_anisotropy;
         f.core.texture_compression_bc = have.core.texture_compression_bc;
+        f.core.dual_src_blend = have.core.dual_src_blend;
         f.v11.shader_draw_parameters = vk::TRUE;
         f.v12.descriptor_indexing = vk::TRUE;
         f.v12.runtime_descriptor_array = vk::TRUE;
@@ -213,6 +214,9 @@ pub struct Caps {
     /// Whether an indirect draw takes its count from a buffer. Without it, a counted draw draws
     /// all `max` commands, and the commands past the count must draw nothing.
     pub indirect_count: bool,
+    /// Whether a blend takes its factors from the fragment's second output
+    /// ([`Factor::Src1Alpha`](crate::Factor::Src1Alpha)).
+    pub dual_source_blend: bool,
 }
 
 /// When something the device holds may go: the timeline value a submission of its own signals,
@@ -640,9 +644,11 @@ impl Device {
             || families
                 .get(family as usize)
                 .is_some_and(|f| f.timestamp_valid_bits > 0);
-        // A device made here, or by the ordinary renderer, enables it wherever it is supported.
-        let indirect_count =
-            Features::query(&instance, physical).v12.draw_indirect_count == vk::TRUE;
+        // A device made here, or by the ordinary renderer, enables these wherever they are
+        // supported.
+        let had = Features::query(&instance, physical);
+        let indirect_count = had.v12.draw_indirect_count == vk::TRUE;
+        let dual_source_blend = had.core.dual_src_blend == vk::TRUE;
         let caps = Caps {
             name: props
                 .device_name_as_c_str()
@@ -662,6 +668,7 @@ impl Device {
             packed_float_targets,
             ray_queries,
             indirect_count,
+            dual_source_blend,
         };
         let allocator = Allocator::new(&AllocatorCreateDesc {
             instance: instance.clone(),

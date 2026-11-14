@@ -95,6 +95,10 @@ struct Pipelines {
     forward: [[Pipeline; 2]; 2],
     /// The cut-outs' edges: front faces culled away, then both drawn.
     edge: [Pipeline; 2],
+    /// The lists the device sorts, each drawn by one pipeline whatever its items' sides: the
+    /// cut-outs' edges, and the blended and added surfaces where the device blends both in one.
+    edge_any: Pipeline,
+    forward_any: Option<Pipeline>,
     /// The sky: opaque, blended, additive; each with front faces culled away, then both drawn.
     /// No depth: the sky is behind everything.
     sky: [[Pipeline; 2]; 3],
@@ -340,6 +344,10 @@ pub struct Renderer {
     /// How long the last frame's lists of what it drew were, to make this frame's that long at
     /// once.
     drawn_sizes: DrawnSizes,
+    /// The last frame's outdoor edges and blended surfaces as the processor drew them, item by
+    /// item, and which of the two lists the device sorted instead: for the checks.
+    blended: [Vec<u32>; 2],
+    blended_sorted: [bool; 2],
 }
 
 /// A raw shader from the embedded blobs.
@@ -440,6 +448,8 @@ impl Pipelines {
             resolve_pixel: scene.resolve_pixel,
             forward: scene.forward,
             edge: scene.edge,
+            edge_any: scene.edge_any,
+            forward_any: scene.forward_any,
             sky: scene.sky,
             composite,
             cull,
@@ -454,6 +464,8 @@ impl Pipelines {
             resolve_pixel: scene.resolve_pixel,
             forward: scene.forward,
             edge: scene.edge,
+            edge_any: scene.edge_any,
+            forward_any: scene.forward_any,
             sky: scene.sky,
             ..self
         }
@@ -469,6 +481,8 @@ struct ScenePipelines {
     resolve_pixel: Pipeline,
     forward: [[Pipeline; 2]; 2],
     edge: [Pipeline; 2],
+    edge_any: Pipeline,
+    forward_any: Option<Pipeline>,
     sky: [[Pipeline; 2]; 3],
 }
 
@@ -542,6 +556,48 @@ impl ScenePipelines {
                 cull,
             })?;
         }
+        let edge_any = d.create_graphics_pipeline(&GraphicsDesc {
+            label: "remaster cut-out edges, sorted",
+            vertex: shader(Entry::GbufferVsMain),
+            fragment: Some(shader(Entry::GbufferFsEdgeAny)),
+            color: &[ColorTarget {
+                format,
+                blend: Some(blends[0]),
+                write_alpha: false,
+            }],
+            depth: Some(DepthState {
+                format: DEPTH,
+                compare: Some(Compare::LessEqual),
+                write: true,
+            }),
+            cull: Cull::None,
+        })?;
+        // A blended surface's alpha comes with its color and one less it goes with what is drawn,
+        // as the blended pipeline has them; an added one's color comes whole and all of what is
+        // drawn stays, as the added pipeline has them.
+        let forward_any = if d.caps().dual_source_blend {
+            Some(d.create_graphics_pipeline(&GraphicsDesc {
+                label: "remaster forward, sorted",
+                vertex: shader(Entry::GbufferVsMain),
+                fragment: Some(shader(Entry::GbufferFsForwardAny)),
+                color: &[ColorTarget {
+                    format,
+                    blend: Some(Blend {
+                        src: Factor::Src1Alpha,
+                        dst: Factor::OneMinusSrc1Color,
+                    }),
+                    write_alpha: false,
+                }],
+                depth: Some(DepthState {
+                    format: DEPTH,
+                    compare: Some(Compare::LessEqual),
+                    write: false,
+                }),
+                cull: Cull::None,
+            })?)
+        } else {
+            None
+        };
         let mut sky = [[resolve_vertex; 2]; 3];
         for (b, blend) in [None, Some(blends[0]), Some(blends[1])]
             .into_iter()
@@ -567,6 +623,8 @@ impl ScenePipelines {
             resolve_pixel,
             forward,
             edge,
+            edge_any,
+            forward_any,
             sky,
         })
     }
@@ -735,6 +793,8 @@ impl Renderer {
             lift_probe,
             mesh_trees: Vec::new(),
             drawn_sizes: DrawnSizes::default(),
+            blended: Default::default(),
+            blended_sorted: [false; 2],
         })
     }
 
@@ -1736,8 +1796,11 @@ fn make_ground_samplers(gfx: &mut Device, bias: f32) -> Result<[u32; 2], dereth_
 pub(crate) struct Drawn {
     /// Whether the viewer stands inside with the outdoors drawn.
     pub inside: bool,
-    /// The G-buffer's items.
+    /// The G-buffer's items, and for each of the outdoors' its block part's place in the walk:
+    /// block by block as the frame drew them, each taking a place for each of its parts (`NONE`
+    /// for any other item).
     pub opaque: Vec<u32>,
+    pub opaque_walk: Vec<u32>,
     pub opaque_inside: Vec<u32>,
     /// The forward pass's items, far to near, with their buckets.
     pub forward: Vec<(f32, u32, Bucket)>,
@@ -1807,6 +1870,7 @@ impl Renderer {
                 frame.light.statics,
             )],
             opaque: Vec::with_capacity(sizes.opaque),
+            opaque_walk: Vec::with_capacity(sizes.opaque),
             forward: Vec::with_capacity(sizes.forward),
             edges: Vec::with_capacity(sizes.edges),
             lod: Vec::with_capacity(sizes.lod),
@@ -1824,11 +1888,12 @@ impl Renderer {
         };
         // `interior`: the items are the interior's, drawn after the stamps when the viewer
         // stands inside. `fading`: a material is fading them, so whatever they are they blend.
+        // `walk`: their block part's place in the walk, `NONE` for any other item.
         let push_items = |out: &mut Drawn,
                           r: &std::ops::Range<u32>,
                           centre: Vec3,
-                          interior: bool,
-                          fading: bool| {
+                          (interior, fading): (bool, bool),
+                          walk: u32| {
             let late = interior && out.inside;
             for i in r.clone() {
                 let far = centre.distance_squared(eye);
@@ -1859,6 +1924,7 @@ impl Renderer {
                             }
                         } else {
                             out.opaque.push(i);
+                            out.opaque_walk.push(walk);
                             if edge {
                                 out.edges.push((far, i));
                             }
@@ -1873,10 +1939,14 @@ impl Renderer {
                 .map_or(0, |l| usize::from(*l))
         };
         if frame.landscape {
+            // The next block's first place in the walk.
+            let mut places = 0u32;
             for id in &frame.drawn_blocks {
                 let Some(b) = self.scene.blocks.get(id) else {
                     continue;
                 };
+                let walk = places;
+                places = places.saturating_add(u32::try_from(b.parts.len()).unwrap_or(u32::MAX));
                 if let Some(g) = self.scene.ground.get(id) {
                     out.ground
                         .push([g.vertices.start, g.cells.start, g.side, b.slot]);
@@ -1896,7 +1966,13 @@ impl Renderer {
                     let d = lod.part(p, retail, true);
                     for l in std::iter::once(d.level).chain(d.fade.map(|f| f.0)) {
                         if let Some(r) = p.levels.get(usize::from(l)) {
-                            push_items(&mut out, r, c, false, false);
+                            push_items(
+                                &mut out,
+                                r,
+                                c,
+                                (false, false),
+                                walk.saturating_add(u32::try_from(k).unwrap_or(u32::MAX)),
+                            );
                         }
                     }
                     if let (Some(record), true) = (p.degrade, lod_on || d.turned.is_some()) {
@@ -1933,7 +2009,7 @@ impl Renderer {
             if let Some((id, _, r)) = rooms.get(cell) {
                 let o = offset(*id);
                 let c = r.walls.transform.w_axis.xyz() + o;
-                push_items(&mut out, &r.walls.levels[0], c, true, false);
+                push_items(&mut out, &r.walls.levels[0], c, (true, false), NONE);
                 // Its openings to the outdoors, stamped as a fan of triangles each.
                 if out.inside {
                     for poly in &r.openings {
@@ -1986,7 +2062,7 @@ impl Renderer {
                 }));
             for l in std::iter::once(d.level).chain(d.fade.map(|f| f.0)) {
                 if let Some(r) = p.levels.get(usize::from(l)) {
-                    push_items(&mut out, r, centre, true, false);
+                    push_items(&mut out, r, centre, (true, false), NONE);
                 }
             }
         }
@@ -2051,7 +2127,7 @@ impl Renderer {
             ));
             if let Some(r) = p.levels.get(usize::from(pp.level)) {
                 let c = pp.transform.transform_point3(Vec3::from(p.sphere.0));
-                push_items(&mut out, r, c, !dp.outdoors, fade > 0.0);
+                push_items(&mut out, r, c, (!dp.outdoors, fade > 0.0), NONE);
             }
         }
         // The particles, each an instance and its card's draw items of its own, written this
@@ -2309,8 +2385,32 @@ impl Renderer {
             stats.fading += u32::from(s.fade > 0.0);
             stats.finer += u32::from(s.level < retail);
             stats.coarser += u32::from(s.level > retail && s.share == 0.0);
+            stats.impostors += u32::from(s.share > 0.0);
         }
         stats
+    }
+
+    /// The last frame's outdoor cut-outs' edges and blended surfaces, the items in the order they
+    /// were drawn, whether the processor sorted them or the device did, after the device has
+    /// finished: for the checks.
+    pub fn blended_items(&mut self) -> [Vec<u32>; 2] {
+        let mut out = self.blended.clone();
+        if self.blended_sorted.contains(&true) {
+            let sorted = self.instances.read_lists(&mut self.gfx).unwrap_or_default();
+            for (list, (own, theirs)) in out.iter_mut().zip(sorted).enumerate() {
+                if self.blended_sorted[list] {
+                    *own = theirs;
+                }
+            }
+        }
+        out
+    }
+
+    /// Whether the device sorts the outdoor blended surfaces' list as well as the cut-outs'
+    /// edges', where it chooses the parts.
+    #[must_use]
+    pub fn sorts_blended(&self) -> bool {
+        self.instances.sorts_forward()
     }
 
     /// The draw items of the G-buffer's two outdoor buckets, front faces culled away and both

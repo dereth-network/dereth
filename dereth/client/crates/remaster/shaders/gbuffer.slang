@@ -58,6 +58,12 @@ static const uint ITEM_TILED = 1;
 static const uint ITEM_BUILDING = 2;
 static const uint ITEM_ROOM = 4;
 
+// How an item is drawn: both its faces.
+static const uint DRAW_TWO_SIDED = 2;
+
+// The bucket of an item that adds to what is drawn.
+static const uint BUCKET_ADDITIVE = 3;
+
 [[vk::push_constant]]
 ConstantBuffer<Push> push;
 
@@ -78,8 +84,9 @@ struct Varyings
 };
 
 // An item, two rows: its instance, its vertices' first index, its index count and its material;
-// then its flags (bit 0 the texture repeats), its first index and its bucket. Its instance says
-// the rest: its light class, its light set and its object's override (or ~0).
+// then its flags (bit 0 the texture repeats), how it is drawn (`DRAW_*`), its first index and its
+// bucket. Its instance says the rest: its light class, its light set and its object's override
+// (or ~0).
 struct Item
 {
     uint instance;
@@ -340,6 +347,49 @@ Targets fs_main(Varyings in)
 [shader("fragment")]
 float4 fs_forward(Varyings in) : SV_Target0
 {
+    return forward_color(in);
+}
+
+// Whether the pixel is a one-sided item's front face, which a pass drawing both sidednesses with
+// one pipeline leaves alone, as one culling front faces away does.
+bool culled_face(uint item, bool front)
+{
+    return front && (row_u(push.items, item * 2 + 1).y & DRAW_TWO_SIDED) == 0;
+}
+
+// The forward pass's color and its blend's factors, for a list of one-sided and two-sided items,
+// blended and added, in one pipeline whose blend takes its factors from the second output:
+// a blended surface's own alpha over one less it, as the blended pipeline blends it; an added
+// one's color whole over all of what is drawn, as the added pipeline adds it.
+struct Blend2
+{
+    [[vk::location(0)]] float4 color : SV_Target0;
+    [[vk::location(0), vk::index(1)]] float4 factor : SV_Target1;
+};
+
+[shader("fragment")]
+Blend2 fs_forward_any(Varyings in, bool front : SV_IsFrontFace)
+{
+    if (culled_face(in.item, front)) discard;
+    float4 o = forward_color(in);
+    Blend2 out;
+    out.color = o;
+    out.factor = row_u(push.items, in.item * 2 + 1).w == BUCKET_ADDITIVE
+        ? float4(0.0, 0.0, 0.0, 1.0)
+        : o.aaaa;
+    return out;
+}
+
+// The edge pass for a list of one-sided and two-sided blended cut-outs, in one pipeline.
+[shader("fragment")]
+float4 fs_edge_any(Varyings in, bool front : SV_IsFrontFace) : SV_Target0
+{
+    if (culled_face(in.item, front)) discard;
+    return edge_color(in);
+}
+
+float4 forward_color(Varyings in)
+{
     if (faded(push.items, push.instances, in.item, in.position.xy)) discard;
     masked(in.position);
     Item it = item_at(in.item);
@@ -369,6 +419,11 @@ float4 fs_forward(Varyings in) : SV_Target0
 // what is drawn behind them, as retail blends a cut-out; their opaque texels are in the G-buffer.
 [shader("fragment")]
 float4 fs_edge(Varyings in) : SV_Target0
+{
+    return edge_color(in);
+}
+
+float4 edge_color(Varyings in)
 {
     if (faded(push.items, push.instances, in.item, in.position.xy)) discard;
     masked(in.position);

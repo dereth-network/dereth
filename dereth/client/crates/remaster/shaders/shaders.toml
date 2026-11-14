@@ -55,6 +55,18 @@ source = "gbuffer.slang"
 entry = "fs_edge"
 stage = "fragment"
 
+# The forward and edge passes for a list sorted on the device, one-sided and two-sided items (and
+# for the forward pass blended and added ones) in one pipeline.
+[[entry]]
+source = "gbuffer.slang"
+entry = "fs_forward_any"
+stage = "fragment"
+
+[[entry]]
+source = "gbuffer.slang"
+entry = "fs_edge_any"
+stage = "fragment"
+
 # The G-buffer pass for the ground.
 [[entry]]
 source = "terrain.slang"
@@ -89,11 +101,16 @@ source = "cull.slang"
 entry = "cs_main"
 stage = "compute"
 
-# An art pack's placed models: their levels and fades chosen, their places in the command lists
-# counted, and their commands written, on the device.
+# The blocks' parts: their levels and fades chosen, their places in the command lists and in the
+# walk counted, and their commands and keys written, on the device.
 [[entry]]
 source = "instances.slang"
 entry = "cs_choose"
+stage = "compute"
+
+[[entry]]
+source = "instances.slang"
+entry = "cs_walk_cpu"
 stage = "compute"
 
 [[entry]]
@@ -103,7 +120,39 @@ stage = "compute"
 
 [[entry]]
 source = "instances.slang"
+entry = "cs_walk_scan"
+stage = "compute"
+
+[[entry]]
+source = "instances.slang"
+entry = "cs_walk_groups"
+stage = "compute"
+
+[[entry]]
+source = "instances.slang"
 entry = "cs_write"
+stage = "compute"
+
+# The cut-outs' edges and the blended surfaces sorted far to near, and their commands written, on
+# the device.
+[[entry]]
+source = "sort.slang"
+entry = "cs_local"
+stage = "compute"
+
+[[entry]]
+source = "sort.slang"
+entry = "cs_global"
+stage = "compute"
+
+[[entry]]
+source = "sort.slang"
+entry = "cs_merge"
+stage = "compute"
+
+[[entry]]
+source = "sort.slang"
+entry = "cs_emit"
 stage = "compute"
 
 # The skinned bodies posed on the device, written over their meshes' vertices.

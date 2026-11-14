@@ -358,14 +358,15 @@ fn a_trees_shadow_does_not_change_as_it_becomes_an_impostor() {
     for _ in 0..3 {
         shot.step_held(&mut gpu);
     }
-    let cards = |shot: &Shot, gpu: &mut Gpu| {
+    // The trees drawn as impostors, in view or not.
+    let impostors = |shot: &Shot, gpu: &mut Gpu| {
         shot.scene
             .draw
-            .remaster_impostor_stats(gpu)
+            .remaster_lod_stats(gpu)
             .expect("the remaster is on")
-            .cards
+            .impostors
     };
-    let first_cards = cards(&shot, &mut gpu);
+    let first_impostors = impostors(&shot, &mut gpu);
     let mut last = capture(&shot, &mut gpu);
     let (mut ground, mut ground_changed, mut shadowed) = (0usize, 0usize, 0usize);
     for k in 1..=10u8 {
@@ -390,13 +391,16 @@ fn a_trees_shadow_does_not_change_as_it_becomes_an_impostor() {
         }
         last = now;
     }
-    let last_cards = cards(&shot, &mut gpu);
+    let last_impostors = impostors(&shot, &mut gpu);
     close(&store, "forest", gpu, shot);
     eprintln!(
-        "forest: cards {first_cards} to {last_cards}; over the steps {ground} ground pixels, \
-         {shadowed} of them shadowed, the sun changed on {ground_changed}"
+        "forest: impostors {first_impostors} to {last_impostors}; over the steps {ground} ground \
+         pixels, {shadowed} of them shadowed, the sun changed on {ground_changed}"
     );
-    assert!(last_cards > first_cards, "no tree became an impostor");
+    assert!(
+        last_impostors > first_impostors,
+        "no tree became an impostor"
+    );
     assert!(shadowed > 0, "no shadow on the ground");
     assert_eq!(ground_changed, 0, "a shadow on the ground changed");
 }

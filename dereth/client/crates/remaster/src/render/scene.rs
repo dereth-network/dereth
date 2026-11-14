@@ -66,6 +66,16 @@ pub const ITEM_TILED: u32 = 1;
 pub const ITEM_BUILDING: u32 = 2;
 pub const ITEM_ROOM: u32 = 4;
 
+/// How an item is drawn, its row's sixth word as the device reads it: its partly transparent
+/// texels drawn again by the cut-outs' edge pass; both its faces drawn.
+pub const DRAW_EDGE: u32 = 1;
+pub const DRAW_TWO_SIDED: u32 = 2;
+
+/// An item's drawing word ([`DRAW_EDGE`], [`DRAW_TWO_SIDED`]).
+fn draw_word(edge: bool, two_sided: bool) -> u32 {
+    (u32::from(edge) * DRAW_EDGE) | (u32::from(two_sided) * DRAW_TWO_SIDED)
+}
+
 /// An instance's bytes: seven rows of sixteen.
 pub const INSTANCE_BYTES: u32 = 128;
 
@@ -567,7 +577,7 @@ impl GpuScene {
             subset.index_count,
             material,
             flags,
-            0,
+            draw_word(false, subset.two_sided),
             mesh.indices.start + subset.first_index,
             bucket as u32,
         ])
@@ -673,13 +683,14 @@ impl GpuScene {
             }
             let bucket = bucket_of(m, s.two_sided);
             let flags = extra_flags | if s.tiled { ITEM_TILED } else { 0 };
+            let edge = m.blended && m.alpha_test;
             out.push(MeshItem {
                 words: [
                     mesh.vertices.start,
                     s.index_count,
                     m.index,
                     flags,
-                    0,
+                    draw_word(edge, s.two_sided),
                     mesh.indices.start + s.first_index,
                     bucket as u32,
                 ],
@@ -688,7 +699,7 @@ impl GpuScene {
                     index_count: s.index_count,
                     first_index: mesh.indices.start + s.first_index,
                     two_sided: s.two_sided,
-                    edge: m.blended && m.alpha_test,
+                    edge,
                     vertex_base: mesh.vertices.start,
                     material: m.index,
                     alpha_test: m.alpha_test,

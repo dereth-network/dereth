@@ -81,6 +81,9 @@ pub struct Plan {
     forward_runs: Vec<(Pipeline, u32, u32)>,
     edge_runs_inside: Vec<(Pipeline, u32, u32)>,
     forward_runs_inside: Vec<(Pipeline, u32, u32)>,
+    /// The outdoors' edges and blended surfaces as the device sorted them, where it sorts them:
+    /// drawn in place of their runs.
+    lists: Option<super::instances::DeviceLists>,
     detail: [u32; 4],
     pixel: bool,
     /// What the per-pixel resolve's masks read, each by its index in the table and its target,
@@ -323,27 +326,10 @@ impl Renderer {
             .chain(&drawn.opaque_inside)
             .copied()
             .collect();
-        // Each visible item with its place in its bucket's commands, in the order the walk drew
-        // them, so the buckets draw in the same order every frame: surfaces at equal depth then
-        // resolve the same way frame after frame.
         let split = drawn.opaque.len();
-        let mut next = [0u32; CULLED_BUCKETS as usize];
-        let mut placed = Vec::with_capacity(visible.len() * 2);
-        for (k, item) in visible.iter().enumerate() {
-            let own = self
-                .scene
-                .buckets
-                .get(*item as usize)
-                .map_or(0, |b| *b as u32);
-            let bucket = own + if k >= split { GROUP_BUCKETS } else { 0 };
-            let slot = next.get_mut(bucket as usize).map_or(0, |n| {
-                let s = *n;
-                *n += 1;
-                s
-            });
-            placed.extend([*item, slot]);
-        }
-        bytes += put(&mut self.visible, &mut self.gfx, push_words(&placed))?;
+        // The processor's blocks' parts at their places in the walk, for the device to place its
+        // own among them.
+        let (cpu_walk, tails) = walk_counts(&drawn, &self.scene);
         if drawn.inside {
             let corners: Vec<u8> = drawn
                 .stamps
@@ -465,77 +451,6 @@ impl Renderer {
         bytes += self
             .scene
             .write_frame_items(&mut self.gfx, first, &drawn.particle_items)?;
-        // The sky's, the edges' and the forward pass's commands, in their orders, in runs of one
-        // pipeline.
-        let backend = self.gfx.backend();
-        let mut fwd = Vec::new();
-        let mut command = 0u32;
-        let mut add = |runs: &mut Vec<(Pipeline, u32, u32)>,
-                       item: u32,
-                       p: Pipeline,
-                       draws: &[super::scene::ItemDraw]| {
-            let Some(d) = draws.get(item as usize) else {
-                return;
-            };
-            super::command_into(backend, d.index_count, d.first_index, item, &mut fwd);
-            match runs.last_mut() {
-                Some(last) if last.0 == p && last.1 + last.2 == command => last.2 += 1,
-                _ => runs.push((p, command, 1)),
-            }
-            command += 1;
-        };
-        let draws = &self.scene.item_draws;
-        let mut sky_runs = Vec::new();
-        let mut sky_runs_rest = Vec::new();
-        for (k, (item, bucket)) in drawn.sky.iter().enumerate() {
-            let two = draws.get(*item as usize).is_some_and(|d| d.two_sided);
-            let b = match bucket {
-                Bucket::Blended => 1,
-                Bucket::Additive => 2,
-                _ => 0,
-            };
-            add(
-                if k < drawn.sky_dome_items {
-                    &mut sky_runs
-                } else {
-                    &mut sky_runs_rest
-                },
-                *item,
-                pipelines.sky[b][usize::from(two)],
-                draws,
-            );
-        }
-        let mut edge_runs = [Vec::new(), Vec::new()];
-        for (runs, list) in edge_runs
-            .iter_mut()
-            .zip([&drawn.edges, &drawn.edges_inside])
-        {
-            for (_, item) in list {
-                let two = draws.get(*item as usize).is_some_and(|d| d.two_sided);
-                add(runs, *item, pipelines.edge[usize::from(two)], draws);
-            }
-        }
-        let mut forward_runs = [Vec::new(), Vec::new()];
-        for (runs, list) in forward_runs
-            .iter_mut()
-            .zip([&drawn.forward, &drawn.forward_inside])
-        {
-            for (_, item, bucket) in list {
-                let two = draws.get(*item as usize).is_some_and(|d| d.two_sided);
-                let b = usize::from(*bucket == Bucket::Additive);
-                add(runs, *item, pipelines.forward[b][usize::from(two)], draws);
-            }
-        }
-        let [edge_runs, edge_runs_inside] = edge_runs;
-        let [forward_runs, forward_runs_inside] = forward_runs;
-        bytes += put(&mut self.forward, &mut self.gfx, fwd)?;
-        self.stats.frames += 1;
-        self.stats.frame_bytes += bytes;
-        self.stats.last_items = u32::try_from(visible.len()).unwrap_or(u32::MAX);
-        self.stats.last_particle_items =
-            u32::try_from(drawn.particle_items.len()).unwrap_or(u32::MAX);
-        self.stats.last_forward =
-            u32::try_from(drawn.forward.len() + drawn.forward_inside.len()).unwrap_or(u32::MAX);
         let lamps = self.lamps.prepare(
             &mut self.gfx,
             &super::lamps::LampInputs {
@@ -638,7 +553,8 @@ impl Renderer {
             }
             _ => None,
         };
-        // The blocks' parts chosen and listed on the device, after the processor's own items.
+        // The blocks' parts chosen and listed on the device, after the processor's own items,
+        // with the processor's edges and blended surfaces to sort among theirs.
         let mirror = planar.as_ref().map(|p| p.view_projection);
         let packs = &self.packs;
         let parts = self.instances.prepare(
@@ -659,12 +575,121 @@ impl Renderer {
                     commands: (self.commands, self.commands_index),
                     counts: (self.counts, self.counts_index),
                     capacity: BUCKET_CAPACITY,
-                    bases: [next[0], next[1]],
                     trees: self.impostors.trees(),
                     frame: self.constants.index,
                 },
+                cpu: super::instances::CpuLists {
+                    walk: &cpu_walk,
+                    tails,
+                    edges: &drawn.edges,
+                    forward: if self.instances.sorts_forward() {
+                        &drawn.forward
+                    } else {
+                        &[]
+                    },
+                },
             },
         )?;
+        let lists = parts.as_ref().map(super::instances::PartsPlan::lists);
+        // Each visible item with its place in its bucket's commands, in the order the walk drew
+        // them, so the buckets draw in the same order every frame: surfaces at equal depth then
+        // resolve the same way frame after frame. With the device's parts, an outdoor item of a
+        // block's part is placed among its part's, the rest after every block's.
+        let (placed, next) = placed_items(
+            &visible,
+            (split, &drawn.opaque_walk),
+            parts.is_some(),
+            &self.scene,
+        );
+        bytes += put(&mut self.visible, &mut self.gfx, push_words(&placed))?;
+        // The sky's, the edges' and the forward pass's commands, in their orders, in runs of one
+        // pipeline; the outdoors' edges and blended surfaces where the device does not sort them.
+        let backend = self.gfx.backend();
+        let mut fwd = Vec::new();
+        let mut command = 0u32;
+        let mut add = |runs: &mut Vec<(Pipeline, u32, u32)>,
+                       item: u32,
+                       p: Pipeline,
+                       draws: &[super::scene::ItemDraw]| {
+            let Some(d) = draws.get(item as usize) else {
+                return;
+            };
+            super::command_into(backend, d.index_count, d.first_index, item, &mut fwd);
+            match runs.last_mut() {
+                Some(last) if last.0 == p && last.1 + last.2 == command => last.2 += 1,
+                _ => runs.push((p, command, 1)),
+            }
+            command += 1;
+        };
+        let draws = &self.scene.item_draws;
+        let mut sky_runs = Vec::new();
+        let mut sky_runs_rest = Vec::new();
+        for (k, (item, bucket)) in drawn.sky.iter().enumerate() {
+            let two = draws.get(*item as usize).is_some_and(|d| d.two_sided);
+            let b = match bucket {
+                Bucket::Blended => 1,
+                Bucket::Additive => 2,
+                _ => 0,
+            };
+            add(
+                if k < drawn.sky_dome_items {
+                    &mut sky_runs
+                } else {
+                    &mut sky_runs_rest
+                },
+                *item,
+                pipelines.sky[b][usize::from(two)],
+                draws,
+            );
+        }
+        let none_edges: Vec<(f32, u32)> = Vec::new();
+        let none_forward: Vec<(f32, u32, Bucket)> = Vec::new();
+        let outdoor_edges = if lists.is_some_and(|l| l.edges) {
+            &none_edges
+        } else {
+            &drawn.edges
+        };
+        let outdoor_forward = if lists.is_some_and(|l| l.forward) {
+            &none_forward
+        } else {
+            &drawn.forward
+        };
+        self.blended = [
+            outdoor_edges.iter().map(|e| e.1).collect(),
+            outdoor_forward.iter().map(|f| f.1).collect(),
+        ];
+        self.blended_sorted = lists.map_or([false; 2], |l| [l.edges, l.forward]);
+        let mut edge_runs = [Vec::new(), Vec::new()];
+        for (runs, list) in edge_runs
+            .iter_mut()
+            .zip([outdoor_edges, &drawn.edges_inside])
+        {
+            for (_, item) in list {
+                let two = draws.get(*item as usize).is_some_and(|d| d.two_sided);
+                add(runs, *item, pipelines.edge[usize::from(two)], draws);
+            }
+        }
+        let mut forward_runs = [Vec::new(), Vec::new()];
+        for (runs, list) in forward_runs
+            .iter_mut()
+            .zip([outdoor_forward, &drawn.forward_inside])
+        {
+            for (_, item, bucket) in list {
+                let two = draws.get(*item as usize).is_some_and(|d| d.two_sided);
+                let b = usize::from(*bucket == Bucket::Additive);
+                add(runs, *item, pipelines.forward[b][usize::from(two)], draws);
+            }
+        }
+        let [edge_runs, edge_runs_inside] = edge_runs;
+        let [forward_runs, forward_runs_inside] = forward_runs;
+        bytes += put(&mut self.forward, &mut self.gfx, fwd)?;
+        self.stats.frames += 1;
+        self.stats.frame_bytes += bytes;
+        self.stats.last_items = u32::try_from(visible.len()).unwrap_or(u32::MAX);
+        self.stats.last_particle_items =
+            u32::try_from(drawn.particle_items.len()).unwrap_or(u32::MAX);
+        self.stats.last_forward =
+            u32::try_from(drawn.forward.len() + drawn.forward_inside.len()).unwrap_or(u32::MAX);
         let water_sampler = self.sampler(0);
         let probe_sampler = self.sampler(1);
         let water = self.water.prepare(
@@ -800,6 +825,7 @@ impl Renderer {
             forward_runs,
             edge_runs_inside,
             forward_runs_inside,
+            lists,
             detail: self.detail_push(),
             pixel: mode == super::light::LightMode::Pixel,
             sun_visibility: shadow
@@ -1039,24 +1065,27 @@ impl Plan {
         full: Rect,
         depth: Texture,
         mask: u32,
-        edges: &[(Pipeline, u32, u32)],
-        forward: &[(Pipeline, u32, u32)],
+        edges: BlendList<'_>,
+        forward: BlendList<'_>,
     ) -> Result<(), dereth_gfx::Error> {
         let t = self.targets;
-        let masked = [
-            Touch::Buffer(self.forward, Use::Indirect),
-            Touch::Buffer(self.indices, Use::Index),
-            Touch::Texture(t.material, Use::Sampled),
-        ];
-        let touches = if mask == NONE {
-            &masked[..2]
-        } else {
-            &masked[..]
-        };
-        for (name, runs, write) in [("edges", edges, true), ("forward", forward, false)] {
+        for (name, list, write) in [("edges", edges, true), ("forward", forward, false)] {
             r.timestamp(name);
-            if runs.is_empty() {
-                continue;
+            let mut touches = vec![
+                Touch::Buffer(self.forward, Use::Indirect),
+                Touch::Buffer(self.indices, Use::Index),
+            ];
+            if mask != NONE {
+                touches.push(Touch::Texture(t.material, Use::Sampled));
+            }
+            match (list, self.lists) {
+                (BlendList::Runs([]), _) => continue,
+                (BlendList::Runs(_), _) => {}
+                (BlendList::Sorted(_), Some(l)) => {
+                    touches.push(Touch::Buffer(l.commands, Use::Indirect));
+                    touches.push(Touch::Buffer(l.counts, Use::Indirect));
+                }
+                (BlendList::Sorted(_), None) => continue,
             }
             r.raster(
                 &RasterPass {
@@ -1070,13 +1099,48 @@ impl Plan {
                         clear: None,
                         write,
                     }),
-                    touches,
+                    touches: &touches,
                     area: Some(full),
                 },
-                |d| self.draw_runs(d, runs, self.frame, mask),
+                |d| match list {
+                    BlendList::Runs(runs) => self.draw_runs(d, runs, self.frame, mask),
+                    BlendList::Sorted(l) => self.draw_sorted(d, l, mask),
+                },
             )?;
         }
         Ok(())
+    }
+
+    /// The outdoors' list `list` as the device sorted it (0 the cut-outs' edges, 1 the blended
+    /// surfaces), by its one pipeline and one counted indirect draw, leaving alone the interior's
+    /// pixels of the material target `mask` (`NONE`: none).
+    fn draw_sorted(
+        &self,
+        d: &mut dereth_gfx::Draw<'_>,
+        list: u32,
+        mask: u32,
+    ) -> Result<(), dereth_gfx::Error> {
+        let Some(l) = self.lists else {
+            return Ok(());
+        };
+        let pipeline = match list {
+            0 => self.pipelines.edge_any,
+            _ => match self.pipelines.forward_any {
+                Some(p) => p,
+                None => return Ok(()),
+            },
+        };
+        d.bind_index_buffer(self.indices, 0, IndexType::U32)?;
+        d.set_pipeline(pipeline)?;
+        d.push(0, &self.gbuffer_push_seen(self.frame, 1, mask))?;
+        d.draw_indexed_indirect_count(
+            l.commands,
+            u64::from(list) * u64::from(l.capacity) * u64::from(l.command_bytes),
+            l.counts,
+            u64::from(list) * 4,
+            l.capacity,
+            l.command_bytes,
+        )
     }
 
     /// The weather's constants' index in the table, `NONE` without them.
@@ -1109,6 +1173,23 @@ impl Plan {
             self.material_maps,
             self.weather_table(),
         ])
+    }
+
+    /// The outdoors' edges and blended surfaces: the lists the device sorted, where it sorts them,
+    /// else the processor's runs.
+    fn outdoor_lists(&self) -> (BlendList<'_>, BlendList<'_>) {
+        let sorted = |on: bool, list: u32, runs| {
+            if self.lists.is_some() && on {
+                BlendList::Sorted(list)
+            } else {
+                BlendList::Runs(runs)
+            }
+        };
+        let (edges, forward) = self.lists.map_or((false, false), |l| (l.edges, l.forward));
+        (
+            sorted(edges, 0, &self.edge_runs),
+            sorted(forward, 1, &self.forward_runs),
+        )
     }
 
     /// Draw `runs` of commands from the command buffer, lit per vertex, seen through the frame's
@@ -1192,9 +1273,17 @@ impl Plan {
             s.record(r)?;
         }
 
-        // 1. The cull.
+        // 1. The cull: the device's parts chosen first, which place the processor's items in
+        // the outdoor buckets, then the processor's items, then the device's parts' commands.
         r.timestamp("cull");
         r.fill_buffer(self.counts, 0, 16, 0)?;
+        if let Some(p) = &self.parts {
+            p.record_choose(r)?;
+        }
+        let walk = self
+            .parts
+            .as_ref()
+            .map_or([NONE; 2], super::instances::PartsPlan::walk_indices);
         r.compute(
             &[
                 Touch::Buffer(self.counts, Use::StorageWrite),
@@ -1212,6 +1301,8 @@ impl Plan {
                         self.counts_index,
                         BUCKET_CAPACITY,
                         self.split,
+                        walk[0],
+                        walk[1],
                     ]),
                 )?;
                 c.dispatch(self.visible_count.div_ceil(64).max(1), 1, 1);
@@ -1220,7 +1311,7 @@ impl Plan {
         )?;
 
         if let Some(p) = &self.parts {
-            p.record(r)?;
+            p.record_write(r)?;
         }
         if let Some(f) = &self.forest {
             super::forest::ForestPass::record_cull(f, r)?;
@@ -1650,8 +1741,9 @@ impl Plan {
         // interior's. The air lies over the edges and under the forward pass, whose surfaces keep
         // the fog they were made with, each by its own distance.
         let mask = if self.inside { t.index[3] } else { NONE };
+        let (edges, forward) = self.outdoor_lists();
         if let Some(a) = self.atmosphere.as_ref().filter(|a| a.air()) {
-            self.blend_passes(r, full, outdoor_depth, mask, &self.edge_runs, &[])?;
+            self.blend_passes(r, full, outdoor_depth, mask, edges, BlendList::Runs(&[]))?;
             // The low fog reads the landscape's heights and the sun's cascades.
             let mut reads = Vec::new();
             if let Some(g) = &self.drawn_ground {
@@ -1675,19 +1767,12 @@ impl Plan {
             if let Some(u) = &self.upscale {
                 u.keep_opaque(r, &t)?;
             }
-            self.blend_passes(r, full, outdoor_depth, mask, &[], &self.forward_runs)?;
+            self.blend_passes(r, full, outdoor_depth, mask, BlendList::Runs(&[]), forward)?;
         } else {
             if let Some(u) = &self.upscale {
                 u.keep_opaque(r, &t)?;
             }
-            self.blend_passes(
-                r,
-                full,
-                outdoor_depth,
-                mask,
-                &self.edge_runs,
-                &self.forward_runs,
-            )?;
+            self.blend_passes(r, full, outdoor_depth, mask, edges, forward)?;
         }
         if self.inside {
             self.blend_passes(
@@ -1695,8 +1780,8 @@ impl Plan {
                 full,
                 t.depth,
                 NONE,
-                &self.edge_runs_inside,
-                &self.forward_runs_inside,
+                BlendList::Runs(&self.edge_runs_inside),
+                BlendList::Runs(&self.forward_runs_inside),
             )?;
         }
 
@@ -1830,4 +1915,81 @@ pub fn depth_back(layout: vk::ImageLayout) -> State {
         access: vk::AccessFlags2::DEPTH_STENCIL_ATTACHMENT_READ
             | vk::AccessFlags2::DEPTH_STENCIL_ATTACHMENT_WRITE,
     }
+}
+
+/// What a blend pass draws: runs of the frame's own commands, or a list the device sorted (0 the
+/// cut-outs' edges, 1 the blended surfaces).
+#[derive(Debug, Clone, Copy)]
+enum BlendList<'a> {
+    Runs(&'a [(Pipeline, u32, u32)]),
+    Sorted(u32),
+}
+
+/// The processor's blocks' parts at their places in the walk, as `drawn` listed them: each place
+/// and its commands in the two outdoor buckets, the first in the low half; and the processor's
+/// other outdoor items in each bucket.
+fn walk_counts(drawn: &super::Drawn, scene: &super::scene::GpuScene) -> (Vec<[u32; 2]>, [u32; 2]) {
+    let mut walk: Vec<[u32; 2]> = Vec::new();
+    let mut tails = [0u32; 2];
+    for (item, w) in drawn.opaque.iter().zip(&drawn.opaque_walk) {
+        let bucket = scene.buckets.get(*item as usize).map_or(0, |b| *b as u32);
+        if bucket >= GROUP_BUCKETS {
+            continue;
+        }
+        if *w == NONE {
+            tails[bucket as usize] += 1;
+            continue;
+        }
+        let add = if bucket == 0 { 1 } else { 1 << 16 };
+        match walk.last_mut() {
+            Some(last) if last[0] == *w => last[1] += add,
+            _ => walk.push([*w, add]),
+        }
+    }
+    (walk, tails)
+}
+
+/// Each visible item's three words as the cull reads them, and each bucket's commands as the
+/// processor placed them: the item, its place, and its block part's place in the walk (`NONE`
+/// for none). The outdoor items, the first `split`, have their parts' places in `walk`. Where
+/// the device places them (`walking`), an outdoor item of a block's part takes its place among its
+/// part's commands in its bucket, and any other outdoor item its place among the processor's
+/// others; otherwise, and for the interior's, its place is its bucket's next.
+fn placed_items(
+    visible: &[u32],
+    (split, walk): (usize, &[u32]),
+    walking: bool,
+    scene: &super::scene::GpuScene,
+) -> (Vec<u32>, [u32; CULLED_BUCKETS as usize]) {
+    let mut next = [0u32; CULLED_BUCKETS as usize];
+    let mut placed = Vec::with_capacity(visible.len() * 3);
+    let mut part = (NONE, [0u32; 2]);
+    let mut tails = [0u32; 2];
+    for (k, item) in visible.iter().enumerate() {
+        let own = scene.buckets.get(*item as usize).map_or(0, |b| *b as u32);
+        let bucket = own + if k >= split { GROUP_BUCKETS } else { 0 };
+        let slot = next.get_mut(bucket as usize).map_or(0, |n| {
+            let s = *n;
+            *n += 1;
+            s
+        });
+        let w = walk.get(k).copied().unwrap_or(NONE);
+        if walking && bucket < GROUP_BUCKETS {
+            let b = bucket as usize;
+            let local = if w == NONE {
+                tails[b] += 1;
+                tails[b] - 1
+            } else {
+                if part.0 != w {
+                    part = (w, [0; 2]);
+                }
+                part.1[b] += 1;
+                part.1[b] - 1
+            };
+            placed.extend([*item, local, w]);
+        } else {
+            placed.extend([*item, slot, NONE]);
+        }
+    }
+    (placed, next)
 }

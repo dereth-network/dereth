@@ -422,6 +422,11 @@ pub enum Factor {
     SrcColor,
     /// The destination's colour.
     DstColor,
+    /// The second source's alpha: the fragment's second output, where the device blends two
+    /// sources ([`crate::Caps::dual_source_blend`]).
+    Src1Alpha,
+    /// One minus the second source's colour.
+    OneMinusSrc1Color,
 }
 
 impl Factor {
@@ -433,6 +438,8 @@ impl Factor {
             Self::OneMinusSrcAlpha => vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
             Self::SrcColor => vk::BlendFactor::SRC_COLOR,
             Self::DstColor => vk::BlendFactor::DST_COLOR,
+            Self::Src1Alpha => vk::BlendFactor::SRC1_ALPHA,
+            Self::OneMinusSrc1Color => vk::BlendFactor::ONE_MINUS_SRC1_COLOR,
         }
     }
 }
