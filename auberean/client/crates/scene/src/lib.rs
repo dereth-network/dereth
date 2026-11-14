@@ -3853,8 +3853,8 @@ impl<'w> Scene<'w> {
             return false;
         };
         // The body is drawn between its last two ticks, and the camera between where it stood
-        // when it was last placed and where it stands now, at the same share of the way: in the
-        // cell it stood in before, which chooses what the frame draws.
+        // when it was last placed and where it stands now, at the same share of the way, in the
+        // cell it stood in before.
         // D2-10668
         let alpha = self.ticker.alpha(now);
         let (pos, body_heading) = p.body.drawn(alpha);
@@ -3875,7 +3875,11 @@ impl<'w> Scene<'w> {
         let Some(stands) = self.camera_stands else {
             return false;
         };
-        let at = stands.slerp(alpha);
+        // The frame is drawn from the cell the camera's point is in by now: once past a doorway,
+        // the room beyond. Seen from the room it came from, with that doorway behind the camera,
+        // no room would be drawn.
+        // D2-11042
+        let at = auberean_physics::camera::drawn_from(&self.land, &stands.slerp(alpha));
         let view = at.cell.0;
         // Back in the body's landblock's frame.
         let eye = {

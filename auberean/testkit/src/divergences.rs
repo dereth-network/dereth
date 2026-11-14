@@ -20,6 +20,12 @@ pub static DIVERGENCES: &[Divergence] = &[
                camera comes closer.",
     },
     Divergence {
+        id: "CD2-a-camera-out-of-the-rooms-keeps-its-room",
+        says: "When the camera, drawn between two of its places, is in no room and the land under \
+               it isn't loaded, the frame is drawn from the room it stood in before. The original \
+               draws no world for that frame.",
+    },
+    Divergence {
         id: "CD2-admin-words-the-data-lacks",
         says: "This client knows the words of an admin's ethereality overrides and the Admin log \
                type itself, since no install's data holds them, so `/ethereality` and the Admin \

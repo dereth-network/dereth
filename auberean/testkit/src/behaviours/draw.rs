@@ -409,6 +409,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.inside.a-camera-out-of-the-rooms-with-no-land-keeps-its-room",
+        says: "A camera drawn out of every room, with no land in under it, keeps the room it \
+               stood in before to draw its frame from.",
+        since: THIS_CLIENT,
+        divergence: "CD2-a-camera-out-of-the-rooms-keeps-its-room",
+        evidence: Evidence::Private("AC2-EVID-DRAW-FROM-NO-ROOM"),
+        station: "auberean-physics::dat::camera::a_camera_out_of_the_rooms_with_no_land_keeps_its_room",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.inside.a-carried-light-lights-what-stands-near-it-and-throws-shadows-away",
         says: "Inside, a light an object carries joins the lights the rooms and objects within \
                its reach keep (sorted by their weight where each stands), shining its color times \
@@ -479,6 +489,35 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-LIGHT-FLICKER"),
         station: "auberean-draw::dat::inside::a_flickering_light_lights_its_draws_as_it_stands_at_the_moment",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.inside.a-frame-is-drawn-from-the-land-once-the-camera-is-out",
+        says: "A camera drawn out of the rooms onto the land, still counted in the room it stood \
+               in before, has its frame drawn from the land cell under it when the land is in.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-FROM-LAND"),
+        station: "auberean-physics::dat::camera::a_frame_is_drawn_from_the_land_once_the_camera_is_out",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.inside.a-frame-is-drawn-from-the-room-once-the-camera-is-in",
+        says: "A camera drawn in through a doorway out of a cave or a building, still counted in \
+               the land cell outside, has its frame drawn from the room inside that the land cell \
+               knows to touch it; short of the doorway, from the land cell.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-FROM-ROOM-IN"),
+        station: "auberean-physics::dat::camera::a_frame_is_drawn_from_the_room_once_the_camera_is_in",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.inside.a-frame-is-drawn-from-the-room-the-camera-is-drawn-in",
+        says: "The camera is drawn between its last two places, counted in the room it stood in \
+               before; its frame is drawn from the room its point is in by then, that room or one \
+               it sees: past a doorway, the room beyond, so the rooms ahead are drawn, not none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-FROM-ROOM"),
+        station: "auberean-physics::dat::camera::a_frame_is_drawn_from_the_room_the_camera_is_drawn_in",
         tier: Tier::Dat,
     },
     behaviour! {

@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that a player would notice. 
 not how it was done.
 
 ## Unreleased
+- Fixed the screen going black for a moment when walking from room to room in dungeons.
 - Fixed quest descriptions showing a string table error instead of their text.
 - Fixed being unable to move after a shard's story on some servers.
 - Portal space now lasts as long as the server asks before you arrive.

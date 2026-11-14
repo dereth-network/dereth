@@ -291,6 +291,60 @@ fn at(cell: CellId, origin: Vec3) -> Position {
     Position::new(cell, Frame::new(origin, Quat::IDENTITY))
 }
 
+/// The place a frame is drawn from, with the camera drawn at `at`: between its last two places,
+/// in the cell it stood in before, so it may already have passed through a doorway into the next
+/// cell, or out onto the land, or in from it. Inside, the cell holding its point is looked for
+/// among that cell and the cells it sees; when none holds it, the land cell the point falls in,
+/// when its block is in. On the land, the land cell the point falls in, or the first of the rooms
+/// that cell knows to touch it (the rooms behind a building's or a cave's doorways out) that holds
+/// the point. The place comes back in its cell's landblock's frame, turned as `at` is; when no such
+/// cell is found, `at` itself.
+// D2-11042, D2-03593
+#[must_use]
+pub fn drawn_from(land: &Land, at: &Position) -> Position {
+    let cells = dereth_physics::cell::CellResolver::new(land);
+    if !is_interior(at.cell) {
+        let mut p = *at;
+        if !crate::cells::adjust_to_outside(&mut p.cell, &mut p.frame.origin) {
+            return *at;
+        }
+        let block = p.cell.landblock();
+        if land.block(block.x(), block.y()).is_none() {
+            return *at;
+        }
+        for id in land.touching_cells(p.cell) {
+            let Some(room) = cells.get_visible(id) else {
+                continue;
+            };
+            let point = p.frame.origin.add(crate::geom::block_offset(id, p.cell));
+            if room.point_in_cell(point) {
+                let mut q = p;
+                q.cell = id;
+                q.frame.origin = point;
+                return q;
+            }
+        }
+        return p;
+    }
+    let Some(start) = cells.get_visible(at.cell) else {
+        return *at;
+    };
+    let mut p = *at;
+    if let Some(holder) = cells.find_visible_child_cell(&start, at.frame.origin) {
+        let shift = crate::geom::block_offset(holder.id(), at.cell);
+        p.cell = holder.id();
+        p.frame.origin = at.frame.origin.add(shift);
+        return p;
+    }
+    if crate::cells::adjust_to_outside(&mut p.cell, &mut p.frame.origin) {
+        let block = p.cell.landblock();
+        if land.block(block.x(), block.y()).is_some() {
+            return p;
+        }
+    }
+    *at
+}
+
 /// Whether interior cell `cell` has a doorway out to the open world.
 // D2-03515
 #[must_use]
