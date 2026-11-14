@@ -940,8 +940,10 @@ pub fn apply_on<S: Store>(
         (Kind::Places(p), On::Player(world)) => {
             crate::placing::place(s, net, world, p.clone(), clock).is_some()
         }
+        // A taunt counts by its share at the spellcraft it is cast at (a skill's rating).
         (Kind::Taunt(share), On::Creature(id)) => {
-            crate::ai::taunted(s, id, cast.caster, *share, clock.local.0);
+            let share = share.at(cast.spellcraft).unwrap_or(0.0);
+            crate::ai::taunted(s, id, cast.caster, share, clock.local.0);
             true
         }
         (

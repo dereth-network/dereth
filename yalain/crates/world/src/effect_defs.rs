@@ -16,8 +16,8 @@
 //! lifetime or for good; a teleport, which sends its target to its place when its time is up; a
 //! recall, which is its skill's ([`crate::skill_use`]): to a place its user keeps (a link), to one
 //! of a list of named places, or to its allegiance's hall; a taunt, which changes a creature's mind
-//! about its caster once ([`crate::ai`]), by the low end of the range its data gives over
-//! spellcraft; a resurrection, which offers a dead player a return ([`crate::resurrections`]).
+//! about its caster once ([`crate::ai`]), by the share its data gives at the cast's spellcraft;
+//! a resurrection, which offers a dead player a return ([`crate::resurrections`]).
 //! Where a world's rules say what an effect does that its own data doesn't, the rule's kind: among
 //! them a skill trained for good ([`crate::skills::trained_for_good`]).
 //!
@@ -335,9 +335,9 @@ pub enum Kind {
         effects: Vec<u32>,
         chance: Scale,
     },
-    /// A creature's mind changed about its caster, once, by this share of the creature's whole
-    /// health: more inclined to it, or less (below 0).
-    Taunt(f32),
+    /// A creature's mind changed about its caster, once, by a share of the creature's whole health
+    /// at a spellcraft: more inclined to it, or less (below 0).
+    Taunt(Scale),
     /// An immunity under way: hidden from its holder, it comes on with what it follows, and as it
     /// ends leaves this effect, which keeps that kind off.
     Immunity { then: u32 },
@@ -664,9 +664,25 @@ impl EffectDef {
                 fx: word("m_rezFX").unwrap_or(0),
             }
         } else if is("AITauntDetauntEffect") {
+            // The data gives a taunt's share at its lowest and highest spellcraft; between them it
+            // is read along the straight line, held at the ends, as the effects whose numbers are
+            // set at points are. Inferred, and of low confidence: nothing says how the share runs
+            // between the two, and the one taunter recorded at length had no rating recorded.
+            let line = |sign: f32| {
+                Kind::Taunt(Scale(vec![
+                    (
+                        number("m_nMinSpellcraft"),
+                        sign * number("m_fMinFractionalMod"),
+                    ),
+                    (
+                        number("m_nMaxSpellcraft"),
+                        sign * number("m_fMaxFractionalMod"),
+                    ),
+                ]))
+            };
             match word("m_flags").unwrap_or(0) & TAUNT_KIND {
-                taunt_kind::TAUNT => Kind::Taunt(number("m_fMinFractionalMod")),
-                taunt_kind::DETAUNT => Kind::Taunt(-number("m_fMinFractionalMod")),
+                taunt_kind::TAUNT => line(1.0),
+                taunt_kind::DETAUNT => line(-1.0),
                 _ => Kind::Other,
             }
         } else if let Some(effect) = state_of("m_effGenerate").filter(|_| {

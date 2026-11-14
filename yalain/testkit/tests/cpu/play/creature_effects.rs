@@ -212,7 +212,9 @@ fn a_specials_taunt_counts_only_for_the_uses_that_land() {
         TAUNT,
         yalain_world::effect_defs::EffectDef {
             state: TAUNT,
-            kind: yalain_world::effect_defs::Kind::Taunt(0.05),
+            kind: yalain_world::effect_defs::Kind::Taunt(yalain_world::effect_defs::Scale(vec![(
+                1.0, 0.05,
+            )])),
             ..h.server
                 .effect_table
                 .get(VACUUM_EFFECT)

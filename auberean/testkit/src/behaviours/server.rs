@@ -2908,13 +2908,26 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.creatures.a-taunt-counts-at-the-draw",
         says: "A landed taunt counts for its caster at a creature's draw as harm, for twenty seconds, \
-               each its script's share of the creature's whole health at the low end of its range. It \
-               forces no turn: the draw's chance and the nearest's weight stand. Rests on one player's \
-               1,041 taunts, of two skills alone (Soft Underbelly and Growl); the others' shares are \
-               their scripts'.",
+               its share of the creature's whole health, each taunt adding its own; a detaunt counts \
+               against its caster. It forces no turn: the draw's chance and the nearest's weight \
+               stand. Rests on one player's 1,041 taunts, of two skills alone (Soft Underbelly and \
+               Growl), whose ratings weren't recorded; the size of each share is the next row's.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-TAUNT-DRAW"),
         station: "yalain-testkit::cpu::play::creature_tactics::a_taunt_landing_counts_for_its_caster_for_twenty_seconds_by_its_share_of_whole_health",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.a-taunts-share-follows-its-rating",
+        says: "A taunt's share of a creature's whole health is read at the rating it is cast at \
+               (its skill's, or the level a force is held at), from its data's share at its lowest \
+               spellcraft to its share at its highest, held at either end: Growl 5% at 1 to 10% at \
+               50, Taunt Force's Challenge 1% at 1 to 5% at 10. The two ends are the install's \
+               (Taunt Force's the guides' too); the straight line between them is this server's \
+               reading, of low confidence.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TAUNT-RATING"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_taunt_counts_by_its_share_at_the_rating_it_is_cast_at",
         tier: Tier::Cpu,
     },
     behaviour! {

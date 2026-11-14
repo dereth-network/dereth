@@ -480,10 +480,10 @@ fn a_taunt_landing_counts_for_its_caster_for_twenty_seconds_by_its_share_of_whol
     const LOW: u32 = 0x6F00_7305;
     let (mut h, me, other, id) = beside_a_creature_of_a_thousand();
     for (state, share) in [(TAUNT, 0.25), (LOW, 0.05)] {
-        h.server
-            .effect_table
-            .effects
-            .insert(state, effect_of(state, Kind::Taunt(share)));
+        h.server.effect_table.effects.insert(
+            state,
+            effect_of(state, Kind::Taunt(Scale(vec![(1.0, share)]))),
+        );
     }
     let land = |h: &mut Harness, on: On, state: u32, by: u64| {
         let clock = h.clock();
@@ -514,6 +514,59 @@ fn a_taunt_landing_counts_for_its_caster_for_twenty_seconds_by_its_share_of_whol
     h.now.0 += yalain_world::ai::TAUNT_REMEMBERED;
     assert!(land(&mut h, On::Creature(id), LOW, me));
     assert_eq!(taunts(&h), [(me, 50)], "the old ones gone");
+}
+
+/// A taunt counts by its share at the spellcraft it is cast at (its skill's rating): along the line
+/// its data draws from its lowest spellcraft to its highest, held at either end. Growl's 5% at 1
+/// to 10% at 50 of a creature of a thousand; a detaunt's 10% to 15% below nothing the same.
+/// Behaviour: server.creatures.a-taunts-share-follows-its-rating
+#[test]
+fn a_taunt_counts_by_its_share_at_the_rating_it_is_cast_at() {
+    const GROWL: u32 = 0x6F00_730F;
+    const BLUFF: u32 = 0x6F00_7310;
+    let (mut h, _, other, id) = beside_a_creature_of_a_thousand();
+    for (state, low, high) in [(GROWL, 0.05, 0.10), (BLUFF, -0.10, -0.15)] {
+        let line = Scale(vec![(1.0, low), (50.0, high)]);
+        h.server
+            .effect_table
+            .effects
+            .insert(state, effect_of(state, Kind::Taunt(line)));
+    }
+    let mut counted = vec![];
+    for (state, rating) in [
+        (GROWL, 1.0),
+        (GROWL, 25.5),
+        (GROWL, 50.0),
+        (GROWL, 70.0),
+        (BLUFF, 1.0),
+        (BLUFF, 50.0),
+    ] {
+        if let Some(c) = h
+            .server
+            .things
+            .get_mut(id)
+            .and_then(|t| t.creature.as_mut())
+        {
+            c.taunts.clear();
+        }
+        let clock = h.clock();
+        let cast = Cast {
+            caster: other,
+            spellcraft: rating,
+            ..Cast::default()
+        };
+        assert!(effects::apply_on(
+            &mut h.server,
+            &mut h.net,
+            On::Creature(id),
+            state,
+            cast,
+            clock
+        ));
+        let c = h.server.things.get(id).and_then(|t| t.creature.as_ref());
+        counted.extend(c.expect("a creature").taunts.iter().map(|e| e.2));
+    }
+    assert_eq!(counted, [50, 75, 100, 100, -100, -150]);
 }
 
 /// How often, of `n` times it thinks again fighting `me` with what `prepare` gives it, a creature

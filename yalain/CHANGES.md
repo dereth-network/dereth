@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Taunts now grow stronger with the skill's rating.
 - Hero skills now cost focus to use.
 - Worlds can now have quest steps and hand-ins for those who fought a creature.
 - Worlds can now have quest steps and hand-ins for those who never completed a quest.

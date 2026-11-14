@@ -3,7 +3,7 @@
 
 use yalain_testkit::authored::Portal;
 use yalain_world::craft::Action;
-use yalain_world::effect_defs::Kind;
+use yalain_world::effect_defs::{Kind, Scale};
 
 /// The effects of the heals, a buff, a quest's blessing and the Arwic mines' recipe read as the
 /// data defines them: Ease Suffering heals 25 health at a rating of 1 and 250 at 50, Inner Calm
@@ -344,27 +344,37 @@ fn a_creatures_body_is_its_looks_setups() {
     );
 }
 
-/// A taunt reads at the low end of the range its data gives: Growl a twentieth of a creature's
-/// health, Ruse's and Taunt Force's a hundredth, Challenge's 0.15, Cragstone's Rebuke a quarter;
-/// a detaunt the same below nothing, Blinding Arrow's and Challenge's own.
-/// Behaviour: server.creatures.a-taunt-counts-at-the-draw
+/// A taunt reads its share of a creature's whole health along the range its data gives, from its
+/// lowest spellcraft to its highest: Growl 5% at 1 to 10% at 50, Soft Underbelly 5% to 20%, Ruse
+/// 1% to 5%, Taunt Force's Challenge 1% at 1 to 5% at 10, the Juggernaut's Challenge 15% to 20%,
+/// Cragstone's Rebuke 25% at 1 to all of it at 150; a detaunt the same below nothing, Blinding
+/// Arrow's 10% to 15% and the Juggernaut's Challenge's own 5% to 10%.
+/// Behaviour: server.creatures.a-taunts-share-follows-its-rating
 #[test]
-fn a_taunt_reads_at_the_low_end_of_its_share_of_a_creatures_health() {
+fn a_taunt_reads_its_share_of_a_creatures_health_from_its_lowest_spellcraft_to_its_highest() {
     let p = Portal::open();
     let wanted = [
-        (0x7000_090D, 0.05),
-        (0x7000_1FE3, 0.05),
-        (0x7000_07C9, 0.01),
-        (0x7000_1EDB, 0.01),
-        (0x7000_0872, 0.15),
-        (0x7000_1F3E, 0.25),
-        (0x7000_1F55, -0.10),
-        (0x7000_1F7A, -0.05),
+        (0x7000_090D, [(1.0, 0.05), (50.0, 0.10)]),
+        (0x7000_1FE3, [(1.0, 0.05), (50.0, 0.20)]),
+        (0x7000_07C9, [(1.0, 0.01), (50.0, 0.05)]),
+        (0x7000_1EDB, [(1.0, 0.01), (10.0, 0.05)]),
+        (0x7000_0872, [(1.0, 0.15), (50.0, 0.20)]),
+        (0x7000_1F3E, [(1.0, 0.25), (150.0, 1.0)]),
+        (0x7000_1F55, [(1.0, -0.10), (50.0, -0.15)]),
+        (0x7000_1F7A, [(1.0, -0.05), (50.0, -0.10)]),
     ];
     let t = p.effects(&wanted.map(|w| w.0));
-    for (state, share) in wanted {
+    for (state, line) in wanted {
         match t.get(state).map(|d| &d.kind) {
-            Some(Kind::Taunt(s)) => assert!((s - share).abs() < 1e-6, "{state:08X}: {s}"),
+            Some(Kind::Taunt(Scale(read))) => {
+                assert_eq!(read.len(), 2, "{state:08X}: {read:?}");
+                for ((x, y), (wx, wy)) in read.iter().zip(line) {
+                    assert!(
+                        (x - wx).abs() < 1e-6 && (y - wy).abs() < 1e-6,
+                        "{state:08X}: {read:?}"
+                    );
+                }
+            }
             other => panic!("{state:08X}: {other:?}"),
         }
     }
@@ -1318,7 +1328,10 @@ fn the_effects_that_answer_what_comes_at_them_read_as_the_data_defines_them() {
             Kind::VitalOverTime { .. }
         ));
     }
-    assert_eq!(t.get(0x7000_1EDB).expect("read").kind, Kind::Taunt(0.01));
+    assert_eq!(
+        t.get(0x7000_1EDB).expect("read").kind,
+        Kind::Taunt(Scale(vec![(1.0, 0.01), (10.0, 0.05)]))
+    );
 }
 
 /// A recipe that binds its product names it by the product's ordinal over the whole spinner range

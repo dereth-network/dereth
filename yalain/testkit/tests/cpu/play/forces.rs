@@ -372,3 +372,62 @@ fn taunt_forces_reply_answers_each_attack_on_its_holder_and_a_plain_reply_does_n
     assert_eq!(answers(&h), 2, "each attack");
     assert_eq!(focus(&mut h, me), Some(98), "and paid for");
 }
+
+/// Taunt Force's Challenge counts by the level its holder put the force on at: 1% of the
+/// attacker's whole health at 1, 5% at 10, and between along the line (the install's Challenge;
+/// the guides give the same, 1% of a monster's greatest health at level 1 to 5% at level 10).
+/// Behaviour: server.creatures.a-taunts-share-follows-its-rating
+#[test]
+fn taunt_forces_challenge_counts_by_the_level_its_force_is_held_at() {
+    let mut counted = vec![];
+    for level in [1.0, 4.0, 10.0] {
+        let (mut h, _, me, creature) = hero(100, 1.0);
+        let t = &mut h.server.effect_table.effects;
+        if let Some(d) = t.get_mut(&TAUNT_FORCE_EFFECT) {
+            // Its record put on here as a lasting one, at that level.
+            d.duration = Scale(vec![(0.0, 600.0)]);
+        }
+        t.insert(
+            ANSWER,
+            def(
+                ANSWER,
+                Kind::Taunt(Scale(vec![(1.0, 0.01), (10.0, 0.05)])),
+                61,
+                HARMFUL,
+            ),
+        );
+        if let Some(t) = h.server.things.get_mut(creature) {
+            t.max_health = 1000;
+        }
+        let world = yalain_world::social::world_of(&h.server, me).expect("in the world");
+        let clock = h.clock();
+        let cast = Cast {
+            caster: me,
+            spellcraft: level,
+            ..Cast::default()
+        };
+        assert!(effects::apply_on(
+            &mut h.server,
+            &mut h.net,
+            On::Player(world),
+            TAUNT_FORCE_EFFECT,
+            cast,
+            clock
+        ));
+        attacked(&mut h, me, creature);
+        let c = h
+            .server
+            .things
+            .get(creature)
+            .and_then(|t| t.creature.as_ref());
+        counted.push(
+            c.expect("a creature")
+                .taunts
+                .iter()
+                .filter(|e| e.1 == me)
+                .map(|e| e.2)
+                .collect::<Vec<_>>(),
+        );
+    }
+    assert_eq!(counted, [vec![10], vec![23], vec![50]]);
+}
