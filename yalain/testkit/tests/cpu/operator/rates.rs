@@ -88,7 +88,10 @@ fn beetle(rates: Rates) -> (Harness, yalain_world::things::Thing) {
 /// How many items the beetle leaves at each of so many deaths.
 fn left(h: &mut Harness, creature: &yalain_world::things::Thing, deaths: usize) -> Vec<usize> {
     (0..deaths)
-        .map(|_| yalain_world::death::roll_loot(&mut h.server, creature, 0).len())
+        .map(|_| {
+            let clock = h.clock();
+            yalain_world::death::roll_loot(&mut h.server, creature, 0, clock).len()
+        })
         .collect()
 }
 

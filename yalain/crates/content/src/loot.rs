@@ -71,7 +71,8 @@ pub struct DeathTreasure {
     /// The chance it is left, from above 0 to 1.
     pub chance: f32,
     /// The quest a chest's opener must hold, and where, for the chest to hold it at that opening
-    /// (whether or not a key paid for it); a creature never leaves one that names a quest.
+    /// (whether or not a key paid for it); a creature's corpse holds one for each of its claimants
+    /// (its killer and the killer's fellows) holding it there.
     pub requires: Option<crate::QuestGate>,
     pub placed: String,
     pub confidence: String,

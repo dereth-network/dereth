@@ -35,7 +35,10 @@ fn drawn(h: &mut Harness, creature: &mut Thing, level: i32, draws: usize) -> Vec
         c.stats.level = level;
     }
     (0..draws)
-        .flat_map(|_| yalain_world::death::roll_loot(&mut h.server, creature, 0))
+        .flat_map(|_| {
+            let clock = h.clock();
+            yalain_world::death::roll_loot(&mut h.server, creature, 0, clock)
+        })
         .map(|(_, value)| value.expect("the profile's item is treasure"))
         .collect()
 }
@@ -166,7 +169,10 @@ fn a_gem_left_as_treasure_carries_no_value_of_its_own() {
                 c.stats.level = 2;
             }
             let drawn: Vec<(u32, Option<u32>)> = (0..40)
-                .flat_map(|_| yalain_world::death::roll_loot(&mut h.server, &creature, 0))
+                .flat_map(|_| {
+                    let clock = h.clock();
+                    yalain_world::death::roll_loot(&mut h.server, &creature, 0, clock)
+                })
                 .collect();
             let gems: Vec<_> = drawn.iter().filter(|(t, _)| *t == GEM_ITEM).collect();
             assert!(!gems.is_empty(), "pooled {pooled}: gems are drawn");

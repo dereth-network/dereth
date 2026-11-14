@@ -48,7 +48,11 @@
 //! above and never pushed out of a full corpse. Only a creature a camp keeps leaves one, so they
 //! come no faster than the camps make the creatures again; a creature made by a death or an item's
 //! use, a pet, or one its camp let go leaves none. A corpse is given an item once, however many
-//! rows name it.
+//! rows name it. One that names a quest is rolled instead once for each player who may claim the
+//! corpse (its killer, and the killer's fellows in the world) holding that quest where it needs it
+//! as the corpse is made: so a quest's item lies on the corpse for each of its holders, and for no
+//! one else (players' guides of 2003 and 2004: each fellow of the player who destroyed an outpost's
+//! beacon loots one key of its own from the beacon, and only one).
 //!
 //! **What a treasure item is worth**: its own value is one of the values its world gives treasure
 //! of its dropper's level ([`yalain_content::LootTable::values`]), drawn evenly, the nearest level's
@@ -707,6 +711,7 @@ pub fn roll_loot<S: Store>(
     s: &mut Server<S>,
     creature: &Thing,
     killer: u64,
+    clock: Clock,
 ) -> Vec<(u32, Option<u32>)> {
     let Some(c) = creature.creature.as_ref() else {
         return Vec::new();
@@ -770,7 +775,7 @@ pub fn roll_loot<S: Store>(
         }
         out.extend(crate::treasure_pools::rare(s, profile_name, base, race).map(|t| (t, None)));
     }
-    let treasures = death_treasures(s, creature);
+    let treasures = death_treasures(s, creature, killer, clock);
     let own = corpse_profile(s, creature);
     out.truncate(MOST_ITEMS.saturating_sub(treasures.len() + own.len()));
     for t in treasures.into_iter().chain(own) {
@@ -799,9 +804,15 @@ fn corpse_profile<S: Store>(s: &mut Server<S>, creature: &Thing) -> Vec<u32> {
 }
 
 /// The death treasures a creature leaves: each of its template's and its camp's rolled once at its
-/// chance, each item once; none for a creature no camp keeps, and none that names a quest (a
-/// chest's alone). Nothing is drawn for a creature with no row.
-fn death_treasures<S: Store>(s: &mut Server<S>, creature: &Thing) -> Vec<u32> {
+/// chance, each item once; one that names a quest rolled once for each claimant holding it where it
+/// needs it ([`claimants`]); none for a creature no camp keeps. Nothing is drawn for a creature with
+/// no row.
+fn death_treasures<S: Store>(
+    s: &mut Server<S>,
+    creature: &Thing,
+    killer: u64,
+    clock: Clock,
+) -> Vec<u32> {
     let Some(camp) = creature
         .creature
         .as_ref()
@@ -811,17 +822,64 @@ fn death_treasures<S: Store>(s: &mut Server<S>, creature: &Thing) -> Vec<u32> {
     else {
         return Vec::new();
     };
-    let rows: Vec<(u32, f32)> = s
+    let rows: Vec<(u32, f32, Option<yalain_content::QuestGate>)> = s
         .loot
         .treasures_of(creature.template, Some(&camp))
-        .filter(|t| t.requires.is_none())
-        .map(|t| (t.item, t.chance))
+        .map(|t| (t.item, t.chance, t.requires))
         .collect();
     let mut out: Vec<u32> = Vec::new();
-    for (item, chance) in rows {
-        if !out.contains(&item) && s.rng.chance(chance) {
-            out.push(item);
+    let mut once: Vec<u32> = Vec::new();
+    for (item, chance, requires) in rows {
+        match requires {
+            None => {
+                if !once.contains(&item) && s.rng.chance(chance) {
+                    once.push(item);
+                    out.push(item);
+                }
+            }
+            Some(g) => {
+                let retry = s.quests.quest(g.quest).map_or(0.0, |d| d.retry);
+                let holders = claimants(s, killer)
+                    .into_iter()
+                    .filter(|w| {
+                        s.players.get(w).is_some_and(|p| {
+                            crate::item_use::quest_refusal(
+                                &p.play.quests,
+                                g.quest,
+                                g.status,
+                                retry,
+                                clock.unix,
+                            )
+                            .is_none()
+                        })
+                    })
+                    .count();
+                for _ in 0..holders {
+                    if s.rng.chance(chance) {
+                        out.push(item);
+                    }
+                }
+            }
         }
+    }
+    out
+}
+
+/// Who may claim a creature's corpse as it is made: its killer, if a player in the world, and the
+/// killer's fellows in the world.
+fn claimants<S: Store>(s: &Server<S>, killer: u64) -> Vec<ConnId> {
+    let Some(me) = world_of(s, killer) else {
+        return Vec::new();
+    };
+    let mut out = vec![me];
+    if let Some(f) = s.fellowships.of(killer) {
+        out.extend(
+            s.fellowships.list[f]
+                .fellows
+                .iter()
+                .filter(|x| x.id != killer)
+                .filter_map(|x| world_of(s, x.id)),
+        );
     }
     out
 }
@@ -863,7 +921,7 @@ pub fn corpse_appears<S: Store>(
     corpse.at = dead.at;
     corpse.instance = 0;
     corpse.visual = 10;
-    let loot = roll_loot(s, &dead, killer);
+    let loot = roll_loot(s, &dead, killer, clock);
     let (level, quality, rot, has_profile) = dead.creature.as_ref().map_or(
         (0, None, yalain_content::CorpseRot::default(), false),
         |c| {

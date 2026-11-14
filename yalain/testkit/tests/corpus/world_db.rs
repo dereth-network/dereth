@@ -4797,7 +4797,8 @@ fn the_loot_draw_holds_items_and_value_a_corpse_inside_2017s_intervals() {
             c.stats = s.clone();
             c.camp = None;
         }
-        yalain_world::death::roll_loot(&mut h.server, &creature, 0)
+        let clock = h.clock();
+        yalain_world::death::roll_loot(&mut h.server, &creature, 0, clock)
             .into_iter()
             .map(|(t, v)| (t, v.unwrap_or(0)))
             .collect()

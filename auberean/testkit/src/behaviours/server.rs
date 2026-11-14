@@ -7679,11 +7679,13 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "server.loot.death-treasure-for-a-quest-not-a-creatures",
-        says: "A death treasure row that names a quest is a chest's alone: a creature of its template never leaves it.",
-        since: TOOLING,
-        evidence: Evidence::Private("AC2-EVID-SRV-DEATH-TREASURE-QUEST-CHEST-ONLY"),
-        station: "yalain-testkit::cpu::play::death_treasures::a_creature_never_leaves_a_death_treasure_that_names_a_quest",
+        id: "server.loot.death-treasure-for-a-quest-for-each-holder",
+        says: "A death treasure row that names a quest lies on a creature's corpse once for each of \
+               its killer and the killer's fellows in the world holding the quest where it needs it, \
+               and for no one else: none for a corpse whose killer is no player.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-DEATH-TREASURE-QUEST-HOLDERS"),
+        station: "yalain-testkit::cpu::play::death_treasures::a_death_treasure_that_names_a_quest_lies_once_for_each_claimant_holding_it",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -1,7 +1,8 @@
 //! Death treasures: a world's fixed item for a creature's template or its camp, rolled once at its
 //! chance as the corpse is made, on top of the rest of what the creature leaves; only a creature a
-//! camp keeps leaves one, and a corpse holds an item once however many rows name it. Fixture: the
-//! test world's camp of beetles, its regeneration shortened, and a treasure item.
+//! camp keeps leaves one, and a corpse holds an item once however many rows name it; one that names
+//! a quest, once for each of the corpse's claimants holding it. Fixture: the test world's camp of
+//! beetles, its regeneration shortened, and a treasure item.
 
 use std::collections::BTreeMap;
 
@@ -169,22 +170,114 @@ fn creatures_without_a_death_treasure_leave_what_they_did_before() {
     assert_eq!(&own, &plain[id], "its own loot as without the row");
 }
 
-/// A row that names a quest is a chest's alone: a creature of its template never leaves it, at a
-/// chance of 1, over 50 kills.
-/// Behaviour: server.loot.death-treasure-for-a-quest-not-a-creatures
-#[test]
-fn a_creature_never_leaves_a_death_treasure_that_names_a_quest() {
+/// The quest a quest's row names, held under way by some of the players of [`claimants_world`].
+const HELD: u32 = 0x4000_0D6D;
+
+/// The camp world of one beetle with a row for its template that names [`HELD`] under way, and five
+/// players: the first three in a fellowship (the first two holding the quest, the third not), a
+/// fourth on its own holding it, and a fifth on its own without it. The harness and each one's
+/// character.
+fn claimants_world() -> (Harness, [u64; 5]) {
+    use auberean_script::args::Arg;
+    use yalain_world::fellowship::function;
+    use yalain_world::quests::status;
     let gated = DeathTreasure {
         requires: Some(yalain_content::QuestGate {
-            quest: 0x4000_0D6D,
-            status: yalain_world::quests::status::UNDERWAY,
+            quest: HELD,
+            status: status::UNDERWAY,
         }),
         ..row(Dropper::Template(TEST_CREATURE), 1.0)
     };
-    let mut h = camp_world(5, 1.0, vec![gated], 13);
-    let (corpses, died) = rounds(&mut h, 10);
-    assert_eq!((died, corpses.len()), (50, 50), "a corpse for every death");
-    assert_eq!(holding(&corpses), 0);
+    let mut h = camp_world(1, 1.0, vec![gated], 13);
+    let players: Vec<(usize, u64)> = ["Ana", "Bel", "Cai", "Dov", "Eda"]
+        .iter()
+        .enumerate()
+        .map(|(i, name)| h.player_in_world(&format!("acct{i}"), name))
+        .collect();
+    let mut name = yalain_world::graph::Builder::new();
+    name.native(
+        0x76,
+        auberean_script::native_object::NativeObject::Text("Band".encode_utf16().collect()),
+    );
+    let (lead, lead_id) = players[0];
+    h.ask(
+        lead,
+        function::CREATE,
+        &[Arg::Int(1), Arg::Int(0), Arg::Object(name.graph())],
+        10,
+    );
+    for &(b, id) in &players[1..3] {
+        h.ask(lead, function::RECRUIT, &[Arg::LongInt(id)], 10);
+        h.ask(b, function::ACCEPT, &[Arg::LongInt(lead_id)], 10);
+    }
+    let f = h.server.fellowships.of(lead_id).expect("a fellowship");
+    assert_eq!(
+        h.server.fellowships.list[f].fellows.len(),
+        3,
+        "three fellows"
+    );
+    for (i, &(_, id)) in players.iter().enumerate() {
+        if matches!(i, 0 | 1 | 3) {
+            let p = h
+                .server
+                .players
+                .values_mut()
+                .find(|p| p.character == id)
+                .expect("in the world");
+            p.play.quests = vec![yalain_world::state::QuestState {
+                quest: HELD,
+                status: status::UNDERWAY,
+                phase: 1,
+                started: 0,
+                updated: 0,
+            }];
+        }
+    }
+    let ids = [0, 1, 2, 3, 4].map(|i| players[i].1);
+    (h, ids)
+}
+
+/// How many of the treasure the corpse of the camp's beetle holds, killed by `by` (0: no player).
+fn left_for(h: &mut Harness, by: u64) -> usize {
+    let beetle = living(h)[0];
+    let clock = h.clock();
+    yalain_world::death::creature_dies(&mut h.server, &mut h.net, beetle, by, clock);
+    run_for(h, 2.5);
+    let mut seen = BTreeMap::new();
+    note_corpses(h, &mut seen);
+    let held = h
+        .server
+        .things
+        .by_id
+        .values()
+        .find(|t| t.corpse.as_ref().is_some_and(|c| c.originator == beetle))
+        .and_then(|t| seen.get(&t.id))
+        .expect("its corpse")
+        .iter()
+        .filter(|(t, _)| *t == TREASURE)
+        .count();
+    run_for(h, 3.5);
+    held
+}
+
+/// A row that names a quest lies on a creature's corpse once for each of its claimants holding the
+/// quest where it needs it, at a chance of 1: its killer and each of the killer's fellows in the
+/// world with the quest under way, and no one else. Killed by a holder with a holding fellow and a
+/// fellow without, two; by that fellow without, the same two; by a holder alone, one; by a player
+/// without the quest alone, or by no player, none.
+/// Behaviour: server.loot.death-treasure-for-a-quest-for-each-holder
+#[test]
+fn a_death_treasure_that_names_a_quest_lies_once_for_each_claimant_holding_it() {
+    let (mut h, [holder, _fellow, without, alone, stranger]) = claimants_world();
+    assert_eq!(
+        left_for(&mut h, holder),
+        2,
+        "the killer and its holding fellow"
+    );
+    assert_eq!(left_for(&mut h, without), 2, "its fellows that hold it");
+    assert_eq!(left_for(&mut h, alone), 1, "a holder on its own");
+    assert_eq!(left_for(&mut h, stranger), 0, "no one holds it");
+    assert_eq!(left_for(&mut h, 0), 0, "killed by no player");
 }
 
 /// A camp's row gives its own creatures its treasure and no other camp's, though they are of one

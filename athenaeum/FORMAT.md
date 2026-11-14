@@ -559,7 +559,9 @@ A fixed item a creature leaves at its death, or a chest at an opening, at a chan
 chest's is rolled only at an opening its key paid for, unless the row names a quest: then it is
 rolled at every opening whose opener holds that quest where it needs it, a key or none. A chest is
 filled anew at each opening, so a quest's item is there again until the quest moves on (for
-instance, as a `{ take = T }` step moves it).
+instance, as a `{ take = T }` step moves it). A creature's row that names a quest is rolled once for
+each of its killer and the killer's fellows in the world holding that quest where it needs it as the
+corpse is made, so the corpse holds the item once for each of them.
 
 | field | | meaning |
 |---|---|---|
@@ -567,7 +569,7 @@ instance, as a `{ take = T }` step moves it).
 | `template`, `camp` | one of them | every creature or chest of a template, or every creature a camp keeps (`key@XXYY`, or `pack:key@XXYY`) |
 | `item` | required | the item's template |
 | `chance` | required | above 0, at most 1 |
-| `requires` | | a chest's alone: the quest its opener must hold, as a static's `requires` names it (`{ quest = Q, phase = N }`, `underway`, `done` or `had`); not with `camp`, and a creature never leaves a row that names one |
+| `requires` | | the quest a chest's opener, or a creature's killer and each of its fellows, must hold, as a static's `requires` names it (`{ quest = Q, phase = N }`, `underway`, `done` or `had`); not with `camp` |
 | `prov` | required | where it came from |
 
 ```toml

@@ -1071,7 +1071,8 @@ pub struct DeathTreasure {
     pub camp: Option<String>,
     pub item: u32,
     pub chance: f32,
-    /// The quest a chest's opener must hold, and where, for the chest to hold it at that opening:
+    /// The quest a chest's opener must hold, and where, for the chest to hold it at that opening,
+    /// or a creature's corpse once for each of its killer and the killer's fellows holding it there:
     /// `{ quest, phase }`, `{ quest, underway = true }`, `{ quest, done = true }` or
     /// `{ quest, had = true }`.
     pub requires: Option<(u32, Gate)>,
