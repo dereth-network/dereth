@@ -55,7 +55,7 @@ world.lock                         ids given to authored rows, kept across build
 <pack>/server/treasure_families.toml [[treasure_family]]
 <pack>/server/items.toml           [[item_use]], [[book]], [[start_item]], [[interaction]]
 <pack>/server/puzzles.toml         [[object_states]], [[sequence]], [[lever]], [[offering]], [[guarded]], [[shifting]]
-<pack>/server/creatures.toml       [[concealing]], [[npc_table]], [[friend_table]], [[creature]], [[defense]]
+<pack>/server/creatures.toml       [[concealing]], [[npc_table]], [[friend_table]], [[creature]], [[safe_passage]], [[defense]]
 ```
 
 `[[object]]`, `[[camp]]` and `[[clearing]]` rows must be written in their landblock's file. Every
@@ -990,6 +990,22 @@ row gives at least one of these.
 
 A world with no rows of `[[concealing]]`, `[[npc_table]]`, `[[friend_table]]` or `[[creature]]`
 has the server's own of that kind.
+
+#### `[[safe_passage]]`
+
+Creatures that let a player by: a camp's, or every creature of a template, leave alone a player who
+holds an item (in its pack or worn) or bears an effect. They spare it as a concealing effect's class
+does: they don't take it on, come to their kin's fight with it, or turn to it, until it hurts them.
+An effect that makes the player hated wins over it. A world with no rows of it has none. An item
+whose use names a row's effect, one the server makes nothing else of, puts it on for its time; so
+does one that names a `[[concealing]]` row's.
+
+| field | | meaning |
+|---|---|---|
+| `key` | required | its name |
+| `camp`, `template` | one of them | the camp (`key`, `key@XXYY` or `pack:key@XXYY`; a key several landblocks share is named with its landblock), or a creature's template |
+| `item`, `effect` | one of them | an item's template the player holds, or an effect the player bears, by its saved state (one the install holds); an item that puts its effect on as it is worn is named by the effect, with an `[[effect_name]]` row where the install's name for it resolves to nothing |
+| `prov` | required | where it came from |
 
 #### `[[defense]]`
 

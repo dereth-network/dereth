@@ -2896,6 +2896,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.a-safe-passage-lets-its-bearer-by",
+        says: "A `[[safe_passage]]` row's creatures (a camp's, or every creature of a template) \
+               leave alone a player who holds its item, in the pack or worn, or bears its effect: \
+               they don't take it on, come to their kin's fight with it, or turn to it, until it \
+               hurts them; an effect that makes the player hated wins over it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SAFE-PASSAGE"),
+        station: "yalain-testkit::cpu::play::safe_passage::a_camps_creatures_leave_alone_a_player_bearing_its_passage_until_struck",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.a-skills-harm-counts-by-its-points",
         says: "A skill's taunt bonus and damage-notice figure count its harm for that many percent \
                more at a creature's draw. This server's own stand-in: nothing recorded says what \
@@ -2928,6 +2939,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-TAUNT-RATING"),
         station: "yalain-testkit::cpu::play::creature_tactics::a_taunt_counts_by_its_share_at_the_rating_it_is_cast_at",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.a-used-items-ward-goes-on-where-a-row-reads-it",
+        says: "An item's use puts on an effect that only changes what creatures make of its bearer \
+               (one the server makes nothing else of) for its time where a world's row reads it, a \
+               safe passage's or a concealing effect's, and not where none does.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-USED-WARD"),
+        station: "yalain-testkit::cpu::play::items::an_items_ward_goes_on_for_its_time_where_a_creature_row_reads_it",
         tier: Tier::Cpu,
     },
     behaviour! {

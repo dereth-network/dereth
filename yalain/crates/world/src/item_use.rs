@@ -1119,6 +1119,11 @@ pub(crate) fn put_on<S: Store>(
         quiet: false,
     };
     match def.kind {
+        // One that only changes what creatures make of its bearer, which the world's rows say:
+        // a record for its time, as any.
+        Kind::Other if def.lasts() && s.creature_rows.reads_effect(e.state) => {
+            effects::apply(s, net, world, e.state, cast, clock);
+        }
         // What it does is the server's own (an antidote's cure, a portal): not made here.
         Kind::Other
         | Kind::Immunity { .. }

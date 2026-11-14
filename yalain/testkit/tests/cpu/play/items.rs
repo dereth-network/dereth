@@ -5,7 +5,8 @@
 //! or on a mount, far from the item's place, without its quest, a hidden one's as mysterious,
 //! below its level), before any quest step its use moves; a reward quest done with the quest it
 //! rewards; an item only looked at; a gem that sends its user to a named place, spent as it comes
-//! out; a stone whose use only gives a quest, kept when the quest can't be given.
+//! out; a stone whose use only gives a quest, kept when the quest can't be given; a ward that
+//! only changes what creatures make of its bearer, on for its time where a world's row reads it.
 //! Fixture: the test world with made-up potion, charm, egg, rod, token, trophy, gem and stone
 //! templates and their effects as the data defines them.
 
@@ -457,6 +458,55 @@ fn a_potion_is_drunk_and_at_the_drinks_end_takes_effect_and_is_spent() {
     assert_eq!(states, vec![(OVER_TIME, 50.0), (TENACITY, 100.0)]);
     assert!(recs.iter().all(|e| e.caster == me && e.flags == 66));
     assert!(held(&h, world, POTION).is_none(), "the potion is gone");
+}
+
+/// An item's effect that only changes what creatures make of its bearer, which the server makes
+/// nothing else of, goes on for its time where a world's row reads it (a safe passage's, a
+/// concealing effect's), and is not made where none does.
+/// Behaviour: server.creatures.a-used-items-ward-goes-on-where-a-row-reads-it
+#[test]
+fn an_items_ward_goes_on_for_its_time_where_a_creature_row_reads_it() {
+    use yalain_content::creature_rows::{CreatureRows, Guards, Pass, Regard, SafePassage};
+    const WARD: u32 = 0x6F00_1DEA;
+    const WISP: u32 = 0x4700_2DE7;
+    let used = |rows: fn(&mut CreatureRows)| {
+        let mut h = world();
+        h.server.item_uses.insert(
+            CHARM,
+            vec![UsageEffect {
+                state: WARD,
+                spellcraft: 1.0,
+            }],
+        );
+        h.server
+            .effect_table
+            .effects
+            .insert(WARD, def(WARD, Kind::Other, Some(1800.0)));
+        rows(&mut h.server.creature_rows);
+        let (b, me, world) = in_world(&mut h);
+        let charm = give(&mut h, world, CHARM, 2);
+        send_use(&mut h, b, me, charm, 0.2);
+        records_from(&h, world, charm)
+            .iter()
+            .map(|e| (e.state, e.timeout))
+            .collect::<Vec<_>>()
+    };
+    assert!(used(|_| {}).is_empty(), "no row reads it: not made");
+    assert_eq!(
+        used(|r| r.safe_passage.push(SafePassage {
+            guards: Guards::Template(WISP),
+            pass: Pass::Effect(WARD),
+        })),
+        vec![(WARD, 1800.0)],
+        "a safe passage's: on for its half hour"
+    );
+    assert_eq!(
+        used(|r| {
+            r.concealing.insert((WARD, Some(0x49)), Regard::Spares);
+        }),
+        vec![(WARD, 1800.0)],
+        "a concealing effect's"
+    );
 }
 
 /// A charm with no use behavior acts in the request's instant: its luck put on, one off its stack,

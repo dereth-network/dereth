@@ -48,7 +48,7 @@
 //! <pack>/server/puzzles.toml     [[object_states]], [[sequence]], [[lever]], [[offering]],
 //!                                [[guarded]], [[shifting]]
 //! <pack>/server/creatures.toml   [[concealing]], [[npc_table]], [[friend_table]], [[creature]],
-//!                                [[defense]]
+//!                                [[safe_passage]], [[defense]]
 //! <pack>/server/routes.toml       [[route]]
 //! <pack>/server/areas.toml        [[area]]
 //! ```

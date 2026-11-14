@@ -6,6 +6,8 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Fixed the fanatics' disguise doing nothing when used.
+- Worlds can now have creatures that leave alone a player carrying a certain item or effect.
 - Taunts now grow stronger with the skill's rating.
 - Hero skills now cost focus to use.
 - Worlds can now have quest steps and hand-ins for those who fought a creature.

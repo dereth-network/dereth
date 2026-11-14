@@ -640,6 +640,11 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                     check_placed("objects", name, l, &objects, &mut |m| problems.push(at(m)));
                 }
             }
+            Row::SafePassage(r) => {
+                if let Some(why) = r.camp.as_deref().and_then(|c| named_camp(c, &camp_makes)) {
+                    problems.push(at(format!("camp: {why}")));
+                }
+            }
             Row::Guarded(r) => {
                 for name in &r.objects {
                     check_placed("objects", name, l, &objects, &mut |m| problems.push(at(m)));
@@ -912,6 +917,12 @@ fn check_prov(p: &Prov, out: &mut dyn FnMut(String)) {
 /// What is wrong with a camp a step's or a give's `requires` waits on its player having fought
 /// (`key`, `key@XXYY` or `pack:key@XXYY`), if anything: no camp of the world, or several.
 fn fought_camp(camp: &str, camps: &BTreeMap<(String, u16), BTreeSet<u32>>) -> Option<String> {
+    named_camp(camp, camps).map(|why| format!("requires: {why}"))
+}
+
+/// What is wrong with a camp a row names (`key`, `key@XXYY` or `pack:key@XXYY`), if anything: no
+/// camp of the world, or several.
+fn named_camp(camp: &str, camps: &BTreeMap<(String, u16), BTreeSet<u32>>) -> Option<String> {
     let named = camp.split_once(':').map_or(camp, |(_, k)| k);
     let (key, lb) = match named.split_once('@') {
         Some((k, b)) => (k, u16::from_str_radix(b, 16).ok()),
@@ -922,10 +933,8 @@ fn fought_camp(camp: &str, camps: &BTreeMap<(String, u16), BTreeSet<u32>>) -> Op
         .filter(|(k, b)| k == key && lb.is_none_or(|lb| lb == *b))
         .count()
     {
-        0 => Some(format!("requires: no camp {camp}")),
+        0 => Some(format!("no camp {camp}")),
         1 => None,
-        _ => Some(format!(
-            "requires: several camps are {camp}: name one as {camp}@XXYY"
-        )),
+        _ => Some(format!("several camps are {camp}: name one as {camp}@XXYY")),
     }
 }

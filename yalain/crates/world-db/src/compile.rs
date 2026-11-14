@@ -2018,7 +2018,8 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             | Row::Lever(_)
             | Row::Offering(_)
             | Row::Guarded(_)
-            | Row::Shifting(_) => {}
+            | Row::Shifting(_)
+            | Row::SafePassage(_) => {}
         }
     }
     for (l, scene) in door_scenes {
@@ -2328,6 +2329,57 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         gone_for: r.gone_for,
                         moves_after: r.moves_after,
                     });
+            }
+            Row::SafePassage(r) => {
+                use yalain_content::creature_rows::{Guards, Pass, SafePassage};
+                let guards = match (&r.camp, r.template) {
+                    (Some(camp), _) => {
+                        let named = camp.split_once(':').map_or(camp.as_str(), |(_, k)| k);
+                        let (key, lb) = match named.split_once('@') {
+                            Some((k, b)) => (k, u16::from_str_radix(b, 16).ok()),
+                            None => (named, None),
+                        };
+                        let mut rows = camps_at
+                            .iter()
+                            .filter(|((k, b), _)| *k == key && lb.is_none_or(|lb| lb == *b));
+                        match (rows.next(), rows.next()) {
+                            (Some((_, &row)), None) => {
+                                Guards::Camp(u32::try_from(row).unwrap_or(u32::MAX))
+                            }
+                            (None, _) => {
+                                cx.problem(l, format!("camp: no camp {camp} is served"));
+                                continue;
+                            }
+                            (Some(_), Some(_)) => {
+                                cx.problem(
+                                    l,
+                                    format!(
+                                        "camp: several camps are {camp}: name one as {camp}@XXYY"
+                                    ),
+                                );
+                                continue;
+                            }
+                        }
+                    }
+                    (None, Some(template)) => {
+                        if !cx.template(l, "template", template) {
+                            continue;
+                        }
+                        Guards::Template(template)
+                    }
+                    (None, None) => continue,
+                };
+                let pass = match (r.item, r.effect) {
+                    (Some(item), _) => {
+                        if !cx.template(l, "item", item) {
+                            continue;
+                        }
+                        Pass::Item(item)
+                    }
+                    (None, Some(effect)) => Pass::Effect(effect),
+                    (None, None) => continue,
+                };
+                t.creatures.safe_passage.push(SafePassage { guards, pass });
             }
             _ => {}
         }

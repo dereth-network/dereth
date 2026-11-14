@@ -492,6 +492,21 @@ pub fn install_problems(p: &data::Portal, db: &rows::Database) -> Result<Vec<Pro
                 ));
             }
         }
+        if let rows::Row::SafePassage(r) = &l.row {
+            if let Some(effect) = r.effect {
+                let read = data::effect_table(p, &[effect], &Default::default())?;
+                if !read.effects.contains_key(&effect) {
+                    out.push(Problem::new(
+                        &l.file,
+                        l.line,
+                        format!(
+                            "[[safe_passage]] {}: effect {effect:#010x}: the install holds no such effect",
+                            r.key
+                        ),
+                    ));
+                }
+            }
+        }
         if let rows::Row::Creature(r) = &l.row {
             if let Some(mark) = &r.marks {
                 let read = data::effect_table(p, &[mark.effect], &Default::default())?;

@@ -739,6 +739,7 @@ pub enum Row {
     NpcTable(NpcTable),
     FriendTable(FriendTable),
     Creature(Creature),
+    SafePassage(SafePassageRow),
     Defense(DefenseRow),
     Plant(Plant),
     PlantCross(PlantCross),
@@ -790,6 +791,20 @@ pub struct Creature {
     pub only_hated: bool,
     pub players_kept_out: bool,
     pub kept_out_line: Option<StrRef>,
+    pub prov: Prov,
+}
+
+/// `[[safe_passage]]`: creatures that let pass a player holding an item or bearing an effect,
+/// sparing it as a concealing effect's class does: a camp's (`key@XXYY`, or `pack:key@XXYY`), or
+/// every creature of a template; an item's template (in the pack or worn), or an effect's saved
+/// state.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SafePassageRow {
+    pub key: String,
+    pub camp: Option<String>,
+    pub template: Option<u32>,
+    pub item: Option<u32>,
+    pub effect: Option<u32>,
     pub prov: Prov,
 }
 
@@ -1421,6 +1436,7 @@ impl Row {
             Self::NpcTable(_) => "npc_table",
             Self::FriendTable(_) => "friend_table",
             Self::Creature(_) => "creature",
+            Self::SafePassage(_) => "safe_passage",
             Self::Defense(_) => "defense",
             Self::Plant(_) => "plant",
             Self::PlantCross(_) => "plant_cross",
@@ -1491,6 +1507,7 @@ impl Row {
             Self::NpcTable(r) => Some(&r.prov),
             Self::FriendTable(r) => Some(&r.prov),
             Self::Creature(r) => Some(&r.prov),
+            Self::SafePassage(r) => Some(&r.prov),
             Self::Defense(r) => Some(&r.prov),
             Self::Plant(r) => Some(&r.prov),
             Self::PlantCross(r) => Some(&r.prov),
@@ -1501,7 +1518,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 64] = [
+pub const KINDS: [&str; 65] = [
     "object",
     "camp",
     "loot",
@@ -1562,6 +1579,7 @@ pub const KINDS: [&str; 64] = [
     "npc_table",
     "friend_table",
     "creature",
+    "safe_passage",
     "defense",
     "plant",
     "plant_cross",
@@ -1569,7 +1587,7 @@ pub const KINDS: [&str; 64] = [
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 64] = [
+pub const FIELDS: [(&str, &[&str]); 65] = [
     (
         "object",
         &[
@@ -2089,6 +2107,10 @@ pub const FIELDS: [(&str, &[&str]); 64] = [
             "kept_out_line",
             "prov",
         ],
+    ),
+    (
+        "safe_passage",
+        &["key", "camp", "template", "item", "effect", "prov"],
     ),
     (
         "defense",
@@ -3662,6 +3684,35 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 effect,
                 class,
                 regard,
+                prov: f.req_prov()?,
+            })
+        }
+        "safe_passage" => {
+            let key = f.req_symbol("key")?;
+            let camp = match f.get("camp") {
+                Some(_) => Some(f.symbol("camp")?),
+                None => None,
+            };
+            if camp.is_some() == f.t.contains_key("template") {
+                f.bad(
+                    "camp, template",
+                    "a safe passage names a camp or a template",
+                );
+                return None;
+            }
+            let template = f.id("template");
+            if f.t.contains_key("item") == f.t.contains_key("effect") {
+                f.bad("item, effect", "a safe passage names an item or an effect");
+                return None;
+            }
+            let item = f.id("item");
+            let effect = f.id("effect");
+            Row::SafePassage(SafePassageRow {
+                key,
+                camp,
+                template,
+                item,
+                effect,
                 prov: f.req_prov()?,
             })
         }

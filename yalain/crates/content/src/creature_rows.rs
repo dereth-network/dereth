@@ -1,7 +1,8 @@
 //! What the world database says of creatures' behavior: whom a concealing effect spares or makes
 //! hated, which behavior tables heal their kin, which friend tables never attack a player first,
 //! which friend tables fight which, a shooter's rhythm by its template, the creatures that mark the
-//! players they see, those that take on only the players they hate, and those players may not harm.
+//! players they see, those that take on only the players they hate, those players may not harm, and
+//! the camps and kinds that let pass a player holding an item or bearing an effect.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -69,6 +70,42 @@ impl Mark {
     }
 }
 
+/// The creatures a safe passage is for: a camp's, by its row in the spawn table, or every creature
+/// of a template.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Guards {
+    Camp(u32),
+    Template(u32),
+}
+
+/// What lets a player pass: an item of a template it holds (in its pack or worn), or an effect it
+/// bears, by its saved state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pass {
+    Item(u32),
+    Effect(u32),
+}
+
+/// Creatures that leave alone a player who holds an item or bears an effect, as a concealing
+/// effect's spared class does: they don't take it on, come to their kin's fight with it, or turn to
+/// it, until it hurts them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SafePassage {
+    pub guards: Guards,
+    pub pass: Pass,
+}
+
+impl SafePassage {
+    /// Is it for a creature of this camp (by its row in the spawn table) and template?
+    #[must_use]
+    pub fn is_for(&self, camp: Option<u32>, template: u32) -> bool {
+        match self.guards {
+            Guards::Camp(c) => camp == Some(c),
+            Guards::Template(t) => t == template,
+        }
+    }
+}
+
 /// The world's creature rows.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CreatureRows {
@@ -90,6 +127,8 @@ pub struct CreatureRows {
     /// The templates whose creatures players may not harm, with the line a player's attack on one
     /// is told (a string reference: string id, table), if any.
     pub kept_out: BTreeMap<u32, Option<(u32, u32)>>,
+    /// The camps and kinds of creature that let pass a player holding an item or bearing an effect.
+    pub safe_passage: Vec<SafePassage>,
 }
 
 impl CreatureRows {
@@ -115,6 +154,39 @@ impl CreatureRows {
             }
         }
         found
+    }
+
+    /// Does a creature of this camp (by its row in the spawn table) and template let pass a player
+    /// holding these items (by template) and bearing these effects (saved states)?
+    #[must_use]
+    pub fn lets_pass(
+        &self,
+        camp: Option<u32>,
+        template: u32,
+        holds: impl Fn(u32) -> bool,
+        bears: impl Fn(u32) -> bool,
+    ) -> bool {
+        self.safe_passage
+            .iter()
+            .filter(|r| r.is_for(camp, template))
+            .any(|r| match r.pass {
+                Pass::Item(t) => holds(t),
+                Pass::Effect(e) => bears(e),
+            })
+    }
+
+    /// Whether a row makes creatures regard a player by this effect (a saved state): a concealing
+    /// effect's, or a safe passage's.
+    #[must_use]
+    pub fn reads_effect(&self, state: u32) -> bool {
+        self.concealing
+            .range((state, None)..=(state, Some(u32::MAX)))
+            .next()
+            .is_some()
+            || self
+                .safe_passage
+                .iter()
+                .any(|r| r.pass == Pass::Effect(state))
     }
 
     /// Whether creatures of a behavior table heal their kin.

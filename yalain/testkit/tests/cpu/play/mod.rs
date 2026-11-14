@@ -92,6 +92,7 @@ mod reported_places;
 mod resting;
 mod resurrections;
 mod rules;
+mod safe_passage;
 mod sequences;
 mod shifting_objects;
 mod skill_focus;

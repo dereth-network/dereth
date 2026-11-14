@@ -21,6 +21,9 @@
 //!   one that spares it doesn't take it on, come to its kin's fight with it, or turn to it, unless
 //!   it has hurt the creature; one that hates it is taken on even by a creature that never attacks
 //!   first ([`regard`]).
+//! - **Safe passage.** The world's rows may say a camp's creatures, or every creature of a
+//!   template, let pass a player who holds an item (in its pack or worn) or bears an effect: they
+//!   spare it as a concealing effect's class does, unless an effect it holds makes them hate it.
 //! - **Other creatures.** A creature whose friend table the world's rows say fights another's takes
 //!   on, as it would a player, the nearest creature of that table within its perception, nearer than
 //!   any player it would take on, while a player is in its landblock or one beside it; it runs to
@@ -135,6 +138,46 @@ pub fn regard(
     class: Option<u32>,
 ) -> Option<Regard> {
     rows.regard(p.play.effects.iter().map(|e| e.state), class)
+}
+
+/// What a creature makes of a player: what its class makes of the player's concealing effects, and
+/// spared where its camp or kind lets the player pass, unless those effects make it hated.
+fn regard_of<S: Store>(
+    s: &Server<S>,
+    id: Option<u64>,
+    class: Option<u32>,
+    p: &crate::world::Player,
+) -> Option<Regard> {
+    let by_class = regard(&s.creature_rows, p, class);
+    if by_class == Some(Regard::Hates) {
+        return by_class;
+    }
+    if id.is_some_and(|id| lets_pass(s, id, p)) {
+        return Some(Regard::Spares);
+    }
+    by_class
+}
+
+/// Does a creature's camp or kind let a player pass, by what it holds or bears?
+fn lets_pass<S: Store>(s: &Server<S>, id: u64, p: &crate::world::Player) -> bool {
+    let rows = &s.creature_rows;
+    if rows.safe_passage.is_empty() {
+        return false;
+    }
+    let Some(t) = s.things.get(id) else {
+        return false;
+    };
+    let camp = t
+        .creature
+        .as_ref()
+        .and_then(|c| c.camp)
+        .and_then(|c| u32::try_from(c).ok());
+    rows.lets_pass(
+        camp,
+        t.template,
+        |template| p.play.items.iter().any(|h| h.template == template),
+        |state| p.play.effects.iter().any(|e| e.state == state),
+    )
 }
 
 /// A creature's class of behavior.
@@ -366,13 +409,13 @@ fn notice<S: Store>(
     s: &Server<S>,
     at: &StoredPosition,
     radius: f32,
-    class: Option<u32>,
+    (id, class): (Option<u64>, Option<u32>),
     attacks_first: bool,
 ) -> Option<u64> {
     notices_among(s, at, radius, |p| {
         fightable(p)
             && p.admin.attackable == Attackable::Normal
-            && match regard(&s.creature_rows, p, class) {
+            && match regard_of(s, id, class, p) {
                 Some(Regard::Spares) => false,
                 Some(Regard::Hates) => true,
                 None => attacks_first,
@@ -404,7 +447,7 @@ pub fn notices_among<S: Store>(
 #[doc(hidden)]
 #[must_use]
 pub fn notices<S: Store>(s: &Server<S>, at: &StoredPosition, radius: f32) -> Option<u64> {
-    notice(s, at, radius, None, true)
+    notice(s, at, radius, (None, None), true)
 }
 
 /// A creature's attack comes when it is due, not at the world's next step, for one that attacks
@@ -536,7 +579,7 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                         q.character == p
                             && !crate::combat::is_dead(q)
                             && q.trip.is_none()
-                            && regard(&s.creature_rows, q, class) != Some(Regard::Spares)
+                            && regard_of(s, Some(id), class, q) != Some(Regard::Spares)
                     });
                     if here {
                         engage(s, net, id, p, clock);
@@ -553,7 +596,13 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                     engage(s, net, id, device, clock);
                     return;
                 }
-                let player = notice(s, &at, perception, class_of(s, id), attacks_first);
+                let player = notice(
+                    s,
+                    &at,
+                    perception,
+                    (Some(id), class_of(s, id)),
+                    attacks_first,
+                );
                 let foe = foe_near(s, id, &at, perception);
                 let player_gap = player.and_then(|p| {
                     let place = s.players.values().find(|q| q.character == p)?.position;
@@ -935,7 +984,7 @@ fn reconsider<S: Store>(
         .filter_map(|p| presence::distance(at, &p.position).map(|d| (p, d)))
         .filter(|(p, d)| *d <= perception && fightable(p) && may_take_on(s, id, p))
         .filter(|(p, _)| {
-            regard(&s.creature_rows, p, class) != Some(Regard::Spares)
+            regard_of(s, Some(id), class, p) != Some(Regard::Spares)
                 || harm.iter().any(|(q, h)| *q == p.character && *h > 0)
         })
         .map(|(p, d)| (p.character, d))
@@ -1110,7 +1159,7 @@ fn rouse_turrets<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, cloc
         })
         .collect();
     for (turret, there, reach) in near {
-        if let Some(p) = notice(s, &there, reach, class_of(s, turret), true) {
+        if let Some(p) = notice(s, &there, reach, (Some(turret), class_of(s, turret)), true) {
             engage(s, net, turret, p, clock);
         }
     }

@@ -8073,3 +8073,115 @@ fn a_sequence_row_of_its_own_count_and_the_steps_and_gives_waiting_on_it() {
         assert!(read(&files).is_err(), "{from} to {to}");
     }
 }
+
+/// A safe passage names a camp (the camp's row in the spawn table) or a template, and an item or an
+/// effect; one naming both or neither of either pair, a camp the world lacks, and a template or an
+/// item the install lacks are refused.
+#[test]
+fn safe_passage_rows_compile_to_their_camps_or_kinds_and_what_lets_pass() {
+    use yalain_content::creature_rows::{Guards, Pass, SafePassage};
+    const ROWS: &str = "[[safe_passage]]\nkey = \"by-camp\"\ncamp = \"beetles@77B7\"\n\
+        effect = 0x6F001D2C\nprov = { from = \"authored\" }\n\n\
+        [[safe_passage]]\nkey = \"by-kind\"\ntemplate = 0x47002224\nitem = 0x470020BB\n\
+        prov = { from = \"authored\" }\n";
+    let mut files = fixture();
+    files.insert("town/server/creatures.toml".into(), ROWS.into());
+    assert_eq!(check(&files), Vec::new());
+    let db = read(&files).unwrap();
+    let mut keys: Vec<String> = db
+        .rows()
+        .filter(|l| l.file.ends_with("creatures.toml"))
+        .filter_map(yalain_world_db::merge::item_key)
+        .collect();
+    keys.sort();
+    assert_eq!(keys, ["safe_passage by-camp", "safe_passage by-kind"]);
+    for k in &keys {
+        let words: Vec<&str> = k.split(' ').collect();
+        let item = auberean_pack::Item::parse(&words).unwrap_or_else(|| panic!("{k} parses"));
+        assert_eq!(&item.to_string(), k, "{k} reads back");
+    }
+    let t = compile(&merge(&db).unwrap(), &Fake::new()).unwrap();
+    let row = t
+        .spawns
+        .camps
+        .iter()
+        .position(|c| c.id == "beetles")
+        .map(|r| u32::try_from(r).unwrap())
+        .unwrap();
+    let mut got = t.creatures.safe_passage.clone();
+    got.sort_by_key(|r| matches!(r.guards, Guards::Template(_)));
+    assert_eq!(
+        got,
+        [
+            SafePassage {
+                guards: Guards::Camp(row),
+                pass: Pass::Effect(0x6F00_1D2C),
+            },
+            SafePassage {
+                guards: Guards::Template(0x4700_2224),
+                pass: Pass::Item(0x4700_20BB),
+            },
+        ]
+    );
+    // A camp named alone, where one camp has the key, is that camp.
+    let mut f = fixture();
+    f.insert(
+        "town/server/creatures.toml".into(),
+        ROWS.replace("beetles@77B7", "beetles"),
+    );
+    let t = compile(&merge(&read(&f).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert!(t
+        .creatures
+        .safe_passage
+        .iter()
+        .any(|r| r.guards == Guards::Camp(row)));
+
+    for (from, to) in [
+        ("camp = \"beetles@77B7\"\n", ""),
+        (
+            "camp = \"beetles@77B7\"\n",
+            "camp = \"beetles@77B7\"\ntemplate = 0x47002224\n",
+        ),
+        ("effect = 0x6F001D2C\n", ""),
+        (
+            "effect = 0x6F001D2C\n",
+            "effect = 0x6F001D2C\nitem = 0x470020BB\n",
+        ),
+        ("key = \"by-camp\"\n", ""),
+        (
+            "effect = 0x6F001D2C\n",
+            "effect = 0x6F001D2C\nclass = 0x65\n",
+        ),
+    ] {
+        let mut f = fixture();
+        f.insert(
+            "town/server/creatures.toml".into(),
+            ROWS.replacen(from, to, 1),
+        );
+        assert!(read(&f).is_err(), "{to:?} for {from:?}");
+    }
+    let mut f = fixture();
+    f.insert(
+        "town/server/creatures.toml".into(),
+        ROWS.replace("beetles@77B7", "wasps@77B7"),
+    );
+    let problems: Vec<String> = check(&f).iter().map(ToString::to_string).collect();
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.contains("camp: no camp wasps@77B7")),
+        "{problems:?}"
+    );
+    assert!(compile(&merge(&read(&f).unwrap()).unwrap(), &Fake::new()).is_err());
+    for (from, to) in [
+        ("template = 0x47002224", "template = 0x47009999"),
+        ("item = 0x470020BB", "item = 0x47009999"),
+    ] {
+        let mut f = fixture();
+        f.insert("town/server/creatures.toml".into(), ROWS.replace(from, to));
+        assert!(
+            compile(&merge(&read(&f).unwrap()).unwrap(), &Fake::new()).is_err(),
+            "{to}: the install lacks it"
+        );
+    }
+}
