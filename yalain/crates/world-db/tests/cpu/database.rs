@@ -6912,7 +6912,8 @@ fn a_death_spawn_row_making_a_portal_reads_its_kingdom_and_is_warned_where_nothi
 }
 
 #[test]
-fn a_death_spawn_row_of_a_creature_reads_its_place_and_where_its_portal_leads() {
+fn a_death_spawn_row_of_a_creature_reads_its_place_and_where_its_portal_leads_even_from_an_object()
+{
     const PATH: &str = "town/server/death_spawns.toml";
     const PLACES: &str = "town/server/lairs.toml";
     let mut files = fixture();
@@ -6963,10 +6964,19 @@ fn a_death_spawn_row_of_a_creature_reads_its_place_and_where_its_portal_leads() 
         files.insert(PATH.into(), row.replacen(from, to, 1));
         assert!(read(&files).is_err(), "{from} to {to}");
     }
-    // A place the world lacks; a destination for what is no portal.
+    // An object whose template names no destination leads to the row's place.
+    files.insert(
+        PATH.into(),
+        row.replacen("template = 0x47000C8C", "template = 0x4700115B", 1),
+    );
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let made = &t.death_spawns[&yalain_content::DeathSpawn::of_creature(0x4700_2224)];
+    assert_eq!(made.template, 0x4700_115B);
+    assert_eq!(made.to.map(|p| p.origin), Some([9.0, 40.0, 183.8]));
+    // A place the world lacks; a destination for a creature.
     for (from, to) in [
         ("to = \"crypt\"", "to = \"nowhere\""),
-        ("template = 0x47000C8C", "template = 0x47002224"),
+        ("template = 0x47000C8C", "template = 0x47002226"),
     ] {
         files.insert(PATH.into(), row.replacen(from, to, 1));
         let merged = merge(&read(&files).unwrap()).unwrap();

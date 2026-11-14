@@ -907,6 +907,109 @@ fn a_creatures_death_portal_is_for_the_kingdom_its_template_requires() {
     assert_eq!(kingdoms, [Some(4)], "the template's kingdom");
 }
 
+/// A creature's row whose template names no destination of its own (a plain object) but whose row
+/// names a place to lead to stands a portal at its place, which takes its user to the row's place;
+/// without that place the same row makes nothing (the template is no creature either); a
+/// creature's template on such a row is made a creature.
+/// Behaviour: server.creatures.a-death-spawns-row-leads-from-any-template
+#[test]
+fn a_creatures_death_makes_a_portal_of_a_template_with_no_destination_when_its_row_names_one() {
+    use yalain_content::{Place, Props};
+    const SHARD: u32 = 0x4700_9202;
+    let mut h = Harness::new();
+    h.add_creatures(3);
+    h.server.catalog.insert(yalain_testkit::test_template(
+        SHARD,
+        0xF12,
+        Props::default(),
+    ));
+    let (b, me) = h.player_in_world("one", "Kestrel");
+    h.run(20);
+    let platform = Place {
+        cell: 0x0299_0109,
+        origin: [70.0, 230.0, -44.6],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let chamber = Place {
+        cell: 0x0299_0109,
+        origin: [40.0, 200.0, -44.6],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let template = beetle_template(&h);
+    let row = |to: Option<Place>| DeathSpawn {
+        template: SHARD,
+        count: 1,
+        chance: 1.0,
+        offset: [0.0, 0.0],
+        lasts: Some(60.0),
+        kingdom: None,
+        at: Some(platform),
+        to,
+        name: None,
+    };
+    h.server
+        .death_spawns
+        .insert(DeathSpawn::of_creature(template), row(None));
+    let before = h.server.things.by_id.len();
+    kill(&mut h, me, &[]);
+    assert!(portals(&h).is_empty(), "no place to lead to: no portal");
+    assert!(
+        h.server.things.by_id.values().all(|t| t.template != SHARD),
+        "nor anything else ({before} things before)"
+    );
+    h.server
+        .death_spawns
+        .insert(DeathSpawn::of_creature(template), row(Some(chamber)));
+    kill(&mut h, me, &[]);
+    let stood = portals(&h);
+    assert_eq!(stood.len(), 1, "{stood:?}");
+    assert_eq!(stood[0].1, platform.origin, "at its place");
+    assert_eq!(
+        stood[0].2,
+        Some(chamber.origin),
+        "leading to the row's place"
+    );
+    let world = *h.server.players.keys().next().expect("in");
+    if let Some(p) = h.server.players.get_mut(&world) {
+        p.position.cell = platform.cell;
+        p.position.origin = [
+            platform.origin[0] + 1.0,
+            platform.origin[1],
+            platform.origin[2],
+        ];
+    }
+    h.bots[b].send(
+        true,
+        auberean_protocol::queue::WEENIE,
+        &yalain_testkit::play::server_call(
+            0x8216_0016,
+            &[yalain_testkit::play::use_of(stood[0].0, me)],
+        ),
+    );
+    h.run(80);
+    let at = h.server.players[&world].position;
+    assert_eq!(
+        (at.cell, at.origin),
+        (chamber.cell, chamber.origin),
+        "taken there"
+    );
+    // A creature's template on a row with a place to lead to is made a creature, never a portal.
+    let mut creature_row = row(Some(chamber));
+    creature_row.template = template;
+    // Where it died: the portal still stands at the row's place, which would hold any other back.
+    creature_row.at = None;
+    h.server
+        .death_spawns
+        .insert(DeathSpawn::of_creature(template), creature_row);
+    let (portals_before, before) = (portals(&h).len(), living(&h));
+    kill(&mut h, me, &[]);
+    assert_eq!(portals(&h).len(), portals_before, "no portal of a creature");
+    assert!(
+        living(&h).iter().any(|id| !before.contains(id)),
+        "a creature made"
+    );
+}
+
 /// The name a client is told an object by as it is made, if its create names one.
 fn told_name(
     h: &Harness,

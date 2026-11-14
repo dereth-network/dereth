@@ -2878,6 +2878,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.creatures.a-death-spawns-row-leads-from-any-template",
+        says: "A world's `[[death_spawn]]` row that names a place to lead to makes a portal of a template \
+               that names no destination of its own, which takes its user to the row's place; without \
+               that place the same row makes nothing, and a creature's template is never made a portal.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DEATH-SPAWN-ANY-PORTAL"),
+        station: "yalain-testkit::cpu::play::death_spawns::a_creatures_death_makes_a_portal_of_a_template_with_no_destination_when_its_row_names_one",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.a-defended-device-holds-against-its-attackers",
         says: "A creature of a device a world's row names fights no one and keeps the row's \
                attackers about it, made at the row's distance and going at it, each killed one \

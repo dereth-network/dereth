@@ -2621,22 +2621,24 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             }
         }
     }
-    // A portal a row makes leads where its template's destination names, once every place is known:
-    // the place named by the template, else the place of the destination's name.
+    // A portal a row makes leads to its own place, else where its template's destination names, once
+    // every place is known: the place named by the template, else the place of the destination's
+    // name. With its own place, any object that is no creature is made a portal.
     for l in &merged.rows {
         let Row::DeathSpawn(r) = &l.row else { continue };
         let props = yalain_content::Props::of(r.template, &entity, &|id| install.property_name(id));
         named_as_a_creature_is(&mut cx, l, "name_text", &r.name, &props);
+        let creature = yalain_content::CreatureStats::from_props(&props).is_some();
         match props.text("PortalDestination") {
-            // A row's own destination.
-            Some(_) if r.to.is_some() => {}
-            None if r.to.is_some() => cx.problem(
+            // A row's own destination: any object it makes leads there, but no creature.
+            None if r.to.is_some() && creature => cx.problem(
                 l,
                 format!(
-                    "to: {:08X} names no destination: only a portal leads anywhere",
+                    "to: {:08X} is a creature: only a portal or an object leads anywhere",
                     r.template
                 ),
             ),
+            _ if r.to.is_some() => {}
             Some(name) => {
                 let known = t.places_named.contains_key(&r.template)
                     || t.places_by_name.contains_key(&name.to_ascii_lowercase());

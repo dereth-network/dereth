@@ -119,12 +119,21 @@ pub fn can_make_all<S: Store>(s: &Server<S>, props: &yalain_content::Props) -> b
         .filter_map(|i| props.text(&format!("{name}{i}")))
         .filter_map(|e| s.death_spawns.get(e))
         .all(|spawn| match s.catalog.get(spawn.template) {
-            Some(t) if portals::is_portal(&t.props) => {
+            Some(t) if leads_anywhere(t, spawn) => {
                 spawn.to.is_some() || portals::leads_to(s, t.id).is_some()
             }
             Some(t) => yalain_content::CreatureStats::from_props(&t.props).is_some(),
             None => false,
         })
+}
+
+/// Is what a row makes of a template a portal: its template names a destination, or the row names
+/// a place it leads to and the template is no creature (an object a world's row sends its user on
+/// from, as a placed object's `to` does)?
+fn leads_anywhere(template: &yalain_content::Template, spawn: &yalain_content::DeathSpawn) -> bool {
+    portals::is_portal(&template.props)
+        || (spawn.to.is_some()
+            && yalain_content::CreatureStats::from_props(&template.props).is_none())
 }
 
 /// What an item's use makes around its user, by the effects its template names.
@@ -185,7 +194,7 @@ fn makes<S: Store>(
                 .is_some_and(|t| t.creature.as_ref().is_none_or(|c| c.mode != Mode::Dead))
         });
     }
-    let portal = portals::is_portal(&template.props);
+    let portal = leads_anywhere(&template, &spawn);
     for _ in 0..spawn.count {
         let full = most.is_some_and(|(name, n)| s.death_spawned.get(name).map_or(0, Vec::len) >= n);
         if full || !s.rng.chance(spawn.chance) {

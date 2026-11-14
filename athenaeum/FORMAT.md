@@ -887,12 +887,12 @@ world, or where the creature died.
 | field | | meaning |
 |---|---|---|
 | `effect`, `creature` | one of them | the effect, as templates name it; or the template of the creatures whose death makes it, wherever their killer stands |
-| `template` | required | what it makes: a creature, or a portal whose template names a destination |
+| `template` | required | what it makes: a creature, or a portal: one whose template names a destination, or, with `to`, any object that is no creature |
 | `count` | | how many it tries to make; 1 when left out |
 | `chance` | | that each is made; 1 when left out |
 | `offset` | `effect` required | where each stands, in meters from the killer or user as it faces, `[x, y, z]`; for a `creature` row, from where the creature died, as it faced, `[0, 0, 0]` when left out |
 | `at` | | a `creature` row's, in place of `offset`: the `[[place]]` (`key`, or `pack:key`) each stands at, facing as it does; one of the row's stands there at a time, and a death while it stands makes none |
-| `to` | | a portal's: the `[[place]]` it leads to, in place of where its template's destination names |
+| `to` | | a portal's: the `[[place]]` it leads to, in place of where its template's destination names; with it, an object that is no creature is made a portal even where its template names no destination |
 | `lasts` | | how long each stands, in seconds; left out, a creature until killed, a portal until the server stops |
 | `kingdom` | | a portal's: the kingdom a player must be of to use it, 1 (Shadow), 2 (Order) or 4 (Dominion); left out, the kingdom its template requires, if any |
 | `name`, `name_text` | | the name what it makes is shown over it and examined by, in place of its template's (a portal named for where it leads); a creature takes a string reference alone, which its corpse is named after too |
