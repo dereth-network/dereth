@@ -2679,7 +2679,7 @@ dependencies = [
 
 [[package]]
 name = "empyrean-command"
-version = "0.3.13"
+version = "0.3.14"
 dependencies = [
  "crossterm",
  "dereth-dat",
@@ -2703,7 +2703,7 @@ dependencies = [
 
 [[package]]
 name = "empyrean-common"
-version = "0.3.13"
+version = "0.3.14"
 dependencies = [
  "dereth-primitives",
  "dereth-protocol",
@@ -2718,7 +2718,7 @@ dependencies = [
 
 [[package]]
 name = "empyrean-content"
-version = "0.3.13"
+version = "0.3.14"
 dependencies = [
  "blake3",
  "empyrean-common",
@@ -2734,7 +2734,7 @@ dependencies = [
 
 [[package]]
 name = "empyrean-dat"
-version = "0.3.13"
+version = "0.3.14"
 dependencies = [
  "dereth-assets",
  "dereth-dat",
@@ -2750,7 +2750,7 @@ dependencies = [
 
 [[package]]
 name = "empyrean-entity"
-version = "0.3.13"
+version = "0.3.14"
 dependencies = [
  "dereth-animation",
  "dereth-physics",
@@ -2763,7 +2763,7 @@ dependencies = [
 
 [[package]]
 name = "empyrean-import"
-version = "0.3.13"
+version = "0.3.14"
 dependencies = [
  "dereth-assets",
  "dereth-dat",
@@ -2780,7 +2780,7 @@ dependencies = [
 
 [[package]]
 name = "empyrean-net"
-version = "0.3.13"
+version = "0.3.14"
 dependencies = [
  "dereth-client-net",
  "dereth-network-protocol",
@@ -2796,7 +2796,7 @@ dependencies = [
 
 [[package]]
 name = "empyrean-relay"
-version = "0.3.13"
+version = "0.3.14"
 dependencies = [
  "dereth-dat",
  "dereth-primitives",
@@ -2812,7 +2812,7 @@ dependencies = [
 
 [[package]]
 name = "empyrean-server"
-version = "0.3.13"
+version = "0.3.14"
 dependencies = [
  "ctrlc",
  "dereth-dat",
@@ -2849,7 +2849,7 @@ dependencies = [
 
 [[package]]
 name = "empyrean-store"
-version = "0.3.13"
+version = "0.3.14"
 dependencies = [
  "empyrean-common",
  "empyrean-entity",
@@ -2863,7 +2863,7 @@ dependencies = [
 
 [[package]]
 name = "empyrean-tables"
-version = "0.3.13"
+version = "0.3.14"
 dependencies = [
  "empyrean-common",
  "empyrean-entity",
@@ -2872,7 +2872,7 @@ dependencies = [
 
 [[package]]
 name = "empyrean-testkit"
-version = "0.3.13"
+version = "0.3.14"
 dependencies = [
  "dereth-assets",
  "dereth-client-net",
@@ -2898,7 +2898,7 @@ dependencies = [
 
 [[package]]
 name = "empyrean-world"
-version = "0.3.13"
+version = "0.3.14"
 dependencies = [
  "dereth-animation",
  "dereth-assets",

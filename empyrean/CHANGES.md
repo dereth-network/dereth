@@ -13,6 +13,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+
+## 0.3.14 (2026-11-14)
 - Fixed attacks, spells and items failing for seconds after jumping in place.
 - Federation links now tell a proxy's refusal from the hub's.
 - Worlds that publish their portals now also publish lifestones, shops and people.
