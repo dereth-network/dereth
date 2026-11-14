@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that a player would notice. 
 not how it was done.
 
 ## Unreleased
+- Fixed quest descriptions showing a string table error instead of their text.
 
 ## 0.1.8 (2026-11-14)
 - Explore mode: fly a camera anywhere in the world with no server.

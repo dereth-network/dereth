@@ -2,7 +2,7 @@
 //! gave them, and, once a client is here, string references written through its data cache (so a
 //! string table the server sent is read as the files' own are; one the cache cannot write is
 //! written from the host's records), and the text elements' string downloads started and followed
-//! there for references the host's records cannot write.
+//! there for references whose string tables the cache lacks.
 
 use std::sync::{Arc, Mutex};
 
@@ -102,14 +102,12 @@ impl Assets for TextAssets {
             .unwrap_or_else(|| self.inner.element_text(info))
     }
 
-    /// A reference the host's own records write is at hand; any other is the client's to ask
-    /// for.
+    /// The client's data cache says what is at hand: a reference whose string tables are all
+    /// there (its own, every nested reference's, and the private tables their entries name) asks
+    /// for nothing, and any other asks for what is missing. The host's records cannot say: they
+    /// write a reference whose nested reference they lack, the error message in its place.
     fn start_string_download(&self, info: &StringInfo) -> Option<u32> {
-        let s = self.strings()?;
-        if self.inner.write(info).is_some() {
-            return None;
-        }
-        s.start(info)
+        self.strings()?.start(info)
     }
 
     fn string_download_waiting(&self, download: u32) -> bool {

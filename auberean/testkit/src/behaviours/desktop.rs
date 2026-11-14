@@ -2124,6 +2124,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.text.a-nested-reference-the-files-lack-is-asked-for",
+        says: "A string reference holding a nested reference to a table the files lack (a quest's \
+               description and journal entry in the quest journal's text) starts a string download \
+               for that table and waits, though the files write the outer reference.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STRDL-NESTED"),
+        station: "auberean-interface::dat::text::a_reference_holding_a_nested_reference_the_files_lack_asks_for_its_table",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.text.references-the-files-lack-are-asked-for-through-the-clients-cache",
         says: "Once a client is here the interface writes string references through its data cache \
                (a reference its files write reads as before and asks for nothing), and a reference \

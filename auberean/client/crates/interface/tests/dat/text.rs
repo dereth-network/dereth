@@ -9,7 +9,7 @@ use auberean_client_sdk::dat::locate::{install_dats, DatName};
 use auberean_client_sdk::dat::DatFile;
 use auberean_client_sdk::runtime::cache::DataCache;
 use auberean_client_sdk::runtime::strings::StringDownloads;
-use auberean_client_sdk::text::StringInfo;
+use auberean_client_sdk::text::{StringInfo, Value};
 use auberean_interface::strings::TextAssets;
 use auberean_ui::Assets;
 
@@ -53,6 +53,38 @@ fn references_the_files_lack_are_asked_for_through_the_clients_cache() {
     assert_eq!(text.write(&held).as_deref(), Some(install.as_str()));
     assert_eq!(text.start_string_download(&held), None);
     let n = text.start_string_download(&absent).expect("asked for");
+    assert!(text.string_download_waiting(n));
+    text.release_string_download(n);
+    assert!(strings.is_empty());
+}
+
+/// A reference the files write, holding a nested reference to a table they lack (as the quest
+/// journal's open text holds the quest's description and journal entry), starts a string download
+/// for the nested reference's table and waits, although the install writes the reference, with
+/// the error message in the nested reference's place. With every nested table at hand it asks for
+/// nothing.
+///
+/// Behaviour: desktop.text.a-nested-reference-the-files-lack-is-asked-for
+#[test]
+fn a_reference_holding_a_nested_reference_the_files_lack_asks_for_its_table() {
+    let text = TextAssets::new(data().2.clone());
+    let strings = downloads();
+    text.connect(&strings);
+    let with = |nested: StringInfo| {
+        let mut info = StringInfo::entry(0x2500_18A4, 0x4285_FF9A);
+        info.add_var(1, Value::Text(Box::new(nested)));
+        info
+    };
+    let held = with(StringInfo::entry(0x2500_18A4, 0x4285_FF9A));
+    assert_eq!(text.start_string_download(&held), None, "all at hand");
+    let lacking = with(StringInfo::entry(ABSENT, 7));
+    assert!(
+        text.write(&lacking).is_some(),
+        "the install writes the reference itself"
+    );
+    let n = text
+        .start_string_download(&lacking)
+        .expect("the nested reference's table is asked for");
     assert!(text.string_download_waiting(n));
     text.release_string_download(n);
     assert!(strings.is_empty());
