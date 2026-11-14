@@ -9,6 +9,8 @@ not how it was done. `cargo xtask release launcher <version>` turns Unreleased i
 section, dated, and opens a new empty one in the same commit as the version.
 
 ## Unreleased
+
+## 0.5.5 (2026-11-14)
 - Library: make an Asheron's Call 2 art pack, creatures included, from your own data set.
 - Asheron's Call 2: Play makes a world its own copy of the retail client when it needs one.
 - Library: add an art pack from a file on this computer.
