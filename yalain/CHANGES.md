@@ -6,6 +6,12 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- World: portal beacons take no harm until struck by a weapon the imbuer has enchanted.
+- World: practice dummies hurt whoever hits them again.
+- World: the Beast of Cacophos heals itself until the five seals are pressed.
+- World: the Ancient Crypt's trap and gate kill, and Hoshino Kei turns undead if her quest fails.
+- World: both olthoi hives, the warren under one and the Skyport's mine now have creatures.
+- World: the hero initiation's dungeon opens once its device has flagged you.
 
 ## 0.4.1 (2026-11-14)
 - Worlds can now have people say lines only while an event is on, or off.
