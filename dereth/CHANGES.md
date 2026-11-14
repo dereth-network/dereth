@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Asheron's Call 2 art pack: creatures now walk more naturally.
 
 ## 0.4.18 (2026-11-14)
 - Remaster: faster with lots of plants in view.

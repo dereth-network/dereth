@@ -1,6 +1,6 @@
 # What each creature is drawn with: ids and numbers only.
 
-version = 1
+version = 2
 
 [[creature]]
 name = "armoredillo"
@@ -21,7 +21,7 @@ clips.idle = { animation = 0x05000398 }
 clips.idle_melee = { animation = 0x050003A6 }
 clips.idle_missile = { animation = 0x050003A6 }
 clips.idle_magic = { animation = 0x050003A6 }
-clips.walk = { animation = 0x05000396 }
+clips.walk = { animation = 0x05000397 }
 clips.walk_back = { animation = 0x050003A2 }
 clips.run = { animation = 0x05000397 }
 clips.turn = { animation = 0x050003A5 }
@@ -150,7 +150,7 @@ clips.idle = { animation = 0x050001F0 }
 clips.idle_melee = { animation = 0x050001F1 }
 clips.idle_missile = { animation = 0x050001F1 }
 clips.idle_magic = { animation = 0x050001F1 }
-clips.walk = { animation = 0x050001DE, stride = 1.5872 }
+clips.walk = { animation = 0x050001ED, stride = 5.1179 }
 clips.walk_back = { animation = 0x050001EB, stride = 1.1585 }
 clips.run = { animation = 0x050001ED, stride = 5.1179 }
 clips.side_step = { animation = 0x05000240, stride = 1.5251 }
@@ -445,7 +445,7 @@ clips.idle = { animation = 0x05000382 }
 clips.idle_melee = { animation = 0x05000383 }
 clips.idle_missile = { animation = 0x05000383 }
 clips.idle_magic = { animation = 0x05000383 }
-clips.walk = { animation = 0x05000380, stride = 1.2289 }
+clips.walk = { animation = 0x05000380, mix = 0x0500038F, share = 0.8098, stride = 4.389 }
 clips.walk_back = { animation = 0x0500038D, stride = 1.954 }
 clips.run = { animation = 0x0500038F, stride = 4.9729 }
 clips.turn = { animation = 0x05000391 }
@@ -631,7 +631,7 @@ clips.idle = { animation = 0x05000195 }
 clips.idle_melee = { animation = 0x050001A6 }
 clips.idle_missile = { animation = 0x050001A6 }
 clips.idle_magic = { animation = 0x050001A6 }
-clips.walk = { animation = 0x05000198, stride = 1.0767 }
+clips.walk = { animation = 0x05000198, mix = 0x050001A1, share = 0.4784, stride = 1.3873 }
 clips.walk_back = { animation = 0x0500019F, stride = 0.9779 }
 clips.run = { animation = 0x050001A1, stride = 3.02 }
 clips.side_step = { animation = 0x050001A2 }
@@ -1139,7 +1139,7 @@ clips.idle = { animation = 0x050011CE }
 clips.idle_melee = { animation = 0x050011C1 }
 clips.idle_missile = { animation = 0x050011C1 }
 clips.idle_magic = { animation = 0x050011C1 }
-clips.walk = { animation = 0x050011C0, stride = 2.1127 }
+clips.walk = { animation = 0x050011D2, stride = 2.7798 }
 clips.walk_back = { animation = 0x050011D0, stride = 1.8489 }
 clips.run = { animation = 0x050011D2, stride = 2.7798 }
 clips.turn = { animation = 0x050011D4 }
@@ -1313,7 +1313,7 @@ clips.idle = { animation = 0x050011CE }
 clips.idle_melee = { animation = 0x050011C1 }
 clips.idle_missile = { animation = 0x050011C1 }
 clips.idle_magic = { animation = 0x050011C1 }
-clips.walk = { animation = 0x050011C0, stride = 1.9722 }
+clips.walk = { animation = 0x050011D2, stride = 2.5949 }
 clips.walk_back = { animation = 0x050011D0, stride = 1.7259 }
 clips.run = { animation = 0x050011D2, stride = 2.5949 }
 clips.turn = { animation = 0x050011D4 }
@@ -2048,7 +2048,7 @@ clips.idle = { animation = 0x050003E5 }
 clips.idle_melee = { animation = 0x050003E6 }
 clips.idle_missile = { animation = 0x050003E6 }
 clips.idle_magic = { animation = 0x050003E6 }
-clips.walk = { animation = 0x050003E3, stride = 1.1168 }
+clips.walk = { animation = 0x050003F6, stride = 1.8368 }
 clips.walk_back = { animation = 0x050003F1, stride = 1.3461 }
 clips.run = { animation = 0x050003F6, stride = 1.8368 }
 clips.turn = { animation = 0x050003F5 }
@@ -2487,7 +2487,7 @@ clips.idle = { animation = 0x050001C2 }
 clips.idle_melee = { animation = 0x050001D4 }
 clips.idle_missile = { animation = 0x050001D4 }
 clips.idle_magic = { animation = 0x050001D4 }
-clips.walk = { animation = 0x050001C5, stride = 0.8766 }
+clips.walk = { animation = 0x050001D0, stride = 1.2159 }
 clips.walk_back = { animation = 0x050001CE }
 clips.run = { animation = 0x050001D0, stride = 1.2159 }
 clips.turn = { animation = 0x050001D3 }
@@ -2615,7 +2615,7 @@ trunk = [0, 1, 2, 3, 22, 23]
 clips.idle = { animation = 0x0500001C }
 clips.idle_melee = { animation = 0x050012E4 }
 clips.idle_missile = { animation = 0x050012E4 }
-clips.walk = { animation = 0x0500001D, stride = 1.3501 }
+clips.walk = { animation = 0x0500001D, mix = 0x0500001E, share = 0.2617, stride = 1.7726 }
 clips.walk_back = { animation = 0x0500001B, stride = 1.0419 }
 clips.run = { animation = 0x0500001E, stride = 2.8712 }
 clips.side_step = { animation = 0x0500001F, stride = 2.2273 }
@@ -3072,7 +3072,7 @@ clips.idle = { animation = 0x05001183 }
 clips.idle_melee = { animation = 0x05001185 }
 clips.idle_missile = { animation = 0x05001185 }
 clips.idle_magic = { animation = 0x05001185 }
-clips.walk = { animation = 0x05001182, stride = 1.886 }
+clips.walk = { animation = 0x05001182, mix = 0x05001190, share = 0.478, stride = 3.0113 }
 clips.walk_back = { animation = 0x0500118F, stride = 1.6836 }
 clips.run = { animation = 0x05001190, stride = 4.1464 }
 clips.turn = { animation = 0x05001193 }
@@ -3119,7 +3119,7 @@ clips.idle = { animation = 0x05001183 }
 clips.idle_melee = { animation = 0x05001185 }
 clips.idle_missile = { animation = 0x05001185 }
 clips.idle_magic = { animation = 0x05001185 }
-clips.walk = { animation = 0x05001182, stride = 1.9687 }
+clips.walk = { animation = 0x05001182, mix = 0x05001190, share = 0.416, stride = 3.1293 }
 clips.walk_back = { animation = 0x0500118F, stride = 1.7573 }
 clips.run = { animation = 0x05001190, stride = 4.328 }
 clips.turn = { animation = 0x05001193 }
@@ -3166,7 +3166,7 @@ clips.idle = { animation = 0x05001183 }
 clips.idle_melee = { animation = 0x05001185 }
 clips.idle_missile = { animation = 0x05001185 }
 clips.idle_magic = { animation = 0x05001185 }
-clips.walk = { animation = 0x05001182, stride = 1.8979 }
+clips.walk = { animation = 0x05001182, mix = 0x05001190, share = 0.4687, stride = 3.0406 }
 clips.walk_back = { animation = 0x0500118F, stride = 1.6942 }
 clips.run = { animation = 0x05001190, stride = 4.1725 }
 clips.turn = { animation = 0x05001193 }
@@ -3234,7 +3234,7 @@ clips.idle = { animation = 0x05001183 }
 clips.idle_melee = { animation = 0x05001185 }
 clips.idle_missile = { animation = 0x05001185 }
 clips.idle_magic = { animation = 0x05001185 }
-clips.walk = { animation = 0x05001182, stride = 1.9687 }
+clips.walk = { animation = 0x05001182, mix = 0x05001190, share = 0.416, stride = 3.1293 }
 clips.walk_back = { animation = 0x0500118F, stride = 1.7573 }
 clips.run = { animation = 0x05001190, stride = 4.328 }
 clips.turn = { animation = 0x05001193 }
@@ -3281,7 +3281,7 @@ clips.idle = { animation = 0x05001183 }
 clips.idle_melee = { animation = 0x05001185 }
 clips.idle_missile = { animation = 0x05001185 }
 clips.idle_magic = { animation = 0x05001185 }
-clips.walk = { animation = 0x05001182, stride = 1.9837 }
+clips.walk = { animation = 0x05001182, mix = 0x05001190, share = 0.4052, stride = 3.108 }
 clips.walk_back = { animation = 0x0500118F, stride = 1.7708 }
 clips.run = { animation = 0x05001190, stride = 4.3611 }
 clips.turn = { animation = 0x05001193 }
@@ -3432,7 +3432,7 @@ clips.idle = { animation = 0x05001169 }
 clips.idle_melee = { animation = 0x0500116B }
 clips.idle_missile = { animation = 0x0500116B }
 clips.idle_magic = { animation = 0x0500116B }
-clips.walk = { animation = 0x05001168 }
+clips.walk = { animation = 0x05001168, mix = 0x05001178, share = 0.3425 }
 clips.walk_back = { animation = 0x05001176 }
 clips.run = { animation = 0x05001178 }
 clips.turn = { animation = 0x0500117A }
@@ -3516,7 +3516,7 @@ trunk = [0, 10, 11, 12]
 clips.idle = { animation = 0x050003FE }
 clips.idle_melee = { animation = 0x0500040D }
 clips.idle_missile = { animation = 0x0500040D }
-clips.walk = { animation = 0x050003FC }
+clips.walk = { animation = 0x05000409, stride = 0.4305 }
 clips.walk_back = { animation = 0x05000408, stride = 0.3619 }
 clips.run = { animation = 0x05000409, stride = 0.4305 }
 clips.turn = { animation = 0x0500040C }
@@ -3591,7 +3591,7 @@ parts = 13
 anchor = [-1.0, -0.0, 0.0, 0.0, -0.0, 0.965597, 0.260042, 0.0, -0.0, 0.260042, -0.965597, 0.0, 0.0, -0.440329, -0.176696, 1.0]
 trunk = [0, 1]
 clips.idle = { animation = 0x0500011C }
-clips.walk = { animation = 0x0500012B, stride = 1.691 }
+clips.walk = { animation = 0x0500012C, stride = 5.7922 }
 clips.walk_back = { animation = 0x05000129, stride = 1.3936 }
 clips.run = { animation = 0x0500012C, stride = 5.7922 }
 clips.side_step = { animation = 0x0500012D, stride = 1.3161 }
@@ -3726,7 +3726,7 @@ clips.idle = { animation = 0x050003C7 }
 clips.idle_melee = { animation = 0x050003C9 }
 clips.idle_missile = { animation = 0x050003C9 }
 clips.idle_magic = { animation = 0x050003C9 }
-clips.walk = { animation = 0x050003C8, stride = 2.9477 }
+clips.walk = { animation = 0x050003C8, mix = 0x050003DC, share = 0.7394, stride = 9.7872 }
 clips.walk_back = { animation = 0x050003DA, stride = 3.3513 }
 clips.run = { animation = 0x050003DC, stride = 11.6727 }
 clips.turn = { animation = 0x050003DE }
@@ -3815,7 +3815,7 @@ clips.idle = { animation = 0x050003C7 }
 clips.idle_melee = { animation = 0x050003C9 }
 clips.idle_missile = { animation = 0x050003C9 }
 clips.idle_magic = { animation = 0x050003C9 }
-clips.walk = { animation = 0x050003C8, stride = 2.7324 }
+clips.walk = { animation = 0x050003C8, mix = 0x050003DC, share = 0.9289, stride = 10.3268 }
 clips.walk_back = { animation = 0x050003DA, stride = 3.1066 }
 clips.run = { animation = 0x050003DC, stride = 10.8204 }
 clips.turn = { animation = 0x050003DE }
@@ -3933,7 +3933,7 @@ clips.idle = { animation = 0x050011A0 }
 clips.idle_melee = { animation = 0x050011A2 }
 clips.idle_missile = { animation = 0x050011A2 }
 clips.idle_magic = { animation = 0x050011A2 }
-clips.walk = { animation = 0x0500119F, stride = 0.9058 }
+clips.walk = { animation = 0x0500119F, mix = 0x050011AE, share = 0.368, stride = 2.6086 }
 clips.walk_back = { animation = 0x050011AC, stride = 1.056 }
 clips.run = { animation = 0x050011AE, stride = 5.3277 }
 clips.turn = { animation = 0x050011B0 }
@@ -4753,7 +4753,7 @@ clips.idle = { animation = 0x050013BD }
 clips.idle_melee = { animation = 0x050013BE }
 clips.idle_missile = { animation = 0x050013BE }
 clips.idle_magic = { animation = 0x050013BE }
-clips.walk = { animation = 0x050013BB }
+clips.walk = { animation = 0x050013CB }
 clips.walk_back = { animation = 0x050013C9 }
 clips.run = { animation = 0x050013CB }
 clips.turn = { animation = 0x050013CD }
@@ -5665,7 +5665,7 @@ trunk = [1]
 clips.idle = { animation = 0x050001B8 }
 clips.idle_missile = { animation = 0x0500025D }
 clips.idle_magic = { animation = 0x0500025D }
-clips.walk = { animation = 0x050001BB }
+clips.walk = { animation = 0x050001BB, mix = 0x050001BC, share = 0.7155 }
 clips.walk_back = { animation = 0x050001B9 }
 clips.run = { animation = 0x050001BC }
 clips.turn = { animation = 0x050001BE }

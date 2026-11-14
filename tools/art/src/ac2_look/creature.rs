@@ -146,6 +146,9 @@ impl Channel {
     }
 }
 
+/// Per body bone, its translation, turn and scale at one moment (none where nothing animates it).
+type Moment = Vec<[Option<DVec4>; 3]>;
+
 /// A clip on the AC2 skeleton: per body bone, its translation, turn and scale channels.
 #[derive(Debug, Clone, Default)]
 struct NativeClip {
@@ -257,6 +260,70 @@ impl NativeClip {
             .iter()
             .map(|b| [0, 1, 2].map(|k| b[k].as_ref().map(|c| c.at(t))))
             .collect()
+    }
+
+    /// `self` and `other` played together at the same point of their cycles, `other` weighed by
+    /// `share`: the cycle's length the weighted sum of theirs, keyed `RATE` times a second. Each
+    /// bone's place, turn and scale are their weighted sums (a turn kept to the first's side and
+    /// brought back to unit length); a bone one of them leaves alone stands in `rest` there.
+    fn mixed(&self, other: &Self, share: f64, rest: &[(DVec3, DQuat, DVec3)]) -> Self {
+        let (pa, pb) = (self.period(), other.period());
+        let period = pa * (1.0 - share) + pb * share;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // LINT-OK: a cycle's length in keys is small and positive.
+        let count = ((period * RATE).ceil() as usize + 1).max(2);
+        let times: Vec<f64> = (0..count)
+            .map(|k| period * k as f64 / (count - 1) as f64)
+            .collect();
+        let at =
+            |clip: &Self, own: f64, phase: f64| clip.at((phase * own).min(own - 1e-4).max(0.0));
+        let steps: Vec<(Moment, Moment)> = (0..count)
+            .map(|k| {
+                let phase = k as f64 / (count - 1) as f64;
+                (at(self, pa, phase), at(other, pb, phase))
+            })
+            .collect();
+        let bones = (0..self.bones.len().min(other.bones.len()))
+            .map(|bi| {
+                let (t0, q0, s0) =
+                    rest.get(bi)
+                        .copied()
+                        .unwrap_or((DVec3::ZERO, DQuat::IDENTITY, DVec3::ONE));
+                let rest_of = [
+                    t0.extend(0.0),
+                    DVec4::from_array(q0.to_array()),
+                    s0.extend(0.0),
+                ];
+                [0, 1, 2].map(|path| {
+                    let animated =
+                        self.bones[bi][path].is_some() || other.bones[bi][path].is_some();
+                    animated.then(|| {
+                        let values = steps
+                            .iter()
+                            .map(|(a, b)| {
+                                let va = a[bi][path].unwrap_or(rest_of[path]);
+                                let mut vb = b[bi][path].unwrap_or(rest_of[path]);
+                                if path == 1 && va.dot(vb) < 0.0 {
+                                    vb = -vb;
+                                }
+                                let v = va * (1.0 - share) + vb * share;
+                                if path == 1 {
+                                    v / v.length().max(1e-9)
+                                } else {
+                                    v
+                                }
+                            })
+                            .collect();
+                        Channel {
+                            times: times.clone(),
+                            values,
+                            turn: path == 1,
+                        }
+                    })
+                })
+            })
+            .collect();
+        Self { bones }
     }
 
     /// Each body bone's first keys.
@@ -826,7 +893,19 @@ pub fn make(ac2: &Ac2, b: &Body) -> Result<Made, String> {
     let mut clips = Vec::new();
     for (slot, looped) in SLOTS {
         let Some(c) = b.clips.get(slot) else { continue };
-        let clip = NativeClip::of(&keyframes(ac2, c.animation)?, !looped);
+        let mut clip = NativeClip::of(&keyframes(ac2, c.animation)?, !looped);
+        if let (Some(mix), Some(share)) = (c.mix, c.share) {
+            let other = NativeClip::of(&keyframes(ac2, mix)?, !looped);
+            if other.bones.len() != n.body.len() {
+                return Err(format!(
+                    "animation {mix:08X} moves {} bones, the body has {}",
+                    other.bones.len(),
+                    n.body.len()
+                ));
+            }
+            let rest: Vec<(DVec3, DQuat, DVec3)> = n.body.iter().map(|&j| n.rest[j]).collect();
+            clip = clip.mixed(&other, share, &rest);
+        }
         if clip.bones.len() != n.body.len() {
             return Err(format!(
                 "animation {:08X} moves {} bones, the body has {}",
@@ -1361,6 +1440,27 @@ mod tests {
         assert!((held.at(1.5)[0][0].expect("a place").x - 1.0).abs() < 1e-9);
         // Past its span it loops round.
         assert!((looped.at(2.5)[0][0].expect("a place").x - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn two_clips_mixed_play_at_one_phase_their_cycle_and_places_weighed_by_the_share() {
+        let steady = |x: f32, period: f32| KeyframeAnimation {
+            period,
+            bones: vec![BoneTrack {
+                offset: vec![key(x, 0.0), key(x, period / 2.0)],
+                ..BoneTrack::default()
+            }],
+            events: None,
+        };
+        let a = NativeClip::of(&steady(0.0, 1.0), false);
+        let b = NativeClip::of(&steady(2.0, 3.0), false);
+        let rest = [(DVec3::ZERO, DQuat::IDENTITY, DVec3::ONE)];
+        let m = a.mixed(&b, 0.25, &rest);
+        assert!((m.period() - 1.5).abs() < 1e-9, "{}", m.period());
+        let x = m.at(0.7)[0][0].expect("a place").x;
+        assert!((x - 0.5).abs() < 1e-6, "{x}");
+        // A turn neither moves stays unanimated.
+        assert!(m.bones[0][1].is_none());
     }
 
     #[test]

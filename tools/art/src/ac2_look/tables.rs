@@ -291,6 +291,12 @@ pub const SLOTS: [(&str, bool); 24] = [
 #[serde(deny_unknown_fields)]
 pub struct Clip {
     pub animation: u32,
+    /// Another keyframe animation played with it at the same point of its cycle, as AC2 blends two
+    /// cells of a move cube at a speed between them...
+    pub mix: Option<u32>,
+    /// ...weighed by this share (the first animation taking the rest), the cycle's length weighed
+    /// the same way.
+    pub share: Option<f64>,
     /// Seconds from its start to the blow.
     pub hit: Option<f64>,
     /// Meters of the body's own space one round of it covers.
@@ -546,7 +552,15 @@ impl Tables {
                     return Err(format!("{} {}: a GfxObj a part, or none", c.name, b.folder));
                 }
                 for (slot, clip) in &b.clips {
-                    if !SLOTS.iter().any(|(s, _)| s == slot) || clip.animation >> 24 != 0x05 {
+                    let mixed = match (clip.mix, clip.share) {
+                        (None, None) => true,
+                        (Some(m), Some(s)) => m >> 24 == 0x05 && (0.0..=1.0).contains(&s),
+                        _ => false,
+                    };
+                    if !SLOTS.iter().any(|(s, _)| s == slot)
+                        || clip.animation >> 24 != 0x05
+                        || !mixed
+                    {
                         return Err(format!("{} {}: slot {slot}", c.name, b.folder));
                     }
                 }
