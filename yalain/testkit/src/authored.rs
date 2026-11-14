@@ -553,6 +553,22 @@ impl Portal {
         self.named_effects(templates, yalain_world::item_use::WORN, &HashMap::new())
     }
 
+    /// The effects these templates put on whoever wears or wields them, as the server reads them at
+    /// start with a world's names for effects the install resolves to nothing (its `[[effect_name]]`
+    /// rows).
+    ///
+    /// # Panics
+    /// The library does not read.
+    #[must_use]
+    pub fn worn_effects_named(
+        &self,
+        templates: &[u32],
+        named: &std::collections::BTreeMap<String, u32>,
+    ) -> yalain_world::item_use::ItemUses {
+        let named: HashMap<String, u32> = named.iter().map(|(n, s)| (n.clone(), *s)).collect();
+        self.named_effects(templates, yalain_world::item_use::WORN, &named)
+    }
+
     /// The effects these weapon templates put on what they hit, as the server reads them at start.
     ///
     /// # Panics

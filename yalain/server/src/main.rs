@@ -2894,8 +2894,18 @@ mod real_start_tests {
             .filter(|v| !v.is_empty())
             .unwrap_or_else(|| "pinned".to_owned());
         let portal = super::data::Portal::open(&install, None).expect("the install opens");
-        let (_, plain) = super::compile_world(&portal, &world_db, None)
+        let (_, mut plain) = super::compile_world(&portal, &world_db, None)
             .unwrap_or_else(|e| panic!("the world database {world_db}: {e}"));
+        // A world may teach these already, by the book's and the blank's uses or a step that puts
+        // on the bar's grant; the start without those rows is the one that reads none of them.
+        plain.items.uses.retain(|t, _| *t != BOOK && *t != BLANK);
+        plain
+            .effect_names
+            .retain(|n, _| !n.ends_with("AtlanWeapons"));
+        plain
+            .quests
+            .steps
+            .retain(|s| !s.effects.contains(&BAR_GRANT));
         let mut taught = plain.clone();
         taught.items.start_items.extend([(BOOK, 1), (BLANK, 1)]);
         taught.effect_names.extend([
@@ -2947,6 +2957,8 @@ mod real_start_tests {
         const MADE: u32 = 0x6F7E_0001;
         const FUSE: u32 = 0x6F00_02BE;
         const ARC_BLADE: u32 = 0x6F00_1CAE;
+        const BOOK: u32 = 0x4700_15AE;
+        const BLANK: u32 = 0x4700_15BC;
         const PARTS: [u32; 3] = [0x4700_1600, 0x4700_1609, 0x4700_1608];
         const SYSTEM: u32 = 0x4700_1601;
         let install = auberean_dat::testing::require_target_install();
@@ -2955,8 +2967,14 @@ mod real_start_tests {
             .filter(|v| !v.is_empty())
             .unwrap_or_else(|| "pinned".to_owned());
         let portal = super::data::Portal::open(&install, None).expect("the install opens");
-        let (_, plain) = super::compile_world(&portal, &world_db, None)
+        let (_, mut plain) = super::compile_world(&portal, &world_db, None)
             .unwrap_or_else(|e| panic!("the world database {world_db}: {e}"));
+        // A world may teach the weapon recipe already, through the book's and the blank's uses;
+        // the start without those rows is the one that reads none of these recipes.
+        plain.items.uses.retain(|t, _| *t != BOOK && *t != BLANK);
+        plain
+            .effect_names
+            .retain(|n, _| !n.ends_with("AtlanWeapons"));
         let mut rows = plain.clone();
         let row = |recipe| Recipe {
             recipe,

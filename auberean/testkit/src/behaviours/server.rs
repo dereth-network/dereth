@@ -3571,6 +3571,27 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.creatures.practice-dummy-at-30",
+        says: "The practice dummy of level 30 sends back by the same line as the others, 0.30, as \
+               the world's row gives it. Our choice: it shows the effect's appearance, and no \
+               recording holds an attack on it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PRACTICE-DUMMY-30"),
+        station: "yalain-testkit::corpus::world_db::the_worlds_weakest_practice_dummy_goes_by_the_same_line",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.creatures.practice-dummy-sends-back",
+        says: "The world's row gives the nine practice dummies an effect that sends back a share of \
+               each attack from their first moment, by level: 0.35 at level 40, 0.40 at 50, 0.45 at \
+               60, 0.50 at 70. A dummy made by a camp holds it, and each blow on the dummy of level \
+               40 comes back at 0.35 of its harm.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PRACTICE-DUMMY"),
+        station: "yalain-testkit::corpus::world_db::the_worlds_practice_dummies_send_back_a_share_of_each_attack_by_their_level",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.creatures.protectors-buff-kin",
         says: "A protector buffs a kin of its in the same fight, most often at its first turn and often \
                again at its next, and a heal's or buff's hook takes a point of health one time in two.",
@@ -11869,6 +11890,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.arcanum-vault-ways",
+        says: "The scholars' vault's portal on the land leads to its landing, and a way out beside \
+               the landing leads back beside that portal.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-ARCANUM-VAULT"),
+        station: "yalain-testkit::corpus::world_db::the_scholars_vaults_portal_leads_in_and_its_way_out_beside_the_landing_back",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.places.arramora-recall",
         says: "Arramora's recall takes the player to its place as the cities' recalls do, protected the \
                same, with no word of where it came out.",
@@ -13771,6 +13801,65 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.arramora-carenzi-hoard-walk-through",
+        says: "The Hoard of the Wild Carenzi walks through: Fidget gives it; his chest beside him, opened, holds his map, and the map taken moves the quest on. Used away from its place the map is refused and kept; used there it is spent and uncovers the carenzi's stump, which holds the Large Nut and is gone once closed; the nut taken moves the quest on. Back at Fidget it moves on again, the nut handed to one of his mining carenzi moves it on once more, and Fidget ends it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-CARENZI-HOARD"),
+        station: "yalain-testkit::corpus::world_db::the_carenzi_hoard_runs_from_fidgets_map_through_the_stump_it_uncovers_to_his_carenzi",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.arramora-doomed-hero-sword-walk-through",
+        says: "The doomed sword walks through: the creature only the sword can kill stands alone in the dungeon's far west room, and the sword lies in the north-east room; the man who asks for it gives the quest, the sword taken moves it on, and given back while the creature lives it is handed back with his line; the creature's death moves it on again, and the sword given back then is kept and ends it with his line and a blade of his.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-DOOMED-HERO-SWORD"),
+        station: "yalain-testkit::corpus::world_db::the_doomed_sword_lies_in_its_room_its_creature_in_the_west_room_and_it_goes_back_to_end_it",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.arramora-exigencies-walk-through",
+        says: "Ten Arramora exigencies walk through: each starter and the creature its death calls stand outdoors in camps of their own, one at a time, a few meters apart among the starter's kin; a starter no recording places stands alone beside a camp of its kin; the called creature's death alone gives nothing; the starter's death gives a hero its exigency, and the called creature's death ends it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-ARRAMORA-EXIGENCIES"),
+        station: "yalain-testkit::corpus::world_db::ten_arramora_exigencies_are_given_by_a_starters_death_and_ended_by_the_creature_beside_it",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.arramora-lair-gems-open-their-lairs",
+        says: "An Arramora lair gem's use opens its lair's entrance portal 2 m ahead of a hero who \
+               uses it where its holder is kept, the three lairs the wiki keeps to a kingdom kept to \
+               it; through it the hero comes out at the lair's landing with its quest given, and the \
+               boss's death ends it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-ARRAMORA-LAIR-GEMS"),
+        station: "yalain-testkit::corpus::world_db::an_arramora_lair_gems_use_opens_its_lair_whose_boss_ends_the_quest_it_gives",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.arramora-lairs-walk-through",
+        says: "Arramora's lair gems walk through, as far as rows go: each gem has a holder some camp keeps, which leaves it at a chance; the landing the lair's entrance portal names lies in the lair, a way out beside it leading onto the land, which takes a player there outside; the boss a camp keeps one at a time in the lair, killed with the quest under way, ends it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-ARRAMORA-LAIRS"),
+        station: "yalain-testkit::corpus::world_db::arramoras_lair_gems_have_holders_and_their_lairs_a_landing_a_way_out_and_a_boss",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.arramora-orulaan-walk-through",
+        says: "The Disciples of Orulaan's errands walk through: Menaluc gives the alms errand and, used again, his bag; the bag handed to the Disciple ends it; the Disciple gives the teeth errand only to one who has done his first task; five teeth of each kind, from the mature gromnies of that kind, handed to him end its two parts and move it on, and the Disciple used again ends it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-ARRAMORA-ORULAAN"),
+        station: "yalain-testkit::corpus::world_db::menalucs_alms_and_five_teeth_of_each_gromnie_go_to_the_disciple",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.arramora-raid-starters",
+        says: "Two Arramora raids' starters stand on the island: the grub whose death gives the soldier grub raid, with four grubs beside it, and the spawn whose death gives the effigy raid, each in a camp of its own, one at a time, on the island's west side; each death gives a hero its raid and a kill of a kind the raid counts moves it on.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-ARRAMORA-RAIDS"),
+        station: "yalain-testkit::corpus::world_db::the_two_arramora_raids_starters_stand_in_the_west_and_their_deaths_give_the_raids",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.arrival-through-one-portal",
         says: "A step made on arrival through one placed portal moves its quest when the player comes \
                out of that portal's trip, and not out of another portal of the same kind.",
@@ -13780,6 +13869,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.atlan-weapon-made-at-the-forge-walk-through",
+        says: "The forge's portal, open once the Smith's Chambers are done, lands in a corridor whose doorways lead to the forge's chamber, and a spot beside the forge lies inside it; everything the Atlan sword's recipe and the pyreal bar's take comes from the world (the golem's motes, the blank's imprint on a sword the world gives, and what lies about, drops, is sold, mined, cut or refined); the bar is made of the motes joined into one stack; the sword's recipe is refused at the landing and made beside the forge, where its effect reaches, and its making ends the weapons' quest, takes the sixteen weapons' recipes away and teaches the five imbues.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-ATLAN-FORGE"),
+        station: "yalain-testkit::corpus::world_db::an_atlan_weapon_is_made_at_the_forge_of_what_the_world_gives_and_its_making_moves_the_recipes_on",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.aua-gives-the-skyport-maintenance",
         says: "Aua gives her maintenance quest, its shards and stibnite move it by their own effects, \
                the alembic takes each, and she takes the infusion. Her lines say so; no recording \
@@ -13787,6 +13884,64 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-WDB-SKYPORT-MAINT"),
         station: "yalain-testkit::corpus::world_db::aua_gives_her_quest_and_the_alembic_makes_the_infusion",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.beacon-blowouts-imbue",
+        says: "Eight beacon quests move to their second phase as any weapon is given to their outposts' \
+               imbuer, who hands it back; an item that is no weapon moves nothing, and the beacon's death \
+               ends a quest at its second phase and not its first.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-BEACON-IMBUE"),
+        station: "yalain-testkit::corpus::world_db::eight_beacon_quests_move_on_at_a_weapon_given_their_imbuer_and_end_at_the_beacons_death",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.beacon-blowouts-immunity-walk",
+        says: "The world's row puts the beacons' immunity on the install's nineteen beacons from \
+               their first moment, and its rule makes the imbuers' dispel take it off. For each of \
+               the fifteen blowouts a beacon made by a camp takes no harm from a plain weapon's \
+               blows; the weapon its quester gives the imbuer comes back carrying the spell for \
+               1,800 s; its first blow that lands dispels the immunity and its blows hurt after, and \
+               so do another player's plain weapon's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-BEACON-IMMUNITY"),
+        station: "yalain-testkit::corpus::world_db::a_beacon_is_hurt_only_once_an_imbued_weapons_blow_dispels_its_immunity_then_by_anyone",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.beacon-blowouts-outpost-guards",
+        says: "The five besieged outposts no recording reached keep their race's guards and supply chest: \
+               within 40 m of the beacon, a camp of each guard camp's kinds, weights and population that \
+               the best-recorded outpost of the race keeps there, each creature at a spot of its own, and \
+               one supply chest; a body run from the nearest lifestone or ringway portal to the beacon \
+               runs on to every guard's spot and to the chest.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OUTPOST-GUARDS"),
+        station: "yalain-testkit::corpus::world_db::five_outposts_no_recording_reached_keep_their_races_guards_and_chest_reached_on_foot",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.beacon-blowouts-outposts-walk-through",
+        says: "Seven more besieged outposts' beacon quests go from the recruit's death by the imbue \
+               to the beacon's death: each beacon is kept one at a time on the land within 60 m of its \
+               outpost's place on the map and reached on foot from the nearest lifestone or ringway \
+               portal; each rare recruit is kept one at a time on the land, all but the one seen far \
+               away within 200 m of its beacon and walked to and from it. The recruit's death gives \
+               the quest, any weapon given to its family's imbuer moves it on, and the beacon's death \
+               then ends it, though not before.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-BEACON-OUTPOSTS"),
+        station: "yalain-testkit::corpus::world_db::seven_more_outposts_beacon_quests_go_from_the_recruits_death_by_the_imbue_to_the_beacons_death",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.beacon-blowouts-recruits",
+        says: "Seven besieged outposts' rare recruits are kept one at a time on the land, each within \
+               200 m of its outpost's beacon, and a recruit's death gives its outpost's quest.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-BEACON-BLOWOUTS"),
+        station: "yalain-testkit::corpus::world_db::seven_outposts_recruits_stand_near_their_beacons_and_their_deaths_give_the_quests",
         tier: Tier::Corpus,
     },
     behaviour! {
@@ -13880,6 +14035,36 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.quests.curses-of-the-undead-walk-through",
+        says: "The five Curses of the Undead walk through: each region's three kinds of undead stand in camps and leave the slime, the venom and the saddle; a first kill gives the curse and teaches the antidote; its kills finish its counts, which hands over its hide with its pattern recipe; the antidote and then the pattern made from the hide move it on; the pattern used ends it and teaches its saddles.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-UNDEAD-CURSES"),
+        station: "yalain-testkit::corpus::world_db::each_curse_of_the_undead_is_killed_through_its_hide_made_into_its_pattern_and_used",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.darvains-reward-walk-through",
+        says: "The master armorsmith gives his helm quest to no player on an apprentice's quest, and to \
+               one on none; his lair's boss stands in her own room, alone with her two guards beside \
+               her, reached from the lair's portal on the land and the rift north-east of its lower \
+               round room; her fall gives the hidden marker of her kill, which moves his quest on; at \
+               his use he teaches the helm for the player's race and ends the marker; the helm made \
+               from the four trophies ends his quest; her room's rift leads back beside the one that \
+               led in, and the lair's ways out lead to the land.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-SILVAS-LAIR"),
+        station: "yalain-testkit::corpus::world_db::the_master_armorsmiths_helm_quest_is_moved_on_by_his_lair_bosss_fall_and_ended_by_the_helm",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.dereth-rally-walk-through",
+        says: "The Dereth Rally walks through: a race is on five times a day for 45 minutes, each running one of twelve courses in turn; while it runs the Starting and Finish Obelisks stand beside Rogol and that course's four stops on the land, and none between races; the start's touch gives the course raced, from level 16 and not while a prize waits; its stops move it on only in turn and the finish wins it, leaving a prize Rogol gives at a use; seven prizes in a row end the streak, and a course whose time runs out fails it and the streak, as a trip through portal space mid-race fails the course; no course's own step sends its racer.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-DERETH-RALLY"),
+        station: "yalain-testkit::corpus::world_db::the_dereth_rallys_courses_run_from_the_start_round_their_stops_to_rogols_prize",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.done-once-from-setup",
         says: "Whether a quest is done once is read from its setup in the data: one solution is \
                done once; two, any number, or a package that does not say, is not.",
@@ -13895,6 +14080,20 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-ONCE-NO-ROWS"),
         station: "yalain-testkit::corpus::world_db::a_quest_its_setup_says_is_done_once_is_not_given_again_whatever_the_rows_say",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.dungeon-bosses-walk-through",
+        says: "Nine dungeon kill quests are given at their starters' deaths and ended at their bosses', \
+               each boss kept one at a time in a camp of its dungeon and each starter in a camp on the \
+               land; four dungeons have a portal at their surface end into their landing and a way out \
+               beside it back; four bosses have an exit portal within 50 m leading out of the dungeon. \
+               The keep's starter stands within 60 m of the landing of the ringway portal named for the \
+               island chain's northern outpost, and more than 1 km from the one named for its eastern \
+               outpost.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-DUNGEON-BOSSES"),
+        station: "yalain-testkit::corpus::world_db::dungeon_bosses_stand_in_their_dungeons_and_their_starters_deaths_send_players_after_them",
         tier: Tier::Corpus,
     },
     behaviour! {
@@ -14048,11 +14247,43 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.foundry-chain-walk-through",
+        says: "The Foundry's quests walk through: the gates' quest is given at the gates from level 50, once the investigation of Vothardun is done, a house keeper's book from its corpse opens the armory, its master's passkey from his moves it on to three house masters' glyphs from theirs, and the whole passkey used on the gates ends it, each house's trap door leading down behind the quest's door for it, the hall master's behind the gates' end; then a hall master's report, taken from his corpse, gives the next, each general's key, taken from its corpse, finishes its part and the four keys used on the entrance end it; the golem's heart, taken from its master's corpse, is made whole, charged and imprinted and ends with the gear; the guardian and the foreman give and end the Factory; the vent shaft's guard, the upkeep golem, ten magma golems and the chief move the Refinery to the door the device from its master's corpse is used on, which gives Smith's Chambers, ended by the emblem and the Smith's death; and each of the Foundry's doors and the Forge opens behind its quest.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WIKI-QUEST-WALKTHROUGHS"),
+        station: "yalain-testkit::corpus::world_db::the_foundrys_quests_run_from_its_gates_to_the_smith_and_open_its_forge",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.foundry-houses-and-weapons-walk-through",
+        says: "The officers' house master stands in his basement and his report, taken from his corpse, gives and ends its quest; the refinery chief's medallion, taken from his corpse and given to the ore room's golem, gives the ore's quest, each of eight ores given makes a mote and the eighth ends it with the bar's recipe; the Smith's death gives the tokens' quest, the three tokens taken from his corpse end it, and his book, taken from it and used, does what its template names: it gives the weapons' quest, teaches the sixteen recipes of its chain of grants and is used up, judged by its own quest for its use; the blank emblem used on a sword in the pack makes the swords' emblem, the sword kept, and each weapon's recipe takes an emblem the blank makes.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-FOUNDRY-WEAPONS"),
+        station: "yalain-testkit::corpus::world_db::the_foundry_houses_last_report_and_the_smiths_book_lead_to_its_weapons",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.gauntlets",
         says: "The six Gauntlets are given by level, each kill leads on to the next arena, and a use of their Master before the end fails with a token reward by the phase reached.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WDB-GAUNTLETS-2017"),
         station: "yalain-testkit::corpus::world_db::the_gauntlets_lead_from_arena_to_arena_and_a_use_before_the_end_fails",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.gem-quests-last-gems-walk-through",
+        says: "The gem quests' last three gems drop: a diamond, a pyreum and a starstone of some size are drawn from the small, plain and large gem pools creatures' loot draws, at low levels as at high; each handed to Ryvenna ends its quest, the next is given at her use, and the starstone pays her gem cutter.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-RARE-GEMS"),
+        station: "yalain-testkit::corpus::world_db::the_gem_quests_last_three_gems_drop_from_the_gem_pools_and_end_their_quests",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.geraines-tomb-walk-through",
+        says: "Geraine's tomb walks through: the portal at its pyramid leads into its first level, a way out beside the landing leading back; the bridge's near end carries a player over, and each level's far end on to the next, to the fifth; each level keeps its undead, the fifth also one boss; the door at the end says it is locked to one who never became a hero, and gives a hero under level 46 nothing; a hero's touch gives and ends the quest at once with the door's line of the vision and its pay, never given again, the door then saying it is locked; a way out beside the door leads back to the land.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-GERAINES-TOMB"),
+        station: "yalain-testkit::corpus::world_db::geraines_tomb_is_walked_level_by_level_to_the_door_that_gives_and_ends_its_quest",
         tier: Tier::Corpus,
     },
     behaviour! {
@@ -14081,6 +14312,21 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-CLOCK-GIVEN-AWAY"),
         station: "yalain-testkit::cpu::entry::keeping::time_away_moves_a_quests_time_on_but_never_past_now",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.hakata-huntress-walk-through",
+        says: "The Hakata huntress's errands, the clutch's fetish and the ranger's pet walk through: her guide \
+               is given with her manuscript and recipe, each town's tracker hands its scroll to one copying \
+               them, the guide made moves it on and the war captain ends it; the scarred hunter keeps its \
+               rawhide, which she takes and asks for a hundred tallow, then her leather ends it with the war \
+               captain; the plague's cure goes back to her and the factotum of Zu ends it; the counselor gives \
+               her errand only to one on the war-leader's mission, the fetish lies in the clutch, its taking \
+               moves it on and handed back it ends with her amulet; the ranger's pet, found at its den, \
+               follows its finder home, the ranger is told, and the pet petted ends it and goes.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-HAKATA-HUNTRESS"),
+        station: "yalain-testkit::corpus::world_db::the_huntresss_guide_leather_and_cure_the_clutchs_fetish_and_the_rangers_pet_go_through",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.quests.hidden-never-listed",
@@ -14120,6 +14366,38 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.quests.hoard-keys-walk-through",
+        says: "The fifteen Shaper's hoards' keys have sources: each lies in a prospector's corpse, one at random of its land's five, that a camp on its land keeps now and then, one at a time in a circle where creatures roam and a new one long after the last is gone; each hoard's stockpile stands once and leads into its hoard, and its key used on it gives the entry quest. The Osteth prospector its camp makes, opened, holds one of Osteth's keys, which on its stockpile gives its hoard's quest; once closed the corpse is gone, and no other lies there until its camp's day is out.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-PROSPECTOR-CORPSES"),
+        station: "yalain-testkit::corpus::world_db::every_hoards_key_lies_in_a_prospectors_corpse_a_camp_keeps_now_and_then",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.holding-matrix-marks-at-first-touch",
+        says: "The Holding's crystalline mechanism, reached on foot from where the Holding's portal gem lands a player, marks the player at the first touch: a hidden mark, given and done at once with its line of a catalog, never given again; after, a touch says the player was cataloged before.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-HOLDING-MATRIX"),
+        station: "yalain-testkit::corpus::world_db::the_holdings_mechanism_marks_a_player_at_the_first_touch_and_says_so_after",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.ikeras-totem-protectors-walk-through",
+        says: "The Broken Totem's protectors walk through: the totem's use gives the return and the protect quest to its player, the protect quest alone to the player's fellow and nothing to a stranger beside them; a protector's death fails nothing; the emerald returned ends the protect quest with the return for the bearer and the fellow; the bearer's death fails the return and both protect quests.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-IKERAS-TOTEM-PROTECT"),
+        station: "yalain-testkit::corpus::world_db::the_broken_totems_protect_quest_goes_to_the_bearers_fellows_and_ends_with_the_return",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.ikeras-totem-walk-through",
+        says: "The Broken Totem's return walks through: the totem in Ikeras gives it from level 20, its offer said once, with its companion the protect quest; the Darkenfowl Pens keep their boss, whose corpse holds the emerald; the emerald taken moves it on with its burden and handed to the totem ends it, lifting the burden with the totem's blessing, and ends the protect quest with it; a death fails it, and a trip through portal space, as the pens are entered and left, does not.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-IKERAS-TOTEM"),
+        station: "yalain-testkit::corpus::world_db::the_ikeras_totem_takes_back_its_emerald_from_the_pens_boss_and_a_death_fails_its_return",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.item-on-object-takes-the-player",
         says: "A held item used on an object that a quest step names with a place: the player \
                plays the use, two and a half seconds later the object flashes and the player \
@@ -14129,6 +14407,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-VAULT"),
         station: "yalain-testkit::cpu::play::quests::an_item_used_on_an_object_takes_the_player_and_moves_the_quest_on_arrival",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.item-portals-walk-through",
+        says: "The blowouts' portal shards and the master vaults' gems open their portals 2 m ahead of \
+               their user, and through each the user comes out where the world names for it; the \
+               master vaults' portals give their quests as the user comes out.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-ITEM-PORTALS"),
+        station: "yalain-testkit::corpus::world_db::the_blowouts_shards_and_the_master_vaults_gems_open_portals_to_where_they_lead",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.quests.kill-of-one-camps-creature",
@@ -14149,6 +14437,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.knorr-bounty-hills-walk-through",
+        says: "The last bounty near Knorr's skyport is given and taken back by its giver; its target is one camp's creature of the kind at the quest's challenge level, under the name its table gives it, and only that camp's kill moves it on.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-KNORR-BOUNTY-HILLS"),
+        station: "yalain-testkit::corpus::world_db::knorrs_last_skyport_bounty_is_given_its_named_target_killed_and_taken_back",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.knorr-connector-c-walk-through",
         says: "Captain Trammel gives Knorr's Connector C only once the region's six third kill tasks are done, each given by its own giver, moved a phase by each of 15 kills of the creature the install names for it and taken back by that giver; Elite Legionary Otonku ends it.",
         since: RETAIL,
@@ -14162,6 +14458,110 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WDB-KNORR-CONNECTOR-D"),
         station: "yalain-testkit::corpus::world_db::knorr_connector_d_follows_its_four_kill_tasks_and_its_report_to_maekarn_ends_it",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.knorr-crypt-chromatic-walk-through",
+        says: "The estate crypt's tile puzzle walks through: the crypt's magic door leads to the puzzle's room and its way back beside the door; spheres handed to the star's tiles set their colors and are handed back, each of the six solutions' clicks moves its order's quest on and the last sends the player to its chest room, whose chest finishes its chroma key; the tiles go back after a while; the middle tile then finishes the vault and sends the player to the throne's dungeon, whose throne finishes the last quest and gives its power.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-KNORR-CHROMATIC-ROOM"),
+        station: "yalain-testkit::corpus::world_db::the_crypts_tile_puzzle_opens_its_six_chests_then_the_vault_and_the_throne",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.knorr-crypt-keys-walk-through",
+        says: "The estate's crypt quests walk through: the sorcerer gives the first, the guardian gives the key once the wards' quest is done, the sorcerer takes it and sends the player among the Falatacot; the second's slaughter counts the guardian's foes and its duel is fought in one of a row of rooms, each with its own sorcerer and a way back; done, it opens the crypt's door.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-KNORR-CRYPT-KEYS"),
+        station: "yalain-testkit::corpus::world_db::the_crypt_keys_run_from_the_sorcerer_through_the_guardian_and_the_duel_to_the_crypt",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.knorr-desolation-walk-through",
+        says: "The Desolation south of the Shield Wall walks through: the sentinel's test room, its gearknight and its tunnel lead to the Desolation and its people; the test's ending sends the player to the leftenant, whose use ends that and whose next gives the outpost's quest; the gate's sides each lead to the other; the outpost's cube, engraved rune by rune and ciphered, opens the gate; the postings' creatures have camps and the boards give what they list.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-KNORR-DESOLATION"),
+        station: "yalain-testkit::corpus::world_db::the_desolation_opens_by_the_walls_test_and_tunnel_and_the_outposts_cube_registers_at_its_gate",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.knorr-estate-wards-walk-through",
+        says: "The estate's ward quest walks through: its mansion's doors and hidden room lead in and out, each tower's portal to a room with its pedestal and a way back; each pedestal gives its spent stone once, the sixth moving the quest on; the shrine charges them; the sixth returned ends it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-KNORR-ESTATE-WARDS"),
+        station: "yalain-testkit::corpus::world_db::the_estates_ward_towers_give_their_stones_the_shrine_charges_them_and_their_return_ends_it",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.knorr-map-quest-walk-through",
+        says: "The cartographer's map quest walks through: she gives it and her parchment; each of her five caches holds the quill that draws its region, a cache used and its quill used on the map each moving it on and making the next map; the finished map taken back ends it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-KNORR-MAP-QUEST"),
+        station: "yalain-testkit::corpus::world_db::the_cartographers_caches_hold_the_quills_that_draw_her_map_region_by_region",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.knorr-mushroom-hunt-walk-through",
+        says: "Knorr's mushroom hunts' bonus begins with the first of the five hunts a vendor gives, and once all five are done any vendor ends it at the player's next use, for a player of level 75 or above.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-KNORR-MUSHROOM-HUNT"),
+        station: "yalain-testkit::corpus::world_db::knorrs_mushroom_hunt_begins_with_any_hunt_and_a_vendor_ends_it_once_all_five_are_done",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.knorr-ramparts-fort-and-egg-walk-through",
+        says: "A southern fort's floors lead to one another by their ways up and down, its gate and its armory's door each with a way back, its people within their floors' walls; the nest's way in and back, its master and three eggs in its deepest chamber; the book gives the egg's quest and an egg taken up ends it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-KNORR-RAMPARTS-FORT"),
+        station: "yalain-testkit::corpus::world_db::the_forts_floors_lead_to_one_another_and_its_book_sends_a_player_for_a_nests_egg",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.knorr-ramparts-gear-quests-walk-through",
+        says: "The fort's gear soldiers' quests walk through: the wargame from the engineer to the pit's officers and a part back, which teaches the install's two assembly recipes, its parts made into two systems and the systems into the device for the engineer as the world's rows say; the legion from the officer to the mound's pillar, the pedestal, the captain and the armory's baton, programmed on the pillar, opening the captain's portal; the ghost's badge, handed to him and back, to the battlefield, charged by its gears' deaths, back by the portal of spirits to the ghost.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-KNORR-RAMPARTS-GEARS"),
+        station: "yalain-testkit::corpus::world_db::the_forts_gear_soldiers_quests_run_from_the_pit_the_mound_and_the_battlefield_back_to_the_fort",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.knorr-ramparts-legion-strike-walk-through",
+        says: "The legion's strike walks to its end: the captain's portal lands within reach of the strike's pillar's fall, beside the strike company, its captain and the tunnelers, who fight as the world's friend tables say; players may not harm the pillar; the company brings it down, its fall moving the legion on for a player there and not one in the mound's other chamber, and the fort's officer ends it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-KNORR-RAMPARTS-STRIKE"),
+        station: "yalain-testkit::corpus::world_db::the_legions_strike_company_brings_the_mounds_pillar_down_and_the_officer_ends_it",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.knorr-ramparts-plague-cure-walk-through",
+        says: "The plague cure walks through: the scholar gives it from level 65; maws handed to her two at once are handed back with her line asking for one at a time; one at a time, each of the first five moves it on a phase with her line asking for more, and the sixth ends it with her line and three doses of the cure.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-MAGNAN-PLAGUE-CURE"),
+        station: "yalain-testkit::corpus::world_db::the_plague_cure_takes_six_maws_one_at_a_time_for_three_doses",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.knorr-ramparts-treasure-map-walk-through",
+        says: "The tomb robber's treasure map walks through: she gives it and sells the tools; six dig sites yield the six fragments, the first shown her teaching the map's recipe; the map used on the carved head leads into her vault, whose boss holds the chest's key; the chest opened and she, spoken to again, end it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-KNORR-RAMPARTS-TREASURE"),
+        station: "yalain-testkit::corpus::world_db::the_tomb_robbers_map_is_dug_up_in_six_places_and_leads_into_her_vault",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.knorr-skyport-mysteries-walk-through",
+        says: "The Skyport's mysteries walk through its four dungeons: each with a way in and a way back; the journal sealed, carried and unsealed; the study, the prototype and the nexus opened by their keys; the hidden door, the lying journal and keys, the chest's yield and the crystals finishing each phase's parts; the scholar ends it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-KNORR-SKYPORT-MYSTERIES"),
+        station: "yalain-testkit::corpus::world_db::the_skyports_mysteries_run_from_the_scholar_through_its_four_dungeons_to_his_journals",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.knorr-vothardun-walk-through",
+        says: "The ruined town's count of undead walks through: each kind recorded in the town counts a phase at a death, the tenth ending it; another kind counts nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-KNORR-VOTHARDUN"),
+        station: "yalain-testkit::corpus::world_db::ten_of_the_ruined_towns_undead_killed_end_its_count",
         tier: Tier::Corpus,
     },
     behaviour! {
@@ -14184,6 +14584,164 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.linvak-errands-walk-through",
+        says: "Linvak's errands walk through: the father's search goes from each who met his son to the son and back to him; the festival guard rewards the third trounce with a hero's credit; black dye plants lie for the blight's cure; the redoubt's lugians and bandit lord leave the cure's makings, the urn fills the vial, the crucible's use with all three makes the stone, the sage given it ends the cure and the captain told gives his emblem.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-LINVAK-ERRANDS-2"),
+        station: "yalain-testkit::corpus::world_db::the_fathers_search_the_guards_reward_the_dye_plants_and_the_sages_cure_go_through",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.linvak-golden-age-walk-through",
+        says: "The reliquary's relics walk through: the broken medallion a creature leaves, taken, gives the quest; the temple's chest holds the piece for its opener only while the quest is at its first phase, and the piece taken from it moves the quest on, as the mended medallion does; its use opens the sanctum's portal, and any of the sanctum's eighteen weapons taken ends it and sends its taker out to the surface, where the sanctum's way out also leads; laid on the white altar, a sanctum weapon ends the periapt's quest as its upgraded kind.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-LINVAK-GOLDEN-AGE"),
+        station: "yalain-testkit::corpus::world_db::the_reliquarys_medallion_opens_its_sanctum_and_a_weapon_taken_there_ends_it",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.linvak-gurog-and-farm-walk-through",
+        says: "Linvak's Gurog leaders and the Olvidan farm walk through: each leader ends his slaying quest once twelve are slain, the shaman then giving the Oathbreaker's, ended back with him after its death; the herd's way out through the dungeon's portal moves its rescue on and the farmer ends it; a bush used gives a blossom while the pump wants its gem.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-LINVAK-GUROG-FARM"),
+        station: "yalain-testkit::corpus::world_db::the_gurog_leaders_end_their_slayings_and_the_olvidan_herd_and_pump_go_on",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.linvak-icefire-walk-through",
+        says: "The periapt and Icefire walk through from their givers: the white altar gives the periapt's quest, its three altars' gems move it on, and the periapt made and laid on it brings it to its last phase; a weapon taken in the sanctum, laid there, ends it as the weapon of the Ancients. The frostbound giver gives Icefire, the gigurath's death moves it on and its oil, taken and given back, brings it to its last phase; the gorge's portal beside him leads to the font, and the Ancients' weapon given to the font ends it as the weapon of the sun's blaze.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-LINVAK-ICEFIRE"),
+        station: "yalain-testkit::corpus::world_db::a_sanctum_weapon_goes_through_the_altar_and_the_font_of_icefire_from_their_givers",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.linvak-lost-heroes-walk-through",
+        says: "The Silent City and the Yokketh Bell Tower walk through: each dungeon's portal on the land leads to its landing and its way out back to the land; the lairs' portals keep out a player without the scholar's quest and let one with it in; the keeper's death gives his quest and opens the crypt's portal, and the spirit there ends it, moving the scholar's quest on with the sandals and then the spirit's vial; the crypts' ways out lead to the land; the scholar teaches the boots' recipe of the player's race, whose making ends the quest; the totem lies at the bottom of the Silent City, Mikaci gives her quest for it once her first is done, and taken to her it ends the quest with her charm; her first, just done, is not given again before its six days.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-LOST-HEROES-CRYPTS"),
+        station: "yalain-testkit::corpus::world_db::the_scholars_boots_go_through_both_crypts_and_mikacis_totem_lies_in_the_silent_city",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.linvak-ludward-walk-through",
+        says: "Ludward's two quests walk through: his use gives the first, to one with 100 in any weapon, armor, spellbinding or tools craft and not below it nor in another craft, and teaches every kind's basic recipe; a kind's basic part handed to him moves it on and teaches that kind's harder recipes, the harder part brings his map and the reforging recipes, each map's own effect gives the rusting part its recipe takes, and the reforged part ends it; the knaves, guardians and marshals the second quest counts stand in camps beside the other knights, and the artificer's fall gives it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-LINVAK-LUDWARD"),
+        station: "yalain-testkit::corpus::world_db::ludwards_parts_go_from_basic_to_reforged_and_his_knights_stand_to_be_counted",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.linvak-master-vault-walk-through",
+        says: "The Linvak master vault's gem portal leads in with the archon's quest given, beside a way \
+               out; the vault keeps the wiki's four kinds of creature; three portals lead to the power \
+               conduits, each with its tapping crystal and a portal on to the convergence chamber, whose \
+               top leads back to the landing and whose path aside to the archon's chamber stands only \
+               while all three crystals are down, moving the quest on; the archon stands alone beside his guards and leaves his eye; the menhir's \
+               portal keeps a player out until he falls near the player; the menhir ends the quest with \
+               the vault's vitae and the chamber's way out leads to the land.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-LINVAK-MASTER-VAULT"),
+        station: "yalain-testkit::corpus::world_db::the_linvak_master_vaults_conduits_lead_to_the_archon_whose_fall_opens_its_menhir",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.linvak-omishan-mine-raids-walk-through",
+        says: "The Dominion's mine raids walk from its headquarters' beacons through a bore's defense to the portal home: each crystal's use names a bore of the world's rows, and each bore keeps its mine's golems at it for ten minutes and leaves its raiders' portal home, for their kingdom alone; Linvak's beacons are for heroes alone, Omishan's not; the Dominion's four beacons stand in its headquarters, each reached on foot from its way in. A player of another kingdom is given nothing, and so is a Dominion player who is no hero; a Dominion hero is given the Linvak raid and its crystal, and a second beacon gives nothing within the hour. The crystal is kept away from its mine; at it the bore comes four meters ahead, the raid moves to its second phase, and four golems come at it; each killed is replaced, and once the bore has stood its ten minutes it goes and the portal home stands there, which refuses a player of another kingdom and takes the raider to the headquarters, ending the raid. An hour on the raid is given again; that bore killed first leaves nothing, the raid stays, and an hour on the beacon gives another crystal. An hour on, to one who is no hero, Linvak's beacon gives nothing and Omishan's its raid, whose bore draws its own mine's golems.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-MINE-RAIDS"),
+        station: "yalain-testkit::corpus::world_db::the_dominions_mine_raids_walk_from_its_headquarters_beacons_through_a_bores_defense_to_the_portal_home",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.linvak-shreth-base-walk-through",
+        says: "The secret base walk through: the base's giver gives it; the scrap of paper lying in the ravine, taken, moves it on; the island's gate leads into the base, arriving through it moving it on; the handler's and the leader's corpses hold the key and the plans, each taken moving it on for the taker's fellows too; arriving through the last door into the command area moves it on, the first door of the same kind does not; the giver used again ends it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-LINVAK-SHRETH-BASE"),
+        station: "yalain-testkit::corpus::world_db::the_secret_bases_scrap_gate_keys_and_last_door_lead_to_its_plans",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.linvak-siraluun-cargo-walk-through",
+        says: "Stolen Siraluun Cargo walks through: the Gurog of Linvak drop the treasure map; used away from its place it is refused and kept and makes nothing; used there it is spent and uncovers the drudges' cargo chest with a Gurog Shaman and a Gurog Gladiator to guard it, and the chest holds one of the three feathers, any alike, and is gone once closed. Each feather used on another makes their pair, and the third on that pair the headdress, which moves the elder's quest on; the headdress handed to the elder ends it with his two lines. A feather or a pair given him is handed back with his line that only the whole headdress will do, and a headdress that ends nothing with his line that it is a fake.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-SIRALUUN-CARGO"),
+        station: "yalain-testkit::corpus::world_db::stolen_siraluun_cargo_runs_from_the_gurogs_maps_through_their_cargo_chests_to_the_elders_headdress",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.linvak-soulbound-aura-stone-walk-through",
+        says: "Linvak's soulbound Aura Stone walks through: the Singularity Trove that holds Linvak's weapon scrolls holds the Aura Stone's too, as often as each of the others. Malga gives the quest; the activation crystal given to the golem moves it on; the scroll given to Malga before that is handed back, and given after it is taken, moves the quest on and teaches the emblem's recipe. The emblem made from six ebon pyreal moves it on again, and given to the golem ends it with the Soulbound Aura Stone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-LINVAK-SOULBOUND"),
+        station: "yalain-testkit::corpus::world_db::linvaks_aura_stone_scroll_from_the_trove_becomes_its_emblem_and_the_golems_weapon",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.linvak-soulbound-weapons-every-type",
+        says: "Every Linvak soulbound weapon has its way: the Singularity Trove that holds Linvak's weapon scrolls holds all sixteen, each as often as the others; each scroll given to Malga at the second phase is taken, moves the quest on and teaches its own emblem's recipe; each emblem given to the golem at the fourth phase is taken and ends the quest with the weapon of its name.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-LINVAK-SOULBOUND-TYPES"),
+        station: "yalain-testkit::corpus::world_db::every_linvak_soulbound_scroll_lies_in_the_trove_and_has_its_hand_ins",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.linvak-temple-light-inside-walk-through",
+        says: "The light temple walks from its landing by its levers to the lattice and the well: its locked doors, each locked to every key, open for a while to their levers, one on the way in and one behind, and a solo golem stands at each of the players' map's places. Nothing past a door is reached before its lever is pulled: A beside the landing; B up the stairs, then C below by the lever behind B, in time for a run down; D, E and F on the lower level, the last to the lattice, whose use gives the lattice a player carries once and moves the quest on. The inner levers open the way back and a door opens from behind to a plain use; G by its lever, and H, a fellow inside G holding it open as the player pulls H's lever, in time for a run through both to the well, where the carried lattice is taken for a light one and the quest moves on. The exit portal leads out to the island, and the scholar ends the quest.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-TEMPLE-LIGHT-INSIDE"),
+        station: "yalain-testkit::corpus::world_db::the_light_temple_walks_from_its_landing_by_its_levers_to_the_lattice_and_the_well",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.linvak-temple-light-island-walk-through",
+        says: "The light temple's island walks from its way out, and its pillars set in their order by a fellowship let it into the temple by day: the middle pillar stands on the island with six pillars about it, which an order of the row's own names each once, and the temple's portal before it, standing only by the game's day, whose use's step leads to the temple's landing once the order is made; a body runs from where the temple's way out lands to each. By the world's calendar, at night the portal is gone and the middle pillar glows feebly; by day it stands and the middle pillar glows with none lit. A fellowship at the quest's first phase is refused by the portal; a pillar set in its turn whirs, the middle pillar then lit for each set; one out of its turn changes nothing; a fellow's touch of one already set starts the order over for both. Set in full, the middle pillar tells of the portal; a stranger is still refused, and each fellow goes through into the temple, the quest moved on.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-TEMPLE-LIGHT-ISLAND"),
+        station: "yalain-testkit::corpus::world_db::the_light_temples_pillars_set_in_their_order_by_a_fellowship_let_it_into_the_temple_by_day",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.linvak-tyrant-heart-walk-through",
+        says: "Blood of Tyrants walks through: the Frozen Ravine's chest stands among the shreth kept there; opened, it holds the stone heart its kind's profile names, and the heart taken from it gives the quest, from level 48, with the heart's recipe; each of the five crater tyrants is kept in a camp and leaves its blood; the recipe made from the heart and the five bloods ends the quest and makes the living heart.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-TYRANT-HEART"),
+        station: "yalain-testkit::corpus::world_db::blood_of_tyrants_is_given_by_the_ravine_chests_heart_and_ended_by_its_recipe_from_the_bloods",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.linvak-uncover-the-past-walk-through",
+        says: "Uncover the Past walks through, from the watchtower's Gurog to the dungeon's five debris piles and back: he stands once, reached on foot from where Ondekodo's portal lets players out, gives the lore quest with its satchel from its least level, and his other quest only to those under it or to those who have done or failed the lore quest. Five piles each stand at one of six places at a time and move on in time, every place reached on foot from the dungeon's landing. Under the quest's level he refuses; at it he gives it, with his line, the satchel and its five pieces; the satchel handed back early is refused; used on each pile standing it completes that pile's piece with its lore, and again moves nothing; with all five he asks for it and takes it with his speech, ending the quest with the vial, and then gives his other quest. A pile left standing past its time stands elsewhere.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-UNCOVER-THE-PAST"),
+        station: "yalain-testkit::corpus::world_db::lodrogs_satchel_searches_the_undercrofts_five_debris_piles_and_goes_back_to_him",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.linvak-undercrofts-way-in-walk-through",
+        says: "Uncover the Past's way in walks from the fortress's plaza through the king's portal: the king is kept alone on the plaza, and his death's row stands its portal at the fortress's platform for several minutes, leading to the dungeon's landing; a body runs from where the dungeon's way out lands to the king and up onto the platform. Killed, the king stands the portal on the platform, named for the dungeon it leads to, a second king's death while it stands makes no other, its use takes the player down into the dungeon, and it is gone once its minutes are over.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-UNDERCROFTS-WAY-IN"),
+        station: "yalain-testkit::corpus::world_db::the_kings_death_on_the_fortress_stands_the_portal_down_into_the_undercrofts_for_a_while",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.master-vault-gems-walk-through",
+        says: "The master vaults' gems walk through: three kinds of portal creature killed in their order give the gem quest, move it a phase a kill and end it with the vault's gem; any other order, a repeat among them, ends it with the flawed gem, and the next run in order makes the gem again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-MASTER-VAULT-GEMS"),
+        station: "yalain-testkit::corpus::world_db::three_portal_creatures_killed_in_their_order_make_a_vaults_gem_and_any_other_its_flawed_gem",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.mine-boon-permission-walk-through",
+        says: "The mine boon permission walks through, from the Dominion's overseer to an enemy kingdom's mote and back: she stands in the Dominion's headquarters, reached on foot from its way in, and gives her task to the Dominion's players alone from its least level; the Order's and the Shadow's granules and motes complete it, her own kingdom's are refused; the mines' guardians leave their kingdom's granules and motes now and then, the Order's golems about the Order's mine and the Dominion's clusters and rifts about the Dominion's. A player of the Order is given nothing, one under its level refused; given, her own kingdom's granule is handed back with her line for it, the Order's kept with her line for it and her permission, done and never given again; the Shadow's mote ends it too, with her line for it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-MINE-BOON-PERMISSION"),
+        station: "yalain-testkit::corpus::world_db::the_dominions_overseer_gives_her_boon_task_and_takes_an_enemy_kingdoms_mote_for_it",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.mine-ways-down",
         says: "Each Ulkas mine's way down leads to its base, open to anyone, and each second way in \
                leads where the first does, asking for the same toll. The portals' names say so; only \
@@ -14191,6 +14749,22 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-WDB-MINE-WAYS-DOWN"),
         station: "yalain-testkit::corpus::world_db::every_ulkas_mine_portal_leads_somewhere",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.mirras-walk-through",
+        says: "The four mirras drop as trophy rares from item level 45 and never below, Knorr's rares too, and creatures' loot rolls those rares; each handed to the font is cleansed and its quest given, charged at Exelaris, and handed with the handblade to the golem ends its quest.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-MIRRA-DROPS"),
+        station: "yalain-testkit::corpus::world_db::the_mirras_drop_from_creatures_of_45_and_over_and_each_goes_from_the_font_to_the_golem",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.molwirth-opal-walk-through",
+        says: "The Mist Opal walks through: the shrine in Molwirth gives the cracked opal; the fount in the caverns' own rooms takes it and gives the mended opal with its line, moving the quest on; given back to the shrine, the mended opal ends it with the boots of the player's race and the shrine's line for them; an opal given to the fount with no quest to mend it is dissolved.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-MOLWIRTH-OPAL"),
+        station: "yalain-testkit::corpus::world_db::the_shrines_opal_is_mended_at_the_caverns_fount_and_given_back_for_the_races_boots",
         tier: Tier::Corpus,
     },
     behaviour! {
@@ -14202,12 +14776,205 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.quests.mosswart-rescue-walk-through",
+        says: "The mosswart's rescue walks through: a fungal hut used gives it, the rescued mosswart \
+               following its rescuer and the quest to protect it given with it for the rescuer's fellows \
+               too; the fenced hut used ends it and the mosswart goes; the mosswart's death fails it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-MOSSWART-RESCUE"),
+        station: "yalain-testkit::corpus::world_db::the_rescued_mosswart_follows_from_the_fungal_huts_and_its_rescue_ends_at_the_fenced_hut",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.olthoi-hunts-walk-through",
         says: "Thorsten Cragstone gives each of his five Olthoi hunts at a use, the kill of either \
                creature the install names for a hunt moves it on, and his use ends it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WDB-BUG-HUNTS"),
         station: "yalain-testkit::corpus::world_db::each_olthoi_hunt_is_given_by_thorsten_moved_by_its_kill_and_ended_by_him",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.omishan-aun-tanua-fortress-lever-walk-through",
+        says: "The fortress maze's lever opens the room of portals for long enough to run there: the maze's one lever stands at its far west end, and its row opens the room of portals' door, locked to every key, for a while. From the maze's landing no way leads into the room past the shut door, and a body run at it is held there; the lever is reached through the maze and pulled, the door opens, and a run from the lever at a plain run's speed reaches the room before it closes, every step taken, and on to its real portal. The door closes at its time, and from inside the room, behind it, a plain use opens it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-FORTRESS-LEVER"),
+        station: "yalain-testkit::corpus::world_db::the_fortress_mazes_lever_opens_the_room_of_portals_long_enough_to_run_there_through_the_maze",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.omishan-aun-tanua-fortress-walk-through",
+        says: "Aun Tanua's fortress walks through: the Imperator gives Defeat Kogun with the fortress's glyph and Stop Aun Tanua with it; the mountain's portal south of Mayoi leads to its top, which has a way back down, and the unseen bridge's near end to its far end by the orb; the orb takes nobody inside before the glyph, keeps the glyph given it, then takes its user through the door; each hall of the tower leads up to the next and the top hall to the maze, whose real portal leads to the inner rooms, where Kogun is kept alone and Aun Tanua stands. Kogun's death ends his quest. The evidence handed to Aun Tanua in its order moves the other on; a doctrine before the sword, or the sword before the shield, is handed back; the Order's stone gives a doctrine, and handed in it ends the quest. Fanatics leave the disguise's pieces and the evidence; a way out leads to the mountain's foot.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-AUN-TANUA-FORTRESS"),
+        station: "yalain-testkit::corpus::world_db::aun_tanuas_fortress_is_walked_from_the_imperator_over_the_bridge_to_kogun_and_his_master",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.omishan-burun-idols-walk-through",
+        says: "New Burun Threat walks through its three dungeons: the concealed portal leads into the Burun lair, whose Burun leave the amber pendant; shown to Tuamoa it moves the quest on and comes back, and laid on the old idol it sends its player into the Omishan idol's dungeon, whose hive master, one at a time, leaves the orb; shown to Tuamoa it moves the quest on and comes back, and laid on the new idol it sends its player into the Arramora idol's dungeon, whose immortal master, one at a time, leaves the journal and the staff; the journal handed to Tuamoa ends the quest. Each dungeon's way out leads to the land. In a fellowship each idol sends the bearer's fellow too, from wherever it stands, and a stranger stays; the fellow's quest moves where it stood at the step's phase and stays where it didn't.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-BURUN-IDOL-DUNGEONS"),
+        station: "yalain-testkit::corpus::world_db::new_burun_threat_leads_from_the_lair_through_both_idols_dungeons_to_the_journal",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.omishan-eeruks-loot-walk-through",
+        says: "Eeruk's Loot walks through: the Amulet of Seeking used gives it; the Deepdank Tunnels keep their Burun and Lord Eeruk one at a time, who leaves his treasury's key and whose death moves it on; the treasury's door keeps to that phase; each of its five chests, one for each race, opened, holds that race's gauntlets from the profile its kind names, which can't be taken before his death and taken after it end it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-DEEPDANK-TUNNELS"),
+        station: "yalain-testkit::corpus::world_db::eeruks_loot_is_given_by_the_amulet_moved_on_by_his_death_and_ended_by_the_treasurys_gauntlets",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.omishan-errands-walk-through",
+        says: "The ruins' spirit, Rakani, the huntress and the Ikeras antechamber walk through: the spirit sends the player on only once the four listris are dead; the ranger ends his quest once the beast is dead; a bush used gives a blossom while the hivekeeper's errand runs; the huntress takes either plain javelin; the hunt master's seeds go one a phase; the shade's death ends its charge; the training course's portals give and move it, and the Imperator ends it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OMISHAN-ERRANDS"),
+        station: "yalain-testkit::corpus::world_db::the_ruins_spirit_waits_for_its_kills_and_rakani_hakata_and_ikeras_errands_end",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.omishan-hunters-walk-through",
+        says: "Omishan's hunters walk through: the mushroom collector's first gland teaches the vigor potion and the second, taken and handed in, ends the hunt with the health potion; the ranger ends the collar quest once the mucors are dead, with the collar; the egg collector gives both her hunts at one use, and each egg taken and handed back ends its hunt with its potion.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OMISHAN-HUNTERS"),
+        station: "yalain-testkit::corpus::world_db::omishans_hunters_take_back_their_glands_eggs_and_collar_report",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.omishan-lynnestra-glyphs-walk-through",
+        says: "Decoding the Glyphs walks through: Lupe gives it, and each of Omishan's seven vault glyphs handed to the scholar near Mayoi is kept and moves it on a phase with her line for that count; the fourth ends it with her lines, the four enhanced glyphs and 1,000 coins; a glyph of another land is handed back with her refusal.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-LYNNESTRA-GLYPHS"),
+        station: "yalain-testkit::corpus::world_db::decoding_the_glyphs_takes_four_omishan_glyphs_one_a_phase_for_the_four_enhanced_ones",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.omishan-master-vault-walk-through",
+        says: "The Omishan master vault's gem portal leads in with the archon's quest given; the vault's \
+               four kinds of creature leave the three serums; three portals lead to the crystal \
+               chambers, each with its crystal and a way back; a serum used on a crystal begins the \
+               repairs and repairs it, used up, and a repaired crystal takes no more; the third repaired \
+               sends the player to the archon's chamber with the quest moved on; the archon stands \
+               alone beside his guards and leaves his hand; a repaired crystal sends a player whose \
+               archon stands back to him; the menhir's portal keeps a player out until he falls near \
+               the player; the menhir ends the quest with the vault's vitae and the chamber's way out \
+               leads to the land.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OMISHAN-MASTER-VAULT"),
+        station: "yalain-testkit::corpus::world_db::the_omishan_master_vaults_crystals_repaired_send_the_player_to_the_archon_and_on_to_its_menhir",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.omishan-meals-and-temple-walk-through",
+        says: "The Shinoko meals and Hakata's temple search walk through: the raft mender gives the shake and each of her family hands over the next meal for the one given, the soup ending it; the blind spirit's shrine hands the amulet back with its urge, touched sends the player to the standing stone, the stone traced sends the player back, and the chieftain ends it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OMISHAN-MEALS-TEMPLE"),
+        station: "yalain-testkit::corpus::world_db::the_shinoko_meals_go_round_the_isles_and_the_temple_search_ends_past_the_standing_stone",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.omishan-mimbu-grub-feast-walk-through",
+        says: "The Mimbu feast walks through: grub meat handed to the Mimbu shaman is kept and gives the quest, from level 45 and not below, with his line sending the player to the cookpot; a plain talisman dipped in the cookpot before then is handed back with its refusal; once given, a plain talisman of any of the six kinds dipped is kept and ends it, giving back that kind's talisman of one of four blessings, one in four each.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-MIMBU-GRUB-FEAST"),
+        station: "yalain-testkit::corpus::world_db::the_mimbu_shamans_grub_meat_feast_ends_with_a_talisman_dipped_in_the_cookpot",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.omishan-natures-friend-walk-through",
+        says: "Nature's Friend walks through its chain: the pet lasher digs up its bone for rabbit meat; a redberry bush gives berries; the shrines of Tanae, Audetanga and Ezheret each take one berry, gem or pearl of a stack and teach the preserves', the necklace's and the choker's recipes; the cocoon bush gives a token and a cocoon for the preserves; a slithis pod takes the token for a husk, and a calm spawn beside every pod makes the cocoon a thread. The necklace's use takes its holder into the first breach room, where the corrupted lasher gives a key for the bone, the pool makes the husk empowered and two camps of tainted rabbits each leave a pearl, and whose way out leads to Rakani's portal. The choker cuts the grotto's tendril for its heart, whose use takes its holder into the breach's own room, where the breach gives the crystal for the empowered husk, and its way out leads to Rakani. The crystal given to the great tree's shrine gives and ends the quest with the talisman and the drum, from level 25, and is handed back within its six days.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-NATURES-FRIEND"),
+        station: "yalain-testkit::corpus::world_db::natures_friend_runs_through_both_breach_rooms_to_the_great_trees_shrine",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.omishan-path-into-darkness-walk-through",
+        says: "The Path Into Darkness walks through: the Dark Agent gives nothing to one not corrupted; a slithis seed eaten by a hero gives the corruption, and to one corrupted he gives the quest with the scriptorium's key, whose use takes its holder into the scriptorium, where the scroll lies and a way leads back to him; Dominion Center's first welcomer opens the museum, where the lens lies, and a way leads back to the center; Naokim, talked to four times, lets the thief into the vault, where the codex lies, and its way out leads to his antechamber. Each artifact given to the agent moves the quest on and the codex ends it; his next use gives and ends the descent.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-PATH-INTO-DARKNESS"),
+        station: "yalain-testkit::corpus::world_db::the_path_into_darkness_runs_through_the_scriptorium_the_museum_and_the_shadow_vault",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.omishan-path-into-light-walk-through",
+        says: "The Path Into Light and Retracing the Path walk through: after the path into darkness Lataua gives the path into light, then the talisman; the Dark Agent tempts, Lataua is returned to, and the talisman's use moves it on; the Hand of Asheron sends the player into the scriptorium, Dominion Center's welcomer into the museum and Naokim into the vault, each keeping its renegade, whose death moves it on; Lataua and the talisman lead between them and Lataua ends it, given once. She then gives the retracing, which the same three ways and deaths run to its end. The talisman given to the agent fails the path.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-PATH-INTO-LIGHT"),
+        station: "yalain-testkit::corpus::world_db::the_path_into_light_and_its_retracing_defend_the_three_houses_from_the_renegades",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.omishan-purifications-walk-through",
+        says: "Omishan's two purifications walk through: the spirit's wand, blessed by the factotum of Zu, \
+               goes round the eleven shrines in the journal's order, none out of turn; the last refuses it, \
+               he keeps the wand, and the fetish the lair's shaman leaves ends it. The cursed spirits leave \
+               an egg in the pack while eggs are wanted, each laid on the sea shrine moves the other on, the \
+               twelfth leads to the room where its master stands among its spirits, whose death moves it on, \
+               and its giver ends it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OMISHAN-PURIFICATIONS"),
+        station: "yalain-testkit::corpus::world_db::the_spirits_wand_goes_round_the_shrines_and_the_twelve_eggs_lead_to_the_cursed_master",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.omishan-retracing-the-path-not-after-the-descent",
+        says: "Retracing the Path is never given to one who has done the descent into darkness: from Zu's ringway portal, the nearest way in, a body runs to Lataua, up to where she stands above the land. Played there and beside the agent of the dark, with both paths done, Lataua gives it to one who never had the descent; taken off again, the agent's next use gives the descent and ends it at once; back at Lataua it is not given, nor after the agent's next use.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-RETRACING-DESCENT"),
+        station: "yalain-testkit::corpus::world_db::retracing_the_path_is_never_given_to_one_who_has_done_the_descent_into_darkness",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.omishan-retracing-the-path-wait-and-limit",
+        says: "Retracing the Path, done, isn't given again before 4 days and 23 hours by the calendar \
+               and is given once they are over; under way, it fails once 10 hours of its player's time \
+               in the world are over, and not before.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-RETRACING-TIMES"),
+        station: "yalain-testkit::corpus::world_db::retracing_the_path_is_given_again_after_its_wait_and_fails_past_its_time_limit",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.omishan-shadow-vault-levers-walk-through",
+        says: "The Shadow Vault's levers lead from its main hall through the grid to the codex, in the thieves' vault and the defenders' alike: lever d in the hall opens door B, behind which lever g stands; g alone opens nothing, and g and e in the hall together open door A; A's column leads to lever i, which opens the way to lever 1's room; each lever of the recorded sequence 1-8-7-6-5-3, pulled, opens the way to the next, which no way reaches before; the last opens X and the way to the codex's corridor and its way out. Every way is walked at a run, every step taken, past the shut doors no step crosses. Once X closes, a plain use from behind opens it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-SHADOW-VAULT-LEVERS"),
+        station: "yalain-testkit::corpus::world_db::the_shadow_vaults_levers_lead_from_the_main_hall_through_the_grid_to_the_codex",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.omishan-shreth-spawning-pit-walk-through",
+        says: "Slay the Shrethwarden walks through: the scholar in Rakani gives it with her line; the pit's portal on the land is shut to one without it and to one under level 30, and leads into the pit's landing; its two ways out lead back to the land. The doorkeeper and the warden stand one at a time, the doorkeeper beside the door to the last chamber, which is locked to the key he leaves; the warden leaves his head. His death moves the quest on and she reminds of the head; the head taken moves it on again; handed to her it ends the quest with her thanks and teaches the coating's recipe.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-SHRETH-SPAWNING-PIT"),
+        station: "yalain-testkit::corpus::world_db::slay_the_shrethwarden_runs_from_the_scholar_through_the_pits_locked_door_to_the_wardens_head",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.omishan-soulbound-sword-walk-through",
+        says: "Omishan's soulbound Sword walks through: Shi Sumakhe gives the quest; the turquoise crystal given to the weapons golem moves it on and gives the rose crystal; the rose crystal given to the melee emblem golem is taken, moves it on and teaches the melee emblems' recipes, the Sword's among them and no missile one. The Sword's emblem made from six white pyreal moves it on again, and given to the weapons golem ends it with the Soulbound Sword.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OMISHAN-SOULBOUND"),
+        station: "yalain-testkit::corpus::world_db::omishans_melee_golem_teaches_the_sword_whose_emblem_becomes_the_weapons_golems_sword",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.omishan-soulbound-weapons-every-type",
+        says: "Every Omishan soulbound weapon has its way: the rose crystal given at the second phase to the magic, melee or missile emblem golem is taken, moves the quest on and teaches the emblem recipes of every weapon of that class (the class each weapon's own equip effect names), and no other; each emblem given to the weapons golem at the fourth phase is taken and ends the quest with the weapon of its name.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OMISHAN-SOULBOUND-TYPES"),
+        station: "yalain-testkit::corpus::world_db::every_omishan_soulbound_weapon_is_taught_by_its_class_golem_and_has_its_hand_in",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.omishan-toutou-catacombs-walk-through",
+        says: "The Ruins of Tou-Tou walks through: the lighthouse's top door leads down into its catacombs and their landing's door back up; the catacombs keep their spawn and the Slithis Life Sapper one at a time, whose death moves the quest on; the chest behind him then holds the broken arrow, whose taking moves it on; shown to Shi Ehrietawa it reaches its last phase with the arrow back, her book and the tachi's recipe, which made from the five pieces ends it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-TOUTOU-CATACOMBS"),
+        station: "yalain-testkit::corpus::world_db::the_ruins_of_toutou_is_walked_down_the_lighthouse_to_the_sapper_and_ended_by_the_tachi",
         tier: Tier::Corpus,
     },
     behaviour! {
@@ -14240,6 +15007,272 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-ONE-AT-A-TIME"),
         station: "yalain-testkit::cpu::play::quest_uses::a_person_with_several_quests_gives_one_at_a_time_and_none_until_its_wait_is_over",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.osteth-ancient-crypt-hazards-walk",
+        says: "The Ancient Crypt's second level's platform where the walkways cross kills whoever comes onto it, the useless key lying on it within its reach, while the level's landing, its way on and its pit's undead lie beyond it: a player run from the landing to the way on comes there alive, one run to the platform dies on the way, by misadventure. The seventh level's gate harms no one coming near it and kills whoever uses it, after its warning.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-CRYPT-HAZARDS"),
+        station: "yalain-testkit::corpus::world_db::the_ancient_crypts_trapped_platform_kills_whoever_steps_on_it_and_its_gate_whoever_uses_it",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-ancient-crypt-walk-through",
+        says: "The crypt north of Esper walks through to its hoard: the portal on the land leads into its first level and may be recalled to; each level's way on leads into the next, to the seventh, and each keeps its undead; the sixth level's two doors are locked to the two keys lying on its altars; the seventh keeps the lord and the last guardian, one at a time each. The way to the hoard is shut until the guardian's death gives the hoard's quest; through it a player is given the hidden quest the hoard's chest asks for, and the chest, holding nothing for one without it, then holds the shield and the fragment and its opening ends both quests.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-ANCIENT-CRYPT"),
+        station: "yalain-testkit::corpus::world_db::the_ancient_crypt_is_walked_to_the_guardian_whose_death_opens_the_way_to_its_hoard",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-arcanum-caches-walk-through",
+        says: "The Arcanum's caches and Recover the Arcanum's Library walk through: each tier's reckoning gems reveal its dig point for five minutes and each recondite machine used on a dig point uncovers that tier's cache with two of its minion guards; each cache holds one of the four Arcanum books. A first tier's gem used away from its place is refused and kept; used there it is spent, its dig point stands, and Dig Point Revealed is under way. The machine used on the dig point ends it and gives Loot the Cache, the dig point gone and the cache standing with its two guards; the cache opened ends Loot the Cache and holds a book, taken. Eshivon Ugim stands in the vault, and the book handed to him ends Recover the Arcanum's Library with his thanks.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-ARCANUM-CACHES"),
+        station: "yalain-testkit::corpus::world_db::a_reckoning_gems_dig_point_opens_to_a_machine_on_a_guarded_cache_whose_book_the_scholar_takes",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-artefon-queen-undead-walk",
+        says: "The queen of the Artefon catacombs turns undead as her quest fails, until she is killed: the event her quest's failure starts stands for her undead self and ends with her undead self's death, by no time; her undead self's camp of one stands where she stood only while it is on, the living queen kept aside meanwhile, and her undead self has a line for her death. Given the quest she stands as she was while it runs; its time run out, the living queen is forgotten and a use of her finds nothing, and her undead self is made where she stood; her undead self killed, the queen is made again and no undead self comes back.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-ARTEFON-QUEEN-UNDEAD"),
+        station: "yalain-testkit::corpus::world_db::the_queen_turns_undead_as_her_quest_fails_and_is_herself_again_once_her_undead_self_is_killed",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-artefon-salvation-walk-through",
+        says: "Salvation of Artefon walks from the queen to the font and back to her tomb: the catacombs' outer and lower halls lead out to the land and in from it; the queen stands by her tomb in the lower halls and gives the quest; the deeper halls' way to the nether halls is shut until the undead king's death gives its hidden quest, and his corpse holds the silver key; the nether halls keep the bloodstones, whose death moves the quest on and whose fragment, taken, moves it again, and a way back; the outer halls' crack leads to the forgotten halls while the quest is under way; there the font stands behind a door locked to the silver key and purifies the fragment, and a way leads back; the purified fragment given back to the queen moves the quest to its reward, and her tomb, used, gives one of the ten jewels and ends it. In a fellowship one fellow's kill of a bloodstone and the other's taking of its fragment each move the quest once for both, and not a stranger's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-ARTEFON-SALVATION"),
+        station: "yalain-testkit::corpus::world_db::salvation_of_artefon_is_walked_from_the_queen_to_the_font_and_back_to_her_tomb",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-artefon-tombs-walk-through",
+        says: "Lake Artefon's tombs walk through: each family's giver gives its tomb quest; each of the six tombs, used, completes its own part, and a tomb used without the quest moves nothing; the six done, the giver completes it and gives the armor quest with the five recipes of the player's race, each piece's making completing its part.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-ARTEFON-TOMBS"),
+        station: "yalain-testkit::corpus::world_db::each_artefon_familys_six_tombs_end_its_quest_and_its_giver_teaches_the_armor_of_the_players_race",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-cacophos-same-seal-twice",
+        says: "The same Cacophos seal twice adds nothing: one seal pressed against its stone takes its heal off the beast, four left; a second of the same name against the glowing stone is refused and kept, the beast as it was; pressed once the glow has gone, it bars the heal again but takes nothing more, and the beast heals as fast as before.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-CACOPHOS-SEAL-TWICE"),
+        station: "yalain-testkit::corpus::world_db::the_same_seal_pressed_twice_takes_no_more_off_the_beast",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-cacophos-seals-weaken-the-beast",
+        says: "An unsealed Beast of the Cacophos out-heals a modest harm, and a sealed one does not: made by its camp it holds its five heals, a thousand health a second between them, and hurt five hundred a second for a minute it ends higher than it began; its own skill that would cast the heals again is held but never used, neither a help nor an attack; every seal pressed against its stone, the same harm takes tens of thousands of health off it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-CACOPHOS-SEALS"),
+        station: "yalain-testkit::corpus::world_db::an_unsealed_beast_out_heals_a_modest_harm_and_a_sealed_one_does_not",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-cacophos-walk-through",
+        says: "The island beyond the tunnels walks down through its heart to the beast and back to the sage: the portal into the heart stands inside the opening atop the island's mountain, its arrival the quest's second phase; the heart's way out leads back to the opening, and the portal past its bridge into the beast's lair; one camp keeps the beast alone in the lair, holding its five heals from its first moment; five seals lie in the heart's side rooms, each at one of its two places at a time, and five stones stand on the rim of the lair's platform, each seal's row stripping the beast of the heal of its number and barring it; its death stands the second rupture at the lair's middle for five minutes, leading to the scholars' camp; the sage ends the quest with the robe of each race the install holds and a key to his chests, and the reward's mark the robe asks for is set with it. On foot: from the island's landing, where the tunnels' rupture leads, up the mountain to the portal into the heart; from the heart's landing to its way out, to every place a seal lies and down to the portal into the lair; from the lair's landing to the beast, to every stone and to where its portal stands. Played: the sage reminds a player at the first phase; the portal into the heart moves the quest to its second, and out and in again moves nothing more; the sage reminds a player at the second; a seal on the ground gives nothing to one who is no hero, and to a hero the seal of its name for the pack, the one on the ground gone; in the lair the beast made by its camp holds its five heals; each seal pressed against its stone takes the heal of its number off and bars it; the beast, holding the five bars and no heal, killed stands the rupture, which takes the player to the scholars' camp at the third phase, and goes at its time; the sage ends the quest with his thanks, the robe's line, the robe of the player's race and his chest's key, setting the reward's mark; each other race is given its own robe.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-CACOPHOS"),
+        station: "yalain-testkit::corpus::world_db::the_island_beyond_the_tunnels_walks_down_through_its_heart_to_the_beast_and_back_to_the_sage",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-chaos-eidolon-portal-walk-through",
+        says: "The Chaos Portal atop the eidolon's tower takes the three archons' parts and opens the way on: it takes Hahnain's Eye, Renselm's Hand and Saelar's Heart, each with its flare, and opens a portal to the ascended archon's dungeon for a while; each part is a death treasure of the camp keeping its archon. From the eidolon dungeon's landing no way climbs to the tower's top; its safe portal is reached and leads to the room whose stairs climb it, and the top is reached on foot. Each part given is kept and its flare stands; the third takes the flares and stands the way on; a part given while it is open is handed back. The way on is for heroes: one takes it to the ascended archon's dungeon, given Destroy the Chaos Eidolon by its own effect as it comes out; at its time the way on goes, and the portal holds nothing again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-CHAOS-PORTAL-OFFERING"),
+        station: "yalain-testkit::corpus::world_db::the_chaos_portal_atop_the_eidolons_tower_takes_the_archons_parts_and_opens_the_way_on",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-chaos-eidolon-vortex-walk-through",
+        says: "The eidolon's vortexes stand once it falls, and one touched ends its quest with the crystal: one row guards the ascended archon's dungeon's eight vortexes by the camp that keeps the eidolon alone and back ten minutes after it dies, hiding them while it lives, and a vortex's use at the quest's phase ends it and gives the attuned crystal, for one who fought the eidolon. From the landing the tower's way on leads to, the eidolon's place and every vortex are reached on foot. While the eidolon lives none stands and a use of one finds nothing; killed, all eight stand; one who did not fight it touches one and nothing moves, until it joins a fighter's fellowship; one touched by a fighter ends the quest with the vortex's line and gives the crystal; a second touch gives nothing more; the vortexes stand until the eidolon comes back, and go then.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-CHAOS-EIDOLON-VORTEXES"),
+        station: "yalain-testkit::corpus::world_db::the_eidolons_vortexes_stand_once_it_falls_and_one_touched_ends_its_quest_with_the_crystal",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-chaos-forge-walk-through",
+        says: "Cleanse the Chaos Forge walks from the plane's mouth through the five platforms: the portal beside the guide at the plane's mouth leads down into the nexus, whose middle leads back up and whose south-east path leads into the eidolon's dungeon and back; the portal beside the wraith there leads into the forge's maze, may be recalled to, and the forge room's way out leads back. The hammer refuses a player under level 50, gives the quest at a use and at the next sends the player to the first platform; each platform keeps its boss alone, and the first four bosses' deaths move the quest on and carry the player to the next platform; the last boss's death moves nothing; the rift beside him refuses a use with its line while its keeper stands, and once he lies dead, used, moves it to its last phase and is gone a while before it comes back for the next fellow; the last platform's portal back lands by the hammer, who ends it. One back at the hammer with a platform still ahead is sent to it. In a fellowship the hammer gives the quest to the fellow too and sends both, each to a landing of its own, and a boss's death carries both on, moving both quests; a stranger stays.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-CHAOS-FORGE"),
+        station: "yalain-testkit::corpus::world_db::cleanse_the_chaos_forge_is_walked_from_the_planes_mouth_through_the_five_platforms",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-crone-laboratories-walk-through",
+        says: "The crones' laboratories north of the drudge citadel walk through: a way in at the surface and a way out beside it; their mistress alone in the far northern room and nine crones before her; the captain's quest moved on by her death, which ends the dungeon quest her attendant's death gives, then ended by him, and his reward given at the next use.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OSTETH-CRONE-LABORATORIES"),
+        station: "yalain-testkit::corpus::world_db::the_crones_laboratories_lead_to_their_mistress_whose_death_moves_both_her_quests",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-drudge-insurgence-walk-through",
+        says: "Three of the Drudge Insurgence Saga's errands walk through: Cragstone's warder sends the player to her corporal, whose use ends it; the corporal sends the player to the scout, whose use ends that; a counselor found, the first warder ends the counselors' errand.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OSTETH-DRUDGE-INSURGENCE"),
+        station: "yalain-testkit::corpus::world_db::the_warders_corporal_scout_and_counselors_end_their_errands_where_2017_ended_them",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-dungeon-bosses-walk-through",
+        says: "Osteth's three dungeon bosses walk through: the Vermin Excavator, the Edge Beetle Queen and the Revered One are kept one at a time inside their dungeons and the creatures whose deaths give their quests on the land; a starter's death gives its quest and its boss's death ends it; the Underground Drudge City's portal on the land leads in, and a way out beside its landing and its far exit lead back to the surface.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OSTETH-DUNGEON-BOSSES"),
+        station: "yalain-testkit::corpus::world_db::osteths_dungeon_bosses_stand_in_their_dungeons_and_the_drudge_city_has_its_ways_in_and_out",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-dye-another-day-walk-through",
+        says: "Dye Another Day walks through: the dye gardener's store sells the brown seed and a seed whose plant the brown pollen crosses into bronze seeds; the brown plant gives the brown plant item and its pollen, the cross the bronze seeds and their plant the bronze plant item; Kanten takes the bronze and moves the errand on, not the brown first, then the brown and ends it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OSTETH-DYE-ANOTHER-DAY"),
+        station: "yalain-testkit::corpus::world_db::kantens_dye_errand_is_done_with_plants_crossed_from_the_gardeners_seeds",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-factotum-errands-walk-through",
+        says: "The Cavendo factotum's two errands walk through: three antidotes handed one at a time move his town's preparation on, the third ending it, a stack refused; the recluse ends the walk to him, or fails it after a drudge's death on the way.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OSTETH-FACTOTUM-ERRANDS"),
+        station: "yalain-testkit::corpus::world_db::the_factotums_antidotes_go_one_at_a_time_and_the_recluse_ends_the_walk_unless_a_drudge_died",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-factotum-last-errands-walk-through",
+        says: "Four more of the Cavendo factotum's errands walk through: he gives each at a use; any race's opal boots, the pan pipes and a grutt's leg, handed to him, end their errands with his coins; the Prosper glyph is traded for a Drudge Citadel glyph, and the other glyph moves nothing; the grutts kept in camps may leave the leg.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OSTETH-FACTOTUM-LAST-ERRANDS"),
+        station: "yalain-testkit::corpus::world_db::the_factotums_boots_pipes_leg_and_glyph_errands_end_with_his_coins_and_a_glyph",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-factotum-more-errands-walk-through",
+        says: "Five more of the Cavendo factotum's errands walk through: he gives each at a use; the emblems go one at a time; the Factotum of Zu, spoken to, sends the player back to him; each insignia goes to a player of its race and its factotum taking it ends the errand; the wasp wings go two at once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OSTETH-FACTOTUM-MORE-ERRANDS"),
+        station: "yalain-testkit::corpus::world_db::the_factotums_emblems_trip_to_zu_insignias_and_wasp_wings_end_their_errands",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-fate-of-the-scholars-walk-through",
+        says: "The Order's lost scholars walk through: the giver gives the quest; the scholars' remains lie at the places January 2017's recordings found them, on ground a body moves from, one of them at a time. Searched before the quest is given, the one lying stays; one not lying gives nothing; the one lying gives the chest's key and moves the quest on, crumbles, and after a while another lies in a different place. The chest stands in the scholars' camp, reached on foot from its middle; it refuses a plain use while locked, the key unlocks it and is used up, and opened it moves the quest on and holds the surveying device and the notebook, both taken. The surveying device used away from its place is refused and kept; used there it is spent and sets down the summoning device, which players may not harm and whose row names the wiki's attackers; defended, each attacker killed as it comes, the device stands its time, goes, and leaves the portal to the tunnels, which takes the player to their landing and moves the quest to its last phase. From the landing the boss's room and the rupture's place are reached on foot; one camp keeps the boss alone, on ground it moves from; the boss fallen near the player opens the rupture, which ends the quest, gives the next and takes the player to the island; at its time the rupture goes.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-FATE-OF-THE-SCHOLARS"),
+        station: "yalain-testkit::corpus::world_db::the_lost_scholars_are_followed_from_their_remains_through_the_defended_device_to_the_island",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-golden-bean-walk-through",
+        says: "Elenura's bean walks through: she and her garden plot stand outdoors a few meters apart, a body walking from her to the plot and back; the plot's use says only its own line; her use offers the bean for 1,000 coins, which she takes only from a hero of level 46, handing back another sum with her price; paid, she gives her quest with the bean, the can and the trowel; the bean's use plants nothing, and given to the plot it is kept and its plant stands there, the player's, with the plot's line, a second bean handed back with its busy line; the plant refuses a harvest too early, shows its stage and how it fares when examined, is kept alive by the can and the trowel used whenever it is dry or hungry, and ripe shows its ripe line and is harvested for its bean, which handed back to Elenura ends her quest with her line and her coins.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OSTETH-GOLDEN-BEAN"),
+        station: "yalain-testkit::corpus::world_db::elenuras_bean_planted_in_her_plot_tended_and_harvested_is_handed_back_to_her",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-lucky-doll-walk-through",
+        says: "The lucky doll's quest walks through: the chest the crypt south of Shoushi keeps for it holds the doll, whose taking moves the quest on, and handed to the drudge who wants it ends it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OSTETH-LUCKY-DOLL"),
+        station: "yalain-testkit::corpus::world_db::the_crypts_chest_holds_the_lucky_doll_that_ends_its_quest",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-master-vault-walk-through",
+        says: "The master vault's gem opens its portal 2 m ahead, into the vault with the archon's \
+               quest given; its accelerator takes the player up and its portals on to the antechamber, \
+               whose arrival moves it on; \
+               the archon stands alone in a camp there, his guards beside him, reached on foot from \
+               the landing; his first hurt moves the quest on for a player beside him who never struck, \
+               not for the striker 50 m off; no portal to the menhir stands while he lives; his fall \
+               opens it at its place, reached on foot, which keeps out the striker and leads the one \
+               moved on, the menhir then ending the quest with its crystal; the flawed gem's portal \
+               stands 300 s and leads to its own place; \
+               the Battlefield keeps each kind of portal wisp in a camp outdoors.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OSTETH-MASTER-VAULT"),
+        station: "yalain-testkit::corpus::world_db::the_master_vaults_gem_opens_the_way_to_the_archon_whose_first_hurt_and_fall_open_the_menhir",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-rashans-last-word-walk-through",
+        says: "Rashan's Last Word walks through: the spectre's use gives it with his sword; the Drudge Hero Shrine's portal on the land leads in and the portal at its back on to the shrine's room; the sword laid on the shrine is kept and moves it on; the room's way out leads back to the land, and the spectre used again ends it with his reward.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OSTETH-HERO-SHRINE"),
+        station: "yalain-testkit::corpus::world_db::rashans_sword_laid_on_the_drudges_shrine_past_the_hero_shrines_back_portal_ends_his_last_word",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-skyterror-walk-through",
+        says: "The scraven leader's quest walks through: a camp of its own north of the western outpost keeps the leader, whose corpse holds the feather; the drudge gives the quest once his first is done, the feather taken moves the quest on, and handed back ends it with one helm.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OSTETH-SKYTERROR"),
+        station: "yalain-testkit::corpus::world_db::the_scraven_leaders_corpse_holds_the_feather_that_ends_its_quest_with_a_helm",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-soulbound-wasp-nest-walk-through",
+        says: "Osteth's soulbound Wasp Nest walks through: the scowl drudges, whose camps stand outdoors near the golem, leave the Wasp Nest's emblem as often as each of the other emblems they leave. Tamar gives the quest; the emblem given to the golem before the activation crystal is handed back; the crystal moves the quest on, and the emblem given then is taken and ends it with the Soulbound Wasp Nest.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OSTETH-SOULBOUND"),
+        station: "yalain-testkit::corpus::world_db::osteths_wasp_nest_emblem_from_the_drudges_becomes_the_golems_weapon",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-soulbound-weapons-every-type",
+        says: "Every Osteth soulbound weapon has its way: each of the sixteen emblems is left by drudges, by a drudge hoard's row; each given to the golem at the second phase is taken and ends the quest with the weapon of its name.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OSTETH-SOULBOUND-TYPES"),
+        station: "yalain-testkit::corpus::world_db::every_osteth_soulbound_emblem_drops_from_drudges_and_has_its_hand_in",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-spymaster-reports-walk-through",
+        says: "The Shoushi spymaster's reports walk through: he stands on his hill's level top and gives the quest and its four agents' parts; each placed agent hands over his report when spoken to, and each report handed back ends its part, the last ending the quest.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OSTETH-SPYMASTER-REPORTS"),
+        station: "yalain-testkit::corpus::world_db::the_spymasters_four_agents_hand_over_their_reports_and_the_last_returned_ends_it",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-wandering-folk-walk-through",
+        says: "The wanderers' two errands walk through: the wheelwright gives his with the recipes for the wheel and its parts, and the finished wheel ends it; their leader gives his with the wand, which used on each of the three refugees by the northern crater lake moves it on, and he ends it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OSTETH-WANDERING-FOLK"),
+        station: "yalain-testkit::corpus::world_db::the_wanderers_wheel_is_made_from_its_recipes_and_their_refugees_are_rescued_by_the_wand",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.outpost-chests-reached-on-foot",
+        says: "Every outpost beacon on the land with its race's supply chest within 40 m (every Gurog \
+               and Burun beacon, four of the five Drudge) is reached on foot from the nearest lifestone \
+               or ringway portal, and its chest from the beacon.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OUTPOST-CHESTS-REACH"),
+        station: "yalain-testkit::corpus::world_db::every_outpost_with_a_supply_chest_is_walked_from_its_way_in_to_its_beacon_and_chest",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.outpost-chests-walk-through",
+        says: "A destroyed outpost beacon leaves each of its quester's fellows a key: the blowout's end \
+               gives the continent's key quest to the quester and its fellows and no one else, and the \
+               beacon's corpse holds a key for each of them; each takes one and only one, a stranger \
+               none. The key opens its race's supply chest at every outpost that keeps one (every \
+               Gurog and Burun outpost, four of the five Drudge), which holds three of the continent's \
+               portal shards and the race's summoners and locks again as it closes; each summoner \
+               makes the creature it names for its user and gives a thirty minutes' wait, in which \
+               another is refused.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OUTPOST-CHESTS"),
+        station: "yalain-testkit::corpus::world_db::a_destroyed_beacon_leaves_each_fellow_a_key_that_opens_the_outpost_chest_of_shards_and_summoners",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.quests.pay-with-no-setup",
@@ -14282,6 +15315,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.radiant-temple-forge-walk-through",
+        says: "Temple Forge Repair walks through: the Radiant Temple's Master Smith turns away one with no craft, an armorsmith under 200 and a weaponsmith, judging their crafting ability, and to an armorsmith of 200 in any race's armor gives it with her line and the recipe that makes the Master Hearthstone; the hearthstone handed to her is kept and ends it, teaching the fifteen unfinished ancient armor recipes; once it is done she no longer judges a use.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-RADIANT-TEMPLE-FORGE"),
+        station: "yalain-testkit::corpus::world_db::the_radiant_temples_smith_takes_a_new_hearthstone_and_teaches_the_ancient_armor",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.ran-out-before-leaving",
         says: "A quest with no time left when its character left the world is failed when the \
                character enters, its wait counted from when the time ran out.",
@@ -14289,6 +15330,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-RAN-OUT-AWAY"),
         station: "yalain-testkit::cpu::entry::keeping::a_quest_with_no_time_left_when_its_player_left_is_listed_failed",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.rat-smasher-charm",
+        says: "Rat-Smasher walks through: the rathunter grutts are kept in camps and may leave the charm on their corpses; the charm used gives the quest and is spent; both kinds of vermin are kept; ten Tanglefoot Vermin's deaths move it through its first ten phases, a Dank Vermin's moving nothing there, then ten Dank Vermin's through its last ten, a Tanglefoot Vermin's moving nothing there, and the tenth ends it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-RAT-SMASHER"),
+        station: "yalain-testkit::corpus::world_db::the_rathunters_charm_gives_rat_smasher_ended_by_ten_tanglefoot_then_ten_dank_vermin",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.quests.ratings-as-2017",
@@ -14324,12 +15373,95 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.scholars-giver-gives-one",
+        says: "The scholars' quest giver gives that quest alone: his use gives no other quest, the quest his portal rupture gives among them, and a player's use is given the scholars' quest.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-SCHOLARS-GIVER"),
+        station: "yalain-testkit::corpus::world_db::the_scholars_quest_giver_gives_that_quest_alone",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.series-given-in-order",
+        says: "People who give quests in a series give each once the one before it is done: seven givers each give their first quest at a player's first use and the next only once the one before it is done, and the Disciple gives his first task only once the alms are given.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-QUEST-SERIES"),
+        station: "yalain-testkit::corpus::world_db::people_who_give_quests_in_a_series_give_each_once_the_one_before_it_is_done",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.seskris-talismans",
         says: "Seskri's quest moves by each talisman's own effect, she names what is left at each \
                phase, and she takes the last. No recording shows a talisman.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-WDB-SCLAVUS-CABALS"),
         station: "yalain-testkit::corpus::world_db::seskris_quest_moves_by_its_talismans_and_ends_with_the_last",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.shinoko-festival-walk-through",
+        says: "Shinoko's festival walks through: its organizer refuses a player under level 20; above it each \
+               use gives one of her four errands at random with its line, each handed in pays the coins her offer \
+               promised and adds its share to the town's shared count of supplies, her count line saying it until all is gathered; then a supply \
+               is refused, an errand left over is over, each use gives a decoration whose use in Shinoko \
+               places it and counts it, and she tells those near her there is more work; once the decorations \
+               are full all is set, the festival and its people come a few minutes later for its time, while \
+               it is on she says it turned out great, near her and at a use, and refuses what she is given \
+               with enjoy the festival, and as it ends both counts start again, what was placed is gone and \
+               her gathering lines are back.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-SHINOKO-FESTIVAL"),
+        station: "yalain-testkit::corpus::world_db::shinokos_festival_fills_from_its_errands_then_its_decorations_and_starts_over_as_it_ends",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.shinoko-roadway-walk-through",
+        says: "Shinoko's roads walk through: a road quest handed back to the guard gives his notice for the \
+               board; each notice put up lowers the board's advisory a step, read from highest to none; the \
+               ninth brings the peddler back and changes the guard's welcome; a week later the peddler leaves \
+               and the advisory is back at its highest.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-SHINOKO-ROADWAY"),
+        station: "yalain-testkit::corpus::world_db::shinokos_road_notices_lower_the_boards_advisory_to_none_and_bring_the_peddler_back",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.shoyanen-emeralds-walk-through",
+        says: "Orlen's geyser quest's emerald branch walks through: the emerald geyser takes the alembic and gives its water with the suspension's recipe, moving the quest on, and fills it again at the last phase; the suspension handed back to Orlen ends it with the imbued emerald's recipe, whose gem the kings' armor's five recipes ask for.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-SHOYANEN-EMERALDS"),
+        station: "yalain-testkit::corpus::world_db::the_emerald_geyser_fills_orlens_alembic_and_the_suspension_teaches_the_imbued_emerald",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.siege-stores-walk-through",
+        says: "The supplymaster's grain quest walks through: the seed tunnels lead in and back out, their chest within its room gives the seed packet at every opening and their scraven move from their camps; the packet's taking moves it on; away from its soil the packet is refused and kept, at the soil it plants four plants and moves it on; ripe after five minutes each gives a sheaf, the first moving it on; the baker bakes sheaves into bread, the first moving it on; a bread taken back ends it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-KNORR-SIEGE-STORES"),
+        station: "yalain-testkit::corpus::world_db::the_supplymasters_seed_planted_at_its_soil_grows_grain_the_baker_bakes_and_she_takes_back",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.soul-eater-walk-through",
+        says: "The mage's untraining sales walk through: his place in the Dominion's headquarters is reached on foot from its way in. Coins or a token from a player untraining nothing are handed back with his line for each; from one untraining a skill, 15,000 coins (no other count) finish the untraining and move his quest on, the first giving it and the fifth ending it, with his line each time; a sixth within his five days is handed back; a token then still finishes an untraining, his quest unmoved; once his five days are over the coins give his quest again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-SOUL-EATER"),
+        station: "yalain-testkit::corpus::world_db::the_mages_five_untraining_sales_walk_from_the_headquarters_way_in_to_his_break_and_back",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.star-of-heroes-giver-walk-through",
+        says: "The temple's priestess gives the star's quest, whose recipe's making ends it: she stands in the Radiant Temple where January 2017 found her, where a guide of the time puts the star's giver, reached on foot from the temple's smith; her use gives the quest with her line for a task and teaches the recipe that assembles the star from six radiant stars, whose making ends the quest. Given, a second use rouses nothing but her line for it. A chaos crystal given to the cleansed forge makes a star, and that star given to Arramora's beacon is its reward's, the quest still under way; six radiant stars (made in the test: no row of the world gives one) through her recipe make the star and end the quest, and she does not give it again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-STAR-OF-HEROES-GIVER"),
+        station: "yalain-testkit::corpus::world_db::the_temples_priestess_gives_the_stars_quest_whose_recipes_making_ends_it",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.star-of-heroes-walk-through",
+        says: "The cleansed forge turns a chaos crystal into the star, and Arramora's beacon takes it: the forge stands in the forge room, reached on foot from the hammer and given a crystal from there; a row has it take the attuned crystal and another the crystal of the tree's chain, each for one who has cleansed it, giving the star; the beacon stands in Arramora; the first star's quest pays fifty million once, the lesser one ten million each time, kept from the journal. The attuned crystal given before the forge is cleansed is handed back with its line for an item it does not take; once cleansed it is kept with its line for the star's making, the star given in its place, and the tree's crystal makes a star too. The first star given to the beacon is kept with its first line and ends the great reward's quest, its lesser reward's quest untouched; each star after is kept with its second line and ends the lesser one, again and again, the great one staying done.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-STAR-OF-HEROES"),
+        station: "yalain-testkit::corpus::world_db::a_chaos_crystal_given_to_the_cleansed_forge_becomes_the_star_which_arramoras_beacon_takes",
         tier: Tier::Corpus,
     },
     behaviour! {
@@ -14404,6 +15536,30 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.swordbearer-protectors-walk-through",
+        says: "Protect the Swordbearer goes with the Sword of the Doomed Hero: Vargil's use gives a hero the Sword and no one else, and with it Protect the Swordbearer to its bearer and the bearer's fellow and to no stranger beside them, all three heroes; a protector's death fails nothing; the bearer's death fails the Sword and both protect quests.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-SWORDBEARER-PROTECT"),
+        station: "yalain-testkit::corpus::world_db::protect_the_swordbearer_goes_to_the_bearers_fellows_and_fails_with_the_sword",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.tarot-melds-walk-through",
+        says: "The tarot's melds walk through: every greater and lesser trump drops; any greater trump handed the teller ends the significator's quest with her acceptance and the card's line, its significator, her pamphlet and the four meld recipes; melds are made at the crafting page, a set that melds into nothing kept; a meld on a lesser trump of the character's rank makes the fate card, on another rank the lesser one, the meld kept, the moons' meld making the good Fortuna or the bad, both over many uses on seeded dice; the significator used on each meld ends its quest, kept, the meld taken, the craft gateway paying its craft experience.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-TAROT"),
+        station: "yalain-testkit::corpus::world_db::the_tarots_melds_are_made_and_a_significator_passed_through_each_ends_its_quest",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.temple-of-roots-walk-through",
+        says: "The temple under the standing stone walks through: its search done, the stone sends the player in, a way out beside the landing leading back; camps keep the marauders, their leader and the lesser spawn there, the tentacle and its guards in the depths; the shrine and the chieftain end the exploration; the chained spawn gives the spore the shaman takes; her vial filled by twelve spawn is traded for the fetish, which the spawn takes, dragging the player down to the depths, whose spawn carries the player back; the marauders and their leader end the warrior's quest; the tentacle's death ends its quest and gives the root's, which ends with the burl.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-TEMPLE-OF-ROOTS"),
+        station: "yalain-testkit::corpus::world_db::the_temple_under_the_standing_stone_is_entered_and_its_quests_end_in_it_and_its_depths",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.the-antechamber-code",
         says: "Three obelisks touched in the recorded twelve-touch order send the player on; a wrong touch fails the hidden quest and the order starts over.",
         since: RETAIL,
@@ -14455,6 +15611,51 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-TIMED-PHASE"),
         station: "yalain-testkit::cpu::play::quests::a_quest_timed_in_a_later_phase_counts_from_when_that_phase_comes",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.town-officer-tickets-walk-through",
+        says: "The town officer's tickets walk through: the officer stands in camps of three towns; his killing gives his quest and a ticket, and each killing while it is under way another ticket, the quest left as it is.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OFFICER-TICKETS"),
+        station: "yalain-testkit::corpus::world_db::killing_the_town_officer_gives_his_quest_and_a_ticket_and_another_ticket_at_each_kill",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.trumped-walk-through",
+        says: "Trumped walks through: Jayna gives it with her contract, to a hero from level 46; the contract and the Seeker handed the teller move it on, the Seeker for her counter-offer, which Jayna takes; Three Kingdoms on a drum makes a character of the drum's rank the fate card of vigor and another the lesser one, either handed the teller moves it on, and Jayna ends it with her pay.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-TRUMPED"),
+        station: "yalain-testkit::corpus::world_db::trumped_runs_from_jayna_through_the_teller_and_takes_the_vigor_card_three_kingdoms_makes",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.two-given-at-one-use",
+        says: "A use that gave two quests at once gives them together: each warder gives its own errand and the errand to the next at one use, the first warder the errand alone once her own is done, and the egg collector both her hunts at one use.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-TWO-AT-ONE-USE"),
+        station: "yalain-testkit::corpus::world_db::a_use_that_gave_two_quests_at_once_gives_them_together",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.tyrants-loft-walk-through",
+        says: "The tyrants' loft walks room to room: its portal on the land leads in; each room's rift \
+               leads on to the next room's landing in the wiki's order, the fourth room's to the inner \
+               half, each boss kept in its own room; the rift into the last room gives its quest, its \
+               boss's fall moves it on and his scale taken ends it; the bosses leave the scales the \
+               wiki counts; an apprentice's quest gives its trophy back, and the armor made from that \
+               scale, the trophies and the materials ends it; the loft's ways out lead to the land.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-TYRANTS-LOFT"),
+        station: "yalain-testkit::corpus::world_db::the_tyrants_loft_leads_room_to_room_to_its_last_boss_whose_scale_ends_an_apprentices_armor",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.ulkas-mines-walk-through",
+        says: "The three Ulkas mines walk through: each mine's guard, killed, gives the mine's quest and teaches the mining recipe, which works the mine's node and whose making moves the quest on a phase each time.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-ULKAS-MINES-WALK"),
+        station: "yalain-testkit::corpus::world_db::each_ulkas_mines_guard_teaches_the_recipe_whose_mining_moves_its_quest_on",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.quests.under-level-line-is-the-persons",
@@ -16259,6 +17460,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.walks.never-under-the-sea",
+        says: "The corpus walks take no step and seek no goal under the sea's surface where the land \
+               has water, though the walls carry a body onto the sea floor: a place set under the sea \
+               fails its reach on foot.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-WALKS-UNDER-THE-SEA"),
+        station: "yalain-testkit::corpus::world_db::walks_take_no_step_under_the_sea_and_seek_no_goal_there",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.weapons.attack-speed-effects",
         says: "A player's attack speed effects, its class's top one and what adds on top, set the time \
                scale of its swings, shots and specials, and so when they land and when the next \
@@ -16772,6 +17983,64 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Live,
     },
     behaviour! {
+        id: "server.world.artefon-deep-catacombs-walk-through",
+        says: "The deepest catacombs under Artefon walk through: the crack from the outer catacombs (open while the queen's quest is under way) leads to their landing, the way out beside it; every spot of their camps of the catacombs' revenants and undead stands in its own room, each kind moving there, and is reached on foot; the farthest is run to and back, every report followed; and the way out leads back to the outer catacombs by the crack.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-ARTEFON-DEEP-CAMPS"),
+        station: "yalain-testkit::corpus::world_db::the_deepest_catacombs_under_artefon_are_walked_from_the_crack_to_every_camp_and_out",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.burun-shaman-lair-walk-through",
+        says: "The burun shaman's lair near Tou-Tou walks through: its portal on the land leads to its landing, its way out beside it; every spot of its camps of Harvester Grubs and Browerk and Myrmidon buruns stands north of the locked doors to the shaman's room, each kind moving there, and is reached on foot; the farthest is run to and back, every report followed; and the way out leads back to the land near the portal.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-SHAMAN-LAIR-CAMPS"),
+        station: "yalain-testkit::corpus::world_db::the_burun_shamans_lair_near_tou_tou_is_walked_from_its_way_in_to_every_camp_and_out",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.chaos-breach-wisps-spare-the-ward",
+        says: "The chaos wisps of the breach the crafted necklace leads to let by whoever bears the \
+               necklace's half-hour ward, and come at one without it; the breach's first part is walked \
+               from the necklace's landing to every camp, and out to Rakani.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-CHAOS-BREACH-WISPS"),
+        station: "yalain-testkit::corpus::world_db::the_breachs_chaos_wisps_let_the_necklaces_ward_by_until_it_runs_out",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.chaos-plane-shadows-walk-through",
+        says: "The Chaos Plane's shadows' platforms walk through: from the nexus the walker runs to the north-east path's portal, which leads to the path's small first platform; its three portals lead to the second platform, to the platform the map numbers 4 and back to the nexus; every other platform has two, back and on, as the map draws them, the third's on recallable; every landing is reached from the first through them. On each platform every spot of its camps of the map's three kinds of shadows stands, each kind moving there, and is reached on foot, the farthest run to and back; and from where the way back lands in the nexus the path's portal is run to again.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-CHAOS-PLANE-SHADOWS"),
+        station: "yalain-testkit::corpus::world_db::the_chaos_planes_shadow_platforms_are_walked_through_every_portal_to_every_camp_and_back",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.chaos-plane-spiral-walk-through",
+        says: "The Chaos Plane's spiral walks through: from the nexus the walker runs to the south-west path's portal, which leads to the spiral's departure; on foot from there it reaches both platforms atop the two loops and the lowest pad, each platform's portal leading to where the other platform's loop meets it and the pad's back to the nexus. Every spot of the camps of the map's shadows, virindi, wisps and storm stands, each kind moving there, and is reached on foot, the farthest run to and back; and from where the way back lands in the nexus the path's portal is run to again.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-CHAOS-PLANE-SPIRAL"),
+        station: "yalain-testkit::corpus::world_db::the_chaos_planes_spiral_is_walked_through_every_portal_to_every_camp_and_back",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.chaos-plane-virindi-walk-through",
+        says: "The Chaos Plane's virindi platform walks through: from the nexus the walker runs to the north-west path's portal, which leads to the path's pad of four frames; of its three portals two lead back to the nexus and one to the rim of the lower ring of four platforms joined by bridges, where every platform's camps are reached on foot and the portal on the far platform leads to the platform above them, whose portal leads back to the nexus. Every spot of the camps of the map's virindi and wisps stands, each kind moving there, and is reached on foot, the farthest run to and back; and from where the way back lands in the nexus the path's portal is run to again.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-CHAOS-PLANE-VIRINDI"),
+        station: "yalain-testkit::corpus::world_db::the_chaos_planes_virindi_platform_is_walked_through_every_portal_to_every_camp_and_back",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.crones-laboratory-walk-through",
+        says: "The crones' laboratory near Cavendo walks through: its door on the land leads to its landing, its way out beside it; every spot of its camps of Grief, Pain, Torment, Beldam and Sorrow crones stands in its own room clear of the mistress and her guards, each kind moving there, and is reached on foot; the farthest is run to and back, every report followed; and the way out leads back to the door.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-CRONE-LABS-CAMPS"),
+        station: "yalain-testkit::corpus::world_db::the_crones_laboratory_near_cavendo_is_walked_from_its_door_to_every_camp_and_out",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.world.database-backed-up-before-a-schema-upgrade",
         says: "Before its schema is upgraded, a database file that holds anything is copied \
                beside itself as it was, named for the versions and the time, and the newest \
@@ -16801,6 +18070,22 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-STORE-WAL"),
         station: "yalain-store::cpu::persistence::the_database_is_kept_with_a_write_ahead_log_and_a_save_outlives_a_crash",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world.drudge-hideout-walk-through",
+        says: "The drudges' cave near Rithwic walks through: from the land the walker runs in through its mouth on foot; every spot of its camps of drudges and reedsharks stands in its own passage, each kind moving there, and is reached on foot, with the despot alone in a camp of his own; the farthest is run to and back, every report followed; and the walker runs out to the land again.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-DRUDGE-HIDEOUT-CAMPS"),
+        station: "yalain-testkit::corpus::world_db::the_drudges_cave_is_walked_in_from_the_land_to_every_camp_and_out",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.drudges-underground-city-walk-through",
+        says: "The drudges' underground city near Cavendo walks through: its portal on the land leads to its landing, its way out beside it; every spot of its camps of Prowler, Robber, Mystic, Scowl, Gloom, Cabalist and Murk drudges stands in its own hall clear of the Revered One and the ways out, each kind moving there, and is reached on foot; the farthest is run to and back, every report followed; and the way out leads back to the land by the portal.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-DRUDGE-CITY-CAMPS"),
+        station: "yalain-testkit::corpus::world_db::the_drudges_underground_city_near_cavendo_is_walked_from_its_way_in_to_every_camp_and_out",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.world.entered-by-referral",
@@ -16844,6 +18129,94 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.world.foundry-library-walk-through",
+        says: "The Foundry's library walks through: its way in from the town leads to its room above, its trap door down (the gates' quest under way) to its basement, where every spot of its camps of Cursed and Brittle Bones stands in its own room, each kind moving there, and is reached on foot; the farthest is run to and back, every report followed, and the basement's way out leads to the town by the way in.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-FOUNDRY-LIBRARY-CAMPS"),
+        station: "yalain-testkit::corpus::world_db::the_foundry_library_is_walked_down_its_trap_door_to_every_camp_and_out",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.foundry-tinkers-workshop-walk-through",
+        says: "Tinker's Workshop walks through: its way in from the town leads to its room above, its trap door down (once the gates' quest is done) to its basement, where every spot of its camps of the map's five kinds of undead stands in its own room, each kind moving there, and is reached on foot; the farthest is run to and back, every report followed, and the basement's way out leads to the town by the way in.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-TINKERS-WORKSHOP-CAMPS"),
+        station: "yalain-testkit::corpus::world_db::tinkers_workshop_is_walked_down_its_trap_door_to_every_camp_and_out",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.foundry-tower-barracks-walk-through",
+        says: "Tower Barracks walks through: its way in from the town leads to its ground floor, from which no floor above is reached on foot; a ladder up from each floor but the top leads to the next, and a hatch down from each but the ground back to the one below. Climbing from the ground to the top, every camp's spot on each floor is reached on foot (the map's Levels 0 to 2, none on the floor it doesn't draw, its Level 3 at the top); at the top, the north and east camps' undead, and no other camp's, leave the basement's key: one stood there and killed leaves it in its corpse, and it is taken. Climbing down again, the trap door is locked to that key as well as behind the gates' quest: the key is refused without the quest, and with the quest a plain use is refused; the key used on it then leads to the basement and is used up, and from there every other camp's spot, down to the master's room, is reached on foot. Each spot stands in its own room with Cursed and Brittle Bones moving there; on each floor the farthest is run to and back, every report followed, and the basement's way out leads to the town by the way in.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-TOWER-BARRACKS-CAMPS"),
+        station: "yalain-testkit::corpus::world_db::tower_barracks_is_walked_up_its_ladders_for_the_basement_key_and_down_its_trap_door_to_every_camp",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.grievver-nest-walk-through",
+        says: "The grievvers' nest near the Aerie walks through: its door on the land leads to its landing, its way out beside it; every spot of its camps of Scrawed, Noxious, Baby Virulent, Virulent and Toxic Grievvers stands in its own tunnel clear of the lair's master and its eggs, each kind moving there, and is reached on foot; the Scrawed and Noxious stand nearer the landing than the rest, as the map colors its dots; the farthest is run to and back, every report followed; and the way out leads back to the land by the door.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-GRIEVVER-NEST-CAMPS"),
+        station: "yalain-testkit::corpus::world_db::the_grievvers_nest_near_the_aerie_is_walked_from_its_door_to_every_camp_and_out",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.gurog-undercrofts-walk-through",
+        says: "The dungeon under the Gurog fortress walks through from its landing and out: the king's death stands the portal that leads to its landing; every spot of its camps of Gurog Elders, Guardians and Protectors stands in its own room clear of the debris the quest searches, each kind moving there, and is reached on foot from the landing; the farthest is run to and back, every report followed; and the way out, at the far end of the landing's room, is run to on foot and leads up to the fortress's plaza by the platform where the king's portal stands.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-UNDERCROFTS-CAMPS"),
+        station: "yalain-testkit::corpus::world_db::the_dungeon_under_the_gurog_fortress_is_walked_from_its_landing_to_every_camp_and_out",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.haunted-mine-walk-through",
+        says: "The haunted mine near Ikeras walks through: its way in from the land leads to its landing, its way out beside it; every spot of its camps of Awaro-bal and Khero-bal stands in its own room clear of the boss and the ways out, each kind moving there, and is reached on foot; the farthest is run to and back, every report followed; and the way out leads back to the land by the way in.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-GHOST-MINES-CAMPS"),
+        station: "yalain-testkit::corpus::world_db::the_haunted_mine_near_ikeras_is_walked_from_its_way_in_to_every_camp_and_out",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.hive-east-walk-through",
+        says: "The hive dungeon's east side dungeon walks through: from the land into the main dungeon, along to its east arm's portal (shut under its least level), into the side dungeon, where every spot of its camps of Burun Amalgams and Abominations and Olthoi Noble and Eviscerator Nymphs and Soldiers stands in its own room, each kind moving there, and is reached on foot; the farthest is run to and back, every report followed; then out to the arm, back to the main dungeon's way out and out to the land by the way in.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-HIVE-EAST"),
+        station: "yalain-testkit::corpus::world_db::the_hive_dungeons_east_side_is_walked_from_the_land_to_every_camp_and_out",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.hive-entry-halls-walk-through",
+        says: "The hive dungeon's entry halls in the Olthoi Wastes walk through: its portal on the land leads to its landing, its way out beside it; every spot of its camps of Grub Tender and Worker Nymphs, Drones and Legionary and Noble Grubs stands in one of its six halls clear of the ways on, each kind moving there, and is reached on foot, each hall holding as many as the map dots in it; the farthest is run to and back, every report followed; and the way out leads back to the land by the portal.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-HIVE-ENTRY-CAMPS"),
+        station: "yalain-testkit::corpus::world_db::the_hive_dungeons_entry_halls_are_walked_from_its_way_in_to_every_camp_and_out",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.hive-south-walk-through",
+        says: "The hive dungeon's south side dungeon walks through: from the land into the main dungeon, along to its south arm's portal (shut under its least level), into the side dungeon, where every spot of its camps of Burun Hybrids and Half-breeds and Olthoi Legionary Nymphs and Workers stands in its own room, each kind moving there, and is reached on foot; the farthest is run to and back, every report followed; then out to the arm, back to the main dungeon's way out and out to the land by the way in.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-HIVE-SOUTH"),
+        station: "yalain-testkit::corpus::world_db::the_hive_dungeons_south_side_is_walked_from_the_land_to_every_camp_and_out",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.hive-west-walk-through",
+        says: "The hive dungeon's west side dungeon walks through: from the land into the main dungeon, along to its west arm's portal (shut under its least level), into the side dungeon, where every spot of its camps of Burun Swarm Wardens and Shaman Hive Masters and Olthoi Soldier Nymphs, Eviscerator Grubs and Grub Tenders stands in its own room, each kind moving there, and is reached on foot; the farthest is run to and back, every report followed; then out to the arm, back to the main dungeon's way out and out to the land by the way in.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-HIVE-WEST"),
+        station: "yalain-testkit::corpus::world_db::the_hive_dungeons_west_side_is_walked_from_the_land_to_every_camp_and_out",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.holding-portal-walk-through",
+        says: "The hero initiation's dungeon portal opens for the flagged: its portal on the mountain leads to the dungeon's landing, with no least level, and asks for the hidden quest the device inside gives done. A walker without it is refused and stays on the land; with it done, it goes through to the landing, runs on foot to the device, and on through a door to the way out, which leads to the fortress on the land; from there it runs back to the portal on foot and goes through again.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-HOLDING-PORTAL"),
+        station: "yalain-testkit::corpus::world_db::the_hero_dungeons_portal_takes_only_the_flagged_to_its_landing_and_its_way_out_leads_back",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.world.item-instance-stamp-counts-entries",
         says: "An item made in a session is made with instance stamp 0, and with one more each \
                time its holder enters again.",
@@ -16860,6 +18233,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-WORN-LOOK-KEPT"),
         station: "yalain-testkit::cpu::entry::keeping::an_item_kept_worn_takes_its_worn_rows_look_at_the_next_entry",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world.knorr-stores-tunnels-walk-through",
+        says: "The tunnels under Knorr's stores walk through: their way in from the wilds leads to their landing, the way out beside it; every spot of their camps of Vemak, Chelak and Lukn scraven stands in its own room clear of the seed room's, each kind moving there, and is reached on foot; the farthest is run to and back, every report followed; and the way out leads back to the wilds by the way in.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-SIEGE-STORES-CAMPS"),
+        station: "yalain-testkit::corpus::world_db::the_tunnels_under_knorrs_stores_are_walked_from_their_way_in_to_every_camp_and_out",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.world.left-to-the-character-list",
@@ -16881,14 +18262,30 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.world.maliks-dungeon-walk-through",
+        says: "Malik's dungeon walks through: its way in from the land leads to its landing, its way out beside it; every spot of its camps of Crasher, Bouncer and Slammer banderlings stands in its own room clear of Malik, each kind moving there, and is reached on foot; the farthest is run to and back, every report followed; and the way out leads back to the land by the way in.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-BANDERLING-DELVE-CAMPS"),
+        station: "yalain-testkit::corpus::world_db::maliks_dungeon_is_walked_from_its_way_in_to_every_camp_and_out",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.world.mapped-dungeon-ways-in",
-        says: "Each of the four ways in that players' maps and the list of destinations place leads \
+        says: "Each of the eleven ways in that players' maps and the list of destinations place leads \
                into its dungeon, a way out stands beside its landing and leads back near the \
                portal, and every creature spot the maps give stands in one of its dungeon's own \
                cells, where each kind its camp makes moves.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-WDB-TELEPADS"),
         station: "yalain-testkit::corpus::world_db::the_mapped_dungeons_ways_in_and_out_lead_both_ways",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.mapped-masters-stand-alone",
+        says: "The Foundry houses' masters' spots hold no other spawn: no camp of the players' maps' spawns stands at a master's mark or at three houses' stair numbers, and each master stands in its house.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-MAPPED-MASTERS"),
+        station: "yalain-testkit::corpus::world_db::the_foundry_houses_masters_spots_hold_no_other_spawn",
         tier: Tier::Corpus,
     },
     behaviour! {
@@ -16901,6 +18298,30 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-OBJECTS-AROUND"),
         station: "yalain-testkit::cpu::entry::world::objects_in_range_are_made_as_the_player_enters_and_as_it_walks_into_their_landblock",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world.olthoi-hive-northeast-walk-through",
+        says: "The northeast hive in the Olthoi Wastes walks through: from the land outside its mound the walker runs in and down to the portal at the mound's bottom, which leads to the hive's landing, its way out beside it; every spot of its camps of Harvester, Gardener and Drone Grubs and Harvester and Gardener Nymphs stands in its own chamber clear of the nymph's spots and the portals to the warren, each kind moving there, and is reached on foot; the farthest is run to and back, every report followed; and the way out leads into the mound by the portal, from which the walker runs up to the land again.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-OLTHOI-HIVE-NE-CAMPS"),
+        station: "yalain-testkit::corpus::world_db::the_northeast_olthoi_hive_is_walked_from_the_land_down_its_mound_to_every_camp_and_out",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.olthoi-hive-western-walk-through",
+        says: "The western hive in the Olthoi Wastes walks through: from the land outside its mound the walker runs in and down to the portal at the mound's bottom, which leads to the hive's landing, its way out beside it; every spot of its camps of Harvester, Gardener and Drone Grubs and Harvester and Gardener Nymphs stands in its own chamber, each kind moving there, and is reached on foot; the farthest is run to and back, every report followed; and the way out leads into the mound by the portal, from which the walker runs up to the land again.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-OLTHOI-HIVE-WEST"),
+        station: "yalain-testkit::corpus::world_db::the_western_olthoi_hive_is_walked_from_the_land_down_its_mound_to_every_camp_and_out",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.olthoi-warren-walk-through",
+        says: "The warren under the northeast hive walks through from both its portals: from the hive's landing the walker runs to the portal at the far end of its west chamber, which leads to the warren's first landing, whose way out beside it leads into the hive's mound, from which the walker runs down to the mound's portal into the hive again; then to the portal in the chamber north of the hive's middle, which leads to the warren's second landing, its way out beside it; every spot of the warren's camps of Harvester, Gardener and Drone Grubs and Harvester and Gardener Nymphs stands in its own chamber clear of its ways, each kind moving there, and is reached on foot from there; the farthest is run to and back, every report followed; and the way out leads back to the hive beside the portal that led in.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-OLTHOI-WARREN"),
+        station: "yalain-testkit::corpus::world_db::the_warren_under_the_northeast_hive_is_walked_from_both_its_portals_to_every_camp_and_out",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.world.one-character-of-an-account-at-a-time",
@@ -16940,6 +18361,20 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.world.renegade-fortress-fanatics-spare-the-disguised",
+        says: "The renegade fortress south of Mayoi holds a fanatic at each of the 38 dots its \
+               players' map draws: its guards' spots in Kogun's room and the renegade lord's, and a \
+               camp of Fanatic Mages and Rangers at every other, each in its room, clear of the rest, \
+               each kind moving there and reached on foot; both kinds are of the fanatics' class, \
+               which the world makes spare the disguise's effect, put on by its use for three \
+               hours and through portals: the disguised walk among them unattacked, and without \
+               the disguise they come.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-RENEGADE-FORTRESS-CAMPS"),
+        station: "yalain-testkit::corpus::world_db::the_renegade_fortress_fanatics_stand_at_its_maps_dots_and_leave_the_disguised_alone",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.world.scene-drawn-frees-movement",
         says: "When the client says it has drawn the world, the server frees the player's \
                movement and ends the arrival effect.",
@@ -16956,6 +18391,57 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SESSION-START"),
         station: "yalain-testkit::corpus::content::the_session_start_reads_back_against_the_client_library",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.skyport-maintenance-walk-through",
+        says: "The mine under the Skyport walks through: its way in from the hills leads to its landing, its way out beside it; every spot of its camps of Mangler and Mauler banderlings stands in its own room clear of the ore and the apparatus, each kind moving there, and is reached on foot; the farthest is run to and back, every report followed; and the way out leads back to the hills by the way in.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-SKYPORT-MAINT-CAMPS"),
+        station: "yalain-testkit::corpus::world_db::the_mine_under_the_skyport_is_walked_from_its_way_in_to_every_camp_and_out",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.skyport-mansion-walk-through",
+        says: "Dianech's house and its hidden archive walk through: the house's door on the island leads to its landing, its way back beside it; every spot of the house's camps of Imperial Servitor Guards stands in its own room clear of the quest's guards, people and doors, the guard moving there, and is reached on foot; the farthest is run to and back, every report followed, and the way back leads out by the door. The bookcase's hidden door leads to the archive's landing, from which every spot of the archive's camps, all in its middle part short of the Skyport's defenses and outside the amulet droppers' wing, is reached on foot the same way.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-SKYPORT-MANSION-CAMPS"),
+        station: "yalain-testkit::corpus::world_db::dianechs_house_and_its_hidden_archive_are_walked_from_their_landings_to_every_camp",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.skyport-mine-walk-through",
+        says: "The Skyport's mine dungeon walks through: its way in from the hills leads to its landing, its way out beside it; every spot of its camps of Mischievous, Cunning and Pernicious Kallikan stands in its own room, each kind moving there, and is reached on foot; the farthest is run to and back, every report followed; and the way out leads back to the hills by the way in.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-SKYPORT-MINE-CAMPS"),
+        station: "yalain-testkit::corpus::world_db::the_skyport_mine_dungeon_is_walked_from_its_way_in_to_every_camp_and_out",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.skyport-nexus-guards-let-the-amulet-by",
+        says: "The Skyport nexus' guards, one by the heart and the rest through the dungeon, let by \
+               whoever wears the amulet from the hidden archive, its effect named for it, and come at \
+               one without it; the nexus is walked from its locked door to every camp and the heart, \
+               and out.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-SKYPORT-NEXUS-GUARDS"),
+        station: "yalain-testkit::corpus::world_db::the_skyport_nexus_guards_let_the_archive_amulets_wearer_walk_to_the_heart",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.skyport-prototype-walk-through",
+        says: "The Skyport's prototype dungeon walks through: its way in under the prototype's hill leads to its landing, its way out beside it; every spot of its camps of Rough, Grizzled and Wild Monouga stands in its own room, each kind moving there, and is reached on foot; the farthest is run to and back, every report followed; and the way out leads back up by the way in.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-SKYPORT-PROTOTYPE-CAMPS"),
+        station: "yalain-testkit::corpus::world_db::the_skyport_prototype_dungeon_is_walked_from_its_way_in_to_every_camp_and_out",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.slimelords-keep-walk-through",
+        says: "The slimelord's keep near Hakata walks through: its way in from the land leads to its landing, its way out beside it; every spot of its camps of Broodu, Ruruk, Reeshan, Browerk and Rehir buruns stands in its own room clear of the slimelord and the ways out, each kind moving there, and is reached on foot; the farthest is run to and back, every report followed; and the way out leads back to the land by the way in.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-TOAD-KEEP-CAMPS"),
+        station: "yalain-testkit::corpus::world_db::the_slimelords_keep_near_hakata_is_walked_from_its_way_in_to_every_camp_and_out",
         tier: Tier::Corpus,
     },
     behaviour! {
@@ -16995,6 +18481,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-VALUE-KEPT"),
         station: "yalain-testkit::cpu::entry::examine::a_treasure_items_drawn_value_is_kept_across_a_logout",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world.vermin-cave-walk-through",
+        says: "The vermin's cave near Millstone walks through: from the land the walker runs in through its mouth on foot; every spot of its camps of Pilferer, Crawlspace and Tanglefoot vermin stands in its own passage inside the cave, clear of the Excavator, each kind moving there, and is reached on foot; the farthest is run to and back, every report followed; and the walker runs out to the land again.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-VERMIN-NEST-CAMPS"),
+        station: "yalain-testkit::corpus::world_db::the_vermins_cave_near_millstone_is_walked_in_from_the_land_to_every_camp_and_out",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.world.worn-armor-kept-across-sessions",
