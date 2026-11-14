@@ -168,7 +168,8 @@ mod reply_flag {
 
 /// What the external flags of an effect that watches vitals change say: how much it absorbs and
 /// how much it sends back (the same at any spellcraft, or along a line), that it watches health,
-/// that those are shares of the harm rather than amounts, that attacks are what it watches.
+/// that those are shares of the harm rather than amounts, that attacks are what it watches, and that
+/// effects' harm is too.
 mod watcher_flag {
     pub const ABSORB_CONSTANT: u32 = 0x1;
     pub const ABSORB_VARIABLE: u32 = 0x2;
@@ -177,6 +178,7 @@ mod watcher_flag {
     pub const HEALTH: u32 = 0x100;
     pub const SHARES: u32 = 0x2000;
     pub const ATTACKS: u32 = 0x4000;
+    pub const EFFECTS: u32 = 0x8000;
 }
 
 /// What a ward keeps off, where its own data names nothing: the world's `[[effect_rule]]` rows.
@@ -265,6 +267,9 @@ pub struct Watcher {
     pub shares: bool,
     /// It watches health, and attacks (its data may have it watch neither).
     pub watches: bool,
+    /// It watches health, and the harm effects do: it takes from that harm as from an attack's,
+    /// and sends none of it back.
+    pub effects: bool,
 }
 
 /// What an effect does.
@@ -328,6 +333,12 @@ pub enum Kind {
     },
     /// Held by its wearer, it takes from an attack's harm and sends some back.
     Watcher(Box<Watcher>),
+    /// On a weapon, it puts this effect (by its saved state) on what each of the weapon's blows lands
+    /// on, whether or not the blow does it any harm.
+    Applies(u32),
+    /// Takes its target's records of these effects (by their saved states) off, once: what the world's
+    /// rows say it dispels (its own data names nothing).
+    Dispel(Vec<u32>),
     /// Held by its wearer, it may keep off effects of these classes and these effects (by their
     /// saved states; none of either named: of any), by a chance at its spellcraft.
     Ward {
@@ -417,6 +428,7 @@ impl EffectDef {
                     | Kind::GrantSkill(_)
                     | Kind::GrantItem(_)
                     | Kind::Places(_)
+                    | Kind::Dispel(_)
                     | Kind::CraftExperience(_)
                     | Kind::Instants(_)
             )
@@ -437,7 +449,7 @@ impl EffectDef {
             .collect(),
             Kind::Aura(a) => a.pulsed.clone(),
             Kind::Counter { effect, .. } | Kind::Reply { effect, .. } => vec![*effect],
-            Kind::Immunity { then } => vec![*then],
+            Kind::Immunity { then } | Kind::Applies(then) => vec![*then],
             Kind::Instants(list) => list.clone(),
             _ => Vec::new(),
         }
@@ -766,6 +778,7 @@ impl EffectDef {
                 against_a_player: number("m_fReflectPKMod"),
                 shares: flags & watcher_flag::SHARES != 0,
                 watches: flags & watcher_flag::HEALTH != 0 && flags & watcher_flag::ATTACKS != 0,
+                effects: flags & watcher_flag::HEALTH != 0 && flags & watcher_flag::EFFECTS != 0,
             }))
         } else if is("ReflectiveEffect")
             && flags & (keeps_off_flag::CONSTANT | keeps_off_flag::VARIABLE) != 0
@@ -912,6 +925,8 @@ impl EffectDef {
                 adjust_if_present: adjust("m_iSpellcraftAdjustmentIfPresent"),
                 adjust_if_not_present: adjust("m_iSpellcraftAdjustmentIfNotPresent"),
             }))
+        } else if let Some(effect) = state_of("m_effect").filter(|_| is("ApplyEffect")) {
+            Kind::Applies(effect)
         } else if is("AuraEffect") {
             let range_sq = nav.number(o, "m_fMaxRangeSqr").unwrap_or(0.0);
             Kind::Aura(Aura {
@@ -987,7 +1002,8 @@ impl EffectTable {
     /// does not read is left out), each the world's `rules` name (by saved state) an immunity
     /// leaving the effect they name, a ward keeping off what it names, a tap of its share of vitae,
     /// vitae given back, a complete reset of skills granted, an untraining finished, a skill trained,
-    /// items given, or an object placed; and what the effects the rules name by name alone place.
+    /// items given, an object placed, or effects dispelled; and what the effects the rules name by name
+    /// alone place.
     #[must_use]
     pub fn read(
         lib: &Library,
@@ -1036,6 +1052,9 @@ impl EffectTable {
                 }
                 if let Some(p) = rules.places.get(&s) {
                     d.kind = Kind::Places(p.clone());
+                }
+                if let Some(list) = rules.dispels.get(&s) {
+                    d.kind = Kind::Dispel(list.clone());
                 }
                 if let Some(text) = EffectDef::description_of(lib, &g) {
                     t.descriptions.insert(s, text);

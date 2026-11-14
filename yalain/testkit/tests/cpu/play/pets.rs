@@ -1028,6 +1028,7 @@ fn a_pet_striking_a_holder_of_what_sends_harm_back_loses_it() {
                 against_a_player: 1.0,
                 shares: true,
                 watches: true,
+                effects: false,
                 ..Watcher::default()
             })),
             duration: Scale(vec![(0.0, 100_000.0)]),

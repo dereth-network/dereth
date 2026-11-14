@@ -255,6 +255,7 @@ pub(crate) fn creature_at<S: Store>(
         );
     }
     presence::thing_appears(s, net, id);
+    crate::spawn::holds_its_effects(s, net, id, clock);
     Some(id)
 }
 

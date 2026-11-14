@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Worlds can now give creatures lasting effects and enchant a weapon handed in for a quest.
 - Worlds can now have a quest item drop once for each fellow on the quest.
 - Fixed the fanatics' disguise doing nothing when used.
 - Worlds can now have creatures that leave alone a player carrying a certain item or effect.

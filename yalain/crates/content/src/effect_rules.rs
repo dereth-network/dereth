@@ -1,8 +1,8 @@
 //! What the world database says of effects where their own data says nothing: what a ward keeps
 //! off, the share of its holder's vitae an effect takes or the vitae it gives back, what an
 //! immunity leaves as it ends, the complete reset of skills an effect grants, the untraining an
-//! effect finishes, the skill an effect trains, the items an effect gives, and what an effect
-//! places in the world.
+//! effect finishes, the skill an effect trains, the items an effect gives, what an effect places in
+//! the world, and the effects a dispel takes off.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -93,4 +93,6 @@ pub struct EffectRules {
     /// The same, for effects the install names (an item's use naming one) but holds no saved
     /// state of, by the name.
     pub places_named: BTreeMap<String, Placing>,
+    /// The effects that take these effects (by their saved states) off what they are put on.
+    pub dispels: BTreeMap<u32, Vec<u32>>,
 }

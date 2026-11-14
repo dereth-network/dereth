@@ -48,6 +48,7 @@ fn watcher(absorbs: f32, sends_back: f32) -> Watcher {
         against_a_player: 1.0,
         shares: true,
         watches: true,
+        effects: false,
     }
 }
 
@@ -854,29 +855,19 @@ fn a_later_pulse_is_kept_off_by_the_blocker_of_the_first() {
     assert_eq!(count(&h, BLOCKER), 2, "the rest comes on");
 }
 
-/// A practice dummy holds what sends a share of each attack back from its first moment, by its
-/// level, and shows it; the dummy of its level on another kind of template holds nothing.
-/// Behaviour: server.creatures.practice-dummy-sends-back
+/// A creature holds the effects the world's rows give its template from its first moment, each at
+/// the spellcraft its row's line gives the creature's level, and shows it; a creature of a template
+/// no row names holds nothing. A practice dummy's row: 0.01 of an attack sent back for each point of
+/// spellcraft, 30 at level 30 to 50 at 70, so 0.35 at level 40.
+/// Behaviour: server.creatures.effects-from-the-first-moment
 #[test]
-fn a_practice_dummy_sends_back_a_share_of_each_attack_by_its_level() {
-    use yalain_world::spawn::{
-        is_practice_dummy, practice_dummy_spellcraft, PRACTICE_DUMMY_EFFECT as HOLDS,
-    };
+fn a_creature_holds_the_effects_its_rows_give_its_template_from_its_first_moment() {
+    use yalain_content::creature_rows::CreatureEffect;
+    const HOLDS: u32 = 0x7000_1C79;
     const STURDY: u32 = 0x4700_2DB6;
-    /// Level 30, on the plain drudges' table.
+    /// Level 30, named by no row.
     const NOT_ONE: u32 = 0x4700_2DB0;
-    let table = |template: u32| {
-        if template == STURDY {
-            "NPCTable_WingChunDummySturdy"
-        } else {
-            "NPCTable_DrudgeStraw"
-        }
-    };
-    assert_eq!(practice_dummy_spellcraft(40), 35.0);
-    assert_eq!(practice_dummy_spellcraft(50), 40.0);
-    assert_eq!(practice_dummy_spellcraft(60), 45.0);
-    assert_eq!(practice_dummy_spellcraft(70), 50.0);
-    let dummy = |template: u32| {
+    let dummy = |template: u32, spellcraft: Vec<(f32, f32)>| {
         let mut h = Harness::new();
         h.server.catalog = yalain_testkit::test_catalog();
         let mut props = yalain_content::Props::default();
@@ -888,15 +879,15 @@ fn a_practice_dummy_sends_back_a_share_of_each_attack_by_its_level() {
             )
             .set("AICombat_NaturalDamage", yalain_content::Prop::Float(0.0))
             .set("AICombat_NaturalVariance", yalain_content::Prop::Float(0.0))
-            .set("AI_PerceptionRadius", yalain_content::Prop::Float(20.0))
-            .set(
-                "AI_NPCTable",
-                yalain_content::Prop::Text(table(template).into()),
-            );
-        assert_eq!(is_practice_dummy(&props), template == STURDY);
+            .set("AI_PerceptionRadius", yalain_content::Prop::Float(20.0));
         h.server
             .catalog
             .insert(yalain_testkit::test_template(template, 0x1169, props));
+        h.server.creature_rows.effects.push(CreatureEffect {
+            templates: vec![STURDY, 0x4700_2DB2],
+            effect: HOLDS,
+            spellcraft,
+        });
         let mut w = watcher(0.0, 0.0);
         w.sends_back = Share {
             chance: 1.0,
@@ -951,9 +942,14 @@ fn a_practice_dummy_sends_back_a_share_of_each_attack_by_its_level() {
             .expect("made for the player");
         (h, b, me, id)
     };
-    let (h, _, _, id) = dummy(NOT_ONE);
+    let line = vec![(30.0, 30.0), (70.0, 50.0)];
+    let (h, _, _, id) = dummy(NOT_ONE, line.clone());
     assert!(effects::records_of(&h.server, On::Creature(id)).is_empty());
-    let (mut h, b, me, id) = dummy(STURDY);
+    // A number is the same at every level.
+    let (h, _, _, id) = dummy(STURDY, vec![(0.0, 12.0)]);
+    let r = effects::records_of(&h.server, On::Creature(id));
+    assert_eq!((r.len(), r[0].spellcraft), (1, 12.0));
+    let (mut h, b, me, id) = dummy(STURDY, line);
     tall(&mut h, me);
     let r = effects::records_of(&h.server, On::Creature(id));
     assert_eq!(r.len(), 1);
@@ -983,13 +979,194 @@ fn a_practice_dummy_sends_back_a_share_of_each_attack_by_its_level() {
     }
 }
 
-/// The practice dummy of level 30 goes by the same line as the rest, a third of an attack less a
-/// little. Our choice: it shows its effect's appearance, and no recording holds an attack on it.
-/// Behaviour: server.creatures.practice-dummy-at-30
+/// A watcher of effects' harm takes from the harm an effect does its holder as from an attack's, and
+/// sends none back: a creature holding one that takes it all loses nothing and is told nothing, a
+/// player holding one that takes half loses half; one that watches attacks alone takes none of it.
+/// Behaviour: server.effects.watcher-takes-effects-harm
 #[test]
-fn the_weakest_practice_dummy_goes_by_the_same_line() {
-    use yalain_world::spawn::practice_dummy_spellcraft;
-    assert_eq!(practice_dummy_spellcraft(30), 30.0);
+fn a_watcher_of_effects_harm_takes_from_it_and_tells_nothing_where_none_is_left() {
+    const HARM: u32 = 0x6F00_7404;
+    let (mut h, b, me, id) = beside(0.0);
+    tall(&mut h, me);
+    let world = world_of(&h, me);
+    let mut d = def(HARM, 0, watcher(0.0, 0.0));
+    d.kind = Kind::InstantVital {
+        flags: 1,
+        change: Scale(vec![(0.0, -50.0)]),
+    };
+    d.duration = Scale::default();
+    h.server.effect_table.effects.insert(HARM, d);
+    let both = |absorbs: f32| Watcher {
+        effects: true,
+        ..watcher(absorbs, 1.0)
+    };
+    held(&mut h, On::Creature(id), WATCHER, 32, both(1.0));
+    held(&mut h, On::Player(world), OTHER_WATCHER, 32, both(0.5));
+    let harm = |h: &mut Harness, on: On, caster: u64| {
+        let cast = Cast {
+            caster,
+            spellcraft: 30.0,
+            ..Cast::default()
+        };
+        let clock = h.clock();
+        effects::apply_on(&mut h.server, &mut h.net, on, HARM, cast, clock);
+        h.run(5);
+    };
+    let (from, was, keep) = (
+        h.bots[b].inbox.len(),
+        h.server.things.get(id).map_or(0, |t| t.health),
+        health_of(&h, me),
+    );
+    harm(&mut h, On::Creature(id), me);
+    assert_eq!(h.server.things.get(id).map_or(0, |t| t.health), was);
+    assert!(hooks(&h, b, from, me, id).is_empty(), "nothing told");
+    harm(&mut h, On::Player(world), id);
+    assert_eq!(health_of(&h, me), keep - 25, "half taken");
+    assert_eq!(
+        h.server.things.get(id).map_or(0, |t| t.health),
+        was,
+        "none sent back"
+    );
+    // One that watches attacks alone.
+    let (mut h, _, _, id) = beside(0.0);
+    h.server.effect_table.effects.insert(HARM, {
+        let mut d = def(HARM, 0, watcher(0.0, 0.0));
+        d.kind = Kind::InstantVital {
+            flags: 1,
+            change: Scale(vec![(0.0, -50.0)]),
+        };
+        d.duration = Scale::default();
+        d
+    });
+    held(&mut h, On::Creature(id), WATCHER, 32, watcher(1.0, 0.0));
+    let was = h.server.things.get(id).map_or(0, |t| t.health);
+    harm(&mut h, On::Creature(id), 0);
+    assert_eq!(h.server.things.get(id).map_or(0, |t| t.health), was - 50);
+}
+
+/// A dispel takes off every record its target holds of the effects its rule names, and leaves the
+/// rest.
+/// Behaviour: server.effects.a-dispel-takes-off-what-it-names
+#[test]
+fn a_dispel_takes_off_every_record_of_what_it_names() {
+    const DISPEL: u32 = 0x6F00_7405;
+    let (mut h, _, _, id) = beside(0.0);
+    held(&mut h, On::Creature(id), WATCHER, 32, watcher(1.0, 0.0));
+    held(&mut h, On::Creature(id), WATCHER, 32, watcher(1.0, 0.0));
+    held(
+        &mut h,
+        On::Creature(id),
+        OTHER_WATCHER,
+        43,
+        watcher(0.0, 0.1),
+    );
+    let mut d = def(DISPEL, 0, watcher(0.0, 0.0));
+    d.kind = Kind::Dispel(vec![WATCHER]);
+    d.duration = Scale::default();
+    h.server.effect_table.effects.insert(DISPEL, d);
+    assert_eq!(effects::records_of(&h.server, On::Creature(id)).len(), 3);
+    let clock = h.clock();
+    assert!(effects::apply_on(
+        &mut h.server,
+        &mut h.net,
+        On::Creature(id),
+        DISPEL,
+        Cast::default(),
+        clock
+    ));
+    let left: Vec<u32> = effects::records_of(&h.server, On::Creature(id))
+        .iter()
+        .map(|e| e.state)
+        .collect();
+    assert_eq!(left, [OTHER_WATCHER]);
+}
+
+/// A weapon's applied effect lands on the creature each of its blows lands on, even one whose harm
+/// its watcher took whole: a creature that takes every attack's harm and every effect's loses
+/// nothing to a plain weapon's blows; a weapon carrying an effect that applies a dispel of that
+/// watcher dispels it at its first blow that lands, and its blows hurt after; then another player's
+/// plain weapon hurts it too.
+/// Behaviour: server.effects.a-weapons-applied-effect-lands-on-every-blow
+#[test]
+fn a_weapons_applied_effect_lands_on_a_blow_whose_harm_was_all_taken() {
+    use auberean_protocol::queue;
+    const SPELL: u32 = 0x6F00_7406;
+    const DISPEL: u32 = 0x6F00_7407;
+    let (mut h, b, me, id) = beside(0.0);
+    tall(&mut h, me);
+    let immune = Watcher {
+        effects: true,
+        ..watcher(1.0, 0.0)
+    };
+    held(&mut h, On::Creature(id), WATCHER, 32, immune);
+    let mut d = def(DISPEL, 0, watcher(0.0, 0.0));
+    d.kind = Kind::Dispel(vec![WATCHER]);
+    d.duration = Scale::default();
+    h.server.effect_table.effects.insert(DISPEL, d);
+    let mut d = def(SPELL, 4056, watcher(0.0, 0.0));
+    d.kind = Kind::Applies(DISPEL);
+    d.duration = Scale(vec![(0.0, 1800.0)]);
+    h.server.effect_table.effects.insert(SPELL, d);
+    let sword = h.arm(b, me, STARTER_SWORD);
+    let health = |h: &Harness| h.server.things.get(id).map_or(0, |t| t.health);
+    let landed_count = |h: &Harness, b: usize, from: usize, me: u64| {
+        hooks(h, b, from, me, id)
+            .iter()
+            .filter(|k| landed(k))
+            .count()
+    };
+    let stop = |h: &mut Harness, b: usize| {
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(yalain_world::combat::function::STOP_ATTACK, &[]),
+        );
+        h.run(40);
+    };
+    let was = health(&h);
+    let from = h.bots[b].inbox.len();
+    attack(&mut h, b, id);
+    assert!(
+        h.run_until(4000, |h| landed_count(h, b, from, me) >= 4),
+        "it swings"
+    );
+    stop(&mut h, b);
+    assert_eq!(health(&h), was, "a plain weapon does nothing");
+    let immunities = |h: &Harness| {
+        effects::records_of(&h.server, On::Creature(id))
+            .iter()
+            .filter(|e| e.state == WATCHER)
+            .count()
+    };
+    assert_eq!(immunities(&h), 1);
+    let clock = h.clock();
+    effects::put_on_item(&mut h.server, &mut h.net, sword, SPELL, 1.0, clock);
+    let from = h.bots[b].inbox.len();
+    attack(&mut h, b, id);
+    assert!(h.run_until(4000, |h| immunities(h) == 0), "dispelled");
+    assert_eq!(health(&h), was, "by a blow that did no harm");
+    assert!(landed_count(&h, b, from, me) <= 2, "at its first blow");
+    assert!(
+        h.run_until(4000, |h| health(h) < was),
+        "hurt once dispelled"
+    );
+    stop(&mut h, b);
+    // Another's plain weapon hurts it now.
+    let (b2, other) = h.player_in_world("two", "Bram");
+    h.bots[b2].send(
+        true,
+        queue::WEENIE,
+        &auberean_protocol::ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    h.run(5);
+    tall(&mut h, other);
+    h.arm(b2, other, STARTER_SWORD);
+    let now = health(&h);
+    attack(&mut h, b2, id);
+    assert!(
+        h.run_until(4000, |h| health(h) < now),
+        "another's plain weapon hurts it"
+    );
 }
 
 /// A record of a harmful effect that lasts, of no use but to be seen.

@@ -1351,6 +1351,11 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 for a in &s.acts {
                     act_steps.push((l, t.quests.steps.len(), *a));
                 }
+                if !s.given_effects.is_empty() {
+                    t.content
+                        .given_effects
+                        .insert((s.quest, s.key.clone()), s.given_effects.clone());
+                }
                 t.quests.steps.push(TableStep {
                     key: s.key.clone(),
                     quest: s.quest,
@@ -1721,6 +1726,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         t.effect_rules.grants.insert(effect, g);
                     }
                 }
+                if !r.dispels.is_empty() {
+                    t.effect_rules.dispels.insert(effect, r.dispels.clone());
+                }
             }
             Row::Mine(r) => {
                 let m = &r.mine;
@@ -2019,7 +2027,8 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             | Row::Offering(_)
             | Row::Guarded(_)
             | Row::Shifting(_)
-            | Row::SafePassage(_) => {}
+            | Row::SafePassage(_)
+            | Row::CreatureEffect(_) => {}
         }
     }
     for (l, scene) in door_scenes {
@@ -2380,6 +2389,21 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     (None, None) => continue,
                 };
                 t.creatures.safe_passage.push(SafePassage { guards, pass });
+            }
+            Row::CreatureEffect(r) => {
+                let mut ok = true;
+                for template in &r.templates {
+                    ok &= cx.template(l, "templates", *template);
+                }
+                if ok {
+                    t.creatures
+                        .effects
+                        .push(yalain_content::creature_rows::CreatureEffect {
+                            templates: r.templates.clone(),
+                            effect: r.effect,
+                            spellcraft: r.spellcraft.clone(),
+                        });
+                }
             }
             _ => {}
         }

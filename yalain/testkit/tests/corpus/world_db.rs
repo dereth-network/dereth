@@ -5200,12 +5200,13 @@ fn the_heros_transformation_and_the_vitae_tap_read_as_the_server_starts_them() {
 /// the test world's: 28 concealing rows of 24 effects, the five healers' behavior tables, the five
 /// friend tables that never attack a player first, the six shooters' rhythms of the start area, the
 /// 14 guards that mark the players they see and the one turret that takes on only the marked. The
-/// safe passages are their dungeons' walks' to hold.
+/// safe passages and the effects creatures hold from their first moment are their walks' to hold.
 /// Behaviour: server.creatures.behavior-rows-as-2017
 #[test]
 fn the_worlds_creature_rows_are_2017s_entry_for_entry() {
     let mut rows = compiled().tables.creatures.clone();
     rows.safe_passage.clear();
+    rows.effects.clear();
     let rows = &rows;
     assert_eq!(rows.concealing.len(), 28);
     let effects: std::collections::BTreeSet<u32> =

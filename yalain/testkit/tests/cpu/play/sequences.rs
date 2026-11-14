@@ -147,6 +147,7 @@ fn fixture(h: &mut Harness) {
                 against_a_player: 1.0,
                 shares: true,
                 watches: true,
+                effects: false,
             })),
             false,
         ),

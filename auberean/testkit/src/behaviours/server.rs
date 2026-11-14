@@ -1620,6 +1620,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.content.creature-effects-given-effects-and-dispels",
+        says: "A `[[creature_effect]]` row names its creatures' templates, the effect they hold from \
+               their first moment and its spellcraft, a number or a line by level; a give's step \
+               that hands its item back may name the effects it puts on it (`given_effects`); an \
+               `[[effect_rule]]` may name what a dispel takes off (`dispels`). Each compiles to its \
+               table, and a row that reads wrong, a template the install lacks, or given effects on \
+               a step that keeps its item or is no give, is refused.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-EFFECT-ROWS"),
+        station: "yalain-world-db::cpu::database::creature_effects_a_steps_given_effects_and_dispels_compile_to_their_tables",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.content.death-treasure-for-a-quest-row",
         says: "A chest's death treasure row may name the quest its opener must hold, and where, as an \
                object's `requires` does; it compiles into the loot table, which reads back as written; a \
@@ -3202,6 +3215,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.creatures.effects-from-the-first-moment",
+        says: "A creature holds the effects the world's rows give its template from its first \
+               moment, for as long as it stands, each at the spellcraft its row's line gives the \
+               creature's level, and shows it at once; a creature of a template no row names holds \
+               none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-EFFECTS"),
+        station: "yalain-testkit::cpu::play::watchers::a_creature_holds_the_effects_its_rows_give_its_template_from_its_first_moment",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.falls-to-the-floor",
         says: "A creature set down over its floor, further than its step goes down, comes down to \
                what is under it at its first step and walks on from there.",
@@ -3523,25 +3547,6 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-PRACTICE-DUMMY-READ"),
         station: "yalain-testkit::dat::effects::the_practice_dummies_are_the_nine_on_their_npc_table",
         tier: Tier::Dat,
-    },
-    behaviour! {
-        id: "server.creatures.practice-dummy-at-30",
-        says: "The practice dummy of level 30 sends back by the same line as the others, 0.30. Our choice: it \
-               shows the effect's appearance, and no recording holds an attack on it.",
-        since: TOOLING,
-        evidence: Evidence::Private("AC2-EVID-SRV-PRACTICE-DUMMY-30"),
-        station: "yalain-testkit::cpu::play::watchers::the_weakest_practice_dummy_goes_by_the_same_line",
-        tier: Tier::Cpu,
-    },
-    behaviour! {
-        id: "server.creatures.practice-dummy-sends-back",
-        says: "A practice dummy holds an effect that sends back a share of each attack from its first moment: \
-               0.35 at level 40, 0.40 at 50, 0.45 at 60, 0.50 at 70. The dummy on another kind of table holds \
-               none.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC2-EVID-SRV-PRACTICE-DUMMY"),
-        station: "yalain-testkit::cpu::play::watchers::a_practice_dummy_sends_back_a_share_of_each_attack_by_its_level",
-        tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.creatures.protectors-buff-kin",
@@ -4213,6 +4218,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.effects.a-dispel-takes-off-what-it-names",
+        says: "A dispel takes off every record its target holds of the effects the world's rule \
+               names for it, and leaves the rest; with no rule it does nothing, as its own data \
+               names nothing.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DISPEL"),
+        station: "yalain-testkit::cpu::play::watchers::a_dispel_takes_off_every_record_of_what_it_names",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.effects.a-quiet-rows-effects-tell-no-line",
         says: "A step or a give whose row keeps its effects quiet grants what they grant (a recipe, \
                a skill) and tells none of their own lines; its own text is still told. A row that \
@@ -4258,6 +4273,28 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-EFFECT-PLACES"),
         station: "yalain-testkit::cpu::play::placings::an_items_use_places_what_its_effects_row_names_at_its_user",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.a-weapons-applied-effect-lands-on-every-blow",
+        says: "An effect on a weapon that applies another puts that one on the creature each of the \
+               weapon's blows lands on, even one whose harm a watcher took whole: a dispel of the \
+               watcher so applied takes it off at the first blow that lands, and blows hurt after, \
+               anyone's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SLEDGEHAMMER"),
+        station: "yalain-testkit::cpu::play::watchers::a_weapons_applied_effect_lands_on_a_blow_whose_harm_was_all_taken",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.beacon-immunity-and-sledgehammer-read",
+        says: "The portal beacons' immunity reads as a watcher taking every attack's harm and every \
+               effect's, whole, sending none back; the imbuers' spell as an effect on a weapon of \
+               1,800 s applying the dispel, which a world's rule names the immunity for; a practice \
+               dummy's effect watches attacks alone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-BEACON-IMMUNITY-READ"),
+        station: "yalain-testkit::dat::effects::the_beacons_immunity_and_the_imbuers_spell_read_as_the_data_defines_them",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.effects.buff-record-runs-out",
@@ -4756,7 +4793,8 @@ pub static ROWS: &[Behaviour] = &[
         says: "A record that takes from attacks on its holder lessens what the attack does, told so: each of \
                its class's top records, the higher classes first, draws its chance and takes its share \
                of the harm rounded up, or its amount. All of it taken tells a hit and no change; more \
-               than all heals. Harm an effect does is no attack.",
+               than all heals. Harm an effect does is no attack, but to a record that watches effects' \
+               harm too.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-ABSORBS"),
         station: "yalain-testkit::cpu::play::watchers::a_swing_at_a_creature_holding_one_is_lessened_and_sent_back_at_the_swinger",
@@ -4780,6 +4818,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-SENDS-BACK-PK"),
         station: "yalain-testkit::cpu::play::watchers::a_players_attack_sends_back_its_share_for_players_told_as_pk_damage",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.watcher-takes-effects-harm",
+        says: "A record that watches effects' harm takes from the harm an effect does its holder as \
+               from an attack's, rounded up, and sends none back; where none is left nothing is \
+               told. One that watches attacks alone takes none of it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ABSORBS-EFFECTS"),
+        station: "yalain-testkit::cpu::play::watchers::a_watcher_of_effects_harm_takes_from_it_and_tells_nothing_where_none_is_left",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -13424,6 +13472,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-STEP-FAIL"),
         station: "yalain-testkit::cpu::play::quests::a_step_may_fail_its_quest_and_it_may_then_be_given_again",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.a-step-puts-effects-on-the-item-handed-back",
+        says: "A give's step that hands its item back puts the effects its row names on the item, \
+               each for its own time on the game clock whoever holds the item after; a step naming \
+               none puts nothing on it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVEN-EFFECTS"),
+        station: "yalain-testkit::cpu::play::gives::a_give_step_puts_its_effects_on_the_item_it_hands_back",
         tier: Tier::Cpu,
     },
     behaviour! {

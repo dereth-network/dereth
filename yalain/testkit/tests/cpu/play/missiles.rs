@@ -181,6 +181,7 @@ fn a_shot_on_a_holder_tells_what_goes_back_and_the_shooter_loses_it() {
                 against_a_player: 1.0,
                 shares: true,
                 watches: true,
+                effects: false,
                 ..Watcher::default()
             })),
             duration: Scale(vec![(0.0, 100_000.0)]),

@@ -8185,3 +8185,144 @@ fn safe_passage_rows_compile_to_their_camps_or_kinds_and_what_lets_pass() {
         );
     }
 }
+
+/// A creature effect row names its creatures' templates, the effect they hold from their first
+/// moment and its spellcraft (a number, or a line of `[level, spellcraft]`; none: 1); a give's step
+/// that hands its item back may name the effects it puts on it; an effect rule may name the effects
+/// a dispel takes off. Each compiles to its table; a row with no templates, no effect, a spellcraft
+/// that is no number or line, an install template it lacks, given effects on a step that keeps its
+/// item or is no give, and an empty dispel list are refused.
+/// Behaviour: server.content.creature-effects-given-effects-and-dispels
+#[test]
+fn creature_effects_a_steps_given_effects_and_dispels_compile_to_their_tables() {
+    use yalain_content::creature_rows::CreatureEffect;
+    const ROWS: &str = "[[creature_effect]]\nkey = \"by-level\"\ntemplates = [0x47002224]\n\
+        effect = 0x6F001E06\nspellcraft = [[30, 30.0], [70, 50]]\nprov = { from = \"authored\" }\n\n\
+        [[creature_effect]]\nkey = \"plain\"\ntemplates = [0x47002224, 0x470020BB]\n\
+        effect = 0x70001C79\nprov = { from = \"authored\" }\n\n\
+        [[creature_effect]]\nkey = \"number\"\ntemplates = [0x470020BB]\neffect = 0x6F000E94\n\
+        spellcraft = 12\nprov = { from = \"authored\" }\n";
+    let mut files = fixture();
+    files.insert("town/server/creatures.toml".into(), ROWS.into());
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "trigger = { give = 0x470020B9, to = 0x470033D0 }\nupdate = \"complete\"",
+        "trigger = { give = 0x470020B9, to = 0x470033D0 }\nupdate = \"complete\"\n\
+         given_effects = [0x6F001E04]",
+    );
+    files.insert(
+        "town/server/effects.toml".into(),
+        "[[effect_rule]]\neffect = 0x6F001E05\ndispels = [0x6F001E06]\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert_eq!(check(&files), Vec::new());
+    let db = read(&files).unwrap();
+    let mut keys: Vec<String> = db
+        .rows()
+        .filter(|l| l.file.ends_with("creatures.toml"))
+        .filter_map(yalain_world_db::merge::item_key)
+        .collect();
+    keys.sort();
+    assert_eq!(
+        keys,
+        [
+            "creature_effect by-level",
+            "creature_effect number",
+            "creature_effect plain"
+        ]
+    );
+    for k in &keys {
+        let words: Vec<&str> = k.split(' ').collect();
+        let item = auberean_pack::Item::parse(&words).unwrap_or_else(|| panic!("{k} parses"));
+        assert_eq!(&item.to_string(), k, "{k} reads back");
+    }
+    let t = compile(&merge(&db).unwrap(), &Fake::new()).unwrap();
+    let mut got = t.creatures.effects.clone();
+    got.sort_by_key(|e| e.effect);
+    assert_eq!(
+        got,
+        [
+            CreatureEffect {
+                templates: vec![0x4700_20BB],
+                effect: 0x6F00_0E94,
+                spellcraft: vec![(0.0, 12.0)],
+            },
+            CreatureEffect {
+                templates: vec![0x4700_2224],
+                effect: 0x6F00_1E06,
+                spellcraft: vec![(30.0, 30.0), (70.0, 50.0)],
+            },
+            CreatureEffect {
+                templates: vec![0x4700_2224, 0x4700_20BB],
+                effect: 0x7000_1C79,
+                spellcraft: vec![(0.0, 1.0)],
+            },
+        ]
+    );
+    assert_eq!(
+        t.content
+            .given_effects
+            .get(&(0x4000_0088, "s4".to_string())),
+        Some(&vec![0x6F00_1E04])
+    );
+    assert_eq!(t.content.given_effects.len(), 1);
+    assert_eq!(
+        t.effect_rules.dispels.get(&0x6F00_1E05),
+        Some(&vec![0x6F00_1E06])
+    );
+    for (from, to) in [
+        ("templates = [0x47002224]\n", ""),
+        ("templates = [0x47002224]\n", "templates = []\n"),
+        ("effect = 0x6F001E06\n", ""),
+        (
+            "spellcraft = [[30, 30.0], [70, 50]]",
+            "spellcraft = [[30, 30.0, 1], [70, 50]]",
+        ),
+        ("spellcraft = [[30, 30.0], [70, 50]]", "spellcraft = []"),
+        ("spellcraft = [[30, 30.0], [70, 50]]", "spellcraft = \"30\""),
+        ("key = \"plain\"\n", ""),
+    ] {
+        let mut f = files.clone();
+        edit(&mut f, "town/server/creatures.toml", from, to);
+        assert!(read(&f).is_err(), "{to:?} for {from:?}");
+    }
+    let mut f = files.clone();
+    edit(
+        &mut f,
+        "town/server/effects.toml",
+        "dispels = [0x6F001E06]",
+        "dispels = []",
+    );
+    assert!(read(&f).is_err(), "an empty dispel list");
+    let mut f = files.clone();
+    edit(
+        &mut f,
+        "town/server/creatures.toml",
+        "templates = [0x470020BB]",
+        "templates = [0x47009999]",
+    );
+    assert!(
+        compile(&merge(&read(&f).unwrap()).unwrap(), &Fake::new()).is_err(),
+        "the install lacks it"
+    );
+    // Given effects on a step that keeps the item, or that is no give.
+    for (from, to) in [
+        (
+            "given_effects = [0x6F001E04]",
+            "given_effects = [0x6F001E04]\ntakes = [0x470020B9]",
+        ),
+        (
+            "trigger = { give = 0x470020B9, to = 0x470033D0 }",
+            "trigger = { use = 0x470033D0 }",
+        ),
+    ] {
+        let mut f = files.clone();
+        edit(&mut f, "town/server/quests/40000088.toml", from, to);
+        let problems: Vec<String> = check(&f).iter().map(ToString::to_string).collect();
+        assert!(
+            problems.iter().any(|p| p.contains("given_effects:")),
+            "{to}: {problems:?}"
+        );
+    }
+}

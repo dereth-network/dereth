@@ -181,6 +181,55 @@ fn a_death_spawn_stands_at_its_offset_from_the_killer_as_the_killer_faces() {
     }
 }
 
+/// A creature a death makes holds the effects the world's rows give its template from its first
+/// moment, as a camp's does.
+/// Behaviour: server.creatures.effects-from-the-first-moment
+#[test]
+fn a_creature_a_death_makes_holds_the_effects_its_rows_give_its_template() {
+    const HELD: u32 = 0x6F00_0124;
+    let (mut h, me) = world();
+    let helper = beetle_template(&h);
+    h.server
+        .effect_table
+        .effects
+        .insert(HELD, lasting(HELD, Kind::Other));
+    h.server
+        .creature_rows
+        .effects
+        .push(yalain_content::creature_rows::CreatureEffect {
+            templates: vec![helper],
+            effect: HELD,
+            spellcraft: vec![(0.0, 7.0)],
+        });
+    h.server.death_spawns.insert(
+        EFFECT.into(),
+        DeathSpawn {
+            template: helper,
+            count: 1,
+            chance: 1.0,
+            offset: [0.0, -3.0],
+            lasts: None,
+            kingdom: None,
+            at: None,
+            to: None,
+            name: None,
+        },
+    );
+    let before = living(&h);
+    kill(&mut h, me, &[EFFECT]);
+    let made: Vec<u64> = living(&h)
+        .into_iter()
+        .filter(|id| !before.contains(id))
+        .collect();
+    assert_eq!(made.len(), 1);
+    let held: Vec<(u32, f32)> =
+        yalain_world::effects::records_of(&h.server, yalain_world::effects::On::Creature(made[0]))
+            .iter()
+            .map(|e| (e.state, e.spellcraft))
+            .collect();
+    assert_eq!(held, [(HELD, 7.0)]);
+}
+
 /// The kill goes to who did the most damage, wherever it has gone since. What the death makes appears
 /// only if that one stands near the death: not beside whoever it now stands among, and not in other
 /// cells altogether. One at the edge of how near makes it.

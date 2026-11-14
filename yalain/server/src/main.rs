@@ -2181,8 +2181,10 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         states.extend(hit_effects.values().flatten().map(|e| e.state));
         // The treasure potions' effects, put on when they are drunk.
         states.extend(treasure_tables.potion_states());
-        // What the practice dummies hold.
-        states.push(yalain_world::spawn::PRACTICE_DUMMY_EFFECT);
+        // What the world's rows give creatures from their first moment, and quest steps the items
+        // given them.
+        states.extend(creature_rows.effects.iter().map(|e| e.effect));
+        states.extend(content.given_effects.values().flatten());
         // What the world's scheduled events put on its players.
         states.extend(
             content

@@ -578,6 +578,8 @@ pub struct Step {
     pub escort: Option<Box<yalain_content::escorts::Escort>>,
     /// Where it takes the player, the player's fellows in the world go too.
     pub to_fellows: bool,
+    /// For a give of an item it hands back, the effects it puts on that item (their saved states).
+    pub given_effects: Vec<u32>,
     pub prov: Prov,
 }
 
@@ -740,6 +742,7 @@ pub enum Row {
     FriendTable(FriendTable),
     Creature(Creature),
     SafePassage(SafePassageRow),
+    CreatureEffect(CreatureEffectRow),
     Defense(DefenseRow),
     Plant(Plant),
     PlantCross(PlantCross),
@@ -808,6 +811,19 @@ pub struct SafePassageRow {
     pub prov: Prov,
 }
 
+/// `[[creature_effect]]`: an effect creatures of these templates hold from their first moment, for
+/// as long as they stand, at a spellcraft by the creature's level (points `[level, spellcraft]`
+/// read along the line between them, held at the ends; a number is the same at every level; none:
+/// 1).
+#[derive(Debug, Clone, PartialEq)]
+pub struct CreatureEffectRow {
+    pub key: String,
+    pub templates: Vec<u32>,
+    pub effect: u32,
+    pub spellcraft: Vec<(f32, f32)>,
+    pub prov: Prov,
+}
+
 /// `[[event]]`: a named state of the world, on for its times: what it gates (camps, objects and
 /// steps that name it) stands or runs only while it is on, and its effects are on every player in
 /// the world while it is.
@@ -873,7 +889,7 @@ struct Requires {
 /// `[[effect_rule]]`: what the world says of an effect where its own data says nothing: what a ward
 /// keeps off, the share of its player's vitae it takes, the effect an immunity leaves as it ends,
 /// the complete reset of skills it grants, the untraining it finishes, the skill it trains, the
-/// items it gives.
+/// items it gives, the effects it dispels.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EffectRule {
     /// The effect, by its saved state, or by its name for one the install holds no state of.
@@ -894,6 +910,8 @@ pub struct EffectRule {
     pub gives: Option<yalain_content::effect_rules::Grant>,
     /// What it places in the world at its player.
     pub places: Option<yalain_content::effect_rules::Placing>,
+    /// The effects it takes off what it is put on (their saved states).
+    pub dispels: Vec<u32>,
     pub prov: Prov,
 }
 
@@ -1438,6 +1456,7 @@ impl Row {
             Self::FriendTable(_) => "friend_table",
             Self::Creature(_) => "creature",
             Self::SafePassage(_) => "safe_passage",
+            Self::CreatureEffect(_) => "creature_effect",
             Self::Defense(_) => "defense",
             Self::Plant(_) => "plant",
             Self::PlantCross(_) => "plant_cross",
@@ -1509,6 +1528,7 @@ impl Row {
             Self::FriendTable(r) => Some(&r.prov),
             Self::Creature(r) => Some(&r.prov),
             Self::SafePassage(r) => Some(&r.prov),
+            Self::CreatureEffect(r) => Some(&r.prov),
             Self::Defense(r) => Some(&r.prov),
             Self::Plant(r) => Some(&r.prov),
             Self::PlantCross(r) => Some(&r.prov),
@@ -1519,7 +1539,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 65] = [
+pub const KINDS: [&str; 66] = [
     "object",
     "camp",
     "loot",
@@ -1581,6 +1601,7 @@ pub const KINDS: [&str; 65] = [
     "friend_table",
     "creature",
     "safe_passage",
+    "creature_effect",
     "defense",
     "plant",
     "plant_cross",
@@ -1588,7 +1609,7 @@ pub const KINDS: [&str; 65] = [
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 65] = [
+pub const FIELDS: [(&str, &[&str]); 66] = [
     (
         "object",
         &[
@@ -1759,6 +1780,7 @@ pub const FIELDS: [(&str, &[&str]); 65] = [
             "adds",
             "escort",
             "to_fellows",
+            "given_effects",
             "prov",
         ],
     ),
@@ -1943,6 +1965,7 @@ pub const FIELDS: [(&str, &[&str]); 65] = [
             "lasts",
             "name",
             "name_text",
+            "dispels",
             "prov",
         ],
     ),
@@ -2112,6 +2135,10 @@ pub const FIELDS: [(&str, &[&str]); 65] = [
     (
         "safe_passage",
         &["key", "camp", "template", "item", "effect", "prov"],
+    ),
+    (
+        "creature_effect",
+        &["key", "templates", "effect", "spellcraft", "prov"],
     ),
     (
         "defense",
@@ -2805,6 +2832,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 chance: f.share("chance"),
                 escort: f.escort().map(Box::new),
                 to_fellows: f.bool("to_fellows").unwrap_or(false),
+                given_effects: f.ids("given_effects"),
                 prov: f.req_prov()?,
             }))
         }
@@ -3447,6 +3475,17 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 }
             };
             let untrains = f.bool("untrains").unwrap_or(false);
+            let dispels = match f.get("dispels") {
+                Some(_) => f.req("dispels", "a list of effects' saved states", |v| {
+                    let list = v
+                        .as_array()?
+                        .iter()
+                        .map(as_u32)
+                        .collect::<Option<Vec<_>>>()?;
+                    (!list.is_empty()).then_some(list)
+                })?,
+                None => Vec::new(),
+            };
             let places = f.placing()?;
             let others = ward.is_some()
                 || vitae_share.is_some()
@@ -3455,13 +3494,14 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 || reset.is_some()
                 || untrains
                 || skill.is_some()
-                || gives.is_some();
+                || gives.is_some()
+                || !dispels.is_empty();
             if !others && places.is_none() {
                 f.bad(
-                    "ward, vitae_share, vitae_restore, then, reset, untrains, skill, gives, places",
+                    "ward, vitae_share, vitae_restore, then, reset, untrains, skill, gives, dispels, places",
                     "a rule names a ward, a share of vitae, vitae given back, what an immunity leaves, \
                      a reset it grants, the untraining it finishes, a skill it trains, an item it \
-                     gives or what it places",
+                     gives, the effects it dispels or what it places",
                 );
                 return None;
             }
@@ -3483,6 +3523,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 skill,
                 gives,
                 places,
+                dispels,
                 prov: f.req_prov()?,
             })
         }
@@ -3714,6 +3755,52 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 template,
                 item,
                 effect,
+                prov: f.req_prov()?,
+            })
+        }
+        "creature_effect" => {
+            let key = f.req_symbol("key")?;
+            let templates = f.req("templates", "a list of creatures' templates", |v| {
+                let list = v
+                    .as_array()?
+                    .iter()
+                    .map(as_u32)
+                    .collect::<Option<Vec<_>>>()?;
+                (!list.is_empty()).then_some(list)
+            })?;
+            let effect = f.req_id("effect")?;
+            let spellcraft = match f.get("spellcraft") {
+                Some(v) if v.is_array() => f.typed(
+                    "spellcraft",
+                    "a number, or a list of [level, spellcraft]",
+                    |v| {
+                        let points = v
+                            .as_array()?
+                            .iter()
+                            .map(|p| {
+                                let p = p.as_array()?;
+                                (p.len() == 2).then_some(())?;
+                                Some((to_f32(as_number(&p[0])?), to_f32(as_number(&p[1])?)))
+                            })
+                            .collect::<Option<Vec<_>>>()?;
+                        (!points.is_empty()).then_some(points)
+                    },
+                )?,
+                Some(_) => vec![(
+                    0.0,
+                    to_f32(f.typed(
+                        "spellcraft",
+                        "a number, or a list of [level, spellcraft]",
+                        as_number,
+                    )?),
+                )],
+                None => vec![(0.0, 1.0)],
+            };
+            Row::CreatureEffect(CreatureEffectRow {
+                key,
+                templates,
+                effect,
+                spellcraft,
                 prov: f.req_prov()?,
             })
         }

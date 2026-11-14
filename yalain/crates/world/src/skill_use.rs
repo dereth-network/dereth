@@ -2584,6 +2584,7 @@ fn strike<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock
         put_target_effects(s, net, me, &u, on, spellcraft, clock);
         if matches!(on, crate::effects::On::Creature(_)) {
             crate::treasure::on_hit(s, net, world, *t, clock);
+            crate::treasure::applied_on_blow(s, net, world, *t, clock);
         }
     }
     let mut reached: Vec<u64> = Vec::new();
@@ -2825,6 +2826,7 @@ fn arrives<S: Store>(
             clock,
         );
         crate::treasure::on_hit(s, net, world, r.target, clock);
+        crate::treasure::applied_on_blow(s, net, world, r.target, clock);
     }
     if s.things.get(r.target).is_some_and(|t| t.alive()) {
         crate::ai::go_after(s, net, r.target, me, clock);

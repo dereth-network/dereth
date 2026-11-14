@@ -1259,6 +1259,9 @@ pub fn lands<S: Store>(s: &mut Server<S>, net: &mut ServerNet, mut l: Landing, c
     if hurts && other.is_none() {
         crate::treasure::on_hit(s, net, l.world, l.target, clock);
     }
+    if alive && l.outcome.landed() && other.is_none() {
+        crate::treasure::applied_on_blow(s, net, l.world, l.target, clock);
+    }
     if alive && l.outcome.landed() {
         crate::equip::blow_landed(s, net, l.world);
     }

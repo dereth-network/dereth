@@ -2294,6 +2294,7 @@ pub fn test_creature_rows() -> yalain_content::creature_rows::CreatureRows {
         fights: std::collections::BTreeMap::new(),
         kept_out: std::collections::BTreeMap::new(),
         safe_passage: Vec::new(),
+        effects: Vec::new(),
     }
 }
 
@@ -2748,6 +2749,7 @@ pub fn test_effect_rules() -> yalain_world::effect_defs::EffectRules {
         grants: std::collections::BTreeMap::new(),
         places: std::collections::BTreeMap::new(),
         places_named: std::collections::BTreeMap::new(),
+        dispels: std::collections::BTreeMap::new(),
     };
     for (short, long, classes) in TEST_IMMUNITIES {
         rules.immunities.insert(short, long);

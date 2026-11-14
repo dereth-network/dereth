@@ -338,11 +338,12 @@ fn check_cmd(args: &[String]) -> Result<(), String> {
 /// event the install does not have, a `[[points_bonus]]` naming an effect the install holds no
 /// saved state of, a `[[popup]]` naming an effect the install holds no saved state of or one
 /// whose effect has no description to show, an `[[effect_rule]]` naming an effect, a ward
-/// keeping off an effect or an effect an immunity leaves, the install holds no saved state of, or a
-/// skill to train the install has not, a `[[treasure_look]]` naming a
+/// keeping off an effect, an effect an immunity leaves or one it dispels, the install holds no saved
+/// state of, or a skill to train the install has not, a `[[treasure_look]]` naming a
 /// table the install has not, a `[[treasure_potion]]`, a `[[treasure_family]]` or an
-/// `[[item_use]]` naming an effect the install has not, and a `[[concealing]]` or a `[[creature]]`'s
-/// mark naming an effect the install has not.
+/// `[[item_use]]` naming an effect the install has not, a `[[concealing]]` or a `[[creature]]`'s
+/// mark naming an effect the install has not, and a `[[creature_effect]]` or a `[[step]]`'s
+/// `given_effects` naming an effect the install has not.
 ///
 /// # Errors
 /// The install's library does not read.
@@ -381,6 +382,7 @@ pub fn install_problems(p: &data::Portal, db: &rows::Database) -> Result<Vec<Pro
             let named: Vec<(&str, u32)> = std::iter::once(("effect", rule))
                 .chain(warded.map(|e| ("ward effect", e)))
                 .chain(r.then.map(|e| ("then", e)))
+                .chain(r.dispels.iter().map(|e| ("dispels", *e)))
                 .collect();
             let states: Vec<u32> = named.iter().map(|(_, e)| *e).collect();
             let read = data::effect_table(p, &states, &EffectRules::default())?;
@@ -490,6 +492,38 @@ pub fn install_problems(p: &data::Portal, db: &rows::Database) -> Result<Vec<Pro
                         r.effect
                     ),
                 ));
+            }
+        }
+        if let rows::Row::CreatureEffect(r) = &l.row {
+            let read = data::effect_table(p, &[r.effect], &Default::default())?;
+            if !read.effects.contains_key(&r.effect) {
+                out.push(Problem::new(
+                    &l.file,
+                    l.line,
+                    format!(
+                        "[[creature_effect]] {}: effect {:#010x}: the install holds no such effect",
+                        r.key, r.effect
+                    ),
+                ));
+            }
+        }
+        if let rows::Row::Step(r) = &l.row {
+            if !r.given_effects.is_empty() {
+                let read = data::effect_table(p, &r.given_effects, &Default::default())?;
+                for e in r
+                    .given_effects
+                    .iter()
+                    .filter(|e| !read.effects.contains_key(e))
+                {
+                    out.push(Problem::new(
+                        &l.file,
+                        l.line,
+                        format!(
+                            "[[step]] {}: given_effects {e:#010x}: the install holds no such effect",
+                            r.key
+                        ),
+                    ));
+                }
             }
         }
         if let rows::Row::SafePassage(r) = &l.row {

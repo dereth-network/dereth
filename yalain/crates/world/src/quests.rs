@@ -55,6 +55,9 @@
 //! **A fellowship's step.** A step may make its update for the player's fellows too: each fellow
 //! in the world for whom it may run is given the same update, told it alone.
 //!
+//! **An item handed back.** A give's step that hands its item back may put effects on it first (an
+//! imbuer's spell on the weapon given), each for its own time whoever holds the item after.
+//!
 //! **Companion quests.** A quest may go with another's holder (the fellows sworn to protect the one
 //! who carries a quest's burden): as a player's quest that others go with is done, each of those
 //! under way, the player's own and each of its fellows' in the world, is done after it, paying
@@ -1765,6 +1768,10 @@ fn run_with<S: Store>(
         }
         crate::inventory::take_from_pack(s, net, world, *t);
     }
+    // What it puts on the item it hands back goes on before the item is back.
+    if let Some(g) = given.filter(|g| !step.takes.contains(&g.template)) {
+        given_effects(s, net, step, g.item, clock);
+    }
     // Its effects come before the update, or for some steps after it.
     // A step that leads somewhere itself takes the player there, not the update's own recall.
     let up = (step.quest, step.update, step.xp);
@@ -1791,6 +1798,29 @@ fn run_with<S: Store>(
     }
     crate::escorts::step_ran(s, net, world, step, clock);
     received
+}
+
+/// A give's step puts the effects the world's rows give it on the item it hands back, each at
+/// spellcraft 1 as a step's own effects are, for its time on the game clock whoever holds the item
+/// after ([`crate::effects::put_on_item`]).
+fn given_effects<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    step: &Step,
+    item: u64,
+    clock: Clock,
+) {
+    let Some(list) = s
+        .content
+        .given_effects
+        .get(&(step.quest, step.key.clone()))
+        .cloned()
+    else {
+        return;
+    };
+    for state in list {
+        crate::effects::put_on_item(s, net, item, state, 1.0, clock);
+    }
 }
 
 /// A step whose update is the fellowship's: the same update made for each of the player's fellows

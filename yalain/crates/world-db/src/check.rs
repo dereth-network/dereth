@@ -532,6 +532,19 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                 if r.effects_quiet && r.effects.is_empty() {
                     problems.push(at(QUIET_WITHOUT_EFFECTS.into()));
                 }
+                if !r.given_effects.is_empty() {
+                    let handed_back = match r.trigger {
+                        Trigger::Give(item, _) => !r.takes.contains(&item),
+                        Trigger::GiveClass(..) => true,
+                        _ => false,
+                    };
+                    if !handed_back {
+                        problems.push(at(
+                            "given_effects: only a give's step that hands its item back puts effects on it"
+                                .into(),
+                        ));
+                    }
+                }
                 if r.transforms.is_some()
                     && !matches!(r.trigger, Trigger::Give(..) | Trigger::GiveClass(..))
                 {

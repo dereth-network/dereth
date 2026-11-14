@@ -2274,16 +2274,21 @@ fn the_installs_armor_effects_count_on_a_player_as_recorded() {
 }
 
 /// The practice dummies that send back a share of each attack are the install's templates on a
-/// practice dummy's NPC table: nine, of levels 30 to 70, and not the level-30 one on the plain
-/// drudges' table.
+/// practice dummy's NPC table (every level's begins with its name): nine, of levels 30 to 70, and
+/// not the level-30 one on the plain drudges' table. The world's row for them names these.
 /// Behaviour: server.creatures.practice-dummies-from-the-install
 #[test]
 fn the_practice_dummies_are_the_nine_on_their_npc_table() {
     let p = Portal::open();
+    let dummy = |props: &yalain_content::Props| {
+        props
+            .text("AI_NPCTable")
+            .is_some_and(|t| t.starts_with("NPCTable_WingChunDummy"))
+    };
     let mut dummies: Vec<u32> = p
         .every_template_props()
         .iter()
-        .filter(|(_, props)| yalain_world::spawn::is_practice_dummy(props))
+        .filter(|(_, props)| dummy(props))
         .map(|(id, _)| *id)
         .collect();
     dummies.sort_unstable();
@@ -2302,12 +2307,54 @@ fn the_practice_dummies_are_the_nine_on_their_npc_table() {
         ]
     );
     // As the catalog describes them too.
-    assert!(yalain_world::spawn::is_practice_dummy(
-        &p.template(0x4700_2DAF).props
-    ));
-    assert!(!yalain_world::spawn::is_practice_dummy(
-        &p.template(0x4700_2DB0).props
-    ));
+    assert!(dummy(&p.template(0x4700_2DAF).props));
+    assert!(!dummy(&p.template(0x4700_2DB0).props));
+}
+
+/// The portal beacons' immunity and the imbuers' spell read as the data defines them: the immunity
+/// takes every attack's harm and every effect's, whole, and sends none back; the spell put on a
+/// weapon lasts 1,800 s and applies the dispel, which the world's rule names the immunity for; a
+/// practice dummy's effect watches attacks alone.
+/// Behaviour: server.effects.beacon-immunity-and-sledgehammer-read
+#[test]
+fn the_beacons_immunity_and_the_imbuers_spell_read_as_the_data_defines_them() {
+    use yalain_world::effect_defs::{EffectRules, Kind};
+    const SPELL: u32 = 0x6F00_1E04;
+    const DISPEL: u32 = 0x6F00_1E05;
+    const IMMUNITY: u32 = 0x6F00_1E06;
+    const DUMMY: u32 = 0x7000_1C79;
+    let p = Portal::open();
+    let rules = EffectRules {
+        dispels: std::collections::BTreeMap::from([(DISPEL, vec![IMMUNITY])]),
+        ..EffectRules::default()
+    };
+    let t = p.effects_ruled(&[SPELL, IMMUNITY, DUMMY], &rules);
+    let spell = t.get(SPELL).expect("the spell");
+    assert_eq!(spell.kind, Kind::Applies(DISPEL));
+    assert_eq!(spell.duration.at(1.0), Some(1800.0));
+    assert!((t.chance(SPELL, 1.0) - 1.0).abs() < f32::EPSILON);
+    assert_eq!(
+        t.get(DISPEL).map(|d| &d.kind),
+        Some(&Kind::Dispel(vec![IMMUNITY])),
+        "read as what the spell applies"
+    );
+    assert!(t.get(DISPEL).is_some_and(|d| !d.lasts()));
+    let Some(Kind::Watcher(w)) = t.get(IMMUNITY).map(|d| &d.kind) else {
+        panic!("the immunity is a watcher");
+    };
+    assert!(w.watches && w.effects && w.shares);
+    assert_eq!(
+        (w.absorbs.chance, w.absorbs.amount.at(1.0)),
+        (1.0, Some(1.0))
+    );
+    assert_eq!(w.sends_back.amount.at(1.0), None);
+    let Some(Kind::Watcher(w)) = t.get(DUMMY).map(|d| &d.kind) else {
+        panic!("the dummy's is a watcher");
+    };
+    assert!(w.watches && !w.effects);
+    // With no rule the dispel does nothing.
+    let bare = p.effects(&[SPELL]);
+    assert_eq!(bare.get(DISPEL).map(|d| &d.kind), Some(&Kind::Other));
 }
 
 /// The effects that raise or lower what kills pay read as the data defines them, each change by its

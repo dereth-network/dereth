@@ -55,7 +55,7 @@ world.lock                         ids given to authored rows, kept across build
 <pack>/server/treasure_families.toml [[treasure_family]]
 <pack>/server/items.toml           [[item_use]], [[book]], [[start_item]], [[interaction]]
 <pack>/server/puzzles.toml         [[object_states]], [[sequence]], [[lever]], [[offering]], [[guarded]], [[shifting]]
-<pack>/server/creatures.toml       [[concealing]], [[npc_table]], [[friend_table]], [[creature]], [[safe_passage]], [[defense]]
+<pack>/server/creatures.toml       [[concealing]], [[npc_table]], [[friend_table]], [[creature]], [[safe_passage]], [[creature_effect]], [[defense]]
 ```
 
 `[[object]]`, `[[camp]]` and `[[clearing]]` rows must be written in their landblock's file. Every
@@ -397,6 +397,7 @@ What moves a quest on, in its quest's file.
 | `races` | | the races it is for, by number: 1 human, 2 Lugian, 4 Tumerok, 8 Drudge, 16 Empyrean; every race when left out |
 | `fellows` | | true: the update is made for each of the player's fellows in the world as well |
 | `wants` | | for a give, exactly how many of the item it wants: any other count is refused and handed back |
+| `given_effects` | | for a give whose item it hands back (it takes no item of the template given): the effects it puts on that item, by their saved states (ones the install holds), each at spellcraft 1 for its own time whoever holds the item after; an effect that applies another (an imbuer's spell) puts that one on the creature each of the weapon's blows lands on, harm or none |
 | `transforms` | | a give's step that makes its player a hero: `{ seconds, fx, behavior, text, name }` |
 | `chance` | | above 0 and at most 1: the chance it runs each time it may; left out, every time |
 | `escort` | | a creature it sets to follow the player for the quest, below |
@@ -1009,6 +1010,21 @@ does one that names a `[[concealing]]` row's.
 | `item`, `effect` | one of them | an item's template the player holds, or an effect the player bears, by its saved state (one the install holds); an item that puts its effect on as it is worn is named by the effect, with an `[[effect_name]]` row where the install's name for it resolves to nothing |
 | `prov` | required | where it came from |
 
+#### `[[creature_effect]]`
+
+An effect creatures of some templates hold from their first moment, for as long as they stand, shown
+at once: a camp's creatures as each appears, and creatures a death or an effect makes. An effect the
+install holds that takes from attacks (and, where its data says so, from effects' harm) works on
+them as on anyone holding it. A world with no rows of it has none.
+
+| field | | meaning |
+|---|---|---|
+| `key` | required | its name |
+| `templates` | required | the creatures' templates, at least one |
+| `effect` | required | the effect, by its saved state (one the install holds) |
+| `spellcraft` | | a number, the same at every level; or `[[level, spellcraft], ...]`, read at the creature's level along the line between the points, held at the ends; 1 when left out |
+| `prov` | required | where it came from |
+
 #### `[[defense]]`
 
 A device creatures come to attack while it stands, and what it leaves once it has stood long
@@ -1072,6 +1088,7 @@ What an effect of the install does where its own data says nothing. One row per 
 | `offset` | | with `places`: `[across, ahead]`, meters from the player as it faces, on the ground; `[0, 0]` when left out |
 | `lasts` | | with `places`: seconds it stands, above 0; left out, until a `[[tally]]` that `clears` it resets, or the server stops (what is placed is not kept across a restart) |
 | `name`, `name_text` | | with `places`: the name it is shown over it and examined by, in place of its template's |
+| `dispels` | | a list of effects, by their saved states (ones the install holds): putting it on takes every record its target holds of them off; nothing brings them back but what put them on (a creature's next coming) |
 | `prov` | required | where it came from |
 
 #### `[[points_bonus]]`

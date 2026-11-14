@@ -940,6 +940,22 @@ pub fn apply_on<S: Store>(
         (Kind::Places(p), On::Player(world)) => {
             crate::placing::place(s, net, world, p.clone(), clock).is_some()
         }
+        // A dispel takes off every record its target holds of the effects it names, as each would
+        // go at its end; nothing comes back of itself.
+        (Kind::Dispel(list), _) => {
+            let gone: Vec<u32> = records_of(s, on)
+                .iter()
+                .filter(|e| list.contains(&e.state))
+                .map(|e| e.eid)
+                .collect();
+            for eid in gone {
+                remove_on(s, net, on, eid);
+            }
+            if def.fx != 0 {
+                show_fx_on(s, net, on, def.fx);
+            }
+            true
+        }
         // A taunt counts by its share at the spellcraft it is cast at (a skill's rating).
         (Kind::Taunt(share), On::Creature(id)) => {
             let share = share.at(cast.spellcraft).unwrap_or(0.0);
@@ -1287,6 +1303,38 @@ pub fn answer_harm<S: Store>(s: &mut Server<S>, on: On, harm: i32, by_a_player: 
     Harm { left, back }
 }
 
+/// What is left of harm an effect does a target once the watchers it holds that watch effects' harm
+/// have taken from it: the top of each class, the higher classes first, each drawing as it does of an
+/// attack and taking its amount of what those before it left, rounded up, never below nothing. None
+/// sends any back. Only watchers that watch effects' harm draw.
+pub fn effect_harm_left<S: Store>(s: &mut Server<S>, on: On, harm: i32) -> i32 {
+    let mut watchers: Vec<(u32, crate::effect_defs::Watcher, f32)> =
+        applying(&s.effect_table, records_of(s, on))
+            .into_iter()
+            .filter_map(|r| {
+                let d = s.effect_table.get(r.state)?;
+                match &d.kind {
+                    Kind::Watcher(w) if w.effects => {
+                        Some((d.eq_class, (**w).clone(), r.spellcraft))
+                    }
+                    _ => None,
+                }
+            })
+            .collect();
+    watchers.sort_by_key(|w| std::cmp::Reverse(w.0));
+    let mut left = harm;
+    for (_, w, spellcraft) in watchers {
+        let absorbed = drawn(s, &w.absorbs, spellcraft);
+        if left <= 0 {
+            continue;
+        }
+        #[allow(clippy::cast_precision_loss)]
+        let of = if w.shares { left as f32 } else { 1.0 };
+        left -= dereth_primitives::num::to_i32((of * absorbed).ceil());
+    }
+    left.max(0)
+}
+
 /// What a target's effects sent back reaches its attacker: a player loses that health, and may die
 /// of it; a creature or a pet is hurt by the target (2017: where it took a fifth of a creature's
 /// health or more, 17 kills, the attacks alone came to 0.89 of it, with what went back 1.14; a
@@ -1580,7 +1628,8 @@ fn health_story(
 }
 
 /// Change a creature's health by an amount: its story of it, then a hurt (which may kill it) or a
-/// heal (not past its greatest health).
+/// heal (not past its greatest health). Harm is what its watchers of effects' harm leave of it
+/// ([`effect_harm_left`]); none left, nothing is told.
 pub(crate) fn creature_health<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1591,6 +1640,12 @@ pub(crate) fn creature_health<S: Store>(
 ) {
     let Some(alive) = s.things.get(id).map(crate::things::Thing::alive) else {
         return;
+    };
+    // What its watchers of effects' harm take is never told.
+    let amount = if alive && amount < 0 {
+        -effect_harm_left(s, On::Creature(id), -amount)
+    } else {
+        amount
     };
     if amount == 0 || (!alive && amount > 0) {
         return;
@@ -1632,10 +1687,11 @@ fn harm_by_player(me: u64, amount: i32, (caster, pk): (u64, bool)) -> bool {
 }
 
 /// Change a player's vital by an amount (a heal: positive), not past its greatest value; the
-/// story of a health change tells the whole amount. Harm another player did is told as PK damage
-/// too. Harm that takes its last health kills it, the caster its killer, or none for its own: 2017,
-/// 4 of 4 players a creature's effect took to no health had their death told; no recording has a
-/// player's own harm do it.
+/// story of a health change tells the whole amount. Harm to health is what its watchers of effects'
+/// harm leave of it ([`effect_harm_left`]); none left, nothing is told. Harm another player did is
+/// told as PK damage too. Harm that takes its last health kills it, the caster its killer, or none
+/// for its own: 2017, 4 of 4 players a creature's effect took to no health had their death told; no
+/// recording has a player's own harm do it.
 fn change_vital<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1645,6 +1701,16 @@ fn change_vital<S: Store>(
     (caster, pk): (u64, bool),
     clock: Clock,
 ) {
+    // What its watchers of effects' harm take is never told.
+    let amount = if cur == quality::HEALTH && amount < 0 {
+        let left = -effect_harm_left(s, On::Player(world), -amount);
+        if left == 0 {
+            return;
+        }
+        left
+    } else {
+        amount
+    };
     let Some(p) = s.players.get(&world) else {
         return;
     };

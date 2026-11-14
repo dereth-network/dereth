@@ -26,6 +26,10 @@
 //! below its item level, and it is named for one of them. An effect on what it hits lands by that
 //! effect's own chance.
 //!
+//! **What a weapon applies.** An effect on a weapon that applies another (one put on it for a while,
+//! as a quest's imbue does, or its own) puts that one on the creature each of its blows lands on,
+//! harm or none ([`applied_on_blow`]).
+//!
 //! **Treasure jewelry** is plain with no least level, or by its dropper's level has one enchantment
 //! on its wearer and a least level.
 //!
@@ -495,6 +499,64 @@ pub fn on_hit<S: yalain_store::Store>(
         crate::effects::On::Creature(target),
         clock,
     );
+}
+
+/// A blow lands on a creature, whether or not it did it any harm: each effect on the striker's weapon
+/// that applies another (one put on the weapon for a while, or one of its own) puts that one on the
+/// creature, by its own chance at its spellcraft, cast by the striker from the weapon.
+pub fn applied_on_blow<S: yalain_store::Store>(
+    s: &mut crate::Server<S>,
+    net: &mut yalain_net::ServerNet,
+    world: yalain_net::ConnId,
+    target: u64,
+    clock: crate::Clock,
+) {
+    let Some(me) = s.players.get(&world).map(|p| p.character) else {
+        return;
+    };
+    let Some(weapon) = crate::skill_use::wielded(s, me).first().map(|(i, _)| *i) else {
+        return;
+    };
+    let Some(w) = s.things.get(weapon) else {
+        return;
+    };
+    let on_it: Vec<(u32, f32)> = crate::effects::running_on_item(s, w)
+        .into_iter()
+        .map(|e| (e.state, e.spellcraft))
+        .chain(w.enchantments.iter().copied())
+        .collect();
+    for (state, spellcraft) in on_it {
+        let Some(crate::effect_defs::Kind::Applies(applied)) =
+            s.effect_table.get(state).map(|d| d.kind.clone())
+        else {
+            continue;
+        };
+        if !s
+            .things
+            .get(target)
+            .is_some_and(crate::things::Thing::alive)
+        {
+            return;
+        }
+        let chance = s.effect_table.chance(state, spellcraft);
+        if chance < 1.0 && !s.rng.chance(chance) {
+            continue;
+        }
+        crate::effects::apply_on(
+            s,
+            net,
+            crate::effects::On::Creature(target),
+            applied,
+            crate::effects::Cast {
+                caster: me,
+                spellcraft,
+                pk: true,
+                item: weapon,
+                ..crate::effects::Cast::default()
+            },
+            clock,
+        );
+    }
 }
 
 /// The saved state of the game's Arcane Lore table: the lore of each item level from 50 to 150.

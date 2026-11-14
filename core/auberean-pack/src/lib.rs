@@ -289,6 +289,8 @@ pub enum Item {
     Creature { template: u32 },
     /// Creatures that let pass a player holding an item or bearing an effect, by the row's key.
     SafePassage { key: String },
+    /// An effect creatures of some templates hold from their first moment, by the row's key.
+    CreatureEffect { key: String },
     /// A defended device, by its template.
     Defense { device: u32 },
     /// A species of dye plant, by its plant's template.
@@ -454,6 +456,7 @@ impl Item {
                 template: number(template)?,
             },
             ["safe_passage", key] => Self::SafePassage { key: symbol(key)? },
+            ["creature_effect", key] => Self::CreatureEffect { key: symbol(key)? },
             ["defense", device] => Self::Defense {
                 device: number(device)?,
             },
@@ -558,6 +561,7 @@ impl fmt::Display for Item {
             Self::FriendTable { table } => write!(f, "friend_table {table:#x}"),
             Self::Creature { template } => write!(f, "creature {template:#010x}"),
             Self::SafePassage { key } => write!(f, "safe_passage {key}"),
+            Self::CreatureEffect { key } => write!(f, "creature_effect {key}"),
             Self::Defense { device } => write!(f, "defense {device:#010x}"),
             Self::Plant { template } => write!(f, "plant {template:#010x}"),
             Self::PlantCross { plant, pollen } => {

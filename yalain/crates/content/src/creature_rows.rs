@@ -1,8 +1,9 @@
 //! What the world database says of creatures' behavior: whom a concealing effect spares or makes
 //! hated, which behavior tables heal their kin, which friend tables never attack a player first,
 //! which friend tables fight which, a shooter's rhythm by its template, the creatures that mark the
-//! players they see, those that take on only the players they hate, those players may not harm, and
-//! the camps and kinds that let pass a player holding an item or bearing an effect.
+//! players they see, those that take on only the players they hate, those players may not harm, the
+//! camps and kinds that let pass a player holding an item or bearing an effect, and the effects
+//! creatures hold from their first moment.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -106,6 +107,17 @@ impl SafePassage {
     }
 }
 
+/// An effect creatures of these templates hold from their first moment, for as long as they stand:
+/// the effect (its saved state), at a spellcraft by the creature's level, read along the line
+/// between the points (level, spellcraft) and held at the ends; one point is the same at every
+/// level.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CreatureEffect {
+    pub templates: Vec<u32>,
+    pub effect: u32,
+    pub spellcraft: Vec<(f32, f32)>,
+}
+
 /// The world's creature rows.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CreatureRows {
@@ -129,6 +141,8 @@ pub struct CreatureRows {
     pub kept_out: BTreeMap<u32, Option<(u32, u32)>>,
     /// The camps and kinds of creature that let pass a player holding an item or bearing an effect.
     pub safe_passage: Vec<SafePassage>,
+    /// The effects creatures of some templates hold from their first moment.
+    pub effects: Vec<CreatureEffect>,
 }
 
 impl CreatureRows {
@@ -187,6 +201,13 @@ impl CreatureRows {
                 .safe_passage
                 .iter()
                 .any(|r| r.pass == Pass::Effect(state))
+    }
+
+    /// The effects a creature of this template holds from its first moment, in the rows' order.
+    pub fn effects_of(&self, template: u32) -> impl Iterator<Item = &CreatureEffect> {
+        self.effects
+            .iter()
+            .filter(move |e| e.templates.contains(&template))
     }
 
     /// Whether creatures of a behavior table heal their kin.

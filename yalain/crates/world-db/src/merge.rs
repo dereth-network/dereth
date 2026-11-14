@@ -171,6 +171,7 @@ pub fn item(l: &Located) -> Option<Item> {
             template: r.template,
         },
         Row::SafePassage(r) => Item::SafePassage { key: r.key.clone() },
+        Row::CreatureEffect(r) => Item::CreatureEffect { key: r.key.clone() },
         Row::Defense(r) => Item::Defense {
             device: r.defense.device,
         },
@@ -254,6 +255,7 @@ fn value(row: &Row) -> String {
         Row::FriendTable(x) => x.prov = crate::rows::Prov::default(),
         Row::Creature(x) => x.prov = crate::rows::Prov::default(),
         Row::SafePassage(x) => x.prov = crate::rows::Prov::default(),
+        Row::CreatureEffect(x) => x.prov = crate::rows::Prov::default(),
         Row::Defense(x) => x.prov = crate::rows::Prov::default(),
         Row::Remove(_) => {}
     }

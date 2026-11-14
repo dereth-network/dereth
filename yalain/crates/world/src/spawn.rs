@@ -27,7 +27,9 @@
 //! and the camp's way round ([`crate::ai`]).
 //!
 //! **Appearing.** A new creature is made for every client whose view holds its place, with its
-//! entry effect.
+//! entry effect. It holds the effects the world's rows give its template from that moment, at its
+//! level's spellcraft, for as long as it stands ([`holds_its_effects`]); so does a creature a death
+//! or an effect makes.
 
 use dereth_primitives::num::math;
 use yalain_net::ServerNet;
@@ -71,66 +73,52 @@ pub struct CampState {
     pub fought: Vec<u64>,
 }
 
-/// The kind of NPC table practice dummies that send back a share of each attack on them stand
-/// on, every level's, with a quest on its death and without (`AI_NPCTable` begins with it). The
-/// one of level 30 on another kind of table never does.
-pub const PRACTICE_DUMMY_TABLE: &str = "NPCTable_WingChunDummy";
-
-/// Is a template a practice dummy that sends back a share of each attack on it?
-#[must_use]
-pub fn is_practice_dummy(props: &yalain_content::Props) -> bool {
-    props
-        .text("AI_NPCTable")
-        .is_some_and(|t| t.starts_with(PRACTICE_DUMMY_TABLE))
-}
-/// What a practice dummy holds from its first moment: 0.01 of an attack sent back for each point of
-/// spellcraft.
-pub const PRACTICE_DUMMY_EFFECT: u32 = 0x7000_1C79;
-
-/// The spellcraft of a practice dummy's effect, by its level. 2017's shares: 0.35 at 40 (74 of 74
-/// attacks with a skill), 0.40 at 50 (10 of 10), 0.45 at 60 (1 of 1), 0.50 at 70 (28 of 28). None
-/// recorded at 30, where this gives 0.30; its effect's appearance shows in 45 of 54.
-#[must_use]
-pub fn practice_dummy_spellcraft(level: i32) -> f32 {
-    #[allow(clippy::cast_precision_loss)]
-    let level = level as f32;
-    15.0 + level / 2.0
-}
-
-/// A practice dummy holds its effect as it appears: for as long as it stands, shown at once.
-fn holds_its_effect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock) {
+/// A creature holds the effects the world's rows give its template from its first moment
+/// ([`yalain_content::creature_rows::CreatureEffect`]), each at the spellcraft its row gives the
+/// creature's level, for as long as it stands, shown at once. An effect the world's start never
+/// read is left off.
+pub(crate) fn holds_its_effects<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    id: u64,
+    clock: Clock,
+) {
     let Some(t) = s.things.get(id) else {
         return;
     };
     let (template, level) = (t.template, t.creature.as_ref().map_or(0, |c| c.stats.level));
-    if !s
-        .catalog
-        .get(template)
-        .is_some_and(|t| is_practice_dummy(&t.props))
-    {
-        return;
+    #[allow(clippy::cast_precision_loss)]
+    let held: Vec<(u32, f32)> = s
+        .creature_rows
+        .effects_of(template)
+        .map(|e| {
+            let at = crate::effect_defs::Scale(e.spellcraft.clone()).at(level as f32);
+            (e.effect, at.unwrap_or(1.0))
+        })
+        .collect();
+    for (state, spellcraft) in held {
+        let Some(def) = s.effect_table.get(state).cloned() else {
+            continue;
+        };
+        let cast = crate::effects::Cast {
+            caster: id,
+            spellcraft,
+            ..crate::effects::Cast::default()
+        };
+        let shape = crate::effects::Shape {
+            timeout: Some(f32::MAX),
+            ..crate::effects::Shape::TIMED
+        };
+        crate::effects::add_on(
+            s,
+            net,
+            crate::effects::On::Creature(id),
+            &def,
+            cast,
+            shape,
+            clock,
+        );
     }
-    let Some(def) = s.effect_table.get(PRACTICE_DUMMY_EFFECT).cloned() else {
-        return;
-    };
-    let cast = crate::effects::Cast {
-        caster: id,
-        spellcraft: practice_dummy_spellcraft(level),
-        ..crate::effects::Cast::default()
-    };
-    let shape = crate::effects::Shape {
-        timeout: Some(f32::MAX),
-        ..crate::effects::Shape::TIMED
-    };
-    crate::effects::add_on(
-        s,
-        net,
-        crate::effects::On::Creature(id),
-        &def,
-        cast,
-        shape,
-        clock,
-    );
 }
 
 /// The side of a landblock and of a land cell, in meters.
@@ -239,7 +227,7 @@ fn fill<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize, clock: Clock
         if let Some(id) = spawn(s, i, now) {
             s.camps[i].alive.push(id);
             presence::thing_appears(s, net, id);
-            holds_its_effect(s, net, id, clock);
+            holds_its_effects(s, net, id, clock);
         }
     }
 }

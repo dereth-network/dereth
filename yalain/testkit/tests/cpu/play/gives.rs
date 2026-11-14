@@ -2450,6 +2450,93 @@ fn a_give_of_a_class_runs_for_any_item_of_it_and_for_no_other() {
     assert!(holds(&h, me, junk.0), "no weapon: handed back");
 }
 
+/// A give's step that hands its item back puts the effects its row gives it on the item, each for its
+/// own time on the game clock (an imbuer's spell of thirty minutes on the weapon given); another
+/// step of the same quest that names none puts nothing on it, and the effect runs out at its time.
+///
+/// Behaviour: server.quests.a-step-puts-effects-on-the-item-handed-back
+#[test]
+fn a_give_step_puts_its_effects_on_the_item_it_hands_back() {
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    const WEAPON: u32 = 0x1049;
+    const AXE: u32 = 0x4700_1601;
+    const SPELL: u32 = 0x6F00_7411;
+    const APPLIED: u32 = 0x6F00_7412;
+    let mut h = world();
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(AXE, WEAPON, Props::default()));
+    h.server.effect_table.effects.insert(
+        SPELL,
+        EffectDef {
+            state: SPELL,
+            kind: Kind::Applies(APPLIED),
+            duration: Scale(vec![(0.0, 1800.0)]),
+            priority: Scale(vec![(0.0, 1.0)]),
+            fx: 0,
+            external_flags: 0,
+            internal_flags: 0,
+            enum_value: 0,
+            eq_class: 4056,
+            name: None,
+            ends_at_logout: false,
+            ends_at_teleport: false,
+        },
+    );
+    let imbue = Step {
+        key: "imbue".into(),
+        ..step(
+            QUEST,
+            1,
+            Trigger::GiveClass(WEAPON, PERSON_T),
+            Update::Advance(2),
+        )
+    };
+    let plain = Step {
+        key: "plain".into(),
+        ..step(
+            QUEST,
+            2,
+            Trigger::GiveClass(WEAPON, PERSON_T),
+            Update::Advance(3),
+        )
+    };
+    h.server.quests.steps = vec![imbue, plain];
+    h.server
+        .content
+        .given_effects
+        .insert((QUEST, "imbue".into()), vec![SPELL]);
+    let (b, me) = player(&mut h, "one", "Elara");
+    at_phase(&mut h, QUEST, 1);
+    let axe = hold(&mut h, me, AXE, 1);
+    let (_, moved) = give_ashes(&mut h, b, me, axe, 1);
+    assert_eq!(moved, vec![(0x2000_0002, QUEST, 2)], "imbued");
+    assert!(holds(&h, me, axe.0), "handed back");
+    let on = |h: &Harness| {
+        let t = h.server.things.get(axe.0).expect("the axe");
+        yalain_world::effects::running_on_item(&h.server, t)
+    };
+    let held = on(&h);
+    assert_eq!(held.len(), 1, "{held:?}");
+    assert_eq!((held[0].state, held[0].spellcraft), (SPELL, 1.0));
+    let left = held[0].until - h.server.game_now;
+    assert!((1795.0..=1800.0).contains(&left), "{left} s left");
+    // The other step puts nothing more on it.
+    let other = hold(&mut h, me, AXE, 1);
+    let (_, moved) = give_ashes(&mut h, b, me, other, 1);
+    assert_eq!(
+        moved.iter().map(|m| (m.1, m.2)).collect::<Vec<_>>(),
+        [(QUEST, 3)]
+    );
+    assert!(h
+        .server
+        .things
+        .get(other.0)
+        .is_some_and(|t| t.timed.is_empty()));
+    h.server.game_now += 1800.0;
+    assert!(on(&h).is_empty(), "run out");
+}
+
 /// Two gives that move no quest, alike but for the class each takes, each take an item of their
 /// own class: one of the second class is kept by the second, not refused for the first's.
 ///
