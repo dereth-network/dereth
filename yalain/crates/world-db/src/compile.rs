@@ -2048,6 +2048,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             | Row::Offering(_)
             | Row::Guarded(_)
             | Row::Shifting(_)
+            | Row::Wanting(_)
             | Row::Hazard(_)
             | Row::SafePassage(_)
             | Row::CreatureEffect(_) => {}
@@ -2426,6 +2427,29 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         objects,
                         gone_for: r.gone_for,
                         moves_after: r.moves_after,
+                    });
+            }
+            Row::Wanting(r) => {
+                let Some(objects) = placed_objects(&mut cx, &objects_at, l, "objects", &r.objects)
+                else {
+                    continue;
+                };
+                if let Some(o) = objects
+                    .iter()
+                    .find(|o| t.content.wanting.of_object(**o).is_some())
+                {
+                    let name = &r.objects[objects.iter().position(|x| x == o).unwrap_or(0)];
+                    cx.problem(l, format!("objects: {name} wants by another row"));
+                    continue;
+                }
+                t.content
+                    .wanting
+                    .rows
+                    .push(yalain_content::wanting::Wanting {
+                        key: r.key.clone(),
+                        objects,
+                        items: r.items.clone(),
+                        refused: r.refused.map(|s| (s.string, s.table)),
                     });
             }
             Row::Hazard(r) => {

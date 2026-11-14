@@ -11878,6 +11878,20 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.an-object-wants-one-item-drawn-at-random",
+        says: "Each placed object a world's row names wants one item of the row's set, drawn by \
+               weight the first time an item of the set is used on it or given to it and kept, the \
+               same for every player and apart from the row's other objects; another item of the \
+               set is refused once the player has come to it, the object saying the row's line and \
+               the item kept, and no quest step runs; the one it wants goes on as any other, and \
+               once it runs a step (or, given, a give row takes it) the want is forgotten and drawn \
+               again at the next.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WANTING-OBJECTS"),
+        station: "yalain-testkit::cpu::play::wanting_objects::a_crystal_takes_only_the_serum_it_drew_and_refuses_the_others_which_stay_in_the_pack",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.an-object-works-only-while-its-guards-are-dead",
         says: "A placed object a world's row ties to a camp is refused, once the player has come \
                to it, while a creature of the camp lives: it says the row's line and no quest step \

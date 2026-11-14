@@ -1273,16 +1273,30 @@ fn held_on_object<S: Store>(
         return;
     }
     let item = s.things.get(u.item).map_or(0, |t| t.template);
-    let (target, distance) =
-        presence::content_by_id(&s.content.objects, u.target).map_or((0, 0.0), |i| {
-            let o = &s.content.objects[i];
-            let d = s
-                .players
-                .get(&world)
-                .and_then(|p| reach(&p.position, o.cell, o.origin))
-                .unwrap_or(0.0);
-            (o.template, d)
-        });
+    let object = presence::content_by_id(&s.content.objects, u.target);
+    let (target, distance) = object.map_or((0, 0.0), |i| {
+        let o = &s.content.objects[i];
+        let d = s
+            .players
+            .get(&world)
+            .and_then(|p| reach(&p.position, o.cell, o.origin))
+            .unwrap_or(0.0);
+        (o.template, d)
+    });
+    // An item of a set the object wants another of is refused, kept, and moves nothing.
+    if let Some(i) =
+        object.filter(|i| crate::wanting::judge(s, *i, item) == crate::wanting::Judged::Refused)
+    {
+        crate::wanting::refused(s, net, world, i);
+        let m = use_answer_on(
+            &u,
+            crate::usable::interactions::FLAGS_KEPT,
+            distance,
+            USE_STATUS_OK,
+        );
+        send(net, world, BlobKind::PRIVATE, &m);
+        return;
+    }
     let trigger = Trigger::UseOn(item, target);
     // Every use is answered, so the item is free again: one that moves no step of the player's
     // quests is answered as done, the item kept.
@@ -1299,6 +1313,10 @@ fn held_on_object<S: Store>(
         send(net, world, BlobKind::PRIVATE, &m);
         return;
     };
+    // The step runs (on arrival, for one that leads somewhere): what the object wanted is met.
+    if let Some(i) = object {
+        crate::wanting::met(s, i, item);
+    }
     let Some(place) = step.to else {
         let flags = if step.takes.contains(&item) {
             crate::usable::interactions::FLAGS_USED_UP

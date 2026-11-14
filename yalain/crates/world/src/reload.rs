@@ -162,6 +162,7 @@ pub mod table {
     pub const OFFERINGS: &str = "offerings";
     pub const GUARDED: &str = "guarded objects";
     pub const SHIFTING: &str = "shifting objects";
+    pub const WANTING: &str = "wanting objects";
     pub const HAZARDS: &str = "hazards";
     pub const DEFENSES: &str = "defended devices";
     pub const ESCORTS: &str = "escorts";
@@ -300,6 +301,13 @@ impl<S: Store> Server<S> {
         if changed {
             crate::shifting::forget_all(self, net);
             self.content.shifting = std::mem::take(&mut t.content.shifting);
+        }
+        // The wanting objects: every want is forgotten, drawn again as an item next comes.
+        let changed = t.content.wanting != self.content.wanting;
+        r.note(table::WANTING, changed, true);
+        if changed {
+            crate::wanting::forget_all(self);
+            self.content.wanting = std::mem::take(&mut t.content.wanting);
         }
         // The hazards: the reaches players stood within are measured afresh at their next reports.
         let changed = t.content.hazards != self.content.hazards;

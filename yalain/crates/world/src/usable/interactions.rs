@@ -596,8 +596,22 @@ fn carry_out<S: Store>(
         progress::private(net, world, &m);
         return;
     }
+    // An item of a set the object wants another of is refused, kept, and moves nothing.
+    let object = presence::content_by_id(&s.content.objects, u.target);
+    if let Some(i) =
+        object.filter(|i| crate::wanting::judge(s, *i, item) == crate::wanting::Judged::Refused)
+    {
+        crate::wanting::refused(s, net, world, i);
+        let m = places::use_answer_on(u, FLAGS_KEPT, distance, 0);
+        progress::private(net, world, &m);
+        return;
+    }
     let trigger = Trigger::UseOn(item, target);
-    crate::quests::triggered(s, net, world, trigger, None, clock);
+    if crate::quests::triggered(s, net, world, trigger, None, clock) {
+        if let Some(i) = object {
+            crate::wanting::met(s, i, item);
+        }
+    }
     let made = row.as_ref().map(|r| {
         (
             r.gives_where(how.gate.is_some()).to_vec(),

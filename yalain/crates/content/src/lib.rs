@@ -60,6 +60,7 @@ pub mod treasure_looks;
 pub mod treasure_tables;
 pub mod treasure_words;
 pub mod untraining;
+pub mod wanting;
 pub mod worn_table;
 
 pub use locks::{Lock, LockTable};
@@ -803,6 +804,9 @@ pub struct ContentPack {
     /// The placed objects of which one stands at a time, moving on after each use. Not part of the
     /// text form: the world database's shifting rows fill it.
     pub shifting: shifting::ShiftTable,
+    /// The placed objects that each want one item of a set, drawn at random. Not part of the text
+    /// form: the world database's wanting rows fill it.
+    pub wanting: wanting::WantTable,
     /// The placed objects and spots that harm a player who uses one or comes within its reach. Not
     /// part of the text form: the world database's hazard rows fill it.
     pub hazards: hazards::HazardTable,
@@ -1189,6 +1193,7 @@ impl ContentPack {
             offerings: offerings::OfferingTable::default(),
             guards: guards::GuardTable::default(),
             shifting: shifting::ShiftTable::default(),
+            wanting: wanting::WantTable::default(),
             defenses: defenses::DefenseTable::default(),
             hazards: hazards::HazardTable::default(),
         })

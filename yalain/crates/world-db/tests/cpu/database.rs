@@ -8122,6 +8122,84 @@ fn a_hazard_row_names_its_objects_by_placement_and_its_spots_and_compiles_to_the
 }
 
 #[test]
+fn a_wanting_row_names_its_objects_by_placement_and_weighted_set_and_compiles_to_the_want_table() {
+    let mut files = with_lever(fixture());
+    files.insert(
+        "town/server/puzzles.toml".into(),
+        "[[wanting]]\n\
+         key = \"crystals\"\n\
+         objects = [\"lever@77B7\", \"gate@77B7\"]\n\
+         items = [{ template = 0x470013E9, weight = 1 }, { template = 0x470013EA, weight = 2 }]\n\
+         refused = { table = 0x250028F0, string = 0xC844788B }\n\
+         prov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let gate = placed_at(&t, 0x4077_B700_0000_0001);
+    assert_eq!(
+        t.content.wanting.rows,
+        vec![yalain_content::wanting::Wanting {
+            key: "crystals".into(),
+            objects: vec![placed_at(&t, 0x4077_B700_0000_0003), gate],
+            items: vec![(0x4700_13E9, 1), (0x4700_13EA, 2)],
+            refused: Some((0xC844_788B, 0x2500_28F0)),
+        }]
+    );
+
+    for (from, to, says) in [
+        (
+            "\"gate@77B7\"]",
+            "\"nowhere@77B7\"]",
+            "objects: no object nowhere@77B7",
+        ),
+        (
+            "objects = [\"lever@77B7\", \"gate@77B7\"]",
+            "objects = []",
+            "objects: at least one",
+        ),
+        (
+            ", { template = 0x470013EA, weight = 2 }]",
+            "]",
+            "items: ",
+        ),
+        ("weight = 2", "weight = 0", "items: "),
+        ("0x470013EA", "0x470013E9", "items: each template once"),
+        (
+            "items = [{ template = 0x470013E9, weight = 1 }, { template = 0x470013EA, weight = 2 }]\n",
+            "",
+            "items: missing",
+        ),
+    ] {
+        let mut bad = files.clone();
+        edit(&mut bad, "town/server/puzzles.toml", from, to);
+        assert!(
+            check(&bad).iter().any(|p| p.to_string().contains(says)),
+            "{to}: {:?}",
+            check(&bad)
+        );
+    }
+    // An object in two rows is a problem of the compile.
+    let mut twice = files.clone();
+    twice.get_mut("town/server/puzzles.toml").unwrap().push_str(
+        "\n\
+         [[wanting]]\n\
+         key = \"again\"\n\
+         objects = [\"gate@77B7\"]\n\
+         items = [{ template = 0x470013E9, weight = 1 }, { template = 0x470013EB, weight = 1 }]\n\
+         prov = { from = \"authored\" }\n",
+    );
+    let problems =
+        compile(&merge(&read(&twice).unwrap()).unwrap(), &Fake::new()).expect_err("refused");
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.to_string().contains("wants by another row")),
+        "{problems:?}"
+    );
+}
+
+#[test]
 fn a_defense_row_names_its_device_attackers_and_what_it_leaves_and_bad_ones_are_problems() {
     use yalain_content::defenses::Defense;
     let mut files = fixture();

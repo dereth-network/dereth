@@ -658,6 +658,11 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                     check_placed("objects", name, l, &objects, &mut |m| problems.push(at(m)));
                 }
             }
+            Row::Wanting(r) => {
+                for name in &r.objects {
+                    check_placed("objects", name, l, &objects, &mut |m| problems.push(at(m)));
+                }
+            }
             Row::SafePassage(r) => {
                 if let Some(why) = r.camp.as_deref().and_then(|c| named_camp(c, &camp_makes)) {
                     problems.push(at(format!("camp: {why}")));

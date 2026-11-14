@@ -739,6 +739,7 @@ pub enum Row {
     Offering(OfferingRow),
     Guarded(GuardedRow),
     Shifting(ShiftingRow),
+    Wanting(WantingRow),
     Hazard(HazardRow),
     MapRecipes(MapRecipes),
     Spellbinding(Spellbinding),
@@ -1375,6 +1376,18 @@ pub struct HazardRow {
     pub prov: Prov,
 }
 
+/// `[[wanting]]`: placed objects that each want one item of a set, drawn at random and kept until it
+/// is met: the objects (`key@XXYY`, or `pack:key@XXYY`), the set with each item's weight, and what
+/// an object says to an item of the set it does not want.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WantingRow {
+    pub key: String,
+    pub objects: Vec<String>,
+    pub items: Vec<(u32, u32)>,
+    pub refused: Option<StrRef>,
+    pub prov: Prov,
+}
+
 /// `[[tool]]`: what a gathering tool yields when it was not made (a made one's yield is its own).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tool {
@@ -1492,6 +1505,7 @@ impl Row {
             Self::Offering(_) => "offering",
             Self::Guarded(_) => "guarded",
             Self::Shifting(_) => "shifting",
+            Self::Wanting(_) => "wanting",
             Self::Hazard(_) => "hazard",
             Self::MapRecipes(_) => "map_recipes",
             Self::Spellbinding(_) => "spellbinding",
@@ -1565,6 +1579,7 @@ impl Row {
             Self::Offering(r) => Some(&r.prov),
             Self::Guarded(r) => Some(&r.prov),
             Self::Shifting(r) => Some(&r.prov),
+            Self::Wanting(r) => Some(&r.prov),
             Self::Hazard(r) => Some(&r.prov),
             Self::MapRecipes(r) => Some(&r.prov),
             Self::Spellbinding(r) => Some(&r.prov),
@@ -1587,7 +1602,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 67] = [
+pub const KINDS: [&str; 68] = [
     "object",
     "camp",
     "loot",
@@ -1639,6 +1654,7 @@ pub const KINDS: [&str; 67] = [
     "offering",
     "guarded",
     "shifting",
+    "wanting",
     "hazard",
     "map_recipes",
     "spellbinding",
@@ -1658,7 +1674,7 @@ pub const KINDS: [&str; 67] = [
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 67] = [
+pub const FIELDS: [(&str, &[&str]); 68] = [
     (
         "object",
         &[
@@ -2145,6 +2161,7 @@ pub const FIELDS: [(&str, &[&str]); 67] = [
         "shifting",
         &["key", "objects", "gone_for", "moves_after", "prov"],
     ),
+    ("wanting", &["key", "objects", "items", "refused", "prov"]),
     (
         "hazard",
         &[
@@ -3496,6 +3513,28 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 effects,
                 harm,
                 kills,
+                prov: f.req_prov()?,
+            })
+        }
+        "wanting" => {
+            let key = f.req_symbol("key")?;
+            let objects = f.req_references("objects")?;
+            let ok = !objects.is_empty();
+            let objects = f.held("objects", objects, ok, "at least one")?;
+            let items = match f.get("items") {
+                Some(_) => f.one_of("items"),
+                None => f.missing("items")?,
+            };
+            let ok = items
+                .iter()
+                .enumerate()
+                .all(|(n, (t, _))| items[..n].iter().all(|(u, _)| u != t));
+            let items = f.held("items", items, ok, "each template once")?;
+            Row::Wanting(WantingRow {
+                key,
+                objects,
+                items,
+                refused: f.strref("refused"),
                 prov: f.req_prov()?,
             })
         }

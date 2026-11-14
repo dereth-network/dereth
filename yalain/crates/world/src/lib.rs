@@ -178,6 +178,7 @@ pub mod uploads;
 pub mod usable;
 pub mod walkers;
 pub mod walls;
+pub mod wanting;
 pub mod workshops;
 pub mod world;
 pub mod world_patch;
@@ -442,6 +443,8 @@ pub struct Server<S: Store> {
     pub guards: guards::Guards,
     /// The shifting objects' rows as the world keeps them.
     pub shifts: shifting::Shifts,
+    /// The item each wanting object wants now.
+    pub wants: wanting::Wants,
     /// The hazards' reaches each player stands within.
     pub hazards: hazards::Hazards,
     /// What objects hold of the effects uses of items on them left.
@@ -892,6 +895,7 @@ impl<S: Store> Server<S> {
             levers: usable::levers::Levers::default(),
             guards: guards::Guards::default(),
             shifts: shifting::Shifts::default(),
+            wants: wanting::Wants::default(),
             hazards: hazards::Hazards::default(),
             held_here: HashMap::new(),
             defenses: defenses::Defenses::default(),

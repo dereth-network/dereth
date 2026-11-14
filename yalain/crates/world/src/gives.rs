@@ -358,11 +358,20 @@ pub fn handed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, c
         quantity: m.quantity.min(quantity).max(1),
         target: m.target,
     };
+    // An item of a set the object wants another of is refused and handed back.
+    if crate::wanting::judge(s, i, template) == crate::wanting::Judged::Refused {
+        crate::wanting::refused(s, net, world, i);
+        hand_back(s, net, world, i, &m, object, None, clock);
+        return;
+    }
     // The give of the item's own template first, then of each class it counts in.
     let triggers = crate::quests::give_triggers(s, template, target_template);
     let found = triggers.iter().find_map(|t| {
         crate::quests::step_for_give(s, world, *t, given.quantity, clock.unix).map(|st| (*t, st))
     });
+    if found.is_some() {
+        crate::wanting::met(s, i, template);
+    }
     let Some((trigger, step)) = found else {
         let wrong = triggers.iter().find_map(|t| {
             crate::quests::wants_another_count(s, world, *t, given.quantity, clock.unix)
@@ -398,6 +407,7 @@ pub fn handed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, c
         if let Some(row) =
             crate::quests::give_for(s, world, template, target_template, given.quantity)
         {
+            crate::wanting::met(s, i, template);
             takes(s, net, world, i, &row, given, clock);
             return;
         }

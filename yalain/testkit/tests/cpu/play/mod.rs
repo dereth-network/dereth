@@ -116,6 +116,7 @@ mod treasure_values;
 mod two_blows;
 mod untraining;
 mod vaults;
+mod wanting_objects;
 mod watchers;
 mod weapons;
 mod wearing;
