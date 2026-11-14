@@ -21,6 +21,10 @@
 //! **Resurrected**, a player with more than ten focus comes back with ten, sent after its health
 //! and vigor (2017: 18 of 20 resurrections from above ten; 19 of 19 in that order); ten or less is
 //! kept (2 of 2).
+//!
+//! **Spent** by a skill whose definition costs focus (the heroes' skills): its cost at the user's
+//! rating ([`crate::skill_use::focus_cost`]), paid as the use is carried out, after its vigor; a
+//! use the player hasn't the focus for is refused, and the client says so.
 
 use yalain_net::{ConnId, ServerNet};
 use yalain_store::Store;
@@ -83,6 +87,17 @@ pub fn greatest<S: Store>(s: &Server<S>, p: &crate::world::Player) -> i32 {
 #[must_use]
 pub fn current<S: Store>(s: &Server<S>, p: &crate::world::Player) -> i32 {
     quals::int(&p.qualities, quality::FOCUS).unwrap_or_else(|| greatest(s, p))
+}
+
+/// A player's focus to spend: a hero's focus now; none for one who is no hero (2017: no character
+/// that was no hero held any).
+#[must_use]
+pub fn spendable<S: Store>(s: &Server<S>, p: &crate::world::Player) -> i32 {
+    if is_hero(&p.qualities) {
+        current(s, p)
+    } else {
+        0
+    }
 }
 
 /// A hero gains focus, up to its greatest: the new focus is sent, nothing when it was already at

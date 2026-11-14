@@ -2504,3 +2504,32 @@ mod timings {
         assert_eq!(yalain_world::ai::harm_noticed(&t, 122, 10_000), 10_000);
     }
 }
+
+/// The skills whose definitions cost focus read with their lines, from rating 1 to the skill's
+/// cap: 310 of them, every one a hero skill; Tidal Wave 30 to 40 over 150 ratings (32 at 44),
+/// Tanua's Gift 80 to 40 over 100 (62 at 45), Living Armor 55 to 65 (60 at 89), Portal Recall 70
+/// to 1 over 10, the Forces 10. A skill that costs none reads as none.
+/// Behaviour: server.skills.focus-cost-read
+#[test]
+fn the_skills_that_cost_focus_read_with_their_lines_and_all_are_hero_skills() {
+    use yalain_world::skill_use::focus_cost;
+    let t = Portal::open().skills();
+    let costing: Vec<_> = t
+        .skills
+        .values()
+        .filter(|d| d.usage.as_ref().is_some_and(|u| u.focus_add != (0.0, 0.0)))
+        .collect();
+    assert_eq!(costing.len(), 310);
+    assert!(costing.iter().all(|d| d.hero_cost > 0), "hero skills");
+    let at = |skill: u32, rating: f32| {
+        let d = &t.skills[&skill];
+        let u = d.usage.as_ref().expect("used");
+        (u.focus_add, d.cap, focus_cost(u, d.cap, rating))
+    };
+    assert_eq!(at(1085, 44.0), ((-30.0, -40.0), 150, 32), "Tidal Wave");
+    assert_eq!(at(1061, 45.0), ((-80.0, -40.0), 100, 62), "Tanua's Gift");
+    assert_eq!(at(1081, 89.0), ((-55.0, -65.0), 150, 60), "Living Armor");
+    assert_eq!(at(2170, 1.0), ((-70.0, -1.0), 10, 70), "Portal Recall");
+    assert_eq!(at(1638, 5.0), ((-10.0, -10.0), 10, 10), "Armor Force");
+    assert_eq!(at(207, 30.0).2, 0, "Deadeye costs none");
+}

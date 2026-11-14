@@ -303,6 +303,9 @@ pub struct Usage {
     pub vigor_add: f32,
     pub vigor_mult: f32,
     pub min_vigor: f32,
+    /// Its focus: what a use adds to its user's focus at rating 1 and at the skill's cap
+    /// (negative: a cost), the line between them by rating.
+    pub focus_add: (f32, f32),
     /// The implements it is used with, in the right hand and the left (bits of implement kinds;
     /// negative: any).
     pub implements_right: i32,
@@ -885,6 +888,10 @@ impl Usage {
             vigor_add: num("m_VigorModAdd")?,
             vigor_mult: num("m_VigorModMult")?,
             min_vigor: num("m_MinVigor")?,
+            focus_add: (
+                num("m_startFocusModAdd").unwrap_or(0.0),
+                num("m_endFocusModAdd").unwrap_or(0.0),
+            ),
             implements_right: word("m_AllowedImplementsRight")?.cast_signed(),
             implements_left: word("m_AllowedImplementsLeft")?.cast_signed(),
             valid_targets: word("m_validTargets")?,

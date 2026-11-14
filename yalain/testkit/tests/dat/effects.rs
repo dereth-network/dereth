@@ -1226,6 +1226,7 @@ fn immolation_and_bladeskin_put_their_effects_on_their_user() {
         u.vigor_add = 0.0;
         u.vigor_mult = 0.0;
         u.min_vigor = 0.0;
+        u.focus_add = (0.0, 0.0);
     }
 
     let mut h = Harness::new();

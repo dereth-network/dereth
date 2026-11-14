@@ -14737,6 +14737,44 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.skills.focus-cost-by-rating",
+        says: "A skill's focus cost is its definition's line from rating 1 to the skill's cap, the \
+               rating held between them, cut toward nothing to a whole point: Tidal Wave 32 at 44, \
+               Living Armor 60 at 89, Tanua's Gift 62 at 45, as 2017's heroes paid them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SKILL-FOCUS-LINE"),
+        station: "yalain-testkit::cpu::play::skill_focus::a_skills_focus_cost_follows_its_definitions_line_by_rating_cut_toward_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.focus-cost-paid",
+        says: "A hero's use of a skill that costs focus pays it as the use is carried out, at the \
+               user's rating: the vigor sent, then the focus less the cost.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SKILL-FOCUS-PAID"),
+        station: "yalain-testkit::cpu::play::skill_focus::a_heros_use_pays_its_skills_focus_cost_at_its_rating_after_the_vigor",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.focus-cost-read",
+        says: "The skills that cost focus read from the install with their lines from rating 1 to \
+               their cap: 310, every one a hero skill; a skill that costs none reads as none.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SKILL-FOCUS-DATA"),
+        station: "yalain-testkit::dat::skills::the_skills_that_cost_focus_read_with_their_lines_and_all_are_hero_skills",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.skills.focus-cost-refused",
+        says: "A use the player hasn't the focus for is refused with the client's reason (\"You \
+               don't have enough focus to use that skill.\"), nothing paid, before what its target \
+               is; one who is no hero has no focus to spend.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SKILL-FOCUS-REFUSED"),
+        station: "yalain-testkit::cpu::play::skill_focus::a_use_short_of_its_focus_cost_is_refused_with_the_clients_reason_before_its_target",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.skills.hero-credits-by-level",
         says: "Reaching a level that brings hero skill credits (from level 45, 100 a level in the \
                client's level table) adds them with the level's skill credit, the repository \

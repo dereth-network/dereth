@@ -6,7 +6,8 @@
 //! number), why (the client writes the reason), and not attacking again. The checks, first failure
 //! first: dead; away; a skill it does not hold; not wielding what the skill is used with; no vigor at all; the skill still waiting
 //! (its own recovery since its last use, or the wait every skill shares after a recall); vigor
-//! short of the cost; an effect the skill needs its user to carry missing; the target gone or dead,
+//! short of the cost; focus short of the cost ([`focus_cost`]); an effect the skill needs its user
+//! to carry missing; the target gone or dead,
 //! too far or too close ([`crate::reach`]: the distance between the bodies, beyond the skill's
 //! greatest range, within its least); moving, for a skill not used on the move.
 //!
@@ -44,7 +45,8 @@
 //!
 //! **An attack special** from rest: the player attacking, in its weapon's combat mode, turned to
 //! its target (a skill used from afar) or walked to it (one used within reach); then its vigor
-//! paid (the skill's cost and its weapon's) and the story of the special: the skill's behavior at
+//! paid (the skill's cost and its weapon's), then its focus (a hero skill's), and the story of the
+//! special: the skill's behavior at
 //! the player's attack time scale, the use's number, the skill, and one hook per hook of the skill
 //! (a missile's naming the weapon that throws it, a strike's with its result at once). A missile
 //! arrives after the throw's windup and its flight, and the target tells how it came out; a strike
@@ -105,6 +107,7 @@ pub mod refusal {
     pub const INTERRUPTED: u32 = 91;
     pub const MOVE_INTERRUPTED: u32 = 54;
     pub const NOT_ENOUGH_VIGOR: u32 = 20_000;
+    pub const NOT_ENOUGH_FOCUS: u32 = 20_005;
     pub const TARGET_GONE: u32 = 20_002;
     /// Not on an item of the pack, not on this item, not on another player's.
     pub const NOT_ITEM_IN_PACK: u32 = 22_008;
@@ -670,6 +673,32 @@ fn cost_now<S: Store>(s: &Server<S>, p: &crate::world::Player, u: &Usage, max_vi
     )
 }
 
+/// A skill's focus cost at a rating: its definition's line from rating 1 to the skill's cap (the
+/// rating held between them), cut toward nothing to a whole point, as the client's examination
+/// reckons it (2017, heroes' skills paid on their use: Tanua's Gift 62 at 45, 7 of 7; Tidal Wave
+/// 32 at 44, 6 of 6, where the line gives 32.9; Living Armor 60 at 89, 1 of 1, the line 60.9).
+#[must_use]
+pub fn focus_cost(u: &Usage, cap: u32, rating: f32) -> i32 {
+    let (first, last) = u.focus_add;
+    #[allow(clippy::cast_precision_loss)]
+    let top = cap.max(1) as f32;
+    let along = if top > 1.0 {
+        (rating.clamp(1.0, top) - 1.0) / (top - 1.0)
+    } else {
+        0.0
+    };
+    (-dereth_primitives::num::to_i32(first + (last - first) * along)).max(0)
+}
+
+/// What a skill's use costs this player in focus now, at its rating in the skill.
+fn focus_cost_now<S: Store>(s: &Server<S>, world: ConnId, skill: u32, u: &Usage) -> i32 {
+    if u.focus_add == (0.0, 0.0) {
+        return 0;
+    }
+    let cap = s.skill_table.skills.get(&skill).map_or(1, |d| d.cap);
+    focus_cost(u, cap, rating_of(s, world, skill))
+}
+
 /// Is the player moving, as its last report says (an asked motion, or a jump)?
 pub(crate) fn moving(p: &crate::world::Player) -> bool {
     p.heading_motion & 0x00FF_FFFF != crate::world::IDLE_MOTION
@@ -1149,6 +1178,13 @@ fn check<S: Store>(
     if vigor < cost_now(s, p, &u, max_vigor) {
         return Err(refusal::NOT_ENOUGH_VIGOR);
     }
+    // 2017: 7 of 7 refusals for focus came on skills that cost it, 5 of 5 whose focus was known
+    // short of the cost; one at a player alive, where the same skill with focus to spare was
+    // refused for its target, so before what the target is.
+    let focus = focus_cost_now(s, world, r.skill, &u);
+    if focus > 0 && crate::focus::spendable(s, p) < focus {
+        return Err(refusal::NOT_ENOUGH_FOCUS);
+    }
     if !carries(s, world, &u.required_effects) {
         return Err(refusal::MISSING_EFFECT);
     }
@@ -1625,8 +1661,12 @@ pub fn step<S: Store>(
     }
 }
 
-/// Pay a use's vigor: the vigor after it sent, and "You are fatigued." when none is left.
-fn pay<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, u: &Usage) {
+/// Pay a use's vigor: the vigor after it sent, and "You are fatigued." when none is left; then
+/// its focus, the focus after it sent, for a skill that costs focus (2017: on 39 of 39 uses that
+/// paid it, the vigor then the focus in the use's tick, as its story is told: after its power-up,
+/// 6.1 to 6.3 s after the request for a power-up of 5 s; a use that never came to its story paid
+/// none).
+fn pay<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, skill: u32, u: &Usage) {
     let Some(p) = s.players.get(&world) else {
         return;
     };
@@ -1641,6 +1681,16 @@ fn pay<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, u: &Usag
     if left == 0 {
         progress::say(net, world, progress::text(text::FATIGUED));
     }
+    let cost = focus_cost_now(s, world, skill, u);
+    let Some(p) = s.players.get(&world).filter(|_| cost > 0) else {
+        return;
+    };
+    let left = (crate::focus::spendable(s, p) - cost).max(0);
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    quals::set_int(&mut p.qualities, quality::FOCUS, left);
+    progress::send_int(net, world, quality::FOCUS, left);
 }
 
 /// The hooks of a story of a skill's use: kind 2 first, then one per hook of the skill: one that
@@ -2041,7 +2091,7 @@ fn story<S: Store>(
             to_all_seeing(s, net, me, &stop);
         }
     }
-    pay(s, net, world, &u);
+    pay(s, net, world, r.skill, &u);
     // A use takes its damage pool at most once, its landed hits trying in turn.
     let mut pool = combat::damage_pool(s, world, r.skill);
     // The outcome of its damaging hook (a strike's at once; a missile's as it arrives).
