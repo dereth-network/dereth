@@ -70,10 +70,12 @@ pub fn unit_tier(profile: Profile) -> Vec<Report> {
 /// profile and logical-core count (a dev run is not judged against optimised ones, and a run
 /// pinned to fewer cores is not judged against the whole machine). With [`HISTORY_MIN_RUNS`] or
 /// more runs recorded, a run fails when it is slower than the history's median by more than half
-/// and by more than [`REGRESSION_FLOOR_S`]. With fewer, the limit is [`TEST_BUDGET_S`] scaled to
-/// the host's cores: `TEST_BUDGET_S * max(1, sqrt(16 / cores))`, so 60 s from 16 cores up, 120 s
-/// on 4 and 170 s on 2 -- a small host is not a regression. A run over its limit is not recorded,
-/// so one slow run cannot raise the bar for the next.
+/// and by more than [`REGRESSION_FLOOR_S`]. With fewer, the limit is [`NO_HISTORY_FACTOR`] times
+/// [`TEST_BUDGET_S`] scaled to the host's cores, `TEST_BUDGET_S * max(1, sqrt(16 / cores))`: 120 s
+/// from 16 cores up, 240 s on 4 and 340 s on 2. A small host is not a regression, and a CI runner,
+/// which never has a history and whose speed varies by half between runs, fails only a run gone
+/// badly wrong. A run over its limit is not recorded, so one slow run cannot raise the bar for the
+/// next.
 #[derive(Debug, Clone)]
 pub struct Budget {
     /// The history file.
@@ -84,6 +86,8 @@ pub struct Budget {
 
 /// The fixed budget of a host with [`BUDGET_REFERENCE_CORES`] or more, in seconds.
 pub const TEST_BUDGET_S: f64 = 60.0;
+/// How far over the scaled budget a run with no host history may go, as a factor.
+pub const NO_HISTORY_FACTOR: f64 = 2.0;
 /// The core count the fixed budget is set for.
 pub const BUDGET_REFERENCE_CORES: usize = 16;
 /// Runs recorded before the host's own median replaces the fixed budget.
@@ -137,8 +141,8 @@ impl Budget {
             )
         } else {
             (
-                Self::scaled(cores),
-                format!("no host history yet: {TEST_BUDGET_S:.0}s scaled to {cores} cores"),
+                Self::scaled(cores) * NO_HISTORY_FACTOR,
+                format!("no host history yet: twice {TEST_BUDGET_S:.0}s scaled to {cores} cores"),
             )
         }
     }
@@ -636,14 +640,14 @@ mod tests {
         assert!(bad.iter().any(|b| b.contains("header")), "{bad:#?}");
     }
 
-    /// **Without a history the budget is the fixed one, scaled up on a small host.**
+    /// **Without a history the budget is twice the fixed one, scaled up on a small host.**
     #[test]
-    fn without_history_the_budget_scales_with_cores() {
-        assert_eq!(Budget::limit(&[], 32).0, 60.0);
-        assert_eq!(Budget::limit(&[], 16).0, 60.0);
-        assert_eq!(Budget::limit(&[], 4).0, 120.0);
-        assert!((Budget::limit(&[11.0, 12.0], 2).0 - 169.7).abs() < 0.05);
-        assert_eq!(Budget::limit(&[], 0).0, 240.0);
+    fn without_history_the_budget_is_twice_the_fixed_one_scaled_with_cores() {
+        assert_eq!(Budget::limit(&[], 32).0, 120.0);
+        assert_eq!(Budget::limit(&[], 16).0, 120.0);
+        assert_eq!(Budget::limit(&[], 4).0, 240.0);
+        assert!((Budget::limit(&[11.0, 12.0], 2).0 - 339.4).abs() < 0.05);
+        assert_eq!(Budget::limit(&[], 0).0, 480.0);
     }
 
     /// **With a history a run is judged only against the host's own median.**
