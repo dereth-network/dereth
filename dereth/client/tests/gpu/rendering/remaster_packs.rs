@@ -1,7 +1,8 @@
 //! The art pack as the remaster draws it: its models in place of the objects it has them for, by
 //! kind as their switches say, every one of its assets held; a cut-out picture's edge free of
 //! the color its cut leaves out; its lighting laid over retail's light while any of it is drawn;
-//! and with every switch off, the frame drawn without it.
+//! with every switch off, the frame drawn without it; and its box turned off or on while the
+//! remaster draws, the frame a fresh start draws.
 //!
 //! The pack is made in the test: the most common tree's model, an upright card twelve metres
 //! high carrying a green leaf whose cut-away texels hold a magenta key; or a flat magenta
@@ -2850,5 +2851,147 @@ fn a_swaying_pack_trees_shadow_sways_with_it() {
             );
         }
         assert!(r.stale == 0.0, "sway {sway}: stale {}", r.stale);
+    }
+}
+
+/// What the remaster chose and drew in a frame: the parts it chose levels for, its impostor
+/// cards, and the G-buffer's and the forward pass's draw items; what its lamps light; and the
+/// frame's colors, each pixel's light class, and how much of the sun reached each pixel.
+struct Drawn {
+    chosen: [u32; 4],
+    lamps: dereth_scene::world_scene::RemasterLamps,
+    color: Vec<u8>,
+    class: Vec<u8>,
+    sun: Vec<u8>,
+}
+
+/// The world's pixels where `a` and `b` differ in color or light class, and the pixels where
+/// they differ in the sun that reaches them. The sky behind the world is left out: its clouds
+/// drift with the scene's frames, and a fresh start has drawn fewer.
+fn drawn_differ(a: &Drawn, b: &Drawn) -> (usize, usize) {
+    // Nothing of the world drawn (retail's sky shows), and the remaster's own sky.
+    let sky = |class: u8| class == 0 || class == 5;
+    let color = a
+        .color
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(b.color.as_chunks::<4>().0)
+        .zip(a.class.iter().zip(&b.class))
+        .filter(|((p, q), (x, y))| x != y || (!sky(**x) && p != q))
+        .count();
+    let sun = a.sun.iter().zip(&b.sun).filter(|(x, y)| x != y).count();
+    (color, sun)
+}
+
+/// The forest with its scenery two rings of blocks out, `pack` given and the remaster's boxes
+/// ticked through the preferences poll as the player ticks them, its levels chosen by the
+/// remaster, the sun's shadows drawn and its lamps lighting rooms and the outdoors; the art pack's
+/// box ticked as each of `ticked` says in turn, each state drawn as many frames from the
+/// remaster's start, the clock held.
+fn ticked_in_turn(
+    store: &Arc<RetailDatStore>,
+    station: &Station,
+    pack: &Arc<ArtPack>,
+    ticked: &[bool],
+) -> Vec<Drawn> {
+    let mut gpu = device();
+    let mut shot = Shot::open_with(store, &mut gpu, station, false, Some(2));
+    shot.poll(&mut gpu);
+    shot.scene
+        .draw
+        .set_remaster_pack(Some(Arc::clone(pack)), None);
+    let mut seen = Vec::new();
+    for (i, on) in ticked.iter().enumerate() {
+        let boxes = format!(
+            "Remaster=1,RemasterShadows=1,RemasterDetail=1,RemasterIndoorLamps=1,\
+             RemasterOutdoorLamps=1,RemasterScenery=2,RemasterArtPack={}",
+            u8::from(*on)
+        );
+        shot.scene.draw.cfg.render.fidelity =
+            dereth_client_runtime::render_prefs::FidelityPreferences::parse_switch(&boxes)
+                .expect("the boxes read");
+        shot.poll(&mut gpu);
+        shot.step_held(&mut gpu);
+        if i == 0 {
+            shot.scene.wait_for_remaster_ground();
+        }
+        for _ in 0..12 {
+            shot.step_held(&mut gpu);
+        }
+        let draw = &shot.scene.draw;
+        let lod = draw
+            .remaster_lod_stats(&mut gpu)
+            .expect("the remaster is on");
+        let cards = draw
+            .remaster_impostor_stats(&mut gpu)
+            .expect("the remaster is on")
+            .cards;
+        let c = draw.remaster_counts(&mut gpu).expect("the remaster is on");
+        let lamps = draw.remaster_lamps(&mut gpu).expect("the remaster is on");
+        let capture = draw.remaster_capture(&mut gpu).expect("the remaster drew");
+        seen.push(Drawn {
+            chosen: [lod.parts, cards, c.items, c.forward],
+            lamps,
+            color: capture.color,
+            class: capture.class,
+            sun: capture.sun_visibility.expect("the sun's shadows are drawn"),
+        });
+    }
+    drop(shot);
+    drop(gpu);
+    let errors = dereth_render::vulkan::take_validation_errors();
+    assert!(errors.is_empty(), "the validation layer: {errors:#?}");
+    seen
+}
+
+/// **Turning the art pack off or on while the remaster draws leaves it drawing what a fresh start
+/// does**: in the forest with its scenery two rings out, the art pack's box unticked after the
+/// remaster started with it ticked, and ticked again, chooses levels for as many parts, draws as
+/// many impostor cards and draw items, and draws the same frame and the same shadows as a start
+/// with the box already that way; and ticked after a start without it, as a start with it. Its
+/// lamps light what their boxes ask throughout. A change of pack that dropped the remaster's own
+/// choice of levels would leave the far trees to retail's, which draw them as nothing while every
+/// tree still casts its shadow.
+#[test]
+fn turning_the_art_pack_off_or_on_draws_what_a_fresh_start_does() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let st = station(&store, "forest");
+    let pack = in_memory(&files(None));
+    let on_first = ticked_in_turn(&store, &st, &pack, &[true, false, true]);
+    let off_first = ticked_in_turn(&store, &st, &pack, &[false, true]);
+    let (on, off) = (&on_first[0], &off_first[0]);
+    let chosen = |d: &[Drawn]| d.iter().map(|d| d.chosen).collect::<Vec<_>>();
+    eprintln!(
+        "parts, cards, items and forward items: ticked, unticked, ticked {:?}; unticked, ticked \
+         {:?}",
+        chosen(&on_first),
+        chosen(&off_first)
+    );
+    assert!(
+        on.chosen[0] > 0 && off.chosen[0] > 0,
+        "the remaster chooses levels"
+    );
+    assert!(off.chosen[1] > 0, "far trees stand as impostors");
+    let lit = dereth_scene::world_scene::RemasterLamps {
+        indoor: true,
+        outdoor: true,
+    };
+    assert_eq!(
+        (on.lamps, off.lamps),
+        (lit, lit),
+        "the lamps light as asked"
+    );
+    for (name, a, b) in [
+        ("unticked, as a start without the pack", &on_first[1], off),
+        ("ticked again, as a start with it", &on_first[2], on),
+        ("ticked, as a start with it", &off_first[1], on),
+    ] {
+        let (color, sun) = drawn_differ(a, b);
+        eprintln!("{name}: {color} of the world's pixels differ, {sun} in the sun");
+        assert_eq!(a.chosen, b.chosen, "{name}");
+        assert_eq!(a.lamps, b.lamps, "{name}: the lamps");
+        assert_eq!((color, sun), (0, 0), "{name}: the same frame");
     }
 }

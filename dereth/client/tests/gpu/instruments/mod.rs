@@ -14,6 +14,7 @@ mod pack_death_frames;
 mod pack_fight_frames;
 mod pack_launcher_frames;
 mod pack_nameplate_frames;
+mod pack_toggle_frames;
 pub(crate) mod remaster_frames;
 pub(crate) mod remaster_look_frames;
 mod remaster_pack_frames;

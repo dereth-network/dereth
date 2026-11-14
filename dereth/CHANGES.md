@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Remaster: switching the art pack no longer leaves trees missing or the lamps off.
 - Remaster: new Scenery distance option.
 - Remaster: the camera no longer stutters walking over uneven ground.
 - Remaster: cliff feet blend into the ground instead of banding.

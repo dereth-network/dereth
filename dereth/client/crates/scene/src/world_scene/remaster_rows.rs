@@ -150,15 +150,13 @@ impl RemasterRows {
 }
 
 impl SceneDraw {
-    /// Carry out what moved of the remaster's own boxes since the last poll. The lamps and the
-    /// levels are held only by the running remaster, so they are told again as it starts.
+    /// Carry out what moved of the remaster's own boxes since the last poll. The scene keeps each
+    /// setting and hands it to the remaster whenever it starts, the restart an art pack change
+    /// makes included.
     pub(super) fn apply_remaster_rows(&mut self, now: RemasterRows, gpu: &mut Gpu) {
-        let on = self.remaster_on();
         let view = self.remaster_view.get_mut();
         let was = view.rows;
-        let started = on && !view.rows_on;
         view.rows = now;
-        view.rows_on = on;
         if now.per_pixel() != was.per_pixel() {
             let light = if now.per_pixel() {
                 RemasterLight::Pixel
@@ -218,7 +216,7 @@ impl SceneDraw {
             self.set_remaster_weather(RemasterWeather { on: now.rain }, gpu);
         }
         let lamps = (now.indoor_lamps, now.outdoor_lamps);
-        if lamps != (was.indoor_lamps, was.outdoor_lamps) || (started && lamps != (false, false)) {
+        if lamps != (was.indoor_lamps, was.outdoor_lamps) {
             let l = RemasterLamps {
                 indoor: now.indoor_lamps,
                 outdoor: now.outdoor_lamps,
@@ -273,7 +271,7 @@ impl SceneDraw {
         if now.cliff_shelves != was.cliff_shelves {
             self.set_remaster_cliff_shelves(now.shelves());
         }
-        if now.detail != was.detail || (started && now.detail) {
+        if now.detail != was.detail {
             let lod = if now.detail {
                 LodSettings::ON
             } else {

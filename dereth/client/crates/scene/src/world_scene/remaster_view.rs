@@ -58,9 +58,12 @@ pub(crate) struct View {
     pub(super) water: super::remaster_effects::RemasterWater,
     /// Whether the rain and the snow fall.
     pub(super) weather: super::remaster_weather::RemasterWeather,
-    /// What the remaster's own boxes last asked, and whether the remaster was running then.
+    /// What the remaster's own boxes last asked.
     pub(super) rows: super::remaster_rows::RemasterRows,
-    pub(super) rows_on: bool,
+    /// How the parts' levels are picked.
+    pub(super) lod: dereth_remaster::render::lod::LodSettings,
+    /// What the lamps light.
+    pub(super) lamps: super::remaster_lamps::RemasterLamps,
     /// How the bounced light is found.
     pub(super) gi: super::remaster_rt::RemasterGi,
     /// Whether the sun's shadows and the occlusion are traced.
@@ -225,6 +228,12 @@ impl SceneDraw {
         remaster
             .renderer()
             .set_landscape(self.remaster_view.get_mut().landscape);
+        remaster
+            .renderer()
+            .set_lod(self.remaster_view.get_mut().lod);
+        remaster
+            .renderer()
+            .set_lamp_settings(self.remaster_view.get_mut().lamps.settings());
         // A scene that came before this one on the device, gone without being told to stop, left
         // its remaster behind: entering the world makes a new scene.
         drop(gpu.take_world_hook());

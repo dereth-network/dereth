@@ -11,8 +11,10 @@ use super::remaster_view::remaster;
 use super::SceneDraw;
 
 impl SceneDraw {
-    /// How the remaster picks its parts' levels, from the next frame on.
+    /// How the remaster picks its parts' levels, from the next frame on, and from when it is
+    /// turned on.
     pub fn set_remaster_lod(&mut self, lod: LodSettings, gpu: &mut Gpu) {
+        self.remaster_view.get_mut().lod = lod;
         if let Some(r) = remaster(gpu) {
             r.renderer().set_lod(lod);
         }

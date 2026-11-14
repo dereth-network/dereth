@@ -15,6 +15,16 @@ pub struct RemasterLamps {
     pub outdoor: bool,
 }
 
+impl RemasterLamps {
+    /// The remaster's own settings for them.
+    pub(super) fn settings(self) -> LampSettings {
+        LampSettings {
+            indoor: self.indoor,
+            outdoor: self.outdoor,
+        }
+    }
+}
+
 /// One halo of the last frame, where it fell on the frame's target.
 #[cfg(feature = "test-support")]
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -104,14 +114,23 @@ fn halos_seen(
 }
 
 impl SceneDraw {
-    /// What the remaster's lamps light, from the next frame on.
+    /// What the remaster's lamps light, from the next frame on, and from when it is turned on.
     pub fn set_remaster_lamps(&mut self, lamps: RemasterLamps, gpu: &mut Gpu) {
+        self.remaster_view.get_mut().lamps = lamps;
         if let Some(r) = remaster(gpu) {
-            r.renderer().set_lamp_settings(LampSettings {
-                indoor: lamps.indoor,
-                outdoor: lamps.outdoor,
-            });
+            r.renderer().set_lamp_settings(lamps.settings());
         }
+    }
+
+    /// What the running remaster's lamps light; `None` while it is off.
+    #[cfg(feature = "test-support")]
+    #[must_use]
+    pub fn remaster_lamps(&self, gpu: &mut Gpu) -> Option<RemasterLamps> {
+        let s = remaster(gpu)?.renderer().lamps().settings();
+        Some(RemasterLamps {
+            indoor: s.indoor,
+            outdoor: s.outdoor,
+        })
     }
 
     /// The remaster's lamps of the last frame it drew; `None` while it is off or its lamps
