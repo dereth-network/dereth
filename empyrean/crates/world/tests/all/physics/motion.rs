@@ -305,9 +305,11 @@ fn player(w: &mut World, x: f32, y: f32) -> PhysHandle {
     h
 }
 
-/// One physics quantum of world time, then `update_object` for each body.
+/// One physics quantum of world time, then `update_object` for each body. The clock moves on a
+/// hair more than the quantum: a body steps only once a whole quantum has passed since its last
+/// step, and 1/30 added to the clock can round to just short of that.
 fn step(w: &mut World, bodies: &[PhysHandle]) {
-    w.now.portal_year_ticks += QUANTUM;
+    w.now.portal_year_ticks += QUANTUM + 1e-12;
     for &h in bodies {
         phys_ext::update_object(w, h);
     }

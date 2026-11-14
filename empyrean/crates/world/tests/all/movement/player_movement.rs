@@ -689,6 +689,118 @@ fn jump_costs_stamina_and_launches_the_body() {
     );
 }
 
+/// A player who jumps in place, the server ticking 60 times a second, is back on the ground (no
+/// longer `IsJumping`) after the jump's own flight time, about 0.8 s at 3.9 m/s. Its body steps
+/// only once 1/30 s has gathered since its last step, so a step's pull of gravity at the top of
+/// the jump is never below the speed the physics rounds to rest.
+/// ACE: Source/ACE.Server/Physics/PhysicsObj.cs::update_object
+#[test]
+fn a_jump_in_place_lands_after_its_flight_time_on_a_sixty_hertz_tick() {
+    let mut w = world();
+    // materialized, out of the pink bubble (a hidden body does not move)
+    phys_ext::set_physics_state(
+        &mut w,
+        g(),
+        empyrean_entity::enums::PhysicsState::Hidden,
+        Some(false),
+    );
+    let at = outdoor(HOME, 100.0, 100.0, 20.0);
+    action(
+        &mut w,
+        &MovementJump(JumpPack {
+            extent: 0.5,
+            velocity: WVec3 {
+                x: 0.0,
+                y: 0.0,
+                z: 3.9,
+            },
+            position: wire(&at),
+            timestamps: MoveTimestamps::default(),
+        }),
+    );
+    assert!(player::is_jumping(&w, g()), "off the ground");
+
+    // The world loop's physics pass for the player, once per tick, for up to 20 s.
+    let landed = (1..=1200).find(|_| {
+        w.now.portal_year_ticks += 1.0 / 60.0;
+        player_tick::player_update_object_physics(&mut w, g());
+        !player::is_jumping(&w, g())
+    });
+    assert!(
+        landed.is_some_and(|tick| tick <= 60),
+        "back on the ground within a second: landed after {landed:?} ticks"
+    );
+    let z = phys_ext::position(&w, body(&w)).unwrap().frame.origin.z;
+    assert!((z - 20.0).abs() < 0.01, "standing on the 20 m ground: {z}");
+}
+
+/// A PK player's AutonomousPosition that comes less than 1/30 s after its body's last step moves
+/// the body to the position without stepping it, and keeps the time since that step: the next
+/// tick past 1/30 s steps all of it.
+/// ACE: Source/ACE.Server/Physics/PhysicsObj.cs::update_object_server_new
+#[test]
+fn a_pk_position_update_between_steps_keeps_the_time_for_the_next_step() {
+    let mut w = world();
+    w.objects
+        .get_mut(g())
+        .unwrap()
+        .set_player_killer_status_prop(PlayerKillerStatus::PK);
+    // materialized, out of the pink bubble (a hidden body does not move)
+    phys_ext::set_physics_state(
+        &mut w,
+        g(),
+        empyrean_entity::enums::PhysicsState::Hidden,
+        Some(false),
+    );
+    let at = outdoor(HOME, 100.0, 100.0, 20.0);
+    action(
+        &mut w,
+        &MovementJump(JumpPack {
+            extent: 0.5,
+            velocity: WVec3 {
+                x: 0.0,
+                y: 0.0,
+                z: 3.9,
+            },
+            position: wire(&at),
+            timestamps: MoveTimestamps::default(),
+        }),
+    );
+    let h = body(&w);
+    let last_step = w.physics.get(h).unwrap().update_time;
+
+    // 0.02 s on, the client reports the player a little to the east
+    w.now.portal_year_ticks += 0.02;
+    action(
+        &mut w,
+        &MovementAutonomousPosition(AutonomousPosition {
+            position: wire(&outdoor(HOME, 100.1, 100.0, 20.05)),
+            timestamps: MoveTimestamps::default(),
+            contact: 0,
+        }),
+    );
+    player_tick::player_update_object_physics(&mut w, g());
+    let o = w.physics.get(h).unwrap();
+    assert_eq!(
+        o.position.frame.origin.x, 100.1,
+        "moved to the reported position"
+    );
+    assert_eq!(o.velocity_vector.z, 3.9, "not stepped");
+    assert_eq!(
+        o.update_time, last_step,
+        "the time since the last step is kept"
+    );
+
+    // 0.04 s after the last step, the tick steps the whole of it
+    w.now.portal_year_ticks += 0.02;
+    player_tick::player_update_object_physics(&mut w, g());
+    let vz = w.physics.get(h).unwrap().velocity_vector.z;
+    assert!(
+        (vz - (3.9 - 9.8 * 0.04)).abs() < 1e-4,
+        "one step of 0.04 s: {vz} m/s"
+    );
+}
+
 // ---- falling damage, recalls, teleport --------------------------------------------------------
 
 /// Falling damage: at -30 m/s the ratio is `-(11.25434 - 30 + 4.5) / 11.25434`, times 87.29381:

@@ -1336,8 +1336,9 @@ pub fn update_object_server(
 }
 
 // ACE: PhysicsObj.update_object_server_new
-/// The full / updated movement system (a `FastTick` player): steps the body up to now, then
-/// moves it to the requested position.
+/// The full / updated movement system (a `FastTick` player): steps the body up to now when more
+/// than 1/30 s has passed since its last step (less is kept for the next step), then moves it to
+/// the requested position.
 pub fn update_object_server_new(
     w: &mut World,
     this: ObjectGuid,
@@ -1413,9 +1414,8 @@ pub fn update_object_server_new(
         phys_ext::set_position(w, h, &request_pos);
     }
 
-    if let Some(o) = w.physics.get_mut(h) {
-        o.update_time = now;
-    }
+    // `UpdateTime = PhysicsTimer_CurrentTime`: the time the steps above reached, which the step
+    // left on the body; without a step (too little time, or a teleport) the time is kept.
 
     success
 }

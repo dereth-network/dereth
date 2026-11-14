@@ -30,7 +30,9 @@
 //!   self-collision. The shared crate raises the mover's half only, and only when the mover
 //!   reports collisions, so ACE's collision table (and `OnCollideObjectEnd`) sees only reporting
 //!   movers.
-//! * The shared crate uses retail's 0.2 s maximum quantum and gate (ACE: 0.1 s and `TickRate`).
+//! * The shared crate steps a body in quanta of at most retail's 0.2 s (ACE: 0.1 s). As ACE's
+//!   `TickRate` does, [`update_object`] steps a body only once 1/30 s has passed since its last
+//!   step (retail's minimum quantum, in double precision; ACE's is the single-precision 1/30).
 //! * `enter_world` always places with `PLACEMENT | SLIDE`; ACE drops `SLIDE` for a missile with a
 //!   projectile target that is not a spell projectile.
 //! * A body with a motion table carries `dereth-animation`'s `MotionDriver` as its `MotionSource`
@@ -1185,22 +1187,27 @@ pub fn destroy_object(w: &mut World, h: PhysHandle) {
 }
 
 /// Steps a body to the current physics time, then runs the server half of any cell change,
-/// routes the collisions the step raised (V6) and ends stale ones. Answers whether time was
-/// consumed (ACE's `update_object` result).
+/// routes the collisions the step raised (V6) and ends stale ones. A body in the world is stepped
+/// only once a whole 1/30 s has passed since its last step: an update short of that does nothing
+/// and leaves the body's update time where it was, so the time adds up until the next one.
+/// Answers whether time was consumed (ACE's `update_object` result).
 // ACE: PhysicsObj.update_object
 pub fn update_object(w: &mut World, h: PhysHandle) -> bool {
-    prepare_mover(w, h);
     let now = physics_timer_current_time(w);
     let Some(o) = w.physics.get(h) else {
         return false;
     };
     let elapsed = now - o.update_time;
-    let stepped = o.parent.is_none()
-        && o.cell.is_some()
-        && !o.state.is_frozen()
-        && elapsed > dereth_physics::globals::MIN_STEP
-        && elapsed <= dereth_physics::globals::HUGE_QUANTUM;
+    let in_world = o.parent.is_none() && o.cell.is_some() && !o.state.is_frozen();
+    // `if (deltaTime < TickRate) return false;`, before `UpdateTime` is touched. The shared crate
+    // applies this gate to its world's tick, which the server does not run, and steps a body on
+    // every call.
+    if in_world && elapsed < dereth_physics::globals::MIN_QUANTUM {
+        return false;
+    }
+    let stepped = in_world && elapsed <= dereth_physics::globals::HUGE_QUANTUM;
     let before = o.position.frame;
+    prepare_mover(w, h);
 
     let motion = crate::physics::motion::before_update(w, h);
     w.physics.update_object(h, LocalTime(now));

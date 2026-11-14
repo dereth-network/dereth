@@ -320,6 +320,55 @@ fn an_object_is_made_enters_the_world_and_falls_to_the_ground() {
     );
 }
 
+/// A body is stepped only once a whole 1/30 s has passed since its last step. An update short of
+/// that moves nothing, answers false and leaves the body's update time alone, so the time adds
+/// up: the first update past 1/30 s steps all of it at once.
+/// ACE: Source/ACE.Server/Physics/PhysicsObj.cs::update_object
+#[test]
+fn a_body_steps_only_once_a_thirtieth_of_a_second_has_gathered() {
+    let mut w = world();
+    let g = spawn(
+        &mut w,
+        0x7000_0001,
+        KindData::WorldObject,
+        0,
+        at(HOME, 100.0, 100.0, 25.0),
+    );
+    let h = enter_landblock(&mut w, g);
+    let start = w.physics.get(h).expect("body").update_time;
+    let fall = |w: &World| phys_ext::velocity(w, h).z;
+    assert_eq!(fall(&w), 0.0, "at rest in the air, under gravity");
+
+    for (dt, gathered) in [(0.02, 0.02), (0.01, 0.03)] {
+        tick(&mut w, dt);
+        assert!(
+            !phys_ext::update_object(&mut w, h),
+            "{gathered} s since the last step: no step"
+        );
+        assert_eq!(fall(&w), 0.0, "{gathered} s: gravity has not acted");
+        assert_eq!(
+            w.physics.get(h).expect("body").update_time,
+            start,
+            "{gathered} s: the time is kept"
+        );
+    }
+
+    tick(&mut w, 0.01);
+    assert!(
+        phys_ext::update_object(&mut w, h),
+        "0.04 s since the last step: a step"
+    );
+    assert!(
+        (fall(&w) - -9.8 * 0.04).abs() < 1e-4,
+        "one step of all 0.04 s: {} m/s",
+        fall(&w)
+    );
+    assert!(
+        (w.physics.get(h).expect("body").update_time - w.now.portal_year_ticks).abs() < 1e-9,
+        "stepped up to now"
+    );
+}
+
 #[test]
 fn a_moved_object_changes_cell_and_landblock_lists() {
     let mut w = world();
@@ -424,12 +473,13 @@ fn a_collision_notice_reaches_the_movers_dispatch_and_ends_at_the_target() {
         2,
         at(HOME, 100.0, 100.0, 20.0),
     );
+    // the creature touches it after 1 m of a slide that friction ends at about 1.5 m
     let hot = spawn(
         &mut w,
         0x7000_0011,
         KindData::Hotspot(Box::default()),
         0,
-        at(HOME, 102.5, 100.0, 20.0),
+        at(HOME, 102.0, 100.0, 20.0),
     );
     w.objects
         .get_mut(hot)

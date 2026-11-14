@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+- Fixed attacks, spells and items failing for seconds after jumping in place.
 - Federation links now tell a proxy's refusal from the hub's.
 - Worlds that publish their portals now also publish lifestones, shops and people.
 - Launch worlds now accept players on the retail CD's 1999 data files.
