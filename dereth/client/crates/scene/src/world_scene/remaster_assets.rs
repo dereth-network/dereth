@@ -372,26 +372,37 @@ impl AssetSource for DatAssets<'_> {
             },
         );
         let texture = texture.or_else(|| ss.solid_color.map(TextureKey::Solid));
-        // The pack's picture in place of the surface's, while its materials are drawn: for a
-        // surface drawn under no shift palette, by its own texture or the one swapped in.
+        // The pack's material for the surface's picture, while its materials are drawn: by its
+        // own texture or the one swapped in, and the palettes it is drawn in (those a shift
+        // palette's ranges lay over it, else the shift's base, else the picture's own). One that
+        // keeps the retail picture adds its maps to the picture as drawn, shifted or not; one with
+        // a picture of its own is drawn under no shift palette, which its picture would lose.
         let pack_picture = self
             .pack
             .as_ref()
             .filter(|(_, on)| on.materials)
             .and_then(|(p, _)| {
-                if key.appearance.palette.is_some() {
-                    return None;
-                }
                 let record = key.appearance.texture.or_else(|| {
                     decoded
                         .as_ref()
                         .and_then(|s| s.orig_texture_id)
                         .map(|t| t.0)
                 })?;
-                p.material_picture(record)
+                let palettes: Vec<u32> = match &key.appearance.palette {
+                    Some(r) if !r.ranges.is_empty() => r.ranges.iter().map(|r| r.0).collect(),
+                    Some(r) => vec![r.base],
+                    None => picture
+                        .as_ref()
+                        .and_then(|(_, rs, _)| rs.default_palette_id)
+                        .map(|p| p.0)
+                        .into_iter()
+                        .collect(),
+                };
+                p.material_picture(record, &palettes)
+                    .filter(|(own, _)| own.is_none() || key.appearance.palette.is_none())
             });
         let (texture, maps) = match pack_picture {
-            Some((picture, maps)) => (Some(picture), Some(maps)),
+            Some((own, maps)) => (own.or(texture), Some(maps)),
             None => (texture, None),
         };
         let mut m = Material {

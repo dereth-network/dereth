@@ -107,10 +107,37 @@ pub fn detail_key(path: &str) -> String {
     format!("detail:{path}")
 }
 
-/// What a packed pack keeps a material's three pictures under: the paths of the pictures they
-/// are made from, and the normal scale its normal picture is bent by.
+/// What a packed pack keeps a material's three pictures under, or two where it keeps the retail
+/// picture: the paths of the pictures they are made from (no base color for the two), the normal
+/// scale its normal picture is bent by and how damp it is.
 #[must_use]
 pub fn material_key(entry: &ManifestMaterial) -> String {
+    let path = |p: &Option<String>| p.clone().unwrap_or_default();
+    let base = if entry.keep_retail_picture {
+        ""
+    } else {
+        entry.base_color.as_str()
+    };
+    let key = format!(
+        "material:{base}:{}:{}:{}:{}:{}:{}",
+        path(&entry.normal),
+        path(&entry.roughness),
+        path(&entry.occlusion),
+        path(&entry.height),
+        entry.normal_scale,
+        entry.damp,
+    );
+    match &entry.damp_map {
+        Some(map) => format!("{key}:{map}"),
+        None => key,
+    }
+}
+
+/// What a pack packed before materials named their height and dampness keeps a material's three
+/// pictures under: the paths of its base color, normal, roughness and occlusion pictures, and the
+/// normal scale. Such a pack's surface pictures hold the roughness and the occlusion alone, in BC5.
+#[must_use]
+pub fn earlier_material_key(entry: &ManifestMaterial) -> String {
     let path = |p: &Option<String>| p.clone().unwrap_or_default();
     format!(
         "material:{}:{}:{}:{}:{}",
@@ -340,6 +367,21 @@ impl PackedFile {
         self.pictures(key)
     }
 
+    /// The two pictures kept under `key` for a material that keeps the retail picture: its normal
+    /// and its surface ([`material_key`]).
+    ///
+    /// # Errors
+    /// The pack holds no such pictures, or it is damaged ([`Self::damage`]).
+    pub fn two(&self, key: &str) -> Result<[Image; 2], String> {
+        self.pictures(key)
+    }
+
+    /// Whether the pack holds pictures under `key`.
+    #[must_use]
+    pub fn holds(&self, key: &str) -> bool {
+        self.pictures.contains_key(key)
+    }
+
     fn pictures<const N: usize>(&self, key: &str) -> Result<[Image; N], String> {
         let at = self.pictures.get(key).copied();
         let bytes = self
@@ -406,6 +448,11 @@ pub fn pack(
 ) -> Result<Packed, String> {
     let mut recording = Recording::default();
     let pack = ArtPack::open_from(manifest, read, Pictures::Made, Some(&mut recording))?;
+    written(pack, recording)
+}
+
+/// `pack` packed into one file with the files it read and the pictures it made, `recording`.
+fn written(pack: ArtPack, recording: Recording) -> Result<Packed, String> {
     let Recording { files, pictures } = recording;
     let too_large = |what: &str| format!("{what} is larger than one record holds");
     let mut contents = Contents {
@@ -748,6 +795,79 @@ license = "CC0-1.0"
         assert_eq!(from_file.models, from_folder.models);
         assert_eq!(from_file.images, from_folder.images);
         assert_eq!(from_file.hash, from_folder.hash);
+    }
+
+    /// A material that keeps the retail picture packs two pictures, its normal and its surface,
+    /// under a key that names no base color, reads none of its base color's file, and opens from
+    /// its packed file as from its folder.
+    #[test]
+    fn a_material_that_keeps_the_retail_picture_packs_its_maps_alone() {
+        let manifest = r#"
+[pack]
+name = "Kept"
+format = 1
+[[material]]
+texture = "0x0500287C"
+base_color = "m/never-read.png"
+keep_retail_picture = true
+normal = "m/wall_n.png"
+height = "m/wall.png"
+damp = 0.5
+author = "a"
+tool = "t"
+license = "CC0-1.0"
+"#;
+        let files = files();
+        let folder = ArtPack::open(manifest, &mut reader(&files)).expect("the folder opens");
+        assert!(folder.problems.is_empty(), "{:?}", folder.problems);
+        let kept = &folder.materials[0];
+        assert!(kept.albedo.is_none(), "the retail picture is drawn");
+        assert_eq!(kept.surface.format, Some(BlockFormat::Bc7));
+        let packed = pack(manifest, &mut reader(&files)).expect("the pack packs");
+        let file = PackedFile::from_storage("t.dat", Box::new(packed.bytes)).expect("opens");
+        let key = file
+            .contents()
+            .records
+            .iter()
+            .find(|r| r.key.starts_with("material:"))
+            .expect("the material's record")
+            .key
+            .clone();
+        assert_eq!(key, "material::m/wall_n.png:::m/wall.png:1:0.5");
+        assert!(file.two(&key).is_ok(), "its normal and its surface");
+        let opened = ArtPack::from_packed(&file).expect("the packed pack opens");
+        assert_eq!(opened.materials, folder.materials);
+    }
+
+    /// A pack packed before materials named their height and dampness, its materials' pictures
+    /// under the key it was packed with, opens with every material.
+    #[test]
+    fn a_pack_packed_under_the_earlier_material_key_opens_whole() {
+        let files = files();
+        let mut recording = Recording::default();
+        let folder = ArtPack::open_from(
+            MANIFEST,
+            &mut reader(&files),
+            Pictures::Made,
+            Some(&mut recording),
+        )
+        .expect("the folder opens");
+        let manifest =
+            dereth_assets::art_pack::ArtPackManifest::parse(MANIFEST).expect("the manifest reads");
+        for entry in &manifest.materials {
+            if let Some(made) = recording.pictures.remove(&material_key(entry)) {
+                recording.pictures.insert(earlier_material_key(entry), made);
+            }
+        }
+        let earlier = written(folder.clone(), recording).expect("packs");
+        let opened = open(&earlier.bytes).expect("the earlier pack opens");
+        assert_eq!(
+            opened.problems.len(),
+            folder.problems.len(),
+            "{:?}",
+            opened.problems
+        );
+        assert_eq!(opened.materials, folder.materials);
     }
 
     #[test]
