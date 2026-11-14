@@ -1360,6 +1360,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         .given_effects
                         .insert((s.quest, s.key.clone()), s.given_effects.clone());
                 }
+                if let Some(after) = s.again_after {
+                    t.content.step_waits.insert((s.quest, s.key.clone()), after);
+                }
                 t.quests.steps.push(TableStep {
                     key: s.key.clone(),
                     quest: s.quest,

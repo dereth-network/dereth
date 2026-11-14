@@ -2,7 +2,8 @@
 //! sits in its pack, or where it is worn), its quests (status and phase), the skills it has
 //! trained or raised beyond its start, its money, the effects on it (each kept with when it was
 //! cast and how long it lasts, so it runs out on the game's clock while the character is away),
-//! and what it knows of crafting (its craft skills and recipes).
+//! what it knows of crafting (its craft skills and recipes), and the quest steps that wait a while
+//! before running for it again.
 //!
 //! Kept by the store as one value in the server's own encoding ([`PlayState::to_bytes`]).
 
@@ -126,6 +127,15 @@ pub struct ItemState {
     pub inscription: Option<(String, String)>,
 }
 
+/// A quest step that runs for a character at most once in a while, run for it lately: the step, by
+/// its quest and key, and when it last ran for the character (seconds by the calendar since 1970).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StepWait {
+    pub quest: u32,
+    pub key: String,
+    pub ran: i64,
+}
+
 /// Everything a character holds and has done in play.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PlayState {
@@ -172,14 +182,17 @@ pub struct PlayState {
     /// completed, every quest it has ever completed. One kept before this was kept remembers only
     /// those it holds completed.
     pub completed_before: Vec<u32>,
+    /// The steps run for it lately that wait a while before running for it again. One kept before
+    /// this was kept waits on none.
+    pub step_waits: Vec<StepWait>,
 }
 
 /// The encoding's version (1 held a skill's granted level, a level and its experience only; 2
 /// nothing after the skills; 3 nothing after the recipes; 4 nothing after the scenes; 5 nothing
 /// after the skills' last uses; 6 an item's instance stamp and maker only; 7 nothing after an
 /// item's durability; 8 nothing after a map's place; 9 nothing after an item's bonuses; 10 nothing
-/// after an item's binding; 11 nothing after the hero credits; 12 nothing after the time played; 13 nothing after the cloak; 14 nothing after the suffix; 15 no value of an item's own; 16 no look an item drew, nor the hand it was last in; 17 no effect an item is named for; 18 not whom an item is bound to, nor that a recipe attuned it; 19 no effects a skill put on an item; 20 an item's permanent effects only with what a recipe's item level gave it; 21 no word of starting clothes made as items; 22 no word of the tips shown; 23 nothing after the tips shown).
-const VERSION: u32 = 24;
+/// after an item's binding; 11 nothing after the hero credits; 12 nothing after the time played; 13 nothing after the cloak; 14 nothing after the suffix; 15 no value of an item's own; 16 no look an item drew, nor the hand it was last in; 17 no effect an item is named for; 18 not whom an item is bound to, nor that a recipe attuned it; 19 no effects a skill put on an item; 20 an item's permanent effects only with what a recipe's item level gave it; 21 no word of starting clothes made as items; 22 no word of the tips shown; 23 nothing after the tips shown; 24 nothing after the quests completed before).
+const VERSION: u32 = 25;
 
 /// Do these bytes say a newer build kept them (a world that went back to an older build)?
 #[must_use]
@@ -711,6 +724,13 @@ impl PlayState {
         for q in &self.completed_before {
             w32(&mut out, *q);
         }
+        w32(&mut out, u32::try_from(self.step_waits.len()).unwrap_or(0));
+        for w in &self.step_waits {
+            w32(&mut out, w.quest);
+            w32(&mut out, u32::try_from(w.key.len()).unwrap_or(0));
+            out.extend_from_slice(w.key.as_bytes());
+            w64(&mut out, w.ran.cast_unsigned());
+        }
         out
     }
 
@@ -859,6 +879,14 @@ impl PlayState {
         if version >= 24 {
             for _ in 0..r.u32().ok_or_else(bad)? {
                 s.completed_before.push(r.u32().ok_or_else(bad)?);
+            }
+        }
+        if version >= 25 {
+            for _ in 0..r.u32().ok_or_else(bad)? {
+                let quest = r.u32().ok_or_else(bad)?;
+                let key = r.text().ok_or_else(bad)?;
+                let ran = r.i64().ok_or_else(bad)?;
+                s.step_waits.push(StepWait { quest, key, ran });
             }
         }
         if !r.0.is_empty() {

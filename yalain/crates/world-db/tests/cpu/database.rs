@@ -3508,6 +3508,42 @@ fn a_steps_fellowship_trip_is_read_compiled_and_needs_a_place() {
     assert!(read(&step("to = \"inn\"\nto_fellows = 1\n")).is_err());
 }
 
+/// A step's `again_after` is read and compiled to the wait of the step of its quest and key; a step
+/// naming none waits on nothing, and a wait must be above 0.
+/// Behaviour: server.quests.a-step-waits-between-its-runs-for-a-player
+#[test]
+fn a_steps_wait_between_runs_is_read_compiled_by_its_quest_and_key_and_kept_above_0() {
+    let plain = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert!(plain.content.step_waits.is_empty(), "none named, none kept");
+    let step = |extra: &str| {
+        let mut files = fixture();
+        edit(
+            &mut files,
+            "town/server/quests/40000088.toml",
+            "needs = 0\ntrigger = { use = 0x470033D0 }\n",
+            &format!("needs = 0\ntrigger = {{ use = 0x470033D0 }}\n{extra}"),
+        );
+        files
+    };
+    let files = step("again_after = 3600\n");
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.content.step_waits.into_iter().collect::<Vec<_>>(),
+        [((0x4000_0088, "s1".to_string()), 3600)]
+    );
+    for bad in ["0", "-5", "1.5", "\"an hour\""] {
+        let messages: Vec<String> = check(&step(&format!("again_after = {bad}\n")))
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert!(
+            messages.iter().any(|m| m.contains("again_after")),
+            "{bad}: {messages:?}"
+        );
+    }
+}
+
 /// Behaviour: server.gives.row-wants-a-count
 #[test]
 fn a_give_moving_no_quest_is_checked_for_what_it_wants_and_names() {

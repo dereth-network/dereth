@@ -8,7 +8,8 @@
 //! says its refusal of that quest.
 //!
 //! **Used, too soon.** A person who gives several quests and gave the player one too lately to give
-//! another says its too-soon line.
+//! another says its too-soon line; so does one whose step for the use ran for the player less than
+//! the step's wait ago.
 //!
 //! **Given an item it has no use for.** A person says its line for that item, else its refusal of
 //! a give (else another line it says at a give naming no quest) as it hands the item back.
@@ -402,8 +403,9 @@ fn pick<S: Store>(s: &mut Server<S>, pool: &[Line]) -> Option<Line> {
     from.get(i).map(|l| (*l).clone())
 }
 
-/// What a person who gives several quests says when it gave one too lately to give another: its
-/// too-soon line (2017: Stubby's "Come back later ..." 18 of 18, Lupe's 7 of 7).
+/// What a person who gives several quests says when it gave one too lately to give another, or one
+/// whose step waits a while between runs says within the wait: its too-soon line (2017: Stubby's
+/// "Come back later ..." 18 of 18, Lupe's 7 of 7).
 pub fn too_soon_line<S: Store>(s: &mut Server<S>, who: u32, object: Option<usize>) -> Option<Line> {
     let pool: Vec<Line> = lines_of(s, who, object)
         .filter(|l| l.role == Some(Role::TooSoon))

@@ -584,8 +584,19 @@ pub fn failed_during(held: &[QuestState], quest: u32, during: Option<u32>) -> bo
 /// its wait to be taken again over, the player of its least level), the quests it requires where
 /// it requires them, the craft skills it waits on at their levels, an untraining under way where it
 /// waits on one, a hero where it is for heroes alone, the orders of uses it waits on where they
-/// stand, a player who fought the camps' creatures it waits on, and the items it takes held.
+/// stand, a player who fought the camps' creatures it waits on, the items it takes held, and no wait
+/// of its own between runs under way for the player.
 fn may_run<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_unix: i64) -> bool {
+    may_run_but_for_its_wait(s, world, st, now_unix) && !waiting(s, world, st, now_unix)
+}
+
+/// May a step run for a player now, but for its own wait between runs.
+fn may_run_but_for_its_wait<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    st: &Step,
+    now_unix: i64,
+) -> bool {
     may_run_at_any_level(s, world, st, now_unix)
         && level_allows(s, world, st)
         && crate::craft::step_allows(s, world, st)
@@ -599,6 +610,47 @@ fn may_run<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_unix: i64) -> 
 #[must_use]
 pub fn may_run_now<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_unix: i64) -> bool {
     may_run(s, world, st, now_unix)
+}
+
+/// Does a step that runs for a player at most once in a while wait for the player now: it ran for
+/// the player less than its wait ago, by the calendar.
+fn waiting<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_unix: i64) -> bool {
+    if s.content.step_waits.is_empty() {
+        return false;
+    }
+    s.players.get(&world).is_some_and(|p| {
+        p.play.step_waits.iter().any(|w| {
+            w.quest == st.quest
+                && w.key == st.key
+                && s.content
+                    .step_waits
+                    .get(&(st.quest, st.key.clone()))
+                    .is_some_and(|wait| w.ran + i64::from(*wait) > now_unix)
+        })
+    })
+}
+
+/// A step that runs for a player at most once in a while has run for the player: its wait starts
+/// now, and the player's waits that are over are forgotten.
+fn wait_from<S: Store>(s: &mut Server<S>, world: ConnId, st: &Step, now_unix: i64) {
+    let waits = &s.content.step_waits;
+    if !waits.contains_key(&(st.quest, st.key.clone())) {
+        return;
+    }
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    p.play.step_waits.retain(|w| {
+        !(w.quest == st.quest && w.key == st.key)
+            && waits
+                .get(&(w.quest, w.key.clone()))
+                .is_some_and(|wait| w.ran + i64::from(*wait) > now_unix)
+    });
+    p.play.step_waits.push(crate::state::StepWait {
+        quest: st.quest,
+        key: st.key.clone(),
+        ran: now_unix,
+    });
 }
 
 /// Is the player of the level a step that gives a quest needs (the quest's least level)?
@@ -1554,12 +1606,18 @@ fn person_blocks<S: Store>(s: &Server<S>, world: ConnId, quests: &[u32], now_uni
         || person_waits(s, world, quests, now_unix)
 }
 
-/// Would a trigger give a quest but for its person having given one too lately (it says its
-/// too-soon line instead)?
+/// Would a trigger give a quest but for its person having given one too lately, or run a step but
+/// for the step having run for the player less than its wait ago (it says its too-soon line
+/// instead)?
 #[must_use]
 pub fn too_soon<S: Store>(s: &Server<S>, world: ConnId, trigger: Trigger, now_unix: i64) -> bool {
     let quests = givings(s, trigger);
-    quests.len() >= 2 && person_waits(s, world, &quests, now_unix)
+    (quests.len() >= 2 && person_waits(s, world, &quests, now_unix))
+        || s.quests.steps.iter().any(|st| {
+            st.trigger == trigger
+                && waiting(s, world, st, now_unix)
+                && may_run_but_for_its_wait(s, world, st, now_unix)
+        })
 }
 
 /// The step a trigger would run now, if any (a step that takes the player somewhere runs only so:
@@ -1749,6 +1807,7 @@ fn run_with<S: Store>(
     // What it adds to the world's tallies comes first, so what is said with it names the count it
     // made.
     crate::tallies::step_ran(s, step, clock);
+    wait_from(s, world, step, clock.unix);
     if let Some((teller, name)) = who {
         if let Some(line) = &step.tell {
             let told = crate::presence::content_by_id(&s.content.objects, teller)

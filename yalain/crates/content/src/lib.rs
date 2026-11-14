@@ -778,6 +778,10 @@ pub struct ContentPack {
     /// The effects quest steps put on the item given them, as they hand it back: by the step's
     /// quest and key. Not part of the text form: the world database's steps fill it.
     pub given_effects: BTreeMap<(u32, String), Vec<u32>>,
+    /// The quest steps that run for a player at most once in so many seconds by the calendar: the
+    /// seconds, by the step's quest and key. Not part of the text form: the world database's steps
+    /// fill it.
+    pub step_waits: BTreeMap<(u32, String), u32>,
     /// The quests that go with another quest's holder (the fellows protecting the one who carries
     /// it): each such companion quest, by the quest it goes with. As a player's quest of that id is
     /// done, its companions under way of the player's and of each of its fellows in the world are
@@ -1179,6 +1183,7 @@ impl ContentPack {
             fought_gates: fought::FoughtGates::default(),
             class_gives: BTreeMap::new(),
             given_effects: BTreeMap::new(),
+            step_waits: BTreeMap::new(),
             companions: BTreeMap::new(),
             levers: levers::LeverTable::default(),
             offerings: offerings::OfferingTable::default(),

@@ -582,6 +582,9 @@ pub struct Step {
     pub to_fellows: bool,
     /// For a give of an item it hands back, the effects it puts on that item (their saved states).
     pub given_effects: Vec<u32>,
+    /// Seconds by the calendar, above 0: once it has run for a player it runs for that player again
+    /// only after so many.
+    pub again_after: Option<u32>,
     pub prov: Prov,
 }
 
@@ -1827,6 +1830,7 @@ pub const FIELDS: [(&str, &[&str]); 67] = [
             "escort",
             "to_fellows",
             "given_effects",
+            "again_after",
             "prov",
         ],
     ),
@@ -2896,6 +2900,11 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 escort: f.escort().map(Box::new),
                 to_fellows: f.bool("to_fellows").unwrap_or(false),
                 given_effects: f.ids("given_effects"),
+                again_after: {
+                    let after = f.u32("again_after");
+                    let ok = after.is_none_or(|t| t > 0);
+                    f.held("again_after", after, ok, "above 0")?
+                },
                 prov: f.req_prov()?,
             }))
         }

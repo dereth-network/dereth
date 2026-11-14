@@ -400,6 +400,7 @@ What moves a quest on, in its quest's file.
 | `given_effects` | | for a give whose item it hands back (it takes no item of the template given): the effects it puts on that item, by their saved states (ones the install holds), each at spellcraft 1 for its own time whoever holds the item after; an effect that applies another (an imbuer's spell) puts that one on the creature each of the weapon's blows lands on, harm or none |
 | `transforms` | | a give's step that makes its player a hero: `{ seconds, fx, behavior, text, name }` |
 | `chance` | | above 0 and at most 1: the chance it runs each time it may; left out, every time |
+| `again_after` | | seconds by the calendar, above 0: once it has run for a player it runs for that player again only after so many, kept while the player is away; meanwhile a use of a person that would run it is answered with the person's `too-soon` line. Left out, it runs whenever it may |
 | `escort` | | a creature it sets to follow the player for the quest, below |
 | `prov` | required | where it came from |
 

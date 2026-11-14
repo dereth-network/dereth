@@ -208,6 +208,24 @@ fn a_reload_changes_what_people_say_at_once() {
     assert!(r.details.is_empty());
 }
 
+/// A reload takes up the time steps wait between their runs: a wait it adds is the step's at once,
+/// and one it drops is gone.
+/// Behaviour: server.quests.a-step-waits-between-its-runs-for-a-player
+#[test]
+fn a_reload_takes_up_the_waits_of_steps_between_their_runs() {
+    let step = (0x4000_027F, "scroll-ankoro".to_string());
+    let (mut h, _, _) = world();
+    let mut t = tables_of(&h);
+    t.content.step_waits.insert(step.clone(), 3600);
+    let r = reload(&mut h, t);
+    assert_eq!(r.applied, [table::QUESTS]);
+    assert_eq!(h.server.content.step_waits.get(&step), Some(&3600));
+    let mut t = tables_of(&h);
+    t.content.step_waits.clear();
+    reload(&mut h, t);
+    assert!(h.server.content.step_waits.is_empty(), "dropped");
+}
+
 /// A reload whose database no longer names a template keeps the template known (a thing of it may
 /// be in the world), and takes a new one.
 /// A reload takes up the world's rows of pets and what its skills allow, and drops a row it no

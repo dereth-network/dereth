@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Worlds can now have people hand something out only once in a while to each player.
 
 ## 0.5.0 (2026-11-15)
 - World: portal beacons take no harm until struck by a weapon the imbuer has enchanted.

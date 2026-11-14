@@ -13665,6 +13665,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-step-waits-between-its-runs-for-a-player",
+        says: "A step with a wait between runs, once it has run for a player, runs for that player \
+               again only when that many seconds by the calendar have passed, the wait kept while \
+               the player is away; meanwhile a use of its person that would run it is answered \
+               with the person's too-soon line, and gives nothing. Each player and each step waits \
+               on its own; a step with no wait runs whenever it may.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STEP-WAITS"),
+        station: "yalain-testkit::cpu::play::step_waits::a_step_with_a_wait_runs_then_its_person_says_its_too_soon_line_until_the_wait_is_over",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-step-waits-for-a-timer-to-run-out",
         says: "A step requiring a hidden timer quest failed holds back while the timer's time runs and runs once it has run out, the timer told at no point.",
         since: TOOLING,
