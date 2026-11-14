@@ -10,6 +10,7 @@
 
 mod instances;
 mod sway;
+mod trees;
 
 use dereth_gfx::{Backend, Device, DeviceDesc};
 

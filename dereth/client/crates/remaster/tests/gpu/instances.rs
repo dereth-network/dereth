@@ -1,7 +1,7 @@
-//! An art pack's placed models, chosen and listed on the device, against the processor's own
-//! choice of the same scene: the same levels and fades, the same draw items for every model seen,
-//! none for a model out of view, the same commands frame after frame; and ground cover cast into
-//! the nearest of the sun's cascades alone.
+//! A block's parts, chosen and listed on the device, against the processor's own choice of the
+//! same scene: the same levels and fades, the same draw items for every part seen, none for a
+//! part out of view, the same commands frame after frame; and ground cover cast into the nearest
+//! of the sun's cascades alone.
 //!
 //! Behaviour: none (experimental)
 
@@ -13,7 +13,7 @@ use dereth_remaster::assets::{
     Appearance, AssetSource, BlendFactor, CellPieceKey, Kind, Material, MaterialKey, Mesh,
     SubsetInfo, SurfaceRef, TerrainCell, Texture, TextureKey, Use, Vertex,
 };
-use dereth_remaster::render::instances::PackState;
+use dereth_remaster::render::instances::PartState;
 use dereth_remaster::render::light::LightMode;
 use dereth_remaster::render::lod::LodSettings;
 use dereth_remaster::render::rt_shadow::RtShadowSettings;
@@ -269,14 +269,14 @@ fn frame() -> FrameDelta {
     }
 }
 
-/// A renderer that has drawn the block for three frames, its pack's models chosen on the device
-/// or on the processor.
+/// A renderer that has drawn the block for three frames, its parts chosen on the device or on the
+/// processor.
 fn drawn(on_device: bool) -> Renderer {
     drawn_block(on_device, false, block(), 3)
 }
 
-/// A renderer that has drawn `b` for `frames` frames, its pack's models chosen on the device or on
-/// the processor, and the sun's shadows looked up in the cascades or `traced`.
+/// A renderer that has drawn `b` for `frames` frames, its parts chosen on the device or on the
+/// processor, and the sun's shadows looked up in the cascades or `traced`.
 fn drawn_block(on_device: bool, traced: bool, b: Block, frames: usize) -> Renderer {
     let mut r = Renderer::new(crate::hardware(), Format::D32Float).expect("a renderer");
     r.set_mode(LightMode::Pixel);
@@ -286,7 +286,7 @@ fn drawn_block(on_device: bool, traced: bool, b: Block, frames: usize) -> Render
     });
     r.set_lod(LodSettings::ON);
     r.set_packs(PackSettings::all());
-    r.set_packs_on_device(on_device);
+    r.set_parts_on_device(on_device);
     if traced {
         r.set_rt_shadows(RtShadowSettings { on: true, rays: 16 });
     }
@@ -313,21 +313,21 @@ fn among(list: &[u32], ranges: &[std::ops::Range<u32>]) -> BTreeSet<u32> {
 }
 
 #[test]
-fn the_devices_levels_fades_and_items_are_the_processors_for_every_model_seen() {
+fn the_devices_levels_fades_and_items_are_the_processors_for_every_part_seen() {
     let mut cpu = drawn(false);
-    assert_eq!(cpu.packs_on_device(), 0);
+    assert_eq!(cpu.parts_on_device(), 0);
     let choices = cpu.part_choices(BLOCK);
     let cpu_items = cpu.culled_items();
     let cpu_list: Vec<u32> = cpu_items.iter().flatten().copied().collect();
     drop(cpu);
 
     let mut gpu = drawn(true);
-    // Every pack model but none of retail's.
-    assert_eq!(gpu.packs_on_device(), PLACED.len() - 1);
-    let states: Vec<PackState> = gpu.pack_states();
+    // Every part: the pack's models and retail's own.
+    assert_eq!(gpu.parts_on_device(), PLACED.len());
+    let states: Vec<PartState> = gpu.part_states();
     let gpu_items = gpu.culled_items();
     let gpu_list: Vec<u32> = gpu_items.iter().flatten().copied().collect();
-    assert_eq!(states.len(), PLACED.len() - 1);
+    assert_eq!(states.len(), PLACED.len());
     let mut fading = 0;
     let mut levels = BTreeSet::new();
     for s in &states {
@@ -351,7 +351,7 @@ fn the_devices_levels_fades_and_items_are_the_processors_for_every_model_seen() 
     }
     assert!(fading >= 2, "{fading} models fade");
     assert!(levels.len() >= 3, "levels {levels:?}");
-    // Retail's object is drawn as before, by the processor.
+    // Retail's object is drawn as the processor draws it.
     let retail = PLACED.iter().position(|p| p.0 == RETAIL).unwrap() as u32;
     let items = gpu.part_items(BLOCK, retail);
     assert!(!among(&gpu_list, &items).is_empty());
@@ -369,8 +369,8 @@ fn the_devices_levels_fades_and_items_are_the_processors_for_every_model_seen() 
 fn ground_cover_casts_into_the_nearest_cascade_alone_and_the_rest_into_every_one_they_reach() {
     // Every cascade is drawn again on the block's first frame.
     let mut first = drawn_first_frame();
-    let states = first.pack_states();
-    let casters = first.pack_casters();
+    let states = first.part_states();
+    let casters = first.part_casters();
     let state = |id: u32, north: f32| {
         let k = PLACED
             .iter()

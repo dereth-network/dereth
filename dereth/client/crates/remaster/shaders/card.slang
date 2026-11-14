@@ -97,18 +97,32 @@ public float card_texels(float2 at)
     return max(length(ddx(at)), length(ddy(at))) * CARD_TILE;
 }
 
+// A place within a view's picture, as a share of the page (under an eighth of it), put on a grid
+// of 2^-23 of the page: added to any picture's corner, a multiple of an eighth or a sixteenth of
+// the page, it then rounds nothing.
+float2 on_grid(float2 local)
+{
+    precise float2 g = round(local * 8388608.0) / 8388608.0;
+    return g;
+}
+
 // The color of an atlas row's view `view` at card position `at`, and how much of the pixel it
 // covers. The row holds each texel's color multiplied by its coverage, and no smaller copies:
 // samples spread over the pixel's footprint stand in for one, two by two, or four by four where
 // it covers more than a few texels, so a far card does not sparkle. The footprint is measured on
 // the card, since neighboring pixels may show different views, and the samples stay in this
 // view's own picture. `uv`, `corner` and `tile` are where in the page the view's picture is read.
+// Each sample is placed within the view's picture first and only then moved to the picture's
+// corner, on a grid fine enough that the move rounds nothing, so a tree's pictures read the same
+// in whichever row they were made.
 public float4 card_row_color(uint picture, uint wrap, uint view, uint row, uint rows, float2 at,
                              out float2 uv, out float2 corner, out float2 tile)
 {
     tile = float2(1.0 / float(CARD_VIEWS), 1.0 / float(rows));
     corner = float2(float(view), float(row)) * tile;
-    uv = corner + at * tile;
+    precise float2 local = at * tile;
+    precise float2 placed = corner + on_grid(local);
+    uv = placed;
     float2 fx = ddx(at);
     float2 fy = ddy(at);
     float texels = max(length(fx), length(fy)) * CARD_TILE;
@@ -122,9 +136,9 @@ public float4 card_row_color(uint picture, uint wrap, uint view, uint row, uint 
         for (int j = 0; j < taps; j++)
         {
             float2 o = dx * ((float(i) + 0.5) / float(taps) - 0.5) + dy * ((float(j) + 0.5) / float(taps) - 0.5);
+            precise float2 p = corner + on_grid(clamp(local + o, inset, tile - inset));
             float4 c = textures[NonUniformResourceIndex(picture)].SampleLevel(
-                samplers[NonUniformResourceIndex(wrap)],
-                clamp(uv + o, corner + inset, corner + tile - inset), 0.0);
+                samplers[NonUniformResourceIndex(wrap)], p, 0.0);
             albedo += c;
         }
     }

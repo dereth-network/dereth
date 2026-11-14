@@ -365,8 +365,8 @@ pub struct ShadowPlan {
     pub visibility_index: u32,
     /// The bytes one indirect draw command takes on the device.
     command_bytes: u32,
-    /// The cascades as the pack's models chosen on the device are cast into them.
-    pub(crate) pack: super::instances::PackCascades,
+    /// The cascades as the parts chosen on the device are cast into them.
+    pub(crate) parts: super::instances::PartsCascades,
 }
 
 fn shader(e: Entry) -> Shader<'static> {
@@ -598,7 +598,7 @@ impl ShadowPass {
         frame_rows: &[u8],
         drawn: &BTreeSet<u32>,
         area: (u32, u32),
-        instances: &super::instances::PackInstances,
+        instances: &super::instances::DeviceParts,
     ) -> Result<Option<ShadowPlan>, dereth_gfx::Error> {
         if !self.settings.on {
             return Ok(None);
@@ -876,7 +876,7 @@ impl ShadowPass {
             visibility,
             visibility_index,
             command_bytes,
-            pack: super::instances::PackCascades {
+            parts: super::instances::PartsCascades {
                 light_view: cascades[0].light_view,
                 across: cascades.map(|c| c.across),
                 along: cascades.map(|c| c.along),
@@ -920,7 +920,7 @@ impl ShadowPlan {
         caster_push: &dyn Fn(u32) -> Vec<u8>,
         ground_push: &dyn Fn(u32, u32, u32) -> Vec<u8>,
         drawn: Option<&super::drawn::DrawnPlan>,
-        pack: Option<&super::instances::PackPlan>,
+        parts: Option<&super::instances::PartsPlan>,
     ) -> Result<(), dereth_gfx::Error> {
         let full = Rect {
             x: 0,
@@ -931,12 +931,12 @@ impl ShadowPlan {
         let p = self.pipelines;
         for (c, cp) in self.cascades.iter().enumerate() {
             if cp.redraw {
-                let pack = pack.filter(|p| p.casts(c));
+                let parts = parts.filter(|p| p.casts(c));
                 let mut touches = vec![
                     Touch::Buffer(cp.statics.0, Use::Indirect),
                     Touch::Buffer(indices, Use::Index),
                 ];
-                if let Some(p) = pack {
+                if let Some(p) = parts {
                     touches.extend(p.caster_touches());
                 }
                 r.timestamp(
@@ -967,7 +967,7 @@ impl ShadowPlan {
                                 d.draw(side * side * 6, *count, 0, 0);
                             }
                         }
-                        if cp.statics.1 > 0 || pack.is_some() {
+                        if cp.statics.1 > 0 || parts.is_some() {
                             d.set_pipeline(p.caster)?;
                             d.push(0, &caster_push(cp.frame))?;
                             d.bind_index_buffer(indices, 0, IndexType::U32)?;
@@ -980,8 +980,8 @@ impl ShadowPlan {
                                 self.command_bytes,
                             )?;
                         }
-                        if let Some(pack) = pack {
-                            pack.draw_casters(d, c)?;
+                        if let Some(parts) = parts {
+                            parts.draw_casters(d, c)?;
                         }
                         Ok(())
                     },

@@ -333,7 +333,7 @@ impl SceneDraw {
     pub fn remaster_mesh_tree_bases(&self, gpu: &mut Gpu) -> Vec<([f32; 3], f32, f32)> {
         remaster(gpu).map_or_else(Vec::new, |r| {
             let r = r.renderer();
-            let trees = r.mesh_trees().to_vec();
+            let trees = r.mesh_trees();
             r.instance_bases(&trees)
                 .into_iter()
                 .map(|(o, gpu, cards)| (o.to_array(), gpu, cards))

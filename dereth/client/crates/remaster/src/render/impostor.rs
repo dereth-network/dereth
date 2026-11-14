@@ -9,7 +9,9 @@
 //! multiplied by that share: a crown's needles, each thinner than a texel, keep their coverage
 //! rather than thinning to a few blots with holes between.
 //!
-//! A tree's pictures are made the frame it is first drawn so, and kept while the renderer is.
+//! A tree's pictures are made the frame it is first drawn so, or, for a tree whose levels the
+//! device chooses ([`super::instances`]), the frame its block comes, and kept while the renderer
+//! is. The device writes its own trees' cards, which are drawn after the processor's.
 
 use std::collections::HashMap;
 
@@ -262,14 +264,28 @@ pub struct ImpostorDraw {
     pub gfxobj: u32,
 }
 
-/// Where a tree's pictures are, and the sphere round the mesh they are of, in its own space.
+/// Where a tree's pictures are, and the sphere round the mesh they are of, in its own space; and
+/// its place in the table of trees' rows the device reads.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Slot {
     page: usize,
     row: u32,
     centre: Vec3,
     radius: f32,
+    index: u32,
 }
+
+/// The cards the device writes for its trees: their rows by buffer and index, and their indirect
+/// draw.
+#[derive(Debug, Clone, Copy)]
+pub struct DeviceCards {
+    pub cards: (Buffer, u32),
+    pub draw: Buffer,
+}
+
+/// The bytes of one tree's row in the table the device reads: its page's pictures, its row, the
+/// rows a page holds; the sphere its pictures are of.
+const TREE_BYTES: usize = 32;
 
 /// An atlas page: its pictures' colors and normals, each with its index in the table.
 #[derive(Debug, Clone, Copy)]
@@ -310,6 +326,9 @@ pub struct ImpostorPlan {
     weather: (u32, Option<Texture>),
     bake: Pipeline,
     draw: Pipeline,
+    /// The cards the device wrote, drawn after these, and the bytes of their draw.
+    device: Option<DeviceCards>,
+    draw_stride: u32,
 }
 
 /// What the pass needs of a frame.
@@ -324,6 +343,8 @@ pub struct ImpostorInputs<'a> {
     /// The weather's constants, which wet the cards out in the rain as the meshes are (`NONE`
     /// without them), and the overhead map they read.
     pub weather: (u32, Option<Texture>),
+    /// The cards the device writes for its trees this frame.
+    pub device: Option<DeviceCards>,
 }
 
 /// The impostors' pass: its pipelines, its atlas pages, and the trees they hold.
@@ -344,6 +365,11 @@ pub struct ImpostorPass {
     bases: Vec<(Vec3, f32)>,
     /// The last frame's cards.
     drawn: Vec<DrawnCard>,
+    /// The trees given rows for the device since the last frame, whose pictures it makes.
+    waiting: Vec<Bake>,
+    /// Each tree's row as the device reads it, and the table's buffer, its index and its bytes.
+    tree_rows: Vec<u8>,
+    trees: (Buffer, u32, u64),
 }
 
 /// A card the last frame drew: its tree's first level's GfxObj, the centre of the sphere its
@@ -418,6 +444,14 @@ impl ImpostorPass {
             location: Location::Gpu,
         })?;
         let cards_index = gfx.bind_buffer(cards)?;
+        let trees_size = 64 * TREE_BYTES as u64;
+        let trees = gfx.create_buffer(&BufferDesc {
+            label: "remaster impostor trees",
+            size: trees_size,
+            usage: BufferUsage::STORAGE,
+            location: Location::Gpu,
+        })?;
+        let trees_index = gfx.bind_buffer(trees)?;
         Ok(Self {
             bake,
             draw,
@@ -431,7 +465,128 @@ impl ImpostorPass {
             stats: ImpostorStats::default(),
             bases: Vec::new(),
             drawn: Vec::new(),
+            waiting: Vec::new(),
+            tree_rows: Vec::new(),
+            trees: (trees, trees_index, trees_size),
         })
+    }
+
+    /// The sphere the pictures of the tree whose first level's mesh is `gfxobj` are of, in its own
+    /// space, once it has a row.
+    #[must_use]
+    pub(crate) fn tree_sphere(&self, gfxobj: u32) -> Option<(Vec3, f32)> {
+        self.slots.get(&gfxobj).map(|s| (s.centre, s.radius))
+    }
+
+    /// The table of trees' rows the device reads, by buffer and index.
+    #[must_use]
+    pub(crate) fn trees(&self) -> (Buffer, u32) {
+        (self.trees.0, self.trees.1)
+    }
+
+    /// The tree whose first level's mesh is `gfxobj`, drawn by part `p` of a block: its place in
+    /// the table of trees' rows, given it a row (its pictures made with the next frame drawn) when
+    /// it has none. `None` for a mesh not held, or with no sphere.
+    ///
+    /// # Errors
+    /// What the device refuses.
+    pub(crate) fn tree_slot(
+        &mut self,
+        gfx: &mut Device,
+        scene: &GpuScene,
+        gfxobj: u32,
+        p: &super::scene::PartItems,
+    ) -> Result<Option<u32>, dereth_gfx::Error> {
+        if let Some(s) = self.slots.get(&gfxobj) {
+            return Ok(Some(s.index));
+        }
+        let Some(bake) = self.slot_for(gfx, scene, gfxobj, p)? else {
+            return Ok(None);
+        };
+        let index = self.slots.get(&gfxobj).map(|s| s.index);
+        self.waiting.push(bake);
+        Ok(index)
+    }
+
+    /// Give the tree whose first level's mesh is `gfxobj`, drawn by part `p`, a row and a place in
+    /// the trees' table, and what makes its pictures; `None` for a mesh not held, or with no
+    /// sphere.
+    fn slot_for(
+        &mut self,
+        gfx: &mut Device,
+        scene: &GpuScene,
+        gfxobj: u32,
+        p: &super::scene::PartItems,
+    ) -> Result<Option<Bake>, dereth_gfx::Error> {
+        let Some(mesh) = scene.meshes.get(&crate::assets::MeshKey::GfxObj(gfxobj)) else {
+            return Ok(None);
+        };
+        let Some(first) = p.levels.first() else {
+            return Ok(None);
+        };
+        let (centre, radius) = mesh.sphere.unwrap_or((mesh.sort_center, 0.0));
+        if radius <= 0.0 {
+            return Ok(None);
+        }
+        let items: Vec<(u32, u32, u32)> = first
+            .clone()
+            .filter_map(|i| {
+                let draw = scene.item_draws.get(i as usize)?;
+                Some((i, draw.first_index, draw.index_count))
+            })
+            .collect();
+        let (page, row) = self.row(gfx)?;
+        let index = u32::try_from(self.slots.len()).unwrap_or(u32::MAX);
+        let slot = Slot {
+            page,
+            row,
+            centre: Vec3::from(centre),
+            radius,
+            index,
+        };
+        self.slots.insert(gfxobj, slot);
+        self.stats.trees += 1;
+        self.stats.baked += 1;
+        self.tree_row(gfx, &slot)?;
+        Ok(Some(Bake {
+            page,
+            row,
+            centre: slot.centre,
+            radius,
+            items,
+        }))
+    }
+
+    /// Write `slot`'s row into the table of trees' rows, the table grown when it is full.
+    fn tree_row(&mut self, gfx: &mut Device, slot: &Slot) -> Result<(), dereth_gfx::Error> {
+        let page = self.pages[slot.page];
+        let mut row = Vec::with_capacity(TREE_BYTES);
+        for w in [page.albedo_index, page.normal_index, slot.row, ROWS] {
+            row.extend_from_slice(&w.to_le_bytes());
+        }
+        for f in [slot.centre.x, slot.centre.y, slot.centre.z, slot.radius] {
+            row.extend_from_slice(&f.to_le_bytes());
+        }
+        let at = slot.index as usize * TREE_BYTES;
+        let end = at + TREE_BYTES;
+        if self.tree_rows.len() < end {
+            self.tree_rows.resize(end, 0);
+        }
+        self.tree_rows[at..end].copy_from_slice(&row);
+        if end as u64 > self.trees.2 {
+            let size = (end as u64).next_power_of_two();
+            let bigger = gfx.create_buffer(&BufferDesc {
+                label: "remaster impostor trees",
+                size,
+                usage: BufferUsage::STORAGE,
+                location: Location::Gpu,
+            })?;
+            gfx.destroy_buffer(std::mem::replace(&mut self.trees.0, bigger));
+            self.trees.1 = gfx.bind_buffer(self.trees.0)?;
+            self.trees.2 = size;
+            return gfx.write_buffer(self.trees.0, 0, &self.tree_rows);
+        }
+        gfx.write_buffer(self.trees.0, at as u64, &row)
     }
 
     /// Where the last frame's cards stand their trees' bases (the frame's space), and how far
@@ -523,15 +678,15 @@ impl ImpostorPass {
         inputs: &ImpostorInputs<'_>,
     ) -> Result<Option<ImpostorPlan>, dereth_gfx::Error> {
         self.stats.cards = 0;
-        self.stats.baked = 0;
+        self.stats.baked = u32::try_from(self.waiting.len()).unwrap_or(u32::MAX);
         self.bases.clear();
         self.drawn.clear();
-        if inputs.draws.is_empty() {
+        let mut bakes = std::mem::take(&mut self.waiting);
+        if inputs.draws.is_empty() && inputs.device.is_none() && bakes.is_empty() {
             return Ok(None);
         }
         let frame = inputs.frame;
         let scene = inputs.scene;
-        let mut bakes = Vec::new();
         let mut rows: Vec<u8> = Vec::new();
         for d in inputs.draws {
             let Some(b) = scene.blocks.get(&d.block) else {
@@ -543,42 +698,14 @@ impl ImpostorPass {
             let slot = match self.slots.get(&d.gfxobj) {
                 Some(s) => *s,
                 None => {
-                    let Some(mesh) = scene.meshes.get(&crate::assets::MeshKey::GfxObj(d.gfxobj))
-                    else {
+                    let Some(bake) = self.slot_for(gfx, scene, d.gfxobj, p)? else {
                         continue;
                     };
-                    let Some(first) = p.levels.first() else {
-                        continue;
-                    };
-                    let (centre, radius) = mesh.sphere.unwrap_or((mesh.sort_center, 0.0));
-                    if radius <= 0.0 {
-                        continue;
+                    bakes.push(bake);
+                    match self.slots.get(&d.gfxobj) {
+                        Some(s) => *s,
+                        None => continue,
                     }
-                    let items: Vec<(u32, u32, u32)> = first
-                        .clone()
-                        .filter_map(|i| {
-                            let draw = scene.item_draws.get(i as usize)?;
-                            Some((i, draw.first_index, draw.index_count))
-                        })
-                        .collect();
-                    let (page, row) = self.row(gfx)?;
-                    let slot = Slot {
-                        page,
-                        row,
-                        centre: Vec3::from(centre),
-                        radius,
-                    };
-                    self.slots.insert(d.gfxobj, slot);
-                    self.stats.trees += 1;
-                    self.stats.baked += 1;
-                    bakes.push(Bake {
-                        page,
-                        row,
-                        centre: slot.centre,
-                        radius,
-                        items,
-                    });
-                    slot
                 }
             };
             let page = self.pages[slot.page];
@@ -623,7 +750,7 @@ impl ImpostorPass {
             }
         }
         let count = u32::try_from(rows.len() / (CARD_ROWS * 16)).unwrap_or(u32::MAX);
-        if count == 0 && bakes.is_empty() {
+        if count == 0 && bakes.is_empty() && inputs.device.is_none() {
             return Ok(None);
         }
         let need = (rows.len() as u64).max(16);
@@ -659,6 +786,8 @@ impl ImpostorPass {
             weather: inputs.weather,
             bake: self.bake,
             draw: self.draw,
+            device: inputs.device,
+            draw_stride: gfx.backend().command_words() * 4,
         }))
     }
 
@@ -710,7 +839,7 @@ impl ImpostorPass {
                 )?;
             }
         }
-        if plan.count == 0 {
+        if plan.count == 0 && plan.device.is_none() {
             return Ok(());
         }
         r.timestamp("impostors");
@@ -719,6 +848,10 @@ impl ImpostorPass {
             load: Load::Keep,
         });
         let mut touches = vec![Touch::Buffer(plan.cards, Use::StorageRead)];
+        if let Some(c) = plan.device {
+            touches.push(Touch::Buffer(c.cards.0, Use::StorageRead));
+            touches.push(Touch::Buffer(c.draw, Use::Indirect));
+        }
         if let Some(cover) = plan.weather.1 {
             touches.push(Touch::Texture(cover, Use::Sampled));
         }
@@ -745,16 +878,25 @@ impl ImpostorPass {
             },
             |d| {
                 d.set_pipeline(plan.draw)?;
-                d.push(
-                    0,
-                    &push_words(&[
-                        plan.frame,
-                        plan.cards_index,
-                        plan.samplers[1],
-                        plan.weather.0,
-                    ]),
-                )?;
-                d.draw(6, plan.count, 0, 0);
+                if plan.count > 0 {
+                    d.push(
+                        0,
+                        &push_words(&[
+                            plan.frame,
+                            plan.cards_index,
+                            plan.samplers[1],
+                            plan.weather.0,
+                        ]),
+                    )?;
+                    d.draw(6, plan.count, 0, 0);
+                }
+                if let Some(c) = plan.device {
+                    d.push(
+                        0,
+                        &push_words(&[plan.frame, c.cards.1, plan.samplers[1], plan.weather.0]),
+                    )?;
+                    d.draw_indirect(c.draw, 0, 1, plan.draw_stride)?;
+                }
                 Ok(())
             },
         )
@@ -768,10 +910,16 @@ impl super::Renderer {
         self.forest.stats()
     }
 
-    /// What the impostors did.
-    #[must_use]
-    pub fn impostor_stats(&self) -> ImpostorStats {
-        self.impostors.stats()
+    /// What the impostors did: the cards the last frame drew are the processor's and the
+    /// device's, read back after it has finished.
+    pub fn impostor_stats(&mut self) -> ImpostorStats {
+        let mut stats = self.impostors.stats();
+        let device = self
+            .instances
+            .read_cards(&mut self.gfx)
+            .map_or(0, |c| c.len());
+        stats.cards += u32::try_from(device).unwrap_or(u32::MAX);
+        stats
     }
 }
 

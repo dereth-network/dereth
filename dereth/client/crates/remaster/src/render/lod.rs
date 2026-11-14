@@ -107,7 +107,7 @@ pub fn retail_switches(d: &Degrade, bias: &DegradeBias) -> Vec<f32> {
 }
 
 /// [`retail_switches`], appended to `out`.
-fn retail_switches_into(d: &Degrade, bias: &DegradeBias, out: &mut Vec<f32>) {
+pub(crate) fn retail_switches_into(d: &Degrade, bias: &DegradeBias, out: &mut Vec<f32>) {
     let n = d.bands.len();
     if n < 2 {
         return;
@@ -150,7 +150,7 @@ pub fn pack_switches(distances: &[f32], bias: &DegradeBias) -> Vec<f32> {
 }
 
 /// [`pack_switches`], appended to `out`.
-fn pack_switches_into(distances: &[f32], bias: &DegradeBias, out: &mut Vec<f32>) {
+pub(crate) fn pack_switches_into(distances: &[f32], bias: &DegradeBias, out: &mut Vec<f32>) {
     if bias.disabled {
         out.extend(std::iter::repeat_n(f32::INFINITY, distances.len()));
         return;
@@ -555,7 +555,7 @@ impl LodTally {
 }
 
 /// What the last frame's choice of levels did, over the parts chosen on the processor: an art
-/// pack's models chosen on the device are counted by it ([`super::Renderer::pack_states`]).
+/// parts chosen on the device are counted by it ([`super::Renderer::lod_stats`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct LodStats {
     /// Degrading parts chosen for, and of them those fading and those drawing a finer level than
@@ -954,6 +954,33 @@ impl Lod {
                 x.errors.as_ref().map(|e| e.levels.as_slice()),
             )
         })
+    }
+
+    /// Group `g`'s impostor's error, once its levels' errors are measured, when it is a tree's.
+    #[must_use]
+    pub(crate) fn group_impostor_error(&self, g: u32) -> Option<f32> {
+        self.groups
+            .get(g as usize)
+            .and_then(|x| x.errors.as_ref())
+            .and_then(|e| e.impostor)
+    }
+
+    /// Whether block `block`'s record `record` is a tree's, drawn far off as an impostor, whoever
+    /// chooses its levels: its group's impostor's error is measured and impostors are drawn.
+    #[must_use]
+    pub(crate) fn record_is_tree(&self, block: BlockId, record: u32) -> bool {
+        self.settings.impostors
+            && self
+                .group_of_record(block, record)
+                .and_then(|g| self.group_impostor_error(g))
+                .is_some()
+    }
+
+    /// How many of block `block`'s records retail chooses a level for: every one until the walk
+    /// says.
+    #[must_use]
+    pub(crate) fn walked(&self, block: BlockId) -> usize {
+        self.walked.get(&block).copied().unwrap_or(usize::MAX)
     }
 
     /// Whether group `g` is a tree's, drawn far off as an impostor; `None` while its first mesh

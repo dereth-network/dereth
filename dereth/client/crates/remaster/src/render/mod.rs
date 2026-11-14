@@ -325,8 +325,8 @@ pub struct Renderer {
     /// The lamps' pass.
     pub(crate) lamps: lamps::LampsPass,
     pub(crate) lod: lod::Lod,
-    /// The art pack's placed models chosen and listed on the device.
-    pub(crate) instances: instances::PackInstances,
+    /// The blocks' parts chosen and listed on the device.
+    pub(crate) instances: instances::DeviceParts,
     pub(crate) impostors: impostor::ImpostorPass,
     /// The art pack's far trees and forest cover.
     pub(crate) forest: forest::ForestPass,
@@ -593,7 +593,7 @@ impl Renderer {
         let impostors = impostor::ImpostorPass::new(&mut gfx)?;
         let forest = forest::ForestPass::new(&mut gfx)?;
         let grass = grass::GrassPass::new(&mut gfx)?;
-        let instances = instances::PackInstances::new(&mut gfx)?;
+        let instances = instances::DeviceParts::new(&mut gfx)?;
         let skin_pass = skin_pass::SkinPass::new(&mut gfx)?;
         let lift_probe = gfx.create_compute_pipeline(&dereth_gfx::ComputeDesc {
             label: "remaster lift probe",
@@ -1023,10 +1023,33 @@ impl Renderer {
     }
 
     /// The instances of the trees the last frame drew as meshes (not wholly as impostors) that
-    /// carry lifts onto the ground drawn over retail's.
-    #[must_use]
-    pub fn mesh_trees(&self) -> &[u32] {
-        &self.mesh_trees
+    /// carry lifts onto the ground drawn over retail's: those the processor chose, then those
+    /// the device chose, read back after it has finished.
+    pub fn mesh_trees(&mut self) -> Vec<u32> {
+        let mut out = self.mesh_trees.clone();
+        if !self.lod.settings().on {
+            return out;
+        }
+        for s in self.part_states() {
+            if !s.drawn || s.share >= 1.0 {
+                continue;
+            }
+            let Some(p) = self
+                .scene
+                .blocks
+                .get(&s.block)
+                .and_then(|b| b.parts.get(s.part as usize))
+            else {
+                continue;
+            };
+            let tree = p
+                .degrade
+                .is_some_and(|r| self.lod.record_is_tree(s.block, r));
+            if p.lifts != [0.0; 2] && tree {
+                out.push(p.instance);
+            }
+        }
+        out
     }
 
     /// Where each of `instances` stands (the frame's space) and how far it is drawn above it, as
@@ -1134,16 +1157,68 @@ impl Renderer {
     }
 
     /// Where the last frame's impostor cards stand their trees' bases (the frame's space), and
-    /// how far each was lifted onto the ground drawn over retail's.
-    #[must_use]
-    pub fn impostor_bases(&self) -> Vec<(Vec3, f32)> {
-        self.impostors.bases().to_vec()
+    /// how far each was lifted onto the ground drawn over retail's: the processor's cards, then
+    /// the device's, read back after it has finished.
+    pub fn impostor_bases(&mut self) -> Vec<(Vec3, f32)> {
+        let mut out = self.impostors.bases().to_vec();
+        for (card, p, offset) in self.device_cards() {
+            let Some(row) = self.impostors.atlas_row(card.gfxobj) else {
+                continue;
+            };
+            let base = p.transform.w_axis.truncate() + offset;
+            let lift = card.centre.z - (p.transform.transform_point3(row.centre) + offset).z;
+            out.push((base + Vec3::new(0.0, 0.0, lift), lift));
+        }
+        out
     }
 
-    /// The last frame's impostor cards.
-    #[must_use]
-    pub fn impostor_cards(&self) -> Vec<impostor::DrawnCard> {
-        self.impostors.drawn().to_vec()
+    /// The last frame's impostor cards: the processor's, then the device's, read back after it
+    /// has finished.
+    pub fn impostor_cards(&mut self) -> Vec<impostor::DrawnCard> {
+        let mut out = self.impostors.drawn().to_vec();
+        out.extend(self.device_cards().into_iter().map(|(c, _, _)| c));
+        out
+    }
+
+    /// The cards the device drew last frame, each with its tree's part and its block's offset
+    /// from that frame's origin.
+    fn device_cards(&mut self) -> Vec<(impostor::DrawnCard, scene::PartItems, Vec3)> {
+        let cards = self.instances.read_cards(&mut self.gfx).unwrap_or_default();
+        let origin = self.instances.origin();
+        let mut out = Vec::with_capacity(cards.len());
+        for c in cards {
+            let Some(p) = self
+                .scene
+                .blocks
+                .get(&c.block)
+                .and_then(|b| b.parts.get(c.part as usize))
+            else {
+                continue;
+            };
+            let Some(gfxobj) = p.degrade.and_then(|r| self.lod.first_level(c.block, r)) else {
+                continue;
+            };
+            let (x, y) = (i32::from(c.block >> 8), i32::from(c.block & 0xFF));
+            #[allow(clippy::cast_precision_loss)] // a few hundred blocks
+            let offset = Vec3::new(
+                (x - origin[0]) as f32 * 192.0,
+                (y - origin[1]) as f32 * 192.0,
+                0.0,
+            );
+            let [r0, r1, ..] = c.rows;
+            out.push((
+                impostor::DrawnCard {
+                    gfxobj,
+                    centre: Vec3::new(r0[0], r0[1], r0[2]),
+                    radius: r0[3],
+                    turn: dereth_primitives::num::math::atan2f(r1[1], r1[0]),
+                    share: r1[3],
+                },
+                p.clone(),
+                offset,
+            ));
+        }
+        out
     }
 
     /// How the ground's cells are drawn, from the next frame the scene hands over.
@@ -1372,15 +1447,21 @@ impl Renderer {
         }
         if let Err(e) = self.instances.take(
             &mut self.gfx,
-            &self.scene,
+            (&self.scene, &self.tables),
             &mut self.lod,
-            &self.tables,
+            &mut self.impostors,
             &deltas,
         ) {
-            tracing::warn!(target: "dereth::remaster", "the pack's models were not taken: {e}");
+            tracing::warn!(target: "dereth::remaster", "the parts were not taken: {e}");
         }
         for l in &frame.levels {
             self.scene.levels(l);
+            if let Err(e) = self
+                .instances
+                .levels(&mut self.gfx, &self.scene, &self.lod, l)
+            {
+                tracing::warn!(target: "dereth::remaster", "retail's levels were not taken: {e}");
+            }
         }
         // The ghosts stand in the frame, and the corpses under them are hidden.
         self.skins.with_ghosts(&mut frame);
@@ -2114,16 +2195,19 @@ impl Renderer {
 }
 
 impl Renderer {
-    /// Whether the art pack's placed models are chosen and listed on the device (where it takes a
-    /// draw count from a buffer), or every part on the processor: every held block's models are
-    /// written again now.
-    pub fn set_packs_on_device(&mut self, on: bool) {
+    /// Whether the blocks' parts are chosen and listed on the device (where it takes a draw count
+    /// from a buffer), or every part on the processor: every held block's parts are written again
+    /// now.
+    pub fn set_parts_on_device(&mut self, on: bool) {
         self.instances.set_on(on);
-        if let Err(e) =
-            self.instances
-                .take(&mut self.gfx, &self.scene, &mut self.lod, &self.tables, &[])
-        {
-            tracing::warn!(target: "dereth::remaster", "the pack's models were not taken: {e}");
+        if let Err(e) = self.instances.take(
+            &mut self.gfx,
+            (&self.scene, &self.tables),
+            &mut self.lod,
+            &mut self.impostors,
+            &[],
+        ) {
+            tracing::warn!(target: "dereth::remaster", "the parts were not taken: {e}");
         }
     }
 
@@ -2181,26 +2265,52 @@ impl Renderer {
         Ok(true)
     }
 
-    /// How many of the art pack's placed models the device chooses and lists.
+    /// How many of the blocks' parts the device chooses and lists.
     #[must_use]
-    pub fn packs_on_device(&self) -> usize {
+    pub fn parts_on_device(&self) -> usize {
         self.instances.count()
     }
 
-    /// The device's last choice for each of the art pack's models it chooses, after it has
-    /// finished: for the checks. Empty when the device refuses.
-    pub fn pack_states(&mut self) -> Vec<instances::PackState> {
+    /// The device's last choice for each of the parts it chooses, after it has finished: for the
+    /// checks. Empty when the device refuses.
+    pub fn part_states(&mut self) -> Vec<instances::PartState> {
         self.instances
             .read_states(&mut self.gfx)
             .unwrap_or_default()
     }
 
-    /// The draw items each cascade's list of the device's models held when last drawn again:
-    /// for the checks.
-    pub fn pack_casters(&mut self) -> [Vec<u32>; 4] {
+    /// The draw items each cascade's list of the device's parts held when last drawn again: for
+    /// the checks.
+    pub fn part_casters(&mut self) -> [Vec<u32>; 4] {
         self.instances
             .read_casters(&mut self.gfx)
             .unwrap_or_default()
+    }
+
+    /// What the last frame's choice of levels did, over every degrading part of the blocks it
+    /// drew: the processor's choices, and the device's read back after it has finished.
+    pub fn lod_stats(&mut self) -> lod::LodStats {
+        let mut stats = self.lod.stats();
+        if !self.lod.settings().on {
+            return stats;
+        }
+        for s in self.part_states() {
+            let Some(b) = self.scene.blocks.get(&s.block) else {
+                continue;
+            };
+            let Some(record) = b.parts.get(s.part as usize).and_then(|p| p.degrade) else {
+                continue;
+            };
+            if !s.drawn {
+                continue;
+            }
+            let retail = b.levels.get(record as usize).copied().unwrap_or(0);
+            stats.parts += 1;
+            stats.fading += u32::from(s.fade > 0.0);
+            stats.finer += u32::from(s.level < retail);
+            stats.coarser += u32::from(s.level > retail && s.share == 0.0);
+        }
+        stats
     }
 
     /// The draw items of the G-buffer's two outdoor buckets, front faces culled away and both

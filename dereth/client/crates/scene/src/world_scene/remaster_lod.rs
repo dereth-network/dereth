@@ -24,7 +24,7 @@ impl SceneDraw {
     #[must_use]
     pub fn remaster_lod_stats(&self, gpu: &mut Gpu) -> Option<LodStats> {
         let r = remaster(gpu)?;
-        Some(r.renderer().lod().stats())
+        Some(r.renderer().lod_stats())
     }
 
     /// What the far forest did in the remaster; `None` while it is off.

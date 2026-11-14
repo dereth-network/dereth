@@ -98,8 +98,8 @@ pub struct Plan {
     forest: Option<super::forest::ForestPlan>,
     /// The grass field, when it is drawn.
     grass: Option<super::grass::GrassPlan>,
-    /// The art pack's models chosen and listed on the device, when any is held.
-    pack: Option<super::instances::PackPlan>,
+    /// The blocks' parts chosen and listed on the device, when any is held.
+    parts: Option<super::instances::PartsPlan>,
     /// The skinned bodies posed on the device, when there are any.
     skins: Option<super::skin_pass::SkinPlan>,
     /// Buffers outgrown, destroyed once the recording that copies them is begun.
@@ -638,21 +638,21 @@ impl Renderer {
             }
             _ => None,
         };
-        // The art pack's models chosen and listed on the device, after the processor's own items.
+        // The blocks' parts chosen and listed on the device, after the processor's own items.
         let mirror = planar.as_ref().map(|p| p.view_projection);
         let packs = &self.packs;
-        let pack = self.instances.prepare(
+        let parts = self.instances.prepare(
             &mut self.gfx,
             &self.scene,
             &self.lod,
             &|m| packs.distance(m),
-            &super::instances::PackAsk {
+            &super::instances::PartsAsk {
                 frame: &frame,
                 height: display.1,
                 clip: camera.projection * camera.view,
                 mirror,
-                cascades: shadow.as_ref().map(|s| s.pack),
-                targets: super::instances::PackTargets {
+                cascades: shadow.as_ref().map(|s| s.parts),
+                targets: super::instances::PartsTargets {
                     offsets: (self.offsets.buffer, self.offsets.index),
                     instances: (self.scene.instances.buffer, self.scene.instances.index),
                     items: (self.scene.items.buffer, self.scene.items.index),
@@ -660,6 +660,8 @@ impl Renderer {
                     counts: (self.counts, self.counts_index),
                     capacity: BUCKET_CAPACITY,
                     bases: [next[0], next[1]],
+                    trees: self.impostors.trees(),
+                    frame: self.constants.index,
                 },
             },
         )?;
@@ -708,6 +710,7 @@ impl Renderer {
                 weather: weather
                     .as_ref()
                     .map_or((NONE, None), |w| (w.table, Some(w.cover()))),
+                device: parts.as_ref().map(super::instances::PartsPlan::cards),
             },
         )?;
         let forest = self.forest.prepare(
@@ -810,7 +813,7 @@ impl Renderer {
             impostors,
             forest,
             grass,
-            pack,
+            parts,
             skins: self
                 .skin_pass
                 .plan((self.scene.vertices.buffer, self.scene.vertices.index)),
@@ -1216,7 +1219,7 @@ impl Plan {
             },
         )?;
 
-        if let Some(p) = &self.pack {
+        if let Some(p) = &self.parts {
             p.record(r)?;
         }
         if let Some(f) = &self.forest {
@@ -1262,7 +1265,7 @@ impl Plan {
                     ])
                 },
                 self.drawn_ground.as_ref(),
-                self.pack.as_ref(),
+                self.parts.as_ref(),
             )?;
         }
 
