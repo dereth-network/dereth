@@ -767,6 +767,9 @@ fn forge() -> Harness {
             count: 1,
             gated_gives: Vec::new(),
             places: Vec::new(),
+            effects_on: None,
+            effects_here: Vec::new(),
+            tell: None,
         },
         Made {
             item: BLANK_TEMPLATE,
@@ -775,6 +778,9 @@ fn forge() -> Harness {
             count: 1,
             gated_gives: Vec::new(),
             places: Vec::new(),
+            effects_on: None,
+            effects_here: Vec::new(),
+            tell: None,
         },
     ];
     h
@@ -972,6 +978,9 @@ fn parlor() -> Harness {
         count: 1,
         gated_gives: vec![(FATE_CARD, 1)],
         places: Vec::new(),
+        effects_on: None,
+        effects_here: Vec::new(),
+        tell: None,
     }];
     h
 }
@@ -1138,4 +1147,267 @@ fn an_item_whose_table_names_the_object_only_for_other_characters_is_refused_and
         }
         assert_eq!(held(&h, world, MELD_TEMPLATE), Some(meld), "the meld kept");
     }
+}
+
+/// A seal whose table names the stockpile (within 5 m, used up), and the world's row for it: the
+/// camp's creatures given a dispel of their heal and a ward against it, the stockpile glowing a
+/// while, and its line to those near.
+const SEAL_TEMPLATE: u32 = 0x4700_7A01;
+const SEAL_TABLE: u32 = 0x6F00_7A02;
+const HEAL: u32 = 0x6F00_7A10;
+const DISPEL: u32 = 0x6F00_7A11;
+const BAR: u32 = 0x6F00_7A12;
+const GLOW: u32 = 0x6F00_7A13;
+const GLOW_FX: u32 = 0x4100_0411;
+const PRESSED: (u32, u32) = (0xBF64_A8DB, 0x2500_1446);
+
+fn effect(
+    state: u32,
+    kind: yalain_world::effect_defs::Kind,
+    lasts: f32,
+) -> yalain_world::effect_defs::EffectDef {
+    use yalain_world::effect_defs::{EffectDef, Scale};
+    EffectDef {
+        state,
+        kind,
+        duration: if lasts > 0.0 {
+            Scale(vec![(0.0, lasts)])
+        } else {
+            Scale::default()
+        },
+        priority: Scale(vec![(0.0, 1.0)]),
+        fx: 0,
+        external_flags: 0,
+        internal_flags: 0x1100_0003,
+        ends_at_logout: false,
+        ends_at_teleport: false,
+        enum_value: 0,
+        eq_class: 4090,
+        name: None,
+    }
+}
+
+/// The hall with one of the test creatures' camps, the creature holding its heal; a player three
+/// meters from the stockpile holding two seals. The client, the player, its connection and the
+/// creature.
+fn stone_circle() -> (Harness, usize, u64, ConnId, u64) {
+    use yalain_content::item_rows::{EffectsOn, Interaction as Row, On};
+    use yalain_world::effect_defs::{vital, Kind, Scale};
+    use yalain_world::effects::{self, Cast};
+    let mut h = hall();
+    h.add_creatures(1);
+    let mut seal = Props::default();
+    seal.set(interactions::TABLE, Prop::Word(SEAL_TABLE));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(SEAL_TEMPLATE, 0x18F, seal));
+    h.server.interactions.tables.insert(
+        SEAL_TABLE,
+        vec![Interaction {
+            targets: vec![STOCKPILE_TEMPLATE],
+            reach: 5.0,
+            behavior: None,
+            message: None,
+            uses_up: true,
+            uses_up_target: false,
+            gate: None,
+        }],
+    );
+    let t = &mut h.server.effect_table.effects;
+    t.insert(
+        HEAL,
+        effect(
+            HEAL,
+            Kind::VitalOverTime {
+                flags: vital::HEALTH,
+                per_second: Scale(vec![(0.0, 200.0)]),
+            },
+            900.0,
+        ),
+    );
+    t.insert(DISPEL, effect(DISPEL, Kind::Dispel(vec![HEAL]), 0.0));
+    let mut bar = effect(
+        BAR,
+        Kind::Ward {
+            classes: Vec::new(),
+            effects: vec![HEAL],
+            chance: Scale(vec![(0.0, 1.0)]),
+        },
+        1200.0,
+    );
+    bar.priority = Scale(vec![(0.0, 2.0)]);
+    t.insert(BAR, bar);
+    let mut glow = effect(GLOW, Kind::Other, 1200.0);
+    glow.fx = GLOW_FX;
+    t.insert(GLOW, glow);
+    h.server.item_rows.interactions.push(Row {
+        item: SEAL_TEMPLATE,
+        on: On::Template(STOCKPILE_TEMPLATE),
+        gives: Vec::new(),
+        count: 1,
+        gated_gives: Vec::new(),
+        places: Vec::new(),
+        effects_on: Some(EffectsOn {
+            camp: 0,
+            effects: vec![DISPEL, BAR],
+        }),
+        effects_here: vec![GLOW],
+        tell: Some(PRESSED),
+    });
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &auberean_protocol::ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    h.run(10);
+    let world = world_of(&h, me);
+    for _ in 0..2 {
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, SEAL_TEMPLATE, 1);
+    }
+    h.run(3);
+    let creature = h.server.camps[0].alive[0];
+    let t = h.server.things.get_mut(creature).expect("made");
+    t.health = 100_000;
+    t.max_health = 1_000_000;
+    let clock = h.clock();
+    assert!(effects::apply_on(
+        &mut h.server,
+        &mut h.net,
+        effects::On::Creature(creature),
+        HEAL,
+        Cast::default(),
+        clock,
+    ));
+    east_of_stockpile(&mut h, world, 3.0);
+    (h, b, me, world, creature)
+}
+
+/// The effects a creature holds, by their saved states.
+fn holding_now(h: &Harness, creature: u64) -> Vec<u32> {
+    yalain_world::effects::records_of(&h.server, yalain_world::effects::On::Creature(creature))
+        .iter()
+        .map(|e| e.state)
+        .collect()
+}
+
+/// The stockpile's glow started and stopped as a client was told since `from`, and the string of
+/// each line it broadcast.
+fn glows_and_lines(h: &Harness, b: usize, from: usize) -> (usize, usize, Vec<u32>) {
+    use yalain_world::talk::BROADCAST;
+    let msgs = h.world_messages(b, from);
+    let started = msgs
+        .iter()
+        .filter(|m| matches!(m, ServerMessage::DoFx(e) if e.sender.id == STOCKPILE && e.action.fx == GLOW_FX))
+        .count();
+    let stopped = msgs
+        .iter()
+        .filter(|m| matches!(m, ServerMessage::StopFx(e) if e.sender.id == STOCKPILE && e.action.0 == GLOW_FX))
+        .count();
+    let lines = msgs
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::CellObjectCall(c)
+                if c.call.function.0 == BROADCAST && c.object.id == STOCKPILE =>
+            {
+                let v = c
+                    .call
+                    .args
+                    .as_ref()
+                    .and_then(|a| calls::values(&a.0).ok())?;
+                v.iter().find_map(|x| match x.root() {
+                    Some(Node::TextInfo(t)) => Some(t.string_id),
+                    _ => None,
+                })
+            }
+            _ => None,
+        })
+        .collect();
+    (started, stopped, lines)
+}
+
+/// An item used on an object whose row names a camp's effects and the object's: the use is carried
+/// out and answered as any (the seal used up), the camp's living creature loses its heal to the
+/// dispel and holds the ward, which keeps the heal off after; the object glows for everyone who
+/// sees it and says its line to those near.
+/// Behaviour: server.interactions.an-interaction-puts-effects-on-a-camps-creatures-and-its-object
+#[test]
+fn a_seal_on_its_stone_strips_the_camps_creature_of_its_heal_and_wards_it_and_the_stone_glows() {
+    use yalain_world::effects::{self, Cast};
+    let (mut h, b, me, world, creature) = stone_circle();
+    assert_eq!(holding_now(&h, creature), [HEAL]);
+    let seal = held(&h, world, SEAL_TEMPLATE).expect("held");
+    let from = h.bots[b].inbox.len();
+    send_use(&mut h, b, me, seal, STOCKPILE);
+    assert_eq!(
+        answers(&h, b, from),
+        [(
+            0,
+            interactions::FLAGS_USED_UP,
+            interactions::text::USED_ON.0
+        )]
+    );
+    assert_eq!(count_of(&h, world, SEAL_TEMPLATE), 1, "one used up");
+    assert_eq!(holding_now(&h, creature), [BAR], "dispelled, and warded");
+    assert_eq!(
+        glows_and_lines(&h, b, from),
+        (1, 0, vec![PRESSED.0]),
+        "the stone glows and says its line"
+    );
+    let clock = h.clock();
+    assert!(
+        !effects::apply_on(
+            &mut h.server,
+            &mut h.net,
+            effects::On::Creature(creature),
+            HEAL,
+            Cast::default(),
+            clock,
+        ),
+        "the ward keeps the heal off"
+    );
+    assert_eq!(holding_now(&h, creature), [BAR]);
+}
+
+/// While the object holds what a use left on it, another use is refused as one in use, the item
+/// kept and nothing done to the camp's creature; once it has run out the glow stops for everyone
+/// who sees it, and a use is carried out again, the creature holding one ward (its heal not back).
+/// Behaviour: server.interactions.an-object-holding-what-a-use-left-refuses-another
+#[test]
+fn a_glowing_stone_refuses_a_second_seal_until_its_glow_runs_out() {
+    let (mut h, b, me, world, creature) = stone_circle();
+    let seal = held(&h, world, SEAL_TEMPLATE).expect("held");
+    send_use(&mut h, b, me, seal, STOCKPILE);
+    let seal = held(&h, world, SEAL_TEMPLATE).expect("the second");
+    let from = h.bots[b].inbox.len();
+    send_use(&mut h, b, me, seal, STOCKPILE);
+    assert_eq!(
+        answers(&h, b, from),
+        [(
+            yalain_world::places::USE_STATUS_IN_USE,
+            interactions::FLAGS_KEPT,
+            0
+        )],
+        "refused as in use"
+    );
+    assert_eq!(count_of(&h, world, SEAL_TEMPLATE), 1, "kept");
+    assert_eq!(holding_now(&h, creature), [BAR], "nothing more done");
+    assert_eq!(glows_and_lines(&h, b, from), (0, 0, Vec::new()));
+    let from = h.bots[b].inbox.len();
+    run_for(&mut h, 1201.0);
+    assert_eq!(glows_and_lines(&h, b, from).1, 1, "the glow stops");
+    assert!(holding_now(&h, creature).is_empty(), "the ward ran out too");
+    east_of_stockpile(&mut h, world, 3.0);
+    let from = h.bots[b].inbox.len();
+    send_use(&mut h, b, me, seal, STOCKPILE);
+    assert_eq!(
+        answers(&h, b, from),
+        [(
+            0,
+            interactions::FLAGS_USED_UP,
+            interactions::text::USED_ON.0
+        )]
+    );
+    assert_eq!(holding_now(&h, creature), [BAR], "one ward, no heal");
+    assert_eq!(glows_and_lines(&h, b, from).0, 1, "glowing again");
 }

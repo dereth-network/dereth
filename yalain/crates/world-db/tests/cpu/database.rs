@@ -4753,6 +4753,99 @@ fn item_use_book_and_start_item_rows_compile_and_bad_ones_are_problems() {
     }
 }
 
+/// An interaction row may instead, or as well, name effects its use puts on a camp's living
+/// creatures, effects the object used on holds after, and a line that object says to those near:
+/// the camp resolved to its row; a camp the world doesn't serve a problem; their shapes held.
+/// Behaviour: server.content.interaction-effects-rows
+#[test]
+fn interaction_rows_naming_a_camps_effects_and_the_objects_compile_with_the_camps_row() {
+    use yalain_content::item_rows::EffectsOn;
+    const ROW: &str = "[[interaction]]\nkey = \"seal\"\nitem = 0x4700115B\non = 0x47002224\n\
+        effects_on = { camp = \"beetles@77B7\", effects = [0x6F002369, 0x6F0001F2] }\n\
+        effects_here = [0x6F001A7C]\ntell = { table = 0x25001F0D, string = 0xBF64A8DB }\n\
+        prov = { from = \"authored\" }\n";
+    let mut files = fixture();
+    files.insert("town/server/items.toml".into(), ROW.into());
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let camp = t
+        .spawns
+        .camps
+        .iter()
+        .position(|c| c.id == "beetles")
+        .unwrap();
+    assert_eq!(t.items.interactions.len(), 1);
+    let r = &t.items.interactions[0];
+    assert!(r.gives.is_empty() && r.places.is_empty(), "nothing made");
+    assert_eq!(
+        r.effects_on,
+        Some(EffectsOn {
+            camp,
+            effects: vec![0x6F00_2369, 0x6F00_01F2]
+        })
+    );
+    assert_eq!(r.effects_here, [0x6F00_1A7C]);
+    assert_eq!(r.tell, Some((0xBF64_A8DB, 0x2500_1F0D)));
+    let mut states: Vec<u32> = t.items.interaction_states().collect();
+    states.sort_unstable();
+    assert_eq!(states, [0x6F00_01F2, 0x6F00_1A7C, 0x6F00_2369]);
+
+    // A camp the world doesn't serve: a problem.
+    let mut f = fixture();
+    f.insert(
+        "town/server/items.toml".into(),
+        ROW.replace("beetles@77B7", "wasps@77B7"),
+    );
+    let problems = compile(&merge(&read(&f).unwrap()).unwrap(), &Fake::new()).unwrap_err();
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.to_string().contains("effects_on: no camp wasps@77B7")),
+        "{problems:?}"
+    );
+
+    // Each alone does: effects on a camp, or effects held by the object.
+    for keep in ["effects_on", "effects_here"] {
+        let row: String = ROW
+            .lines()
+            .filter(|l| {
+                !(l.starts_with("effects_") && !l.starts_with(keep)) && !l.starts_with("tell")
+            })
+            .map(|l| format!("{l}\n"))
+            .collect();
+        let mut f = fixture();
+        f.insert("town/server/items.toml".into(), row.clone());
+        assert!(check(&f).is_empty(), "{row}: {:?}", check(&f));
+    }
+
+    // Their shapes; and a line alone does nothing to make the row do.
+    for (from, to) in [
+        ("effects = [0x6F002369, 0x6F0001F2]", "effects = []"),
+        ("effects = [0x6F002369, 0x6F0001F2]", "effects = 0x6F002369"),
+        ("camp = \"beetles@77B7\", ", ""),
+        ("camp = \"beetles@77B7\"", "camp = 3"),
+        (" }\neffects_here", ", more = 1 }\neffects_here"),
+        ("effects_here = [0x6F001A7C]", "effects_here = []"),
+        ("effects_here = [0x6F001A7C]", "effects_here = 0x6F001A7C"),
+        (
+            "tell = { table = 0x25001F0D, string = 0xBF64A8DB }",
+            "tell = 3",
+        ),
+    ] {
+        let mut f = fixture();
+        f.insert("town/server/items.toml".into(), ROW.replace(from, to));
+        assert!(read(&f).is_err(), "{to}");
+    }
+    let alone: String = ROW
+        .lines()
+        .filter(|l| !l.starts_with("effects_"))
+        .map(|l| format!("{l}\n"))
+        .collect();
+    let mut f = fixture();
+    f.insert("town/server/items.toml".into(), alone);
+    assert!(read(&f).is_err(), "a line alone");
+}
+
 #[test]
 fn interaction_rows_compile_and_bad_ones_are_problems() {
     use yalain_content::item_rows::{Interaction, On};
@@ -4776,6 +4869,9 @@ fn interaction_rows_compile_and_bad_ones_are_problems() {
                 count: 1,
                 gated_gives: vec![(0x4700_115B, 1)],
                 places: Vec::new(),
+                effects_on: None,
+                effects_here: Vec::new(),
+                tell: None,
             },
             Interaction {
                 item: 0x4700_115B,
@@ -4784,6 +4880,9 @@ fn interaction_rows_compile_and_bad_ones_are_problems() {
                 count: 2,
                 gated_gives: Vec::new(),
                 places: Vec::new(),
+                effects_on: None,
+                effects_here: Vec::new(),
+                tell: None,
             },
         ],
         "in the rows' order, one when the count is left out"

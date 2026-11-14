@@ -783,6 +783,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     // they name, resolved once every camp has its row.
     let mut fought_steps: Vec<(&Located, usize, &[String])> = Vec::new();
     let mut fought_gives: Vec<(&Located, TableGive, &[String])> = Vec::new();
+    // The item rows whose use puts effects on a camp's creatures, by their place in the item
+    // rows, with the camp they name, likewise.
+    let mut effects_on_rows: Vec<(&Located, usize, &str, &[u32])> = Vec::new();
     // The steps that also give one of several items, likewise.
     let mut pick_steps: Vec<(usize, Vec<(u32, u32)>)> = Vec::new();
     // The steps and gives an order of uses keeping its own count gates, likewise, checked once
@@ -1595,6 +1598,14 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     known &= cx.template(l, "places", p.template);
                 }
                 if known {
+                    if let Some((camp, effects)) = &r.effects_on {
+                        effects_on_rows.push((
+                            l,
+                            t.items.interactions.len(),
+                            camp.as_str(),
+                            effects.as_slice(),
+                        ));
+                    }
                     t.items
                         .interactions
                         .push(yalain_content::item_rows::Interaction {
@@ -1604,6 +1615,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                             count: r.count,
                             gated_gives: r.gated_gives.clone(),
                             places: r.places.clone(),
+                            effects_on: None,
+                            effects_here: r.effects_here.clone(),
+                            tell: r.tell.map(|s| (s.string, s.table)),
                         });
                 }
             }
@@ -2090,6 +2104,32 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
         }
         Some(out)
     };
+    // The camp an item row's use puts effects on: its row.
+    for (l, i, camp, effects) in effects_on_rows {
+        let named = camp.split_once(':').map_or(camp, |(_, k)| k);
+        let (key, lb) = match named.split_once('@') {
+            Some((k, b)) => (k, u16::from_str_radix(b, 16).ok()),
+            None => (named, None),
+        };
+        let mut rows = camps_at
+            .iter()
+            .filter(|((k, b), _)| *k == key && lb.is_none_or(|lb| lb == *b));
+        match (rows.next(), rows.next()) {
+            (Some((_, &row)), None) => {
+                if let Some(r) = t.items.interactions.get_mut(i) {
+                    r.effects_on = Some(yalain_content::item_rows::EffectsOn {
+                        camp: row,
+                        effects: effects.to_vec(),
+                    });
+                }
+            }
+            (None, _) => cx.problem(l, format!("effects_on: no camp {camp} is served")),
+            (Some(_), Some(_)) => cx.problem(
+                l,
+                format!("effects_on: several camps are {camp}: name one as {camp}@XXYY"),
+            ),
+        }
+    }
     for (l, i, camps) in fought_steps {
         if let (Some(rows), Some(st)) = (fought_rows(&mut cx, l, camps), t.quests.steps.get(i)) {
             t.content.fought_gates.steps.push((st.clone(), rows));

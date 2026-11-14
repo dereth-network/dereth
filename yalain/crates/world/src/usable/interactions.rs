@@ -69,10 +69,25 @@
 //! and the item used: a significator passed through a gateway takes the gateway, a meld used on a
 //! lesser trump takes the trump. An object an effect placed (a dig point) is taken from the world.
 //! An object a row of the world places is left standing.
+//!
+//! **What it does to a camp's creatures.** A row may name a camp and effects its use puts on each of
+//! the camp's living creatures, in order, cast by its user at spellcraft 1 (a seal pressed against
+//! its stone strips one of a beast's magics and keeps it off a while); a camp with none living
+//! takes nothing.
+//!
+//! **What the object holds after.** A row may name effects the object it was used on holds after,
+//! each for its own time (none: until the server stops), its appearance shown on the object while
+//! one holds it: a stone glowing once a seal is pressed against it. While the object holds any of
+//! them it refuses the use, the item kept and nothing done ("in use"). What an object holds is not
+//! kept across a restart.
+//!
+//! **What it says.** A row may name a line the object it was used on says to everyone near it (a
+//! broadcast, its landblock's), naming the user.
 
 use std::collections::HashMap;
 
-use auberean_protocol::types::BehaviorParams;
+use auberean_protocol::physics::{Fx, ObjectEvent, Word};
+use auberean_protocol::types::{BehaviorParams, ObjectStamp};
 use auberean_protocol::ServerMessage;
 use auberean_script::graph::{Graph, PackedObject};
 use auberean_script::library::Library;
@@ -100,6 +115,10 @@ pub const TOO_FAR: u32 = 10_056;
 
 /// The refusal of a player whose character may have none of the interactions naming the object.
 pub const NOT_FOR_THIS_CHARACTER: u32 = 10_053;
+
+/// What objects hold of the effects uses left on them, by the object's id: each effect's saved
+/// state and when it ends (local seconds; infinite for one with no end).
+pub type HeldHere = HashMap<u64, Vec<(u32, f64)>>;
 
 /// The answer to an interaction whose outcome names no text: "You successfully use {the} %1 on
 /// {the} %2.", with the object's name and the item's.
@@ -564,18 +583,28 @@ fn carry_out<S: Store>(
         crate::plants::left_alone(s, net, world, u.target);
         return;
     }
-    let trigger = Trigger::UseOn(item, target);
-    crate::quests::triggered(s, net, world, trigger, None, clock);
-    let made = s
+    let row = s
         .item_rows
         .made_by(item, target, |c| s.interactions.counts_in(c, target))
-        .map(|r| {
-            (
-                r.gives_where(how.gate.is_some()).to_vec(),
-                r.count,
-                r.places.clone(),
-            )
-        });
+        .cloned();
+    // An object holding what a use leaves on it refuses another, the item kept.
+    if row
+        .as_ref()
+        .is_some_and(|r| holds_here(s, u.target, &r.effects_here, clock.local.0))
+    {
+        let m = places::use_answer_on(u, FLAGS_KEPT, distance, places::USE_STATUS_IN_USE);
+        progress::private(net, world, &m);
+        return;
+    }
+    let trigger = Trigger::UseOn(item, target);
+    crate::quests::triggered(s, net, world, trigger, None, clock);
+    let made = row.as_ref().map(|r| {
+        (
+            r.gives_where(how.gate.is_some()).to_vec(),
+            r.count,
+            r.places.clone(),
+        )
+    });
     if let Some((from, count, places)) = made {
         if let Some(gives) = crate::makes::pick_one(s, &from) {
             crate::inventory::give(s, net, world, gives, count);
@@ -587,6 +616,25 @@ fn carry_out<S: Store>(
         };
         for p in places {
             makes_at(s, net, &there, p, clock);
+        }
+    }
+    if let Some(r) = &row {
+        if let Some(on) = &r.effects_on {
+            on_camp(s, net, on, me, clock);
+        }
+        put_here(s, net, u.target, &r.effects_here, clock);
+        if let Some((string, table)) = r.tell {
+            if let Some(speaker) = speaker_of(s, u.target) {
+                let words = yalain_content::talk::Words::Ref(string, table);
+                crate::talk::say(
+                    s,
+                    net,
+                    world,
+                    &speaker,
+                    &words,
+                    yalain_content::talk::How::Broadcast,
+                );
+            }
         }
     }
     let item_name = s.things.get(u.item).and_then(|t| t.facts.name);
@@ -627,4 +675,142 @@ fn carry_out<S: Store>(
     progress::private(net, world, &m);
     // A dye plant cared for or pollinated.
     crate::plants::cared(s, net, world, (item, u.target), clock);
+}
+
+/// A row's effects put on each living creature of its camp, in order, cast by the user.
+fn on_camp<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    on: &yalain_content::item_rows::EffectsOn,
+    caster: u64,
+    clock: Clock,
+) {
+    let alive = s
+        .camps
+        .get(on.camp)
+        .map(|c| c.alive.clone())
+        .unwrap_or_default();
+    for creature in alive {
+        for &state in &on.effects {
+            let cast = crate::effects::Cast {
+                caster,
+                spellcraft: 1.0,
+                ..crate::effects::Cast::default()
+            };
+            crate::effects::apply_on(
+                s,
+                net,
+                crate::effects::On::Creature(creature),
+                state,
+                cast,
+                clock,
+            );
+        }
+    }
+}
+
+/// Does an object hold one of these effects a use left on it, now?
+#[must_use]
+pub fn holds_here<S: Store>(s: &Server<S>, object: u64, effects: &[u32], now: f64) -> bool {
+    s.held_here.get(&object).is_some_and(|held| {
+        held.iter()
+            .any(|(e, until)| effects.contains(e) && *until > now)
+    })
+}
+
+/// The appearance an effect shows, if it names one.
+fn fx_of<S: Store>(s: &Server<S>, state: u32) -> Option<u32> {
+    s.effect_table.get(state).map(|d| d.fx).filter(|f| *f != 0)
+}
+
+/// Does an object hold an effect showing this appearance?
+fn shows_here<S: Store>(s: &Server<S>, object: u64, fx: u32) -> bool {
+    s.held_here
+        .get(&object)
+        .is_some_and(|held| held.iter().any(|(e, _)| fx_of(s, *e) == Some(fx)))
+}
+
+/// The next visual stamp of an object a use can be made on: a thing of the world's, else a placed
+/// object's.
+fn stamp_of<S: Store>(s: &mut Server<S>, object: u64) -> ObjectStamp {
+    if s.things.get(object).is_some() {
+        crate::inventory::visual(s, object)
+    } else {
+        places::object_stamp(s, object)
+    }
+}
+
+/// The effects a use leaves an object holding, each for its own time at spellcraft 1, its
+/// appearance shown on the object to everyone who sees it (once, while any effect holding it shows
+/// it).
+fn put_here<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    object: u64,
+    effects: &[u32],
+    clock: Clock,
+) {
+    let now = clock.local.0;
+    for &state in effects {
+        let Some(lasts) = s.effect_table.get(state).map(|d| d.duration.at(1.0)) else {
+            s.unhandled
+                .note(format!("an effect {state:08X} the server does not know"));
+            continue;
+        };
+        let lasts = lasts.filter(|l| *l < f32::MAX).map(f64::from);
+        let fx = fx_of(s, state);
+        let showing = fx.is_some_and(|fx| shows_here(s, object, fx));
+        let until = lasts.map_or(f64::INFINITY, |l| now + l);
+        s.held_here.entry(object).or_default().push((state, until));
+        if let (Some(fx), false) = (fx, showing) {
+            let sender = stamp_of(s, object);
+            let m = ServerMessage::DoFx(ObjectEvent {
+                sender,
+                action: Fx { fx, scalar: 1.0 },
+            });
+            crate::combat::to_all_seeing(s, net, object, &m);
+        }
+        if let Some(l) = lasts {
+            s.after(clock, l, Timer::HeldHereEnds { object });
+        }
+    }
+}
+
+/// An effect a use left on an object may have run out: each that has goes, and an appearance no
+/// effect it still holds shows stops.
+pub fn held_ends<S: Store>(s: &mut Server<S>, net: &mut ServerNet, object: u64, clock: Clock) {
+    let now = clock.local.0;
+    let Some(held) = s.held_here.get_mut(&object) else {
+        return;
+    };
+    let (gone, kept): (Vec<_>, Vec<_>) = held.iter().partition(|(_, until)| *until <= now);
+    if kept.is_empty() {
+        s.held_here.remove(&object);
+    } else {
+        *held = kept;
+    }
+    let mut stopped = Vec::new();
+    for (state, _) in gone {
+        let Some(fx) = fx_of(s, state) else {
+            continue;
+        };
+        if shows_here(s, object, fx) || stopped.contains(&fx) {
+            continue;
+        }
+        stopped.push(fx);
+        let sender = stamp_of(s, object);
+        let m = ServerMessage::StopFx(ObjectEvent {
+            sender,
+            action: Word(fx),
+        });
+        crate::combat::to_all_seeing(s, net, object, &m);
+    }
+}
+
+/// An object a use was made on as a speaker: a placed object, else a thing of the world.
+fn speaker_of<S: Store>(s: &Server<S>, object: u64) -> Option<crate::talk::Speaker> {
+    match presence::content_by_id(&s.content.objects, object) {
+        Some(i) => Some(crate::talk::content_speaker(s, i)),
+        None => crate::talk::thing_speaker(s, object),
+    }
 }

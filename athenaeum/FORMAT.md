@@ -1075,7 +1075,7 @@ What an effect of the install does where its own data says nothing. One row per 
 | field | | meaning |
 |---|---|---|
 | `effect` | required | its saved state, one the install holds; or, for an effect the install's templates name (an item's use) but holds no saved state of, its name as text, such a rule naming only `places` |
-| `ward` | | `{ classes, effects, chance }`: what a player holding it keeps off |
+| `ward` | | `{ classes, effects, chance }`: what a player or a creature holding it keeps off |
 | `vitae_share` | | the share of its player's vitae it takes when it is put on, above 0 and at most 1 |
 | `vitae_restore` | | `{ points, fellows }`, the vitae it gives back when it is put on |
 | `then` | | the effect is an immunity under way and leaves this effect as it ends |
@@ -1196,15 +1196,26 @@ that anyone may open, filled from its generator profile; another object, no one'
 until it is killed. Where the item's table plays a behavior of its own the use plays it first; where
 the table's outcome uses up the object, an object an effect placed (the dig point) leaves the world.
 
+A row may also, or only, name what the use does to a camp's creatures and to the object used on: a
+seal pressed against its stone strips a beast of one of its magics, and the stone glows a while. The
+effects `effects_on` names are put on each of the camp's living creatures, in order, cast by the user
+at spellcraft 1; the object holds those `effects_here` names for each one's own time (none: until the
+server stops), its appearance shown on it, and while it holds any of them it refuses the use as one in
+use, the item kept and nothing done. `tell` is a line the object says to everyone near (its
+landblock's), naming the user. What an object holds is not kept across a restart.
+
 | field | | meaning |
 |---|---|---|
 | `key` | required | lowercase letters, digits and hyphens |
 | `item` | required | the template of the item used |
 | `on`, `on_class` | one of them | what it is used on: a template, or a class (a script package, by number) the item's table names, any template of which counts |
-| `gives`, `gives_one_of` | one of them, or `places` | the template of what it makes, or one of several picked by weight each use: at least two `{ template, weight }`, each weight above 0 (a meld making one of a fortune card's two sets: `[{ template = A, weight = 1 }, { template = B, weight = 1 }]`) |
+| `gives`, `gives_one_of` | one of them, or `places`, `effects_on` or `effects_here` | the template of what it makes, or one of several picked by weight each use: at least two `{ template, weight }`, each weight above 0 (a meld making one of a fortune card's two sets: `[{ template = A, weight = 1 }, { template = B, weight = 1 }]`) |
 | `gated_gives`, `gated_gives_one_of` | | what it makes instead where the interaction the use met is for some characters only, one template or one of several as `gives_one_of`; `gives` when left out |
 | `count` | | above 0; 1 when left out |
 | `places` | | at least one `{ template, offset, lasts }`: what it makes at the object, `offset` `[across, ahead]` in meters as the user faces (`[0, 0]` when left out), `lasts` seconds above 0 (left out, until it is killed, cleared or the server stops) |
+| `effects_on` | | `{ camp, effects }`: the camp (`key@XXYY`, or `pack:key@XXYY`) whose living creatures the use puts effects on, and at least one effect, by its saved state (one the install holds) |
+| `effects_here` | | at least one effect, by its saved state (one the install holds), that the object used on holds after |
+| `tell` | | what the object used on says to everyone near, naming the user, `{ table, string }` |
 | `prov` | required | where it came from |
 
 #### `[[object_states]]`

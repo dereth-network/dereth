@@ -444,6 +444,8 @@ pub struct Server<S: Store> {
     pub shifts: shifting::Shifts,
     /// The hazards' reaches each player stands within.
     pub hazards: hazards::Hazards,
+    /// What objects hold of the effects uses of items on them left.
+    pub held_here: usable::interactions::HeldHere,
     /// The defended devices standing, and what each keeps about it.
     pub defenses: defenses::Defenses,
     pub crafting: craft::Crafting,
@@ -739,6 +741,8 @@ pub enum Timer {
         world: ConnId,
         used: Box<places::Use>,
     },
+    /// An effect a use of an item on an object left it holding may have run out.
+    HeldHereEnds { object: u64 },
     /// A dye plant thinks: its look, its needs.
     PlantThinks { plant: u64 },
     /// A player's join of a kingdom at a faction shrine is made.
@@ -889,6 +893,7 @@ impl<S: Store> Server<S> {
             guards: guards::Guards::default(),
             shifts: shifting::Shifts::default(),
             hazards: hazards::Hazards::default(),
+            held_here: HashMap::new(),
             defenses: defenses::Defenses::default(),
             crafting: craft::Crafting::default(),
             vitae_costs: Vec::new(),
@@ -1150,6 +1155,9 @@ impl<S: Store> Server<S> {
                 Timer::SentAway { world, to } => places::sent_away(self, net, world, to, clock),
                 Timer::Interaction { world, used } => {
                     usable::interactions::played(self, net, world, &used, clock);
+                }
+                Timer::HeldHereEnds { object } => {
+                    usable::interactions::held_ends(self, net, object, clock);
                 }
                 Timer::ItemUse { world, using } => {
                     item_use::played(self, net, world, &using, clock);

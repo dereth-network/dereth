@@ -279,6 +279,9 @@ fn a_machine_used_on_a_dig_point_makes_a_cache_and_its_guard_there() {
                     name: None,
                 },
             ],
+            effects_on: None,
+            effects_here: Vec::new(),
+            tell: None,
         });
     let place = yalain_content::effect_rules::Placing {
         template: DIG_POINT,

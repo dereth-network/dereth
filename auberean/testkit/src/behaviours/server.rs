@@ -1679,6 +1679,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.content.interaction-effects-rows",
+        says: "An `[[interaction]]` row may name, instead of what its use makes or as well, the effects \
+               it puts on a camp's living creatures (`effects_on = { camp, effects }`), the effects the \
+               object used on holds after (`effects_here`) and a line that object says to those near \
+               (`tell`); the camp compiles to its row, a camp the world doesn't serve is refused, and \
+               a row that reads wrong or names a line alone is refused.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-INTERACTION-EFFECTS-ROWS"),
+        station: "yalain-world-db::cpu::database::interaction_rows_naming_a_camps_effects_and_the_objects_compile_with_the_camps_row",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.content.take-gates-of-classes",
         says: "The items whose classes name a quest for taking them read with it.",
         since: RETAIL,
@@ -6331,6 +6343,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.interactions.an-interaction-puts-effects-on-a-camps-creatures-and-its-object",
+        says: "An item used on an object whose row names a camp's effects puts them, in order, on \
+               each of the camp's living creatures, cast by the user at spellcraft 1 (a dispel takes \
+               its effect off, a ward keeps it off after); the object holds the row's own effects for \
+               their time, its appearance shown to everyone who sees it, and says the row's line to \
+               those near, naming the user; the use is answered as any other.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-INTERACTION-EFFECTS"),
+        station: "yalain-testkit::cpu::play::interactions::a_seal_on_its_stone_strips_the_camps_creature_of_its_heal_and_wards_it_and_the_stone_glows",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.interactions.an-item-gone-while-it-plays-does-nothing",
         says: "An item put down while its use on an object plays: nothing comes of the use, \
                as for a use from the pack.",
@@ -6345,6 +6369,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-INTERACTION-MAKES"),
         station: "yalain-testkit::cpu::play::interactions::an_emblem_used_on_a_held_weapon_makes_what_the_row_for_the_weapon_or_its_class_gives",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.interactions.an-object-holding-what-a-use-left-refuses-another",
+        says: "While an object holds an effect a use's row left on it, another use of that row is \
+               refused as one in use, the item kept and nothing done; as the effect runs out its \
+               appearance stops for everyone who sees it, and a use is carried out again.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-INTERACTION-HELD-HERE"),
+        station: "yalain-testkit::cpu::play::interactions::a_glowing_stone_refuses_a_second_seal_until_its_glow_runs_out",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -48,6 +48,22 @@ pub struct Interaction {
     /// What it makes at the object it was used on, each at its offset as the user faces, for its
     /// time: a chest or another object, or a creature (its guards).
     pub places: Vec<crate::effect_rules::Placing>,
+    /// The effects it puts on a camp's living creatures, in order, cast by its user.
+    pub effects_on: Option<EffectsOn>,
+    /// The effects the object it was used on holds after, each for its own time: while it holds
+    /// any of them, it refuses the use.
+    pub effects_here: Vec<u32>,
+    /// The line the object it was used on says to everyone near, naming its user: a string and its
+    /// table.
+    pub tell: Option<(u32, u32)>,
+}
+
+/// The effects a use puts on a camp's living creatures: the camp (by its place in the spawn table)
+/// and the effects, by their saved states.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EffectsOn {
+    pub camp: usize,
+    pub effects: Vec<u32>,
 }
 
 impl Interaction {
@@ -196,6 +212,17 @@ impl ItemRows {
         self.uses
             .values()
             .flat_map(|u| u.effects.iter().map(|(s, _)| *s))
+    }
+
+    /// Every saved state the rows' interactions put on a camp's creatures or leave on the object
+    /// used on.
+    pub fn interaction_states(&self) -> impl Iterator<Item = u32> + '_ {
+        self.interactions.iter().flat_map(|i| {
+            i.effects_on
+                .iter()
+                .flat_map(|o| o.effects.iter().copied())
+                .chain(i.effects_here.iter().copied())
+        })
     }
 
     /// The states row of a template whose objects hold a state.

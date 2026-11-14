@@ -2174,8 +2174,9 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         let (item_uses, worn_effects, death_effects, hit_effects) =
             data::item_uses(portal, &catalog, &effect_names)?;
         states.extend(item_uses.values().flatten().map(|e| e.state));
-        // And those the world's rows give items' uses.
+        // And those the world's rows give items' uses, and items used on objects.
         states.extend(item_rows.states());
+        states.extend(item_rows.interaction_states());
         states.extend(worn_effects.values().flatten().map(|e| e.state));
         states.extend(death_effects.values().flatten().map(|e| e.state));
         states.extend(hit_effects.values().flatten().map(|e| e.state));

@@ -1245,6 +1245,13 @@ pub struct Interaction {
     pub count: u32,
     /// What it makes at the object it was used on.
     pub places: Vec<yalain_content::effect_rules::Placing>,
+    /// The camp (`key@XXYY`, or `pack:key@XXYY`) whose living creatures it puts effects on, and
+    /// the effects.
+    pub effects_on: Option<(String, Vec<u32>)>,
+    /// The effects the object it was used on holds after.
+    pub effects_here: Vec<u32>,
+    /// What the object it was used on says to everyone near.
+    pub tell: Option<StrRef>,
     pub prov: Prov,
 }
 
@@ -2065,6 +2072,9 @@ pub const FIELDS: [(&str, &[&str]); 67] = [
             "gated_gives_one_of",
             "count",
             "places",
+            "effects_on",
+            "effects_here",
+            "tell",
             "prov",
         ],
     ),
@@ -3077,12 +3087,52 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 None => Vec::new(),
                 Some(_) => f.placings("places")?,
             };
+            let effects_on = match f.get("effects_on") {
+                None => None,
+                Some(_) => Some(f.req(
+                    "effects_on",
+                    "{ camp, effects }: a camp (key@XXYY) and at least one effect's saved state",
+                    |v| {
+                        let t = v.as_table()?;
+                        if t.len() != 2 {
+                            return None;
+                        }
+                        let camp = t.get("camp")?.as_str().filter(|c| !c.is_empty())?;
+                        let effects = t
+                            .get("effects")?
+                            .as_array()?
+                            .iter()
+                            .map(as_u32)
+                            .collect::<Option<Vec<_>>>()?;
+                        (!effects.is_empty()).then(|| (camp.to_string(), effects))
+                    },
+                )?),
+            };
+            let effects_here = match f.get("effects_here") {
+                None => Vec::new(),
+                Some(_) => f.req("effects_here", "a list of effects' saved states", |v| {
+                    let list = v
+                        .as_array()?
+                        .iter()
+                        .map(as_u32)
+                        .collect::<Option<Vec<_>>>()?;
+                    (!list.is_empty()).then_some(list)
+                })?,
+            };
+            let tell = match f.get("tell") {
+                None => None,
+                Some(_) => Some(f.strref("tell")?),
+            };
+            let does_more = !places.is_empty() || effects_on.is_some() || !effects_here.is_empty();
             let gives = match (f.get("gives").is_some(), f.get("gives_one_of").is_some()) {
                 (true, false) => vec![(f.id("gives")?, 1)],
                 (false, true) => f.one_of("gives_one_of"),
-                (false, false) if !places.is_empty() => Vec::new(),
+                (false, false) if does_more => Vec::new(),
                 _ => {
-                    f.bad("gives", "one of gives or gives_one_of, or places");
+                    f.bad(
+                        "gives",
+                        "one of gives or gives_one_of, or places, effects_on or effects_here",
+                    );
                     return None;
                 }
             };
@@ -3098,7 +3148,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                     return None;
                 }
             };
-            if gives.is_empty() && places.is_empty() {
+            if gives.is_empty() && !does_more {
                 return None;
             }
             let count = f.u32("count").unwrap_or(1);
@@ -3111,6 +3161,9 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 gated_gives,
                 count,
                 places,
+                effects_on,
+                effects_here,
+                tell,
                 prov: f.req_prov()?,
             })
         }

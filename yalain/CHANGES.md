@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Worlds can now have an item used on an object put effects on a camp's creatures.
 - Worlds can now have traps and objects that hurt or kill whoever uses or touches them.
 
 ## 0.4.0 (2026-11-14)

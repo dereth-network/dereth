@@ -342,8 +342,9 @@ fn check_cmd(args: &[String]) -> Result<(), String> {
 /// state of, or a skill to train the install has not, a `[[treasure_look]]` naming a
 /// table the install has not, a `[[treasure_potion]]`, a `[[treasure_family]]` or an
 /// `[[item_use]]` naming an effect the install has not, a `[[concealing]]` or a `[[creature]]`'s
-/// mark naming an effect the install has not, and a `[[creature_effect]]` or a `[[step]]`'s
-/// `given_effects` naming an effect the install has not.
+/// mark naming an effect the install has not, a `[[creature_effect]]` or a `[[step]]`'s
+/// `given_effects` naming an effect the install has not, and an `[[interaction]]`'s `effects_on` or
+/// `effects_here` naming an effect the install has not.
 ///
 /// # Errors
 /// The install's library does not read.
@@ -492,6 +493,28 @@ pub fn install_problems(p: &data::Portal, db: &rows::Database) -> Result<Vec<Pro
                         r.effect
                     ),
                 ));
+            }
+        }
+        if let rows::Row::Interaction(r) = &l.row {
+            let named: Vec<(&str, u32)> = r
+                .effects_on
+                .iter()
+                .flat_map(|(_, e)| e.iter().map(|e| ("effects_on", *e)))
+                .chain(r.effects_here.iter().map(|e| ("effects_here", *e)))
+                .collect();
+            if !named.is_empty() {
+                let states: Vec<u32> = named.iter().map(|(_, e)| *e).collect();
+                let read = data::effect_table(p, &states, &Default::default())?;
+                for (field, e) in named.iter().filter(|(_, e)| !read.effects.contains_key(e)) {
+                    out.push(Problem::new(
+                        &l.file,
+                        l.line,
+                        format!(
+                            "[[interaction]] {}: {field} {e:#010x}: the install holds no such effect",
+                            r.key
+                        ),
+                    ));
+                }
             }
         }
         if let rows::Row::CreatureEffect(r) = &l.row {
