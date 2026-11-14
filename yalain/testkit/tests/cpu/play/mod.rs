@@ -39,6 +39,7 @@ mod effects;
 mod escorts;
 mod events;
 mod experience;
+mod failure_events;
 mod fellowships;
 mod fights;
 mod focus;

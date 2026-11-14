@@ -206,6 +206,8 @@ fn world(tally: Tally) -> Harness {
             game_event: None,
             windows: Vec::new(),
             on_players: Vec::new(),
+            failure: None,
+            hides: Vec::new(),
         }],
         objects: vec![ObjectGate {
             object: 2,

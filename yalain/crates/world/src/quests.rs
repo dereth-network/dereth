@@ -2549,7 +2549,7 @@ pub fn runs_out<S: Store>(
 
 /// A quest under way fails: the definition's effects for a failure, then the quest no longer under
 /// way, told with the update of the fail kind (its record with the whole wait to be taken again)
-/// unless the quest is hidden.
+/// unless the quest is hidden; the events its failure starts come on.
 pub fn fail<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -2600,6 +2600,7 @@ pub fn fail<S: Store>(
     }
     crate::world::keep_player(s, world);
     crate::escorts::quest_moved(s, net, world, quest);
+    crate::events::quest_failed(s, quest, clock.unix);
     companions_end(s, net, world, quest, false, clock);
 }
 

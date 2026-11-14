@@ -4940,6 +4940,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.events.a-quests-failure-starts-an-event",
+        says: "An event a world's row starts at a quest's failure comes on, for everyone, at the step \
+               after that quest fails for any player (a cancel, a completion or another quest's failure \
+               is none): the placed objects it hides are forgotten by every client and kept from the \
+               world, and the camps it gates fill. It goes off once its time has passed or the camp it \
+               names has made its creatures and keeps none alive, and they come back; a failure while \
+               it is on changes nothing, and one after it is off starts it again.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FAILURE-EVENTS"),
+        station: "yalain-testkit::cpu::play::failure_events::a_quests_failure_turns_its_event_on_for_everyone_hiding_its_person_until_the_camp_is_killed",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.events.gate-camps-objects-steps-and-players",
         says: "While a world's scheduled event is on, the camps that name it keep their creatures, \
                the objects that name it stand, the quest steps that name it may run, and every \

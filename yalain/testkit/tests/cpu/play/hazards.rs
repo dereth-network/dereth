@@ -300,6 +300,8 @@ fn a_hazard_kept_from_the_world_harms_no_one() {
             game_event: None,
             windows: Vec::new(),
             on_players: Vec::new(),
+            failure: None,
+            hides: Vec::new(),
         }],
         objects: vec![yalain_content::events::ObjectGate {
             object: 0,

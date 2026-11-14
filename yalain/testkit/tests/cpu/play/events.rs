@@ -111,6 +111,8 @@ fn world(windows: Vec<Window>) -> (Harness, usize, u64) {
             game_event: None,
             windows,
             on_players: vec![BOOST],
+            failure: None,
+            hides: Vec::new(),
         }],
         camps: vec![("test".into(), "fair".into())],
         objects: vec![ObjectGate {
@@ -339,12 +341,16 @@ fn objects_alike_at_one_place_each_wait_on_their_own_event() {
                     until: start + 300,
                 }],
                 on_players: Vec::new(),
+                failure: None,
+                hides: Vec::new(),
             },
             Event {
                 key: "market".into(),
                 game_event: None,
                 windows: Vec::new(),
                 on_players: Vec::new(),
+                failure: None,
+                hides: Vec::new(),
             },
         ],
         objects: vec![

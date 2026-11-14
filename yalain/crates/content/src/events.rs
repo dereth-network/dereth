@@ -13,6 +13,11 @@
 //! the end is not after the start), and a window of the game's day or night runs while the part of
 //! the game's day is not, or is, night by the world's calendar.
 //!
+//! **Started by a quest's failure.** An event may also come on as a named quest fails for any
+//! player, for everyone, and stay on until a time has passed or a camp's creatures are all dead;
+//! while it is on it may keep placed objects from the world (a person who stands aside while it
+//! runs).
+//!
 //! A world with no events gates nothing: every camp, object and step is as it would be without
 //! this table.
 
@@ -173,6 +178,23 @@ pub struct Event {
     pub windows: Vec<Window>,
     /// The effects (saved states) every player in the world holds while it runs.
     pub on_players: Vec<u32>,
+    /// The quest whose failure starts it, and what ends it then.
+    pub failure: Option<Failure>,
+    /// The placed objects it keeps from the world while it runs, by their places in the world's
+    /// list of placed objects.
+    pub hides: Vec<usize>,
+}
+
+/// An event a quest's failure starts: as the quest fails for any player, the event comes on for
+/// everyone, and goes off once `lasts` seconds have passed or the camp `until_killed` names has
+/// made its creatures and keeps none alive, whichever comes first (at least one of them is named).
+/// A failure while it is on changes nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Failure {
+    pub quest: u32,
+    pub lasts: Option<u32>,
+    /// The camp, by its row in the spawn table.
+    pub until_killed: Option<usize>,
 }
 
 impl Event {
@@ -237,6 +259,22 @@ impl EventTable {
             .iter()
             .find(|g| g.object == object)
             .map(|g| g.event.as_str())
+    }
+
+    /// The events that keep the placed object at this place in the world's list from the world
+    /// while they run.
+    pub fn hiding(&self, object: usize) -> impl Iterator<Item = &str> + '_ {
+        self.events
+            .iter()
+            .filter(move |e| e.hides.contains(&object))
+            .map(|e| e.key.as_str())
+    }
+
+    /// The events a quest's failure starts.
+    pub fn failing(&self, quest: u32) -> impl Iterator<Item = &Event> + '_ {
+        self.events
+            .iter()
+            .filter(move |e| e.failure.is_some_and(|f| f.quest == quest))
     }
 
     /// The events a step waits on (it runs only while every one of them runs).

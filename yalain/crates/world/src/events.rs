@@ -26,9 +26,22 @@
 //! the tally's fill gives it, as if its own windows said so; an event with no windows is on only
 //! so.
 //!
+//! **Started by a quest's failure.** An event a quest's failure starts comes on at the step after
+//! that quest fails for any player (a step fails it, its time runs out while its player is in the
+//! world, or it fails with its player's death, a trip or a logout; a cancel is no failure), for
+//! everyone, as if its own windows said so. It goes off at the first step after its `lasts` has
+//! passed, or at the first step that finds the camp it names has made its creatures and keeps none
+//! alive. A failure while it is on changes nothing. What a failure started is not kept across a
+//! restart, and is forgotten when a reload changes the world's events.
+//!
+//! **Kept aside.** The placed objects an event hides are kept from the world while it is on: every
+//! client that sees one forgets it as the event starts, and is made it again as the event ends
+//! (unless something else keeps it from the world then); while it is on a use of it or a give to
+//! it finds nothing.
+//!
 //! A world with no events does none of this.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use yalain_net::{ConnId, ServerNet};
 use yalain_store::Store;
@@ -39,6 +52,9 @@ use crate::{presence, Clock, Server};
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Events {
     pub on: BTreeSet<String>,
+    /// The events a quest's failure started, by their keys: when each came on and when its time
+    /// runs out (seconds since 1970; `i64::MAX` for one only a camp's death ends).
+    pub failed: BTreeMap<String, (i64, i64)>,
 }
 
 /// Is an event on?
@@ -62,13 +78,15 @@ pub fn camp_stands<S: Store>(s: &Server<S>, camp: usize) -> bool {
 }
 
 /// Is the placed object at this place in the world's list kept from the world now: it names an
-/// event that is off, an offering keeps it ([`crate::offerings::hides`]), a guarded row keeps it
+/// event that is off, an event on hides it, an offering keeps it ([`crate::offerings::hides`]), a guarded row keeps it
 /// ([`crate::guards::hides`]), a shifting row stands another of its objects
 /// ([`crate::shifting::hides`]), or it is a chest gone once closed.
 #[must_use]
 pub fn hides<S: Store>(s: &Server<S>, object: usize) -> bool {
     let t = &s.content.events;
-    (!t.is_empty() && t.of_object(object).is_some_and(|e| !is_on(s, e)))
+    (!t.is_empty()
+        && (t.of_object(object).is_some_and(|e| !is_on(s, e))
+            || t.hiding(object).any(|e| is_on(s, e))))
         || crate::offerings::hides(s, object)
         || crate::guards::hides(s, object)
         || crate::shifting::hides(s, object)
@@ -92,7 +110,7 @@ pub fn step_runs<S: Store>(s: &Server<S>, step: &yalain_content::quests::Step) -
 }
 
 /// The window of an event that holds `unix`: one of its own by the host's clock, else one of its
-/// own by the game's, else one a full tally gave it.
+/// own by the game's, else one a full tally gave it, else one a quest's failure gave it.
 fn window<S: Store>(
     s: &Server<S>,
     e: &yalain_content::events::Event,
@@ -101,6 +119,57 @@ fn window<S: Store>(
     e.running(unix)
         .or_else(|| by_the_game(s, e, unix))
         .or_else(|| crate::tallies::started(s, &e.key, unix))
+        .or_else(|| {
+            s.events
+                .failed
+                .get(&e.key)
+                .filter(|(from, until)| *from <= unix && unix < *until)
+                .copied()
+        })
+}
+
+/// A player's quest has failed: each event its failure starts that a failure has not started
+/// already comes on at the next step, for its `lasts` (or until its camp's creatures are dead).
+pub fn quest_failed<S: Store>(s: &mut Server<S>, quest: u32, unix: i64) {
+    let due: Vec<(String, i64)> = s
+        .content
+        .events
+        .failing(quest)
+        .filter(|e| !s.events.failed.contains_key(&e.key))
+        .filter_map(|e| {
+            let f = e.failure?;
+            let until = f.lasts.map_or(i64::MAX, |l| unix + i64::from(l));
+            Some((e.key.clone(), until))
+        })
+        .collect();
+    for (key, until) in due {
+        s.events.failed.insert(key, (unix, until));
+    }
+}
+
+/// What a quest's failure started that is over by `unix`: its time has run out, or the camp it
+/// names has made its creatures and keeps none alive.
+fn failures_over<S: Store>(s: &mut Server<S>, unix: i64) {
+    if s.events.failed.is_empty() {
+        return;
+    }
+    let over: Vec<String> = s
+        .events
+        .failed
+        .iter()
+        .filter(|(key, (_, until))| {
+            unix >= *until
+                || s.content.events.event(key).is_none_or(|e| {
+                    e.failure
+                        .and_then(|f| f.until_killed)
+                        .is_some_and(|camp| crate::guards::camp_dead(s, camp))
+                })
+        })
+        .map(|(key, _)| key.clone())
+        .collect();
+    for key in over {
+        s.events.failed.remove(&key);
+    }
 }
 
 /// The window of the game's clock an event is on in now, if it has one that holds: never in a
@@ -134,10 +203,12 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
         crate::tallies::step(s, net, &BTreeSet::new(), clock);
         return;
     }
-    // The tallies are read before the events they start are worked out.
+    // The tallies are read before the events they start are worked out, and what a failure
+    // started is over once its camp's creatures are dead.
     if !s.content.tallies.is_empty() {
         crate::tallies::ensure(s);
     }
+    failures_over(s, clock.unix);
     let now: BTreeSet<String> = s
         .content
         .events
@@ -153,6 +224,9 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
         ends(s, net, key);
     }
     s.events.on = now;
+    for key in &ended {
+        unhidden(s, net, key);
+    }
     for key in &started {
         starts(s, net, key);
     }
@@ -168,6 +242,10 @@ pub fn end_all<S: Store>(s: &mut Server<S>, net: &mut ServerNet) {
         ends(s, net, key);
     }
     s.events.on.clear();
+    s.events.failed.clear();
+    for key in &on {
+        unhidden(s, net, key);
+    }
 }
 
 /// An event ends: its camps' creatures leave the world, and its objects are forgotten.
@@ -190,11 +268,32 @@ fn ends<S: Store>(s: &mut Server<S>, net: &mut ServerNet, key: &str) {
 }
 
 /// An event starts: its objects are made for every client that sees them (its camps fill at
-/// their next step).
+/// their next step), and those it hides are forgotten.
 fn starts<S: Store>(s: &mut Server<S>, net: &mut ServerNet, key: &str) {
     for i in gated_objects(s, key) {
         presence::content_placed(s, net, i, None);
     }
+    for i in hidden_objects(s, key) {
+        presence::content_gone(s, net, i);
+    }
+}
+
+/// An event has ended: the objects it hid are made again for every client that sees them, unless
+/// something else keeps them from the world now.
+fn unhidden<S: Store>(s: &mut Server<S>, net: &mut ServerNet, key: &str) {
+    for i in hidden_objects(s, key) {
+        if !hides(s, i) {
+            presence::content_placed(s, net, i, None);
+        }
+    }
+}
+
+/// The placed objects an event hides, by their places in the world's list.
+fn hidden_objects<S: Store>(s: &Server<S>, key: &str) -> Vec<usize> {
+    s.content
+        .events
+        .event(key)
+        .map_or_else(Vec::new, |e| e.hides.clone())
 }
 
 /// The placed objects an event gates, by their places in the world's list.

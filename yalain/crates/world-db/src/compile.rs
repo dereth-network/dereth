@@ -1888,11 +1888,14 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     },
                 );
             }
+            // What a failure ends with and what it hides are placed once every row is.
             Row::Event(r) => t.content.events.events.push(yalain_content::events::Event {
                 key: r.key.clone(),
                 game_event: r.game_event,
                 windows: r.when.clone(),
                 on_players: r.on_players.clone(),
+                failure: None,
+                hides: Vec::new(),
             }),
             Row::Tally(r) => {
                 let mut known = true;
@@ -2249,6 +2252,47 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             if !keys.contains(e.as_str()) {
                 cx.problem(l, format!("event: no [[event]] {e} is served"));
             }
+        }
+    }
+    // An event's failure and what it hides, once every placed object and camp has its row.
+    for l in &merged.rows {
+        let Row::Event(r) = &l.row else {
+            continue;
+        };
+        let hides = placed_objects(&mut cx, &objects_at, l, "hides", &r.hides);
+        let failure = match &r.failure {
+            None => Some(None),
+            Some(f) => {
+                let camp = match &f.until_killed {
+                    None => Some(None),
+                    Some(name) => {
+                        let key = name.split_once(':').map_or(name.as_str(), |(_, k)| k);
+                        let (key, lb) = match key.split_once('@') {
+                            Some((k, b)) => (k, u16::from_str_radix(b, 16).ok()),
+                            None => (key, l.landblock),
+                        };
+                        let camp = lb.and_then(|lb| camps_at.get(&(key, lb)).copied());
+                        if camp.is_none() {
+                            cx.problem(l, format!("failure: no camp {name} is served"));
+                        }
+                        camp.map(Some)
+                    }
+                };
+                camp.map(|until_killed| {
+                    Some(yalain_content::events::Failure {
+                        quest: f.quest,
+                        lasts: f.lasts,
+                        until_killed,
+                    })
+                })
+            }
+        };
+        let (Some(hides), Some(failure)) = (hides, failure) else {
+            continue;
+        };
+        if let Some(e) = t.content.events.events.iter_mut().find(|e| e.key == r.key) {
+            e.hides = hides;
+            e.failure = failure;
         }
     }
     cx.problems.extend(crate::check::tallies(

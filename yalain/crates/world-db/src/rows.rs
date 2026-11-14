@@ -826,17 +826,32 @@ pub struct CreatureEffectRow {
 }
 
 /// `[[event]]`: a named state of the world, on for its times: what it gates (camps, objects and
-/// steps that name it) stands or runs only while it is on, and its effects are on every player in
-/// the world while it is.
+/// steps that name it) stands or runs only while it is on, the placed objects it hides stand only
+/// while it is off, and its effects are on every player in the world while it is.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Event {
     pub key: String,
     /// The install's game event it stands for (a value of its game-event enumeration).
     pub game_event: Option<u32>,
-    /// Its windows; none for an event a `[[tally]]` alone starts.
+    /// Its windows; none for an event a `[[tally]]` or a quest's failure alone starts.
     pub when: Vec<yalain_content::events::Window>,
     pub on_players: Vec<u32>,
+    /// The quest whose failure starts it, and what ends it then.
+    pub failure: Option<EventFailure>,
+    /// The placed objects it keeps from the world while it is on (`key@XXYY`, or
+    /// `pack:key@XXYY`).
+    pub hides: Vec<String>,
     pub prov: Prov,
+}
+
+/// An `[[event]]`'s `failure`: the quest whose failure, for any player, starts it, and what ends
+/// it: `lasts` seconds, or the death of every creature of the camp `until_killed` names
+/// (`key@XXYY`, or `pack:key@XXYY`), whichever comes first.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventFailure {
+    pub quest: u32,
+    pub lasts: Option<u32>,
+    pub until_killed: Option<String>,
 }
 
 /// `[[tally]]`: a count the whole world keeps, which steps and gives fill: when it is full, what
@@ -1966,7 +1981,15 @@ pub const FIELDS: [(&str, &[&str]); 67] = [
     ("effect_name", &["name", "state", "prov"]),
     (
         "event",
-        &["key", "game_event", "when", "on_players", "prov"],
+        &[
+            "key",
+            "game_event",
+            "when",
+            "on_players",
+            "failure",
+            "hides",
+            "prov",
+        ],
     ),
     (
         "tally",
@@ -3523,11 +3546,18 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 Some(_) => f.windows("when")?,
                 None => Vec::new(),
             };
+            let failure = f.event_failure()?;
+            let hides = match f.get("hides") {
+                Some(_) => f.req_references("hides")?,
+                None => Vec::new(),
+            };
             Row::Event(Event {
                 key: f.req_symbol("key")?,
                 game_event: f.id("game_event"),
                 when,
                 on_players: f.ids("on_players"),
+                failure,
+                hides,
                 prov: f.req_prov()?,
             })
         }
@@ -5608,6 +5638,44 @@ impl<'a> Fields<'a> {
             );
         }
         read
+    }
+
+    /// An `[[event]]`'s `failure`: `{ quest, lasts, until_killed }`, the quest whose failure starts
+    /// it, how long it lasts then in seconds (above 0) and the camp whose creatures' deaths end it
+    /// (`key@XXYY`, or `pack:key@XXYY`); at least one of `lasts` and `until_killed`.
+    fn event_failure(&mut self) -> Option<Option<EventFailure>> {
+        let Some(v) = self.get("failure") else {
+            return Some(None);
+        };
+        let read = v.as_table().and_then(|t| {
+            if t.keys()
+                .any(|k| !["quest", "lasts", "until_killed"].contains(&k.as_str()))
+            {
+                return None;
+            }
+            let quest = as_u32(t.get("quest")?)?;
+            let lasts = match t.get("lasts") {
+                Some(l) => Some(as_u32(l).filter(|n| *n > 0)?),
+                None => None,
+            };
+            let until_killed = match t.get("until_killed") {
+                Some(c) => Some(c.as_str().filter(|s| is_reference(s))?.to_string()),
+                None => None,
+            };
+            (lasts.is_some() || until_killed.is_some()).then_some(EventFailure {
+                quest,
+                lasts,
+                until_killed,
+            })
+        });
+        if read.is_none() {
+            self.bad(
+                "failure",
+                "{ quest, lasts, until_killed }: the quest whose failure starts it, how long it lasts in seconds (above 0) and the camp whose creatures' deaths end it (key@XXYY, or pack:key@XXYY); at least one of lasts and until_killed",
+            );
+            return None;
+        }
+        Some(read)
     }
 
     /// A `[[tally]]`'s `starts`: `{ event, after, lasts }`, the event it starts as it fills, the

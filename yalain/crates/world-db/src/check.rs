@@ -716,7 +716,7 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
 
 /// Every `[[tally]]` a step, a give or a line names is one of these rows', and a count it waits
 /// on is one the tally reaches; every `[[event]]` a tally starts or resets on is too; and an event
-/// with no windows of its own is one a tally starts.
+/// with no windows of its own is one a tally or a quest's failure starts.
 pub(crate) fn tallies(rows: &[&Located]) -> Vec<Problem> {
     use yalain_content::tallies::Reset;
     let tallies: BTreeMap<&str, &yalain_content::tallies::Tally> = rows
@@ -773,12 +773,12 @@ pub(crate) fn tallies(rows: &[&Located]) -> Vec<Problem> {
                 }
                 Vec::new()
             }
-            Row::Event(e) if e.when.is_empty() => {
+            Row::Event(e) if e.when.is_empty() && e.failure.is_none() => {
                 let started = tallies
                     .values()
                     .any(|x| x.starts.as_ref().is_some_and(|st| st.event == e.key));
                 if !started {
-                    at("when: an event with no windows is on only while a tally starts it, and no [[tally]] does".into());
+                    at("when: an event with no windows is on only while a tally or a quest's failure starts it, and neither does".into());
                 }
                 Vec::new()
             }

@@ -1115,15 +1115,26 @@ A tip a player is shown once, the first time a moment comes for its character. O
 
 #### `[[event]]`
 
-A named state of the world, on for its times, and while a full tally starts it. A camp's or an
-object's `event`, and a step's `requires = [{ event = "key" }]`, name one.
+A named state of the world, on for its times, while a full tally starts it, and after a quest's
+failure starts it. A camp's or an object's `event`, and a step's `requires = [{ event = "key" }]`,
+name one. While it is on, the placed objects it `hides` are kept from the world: forgotten by every
+client as it starts, made again as it ends; a use of one or a give to one finds nothing meanwhile.
+
+A `failure` row comes on, for everyone, at the world's step after its quest fails for any player:
+a step fails it, its time runs out while its player is in the world, or its player's death, a trip
+or a logout fails it (a cancel is no failure). It goes off at the first step after `lasts` seconds
+have passed, or once the camp `until_killed` names has made its creatures and keeps none alive,
+whichever comes first. A failure while it is on changes nothing; one after it is off starts it
+again. What a failure started is not kept across a restart.
 
 | field | | meaning |
 |---|---|---|
 | `key` | required | lowercase letters, digits and hyphens |
 | `game_event` | | a value of the install's game events it stands for |
-| `when` | | at least one window: `{ from, until }` dated (UTC times `YYYY-MM-DDTHH:MMZ`), or `{ days, from, until }` weekly (`days` from `mon` ... `sun`, times `HH:MM`, UTC); or by the game's own clock: `{ game = "hours", from, until }`, each game day from one hour to another of a 24-hour clock of the game's day (`HH:MM`, into the next day when the end is not after the start), `{ game = "day" }` and `{ game = "night" }`, while the part of the game's day is not night, or is, by the world's calendar; left out, it is on only while a tally's `starts` names it, and one must |
+| `when` | | at least one window: `{ from, until }` dated (UTC times `YYYY-MM-DDTHH:MMZ`), or `{ days, from, until }` weekly (`days` from `mon` ... `sun`, times `HH:MM`, UTC); or by the game's own clock: `{ game = "hours", from, until }`, each game day from one hour to another of a 24-hour clock of the game's day (`HH:MM`, into the next day when the end is not after the start), `{ game = "day" }` and `{ game = "night" }`, while the part of the game's day is not night, or is, by the world's calendar; left out, it is on only while a tally's `starts` names it or its `failure` starts it, and one of them must |
 | `on_players` | | effects every player in the world holds while it is on |
+| `failure` | | `{ quest, lasts, until_killed }`: the quest whose failure starts it, how long it stays on then (seconds, above 0) and the camp whose creatures' deaths end it (`key@XXYY`, or `pack:key@XXYY`); at least one of `lasts` and `until_killed` |
+| `hides` | | placed objects (`key@XXYY`, or `pack:key@XXYY`) kept from the world while it is on |
 | `prov` | required | where it came from |
 
 #### `[[tally]]`

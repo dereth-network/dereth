@@ -4251,6 +4251,104 @@ fn an_event_row_reads_its_windows_and_gates_compile_to_the_event_table() {
     }
 }
 
+#[test]
+fn an_event_a_quests_failure_starts_names_its_camp_and_hidden_objects_by_placement() {
+    use yalain_content::events::Failure;
+    let mut files = fixture();
+    files.insert(
+        "town/server/events.toml".into(),
+        "[[event]]\nkey = \"turned\"\ngame_event = 0x40000149\n\
+         failure = { quest = 0x40000088, until_killed = \"beetles@77B7\" }\n\
+         hides = [\"gate@77B7\"]\nprov = { from = \"authored\" }\n\n\
+         [[event]]\nkey = \"wrath\"\nfailure = { quest = 0x40000016, lasts = 600 }\n\
+         prov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let beetles = t
+        .spawns
+        .camps
+        .iter()
+        .position(|c| c.id == "beetles")
+        .unwrap();
+    let ev = &t.content.events;
+    let turned = ev.event("turned").unwrap();
+    assert_eq!(
+        turned.failure,
+        Some(Failure {
+            quest: 0x4000_0088,
+            lasts: None,
+            until_killed: Some(beetles),
+        })
+    );
+    assert_eq!(turned.hides, vec![placed_at(&t, 0x4077_B700_0000_0001)]);
+    let wrath = ev.event("wrath").unwrap();
+    assert_eq!(
+        wrath.failure,
+        Some(Failure {
+            quest: 0x4000_0016,
+            lasts: Some(600),
+            until_killed: None,
+        })
+    );
+    assert!(wrath.hides.is_empty());
+    assert_eq!(ev.failing(0x4000_0088).count(), 1);
+
+    // A failure that nothing ends, a time of none, a camp or an object not served.
+    for (from, to, says) in [
+        (
+            "failure = { quest = 0x40000016, lasts = 600 }",
+            "failure = { quest = 0x40000016 }",
+            "failure: { quest, lasts, until_killed }",
+        ),
+        (
+            "lasts = 600",
+            "lasts = 0",
+            "failure: { quest, lasts, until_killed }",
+        ),
+        (
+            "lasts = 600",
+            "lasts = 600, after = 3",
+            "failure: { quest, lasts, until_killed }",
+        ),
+        (
+            "failure = { quest = 0x40000016, lasts = 600 }\n",
+            "",
+            "when: an event with no windows is on only while a tally or a quest's failure starts it",
+        ),
+    ] {
+        let mut bad = files.clone();
+        edit(&mut bad, "town/server/events.toml", from, to);
+        assert!(
+            check(&bad).iter().any(|p| p.to_string().contains(says)),
+            "{to}: {:?}",
+            check(&bad)
+        );
+    }
+    for (from, to, says) in [
+        (
+            "beetles@77B7",
+            "nowhere@77B7",
+            "failure: no camp nowhere@77B7 is served",
+        ),
+        (
+            "hides = [\"gate@77B7\"]",
+            "hides = [\"nowhere@77B7\"]",
+            "hides: no placed object nowhere@77B7 is served",
+        ),
+    ] {
+        let mut bad = files.clone();
+        edit(&mut bad, "town/server/events.toml", from, to);
+        assert!(check(&bad).is_empty(), "{:?}", check(&bad));
+        let problems = compile(&merge(&read(&bad).unwrap()).unwrap(), &Fake::new()).unwrap_err();
+        assert!(
+            problems.iter().any(|p| p.to_string().contains(says)),
+            "{to}: {problems:?}"
+        );
+    }
+}
+
 /// The test world with a tally of supplies that starts and resets on an event with no windows of
 /// its own, the bestowing step waiting on it not yet full and adding to it, a give adding to it,
 /// the greeting said only while it is full and a line saying its count.
