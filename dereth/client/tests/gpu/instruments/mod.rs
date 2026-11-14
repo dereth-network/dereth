@@ -1,5 +1,6 @@
 //! Instruments: frame writers, ignored with a reason and never counted as coverage.
 
+mod air_frames;
 mod building_boundary_frames;
 mod camera_walk_frames;
 pub(crate) mod cliff_frames;

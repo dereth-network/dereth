@@ -4,7 +4,8 @@
 //! horizon, where the low sun's glow is its own, and dusk keeps its purple. The fog drawn from its
 //! volume is retail's range fog without its glow; with the glow it only brightens. God Rays only
 //! brighten it too, the air toward a low sun most, high more than low. The far land holds still
-//! while the camera turns by a hair, as a settling camera does from one frame to the next.
+//! while the camera turns by a hair, as a settling camera does from one frame to the next. The
+//! sun's shadows darken the low fog in front of the far land without hard edges.
 //!
 //! The sky's pixels are those neither Retail Look nor the remaster drew the world on; the high
 //! sky is those in the top two fifths of the frame.
@@ -438,5 +439,171 @@ fn the_far_land_holds_still_while_the_camera_turns_by_a_hair() {
     assert!(
         mean < FAR_LAND_STILL,
         "the far land's pixels change by {mean:.2} levels a frame while the camera turns by a hair"
+    );
+}
+
+/// Below the desert's mesas at dawn, looking across the low ground at them: the low fog lies thick
+/// and the mesas' shadows reach far across it.
+const MESAS_AT_DAWN: &str = "dereth report 1; loc 0x817D0013 [71.660690 48.951466 29.687843] \
+                             0.762868 0.000000 0.000000 -0.646555; camera 0x817D [65.81277 \
+                             47.979786 32.11413] yaw -1.4061389 pitch -0.1550004 cell 0x817D0012; \
+                             time 0.206 Foredawn-and-Half, set here; clock 308714622.0172466; \
+                             weather auto";
+
+/// How far ahead of the eye land lies past the reach of the sun's shadows on the land, metres
+/// along the view: there the shadows darken only the fog in front of it.
+const PAST_THE_SHADOWS: f64 = 600.0;
+
+/// How many pixels each way round a pixel of the far ground must be far ground too for the pixel
+/// to count.
+const AROUND: usize = 2;
+
+/// How sharply the fog's shadows may change from a pixel to the next on ground at about the same
+/// distance, in display levels: a step this large or larger is the edge of a shadow drawn in
+/// the fog.
+const SHADOW_STEP: i32 = 4;
+
+/// The largest share of the neighbouring pixels of the ground past the shadows' reach whose
+/// fog's shadows change by [`SHADOW_STEP`] or more between them. Measured: 0.005% with the shadows
+/// sought along each line of sight at a dozen places, moved on each frame; 0.93% when they were
+/// sought at four fixed places.
+const SHADOW_EDGES: f64 = 0.001;
+
+/// **The low fog's shadows have no hard edges**: below the mesas at dawn, with every box the
+/// options page ticks at first, the ground past the reach of the sun's shadows on the land,
+/// drawn with the shadows and without, differs between the two only by the fog's shadows. Between
+/// neighbouring pixels of it at about the same distance, away from the sky and from what stands
+/// on it, that difference changes by [`SHADOW_STEP`] or more for no more than [`SHADOW_EDGES`] of
+/// them, and the shadows still darken the fog. Sought at a few fixed places along each line, the
+/// shadows stood in the fog as hard-edged copies of the mesas' shadows, in steps.
+#[test]
+#[allow(clippy::cast_precision_loss)] // pixel counts and levels
+fn the_low_fogs_shadows_have_no_hard_edges() {
+    use crate::instruments::remaster_look_frames::EVERY_BOX;
+    use crate::instruments::stations::{report_station, Shot};
+    use dereth_client_runtime::render_prefs::FidelityPreferences;
+    use dereth_client_runtime::report::VisualReport;
+    use dereth_render::device::{DeviceConfig, Gpu};
+
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let report = VisualReport::parse(MESAS_AT_DAWN).expect("the report reads");
+    let station = report_station(&report, Some(8));
+    let cfg = DeviceConfig {
+        width: 960,
+        height: 540,
+        remaster: true,
+        ..DeviceConfig::default()
+    };
+    let mut gpu = Gpu::new_on(crate::common::remaster_backend(), None, &cfg).expect("a device");
+    let mut shot = Shot::open(&store, &mut gpu, &station);
+    shot.apply_report(&report);
+    shot.poll(&mut gpu);
+    let mut draw = |shadows: u32| {
+        shot.scene.draw.cfg.render.fidelity = FidelityPreferences::parse_switch(&format!(
+            "{EVERY_BOX},{PAGE_BOXES},RemasterShadows={shadows}"
+        ))
+        .expect("the boxes read");
+        shot.poll(&mut gpu);
+        shot.step_held(&mut gpu);
+        shot.scene.wait_for_remaster_ground();
+        for _ in 0..400 {
+            shot.step_held(&mut gpu);
+            let s = shot.scene.draw.remaster_forest_stats(&mut gpu);
+            if s.is_none_or(|s| s.wanted > 0 && s.pictures >= s.wanted) {
+                break;
+            }
+        }
+        // The smoothing gathers every frame of its sequence and settles.
+        for _ in 0..32 {
+            shot.step_held(&mut gpu);
+        }
+        shot.scene
+            .draw
+            .remaster_capture(&mut gpu)
+            .expect("the remaster drew")
+    };
+    let lit = draw(1);
+    let unshadowed = draw(0);
+    assert_eq!(
+        (lit.width, lit.height),
+        lit.render_size,
+        "the frame is drawn at its own size"
+    );
+    let inverse = glam::DMat4::from_cols_array(&lit.view_projection.map(f64::from)).inverse();
+    let eye = glam::DVec3::from_array(lit.eye.map(f64::from));
+    let ahead = {
+        let p = inverse * glam::DVec4::new(0.0, 0.0, 0.5, 1.0);
+        (p.truncate() / p.w - eye).normalize()
+    };
+    let (w, h) = (lit.width as usize, lit.height as usize);
+    // Each pixel's distance where it is ground past the shadows' reach.
+    let far: Vec<Option<f64>> = (0..w * h)
+        .map(|i| {
+            if lit.class[i] != 1 || unshadowed.class[i] != 1 {
+                return None;
+            }
+            let ndc = glam::DVec4::new(
+                ((i % w) as f64 + 0.5) / w as f64 * 2.0 - 1.0,
+                1.0 - ((i / w) as f64 + 0.5) / h as f64 * 2.0,
+                f64::from(lit.depth[i]),
+                1.0,
+            );
+            let p = inverse * ndc;
+            let to = p.truncate() / p.w - eye;
+            (to.dot(ahead) > PAST_THE_SHADOWS).then_some(to.length())
+        })
+        .collect();
+    // The pixels whose neighbours out to [`AROUND`] are all such ground at about the same
+    // distance: away from the sky, from what stands on the ground and from where nearer ground
+    // hides farther, whose edges are the frame's own and not the fog's.
+    let inside: Vec<bool> = (0..w * h)
+        .map(|i| {
+            let Some(d) = far[i] else {
+                return false;
+            };
+            let (x, y) = (i % w, i / w);
+            if x < AROUND || y < AROUND || x + AROUND >= w || y + AROUND >= h {
+                return false;
+            }
+            (y - AROUND..=y + AROUND).all(|ny| {
+                (x - AROUND..=x + AROUND)
+                    .all(|nx| far[ny * w + nx].is_some_and(|e| (d - e).abs() <= d * 0.02))
+            })
+        })
+        .collect();
+    let shadow = |i: usize| -> [i32; 3] {
+        [0, 1, 2].map(|c| i32::from(lit.color[i * 4 + c]) - i32::from(unshadowed.color[i * 4 + c]))
+    };
+    let (mut pairs, mut edges, mut darkened) = (0usize, 0usize, 0usize);
+    for i in (0..w * h).filter(|&i| inside[i]) {
+        if shadow(i).iter().any(|v| *v < -2) {
+            darkened += 1;
+        }
+        let right = (i % w + 1 < w).then_some(i + 1);
+        let down = (i / w + 1 < h).then_some(i + w);
+        for j in [right, down].into_iter().flatten().filter(|&j| inside[j]) {
+            pairs += 1;
+            let (a, b) = (shadow(i), shadow(j));
+            if (0..3).any(|c| (a[c] - b[c]).abs() >= SHADOW_STEP) {
+                edges += 1;
+            }
+        }
+    }
+    let share = edges as f64 / pairs.max(1) as f64;
+    println!(
+        "{pairs} neighbouring pairs of ground past the shadows' reach, {darkened} pixels darkened by \
+         the fog's shadows; {edges} pairs ({:.3}%) a step of {SHADOW_STEP} levels or more apart",
+        share * 100.0
+    );
+    assert!(pairs > 20_000, "the far land is in view: {pairs} pairs");
+    assert!(
+        darkened * 20 > pairs,
+        "the fog's shadows darken the far land: {darkened} pixels"
+    );
+    assert!(
+        share <= SHADOW_EDGES,
+        "the fog's shadows change by {SHADOW_STEP} levels or more between {edges} of {pairs} \
+         neighbouring pairs"
     );
 }
