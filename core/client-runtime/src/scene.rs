@@ -52,6 +52,15 @@ pub struct SceneConfig {
     /// and re-emitted per frame; objects are baked into world-space batches, so this is the
     /// knob that costs memory.
     pub scenery_radius: u32,
+    /// Mesh the landscape at full detail out to [`Self::scenery_radius`], its coarser rings moved
+    /// out to follow, so every block that grows objects has full-detail ground for them to stand
+    /// on. Off, the rings are retail's whatever the radius: only the viewer's block and the ring
+    /// round it are full detail, and [`Self::lod_object_guard`] refuses objects past them. The two
+    /// are the same at a radius of 1, which is retail's.
+    ///
+    /// On in the client. Off in this bench default, so a bench that names a radius keeps
+    /// retail's ground; see [`Self::window_spec`].
+    pub full_detail_scenery: bool,
     /// How long the drawn world's `stream` may spend building landblocks in one frame. `None` builds
     /// everything queued before returning, which is what the headless captures and the tests
     /// rely on; the connected client sets a budget so that a teleport or login keeps drawing
@@ -419,10 +428,11 @@ pub struct SceneConfig {
     /// taken against.
     ///
     /// **It changes counts and a bake, and no pixel.** It is reachable only at
-    /// `scenery_radius >= 2` (rings 0 and 1 are both full detail and the shipped
-    /// `scenery_radius` is 1), and even there the objects it stops baking were assembled and
-    /// never submitted: a coarse ring begins 288 m out and the degrade record's terminator has
-    /// already taken them. The test measures that rather than assuming it.
+    /// `scenery_radius >= 2` with [`Self::full_detail_scenery`] off (rings 0 and 1 are both full
+    /// detail, and the client meshes every ring that grows scenery at full detail), and even
+    /// there the objects it stops baking were assembled and never submitted: a coarse ring begins
+    /// 288 m out and the degrade record's terminator has already taken them. The test measures
+    /// that rather than assuming it.
     pub lod_object_guard: bool,
     /// Whether the verdicts of which records two eras' files share as the same object are kept
     /// between runs, in the host's cache folder
@@ -458,6 +468,7 @@ impl Default for SceneConfig {
             // client's answer asks `App::config()` for it, as a dozen of them do.
             land_radius: 3,
             scenery_radius: 1,
+            full_detail_scenery: false,
             stream_budget: None,
             gpu_terrain_merge: true,
             terrain_splat: false,
@@ -499,6 +510,39 @@ impl Default for SceneConfig {
             lod_object_guard: true,
             object_identity_cache: false,
             object_identity_budget: None,
+        }
+    }
+}
+
+impl SceneConfig {
+    /// How many rings round the viewer's block the landscape meshes at full detail: out to the
+    /// scenery radius with [`Self::full_detail_scenery`], otherwise retail's one.
+    #[must_use]
+    pub fn full_detail_rings(&self) -> u32 {
+        if self.full_detail_scenery {
+            self.scenery_radius.max(1)
+        } else {
+            1
+        }
+    }
+
+    /// The landscape window's block length and detail policy: retail's four rings, with
+    /// [`Self::full_detail_rings`] of them at full detail.
+    #[must_use]
+    pub fn window_spec(&self) -> dereth_landscape::WindowSpec {
+        dereth_landscape::WindowSpec::rings(self.full_detail_rings())
+    }
+
+    /// How many rings round the viewer's block stand their own objects: the scenery radius, as
+    /// far as the window reaches and, while [`Self::lod_object_guard`] holds, as far as the
+    /// landscape is full detail.
+    #[must_use]
+    pub fn object_rings(&self) -> u32 {
+        let r = self.scenery_radius.min(self.land_radius);
+        if self.lod_object_guard {
+            r.min(self.full_detail_rings())
+        } else {
+            r
         }
     }
 }

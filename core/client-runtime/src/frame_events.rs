@@ -80,6 +80,9 @@ pub struct RenderPrefWork {
     /// `[Render] Objects` asks for another era's look whose verdicts the application is still
     /// working out: the objects keep the look they have until they arrive.
     pub objects_waiting: bool,
+    /// The scenery radius the world is drawn with moved: the remaster's scenery distance, or the
+    /// remaster turned on or off. The window was built again with its objects that far.
+    pub scenery_changed: bool,
     /// `[Fidelity]` asked for the remaster, and this device would not draw it: it stays off, and
     /// the player is told this line.
     #[cfg(feature = "fidelity")]

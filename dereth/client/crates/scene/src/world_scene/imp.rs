@@ -537,6 +537,13 @@ struct BlockDraw {
     /// degraded past its last real level assembles to *nothing* and would otherwise be
     /// rebuilt on every frame for ever.
     degrade_assembled: bool,
+    /// What its placements' levels, its own and its rooms', were last chosen under, and how far
+    /// the viewer may move from there before any of them could change; `None` before the first.
+    levels_chosen: Option<degrade::LevelsChosen>,
+    /// Which choice of its placements' levels and turns the block holds: a new number, larger than
+    /// any before, each time [`SceneDraw::refresh_degrade_levels`] changes one of them, its own or
+    /// its rooms'. 0 before the first.
+    levels_serial: u64,
     /// The block's environment cells.
     env_cells: Vec<EnvCellDraw>,
     /// The block's building objects, as the *outdoor* portal machinery needs them.
@@ -589,6 +596,13 @@ struct BlockDraw {
     /// The block's own placements as the bake placed them, block-local, for the remaster.
     #[cfg(feature = "remaster")]
     remaster_placements: Vec<remaster_bridge::BakedPlacement>,
+}
+
+/// The number a block's choice of levels takes when it changes ([`BlockDraw::levels_serial`]):
+/// larger than every one before, whichever block took them.
+fn next_levels_serial() -> u64 {
+    static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 /// The number the next block build takes, so the remaster tells a block whose contents were
@@ -1204,6 +1218,10 @@ pub const DETAIL_TEXTURE_PASS: bool = true;
 #[derive(Debug)]
 pub struct SceneDraw {
     pub cfg: SceneConfig,
+    /// The scenery radius the scene was loaded with, the command line's: the one it draws while
+    /// the remaster does not, or while the remaster's scenery distance names none.
+    #[cfg(feature = "remaster")]
+    scenery_asked: u32,
     /// Shadow copies used by the rendering-preference poll.
     ///
     /// The client keeps one shadow per polled field: landscape and environment texture
@@ -1480,6 +1498,9 @@ pub struct SceneDraw {
     frame_building_cells: std::cell::Cell<u32>,
     /// What the scene's own parts of the last frame took on the processor.
     pub(super) frame_costs: std::cell::Cell<FrameCosts>,
+    /// The blocks, and the choice of levels each held, the degrade counters were last counted
+    /// over ([`Self::refresh_degrade_stats`]): counted again only once they change.
+    pub(super) degrade_stats_of: Option<(usize, u64)>,
     /// Where the detail textures were last taken from ([`Self::detail_source_used`]).
     detail_from: DetailSource,
     /// The sky objects, and the clock that positions them.

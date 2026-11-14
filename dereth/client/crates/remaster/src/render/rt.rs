@@ -159,6 +159,19 @@ fn held(block: &super::scene::BlockGpu) -> (u32, u32, u32, usize, usize, usize) 
     )
 }
 
+/// What the objects' parts place in the structures, worked out once for the objects and meshes
+/// held: the structures, each with its vertex count, in the order the parts first place them;
+/// and each part placing one, in the objects' order, with its instance, its mask, the structure it
+/// places and where its rows start in `rows`.
+#[derive(Debug, Default)]
+struct ObjectsPlaced {
+    /// The scene's objects' and meshes' generations they were worked out at.
+    of: (u64, u64),
+    keys: Vec<(BlasKey, u32)>,
+    parts: Vec<(u32, u8, u32, u32)>,
+    rows: Vec<u32>,
+}
+
 /// The scene's acceleration structures.
 #[derive(Debug)]
 pub struct RtPass {
@@ -172,6 +185,8 @@ pub struct RtPass {
     grounds: BTreeMap<BlockId, GroundHeld>,
     /// The statics' entries and rows, and the scene's generation they were made at.
     generation: Option<u64>,
+    /// What the objects' parts place, kept while the objects and meshes held stand.
+    objects_placed: ObjectsPlaced,
     /// Bottom-level structures made since the pass was, and refits of them.
     made: u64,
     refits: u64,
@@ -246,6 +261,7 @@ impl RtPass {
             generation: None,
             made: 0,
             refits: 0,
+            objects_placed: ObjectsPlaced::default(),
             static_keys: BTreeMap::new(),
             block_statics: BTreeMap::new(),
             vertex_counts: (None, MeshFacts::default()),
@@ -899,27 +915,62 @@ impl RtPass {
         scene: &GpuScene,
         facts: &MeshFacts,
     ) -> Result<(Vec<Entry32>, Vec<u32>), dereth_gfx::Error> {
-        let mut entries = Vec::new();
-        let mut rows = Vec::new();
-        for (key, object) in &scene.objects {
-            let m = if *key == ObjectKey::Body {
-                mask::BODY
-            } else {
-                mask::OBJECT
+        // Which structure each part places, and its rows, change only with the objects and the
+        // meshes held; each structure is still asked for every frame, so a posed one is refitted
+        // and every one is kept.
+        let of = (scene.objects_generation, scene.mesh_generation);
+        if self.objects_placed.of != of || self.objects_placed.keys.is_empty() {
+            let mut placed = ObjectsPlaced {
+                of,
+                ..ObjectsPlaced::default()
             };
-            for part in &object.parts {
-                let Some((k, part_rows, _)) = Self::part_key(scene, part, &facts.sways) else {
-                    continue;
+            let mut index: BTreeMap<BlasKey, u32> = BTreeMap::new();
+            for (key, object) in &scene.objects {
+                let m = if *key == ObjectKey::Body {
+                    mask::BODY
+                } else {
+                    mask::OBJECT
                 };
-                let Some(count) = facts.counts.get(&k.0).copied() else {
-                    continue;
-                };
-                let address = self.blas_for(gfx, scene, &k, count)?;
-                let custom = u32::try_from(rows.len() / 4).unwrap_or(0) | OBJECT_ROWS;
-                rows.extend(part_rows);
-                entries.push(entry(part.instance, custom, m, 0, address));
+                for part in &object.parts {
+                    let Some((k, part_rows, _)) = Self::part_key(scene, part, &facts.sways) else {
+                        continue;
+                    };
+                    let Some(count) = facts.counts.get(&k.0).copied() else {
+                        continue;
+                    };
+                    let next = u32::try_from(placed.keys.len()).unwrap_or(u32::MAX);
+                    let at = *index.entry(k.clone()).or_insert_with(|| {
+                        placed.keys.push((k, count));
+                        next
+                    });
+                    let start = u32::try_from(placed.rows.len()).unwrap_or(u32::MAX);
+                    placed.rows.extend(part_rows);
+                    placed.parts.push((part.instance, m, at, start));
+                }
+            }
+            self.objects_placed = placed;
+        }
+        let placed = std::mem::take(&mut self.objects_placed);
+        let mut addresses = Vec::with_capacity(placed.keys.len());
+        for (k, count) in &placed.keys {
+            match self.blas_for(gfx, scene, k, *count) {
+                Ok(a) => addresses.push(a),
+                Err(e) => {
+                    self.objects_placed = placed;
+                    return Err(e);
+                }
             }
         }
+        let entries = placed
+            .parts
+            .iter()
+            .map(|&(instance, m, at, start)| {
+                let custom = (start / 4) | OBJECT_ROWS;
+                entry(instance, custom, m, 0, addresses[at as usize])
+            })
+            .collect();
+        let rows = placed.rows.clone();
+        self.objects_placed = placed;
         Ok((entries, rows))
     }
 }

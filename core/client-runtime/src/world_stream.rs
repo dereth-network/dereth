@@ -64,8 +64,15 @@ impl WorldStreamer {
     /// A window of `land_radius` blocks either side, with no viewpoint yet.
     #[must_use]
     pub fn new(land_radius: u32) -> Self {
+        Self::with_spec(land_radius, dereth_landscape::WindowSpec::DEFAULT)
+    }
+
+    /// [`Self::new`], with the window's detail policy `spec`
+    /// ([`crate::scene::SceneConfig::window_spec`]).
+    #[must_use]
+    pub fn with_spec(land_radius: u32, spec: dereth_landscape::WindowSpec) -> Self {
         Self {
-            window: LandblockWindow::new(land_radius),
+            window: LandblockWindow::with_spec(land_radius, spec),
             viewer_cell: (0, 0),
             viewer_cell_block: None,
         }

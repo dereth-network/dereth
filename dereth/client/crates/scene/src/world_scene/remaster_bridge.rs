@@ -204,6 +204,9 @@ pub(crate) struct Shadow {
     blocks: HashMap<u16, u32>,
     // ORDER-OK: as above.
     levels: HashMap<u16, u64>,
+    // ORDER-OK: as above. The choice of levels each block held when its levels were last read
+    // ([`super::BlockDraw::levels_serial`]): they are read again only once it holds another.
+    level_serials: HashMap<u16, u64>,
     // ORDER-OK: as above. Each block as it was last sent, its build's number aside.
     contents: HashMap<u16, rm::Block>,
     // ORDER-OK: as above. What each block's scenery was lifted by, as one number (0 for none).
@@ -222,6 +225,9 @@ pub(crate) struct Shadow {
     objects: HashMap<rm::ObjectKey, u64>,
     // ORDER-OK: as above.
     previous: HashMap<rm::ObjectKey, Vec<glam::Mat4>>,
+    // ORDER-OK: as above. The near ground's offset under each animated static, kept with what it
+    // was worked out from ([`super::remaster_ground::RemasterGround::still_shift_at`]).
+    host_nears: HashMap<rm::ObjectKey, (u64, u32, f32)>,
     previous_view_projection: Option<glam::Mat4>,
     origin: Option<[i32; 2]>,
     serial: u64,
@@ -910,16 +916,15 @@ fn read_moving(
 
 /// Every moving object of the scene, in the scene's order: the server's, then the body, then each
 /// block's animated statics; `sent` is what the receiver was last sent of them. What stands
-/// outdoors is drawn on the remaster's ground.
-fn moving(draw: &SceneDraw, ws: &WorldState, sent: &HashMap<rm::ObjectKey, u64>) -> Vec<Moving> {
+/// outdoors is drawn on the remaster's ground: an animated static on the ground under it as
+/// `nears` keeps it, by its key.
+fn moving(
+    draw: &SceneDraw,
+    ws: &WorldState,
+    sent: &HashMap<rm::ObjectKey, u64>,
+    nears: &mut HashMap<rm::ObjectKey, (u64, u32, f32)>,
+) -> Vec<Moving> {
     use dereth_physics::landdefs::is_outdoors;
-    let lift = |outdoors: bool, at: Vec3| {
-        if outdoors {
-            draw.remaster_ground.shift_at(at)
-        } else {
-            0.0
-        }
-    };
     let mut out = Vec::new();
     // What holds each held thing: the holder (the body when it is the player), and the holder's
     // part its holding location hangs on.
@@ -1026,7 +1031,11 @@ fn moving(draw: &SceneDraw, ws: &WorldState, sent: &HashMap<rm::ObjectKey, u64>)
             ));
         }
     }
-    for block in draw.blocks.values() {
+    let live_hosts = draw.live_hosts(ws);
+    for (key, block) in &draw.blocks {
+        if !live_hosts.live(*key) {
+            continue;
+        }
         for h in &block.hosts {
             let Some(meshes) = h.meshes.as_deref() else {
                 continue;
@@ -1035,9 +1044,28 @@ fn moving(draw: &SceneDraw, ws: &WorldState, sent: &HashMap<rm::ObjectKey, u64>)
                 .emitters
                 .get(h.placement)
                 .map_or(DataId(0), |e| e.setup);
+            let key = animated(h.cell.0, h.placement);
+            // The host stands in the world's own coordinates, and stays where it stands: the
+            // ground under it is worked out once and kept.
+            let at = Vec3::new(
+                h.frame.origin.x - draw.remaster_ground.global.0,
+                h.frame.origin.y - draw.remaster_ground.global.1,
+                h.frame.origin.z,
+            );
+            let lift = if is_outdoors(h.cell) {
+                let near = draw.remaster_ground.near_key(at);
+                let mut kept = nears.get(&key).copied();
+                let lift = draw.remaster_ground.still_shift_at(at, near, &mut kept);
+                if let Some(k) = kept {
+                    nears.insert(key, k);
+                }
+                lift
+            } else {
+                0.0
+            };
             out.push(read_moving(
                 (
-                    animated(h.cell.0, h.placement),
+                    key,
                     setup.0,
                     build_of(setup, None, meshes, block.remaster_generation),
                     h.driver
@@ -1053,18 +1081,7 @@ fn moving(draw: &SceneDraw, ws: &WorldState, sent: &HashMap<rm::ObjectKey, u64>)
                 &h.driver,
                 (&h.part_levels, &h.part_draw_pos),
                 h.cell.0,
-                (
-                    true,
-                    // The host stands in the world's own coordinates.
-                    lift(
-                        is_outdoors(h.cell),
-                        Vec3::new(
-                            h.frame.origin.x - draw.remaster_ground.global.0,
-                            h.frame.origin.y - draw.remaster_ground.global.1,
-                            h.frame.origin.z,
-                        ),
-                    ),
-                ),
+                (true, lift),
             ));
         }
     }
@@ -1303,12 +1320,18 @@ pub(super) fn publish(draw: &SceneDraw, bridge: &mut Bridge, ws: &WorldState, si
                 }
                 sh.blocks.insert(id, block.remaster_generation);
             }
-            let (levels, key) = block_levels(id, block);
-            if sh.levels.get(&id) != Some(&key) {
-                if !levels.levels.is_empty() || sh.levels.contains_key(&id) {
-                    frame.levels.push(levels);
+            // Read again only when the walk has chosen another level or turn for one of them.
+            if sh.level_serials.get(&id) != Some(&block.levels_serial)
+                || !sh.levels.contains_key(&id)
+            {
+                let (levels, key) = block_levels(id, block);
+                if sh.levels.get(&id) != Some(&key) {
+                    if !levels.levels.is_empty() || sh.levels.contains_key(&id) {
+                        frame.levels.push(levels);
+                    }
+                    sh.levels.insert(id, key);
                 }
-                sh.levels.insert(id, key);
+                sh.level_serials.insert(id, block.levels_serial);
             }
         }
     }
@@ -1323,6 +1346,7 @@ pub(super) fn publish(draw: &SceneDraw, bridge: &mut Bridge, ws: &WorldState, si
         deltas.push(rm::SceneDelta::BlockOut(id));
         sh.blocks.remove(&id);
         sh.levels.remove(&id);
+        sh.level_serials.remove(&id);
         sh.contents.remove(&id);
         sh.shifts.remove(&id);
         sh.covers.remove(&id);
@@ -1330,18 +1354,20 @@ pub(super) fn publish(draw: &SceneDraw, bridge: &mut Bridge, ws: &WorldState, si
     sh.cover_whole = cover_budget.whole;
 
     // --- the moving objects ---------------------------------------------------------------
-    let objects = moving(draw, ws, &sh.objects);
+    let objects = moving(draw, ws, &sh.objects, &mut sh.host_nears);
+    let present: std::collections::HashSet<rm::ObjectKey> = objects.iter().map(|o| o.key).collect();
     let mut gone: Vec<rm::ObjectKey> = sh
         .objects
         .keys()
         .copied()
-        .filter(|k| !objects.iter().any(|o| o.key == *k))
+        .filter(|k| !present.contains(k))
         .collect();
     gone.sort_unstable();
     for key in gone {
         deltas.push(rm::SceneDelta::ObjectRemoved(key));
         sh.objects.remove(&key);
         sh.previous.remove(&key);
+        sh.host_nears.remove(&key);
     }
     for o in objects {
         if let Some(object) = o.object {
@@ -1369,8 +1395,17 @@ pub(super) fn publish(draw: &SceneDraw, bridge: &mut Bridge, ws: &WorldState, si
                 material: p.material,
             })
             .collect();
-        sh.previous
-            .insert(o.key, o.parts.iter().map(|p| p.transform).collect());
+        // Kept in place: the same parts are posed frame after frame.
+        let transforms = o.parts.iter().map(|p| p.transform);
+        match sh.previous.get_mut(&o.key) {
+            Some(kept) => {
+                kept.clear();
+                kept.extend(transforms);
+            }
+            None => {
+                sh.previous.insert(o.key, transforms.collect());
+            }
+        }
         frame.objects.push(rm::ObjectPose {
             key: o.key,
             cell: o.cell,
@@ -1512,7 +1547,7 @@ pub(super) fn publish(draw: &SceneDraw, bridge: &mut Bridge, ws: &WorldState, si
         disabled: g.degrades_disabled,
         force: g.force_level,
     };
-    frame.scenery_reach = scenery_reach(draw.cfg.scenery_radius);
+    frame.scenery_reach = scenery_reach(draw.cfg.object_rings());
 
     // --- the ground drawn over retail's ---------------------------------------------------
     frame.drawn = drawn_ground(draw, ws, &mut sh.drawn_world);
@@ -1529,14 +1564,15 @@ pub(super) fn publish(draw: &SceneDraw, bridge: &mut Bridge, ws: &WorldState, si
 const CAMERA_REACH: f32 = 24.0;
 
 /// How far from the eye the blocks whose own scenery stands in the world reach at the least, with
-/// `radius` rings of blocks round the viewer's asked to grow it: a block leaves them, or comes
-/// into them, only once the viewer stands a whole ring of blocks from it. Scenery grows only on
-/// the blocks the landscape meshes at full detail, the viewer's and the ring round it, however
-/// many rings are asked. 0 for none.
+/// `radius` rings of blocks round the viewer's growing it ([`SceneConfig::object_rings`]): a block
+/// leaves them, or comes into them, only once the viewer stands a whole ring of blocks from it.
+/// 0 for none.
+///
+/// [`SceneConfig::object_rings`]: dereth_client_runtime::scene::SceneConfig::object_rings
 fn scenery_reach(radius: u32) -> f32 {
     // LINT-OK: a radius of a few blocks.
     #[allow(clippy::cast_precision_loss)]
-    let r = radius.min(1) as f32;
+    let r = radius as f32;
     (r * 192.0 - CAMERA_REACH).max(0.0)
 }
 

@@ -818,6 +818,8 @@ impl SceneDraw {
                 // it also keeps its assembly; a freshly baked one has none yet. Either way the
                 // next `refresh_degrade_levels` is what fills it, and it runs before any draw.
                 degrade_assembled: false,
+                levels_chosen: None,
+                levels_serial: 0,
                 env_cells: built.env_cells,
                 building_views: built.building_views,
                 baked,

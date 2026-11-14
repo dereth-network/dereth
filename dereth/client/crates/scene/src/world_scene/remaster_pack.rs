@@ -1573,7 +1573,8 @@ mod tests {
 
     /// Where each tree of the pack `DERETH_ART_PACK` hands its levels over, and over to its
     /// impostor, as the remaster's levels of detail work it out: on a screen 540 and 2160 lines
-    /// tall, and with the scenery window's reach of one ring of blocks.
+    /// tall, and with the scenery standing `DERETH_SCENERY_RINGS` rings of blocks round the
+    /// viewer's (1 without it).
     #[test]
     #[ignore = "instrument: prints a pack's trees' hand-over distances; run with --ignored --nocapture"]
     fn print_a_packs_tree_hand_overs() {
@@ -1582,7 +1583,14 @@ mod tests {
         let pack = Arc::new(ArtPack::open_path(&path).expect("the pack opens"));
         let assets = PackAssets::new(Arc::clone(&pack), None);
         let bias = dereth_remaster::scene::DegradeBias::default();
-        let cap = lod::impostor_cap(168.0, lod::FADE_BAND, &bias);
+        let rings: u16 = std::env::var("DERETH_SCENERY_RINGS")
+            .ok()
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(1);
+        // As far as the scenery's blocks reach from the eye at the least, as the scene says.
+        let reach = f32::from(rings) * 192.0 - 24.0;
+        println!("{rings} rings: the impostor's at {reach} m, fade and all");
+        let cap = lod::impostor_cap(reach, lod::FADE_BAND, &bias);
         for m in &pack.models {
             let Some(model) = assets.model(m.id.0, PackSettings::all()) else {
                 continue;

@@ -1559,7 +1559,28 @@ impl SceneDraw {
                 (u16::from(ws.streamer.viewer_cell.0) / step).min(u16::from(n) - 1) as u8,
                 (u16::from(ws.streamer.viewer_cell.1) / step).min(u16::from(n) - 1) as u8,
             );
-            for cell in cell_draw_order(n, dir, viewer_cell) {
+            // A walk that only decides draws no ground: it visits only the cells a building or an
+            // interior's statics stand in, in the same order.
+            let visited = if self.submits() {
+                u64::MAX
+            } else {
+                cells_with_rooms(
+                    block,
+                    n,
+                    (slot.block_x, slot.block_y),
+                    interiors.is_some(),
+                    land_placed.is_some().then_some(&land_statics),
+                )
+            };
+            let order = if visited == 0 {
+                Vec::new()
+            } else {
+                cell_draw_order(n, dir, viewer_cell)
+            };
+            for cell in order {
+                if visited >> cell.min(63) & 1 == 0 {
+                    continue;
+                }
                 let (i, j) = (
                     usize::from(cell) / usize::from(n),
                     usize::from(cell) % usize::from(n),
@@ -1852,4 +1873,32 @@ impl SceneDraw {
         }
         Ok(drawn_cells.into_iter().collect())
     }
+}
+
+/// The cells of `block`, meshed `n` cells a side and standing at `(x, y)`, the landscape walk has
+/// work in besides the ground, a bit a cell: those its buildings are drawn from while the
+/// interiors seen through their openings are drawn (`buildings`), and at full detail those
+/// holding the statics of interiors that reach out into them (`land_statics`).
+fn cells_with_rooms(
+    block: &BlockDraw,
+    n: u8,
+    (x, y): (i32, i32),
+    buildings: bool,
+    land_statics: Option<&BTreeMap<u32, Vec<(u32, u32)>>>,
+) -> u64 {
+    let mut bits = 0u64;
+    if buildings {
+        for b in &block.building_views {
+            bits |= 1u64 << b.draw_cell(n).min(63);
+        }
+    }
+    if let (Some(statics), 8) = (land_statics, n) {
+        #[allow(clippy::cast_sign_loss)]
+        // LINT-OK: block coordinates are 0..=0xFE. Not a float conversion.
+        let base = ((x as u32) << 24) | ((y as u32) << 16);
+        for land in statics.range(base + 1..=base + 64).map(|(k, _)| *k) {
+            bits |= 1u64 << ((land - base - 1) & 63);
+        }
+    }
+    bits
 }

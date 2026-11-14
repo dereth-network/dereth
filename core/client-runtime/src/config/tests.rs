@@ -1274,3 +1274,48 @@ fn explore_never_connects_leaves_the_body_out_and_starts_where_its_location_says
         crate::corestrings::display_string(crate::corestrings::ID_LAUNCHER_ONLY, &[])
     );
 }
+
+/// The client meshes its landscape at full detail out to the scenery radius, so its objects stand
+/// that far, as far as the window reaches; at a radius of 1 its window is retail's. A bench's
+/// scene keeps retail's rings whatever radius it names, so its objects stop at the first ring
+/// while the guard holds.
+///
+/// Behaviour: none (a scenery radius past retail's is a setting of this client)
+#[test]
+fn the_client_meshes_full_detail_out_to_its_scenery_radius() {
+    let shipped = Config::default().scene_config();
+    assert_eq!(shipped.window_spec(), dereth_landscape::WindowSpec::DEFAULT);
+    assert_eq!(shipped.object_rings(), 1);
+
+    let cfg = Config {
+        land_radius: 8,
+        scenery_radius: 3,
+        ..Config::default()
+    };
+    let scene = cfg.scene_config();
+    assert_eq!(scene.full_detail_rings(), 3);
+    assert_eq!(scene.window_spec(), dereth_landscape::WindowSpec::rings(3));
+    assert_eq!(scene.object_rings(), 3);
+    let narrow = crate::scene::SceneConfig {
+        land_radius: 2,
+        ..scene
+    };
+    assert_eq!(narrow.object_rings(), 2, "no farther than the window");
+
+    let bench = crate::scene::SceneConfig {
+        land_radius: 8,
+        scenery_radius: 3,
+        ..crate::scene::SceneConfig::default()
+    };
+    assert_eq!(bench.window_spec(), dereth_landscape::WindowSpec::DEFAULT);
+    assert_eq!(bench.object_rings(), 1);
+    let unguarded = crate::scene::SceneConfig {
+        lod_object_guard: false,
+        ..bench
+    };
+    assert_eq!(
+        unguarded.object_rings(),
+        3,
+        "the guard off, every ring asked"
+    );
+}

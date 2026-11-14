@@ -193,6 +193,57 @@ pub fn get_degrade(
     (n - 1, mode_of(n - 1))
 }
 
+/// How far `distance` may move either way before [`get_degrade`] answers another level for it
+/// under `g`: infinite where nothing could change the answer.
+///
+/// [`get_degrade`] answers the first level whose threshold the distance, less the degrade
+/// distance and floored at zero, falls short of. That level stays while the distance stays short
+/// of its threshold and reaches every threshold before it.
+#[must_use]
+pub fn degrade_slack(info: &GfxObjDegradeInfo, distance: f32, g: &DegradeGlobals) -> f32 {
+    if info.degrades.len() < 2 || g.degrades_disabled || g.force_level != -1 {
+        return f32::INFINITY;
+    }
+    let a = distance.abs();
+    if !a.is_finite() {
+        return 0.0;
+    }
+    let d = a - g.degrade_distance;
+    let d = if d < 0.0 { 0.0 } else { d };
+    let bias = if g.auto_update_deg_mul {
+        g.deg_mul
+    } else {
+        g.user_bias
+    };
+    // The distance from `a` to where the floored distance leaves `[lower, upper)`.
+    let band = |lower: f32, upper: f32| {
+        let up = if upper.is_finite() {
+            g.degrade_distance + upper - a
+        } else {
+            f32::INFINITY
+        };
+        let down = if lower > 0.0 {
+            a - (g.degrade_distance + lower)
+        } else {
+            f32::INFINITY
+        };
+        up.min(down).max(0.0)
+    };
+    let mut reached = f32::NEG_INFINITY;
+    for e in &info.degrades {
+        let threshold = if bias < 0.0 {
+            e.ideal_dist + (e.ideal_dist - e.min_dist) * bias
+        } else {
+            e.ideal_dist - (e.ideal_dist - e.max_dist) * bias
+        };
+        if d < threshold {
+            return band(reached, threshold);
+        }
+        reached = reached.max(threshold);
+    }
+    band(reached, f32::INFINITY)
+}
+
 /// Last real degradation distance: `degrades[n-2].max_dist` when there
 /// are more than two levels, else `degrades[0].max_dist`, i.e. the far edge of the last *real*
 /// level, skipping the `FLT_MAX` terminator.
@@ -293,6 +344,57 @@ mod tests {
             3,
             "beyond the last real level: the terminator"
         );
+    }
+
+    /// A distance moved by less than [`degrade_slack`] either way keeps the level `get_degrade`
+    /// answers, and one moved past it does not, at every bias; nothing moves a level while
+    /// degrades are off or one is forced.
+    #[test]
+    fn a_distance_keeps_its_level_while_it_moves_less_than_its_slack() {
+        let i = worked_example();
+        for bias in [-1.0f32, -0.4, 0.0, 0.5, 1.0] {
+            let g = DegradeGlobals {
+                auto_update_deg_mul: false,
+                user_bias: bias,
+                ..DegradeGlobals::default()
+            };
+            let mut d = 0.0f32;
+            while d < 400.0 {
+                let level = get_degrade(&i, d, &g).0;
+                let slack = degrade_slack(&i, d, &g);
+                assert!(slack >= 0.0, "bias {bias}, d {d}: {slack}");
+                for by in [-0.999, -0.5, 0.5, 0.999] {
+                    let moved = d + by * slack.min(1000.0);
+                    if moved >= 0.0 {
+                        assert_eq!(
+                            get_degrade(&i, moved, &g).0,
+                            level,
+                            "bias {bias}, d {d} moved to {moved} (slack {slack})"
+                        );
+                    }
+                }
+                if slack.is_finite() {
+                    let up = get_degrade(&i, d + slack + 1e-3, &g).0;
+                    let down =
+                        (d - slack - 1e-3 >= 0.0).then(|| get_degrade(&i, d - slack - 1e-3, &g).0);
+                    assert!(
+                        up != level || down.is_some_and(|l| l != level),
+                        "bias {bias}, d {d}: the level holds past its slack {slack}"
+                    );
+                }
+                d += 3.7;
+            }
+        }
+        let off = DegradeGlobals {
+            degrades_disabled: true,
+            ..DegradeGlobals::default()
+        };
+        assert!(degrade_slack(&i, 120.0, &off).is_infinite());
+        let forced = DegradeGlobals {
+            force_level: 2,
+            ..DegradeGlobals::default()
+        };
+        assert!(degrade_slack(&i, 120.0, &forced).is_infinite());
     }
 
     /// The degrade distance is subtracted from the viewer distance, not used as a threshold.

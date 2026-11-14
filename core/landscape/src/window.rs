@@ -10,15 +10,16 @@
 //! not rebuilt; that is the part with a live-entry hazard, and the property test below is what
 //! keeps it honest.
 
-use crate::{block_orient, side_cell_count, Direction, BLOCK_LENGTH, MID_RADIUS_PRESETS};
+use crate::{rings_orient, side_cell_count, Direction, BLOCK_LENGTH, MID_RADIUS_PRESETS};
 
 /// How a window gives each of its blocks a level of detail.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Detail {
-    /// Four rings around the viewer's block, the detail halving outward ([`block_orient`]), with
-    /// the blocks where it halves stitched toward the finer ring.
-    #[default]
-    Rings,
+    /// Four rings around the viewer's block, the detail halving outward
+    /// ([`crate::block_orient`]), with the blocks where it halves stitched toward the finer ring;
+    /// the rings out to `full` at full detail, the coarser ones moved out to follow them
+    /// ([`rings_orient`]). A `full` of 1 is the table's own.
+    Rings { full: u32 },
     /// Every block at full detail, none stitched: each slot asks for a divisor of 1 and
     /// [`Direction::InViewerBlock`].
     Full,
@@ -33,18 +34,30 @@ pub struct WindowSpec {
     pub detail: Detail,
 }
 
+impl Default for Detail {
+    fn default() -> Self {
+        Self::Rings { full: 1 }
+    }
+}
+
 impl WindowSpec {
     /// The default window: [`BLOCK_LENGTH`] blocks in four detail rings.
-    pub const DEFAULT: Self = Self {
-        block_length: BLOCK_LENGTH,
-        detail: Detail::Rings,
-    };
+    pub const DEFAULT: Self = Self::rings(1);
+
+    /// [`BLOCK_LENGTH`] blocks in four detail rings, the rings out to `full` at full detail.
+    #[must_use]
+    pub const fn rings(full: u32) -> Self {
+        Self {
+            block_length: BLOCK_LENGTH,
+            detail: Detail::Rings { full },
+        }
+    }
 
     /// The divisor and stitch direction of the block `(dx, dy)` from the viewer's block.
     #[must_use]
     pub fn orient(&self, dx: i32, dy: i32) -> (u8, Direction) {
         match self.detail {
-            Detail::Rings => block_orient(dx, dy),
+            Detail::Rings { full } => rings_orient(dx, dy, full),
             Detail::Full => (1, Direction::InViewerBlock),
         }
     }
@@ -372,6 +385,7 @@ impl<M> LandblockWindow<M> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::block_orient;
 
     /// Oracle: the LOD-ring table and the five
     /// presets. The ring assignment is a pure function of the Chebyshev distance, checked for every
@@ -656,6 +670,55 @@ mod tests {
                 .collect()
         };
         assert_eq!(fetched_at(&step), fetched_at(&ringed_step));
+    }
+
+    /// A ringed window with three full rings meshes the 7x7 blocks round the viewer at full
+    /// detail and the table's coarser rings past them, and a one-block step changes the detail of
+    /// no block that stays within the full rings: the blocks that leave them are on its trailing
+    /// side, and only the blocks beyond them change ring.
+    ///
+    /// Behaviour: none (the window this client asks for when its scenery reaches past retail's)
+    #[test]
+    fn a_window_of_three_full_rings_keeps_them_full_as_it_scrolls() {
+        let spec = WindowSpec::rings(3);
+        let mut win = LandblockWindow::<()>::with_spec(8, spec);
+        let map = win.ring_map();
+        let w = win.mid_width() as i32;
+        for xi in 0..w {
+            for yi in 0..w {
+                let m = (xi - 8).abs().max((yi - 8).abs());
+                let expect = match m {
+                    0..=3 => 8u8,
+                    4 => 4,
+                    5 | 6 => 2,
+                    _ => 1,
+                };
+                assert_eq!(map[(w * xi + yi) as usize], expect, "({xi},{yi}) m={m}");
+            }
+        }
+        win.update_block((100, 100));
+        let step = win.update_block((101, 100));
+        for xi in 0..w {
+            for yi in 0..w {
+                let (dx, dy) = (xi - 8, yi - 8);
+                // Within the full rings now, and within them before the step (one block west).
+                let full_now = dx.abs().max(dy.abs()) <= 3;
+                let full_before = (dx + 1).abs().max(dy.abs()) <= 3;
+                let action = step[win.index(xi as u32, yi as u32)];
+                if full_now && full_before {
+                    assert!(
+                        !matches!(action, SlotAction::Resized { .. }),
+                        "({dx},{dy}) stayed at full detail and was resized"
+                    );
+                }
+                if full_now && !full_before {
+                    assert!(
+                        matches!(action, SlotAction::Resized { lod_div: 1, .. }),
+                        "({dx},{dy}) came into the full rings: {action:?}"
+                    );
+                }
+            }
+        }
     }
 
     /// The default spec is the ringed window of 192-unit blocks that [`LandblockWindow::new`]

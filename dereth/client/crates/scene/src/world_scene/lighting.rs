@@ -764,7 +764,7 @@ impl SceneDraw {
 
         let radius = ws.streamer.window.mid_radius();
         let was = ws.streamer.window.viewer_block();
-        ws.streamer.window = LandblockWindow::new(radius);
+        ws.streamer.window = LandblockWindow::with_spec(radius, ws.streamer.window.spec());
         let viewer = (i32::from(destination.x()), i32::from(destination.y()));
         if let Some(was) = was {
             world_step::rebase_render_space_particles(ws, (viewer.0 - was.0, viewer.1 - was.1));

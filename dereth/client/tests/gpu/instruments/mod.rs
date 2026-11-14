@@ -19,6 +19,7 @@ pub(crate) mod remaster_look_frames;
 mod remaster_pack_frames;
 mod remaster_water_frames;
 mod scenery_edge_frames;
+mod scenery_radius_frames;
 mod shore_frames;
 mod skinned_body_frames;
 mod skinned_crowd_frames;

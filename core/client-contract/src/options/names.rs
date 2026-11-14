@@ -179,6 +179,9 @@ pub mod fidelity {
     pub const REMASTER_FLOWERS: &str = "Fidelity.RemasterFlowers";
     /// `Fidelity.RemasterSway`: an art pack's trees swaying in the wind.
     pub const REMASTER_SWAY: &str = "Fidelity.RemasterSway";
+    /// `Fidelity.RemasterScenery`: how many rings of blocks round the player's stand their trees,
+    /// buildings and objects while the remaster draws, 1 to 4.
+    pub const REMASTER_SCENERY: &str = "Fidelity.RemasterScenery";
     /// `Fidelity.Interface`: whether the interface shown is Horizon, the only one the
     /// remaster draws under. The client sets it as the interface changes; it is never kept
     /// in the profile.
@@ -217,10 +220,11 @@ pub mod fidelity {
         REMASTER_GRASS,
         REMASTER_FLOWERS,
         REMASTER_SWAY,
+        REMASTER_SCENERY,
     ];
 
     /// The names among [`NAMES`] that are menus, each a number, rather than boxes.
-    pub const MENUS: &[&str] = &[REMASTER_SCALE, REMASTER_GOD_RAYS];
+    pub const MENUS: &[&str] = &[REMASTER_SCALE, REMASTER_GOD_RAYS, REMASTER_SCENERY];
 
     /// Whether `name` is one of the [`MENUS`].
     #[must_use]

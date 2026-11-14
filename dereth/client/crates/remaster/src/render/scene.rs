@@ -384,6 +384,8 @@ pub struct GpuScene {
     pub sky: BTreeMap<u32, SkyGpu>,
     /// Counts the changes to what is resident: a block or its ground in, changed or out.
     pub static_generation: u64,
+    /// Counts the changes to the objects held: one in, changed or out.
+    pub objects_generation: u64,
     /// The instances and draw items the frame's particles are written into, anew each frame.
     pub particle_instances: Range<u32>,
     pub particle_items: Range<u32>,
@@ -514,6 +516,7 @@ impl GpuScene {
             previous: std::collections::BTreeMap::new(),
             sky: BTreeMap::new(),
             static_generation: 0,
+            objects_generation: 0,
             particle_instances: 0..0,
             particle_items: 0..0,
             pending_ground: BTreeMap::new(),
@@ -1315,6 +1318,7 @@ impl GpuScene {
         object: &Object,
     ) -> Result<(), dereth_gfx::Error> {
         self.object_out(object.key);
+        self.objects_generation += 1;
         let parts = u32::try_from(object.parts.len()).unwrap_or(0);
         let mut item_count = 0;
         for p in &object.parts {
@@ -1517,6 +1521,7 @@ impl GpuScene {
     /// Let an object go.
     pub fn object_out(&mut self, key: ObjectKey) {
         if let Some(o) = self.objects.remove(&key) {
+            self.objects_generation += 1;
             self.instances.pool.give(o.instances);
             self.items.pool.give(o.items);
         }

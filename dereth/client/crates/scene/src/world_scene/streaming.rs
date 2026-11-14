@@ -223,6 +223,8 @@ impl SceneDraw {
         let mut ws = WorldState::new(&land.region, &cfg);
         let mut scene = Self {
             cfg,
+            #[cfg(feature = "remaster")]
+            scenery_asked: cfg.scenery_radius,
             // Leaves every shadow at the value
             // the first preference-update poll installs, so the frame after a load does
             // no work: seeded from the profile that was just applied, not from the defaults.
@@ -299,6 +301,7 @@ impl SceneDraw {
             frame_portal_stamps: std::cell::Cell::new((0, 0)),
             frame_building_cells: std::cell::Cell::new(0),
             frame_costs: std::cell::Cell::new(FrameCosts::default()),
+            degrade_stats_of: None,
             detail_from: DetailSource::World,
             sky: None,
             sky_region: sky_region.map(Box::new),
@@ -914,8 +917,12 @@ impl SceneDraw {
             work.remaster_refused = self.apply_remaster(live.fidelity.remaster(), store, gpu);
             self.apply_remaster_rows(remaster_rows::RemasterRows::of(&live.fidelity), gpu);
             self.poll_remaster_look(gpu);
+            // The scenery distance the remaster draws, or the one asked for without it.
+            let scenery = self.scenery_radius_drawn(&live.fidelity);
+            work.scenery_changed = scenery != self.cfg.scenery_radius;
+            self.cfg.scenery_radius = scenery;
         }
-        if !(work.flushed || work.mid_radius_changed) {
+        if !(work.flushed || work.mid_radius_changed || work.scenery_changed) {
             return Ok(work);
         }
         if work.flushed {
@@ -943,7 +950,7 @@ impl SceneDraw {
             ws.streamer.window.mid_radius()
         };
         let viewer = ws.streamer.window.viewer_block();
-        ws.streamer.window = LandblockWindow::new(radius);
+        ws.streamer.window = LandblockWindow::with_spec(radius, self.cfg.window_spec());
         if let Some(v) = viewer {
             // Every slot comes back `Fetched` because the array did not exist, which is
             // `update_block`'s full-reload path -- the same one `WorldScene::load` takes.
@@ -995,7 +1002,7 @@ impl SceneDraw {
         radius: u32,
     ) -> Result<(), WorldError> {
         let viewer = ws.streamer.window.viewer_block();
-        ws.streamer.window = LandblockWindow::new(radius);
+        ws.streamer.window = LandblockWindow::with_spec(radius, self.cfg.window_spec());
         if let Some(v) = viewer {
             let actions = ws.streamer.window.update_block(v);
             self.queue(ws, &actions);

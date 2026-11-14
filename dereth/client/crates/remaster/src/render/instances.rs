@@ -201,6 +201,8 @@ pub struct PackInstances {
     drawn: PerFrame,
     /// The rows written so far: none past it is held.
     high: u32,
+    /// Counts the changes to which parts are the processor's ([`Self::cpu_parts`]).
+    generation: u64,
 }
 
 impl PackInstances {
@@ -255,6 +257,7 @@ impl PackInstances {
                 BufferUsage::default(),
             )?,
             high: 0,
+            generation: 0,
         })
     }
 
@@ -283,6 +286,13 @@ impl PackInstances {
     #[must_use]
     pub fn cpu_parts(&self, block: BlockId) -> Option<&[u32]> {
         self.blocks.get(&block).map(|h| h.cpu_parts.as_slice())
+    }
+
+    /// A number that changes whenever which parts are the processor's ([`Self::cpu_parts`]) may
+    /// have.
+    #[must_use]
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 
     /// Take the scene's changes: each block that came, or changed, has its models' rows written,
@@ -321,6 +331,7 @@ impl PackInstances {
         let Some(h) = self.blocks.remove(&id) else {
             return Ok(());
         };
+        self.generation += 1;
         let (a, b) = (h.range.start as usize, h.range.end as usize);
         self.rows[a * ENTRY_BYTES..b * ENTRY_BYTES].fill(0);
         if let Some(t) = self.table {
@@ -399,6 +410,7 @@ impl PackInstances {
                 first_items,
             },
         );
+        self.generation += 1;
         self.casters_fit(d)?;
         Ok(())
     }

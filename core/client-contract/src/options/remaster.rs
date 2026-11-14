@@ -361,8 +361,75 @@ pub fn god_rays_rows(name: &str) -> Option<Vec<super::store::Choice>> {
     )
 }
 
+/// The scenery distance's caption.
+pub const SCENERY_CAPTION: &str = "Scenery distance";
+
+/// The scenery distance's tooltip.
+pub const SCENERY_NOTE: &str = "How far around you trees and buildings stand.";
+
+/// The scenery distances, by their value less one: how many rings of blocks round the player's
+/// stand their trees, buildings and objects.
+pub const SCENERY_CHOICES: [&str; 4] = ["Near", "Medium", "Far", "Very far"];
+
+/// The scenery distance until the player chooses another: near, as the game draws it.
+pub const SCENERY_DEFAULT: u32 = 1;
+
+/// The value a word stands for: a distance by its name, or its number. `None` for another name
+/// or another word.
+#[must_use]
+pub fn scenery_value(name: &str, raw: &str) -> Option<i32> {
+    if !name.eq_ignore_ascii_case(names::REMASTER_SCENERY) {
+        return None;
+    }
+    let raw = raw.trim();
+    let at = SCENERY_CHOICES
+        .iter()
+        .position(|c| c.eq_ignore_ascii_case(raw))
+        .map(|i| i + 1)
+        .or_else(|| {
+            raw.parse::<usize>()
+                .ok()
+                .filter(|n| (1..=SCENERY_CHOICES.len()).contains(n))
+        })?;
+    i32::try_from(at).ok()
+}
+
+/// The word for a scenery distance; `None` for any other name.
+#[must_use]
+pub fn scenery_words(name: &str, v: &crate::PrefValue) -> Option<String> {
+    if !name.eq_ignore_ascii_case(names::REMASTER_SCENERY) {
+        return None;
+    }
+    match v {
+        crate::PrefValue::Int(i) => usize::try_from(*i)
+            .ok()
+            .and_then(|i| i.checked_sub(1))
+            .and_then(|i| SCENERY_CHOICES.get(i))
+            .map(|w| (*w).to_owned()),
+        _ => None,
+    }
+}
+
+/// The scenery distances a page offers; `None` for any other name.
+#[must_use]
+pub fn scenery_rows(name: &str) -> Option<Vec<super::store::Choice>> {
+    if !name.eq_ignore_ascii_case(names::REMASTER_SCENERY) {
+        return None;
+    }
+    Some(
+        SCENERY_CHOICES
+            .iter()
+            .enumerate()
+            .map(|(i, label)| super::store::Choice {
+                label: (*label).to_owned(),
+                value: i32::try_from(i + 1).unwrap_or(1),
+            })
+            .collect(),
+    )
+}
+
 /// Register the box with the value store, off, its own boxes as they are at first, and the
-/// render scale and God Rays at their defaults. The store's
+/// render scale, God Rays and the scenery distance at their defaults. The store's
 /// load then reads the profile's `[Fidelity]` section into them, and the page reads and writes
 /// them.
 pub fn register() -> usize {
@@ -383,10 +450,16 @@ pub fn register() -> usize {
         crate::PrefValue::Int(i32::try_from(GOD_RAYS_DEFAULT).unwrap_or(0)),
         super::store::DataType::UInt,
     ));
+    let scenery = usize::from(super::store::register_preference(
+        names::REMASTER_SCENERY,
+        crate::PrefValue::Int(i32::try_from(SCENERY_DEFAULT).unwrap_or(1)),
+        super::store::DataType::UInt,
+    ));
     off(super::names::fidelity::REMASTER)
         + FEATURES.iter().map(|f| off(f.name)).sum::<usize>()
         + scale
         + god_rays
+        + scenery
 }
 
 #[cfg(test)]
@@ -483,5 +556,33 @@ mod tests {
         );
         assert_eq!(GOD_RAYS_DEFAULT, 0);
         assert!(god_rays_rows(names::REMASTER).is_none());
+    }
+
+    /// The scenery distance reads its distances by name or number and writes them by name, is
+    /// near at first, and answers for no other option.
+    #[test]
+    fn the_scenery_distance_is_near_to_very_far_and_answers_for_itself_alone() {
+        let name = names::REMASTER_SCENERY;
+        assert_eq!(scenery_value(name, " far "), Some(3));
+        assert_eq!(scenery_value(name, "Very far"), Some(4));
+        assert_eq!(scenery_value(name, "2"), Some(2));
+        assert_eq!(scenery_value(name, "0"), None);
+        assert_eq!(scenery_value(name, "5"), None);
+        assert_eq!(scenery_value(names::REMASTER_GOD_RAYS, "1"), None);
+        assert_eq!(
+            scenery_words(name, &crate::PrefValue::Int(1)).as_deref(),
+            Some("Near")
+        );
+        assert_eq!(scenery_words(name, &crate::PrefValue::Int(0)), None);
+        assert_eq!(scenery_words(name, &crate::PrefValue::Int(5)), None);
+        let rows = scenery_rows(name).expect("its distances");
+        assert_eq!(
+            rows.iter()
+                .map(|r| (r.label.as_str(), r.value))
+                .collect::<Vec<_>>(),
+            [("Near", 1), ("Medium", 2), ("Far", 3), ("Very far", 4)]
+        );
+        assert_eq!(SCENERY_DEFAULT, 1);
+        assert!(scenery_rows(names::REMASTER).is_none());
     }
 }

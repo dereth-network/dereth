@@ -64,7 +64,10 @@ impl WorldState {
             // Replaced once the centre block's height is known.
             camera: FreeCamera::new(Vec3::ZERO, 0.0, -0.42),
             fly_speed: None,
-            streamer: crate::world_stream::WorldStreamer::new(cfg.land_radius),
+            streamer: crate::world_stream::WorldStreamer::with_spec(
+                cfg.land_radius,
+                cfg.window_spec(),
+            ),
             released_interiors: Vec::new(),
             entering_world: Vec::new(),
             sweeps_seen: None,
@@ -834,7 +837,8 @@ impl BlockResidency {
         let released = release_block_interiors(ws, cfg, &departed);
         let radius = ws.streamer.window.mid_radius();
         let was = ws.streamer.window.viewer_block();
-        ws.streamer.window = dereth_landscape::LandblockWindow::new(radius);
+        ws.streamer.window =
+            dereth_landscape::LandblockWindow::with_spec(radius, ws.streamer.window.spec());
         let viewer = (i32::from(destination.x()), i32::from(destination.y()));
         if let Some(was) = was {
             crate::world_step::rebase_render_space_particles(
@@ -1145,5 +1149,59 @@ mod tests {
             "the statics have bodies"
         );
         assert!(ws.character_sound_table.is_some());
+    }
+
+    /// At a scenery radius of 2 the client's window meshes the 5x5 blocks round Holtburg at full
+    /// detail and the second ring grows its objects; with retail's rings that ring is coarse and
+    /// the guard leaves it bare.
+    ///
+    /// Behaviour: none (a scenery radius past retail's is a setting of this client)
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn a_scenery_radius_of_two_grows_the_second_ring_at_full_detail() {
+        let store = retail_store();
+        let second_ring = |full_detail_scenery: bool| -> Vec<(bool, u8, usize)> {
+            let cfg = SceneConfig {
+                landblock: 0xA9B4,
+                character: false,
+                land_radius: 3,
+                scenery_radius: 2,
+                full_detail_scenery,
+                ..SceneConfig::default()
+            };
+            let (_, residency) = load(&store, &cfg).expect("the world loads");
+            residency
+                .blocks
+                .iter()
+                .filter(|((bx, by), _)| (bx - 0xA9).abs().max((by - 0xB4).abs()) == 2)
+                .map(|(_, b)| {
+                    (
+                        b.with_objects,
+                        b.side_cell_count,
+                        b.statics.land_statics.len(),
+                    )
+                })
+                .collect()
+        };
+        let full = second_ring(true);
+        assert_eq!(full.len(), 16, "the second ring is sixteen blocks");
+        assert!(
+            full.iter().all(|&(objects, side, _)| objects && side == 8),
+            "every block of the second ring is full detail and grows its objects: {full:?}"
+        );
+        assert!(
+            full.iter().map(|b| b.2).sum::<usize>() > 100,
+            "the second ring stands its scenery and statics: {full:?}"
+        );
+        let retail = second_ring(false);
+        assert!(
+            retail
+                .iter()
+                .all(|&(_, side, statics)| side == 4 && statics == 0),
+            "retail's second ring is coarse and bare: {retail:?}"
+        );
     }
 }

@@ -300,10 +300,22 @@ pub fn insertion_sort_by_cypt(parts: &mut [PartDraw]) {
 /// implementation and two callers, the same shape as
 /// [`viewer_distance_and_heading`], so the loop has only one implementation.
 ///
-/// The loop is exactly the client's: shift while the neighbour's distance is **greater** than
-/// the key's, which yields descending order and is stable, so equal distances keep registration
-/// order.
+/// The order is exactly the client's loop's: shift while the neighbour's distance is **greater**
+/// than the key's, which yields descending order and is stable, so equal distances keep
+/// registration order. Over distances that are all numbers that order is the one stable
+/// descending order, so it is reached by a stable merge sort, whose work grows as `n log n`
+/// rather than the loop's `n²`: a scene standing a few thousand animated parts sorts them in a
+/// fraction of the time. A list holding a NaN, which no order ranks, takes the loop itself.
 pub fn insertion_sort_by_cypt_key<T: Copy>(items: &mut [T], cypt: impl Fn(&T) -> f32) {
+    if items.iter().all(|t| !cypt(t).is_nan()) {
+        // `partial_cmp` holds 0.0 and -0.0 equal, as the loop's `<` does.
+        items.sort_by(|a, b| {
+            cypt(b)
+                .partial_cmp(&cypt(a))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        return;
+    }
     for i in 1..items.len() {
         let key = items[i];
         let k = cypt(&key);
@@ -585,6 +597,61 @@ mod tests {
             parts.iter().map(|p| p.deg_level).collect::<Vec<_>>(),
             vec![0, 1, 2, 3]
         );
+    }
+
+    /// The client's loop, as it is written: the order every sort of parts must match.
+    fn client_loop(items: &mut [(f32, u32)]) {
+        for i in 1..items.len() {
+            let key = items[i];
+            let mut j = i;
+            while j > 0 && items[j - 1].0 < key.0 {
+                items[j] = items[j - 1];
+                j -= 1;
+            }
+            items[j] = key;
+        }
+    }
+
+    /// Oracle: the client's insertion loop. Thousands of distances drawn from a handful of values
+    /// (so most of them tie), zeros of both signs among them, come out of the sort in the very
+    /// order the loop leaves them, ties in registration order; and a list holding a NaN, which
+    /// the loop alone defines an order for, comes out as the loop leaves it too.
+    #[test]
+    fn many_parts_sort_into_the_order_the_clients_loop_gives_them() {
+        let mut seed = 0x2545_F491_4F6C_DD1Du64;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        for (len, nan) in [
+            (0usize, false),
+            (1, false),
+            (2, false),
+            (37, false),
+            (3000, false),
+            (64, true),
+        ] {
+            let mut items: Vec<(f32, u32)> = (0..len)
+                .map(|i| {
+                    let d = match next() % 7 {
+                        0 => 0.0,
+                        1 => -0.0,
+                        k => f32::from(u8::try_from(k * 13).unwrap_or(0)) * 1.5,
+                    };
+                    (d, u32::try_from(i).unwrap_or(u32::MAX))
+                })
+                .collect();
+            if nan {
+                items[len / 2].0 = f32::NAN;
+            }
+            let mut want = items.clone();
+            client_loop(&mut want);
+            insertion_sort_by_cypt_key(&mut items, |x| x.0);
+            let ids = |v: &[(f32, u32)]| v.iter().map(|x| x.1).collect::<Vec<_>>();
+            assert_eq!(ids(&items), ids(&want), "{len} items, NaN {nan}");
+        }
     }
 
     /// Oracle: beyond 50 units the **cell's** distance

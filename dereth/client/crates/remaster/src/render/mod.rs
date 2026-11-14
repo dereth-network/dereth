@@ -1732,7 +1732,6 @@ impl Renderer {
             ..Drawn::default()
         };
         let eye = frame.camera.eye;
-        let lod_on = self.lod.settings().on;
         let offset = |b: BlockId| -> Vec3 {
             let (x, y) = (i32::from(b >> 8), i32::from(b & 0xFF));
             #[allow(clippy::cast_precision_loss)] // a few hundred blocks
@@ -1803,6 +1802,7 @@ impl Renderer {
                 }
                 let o = offset(*id);
                 let lod = self.lod.block(*id);
+                let lod_on = self.lod.chooses(*id);
                 // The parts the device chooses for are left to it.
                 let cpu = self.instances.cpu_parts(*id);
                 for j in 0..cpu.map_or(b.parts.len(), <[u32]>::len) {
@@ -1910,11 +1910,21 @@ impl Renderer {
             }
         }
         // The objects' parts the walk drew, posed as the frame has them.
+        let poses: std::collections::HashMap<crate::scene::ObjectKey, &crate::scene::ObjectPose> =
+            if frame.drawn_parts.is_empty() {
+                std::collections::HashMap::new()
+            } else {
+                let mut poses = std::collections::HashMap::with_capacity(frame.objects.len());
+                for p in &frame.objects {
+                    // The first pose of a key, as a search from the front finds it.
+                    poses.entry(p.key).or_insert(p);
+                }
+                poses
+            };
         for dp in &frame.drawn_parts {
-            let (Some(o), Some(pose)) = (
-                self.scene.objects.get(&dp.key),
-                frame.objects.iter().find(|p| p.key == dp.key),
-            ) else {
+            let (Some(o), Some(pose)) =
+                (self.scene.objects.get(&dp.key), poses.get(&dp.key).copied())
+            else {
                 continue;
             };
             let (Some(p), Some(pp)) = (

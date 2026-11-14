@@ -2,7 +2,44 @@
 
 use super::*;
 
+/// How many rings of blocks round the viewer's retail brings its placed statics that play an
+/// animation or a script to life in.
+pub(super) const LIVE_HOST_RINGS: i32 = 1;
+
+/// Which blocks' placed statics that play an animation or a script are live this frame: stepped,
+/// their scripts and particles run, and drawn. Those of every block are, but while the remaster
+/// stands scenery past retail's rings: past them a block's are left as they are and not drawn.
+/// Retail never had them there, and a butterfly that far off covers a few pixels.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct LiveHosts {
+    /// The viewer's block, while the hosts past retail's rings are left out.
+    limit: Option<(i32, i32)>,
+}
+
+impl LiveHosts {
+    /// Whether block `(x, y)`'s hosts are live.
+    pub(super) fn live(self, (x, y): (i32, i32)) -> bool {
+        self.limit
+            .is_none_or(|(vx, vy)| (x - vx).abs().max((y - vy).abs()) <= LIVE_HOST_RINGS)
+    }
+}
+
 impl SceneDraw {
+    /// Which blocks' hosts are live this frame ([`LiveHosts`]).
+    pub(super) fn live_hosts(&self, ws: &WorldState) -> LiveHosts {
+        #[cfg(feature = "remaster")]
+        let limited = self.remaster_on();
+        #[cfg(not(feature = "remaster"))]
+        let limited = false;
+        LiveHosts {
+            limit: if limited {
+                ws.streamer.window.viewer_block()
+            } else {
+                None
+            },
+        }
+    }
+
     /// Give every scripted or animated placement a live object, every animated one its part
     /// geometry, and every emitter a mesh.
     ///
@@ -403,6 +440,7 @@ impl SceneDraw {
 
         let mut live = 0usize;
         let mut emitters = 0usize;
+        let live_hosts = self.live_hosts(ws);
         // `self` is split so that the host loop can hold the body's
         // `PhysicsWorld` mutably at the same time as the blocks: retail's scale hook writes
         // `scale` on the very object whose script manager raised the hook, and here the two
@@ -418,7 +456,10 @@ impl SceneDraw {
             stats,
             ..
         } = self;
-        for block in blocks.values_mut() {
+        for (key, block) in blocks.iter_mut() {
+            if !live_hosts.live(*key) {
+                continue;
+            }
             for h in &mut block.hosts {
                 h.driver.cur_time = ServerTime(now.0);
                 // The default animation's step and the part placement, **before** running
@@ -730,7 +771,11 @@ impl SceneDraw {
             (include_outdoors && dereth_physics::landdefs::is_outdoors(cell))
                 || cells.is_some_and(|cells| cells.contains(&cell.0))
         };
-        for block in self.blocks.values() {
+        let live_hosts = self.live_hosts(ws);
+        for (key, block) in &self.blocks {
+            if !live_hosts.live(*key) {
+                continue;
+            }
             for h in &block.hosts {
                 if visible(h.cell) {
                     // The emitter's own cell decides which pass lights its
@@ -783,5 +828,32 @@ impl SceneDraw {
         self.stats.solid_colour_words = self.land.bake.solid_colour_words.len();
         self.stats.clipmap_key_conflicts = self.land.bake.clipmap_key_conflicts;
         self.stats.bake_unowned_releases = self.land.bake.unowned_releases;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (the remaster's scenery past retail's rings leaves its animated statics out)
+    use super::*;
+
+    /// With the hosts past retail's rings left out, a block's hosts are live in the viewer's block
+    /// and those round it alone; with none left out, every block's are.
+    #[test]
+    fn hosts_are_live_in_retails_rings_round_the_viewer_alone_while_the_rest_are_left_out() {
+        let limited = LiveHosts {
+            limit: Some((0x40, 0x80)),
+        };
+        for (block, live) in [
+            ((0x40, 0x80), true),
+            ((0x41, 0x7F), true),
+            ((0x3F, 0x81), true),
+            ((0x42, 0x80), false),
+            ((0x40, 0x7E), false),
+            ((0x44, 0x84), false),
+        ] {
+            assert_eq!(limited.live(block), live, "{block:?}");
+        }
+        let every = LiveHosts { limit: None };
+        assert!(every.live((0x44, 0x84)));
     }
 }

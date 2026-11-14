@@ -418,6 +418,12 @@ const CUSTOM_ENUMS: &[CustomEnum] = &[
         choices: super::remaster::god_rays_rows,
     },
     CustomEnum {
+        recognizes: |name| name.eq_ignore_ascii_case(super::names::fidelity::REMASTER_SCENERY),
+        parse: super::remaster::scenery_value,
+        format: super::remaster::scenery_words,
+        choices: super::remaster::scenery_rows,
+    },
+    CustomEnum {
         recognizes: |name| name.eq_ignore_ascii_case(super::status_bars::STATUS_BAR_COLORS),
         parse: super::status_bars::parse_value,
         format: super::status_bars::convert_to_string,
@@ -1222,11 +1228,11 @@ mod tests {
         // ...beside this client's three presentation options from another era, its interface, its
         // performance panel, its background slow-down, Horizon's two status-bar options, the
         // classic interface's six, the renderer and the landscape detail texture, and in a build
-        // with the remaster its box, its own boxes and its two menus.
+        // with the remaster its box, its own boxes and its three menus.
         #[cfg(not(feature = "fidelity"))]
         assert_eq!(len(), 50);
         #[cfg(feature = "fidelity")]
-        assert_eq!(len(), 50 + 3 + super::super::remaster::FEATURES.len());
+        assert_eq!(len(), 50 + 4 + super::super::remaster::FEATURES.len());
         // The registration defaults are in force before any file is read.
         assert_eq!(
             inq_value("Input.MouseLookSensitivity"),

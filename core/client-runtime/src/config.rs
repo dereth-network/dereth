@@ -417,6 +417,8 @@ pub struct Config {
     /// registered default, **8**; the switch stays because a bench wants a cheap window.
     pub land_radius: u32,
     /// `--scenery-radius <n>`: how many rings of blocks grow scenery, buildings and static objects.
+    /// The landscape is meshed at full detail out to it, so they have full-detail ground to stand
+    /// on; 1 is retail's.
     pub scenery_radius: u32,
     /// `--stream-budget-ms <n>`: milliseconds per frame the landscape may spend building
     /// landblocks, nearest first, before the rest waits for later frames. `0` builds everything
@@ -1293,6 +1295,7 @@ impl Config {
             mesh_collision: self.mesh_collision,
             land_radius: self.land_radius,
             scenery_radius: self.scenery_radius,
+            full_detail_scenery: true,
             character: self.character,
             auto_degrades: self.auto_degrades,
             time_of_day: self.time_of_day,

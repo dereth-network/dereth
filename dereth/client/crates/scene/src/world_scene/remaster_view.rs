@@ -122,6 +122,22 @@ impl SceneDraw {
         self.remaster_view.borrow().inbox.is_some()
     }
 
+    /// How many rings of blocks round the viewer's the world stands its scenery, buildings and
+    /// objects on: the remaster's scenery distance while the remaster draws and names one, the
+    /// radius the scene was loaded with otherwise.
+    #[must_use]
+    pub fn scenery_radius_drawn(
+        &self,
+        fidelity: &dereth_client_runtime::render_prefs::FidelityPreferences,
+    ) -> u32 {
+        use dereth_client_runtime::render_prefs::FidelityFeature;
+        match fidelity.effective(FidelityFeature::RemasterScenery) {
+            0 => self.scenery_asked,
+            _ if !self.remaster_on() => self.scenery_asked,
+            rings => rings,
+        }
+    }
+
     /// Turn the remaster on, reading its assets from `store`, or off. Turning it on again while
     /// it is on, or off while it is off, does nothing.
     ///

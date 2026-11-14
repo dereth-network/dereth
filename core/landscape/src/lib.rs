@@ -50,13 +50,24 @@ pub use dereth_primitives::direction::BlockDirection as Direction;
 /// runs **only on ring 2 and ring 4**.
 #[must_use]
 pub fn block_orient(dx: i32, dy: i32) -> (u8, Direction) {
+    rings_orient(dx, dy, 1)
+}
+
+/// [`block_orient`] with `full` rings round the viewer's block at full detail rather than the
+/// table's one: rings `0..=full` are full detail, and the table's coarser rings, their bands and
+/// their stitching are moved out by `full - 1` rings, so every seam meets as the table's own do. A
+/// `full` of 0 or 1 is the table itself.
+#[must_use]
+pub fn rings_orient(dx: i32, dy: i32, full: u32) -> (u8, Direction) {
+    let extra = i32::try_from(full.max(1) - 1).unwrap_or(i32::MAX);
     let m = dx.abs().max(dy.abs());
-    let (lod_div, q) = match m {
-        0 | 1 => (1u8, 1i32),
+    let (lod_div, q) = match m.saturating_sub(extra) {
+        i32::MIN..=1 => (1u8, 1i32),
         2 => (2, 2),
         3 | 4 => (4, 4),
         _ => return (8, Direction::InViewerBlock),
     };
+    let q = q.saturating_add(extra);
     let dir = if dx == q {
         if dy == q {
             Direction::NorthEast
@@ -124,6 +135,62 @@ mod tests {
             vec![2, 4],
             "stitching must run on exactly rings 2 and 4"
         );
+    }
+
+    /// One full ring, or none asked for, is the table itself, block for block.
+    ///
+    /// Behaviour: none (the window this client asks for when its scenery reaches past retail's)
+    #[test]
+    fn one_full_ring_is_the_table_itself() {
+        for dx in -15..=15i32 {
+            for dy in -15..=15i32 {
+                assert_eq!(rings_orient(dx, dy, 1), block_orient(dx, dy), "({dx},{dy})");
+                assert_eq!(rings_orient(dx, dy, 0), block_orient(dx, dy), "({dx},{dy})");
+            }
+        }
+    }
+
+    /// With `full` rings at full detail, every ring out to it is full detail and unstitched past
+    /// the outermost, the table's coarser rings follow it moved out by `full - 1`, stitching runs on
+    /// exactly the two rings the table's own two have moved to, and a stitched block's direction
+    /// names the edges it has on its ring's outside, as the table's do.
+    ///
+    /// Behaviour: none (the window this client asks for when its scenery reaches past retail's)
+    #[test]
+    fn full_rings_move_the_coarse_rings_and_their_stitching_out() {
+        for full in 2..=6u32 {
+            let extra = i32::try_from(full).unwrap_or(0) - 1;
+            let mut stitching_rings = std::collections::BTreeSet::new();
+            for dx in -15..=15i32 {
+                for dy in -15..=15i32 {
+                    let m = dx.abs().max(dy.abs());
+                    let (lod, dir) = rings_orient(dx, dy, full);
+                    let expect = match m - extra {
+                        ..=1 => 1,
+                        2 => 2,
+                        3 | 4 => 4,
+                        _ => 8,
+                    };
+                    assert_eq!(lod, expect, "full {full} ({dx},{dy}) m={m}");
+                    if m < i32::try_from(full).unwrap_or(0) {
+                        assert_eq!(dir, Direction::InViewerBlock, "full {full} ({dx},{dy})");
+                    }
+                    let n = side_cell_count(lod);
+                    if dir != Direction::InViewerBlock && n > 1 && n < 8 {
+                        stitching_rings.insert(m);
+                        assert_eq!(dir.has_east(), dx == m, "full {full} ({dx},{dy})");
+                        assert_eq!(dir.has_west(), dx == -m, "full {full} ({dx},{dy})");
+                        assert_eq!(dir.has_north(), dy == m, "full {full} ({dx},{dy})");
+                        assert_eq!(dir.has_south(), dy == -m, "full {full} ({dx},{dy})");
+                    }
+                }
+            }
+            assert_eq!(
+                stitching_rings.into_iter().collect::<Vec<_>>(),
+                vec![2 + extra, 4 + extra],
+                "full {full}: stitching runs on the table's two rings, moved out"
+            );
+        }
     }
 
     /// Oracle: the stitch-direction derivation, case by case, at ring 2 where `q == 2`.

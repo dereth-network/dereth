@@ -331,6 +331,10 @@ pub struct ShadowPass {
     /// a cascade, for every cascade.
     spheres: Vec<(Vec3, f32, bool)>,
     block_boxes: Vec<(Vec3, Vec3)>,
+    /// What `spheres` and `block_boxes` were worked out for: the scene's resident statics, the
+    /// frame's origin and which parts the processor draws ([`super::instances`]). They stand
+    /// until one of them changes.
+    spheres_of: Option<(u64, [i32; 2], u64)>,
     /// How far the wind bends the most-bent vertex of any resident model, meters at a wind of a
     /// meter a second, and the meshes' generation it was found at.
     bend: (Option<u64>, f32),
@@ -473,6 +477,7 @@ impl ShadowPass {
             written: BTreeMap::new(),
             spheres: Vec::new(),
             block_boxes: Vec::new(),
+            spheres_of: None,
             bend: (None, 0.0),
             stats: ShadowStats::default(),
         })
@@ -691,7 +696,9 @@ impl ShadowPass {
                         origin,
                     })
         });
-        if redraws {
+        let spheres_of = (resident, origin, instances.generation());
+        if redraws && self.spheres_of != Some(spheres_of) {
+            self.spheres_of = Some(spheres_of);
             self.spheres.clear();
             self.block_boxes.clear();
             for (id, b) in &scene.blocks {

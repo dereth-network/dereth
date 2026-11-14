@@ -220,7 +220,11 @@ impl SceneDraw {
         // Static drawing draws them with their land cell's or interior cell's objects, from
         // the parts this frame's static tick posed; `refresh_part_levels` chose each part's
         // level and draw frame. They carry no object id.
-        for block in self.blocks.values() {
+        let live_hosts = self.live_hosts(ws);
+        for (key, block) in &self.blocks {
+            if !live_hosts.live(*key) {
+                continue;
+            }
             for h in &block.hosts {
                 let Some(meshes) = h.meshes.as_ref() else {
                     continue;
@@ -338,14 +342,12 @@ impl SceneDraw {
         // Each part's light set, chosen once per submission and reused by the
         // alpha flush -- the alpha-list flush re-installs the matrix and material it recorded,
         // and the lights are whatever active-light enabling left in the slots, which for a
-        // deferred subset is the set its own inner mesh draw selected.
+        // deferred subset is the set its own inner mesh draw selected. A walk that only decides
+        // submits nothing, so it lights nothing and chooses none.
+        let lit = self.cfg.object_lighting && self.submits();
         let sets: Vec<Option<Vec<D3dLight>>> = subs
             .iter()
-            .map(|s| {
-                self.cfg
-                    .object_lighting
-                    .then(|| self.submission_light_set(s))
-            })
+            .map(|s| lit.then(|| self.submission_light_set(s)))
             .collect();
         // The watched id, read once for the loop -- the draw tests it
         // against 0 *before* comparing ids, so a frame with nothing selected does nothing here.

@@ -1612,6 +1612,8 @@ impl Shot {
             particles: station.weather
                 || std::env::var("DERETH_STATIONS_PARTICLES").is_ok_and(|v| v.trim() == "1"),
             land_radius: station.land_radius,
+            // The landscape full detail as far as the scenery grows, as the client meshes it.
+            full_detail_scenery: true,
             time_of_day: match clock {
                 Clock::Rainy(f) => Some(f),
                 _ => None,

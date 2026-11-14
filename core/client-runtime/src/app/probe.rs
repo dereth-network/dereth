@@ -292,6 +292,7 @@ impl<'a, S: Shell> AppProbe<'a, S> {
                 objects_changed: false,
                 objects_refused: None,
                 objects_waiting: false,
+                scenery_changed: false,
                 #[cfg(feature = "fidelity")]
                 remaster_refused: None,
             },

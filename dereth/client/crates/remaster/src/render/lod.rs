@@ -23,6 +23,8 @@
 //! the tree is drawn as far as its block is. Past the blocks whose own objects stand in the world
 //! the far forest draws the trees as pictures, so a tree has wholly become its impostor before
 //! it could stand there ([`impostor_cap`]): a step that moves those blocks changes nothing seen.
+//! A level that would leave no room to fade out before then is passed over ([`pull_in`]), so
+//! near that edge a tree fades once, from the last level it keeps into its impostor.
 //!
 //! An art pack's model hands its levels over at the distances its pack gives them
 //! ([`pack_switches`]), never nearer than they stray by the bar; a tree of a pack takes its
@@ -39,7 +41,9 @@ use crate::scene::{BlockId, BlockLevels, Degrade, DegradeBias, FrameDelta, Scene
 /// How levels are chosen.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LodSettings {
-    /// Levels chosen here; off, every part draws the level retail chose.
+    /// Levels chosen here; off, every part retail stands draws the level retail chose. Past the
+    /// blocks retail stands objects on, where it would draw them as nothing, levels are chosen
+    /// here whatever this says, as [`Self::ON`] chooses them.
     pub on: bool,
     /// The most a level may stray from the full mesh on the screen before a finer one is drawn,
     /// pixels.
@@ -78,6 +82,17 @@ impl Default for LodSettings {
 /// How much farther than its hand-over a part is still fading into its next level, by default: a
 /// share of the hand-over distance.
 pub const FADE_BAND: f32 = 0.15;
+
+/// How many rings of blocks round the viewer's retail stands objects on.
+const RETAIL_RINGS: i32 = 1;
+
+/// Whether block `block` lies past the rings of blocks retail stands objects on round the
+/// viewer's, the frame's `origin`: its objects stand only as the scenery distance reaches past
+/// retail's, and retail draws them as nothing there.
+fn past_retail(block: BlockId, origin: [i32; 2]) -> bool {
+    let (x, y) = (i32::from(block >> 8), i32::from(block & 0xFF));
+    (x - origin[0]).abs().max((y - origin[1]).abs()) > RETAIL_RINGS
+}
 
 /// The distances, from the record's [`Degrade::centre`], at which retail hands each level of
 /// `d` over to the next under `bias`: level `i` is drawn nearer than the `i`th, the last level
@@ -161,24 +176,28 @@ pub fn impostor_cap(reach: f32, band: f32, bias: &DegradeBias) -> f32 {
     reach / (1.0 + band.max(0.0))
 }
 
-/// How far apart, at the least, hand-overs drawn in to the cap stay: a share of the fade band, so
-/// each level still fades into the next, however many are drawn in.
-pub const PULLED_GAP: f32 = 0.25;
-
-/// `hand_overs` drawn in so the last comes no farther than `cap`, each no nearer to the next than
-/// [`PULLED_GAP`] of the fade `band`: those that come early enough are kept where they are. So a
-/// tree keeps each level out to where it hands it over, or as near the cap as the levels after it
-/// leave room for; and as the bar moves a hand-over, the others never fall together, so no part
-/// passes over a level all at once.
+/// `hand_overs` drawn in so the last comes no farther than `cap`. A hand-over that comes too late
+/// for its fade to end before the last begins is moved to the last: the part passes over the
+/// levels between, fading from the one before them straight into the last. Those that come early
+/// enough are kept where they are. So a tree keeps each level out to where it hands it over, or
+/// keeps it out to the cap where the window leaves no room for it, and no two fades ever overlap
+/// near the cap, however many levels the tree has.
 pub fn pull_in(hand_overs: &mut [f32], cap: f32, band: f32) {
     if !cap.is_finite() {
         return;
     }
-    let gap = 1.0 + band.max(0.0) * PULLED_GAP;
-    let mut limit = cap;
-    for h in hand_overs.iter_mut().rev() {
-        *h = h.min(limit);
-        limit = *h / gap;
+    let Some((last, before)) = hand_overs.split_last_mut() else {
+        return;
+    };
+    *last = last.min(cap);
+    let room = *last / (1.0 + band.max(0.0));
+    // The hand-overs rise, each at least a fade band past the one before, so those from the
+    // first that fits on all fit.
+    for h in before.iter_mut().rev() {
+        if *h <= room {
+            break;
+        }
+        *h = *last;
     }
 }
 
@@ -409,6 +428,9 @@ struct Group {
     switches: Vec<f32>,
     /// The frame `switches` was worked out for.
     switches_frame: u64,
+    /// The last frame their errors could not be measured, a mesh of theirs not being held: the
+    /// other records alike are not measured again that frame, as they would fail alike.
+    unmeasured_frame: u64,
 }
 
 /// What [`Lod::prepare`] works each record's hand-overs out in, kept from frame to frame.
@@ -418,6 +440,24 @@ struct Scratch {
     switches: Vec<f32>,
     hand_overs: Vec<f32>,
 }
+
+/// One block's records' hand-over distances, kept from frame to frame: for each record, where
+/// its distances start in `distances` and how many there are, with the level its impostor
+/// stands as; `None` for a record not worked out yet.
+#[derive(Debug, Default)]
+struct HandOvers {
+    /// The count of the art pack's distance changes they were worked out under
+    /// ([`Lod::pack_distances`]).
+    pack_distances: u64,
+    at: Vec<Option<(u32, u8, Option<u8>)>>,
+    distances: Vec<f32>,
+}
+
+/// What a record's hand-overs are worked out under besides its own record and its group's errors,
+/// every float by its bits: retail's bias at its farthest and its distance, the pixels a metre at
+/// a metre, the error allowed, the fade band and how far out trees must stand as impostors; the
+/// forced level; whether degrades are off; whether trees stand as impostors.
+type HandOverInputs = ([u32; 6], i32, bool, bool);
 
 /// A record's levels' errors, and its impostor's when it is a tree.
 #[derive(Debug, Clone, PartialEq)]
@@ -466,6 +506,15 @@ pub struct Lod {
     impostor_levels: BTreeMap<BlockId, Vec<Option<u8>>>,
     // ORDER-OK: walked in block order.
     picks: BTreeMap<BlockId, Vec<Option<Pick>>>,
+    /// Each block's records' hand-over distances as last worked out, kept while nothing they are
+    /// worked out from changes, so a frame only measures each record's distance against them.
+    // ORDER-OK: looked up by block.
+    hand_overs: BTreeMap<BlockId, HandOvers>,
+    /// What every record's hand-overs were last worked out under ([`HandOverInputs`]).
+    hand_over_inputs: Option<HandOverInputs>,
+    /// Counts the changes to the distances an art pack's models hand over at: the blocks' kept
+    /// hand-overs are worked out again after one.
+    pack_distances: u64,
     /// The instances whose rows the last frame wrote with a fade or a turn, to be written back,
     /// and where each stood: its block and its place among the block's parts.
     // ORDER-OK: only looked up and compared.
@@ -521,6 +570,9 @@ pub struct LodStats {
     pub turned: u32,
     /// Records whose levels' errors were measured, in all.
     pub measured: u32,
+    /// Records whose hand-over distances the last frame worked out; the rest it kept from the
+    /// frames before.
+    pub worked_out: u32,
 }
 
 impl Lod {
@@ -560,6 +612,7 @@ impl Lod {
                     self.record_groups.insert(b.block, groups);
                     self.records.insert(b.block, b.degrades.clone());
                     self.turned.remove(&b.block);
+                    self.hand_overs.remove(&b.block);
                 }
                 SceneDelta::BlockOut(id) => {
                     self.records.remove(id);
@@ -569,6 +622,7 @@ impl Lod {
                     self.picks.remove(id);
                     self.walked.remove(id);
                     self.impostor_levels.remove(id);
+                    self.hand_overs.remove(id);
                 }
                 _ => {}
             }
@@ -612,20 +666,28 @@ impl Lod {
         self.stats.finer = 0;
         self.stats.coarser = 0;
         self.stats.turned = 0;
-        if !self.settings.on {
-            self.picks.clear();
-            return;
+        self.stats.worked_out = 0;
+        // Off, the blocks retail stands objects on draw its levels; those past them still have
+        // their levels chosen here, as on.
+        let everywhere = self.settings.on;
+        let origin = frame.origin;
+        if !everywhere {
+            self.picks.retain(|b, _| past_retail(*b, origin));
+            if !self.records.keys().any(|b| past_retail(*b, origin)) {
+                return;
+            }
         }
         self.frames += 1;
         let frame_no = self.frames;
         let k = pixels_at_one_metre(height, frame.camera.fov_y);
         let eye = frame.camera.eye;
         let mut budget = ERRORS_PER_FRAME;
-        let (error_px, fade, impostors) = (
-            self.settings.error_px,
-            self.settings.fade,
-            self.settings.impostors,
-        );
+        let chosen = if everywhere {
+            self.settings
+        } else {
+            LodSettings::ON
+        };
+        let (error_px, fade, impostors) = (chosen.error_px, chosen.fade, chosen.impostors);
         // Retail's bias follows its frame rate from frame to frame; its hand-overs are taken at
         // the farthest it slides them, so a still view stays still and no level comes sooner
         // than retail's would at any frame rate.
@@ -634,6 +696,40 @@ impl Lod {
             ..frame.degrade
         };
         let cap = impostor_cap(frame.scenery_reach, fade, &frame.degrade);
+        // The hand-overs kept from the frames before stand while what they were worked out under
+        // stands: the bias, the picture's scale, the settings, and an art pack's distances.
+        let inputs: HandOverInputs = (
+            [
+                farthest.bias.to_bits(),
+                farthest.distance.to_bits(),
+                k.to_bits(),
+                error_px.to_bits(),
+                fade.to_bits(),
+                cap.to_bits(),
+            ],
+            farthest.force,
+            farthest.disabled,
+            impostors,
+        );
+        if self.hand_over_inputs != Some(inputs) {
+            self.hand_overs.clear();
+            self.hand_over_inputs = Some(inputs);
+        }
+        // The distances an art pack's models hand over at, worked out again each frame for every
+        // group they were worked out for before: one that changed counts.
+        for group in self.groups.iter_mut().filter(|g| g.switches_frame != 0) {
+            let before = std::mem::take(&mut group.switches);
+            group.switches.extend(
+                group.levels[..group.levels.len().saturating_sub(1)]
+                    .iter()
+                    .map(|m| distance_of(*m).unwrap_or(f32::INFINITY)),
+            );
+            group.switches_frame = frame_no;
+            if group.switches != before {
+                self.pack_distances += 1;
+            }
+        }
+        let pack_distances = self.pack_distances;
         let Self {
             records,
             record_groups,
@@ -642,10 +738,14 @@ impl Lod {
             scratch,
             picks: all_picks,
             impostor_levels: all_impostor_levels,
+            hand_overs: all_hand_overs,
             stats,
             ..
         } = self;
         for (block, records) in records.iter() {
+            if !everywhere && !past_retail(*block, origin) {
+                continue;
+            }
             let (x, y) = (i32::from(block >> 8), i32::from(block & 0xFF));
             #[allow(clippy::cast_precision_loss)] // a few hundred blocks
             let offset = Vec3::new(
@@ -658,18 +758,34 @@ impl Lod {
             let impostor_levels = all_impostor_levels.entry(*block).or_default();
             impostor_levels.resize(records.len(), None);
             let of = record_groups.get(block).map_or(&[][..], Vec::as_slice);
+            let kept = all_hand_overs.entry(*block).or_default();
+            if kept.pack_distances != pack_distances || kept.at.len() != records.len() {
+                kept.pack_distances = pack_distances;
+                kept.at.clear();
+                kept.at.resize(records.len(), None);
+                kept.distances.clear();
+            }
+            // A record's hand-overs are worked out once (its group's errors, once measured, never
+            // change) and kept; each frame after only measures its distance against them.
             let mut choose = |i: usize| -> (Option<Pick>, Option<u8>) {
                 let Some(r) = records.get(i) else {
                     return (None, None);
                 };
+                if let Some((start, len, impostor)) = kept.at.get(i).copied().flatten() {
+                    let at = start as usize;
+                    let hand_overs = kept.distances.get(at..at + usize::from(len)).unwrap_or(&[]);
+                    let p = pick(hand_overs, (r.centre + offset).distance(eye), fade);
+                    return (Some(p), impostor);
+                }
                 let Some(group) = of.get(i).and_then(|g| groups.get_mut(*g as usize)) else {
                     return (None, None);
                 };
                 if group.errors.is_none() {
-                    if budget == 0 {
+                    if budget == 0 || group.unmeasured_frame == frame_no {
                         return (None, None);
                     }
                     let Some(e) = record_errors(r, tables) else {
+                        group.unmeasured_frame = frame_no;
                         return (None, None);
                     };
                     budget -= 1;
@@ -731,6 +847,15 @@ impl Lod {
                 // levels nearer keep their own.
                 if impostor.is_some() {
                     pull_in(&mut scratch.hand_overs, cap, fade);
+                }
+                stats.worked_out += 1;
+                if let (Some(slot), Ok(start), Ok(len)) = (
+                    kept.at.get_mut(i),
+                    u32::try_from(kept.distances.len()),
+                    u8::try_from(scratch.hand_overs.len()),
+                ) {
+                    *slot = Some((start, len, impostor));
+                    kept.distances.extend_from_slice(&scratch.hand_overs);
                 }
                 let p = pick(&scratch.hand_overs, (r.centre + offset).distance(eye), fade);
                 (Some(p), impostor)
@@ -845,6 +970,13 @@ impl Lod {
     #[must_use]
     pub(crate) fn records(&self, block: BlockId) -> &[Degrade] {
         self.records.get(&block).map_or(&[][..], Vec::as_slice)
+    }
+
+    /// Whether this frame chose levels for block `block`'s records here: every block's while the
+    /// settings are on, and otherwise those past the blocks retail stands objects on.
+    #[must_use]
+    pub fn chooses(&self, block: BlockId) -> bool {
+        self.settings.on || self.picks.contains_key(&block)
     }
 
     /// What this frame chose for block `block`'s records, to ask of part after part
@@ -1459,6 +1591,109 @@ mod tests {
             "25 parts along is 100 m off"
         );
     }
+    /// Each record's hand-overs are worked out once and kept: a frame after the first, its eye
+    /// moved, works none out again, and chooses for every part what a choice made afresh at that
+    /// eye chooses. Another error allowed, or another distance a pack gives its model, has them
+    /// all worked out again.
+    #[test]
+    fn hand_overs_are_worked_out_once_and_kept_until_what_they_follow_changes() {
+        const BLOCK: BlockId = 0xA9B4;
+        const PARTS: usize = 300;
+        let degrades: Vec<Degrade> = (0..PARTS)
+            .map(|i| {
+                #[allow(clippy::cast_precision_loss)] // a few hundred
+                let (x, y) = ((i % 20) as f32 * 9.0, (i / 20) as f32 * 9.0);
+                let mut d = if i % 3 == 0 {
+                    band(&[[20.0, 40.0, 60.0], [60.0, 90.0, 120.0], [0.0; 3]])
+                } else {
+                    Degrade {
+                        levels: vec![1, 2, 0],
+                        modes: vec![1; 3],
+                        scale_z: 1.0,
+                        ..Degrade::default()
+                    }
+                };
+                d.centre = Vec3::new(x, y, 0.0);
+                d
+            })
+            .collect();
+        let came = SceneDelta::BlockIn(Box::new(crate::scene::Block {
+            block: BLOCK,
+            generation: 1,
+            terrain: crate::scene::Terrain {
+                side: 1,
+                vertices: vec![Vec3::ZERO; 4],
+                cuts: vec![false],
+                words: [4; 81],
+            },
+            placements: vec![crate::scene::Placement {
+                id: 0x0100_0001,
+                kind: crate::scene::PlacementKind::Object,
+                frame: Mat4::IDENTITY,
+                scale: 1.0,
+                lifts: [0.0; 2],
+                parts: vec![crate::scene::Part {
+                    gfxobj: 1,
+                    frame: Mat4::IDENTITY,
+                    scale: Vec3::ONE,
+                    degrade: Some(0),
+                }],
+            }],
+            degrades,
+            rooms: Vec::new(),
+            lights: Vec::new(),
+            lamps: Vec::new(),
+        }));
+        let mut tables = AssetTables::new();
+        tables.apply(&came, &mut Levels);
+        let fresh_lod = || {
+            let mut lod = Lod::default();
+            lod.set_settings(LodSettings::ON);
+            lod.take(std::slice::from_ref(&came), &[]);
+            lod
+        };
+        let at = |x: f32| {
+            let mut frame = FrameDelta::default();
+            frame.camera.eye = Vec3::new(x, 0.0, 2.0);
+            frame.camera.fov_y = 1.0;
+            frame.origin = [0xA9, 0xB4];
+            frame
+        };
+        let pack = |d: f32| move |_mesh: u32| Some(d);
+        let mut lod = fresh_lod();
+        lod.prepare(&at(0.0), &tables, 2160, &pack(60.0));
+        assert_eq!(
+            lod.stats().worked_out,
+            300,
+            "the first frame works out every record's"
+        );
+        for x in [7.0, 31.0, 95.0] {
+            lod.prepare(&at(x), &tables, 2160, &pack(60.0));
+            assert_eq!(lod.stats().worked_out, 0, "kept at x = {x}");
+            let mut afresh = fresh_lod();
+            afresh.prepare(&at(x), &tables, 2160, &pack(60.0));
+            assert_eq!(
+                lod.picks[&BLOCK], afresh.picks[&BLOCK],
+                "the same choice at x = {x}"
+            );
+            assert_eq!(lod.impostor_levels[&BLOCK], afresh.impostor_levels[&BLOCK]);
+        }
+        lod.set_settings(LodSettings {
+            error_px: 4.0,
+            ..LodSettings::ON
+        });
+        lod.prepare(&at(95.0), &tables, 2160, &pack(60.0));
+        assert_eq!(lod.stats().worked_out, 300, "another error allowed");
+        lod.prepare(&at(95.0), &tables, 2160, &pack(80.0));
+        assert_eq!(
+            lod.stats().worked_out,
+            300,
+            "another distance the pack gives"
+        );
+        lod.prepare(&at(95.0), &tables, 2160, &pack(80.0));
+        assert_eq!(lod.stats().worked_out, 0);
+    }
+
     /// **Records alike share a group, and only they**: a ground cover's placements of one model
     /// come together, each record alike the one before it; one between them whose levels turn
     /// otherwise, or that has other levels, is a group of its own.
@@ -1538,11 +1773,11 @@ mod tests {
         assert!(impostor_cap(168.0, FADE_BAND, &off).is_infinite());
         let forced = DegradeBias { force: 0, ..even };
         assert!(impostor_cap(168.0, FADE_BAND, &forced).is_infinite());
-        // The hand-overs past the cap are drawn in to it, a little apart; those nearer stay.
-        let gap = 1.0 + FADE_BAND * PULLED_GAP;
+        // The last hand-over past the cap is drawn in to it, and the level before it, left no room
+        // to fade out first, is passed over; those nearer stay.
         let mut h = [100.0, 200.0, 300.0];
         pull_in(&mut h, 150.0, FADE_BAND);
-        assert_eq!(h, [100.0, 150.0 / gap, 150.0]);
+        assert_eq!(h, [100.0, 150.0, 150.0]);
         let mut near = [10.0, 20.0];
         pull_in(&mut near, 150.0, FADE_BAND);
         assert_eq!(near, [10.0, 20.0]);
@@ -1698,34 +1933,50 @@ mod tests {
         );
     }
 
+    /// Whether no two of `h`'s fades overlap: each hand-over either falls together with the next,
+    /// passing over the level between, or ends its fade before the next begins.
+    fn fades_apart(h: &[f32]) -> bool {
+        h.windows(2)
+            .all(|w| w[1] == w[0] || w[1] >= w[0] * (1.0 + FADE_BAND) * 0.999)
+    }
+
     /// A large tree of many levels, whose levels stray by more than the bar until well past the
-    /// blocks round the viewer, keeps its full mesh out to most of the way to where it must
-    /// become its impostor, then fades through its levels into the impostor; a smaller one keeps
-    /// each level that comes before then where it comes. As the bar moves, no two hand-overs
-    /// fall together, so a part never passes over a level at once.
+    /// blocks round the viewer, keeps its full mesh out to where it must become its impostor and
+    /// fades once, straight into it; a smaller one keeps each level that comes early enough to
+    /// fade out first where it comes. With the blocks reaching farther, the large tree keeps the
+    /// levels that fit and fades through them, one at a time. No two fades ever overlap.
     #[test]
-    fn a_tree_keeps_its_full_mesh_out_to_most_of_the_way_to_its_impostor() {
-        let cap = impostor_cap(168.0, FADE_BAND, &DegradeBias::default());
+    fn a_tree_fades_once_into_its_impostor_where_its_levels_do_not_fit() {
+        let near = DegradeBias::default();
+        let cap = impostor_cap(168.0, FADE_BAND, &near);
         // A pine 23 m across, its five levels and its impostor, on a screen 2160 lines tall.
-        let mut big = [307.0, 353.0, 405.0, 466.0, 722.0, 898.0];
+        let pine = [307.0, 354.0, 408.0, 470.0, 722.0, 898.0];
+        let mut big = pine;
         pull_in(&mut big, cap, FADE_BAND);
         assert_eq!(pick(&big, 60.0, FADE_BAND), Pick::only(0), "{big:?}");
-        assert_eq!(pick(&big, 115.0, FADE_BAND), Pick::only(0), "{big:?}");
+        assert_eq!(pick(&big, 140.0, FADE_BAND), Pick::only(0), "{big:?}");
+        let fading = pick(&big, 150.0, FADE_BAND);
+        assert_eq!((fading.level, fading.next), (0, 6), "{fading:?}");
         assert_eq!(pick(&big, 168.0, FADE_BAND), Pick::only(6));
-        let gap = 1.0 + FADE_BAND * PULLED_GAP;
-        assert!(
-            big.windows(2).all(|w| w[1] >= w[0] * gap * 0.999),
-            "{big:?}"
-        );
+        assert!(fades_apart(&big), "{big:?}");
         // A smaller tree's first levels come before the cap, and are kept there.
         let mut small = [42.0, 70.0, 93.0, 373.0];
         pull_in(&mut small, cap, FADE_BAND);
         assert_eq!(small, [42.0, 70.0, 93.0, cap]);
-        // A hand-over the bar moves toward the cap stops short of the next, never meeting it.
-        for raw in [100.0, 120.0, 140.0, 160.0, 400.0] {
+        // Three rings of blocks round the viewer's: the pine keeps its first three levels where
+        // they come, and fades from its fourth into its impostor.
+        let far = impostor_cap(3.0 * 192.0 - 24.0, FADE_BAND, &near);
+        let mut wide = pine;
+        pull_in(&mut wide, far, FADE_BAND);
+        assert_eq!(wide, [307.0, 354.0, 408.0, far, far, far]);
+        assert!(fades_apart(&wide), "{wide:?}");
+        // As the bar moves a hand-over toward the cap, it is kept while its fade ends first, and
+        // passed over once it would not.
+        for raw in [100.0, 120.0, 127.0, 128.0, 140.0, 160.0, 400.0] {
             let mut h = [raw, 500.0];
             pull_in(&mut h, cap, FADE_BAND);
-            assert!(h[0] < h[1], "{h:?}");
+            assert!(fades_apart(&h), "{h:?}");
+            assert_eq!(h[0] == raw, raw * (1.0 + FADE_BAND) <= cap, "{h:?}");
         }
     }
 
@@ -1805,5 +2056,87 @@ mod tests {
         assert_eq!(lod.stats().measured, 1);
         assert!(lod.group_info(group).and_then(|g| g.2).is_some());
         assert!(lod.picks[&BLOCK].iter().all(Option::is_none));
+    }
+
+    /// **With levels off, the blocks retail stands objects on draw retail's levels, and those
+    /// past them still have their levels chosen**: the viewer's block and a block in the ring round
+    /// it are left to retail's levels, while a block two rings out has every part chosen for as
+    /// levels on choose them, its trees standing as impostors where they would.
+    #[test]
+    fn with_levels_off_only_the_blocks_past_retails_ring_have_levels_chosen() {
+        const ORIGIN: [i32; 2] = [0xA9, 0xB4];
+        let id = |dx: i32| -> BlockId { u16::try_from((ORIGIN[0] + dx) << 8 | ORIGIN[1]).unwrap() };
+        let block = |b: BlockId| {
+            let degrades = (0..20u8)
+                .map(|i| Degrade {
+                    levels: vec![1, 2, 0],
+                    modes: vec![1; 3],
+                    scale_z: 1.0,
+                    centre: Vec3::new(f32::from(i) * 9.0, 96.0, 0.0),
+                    ..Degrade::default()
+                })
+                .collect();
+            SceneDelta::BlockIn(Box::new(crate::scene::Block {
+                block: b,
+                generation: 1,
+                terrain: crate::scene::Terrain {
+                    side: 1,
+                    vertices: vec![Vec3::ZERO; 4],
+                    cuts: vec![false],
+                    words: [4; 81],
+                },
+                placements: vec![crate::scene::Placement {
+                    id: 0x0100_0001,
+                    kind: crate::scene::PlacementKind::Object,
+                    frame: Mat4::IDENTITY,
+                    scale: 1.0,
+                    lifts: [0.0; 2],
+                    parts: vec![crate::scene::Part {
+                        gfxobj: 1,
+                        frame: Mat4::IDENTITY,
+                        scale: Vec3::ONE,
+                        degrade: Some(0),
+                    }],
+                }],
+                degrades,
+                rooms: Vec::new(),
+                lights: Vec::new(),
+                lamps: Vec::new(),
+            }))
+        };
+        let came: Vec<SceneDelta> = [0, 1, 2].map(|dx| block(id(dx))).into();
+        let mut tables = AssetTables::new();
+        for c in &came {
+            tables.apply(c, &mut Levels);
+        }
+        let mut frame = FrameDelta::default();
+        frame.camera.eye = Vec3::new(96.0, 96.0, 2.0);
+        frame.camera.fov_y = 1.0;
+        frame.origin = ORIGIN;
+        let chosen_with = |settings: LodSettings| {
+            let mut lod = Lod::default();
+            lod.set_settings(settings);
+            lod.take(&came, &[]);
+            let distance_of = |_mesh: u32| Some(60.0);
+            lod.prepare(&frame, &tables, 2160, &distance_of);
+            lod
+        };
+        let off = chosen_with(LodSettings::OFF);
+        let on = chosen_with(LodSettings::ON);
+        for dx in [0, 1] {
+            assert!(!off.chooses(id(dx)), "{dx} blocks out: retail's levels");
+            assert!(on.chooses(id(dx)));
+        }
+        assert!(off.chooses(id(2)), "two blocks out: chosen here");
+        let far = &off.picks[&id(2)];
+        assert!(far.iter().all(Option::is_some), "every part chosen for");
+        assert_eq!(far, &on.picks[&id(2)], "as levels on choose them");
+        assert_eq!(off.impostor_levels[&id(2)], on.impostor_levels[&id(2)]);
+        // Nothing past retail's ring: nothing chosen at all.
+        let mut near = Lod::default();
+        near.take(&came[..2], &[]);
+        near.prepare(&frame, &tables, 2160, &|_mesh: u32| Some(60.0));
+        assert!(near.picks.is_empty());
+        assert_eq!(near.stats().measured, 0);
     }
 }

@@ -2,6 +2,32 @@
 
 use super::*;
 
+/// What a block's placements' levels were last chosen under: the viewer, block-local; the inputs
+/// every level is chosen by; and how far the viewer may move from there before any of them could
+/// choose another level, or turn another way ([`select_levels`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct LevelsChosen {
+    viewer: Vec3,
+    globals: dereth_world_render::objects::degrade::DegradeGlobals,
+    share_2dsq: f32,
+    slack: f32,
+}
+
+impl LevelsChosen {
+    /// Whether every level chosen under it stands for `viewer` under the same inputs: the viewer
+    /// has moved less than the slack, with a centimeter to spare for rounding.
+    fn stands(
+        &self,
+        viewer: Vec3,
+        globals: &dereth_world_render::objects::degrade::DegradeGlobals,
+        share_2dsq: f32,
+    ) -> bool {
+        self.globals == *globals
+            && self.share_2dsq.to_bits() == share_2dsq.to_bits()
+            && viewer.sub(self.viewer).mag2().sqrt() + 0.01 < self.slack
+    }
+}
+
 impl SceneDraw {
     /// Update the frame-rate window, then update the adaptive degrade multiplier.
     ///
@@ -42,6 +68,10 @@ impl SceneDraw {
     /// It must run **after** [`Self::calc_deg_level`], because the bias that frame's
     /// thresholds slide by is the one the loop just produced, and after the re-centre, because
     /// `block.origin` moves with it.
+    ///
+    /// A block whose viewer has moved less, since its levels were last chosen under the same
+    /// inputs, than any of its placements' distances could take to cross a threshold is passed
+    /// over: none of its levels can have changed ([`LevelsChosen`]).
     pub(super) fn refresh_degrade_levels(&mut self, ws: &mut WorldState) -> u32 {
         let globals = self.degrade_globals(ws);
         let cam = detail_viewer(ws);
@@ -53,27 +83,46 @@ impl SceneDraw {
         for block in self.blocks.values_mut() {
             let viewer = Vec3::new(cam.x - block.origin.0, cam.y - block.origin.1, cam.z);
             let first = !block.degrade_assembled;
-            let (changed, n, t) =
+            if !first
+                && block
+                    .levels_chosen
+                    .is_some_and(|c| c.stands(viewer, &globals, share_2dsq))
+            {
+                continue;
+            }
+            let (changed, n, t, mut slack) =
                 select_levels(&mut block.degrade, true, viewer, share_2dsq, &globals);
             switches += n;
             turns += t;
+            let mut block_changed = changed || first;
             if changed || first {
                 assemble_batches(&mut block.opaque, &block.degrade);
                 assemble_batches(&mut block.blended, &block.degrade);
                 assemblies += 1;
             }
             for cell in &mut block.env_cells {
-                let (changed, n, t) =
+                let (changed, n, t, s) =
                     select_levels(&mut cell.degrade, false, viewer, share_2dsq, &globals);
+                slack = slack.min(s);
                 switches += n;
                 turns += t;
                 if changed || first {
                     assemble_batches(&mut cell.statics, &cell.degrade);
                     assemble_batches(&mut cell.statics_blended, &cell.degrade);
                     assemblies += 1;
+                    block_changed = true;
                 }
             }
             block.degrade_assembled = true;
+            block.levels_chosen = Some(LevelsChosen {
+                viewer,
+                globals,
+                share_2dsq,
+                slack,
+            });
+            if block_changed {
+                block.levels_serial = super::next_levels_serial();
+            }
         }
         // A billboard turn is a reassembly the way a level change is, so the two
         // costs are reported side by side rather than folded together: `degrade_switches`
@@ -182,7 +231,11 @@ impl SceneDraw {
         // ordinary object's.
         let shift = self.block_shift(ws);
         let share_2dsq = share.share_distance_2dsq(false);
-        for block in self.blocks.values_mut() {
+        let live_hosts = self.live_hosts(ws);
+        for (key, block) in &mut self.blocks {
+            if !live_hosts.live(*key) {
+                continue;
+            }
             for h in &mut block.hosts {
                 let Some(meshes) = h.meshes.as_ref() else {
                     continue;
@@ -418,7 +471,9 @@ pub(super) fn detail_viewer(ws: &WorldState) -> Vec3 {
 /// Select the degrade level for a whole block's baked
 /// placements, then the assembly of what that chose.
 ///
-/// Returns whether any placement changed level, i.e. whether the batches have to be rebuilt.
+/// Returns whether any placement changed level, i.e. whether the batches have to be rebuilt, the
+/// levels and turns that changed, and how far the viewer may move before any placement could
+/// choose another level or turn another way ([`placement_slack`]).
 /// `viewer` is **block-local**, like the vertices.
 pub(super) fn select_levels(
     placements: &mut [DegradePlacement],
@@ -426,10 +481,11 @@ pub(super) fn select_levels(
     viewer: Vec3,
     share_2dsq: f32,
     globals: &dereth_world_render::objects::degrade::DegradeGlobals,
-) -> (bool, u32, u32) {
+) -> (bool, u32, u32, f32) {
     let mut changed = false;
     let mut switches = 0u32;
     let mut turns = 0u32;
+    let mut slack = f32::INFINITY;
     for p in placements.iter_mut() {
         // The client computes the offset from the viewer to the part, then the distance
         // `|v|` and the heading `v / |v|`. Both ends are in the same block frame, so the offset is
@@ -469,8 +525,57 @@ pub(super) fn select_levels(
                 turns += 1;
             }
         }
+        // A level that turns toward the viewer turns as it moves at all.
+        let turning =
+            p.billboards && mode != dereth_world_render::objects::degrade::DegradeMode::None;
+        slack = if turning {
+            0.0
+        } else {
+            slack.min(placement_slack(
+                p, outdoors, viewer, share_2dsq, cypt, globals,
+            ))
+        };
     }
-    (changed, switches, turns)
+    (changed, switches, turns, slack)
+}
+
+/// How far `viewer` may move before placement `p`'s level could change: before its viewer
+/// distance `cypt` ([`placement_viewer_distance`]) crosses a threshold of its record, or before
+/// the viewer crosses a distance at which that distance comes to be measured to another point.
+/// Each distance it is measured by grows no faster than the viewer moves.
+pub(super) fn placement_slack(
+    p: &DegradePlacement,
+    outdoors: bool,
+    viewer: Vec3,
+    share_2dsq: f32,
+    cypt: f32,
+    globals: &dereth_world_render::objects::degrade::DegradeGlobals,
+) -> f32 {
+    use dereth_world_render::objects::degrade::degrade_slack;
+    use dereth_world_render::objects::parts::{land_cell_centre, PER_PART_DISTANCE};
+    let z = p.scale_z;
+    let level = if z == 0.0 {
+        degrade_slack(&p.info, cypt, globals)
+    } else {
+        degrade_slack(&p.info, cypt / z, globals) * z.abs()
+    };
+    let Some(o) = p.object_origin else {
+        return level;
+    };
+    let across = |to: Vec3| {
+        let (x, y) = (to.x - viewer.x, to.y - viewer.y);
+        (x * x + y * y).sqrt()
+    };
+    let mut measure = f32::INFINITY;
+    if outdoors {
+        let cell = across(land_cell_centre(o));
+        measure = (cell - PER_PART_DISTANCE).abs();
+        if cell > PER_PART_DISTANCE {
+            return level.min(measure);
+        }
+    }
+    measure = measure.min((across(o) - share_2dsq.sqrt()).abs());
+    level.min(measure)
 }
 
 /// The cell- and object-level halves of the viewer-distance update for one world object: its
@@ -593,5 +698,131 @@ pub(super) fn part_level_at(
         level,
         mode: pd.deg_mode,
         draw_pos: pd.draw_pos,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (a block's levels are passed over only while none can have changed)
+    use super::*;
+    use dereth_assets::motion::{GfxObjDegradeInfo, GfxObjInfo};
+    use dereth_world_render::objects::degrade::{DegradeGlobals, DegradeMode};
+
+    /// A placement of a three-level record at `centre`, its object at `origin`, block-local.
+    fn placement(centre: Vec3, origin: Option<Vec3>, scale_z: f32) -> DegradePlacement {
+        let level = |id: u32, min: f32, ideal: f32, max: f32| GfxObjInfo {
+            gfxobj_id: DataId(id),
+            degrade_mode: 1,
+            min_dist: min,
+            ideal_dist: ideal,
+            max_dist: max,
+        };
+        DegradePlacement {
+            centre,
+            object_origin: origin,
+            scale_z,
+            info: Arc::new(GfxObjDegradeInfo {
+                id: DataId(0x1100_0001),
+                degrades: vec![
+                    level(0x0100_0001, 10.0, 25.0, 50.0),
+                    level(0x0100_0002, 25.0, 50.0, 100.0),
+                    level(0, f32::MAX, f32::MAX, f32::MAX),
+                ],
+            }),
+            level: 0,
+            billboards: false,
+            frame: Frame::default(),
+            draw_pos: Frame::default(),
+            mode: DegradeMode::None,
+        }
+    }
+
+    /// Wherever the viewer stands, moving it less than the slack `select_levels` reports, in any
+    /// direction, changes none of the levels; the slack is no larger than needed, as some move a
+    /// little past it changes one.
+    #[test]
+    fn a_viewer_that_moves_less_than_the_slack_changes_no_placements_level() {
+        let globals = DegradeGlobals::default();
+        let share = 60.0f32 * 60.0;
+        let mut placements = vec![
+            // A tall object's part: inside the share distance it measures itself, high up, and
+            // past fifty meters from its land cell's centre (132, 132) it takes the cell's
+            // distance, a level nearer.
+            placement(
+                Vec3::new(130.0, 130.0, 80.0),
+                Some(Vec3::new(130.0, 130.0, 0.0)),
+                1.0,
+            ),
+            // A building: it measures itself.
+            placement(Vec3::new(40.0, 60.0, 5.0), None, 1.0),
+            // An object near its land cell's centre, and one farther off, scaled up.
+            placement(
+                Vec3::new(100.0, 100.0, 3.0),
+                Some(Vec3::new(100.0, 101.0, 0.0)),
+                1.0,
+            ),
+            placement(
+                Vec3::new(170.0, 20.0, 6.0),
+                Some(Vec3::new(170.5, 19.0, 0.0)),
+                1.8,
+            ),
+        ];
+        let directions = [
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(-0.6, 0.8, 0.0),
+            Vec3::new(0.0, -0.6, 0.8),
+            Vec3::new(0.48, 0.6, -0.64),
+        ];
+        let mut crossed = 0;
+        let grid = (0..20).flat_map(|i| {
+            let x = f32::from(i16::try_from(i).unwrap()) * 13.0 - 30.0;
+            [-40.0f32, 10.0, 90.0, 150.0].map(|y| (x, y))
+        });
+        // And near where the tall part's measure changes.
+        let edge = (0..8).map(|i| (79.5 + f32::from(i16::try_from(i).unwrap()), 132.0));
+        for (x, y) in grid.chain(edge) {
+            {
+                let viewer = Vec3::new(x, y, 2.0);
+                let (_, _, _, slack) =
+                    select_levels(&mut placements, true, viewer, share, &globals);
+                let levels: Vec<u32> = placements.iter().map(|p| p.level).collect();
+                assert!(slack > 0.0, "at {viewer:?}");
+                for d in directions {
+                    let near = viewer.add(d.mul(slack.min(500.0) * 0.99));
+                    let (changed, ..) = select_levels(&mut placements, true, near, share, &globals);
+                    assert!(!changed, "{viewer:?} moved to {near:?}, slack {slack}");
+                    let (back, ..) = select_levels(&mut placements, true, viewer, share, &globals);
+                    assert!(!back);
+                    assert_eq!(
+                        placements.iter().map(|p| p.level).collect::<Vec<_>>(),
+                        levels
+                    );
+                    let past = viewer.add(d.mul(slack + 0.05));
+                    if select_levels(&mut placements, true, past, share, &globals).0 {
+                        crossed += 1;
+                    }
+                    select_levels(&mut placements, true, viewer, share, &globals);
+                }
+            }
+        }
+        assert!(crossed > 0, "no move past the slack changed a level");
+    }
+
+    /// A placement whose level turns toward the viewer turns as the viewer moves at all.
+    #[test]
+    fn a_turning_placement_leaves_no_slack() {
+        let globals = DegradeGlobals::default();
+        let mut p = placement(Vec3::new(40.0, 60.0, 5.0), None, 1.0);
+        p.billboards = true;
+        Arc::make_mut(&mut p.info).degrades[0].degrade_mode = 2;
+        let mut placements = vec![p];
+        let (_, _, _, slack) = select_levels(
+            &mut placements,
+            true,
+            Vec3::new(0.0, 0.0, 2.0),
+            900.0,
+            &globals,
+        );
+        assert_eq!(slack, 0.0);
     }
 }

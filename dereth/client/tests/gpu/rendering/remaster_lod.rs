@@ -199,7 +199,9 @@ const FADED_PATCH: usize = 8;
 /// In the forest, with the view still, moving the error bar from 10 to 13 pixels in steps of a
 /// tenth moves the parts through their hand-overs. Handing over at once, a step changes a part's
 /// whole outline together; fading, no step changes a patch of more than a few touching pixels,
-/// and the sweep changes no more pixels in all.
+/// and the sweep changes no more pixels in all. The trees' impostors are left out: moving the bar
+/// also moves a tree's hand-overs across the room the window leaves before its impostor, where
+/// a level is passed over by design, which no step of a walk does.
 #[test]
 fn parts_fading_through_their_hand_overs_change_few_pixels_at_a_time() {
     let _gpu = crate::common::gpu_lock();
@@ -207,6 +209,7 @@ fn parts_fading_through_their_hand_overs_change_few_pixels_at_a_time() {
     let sweep = |fade: f32| -> (usize, usize, usize) {
         let lod = RemasterLod {
             fade,
+            impostors: false,
             ..RemasterLod::ON
         };
         let (mut gpu, mut shot) = open(&store, "forest", lod, (1920, 1080));
@@ -565,4 +568,122 @@ fn a_trees_impostor_covers_its_crown_where_its_mesh_does() {
         share < 0.0075,
         "the impostors leave {share:.4} of what the meshes cover open"
     );
+}
+
+/// The vista with its scenery two rings of blocks out, the remaster's boxes ticked through the
+/// preferences poll as the player ticks them, the sun's shadows drawn and its levels chosen as
+/// the Detail box (`detail`) says; drawn until it settles, the clock held.
+fn vista_two_rings_out(store: &Arc<RetailDatStore>, detail: bool) -> RemasterCapture {
+    let station = remaster_frames::stations(store, &["vista"])
+        .pop()
+        .expect("the station");
+    let cfg = DeviceConfig {
+        width: 960,
+        height: 540,
+        remaster: true,
+        debug: true,
+        ..DeviceConfig::default()
+    };
+    let mut gpu = Gpu::new_on(crate::common::remaster_backend(), None, &cfg).expect("a device");
+    let mut shot = Shot::open_with(store, &mut gpu, &station, false, Some(2));
+    shot.poll(&mut gpu);
+    let boxes = format!(
+        "Remaster=1,RemasterShadows=1,RemasterScenery=2,RemasterDetail={}",
+        u8::from(detail)
+    );
+    shot.scene.draw.cfg.render.fidelity =
+        dereth_client_runtime::render_prefs::FidelityPreferences::parse_switch(&boxes)
+            .expect("the boxes read");
+    shot.poll(&mut gpu);
+    shot.step_held(&mut gpu);
+    shot.scene.wait_for_remaster_ground();
+    for _ in 0..24 {
+        shot.step_held(&mut gpu);
+    }
+    let c = capture(&shot, &mut gpu);
+    close(store, "vista", gpu, shot);
+    c
+}
+
+/// How many rings of blocks round the viewer's the world drawn at each of `c`'s pixels stands
+/// in; `None` where only the sky is drawn. The frame's space has its origin at the south-west
+/// corner of the viewer's block.
+#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)] // pixels and blocks
+fn rings_out(c: &RemasterCapture) -> Vec<Option<i32>> {
+    let inv = glam::Mat4::from_cols_array(&c.view_projection).inverse();
+    let (w, h) = (c.width as usize, c.height as usize);
+    (0..c.class.len())
+        .map(|i| {
+            if matches!(c.class[i], 0 | 5) {
+                return None;
+            }
+            let (x, y) = (i % w, i / w);
+            let p = inv.project_point3(glam::Vec3::new(
+                (x as f32 + 0.5) / w as f32 * 2.0 - 1.0,
+                1.0 - (y as f32 + 0.5) / h as f32 * 2.0,
+                c.depth[i],
+            ));
+            let block = |v: f32| (v / 192.0).floor() as i32;
+            Some(block(p.x).abs().max(block(p.y).abs()))
+        })
+        .collect()
+}
+
+/// **Past the blocks retail stands objects on, the Detail box changes nothing drawn**: over the
+/// vista with the scenery two rings of blocks out, the world drawn in the blocks two rings out
+/// (in both frames, and away from the edges of what stands nearer) is the same with the box
+/// unticked as with it ticked, pixel for pixel and in the sun that reaches each: the far trees
+/// drawn as the remaster chooses their levels, their impostors, and their shadows over them.
+/// Retail would draw them as nothing there, while every tree still casts its shadow.
+#[test]
+fn past_retails_ring_the_detail_box_changes_nothing_drawn() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let off = vista_two_rings_out(&store, false);
+    let on = vista_two_rings_out(&store, true);
+    let (rings_off, rings_on) = (rings_out(&off), rings_out(&on));
+    // The pixels two rings out in both frames, but for those beside a nearer one in either: the
+    // edges of what stands nearer, drawn at another level with the box unticked, blend over them.
+    let near = |i: usize| {
+        [&rings_off, &rings_on]
+            .iter()
+            .any(|r| r[i].is_some_and(|n| n < 2))
+    };
+    let w = off.width as usize;
+    let beside = |i: usize| {
+        let (x, y) = (i % w, i / w);
+        (y.saturating_sub(1)..=y + 1)
+            .flat_map(|v| (x.saturating_sub(1)..=(x + 1).min(w - 1)).map(move |u| v * w + u))
+            .any(|j| j < off.class.len() && near(j))
+    };
+    let far: Vec<usize> = (0..off.class.len())
+        .filter(|i| rings_off[*i] == Some(2) && rings_on[*i] == Some(2) && !beside(*i))
+        .collect();
+    let objects = |c: &RemasterCapture| far.iter().filter(|i| c.class[**i] == 2).count();
+    let color = far
+        .iter()
+        .filter(|i| off.color[**i * 4..**i * 4 + 4] != on.color[**i * 4..**i * 4 + 4])
+        .count();
+    let sun = |c: &RemasterCapture| {
+        let s = c
+            .sun_visibility
+            .as_ref()
+            .expect("the sun's shadows are drawn");
+        far.iter().map(|i| s[*i]).collect::<Vec<_>>()
+    };
+    let shade = sun(&off)
+        .iter()
+        .zip(sun(&on))
+        .filter(|(a, b)| **a != *b)
+        .count();
+    eprintln!(
+        "vista: {} pixels two rings out, {} of them objects with the box ticked and {} unticked; \
+         {color} differ in color, {shade} in the sun",
+        far.len(),
+        objects(&on),
+        objects(&off)
+    );
+    assert!(objects(&on) > 1_000, "the far trees are in view");
+    assert_eq!(objects(&off), objects(&on), "the far trees are drawn");
+    assert_eq!((color, shade), (0, 0), "the same world two rings out");
 }

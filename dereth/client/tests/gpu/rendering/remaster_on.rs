@@ -770,3 +770,62 @@ fn each_frame_uploads_under_its_limit_at_the_farthest_draw_distance() {
     let errors = dereth_render::vulkan::take_validation_errors();
     assert!(errors.is_empty(), "the validation layer: {errors:#?}");
 }
+
+/// The full-detail blocks of the scene's window, and the scenery standing in it.
+fn scenery_held(shot: &Shot) -> (usize, usize) {
+    let full = shot
+        .scene
+        .world
+        .streamer
+        .window
+        .ring_map()
+        .iter()
+        .filter(|&&n| n == 8)
+        .count();
+    (full, shot.scene.draw.stats.scenery_objects)
+}
+
+/// The remaster's scenery distance stands the scenery of as many rings of blocks round the
+/// viewer's as it says, the landscape meshed at full detail under it, while the remaster draws;
+/// a poll that changes nothing builds nothing; and with the remaster off the scene stands its
+/// scenery as far as it was loaded with again.
+#[test]
+fn the_scenery_distance_reaches_as_far_as_it_says_while_the_remaster_draws() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let station = remaster_frames::stations(&store, &["holtburg"])
+        .pop()
+        .expect("the town");
+    let mut gpu = device(crate::common::remaster_backend(), true);
+    let mut shot = Shot::open(&store, &mut gpu, &station);
+    shot.poll(&mut gpu);
+    assert!(
+        shot.scene.draw.cfg.land_radius >= 3,
+        "the window reaches the third ring"
+    );
+    let (full, scenery) = scenery_held(&shot);
+    assert_eq!(shot.scene.draw.cfg.scenery_radius, 1);
+    assert_eq!(full, 9, "the viewer's block and the ring round it");
+
+    let far =
+        FidelityPreferences::parse_switch("Remaster=1,RemasterScenery=3").expect("a fidelity spec");
+    let work = poll_with(&mut shot, &mut gpu, far);
+    assert!(work.scenery_changed);
+    assert!(shot.scene.draw.remaster_on());
+    assert_eq!(shot.scene.draw.cfg.scenery_radius, 3);
+    let (far_full, far_scenery) = scenery_held(&shot);
+    assert_eq!(far_full, 49, "seven blocks a side at full detail");
+    assert!(
+        far_scenery > scenery * 3,
+        "the three rings stand their scenery: {scenery} -> {far_scenery}"
+    );
+    let again = poll_with(&mut shot, &mut gpu, far);
+    assert!(!again.scenery_changed, "a poll that changes nothing");
+    assert_eq!(scenery_held(&shot), (far_full, far_scenery));
+
+    let work = poll_with(&mut shot, &mut gpu, boxed(false));
+    assert!(work.scenery_changed);
+    assert!(!shot.scene.draw.remaster_on());
+    assert_eq!(shot.scene.draw.cfg.scenery_radius, 1);
+    assert_eq!(scenery_held(&shot), (full, scenery));
+}

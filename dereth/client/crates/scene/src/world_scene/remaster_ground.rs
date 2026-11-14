@@ -415,6 +415,8 @@ pub(crate) struct RemasterGround {
     worker_tried: bool,
     /// Bumped whenever the offsets are thrown away for new knobs.
     field_generation: u64,
+    /// Bumped whenever any knob changes.
+    knobs_serial: u64,
     /// Whether the offset is drawn this frame.
     pub(crate) active: bool,
     /// Where render space's origin lies in the world, meters east and north.
@@ -437,6 +439,9 @@ impl RemasterGround {
     pub(crate) fn set_knobs(&mut self, knobs: Knobs) {
         let changed = knobs.changed_from(&self.knobs);
         self.knobs = knobs;
+        if !changed.is_empty() {
+            self.knobs_serial += 1;
+        }
         if changed.iter().any(|k| FIELD_KNOBS.contains(k)) {
             self.fields.clear();
             self.maker.pins.clear();
@@ -788,18 +793,86 @@ impl RemasterGround {
     /// and never under the drawn ground there, the floor of the water's banks included. A thing
     /// retail sinks into its water stays as deep as retail sinks it, where the water's bed is drawn.
     fn shift(&self, world: &World, (x, y, z): (f32, f32, f32), (far, kept): (f32, f32)) -> f32 {
+        self.shift_with(world, (x, y, z), (far, kept), &mut |x, y, kept| {
+            drawn::body_offset(|x, y| self.near_at(x, y, kept), x, y, &self.knobs)
+        })
+    }
+
+    /// [`Self::shift`], the near ground's offset averaged over the stance at `(x, y)` with `kept`
+    /// of the rock bands given by `near`.
+    fn shift_with(
+        &self,
+        world: &World,
+        (x, y, z): (f32, f32, f32),
+        (far, kept): (f32, f32),
+        near: &mut dyn FnMut(f32, f32, f32) -> f32,
+    ) -> f32 {
         let p = Point::at(world, x, y);
         let keep = self.keep(z - p.retail);
         if keep <= 0.0 {
             return 0.0;
         }
-        let near = if far < 1.0 {
-            drawn::body_offset(|x, y| self.near_at(x, y, kept), x, y, &self.knobs)
-        } else {
-            0.0
-        };
+        let near = if far < 1.0 { near(x, y, kept) } else { 0.0 };
         let ground = drawn::drawn_at(&p, x, y, near, far, self.water().as_ref(), &self.knobs);
         drawn::shift(drawn::held_from(z, p.retail), ground, keep)
+    }
+
+    /// A number for what the near ground's offset round render-space `at` is worked out from:
+    /// the offsets of its block and the blocks round it, the knobs, and where render space lies.
+    /// It changes whenever any of them does.
+    pub(crate) fn near_key(&self, at: Vec3) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let (x, y) = (at.x + self.global.0, at.y + self.global.1);
+        let block = (
+            dereth_primitives::num::floor_to_i32(x / BLOCK_METERS),
+            dereth_primitives::num::floor_to_i32(y / BLOCK_METERS),
+        );
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.field_generation.hash(&mut h);
+        self.knobs_serial.hash(&mut h);
+        self.global.0.to_bits().hash(&mut h);
+        self.global.1.to_bits().hash(&mut h);
+        for x in block.0 - 1..=block.0 + 1 {
+            for y in block.1 - 1..=block.1 + 1 {
+                self.near_tile((x, y)).map(|t| t.generation).hash(&mut h);
+            }
+        }
+        h.finish()
+    }
+
+    /// [`Self::shift_at`] for a thing that stays where it stands: the near ground's offset under
+    /// it, the slow part, is kept in `kept` with what it was worked out from (`near`, its
+    /// [`Self::near_key`], and how much of the rock bands it holds), and worked out again only
+    /// once that changes. The rest follows the eye frame by frame, as it does for anything.
+    pub(crate) fn still_shift_at(
+        &self,
+        at: Vec3,
+        near: u64,
+        kept: &mut Option<(u64, u32, f32)>,
+    ) -> f32 {
+        if !self.active || !self.knobs.on(Knob::BodyShift) {
+            return 0.0;
+        }
+        let Some(world) = self.world.as_ref() else {
+            return 0.0;
+        };
+        let (x, y) = (at.x + self.global.0, at.y + self.global.1);
+        let retail = Point::at(world.as_ref(), x, y).retail;
+        let eye = self.eye;
+        let dist =
+            ((at.x - eye.x).powi(2) + (at.y - eye.y).powi(2) + (retail - eye.z).powi(2)).sqrt();
+        let far = drawn::morph(dist, &self.knobs);
+        let bands = self.bands_kept(dist);
+        self.shift_with(world, (x, y, at.z), (far, bands), &mut |x, y, bands| {
+            if let Some((key, held, offset)) = *kept {
+                if key == near && held == bands.to_bits() {
+                    return offset;
+                }
+            }
+            let offset = drawn::body_offset(|x, y| self.near_at(x, y, bands), x, y, &self.knobs);
+            *kept = Some((near, bands.to_bits(), offset));
+            offset
+        })
     }
 
     /// How far a thing standing at render-space `at` is drawn above where physics puts it, given
@@ -1313,6 +1386,65 @@ mod tests {
             fresh.keep_fields_from(None);
         }
         assert!(offsets(&g) == offsets(&fresh));
+    }
+
+    /// **Something standing still keeps the ground under it**: an animated static's lift, its
+    /// near ground's offset kept from the frame before, is the lift worked out afresh, wherever
+    /// the eye goes; the kept offset is used as it stands while what it was worked out from
+    /// stands (a stand-in kept for it comes back), and worked out again once the offsets round it
+    /// change.
+    #[test]
+    fn something_standing_still_keeps_the_ground_under_it_until_the_ground_changes() {
+        let mut g = ground();
+        g.keep_fields_from(None);
+        g.wait_for_asked();
+        for _ in 0..200 {
+            g.keep_fields_from(None);
+        }
+        let (x, y) = (100.0 * 192.0 + 37.0, 100.0 * 192.0 + 61.0);
+        // Standing on retail's ground, as a placed static does.
+        let z = Point::at(g.world.as_deref().expect("a world"), x, y).retail;
+        let at = Vec3::new(x, y, z);
+        let near = g.near_key(at);
+        let mut kept = None;
+        let mut moved_any = false;
+        for eye in [
+            Vec3::new(at.x - 4.0, at.y, 46.0),
+            Vec3::new(at.x - 40.0, at.y + 30.0, 60.0),
+            Vec3::new(at.x + 500.0, at.y, 80.0),
+            Vec3::new(at.x + 3000.0, at.y, 80.0),
+        ] {
+            g.eye = eye;
+            let afresh = g.shift_at(at);
+            let still = g.still_shift_at(at, near, &mut kept);
+            assert_eq!(
+                still.to_bits(),
+                afresh.to_bits(),
+                "the same lift with the eye at {eye:?}"
+            );
+            moved_any |= afresh.abs() > 1e-4;
+        }
+        assert!(moved_any, "the ground lifts it somewhere");
+        // Kept, and used as it stands: a stand-in for the offset comes back in the lift.
+        g.eye = Vec3::new(at.x - 4.0, at.y, 46.0);
+        let (key, bands, offset) = kept.expect("the offset was kept");
+        assert_eq!(key, near);
+        let mut stand_in = Some((key, bands, offset + 7.5));
+        let with = g.still_shift_at(at, near, &mut stand_in);
+        assert!(
+            (with - g.shift_at(at)).abs() > 1.0,
+            "the kept offset was used, not worked out"
+        );
+        // Another key (the offsets round it changed): worked out again.
+        let mut stale = Some((near ^ 1, bands, offset + 7.5));
+        let again = g.still_shift_at(at, near, &mut stale);
+        assert_eq!(again.to_bits(), g.shift_at(at).to_bits());
+        assert_eq!(stale, Some((near, bands, offset)));
+        // New knobs change the key.
+        let mut knobs = g.knobs.clone();
+        knobs.set(Knob::WalkLowpass, g.knobs.get(Knob::WalkLowpass) + 0.5);
+        g.set_knobs(knobs);
+        assert_ne!(g.near_key(at), near);
     }
 
     /// **A body in the water is drawn where physics puts it, on the bed drawn there**: out in a

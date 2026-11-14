@@ -242,8 +242,29 @@ impl SceneDraw {
     }
 
     /// The three degrade counters and the drawn triangle count, recomputed after
-    /// every level selection so that the numbers a test reads are this frame's.
+    /// every level selection that changed anything so that the numbers a test reads are this
+    /// frame's.
     pub(super) fn refresh_degrade_stats(&mut self) {
+        // What they count changes only with the blocks held and their levels and turns, so they
+        // are counted again only once a block comes or goes or another choice of levels is made:
+        // each choice has a number of its own, so the blocks with theirs name what is counted.
+        let mix = |key: (i32, i32), serial: u64| {
+            #[allow(clippy::cast_sign_loss)] // the block's coordinates' bits, as they stand
+            let k = u64::from(key.0 as u32) << 32 | u64::from(key.1 as u32);
+            let mut h = (k ^ serial.rotate_left(29)).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+            h ^= h >> 31;
+            h.wrapping_mul(0xBF58_476D_1CE4_E5B9)
+        };
+        let of = (
+            self.blocks.len(),
+            self.blocks.iter().fold(0u64, |sum, (k, b)| {
+                sum.wrapping_add(mix(*k, b.levels_serial))
+            }),
+        );
+        if self.degrade_stats_of == Some(of) {
+            return;
+        }
+        self.degrade_stats_of = Some(of);
         let placements = || {
             self.blocks.values().flat_map(|b| {
                 b.degrade
