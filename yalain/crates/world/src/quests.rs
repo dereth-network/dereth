@@ -121,7 +121,7 @@ use yalain_store::{Store, StoredPosition};
 use crate::graph::Builder;
 use crate::levels::LevelTable;
 use crate::progress::{self, Award};
-use crate::state::QuestState;
+use crate::state::{PlayState, QuestState};
 use crate::{session, Clock, Server};
 
 /// The client function quest updates call.
@@ -538,6 +538,20 @@ pub fn done(held: &[QuestState], quest: u32) -> bool {
         .any(|q| q.quest == quest && q.status == status::COMPLETED)
 }
 
+/// Has a player ever completed a quest: done now, or done before it was given again?
+#[must_use]
+pub fn ever_done(play: &PlayState, quest: u32) -> bool {
+    done(&play.quests, quest) || play.completed_before.contains(&quest)
+}
+
+/// A quest is about to be given to a player again: if it holds it completed, it is remembered as
+/// completed before.
+fn remember_done(play: &mut PlayState, quest: u32) {
+    if done(&play.quests, quest) && !play.completed_before.contains(&quest) {
+        play.completed_before.push(quest);
+    }
+}
+
 /// Has a quest of a player's failed (a step failed it, or its time ran out), not given again since:
 /// while `during` is under way, a failure of a giving that came after that quest's own (a timer
 /// given in an earlier run of it does not count).
@@ -651,6 +665,7 @@ fn may_run_at_any_level<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_u
                     .is_none_or(|d| given_again(d, held, now_unix))
         }
         Need::Failed => failed_during(held, *q, Some(st.quest)),
+        Need::NeverDone => !ever_done(&p.play, *q),
     });
     requires
         && st
@@ -1599,6 +1614,7 @@ pub fn give_for<S: Store>(
                 Need::Done => done(held, *q),
                 Need::Free => phase_of(held, *q) == 0,
                 Need::Failed => failed_during(held, *q, None),
+                Need::NeverDone => !ever_done(&p.play, *q),
             })
     };
     // Each with the class it takes, if it names one.
@@ -1992,6 +2008,9 @@ pub fn apply_led<S: Store>(
             p.play.quests.len() - 1
         }
     };
+    if up == Update::Bestow {
+        remember_done(&mut p.play, quest);
+    }
     let st = &mut p.play.quests[i];
     let kind = match up {
         Update::Bestow => {
@@ -2206,6 +2225,7 @@ fn give_subquests<S: Store>(
             started: clock.unix,
             updated: clock.unix,
         };
+        remember_done(&mut p.play, sub);
         match p.play.quests.iter_mut().find(|q| q.quest == sub) {
             Some(q) => *q = fresh,
             None => p.play.quests.push(fresh),

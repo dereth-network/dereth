@@ -1973,6 +1973,49 @@ fn a_give_requiring_a_quest_failed_runs_only_once_it_has_failed() {
     assert!(!holds(&h, me, ashes.0));
 }
 
+/// A give that requires a quest never completed takes the item from one who never completed it;
+/// from one who completed it, even given it again since, the item is refused and handed back.
+///
+/// Behaviour: server.quests.a-step-waits-on-a-quest-never-completed
+#[test]
+fn a_give_requiring_a_quest_never_completed_refuses_one_who_ever_completed_it() {
+    const DESCENT: u32 = 0x4000_02A0;
+    let mut h = world();
+    h.server.quests.gives.push(Give {
+        requires: vec![(DESCENT, Need::NeverDone)],
+        ..taking(Some(ASHES))
+    });
+    h.server
+        .talk
+        .lines
+        .push(taking_line(Some(ASHES), TAKING_LINE, 0));
+    let (b, me) = player(&mut h, "one", "Elara");
+    let ashes = hold(&mut h, me, ASHES, 1);
+    at_phase(&mut h, DESCENT, 1);
+    for p in h.server.players.values_mut() {
+        p.play.completed_before = vec![DESCENT];
+    }
+    let (lines, _) = give_ashes(&mut h, b, me, ashes, 1);
+    assert_eq!(lines, vec![PLAIN_REFUSAL], "completed before");
+    assert!(holds(&h, me, ashes.0), "handed back");
+    for p in h.server.players.values_mut() {
+        p.play.completed_before.clear();
+        for q in &mut p.play.quests {
+            if q.quest == DESCENT {
+                q.status = yalain_world::quests::status::COMPLETED;
+                q.phase = 0;
+            }
+        }
+    }
+    let (lines, _) = give_ashes(&mut h, b, me, ashes, 1);
+    assert_eq!(lines, vec![PLAIN_REFUSAL], "completed");
+    assert!(holds(&h, me, ashes.0), "handed back");
+    at_phase(&mut h, DESCENT, 1);
+    let (lines, _) = give_ashes(&mut h, b, me, ashes, 1);
+    assert_eq!(lines, vec![TAKING_LINE], "never completed");
+    assert!(!holds(&h, me, ashes.0));
+}
+
 /// A give's effects go on the player, the person the caster, then its text.
 ///
 /// Behaviour: server.gives.row-keeps-and-gives

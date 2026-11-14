@@ -483,14 +483,15 @@ pub enum Trigger {
     Given(u32),
 }
 
-/// What a step requires of another quest: under way at a phase, done, free to be given, or failed
-/// (its time run out).
+/// What a step requires of another quest: under way at a phase, done, free to be given, failed
+/// (its time run out), or never completed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Need {
     Phase(u32),
     Done,
     Free,
     Failed,
+    NeverDone,
 }
 
 /// The update a step makes.
@@ -5095,7 +5096,8 @@ impl<'a> Fields<'a> {
     }
 
     /// A step's or a give's `requires`: other quests (`{ quest, phase }`, `{ quest, done = true }`,
-    /// `{ quest, free = true }` or `{ quest, failed = true }`); `{ kingdom = "word" }`, the one kingdom it is for, a word of
+    /// `{ quest, done = false }` (never completed), `{ quest, free = true }` or
+    /// `{ quest, failed = true }`); `{ kingdom = "word" }`, the one kingdom it is for, a word of
     /// [`yalain_content::kingdoms::kingdom::WORDS`]; `{ tally = "key", full = true|false }`, a
     /// `[[tally]]` that must be full or not yet full; `{ craft = S, at_least = N }`, a craft skill
     /// (or `craft = [S, ...]`, any one of several) at level N or above; `{ untraining = true }`, an
@@ -5119,12 +5121,12 @@ impl<'a> Fields<'a> {
         }
         let (what, keys): (&str, &[&str]) = if events {
             (
-                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { quest, failed = true }, { event }, { tally, full }, { tally, at_least, below }, { craft, at_least }, { untraining = true }, { hero = true }, { sequence, at }, { sequence, done = true }, { act } or { kingdom } (neutral, shadow, order or dominion)",
+                "a list of { quest, phase }, { quest, done = true }, { quest, done = false }, { quest, free = true }, { quest, failed = true }, { event }, { tally, full }, { tally, at_least, below }, { craft, at_least }, { untraining = true }, { hero = true }, { sequence, at }, { sequence, done = true }, { act } or { kingdom } (neutral, shadow, order or dominion)",
                 &["quest", "phase", "done", "free", "failed", "event", "tally", "full", "at_least", "below", "craft", "untraining", "hero", "sequence", "at", "act", "kingdom"],
             )
         } else {
             (
-                "a list of { quest, phase }, { quest, done = true }, { quest, free = true }, { quest, failed = true }, { tally, full }, { tally, at_least, below }, { craft, at_least }, { untraining = true }, { hero = true }, { sequence, at }, { sequence, done = true } or { kingdom } (neutral, shadow, order or dominion)",
+                "a list of { quest, phase }, { quest, done = true }, { quest, done = false }, { quest, free = true }, { quest, failed = true }, { tally, full }, { tally, at_least, below }, { craft, at_least }, { untraining = true }, { hero = true }, { sequence, at }, { sequence, done = true } or { kingdom } (neutral, shadow, order or dominion)",
                 &["quest", "phase", "done", "free", "failed", "tally", "full", "at_least", "below", "craft", "untraining", "hero", "sequence", "at", "kingdom"],
             )
         };
@@ -5182,6 +5184,7 @@ impl<'a> Fields<'a> {
             ) {
                 (Some(p), None, None, None) => Need::Phase(as_u32(p)?),
                 (None, Some(d), None, None) if true_(d) => Need::Done,
+                (None, Some(d), None, None) if d.as_bool() == Some(false) => Need::NeverDone,
                 (None, None, Some(f), None) if true_(f) => Need::Free,
                 (None, None, None, Some(f)) if true_(f) => Need::Failed,
                 _ => return None,

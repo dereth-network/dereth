@@ -13457,6 +13457,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-step-waits-on-a-quest-never-completed",
+        says: "A step or a give whose `requires` names a quest with `done = false` runs only for a \
+               player who has never completed that quest: not one holding it done, nor one given it \
+               again since it was done, whose having done it is kept with the character.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NEVER-COMPLETED"),
+        station: "yalain-testkit::cpu::play::quest_uses::a_step_waiting_on_a_quest_never_completed_refuses_one_who_ever_completed_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-steps-place-wins-over-its-updates-recall",
         says: "A step or an order of uses that names a place of its own takes its player there, once, \
                and the recall its quest's update carries stays put.",

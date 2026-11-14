@@ -601,6 +601,95 @@ fn a_step_for_heroes_alone_gives_its_quest_only_to_a_hero_and_the_person_says_wh
     );
 }
 
+/// A step waiting on a quest never completed gives its quest to a player who has never had that
+/// quest, or has it under way for the first time; not to one who has completed it, nor to one
+/// given it again since and not yet done with it.
+/// Behaviour: server.quests.a-step-waits-on-a-quest-never-completed
+#[test]
+fn a_step_waiting_on_a_quest_never_completed_refuses_one_who_ever_completed_it() {
+    const DESCENT: u32 = 0x4000_02A0;
+    const RETRACING: u32 = 0x4000_02A1;
+    const AGENT: u32 = 0x4700_3198;
+    const LATAUA: u32 = 0x4700_319A;
+    let agent = 0x8130_0000_0000_0701;
+    let lataua = 0x8130_0000_0000_0702;
+    let retracing = Step {
+        requires: vec![(DESCENT, Need::NeverDone)],
+        ..step(RETRACING, 0, Trigger::Use(LATAUA), Update::Bestow)
+    };
+    let mut h = Harness::new();
+    h.server.content = ContentPack {
+        objects: vec![
+            object(agent, AGENT, [61.0, 241.0, -44.6]),
+            object(lataua, LATAUA, [62.0, 241.0, -44.6]),
+        ],
+        ..ContentPack::default()
+    };
+    h.server.quests = QuestTable {
+        quests: vec![
+            quest(DESCENT, 0x2500_2A0E, 1),
+            quest(RETRACING, 0x2500_2A0F, 1),
+        ],
+        steps: vec![
+            step(DESCENT, 0, Trigger::Use(AGENT), Update::Bestow),
+            step(DESCENT, 1, Trigger::Use(AGENT), Update::Complete),
+            retracing,
+        ],
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
+    let given = |h: &Harness, b: usize, from: usize, quest: u32| {
+        updates(h, b, from)
+            .iter()
+            .any(|(k, r)| *k == 0x1000_0000 && r.id == quest)
+    };
+    let (b, me) = h.player_in_world("one", "Elara");
+    // Never had it: given.
+    let from = use_it(&mut h, b, me, lataua);
+    assert!(
+        given(&h, b, from, RETRACING),
+        "given to one who never had it"
+    );
+    // Under way for the first time: given.
+    holding(&mut h, &[(DESCENT, status::UNDERWAY, 1)], 1);
+    let from = use_it(&mut h, b, me, lataua);
+    assert!(
+        given(&h, b, from, RETRACING),
+        "given while it is under way the first time"
+    );
+    // Done: not given.
+    holding(&mut h, &[], 1);
+    use_it(&mut h, b, me, agent);
+    use_it(&mut h, b, me, agent);
+    let held = |h: &Harness| {
+        h.server
+            .players
+            .values()
+            .next()
+            .and_then(|p| p.play.quests.iter().find(|q| q.quest == DESCENT).copied())
+            .map(|q| q.status)
+    };
+    assert_eq!(held(&h), Some(status::COMPLETED), "the other done");
+    let from = use_it(&mut h, b, me, lataua);
+    assert!(!given(&h, b, from, RETRACING), "not given once it is done");
+    // Given again and not yet done: still not given.
+    let from = use_it(&mut h, b, me, agent);
+    assert!(given(&h, b, from, DESCENT), "the other given again");
+    assert_eq!(held(&h), Some(status::UNDERWAY));
+    let from = use_it(&mut h, b, me, lataua);
+    assert!(
+        !given(&h, b, from, RETRACING),
+        "not given while the other is under way again"
+    );
+    let kept = h
+        .server
+        .players
+        .values()
+        .next()
+        .map(|p| p.play.completed_before.clone());
+    assert_eq!(kept, Some(vec![DESCENT]), "remembered as completed before");
+}
+
 /// A quest that fails when its player dies fails as the player dies, told before the death's
 /// message; one that does not is kept.
 /// Behaviour: server.quests.fails-on-death

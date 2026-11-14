@@ -97,6 +97,24 @@ const PLAY_22: &str = concat!(
     "0000000100000007000000746865204f6c640700000001000000",
 );
 
+/// A play state at the encoding's version 23: version 22's, one tip passed.
+const PLAY_23: &str = concat!(
+    "1700000009000000000000001900000002000000010000000000318101000047000000000000000025000000",
+    "02000000000031810200004701000000100000000100000001000000010000400000001002000000e8030000",
+    "000000004c0400000000000001000000840000000100000003000000050000000100000002000000bc020000",
+    "000000000100000001000000010000000400007000000000a3e1a14100007042070000000000000000003242",
+    "010000000800000000000000090000000a000000000000000300000004000000000000000050534001000000",
+    "0100006f0200000003000000000000000400000000000000010000000200006f000000000000294002000000",
+    "ffffffff030000000100000001000010000000000020564001000000840000000000000000a0504001000000",
+    "020000000000318107000000050000004d616b657229000000010000010000803f0000004000004040010000",
+    "00010000700000384101000000ff3f000005000000090000000200007000000642020000250000403f030000",
+    "00f40100001f0000000000803e110000000300000008000000020000000100000004000000030000005a0000",
+    "00020000000600000001000000030000700000b441341200000000003ff4010000090000004f6c6420776f72",
+    "6473050000004d616b65720600000001000020010000000000803e020000000000003f000000000000000001",
+    "0000000100002501000000000030210100000005000070000048410000008093dca441030000008051010000",
+    "0000000100000007000000746865204f6c64070000000100000002000000",
+);
+
 /// The consignments' record with its one sale's item at the encoding's version 20.
 const MARKET_20: &str = concat!(
     "020200000001000000010000000100000000003021010000000000f0400300006f0400006f02000000000031",
@@ -251,6 +269,7 @@ fn play() -> PlayState {
         clothes_made: false,
         // Kept before tips were shown: it has passed them all.
         popups_shown: Moment::ALL_MARKS,
+        completed_before: Vec::new(),
     }
 }
 
@@ -428,6 +447,42 @@ fn a_play_state_kept_at_version_twenty_two_reads_whole_with_every_tip_passed() {
         PlayState::from_bytes(&fresh.to_bytes()).expect("reads"),
         fresh,
         "the marks kept"
+    );
+}
+
+/// A play state kept at the version before the quests completed and given again since were kept
+/// reads whole, remembering none; what this build keeps of it reads the same, and so does one that
+/// remembers some.
+/// Behaviour: server.operator.a-save-of-the-last-release-reads-whole
+#[test]
+fn a_play_state_kept_at_version_twenty_three_reads_whole_remembering_no_quest_completed_before() {
+    let old = bytes(PLAY_23);
+    assert_eq!(
+        old[..4],
+        23u32.to_le_bytes(),
+        "the bytes are of that version"
+    );
+    let read = PlayState::from_bytes(&old).expect("reads");
+    assert_eq!(
+        read,
+        PlayState {
+            clothes_made: true,
+            popups_shown: Moment::LevelUp.mark(),
+            ..play_20()
+        }
+    );
+    assert!(read.completed_before.is_empty(), "none remembered");
+    let kept = read.to_bytes();
+    assert_ne!(kept, old, "kept at this build's own version");
+    assert_eq!(PlayState::from_bytes(&kept).expect("reads again"), read);
+    let remembers = PlayState {
+        completed_before: vec![0x8000_004A, 0x4000_0016],
+        ..read
+    };
+    assert_eq!(
+        PlayState::from_bytes(&remembers.to_bytes()).expect("reads"),
+        remembers,
+        "the quests kept"
     );
 }
 

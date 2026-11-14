@@ -1375,6 +1375,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                                     Need::Done => TableNeed::Done,
                                     Need::Free => TableNeed::Free,
                                     Need::Failed => TableNeed::Failed,
+                                    Need::NeverDone => TableNeed::NeverDone,
                                 },
                             )
                         })
@@ -1428,6 +1429,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                                     Need::Done => TableNeed::Done,
                                     Need::Free => TableNeed::Free,
                                     Need::Failed => TableNeed::Failed,
+                                    Need::NeverDone => TableNeed::NeverDone,
                                 },
                             )
                         })

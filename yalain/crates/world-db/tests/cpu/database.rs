@@ -5285,6 +5285,68 @@ fn hero_requirements_compile_beside_their_steps_and_gives() {
 }
 
 #[test]
+fn never_completed_requirements_compile_on_steps_and_gives() {
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "update = \"bestow\"\n",
+        "update = \"bestow\"\n\
+         requires = [{ quest = 0x40000016, done = false }]\n",
+    );
+    files.insert(
+        "town/server/gives/470033D0.toml".into(),
+        "[[give]]\n\
+         key = \"medal\"\n\
+         to = 0x470033D0\n\
+         item = 0x470020BB\n\
+         requires = [{ quest = 0x40000016, done = false }]\n\
+         prov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let step = t
+        .quests
+        .steps
+        .iter()
+        .find(|s| s.quest == 0x4000_0088 && s.trigger == Trigger::Use(0x4700_33D0))
+        .expect("the step");
+    assert_eq!(step.requires, [(0x4000_0016, Need::NeverDone)]);
+    let give = t
+        .quests
+        .gives
+        .iter()
+        .find(|g| g.item == Some(0x4700_20BB))
+        .expect("the give");
+    assert_eq!(give.requires, [(0x4000_0016, Need::NeverDone)]);
+
+    // A boolean, alone beside its quest.
+    for bad in [
+        "requires = [{ quest = 0x40000016, done = 0 }]",
+        "requires = [{ quest = 0x40000016, done = false, free = true }]",
+    ] {
+        let mut f = files.clone();
+        f.insert(
+            "town/server/gives/470033D0.toml".into(),
+            format!(
+                "[[give]]\n\
+                 key = \"medal\"\n\
+                 to = 0x470033D0\n\
+                 item = 0x470020BB\n\
+                 {bad}\n\
+                 prov = {{ from = \"authored\" }}\n"
+            ),
+        );
+        let problems = check(&f);
+        assert!(
+            problems.iter().any(|p| p.message.contains("requires")),
+            "{bad}: {problems:?}"
+        );
+    }
+}
+
+#[test]
 fn untraining_requirements_compile_beside_their_steps_and_gives_and_an_effect_rule_may_finish_one()
 {
     let mut files = fixture();

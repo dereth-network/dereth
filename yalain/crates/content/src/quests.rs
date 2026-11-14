@@ -268,6 +268,8 @@ pub enum Need {
     /// Failed (a step failed it, or its time ran out), not given again since; for a step of a quest
     /// under way, given since that quest was.
     Failed,
+    /// Never completed: not done now, nor done before it was given again.
+    NeverDone,
 }
 
 /// A place a step takes the player to: a cell, a point in its landblock, a heading (degrees
@@ -447,8 +449,8 @@ fn optional<T>(s: &str, read: impl Fn(&str) -> Result<T, String>) -> Result<Opti
     }
 }
 
-/// What a row requires of other quests: `QUEST:N`, `QUEST:done`, `QUEST:free` or `QUEST:failed`,
-/// joined by `,`.
+/// What a row requires of other quests: `QUEST:N`, `QUEST:done`, `QUEST:free`, `QUEST:failed` or
+/// `QUEST:never`, joined by `,`.
 fn requirements(s: &str) -> Result<Vec<(u32, Need)>, String> {
     s.split(',')
         .filter(|x| !x.is_empty())
@@ -460,6 +462,7 @@ fn requirements(s: &str) -> Result<Vec<(u32, Need)>, String> {
                 "done" => Need::Done,
                 "free" => Need::Free,
                 "failed" => Need::Failed,
+                "never" => Need::NeverDone,
                 _ => Need::Phase(num(n)?),
             };
             Ok((hex(q)?, need))
@@ -679,6 +682,7 @@ impl QuestTable {
                     Need::Done => format!("{q:08X}:done"),
                     Need::Free => format!("{q:08X}:free"),
                     Need::Failed => format!("{q:08X}:failed"),
+                    Need::NeverDone => format!("{q:08X}:never"),
                 })
                 .collect::<Vec<_>>()
                 .join(",");
@@ -741,6 +745,7 @@ impl QuestTable {
                     Need::Done => format!("{q:08X}:done"),
                     Need::Free => format!("{q:08X}:free"),
                     Need::Failed => format!("{q:08X}:failed"),
+                    Need::NeverDone => format!("{q:08X}:never"),
                 })
                 .collect::<Vec<_>>()
                 .join(",");
