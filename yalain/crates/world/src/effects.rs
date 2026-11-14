@@ -51,6 +51,16 @@
 //! while it is on, told toggled ([`TOGGLED`]); turning it off, by its use or by portal space as an
 //! aura's, takes them off.
 //!
+//! **A force** ([`crate::effect_defs::Force`]: the heroes' Taunt, Armor and Reflection Force) is
+//! such a record held at a price, as the install's descriptions and the guides give it: each attack
+//! that reaches its holder costs the focus its data names at its spellcraft (1 to 5, or 2 to 10),
+//! and when the holder has less than that it turns off as its skill would, "You stop …" and all; a
+//! holder keeps one force of a class at a time, a new one turning off the one it held. A reply
+//! that watches its holder's vitals change (Taunt Force's, the one in the data) answers such an
+//! attack as it answers a harmful effect. No recording holds a force used: when the price is paid
+//! (on each attack, before the answers) and that the holder's focus may be spent to nothing are
+//! ours.
+//!
 //! **Lifestone protection.** A player is protected for three minutes as it is resurrected: the
 //! protection is added in the request's tick, before portal space, and its glow (the effect the
 //! resurrection plays on the player) stays on it. It ends, with "You are no longer protected by
@@ -1082,8 +1092,10 @@ fn reply_to<S: Store>(
     }
 }
 
-/// An attack has reached a player: each counter it holds may answer, by its chance at its
-/// spellcraft, with its effect on the attacker. An effect's harm over time is no attack.
+/// An attack has reached a player: each force it holds is paid for, or turns off ([`forces_pay`]);
+/// then each counter it holds, and each reply that watches its vitals change, may answer, by its
+/// chance at its spellcraft, with its effect on the attacker. An effect's harm over time is no
+/// attack.
 pub fn answer_attack<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1091,23 +1103,33 @@ pub fn answer_attack<S: Store>(
     by: u64,
     clock: Clock,
 ) {
+    forces_pay(s, net, world);
     let Some(p) = s.players.get(&world) else {
         return;
     };
     let me = p.character;
-    let counters: Vec<(u32, f32, f32, u64)> = p
+    let counters: Vec<(u32, f32, f32, u64, bool)> = p
         .play
         .effects
         .iter()
-        .filter_map(|r| match &s.effect_table.get(r.state)?.kind {
-            Kind::Counter { effect, chance } => {
-                let at = chance.at(r.spellcraft)?;
-                Some((*effect, at, r.spellcraft, r.item))
+        .filter_map(|r| {
+            let d = s.effect_table.get(r.state)?;
+            match &d.kind {
+                Kind::Counter { effect, chance } => {
+                    let at = chance.at(r.spellcraft)?;
+                    Some((*effect, at, r.spellcraft, r.item, false))
+                }
+                Kind::Reply { effect, chance, .. }
+                    if d.internal_flags & crate::effect_defs::WATCHES_VITALS != 0 =>
+                {
+                    let at = chance.at(r.spellcraft)?;
+                    Some((*effect, at, r.spellcraft, r.item, true))
+                }
+                _ => None,
             }
-            _ => None,
         })
         .collect();
-    for (effect, chance, spellcraft, item) in counters {
+    for (effect, chance, spellcraft, item, answers) in counters {
         if !s.rng.chance(chance) {
             continue;
         }
@@ -1117,10 +1139,83 @@ pub fn answer_attack<S: Store>(
             spellcraft,
             pk: true,
             item,
+            answers,
             ..Cast::default()
         };
         apply_on(s, net, on, effect, cast, clock);
     }
+}
+
+/// The vitals a force may cost (its quality and its greatest's): vigor and focus. No force of the
+/// data asks health.
+const FORCE_VITALS: [(u32, u32); 2] = [
+    (quality::VIGOR, quality::VIGOR_MAX),
+    (quality::FOCUS, quality::FOCUS_MAX),
+];
+
+/// An attack has reached a player: each force it holds costs its price at its spellcraft, the vital
+/// sent; one whose price the player can't pay in full turns off instead ([`force_off`]).
+fn forces_pay<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let held: Vec<(EffectState, crate::effect_defs::Force)> = p
+        .play
+        .effects
+        .iter()
+        .filter_map(|r| Some((*r, s.effect_table.force(r.state)?.clone())))
+        .collect();
+    for (record, force) in held {
+        let Some(&(cur, max_quality)) = FORCE_VITALS.iter().find(|(q, _)| *q == force.vital) else {
+            continue;
+        };
+        let Some(p) = s.players.get(&world) else {
+            return;
+        };
+        let max = max_vital(s, p, max_quality).max(1);
+        let was = quals::int(&p.qualities, cur).unwrap_or(max);
+        let cost = force.cost(record.spellcraft);
+        if was < cost {
+            force_off(s, net, world, record);
+        } else if cost > 0 {
+            if let Some(p) = s.players.get_mut(&world) {
+                quals::set_int(&mut p.qualities, cur, was - cost);
+            }
+            progress::send_int(net, world, cur, was - cost);
+        }
+    }
+}
+
+/// A force's record turns off as its skill turned off by a use would, without the use: the skill's
+/// toggle off, the record taken off, "You stop …" with the skill's name, its appearance stopped.
+fn force_off<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, record: EffectState) {
+    let skill = s
+        .skill_table
+        .skills
+        .iter()
+        .find(|(_, d)| record.skill != 0 && d.state == record.skill)
+        .map(|(id, d)| (*id, d.name));
+    if let Some((id, _)) = skill {
+        progress::private(net, world, &toggle_call(false, id));
+    }
+    let stop = toggled_records_off(s, net, world, &[record]);
+    if let Some((_, name)) = skill {
+        progress::private(net, world, &toggled_off_text(name));
+    }
+    stop_fx(s, net, world, &stop);
+}
+
+/// "You stop …", a toggled skill's name in it.
+#[must_use]
+pub fn toggled_off_text(name: (u32, u32)) -> ServerMessage {
+    let text = progress::text_with(
+        toggled_off::TEXT,
+        vec![progress::nested(
+            toggled_off::SKILL_VAR,
+            progress::text(name),
+        )],
+    );
+    crate::chat::show_text(2, text)
 }
 
 /// What an attack's harm comes to once its target's effects have watched it: what is left of it
@@ -2615,6 +2710,22 @@ pub fn toggled_on<S: Store>(
     );
     if !record || warded(s, On::Player(world), &def) {
         return None;
+    }
+    if s.effect_table.force(state).is_some() {
+        let others: Vec<EffectState> = s.players.get(&world).map_or_else(Vec::new, |p| {
+            p.play
+                .effects
+                .iter()
+                .filter(|r| {
+                    s.effect_table.force(r.state).is_some()
+                        && s.effect_table.get(r.state).map(|d| d.eq_class) == Some(def.eq_class)
+                })
+                .copied()
+                .collect()
+        });
+        for other in others {
+            force_off(s, net, world, other);
+        }
     }
     let shape = Shape {
         flags: TOGGLED,

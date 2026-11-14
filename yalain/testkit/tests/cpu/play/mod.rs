@@ -43,6 +43,7 @@ mod fellowships;
 mod fights;
 mod focus;
 mod follow;
+mod forces;
 mod gives;
 mod guarded_objects;
 mod holds;

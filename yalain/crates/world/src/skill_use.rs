@@ -1420,14 +1420,7 @@ fn toggles_off<S: Store>(
     progress::private(net, world, &crate::effects::toggle_call(false, r.skill));
     let stop = crate::effects::toggled_records_off(s, net, world, &held);
     if let Some(name) = s.skill_table.skills.get(&r.skill).map(|d| d.name) {
-        let text = progress::text_with(
-            crate::effects::toggled_off::TEXT,
-            vec![progress::nested(
-                crate::effects::toggled_off::SKILL_VAR,
-                progress::text(name),
-            )],
-        );
-        progress::private(net, world, &crate::chat::show_text(2, text));
+        progress::private(net, world, &crate::effects::toggled_off_text(name));
     }
     if !attacking {
         progress::private(net, world, &combat::attack_state(false));

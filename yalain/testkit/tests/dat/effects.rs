@@ -3650,3 +3650,56 @@ fn the_effects_weapons_put_on_what_they_hit_read_from_their_names() {
     });
     assert!(h.server.things.get(beetle).is_none_or(|t| !t.alive()));
 }
+
+/// The heroes' three forces read from the install as what they are: Armor Force adds 10 armor at
+/// 1 to 100 at 10, Reflection Force sends back a share of each attack's harm (0.08 at 1 to 0.4 at
+/// 10), Taunt Force's reply answers with its taunt and watches its holder's vitals change; each a
+/// force in the one class, costing focus on each attack (Armor Force 2 at 1 to 10 at 10, the others
+/// 1 to 5), as the guides give them. An effect with no price is no force.
+/// Behaviour: server.forces.read-from-the-install
+#[test]
+fn the_installs_three_forces_read_with_their_focus_prices_in_one_class() {
+    use yalain_world::effect_defs::WATCHES_VITALS;
+    use yalain_world::player::quality;
+    const ARMOR: u32 = 0x7000_1EC6;
+    const REFLECTION: u32 = 0x7000_1ED9;
+    const TAUNT: u32 = 0x7000_1EDA;
+    const CHALLENGE: u32 = 0x7000_1EDB;
+    const LUMBERING_MIGHT_ARMOR: u32 = 0x7000_0922;
+    let t = Portal::open().effects(&[ARMOR, REFLECTION, TAUNT, LUMBERING_MIGHT_ARMOR]);
+    for (state, at_1, at_10) in [(ARMOR, 2, 10), (REFLECTION, 1, 5), (TAUNT, 1, 5)] {
+        let f = t.force(state).expect("a force");
+        assert_eq!(
+            (f.vital, f.cost(1.0), f.cost(10.0)),
+            (quality::FOCUS, at_1, at_10),
+            "{state:08X}"
+        );
+        let d = t.get(state).expect("read");
+        assert!(d.duration.is_empty(), "held until turned off");
+        assert_eq!(d.eq_class, t.get(ARMOR).expect("read").eq_class);
+    }
+    assert!(t.force(LUMBERING_MIGHT_ARMOR).is_none());
+    let Kind::Numeric {
+        stats, magnitude, ..
+    } = &t.get(ARMOR).expect("read").kind
+    else {
+        panic!("Armor Force")
+    };
+    assert_eq!(stats, &[yalain_world::effects::ARMOR_RATING]);
+    assert_eq!(
+        (magnitude.at(1.0), magnitude.at(10.0)),
+        (Some(10.0), Some(100.0))
+    );
+    let Kind::Watcher(w) = &t.get(REFLECTION).expect("read").kind else {
+        panic!("Reflection Force")
+    };
+    assert!(w.shares && w.watches);
+    let back = (w.sends_back.amount.at(1.0), w.sends_back.amount.at(10.0));
+    assert!(
+        matches!(back, (Some(a), Some(b)) if (a - 0.08).abs() < 1e-6 && (b - 0.4).abs() < 1e-6),
+        "{back:?}"
+    );
+    let taunt = t.get(TAUNT).expect("read");
+    assert!(matches!(taunt.kind, Kind::Reply { effect, .. } if effect == CHALLENGE));
+    assert_ne!(taunt.internal_flags & WATCHES_VITALS, 0);
+}

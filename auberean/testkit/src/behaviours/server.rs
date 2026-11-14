@@ -5425,6 +5425,56 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.forces.focus-paid-on-each-attack",
+        says: "Each attack that reaches the holder of a force (Taunt, Armor or Reflection Force) costs the focus \
+               its data names; when the holder has less, the force turns off as its skill turned off \
+               would, nothing paid. The install's descriptions and the guides; no recording holds one \
+               used, so when the price is paid is ours.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FORCE-PRICE"),
+        station: "yalain-testkit::cpu::play::forces::each_attack_on_a_forces_holder_costs_its_focus_and_short_of_it_the_force_turns_off",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.forces.one-at-a-time",
+        says: "A holder keeps one force at a time: turning one on turns off the one it held, as that skill \
+               turned off would; a toggled skill that is no force stays on. The install's descriptions \
+               and the guides.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FORCE-ONE"),
+        station: "yalain-testkit::cpu::play::forces::turning_a_force_on_turns_off_the_force_its_holder_held",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.forces.price-by-spellcraft",
+        says: "A force's price at a spellcraft is its data's line, to the nearest whole point: Taunt and \
+               Reflection Force 1 at 1 to 5 at 10, Armor Force 2 to 10, as the guides give them.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FORCE-PRICE-LINE"),
+        station: "yalain-testkit::cpu::play::forces::a_forces_price_follows_its_datas_line_by_spellcraft",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.forces.read-from-the-install",
+        says: "The three forces read from the install: Armor Force's armor, Reflection Force's share sent \
+               back, Taunt Force's reply that watches its holder's vitals, each a force of the one class \
+               costing focus by spellcraft; an effect with no price is none.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FORCE-DATA"),
+        station: "yalain-testkit::dat::effects::the_installs_three_forces_read_with_their_focus_prices_in_one_class",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.forces.taunt-answers-attacks",
+        says: "A reply that watches its holder's vitals change (Taunt Force's) answers each attack on its \
+               holder with its effect on the attacker, as it answers a harmful effect; a reply that \
+               watches effects alone doesn't. The install's description.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FORCE-TAUNT"),
+        station: "yalain-testkit::cpu::play::forces::taunt_forces_reply_answers_each_attack_on_its_holder_and_a_plain_reply_does_not",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.friends.channel-squelch-paced",
         says: "Squelching a channel's address, which on the network asks the hub to leave it, is held \
                to the character's pace of requests: past it the squelch is refused with the line, and \

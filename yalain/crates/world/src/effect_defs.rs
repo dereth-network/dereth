@@ -125,6 +125,27 @@ pub const CATEGORY_FLAGS: [(u32, u32); 5] = [
     (0x1000, 0x10),
 ];
 
+/// An effect's internal flags: it watches its holder's vitals change (one of [`CATEGORY_FLAGS`]).
+pub const WATCHES_VITALS: u32 = 0x1000_0000;
+
+/// A force: a lasting effect held at a price. Each attack that reaches its holder costs so much of
+/// a vital (a quality) at its spellcraft, and when the holder can't pay, it ends; a holder keeps
+/// one force of a class at a time. Its data gives the price as a change, below nothing.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Force {
+    pub change: Scale,
+    pub vital: u32,
+}
+
+impl Force {
+    /// What one attack costs at a spellcraft, to the nearest whole point, never below nothing.
+    #[must_use]
+    pub fn cost(&self, spellcraft: f32) -> i32 {
+        let change = self.change.at(spellcraft).unwrap_or(0.0);
+        dereth_primitives::num::to_i32((-change).max(0.0).round())
+    }
+}
+
 /// What a counter's external flags say of its chance: the same at any spellcraft, or along a line.
 mod counter_flag {
     pub const CONSTANT: u32 = 0x40;
@@ -560,6 +581,28 @@ impl EffectDef {
         )
     }
 
+    /// The force a saved state's effect is, when its data gives it a price: its change to a vital
+    /// by spellcraft and which vital.
+    #[must_use]
+    pub fn force_of(lib: &Library, g: &Graph) -> Option<Force> {
+        let nav = Nav::new(lib, g);
+        let root = nav.object(g.root()?).ok()?;
+        let change = Scale(
+            nav.list(root, "m_forceData")
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|p| {
+                    Some((
+                        nav.number(p, "m_level").ok()?,
+                        nav.number(p, "m_value").ok()?,
+                    ))
+                })
+                .collect(),
+        );
+        let vital = nav.field(root, "m_forceModifyVital").ok()?;
+        (!change.is_empty() && vital != 0).then_some(Force { change, vital })
+    }
+
     /// The effect enumeration's value a saved state's graph holds, when it holds one.
     #[must_use]
     pub fn enum_value_of(lib: &Library, g: &Graph) -> Option<u32> {
@@ -919,6 +962,8 @@ pub struct EffectTable {
     /// The chance a weapon's blow that names an effect puts it on what it lands on, at a
     /// spellcraft, by saved state, where its data gives one ([`EffectTable::chance`]).
     pub chances: HashMap<u32, Scale>,
+    /// The forces among its effects, by saved state ([`EffectDef::force_of`]).
+    pub forces: HashMap<u32, Force>,
 }
 
 impl EffectTable {
@@ -983,6 +1028,9 @@ impl EffectTable {
                 if !chance.is_empty() {
                     t.chances.insert(s, chance);
                 }
+                if let Some(force) = EffectDef::force_of(lib, &g) {
+                    t.forces.insert(s, force);
+                }
                 todo.extend(d.adds());
                 todo.extend(d.chained_states());
                 t.effects.insert(s, d);
@@ -1015,6 +1063,12 @@ impl EffectTable {
             .get(&state)
             .and_then(|c| c.at(spellcraft))
             .unwrap_or(1.0)
+    }
+
+    /// The force an effect is, if it is one.
+    #[must_use]
+    pub fn force(&self, state: u32) -> Option<&Force> {
+        self.forces.get(&state)
     }
 
     /// The recipes its effects teach or take away.
