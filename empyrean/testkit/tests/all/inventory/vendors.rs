@@ -38,6 +38,8 @@ const GEM: u32 = 3; // stackable, max 100, unit value 10
 const CUP: u32 = 4; // value 100
 const COINSTACK: u32 = 273;
 const SERVICE: u32 = 5; // a vendor service
+const JEWEL: u32 = 6; // value 2,000,000,000
+const CROWN: u32 = 7; // value 2,000,000,000
 
 const ALPHA: u32 = 0x5000_0001;
 
@@ -119,6 +121,16 @@ fn content() -> MemContent {
                 .with_int(PropertyInt::ItemType, int(ItemType::Misc))
                 .with_int(PropertyInt::Value, 50)
                 .with_bool(PropertyBool::VendorService, true),
+        )
+        .weenie(
+            weenie(JEWEL, "Jewel", WeenieType::Generic)
+                .with_int(PropertyInt::ItemType, int(ItemType::Misc))
+                .with_int(PropertyInt::Value, 2_000_000_000),
+        )
+        .weenie(
+            weenie(CROWN, "Crown", WeenieType::Generic)
+                .with_int(PropertyInt::ItemType, int(ItemType::Misc))
+                .with_int(PropertyInt::Value, 2_000_000_000),
         )
         .weenie(
             Weenie::new(COINSTACK, "coinstack", WeenieType::Coin)
@@ -733,4 +745,32 @@ fn a_vendors_service_is_bought_one_at_a_time() {
     let said = buy(&mut ts, id, session, npc, &[(2, service)]);
     assert_eq!(said, ["Invalid amount"]);
     assert_eq!(ts.world.objects.get(alpha).unwrap().coin_value(), Some(100));
+}
+
+/// A buy whose price passes the largest a purchase can cost is refused rather than wrapping round
+/// to a price the player can pay: two items at 3,000,000,000 each are not sold for 1,705,032,704.
+/// Divergence: V523
+#[test]
+fn a_buy_whose_price_passes_the_largest_is_refused() {
+    let (mut ts, id, session, alpha, npc) = at_the_vendor();
+    let (jewel, crown) = (new_object(&mut ts, JEWEL), new_object(&mut ts, CROWN));
+    vendor::add_default_item(&mut ts.world, npc, jewel);
+    vendor::add_default_item(&mut ts.world, npc, crown);
+    // As though the player held enough to pay the wrapped price.
+    ts.world
+        .objects
+        .get_mut(alpha)
+        .unwrap()
+        .set_property(PropertyInt::CoinValue, 2_000_000_000);
+    let _ = buy(&mut ts, id, session, npc, &[(1, jewel), (1, crown)]);
+    let pack: Vec<u32> = container::inventory_values(&ts.world, alpha)
+        .iter()
+        .map(|g| ts.world.objects.get(*g).unwrap().biota.weenie_class_id)
+        .collect();
+    assert!(!pack.contains(&JEWEL) && !pack.contains(&CROWN), "{pack:?}");
+    assert_eq!(
+        ts.world.objects.get(alpha).unwrap().coin_value(),
+        Some(2_000_000_000),
+        "nothing is spent"
+    );
 }

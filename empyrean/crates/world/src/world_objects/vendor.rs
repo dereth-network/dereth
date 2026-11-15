@@ -815,7 +815,13 @@ pub fn buy_items_validate_transaction(
         let cost = get_sell_cost(w, this, item);
 
         // detect rollover?
-        total_price = total_price.wrapping_add(cost);
+        // DIVERGE: V523, a price past the largest a purchase can cost refuses the purchase rather
+        // than wrapping round to a small one.
+        let Some(sum) = total_price.checked_add(cost) else {
+            cleanup_created_items(w, &default_items);
+            return false;
+        };
+        total_price = sum;
     }
 
     // verify player has enough currency
