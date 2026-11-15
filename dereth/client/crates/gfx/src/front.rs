@@ -193,6 +193,21 @@ impl Device {
         }
     }
 
+    /// Texture `t`'s Direct3D 12 resource, for what the layer does not wrap; `None` on Vulkan.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] for a texture the device does not hold.
+    #[cfg(windows)]
+    pub fn raw_d3d12_texture(
+        &self,
+        t: Texture,
+    ) -> Result<Option<windows::Win32::Graphics::Direct3D12::ID3D12Resource>, Error> {
+        match &self.b {
+            Dev::Vk(_) => Ok(None),
+            Dev::Dx(d) => Ok(Some(d.raw_texture(t)?)),
+        }
+    }
+
     /// The Vulkan loader the device came from.
     #[must_use]
     pub fn entry(&self) -> Option<&ash::Entry> {

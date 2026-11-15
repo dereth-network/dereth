@@ -239,6 +239,14 @@ impl Device {
             .ok_or_else(|| Error::Invalid(format!("no buffer {}", b.0)))
     }
 
+    /// Texture `t`'s resource, for what the layer does not wrap.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] for a texture the device does not hold.
+    pub fn raw_texture(&self, t: Texture) -> Result<ID3D12Resource, Error> {
+        Ok(self.texture(t)?.resource.clone())
+    }
+
     pub(crate) fn texture(&self, t: Texture) -> Result<&TextureEntry, Error> {
         self.textures
             .get(t.0)
