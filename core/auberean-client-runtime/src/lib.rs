@@ -111,6 +111,9 @@ const MOVE_ITEM: usize = 44;
 /// The server's call that puts the player in portal space, and the one that takes it out.
 pub const ENTER_PORTAL_SPACE: u32 = 0x8212_0020;
 pub const EXIT_PORTAL_SPACE: u32 = 0x8212_001B;
+/// The notice the player's scripts send the panels as portal space begins (its word 1) or ends
+/// (0), once they have slept out the delay the server's call asked for.
+pub const PORTAL_SPACE_NOTICE: u32 = (0x91 << 16) | 0x01;
 
 /// The server's events for an object's body that the scene plays ([`Client::physics`]): a
 /// behavior played and stopped, a change of mode (gone through, or set at once), an effect played
@@ -567,7 +570,8 @@ impl Client {
     }
 
     /// Whether the server has the player in portal space: it took the player out of the world for
-    /// a trip and has not put it back yet.
+    /// a trip and has not put it back yet, as the player's scripts say once they have slept out the
+    /// delays the server asked for.
     #[must_use]
     pub fn in_portal_space(&self) -> bool {
         self.portal_space
@@ -2035,8 +2039,10 @@ impl Client {
             // The play screen's panels are made anew when a session starts, the effects panel
             // asking for the effects then.
             effects::SESSION_START => self.effects_stale = true,
-            ENTER_PORTAL_SPACE => self.portal_space = true,
-            EXIT_PORTAL_SPACE => {
+            // With the player's scripts their notice says when (after the call's delay); without
+            // them, the call itself.
+            ENTER_PORTAL_SPACE if self.scripts.is_none() => self.portal_space = true,
+            EXIT_PORTAL_SPACE if self.scripts.is_none() => {
                 self.portal_space = false;
                 self.want_scene();
             }
@@ -2170,6 +2176,12 @@ impl Client {
             &noticed,
         );
         Self::trade_noticed(&mut self.inventory_stale, &mut self.trade_items, &noticed);
+        // D2-01910
+        let portal = noticed
+            .iter()
+            .rev()
+            .find(|n| n.native == PORTAL_SPACE_NOTICE)
+            .map(|n| n.words.first() != Some(&0));
         self.notices.extend(noticed);
         for (id, add) in std::mem::take(&mut scripts.host.destruction) {
             if add {
@@ -2202,6 +2214,12 @@ impl Client {
             .unwrap_or_default()
         {
             self.send(ClientMessage::Chat(auberean_protocol::login::ChatPacket(p)));
+        }
+        if let Some(entering) = portal {
+            self.portal_space = entering;
+            if !entering {
+                self.want_scene();
+            }
         }
         Some(out)
     }

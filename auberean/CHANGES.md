@@ -8,6 +8,7 @@ not how it was done.
 ## Unreleased
 - Fixed quest descriptions showing a string table error instead of their text.
 - Fixed being unable to move after a shard's story on some servers.
+- Portal space now lasts as long as the server asks before you arrive.
 
 ## 0.1.8 (2026-11-14)
 - Explore mode: fly a camera anywhere in the world with no server.

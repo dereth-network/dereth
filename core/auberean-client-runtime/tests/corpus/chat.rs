@@ -566,6 +566,55 @@ fn a_sleeping_call_goes_on_at_the_first_upkeep_after_its_time() {
     assert!(c.waiting.is_empty());
 }
 
+/// Portal space ends when the player's scripts say so: a server's call taking the player out
+/// after a delay leaves the client in portal space until the delay has passed on its clock, and
+/// the scene is not reported before then.
+///
+/// Behaviour: script.model.portal-space-ends-after-the-calls-delay
+#[test]
+fn portal_space_ends_after_the_delay_the_servers_call_asked_for() {
+    use auberean_protocol::script::{ClientCall, ScriptArgs};
+    use auberean_script::value::FunctionId;
+    let (mut c, _) = in_the_world();
+    let start = 1.0e7;
+    c.set_time(LocalTime(start));
+    let call = |function: u32, delay: f64| {
+        ServerMessage::PlayerCall(ClientCall {
+            function: FunctionId(function),
+            args: Some(ScriptArgs(
+                auberean_script::args::encode(&[auberean_script::args::Arg::LongFloat(
+                    delay.to_bits(),
+                )])
+                .expect("packs"),
+            )),
+        })
+    };
+    let reports = |c: &Client| {
+        c.sent()
+            .iter()
+            .filter(|m| matches!(m.message, ClientMessage::SceneRenderingComplete(_)))
+            .count()
+    };
+    c.take_message(
+        3 << 56,
+        call(auberean_client_runtime::ENTER_PORTAL_SPACE, 0.0),
+    );
+    c.upkeep();
+    assert!(c.in_portal_space(), "in at once: {:?}", c.calls);
+    let before = reports(&c);
+    c.take_message(
+        3 << 56 | 1,
+        call(auberean_client_runtime::EXIT_PORTAL_SPACE, 0.8),
+    );
+    c.upkeep();
+    assert!(c.in_portal_space(), "still in as the call sleeps");
+    for (after, inside) in [(0.5, true), (0.79, true), (0.9, false)] {
+        c.frame(LocalTime(start + after));
+        assert_eq!(c.in_portal_space(), inside, "after {after} s");
+        assert_eq!(reports(&c) > before, !inside, "reported after {after} s");
+    }
+}
+
 /// The message the client sends a chat channel's line in, through the chat server.
 const CHAT_SERVER_DATA: u32 = 0x100D3;
 /// The client's own report of where its player is.
