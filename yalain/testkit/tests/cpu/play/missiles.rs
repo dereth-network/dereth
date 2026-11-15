@@ -654,3 +654,171 @@ fn a_shooter_shoots_a_player_beyond_its_melee_reach() {
         "it only shoots: {used:?}"
     );
 }
+
+/// The start's cell, a room it sees and one neither sees nor is seen from, all in the start's
+/// landblock.
+const ENTRY: u32 = 0x0299_0109;
+const NEXT: u32 = 0x0299_0100;
+const APART: u32 = 0x0299_014D;
+
+/// The attack stories a creature told against a player since `from`: its shots and strikes.
+fn attacks_on(h: &Harness, b: usize, from: usize, id: u64, me: u64) -> usize {
+    h.world_messages(b, from)
+        .iter()
+        .filter(|m| {
+            matches!(m, ServerMessage::DoStory(e)
+                if e.sender.id == id && e.action.hooks.iter().any(|k| k.target == me))
+        })
+        .count()
+}
+
+/// Report the player at a place in a cell, and let a second go by.
+fn stand_at(h: &mut Harness, b: usize, cell: u32, x: f32, y: f32) {
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &yalain_testkit::play::report(
+            cell,
+            auberean_primitives::Vec3::new(x, y, -44.6),
+            0,
+            yalain_world::world::IDLE_MOTION,
+            0,
+        ),
+    );
+    for _ in 0..10 {
+        h.step_by(0.1);
+    }
+}
+
+/// A shooter shoots only a player whose room its own room sees. Its player steps into a room it
+/// does not see: no shot follows, and it closes in instead; back in a room it sees, it attacks
+/// again; run off beyond its perception, it gives up, takes its peaceful mode, and attacks no more.
+/// Behaviour: server.creatures.attack-only-what-it-sees
+#[test]
+fn a_shooter_attacks_only_a_player_in_a_room_it_sees_and_gives_up_when_left_behind() {
+    let mut h = Harness::new();
+    h.server.ground = Some(Box::new(yalain_testkit::TestGround::seeing(&[
+        (ENTRY, &[NEXT]),
+        (NEXT, &[ENTRY]),
+        (APART, &[]),
+    ])));
+    shooter_at(&mut h, 22.0, false);
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    let id = shooter_id(&h, b);
+    let shot = h.run_until(200, |h| attacks_on(h, b, 0, id, me) > 0);
+    assert!(shot, "it shoots the player in its own room");
+    let gap = |h: &Harness| {
+        let at = h.server.things.get(id).and_then(|t| t.at).expect("placed");
+        let p = h
+            .server
+            .players
+            .values()
+            .find(|p| p.character == me)
+            .expect("in the world");
+        yalain_world::presence::distance(&at, &p.position).expect("near")
+    };
+
+    // Out of its sight: a missile already loosed may still come; none is loosed after.
+    stand_at(&mut h, b, APART, 59.06, 245.0);
+    let before = gap(&h);
+    let from = h.bots[b].inbox.len();
+    for _ in 0..80 {
+        h.step_by(0.1);
+    }
+    assert_eq!(
+        attacks_on(&h, b, from, id, me),
+        0,
+        "no attack out of its sight"
+    );
+    assert!(
+        gap(&h) < before - 5.0,
+        "it closes in: {before} m, then {} m",
+        gap(&h)
+    );
+
+    // Back in a room it sees, it attacks again.
+    stand_at(&mut h, b, NEXT, 59.06, 243.0);
+    let from = h.bots[b].inbox.len();
+    let again = h.run_until(200, |h| attacks_on(h, b, from, id, me) > 0);
+    assert!(again, "it attacks a player it sees again");
+
+    // Run off well beyond its perception (30 m): it gives up and attacks no more.
+    let from = h.bots[b].inbox.len();
+    for step in 1..=14 {
+        #[allow(clippy::cast_precision_loss)]
+        stand_at(&mut h, b, NEXT, 59.06, 243.0 + 14.0 * step as f32);
+    }
+    let peace = h.run_until(100, |h| {
+        h.world_messages(b, from).iter().any(|m| {
+            matches!(m, ServerMessage::DoMode(e) if e.sender.id == id && e.action.0 == 0x4000_0001)
+        })
+    });
+    assert!(peace, "it gives up and takes its peaceful mode");
+    let after = h.bots[b].inbox.len();
+    for _ in 0..50 {
+        h.step_by(0.1);
+    }
+    assert_eq!(
+        attacks_on(&h, b, after, id, me),
+        0,
+        "no attack once it gave up"
+    );
+}
+
+/// A creature whose room sees a player that the player's client was never told of (the player's
+/// room sees none of its) goes after the player but attacks it from nowhere: no story names it until
+/// the player comes where its client is told of it.
+/// Behaviour: server.creatures.no-attack-from-an-unknown-attacker
+#[test]
+fn a_creature_the_players_client_was_never_told_of_does_not_attack_it() {
+    let mut h = Harness::new();
+    h.server.ground = Some(Box::new(yalain_testkit::TestGround::seeing(&[
+        (ENTRY, &[APART]),
+        (APART, &[]),
+    ])));
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    stand_at(&mut h, b, APART, 59.06, 245.0);
+    shooter_at(&mut h, 22.0, false);
+    h.run(40);
+    let id = h
+        .server
+        .things
+        .by_id
+        .values()
+        .find(|t| t.template == SHOOTER)
+        .map(|t| t.id)
+        .expect("the shooter is made in the world");
+    let made = |h: &Harness| {
+        h.world_messages(b, 0)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::CreateObject(o) if o.id == id))
+    };
+    assert!(!made(&h), "the client was never told of it");
+    let engaged = h.run_until(100, |h| {
+        h.server
+            .things
+            .get(id)
+            .and_then(|t| t.creature.as_ref())
+            .is_some_and(|c| c.target == Some(me))
+    });
+    assert!(engaged, "it goes after the player it sees");
+    for _ in 0..60 {
+        h.step_by(0.1);
+    }
+    assert_eq!(attacks_on(&h, b, 0, id, me), 0, "no attack names it");
+    assert!(
+        !h.world_messages(b, 0)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::DoStory(e)
+            if e.sender.id == me && e.action.attacker == id)),
+        "nothing arrives from it"
+    );
+
+    // In its room, the client is told of it, and it attacks.
+    stand_at(&mut h, b, ENTRY, 59.06, 242.0);
+    let from = h.bots[b].inbox.len();
+    let attacked = h.run_until(200, |h| made(h) && attacks_on(h, b, from, id, me) > 0);
+    assert!(attacked, "told of it, the player is attacked");
+}

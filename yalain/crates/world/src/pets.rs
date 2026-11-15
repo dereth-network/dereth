@@ -731,6 +731,7 @@ fn summon_kind<S: Store>(
         barred: Vec::new(),
         next_look: f64::INFINITY,
         lost_since: None,
+        sight: None,
         joining: None,
         opening: None,
         harm: Vec::new(),

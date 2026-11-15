@@ -351,6 +351,7 @@ pub fn make<S: Store>(
         barred: Vec::new(),
         next_look: now + f64::from(s.rng.unit()),
         lost_since: None,
+        sight: None,
         joining: None,
         opening: None,
         harm: Vec::new(),

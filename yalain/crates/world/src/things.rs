@@ -95,6 +95,8 @@ pub struct Creature {
     pub next_look: f64,
     /// Since when its target has been beyond its perception (world seconds).
     pub lost_since: Option<f64>,
+    /// Whether it last saw its target, which, and when (world seconds): kept for a world step.
+    pub sight: Option<(u64, bool, f64)>,
     /// A fight of its own kind it is joining: the player, and when it joins.
     pub joining: Option<(u64, f64)>,
     /// Until when (world seconds) it is open to a special that exploits openings, after attacking.

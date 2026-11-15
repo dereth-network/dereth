@@ -489,6 +489,8 @@ pub struct Walls {
     pub moves: u64,
     pub search_moves: u64,
     pub searches: u64,
+    /// The lines of sight traced.
+    pub sight_lines: u64,
 }
 
 impl std::fmt::Debug for Walls {
@@ -555,6 +557,7 @@ impl Walls {
             moves: 0,
             search_moves: 0,
             searches: 0,
+            sight_lines: 0,
         }
     }
 
@@ -727,6 +730,21 @@ impl Walls {
             }
         }
         Some(false)
+    }
+
+    /// Whether nothing of the walls stands between two places, as one sees the other to attack it:
+    /// a straight line between them a meter above each, or a meter and a half, meets no wall,
+    /// floor or ceiling of the first's interior cell or the cells it sees (what stands in the
+    /// world does not stop it). A place outdoors has no walls of its own to stop the line.
+    pub fn clear_between(&mut self, a: &StoredPosition, b: &StoredPosition) -> bool {
+        self.sight_lines += 1;
+        self.need(a.cell);
+        self.need(b.cell);
+        [1.0f32, 1.5].iter().any(|h| {
+            let from = Vec3::new(a.origin[0], a.origin[1], a.origin[2] + h);
+            let to = Vec3::new(b.origin[0], b.origin[1], b.origin[2] + h);
+            auberean_physics::interior::trace(&self.land, CellId(a.cell), from, to, false).is_none()
+        })
     }
 
     /// Whether doorways join the cells of two places (the outdoors counting as one cell): none

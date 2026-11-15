@@ -234,15 +234,26 @@ fn a_creature_with_no_way_to_its_player_counts_it_as_one_it_could_not_reach() {
         }
         let clock = h.clock();
         yalain_world::ai::go_after(&mut h.server, &mut h.net, beetle, player, clock);
-        h.run(100);
-        let unreached = h
-            .server
-            .things
-            .get(beetle)
-            .and_then(|t| t.creature.as_ref())
-            .map(|c| c.unreached.clone())
-            .unwrap_or_default();
-        (unreached, player)
+        // What it counts while it is still after the player (one it neither sees nor can reach it
+        // soon gives up).
+        let unreached = |h: &Harness| {
+            h.server
+                .things
+                .get(beetle)
+                .and_then(|t| t.creature.as_ref())
+                .map(|c| c.unreached.clone())
+                .unwrap_or_default()
+        };
+        let mut seen = Vec::new();
+        for _ in 0..100 {
+            h.step();
+            let now = unreached(&h);
+            if !now.is_empty() {
+                seen = now;
+                break;
+            }
+        }
+        (seen, player)
     };
     let beside = StoredPosition {
         cell: 0x0299_010C,
@@ -813,7 +824,8 @@ fn a_short_search_behind_long_ones_does_not_wait_for_them_to_end() {
 }
 
 /// A creature whose search found no way does not search again while it and its goal stay where they
-/// were, since the answer would be the same; when the goal moves it does.
+/// were, since the answer would be the same; when the goal moves it does (all within the five
+/// seconds before a creature that neither sees nor can reach its player gives up).
 /// Behaviour: server.creatures.way-searches-share-a-budget
 #[test]
 fn a_creature_with_no_way_searches_again_only_when_it_or_its_goal_moves() {
@@ -826,10 +838,9 @@ fn a_creature_with_no_way_searches_again_only_when_it_or_its_goal_moves() {
         }
     }
     assert!(searched_nowhere(&h, ids[0]), "it finds no way");
-    h.run(20);
     let found = searches(&h);
-    h.run(200);
-    assert_eq!(searches(&h), found, "ten seconds on, no search more");
+    h.run(20);
+    assert_eq!(searches(&h), found, "nothing moved: no search more");
     for p in h.server.players.values_mut() {
         p.position.origin[0] += 1.0;
     }
@@ -1748,4 +1759,298 @@ fn a_closed_door_holds_a_players_body_and_an_open_one_lets_it_through() {
             "through the open door"
         );
     }
+}
+
+/// The Drudge Outcast, the Arwic mines' creature.
+const OUTCAST: u32 = 0x4700_2399;
+
+/// A place in the Arwic mines (landblock 0x01AC).
+fn mines(cell: u32, x: f32, y: f32, z: f32) -> StoredPosition {
+    StoredPosition {
+        cell: 0x01AC_0000 | cell,
+        origin: [x, y, z],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    }
+}
+
+/// Where the Outcast is made, and places of the mines around it, each within its perception (10 m)
+/// but the last: one in plain sight, one round the tunnel's corner with the rock between them and a
+/// way to it, and one far off at the mines' other end (the first and last places the world's camps
+/// make Outcasts at).
+fn outcast_home() -> StoredPosition {
+    mines(0x101, -3.7, -7.8, 1.0)
+}
+fn in_sight() -> StoredPosition {
+    mines(0x101, -7.5, -7.8, 1.0)
+}
+fn beyond_the_rock() -> StoredPosition {
+    mines(0x100, 1.3, -1.8, 1.0)
+}
+fn far_off() -> StoredPosition {
+    mines(0x1C7, -9.0, 117.8, -26.9)
+}
+
+/// The harness with the walls, one Drudge Outcast made at its home in the mines, and a player
+/// standing at `at` with its scene drawn; returns the harness, the client, the player and the
+/// Outcast.
+fn outcast_and_player(at: StoredPosition) -> (Harness, usize, u64, u64) {
+    let records = records();
+    let p = yalain_testkit::authored::Portal::open();
+    let mut h = Harness::new();
+    let mut catalog = yalain_testkit::test_catalog();
+    catalog.insert(p.template(OUTCAST));
+    h.server.catalog = catalog;
+    h.server.loot = yalain_testkit::test_loot();
+    h.server.skill_table = p.skills();
+    let home = outcast_home();
+    h.server.spawns.camps.push(yalain_content::Camp {
+        id: "outcasts".into(),
+        cell: home.cell,
+        origin: home.origin,
+        radius: 0.0,
+        population: 1,
+        regen: 600.0,
+        templates: vec![(OUTCAST, 1)],
+        spots: vec![(home.cell, home.origin)],
+        placed: "a place of the world's camps".into(),
+        confidence: "authored".into(),
+        moves: yalain_content::CampMoves::default(),
+        name: None,
+    });
+    h.server
+        .camps
+        .push(yalain_world::spawn::CampState::default());
+    let mut w = walls();
+    w.walkers.insert(OUTCAST, walker_of(&records, OUTCAST));
+    let _ = w.joined(&home, &at);
+    h.server.walls = Some(w);
+    let (b, me) = h.player_in_world("one", "Elara");
+    stand(&mut h, me, at);
+    h.bots[b].send(
+        true,
+        auberean_protocol::queue::WEENIE,
+        &auberean_protocol::ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    h.run(5);
+    let outcast = h
+        .server
+        .things
+        .by_id
+        .values()
+        .find(|t| t.template == OUTCAST)
+        .map(|t| t.id)
+        .expect("the Outcast is made");
+    (h, b, me, outcast)
+}
+
+/// Put the player at a place, as the server would take it.
+fn stand(h: &mut Harness, me: u64, at: StoredPosition) {
+    for p in h.server.players.values_mut().filter(|p| p.character == me) {
+        p.position = at;
+    }
+}
+
+/// The attack stories told against the player since `from`, each with whether the walls stood
+/// between the attacker and the player as it was told.
+fn attacks_seen(h: &mut Harness, b: usize, from: usize, id: u64, me: u64, told: &mut Vec<bool>) {
+    let n = h
+        .world_messages(b, from)
+        .iter()
+        .filter(|m| {
+            matches!(m, auberean_protocol::ServerMessage::DoStory(e)
+                if e.sender.id == id && e.action.hooks.iter().any(|k| k.target == me))
+        })
+        .count();
+    let at = place_of(h, id);
+    let player = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == me)
+        .map(|p| p.position)
+        .expect("in the world");
+    let clear = h
+        .server
+        .walls
+        .as_mut()
+        .expect("the walls")
+        .clear_between(&at, &player);
+    while told.len() < n {
+        told.push(clear);
+    }
+}
+
+/// Drudge Outcasts in the Arwic mines attack only a player they see. One attacks a player in
+/// plain sight; with the player beyond the rock, it attacks nothing while the rock stands between
+/// them and runs through the tunnels until it sees the player, then attacks again; every attack
+/// told came with nothing of the walls between them. Left behind at the mines' far end, it gives up,
+/// takes its peaceful mode, and attacks no more.
+/// Behaviour: server.creatures.attack-only-what-it-sees
+#[test]
+fn drudge_outcasts_in_the_arwic_mines_attack_only_a_player_they_see() {
+    let (mut h, b, me, outcast) = outcast_and_player(in_sight());
+    {
+        let w = h.server.walls.as_mut().expect("the walls");
+        let home = outcast_home();
+        assert!(w.clear_between(&home, &in_sight()), "in plain sight");
+        assert!(!w.clear_between(&home, &beyond_the_rock()), "rock between");
+        assert!(w.joined(&home, &beyond_the_rock()), "the tunnels join them");
+    }
+    let clock = h.clock();
+    yalain_world::ai::go_after(&mut h.server, &mut h.net, outcast, me, clock);
+    let mut told = Vec::new();
+    for _ in 0..200 {
+        h.step();
+        attacks_seen(&mut h, b, 0, outcast, me, &mut told);
+        if !told.is_empty() {
+            break;
+        }
+    }
+    assert!(!told.is_empty(), "it attacks the player in sight");
+
+    // Beyond the rock.
+    stand(&mut h, me, beyond_the_rock());
+    let from = h.bots[b].inbox.len();
+    let mut told = Vec::new();
+    let mut blocked_steps = 0;
+    // Where it stood at each pass: it runs no faster than its run, a world step's stride a step.
+    let mut trail: Vec<StoredPosition> = Vec::new();
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let passes_a_step = (yalain_world::spawn::STEP_SECONDS / yalain_testkit::STEP).round() as usize;
+    for _ in 0..400 {
+        h.step();
+        let at = place_of(&h, outcast);
+        trail.push(at);
+        if trail.len() > passes_a_step {
+            let back = trail[trail.len() - 1 - passes_a_step];
+            let went = yalain_world::presence::distance(&back, &at).unwrap_or(0.0);
+            #[allow(clippy::cast_possible_truncation)]
+            let stride = yalain_world::ai::RUN_SPEED * yalain_world::spawn::STEP_SECONDS as f32;
+            assert!(
+                went <= stride * 1.5,
+                "{went} m in a world step, more than its run's {stride} m"
+            );
+        }
+        if !h
+            .server
+            .walls
+            .as_mut()
+            .expect("the walls")
+            .clear_between(&at, &beyond_the_rock())
+        {
+            blocked_steps += 1;
+        }
+        attacks_seen(&mut h, b, from, outcast, me, &mut told);
+        if !told.is_empty() {
+            break;
+        }
+    }
+    assert!(blocked_steps > 0, "the rock stood between them for a while");
+    assert!(
+        !told.is_empty(),
+        "it comes round and attacks again: {:?}",
+        place_of(&h, outcast)
+    );
+    assert!(
+        told.iter().all(|clear| *clear),
+        "every attack came in sight: {told:?}"
+    );
+
+    // Left behind at the far end of the mines.
+    let from = h.bots[b].inbox.len();
+    stand(&mut h, me, far_off());
+    let peace = h.run_until(100, |h| {
+        h.world_messages(b, from).iter().any(|m| {
+            matches!(m, auberean_protocol::ServerMessage::DoMode(e)
+                if e.sender.id == outcast && e.action.0 == 0x4000_0001)
+        })
+    });
+    assert!(peace, "it gives up and takes its peaceful mode");
+    let after = h.bots[b].inbox.len();
+    h.run(60);
+    let mut told = Vec::new();
+    attacks_seen(&mut h, b, after, outcast, me, &mut told);
+    assert!(told.is_empty(), "no attack once it gave up");
+}
+
+/// A creature going after a player it does not see and that no way through the walls leads to
+/// (the player in the hall's other copy, within its perception) gives up a moment after its search
+/// finds no way, and goes home, instead of running at the rock for as long as the player stays.
+/// Behaviour: server.creatures.attack-only-what-it-sees
+#[test]
+fn a_creature_that_neither_sees_nor_can_reach_its_player_gives_up() {
+    let start = hall(0x010C, 16.0, 428.0, -43.1);
+    let (mut h, _, beetle) = beetle_at(start);
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(beetle)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.stats.movement.perception = 400.0;
+    }
+    let player = h
+        .server
+        .players
+        .values()
+        .map(|p| p.character)
+        .next()
+        .expect("the player");
+    for p in h.server.players.values_mut() {
+        p.position = StoredPosition {
+            cell: 0x0299_010C,
+            ..start
+        };
+    }
+    let clock = h.clock();
+    yalain_world::ai::go_after(&mut h.server, &mut h.net, beetle, player, clock);
+    let gave_up = h.run_until(200, |h| {
+        h.server
+            .things
+            .get(beetle)
+            .and_then(|t| t.creature.as_ref())
+            .is_some_and(|c| c.target.is_none())
+    });
+    assert!(gave_up, "it gives up the player it cannot see or reach");
+}
+
+/// A creature whose attack is due on a player it does not see looks for the player once a world
+/// step, however often the world passes in between: an Outcast that only turns, its player beyond
+/// the rock, traces its line of sight no more than once a step, and is still after the player.
+/// Behaviour: server.creatures.attack-only-what-it-sees
+#[test]
+fn a_creature_that_does_not_see_its_player_looks_once_a_world_step() {
+    let (mut h, _, me, outcast) = outcast_and_player(beyond_the_rock());
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(outcast)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.stats.movement.kind = yalain_content::MovementType::TurnOnly;
+    }
+    let clock = h.clock();
+    yalain_world::ai::go_after(&mut h.server, &mut h.net, outcast, me, clock);
+    h.run(10);
+    let lines = |h: &Harness| h.server.walls.as_ref().map_or(0, |w| w.sight_lines);
+    let (from, began) = (lines(&h), h.now.0);
+    h.run(80);
+    let steps = (h.now.0 - began) / yalain_world::spawn::STEP_SECONDS;
+    let traced = lines(&h) - from;
+    #[allow(clippy::cast_precision_loss)]
+    let per_step = traced as f64 / steps;
+    assert!(
+        per_step <= 1.25,
+        "{traced} lines of sight over {steps:.0} world steps ({} passes)",
+        80
+    );
+    assert!(traced > 0, "it still looks");
+    assert!(
+        h.server
+            .things
+            .get(outcast)
+            .and_then(|t| t.creature.as_ref())
+            .is_some_and(|c| c.target == Some(me)),
+        "still after the player"
+    );
 }

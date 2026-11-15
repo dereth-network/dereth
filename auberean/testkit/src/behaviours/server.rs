@@ -3051,6 +3051,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.attack-only-what-it-sees",
+        says: "A creature attacks only a player in its own cell or one its cell sees; out of its \
+               sight it neither shoots nor strikes but closes in, and gives up as it gives up any \
+               player left beyond its perception.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-SIGHT"),
+        station: "yalain-testkit::cpu::play::missiles::a_shooter_attacks_only_a_player_in_a_room_it_sees_and_gives_up_when_left_behind",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.attack-speed-effects",
         says: "An effect slowing a creature's attacks makes it strike less often and tells its strikes \
                slower, by the share its kind takes; a hold slows them to a fifth at most.",
@@ -3494,6 +3504,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-MISSILES"),
         station: "yalain-testkit::cpu::play::missiles::a_creature_with_missiles_stands_and_shoots_and_its_target_tells_each_arrival",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.no-attack-from-an-unknown-attacker",
+        says: "A creature whose player's client was never told of it attacks the player from \
+               nowhere: no story names it until the client is told of it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-NO-UNKNOWN-ATTACKER"),
+        station: "yalain-testkit::cpu::play::missiles::a_creature_the_players_client_was_never_told_of_does_not_attack_it",
         tier: Tier::Cpu,
     },
     behaviour! {

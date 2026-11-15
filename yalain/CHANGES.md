@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Fixed creatures attacking players they can't see, through walls or from out of view.
 - Worlds can now have an object that wants one item of a set, picked at random.
 - Worlds can now have items that vanish a while after they are made.
 - Worlds can now have people hand something out only once in a while to each player.

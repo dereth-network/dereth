@@ -15,7 +15,9 @@
 //!
 //! **Shooting.** It stands where it is, facing its target, and shoots when its attack is due (the
 //! first about 0.8 s after it engaged), running in only while the target is beyond its missiles'
-//! 40 m; a target that comes into melee reach is struck instead for the rest of the fight. Each
+//! 40 m or out of its sight ([`crate::ai`]); a target that comes into melee reach is struck instead
+//! for the rest of the fight (2017: 2,955 shots at players, a median 18.6 m, 99 in 100 within 42.4
+//! m, centre to centre). Each
 //! shot is a story from the creature (its behavior and time scale, the skill, the missile's hook
 //! naming the target); no missile object is made. The missile arrives after the creature's windup
 //! and its flight at 35 m/s, and the target tells the outcome: a story from the target with the
