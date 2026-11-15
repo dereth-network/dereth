@@ -5,7 +5,8 @@
 //! reflection, and its ripples push the reflection one way, the shores write the frame's alpha
 //! and the foam lies over the reflection, a viewport's scene covers only where it draws, and
 //! textures are taken at their detail and filtered as the graphics preferences say, and a faded
-//! object shows what is behind it.
+//! object shows what is behind it. Beside the claims, an instrument keeps the frames of seven
+//! stations to compare a later build with (`instruments`).
 //!
 //! Fixture: a hardware adapter (a software rasteriser is refused) and the end-of-retail install
 //! under `$AUBEREAN_TEST_DAT_DIR`. These tests run with `--features retail-dats`, on the binary's
@@ -14,6 +15,7 @@
 mod common;
 mod fade;
 mod inside;
+mod instruments;
 mod lost;
 mod materials;
 mod pipelines;

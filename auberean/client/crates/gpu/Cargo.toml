@@ -31,6 +31,8 @@ auberean-assets.workspace = true
 auberean-primitives.workspace = true
 # The bodies whose volumes of shadow the device draws.
 auberean-animation.workspace = true
+# The retail frames kept to compare a later build with, written and read as pictures.
+png.workspace = true
 
 [lints]
 workspace = true

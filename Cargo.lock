@@ -508,6 +508,7 @@ dependencies = [
  "bytemuck",
  "dereth-primitives",
  "naga",
+ "png",
  "pollster",
  "web-time",
  "wgpu",
