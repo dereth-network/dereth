@@ -456,3 +456,68 @@ fn a_bodys_places_make_no_buffer() {
         "each list of places, and nothing else: {moving:?}"
     );
 }
+
+/// Each of the instrument's stations drawn three times by a renderer on `backends`, smoothed or
+/// not: for each, how many pixels the later drawings differ from the first in.
+#[cfg(windows)]
+fn drawn_again(backends: wgpu::Backends, antialiasing: bool) -> Vec<(&'static str, usize)> {
+    let records = &install().records;
+    let mut load = |id: u32| auberean_draw::picture::load(records, id);
+    let mut r = crate::common::renderer_on(backends, antialiasing);
+    crate::instruments::baseline::STATIONS
+        .iter()
+        .map(|s| {
+            let f = crate::instruments::baseline::frame(s);
+            let mut draw = || {
+                r.render(&f, 640, 480, &mut load)
+                    .unwrap_or_else(|e| panic!("{}: {e}", s.name))
+                    .rgba
+            };
+            let first = draw();
+            let apart = (1..3)
+                .map(|_| {
+                    let again = draw();
+                    first
+                        .chunks(4)
+                        .zip(again.chunks(4))
+                        .filter(|(a, b)| a != b)
+                        .count()
+                })
+                .max()
+                .unwrap_or(0);
+            (s.name, apart)
+        })
+        .collect()
+}
+
+/// **The retail device draws a frame the same each time**: on Windows, where both APIs can be
+/// asked for, on Vulkan with the edges smoothed and on Direct3D 12 with them unsmoothed, each of
+/// the instrument's seven stations (`instruments::baseline`) drawn three times on one device draws
+/// the same picture, byte for byte. So nothing of the device's own (a missing barrier, a read of
+/// memory nothing wrote) moves a pixel from one drawing to the next.
+///
+/// On Direct3D 12 with the edges smoothed it does not, and the cause is the driver's: a fixed few
+/// pixels of a frame (up to a hundred, at edges where two nearly coplanar surfaces of one mesh
+/// meet) each take one of two colors from drawing to drawing, as the depth test between the two
+/// surfaces goes either way at a pixel's extra samples. A draw of one cell's mesh through the
+/// plainest pipeline (a color from each vertex, no texture) does it as soon as the pipeline
+/// blends, though what it draws is opaque; the same draw without blending, or without the extra
+/// samples, or on Vulkan, is the same each time. Retail's materials blend where they say so, so
+/// the frames keep that, and the tests that compare Direct3D 12 frames allow it.
+#[cfg(windows)]
+#[test]
+fn the_retail_device_draws_a_frame_the_same_each_time() {
+    for (backends, antialiasing) in [
+        (wgpu::Backends::VULKAN, true),
+        (wgpu::Backends::DX12, false),
+    ] {
+        let apart = drawn_again(backends, antialiasing);
+        eprintln!("{backends:?}, smoothed {antialiasing}: {apart:?}");
+        for (name, n) in apart {
+            assert_eq!(
+                n, 0,
+                "{name} on {backends:?} (smoothed {antialiasing}): drawn again, {n} pixels apart"
+            );
+        }
+    }
+}

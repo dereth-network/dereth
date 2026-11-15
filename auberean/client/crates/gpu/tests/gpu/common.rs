@@ -89,6 +89,21 @@ pub fn renderer_antialiased(antialiasing: bool) -> Held {
     }
 }
 
+/// [`renderer_antialiased`] on `backends` alone (Vulkan, say).
+#[cfg(windows)]
+pub fn renderer_on(backends: wgpu::Backends, antialiasing: bool) -> Held {
+    let turn = turn();
+    let mut desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+    desc.backends = backends;
+    let instance = wgpu::Instance::new(desc);
+    let renderer = Renderer::antialiased(&instance, None, antialiasing)
+        .unwrap_or_else(|e| panic!("a hardware device on {backends:?}: {e}"));
+    Held {
+        renderer,
+        _turn: turn,
+    }
+}
+
 /// A test's renderer and its turn on the device: the renderer is let go of before the turn.
 pub struct Held {
     renderer: Renderer,

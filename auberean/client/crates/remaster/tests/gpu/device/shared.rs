@@ -173,7 +173,8 @@ fn on_a_shared_device_retail_draws_as_on_its_own_and_the_remasters_picture_reach
 /// there vary that little from drawing to drawing on one device); the picture the remaster lends
 /// wgpu reads back through wgpu as the remaster reads the same drawing, byte for byte; and the
 /// remaster draws as on a Direct3D 12 device of its own, byte for byte. Each at the remaster's
-/// identity, the remaster's frames settled, with the debug layers quiet.
+/// identity, the remaster's frames settled. No debug layer checks these devices (neither is made
+/// with one), so the errors asked for at the end are only what the layer reports of itself.
 #[cfg(windows)]
 #[test]
 fn on_a_shared_direct3d_12_device_the_same_holds() {
@@ -226,7 +227,9 @@ fn on_a_shared_direct3d_12_device_the_same_holds() {
             .render(&f, W, H, &mut load)
             .expect("the retail frame on the shared device");
         // Retail's frames on Direct3D 12 vary in a few pixels from drawing to drawing on one
-        // device (up to a hundred here, by up to 57 levels at the cave): the frames are held to a
+        // device (up to a hundred here, by up to 57 levels at the cave): with the edges smoothed,
+        // the driver's depth test between nearly coplanar surfaces of a blended draw goes either
+        // way at a pixel's extra samples (auberean-gpu's `repeat` test). The frames are held to a
         // share of the pixels, not byte for byte.
         let retail = apart(&a.rgba, &b.rgba);
         eprintln!(

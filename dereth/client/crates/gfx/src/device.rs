@@ -15,7 +15,10 @@ use crate::{Error, Stats};
 /// What a device made here is asked for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DeviceDesc {
-    /// Enable the Khronos validation layer when it is installed.
+    /// Enable the graphics API's checks where the machine has them: the Khronos validation layer
+    /// on Vulkan, the runtime's debug layer on Direct3D 12 (part of Windows' Graphics Tools).
+    /// Without them nothing is checked and no error is reported; [`crate::Device::validating`] says
+    /// which.
     pub debug: bool,
     /// Prefer a software rasterizer to the hardware.
     pub software: bool,

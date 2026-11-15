@@ -59,14 +59,14 @@ enum Place {
 
 /// A station: its name and where it is seen from.
 #[derive(Debug, Clone, Copy)]
-struct Station {
-    name: &'static str,
+pub(crate) struct Station {
+    pub(crate) name: &'static str,
     place: Place,
 }
 
 /// The stations, in order. The four arrivals' points, headings, look-at heights, distances and
 /// moments are the retail comparison's.
-const STATIONS: [Station; 7] = [
+pub(crate) const STATIONS: [Station; 7] = [
     Station {
         name: "town-6fa9",
         place: Place::Land {
@@ -151,7 +151,7 @@ const STATIONS: [Station; 7] = [
 ];
 
 /// The station's frame, built as the viewer builds one.
-fn frame(station: &Station) -> Frame {
+pub(crate) fn frame(station: &Station) -> Frame {
     let records = &install().records;
     let region = records.region().expect("the region");
     let mut builder = SceneBuilder::new(records, &region);

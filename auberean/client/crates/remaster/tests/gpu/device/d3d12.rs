@@ -2,7 +2,9 @@
 //!
 //! The remaster on Direct3D 12: the same frames as on Vulkan, from the same shaders' DXIL. Fixture:
 //! every station, at the remaster's identity and with its whole look, on a Direct3D 12 device and on
-//! a Vulkan one of the same adapter, each with its debug layer.
+//! a Vulkan one of the same adapter, each with its debug layer where the machine has it: Direct3D
+//! 12's comes with Windows' Graphics Tools, Vulkan's with the Khronos validation layer. Without one,
+//! nothing on that device is checked and "quiet" means nothing; the test says which checked.
 
 use auberean_remaster::Remaster;
 use dereth_gfx::{Backend, DeviceDesc};
@@ -43,7 +45,7 @@ fn remaster(backend: Backend, look: bool) -> Remaster {
 /// **On Direct3D 12 the remaster draws as on Vulkan**: at every station, at its identity and with
 /// its whole look, the frame the remaster draws on a Direct3D 12 device is under two levels from the
 /// one it draws on Vulkan on average, with under one pixel in a hundred apart by more than sixteen
-/// levels, and the debug layers are quiet.
+/// levels, and the debug layers, where the machine has them, are quiet.
 #[test]
 fn on_direct3d_12_the_remaster_draws_as_on_vulkan() {
     let _turn = turn();
@@ -52,6 +54,13 @@ fn on_direct3d_12_the_remaster_draws_as_on_vulkan() {
     for look in [false, true] {
         let mut dx = remaster(Backend::D3d12, look);
         let mut vk = remaster(Backend::Vulkan, look);
+        if !look {
+            eprintln!(
+                "debug layers checking: Direct3D 12 {}, Vulkan {}",
+                dx.device().validating(),
+                vk.device().validating()
+            );
+        }
         for s in &STATIONS {
             let f = frame(s);
             let (a, _) = settled(|| dx.render(&f, W, H, &mut load).expect("the frame").rgba);
