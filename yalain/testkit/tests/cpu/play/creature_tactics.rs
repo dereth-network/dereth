@@ -949,6 +949,36 @@ fn strike_scales(h: &Harness, b: usize, id: u64, from: usize) -> Vec<f32> {
         .collect()
 }
 
+/// Each strike of a creature told for `steps` of the world: when it was told, and its time scale.
+fn timed_strikes(h: &mut Harness, b: usize, id: u64, steps: u32) -> Vec<(f64, f32)> {
+    let from = h.bots[b].inbox.len();
+    let mut at = Vec::new();
+    for _ in 0..steps {
+        h.step();
+        let told = strike_scales(h, b, id, from);
+        if told.len() > at.len() {
+            at.push((h.now.0, *told.last().expect("told")));
+        }
+    }
+    at
+}
+
+/// The gaps between strikes, each against its due by the time scale of the strike before it.
+fn gaps_as_due(at: &[(f64, f32)]) -> Vec<f64> {
+    at.windows(2)
+        .map(|pair| {
+            let gap = pair[1].0 - pair[0].0;
+            let due = yalain_world::timings::ends(&yalain_world::timings::unknown(), pair[0].1)
+                + yalain_world::timings::THING_PAUSE;
+            assert!(
+                (gap - due).abs() <= 0.051 + 0.001,
+                "a gap of {gap:.3} where {due:.3} was due"
+            );
+            gap
+        })
+        .collect()
+}
+
 /// A creature's strike comes when it is due, not at the world's next step: each gap is its strike's
 /// own, within the harness's step.
 /// Behaviour: server.creatures.attacks-when-due
@@ -1080,28 +1110,26 @@ fn an_effect_slowing_a_creatures_attacks_slows_them_by_its_share() {
     );
     hardy(&mut h, me);
     assert_eq!(combat::attack_pace(&h.server, id), 1.0);
-    let before = h.bots[b].inbox.len();
-    h.run(400);
-    let plain = strike_scales(&h, b, id, before);
+    let plain = timed_strikes(&mut h, b, id, 400);
     put_on(&mut h, id, me, STILL_WATER_EFFECT, 50.0);
     assert!((combat::attack_pace(&h.server, id) - 0.65).abs() < 1e-4);
     // What was already on its way is left out.
     h.run(3);
-    let during = h.bots[b].inbox.len();
-    h.run(400);
-    let slowed = strike_scales(&h, b, id, during);
-    assert!(!plain.is_empty() && !slowed.is_empty());
-    for t in &plain {
+    let slowed = timed_strikes(&mut h, b, id, 400);
+    assert!(plain.len() > 3 && slowed.len() > 3, "{plain:?} {slowed:?}");
+    for (_, t) in &plain {
         assert!((1.166..=1.426).contains(t), "{plain:?}");
     }
-    for t in &slowed {
+    for (_, t) in &slowed {
         assert!((0.758..=0.927).contains(t), "{slowed:?}");
     }
+    // Each next strike comes by the time scale of the one before it, so every slowed gap is longer
+    // than any plain one, whatever the draws within their bands.
+    let longest_plain = gaps_as_due(&plain).into_iter().fold(0.0, f64::max);
+    let shortest_slowed = gaps_as_due(&slowed).into_iter().fold(f64::MAX, f64::min);
     assert!(
-        slowed.len() * 10 <= plain.len() * 8,
-        "fewer strikes: {} against {}",
-        slowed.len(),
-        plain.len()
+        shortest_slowed > longest_plain,
+        "less often: {shortest_slowed:.3} against {longest_plain:.3}"
     );
     // A hold: no attack speed, a fifth of the pace for a template taking all of it, 0.35 for one
     // taking 0.65.
@@ -1297,16 +1325,19 @@ fn a_protector_buffs_its_kin_in_a_fight() {
             || !helps_on(h, b, two, one, CREATURE_ABSORB).is_empty()),
         "one buffs the other"
     );
-    h.run(30);
-    let (by, on) = if helps_on(&h, b, one, two, CREATURE_ABSORB).is_empty() {
-        (two, one)
+    let on = if helps_on(&h, b, one, two, CREATURE_ABSORB).is_empty() {
+        one
     } else {
-        (one, two)
+        two
     };
-    assert!(h.world_messages(b, 0).iter().any(
-        |m| matches!(m, ServerMessage::DoFx(e) if e.sender.id == on && e.action.fx == 0x4100_0518)
-    ));
-    let _ = by;
+    // The appearance comes as the buff's hook lands, by the drawn time scale of its story.
+    assert!(
+        h.run_until(200, |h| h.world_messages(b, 0).iter().any(|m| matches!(
+            m,
+            ServerMessage::DoFx(e) if e.sender.id == on && e.action.fx == 0x4100_0518
+        ))),
+        "the buff shows on its kin"
+    );
     // Over many uses, the hooks: a point taken (with the health change) or nothing.
     h.run(6000);
     let hooks: Vec<(u32, i32)> = [(one, two), (two, one), (one, one), (two, two)]

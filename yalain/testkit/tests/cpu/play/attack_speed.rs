@@ -358,8 +358,9 @@ fn a_players_swings_slow_with_the_combat_delay_it_wears_and_wields() {
     assert!((mean - at).abs() < 0.045, "{mean} about {at}");
     assert!(mean < bare, "{mean} against {bare}");
     // Each next swing comes at the first step once due by the swing before it, its own drawn time
-    // scale's due and not the run's mean's.
-    for w in dressed.windows(2) {
+    // scale's due and not the run's mean's. The first may be the last run's, still going as this
+    // one is asked for: asked so soon after it, the next swing comes a moment after the ask.
+    for w in dressed[1..].windows(2) {
         let (gap, due) = (w[1].0 - w[0].0, next_story_after(&unknown(), w[0].1));
         assert!(
             (due - 1e-3..=due + yalain_testkit::STEP + 2e-3).contains(&gap),

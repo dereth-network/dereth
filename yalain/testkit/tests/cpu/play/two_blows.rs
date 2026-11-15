@@ -53,7 +53,8 @@ fn basic(id: u32, implement: u32, hooks: Vec<Hook>) -> SkillDef {
 }
 
 /// A player beside the beetle with a skill it holds, two weapons of known damage made and placed
-/// in its hands, the beetle full of health and standing still.
+/// in its hands, the beetle full of health and standing still, and the player's health out of the
+/// beetle's reach.
 fn fighter(skill: SkillDef, implement: u32) -> (Harness, usize, u64, u64) {
     let mut h = Harness::new();
     h.add_creatures(1);
@@ -107,6 +108,7 @@ fn fighter(skill: SkillDef, implement: u32) -> (Harness, usize, u64, u64) {
         t.max_health = 10_000_000;
         t.health = 10_000_000;
     }
+    tough(&mut h, me);
     (h, b, me, beetle)
 }
 
@@ -353,7 +355,6 @@ const CRITICAL: u32 = 0x4000_0009;
 fn a_swing_of_two_blows_takes_the_damage_pool_once_on_the_first_that_lands() {
     // The plain damage of each blow, without a pool.
     let (mut h, b, me, beetle) = two_blows(0x2002, 0x1002);
-    tough(&mut h, me);
     let from = attack(&mut h, b, beetle);
     h.run(3000);
     let plain = |told: &[Vec<(u32, i32)>], i: usize| {
@@ -370,7 +371,6 @@ fn a_swing_of_two_blows_takes_the_damage_pool_once_on_the_first_that_lands() {
     let without = blows_of(&h, b, from, me);
     let plain = [plain(&without, 0), plain(&without, 1)];
     let (mut h, b, me, beetle) = two_blows(0x2002, 0x1002);
-    tough(&mut h, me);
     with_pool(&mut h, me, 40, 1.0, 1.0);
     let from = attack(&mut h, b, beetle);
     h.run(20_000);
@@ -411,7 +411,6 @@ fn a_landed_blow_takes_the_damage_pool_at_its_skills_chance_and_measure() {
     let shares = |points: u32, chance: f32| -> (usize, usize, Vec<i32>) {
         let skill = basic(816, im::HANDBLADE, vec![blow(0x2002, 1)]);
         let (mut h, b, me, beetle) = fighter(skill, im::HANDBLADE);
-        tough(&mut h, me);
         with_pool(&mut h, me, points, chance, 0.5);
         let from = attack(&mut h, b, beetle);
         h.run(40_000);
@@ -933,7 +932,6 @@ fn thrown_attacks_take_the_damage_pool_once_a_swing() {
                 .expect("the skill");
             d.usage.as_mut().expect("its use").hooks.truncate(1);
         }
-        tough(&mut h, me);
         with_pool_of(&mut h, me, 1884, 5_000, (1.0, 1.0));
         let from = attack(&mut h, b, beetle);
         h.run(6000);

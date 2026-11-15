@@ -300,8 +300,10 @@ fn a_special_takes_the_damage_pool_once_on_its_first_landed_hook() {
             yalain_world::quals::set_int(&mut p.qualities, VIGOR, 100);
         }
     }
+    // About 86 uses land a hook and 37 first land a later one: the bounds are far below either, so
+    // the rule above was held many times whatever the dice.
     assert!(
-        uses_landed > 80 && later_first > 0,
+        uses_landed > 50 && later_first > 5,
         "{uses_landed} {later_first}"
     );
 }

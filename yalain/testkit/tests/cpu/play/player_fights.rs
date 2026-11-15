@@ -757,6 +757,11 @@ fn a_damage_over_time_from_another_player_is_pk_damage_and_kills() {
         quals::set_int(&mut p.qualities, quality::HEALTH, 3);
     });
     let wb = yalain_world::social::world_of(&h.server, idb).expect("in the world");
+    // It lasts well past the death: a tick comes 3.5 to 7.5 s after the last, where its own 15 s
+    // could end before the one after a late death.
+    if let Some(d) = h.server.effect_table.effects.get_mut(&CHARGED_AIR_EFFECT) {
+        d.duration = yalain_world::effect_defs::Scale(vec![(0.0, 120.0)]);
+    }
     let from = h.bots[a].inbox.len();
     let clock = h.clock();
     {

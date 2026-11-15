@@ -200,8 +200,13 @@ fn summon(h: &mut Harness, b: usize) -> usize {
 }
 
 /// Use the skill on a creature again and again until a pet comes of it: a strike lands at a chance,
-/// so each use may not; forty of them leave no dice a real chance of never landing.
+/// so each use may not; forty of them leave no dice a real chance of never landing. The creature
+/// fights back once struck, so its user has the health to outlast them.
 fn strike_until_it_lands(h: &mut Harness, b: usize, at: u64, from: usize) -> bool {
+    for p in h.server.players.values_mut() {
+        quals::set_int(&mut p.qualities, quality::HEALTH_MAX, 100_000);
+        quals::set_int(&mut p.qualities, quality::HEALTH, 100_000);
+    }
     (0..40).any(|_| {
         h.bots[b].send(
             true,
@@ -1512,10 +1517,11 @@ fn a_pet_draws_its_attack_evenly_among_those_that_reach_its_target() {
 #[test]
 fn a_kind_that_lists_its_attacks_uses_those_alone_by_their_weights() {
     let mut h = Harness::new();
-    let used = attacks_used(&mut h, &[(MISSILE, 3), (MELEE, 2)], 1.5, 200);
+    let used = attacks_used(&mut h, &[(MISSILE, 3), (MELEE, 2)], 1.5, 1000);
     assert!(!used.contains(&MELEE_TWO), "unlisted");
-    let missiles = used[..200].iter().filter(|k| **k == MISSILE).count();
-    assert!((106..=134).contains(&missiles), "{missiles} of 200");
+    // 600 expected (sd 15.5), so the band holds whatever the dice; the two alike would give 500.
+    let missiles = used[..1000].iter().filter(|k| **k == MISSILE).count();
+    assert!((530..=670).contains(&missiles), "{missiles} of 1000");
 }
 
 /// A blow that throws nothing and reaches 10 m: the test world's staff blow, as a creature's skill.
