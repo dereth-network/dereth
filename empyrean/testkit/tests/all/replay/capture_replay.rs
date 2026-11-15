@@ -365,6 +365,7 @@ mod checker {
             queue: 0,
             seq: 0,
             payload: parts.concat(),
+            beyond_reach: Vec::new(),
         }
     }
     fn le(v: u32) -> [u8; 4] {
@@ -526,6 +527,20 @@ mod checker {
         assert_eq!(ours.documented.get("reach-update"), Some(&1));
         assert_eq!(violated(&s), ["known-object"]);
     }
+
+    /// An update about an object the client was never sent, while the object lay beyond the
+    /// client's landblock and the adjacent ones, is a violation on our stream too.
+    #[test]
+    fn an_update_about_an_object_beyond_the_reach_is_a_violation_on_our_stream() {
+        let mut s = login();
+        let mut far = motion(1.0, 0x8000_0099, 1);
+        far.beyond_reach = vec![0x8000_0099];
+        s.push(far);
+        let ours = check_from(&s, Server::Ours);
+        let violated: Vec<_> = ours.violations.iter().map(|v| v.invariant).collect();
+        assert_eq!(violated, ["known-object"]);
+        assert_eq!(ours.documented.get("reach-update"), None);
+    }
 }
 
 mod categories {
@@ -546,6 +561,7 @@ mod categories {
             queue: 0,
             seq: 0,
             payload: parts.concat(),
+            beyond_reach: Vec::new(),
         }
     }
     fn le(v: u32) -> [u8; 4] {

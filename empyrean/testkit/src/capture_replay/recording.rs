@@ -31,6 +31,10 @@ pub struct Msg {
     pub seq: u32,
     /// The message, opcode first.
     pub payload: Vec<u8>,
+    /// For our server's object updates: the objects the message names that lay outside the
+    /// client's reach (its player's landblock and the adjacent ones) when it arrived. Empty for a
+    /// recording.
+    pub beyond_reach: Vec<u32>,
 }
 
 impl Msg {
@@ -137,6 +141,7 @@ pub fn load(root: &Path, name: &str) -> Recording {
                     queue,
                     seq: f.header.blob_id_low,
                     payload: parts.into_values().flatten().collect(),
+                    beyond_reach: Vec::new(),
                 };
                 if is_c2s {
                     c2s.push(msg);

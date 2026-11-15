@@ -719,9 +719,52 @@ struct Driver<'a> {
     view: OurView,
     /// The recorded deaths anchored and applied as the server steps.
     steer: Steering,
+    /// The client's character, from the last PlayerCreate.
+    player: Option<u32>,
+}
+
+/// The landblock an object is in: its own, else its wielder's or container's, else its location's.
+fn landblock_of(w: &empyrean_world::World, g: u32) -> Option<empyrean_entity::LandblockId> {
+    let mut at = empyrean_entity::ObjectGuid::new(g);
+    for _ in 0..8 {
+        let o = w.objects.get(at)?;
+        if let Some(lb) = o.current_landblock {
+            return Some(lb);
+        }
+        match o.wielder.or(o.wo.world_object_properties.container) {
+            Some(next) if next != at => at = next,
+            _ => break,
+        }
+    }
+    w.objects
+        .get(empyrean_entity::ObjectGuid::new(g))?
+        .location()
+        .map(|l| l.landblock_id())
 }
 
 impl Driver<'_> {
+    /// Whether object `g` lies outside the client's reach now: neither in its player's landblock
+    /// nor in one adjacent to it. An object or player no longer in the world is not judged.
+    fn beyond_reach(&self, g: u32) -> bool {
+        let w = &self.ts.world;
+        let (Some(player), Some(object)) = (
+            self.player.and_then(|p| landblock_of(w, p)),
+            landblock_of(w, g),
+        ) else {
+            return false;
+        };
+        let same = |a: empyrean_entity::LandblockId, b: empyrean_entity::LandblockId| {
+            a.landblock_x() == b.landblock_x() && a.landblock_y() == b.landblock_y()
+        };
+        if same(player, object) {
+            return false;
+        }
+        !w.landblock_manager
+            .landblocks
+            .get(object)
+            .is_some_and(|l| l.adjacents.iter().any(|&a| same(a, player)))
+    }
+
     fn now(&self) -> f64 {
         self.ts.seconds()
     }
@@ -758,12 +801,25 @@ impl Driver<'_> {
                     self.view.chargen_pending -= 1;
                 }
             }
+            if m.opcode == wire::PLAYER_CREATE {
+                self.player = wire::u32_at(&payload, 4);
+            }
+            let beyond_reach = if wire::is_object_update(m.opcode) {
+                wire::subject(&payload)
+                    .into_iter()
+                    .chain(wire::other_named(&payload))
+                    .filter(|&g| self.beyond_reach(g))
+                    .collect()
+            } else {
+                Vec::new()
+            };
             self.got.push(Msg {
                 t,
                 c2s: false,
                 queue: queue_id(m.queue),
                 seq: m.blob_id.low32(),
                 payload,
+                beyond_reach,
             });
         }
         self.seen = inbox.len();
@@ -886,6 +942,7 @@ fn run(rec: &Recording, out: &mut ReplayOutcome, got: &mut Vec<Msg>, ours_c2s: &
         seen: 0,
         view: OurView::default(),
         steer: Steering::default(),
+        player: None,
     };
     // CAPTURE_REPLAY_STEER=0: no anchored deaths and no capped waits (a debugging comparison only)
     let steering = std::env::var("CAPTURE_REPLAY_STEER").map_or(true, |v| v != "0");
@@ -1154,6 +1211,7 @@ fn run(rec: &Recording, out: &mut ReplayOutcome, got: &mut Vec<Msg>, ours_c2s: &
             queue: m.queue,
             seq: 0,
             payload,
+            beyond_reach: Vec::new(),
         });
     }
 

@@ -48,9 +48,10 @@ pub const EXEMPTIONS: [(&str, &str, &str); 4] = [
     (
         "reach-update",
         "known-object",
-        "ours only (V286): an update about an object the client was never sent or has forgotten: every object \
-         update goes to the players in the object's landblock and the adjacent ones, as retail sent it, whether \
-         or not they have the object",
+        "ours only (V286): an update about an object the client was never sent or has forgotten, while the \
+         object lay in the client's landblock or one adjacent to it: every object update goes to the players \
+         there, as retail sent it, whether or not they have the object. One about an object beyond that reach \
+         stays a violation",
     ),
 ];
 
@@ -252,7 +253,7 @@ pub fn check_from(msgs: &[Msg], server: Server) -> InvariantReport {
                 }
                 if created_soon(g, i, m.t) {
                     *r.documented.entry("early-announce").or_insert(0) += 1;
-                } else if server == Server::Ours {
+                } else if server == Server::Ours && !m.beyond_reach.contains(&g) {
                     *r.documented.entry("reach-update").or_insert(0) += 1;
                 } else {
                     hit(
