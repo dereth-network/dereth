@@ -222,10 +222,13 @@ struct Targets {
     width: u32,
     height: u32,
     color: Texture,
+    /// The frame's own depth, which nothing samples.
     depth: Texture,
-    /// The shared layout's G-buffer over the same depth: the material and normal pictures of the
-    /// depth's pass, and the rest of the layout's targets, which nothing of the remaster reads
-    /// yet.
+    /// The depth's pass's depth, apart from the frame's: what the shared passes read.
+    prepass: Texture,
+    /// The shared layout's G-buffer over the depth's pass's depth: the material and normal
+    /// pictures of that pass, and the rest of the layout's targets, which nothing of the remaster
+    /// reads yet.
     gbuffer: dereth_gfx_passes::gbuffer::Targets,
 }
 
@@ -839,6 +842,7 @@ impl Remaster {
             }
             self.gfx.destroy_texture(t.color);
             self.gfx.destroy_texture(t.depth);
+            self.gfx.destroy_texture(t.prepass);
             for x in [
                 t.gbuffer.albedo,
                 t.gbuffer.normal,
@@ -858,6 +862,16 @@ impl Remaster {
         })?;
         let depth = self.gfx.create_texture(&TextureDesc {
             label: "remaster depth",
+            width,
+            height,
+            mips: 1,
+            format: DEPTH,
+            usage: TextureUsage::DEPTH_TARGET,
+        })?;
+        // The depth's pass draws into a depth of its own, which the shared passes sample: the
+        // frame's depth is never a picture another pass reads.
+        let prepass = self.gfx.create_texture(&TextureDesc {
+            label: "remaster depth pass",
             width,
             height,
             mips: 1,
@@ -892,7 +906,7 @@ impl Remaster {
         };
         let albedo = unread("remaster albedo", dereth_gfx_passes::gbuffer::ALBEDO)?;
         let light = unread("remaster light", dereth_gfx_passes::gbuffer::LIGHT)?;
-        let depth_index = self.gfx.bind_texture(depth)?;
+        let depth_index = self.gfx.bind_texture(prepass)?;
         let index = [
             self.gfx.bind_texture(albedo)?,
             self.gfx.bind_texture(normal)?,
@@ -907,6 +921,7 @@ impl Remaster {
             height,
             color,
             depth,
+            prepass,
             gbuffer: dereth_gfx_passes::gbuffer::Targets {
                 width,
                 height,
@@ -914,9 +929,9 @@ impl Remaster {
                 normal,
                 light,
                 material,
-                depth,
+                depth: prepass,
                 color,
-                outdoor_depth: depth,
+                outdoor_depth: prepass,
                 index,
             },
         };
@@ -1856,7 +1871,7 @@ impl Remaster {
                     },
                 ],
                 depth: Some(DepthAttachment {
-                    texture: t.depth,
+                    texture: t.prepass,
                     clear: Some(1.0),
                     write: true,
                 }),
@@ -1879,7 +1894,7 @@ impl Remaster {
                 &mut r,
                 &t.gbuffer,
                 lights[Env::Own as usize],
-                (t.depth, t.gbuffer.index[4]),
+                (t.prepass, t.gbuffer.index[4]),
             )?;
         }
         if let Some(plan) = &sun_plan {
@@ -1888,7 +1903,7 @@ impl Remaster {
                 &mut r,
                 &t.gbuffer,
                 lights[Env::Own as usize],
-                (t.depth, t.gbuffer.index[4]),
+                (t.prepass, t.gbuffer.index[4]),
             )?;
         }
         if let Some((picture, ripples, depth, _, _)) = reflection_targets {
@@ -1969,7 +1984,7 @@ impl Remaster {
                 &mut r,
                 &scene,
                 lights[Env::Own as usize],
-                (t.depth, t.gbuffer.index[4]),
+                (t.prepass, t.gbuffer.index[4]),
                 None,
             )?;
             plan.record_finish(&mut r, lights[Env::Own as usize], gathered)?;
