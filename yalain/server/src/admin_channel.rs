@@ -68,7 +68,14 @@ pub struct ChannelFile {
 #[derive(Debug, Default)]
 struct Output {
     backlog: VecDeque<String>,
-    readers: Vec<SyncSender<String>>,
+    readers: Vec<Reader>,
+}
+
+/// A connected program's queue of lines, and its connection, to end when it falls too far behind.
+#[derive(Debug)]
+struct Reader {
+    lines: SyncSender<String>,
+    connection: TcpStream,
 }
 
 impl Output {
@@ -77,13 +84,16 @@ impl Output {
             self.backlog.pop_front();
         }
         self.backlog.push_back(line.to_owned());
-        // A reader that has gone, or fallen too far behind, is dropped: its connection ends.
-        self.readers.retain(|r| {
-            !matches!(
-                r.try_send(line.to_owned()),
-                Err(TrySendError::Full(_) | TrySendError::Disconnected(_))
-            )
-        });
+        // A reader that has gone, or fallen too far behind, is dropped and its connection ended,
+        // which frees its place.
+        self.readers
+            .retain(|r| match r.lines.try_send(line.to_owned()) {
+                Ok(()) => true,
+                Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
+                    let _ = r.connection.shutdown(std::net::Shutdown::Both);
+                    false
+                }
+            });
     }
 }
 
@@ -294,16 +304,17 @@ pub fn start(
                         hello: hello.clone(),
                         lines: lines.clone(),
                     };
-                    let ended = Arc::clone(&open);
-                    let spawned = std::thread::Builder::new()
+                    let place = Place {
+                        open: Arc::clone(&open),
+                        id,
+                    };
+                    // A thread that cannot be started gives the place back as it is dropped.
+                    let _ = std::thread::Builder::new()
                         .name("Admin channel connection".into())
                         .spawn(move || {
+                            let _place = place;
                             connection.serve(stream);
-                            open_remove(&ended, id);
                         });
-                    if spawned.is_err() {
-                        open_remove(&open, id);
-                    }
                 }
             })?
     };
@@ -316,11 +327,19 @@ pub fn start(
     })
 }
 
-/// Forgets connection `id` once it has ended.
-fn open_remove(open: &Open, id: u64) {
-    open.lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .retain(|(n, _)| *n != id);
+/// A connection's place among the open ones, given back however its thread ends.
+struct Place {
+    open: Open,
+    id: u64,
+}
+
+impl Drop for Place {
+    fn drop(&mut self) {
+        self.open
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|(n, _)| *n != self.id);
+    }
 }
 
 /// What one connection needs.
@@ -370,21 +389,32 @@ impl Connection {
             let _ = stream.shutdown(std::net::Shutdown::Both);
             return;
         };
-        let (tx, rx) = mpsc::sync_channel::<String>(QUEUE);
-        let backlog: Vec<String> = {
-            let mut out = self.output.lock().unwrap_or_else(PoisonError::into_inner);
-            out.readers.push(tx);
-            out.backlog.iter().cloned().collect()
-        };
-        let Ok(write_half) = stream.try_clone() else {
+        let (Ok(write_half), Ok(connection)) = (stream.try_clone(), stream.try_clone()) else {
+            let _ = stream.shutdown(std::net::Shutdown::Both);
             return;
         };
         let _ = write_half.set_nonblocking(false);
+        let (tx, rx) = mpsc::sync_channel::<String>(QUEUE);
+        let backlog: Vec<String> = {
+            let mut out = self.output.lock().unwrap_or_else(PoisonError::into_inner);
+            out.readers.push(Reader {
+                lines: tx,
+                connection,
+            });
+            out.backlog.iter().cloned().collect()
+        };
         let ended = Arc::new(AtomicBool::new(false));
         let writer = {
             let ended = Arc::clone(&ended);
             let hello = self.hello;
-            std::thread::spawn(move || write_lines(write_half, &hello, backlog, &rx, &ended))
+            std::thread::Builder::new()
+                .name("Admin channel writer".into())
+                .spawn(move || write_lines(write_half, &hello, backlog, &rx, &ended))
+        };
+        // Without its writer the program would wait for a hello that never comes: it is closed.
+        let Ok(writer) = writer else {
+            let _ = stream.shutdown(std::net::Shutdown::Both);
+            return;
         };
         while let Some(line) = read_line(&mut reader) {
             if self.lines.send(line).is_err() {
@@ -548,6 +578,80 @@ mod tests {
                 open
             })
             .collect()
+    }
+
+    /// How many programs the running channel hands the console's lines to.
+    fn readers() -> usize {
+        let tap = TAP.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        tap.map_or(0, |output| {
+            output
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .readers
+                .len()
+        })
+    }
+
+    /// A program too far behind the console's lines is closed, and its place is freed for another.
+    /// Behaviour: server.operator.admin-channel-behind
+    #[test]
+    fn a_program_too_far_behind_the_console_is_closed_and_its_place_freed() {
+        let _one = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
+        let dir = scratch("behind");
+        let (channel, _lines) = start_in(&dir);
+        let mut connected = Vec::new();
+        for _ in 0..MAX_CLIENTS {
+            connected.push(let_in(&channel, &dir));
+        }
+        // None of the four reads, so the console's lines pile up until each is too far behind;
+        // the count only stops a hang.
+        let line = "x".repeat(1000);
+        let mut count = 0;
+        while readers() > 0 {
+            shown(&line);
+            count += 1;
+            assert!(count < 10_000_000, "no program fell behind");
+        }
+        // Each reads what reached it, then the end: the channel closed it.
+        for (_s, mut reader) in connected {
+            let mut rest = Vec::new();
+            let end = reader.read_to_end(&mut rest);
+            assert!(end.is_ok(), "{end:?} after {} bytes", rest.len());
+        }
+        // Their places are free: another program is let in.
+        drop(let_in(&channel, &dir));
+        channel.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A connection's place is given back however its thread ends: a thread never started, or
+    /// one that fails.
+    /// Behaviour: server.operator.admin-channel-secret-first
+    #[test]
+    fn a_connections_place_is_given_back_however_its_thread_ends() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("a listener");
+        let open: Open = Arc::new(Mutex::new(Vec::new()));
+        for id in [1, 2] {
+            let s =
+                TcpStream::connect(listener.local_addr().expect("its address")).expect("connect");
+            open.lock().expect("the list").push((id, s));
+        }
+        let place = |id| Place {
+            open: Arc::clone(&open),
+            id,
+        };
+        drop(place(1));
+        let failed = place(2);
+        let ended = std::thread::spawn(move || {
+            let _place = failed;
+            panic!("the connection's thread fails");
+        })
+        .join();
+        assert!(ended.is_err(), "the thread failed");
+        assert!(
+            open.lock().expect("the list").is_empty(),
+            "both places back"
+        );
     }
 
     /// A program that has given the secret is waited for however long it sends nothing: the

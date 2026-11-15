@@ -10105,6 +10105,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.operator.admin-channel-behind",
+        says: "A program on the admin channel too far behind the console's lines is closed, and \
+               its place freed for another.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-CHANNEL-BEHIND"),
+        station: "yalain::bin.yalain::admin_channel::tests::a_program_too_far_behind_the_console_is_closed_and_its_place_freed",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.admin-channel-console",
         says: "With its secret, a program on the admin channel is told the hello (the server, its \
                version and the world), then the console's last lines and each line as the console \

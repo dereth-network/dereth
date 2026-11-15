@@ -21,6 +21,7 @@ what they see, not how it was done.
 - Fixed corpses appearing before or after a creature finished falling.
 - Fixed quests taking a whole stack of an item when they should take one.
 - Fixed admin programs being disconnected after a few idle seconds on Windows.
+- Fixed admin programs that fall behind keeping their place on the admin channel.
 
 ## 0.5.0 (2026-11-15)
 - World: portal beacons take no harm until struck by a weapon the imbuer has enchanted.
