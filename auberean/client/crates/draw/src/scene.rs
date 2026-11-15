@@ -759,6 +759,9 @@ pub struct Frame {
     pub rain: f32,
     /// The bodies the frame draws, each by its id with the range of `objects` that are its draws.
     pub bodies: Vec<(u64, std::ops::Range<usize>)>,
+    /// The moment's wind, meters a second east, north and up, as the rain and the missiles take
+    /// it.
+    pub wind: [f32; 3],
     /// Where frills fade out, from the camera: fully drawn nearer than the first distance, gone
     /// past the second.
     pub frill_fade: [f32; 2],
@@ -2291,6 +2294,7 @@ impl<'a> SceneBuilder<'a> {
             sky_dome,
             rain: 0.0,
             bodies: Vec::new(),
+            wind: [0.0; 3],
             frill_fade: {
                 #[allow(clippy::cast_precision_loss)]
                 let end = self.frill_radius as f32 * cell_len * self.frill_reach;
@@ -2457,6 +2461,7 @@ impl<'a> SceneBuilder<'a> {
             sky_dome: 0,
             rain: 0.0,
             bodies: Vec::new(),
+            wind: [0.0; 3],
             frill_fade: [f32::MAX, f32::MAX],
             counts,
             shadow: None,

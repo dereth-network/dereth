@@ -36,6 +36,9 @@
 //! over a band about each change, each in its share of the pixels by a hash that moves each frame,
 //! so the anti-aliasing blends one level into the other rather than the object popping.
 //!
+//! With the sway on, the grass and the cut-out leaves bend in the moment's wind, the more the
+//! higher over where they stand; retail holds them still.
+//!
 //! With the wet on ([`weather`]), while it rains what stands out in the rain is soaked, and the
 //! overhead map of what stands over each point keeps it off what stands under a roof.
 //!
@@ -102,6 +105,16 @@ const DEPTH: Format = Format::D32Float;
 /// about each change, taken at this many distances.
 const LOD_BAND: f32 = 0.06;
 const LOD_SAMPLES: u32 = 16;
+
+/// The sway: how far the wind bends the grass and the cut-out leaves at each meter over where
+/// they stand, meters at a wind of a meter a second, and how much of the moment's wind they take.
+const SWAY_GRASS: f32 = 0.12;
+const SWAY_LEAVES: f32 = 0.02;
+const SWAY_WIND: f32 = 0.15;
+/// The sway's clock wraps over this many seconds (the shared sway's period), and the frame's row
+/// the wind and that clock are read from (`FRAME_WIND` in the shared passes' `frame.slang`).
+const SWAY_PERIOD: f64 = 1200.0;
+const FRAME_WIND: usize = 24;
 
 /// How many frames a list's or a picture's own buffer is kept after the last frame that drew it.
 const KEEP_FRAMES: u64 = 240;
@@ -261,6 +274,9 @@ struct Draw {
     /// Where the draw is crossfaded between its object's levels of detail: its start and share of
     /// the pixels, in 65535ths, packed as the shaders read them; `u32::MAX` for all of them.
     fade: u32,
+    /// How far the wind bends it at each meter over its origin, as a float's bits; `u32::MAX` for
+    /// a draw that holds still.
+    sway: u32,
 }
 
 /// The frame's targets.
@@ -350,6 +366,8 @@ pub struct Remaster {
     /// crossfaded.
     crossfade: bool,
     last_crossfaded: usize,
+    /// Whether the grass and the leaves sway in the wind.
+    sway: bool,
     frame: u64,
 }
 
@@ -526,6 +544,7 @@ impl Remaster {
             last_bodies: HashMap::new(),
             crossfade: false,
             last_crossfaded: 0,
+            sway: false,
             frame: 0,
         })
     }
@@ -542,6 +561,7 @@ impl Remaster {
         });
         self.set_motion(true);
         self.set_crossfade(true);
+        self.set_sway(true);
         self.set_ao(AoSettings {
             on: true,
             indoors: true,
@@ -589,6 +609,18 @@ impl Remaster {
             self.atmosphere.tables_drawn,
             self.atmosphere.views_drawn,
         )
+    }
+
+    /// Whether the grass and the cut-out leaves sway in the moment's wind from the next frame on
+    /// (off: they hold still, as retail draws them).
+    pub fn set_sway(&mut self, on: bool) {
+        self.sway = on;
+    }
+
+    /// Whether the grass and the cut-out leaves sway.
+    #[must_use]
+    pub fn sway(&self) -> bool {
+        self.sway
     }
 
     /// Whether an object's levels of detail are crossfaded from the next frame on (off: each draw
@@ -1374,11 +1406,27 @@ impl Remaster {
             looked_u.light(l);
         }
         let looked_sun = looked_u.sun_color;
+        // With the sway on, the wind the grass and the leaves bend in, and the sway's clock.
+        #[allow(clippy::cast_possible_truncation)] // seconds within the sway's period
+        let wind_row = self.sway.then(|| {
+            [
+                frame.wind[0] * SWAY_WIND,
+                frame.wind[1] * SWAY_WIND,
+                frame.uptime.rem_euclid(SWAY_PERIOD) as f32,
+                0.0,
+            ]
+        });
         for (k, u) in [&frame_u, &out_u, &sky_u, &looked_u]
             .into_iter()
             .enumerate()
         {
-            let bytes = Self::light_rows(u, view, (width, height));
+            let mut bytes = Self::light_rows(u, view, (width, height));
+            if let Some(w) = wind_row {
+                let at = FRAME_WIND * 16;
+                for (i, v) in w.iter().enumerate() {
+                    bytes[at + i * 4..at + i * 4 + 4].copy_from_slice(&v.to_le_bytes());
+                }
+            }
             self.lights[k].write(&mut self.gfx, &bytes)?;
         }
 
@@ -1473,6 +1521,19 @@ impl Remaster {
                 }
                 let mut u = draw_uniforms(&b.layer, &b.transform, b.tint, sun, &b.points);
                 u.params[1] = faded.alpha_ref.unwrap_or(-1.0);
+                // The grass, and the cut-out leaves of what stands in the land, sway.
+                let sway = if !this.sway || env == Env::Sky || b.posed.is_some() {
+                    None
+                } else if step == Pass::Frills {
+                    Some(SWAY_GRASS)
+                } else if matches!(step, Pass::Opaque | Pass::Casters)
+                    && faded.alpha_ref.is_some()
+                    && !b.points.inside
+                {
+                    Some(SWAY_LEAVES)
+                } else {
+                    None
+                };
                 let record = u32::try_from(records.len()).unwrap_or(u32::MAX);
                 records.push(u);
                 let vertices = this.mesh_vertices(&b.vertices)?;
@@ -1561,6 +1622,7 @@ impl Remaster {
                             ),
                         body: bodies.get(&(std::ptr::from_ref(b) as usize)).copied(),
                         fade,
+                        sway: sway.map_or(u32::MAX, f32::to_bits),
                     },
                 );
             }
@@ -1656,6 +1718,7 @@ impl Remaster {
                     masked: true,
                     body: None,
                     fade: u32::MAX,
+                    sway: u32::MAX,
                 },
             );
             Ok(())
@@ -1813,6 +1876,7 @@ impl Remaster {
                     masked: false,
                     body: None,
                     fade: u32::MAX,
+                    sway: u32::MAX,
                 };
                 if r.ripples {
                     let mut u = draw_uniforms(&b.layer, &b.transform, b.tint, out_sun, &b.points);
@@ -2199,6 +2263,7 @@ impl Remaster {
                         weather,
                         if reflecting { u32::MAX } else { d.fade },
                         seed,
+                        if reflecting { u32::MAX } else { d.sway },
                     ])
                 }
                 _ => push_words(&[

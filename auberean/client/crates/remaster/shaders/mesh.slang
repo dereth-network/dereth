@@ -56,6 +56,9 @@ struct Push
     // frame's number, which moves the pixels' hash from frame to frame.
     uint fade;
     uint seed;
+    // How far the wind bends the draw at each meter over its own origin, meters at a wind of a
+    // meter a second, as a float's bits (~0: it holds still).
+    uint sway;
 };
 
 // The frame's alpha under every draw: 127 of 255.
@@ -257,6 +260,13 @@ MeshOut vs_mesh(uint index : SV_VertexID)
     }
     o.ground_tint = ground_tint;
     float4 world4 = apply(d.model, float4(v.position, 1.0));
+    if (push.sway != 0xFFFFFFFF)
+    {
+        // A growing thing bends in the wind the more the higher over its own origin.
+        float3 origin = apply(d.model, float4(0.0, 0.0, 0.0, 1.0)).xyz;
+        float bend = asfloat(push.sway) * max(world4.z - origin.z, 0.0);
+        world4.xyz += swayed(row(push.frame, FRAME_WIND), bend, origin, world4.xyz, true);
+    }
     float3 world = world4.xyz;
     o.clip = apply(f.view_proj, world4);
     o.half_vector = float4(0.0, 0.0, 0.0, 0.0);

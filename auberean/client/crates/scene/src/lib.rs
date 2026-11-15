@@ -4859,6 +4859,7 @@ impl<'w> Scene<'w> {
             auberean_draw::rain::weather(&d, spot.time_of_day, &self.systems.dice())
         });
         self.objects.wind.set(pv(moment.1));
+        built.frame.wind = [moment.1.x, moment.1.y, moment.1.z];
         self.anims.wind = auberean_world::math::length(moment.1);
         // The rain, and what it and the water do to the player's body.
         let sees_out = !is_interior(view)

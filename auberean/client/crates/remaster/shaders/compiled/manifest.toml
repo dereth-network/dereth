@@ -24,20 +24,20 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 "../../../../../dereth/client/crates/gfx-passes/shaders/weather.slang" = "539214950c50104af8afe18c929e0a6f8e330259e955db7eb9562a9bf1dc6e6f"
 "lamps.slang" = "ec87a79d922c2eebef2265464d7ab1433f27f0b10909788098301958f88110af"
 "light.slang" = "e60f776a901d733fdd5da6a324a60327715815edcba100cf522856428b989529"
-"mesh.slang" = "d6ea01844c21bc6e82e1b427914d7db6898462ef2d93ff9f2e29246d432d627e"
+"mesh.slang" = "4dc1b1f5638ad7affe069cadb9c1c1c3a86c883aa93fbe62fd9c04b3f8295a37"
 "motion.slang" = "397797c06e8e2862065666f51568436cdce292156c4923c0bf81fc8b917ddb10"
 "shaders.toml" = "d878f620ac3dbd74d95a783a5631dddd22100aff282d2584c5a34fe72c070035"
 "terrain.slang" = "f52087a673001eb6dc358472ff68433782a28bd6201a3603639e65f77cd23aa3"
 
 [blobs]
 "dxil/lamps.fs_lamps.dxil" = { sha256 = "edbd7eaa584444fc7720ab96851d444e457878c83d9eb5c0f1d7ab4bee519069", bytes = 6572 }
-"dxil/mesh.fs_mesh.dxil" = { sha256 = "d7b3481aa9eaf3be4389a2694b41bcef22569dc9368e353bc15c03ee6e39b34f", bytes = 17828 }
-"dxil/mesh.fs_mesh_caster.dxil" = { sha256 = "ccec9d87013a75ff70280c7be7ea12e9ec5ee5b08b184bf75e3e6357b6807f72", bytes = 5452 }
-"dxil/mesh.fs_mesh_depth.dxil" = { sha256 = "01184cfb1acf4fa1ad326aab8b31e99250c4b14ca01f04ebd0ec1d6bd554b8d5", bytes = 13356 }
-"dxil/mesh.fs_ripple.dxil" = { sha256 = "2fc25a401cba20e9deba00c063d6b5208f9a000e08f14bcc2abed2761e348b15", bytes = 6624 }
-"dxil/mesh.fs_water.dxil" = { sha256 = "ff129204050eb95a2129d8b9fb6542610ccf0528381d40cdc0d845eddef52292", bytes = 7584 }
-"dxil/mesh.vs_mesh.dxil" = { sha256 = "2b45530e67615bd74426b9871ebaad0c91b09718f3014943448986d8ffb22d9d", bytes = 21024 }
-"dxil/mesh.vs_mesh_caster.dxil" = { sha256 = "c64c2ed3e7a24b8e66ea5161049e8d49ef5c8dd78e954bce8492422cfbaaf1ed", bytes = 6196 }
+"dxil/mesh.fs_mesh.dxil" = { sha256 = "f088fcea69ad59e0d54d364acbed7e0854cabf92bb6122cc0a19221456ae69bb", bytes = 17856 }
+"dxil/mesh.fs_mesh_caster.dxil" = { sha256 = "172f7f3b9b058c43f0a8bc3573356f643c05714b1db2c6619f7c2948f713b6fb", bytes = 5476 }
+"dxil/mesh.fs_mesh_depth.dxil" = { sha256 = "13b8e89edfaa7617cfb10bfc729dc45001a92f46454b70b14960a2f6ef270778", bytes = 13380 }
+"dxil/mesh.fs_ripple.dxil" = { sha256 = "27856b9d3a7f2d45e60d615a91002a603197138a1a78455092015674579c7a65", bytes = 6644 }
+"dxil/mesh.fs_water.dxil" = { sha256 = "fbee0ffdcd45c084a72308f26195d6220a8640d5b572b97b1307c1886a46b29a", bytes = 7608 }
+"dxil/mesh.vs_mesh.dxil" = { sha256 = "95ec0d78ef2a566ab665b282338d8dc02295b962479b253ebedab1326a88a5e4", bytes = 21712 }
+"dxil/mesh.vs_mesh_caster.dxil" = { sha256 = "f174cd80f921f225926c04c184cdcf3db4b7543c6b1f7b5333679272fcae310e", bytes = 6212 }
 "dxil/motion.fs_motion.dxil" = { sha256 = "b20fb56003c7b2d1a012089563fe3c5790fd841c69a158e81b91e1b333ae4f44", bytes = 4844 }
 "dxil/motion.vs_motion.dxil" = { sha256 = "ce0ce7d73afbcfd41bf6906b0c80dd7ca835e54f47158e4db85df0c8a4f8eb7f", bytes = 5920 }
 "dxil/terrain.fs_sky_in.dxil" = { sha256 = "96a0c9b451d0afff6718a59426eddcc8a7f88c86d3d1f4a68a644a9395fa749f", bytes = 4652 }
@@ -49,13 +49,13 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 "dxil/terrain.vs_terrain.dxil" = { sha256 = "8b408e590fc7dcb44048d597e03a8e73eefb66f17c34f40a3e5762f2e9113981", bytes = 6240 }
 "dxil/terrain.vs_veil.dxil" = { sha256 = "e5ed5cd8625eac475b95fc8d137f3369d299cd458ed4d57637576f0d51e939c3", bytes = 2912 }
 "spirv/lamps.fs_lamps.spv" = { sha256 = "f373fbcaa602ed2ded5d8af8cf477696aaa98dd2a476d36b3a9005612f03f67f", bytes = 15268 }
-"spirv/mesh.fs_mesh.spv" = { sha256 = "85e3b0cf843049267b10c7a10d0dbbb6f1b2e3f6386c87f041bd0b2fd88433ad", bytes = 47944 }
-"spirv/mesh.fs_mesh_caster.spv" = { sha256 = "6ef76af6c54bb5eb2059de05b3e227107651198291fcb96c60c3167478ee6aca", bytes = 7792 }
-"spirv/mesh.fs_mesh_depth.spv" = { sha256 = "c0cadd7a95eabd75312206162f82d4e3fab3189cea886ddab5a2624c785787b5", bytes = 38124 }
-"spirv/mesh.fs_ripple.spv" = { sha256 = "4b18e1a61ae8b18026dbfbf7b24dbbfbee91958be8bc8993cffb76891d3ff501", bytes = 2184 }
-"spirv/mesh.fs_water.spv" = { sha256 = "ca19cf065dd2103db8f430410be1141dc0018f068d8deaa2ba2b943689668ab6", bytes = 5724 }
-"spirv/mesh.vs_mesh.spv" = { sha256 = "a0a575c99b8100f8ef3e6b782ab583d34c37346b94e3462bf21fe9b84a3dcd31", bytes = 61776 }
-"spirv/mesh.vs_mesh_caster.spv" = { sha256 = "0ef00c43972d53152333858a04361fa6bf4743a4c06334c34cabf6a990a1d962", bytes = 12260 }
+"spirv/mesh.fs_mesh.spv" = { sha256 = "c300e60e62e4fba5188d28d65dffe3996ba0c349dc0061ea707d081b4a73f5bf", bytes = 47988 }
+"spirv/mesh.fs_mesh_caster.spv" = { sha256 = "5ecfd6ec270aef4bb878390990345aa01f933c7c5c9f1be6d77091f511be4486", bytes = 7836 }
+"spirv/mesh.fs_mesh_depth.spv" = { sha256 = "dd3ab178dab909dc735a7d9a5ad54c2f69ac94204774a5441769b136801fde4d", bytes = 38168 }
+"spirv/mesh.fs_ripple.spv" = { sha256 = "47070d1f6752177524223fd663a1af7f9c09491d687b7995a34e3d7705f1a619", bytes = 2228 }
+"spirv/mesh.fs_water.spv" = { sha256 = "bb4608378c8ec4ef407543a769c0d84b506979e57cc0ed6912b10e2cb42a02d3", bytes = 5768 }
+"spirv/mesh.vs_mesh.spv" = { sha256 = "a965364daa20c4f548fb616eb1a4116b9f59a6c063d0993935e5f025b96ae7ea", bytes = 64608 }
+"spirv/mesh.vs_mesh_caster.spv" = { sha256 = "232de02571f4968f7a4203c6352a59cd36dc08d22556e70d9f0c51a21301e836", bytes = 12304 }
 "spirv/motion.fs_motion.spv" = { sha256 = "c1a012d12f9cfe622ffc15532ceeeaa7956c6387b149cca21892e4393cd65d89", bytes = 2428 }
 "spirv/motion.vs_motion.spv" = { sha256 = "ccd92b8f2d23041f28e82fe10593d64904371adc70e72005b70fd7fbcf20b6f6", bytes = 13568 }
 "spirv/terrain.fs_sky_in.spv" = { sha256 = "985e1e6701c44a85b334dd2cd8ceffc20902a721d9ef1b85dcf123d713347d54", bytes = 2736 }

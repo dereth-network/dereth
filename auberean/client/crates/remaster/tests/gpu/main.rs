@@ -19,4 +19,5 @@ mod shadows;
 mod shared;
 mod sky;
 mod smoothing;
+mod sway;
 mod weather;
