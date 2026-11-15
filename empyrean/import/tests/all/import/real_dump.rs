@@ -182,6 +182,28 @@ fn unquote(f: &[u8]) -> String {
     String::from_utf8(out).unwrap()
 }
 
+/// The pinned dump builds a pack with the dataset id the tests check every `world.pack` against,
+/// so a pack rebuilt from it is never refused.
+#[test]
+fn the_pinned_dump_builds_the_pinned_dataset_id() {
+    use empyrean_common::world_release::{sql_name, PINNED_DATASET_ID, PINNED_TAG};
+    let path = dump_path();
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default();
+    assert_eq!(
+        name,
+        sql_name(PINNED_TAG),
+        "the real-dump tier reads the pinned dump ({})",
+        path.display()
+    );
+    assert_eq!(
+        empyrean_content::pack::hex(&built().imported.stats.dataset_id),
+        PINNED_DATASET_ID
+    );
+}
+
 #[test]
 fn every_table_is_imported_with_the_dumps_row_count() {
     let b = built();

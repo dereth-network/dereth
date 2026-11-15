@@ -73,7 +73,10 @@ tests read (no program does):
   workspace (`DERETH_TEST_DAT_DIR = { value = "<folder>", relative = true }` for a path relative to
   the folder holding that `.cargo/`).
 - `EMPYREAN_TEST_WORLD_PACK`: a `world.pack` built with `empyrean-import` (see
-  [empyrean/SETUP.md](empyrean/SETUP.md); default: `world.pack` at the top of the checkout).
+  [empyrean/SETUP.md](empyrean/SETUP.md); default: `world.pack` at the top of the checkout). It must
+  be built from the pinned release's dump: the tests refuse any other, naming the command that
+  rebuilds it (`cargo run -p empyrean-import -- fetch --pack --out world.pack`). An Infiltration pack
+  is held to its own pinned dump the same way.
 - `EMPYREAN_WORLD_SQL`: ACE's world-database dump, for the importer's real-dump tests (default: the
   pinned release in the per-user cache that `cargo run -p empyrean-import -- fetch` downloads it into).
 

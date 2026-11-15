@@ -2,8 +2,11 @@
 //! `empyrean-import fetch` keeps the SQL dump it downloads.
 //!
 //! The release is the SQL asset of `ACEmulator/ACE-World-16PY-Patches` on GitHub. Bumping it is
-//! the two constants below: the tag, and the SHA-256 of the release's `.sql.zip`
-//! (`empyrean-import fetch --latest` prints both for the newest release).
+//! the three constants below: the tag, the SHA-256 of the release's `.sql.zip`
+//! (`empyrean-import fetch --latest` prints both for the newest release), and the dataset id a
+//! pack built from its dump records (`empyrean-import fetch --pack --report <it>` writes it as
+//! `dataset_id`). The tests refuse a `world.pack` whose dataset id is another
+//! ([`crate::test_paths::world_pack`]).
 //!
 //! Each world database `fetch` knows is a [`WorldLine`]: [`PATCHES`] (the end of retail, the
 //! default), [`SIXTEEN_PY`] (ACE-World-16PY, the February 2005 world, pinned the same way) and
@@ -36,6 +39,10 @@ pub const PINNED_TAG: &str = "v0.9.296";
 pub const PINNED_ZIP_SHA256: &str =
     "e56c594197b03a96963b14e3db61ad205d47f63a69d0c1c72e9bef78878f180c";
 
+/// The dataset id of a pack built from [`PINNED_TAG`]'s dump (the first 16 bytes of the dump's
+/// BLAKE3 hash), lowercase hex.
+pub const PINNED_DATASET_ID: &str = "0987f246c5c800a33963fd8044aadd4b";
+
 /// What a world's release carries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReleaseForm {
@@ -59,6 +66,9 @@ pub struct WorldLine {
     pub pinned_tag: &'static str,
     /// The SHA-256 of the pinned release's `.sql.zip`, lowercase hex.
     pub pinned_zip_sha256: &'static str,
+    /// The dataset id of a pack built from the pinned release's dump, lowercase hex; empty for a
+    /// world with no pin.
+    pub pinned_dataset_id: &'static str,
     /// The era the world is, which a pack built from it records.
     pub era: EraId,
     /// What its releases carry.
@@ -72,6 +82,7 @@ pub const PATCHES: WorldLine = WorldLine {
     asset_prefix: "ACE-World-Database-",
     pinned_tag: PINNED_TAG,
     pinned_zip_sha256: PINNED_ZIP_SHA256,
+    pinned_dataset_id: PINNED_DATASET_ID,
     era: EraId::Eor,
     form: ReleaseForm::SqlDump,
 };
@@ -83,6 +94,7 @@ pub const SIXTEEN_PY: WorldLine = WorldLine {
     asset_prefix: "ACE-World-16PY-db-",
     pinned_tag: "v0.8.8",
     pinned_zip_sha256: "bbd0396e4382c555388d89e2f341fd79cf3647e78a9ef34e5f8717ddd3d9cb49",
+    pinned_dataset_id: "eaad46237744c2e10860df74d837c5bb",
     era: EraId::Infiltration,
     form: ReleaseForm::SqlDump,
 };
@@ -96,6 +108,7 @@ pub const AC1999: WorldLine = WorldLine {
     asset_prefix: "empyrean-world-launch-",
     pinned_tag: "",
     pinned_zip_sha256: "",
+    pinned_dataset_id: "",
     era: EraId::Launch,
     form: ReleaseForm::BuiltPack,
 };

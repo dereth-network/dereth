@@ -37,6 +37,11 @@ fn header_fields_sit_at_their_offsets() {
     assert_eq!(u64_at(0x20) % 8, 0);
     assert_eq!(u64_at(0x30) % 8, 0);
     assert_eq!(&bytes[0x60..0x70], &[7u8; 16], "dataset id");
+    assert_eq!(
+        empyrean_common::test_paths::PACK_DATASET_ID_AT,
+        0x60,
+        "the tests' stale-pack check reads the dataset id here"
+    );
     assert_eq!(u32_at(0x70), 42, "importer version");
     let h = PackHeader::read(&bytes).unwrap();
     assert_eq!(&bytes[0x40..HASH_COVERAGE_START], &h.content_hash);
