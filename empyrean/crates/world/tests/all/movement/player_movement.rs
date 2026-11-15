@@ -643,8 +643,8 @@ fn autonomous_position_records_contact_and_requests_with_a_broadcast() {
 }
 
 /// Jump (the client's 56-byte pack, jump payload): the stamina cost for the extent and burden, the jump
-/// time and start position, the body launched off the ground at the pack's velocity, then an
-/// UpdateMotion and a VectorUpdate.
+/// time and start position, the body launched off the ground at the pack's velocity, then the
+/// VectorUpdate alone (V544: no UpdateMotion of the server's own before it).
 #[test]
 fn jump_costs_stamina_and_launches_the_body() {
     let mut w = world();
@@ -670,7 +670,7 @@ fn jump_costs_stamina_and_launches_the_body() {
             .into_iter()
             .filter(|o| *o == UPDATE_MOTION || *o == VECTOR_UPDATE)
             .collect::<Vec<_>>(),
-        [UPDATE_MOTION, VECTOR_UPDATE]
+        [VECTOR_UPDATE]
     );
     // burden 0 (no encumbrance), extent 1: ceil(0.5 * 1 * 8 + 2) = 6
     let stamina_after = {
@@ -1499,14 +1499,27 @@ mod capture {
             tick(&mut w);
         }
         drain(&mut ours);
-        (recorded, ours, actions.len())
+        (without_jump_state(&recorded), ours, actions.len())
+    }
+
+    /// The recording less the empty UpdateMotion ACE sent just before each VectorUpdate: a jump
+    /// goes out alone (V544).
+    fn without_jump_state(recorded: &[u32]) -> Vec<u32> {
+        let mut out = Vec::with_capacity(recorded.len());
+        for (i, &op) in recorded.iter().enumerate() {
+            if op == UPDATE_MOTION && recorded.get(i + 1) == Some(&VECTOR_UPDATE) {
+                continue;
+            }
+            out.push(op);
+        }
+        out
     }
 
     fn count(v: &[u32], op: u32) -> usize {
         v.iter().filter(|&&o| o == op).count()
     }
 
-    /// Every recorded session: our autonomous UpdateMotions (the echoes of MoveToState and Jump)
+    /// Every recorded session: our autonomous UpdateMotions (the echoes of MoveToState)
     /// and VectorUpdates match the recording's in number. In these sessions the whole ordered
     /// list (with the UpdatePositions) matches, opcode for opcode.
     const EXACT: [&str; 8] = [

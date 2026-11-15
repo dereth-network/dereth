@@ -859,3 +859,49 @@ fn set_states(ts: &TestServer, id: ClientId, from: usize, guid: u32) -> Vec<u32>
         .map(|m| u32::from_le_bytes(m.body[4..8].try_into().unwrap()))
         .collect()
 }
+
+mod jump_alone {
+    //! Divergence: V544
+    //! A jump reaches everyone around, the jumper too, as its VectorUpdate alone: no movement
+    //! update of the server's own goes before it.
+    use super::*;
+    use dereth_protocol::movement::{JumpPack, MovementJump};
+
+    const VECTOR_UPDATE: u32 = 0xF74E;
+
+    #[test]
+    fn a_running_jump_reaches_others_and_the_jumper_as_the_jump_alone() {
+        let mut ts = seeded();
+        let start = outdoor(HOME, 100.0, 100.0, 20.0);
+        let (a, _) = enter(&mut ts, "alpha", ALPHA, start);
+        let (b, _) = enter(&mut ts, "bravo", BRAVO, outdoor(HOME, 104.0, 100.0, 20.0));
+        ts.send_game_action(a, &run_forward(&start));
+        ts.advance(0.5);
+
+        let marks = [a, b].map(|id| ts.received_raw(id).len());
+        ts.send_game_action(
+            a,
+            &MovementJump(JumpPack {
+                extent: 1.0,
+                velocity: Vec3 {
+                    x: 0.0,
+                    y: 4.0,
+                    z: 8.0,
+                },
+                position: wire(&start),
+                timestamps: MoveTimestamps::default(),
+            }),
+        );
+        ts.advance(0.2);
+
+        for (id, mark) in [a, b].into_iter().zip(marks) {
+            let about_alpha: Vec<u32> = ts.received_raw(id)[mark..]
+                .iter()
+                .filter(|m| [UPDATE_MOTION, VECTOR_UPDATE].contains(&m.opcode))
+                .filter(|m| m.body[0..4] == ALPHA.to_le_bytes())
+                .map(|m| m.opcode)
+                .collect();
+            assert_eq!(about_alpha, [VECTOR_UPDATE], "{id:?}");
+        }
+    }
+}

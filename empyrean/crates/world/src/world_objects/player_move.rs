@@ -21,13 +21,10 @@ use crate::dispatch;
 use crate::entity::actions::action_chain::ActionChain;
 use crate::entity::actions::i_actor::Actor;
 use crate::entity::strings;
-use crate::network::game_messages::messages::{
-    game_message_sound, game_message_update_motion, game_message_vector_update,
-};
+use crate::network::game_messages::messages::{game_message_sound, game_message_vector_update};
 use crate::network::motion::move_to_parameters::RetailMoveTo;
 use crate::network::motion::move_to_state::MoveToState;
-use crate::network::motion::movement_data::{Motion, MovementData};
-use crate::network::motion::movement_invalid::MovementInvalid;
+use crate::network::motion::movement_data::Motion;
 use crate::network::structure::jump_pack::JumpPack;
 use crate::physics::phys_ext;
 use crate::world_objects::world_object_networking::{self, shims};
@@ -544,8 +541,8 @@ pub fn take_damage_falling(w: &mut World, this: ObjectGuid, amount: f32) {
 // ---- Player.cs: jumping (hosted) --------------------------------------------------------------
 
 // ACE: Player.HandleActionJump
-/// The client jumped: the stamina cost, then the jump in the physics engine, an UpdateMotion
-/// (the charged-jump fix) and the VectorUpdate broadcast.
+/// The client jumped: the stamina cost, then the jump in the physics engine and the VectorUpdate
+/// broadcast.
 pub fn handle_action_jump(w: &mut World, this: ObjectGuid, jump: &JumpPack) {
     let o = w.objects.get(this).expect("ACE: this is null");
     fields_mut(w, this).start_jump = o.location().map(|l| Position::from_position(&l));
@@ -617,17 +614,11 @@ pub fn handle_action_jump(w: &mut World, this: ObjectGuid, jump: &JumpPack) {
         crate::world_objects::player_magic::fail_cast(w, this, true);
     }
 
-    // this shouldn't be needed, but without sending this update motion / simulated movement event beforehand,
-    // running forward and then performing a charged jump does an uncharged shallow arc jump instead
-    // this hack fixes that...
-    let mut movement_data = MovementData::new(this);
-    movement_data.is_autonomous = true;
-    movement_data.movement_type = MovementType::Invalid;
-    movement_data.invalid = Some(MovementInvalid::new(&movement_data));
-    let numbering = w.dats.portal_dat().command_numbering();
-    let o = w.objects.get_mut(this).expect("ACE: this is null");
-    let msg = game_message_update_motion::game_message_update_motion(o, &movement_data, numbering);
-    world_object_networking::enqueue_broadcast(w, this, true, &[msg]);
+    // DIVERGE: V544
+    // Not ACE's (retail captures): the jump goes out alone. ACE broadcast an empty movement update
+    // first, against the shallow arc a running jump showed; that arc is how the client itself
+    // drew a running jump, and the only empty update retail sent before a jump was the jumper's
+    // own stop, broadcast as any movement is.
 
     // broadcast jump
     let msg = game_message_vector_update::game_message_vector_update(w, this);
