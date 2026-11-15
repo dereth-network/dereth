@@ -1,4 +1,5 @@
 //! Vectors: fixtures/vectors/use/
+//! Divergence: V538
 //! Using doors, chests, locks, keys, food, healers, gems; lockpick and heal checks replay ACE use
 //! vectors.
 //! Fixture: ACE vectors and explicit expected values, synthetic dats, isolated world state.
@@ -1222,6 +1223,33 @@ fn healing_kit_refusals() {
         .iter()
         .any(|m| m.is_event(GameEventType::WeenieErrorWithString)));
     assert_eq!(use_dones(&m), [0]);
+}
+
+/// Divergence: V538
+/// A healer with no stamina left is refused as the retail servers refused one: "too tired" (the
+/// error with an empty text), then UseDone, and nothing healed, no use spent and no motion.
+#[test]
+fn healing_with_no_stamina_left_is_refused_too_tired() {
+    let mut h = H::new();
+    let kit = h.give(KIT);
+    let o = h.o_mut(P);
+    o.health().set_current(o, 1);
+    o.stamina().set_current(o, 0);
+    let uses = h.o(kit).structure();
+    start_capture();
+    healer::healer_handle_action_use_on_target(&mut h.w, kit, P, P);
+    let m = sent_to_s();
+    let tired: Vec<&Msg> = m
+        .iter()
+        .filter(|m| m.is_event(GameEventType::WeenieErrorWithString))
+        .collect();
+    assert_eq!(tired.len(), 1, "{m:?}");
+    assert_eq!(tired[0].u32_at(16), we(WeenieError::YouAreTooTiredToDoThat));
+    assert_eq!(tired[0].string16l(20), "");
+    assert_eq!(use_dones(&m), [0]);
+    assert_eq!(h.health().0, 1, "nothing healed");
+    assert_eq!(h.o(kit).structure(), uses, "no use spent");
+    assert!(!ops(&m).contains(&GameMessageOpcode::Motion.0), "no motion");
 }
 
 /// `Healer.DoHealing` on the healer: one use spent (the uses message), the skill check and heal

@@ -231,6 +231,23 @@ pub fn healer_handle_action_use_on_target(
     else
         DoHealMotion(healer, targetPlayer, true);*/
 
+    // DIVERGE: V538, a healer with no stamina left is refused, "too tired" with no text, and the
+    // use ends; ACE heals all the same, for as much as the stamina pays for.
+    let tired = {
+        let o = obj(w, healer);
+        o.stamina().current(o) == 0
+    };
+    if tired {
+        player_networking::send_weenie_error_with_string(
+            w,
+            healer,
+            WeenieErrorWithString(WeenieError::YouAreTooTiredToDoThat.0),
+            "",
+        );
+        player_use::send_use_done_event(w, healer, WeenieError::None);
+        return;
+    }
+
     // MoveTo is now handled in base Player_Use
     do_heal_motion(w, this, healer, target_player, true);
 }
