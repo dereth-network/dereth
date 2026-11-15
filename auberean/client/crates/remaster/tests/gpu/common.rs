@@ -211,3 +211,36 @@ pub fn write_png(path: &std::path::Path, width: u32, height: u32, rgba: &[u8]) {
         .and_then(|mut w| w.write_image_data(rgba))
         .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
 }
+
+/// The pixels of two drawings of the same frame that differ by more than a level in a channel.
+pub fn repeat_noise(a: &[u8], b: &[u8]) -> usize {
+    a.chunks(4)
+        .zip(b.chunks(4))
+        .filter(|(x, y)| (0..3).any(|c| x[c].abs_diff(y[c]) > 1))
+        .count()
+}
+
+/// The most drawings of one frame [`settled`] makes.
+pub const SETTLE_DRAWINGS: usize = 4;
+
+/// A frame drawn by `draw` again until two drawings in a row are the same (at most
+/// [`SETTLE_DRAWINGS`]): the last drawing, and the device's noise over them, the most pixels two
+/// drawings in a row differed by ([`repeat_noise`]), the first drawing counted. Where the device
+/// draws a frame the same each time (as the desktop drivers here do) the second drawing is the
+/// first and the noise is none, so a claim that allows for it is exact there; MoltenVK on the Mac
+/// draws a frame's first drawing a few levels apart in a few pixels, and on some frames varies a
+/// handful of pixels from drawing to drawing.
+pub fn settled(mut draw: impl FnMut() -> Vec<u8>) -> (Vec<u8>, usize) {
+    let mut last = draw();
+    let mut noise = 0;
+    for _ in 1..SETTLE_DRAWINGS {
+        let next = draw();
+        let same = next == last;
+        noise = noise.max(repeat_noise(&last, &next));
+        last = next;
+        if same {
+            break;
+        }
+    }
+    (last, noise)
+}

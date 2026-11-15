@@ -487,4 +487,9 @@ impl Painter {
     pub fn remaster(&self) -> &crate::Remaster {
         &self.remaster
     }
+
+    /// The remaster, to set how it draws.
+    pub fn remaster_mut(&mut self) -> &mut crate::Remaster {
+        &mut self.remaster
+    }
 }

@@ -972,6 +972,24 @@ impl Remaster {
         })
     }
 
+    /// The picture the last frame drew, read back once the device has finished it; `None` before
+    /// any frame.
+    ///
+    /// # Errors
+    /// What the device refuses.
+    pub fn read_drawn(&mut self) -> Result<Option<Picture>, RemasterError> {
+        let Some(t) = self.targets else {
+            return Ok(None);
+        };
+        self.gfx.wait_idle()?;
+        let rgba = self.gfx.read_texture(t.color, 0)?;
+        Ok(Some(Picture {
+            width: t.width,
+            height: t.height,
+            rgba,
+        }))
+    }
+
     /// Draw `frame` at `width` x `height` into a picture left on the device, loading pictures with
     /// `load` the first time each is used; the device's work is submitted.
     ///

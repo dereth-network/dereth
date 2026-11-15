@@ -37,7 +37,11 @@ fn the_anti_aliasing_settles_to_the_frame_without_it_smoothed_at_its_edges() {
     let capture = std::env::var_os("AUBEREAN_REMASTER_CAPTURE_DIR").map(std::path::PathBuf::from);
     let records = records();
     let mut load = |id: u32| auberean_draw::picture::load(records, id);
-    let mut remaster = auberean_remaster::Remaster::new().expect("the remaster's device");
+    let mut remaster = auberean_remaster::Remaster::with(&dereth_gfx::DeviceDesc {
+        debug: true,
+        ..dereth_gfx::DeviceDesc::default()
+    })
+    .expect("the remaster's device");
     for s in STATIONS
         .iter()
         .filter(|s| s.inside.is_none() && !s.midnight)
@@ -84,4 +88,6 @@ fn the_anti_aliasing_settles_to_the_frame_without_it_smoothed_at_its_edges() {
         );
         assert!(edges * 200 >= n, "{}: no edges were smoothed", s.name);
     }
+    let errors = dereth_gfx::take_validation_errors();
+    assert!(errors.is_empty(), "the validation layer: {errors:#?}");
 }

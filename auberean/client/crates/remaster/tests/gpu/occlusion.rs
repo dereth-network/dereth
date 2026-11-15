@@ -9,7 +9,7 @@
 
 use dereth_gfx_passes::ao::AoSettings;
 
-use crate::common::{frame, records, turn, write_png, STATIONS};
+use crate::common::{frame, records, settled, turn, write_png, STATIONS};
 
 const W: u32 = 640;
 const H: u32 = 480;
@@ -18,7 +18,8 @@ const H: u32 = 480;
 const FRAMES: usize = 9;
 
 /// **The occlusion only darkens, and darkens something**: at the outdoor stations, with it on, no
-/// pixel is brighter than with it off by more than a level in any channel, and at least one in a
+/// pixel is brighter than with it off by more than a level in any channel (no more pixels than the
+/// frame drawn without it varies by from drawing to drawing, [`settled`]), and at least one in a
 /// ten thousand is darker by more than four.
 #[test]
 fn the_occlusion_only_darkens_and_darkens_what_stands_close() {
@@ -26,21 +27,33 @@ fn the_occlusion_only_darkens_and_darkens_what_stands_close() {
     let capture = std::env::var_os("AUBEREAN_REMASTER_CAPTURE_DIR").map(std::path::PathBuf::from);
     let records = records();
     let mut load = |id: u32| auberean_draw::picture::load(records, id);
-    let mut remaster = auberean_remaster::Remaster::new().expect("the remaster's device");
+    let mut remaster = auberean_remaster::Remaster::with(&dereth_gfx::DeviceDesc {
+        debug: true,
+        ..dereth_gfx::DeviceDesc::default()
+    })
+    .expect("the remaster's device");
     for s in STATIONS.iter().filter(|s| s.inside.is_none()).take(4) {
         let f = frame(s);
         remaster.set_ao(AoSettings::default());
-        let off = remaster.render(&f, W, H, &mut load).expect("the frame");
+        let (off, noise) = settled(|| {
+            remaster
+                .render(&f, W, H, &mut load)
+                .expect("the frame")
+                .rgba
+        });
         remaster.set_ao(AoSettings {
             on: true,
             ..AoSettings::default()
         });
         let mut on = off.clone();
         for _ in 0..FRAMES {
-            on = remaster.render(&f, W, H, &mut load).expect("the frame");
+            on = remaster
+                .render(&f, W, H, &mut load)
+                .expect("the frame")
+                .rgba;
         }
         let (mut brighter, mut darker) = (0usize, 0usize);
-        for (a, b) in off.rgba.chunks(4).zip(on.rgba.chunks(4)) {
+        for (a, b) in off.chunks(4).zip(on.chunks(4)) {
             if (0..3).any(|c| b[c] > a[c].saturating_add(1)) {
                 brighter += 1;
             }
@@ -48,20 +61,26 @@ fn the_occlusion_only_darkens_and_darkens_what_stands_close() {
                 darker += 1;
             }
         }
-        let n = off.rgba.len() / 4;
+        let n = off.len() / 4;
         eprintln!(
-            "{}: {brighter} pixels brighter, {darker} of {n} darker by over 4",
+            "{}: {brighter} brighter, {darker} of {n} darker by over 4, repeat noise {noise}",
             s.name
         );
         if let Some(dir) = &capture {
-            write_png(&dir.join(format!("{}-ao-off.png", s.name)), W, H, &off.rgba);
-            write_png(&dir.join(format!("{}-ao-on.png", s.name)), W, H, &on.rgba);
+            write_png(&dir.join(format!("{}-ao-off.png", s.name)), W, H, &off);
+            write_png(&dir.join(format!("{}-ao-on.png", s.name)), W, H, &on);
         }
-        assert_eq!(brighter, 0, "{}: the occlusion brightened pixels", s.name);
+        assert!(
+            brighter <= noise,
+            "{}: the occlusion brightened {brighter} pixels, the repeat noise {noise}",
+            s.name
+        );
         assert!(
             darker * 10_000 >= n,
             "{}: the occlusion darkened almost nothing",
             s.name
         );
     }
+    let errors = dereth_gfx::take_validation_errors();
+    assert!(errors.is_empty(), "the validation layer: {errors:#?}");
 }
