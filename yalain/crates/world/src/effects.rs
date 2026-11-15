@@ -2026,18 +2026,63 @@ fn schedule<S: Store>(s: &mut Server<S>, world: ConnId, e: &EffectState, now: f6
     schedule_on(s, On::Player(world), e, now, clock);
 }
 
-/// The speed and acceleration scales a player's or a creature's effects give it.
+/// The speed and acceleration scales a player's or a creature's effects give it, a player's both
+/// at the operator's movement rate (so it comes to its speed in the time it would at 1).
 fn speeds_on<S: Store>(s: &Server<S>, on: On) -> (f32, f32) {
-    let records = records_of(s, on);
-    let v = modifier(&s.effect_table, records, speed::VELOCITY);
-    let a = modifier(&s.effect_table, records, speed::ACCELERATION);
+    let (v, a) = scales(&s.effect_table, records_of(s, on));
+    match on {
+        On::Player(_) => at_rate(s.cfg.rates.movement, (v, a)),
+        On::Creature(_) => (v, a),
+    }
+}
+
+/// Speed and acceleration scales at the movement rate.
+fn at_rate(rate: f64, (v, a): (f32, f32)) -> (f32, f32) {
+    (crate::rates::speed(rate, v), crate::rates::speed(rate, a))
+}
+
+/// The speed and acceleration scales records give.
+fn scales(table: &crate::effect_defs::EffectTable, records: &[EffectState]) -> (f32, f32) {
+    let v = modifier(table, records, speed::VELOCITY);
+    let a = modifier(table, records, speed::ACCELERATION);
     ((1.0 + v.0) * v.1, (1.0 + a.0) * a.1)
 }
 
-/// The speed and acceleration scales a player's effects give it (1 and 1 with none).
+/// The speed and acceleration scales a player's effects give it (1 and 1 with none), at the
+/// operator's movement rate.
 #[must_use]
 pub fn player_speed<S: Store>(s: &Server<S>, world: ConnId) -> (f32, f32) {
     speeds_on(s, On::Player(world))
+}
+
+/// A player's speed and acceleration scales as it is made, for itself and for others, when the
+/// operator's movement rate is not 1: its effects' at the rate. At 1 a player is made as the game
+/// makes it, with neither.
+#[must_use]
+pub fn rated_speed<S: Store>(s: &Server<S>, p: &crate::world::Player) -> Option<(f32, f32)> {
+    rated(s, &p.play.effects)
+}
+
+/// [`rated_speed`] for a player entering at the game time `now`, of the records still there.
+#[must_use]
+pub fn rated_speed_entering<S: Store>(
+    s: &Server<S>,
+    p: &crate::world::Player,
+    now: f64,
+) -> Option<(f32, f32)> {
+    let lasting: Vec<EffectState> = p
+        .play
+        .effects
+        .iter()
+        .filter(|e| lasts(&s.effect_table, e, now))
+        .copied()
+        .collect();
+    rated(s, &lasting)
+}
+
+fn rated<S: Store>(s: &Server<S>, records: &[EffectState]) -> Option<(f32, f32)> {
+    let rate = s.cfg.rates.movement;
+    (!crate::rates::is_one(rate)).then(|| at_rate(rate, scales(&s.effect_table, records)))
 }
 
 /// The speed and acceleration scales a creature's effects give it (1 and 1 with none).
@@ -2444,9 +2489,13 @@ fn combine<S: Store>(
 
 /// The records that ran out by the game time `now`, or went with the player's last session.
 pub fn prune(play: &mut crate::state::PlayState, table: &EffectTable, now: f64) {
-    play.effects.retain(|e| {
-        !goes_at_logout(table, e) && (e.timeout >= f32::MAX || e.cast + f64::from(e.timeout) > now)
-    });
+    play.effects.retain(|e| lasts(table, e, now));
+}
+
+/// Whether a record is still there for a player entering at the game time `now`: it did not go
+/// with the last session, nor run out.
+fn lasts(table: &EffectTable, e: &EffectState, now: f64) -> bool {
+    !goes_at_logout(table, e) && (e.timeout >= f32::MAX || e.cast + f64::from(e.timeout) > now)
 }
 
 /// A player enters: its records are scheduled to run out (and to change vitals over time) on

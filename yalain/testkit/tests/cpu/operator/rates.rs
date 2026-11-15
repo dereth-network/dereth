@@ -1,13 +1,17 @@
-//! The operator's game rates: the experience a player earns, the treasure a creature draws and a
-//! camp's period, each a multiple of the game's own; at 1, as a world that sets none has them, the
-//! game is as it is without them.
+//! The operator's game rates: the experience a player earns, the treasure a creature draws, a
+//! camp's period and a player's speed, each a multiple of the game's own; at 1, as a world that sets
+//! none has them, the game is as it is without them.
 //! Fixture: the test world's beetles, whose profile always draws one test item, and whose camp
 //! makes a replacement 60 s after a death.
 
+use auberean_protocol::{queue, ServerMessage};
+use auberean_script::args::Arg;
 use yalain_store::MemoryStore;
-use yalain_testkit::{test_rules, Harness};
+use yalain_testkit::play::server_call;
+use yalain_testkit::{test_rules, Harness, DASH};
 use yalain_world::progress::{self, q, Award};
 use yalain_world::rates::Rates;
+use yalain_world::skill_use::function;
 use yalain_world::{quals, ServerConfig};
 
 /// The test world started with these rates.
@@ -150,7 +154,12 @@ fn the_rates_not_at_one_are_named_and_a_world_that_sets_none_names_none() {
     assert_eq!(none, Rates::default());
     assert_eq!(
         none.all(),
-        [("experience", 1.0), ("loot", 1.0), ("respawn", 1.0)]
+        [
+            ("experience", 1.0),
+            ("loot", 1.0),
+            ("respawn", 1.0),
+            ("movement", 1.0)
+        ]
     );
     assert!(none.changed().is_empty());
     let some = Rates {
@@ -159,4 +168,92 @@ fn the_rates_not_at_one_are_named_and_a_world_that_sets_none_names_none() {
         ..Rates::default()
     };
     assert_eq!(some.changed(), [("experience", 2.0), ("respawn", 0.5)]);
+}
+
+/// A player's own object as it entered (its speed scale, if made with one) and the speed and
+/// acceleration scales it was told of itself since `from`.
+fn own_speed(h: &Harness, b: usize, me: u64, from: usize) -> (Option<f32>, Vec<(bool, f32)>) {
+    use auberean_protocol::types::PhysicsDesc;
+    let msgs = h.world_messages(b, from);
+    let made = msgs
+        .iter()
+        .find_map(|m| match m {
+            ServerMessage::CreateObject(o) if o.id == me => Some(
+                (o.physics.bits & PhysicsDesc::VELOCITY_SCALE != 0)
+                    .then_some(o.physics.velocity_scale),
+            ),
+            _ => None,
+        })
+        .flatten();
+    let told = msgs
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::VelocityScale(e) if e.sender.id == me => Some((true, e.action.0)),
+            ServerMessage::AccelerationScale(e) if e.sender.id == me => Some((false, e.action.0)),
+            _ => None,
+        })
+        .collect();
+    (made, told)
+}
+
+/// The movement rate multiplies a player's speed and acceleration. It enters made at its speed and
+/// is told both once, and another who comes to see it sees it at its speed. A speed effect's scales
+/// are told at the rate (Dash's 1.08 and 1.05 at 2 are 2.16 and 2.1), and when it runs out they are
+/// the rate's again. A world that sets none makes a player with no speed scale and tells it none.
+/// Behaviour: server.operator.movement-rate
+#[test]
+fn the_movement_rate_multiplies_a_players_speed_from_its_entry() {
+    let mut h = with(Rates {
+        movement: 2.0,
+        ..Rates::default()
+    });
+    let (b, me) = h.player_in_world("one", "Elara");
+    assert_eq!(
+        own_speed(&h, b, me, 0),
+        (Some(2.0), vec![(true, 2.0), (false, 2.0)])
+    );
+    let (c, _) = h.player_in_world("two", "Tomas");
+    let seen = h.world_messages(c, 0).into_iter().find_map(|m| match m {
+        ServerMessage::CreateObject(o) if o.id == me => Some(o.physics.velocity_scale),
+        _ => None,
+    });
+    assert_eq!(seen, Some(2.0), "seen at its speed");
+
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &auberean_protocol::ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    h.run(5);
+    // Dash is used with a sword in hand.
+    h.arm(b, me, 0x4700_051C);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            function::USE,
+            &[Arg::Int(5), Arg::Int(DASH), Arg::LongInt(me)],
+        ),
+    );
+    h.run(60);
+    assert_eq!(own_speed(&h, b, me, from).1, [(true, 2.16), (false, 2.1)]);
+    let later = h.bots[b].inbox.len();
+    let until = h.now.0 + 31.0;
+    while h.now.0 < until {
+        h.step();
+    }
+    assert_eq!(
+        own_speed(&h, b, me, later).1,
+        [(true, 2.0), (false, 2.0)],
+        "Dash ran out"
+    );
+
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    assert_eq!(
+        own_speed(&h, b, me, 0),
+        (None, vec![]),
+        "a world that sets none"
+    );
 }

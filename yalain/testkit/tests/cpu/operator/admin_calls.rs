@@ -340,6 +340,30 @@ fn an_admin_characters_rights_end_at_once() {
     assert_eq!(count(&h), 2, "the character");
 }
 
+/// An admin that scaled its own run speed is told its own speed again when its rights end: the
+/// world's movement rate, here 2, not the game's 1.
+/// Behaviour: server.operator.movement-rate
+#[test]
+fn an_admins_run_speed_ends_at_the_worlds_movement_rate() {
+    const RUN: u32 = 0x8201_0044;
+    let mut h = Harness::new();
+    h.server.cfg.rates.movement = 2.0;
+    let (b, me) = admin_in_world(&mut h, "one", "Elara");
+    send(&mut h, b, RUN, &[Arg::Float(5.0f32.to_bits())]);
+    let from = h.bots[b].inbox.len();
+    console(&mut h, "set-characteradmin Elara off");
+    h.run(5);
+    let told: Vec<f32> = h
+        .world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::VelocityScale(e) if e.sender.id == me => Some(e.action.0),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(told, [2.0]);
+}
+
 /// The moderation calls from an admin character: who an account or a character is, the world's limit,
 /// what is shown a player, and a call without a counterpart answered that this server has none.
 /// Behaviour: server.admin.moderation-calls

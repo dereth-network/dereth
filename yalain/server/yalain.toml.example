@@ -352,6 +352,11 @@ loot = 1.0
 # brings them back in half the time.
 respawn = 1.0
 
+# default: 1 (--movement-rate)
+# Multiplies how fast players move, running, walking, swimming or mounted, above 0 to 10. Their
+# pets keep up; creatures keep their own speed.
+movement = 1.0
+
 # ----------------------------------------------------------------------------------------------
 [dat_overlay]
 # A world's overlay: the records it changes in the game's data files, which `athenaeum build` writes

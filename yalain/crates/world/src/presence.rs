@@ -198,9 +198,10 @@ fn in_hand(p: &Player) -> Vec<u64> {
         .collect()
 }
 
-/// The player's object as another client is told of it: where it is now, with its stamps.
+/// The player's object as another client is told of it (or its own, made again): where it is now,
+/// with its stamps.
 #[must_use]
-pub fn player_seen(p: &Player) -> ServerMessage {
+pub fn player_seen<S: Store>(s: &Server<S>, p: &Player) -> ServerMessage {
     let mut o = player::player_object(
         p.character,
         &p.shown_name(),
@@ -212,8 +213,9 @@ pub fn player_seen(p: &Player) -> ServerMessage {
     );
     o.physics.visual_ordering_stamp = p.visual;
     o.physics.stamps = p.physics_stamps();
-    // A rider is seen at its mount's speed.
-    if let Some(v) = crate::mounts::shown_speed(p) {
+    // A rider is seen at its mount's speed, and anyone at the operator's movement rate.
+    let rated = || crate::effects::rated_speed(s, p).map(|(v, _)| v);
+    if let Some(v) = crate::mounts::shown_speed(p).or_else(rated) {
         o.physics.bits |= auberean_protocol::types::PhysicsDesc::VELOCITY_SCALE;
         o.physics.velocity_scale = v;
     }
@@ -313,7 +315,7 @@ pub fn refresh<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) 
             let (qc, qo) = (q.position.cell, q.position.origin);
             // Each made with what it holds in its hands.
             if !p.known.contains_key(&q.character) && in_sight(ground, &p, qc, qo) && sees(&p, &q) {
-                learn(net, &mut p, world, q.character, &player_seen(&q));
+                learn(net, &mut p, world, q.character, &player_seen(s, &q));
                 for (id, m) in held_seen(s, &q) {
                     learn(net, &mut p, world, id, &m);
                 }
@@ -322,7 +324,7 @@ pub fn refresh<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) 
                 && in_sight(ground, &q, here.cell, here.origin)
                 && sees(&q, &p)
             {
-                learn(net, &mut q, o, p.character, &player_seen(&p));
+                learn(net, &mut q, o, p.character, &player_seen(s, &p));
                 for (id, m) in held_seen(s, &p) {
                     learn(net, &mut q, o, id, &m);
                 }
@@ -576,13 +578,13 @@ pub fn force_create<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Con
     };
     let ground = s.ground.as_deref();
     let m = if id == p.character {
-        Some(player_seen(p))
+        Some(player_seen(s, p))
     } else if let Some(t) = s.things.get(id) {
         t.at.filter(|at| in_sight(ground, p, at.cell, at.origin))
             .map(|_| ServerMessage::CreateObject(crate::things::create(t)))
     } else if let Some(q) = s.players.values().find(|q| q.character == id) {
         (in_sight(ground, p, q.position.cell, q.position.origin) && sees(p, q))
-            .then(|| player_seen(q))
+            .then(|| player_seen(s, q))
     } else {
         content_by_id(&s.content.objects, id).and_then(|i| {
             let o = &s.content.objects[i];

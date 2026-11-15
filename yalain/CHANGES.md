@@ -8,6 +8,7 @@ what they see, not how it was done.
 ## Unreleased
 - Worlds can now have an object that wants one item of a set, picked at random.
 - Worlds can now have people hand something out only once in a while to each player.
+- New `[rates] movement` setting to make players run faster.
 
 ## 0.5.0 (2026-11-15)
 - World: portal beacons take no harm until struck by a weapon the imbuer has enchanted.

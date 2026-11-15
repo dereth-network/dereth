@@ -189,9 +189,13 @@ pub(crate) fn revoke<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Co
     let me = p.character;
     let suffixed = !std::mem::take(&mut p.play.suffix).is_empty();
     if was.run.to_bits() != AdminState::default().run.to_bits() {
+        let own = crate::effects::player_speed(s, world).0;
+        let Some(p) = s.players.get_mut(&world) else {
+            return;
+        };
         let m = ServerMessage::VelocityScale(crate::places::player_event(
             p,
-            auberean_protocol::physics::Scale(AdminState::default().run),
+            auberean_protocol::physics::Scale(own),
         ));
         crate::places::to_all_knowing(s, net, me, &m);
     }

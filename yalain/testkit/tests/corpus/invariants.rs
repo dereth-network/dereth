@@ -276,7 +276,7 @@ fn every_2017_report_of_a_players_place_passes_the_checks_a_world_holds_reports_
         if c.cell & 0xFFFF < 0x100 {
             walls.read_place(c.cell);
         }
-        let meters = match check(travel, Some(&known), from, &to, t) {
+        let meters = match check(travel, Some(&known), from, &to, t, 1.0) {
             Ok(m) => m,
             Err(why) => {
                 let k = format!(

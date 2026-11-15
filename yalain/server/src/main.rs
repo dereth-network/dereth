@@ -67,6 +67,7 @@
 //!   --loot-rate X         multiply the treasure creatures and chests draw, 0 to 100 (default 1)
 //!   --respawn-rate X      how many times faster camps replace their creatures and items, above
 //!                         0 to 100 (default 1)
+//!   --movement-rate X     multiply how fast players move, above 0 to 10 (default 1)
 //!   --add-character A:N:R:S  make character N on account A of race R and sex S (4096 or 8192),
 //!                         with a middling physique, then carry on; a missing account is made on
 //!                         an open world only
@@ -269,7 +270,7 @@ struct Options {
     motd: String,
     /// The portal storms' numbers (`--portal-storm-threshold`, `--portal-storm-fewest-sent`).
     storms: yalain_world::storms::Settings,
-    /// The game rates (`--experience-rate`, `--loot-rate`, `--respawn-rate`).
+    /// The game rates (`--experience-rate`, `--loot-rate`, `--respawn-rate`, `--movement-rate`).
     rates: yalain_world::rates::Rates,
     /// Where the status endpoint listens (`--status`; none: off).
     status: Option<std::net::SocketAddr>,
@@ -566,14 +567,15 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
                     .parse()
                     .map_err(|e| format!("--portal-storm-fewest-sent: {e}"))?;
             }
-            "--experience-rate" | "--loot-rate" | "--respawn-rate" => {
+            "--experience-rate" | "--loot-rate" | "--respawn-rate" | "--movement-rate" => {
                 let name = a.trim_start_matches("--").trim_end_matches("-rate");
                 let rate =
                     yalain_world::rates::read(name, &value()?).map_err(|e| format!("{a}: {e}"))?;
                 match name {
                     "experience" => o.rates.experience = rate,
                     "loot" => o.rates.loot = rate,
-                    _ => o.rates.respawn = rate,
+                    "respawn" => o.rates.respawn = rate,
+                    _ => o.rates.movement = rate,
                 }
             }
             "--status" => {
@@ -2476,7 +2478,7 @@ fn main() -> std::process::ExitCode {
         }
         Err(e) => {
             eprintln!("yalain: {e}");
-            eprintln!("usage: yalain --dats <install folder> [--bind IP] [--login-port P] [--world-port P] [--advertise IP] [--data FILE | --memory] [--world-name NAME] [--listed-accounts] [--banned-names FILE] [--add-account NAME:TICKET] [--secret-cost N] [--save-interval S] [--shutdown-interval S] [--watchdog S] [--max-sessions N] [--max-sessions-per-address N] [--unlimited-sessions-from IP] [--download-rate N] [--motd TEXT] [--portal-storm-threshold N] [--portal-storm-fewest-sent N] [--experience-rate X] [--loot-rate X] [--respawn-rate X] [--status IP:PORT] [--no-status-ping] [--status-ping-hellos N] [--status-ping-asks N] [--status-ping-replies N] [--config FILE] [--add-character ACCOUNT:NAME:RACE:SEX] [--place ACCOUNT:NAME:CELL:X:Y:Z:HEADING] [--money ACCOUNT:NAME:AMOUNT] [--make-character FILE] [--world-db DIR|pinned] [--world-base DIR] [--dat-overlay DIR] [--no-dat-overlay-patching] [--dat-overlay-records-per-minute N] [--enable-dat-patching] [--no-referral] [--no-echo] [--game-time S] [--hold-clock] [--hub URL --hub-slug SLUG --hub-key-file FILE [--federation] [--global-room ROOM]] [--no-friends] [--seconds S] [--verbose] [--stop-at-console-end] [--admin-channel] [--update off|patch|minor] [--update-check-hours H] [--update-warning-seconds S] [--update-source URL]");
+            eprintln!("usage: yalain --dats <install folder> [--bind IP] [--login-port P] [--world-port P] [--advertise IP] [--data FILE | --memory] [--world-name NAME] [--listed-accounts] [--banned-names FILE] [--add-account NAME:TICKET] [--secret-cost N] [--save-interval S] [--shutdown-interval S] [--watchdog S] [--max-sessions N] [--max-sessions-per-address N] [--unlimited-sessions-from IP] [--download-rate N] [--motd TEXT] [--portal-storm-threshold N] [--portal-storm-fewest-sent N] [--experience-rate X] [--loot-rate X] [--respawn-rate X] [--movement-rate X] [--status IP:PORT] [--no-status-ping] [--status-ping-hellos N] [--status-ping-asks N] [--status-ping-replies N] [--config FILE] [--add-character ACCOUNT:NAME:RACE:SEX] [--place ACCOUNT:NAME:CELL:X:Y:Z:HEADING] [--money ACCOUNT:NAME:AMOUNT] [--make-character FILE] [--world-db DIR|pinned] [--world-base DIR] [--dat-overlay DIR] [--no-dat-overlay-patching] [--dat-overlay-records-per-minute N] [--enable-dat-patching] [--no-referral] [--no-echo] [--game-time S] [--hold-clock] [--hub URL --hub-slug SLUG --hub-key-file FILE [--federation] [--global-room ROOM]] [--no-friends] [--seconds S] [--verbose] [--stop-at-console-end] [--admin-channel] [--update off|patch|minor] [--update-check-hours H] [--update-warning-seconds S] [--update-source URL]");
             eprintln!("       yalain world check|release|fetch|compile ...");
             eprintln!(
                 "       yalain update --check|--apply [--config FILE] [--policy off|patch|minor]"

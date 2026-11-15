@@ -221,17 +221,17 @@ fn send(h: &mut Harness, a: usize, m: &ClientMessage) {
 #[test]
 fn a_report_reaches_thirty_meters_and_fifteen_more_a_second_since_the_last() {
     let t = Travel::placed(100.0);
-    assert_eq!(t.reaches(AT_ONCE - 0.01, 100.0), Ok(()));
-    assert_eq!(t.reaches(AT_ONCE + 0.01, 100.0), Err(Refused::Reach));
-    assert_eq!(t.reaches(AT_ONCE + 2.0 * SPEED - 0.01, 102.0), Ok(()));
+    assert_eq!(t.reaches(AT_ONCE - 0.01, 100.0, 1.0), Ok(()));
+    assert_eq!(t.reaches(AT_ONCE + 0.01, 100.0, 1.0), Err(Refused::Reach));
+    assert_eq!(t.reaches(AT_ONCE + 2.0 * SPEED - 0.01, 102.0, 1.0), Ok(()));
     assert_eq!(
-        t.reaches(AT_ONCE + 2.0 * SPEED + 0.01, 102.0),
+        t.reaches(AT_ONCE + 2.0 * SPEED + 0.01, 102.0, 1.0),
         Err(Refused::Reach)
     );
     // A long silence reaches far, as a recorded 1,422 m after 252 s did.
-    assert_eq!(t.reaches(1_422.0, 352.0), Ok(()));
+    assert_eq!(t.reaches(1_422.0, 352.0, 1.0), Ok(()));
     // A clock that goes back gives no more than at once.
-    assert_eq!(t.reaches(AT_ONCE + 0.01, 50.0), Err(Refused::Reach));
+    assert_eq!(t.reaches(AT_ONCE + 0.01, 50.0, 1.0), Err(Refused::Reach));
 
     let (mut h, a, id, b, world, start) = outside();
     let (from_a, from_b) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
@@ -266,7 +266,7 @@ fn steady_reports_cover_at_most_four_hundred_meters_in_ten_seconds() {
         let mut t = Travel::placed(0.0);
         for k in 1..=n {
             let now = f64::from(k) * 0.5;
-            if t.reaches(meters, now).is_err() {
+            if t.reaches(meters, now, 1.0).is_err() {
                 return Some(k);
             }
             t.take(meters, now);
@@ -281,15 +281,15 @@ fn steady_reports_cover_at_most_four_hundred_meters_in_ten_seconds() {
     for k in 1..=19 {
         t.take(most + 0.1, f64::from(k) * 0.5);
     }
-    assert_eq!(t.reaches(most + 0.1, 10.0), Err(Refused::Steady));
-    assert_eq!(t.reaches(most + 0.1, 10.6), Ok(()));
+    assert_eq!(t.reaches(most + 0.1, 10.0, 1.0), Err(Refused::Steady));
+    assert_eq!(t.reaches(most + 0.1, 10.6, 1.0), Ok(()));
     // And the going before the pause no longer counts after it.
     let mut t = Travel::placed(0.0);
     for k in 1..=10 {
         t.take(37.0, f64::from(k) * 0.5);
     }
     t.take(37.0, 6.1);
-    assert_eq!(t.reaches(37.0, 6.6), Ok(()));
+    assert_eq!(t.reaches(37.0, 6.6, 1.0), Ok(()));
 
     // On the wire: back and forth along the land, a report every half second.
     let run = |meters: f32| -> (Option<usize>, u16) {
@@ -311,6 +311,55 @@ fn steady_reports_cover_at_most_four_hundred_meters_in_ten_seconds() {
     let (refused, stamp) = run(22.0);
     assert!(refused.is_some_and(|k| k >= 17), "{refused:?}");
     assert_eq!(stamp, 1);
+}
+
+/// At the operator's movement rate of 2 a report reaches twice as far and steady going covers twice
+/// the meters, so a player going back and forth 36 m every half second (refused at the game's own
+/// rates) is taken all the way; a rate below 1 is checked as the game's own.
+/// Behaviour: server.operator.movement-rate-reach
+#[test]
+fn at_a_movement_rate_of_two_reports_reach_twice_as_far() {
+    assert_eq!(yalain_world::rates::reach(2.0), 2.0);
+    assert_eq!(yalain_world::rates::reach(1.0), 1.0);
+    assert_eq!(yalain_world::rates::reach(0.5), 1.0);
+    let t = Travel::placed(100.0);
+    assert_eq!(t.reaches(2.0 * AT_ONCE - 0.01, 100.0, 2.0), Ok(()));
+    assert_eq!(
+        t.reaches(2.0 * AT_ONCE + 0.01, 100.0, 2.0),
+        Err(Refused::Reach)
+    );
+    let far = 2.0 * (AT_ONCE + 2.0 * SPEED);
+    assert_eq!(t.reaches(far - 0.01, 102.0, 2.0), Ok(()));
+    assert_eq!(t.reaches(far + 0.01, 102.0, 2.0), Err(Refused::Reach));
+    let most = 2.0 * IN_A_WINDOW / 20.0;
+    let steady = |meters: f32| -> Option<u32> {
+        let mut t = Travel::placed(0.0);
+        for k in 1..=2_000 {
+            let now = f64::from(k) * 0.5;
+            if t.reaches(meters, now, 2.0).is_err() {
+                return Some(k);
+            }
+            t.take(meters, now);
+        }
+        None
+    };
+    assert_eq!(steady(most - 0.1), None);
+    assert_eq!(steady(most + 0.1), Some(20));
+
+    let run = |rate: f64| -> u16 {
+        let (mut h, a, _, _, world, start) = outside();
+        h.server.cfg.rates.movement = rate;
+        for k in 0..30 {
+            let y = if k % 2 == 0 { 80.0 + 36.0 } else { 80.0 };
+            let (cell, o) = outdoors(BLOCK >> 16, 80.0, y, start.origin[2]);
+            h.bots[a].send(true, queue::WEENIE, &place_report(cell, o, 0, 0));
+            h.step_by(0.25);
+            h.step_by(0.25);
+        }
+        h.server.players[&world].force_position_stamp
+    };
+    assert_eq!(run(2.0), 0, "all taken at 2");
+    assert_ne!(run(1.0), 0, "refused at the game's own");
 }
 
 /// A report into a room comes through a doorway of the room it left or one that room sees, and from

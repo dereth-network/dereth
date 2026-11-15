@@ -248,6 +248,7 @@ const KEYS: &[(&str, &str, Takes)] = &[
     ("rates", "experience", Takes::Value("--experience-rate")),
     ("rates", "loot", Takes::Value("--loot-rate")),
     ("rates", "respawn", Takes::Value("--respawn-rate")),
+    ("rates", "movement", Takes::Value("--movement-rate")),
     ("federation", "enabled", Takes::Hub),
     ("federation", "listed", Takes::Hub),
     ("federation", "hub_url", Takes::Hub),
@@ -1125,12 +1126,12 @@ mod tests {
         }
     }
 
-    /// `[rates] experience`, `loot` and `respawn` set the game rates the world plays at, 1 each when
-    /// not given; a rate that is no number, below 0 or above 100 (or 0 for respawn) stops the
-    /// server at its start.
+    /// `[rates] experience`, `loot`, `respawn` and `movement` set the game rates the world plays at,
+    /// 1 each when not given; a rate that is no number, below 0 or above 100 (or 0 for respawn, or 0
+    /// or above 10 for movement) stops the server at its start.
     /// Behaviour: server.operator.game-rate-settings
     #[test]
-    fn the_rates_section_sets_the_experience_loot_and_respawn_rates() {
+    fn the_rates_section_sets_the_experience_loot_respawn_and_movement_rates() {
         use yalain_world::rates::Rates;
         let folder = Path::new("/srv");
         let read = |text: &str| {
@@ -1139,11 +1140,12 @@ mod tests {
             crate::parse_from(args).map(|o| o.rates)
         };
         assert_eq!(
-            read("[rates]\nexperience = 2.5\nloot = 0\nrespawn = 3\n"),
+            read("[rates]\nexperience = 2.5\nloot = 0\nrespawn = 3\nmovement = 10\n"),
             Ok(Rates {
                 experience: 2.5,
                 loot: 0.0,
-                respawn: 3.0
+                respawn: 3.0,
+                movement: 10.0,
             })
         );
         assert_eq!(read(""), Ok(Rates::default()));
@@ -1152,7 +1154,8 @@ mod tests {
             Rates {
                 experience: 1.0,
                 loot: 1.0,
-                respawn: 1.0
+                respawn: 1.0,
+                movement: 1.0,
             }
         );
         for refused in [
@@ -1161,6 +1164,9 @@ mod tests {
             "respawn = 0",
             "experience = \"lots\"",
             "loot = nan",
+            "movement = 0",
+            "movement = 10.5",
+            "movement = -2",
         ] {
             let e = read(&format!("[rates]\n{refused}\n")).expect_err(refused);
             assert!(e.contains("-rate"), "{e}");

@@ -599,7 +599,7 @@ pub fn enter<S: Store>(
     // It is drawn wearing what it wears.
     p.look = crate::equip::drawn(s, &look, &p.play, c.race, c.sex);
     let at = player::placement(&position);
-    let object = player::player_object(
+    let mut object = player::player_object(
         character,
         &p.shown_name(),
         c.sex,
@@ -608,6 +608,13 @@ pub fn enter<S: Store>(
         p.instance,
         &player::Marks::of(&qualities),
     );
+    // At the operator's movement rate it is made at its speed, and told its speed and acceleration
+    // once it is made.
+    let speed = crate::effects::rated_speed_entering(s, &p, net.game_time(clock.local));
+    if let Some((v, _)) = speed {
+        object.physics.bits |= auberean_protocol::types::PhysicsDesc::VELOCITY_SCALE;
+        object.physics.velocity_scale = v;
+    }
     send(
         net,
         world,
@@ -620,6 +627,13 @@ pub fn enter<S: Store>(
         BlobKind::UNORDERED,
         &ServerMessage::PlayerObject(player::create_player(character)),
     );
+    if let Some((v, a)) = speed {
+        use auberean_protocol::physics::Scale;
+        let m = ServerMessage::VelocityScale(crate::places::player_event(&mut p, Scale(v)));
+        send(net, world, BlobKind::VISUAL, &m);
+        let m = ServerMessage::AccelerationScale(crate::places::player_event(&mut p, Scale(a)));
+        send(net, world, BlobKind::VISUAL, &m);
+    }
     send(
         net,
         world,
@@ -1307,7 +1321,8 @@ fn moved<S: Store>(
         };
         let now = clock.local.0;
         let meters = crate::reported::meters(&p.position, &reported);
-        let checked = p.travel.reaches(meters, now).and_then(|()| {
+        let farther = crate::rates::reach(s.cfg.rates.movement);
+        let checked = p.travel.reaches(meters, now, farther).and_then(|()| {
             if !presence::indoors(c.cell) {
                 // The land under it, read the first time a player stands in its block.
                 if let Some(w) = s.walls.as_mut() {

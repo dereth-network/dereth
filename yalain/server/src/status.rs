@@ -445,13 +445,14 @@ mod tests {
             experience: 2.0,
             loot: 1.0,
             respawn: 0.5,
+            movement: 3.0,
         };
         assert_eq!(
             rates(Snapshot {
                 rates: set.changed(),
                 ..Snapshot::default()
             }),
-            serde_json::json!({ "experience": 2.0, "respawn": 0.5 })
+            serde_json::json!({ "experience": 2.0, "respawn": 0.5, "movement": 3.0 })
         );
         assert_eq!(rates(Snapshot::default()), serde_json::json!({}));
     }

@@ -222,7 +222,7 @@ to others.
 | `--download-rate <n>` | the bytes a second a client is sent a large data download at, 4096 to 262144 (default 65536, the retail servers' rate: about two minutes over the largest record) |
 | `--motd <text>` | a message shown to each player as its character enters the world; `\n` starts a new line (default: none) |
 | `--portal-storm-threshold <n>`, `--portal-storm-fewest-sent <n>` | the players a landblock holds for a portal storm to brew (default 40; 0 for none), and the fewest a storm sends away (default 5; section 3.11) |
-| `--experience-rate <x>`, `--loot-rate <x>`, `--respawn-rate <x>` | multiply the experience players earn, the treasure creatures and chests draw, and how fast camps replace their creatures (default 1 each; section 3.11) |
+| `--experience-rate <x>`, `--loot-rate <x>`, `--respawn-rate <x>`, `--movement-rate <x>` | multiply the experience players earn, the treasure creatures and chests draw, how fast camps replace their creatures, and how fast players move (default 1 each; section 3.11) |
 | `--status <ip>:<port>` | serve the status endpoint at this address (default: off; section 3.8) |
 | `--websocket` and the `--websocket-…` options | also take WebSocket connections, for clients in a browser (default: off; section 4.1) |
 | `--config <file>` | read the options from this configuration file (section 3.6) |
@@ -431,7 +431,7 @@ shard_db_path = "yalain.sqlite"
 | `[federation] global_room` | `--global-room` | `general` (the default), `trade`, `lfg`, `roleplay`, or empty for none (section 8.4) |
 | `[portal_storms] threshold` | `--portal-storm-threshold` | default 40; 0: no storms (section 3.11) |
 | `[portal_storms] fewest_sent` | `--portal-storm-fewest-sent` | Yalain only; default 5 |
-| `[rates] experience`, `loot`, `respawn` | `--experience-rate`, `--loot-rate`, `--respawn-rate` | Yalain only; default 1 each, 0 to 100 (respawn above 0; section 3.11) |
+| `[rates] experience`, `loot`, `respawn`, `movement` | `--experience-rate`, `--loot-rate`, `--respawn-rate`, `--movement-rate` | Yalain only; default 1 each, 0 to 100 (respawn above 0, movement above 0 to 10; section 3.11) |
 | `[dat_overlay] path` | `--dat-overlay` | empty: the world's own `overlay` folder |
 | `[dat_overlay] patching` | `--no-dat-overlay-patching` when false | `true`: a client that keeps overlays is sent the world's records |
 | `[dat_overlay] records_per_minute` | `--dat-overlay-records-per-minute` | 60000; 0 for the original servers' 1,000 a minute, shared |
@@ -627,13 +627,14 @@ fewest_sent = 5     # the fewest a storm sends away
 An admin's `/stormthresh <n>` and `/stormnumstormed <n>` set the same two numbers while the world
 runs, until it stops.
 
-**Rates.** Three multipliers, each 1 unless set:
+**Rates.** Four multipliers, each 1 unless set:
 
 ```toml
 [rates]
 experience = 1.0   # the experience players earn
 loot = 1.0         # how many treasure items creatures and chests draw
 respawn = 1.0      # how many times faster camps bring back their creatures and items
+movement = 1.0     # how fast players move
 ```
 
 - `experience` multiplies what a player earns from kills (its own part and a fellow's share) and
@@ -644,8 +645,12 @@ respawn = 1.0      # how many times faster camps bring back their creatures and 
   items are drawn as they are, and a corpse holds at most 21 items.
 - `respawn` divides a camp's wait: at 2, a dead creature's replacement, or an item taken from where
   it lay, comes back in half the time.
+- `movement` multiplies how fast players run, walk, swim and ride: at 2 they go twice as far in a
+  second, and the server accepts the places they report from that far. Their pets keep up;
+  creatures keep their own speed.
 
-Each is 0 to 100 (`respawn` above 0); anything else stops the server at its start. The status
+Each is 0 to 100 (`respawn` above 0, `movement` above 0 and at most 10); anything else stops the
+server at its start. The status
 endpoint's `rates` names any that aren't 1 (section 3.8).
 
 ---

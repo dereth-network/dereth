@@ -50,6 +50,7 @@ yalain --dats <install folder> [options]
   --loot-rate X         multiply the treasure creatures and chests draw, 0 to 100 (default 1)
   --respawn-rate X      how many times faster camps replace their creatures and items, above
                         0 to 100 (default 1)
+  --movement-rate X     multiply how fast players move, above 0 to 10 (default 1)
   --add-character A:N:R:S  make character N on account A of race R and sex S (4096 or 8192),
                         with a middling physique, then carry on; a missing account is made on
                         an open world only

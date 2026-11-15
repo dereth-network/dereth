@@ -10100,12 +10100,13 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.operator.game-rate-settings",
-        says: "The operator's [rates] experience, loot and respawn are the rates the world plays \
-               at, 1 each when not given; a rate that is no number, below 0 or above 100, or a \
-               respawn rate of 0, stops the server at its start.",
+        says: "The operator's [rates] experience, loot, respawn and movement are the rates the \
+               world plays at, 1 each when not given; a rate that is no number, below 0 or above \
+               100, a respawn rate of 0, or a movement rate of 0 or above 10, stops the server at \
+               its start.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-OPERATOR-RATE-SETTINGS"),
-        station: "yalain::bin.yalain::config::tests::the_rates_section_sets_the_experience_loot_and_respawn_rates",
+        station: "yalain::bin.yalain::config::tests::the_rates_section_sets_the_experience_loot_respawn_and_movement_rates",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -10185,6 +10186,26 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-MOTD"),
         station: "yalain-testkit::cpu::operator::sessions::the_message_of_the_day_is_shown_as_each_character_enters",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.movement-rate",
+        says: "The operator's movement rate multiplies a player's speed and acceleration scales: \
+               it enters made at its speed and is told both once, others see it at its speed, and a \
+               speed effect's scales are told at the rate; at 1 a player is made with no speed \
+               scale and told none.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-OPERATOR-MOVEMENT-RATE"),
+        station: "yalain-testkit::cpu::operator::rates::the_movement_rate_multiplies_a_players_speed_from_its_entry",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.movement-rate-reach",
+        says: "At the operator's movement rate the reach a reported place is checked against and \
+               the meters of steady going are that many times the game's own, never less.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-OPERATOR-MOVEMENT-REACH"),
+        station: "yalain-testkit::cpu::play::reported_places::at_a_movement_rate_of_two_reports_reach_twice_as_far",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -14,6 +14,9 @@
 //! - **The land:** a place outdoors is at most [`UNDER_THE_LAND`] meters below the land. None of
 //!   1,486,997 recorded was below it at all.
 //!
+//! At the operator's movement rate the reach and the steady going's meters are that many times
+//! as far (never less than the game's own).
+//!
 //! A place the server puts the player at (entering the world, a trip's end) starts the reckoning
 //! again from there and then.
 
@@ -80,16 +83,18 @@ impl Travel {
         self.since
     }
 
-    /// Whether a step of `meters`, arriving at `now`, is within reach and steady going.
+    /// Whether a step of `meters`, arriving at `now`, is within reach and steady going, each
+    /// `farther` times as far as the game's own (the movement rate's [`crate::rates::reach`]).
     ///
     /// # Errors
     /// Why it is not.
-    pub fn reaches(&self, meters: f32, now: f64) -> Result<(), Refused> {
+    pub fn reaches(&self, meters: f32, now: f64, farther: f64) -> Result<(), Refused> {
         let gap = (now - self.since).max(0.0);
-        if f64::from(meters) > f64::from(AT_ONCE) + f64::from(SPEED) * gap {
+        if f64::from(meters) > (f64::from(AT_ONCE) + f64::from(SPEED) * gap) * farther {
             return Err(Refused::Reach);
         }
-        if gap <= STEADY && self.within(now) + f64::from(meters) > f64::from(IN_A_WINDOW) {
+        if gap <= STEADY && self.within(now) + f64::from(meters) > f64::from(IN_A_WINDOW) * farther
+        {
             return Err(Refused::Steady);
         }
         Ok(())
@@ -192,8 +197,9 @@ pub fn rooms_and_land(
     Ok(())
 }
 
-/// Whether a report of `to`, arriving at `now`, may follow the place `from` last taken: its meters
-/// if so. The land under `to` must already be read for its check to hold.
+/// Whether a report of `to`, arriving at `now`, may follow the place `from` last taken, its reach
+/// `farther` times the game's own: its meters if so. The land under `to` must already be read for
+/// its check to hold.
 ///
 /// # Errors
 /// The check it fails.
@@ -203,9 +209,10 @@ pub fn check(
     from: &StoredPosition,
     to: &StoredPosition,
     now: f64,
+    farther: f64,
 ) -> Result<f32, Refused> {
     let m = meters(from, to);
-    travel.reaches(m, now)?;
+    travel.reaches(m, now, farther)?;
     rooms_and_land(ground, from, to)?;
     Ok(m)
 }
