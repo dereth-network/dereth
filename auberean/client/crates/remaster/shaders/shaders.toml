@@ -90,6 +90,18 @@ source = "mesh.slang"
 entry = "fs_mesh_caster"
 stage = "fragment"
 
+# The moving bodies' motion: each draw of a body that moved since the last frame, writing where its
+# surface was last frame, for the anti-aliasing.
+[[entry]]
+source = "motion.slang"
+entry = "vs_motion"
+stage = "vertex"
+
+[[entry]]
+source = "motion.slang"
+entry = "fs_motion"
+stage = "fragment"
+
 # The lamps' light at each pixel, from the shared passes' lists of the lamps that reach each piece
 # of the view.
 [[entry]]

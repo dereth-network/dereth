@@ -28,6 +28,10 @@
 //! day's dome and under its other objects, and a veil of haze over the horizon after retail's
 //! own veil, in the frame and in the water's reflection.
 //!
+//! With the anti-aliasing and the motion on, each draw of a body that moved since the last frame
+//! is drawn again into the post passes' motion picture, where its surface was last frame, so the
+//! anti-aliasing gathers it from where it moved from and it doesn't smear.
+//!
 //! With the wet on ([`weather`]), while it rains what stands out in the rain is soaked, and the
 //! overhead map of what stands over each point keeps it off what stands under a roof.
 //!
@@ -173,6 +177,8 @@ enum Program {
     MeshCaster,
     /// In linear light, the sky drawn into its own picture, laid in as the frame's start.
     SkyIn,
+    /// A moving body's draw into the post passes' motion picture.
+    Motion,
 }
 
 /// A pipeline's key: its program, how it blends (the stored factors), how it tests and writes
@@ -240,6 +246,9 @@ struct Draw {
     /// shadows): a draw of the landscape or of an object standing in it, never the sky's, the
     /// water's or what is seen through.
     masked: bool,
+    /// A body's draw: the body's id, the draw's place among the body's, and its place among the
+    /// frame's objects.
+    body: Option<(u64, usize, usize)>,
 }
 
 /// The frame's targets.
@@ -320,7 +329,29 @@ pub struct Remaster {
     weather_constants: PerFrame,
     shelter: Option<(Texture, u32)>,
     shelter_light: PerFrame,
+    /// The moving bodies' motion: whether it is drawn, the last frame's view and projection for
+    /// it, and each body's draws as they stood last frame (where, its pose, its vertex count).
+    motion_on: bool,
+    motion_rows: PerFrame,
+    last_bodies: HashMap<(u64, usize), Stood>,
     frame: u64,
+}
+
+/// A body's draw as it stood in a frame: its transform, its pose, and how many vertices it has.
+#[derive(Debug, Clone)]
+struct Stood {
+    transform: auberean_world::math::Mat4,
+    posed: Option<Arc<auberean_draw::mesh::PosedList>>,
+    vertices: usize,
+}
+
+/// A moving body's draw into the motion picture: the frame's draw of it, and its constants and
+/// pose as it stood last frame.
+#[derive(Debug, Clone, Copy)]
+struct Moving {
+    draw: Draw,
+    last_record: u32,
+    last_posed: Option<u32>,
 }
 
 /// A stored blend factor as the device blends it, the destination's alpha read as a source's (the
@@ -431,6 +462,12 @@ impl Remaster {
         )?;
         let weather_constants = weather::buffer(&mut gfx, "remaster weather constants")?;
         let shelter_light = weather::buffer(&mut gfx, "remaster shelter light")?;
+        let motion_rows = PerFrame::new(
+            &mut gfx,
+            "remaster motion rows",
+            256,
+            BufferUsage::default(),
+        )?;
         Ok(Self {
             gfx,
             adapter,
@@ -468,6 +505,9 @@ impl Remaster {
             weather_constants,
             shelter: None,
             shelter_light,
+            motion_on: false,
+            motion_rows,
+            last_bodies: HashMap::new(),
             frame: 0,
         })
     }
@@ -482,6 +522,7 @@ impl Remaster {
             wet: true,
             ..WeatherSettings::default()
         });
+        self.set_motion(true);
         self.set_ao(AoSettings {
             on: true,
             indoors: true,
@@ -529,6 +570,21 @@ impl Remaster {
             self.atmosphere.tables_drawn,
             self.atmosphere.views_drawn,
         )
+    }
+
+    /// Whether the moving bodies' motion is drawn for the anti-aliasing from the next frame on (off:
+    /// it finds every pixel's last color by the depth alone).
+    pub fn set_motion(&mut self, on: bool) {
+        self.motion_on = on;
+        if !on {
+            self.last_bodies.clear();
+        }
+    }
+
+    /// Whether the moving bodies' motion is drawn.
+    #[must_use]
+    pub fn motion(&self) -> bool {
+        self.motion_on
     }
 
     /// How the rain is laid on the world from the next frame on (off: as retail draws it, dry).
@@ -805,6 +861,7 @@ impl Remaster {
             Program::Veil => (Entry::TerrainVsVeil, Entry::TerrainFsVeil),
             Program::MeshCaster => (Entry::MeshVsMeshCaster, Entry::MeshFsMeshCaster),
             Program::SkyIn => (Entry::TerrainVsVeil, Entry::TerrainFsSkyIn),
+            Program::Motion => (Entry::MotionVsMotion, Entry::MotionFsMotion),
         };
         let blend = (key.src != d3d::BLEND_ONE || key.dst != d3d::BLEND_ZERO).then(|| Blend {
             src: factor(key.src),
@@ -825,6 +882,7 @@ impl Remaster {
                 (vec![target(MATERIAL), target(NORMAL)], DEPTH)
             }
             Program::MeshCaster => (Vec::new(), dereth_gfx_passes::sun::DEPTH),
+            Program::Motion => (vec![target(dereth_gfx_passes::post::MOTION)], DEPTH),
             _ => (
                 vec![ColorTarget {
                     format: world,
@@ -839,7 +897,8 @@ impl Remaster {
             vertex: shader(vertex),
             fragment: Some(shader(fragment)),
             color: &color,
-            depth: Some(DepthState {
+            // The motion is drawn where the depth's pass's depth says, which it reads.
+            depth: (key.program != Program::Motion).then_some(DepthState {
                 format: depth_format,
                 compare: Some(if key.depth_test {
                     Compare::LessEqual
@@ -1294,6 +1353,15 @@ impl Remaster {
         let mut records: Vec<DrawUniforms> = Vec::new();
         let mut posed: Vec<auberean_draw::mesh::PosedVertex> = Vec::new();
         let mut steps = Steps::default();
+        // Which body each of the frame's objects is a draw of, by where the object is kept.
+        let mut bodies: HashMap<usize, (u64, usize, usize)> = HashMap::new();
+        for (id, range) in &frame.bodies {
+            for (k, at) in range.clone().enumerate() {
+                if let Some(b) = frame.objects.get(at) {
+                    bodies.insert(std::ptr::from_ref(b) as usize, (*id, k, at));
+                }
+            }
+        }
         let shown = |b: &&ObjectBatch| sight.as_ref().is_none_or(|s| s.shows(b));
 
         // The objects of `batches` under `under`, into `step`.
@@ -1431,6 +1499,7 @@ impl Remaster {
                                     | Pass::Casters
                                     | Pass::Frills
                             ),
+                        body: bodies.get(&(std::ptr::from_ref(b) as usize)).copied(),
                     },
                 );
             }
@@ -1524,6 +1593,7 @@ impl Remaster {
                     faint: None,
                     class: class::GROUND,
                     masked: true,
+                    body: None,
                 },
             );
             Ok(())
@@ -1679,6 +1749,7 @@ impl Remaster {
                     faint: None,
                     class: class::GROUND,
                     masked: false,
+                    body: None,
                 };
                 if r.ripples {
                     let mut u = draw_uniforms(&b.layer, &b.transform, b.tint, out_sun, &b.points);
@@ -1826,6 +1897,15 @@ impl Remaster {
         let weather_plan =
             self.plan_weather(frame, camera.eye, &out_u, &mut records, &mut posed, load)?;
         let weather_table = weather_plan.as_ref().map_or(u32::MAX, |p| p.constants);
+
+        // The moving bodies: each body's draw that marks how near it is and stood last frame with
+        // as many vertices, with its constants and pose as it stood then.
+        let moving = if self.motion_on && self.post.settings().taa {
+            self.moving(frame, &steps, out_sun, &mut records, &mut posed)
+        } else {
+            self.last_bodies.clear();
+            Vec::new()
+        };
 
         // The frame's constants and poses.
         let mut bytes = Vec::with_capacity(records.len() * std::mem::size_of::<DrawUniforms>());
@@ -2151,6 +2231,30 @@ impl Remaster {
             }
             Ok(())
         };
+        // The moving bodies' motion picture, its pipeline, and the last frame's view and projection
+        // it is worked out against.
+        let motion = match (&post_plan, moving.is_empty()) {
+            (Some(plan), false) => plan.targets().motion,
+            _ => None,
+        };
+        let motion_plan = match motion {
+            Some(target) => {
+                let pipeline = self.pipeline(Key {
+                    program: Program::Motion,
+                    src: d3d::BLEND_ONE,
+                    dst: d3d::BLEND_ZERO,
+                    depth_test: false,
+                    depth_write: false,
+                    cull: d3d::CULL_NONE,
+                    post: false,
+                })?;
+                let mut rows = Rows::default();
+                rows.mat(camera.previous_view_projection.unwrap_or(view_projection));
+                self.motion_rows.write(&mut self.gfx, &rows.bytes())?;
+                Some((target, pipeline, self.motion_rows.index))
+            }
+            None => None,
+        };
         let mut r = self.gfx.begin()?;
         r.raster(
             &RasterPass {
@@ -2324,13 +2428,56 @@ impl Remaster {
         if let Some(plan) = &lamp_plan {
             LampsPass::record_halos(plan, &mut r, &scene, lights[Env::Own as usize])?;
         }
+        // The moving bodies' motion, where they moved from.
+        if let Some((target, pipeline, last)) = motion_plan {
+            r.raster(
+                &RasterPass {
+                    name: "remaster motion",
+                    color: &[ColorAttachment {
+                        texture: target.texture,
+                        load: Load::Clear([-1.0, -1.0, 0.0, 0.0]),
+                    }],
+                    depth: None,
+                    touches: &[Touch::Texture(t.prepass, Use::Sampled)],
+                    area: None,
+                },
+                |rec| {
+                    rec.set_pipeline(pipeline)?;
+                    for m in &moving {
+                        let d = &m.draw;
+                        rec.push(
+                            0,
+                            &push_words(&[
+                                lights[d.env as usize],
+                                draws,
+                                d.record,
+                                m.last_record,
+                                d.vertices,
+                                if d.posed.is_some() {
+                                    posed_index
+                                } else {
+                                    u32::MAX
+                                },
+                                d.posed.unwrap_or(0),
+                                m.last_posed.unwrap_or(0),
+                                last,
+                                t.gbuffer.index[4],
+                            ]),
+                        )?;
+                        rec.bind_index_buffer(d.indices, 0, d.index_type)?;
+                        rec.draw_indexed(d.index_count, 1, 0, 0, 0);
+                    }
+                    Ok(())
+                },
+            )?;
+        }
         if let Some(plan) = &post_plan {
             let gathered = plan.record_taa(
                 &mut r,
                 &scene,
                 lights[Env::Own as usize],
                 (t.prepass, t.gbuffer.index[4]),
-                None,
+                motion,
             )?;
             plan.record_finish(&mut r, lights[Env::Own as usize], gathered)?;
         }
@@ -2339,6 +2486,66 @@ impl Remaster {
         r.submit()?;
         self.retire();
         Ok(t.color)
+    }
+
+    /// The frame's moving bodies: each body's draw in `steps` that the depth's pass draws and that
+    /// stood last frame with as many vertices, either moved or posed, with its constants as it
+    /// stood then (into `records`, lit by `sun`) and its pose then (into `posed`). What each body's
+    /// draws stand as now is kept for the next frame.
+    fn moving(
+        &mut self,
+        frame: &Frame,
+        steps: &Steps,
+        sun: [f32; 4],
+        records: &mut Vec<DrawUniforms>,
+        posed: &mut Vec<auberean_draw::mesh::PosedVertex>,
+    ) -> Vec<Moving> {
+        let mut out = Vec::new();
+        let mut stood = HashMap::new();
+        for d in steps.all() {
+            let Some((id, k, at)) = d.body else {
+                continue;
+            };
+            let Some(b) = frame.objects.get(at) else {
+                continue;
+            };
+            let now = Stood {
+                transform: b.transform,
+                posed: b.posed.clone(),
+                vertices: b.vertices.len(),
+            };
+            if d.shown && depth_key(d).is_some() {
+                if let Some(was) = self.last_bodies.get(&(id, k)) {
+                    let moved = was.transform != now.transform || now.posed.is_some();
+                    if moved
+                        && was.vertices == now.vertices
+                        && was.posed.is_some() == now.posed.is_some()
+                    {
+                        let last_record = u32::try_from(records.len()).unwrap_or(u32::MAX);
+                        records.push(draw_uniforms(
+                            &b.layer,
+                            &was.transform,
+                            b.tint,
+                            sun,
+                            &b.points,
+                        ));
+                        let last_posed = was.posed.as_ref().map(|list| {
+                            let base = u32::try_from(posed.len()).unwrap_or(0);
+                            posed.extend_from_slice(list.shared().as_slice());
+                            base
+                        });
+                        out.push(Moving {
+                            draw: *d,
+                            last_record,
+                            last_posed,
+                        });
+                    }
+                }
+            }
+            stood.insert((id, k), now);
+        }
+        self.last_bodies = stood;
+        out
     }
 
     /// Let go of what no frame has drawn for [`KEEP_FRAMES`] frames, and of the lists only this

@@ -25,7 +25,8 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 "lamps.slang" = "ec87a79d922c2eebef2265464d7ab1433f27f0b10909788098301958f88110af"
 "light.slang" = "e60f776a901d733fdd5da6a324a60327715815edcba100cf522856428b989529"
 "mesh.slang" = "0e9e38e65e31bfba8df014335761a9d682708711ff4b9c6084c9988dfa427ed0"
-"shaders.toml" = "e4a92187e702c9f4e438baeaae0d4aef2b361bd5e19bf04d0153be13734f6283"
+"motion.slang" = "397797c06e8e2862065666f51568436cdce292156c4923c0bf81fc8b917ddb10"
+"shaders.toml" = "d878f620ac3dbd74d95a783a5631dddd22100aff282d2584c5a34fe72c070035"
 "terrain.slang" = "f52087a673001eb6dc358472ff68433782a28bd6201a3603639e65f77cd23aa3"
 
 [blobs]
@@ -37,6 +38,8 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 "dxil/mesh.fs_water.dxil" = { sha256 = "075710427b0db0422bbac24e07075f51f155c36a32c15e574538d38c75198c1c", bytes = 7532 }
 "dxil/mesh.vs_mesh.dxil" = { sha256 = "55bb3fb72a2014d77e04bd22cf8d20b1a5d87c618c9dd7e1e16ff62af260050e", bytes = 20976 }
 "dxil/mesh.vs_mesh_caster.dxil" = { sha256 = "90fcce943d7086253d7a51eea184ceb5f819582efa9946a09ca07c80527c8957", bytes = 6136 }
+"dxil/motion.fs_motion.dxil" = { sha256 = "b20fb56003c7b2d1a012089563fe3c5790fd841c69a158e81b91e1b333ae4f44", bytes = 4844 }
+"dxil/motion.vs_motion.dxil" = { sha256 = "ce0ce7d73afbcfd41bf6906b0c80dd7ca835e54f47158e4db85df0c8a4f8eb7f", bytes = 5920 }
 "dxil/terrain.fs_sky_in.dxil" = { sha256 = "96a0c9b451d0afff6718a59426eddcc8a7f88c86d3d1f4a68a644a9395fa749f", bytes = 4652 }
 "dxil/terrain.fs_terrain_base.dxil" = { sha256 = "4a8da6d5b30ab8118c055aa6aaa7a3073a404116da159f7179f1d484a58b132a", bytes = 9104 }
 "dxil/terrain.fs_terrain_depth.dxil" = { sha256 = "bda0939bff47f3092d9959279c41e06aae5ac75913fe741a0145cc561bd91306", bytes = 5956 }
@@ -53,6 +56,8 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 "spirv/mesh.fs_water.spv" = { sha256 = "45e0ab2cba50ae97bf479ec7127f66c072e6ee260ce7289016c2cb46bbd7eb7b", bytes = 5636 }
 "spirv/mesh.vs_mesh.spv" = { sha256 = "e620f9980561dcf5233bfc26e17c45584ec80da94e2e3ae60f9dc754ccc7afa7", bytes = 61688 }
 "spirv/mesh.vs_mesh_caster.spv" = { sha256 = "e3d201531324b26c905ce3ad322065162867ee02ceda5bbf0f741828bf797c09", bytes = 12172 }
+"spirv/motion.fs_motion.spv" = { sha256 = "c1a012d12f9cfe622ffc15532ceeeaa7956c6387b149cca21892e4393cd65d89", bytes = 2428 }
+"spirv/motion.vs_motion.spv" = { sha256 = "ccd92b8f2d23041f28e82fe10593d64904371adc70e72005b70fd7fbcf20b6f6", bytes = 13568 }
 "spirv/terrain.fs_sky_in.spv" = { sha256 = "985e1e6701c44a85b334dd2cd8ceffc20902a721d9ef1b85dcf123d713347d54", bytes = 2736 }
 "spirv/terrain.fs_terrain_base.spv" = { sha256 = "f63d8f258ad3cba4e576b4d6a5b2c6ea02bb6e486eead069b8074efe9f32caea", bytes = 19672 }
 "spirv/terrain.fs_terrain_depth.spv" = { sha256 = "8128c937ed9416fd85f9ea5baac4cd6b72b77dc6d6f1d508be7649bead933b60", bytes = 3880 }

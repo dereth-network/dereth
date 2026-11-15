@@ -12,6 +12,7 @@ mod identity;
 mod lamps;
 mod linear;
 mod look;
+mod motion;
 mod occlusion;
 mod shadows;
 mod shared;

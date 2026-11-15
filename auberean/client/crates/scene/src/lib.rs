@@ -4833,6 +4833,7 @@ impl<'w> Scene<'w> {
             frame.out
         };
         if self.systems.streak_effects() {
+            built.frame.bodies = self.drawn.clone();
             built.frame.objects.extend(streaks);
         }
         // Inside, lit particles take the lights kept where each system stands instead, and the
