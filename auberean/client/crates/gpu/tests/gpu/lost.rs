@@ -9,17 +9,20 @@ const SIDE: u32 = 16;
 /// A device that goes away is noticed, and drawing on it asks for nothing it can't give: the frame
 /// that would have kept a list in a buffer of its own goes by without one. Another device draws.
 ///
+/// The wall is a gray of 0.3, doubled by its layer's one stage: 0.6, 153 of 255, no tie between two
+/// levels for a device to round either way (a gray of 0.25 doubles to 127.5).
+///
 /// Behaviour: draw.mesh.a-lost-device-is-noticed-and-does-not-stop-the-game
 #[test]
 fn a_lost_device_is_noticed_and_does_not_stop_the_game() {
-    let frame = frame_of(vec![wall(10.0, 0.25, false, 10.0)]);
+    let frame = frame_of(vec![wall(10.0, 0.3, false, 10.0)]);
     let mut load = |_: u32| None;
     let mut device = renderer();
     assert_eq!(device.device_lost(), None);
     let seen = device
         .render(&frame, SIDE, SIDE, &mut load)
         .expect("read back");
-    assert_eq!(seen.rgba[0], 128, "drawn before");
+    assert_eq!(seen.rgba[0], 153, "drawn before");
 
     device.device().destroy();
     let _ = device.device().poll(wgpu::PollType::Poll);
@@ -31,5 +34,5 @@ fn a_lost_device_is_noticed_and_does_not_stop_the_game() {
     let seen = again
         .render(&frame, SIDE, SIDE, &mut load)
         .expect("read back");
-    assert_eq!(seen.rgba[0], 128, "another device draws");
+    assert_eq!(seen.rgba[0], 153, "another device draws");
 }
