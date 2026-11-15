@@ -478,6 +478,37 @@ impl Renderer {
                 info.name
             )));
         }
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                required_features: Self::features_on(&adapter, antialiasing),
+                required_limits: limits_on(&adapter),
+                ..Default::default()
+            })
+            .await
+            .map_err(|e| GpuError::NoDevice(e.to_string()))?;
+        Ok(Self::built(&adapter, device, queue, antialiasing))
+    }
+
+    /// The features the renderer asks of `adapter`'s device: the adapter's own format features
+    /// where two samples to the pixel need them.
+    #[must_use]
+    pub fn features_on(adapter: &wgpu::Adapter, antialiasing: bool) -> wgpu::Features {
+        if Self::samples_on(adapter, antialiasing) == 2 {
+            wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
+        } else {
+            wgpu::Features::empty()
+        }
+    }
+
+    /// The limits the renderer asks of `adapter`'s device.
+    #[must_use]
+    pub fn limits_on(adapter: &wgpu::Adapter) -> wgpu::Limits {
+        limits_on(adapter)
+    }
+
+    /// How many samples to the pixel the frame is drawn with on `adapter`: one without the edges
+    /// smoothed; two where the adapter's own format features offer them, else four.
+    fn samples_on(adapter: &wgpu::Adapter, antialiasing: bool) -> u32 {
         let flags = adapter.get_texture_format_features(COLOR_FORMAT).flags;
         let depth_flags = adapter.get_texture_format_features(DEPTH_FORMAT).flags;
         // Two samples need the adapter's own format features; four every adapter offers.
@@ -486,19 +517,34 @@ impl Renderer {
             && adapter.features().contains(own)
             && flags.sample_count_supported(2)
             && depth_flags.sample_count_supported(2);
-        let samples = match (antialiasing, two) {
+        match (antialiasing, two) {
             (false, _) => 1,
             (true, true) => 2,
             (true, false) => 4,
-        };
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
-                required_features: if two { own } else { wgpu::Features::empty() },
-                required_limits: limits_on(&adapter),
-                ..Default::default()
-            })
-            .await
-            .map_err(|e| GpuError::NoDevice(e.to_string()))?;
+        }
+    }
+
+    /// A renderer on `device`, which `adapter` made with at least [`Self::features_on`] and
+    /// [`Self::limits_on`] (a device another drawer shares, for one).
+    #[must_use]
+    pub fn on_device(
+        adapter: &wgpu::Adapter,
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        antialiasing: bool,
+    ) -> Self {
+        Self::built(adapter, device, queue, antialiasing)
+    }
+
+    /// The renderer on `device`, made by `adapter`.
+    fn built(
+        adapter: &wgpu::Adapter,
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        antialiasing: bool,
+    ) -> Self {
+        let info = adapter.get_info();
+        let samples = Self::samples_on(adapter, antialiasing);
         let lost = Arc::new(std::sync::Mutex::new(None));
         {
             let lost = Arc::clone(&lost);
@@ -649,7 +695,7 @@ impl Renderer {
             flare_pipelines: None,
         };
         r.build_terrain_pipelines();
-        Ok(r)
+        r
     }
 
     /// The device the frames are drawn on, for a host that draws more on it (a window's
