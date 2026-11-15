@@ -38,6 +38,8 @@ impl GameMessageOpcode {
     pub const PublicUpdateSkill: Self = Self(0x02DE);
     pub const PrivateUpdateSkillLevel: Self = Self(0x02DF);
     pub const PublicUpdateSkillLevel: Self = Self(0x02E0);
+    /// Not ACE (V536): a skill's advancement class alone, the public form.
+    pub const PublicUpdateSkillAC: Self = Self(0x02E2);
     pub const PrivateUpdateAttribute: Self = Self(0x02E3);
     pub const PublicUpdateAttribute: Self = Self(0x02E4);
     pub const PrivateUpdateVital: Self = Self(0x02E7);

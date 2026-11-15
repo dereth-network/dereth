@@ -330,15 +330,27 @@ pub fn handle_action_train_skill(
     if success {
         let cs =
             creature_skill(w, this, skill, true).expect("GetCreatureSkill(skill) always answers");
-        let update_skill = update_skill_message(w, this, cs);
+        // DIVERGE: V536, a skill trained with nothing else changed is answered with its
+        // advancement class alone and the credits, and no chat line; ACE sends the whole skill
+        // and "<Skill> trained. You now have N credits available." A skill an augmentation
+        // specializes at once has more to tell, so it still gets the whole skill.
+        let o = obj(w, this);
+        let class = cs.advancement_class(o);
+        let plain = class == SkillAdvancementClass::Trained
+            && cs.ranks(o) == 0
+            && cs.experience_spent(o) == 0
+            && cs.init_level(o) == 0;
+        let update_skill = if plain {
+            crate::network::game_messages::messages::game_message_public_update_skill_ac::game_message_public_update_skill_ac(
+                obj_mut(w, this),
+                skill,
+                class,
+            )
+        } else {
+            update_skill_message(w, this, cs)
+        };
         let skill_credits = available_skill_credits_message(w, this);
-
-        let msg = game_message_system_chat(
-            &format!("{} trained. {available_skill_credits}", skill.to_sentence()),
-            ChatMessageType::Advancement,
-        );
-
-        send(w, this, [update_skill, skill_credits, msg]);
+        send(w, this, [update_skill, skill_credits]);
     } else {
         let msg = game_message_system_chat(
             &format!(

@@ -1,4 +1,5 @@
 //! Vectors: fixtures/vectors/stats/
+//! Divergence: V536
 //! Creature attributes/vitals/skills and formulas follow ACE, with retail deviations; one ignored
 //! cross-check vs client model.
 //! Fixture: ACE vectors and explicit expected values, synthetic dats, isolated world state.
@@ -1090,6 +1091,7 @@ fn chat_text(bytes: &[u8]) -> String {
 const UPDATE_INT64: u32 = 0x02CF;
 const UPDATE_INT: u32 = 0x02CD;
 const UPDATE_SKILL: u32 = 0x02DD;
+const UPDATE_SKILL_AC: u32 = 0x02E2;
 const UPDATE_ATTRIBUTE: u32 = 0x02E3;
 const UPDATE_VITAL: u32 = 0x02E7;
 const UPDATE_VITAL_LEVEL: u32 = 0x02E9;
@@ -1305,6 +1307,9 @@ fn raising_a_vital_to_max_rank_plays_the_fireworks() {
     assert!(take_sent().is_empty());
 }
 
+/// Divergence: V536
+/// A trained skill is answered as the retail servers answered one: `0x02E2` with the player's own
+/// id, the skill and Trained, then the credits, and no chat line.
 #[test]
 fn training_a_skill_costs_credits_and_reports_them() {
     let mut w = player_world();
@@ -1325,10 +1330,18 @@ fn training_a_skill_costs_credits_and_reports_them() {
         6
     ));
     let sent = take_sent();
-    assert_eq!(opcodes(&sent), [UPDATE_SKILL, UPDATE_INT, SYSTEM_CHAT]);
+    assert_eq!(opcodes(&sent), [UPDATE_SKILL_AC, UPDATE_INT]);
+    // sequence (1 byte), the object, the skill, the advancement class
+    let body = &sent[0].2[4..];
+    assert_eq!(body.len(), 13);
+    assert_eq!(&body[1..5], &PLAYER.to_le_bytes());
     assert_eq!(
-        chat_text(&sent[2].2),
-        "Healing trained. You now have 14 credits available."
+        &body[5..9],
+        &u32::try_from(Skill::Healing.0).unwrap().to_le_bytes()
+    );
+    assert_eq!(
+        &body[9..13],
+        &SkillAdvancementClass::Trained.0.to_le_bytes()
     );
     let o = p(&w);
     let cs = o.skills().get(&Skill::Healing).copied().unwrap();

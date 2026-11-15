@@ -49,6 +49,7 @@ pub mod game_message_public_update_property_float;
 pub mod game_message_public_update_property_int;
 pub mod game_message_public_update_property_int64;
 pub mod game_message_public_update_property_string;
+pub mod game_message_public_update_skill_ac;
 pub mod game_message_public_update_vital;
 pub mod game_message_script;
 pub mod game_message_server_name;

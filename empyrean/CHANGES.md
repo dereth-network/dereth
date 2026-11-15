@@ -16,6 +16,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Fixed admin programs dropped after a few idle seconds on Windows, and ones that fall behind keeping their place.
 - Fixed creatures that stand on towers and platforms over steep ground never appearing.
 - Salvaging now says which items weren't suitable, and when it fails.
+- Training a skill no longer prints a line in chat.
 - Fixed a way to send chat to every player past their chat settings.
 - Fixed players getting stuck after arriving in an area just as it unloaded.
 - Fixed wielded items meant to be destroyed on death surviving it.
