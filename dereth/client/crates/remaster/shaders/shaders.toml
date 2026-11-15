@@ -386,21 +386,25 @@ source = "gi_trace.slang"
 entry = "cs_trace"
 stage = "compute"
 
-# How much of the sun reaches each pixel, by rays traced toward it, where the device traces rays.
+# How much of the sun reaches each pixel, by rays traced toward it, where the device traces rays:
+# the shared pass's shader, compiled here against this folder's `rt`.
 [[entry]]
 source = "rt_shadow.slang"
+from = "../../gfx-passes/shaders"
 entry = "fs_main"
 stage = "fragment"
 
 # The ambient occlusion by rays traced over each pixel's hemisphere, then evened out over the
-# pixels round it, where the device traces rays.
+# pixels round it, where the device traces rays: the shared pass's shader, as above.
 [[entry]]
 source = "rt_ao.slang"
+from = "../../gfx-passes/shaders"
 entry = "fs_rays"
 stage = "fragment"
 
 [[entry]]
 source = "rt_ao.slang"
+from = "../../gfx-passes/shaders"
 entry = "fs_filter"
 stage = "fragment"
 

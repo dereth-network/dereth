@@ -23,6 +23,7 @@
 //! | [`post`] | the scene's target of its own, the temporal anti-aliasing, the bloom, the exposure and the tone curve |
 //! | [`sun`] | the sun's cascades, their maps, and how much of the sun reaches each pixel it lights |
 //! | [`sky`] | the physical sky: the scattering atmosphere's tables, the sky drawn from them, and the veil over the horizon |
+//! | [`traced`] | the sun's shadows and the ambient occlusion by rays traced through the game's acceleration structures, where the device traces rays |
 //! | [`weather`] | the overhead map of what stands over each point round the eye, and the weather's first rows: the wet, the puddles and the shelter the surfaces take |
 //! | [`shaders`] | the shaders, compiled ahead of time and embedded: each entry point's blobs |
 //!
@@ -38,4 +39,5 @@ pub mod post;
 pub mod shaders;
 pub mod sky;
 pub mod sun;
+pub mod traced;
 pub mod weather;

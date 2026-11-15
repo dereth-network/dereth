@@ -976,6 +976,18 @@ impl RtPass {
 }
 
 impl RtPlan {
+    /// The frame's structures as the traced passes take them: the top-level structure, the
+    /// statics' and the objects' geometry tables, and `pools`, the scene's indices, vertices and
+    /// materials and the sampler alpha tests read with, each by its index in the table.
+    #[must_use]
+    pub fn traced(&self, pools: [u32; 4]) -> dereth_gfx_passes::traced::TracedScene {
+        dereth_gfx_passes::traced::TracedScene {
+            accel: self.index,
+            tables: [self.static_rows, self.object_rows],
+            pools,
+        }
+    }
+
     /// Fit the structures of the meshes posed this frame (`refitting`, [`RtPass::refitting`]) to
     /// them, which must be recorded after the posing; write each instance's record from its rows;
     /// then build the top-level structure from them.

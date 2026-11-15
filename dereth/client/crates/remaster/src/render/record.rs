@@ -495,7 +495,7 @@ impl Renderer {
         })?;
         let rt_shadow = self
             .rt_shadow
-            .prepare(&frame, shadow.is_some(), rt.is_some());
+            .prepare(frame.light.sun, shadow.is_some(), rt.is_some());
         let ao_settings = ao.is_some().then(|| self.ao.settings());
         let rt_ao = self
             .rt_ao
@@ -1515,8 +1515,7 @@ impl Plan {
                     &t,
                     self.frame,
                     (outdoor_depth, outdoor_depth_index),
-                    rt,
-                    self.rt_pools,
+                    &rt.traced(self.rt_pools),
                     s.visibility(),
                 )?,
                 _ => s.record_mask(r, &t, self.frame, (outdoor_depth, outdoor_depth_index))?,
@@ -1531,8 +1530,7 @@ impl Plan {
                     &t,
                     self.frame,
                     (outdoor_depth, outdoor_depth_index),
-                    rt,
-                    self.rt_pools,
+                    &rt.traced(self.rt_pools),
                     ao.mask().1,
                 )?,
                 _ => ao.record(r, &t, self.frame, (outdoor_depth, outdoor_depth_index))?,

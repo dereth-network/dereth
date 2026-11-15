@@ -1,6 +1,8 @@
 # The shared passes' shaders. `cargo xtask shaders` compiles each entry point below for each target
 # into `compiled/`, which is checked in; `src/shaders.rs` embeds the blobs. The modules here
 # (`bindless`, `frame`, `atmosphere`, `weather`) are imported by the remasters' own shaders too.
+# The traced shadows' and occlusion's shaders (`rt_shadow`, `rt_ao`) are compiled in each game's
+# folder instead, each against that game's own `rt` module, which reads its scene's structures.
 targets = ["spirv", "dxil"]
 
 # A triangle that covers the whole target, for the passes that read one picture and write

@@ -7,13 +7,18 @@
 //   a fixed four-by-four pattern, so a still view draws a still picture. A ray that meets
 //   anything within the radius occludes, the less the farther past where the falloff begins.
 //   Alpha-tested surfaces are tested at the texel the ray meets. The ground's own structure is
-//   retail's surface, so the ground drawn over it never occludes itself. Past the near ground, a
-//   ray meets retail's surface only from above, so a far point's barely known depth, which may
-//   put it under that surface, never has it occluded by the surface's underside.
+//   the surface the game lights its ground by, so ground drawn over it never occludes itself.
+//   Past the near ground, a ray meets it only from above, so a far point's barely known depth,
+//   which may put it under that surface, never has it occluded by the surface's underside.
 // - `fs_filter`: each pixel's occlusion from the four by four pixels round it that lie on its own
 //   surface (near in depth and facing the same way), which evens the pattern out.
+//
+// The scene's structures are the game's own, and so is the module that reads them: `rt`, found
+// with the game's shaders, names the masks a ray asks for (`RT_GROUND` the ground's structure,
+// `RT_COVER` ground cover) and `hit_kept`, whether a query keeps a candidate hit on a surface it
+// is handed (an alpha-tested or a swaying one), read from the game's tables and pools below.
 import bindless;
-import retail;
+import frame;
 import rt;
 
 struct Push
@@ -24,11 +29,12 @@ struct Push
     uint outdoor_depth;
     uint normal;
     uint material;
-    // The top-level structure, and the geometry tables of the statics and of the objects.
+    // The top-level structure, and the game's two tables of its instances' rows.
     uint accel;
     uint statics;
     uint objects;
-    // The scene's indices, vertices and materials, and the sampler alpha tests read with.
+    // The game's four pools its rows name (its indices, vertices and materials, and the sampler
+    // alpha tests read with, say).
     uint indices;
     uint vertices;
     uint materials;
@@ -121,8 +127,8 @@ float nearest(RayDesc ray, uint mask)
     return min(hit, swayed);
 }
 
-// The nearest place along `ray` where it meets retail's ground on its upper face, its distance;
-// `ray.TMax` for none. A ray that starts under the ground leaves through its underside, which
+// The nearest place along `ray` where it meets the ground's structure on its upper face, its
+// distance; `ray.TMax` for none. A ray that starts under the ground leaves through its underside, which
 // shuts nothing in.
 float ground_above(RayDesc ray)
 {
@@ -162,15 +168,15 @@ float4 fs_rays(float4 position : SV_Position) : SV_Target0
     float3 origin = world + n * (0.02 + 0.0005 * dist);
     float3 t = normalize(cross(n, abs(n.z) < 0.99 ? float3(0.0, 0.0, 1.0) : float3(1.0, 0.0, 0.0)));
     float3 b = cross(n, t);
-    // The ground never occludes itself: its own structure is retail's surface, not the one drawn.
+    // The ground never occludes itself: its own structure is the lit surface, not the one drawn.
     uint mask = cls == CLASS_GROUND ? (0xFF & ~RT_GROUND) : 0xFF;
     uint rays = max(push.rays, 1u);
     // The pixel's place in a four-by-four pattern, which turns its rays and moves them along it.
     uint cell = uint(p.x & 3) + 4 * uint(p.y & 3);
     float turn = float(cell) / 16.0;
     // Past the near ground (by the pixel's place in the pattern across the stretch where it gives
-    // way to the far) a ray from what stands on the ground meets retail's ground only from above:
-    // a far point's depth is known only to meters, so it may stand under retail's surface, and
+    // way to the far) a ray from what stands on the ground meets the ground's structure only from
+    // above: a far point's depth is known only to meters, so it may stand under that surface, and
     // the underside would shut it in, differently from frame to frame. Nearer, it meets the
     // ground either way, as before.
     float4 lift = row(push.frame, FRAME_LIFT);

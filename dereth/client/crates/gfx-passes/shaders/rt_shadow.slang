@@ -6,13 +6,18 @@
 // sun's disc, each turned by the pixel's own place in a fixed pattern, so a still view draws a
 // still picture. A ray is moved off its surface toward the sun's side, more the more the surface
 // turns from the sun. Alpha-tested surfaces are tested at the texel the ray meets, as the G-buffer
-// tests them. The ground's own structure is retail's surface: a ray from the ground looks for it
-// only past a meter, so the ground drawn over retail's never shadows itself. Past the near
-// ground, a ray meets retail's surface only from above, so neither the far ground drawn coarser
-// than retail's nor a far point's barely known depth shades the far land itself. The shadows
-// fade in as the sun rises off the horizon, as the cascades' do.
+// tests them. The ground's own structure is the surface the game lights its ground by: a ray
+// from the ground looks for it only past a meter, so ground drawn over that surface never shadows
+// itself. Past the near ground, a ray meets that surface only from above, so neither far ground
+// drawn coarser than it nor a far point's barely known depth shades the far land itself. The
+// shadows fade in as the sun rises off the horizon, as the cascades' do.
+//
+// The scene's structures are the game's own, and so is the module that reads them: `rt`, found
+// with the game's shaders, names the masks a ray asks for (`RT_GROUND` the ground's structure,
+// `RT_COVER` ground cover) and `hit_kept`, whether a query keeps a candidate hit on a surface it
+// is handed (an alpha-tested or a swaying one), read from the game's tables and pools below.
 import bindless;
-import retail;
+import frame;
 import rt;
 
 struct Push
@@ -23,11 +28,12 @@ struct Push
     uint outdoor_depth;
     uint normal;
     uint material;
-    // The top-level structure, and the geometry tables of the statics and of the objects.
+    // The top-level structure, and the game's two tables of its instances' rows.
     uint accel;
     uint statics;
     uint objects;
-    // The scene's indices, vertices and materials, and the sampler alpha tests read with.
+    // The game's four pools its rows name (its indices, vertices and materials, and the sampler
+    // alpha tests read with, say).
     uint indices;
     uint vertices;
     uint materials;
@@ -85,8 +91,8 @@ bool blocked(RayDesc ray, uint mask)
     return q.CommittedStatus() == COMMITTED_TRIANGLE_HIT;
 }
 
-// Whether retail's ground stands along `ray` between its ends, met on its upper face. A ray that
-// starts under it leaves through its underside, which hides nothing.
+// Whether the ground's structure stands along `ray` between its ends, met on its upper face. A
+// ray that starts under it leaves through its underside, which hides nothing.
 bool ground_above(RayDesc ray)
 {
     RayQuery<RAY_FLAG_FORCE_NON_OPAQUE> q;
@@ -139,10 +145,10 @@ float4 fs_main(float4 position : SV_Position) : SV_Target0
     float reach = asfloat(push.cover_reach);
     float cover = 1.0 - saturate((ahead - 0.8 * reach) / max(0.2 * reach, 1e-3));
     // Past the near ground (by the pixel's pattern across the stretch where it gives way to the
-    // far) a ray meets retail's ground only from above: the drawn ground there is coarser than
-    // retail's, lying under it on every crest, and a far point's depth is known only to meters,
-    // so a far point may stand under retail's surface, and leaving through its underside would
-    // shade it, differently from frame to frame. Nearer, the ground drawn under retail's (a shore
+    // far) a ray meets the ground's structure only from above: ground drawn there may be coarser
+    // than it, lying under it on every crest, and a far point's depth is known only to meters,
+    // so a far point may stand under the structure, and leaving through its underside would
+    // shade it, differently from frame to frame. Nearer, ground drawn under the structure (a shore
     // lowered under the water) is shaded by its rim, as the drawn ground shades it.
     float4 lift = row(push.frame, FRAME_LIFT);
     float2 band = lift.z > 0.5 ? lift.xy : NEAR_GROUND;

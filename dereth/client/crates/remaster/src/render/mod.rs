@@ -630,8 +630,12 @@ impl Renderer {
             rt: self::rt::RtPass::new(&mut gfx)?,
             rt_kept: false,
             gi: self::gi::GiPass::new(&mut gfx)?,
-            rt_shadow: self::rt_shadow::RtShadowPass::new(&mut gfx)?,
-            rt_ao: self::rt_ao::RtAoPass::new(&mut gfx)?,
+            rt_shadow: self::rt_shadow::RtShadowPass::new(&mut gfx, shader(Entry::RtShadowFsMain))?,
+            rt_ao: self::rt_ao::RtAoPass::new(
+                &mut gfx,
+                shader(Entry::RtAoFsRays),
+                shader(Entry::RtAoFsFilter),
+            )?,
             post: self::post::PostPass::new(&mut gfx)?,
             upscale: self::upscale::UpscalePass::new(&mut gfx)?,
             ground_drawn: per_frame(
