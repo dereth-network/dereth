@@ -502,6 +502,27 @@ pub fn try_create_in_inventory_with_networking(
     this: ObjectGuid,
     item: ObjectGuid,
 ) -> Option<ObjectGuid> {
+    try_create_in_inventory_saving(w, this, item, &[this])
+}
+
+/// Not ACE (V527): [`try_create_in_inventory_with_networking`] for an item that comes from
+/// `from`, another player (a stack split off in a give, an item handed over in a trade), whose
+/// changes are saved with it.
+pub fn try_create_in_inventory_with_networking_from(
+    w: &mut World,
+    this: ObjectGuid,
+    item: ObjectGuid,
+    from: ObjectGuid,
+) -> Option<ObjectGuid> {
+    try_create_in_inventory_saving(w, this, item, &[this, from])
+}
+
+fn try_create_in_inventory_saving(
+    w: &mut World,
+    this: ObjectGuid,
+    item: ObjectGuid,
+    owners: &[ObjectGuid],
+) -> Option<ObjectGuid> {
     // We don't have enough burden available or no empty pack slot.
     let container = container::try_add_to_inventory_with_container(w, this, item, 0, false, true)?;
 
@@ -536,9 +557,48 @@ pub fn try_create_in_inventory_with_networking(
         shims::update_coin_value(w, this);
     }
 
-    dispatch::save_biota_to_database::save_biota_to_database(w, item, true);
+    // DIVERGE: V527, the new item is saved in one job with every changed possession of the
+    // players it involves, so the change that paid for it (a stack split off, coins spent,
+    // ingredients used) cannot be lost to a crash while the item is kept. ACE saves the item alone
+    // at once and leaves the rest to the next periodic save.
+    dispatch::save_biota_to_database::save_biota_to_database(w, item, false);
+    let mut biotas = vec![item];
+    biotas.extend(changed_possessions(w, owners, &biotas));
+    shims::shard_save_biotas_in_parallel(w, &biotas);
 
     Some(container)
+}
+
+/// Not ACE (V527): marks saved, and returns, every changed object among `owners` (players) and
+/// their possessions, less those in `skip`, for a save job of their own with the item that changed
+/// them.
+fn changed_possessions(
+    w: &mut World,
+    owners: &[ObjectGuid],
+    skip: &[ObjectGuid],
+) -> Vec<ObjectGuid> {
+    let mut changed = Vec::new();
+    for &owner in owners {
+        if !w.objects.get(owner).is_some_and(WorldObject::is_player) {
+            continue;
+        }
+        let candidates = std::iter::once(owner)
+            .chain(get_all_possessions(w, owner))
+            .collect::<Vec<_>>();
+        for g in candidates {
+            if skip.contains(&g) || changed.contains(&g) {
+                continue;
+            }
+            if w.objects
+                .get(g)
+                .is_some_and(|o| o.wo.world_object_database.changes_detected)
+            {
+                dispatch::save_biota_to_database::save_biota_to_database(w, g, false);
+                changed.push(g);
+            }
+        }
+    }
+    changed
 }
 
 /// ACE's default: `amount = int.MaxValue`.
@@ -625,7 +685,8 @@ pub fn try_consume_from_inventory_with_networking_wcid(
 }
 
 // ACE: Player.DeepSave
-fn deep_save(w: &mut World, item: ObjectGuid) {
+/// DIVERGE: V527, `owner`'s changed possessions go in the same job as the item.
+fn deep_save(w: &mut World, owner: ObjectGuid, item: ObjectGuid) {
     let mut biotas = Vec::new();
 
     if obj(w, item).wo.world_object_database.changes_detected {
@@ -644,6 +705,7 @@ fn deep_save(w: &mut World, item: ObjectGuid) {
         }
     }
 
+    biotas.extend(changed_possessions(w, &[owner], &biotas));
     shims::shard_save_biotas_in_parallel(w, &biotas);
 }
 
@@ -688,7 +750,11 @@ pub fn try_remove_from_inventory_with_networking(
         // If we don't, the player can drop the item, log out, and log back in. If the landblock hasn't queued a database save in that time,
         // the player will end up loading with this object in their inventory even though the landblock is the true owner. This is because
         // when we load player inventory, the database still has the record that shows this player as the ContainerId for the item.
-        deep_save(w, item);
+        // DIVERGE: V527, a traded item is not saved here, with no owner: it is saved with its new
+        // owner when it is handed over, so a crash before then leaves it with the old one.
+        if remove_from_inventory_action != RemoveFromInventoryAction::TradeItem {
+            deep_save(w, this, item);
+        }
     }
 
     if matches!(
@@ -919,7 +985,10 @@ pub fn try_dequip_object_with_networking(
         // the player will end up loading with this object in their inventory even though the landblock is the true owner. This is because
         // when we load player inventory, the database still has the record that shows this player as the ContainerId for the item.
         if w.objects.contains(item) {
-            deep_save(w, item);
+            // DIVERGE: V527, a traded item is saved with its new owner when it is handed over.
+            if dequip_object_action != DequipObjectAction::TradeItem {
+                deep_save(w, this, item);
+            }
         } else {
             // A consumed item has been destroyed (V78: it left the store): ACE's DeepSave of a
             // destroyed object saves no biota.
@@ -2023,7 +2092,7 @@ fn do_handle_action_put_item_in_container(
             // If we don't, the player can drop the item, log out, and log back in. If the landblock hasn't queued a database save in that time,
             // the player will end up loading with this object in their inventory even though the landblock is the true owner. This is because
             // when we load player inventory, the database still has the record that shows this player as the ContainerId for the item.
-            deep_save(w, item);
+            deep_save(w, this, item);
         }
     }
 
@@ -4904,7 +4973,7 @@ fn give_object_to_player(
 
     action_chain.add_action(Actor::Object(this), move |w: &mut World| {
         if !w.objects.contains(target)
-            || try_create_in_inventory_with_networking(w, target, item_to_give).is_none()
+            || try_create_in_inventory_with_networking_from(w, target, item_to_give, this).is_none()
         {
             transient(w, this, "TryCreateInInventoryWithNetworking failed!"); // Custom error message
 

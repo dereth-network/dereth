@@ -992,3 +992,51 @@ pub(crate) fn a_give_whose_item_left_on_the_way_gives_nothing() {
         .collect();
     assert!(said.iter().any(|s| s == "Give failed!"), "{said:?}");
 }
+
+/// The stack size the database holds for `g`, which is all a crash would leave.
+fn stored_stack(ts: &TestServer, g: ObjectGuid) -> Option<i32> {
+    let biota = ts.shard().get_biota(g.full(), false)?;
+    biota
+        .biota_properties_int
+        .iter()
+        .find(|p| p.r#type == PropertyInt::StackSize.0)
+        .map(|p| p.value)
+}
+
+/// A give of part of a stack saves the giver's smaller stack in the same job as the receiver's new
+/// one, so the database never holds the coins twice: straight after the give (what a crash would
+/// leave, before any periodic save) it holds 6 with Alpha and 4 with Bravo.
+#[test]
+pub(crate) fn a_split_give_saves_the_givers_stack_with_the_new_one() {
+    let mut ts = server();
+    let (alpha, _) = join(&mut ts, "alpha", ALPHA, "Alpha", at(20.0, 20.0), 100);
+    let (_bravo, _) = join(&mut ts, "bravo", BRAVO, "Bravo", at(20.6, 20.0), 100);
+    let coins = in_pack(&mut ts.world, ALPHA, COIN);
+    assert_eq!(obj(&ts, coins).stack_size(), Some(10));
+    empyrean_world::world_objects::player_database::save_player_to_database(
+        &mut ts.world,
+        ObjectGuid::new(ALPHA),
+    );
+    ts.advance(0.1);
+    assert_eq!(stored_stack(&ts, coins), Some(10));
+
+    ts.send_game_action(
+        alpha,
+        &InventoryGiveObjectRequest {
+            target: ObjectId(BRAVO),
+            item: ObjectId(coins.full()),
+            amount: 4,
+        },
+    );
+    ts.advance(2.0);
+
+    let given = container::inventory_values(&ts.world, ObjectGuid::new(BRAVO));
+    assert_eq!(given.len(), 1, "Bravo has the coins");
+    assert_eq!(obj(&ts, coins).stack_size(), Some(6));
+    assert_eq!(stored_stack(&ts, given[0]), Some(4));
+    assert_eq!(
+        stored_stack(&ts, coins),
+        Some(6),
+        "the giver's stack is saved too"
+    );
+}

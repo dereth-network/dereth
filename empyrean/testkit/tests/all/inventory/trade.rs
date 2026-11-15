@@ -845,3 +845,46 @@ pub(crate) fn an_item_its_receiver_cannot_take_goes_back_to_its_owner() {
     assert_eq!(alpha_has, want, "the gem came back, and the cup arrived");
     assert!(inventory(&ts, BRAVO).is_empty());
 }
+
+/// The container the database names for `g`, which is all a crash would leave.
+fn stored_container(ts: &TestServer, g: ObjectGuid) -> Option<u32> {
+    let biota = ts.shard().get_biota(g.full(), false)?;
+    biota
+        .biota_properties_iid
+        .iter()
+        .find(|p| p.r#type == empyrean_entity::enums::PropertyInstanceId::Container.0)
+        .map(|p| p.value)
+}
+
+/// Between the accepts and the hand-over half a second later, a traded item stays saved with its
+/// old owner (ACE saved it with none, so a crash then left it owned by nobody); once handed over
+/// it is saved with the new one.
+#[test]
+pub(crate) fn a_traded_item_is_saved_with_an_owner_throughout() {
+    let (mut ts, a, b) = open_trade(100, 100);
+    let gem = in_pack(&mut ts.world, ALPHA, GEM);
+    empyrean_world::world_objects::player_database::save_player_to_database(
+        &mut ts.world,
+        ObjectGuid::new(ALPHA),
+    );
+    ts.advance(0.1);
+    assert_eq!(stored_container(&ts, gem), Some(ALPHA));
+    offer(&mut ts, a, b, gem);
+    ts.send_game_action(a, &accept());
+    ts.advance(0.1);
+    ts.send_game_action(b, &accept());
+    ts.advance(0.1);
+
+    assert_eq!(
+        stored_container(&ts, gem),
+        Some(ALPHA),
+        "in escrow: still Alpha's"
+    );
+    ts.advance(0.5);
+    assert_eq!(inventory(&ts, BRAVO), [gem]);
+    assert_eq!(
+        stored_container(&ts, gem),
+        Some(BRAVO),
+        "handed over: Bravo's"
+    );
+}

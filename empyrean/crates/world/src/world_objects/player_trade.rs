@@ -534,7 +534,8 @@ fn finalize_trade(w: &mut World, this: ObjectGuid, target: ObjectGuid) {
     action_chain.add_delay_seconds(w, 0.5);
     action_chain.add_action(Actor::Landblock(current_landblock), move |w: &mut World| {
         for wo in my_escrow {
-            if player_inventory::try_create_in_inventory_with_networking(w, this, wo).is_none()
+            if player_inventory::try_create_in_inventory_with_networking_from(w, this, wo, target)
+                .is_none()
                 && player_inventory::try_create_in_inventory_with_networking(w, target, wo)
                     .is_none()
             {
@@ -548,7 +549,8 @@ fn finalize_trade(w: &mut World, this: ObjectGuid, target: ObjectGuid) {
         }
 
         for wo in target_escrow {
-            if player_inventory::try_create_in_inventory_with_networking(w, target, wo).is_none()
+            if player_inventory::try_create_in_inventory_with_networking_from(w, target, wo, this)
+                .is_none()
                 && player_inventory::try_create_in_inventory_with_networking(w, this, wo).is_none()
             {
                 log::warn!(
