@@ -420,3 +420,37 @@ public float4 stage_op(Draw dr, uint op, float4 a1, float4 a2, float4 t, float4 
         return a1 * a2;
     }
 }
+
+// The point of the frame's space under pixel `position` (its depth included), from the shared
+// rows of frame constants `frame`: the inverse of the view and projection, and the extent.
+public float3 pixel_world(uint frame, float4 position)
+{
+    float2 extent = row(frame, FRAME_EXTENT).xy;
+    float2 ndc = float2(position.x / extent.x * 2.0 - 1.0, 1.0 - position.y / extent.y * 2.0);
+    float4 h = transform(frame, FRAME_INV_VIEW_PROJ, float4(ndc, position.z, 1.0));
+    return h.xyz / h.w;
+}
+
+// What the depth's pass writes: the light class into the material picture, and the normal into
+// the normal picture (folded, as the shared layout keeps it).
+public struct DepthOut
+{
+    public float4 material : SV_Target0;
+    public float4 normal : SV_Target1;
+}
+
+// The depth's pass's outputs for a surface of light class `cls` facing `n`, the normal turned to
+// the side `toward_eye` lies on.
+public DepthOut depth_out(uint cls, float3 n, float3 toward_eye)
+{
+    float l = length(n);
+    float3 u = l > 0.0 ? n / l : float3(0.0, 0.0, 1.0);
+    if (dot(u, toward_eye) < 0.0)
+    {
+        u = -u;
+    }
+    DepthOut o;
+    o.material = material_bytes(cls, 0, 0);
+    o.normal = float4(oct_encode(u), 0.0, 0.0);
+    return o;
+}

@@ -92,13 +92,18 @@ pub fn view_axes_of(forward: [f32; 3], roll: f32) -> ([f32; 3], [f32; 3]) {
     ([r.x, r.y, r.z], [u.x, u.y, u.z])
 }
 
-/// A terrain vertex: position, lit color, the ground picture's coordinates and the mask's.
+/// A terrain vertex: position, lit color, the ground picture's coordinates and the mask's, and
+/// what of the lit color the sun gives.
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct TerrainVertex {
     pub position: [f32; 3],
     pub color: [f32; 4],
     pub uv: [f32; 2],
     pub mask_uv: [f32; 2],
+    /// What of `color` the sun's light gives: the color less the color the ambient alone lights
+    /// (none where the vertex's own hill keeps the sun off it). The retail device doesn't read
+    /// it.
+    pub sun: [f32; 3],
 }
 
 /// The terrain of one ground and mask: the bottom layer of every square showing that ground, or
@@ -2755,6 +2760,7 @@ impl<'a> SceneBuilder<'a> {
                         let lit = auberean_world::sky::sun_reaches(tb.shadow_bits[k], sun_bit);
                         // D2-10946, D2-10542
                         let c = auberean_world::sky::lit_vertex(light, tb.normals[k], own, lit);
+                        let shade = auberean_world::sky::lit_vertex(light, tb.normals[k], own, 0.0);
                         #[allow(clippy::cast_precision_loss)] // vertex indices within a block
                         let (u, v) = ((i + cx) as f32 * t, (j + 1 - cy) as f32 * t);
                         #[allow(clippy::cast_precision_loss)]
@@ -2764,6 +2770,7 @@ impl<'a> SceneBuilder<'a> {
                             color: [c.r, c.g, c.b, 1.0],
                             uv: [u, v],
                             mask_uv: mask.map_or([0.0, 0.0], |(_, rot)| mask_uv(fx, fy, rot)),
+                            sun: [c.r - shade.r, c.g - shade.g, c.b - shade.b],
                         });
                     }
                     Arc::make_mut(&mut batch.indices)
@@ -2811,12 +2818,19 @@ impl<'a> SceneBuilder<'a> {
                     tb.terrain[k].far_color,
                     lit,
                 );
+                let shade = auberean_world::sky::lit_vertex(
+                    light,
+                    tb.normals[k],
+                    tb.terrain[k].far_color,
+                    0.0,
+                );
                 let (x, y) = (p.x + offset.x, p.y + offset.y);
                 Arc::make_mut(&mut batch.vertices).push(TerrainVertex {
                     position: [x, y, p.z],
                     color: [c.r, c.g, c.b, 1.0],
                     uv: [x * scale, y * scale],
                     mask_uv: [0.0, 0.0],
+                    sun: [c.r - shade.r, c.g - shade.g, c.b - shade.b],
                 });
             }
         }

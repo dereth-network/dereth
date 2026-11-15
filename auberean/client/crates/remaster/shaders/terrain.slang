@@ -1,13 +1,13 @@
 // The landscape: the near terrain's bottom layer and its blended layers, the sun's shadow map and
 // the clouds' shadows laid over them, then their fog; and the far landscape. The landscape's
 // vertices carry their lit color (worked out on the processor, as the retail client does), their
-// ground's coordinates and their mask's.
+// ground's coordinates and their mask's, and the sun's share of the lit color.
 import bindless;
 import light;
 
 // A landscape vertex's bytes: its position, its lit color (four floats), its ground's coordinates
-// and its mask's.
-static const uint TERRAIN_VERTEX_BYTES = 44;
+// and its mask's, and what of its lit color the sun gives.
+static const uint TERRAIN_VERTEX_BYTES = 56;
 
 struct Push
 {
@@ -24,6 +24,8 @@ struct Push
     uint ao;
     // The landscape's light class, which the depth's pass writes into the material picture.
     uint light_class;
+    // How much of the sun reaches each pixel, the sun's shadows' picture (~0: all of it).
+    uint sun;
 };
 
 [[vk::push_constant]]
@@ -41,6 +43,9 @@ struct TerrainOut
     // The sun's shadow map's coordinates, and the clouds'.
     float2 shadow_uv : TEXCOORD3;
     float2 cloud_uv : TEXCOORD4;
+    // What of the lit color the sun gives, and where the point stands in the frame's space.
+    float3 sun : TEXCOORD5;
+    float3 world : TEXCOORD6;
 };
 
 [shader("vertex")]
@@ -57,6 +62,8 @@ TerrainOut vs_terrain(uint index : SV_VertexID)
     o.color = color;
     o.uv = asfloat(b.Load2(at + 28));
     o.mask_uv = asfloat(b.Load2(at + 36));
+    o.sun = asfloat(b.Load3(at + 44));
+    o.world = position;
     o.fog = linear_fog(f, position);
     o.shadow_uv = apply(f.shadow_uv, float4(position, 1.0)).xy;
     // The ground's place times the clouds' scale, slid by the running time.
@@ -74,24 +81,39 @@ float3 terrain_fogged(Light f, float3 c, float fog)
     return fogged(f, c, fog);
 }
 
-// The vertex's lit color with the ambient's share taken by the ambient occlusion at the pixel: at
-// open sky the retail color. The ambient is the day's, before the vertex's own color, which the
-// lit color carries too.
+// Picture `t`'s first channel at the pixel `position`, or 1 with none (~0).
+float mask_at(uint t, float4 position)
+{
+    if (t == 0xFFFFFFFF)
+    {
+        return 1.0;
+    }
+    return textures[NonUniformResourceIndex(t)].Load(int3(int2(position.xy), 0)).x;
+}
+
+// The vertex's lit color with the ambient's share taken by the ambient occlusion at the pixel and
+// the sun's by the sun's shadows: in open sky and full sun the retail color. The sun's share is
+// the vertex's own; the ambient's is the rest.
 float3 lit(Light f, TerrainOut v)
 {
-    if (push.ao == 0xFFFFFFFF)
+    if (push.ao == 0xFFFFFFFF && push.sun == 0xFFFFFFFF)
     {
         return v.color.rgb;
     }
-    float ao = textures[NonUniformResourceIndex(push.ao)].Load(int3(int2(v.clip.xy), 0)).x;
-    return max(v.color.rgb - (1.0 - ao) * min(f.ambient.rgb, v.color.rgb), 0.0);
+    float ao = mask_at(push.ao, v.clip);
+    float sun = mask_at(push.sun, v.clip);
+    float3 sunlit = clamp(v.sun, 0.0, v.color.rgb);
+    float3 ambient = v.color.rgb - sunlit;
+    return max(v.color.rgb - (1.0 - ao) * ambient - (1.0 - sun) * sunlit, 0.0);
 }
 
-// The depth's pass: the near terrain's bottom layer, its light class into the material picture.
+// The depth's pass: the near terrain's bottom layer, its light class into the material picture,
+// and the slope of its triangle, turned to the eye, into the normal picture.
 [shader("fragment")]
-float4 fs_terrain_depth(TerrainOut v) : SV_Target0
+DepthOut fs_terrain_depth(TerrainOut v)
 {
-    return float4(float(push.light_class) / 255.0, 0.0, 0.0, 0.0);
+    Light f = light_of(push.frame);
+    return depth_out(push.light_class, cross(ddx(v.world), ddy(v.world)), f.eye.xyz - v.world);
 }
 
 // The bottom layer: the ground modulated twice by the lit color.

@@ -8,26 +8,32 @@
 //! light it is made under (its own, the outdoors', the sky's, or the light of the cells looked
 //! into) and its own constants, both as the retail device's shaders read them.
 //!
-//! Before the frame, a pass of the opaque surfaces into the depth and the material picture (each
-//! surface's light class), the shared layout's G-buffer the shared passes read; then, when it is
-//! on, the ambient occlusion from it, which takes its share of each surface's ambient light in the
-//! frame's own draws. With the occlusion off the frame is the retail one.
+//! Before the frame, a pass of the opaque surfaces into the depth, the material picture (each
+//! surface's light class) and the normal picture, the shared layout's G-buffer the shared passes
+//! read; then, each when it is on, the ambient occlusion from it, which takes its share of each
+//! surface's ambient light, and the sun's shadows ([`sun`]), which take their share of its
+//! sunlight, in the frame's own draws of the landscape and the objects that stand in it. With
+//! both off the frame is the retail one.
 //!
 //! Before the frame, when some water lies below the camera, its reflection: the same scene from the
 //! camera mirrored about the water's plane, into a picture of its own, and the ripples' picture
 //! the water's surfaces push it about by.
 //!
-//! Not yet drawn here: the shores' alpha (the water is laid over a frame whose alpha is the same
-//! everywhere), what stands under the water seen past it in the reflection, the sun's shadow map of
-//! the near objects, the bodies' shade from it, the volumes of shadow, and the sky's lens flares.
-//! The shared passes' masks replace the shadows.
+//! Not drawn here: the shores' alpha (the water is laid over a frame whose alpha is the same
+//! everywhere), what stands under the water seen past it in the reflection, the retail shadow map
+//! of the near objects, the bodies' shade from it, the volumes of shadow, and the sky's lens
+//! flares. The sun's shadows replace the shadow map and the volumes.
+
+mod sun;
+
+pub use sun::ShadowSettings;
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use auberean_draw::constants::{
     bound_stages, draw_uniforms, mat, projection_matrix, view_matrix, view_proj, DrawUniforms,
-    FrameUniforms, MeshGpuVertex, TerrainGpuVertex,
+    FrameUniforms, MeshGpuVertex,
 };
 use auberean_draw::cull::Sight;
 use auberean_draw::material::d3d;
@@ -44,7 +50,8 @@ use dereth_gfx::{
 };
 use dereth_gfx_passes::ao::{AoPass, AoSettings};
 use dereth_gfx_passes::frame::{push_words, Camera, PerFrame, Rows};
-use dereth_gfx_passes::gbuffer::{class, MATERIAL};
+use dereth_gfx_passes::gbuffer::{class, MATERIAL, NORMAL};
+use dereth_gfx_passes::sun::SunMaps;
 use dereth_primitives::num::math;
 
 use crate::shaders::{shader, Entry};
@@ -75,6 +82,18 @@ const RIPPLE_PUSH: f32 = 0.04;
 const ALPHA_KEEP: u32 = 0;
 const ALPHA_FRAME: u32 = 1;
 const ALPHA_SATURATED: u32 = 2;
+
+/// A landscape vertex as the remaster's shaders read it (`TERRAIN_VERTEX_BYTES` in
+/// `shaders/terrain.slang`): the retail device's, then what of its lit color the sun gives.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct LandVertex {
+    position: [f32; 3],
+    color: [f32; 4],
+    uv: [f32; 2],
+    mask_uv: [f32; 2],
+    sun: [f32; 3],
+}
 
 /// A drawn picture: `width * height` texels of red, green, blue, alpha.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -121,6 +140,8 @@ enum Program {
     /// the material picture.
     MeshDepth,
     TerrainDepth,
+    /// A caster into one of the sun's cascades' maps, through its first stage's alpha.
+    MeshCaster,
 }
 
 /// A pipeline's key: its program, how it blends (the stored factors), how it tests and writes
@@ -182,6 +203,10 @@ struct Draw {
     faint: Option<(Key, u32)>,
     /// Its light class, which the depth's pass writes.
     class: u32,
+    /// It takes the masks in the frame's own picture (the ambient occlusion and the sun's
+    /// shadows): a draw of the landscape or of an object standing in it, never the sky's, the
+    /// water's or what is seen through.
+    masked: bool,
 }
 
 /// The frame's targets.
@@ -191,8 +216,9 @@ struct Targets {
     height: u32,
     color: Texture,
     depth: Texture,
-    /// The shared layout's G-buffer over the same depth: the material picture of the depth's
-    /// pass, and the rest of the layout's targets, which nothing of the remaster reads yet.
+    /// The shared layout's G-buffer over the same depth: the material and normal pictures of the
+    /// depth's pass, and the rest of the layout's targets, which nothing of the remaster reads
+    /// yet.
     gbuffer: dereth_gfx_passes::gbuffer::Targets,
 }
 
@@ -230,6 +256,12 @@ pub struct Remaster {
     /// The ambient occlusion, and the last frame's view and projection together.
     ao: AoPass,
     last_view_projection: Option<glam::Mat4>,
+    /// The sun's shadows: how they are drawn, the cascades' maps and the sun's share, each
+    /// cascade's constants, and each mesh's sphere by its vertex list.
+    shadows: ShadowSettings,
+    sun: SunMaps,
+    cascade_lights: Vec<PerFrame>,
+    spheres: HashMap<(usize, usize), (glam::Vec3, f32)>,
     frame: u64,
 }
 
@@ -327,6 +359,7 @@ impl Remaster {
         ];
         let draws = PerFrame::new(&mut gfx, "remaster draws", 1 << 20, BufferUsage::default())?;
         let ao = AoPass::new(&mut gfx)?;
+        let sun = SunMaps::new(&mut gfx)?;
         let posed = PerFrame::new(&mut gfx, "remaster posed", 1 << 20, BufferUsage::default())?;
         Ok(Self {
             gfx,
@@ -349,18 +382,47 @@ impl Remaster {
             bump: None,
             ao,
             last_view_projection: None,
+            shadows: ShadowSettings::default(),
+            sun,
+            cascade_lights: Vec::new(),
+            spheres: HashMap::new(),
             frame: 0,
         })
     }
 
     /// Every pass of the remaster's look on, as a player who ticks the remaster sees it first: the
-    /// ambient occlusion, outdoors and in.
+    /// ambient occlusion, outdoors and in, and the sun's shadows.
     pub fn look(&mut self) {
         self.set_ao(AoSettings {
             on: true,
             indoors: true,
             ..AoSettings::default()
         });
+        self.set_shadows(ShadowSettings {
+            on: true,
+            ..ShadowSettings::default()
+        });
+    }
+
+    /// How the sun's shadows are drawn from the next frame on (off: every surface takes all of the
+    /// sun retail gives it).
+    pub fn set_shadows(&mut self, settings: ShadowSettings) {
+        self.shadows = settings;
+    }
+
+    /// How the sun's shadows are drawn.
+    #[must_use]
+    pub fn shadows(&self) -> ShadowSettings {
+        self.shadows
+    }
+
+    /// The sun's share at each pixel of the last frame the shadows drew, a byte a pixel, after the
+    /// device has finished it; `None` before any.
+    ///
+    /// # Errors
+    /// What the device refuses.
+    pub fn read_sun(&mut self) -> Result<Option<Vec<u8>>, RemasterError> {
+        Ok(self.sun.read_visibility(&mut self.gfx)?)
     }
 
     /// How the ambient occlusion is found from the next frame on (off: every surface's ambient as
@@ -546,13 +608,14 @@ impl Remaster {
             self.frame,
             BufferUsage::STORAGE,
             || {
-                let v: Vec<TerrainGpuVertex> = list
+                let v: Vec<LandVertex> = list
                     .iter()
-                    .map(|v| TerrainGpuVertex {
+                    .map(|v| LandVertex {
                         position: v.position,
                         color: v.color,
                         uv: v.uv,
                         mask_uv: v.mask_uv,
+                        sun: v.sun,
                     })
                     .collect();
                 bytes_of(&v).to_vec()
@@ -590,26 +653,38 @@ impl Remaster {
             Program::TerrainDepth => (Entry::TerrainVsTerrain, Entry::TerrainFsTerrainDepth),
             Program::Terrain(fs) => (Entry::TerrainVsTerrain, fs),
             Program::Veil => (Entry::TerrainVsVeil, Entry::TerrainFsVeil),
+            Program::MeshCaster => (Entry::MeshVsMeshCaster, Entry::MeshFsMeshCaster),
         };
         let blend = (key.src != d3d::BLEND_ONE || key.dst != d3d::BLEND_ZERO).then(|| Blend {
             src: factor(key.src),
             dst: factor(key.dst),
         });
+        let target = |format| ColorTarget {
+            format,
+            blend: None,
+            write_alpha: true,
+        };
+        let (color, depth_format): (Vec<ColorTarget>, Format) = match key.program {
+            Program::MeshDepth | Program::TerrainDepth => {
+                (vec![target(MATERIAL), target(NORMAL)], DEPTH)
+            }
+            Program::MeshCaster => (Vec::new(), dereth_gfx_passes::sun::DEPTH),
+            _ => (
+                vec![ColorTarget {
+                    format: COLOR,
+                    blend,
+                    write_alpha: false,
+                }],
+                DEPTH,
+            ),
+        };
         let p = self.gfx.create_graphics_pipeline(&GraphicsDesc {
             label: "remaster world",
             vertex: shader(vertex),
             fragment: Some(shader(fragment)),
-            color: &[ColorTarget {
-                format: if matches!(key.program, Program::MeshDepth | Program::TerrainDepth) {
-                    MATERIAL
-                } else {
-                    COLOR
-                },
-                blend,
-                write_alpha: matches!(key.program, Program::MeshDepth | Program::TerrainDepth),
-            }],
+            color: &color,
             depth: Some(DepthState {
-                format: DEPTH,
+                format: depth_format,
                 compare: Some(if key.depth_test {
                     Compare::LessEqual
                 } else {
@@ -764,6 +839,14 @@ impl Remaster {
             format: MATERIAL,
             usage: TextureUsage::COLOR_TARGET | TextureUsage::SAMPLED,
         })?;
+        let normal = self.gfx.create_texture(&TextureDesc {
+            label: "remaster normal",
+            width,
+            height,
+            mips: 1,
+            format: NORMAL,
+            usage: TextureUsage::COLOR_TARGET | TextureUsage::SAMPLED,
+        })?;
         let mut unread = |label, format| {
             self.gfx.create_texture(&TextureDesc {
                 label,
@@ -775,7 +858,6 @@ impl Remaster {
             })
         };
         let albedo = unread("remaster albedo", dereth_gfx_passes::gbuffer::ALBEDO)?;
-        let normal = unread("remaster normal", dereth_gfx_passes::gbuffer::NORMAL)?;
         let light = unread("remaster light", dereth_gfx_passes::gbuffer::LIGHT)?;
         let depth_index = self.gfx.bind_texture(depth)?;
         let index = [
@@ -810,12 +892,13 @@ impl Remaster {
     }
 
     /// The constants of a light: the shared rows (the camera, the sun, the ambient, the fog, the
-    /// target's extent), then the game's own from `LIGHT_ROWS`.
+    /// target's extent), then the game's own from `LIGHT_ROWS`. The shared rows' view has its z
+    /// ahead of the eye, where `view`'s runs behind it.
     fn light_rows(u: &FrameUniforms, view: glam::Mat4, extent: (u32, u32)) -> Vec<u8> {
         let vp = glam::Mat4::from_cols_array_2d(&u.view_proj);
         let mut rows = Rows::default();
         rows.mat(vp);
-        rows.mat(view);
+        rows.mat(glam::Mat4::from_scale(glam::Vec3::new(1.0, 1.0, -1.0)) * view);
         rows.f(u.eye);
         rows.f(u.to_sun);
         rows.f(u.sun_color);
@@ -1088,6 +1171,15 @@ impl Remaster {
                         } else {
                             class::SUN
                         },
+                        masked: env != Env::Sky
+                            && matches!(
+                                step,
+                                Pass::Cells
+                                    | Pass::Decals
+                                    | Pass::Opaque
+                                    | Pass::Casters
+                                    | Pass::Frills
+                            ),
                     },
                 );
             }
@@ -1154,6 +1246,7 @@ impl Remaster {
                     reflected: true,
                     faint: None,
                     class: class::GROUND,
+                    masked: true,
                 },
             );
             Ok(())
@@ -1323,6 +1416,7 @@ impl Remaster {
                     reflected: false,
                     faint: None,
                     class: class::GROUND,
+                    masked: false,
                 };
                 if r.ripples {
                     let mut u = draw_uniforms(&b.layer, &b.transform, b.tint, out_sun, &b.points);
@@ -1423,6 +1517,36 @@ impl Remaster {
             }
         }
 
+        // The frame's camera, as the shared passes take it.
+        let camera = Camera {
+            view,
+            projection,
+            previous_view_projection: self.last_view_projection,
+            eye: glam::Vec3::from(eye),
+            viewport: [0, 0, width, height],
+            fov_y: cam.fov_y,
+            aspect,
+            near: cam.near,
+            far: cam.far,
+        };
+        // The sun's shadows, outdoors: their casters' constants go with the frame's.
+        let sun_plan = if outdoors {
+            self.plan_sun(
+                frame,
+                &camera,
+                &out_u,
+                &mut records,
+                &mut posed,
+                (width, height),
+                load,
+            )?
+        } else {
+            None
+        };
+        let sun_mask = sun_plan
+            .as_ref()
+            .map_or(u32::MAX, |p| p.mask.visibility_index);
+
         // The frame's constants and poses.
         let mut bytes = Vec::with_capacity(records.len() * std::mem::size_of::<DrawUniforms>());
         for r in &records {
@@ -1478,25 +1602,15 @@ impl Remaster {
         let t = self.targets(width, height)?;
         // The ambient occlusion's plan, from this frame's camera and the last frame's.
         let view_projection = projection * view;
-        let camera = Camera {
-            view,
-            projection,
-            previous_view_projection: self.last_view_projection,
-            eye: glam::Vec3::from(eye),
-            viewport: [0, 0, width, height],
-            fov_y: cam.fov_y,
-            aspect,
-            near: cam.near,
-            far: cam.far,
-        };
         let ao_plan = self
             .ao
             .prepare(&mut self.gfx, &camera, [0.0, 0.0], &t.gbuffer)?;
         self.last_view_projection = Some(view_projection);
         let ao_mask = ao_plan.as_ref().map_or(u32::MAX, |p| p.mask().0);
-        // The depth's pass's pipelines: each opaque mesh's, culled as it is, and the land's.
+        // The depth's pass's pipelines: each mesh's that marks how near it is, culled as it is,
+        // and the land's.
         let mut depth_keys = Vec::new();
-        for step in [Pass::Terrain, Pass::Cells, Pass::Opaque, Pass::Casters] {
+        for step in DEPTH_STEPS {
             for d in steps.get(step).unwrap_or(&[]) {
                 if let Some(k) = depth_key(d) {
                     depth_keys.push(k);
@@ -1539,11 +1653,12 @@ impl Remaster {
                 None if depth => (depth_key(d).unwrap_or(d.key), d.record),
                 None => (d.key, d.record),
             };
-            // The frame's own draws take the occlusion; the reflection and the depth's pass don't.
-            let ao = if reflecting || depth {
-                u32::MAX
+            // The frame's own draws of what stands in the land take the masks; the reflection and
+            // the depth's pass don't.
+            let (ao, sun) = if reflecting || depth || !d.masked {
+                (u32::MAX, u32::MAX)
             } else {
-                ao_mask
+                (ao_mask, sun_mask)
             };
             rec.set_pipeline(pipelines[&key])?;
             let words = match key.program {
@@ -1569,6 +1684,7 @@ impl Remaster {
                         d.alpha_mode,
                         ao,
                         d.class,
+                        sun,
                     ])
                 }
                 _ => push_words(&[
@@ -1580,6 +1696,7 @@ impl Remaster {
                     d.samplers[1],
                     ao,
                     d.class,
+                    sun,
                 ]),
             };
             rec.push(0, &words)?;
@@ -1626,10 +1743,16 @@ impl Remaster {
         r.raster(
             &RasterPass {
                 name: "remaster depth",
-                color: &[ColorAttachment {
-                    texture: t.gbuffer.material,
-                    load: Load::Clear([0.0; 4]),
-                }],
+                color: &[
+                    ColorAttachment {
+                        texture: t.gbuffer.material,
+                        load: Load::Clear([0.0; 4]),
+                    },
+                    ColorAttachment {
+                        texture: t.gbuffer.normal,
+                        load: Load::Clear([0.0; 4]),
+                    },
+                ],
                 depth: Some(DepthAttachment {
                     texture: t.depth,
                     clear: Some(1.0),
@@ -1639,7 +1762,7 @@ impl Remaster {
                 area: None,
             },
             |rec| {
-                for step in [Pass::Terrain, Pass::Cells, Pass::Opaque, Pass::Casters] {
+                for step in DEPTH_STEPS {
                     for d in steps.get(step).unwrap_or(&[]) {
                         if d.shown && depth_key(d).is_some() {
                             run(rec, d, &lights, false, true)?;
@@ -1651,6 +1774,15 @@ impl Remaster {
         )?;
         if let Some(plan) = &ao_plan {
             plan.record(
+                &mut r,
+                &t.gbuffer,
+                lights[Env::Own as usize],
+                (t.depth, t.gbuffer.index[4]),
+            )?;
+        }
+        if let Some(plan) = &sun_plan {
+            plan.record_maps(&mut r, draws, posed_index, (self.white, self.wrap))?;
+            plan.mask.record(
                 &mut r,
                 &t.gbuffer,
                 lights[Env::Own as usize],
@@ -1704,6 +1836,9 @@ impl Remaster {
         if let Some(plan) = &ao_plan {
             touches.push(Touch::Texture(plan.mask().1, Use::Sampled));
         }
+        if let Some(plan) = &sun_plan {
+            touches.push(Touch::Texture(plan.mask.visibility, Use::Sampled));
+        }
         if let Some((picture, ripples, _, _, _)) = reflection_targets {
             touches.push(Touch::Texture(picture, Use::Sampled));
             touches.push(Touch::Texture(ripples, Use::Sampled));
@@ -1749,6 +1884,8 @@ impl Remaster {
                 }
             }
         }
+        let vertices = &self.vertices;
+        self.spheres.retain(|key, _| vertices.contains_key(key));
         let gone: Vec<u32> = self
             .pictures
             .iter()
@@ -1763,16 +1900,27 @@ impl Remaster {
     }
 }
 
-/// The depth's pass's key for `d`: an opaque mesh (one that writes depth and blends nothing) as its
-/// own culling has it, or the land's bottom layer; `None` for the rest.
+/// The steps whose opaque draws the depth's pass draws: the landscape and everything standing in
+/// it, so the masks at each pixel are those of the nearest surface the frame draws there.
+const DEPTH_STEPS: [Pass; 6] = [
+    Pass::Terrain,
+    Pass::Cells,
+    Pass::Decals,
+    Pass::Opaque,
+    Pass::Casters,
+    Pass::Frills,
+];
+
+/// The depth's pass's key for `d`: a mesh that marks how near it is (blended or not, as the
+/// frame's draw of it writes the depth) as its own culling has it, or the land's bottom layer;
+/// `None` for the rest.
 fn depth_key(d: &Draw) -> Option<Key> {
     let program = match d.key.program {
         Program::Mesh => Program::MeshDepth,
         Program::Terrain(Entry::TerrainFsTerrainBase) => Program::TerrainDepth,
         _ => return None,
     };
-    let opaque = (d.key.src, d.key.dst) == OPAQUE && d.key.depth_write && d.key.depth_test;
-    opaque.then_some(Key {
+    (d.key.depth_write && d.key.depth_test).then_some(Key {
         program,
         src: d3d::BLEND_ONE,
         dst: d3d::BLEND_ZERO,

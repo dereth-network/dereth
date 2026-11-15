@@ -70,8 +70,8 @@ source = "mesh.slang"
 entry = "fs_water"
 stage = "fragment"
 
-# The depth's pass before the frame: what the opaque surfaces cover, and their light classes, for
-# the shared passes.
+# The depth's pass before the frame: what the opaque surfaces cover, their light classes and their
+# normals, for the shared passes.
 [[entry]]
 source = "mesh.slang"
 entry = "fs_mesh_depth"
@@ -80,4 +80,16 @@ stage = "fragment"
 [[entry]]
 source = "terrain.slang"
 entry = "fs_terrain_depth"
+stage = "fragment"
+
+# The sun's casters into its cascades' maps: what the alpha of a mesh's first stage covers (the
+# landscape's are drawn with its own vertex program and no fragment program).
+[[entry]]
+source = "mesh.slang"
+entry = "vs_mesh_caster"
+stage = "vertex"
+
+[[entry]]
+source = "mesh.slang"
+entry = "fs_mesh_caster"
 stage = "fragment"

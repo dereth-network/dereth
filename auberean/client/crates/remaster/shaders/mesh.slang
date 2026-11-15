@@ -42,6 +42,8 @@ struct Push
     uint ao;
     // The draw's light class, which the depth's pass writes into the material picture.
     uint light_class;
+    // How much of the sun reaches each pixel, the sun's shadows' picture (~0: all of it).
+    uint sun;
 };
 
 // The frame's alpha under every draw: 127 of 255.
@@ -116,6 +118,13 @@ struct MeshOut
     // The ambient's share of color 0 and of color 1, which the ambient occlusion takes away.
     float3 ambient0 : TEXCOORD6;
     float3 ambient1 : TEXCOORD7;
+    // The sun's share of color 0, and of color 1 (its alpha the sun's specular intensity), which
+    // the sun's shadows take away; and 1 where the pixel program lights the normal map by the sun.
+    float3 sun0 : TEXCOORD8;
+    float4 sun1 : TEXCOORD9;
+    float sun_pixel : TEXCOORD10;
+    // The surface's normal in the frame's space, which the depth's pass writes.
+    float3 normal : TEXCOORD11;
 };
 
 // The half vector between the eye and the light `to_light` at `world`, in the frame of the
@@ -238,6 +247,10 @@ MeshOut vs_mesh(uint index : SV_VertexID)
     float3 amb = layer_ambient(f, d);
     o.ambient0 = float3(0.0, 0.0, 0.0);
     o.ambient1 = float3(0.0, 0.0, 0.0);
+    o.sun0 = float3(0.0, 0.0, 0.0);
+    o.sun1 = float4(0.0, 0.0, 0.0, 0.0);
+    o.sun_pixel = 0.0;
+    o.normal = transform_normal(v.normal, d.model);
     if ((sw & LIT_IN_VERTICES) != 0 && d.program.x == 1)
     {
         // Lit in the vertices, normal-mapped: color 0 the vertex's direction toward the light in
@@ -296,21 +309,25 @@ MeshOut vs_mesh(uint index : SV_VertexID)
                 other += r.x * d.pt_diffuse[k - 1].rgb;
             }
         }
+        float4 sun = float4(0.0, 0.0, 0.0, 0.0);
         if (d.stage.z == 0)
         {
             float2 s = dir_light_diffuse_specular(f, n, d.params.x);
             other += s.x * f.sun_color.rgb;
             spec += s.y * f.sun_specular.r;
+            sun = float4(s.x * f.sun_color.rgb, s.y * f.sun_specular.r);
         }
         float3 c11 = (sw & MATERIAL_DIFFUSE) != 0 ? mat_diffuse : float3(1.0, 1.0, 1.0);
         if ((sw & UNMODULATED_COLOR1) != 0)
         {
             c1 = float4(other, spec);
+            o.sun1 = sun;
         }
         else
         {
             c1 = apply_ambient(f, d, float4(other * c11, spec));
             o.ambient1 = amb;
+            o.sun1 = float4(sun.rgb * c11, sun.a);
         }
     }
     else if (d.stage.z == 1 && (sw & DYNAMIC_LIGHTING) != 0)
@@ -354,6 +371,8 @@ MeshOut vs_mesh(uint index : SV_VertexID)
         c0 = float4(packed_light(l, v.normal, v.tangent_u, v.tangent_v), 1.0);
         o.half_vector = tex_half_vector(f, world, f.to_sun.xyz, 1.0, n, tu, tv);
         float2 s = dir_light_diffuse_specular(f, n, d.params.x);
+        o.sun1 = float4(0.0, 0.0, 0.0, s.y * f.sun_specular.r);
+        o.sun_pixel = 1.0;
         if ((sw & UNMODULATED_COLOR1) != 0)
         {
             c1 = float4(0.0, 0.0, 0.0, s.y * f.sun_specular.r);
@@ -374,6 +393,7 @@ MeshOut vs_mesh(uint index : SV_VertexID)
         float2 s = dir_light_diffuse_specular(f, n, d.params.x);
         c0.rgb += s.x * f.sun_color.rgb;
         float3 spec = s.y * f.sun_specular.rgb;
+        float3 sun0 = s.x * f.sun_color.rgb;
         uint count = min(d.stage.y, 4u);
         for (uint k = 0; k < count; k++)
         {
@@ -384,10 +404,12 @@ MeshOut vs_mesh(uint index : SV_VertexID)
         if ((sw & SPECULAR) != 0)
         {
             c1 = float4(spec * (d.specular.rgb * ground_tint), 0.0);
+            o.sun1 = float4(s.y * f.sun_specular.rgb * (d.specular.rgb * ground_tint), 0.0);
         }
         if ((sw & MATERIAL_DIFFUSE) != 0)
         {
             c0 = c0 * float4(ground_tint, 1.0) * d.diffuse;
+            sun0 = sun0 * ground_tint * d.diffuse.rgb;
         }
         c0 = apply_ambient(f, d, c0);
         o.ambient0 = amb;
@@ -395,7 +417,9 @@ MeshOut vs_mesh(uint index : SV_VertexID)
         {
             c0 = c0 * vd;
             o.ambient0 = amb * vd.rgb;
+            sun0 = sun0 * vd.rgb;
         }
+        o.sun0 = sun0;
     }
     else
     {
@@ -416,6 +440,7 @@ MeshOut vs_mesh(uint index : SV_VertexID)
     {
         c1 = float4(0.0, 0.0, 0.0, 0.75 * c0.a);
         o.ambient1 = float3(0.0, 0.0, 0.0);
+        o.sun1 = float4(0.0, 0.0, 0.0, 0.0);
     }
     // The alpha fog: the color's alpha fades out between the alpha fog's distances.
     if ((sw & DEPTH_ALPHA_FOG) != 0 && d.program.x == 0)
@@ -525,7 +550,7 @@ float4 texture_stages(Draw dr, MeshOut v)
 // plus the specular intensity times the layer's specular color. A detail map (stage 2) is added,
 // signed, to the diffuse map or to the normal map; an environment map there is added to the
 // diffuse map, or added times its alpha. Some programs read their stages and colors otherwise.
-float4 bump_program(Light f, Draw dr, MeshOut v, float ao)
+float4 bump_program(Light f, Draw dr, MeshOut v, float ao, float sunlight)
 {
     uint opts = dr.program.y;
     float4 nm = tex(push.tex0, push.samp0, v.uv0);
@@ -554,7 +579,7 @@ float4 bump_program(Light f, Draw dr, MeshOut v, float ao)
     }
     float3 n = nm.rgb * 2.0 - 1.0;
     float3 l = v.color0.rgb * 2.0 - 1.0;
-    float facing = saturate(dot(n, l));
+    float facing = saturate(dot(n, l)) * sunlight;
     float dd = facing * v.color0.a;
     float3 ambient = layer_ambient(f, dr) * ao;
     float3 g = v.ground_tint;
@@ -586,7 +611,7 @@ float4 bump_program(Light f, Draw dr, MeshOut v, float ao)
         float3 packed = saturate((v.half_vector.xyz + 1.0) * 0.5);
         float3 h = packed * 2.0 - 1.0;
         float x = saturate(dot(n, h));
-        spec = saturate(4.0 * (x * x - v.half_vector.w)) * (dr.specular.rgb * g);
+        spec = saturate(4.0 * (x * x - v.half_vector.w)) * (dr.specular.rgb * g) * sunlight;
     }
     if ((opts & COLOR1_HALF_VECTOR) != 0)
     {
@@ -645,47 +670,100 @@ float ambient_visibility(float4 position)
     return textures[NonUniformResourceIndex(push.ao)].Load(int3(int2(position.xy), 0)).x;
 }
 
-// `v` with the ambient's share of its colors taken by the occlusion `ao`: at 1 (open sky) the
-// colors are the retail ones.
-MeshOut occluded(MeshOut v, float ao)
+// How much of the sun reaches the pixel at `position`: the sun's shadows' picture there, or all
+// of it with none.
+float sun_visibility(float4 position)
+{
+    if (push.sun == 0xFFFFFFFF)
+    {
+        return 1.0;
+    }
+    return textures[NonUniformResourceIndex(push.sun)].Load(int3(int2(position.xy), 0)).x;
+}
+
+// `v` with the ambient's share of its colors taken by the occlusion `ao`, and the sun's by the
+// shadows `sun`: at 1 each (open sky, full sun) the colors are the retail ones.
+MeshOut masked(MeshOut v, float ao, float sun)
 {
     MeshOut o = v;
     float shut = 1.0 - ao;
-    o.color0 = float4(max(v.color0.rgb - shut * v.ambient0, 0.0), v.color0.a);
-    o.color1 = float4(max(v.color1.rgb - shut * v.ambient1, 0.0), v.color1.a);
+    float dark = 1.0 - sun;
+    o.color0 = float4(max(v.color0.rgb - shut * v.ambient0 - dark * v.sun0, 0.0), v.color0.a);
+    o.color1 = max(v.color1 - float4(shut * v.ambient1 + dark * v.sun1.rgb, dark * v.sun1.a), 0.0);
     return o;
 }
 
-// The draw's color and alpha before the alpha test and the fog, its ambient taken by `ao`.
-float4 surface(Light f, Draw d, MeshOut v, float ao)
+// The draw's color and alpha before the alpha test and the fog, its ambient taken by `ao` and its
+// sunlight by `sun`.
+float4 surface(Light f, Draw d, MeshOut v, float ao, float sun)
 {
-    MeshOut w = occluded(v, ao);
+    MeshOut w = masked(v, ao, sun);
     if (d.program.x == 1 && (d.stage.x & LIT_IN_VERTICES) != 0)
     {
         return vertex_lit_program(f, d, w, ao);
     }
     if (d.program.x == 1)
     {
-        return bump_program(f, d, w, ao);
+        return bump_program(f, d, w, ao, lerp(1.0, sun, v.sun_pixel));
     }
     float4 s = texture_stages(d, w);
     return float4(s.rgb + w.color1.rgb, s.a);
 }
 
 // The depth's pass: what the draw covers, cut where its alpha fails the test as the frame's draw
-// does, its light class into the material picture.
+// does, its light class into the material picture and its normal, turned to the eye, into the
+// normal picture.
 [shader("fragment")]
-float4 fs_mesh_depth(MeshOut v) : SV_Target0
+DepthOut fs_mesh_depth(MeshOut v)
 {
     Light f = light_of(push.frame);
     Draw d = draw_of(push.draws, push.draw);
-    float4 c = surface(f, d, v, 1.0);
+    float4 c = surface(f, d, v, 1.0, 1.0);
     float a = d.program.x == 1 ? saturate(c.a) : c.a;
     if (a <= d.params.y)
     {
         discard;
     }
-    return float4(float(push.light_class) / 255.0, 0.0, 0.0, 0.0);
+    return depth_out(push.light_class, v.normal, f.eye.xyz - pixel_world(push.frame, v.clip));
+}
+
+// A caster seen from the sun, its first stage's coordinates.
+struct CasterOut
+{
+    float4 clip : SV_Position;
+    float2 uv0 : TEXCOORD0;
+};
+
+[shader("vertex")]
+CasterOut vs_mesh_caster(uint index : SV_VertexID)
+{
+    Light f = light_of(push.frame);
+    Draw d = draw_of(push.draws, push.draw);
+    MeshIn v = mesh_vertex(index);
+    CasterOut o;
+    o.clip = apply(f.view_proj, apply(d.model, float4(v.position, 1.0)));
+    o.uv0 = stage_uv(d, 0, v);
+    return o;
+}
+
+// What a caster covers in the sun's maps: where its first stage's alpha operation on the
+// texture's alpha (as the retail shadow map takes it) is at least a half.
+[shader("fragment")]
+void fs_mesh_caster(CasterOut v)
+{
+    Draw d = draw_of(push.draws, push.draw);
+    float4 t = tex(push.tex0, push.samp0, v.uv0);
+    uint op = d.ops[0].z;
+    if (op == 1)
+    {
+        op = 3;
+    }
+    float4 one = float4(1.0, 1.0, 1.0, 1.0);
+    float a = stage_op(d, op, float4(t.a, t.a, t.a, t.a), one, t, one, one).a;
+    if (saturate(a) < 0.5)
+    {
+        discard;
+    }
 }
 
 [shader("fragment")]
@@ -693,7 +771,7 @@ float4 fs_mesh(MeshOut v) : SV_Target0
 {
     Light f = light_of(push.frame);
     Draw d = draw_of(push.draws, push.draw);
-    float4 c = surface(f, d, v, ambient_visibility(v.clip));
+    float4 c = surface(f, d, v, ambient_visibility(v.clip), sun_visibility(v.clip));
     float a = d.program.x == 1 ? saturate(c.a) : c.a;
     if (a <= d.params.y)
     {

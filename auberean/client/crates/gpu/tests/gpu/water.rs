@@ -214,6 +214,7 @@ fn the_reflection_shows_the_land_under_the_water() {
             color: [shade, shade, shade, 1.0],
             uv: [0.0, 0.0],
             mask_uv: [0.0, 0.0],
+            ..auberean_draw::scene::TerrainVertex::default()
         };
         auberean_draw::scene::TerrainBatch {
             ground,

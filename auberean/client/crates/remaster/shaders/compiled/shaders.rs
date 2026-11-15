@@ -31,11 +31,15 @@ pub enum Entry {
     MeshFsMeshDepth,
     /// `fs_terrain_depth` in `terrain.slang`, the fragment stage.
     TerrainFsTerrainDepth,
+    /// `vs_mesh_caster` in `mesh.slang`, the vertex stage.
+    MeshVsMeshCaster,
+    /// `fs_mesh_caster` in `mesh.slang`, the fragment stage.
+    MeshFsMeshCaster,
 }
 
 impl Entry {
     /// Every entry point, in `shaders.toml`'s order.
-    pub const ALL: [Self; 14] = [Self::TerrainVsTerrain, Self::TerrainFsTerrainBase, Self::TerrainFsTerrainMask, Self::TerrainFsTerrainShade, Self::TerrainFsTerrainFog, Self::TerrainFsTerrainFar, Self::TerrainVsVeil, Self::TerrainFsVeil, Self::MeshVsMesh, Self::MeshFsMesh, Self::MeshFsRipple, Self::MeshFsWater, Self::MeshFsMeshDepth, Self::TerrainFsTerrainDepth];
+    pub const ALL: [Self; 16] = [Self::TerrainVsTerrain, Self::TerrainFsTerrainBase, Self::TerrainFsTerrainMask, Self::TerrainFsTerrainShade, Self::TerrainFsTerrainFog, Self::TerrainFsTerrainFar, Self::TerrainVsVeil, Self::TerrainFsVeil, Self::MeshVsMesh, Self::MeshFsMesh, Self::MeshFsRipple, Self::MeshFsWater, Self::MeshFsMeshDepth, Self::TerrainFsTerrainDepth, Self::MeshVsMeshCaster, Self::MeshFsMeshCaster];
 
     /// The source file that defines it.
     #[must_use]
@@ -55,6 +59,8 @@ impl Entry {
             Self::MeshFsWater => "mesh.slang",
             Self::MeshFsMeshDepth => "mesh.slang",
             Self::TerrainFsTerrainDepth => "terrain.slang",
+            Self::MeshVsMeshCaster => "mesh.slang",
+            Self::MeshFsMeshCaster => "mesh.slang",
         }
     }
 
@@ -76,6 +82,8 @@ impl Entry {
             Self::MeshFsWater => "fs_water",
             Self::MeshFsMeshDepth => "fs_mesh_depth",
             Self::TerrainFsTerrainDepth => "fs_terrain_depth",
+            Self::MeshVsMeshCaster => "vs_mesh_caster",
+            Self::MeshFsMeshCaster => "fs_mesh_caster",
         }
     }
 
@@ -97,6 +105,8 @@ impl Entry {
             Self::MeshFsWater => Stage::Fragment,
             Self::MeshFsMeshDepth => Stage::Fragment,
             Self::TerrainFsTerrainDepth => Stage::Fragment,
+            Self::MeshVsMeshCaster => Stage::Vertex,
+            Self::MeshFsMeshCaster => Stage::Fragment,
         }
     }
 
@@ -118,6 +128,8 @@ impl Entry {
             Self::MeshFsWater => include_bytes!("spirv/mesh.fs_water.spv"),
             Self::MeshFsMeshDepth => include_bytes!("spirv/mesh.fs_mesh_depth.spv"),
             Self::TerrainFsTerrainDepth => include_bytes!("spirv/terrain.fs_terrain_depth.spv"),
+            Self::MeshVsMeshCaster => include_bytes!("spirv/mesh.vs_mesh_caster.spv"),
+            Self::MeshFsMeshCaster => include_bytes!("spirv/mesh.fs_mesh_caster.spv"),
         }
     }
 
@@ -139,6 +151,8 @@ impl Entry {
             Self::MeshFsWater => include_bytes!("dxil/mesh.fs_water.dxil"),
             Self::MeshFsMeshDepth => include_bytes!("dxil/mesh.fs_mesh_depth.dxil"),
             Self::TerrainFsTerrainDepth => include_bytes!("dxil/terrain.fs_terrain_depth.dxil"),
+            Self::MeshVsMeshCaster => include_bytes!("dxil/mesh.vs_mesh_caster.dxil"),
+            Self::MeshFsMeshCaster => include_bytes!("dxil/mesh.fs_mesh_caster.dxil"),
         }
     }
 }
