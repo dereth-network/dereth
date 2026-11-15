@@ -11,6 +11,7 @@ mod common;
 mod identity;
 mod lamps;
 mod linear;
+mod look;
 mod occlusion;
 mod shadows;
 mod shared;
