@@ -4762,5 +4762,5 @@
     {"in":{"item_type":2048,"rate":10000000000.0,"value":2147483647},"out":2147483647}
   ],
   "generator": "ace-vectors vendors",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/WorldObjects/Vendor.cs","member":"Vendor.GetBuyCost(int?, ItemType?) (private)","notes":"An uninitialised Vendor whose BuyPrice is in.rate (null: absent). in.value and in.item_type are the arguments (item_type an int or null). out is the int cost.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/WorldObjects/Vendor.cs","member":"Vendor.GetBuyCost(int?, ItemType?) (private)","notes":"An uninitialised Vendor whose BuyPrice is in.rate (null: absent). in.value and in.item_type are the arguments (item_type an int or null). out is the int cost.","runtime":"10.0.12","sdk":"10.0.401"}
 }

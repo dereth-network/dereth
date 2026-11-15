@@ -50,5 +50,5 @@
     {"in":{"decimal_places":3,"num":"Infinity"},"out":"Infinity"}
   ],
   "generator": "ace-vectors common",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Common/Extensions/FloatExtensions.cs","member":"ACE.Common.Extensions.FloatExtensions.Truncate(this float, int)","notes":"Inputs are floats, written as their exact double value.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Common/Extensions/FloatExtensions.cs","member":"ACE.Common.Extensions.FloatExtensions.Truncate(this float, int)","notes":"Inputs are floats, written as their exact double value.","runtime":"10.0.12","sdk":"10.0.401"}
 }

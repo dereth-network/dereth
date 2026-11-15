@@ -1457,5 +1457,5 @@
     {"in":{"q":[-0.0,0.0,-0.35078322887420654,-0.9364566802978516]},"out":[-0.656986653804779,0.7539022564888,0.0]}
   ],
   "generator": "ace-vectors entity",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Entity/Position.cs","member":"ACE.Entity.Position.GetCurrentDir()","notes":"Vector3.Normalize(Vector3.Transform(Vector3.UnitY, Rotation)). q is [X, Y, Z, W]; out is [X, Y, Z].","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Entity/Position.cs","member":"ACE.Entity.Position.GetCurrentDir()","notes":"Vector3.Normalize(Vector3.Transform(Vector3.UnitY, Rotation)). q is [X, Y, Z, W]; out is [X, Y, Z].","runtime":"10.0.12","sdk":"10.0.401"}
 }

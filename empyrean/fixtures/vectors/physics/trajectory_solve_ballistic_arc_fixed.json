@@ -290,5 +290,5 @@
     {"in":{"lateral_speed":100.0,"projectile_position":[0.0,0.0,10.0],"target_position":[0.0,0.0,10.0]},"out":{"ok":false,"time":"NaN","velocity_vector":[0.0,0.0,0.0]}}
   ],
   "generator": "ace-vectors physics",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Physics/Trajectory.cs","member":"ACE.Server.Physics.Trajectory.SolveBallisticArc(Vector3 projectilePosition, float lateralSpeed, Vector3 targetPosition, out Vector3 velocityVector, out float time)","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Physics/Trajectory.cs","member":"ACE.Server.Physics.Trajectory.SolveBallisticArc(Vector3 projectilePosition, float lateralSpeed, Vector3 targetPosition, out Vector3 velocityVector, out float time)","runtime":"10.0.12","sdk":"10.0.401"}
 }

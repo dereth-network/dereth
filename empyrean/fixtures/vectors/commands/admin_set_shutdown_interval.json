@@ -21,5 +21,5 @@
     {"in":{"s":"65536"},"out":{"console":["Server shutdown interval reset: 65536","Shutdown Interval (seconds to shutdown server) has been set to 65536."],"interval":65536}}
   ],
   "generator": "ace-vectors commands",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Command/Handlers/AdminShardCommands.cs","member":"ACE.Server.Command.Handlers.AdminShardCommands.HandleSetShutdownInterval(null, params string[])","notes":"From the console, starting at interval 60. out.console is what WriteOutputInfo logged, out.interval ServerManager.ShutdownInterval after.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Command/Handlers/AdminShardCommands.cs","member":"ACE.Server.Command.Handlers.AdminShardCommands.HandleSetShutdownInterval(null, params string[])","notes":"From the console, starting at interval 60. out.console is what WriteOutputInfo logged, out.interval ServerManager.ShutdownInterval after.","runtime":"10.0.12","sdk":"10.0.401"}
 }

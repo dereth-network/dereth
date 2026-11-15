@@ -2163,5 +2163,5 @@
     {"in":{"c0":1.0,"c1":-10.0,"c2":35.0,"c3":-50.0,"c4":24.0},"out":{"num":4,"s0":2.0,"s1":1.0,"s2":4.0,"s3":3.0}}
   ],
   "generator": "ace-vectors physics",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Physics/Trajectory.cs","member":"ACE.Server.Physics.Trajectory.SolveQuartic(double c0, double c1, double c2, double c3, double c4, out double s0, out double s1, out double s2, out double s3)","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Physics/Trajectory.cs","member":"ACE.Server.Physics.Trajectory.SolveQuartic(double c0, double c1, double c2, double c3, double c4, out double s0, out double s1, out double s2, out double s3)","runtime":"10.0.12","sdk":"10.0.401"}
 }

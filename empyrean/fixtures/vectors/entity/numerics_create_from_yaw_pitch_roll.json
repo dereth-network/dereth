@@ -9706,5 +9706,5 @@
     {"in":{"pitch":"NaN","roll":0.25,"yaw":"NaN"},"out":["NaN","NaN","NaN","NaN"]}
   ],
   "generator": "ace-vectors entity",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":null,"member":"System.Numerics.Quaternion.CreateFromYawPitchRoll(float yaw, float pitch, float roll)","notes":"net10: sines and cosines from Vector128.SinCos over the lanes (roll, pitch, yaw, 0) * 0.5f; the branch taken depends on every lane. out is [X, Y, Z, W].","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":null,"member":"System.Numerics.Quaternion.CreateFromYawPitchRoll(float yaw, float pitch, float roll)","notes":"net10: sines and cosines from Vector128.SinCos over the lanes (roll, pitch, yaw, 0) * 0.5f; the branch taken depends on every lane. out is [X, Y, Z, W].","runtime":"10.0.12","sdk":"10.0.401"}
 }

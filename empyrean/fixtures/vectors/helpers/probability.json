@@ -14,5 +14,5 @@
     {"in":{"chances":[0.12300000339746475,0.4560000002384186,0.7889999747276306]},"out":{"any":0.8993344306945801,"none":0.10066558420658112}}
   ],
   "generator": "ace-vectors helpers",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Entity/Probability.cs","member":"ACE.Server.Entity.Probability.GetProbabilityNone(List<float>) / GetProbabilityAny(List<float>)","notes":"Floats are written as their exact double.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Entity/Probability.cs","member":"ACE.Server.Entity.Probability.GetProbabilityNone(List<float>) / GetProbabilityAny(List<float>)","notes":"Floats are written as their exact double.","runtime":"10.0.12","sdk":"10.0.401"}
 }

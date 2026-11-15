@@ -28,5 +28,5 @@
     {"in":{"parameters":["Help"]},"out":"For more information, type acehelp < command >.\n@acehelp - Displays help.\n"}
   ],
   "generator": "ace-vectors commands",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Command/Handlers/HelpCommands.cs","member":"ACE.Server.Command.Handlers.HelpCommands.HandleACECommands(null, params string[])","notes":"From the console (session null: access Admin, RequiresWorld commands left out). out is the console text: the note line, then the commands found, sorted by Command under the en-US culture, one line each.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Command/Handlers/HelpCommands.cs","member":"ACE.Server.Command.Handlers.HelpCommands.HandleACECommands(null, params string[])","notes":"From the console (session null: access Admin, RequiresWorld commands left out). out is the console text: the note line, then the commands found, sorted by Command under the en-US culture, one line each.","runtime":"10.0.12","sdk":"10.0.401"}
 }

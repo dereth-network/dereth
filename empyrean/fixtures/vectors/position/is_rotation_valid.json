@@ -428,5 +428,5 @@
     {"in":{"w":-0.3199836015701294,"x":0.9246787428855896,"y":0.20618249475955963,"z":0.008778116665780544},"out":{"length":1.0000042915344238,"valid":true}}
   ],
   "generator": "ace-vectors position",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Entity/PositionExtensions.cs","member":"ACE.Server.Entity.PositionExtensions.IsRotationValid(this Quaternion q), plus Quaternion.Length()","notes":"Floats are written as their exact double; length is q.Length() as the runtime computes it.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Entity/PositionExtensions.cs","member":"ACE.Server.Entity.PositionExtensions.IsRotationValid(this Quaternion q), plus Quaternion.Length()","notes":"Floats are written as their exact double; length is q.Length() as the runtime computes it.","runtime":"10.0.12","sdk":"10.0.401"}
 }

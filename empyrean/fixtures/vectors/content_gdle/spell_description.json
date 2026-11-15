@@ -6272,5 +6272,5 @@
     {"in":{"spell_id":-2147483648},"out":"(-2147483648) - 2 1 4 7 4 8 3 6 4 8"}
   ],
   "generator": "ace-vectors content_gdle",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Adapter/GDLE/Models/SpellbookEntry.cs","member":"SpellbookEntry.GetSpellDescription","notes":"in: {spell_id}; out: the description. Every defined Lifestoned SpellId, then some undefined ids.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Adapter/GDLE/Models/SpellbookEntry.cs","member":"SpellbookEntry.GetSpellDescription","notes":"in: {spell_id}; out: the description. Every defined Lifestoned SpellId, then some undefined ids.","runtime":"10.0.12","sdk":"10.0.401"}
 }

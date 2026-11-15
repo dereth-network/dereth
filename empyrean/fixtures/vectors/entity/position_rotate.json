@@ -2403,5 +2403,5 @@
     {"in":{"x":"-Infinity","y":"-Infinity"},"out":[0.0,0.0,0.9238795042037964,0.3826834261417389]}
   ],
   "generator": "ace-vectors entity",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Entity/Position.cs","member":"ACE.Entity.Position.Rotate(Vector3 dir)","notes":"Rotation = CreateFromYawPitchRoll(0, 0, (float)Math.Atan2(-dir.X, dir.Y)). out is the rotation [X, Y, Z, W].","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Entity/Position.cs","member":"ACE.Entity.Position.Rotate(Vector3 dir)","notes":"Rotation = CreateFromYawPitchRoll(0, 0, (float)Math.Atan2(-dir.X, dir.Y)). out is the rotation [X, Y, Z, W].","runtime":"10.0.12","sdk":"10.0.401"}
 }

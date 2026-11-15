@@ -252,5 +252,5 @@
     {"in":{"gravity":20.0,"initial_height":100.0,"speed":33.33000183105469},"out":107.30673217773438}
   ],
   "generator": "ace-vectors physics",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Physics/Trajectory.cs","member":"ACE.Server.Physics.Trajectory.ballistic_range(float speed, float gravity, float initial_height)","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Physics/Trajectory.cs","member":"ACE.Server.Physics.Trajectory.ballistic_range(float speed, float gravity, float initial_height)","runtime":"10.0.12","sdk":"10.0.401"}
 }

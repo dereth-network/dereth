@@ -542,5 +542,5 @@
     {"in":{"gravity":9.800000190734863,"proj_pos":[0.0,0.0,10.0],"proj_speed":40.0,"target_pos":[0.0,0.0,10.0],"target_velocity":[30.0,0.0,0.0]},"out":{"num":1,"s0":["NaN","NaN","NaN"],"s1":[0.0,0.0,0.0],"time":"NaN"}}
   ],
   "generator": "ace-vectors physics",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Physics/Trajectory.cs","member":"ACE.Server.Physics.Trajectory.solve_ballistic_arc(Vector3 proj_pos, float proj_speed, Vector3 target_pos, Vector3 target_velocity, float gravity, out Vector3 s0, out Vector3 s1, out float time)","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Physics/Trajectory.cs","member":"ACE.Server.Physics.Trajectory.solve_ballistic_arc(Vector3 proj_pos, float proj_speed, Vector3 target_pos, Vector3 target_velocity, float gravity, out Vector3 s0, out Vector3 s1, out float time)","runtime":"10.0.12","sdk":"10.0.401"}
 }

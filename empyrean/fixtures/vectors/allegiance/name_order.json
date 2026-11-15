@@ -303,5 +303,5 @@
     {"in":{"names":["Aldo","aldo","Al-Do","Al Do","Al'do","Bravo","bravo","Charlie","O'Neil","Oneil","Mc Kay","McKay","Mckay","Zed","z","A","a"]},"out":["a","A","Al Do","Al-Do","Al'do","aldo","Aldo","bravo","Bravo","Charlie","Mc Kay","Mckay","McKay","O'Neil","Oneil","z","Zed"]}
   ],
   "generator": "ace-vectors allegiance",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/WorldObjects/Player_Allegiance.cs","member":"Enumerable.OrderBy(name => name) with the default string comparer (en-US)","notes":"HandleActionListAllegianceOfficers sorts officers by Name. in: {names}; out: the sorted list.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/WorldObjects/Player_Allegiance.cs","member":"Enumerable.OrderBy(name => name) with the default string comparer (en-US)","notes":"HandleActionListAllegianceOfficers sorts officers by Name. in: {names}; out: the sorted list.","runtime":"10.0.12","sdk":"10.0.401"}
 }

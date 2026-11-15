@@ -1802,5 +1802,5 @@
     {"in":{"accounts":["otheracct"],"character_guid":1342177283,"character_mask":8,"global":262152,"player_source":true,"type":32},"out":false}
   ],
   "generator": "ace-vectors chat",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Network/Structure/SquelchDB.cs","member":"ACE.Server.Network.Structure.SquelchDB.Contains(WorldObject source, ChatMessageType messageType)","notes":"db: account names squelched, character guid -> mask (Filters[0]), global mask (null: no Filters entry); source: null or a Player 0x50000002 on account 'bravoacct'","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Network/Structure/SquelchDB.cs","member":"ACE.Server.Network.Structure.SquelchDB.Contains(WorldObject source, ChatMessageType messageType)","notes":"db: account names squelched, character guid -> mask (Filters[0]), global mask (null: no Filters entry); source: null or a Player 0x50000002 on account 'bravoacct'","runtime":"10.0.12","sdk":"10.0.401"}
 }

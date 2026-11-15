@@ -1970,5 +1970,5 @@
     {"in":{"category":4294967295,"id":2067,"name":"Flaming Missile Volley","non_tracking":true,"num_projectiles":2,"spread_angle":360.0,"wcid":1636},"out":6}
   ],
   "generator": "ace-vectors spellcasting",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/WorldObjects/SpellProjectile.cs","member":"ACE.Server.WorldObjects.SpellProjectile.GetProjectileSpellType(uint spellID)","notes":"Synthetic spells: the dat half (name, category) in an installed SpellTable, the database half (wcid, num_projectiles, non_tracking, spread_angle; null when absent) in the world database's spell cache; out is the ProjectileSpellType number.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/WorldObjects/SpellProjectile.cs","member":"ACE.Server.WorldObjects.SpellProjectile.GetProjectileSpellType(uint spellID)","notes":"Synthetic spells: the dat half (name, category) in an installed SpellTable, the database half (wcid, num_projectiles, non_tracking, spread_angle; null when absent) in the world database's spell cache; out is the ProjectileSpellType number.","runtime":"10.0.12","sdk":"10.0.401"}
 }

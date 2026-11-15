@@ -242,5 +242,5 @@
     {"in":{"category":1,"profile":245,"seed":8000240,"type":27},"out":{"items":[{"removed":[],"set":[["float",1,5.0],["int",65,101]],"spells":null,"wcid":49485}],"post":178514}}
   ],
   "generator": "ace-vectors lootgen",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Factories/LootGenerationFactory.cs","member":"LootGenerationFactory.CreateRandomLootObjects(TreasureDeath, TreasureItemCategory, TreasureItemType)","notes":"Every item kind on the tier-8 profiles (cycled), magical (MagicItem) and not (Item); ThreadSafeRandom reseeded with `seed`.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Factories/LootGenerationFactory.cs","member":"LootGenerationFactory.CreateRandomLootObjects(TreasureDeath, TreasureItemCategory, TreasureItemType)","notes":"Every item kind on the tier-8 profiles (cycled), magical (MagicItem) and not (Item); ThreadSafeRandom reseeded with `seed`.","runtime":"10.0.12","sdk":"10.0.401"}
 }

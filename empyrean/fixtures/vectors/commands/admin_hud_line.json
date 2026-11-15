@@ -12,5 +12,5 @@
     {"in":{"avail":-3.748076923076923,"label":"Cottages:","sold":12345,"total":2600.0},"out":"Cottages:    12345 / 2600 (-374.81% available for purchase)\n"}
   ],
   "generator": "ace-vectors commands",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Command/Handlers/AdminCommands.cs","member":"string.Format(\"{0, -12} {1, 4:0} / {2, 4:0} ({3, 7:P2} available for purchase)\\n\", string, int, double, double)","notes":"The adminhouse dump_all summary line.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Command/Handlers/AdminCommands.cs","member":"string.Format(\"{0, -12} {1, 4:0} / {2, 4:0} ({3, 7:P2} available for purchase)\\n\", string, int, double, double)","notes":"The adminhouse dump_all summary line.","runtime":"10.0.12","sdk":"10.0.401"}
 }

@@ -963,5 +963,5 @@
     {"in":{"difficulty":999,"skill":999},"out":0.5}
   ],
   "generator": "ace-vectors formulas",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/WorldObjects/SkillCheck.cs","member":"ACE.Server.WorldObjects.SkillCheck.GetMagicSkillChance(int skill, int difficulty)","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/WorldObjects/SkillCheck.cs","member":"ACE.Server.WorldObjects.SkillCheck.GetMagicSkillChance(int skill, int difficulty)","runtime":"10.0.12","sdk":"10.0.401"}
 }

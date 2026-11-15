@@ -58,5 +58,5 @@
     {"in":{"kind":3,"len":200000},"out":{"fnv1a64":14130955800437895865,"len":8271}}
   ],
   "generator": "ace-vectors ddd",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Managers/DDDManager.cs","member":"ACE.Server.Managers.DDDManager.Compress(byte[]) and PrependUncompressedFileSize(byte[], uint)","notes":"in.kind/in.len rebuild the input (DddVectors.Input). out.hex is the whole ZLibStream output when len <= 1000; out.len and out.fnv1a64 always. out.prepended is PrependUncompressedFileSize(compressed, len) for len <= 1000.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Managers/DDDManager.cs","member":"ACE.Server.Managers.DDDManager.Compress(byte[]) and PrependUncompressedFileSize(byte[], uint)","notes":"in.kind/in.len rebuild the input (DddVectors.Input). out.hex is the whole ZLibStream output when len <= 1000; out.len and out.fnv1a64 always. out.prepended is PrependUncompressedFileSize(compressed, len) for len <= 1000.","runtime":"10.0.12","sdk":"10.0.401"}
 }

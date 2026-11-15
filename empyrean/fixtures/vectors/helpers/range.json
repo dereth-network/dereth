@@ -16,5 +16,5 @@
     {"in":{"max":"Infinity","min":"-Infinity"},"out":{"avg":"NaN","max":"Infinity","min":"-Infinity","to_string":"-\u221e - \u221e"}}
   ],
   "generator": "ace-vectors helpers",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Entity/Range.cs","member":"ACE.Server.Entity.Range(float min, float max): Avg and ToString()","notes":"Floats are written as their exact double; min null is the parameterless constructor.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Entity/Range.cs","member":"ACE.Server.Entity.Range(float min, float max): Avg and ToString()","notes":"Floats are written as their exact double; min null is the parameterless constructor.","runtime":"10.0.12","sdk":"10.0.401"}
 }

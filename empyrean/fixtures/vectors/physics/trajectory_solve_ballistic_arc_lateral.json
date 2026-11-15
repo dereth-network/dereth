@@ -722,5 +722,5 @@
     {"in":{"lateral_speed":100.0,"max_height":20.0,"proj_pos":[0.0,0.0,10.0],"target_pos":[0.0,0.0,10.0]},"out":{"fire_velocity":[0.0,0.0,0.0],"gravity":"NaN","ok":false}}
   ],
   "generator": "ace-vectors physics",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Physics/Trajectory.cs","member":"ACE.Server.Physics.Trajectory.solve_ballistic_arc_lateral(Vector3 proj_pos, float lateral_speed, Vector3 target_pos, float max_height, out Vector3 fire_velocity, out float gravity)","notes":"ACE's Debug.Assert is compiled out of the Release build this harness links.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Physics/Trajectory.cs","member":"ACE.Server.Physics.Trajectory.solve_ballistic_arc_lateral(Vector3 proj_pos, float lateral_speed, Vector3 target_pos, float max_height, out Vector3 fire_velocity, out float gravity)","notes":"ACE's Debug.Assert is compiled out of the Release build this harness links.","runtime":"10.0.12","sdk":"10.0.401"}
 }

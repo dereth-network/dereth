@@ -64,5 +64,5 @@
     {"in":{"json":"{\"wcid\": 8, \"intStats\": [null], \"didStats\": [null]}","type":"LSDWeenie"},"out":{"HasAbilities":{"throws":"System.NullReferenceException"},"HasBodyPartList":false,"HasGeneratorTable":false,"IconId":{"throws":"System.NullReferenceException"},"ItemType":{"throws":"System.NullReferenceException"},"OverlayId":{"throws":"System.NullReferenceException"},"OverlaySecondaryId":{"throws":"System.NullReferenceException"},"UIEffects":{"throws":"System.NullReferenceException"},"UnderlayId":{"throws":"System.NullReferenceException"},"WeenieClassId":8,"WeenieType_Binder":0}}
   ],
   "generator": "ace-vectors content_gdle",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Adapter/GDLE/Models/","member":"GDLE model binder getters","notes":"in: {type, json} (the model as JsonSerializer.Deserialize reads it); out: {property: value or {throws}} for every binder getter of the type.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Adapter/GDLE/Models/","member":"GDLE model binder getters","notes":"in: {type, json} (the model as JsonSerializer.Deserialize reads it); out: {property: value or {throws}} for every binder getter of the type.","runtime":"10.0.12","sdk":"10.0.401"}
 }

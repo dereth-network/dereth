@@ -602,5 +602,5 @@
     {"in":{"items":[{"guid":2147493232,"item_type":262144,"stack_size":3,"stack_unit_value":10000,"value":30000,"wcid":2625},{"guid":2147493233,"item_type":2048,"stack_size":null,"stack_unit_value":null,"value":50,"wcid":30001},{"guid":2147493234,"item_type":64,"stack_size":1823,"stack_unit_value":1,"value":1823,"wcid":273}],"num":7536,"paid":0,"wcid":273},"out":[[2147493234,1823],[2147493232,1]]}
   ],
   "generator": "ace-vectors housing",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Network/Structure/HousePayment.cs","member":"HousePayment.GetConsumeItems(List<WorldObject>)","notes":"A HousePayment {Num, Paid, WeenieID} over in.items (uninitialised objects with the listed properties). out: the WorldObjectInfo<int> list as [guid, value] pairs, or throws.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Network/Structure/HousePayment.cs","member":"HousePayment.GetConsumeItems(List<WorldObject>)","notes":"A HousePayment {Num, Paid, WeenieID} over in.items (uninitialised objects with the listed properties). out: the WorldObjectInfo<int> list as [guid, value] pairs, or throws.","runtime":"10.0.12","sdk":"10.0.401"}
 }

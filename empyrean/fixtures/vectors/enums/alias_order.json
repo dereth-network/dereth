@@ -218,5 +218,5 @@
     {"in":{"aliased":false,"name":"XpType"},"out":{"get_name":["Kill","Quest","Proficiency","Fellowship","Allegiance","Admin","Emote"],"keys":[0,1,2,3,4,5,6],"names":["Kill","Quest","Proficiency","Fellowship","Allegiance","Admin","Emote"],"to_string":["Kill","Quest","Proficiency","Fellowship","Allegiance","Admin","Emote"]}}
   ],
   "generator": "ace-vectors enums",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":null,"member":"System.Enum.GetNames(Type), GetValues(Type), GetName(Type, object) and Enum.ToString() over ACE.Entity's enums","notes":"One case per enum (in.name, in.aliased). out.names: GetNames order (= GetValues order); out.keys: each value as ToUInt64 sees it; out.get_name / out.to_string: for each distinct key, in GetValues order, Enum.GetName and ToString().","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":null,"member":"System.Enum.GetNames(Type), GetValues(Type), GetName(Type, object) and Enum.ToString() over ACE.Entity's enums","notes":"One case per enum (in.name, in.aliased). out.names: GetNames order (= GetValues order); out.keys: each value as ToUInt64 sees it; out.get_name / out.to_string: for each distinct key, in GetValues order, Enum.GetName and ToString().","runtime":"10.0.12","sdk":"10.0.401"}
 }

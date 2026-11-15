@@ -530,5 +530,5 @@
     {"in":{"bytes":[5,0,65,226,130,97,98,99,100,101,102,103,104]},"out":{"chars":[65,65533,97,98,99],"position":9}}
   ],
   "generator": "ace-vectors entity",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Common/Extensions/BinaryReaderExtensions.cs","member":"ACE.Common.Extensions.BinaryReaderExtensions.ReadString16L(this BinaryReader) over new BinaryReader(new MemoryStream(bytes))","notes":"bytes is the whole stream. out is {chars: the string's UTF-16 code units, position: BaseStream.Position after the call}, or {throws}.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Common/Extensions/BinaryReaderExtensions.cs","member":"ACE.Common.Extensions.BinaryReaderExtensions.ReadString16L(this BinaryReader) over new BinaryReader(new MemoryStream(bytes))","notes":"bytes is the whole stream. out is {chars: the string's UTF-16 code units, position: BaseStream.Position after the call}, or {throws}.","runtime":"10.0.12","sdk":"10.0.401"}
 }

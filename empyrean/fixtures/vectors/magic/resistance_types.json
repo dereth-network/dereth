@@ -26,5 +26,5 @@
     {"in":{"kind":"vital","value":9},"out":[0,0]}
   ],
   "generator": "ace-vectors magic",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/WorldObjects/WorldObject_Magic.cs","member":"ACE.Server.WorldObjects.WorldObject.GetBoostResistanceType / GetDrainResistanceType (DamageType and PropertyAttribute2nd overloads, private static)","notes":"kind is damage_type or vital; out is [boost, drain] as ResistanceType numbers.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/WorldObjects/WorldObject_Magic.cs","member":"ACE.Server.WorldObjects.WorldObject.GetBoostResistanceType / GetDrainResistanceType (DamageType and PropertyAttribute2nd overloads, private static)","notes":"kind is damage_type or vital; out is [boost, drain] as ResistanceType numbers.","runtime":"10.0.12","sdk":"10.0.401"}
 }

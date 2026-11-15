@@ -3848,5 +3848,5 @@
     {"in":{"distance":3.7,"rotate180":true,"rw":-0.9982947707176208,"rz":-0.05837419256567955},"out":[2103705619,59.56876754760742,63.67478561401367,10.050000190734863,0.0,0.0,-0.9982947707176208,0.05837423726916313]}
   ],
   "generator": "ace-vectors entity",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Entity/Position.cs","member":"ACE.Entity.Position.InFrontOf(double distanceInFront, bool rotate180)","notes":"Start: Position(0x7D640012, 60, 60, 10, 0, 0, rz, rw, relativePos: true) with (rz, rw) from CreateFromYawPitchRoll(0, 0, roll). out is [cell, x, y, z, rx, ry, rz, rw].","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Entity/Position.cs","member":"ACE.Entity.Position.InFrontOf(double distanceInFront, bool rotate180)","notes":"Start: Position(0x7D640012, 60, 60, 10, 0, 0, rz, rw, relativePos: true) with (rz, rw) from CreateFromYawPitchRoll(0, 0, roll). out is [cell, x, y, z, rx, ry, rz, rw].","runtime":"10.0.12","sdk":"10.0.401"}
 }

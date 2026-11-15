@@ -47,5 +47,5 @@
     {"in":{"landblock":43699,"x":106.0,"y":60.5,"z":112.0},"out":{"cell":2863857927,"x":106.0,"y":60.5,"z":112.0}}
   ],
   "generator": "ace-vectors position_real",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Entity/PositionExtensions.cs","member":"ACE.Server.Entity.PositionExtensions.AdjustMapCoords","notes":"For each building of landblocks A9B4, A9B3, AAB4, AAB3, A8B4, A8B3 (LandblockInfo order): new Position(landblock << 16, origin + offset, Quaternion.Identity) (cell index 0: the constructor finds the outdoor cell), offsets (0,0,0), (1.5,1.5,0) and (-2,0.5,0), then AdjustMapCoords.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Entity/PositionExtensions.cs","member":"ACE.Server.Entity.PositionExtensions.AdjustMapCoords","notes":"For each building of landblocks A9B4, A9B3, AAB4, AAB3, A8B4, A8B3 (LandblockInfo order): new Position(landblock << 16, origin + offset, Quaternion.Identity) (cell index 0: the constructor finds the outdoor cell), offsets (0,0,0), (1.5,1.5,0) and (-2,0.5,0), then AdjustMapCoords.","runtime":"10.0.12","sdk":"10.0.401"}
 }

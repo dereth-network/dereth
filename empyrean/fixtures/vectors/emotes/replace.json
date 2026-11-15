@@ -502,5 +502,5 @@
     {"in":{"message":null,"quest":null,"source":{"heritage":null,"level":299,"name":"%n","template":"%mt"},"target":{"heritage":null,"level":211,"name":null,"template":null}},"out":""}
   ],
   "generator": "ace-vectors emotes",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/WorldObjects/Managers/EmoteManager.cs","member":"EmoteManager.Replace(string, WorldObject, WorldObject, string)","notes":"source and target are GenericObjects (neither Creature nor Player, so no QuestManager or Fellowship is reached) with the given Name, Level, Template and HeritageGroup (null = absent); a null target is ACE's null. in.message null is a null message. out = the result, or the exception ACE throws.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/WorldObjects/Managers/EmoteManager.cs","member":"EmoteManager.Replace(string, WorldObject, WorldObject, string)","notes":"source and target are GenericObjects (neither Creature nor Player, so no QuestManager or Fellowship is reached) with the given Name, Level, Template and HeritageGroup (null = absent); a null target is ACE's null. in.message null is a null message. out = the result, or the exception ACE throws.","runtime":"10.0.12","sdk":"10.0.401"}
 }

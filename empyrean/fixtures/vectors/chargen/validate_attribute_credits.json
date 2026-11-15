@@ -86,5 +86,5 @@
     {"in":{"abilities":[10,10,10,10,10,9],"max_attributes":4294967295},"out":"InvalidSkillRequested"}
   ],
   "generator": "ace-vectors chargen",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Factories/PlayerFactory.cs","member":"ACE.Server.Factories.PlayerFactory.ValidateAttributeCredits(CharacterCreateInfo info, uint maxAttributes) (private, by reflection)","notes":"The six abilities are set on an unpacked CharacterCreateInfo through their private setters; the result is the CreateResult name.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Factories/PlayerFactory.cs","member":"ACE.Server.Factories.PlayerFactory.ValidateAttributeCredits(CharacterCreateInfo info, uint maxAttributes) (private, by reflection)","notes":"The six abilities are set on an unpacked CharacterCreateInfo through their private setters; the result is the CreateResult name.","runtime":"10.0.12","sdk":"10.0.401"}
 }

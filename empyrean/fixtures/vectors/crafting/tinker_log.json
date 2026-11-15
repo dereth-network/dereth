@@ -25,5 +25,5 @@
     {"in":{"csv":"999"},"out":{"num":0,"tinkers":[999]}}
   ],
   "generator": "ace-vectors crafting",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Entity/TinkerLog.cs","member":"new TinkerLog(string csv).Tinkers, TinkerLog.NumTinkers(MaterialType)","notes":"in.csv (null allowed); out.tinkers the parsed MaterialType values, out.num = NumTinkers(Steel) (64).","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Entity/TinkerLog.cs","member":"new TinkerLog(string csv).Tinkers, TinkerLog.NumTinkers(MaterialType)","notes":"in.csv (null allowed); out.tinkers the parsed MaterialType values, out.num = NumTinkers(Steel) (64).","runtime":"10.0.12","sdk":"10.0.401"}
 }

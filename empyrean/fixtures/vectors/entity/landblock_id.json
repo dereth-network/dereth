@@ -28,5 +28,5 @@
     {"in":{"raw":16842752},"out":{"east":33619968,"indoors":false,"landblock":257,"landblock_x":1,"landblock_y":1,"landcell":255,"landcell_x":7,"landcell_y":7,"north":16908288,"north_east":33685504,"north_west":131072,"south":16777216,"south_east":33554432,"south_west":0,"to_string":"01010000","west":65536}}
   ],
   "generator": "ace-vectors entity",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Entity/LandblockId.cs","member":"ACE.Entity.LandblockId(uint): properties, neighbours, ToString","notes":"Neighbours use Convert.ToByte and throw System.OverflowException off the map edge; they are given as raw uints.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Entity/LandblockId.cs","member":"ACE.Entity.LandblockId(uint): properties, neighbours, ToString","notes":"Neighbours use Convert.ToByte and throw System.OverflowException off the map edge; they are given as raw uints.","runtime":"10.0.12","sdk":"10.0.401"}
 }

@@ -473,5 +473,5 @@
     {"in":{"q":[1.2709555625915527,0.44224369525909424,-0.6633105278015137,-0.06232607364654541]},"out":[[0.8464064002037048,0.2945168912410736,-0.44173869490623474,-0.04150671139359474],1.5015902519226074,2.2547731399536133]}
   ],
   "generator": "ace-vectors entity",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":null,"member":"System.Numerics.Quaternion.Normalize(Quaternion value)","notes":"value / value.Length(); Length is Sqrt(Dot(value, value)). out is [X, Y, Z, W].","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":null,"member":"System.Numerics.Quaternion.Normalize(Quaternion value)","notes":"value / value.Length(); Length is Sqrt(Dot(value, value)). out is [X, Y, Z, W].","runtime":"10.0.12","sdk":"10.0.401"}
 }

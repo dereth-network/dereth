@@ -344,5 +344,5 @@
     {"in":{"id":3818,"power":1000,"spell_type":8},"out":1.0}
   ],
   "generator": "ace-vectors spellcasting",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/WorldObjects/SpellProjectile.cs","member":"ACE.Server.WorldObjects.SpellProjectile.GetProjectileScriptIntensity(ProjectileSpellType)","notes":"An uninitialized SpellProjectile whose Spell is a synthetic spell (id, power); out is the intensity (float).","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/WorldObjects/SpellProjectile.cs","member":"ACE.Server.WorldObjects.SpellProjectile.GetProjectileScriptIntensity(ProjectileSpellType)","notes":"An uninitialized SpellProjectile whose Spell is a synthetic spell (id, power); out is the intensity (float).","runtime":"10.0.12","sdk":"10.0.401"}
 }

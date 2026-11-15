@@ -1378,5 +1378,5 @@
     {"in":{"c0":1.0,"c1":0.0,"c2":0.0,"c3":0.0},"out":{"num":1,"s0":0.0,"s1":"NaN","s2":"NaN"}}
   ],
   "generator": "ace-vectors physics",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Physics/Trajectory.cs","member":"ACE.Server.Physics.Trajectory.SolveCubic(double c0, double c1, double c2, double c3, out double s0, out double s1, out double s2)","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Physics/Trajectory.cs","member":"ACE.Server.Physics.Trajectory.SolveCubic(double c0, double c1, double c2, double c3, out double s0, out double s1, out double s2)","runtime":"10.0.12","sdk":"10.0.401"}
 }

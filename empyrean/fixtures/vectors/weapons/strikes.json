@@ -177,5 +177,5 @@
     {"in":{"attack_type":9,"stance":2147483716},"out":[2,"SlashHigh","ThrustMed",true,false]}
   ],
   "generator": "ace-vectors weapons",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/WorldObjects/Creature_Melee.cs","member":"Creature.GetNumStrikes(AttackType), Creature.MultiStrike(AttackType, string), Creature.TwoHandedCombat, Creature.IsDualWieldAttack","notes":"in.attack_type, in.stance (CurrentMotionState = new Motion(stance)); out = [GetNumStrikes, MultiStrike(at, \"SlashHigh\"), MultiStrike(at, \"ThrustMed\"), TwoHandedCombat, IsDualWieldAttack].","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/WorldObjects/Creature_Melee.cs","member":"Creature.GetNumStrikes(AttackType), Creature.MultiStrike(AttackType, string), Creature.TwoHandedCombat, Creature.IsDualWieldAttack","notes":"in.attack_type, in.stance (CurrentMotionState = new Motion(stance)); out = [GetNumStrikes, MultiStrike(at, \"SlashHigh\"), MultiStrike(at, \"ThrustMed\"), TwoHandedCombat, IsDualWieldAttack].","runtime":"10.0.12","sdk":"10.0.401"}
 }

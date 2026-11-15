@@ -67,5 +67,5 @@
     {"in":{"probabilities":[0.0013587740249931812,0.14650662243366241,0.8565940856933594,0.4025297462940216,0.482564777135849,0.6140096187591553,0.5816479325294495,0.06066945940256119,0.7502474784851074,0.15143416821956635,0.09244702756404877,0.2745635509490967,0.20427145063877106,0.5111597180366516,0.12955664098262787]},"out":5.259561061859131}
   ],
   "generator": "ace-vectors containers",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/WorldObjects/Monster_Inventory.cs","member":"ACE.Server.WorldObjects.Creature.GetTotalProbability(List<TreasureWielded>)","notes":"Called on an uninitialized Creature (the member reads no field). probabilities are floats written as their exact double; out is the float result.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/WorldObjects/Monster_Inventory.cs","member":"ACE.Server.WorldObjects.Creature.GetTotalProbability(List<TreasureWielded>)","notes":"Called on an uninitialized Creature (the member reads no field). probabilities are floats written as their exact double; out is the float result.","runtime":"10.0.12","sdk":"10.0.401"}
 }

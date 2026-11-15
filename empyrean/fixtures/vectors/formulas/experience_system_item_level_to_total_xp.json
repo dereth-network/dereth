@@ -722,5 +722,5 @@
     {"in":{"base_xp":5000000000,"item_level":70,"max_level":70,"xp_scheme":"FixedPlusBase"},"out":355000000000}
   ],
   "generator": "ace-vectors formulas",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Entity/ExperienceSystem.cs","member":"ACE.Server.Entity.ExperienceSystem.ItemLevelToTotalXP(int itemLevel, ulong baseXP, int maxLevel, ItemXpStyle xpScheme)","notes":"xp_scheme is the ItemXpStyle name; Undef takes the ScalesWithLevel (default) branch.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Entity/ExperienceSystem.cs","member":"ACE.Server.Entity.ExperienceSystem.ItemLevelToTotalXP(int itemLevel, ulong baseXP, int maxLevel, ItemXpStyle xpScheme)","notes":"xp_scheme is the ItemXpStyle name; Undef takes the ScalesWithLevel (default) branch.","runtime":"10.0.12","sdk":"10.0.401"}
 }

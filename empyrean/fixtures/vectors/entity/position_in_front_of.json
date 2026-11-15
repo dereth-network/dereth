@@ -122,5 +122,5 @@
     {"in":{"distance":150.0,"rotate180":true,"start":{"cell":2103705601,"rw":0.9797958731651306,"rz":0.20000000298023224,"x":1.0,"y":190.0,"z":10.0}},"out":{"cell":2086993966,"cell_x":0,"cell_y":46,"global_cell_x":992,"global_cell_y":854,"indoors":false,"landblock":31845,"rw":-0.20000004768371582,"rx":0.0,"ry":0.0,"rz":0.9797958731651306,"to_loc_string":"0x7C65002E [134.212250 136.000000 10.050000] -0.200000 0.000000 0.000000 0.979796","to_string":"7C65002E [134.21225 136 10.05]","x":134.21224975585938,"y":136.0,"z":10.050000190734863}}
   ],
   "generator": "ace-vectors entity",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Entity/Position.cs","member":"ACE.Entity.Position.InFrontOf(double distanceInFront, bool rotate180)","notes":"The start position is built with relativePos = true; the result goes through the normalising constructor.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Entity/Position.cs","member":"ACE.Entity.Position.InFrontOf(double distanceInFront, bool rotate180)","notes":"The start position is built with relativePos = true; the result goes through the normalising constructor.","runtime":"10.0.12","sdk":"10.0.401"}
 }

@@ -3362,5 +3362,5 @@
     {"in":{"armor_level":500,"equip_mask":544,"imbued_effect":1,"num_tinkers":3,"seed":3360,"tinker_log":"64,64,64"},"out":{"level":405,"next":75}}
   ],
   "generator": "ace-vectors commands",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Command/Handlers/DeveloperFixCommands.cs","member":"ACE.Server.Command.Handlers.DeveloperFixCommands.GetArmorLevel(int, EquipMask, TinkerLog, int, int)","notes":"Each case reseeds ThreadSafeRandom with new Random(in.seed) first. in.tinker_log is the TinkerLog csv (null: no TinkerLog). out.level is the result, out.next the next ThreadSafeRandom.Next(0, 1000) (how many draws were taken).","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Command/Handlers/DeveloperFixCommands.cs","member":"ACE.Server.Command.Handlers.DeveloperFixCommands.GetArmorLevel(int, EquipMask, TinkerLog, int, int)","notes":"Each case reseeds ThreadSafeRandom with new Random(in.seed) first. in.tinker_log is the TinkerLog csv (null: no TinkerLog). out.level is the result, out.next the next ThreadSafeRandom.Next(0, 1000) (how many draws were taken).","runtime":"10.0.12","sdk":"10.0.401"}
 }

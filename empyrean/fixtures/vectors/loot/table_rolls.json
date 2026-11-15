@@ -9042,5 +9042,5 @@
     {"in":{"call":"SocietyArmorWcids.Roll:24","heritage":99,"qm":0.25,"seed":10040,"tier":8},"out":{"post":122860,"results":[0,0,0,0]}}
   ],
   "generator": "ace-vectors loot",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Factories/Tables/","member":"Factories/Tables rolls taking a TreasureDeath (see `call`)","notes":"Each case reseeds ThreadSafeRandom with `seed`, then makes the call four times on a TreasureDeath {Tier, LootQualityMod = qm, UnknownChances = heritage}. results: each return (enums as integers; `ref` rolls as [wcid, type]; lists element-wise), or {throws} and stop. post = Next(0, 999999). `X.Roll:n` passes the enum value n.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Factories/Tables/","member":"Factories/Tables rolls taking a TreasureDeath (see `call`)","notes":"Each case reseeds ThreadSafeRandom with `seed`, then makes the call four times on a TreasureDeath {Tier, LootQualityMod = qm, UnknownChances = heritage}. results: each return (enums as integers; `ref` rolls as [wcid, type]; lists element-wise), or {throws} and stop. post = Next(0, 999999). `X.Roll:n` passes the enum value n.","runtime":"10.0.12","sdk":"10.0.401"}
 }

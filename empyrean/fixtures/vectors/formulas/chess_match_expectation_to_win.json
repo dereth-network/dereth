@@ -146,5 +146,5 @@
     {"in":{"op_rank":3000,"rank":3000},"out":0.5}
   ],
   "generator": "ace-vectors formulas",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Entity/Chess/ChessMatch.cs","member":"ACE.Server.Entity.Chess.ChessMatch.ExpectationToWin(int rank, int opRank)","notes":"The exponent is computed in float (rankDiff / 400.0f) before Math.Pow.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Entity/Chess/ChessMatch.cs","member":"ACE.Server.Entity.Chess.ChessMatch.ExpectationToWin(int rank, int opRank)","notes":"The exponent is computed in float (rankDiff / 400.0f) before Math.Pow.","runtime":"10.0.12","sdk":"10.0.401"}
 }

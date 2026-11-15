@@ -263,5 +263,5 @@
     {"in":{"motion":12,"motion_table_id":150995484,"speed":1.0,"stance":2147483709},"out":"Infinity"}
   ],
   "generator": "ace-vectors anim",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Physics/Animation/MotionTable.cs","member":"ACE.Server.Physics.Animation.MotionTable.GetCycleLength(uint motionTableId, MotionStance stance, MotionCommand motion, float speed)","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Physics/Animation/MotionTable.cs","member":"ACE.Server.Physics.Animation.MotionTable.GetCycleLength(uint motionTableId, MotionStance stance, MotionCommand motion, float speed)","runtime":"10.0.12","sdk":"10.0.401"}
 }

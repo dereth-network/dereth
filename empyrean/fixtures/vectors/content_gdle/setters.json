@@ -78,5 +78,5 @@
     {"in":{"json":"{\"w\": 9, \"x\": 9, \"y\": 9, \"z\": 9}","property":"Display","type":"Quaternion","value":""},"out":{"model":{"display":"1.000000 0.000000 0.000000 0.000000","w":1.0,"x":0.0,"y":0.0,"z":0.0}}}
   ],
   "generator": "ace-vectors content_gdle",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Adapter/GDLE/Models/","member":"GDLE model binder setters","notes":"in: {type, json, property, value}; out: {model (a dump after the set)} or {throws}. value is the C# value set (null, a number, a bool, a string, or a string array).","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Adapter/GDLE/Models/","member":"GDLE model binder setters","notes":"in: {type, json, property, value}; out: {model (a dump after the set)} or {throws}. value is the C# value set (null, a number, a bool, a string, or a string array).","runtime":"10.0.12","sdk":"10.0.401"}
 }

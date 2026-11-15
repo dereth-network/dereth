@@ -45,5 +45,5 @@
     {"in":{"files":[["input.json",""]],"loader":"TryLoadQuest","name":"missing_file"},"out":{"ok":false,"result":null}}
   ],
   "generator": "ace-vectors content_gdle",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Adapter/GDLE/GDLELoader.cs","member":"GDLELoader.TryLoad*","notes":"in: {name, loader, files: [[relative path, text]], arg?}; out: {ok, result (a dump; for a (results, links) pair [results, links])} or {throws}. A folder loader gets the case's folder; a file loader gets its one file. Folder results are in path order (ACE: ConcurrentBag order; the Rust test sorts both).","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Adapter/GDLE/GDLELoader.cs","member":"GDLELoader.TryLoad*","notes":"in: {name, loader, files: [[relative path, text]], arg?}; out: {ok, result (a dump; for a (results, links) pair [results, links])} or {throws}. A folder loader gets the case's folder; a file loader gets its one file. Folder results are in path order (ACE: ConcurrentBag order; the Rust test sorts both).","runtime":"10.0.12","sdk":"10.0.401"}
 }

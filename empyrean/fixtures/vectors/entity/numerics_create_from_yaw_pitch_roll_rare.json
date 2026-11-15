@@ -450,5 +450,5 @@
     {"in":{"pitch":"NaN","roll":969.1953125,"yaw":0.0},"out":["NaN","NaN","NaN","NaN"]}
   ],
   "generator": "ace-vectors entity",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":null,"member":"System.Numerics.Quaternion.CreateFromYawPitchRoll(float yaw, float pitch, float roll)","notes":"Rolls where net10 (Vector128.SinCos) and the .NET 8 formula (MathF.Sin/Cos) disagree, found by scanning every 13th float in [0, 1e7) and every 7th in [0, 0.02), both signs; each with (yaw, pitch) chosen to force every SinCos branch. out is [X, Y, Z, W].","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":null,"member":"System.Numerics.Quaternion.CreateFromYawPitchRoll(float yaw, float pitch, float roll)","notes":"Rolls where net10 (Vector128.SinCos) and the .NET 8 formula (MathF.Sin/Cos) disagree, found by scanning every 13th float in [0, 1e7) and every 7th in [0, 0.02), both signs; each with (yaw, pitch) chosen to force every SinCos branch. out is [X, Y, Z, W].","runtime":"10.0.12","sdk":"10.0.401"}
 }

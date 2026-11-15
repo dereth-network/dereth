@@ -5,5 +5,5 @@
     {"in":{"landblock":55894,"name":"empty","sql":"","weenie_class_names":null,"weenie_names":null},"out":{"json":"{\r\n  \"key\": 0\r\n}"}}
   ],
   "generator": "ace-vectors content_export_json",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Adapter/GDLE/GDLEConverter.cs","member":"GDLEConverter.TryConvert(List<LandblockInstance>, out Landblock)","notes":"in: {name, sql, ...}; out: {json} (the text ACE writes, CRLF indentation) or {error}. DateTime.UtcNow is 2026-01-02T03:04:05Z. in.landblock is read back with GetCachedInstancesByLandblock; in.weenie_names / weenie_class_names ([wcid, name] pairs) are GDLEConverter.WeenieNames / WeenieClassNames, or null.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Adapter/GDLE/GDLEConverter.cs","member":"GDLEConverter.TryConvert(List<LandblockInstance>, out Landblock)","notes":"in: {name, sql, ...}; out: {json} (the text ACE writes, CRLF indentation) or {error}. DateTime.UtcNow is 2026-01-02T03:04:05Z. in.landblock is read back with GetCachedInstancesByLandblock; in.weenie_names / weenie_class_names ([wcid, name] pairs) are GDLEConverter.WeenieNames / WeenieClassNames, or null.","runtime":"10.0.12","sdk":"10.0.401"}
 }

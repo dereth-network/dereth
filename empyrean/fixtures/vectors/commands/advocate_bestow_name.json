@@ -18,5 +18,5 @@
     {"in":{"parameters":["Bob","+4"]},"out":{"advocate_level":4,"advocate_name":"Bob","level":"+4"}}
   ],
   "generator": "ace-vectors commands",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Command/Handlers/AdvocateCommands.cs","member":"AdvocateCommands.HandleBestow's name parsing: string.Join, Trim, TrimEnd(char[]) and int.TryParse","notes":"The handler's expressions evaluated on in.parameters: out.level (the last parameter), out.advocate_level (int.TryParse, or null when it fails or is outside 1..7) and out.advocate_name.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Command/Handlers/AdvocateCommands.cs","member":"AdvocateCommands.HandleBestow's name parsing: string.Join, Trim, TrimEnd(char[]) and int.TryParse","notes":"The handler's expressions evaluated on in.parameters: out.level (the last parameter), out.advocate_level (int.TryParse, or null when it fails or is outside 1..7) and out.advocate_name.","runtime":"10.0.12","sdk":"10.0.401"}
 }

@@ -497,5 +497,5 @@
     {"in":{"kind":"skill","sac":1,"xp":100},"out":{"throws":"System.NullReferenceException"}}
   ],
   "generator": "ace-vectors stats",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/WorldObjects/Player_Attributes.cs","member":"Player.CalcAttributeRank(uint), Player.CalcVitalRank(uint), Player.CalcSkillRank(SkillAdvancementClass, uint)","notes":"in.kind is attribute, vital or skill (then in.sac); out is the int rank (-1 below table[0]) or a throw (an untrained sac has no table: NullReferenceException). Player_Vitals.cs and Player_Skills.cs hold the other two.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/WorldObjects/Player_Attributes.cs","member":"Player.CalcAttributeRank(uint), Player.CalcVitalRank(uint), Player.CalcSkillRank(SkillAdvancementClass, uint)","notes":"in.kind is attribute, vital or skill (then in.sac); out is the int rank (-1 below table[0]) or a throw (an untrained sac has no table: NullReferenceException). Player_Vitals.cs and Player_Skills.cs hold the other two.","runtime":"10.0.12","sdk":"10.0.401"}
 }

@@ -2918,5 +2918,5 @@
     {"in":{"a":[0.36648017168045044,0.6914584636688232,-0.3280351161956787,0.5291222929954529],"b":[0.36648017168045044,0.6914584636688232,-0.3280351161956787,0.5291222929954529]},"out":[0.3878256678581238,0.7317321300506592,-0.3471413850784302,-0.4400591552257538]}
   ],
   "generator": "ace-vectors entity",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":null,"member":"System.Numerics.Quaternion.op_Multiply(Quaternion value1, Quaternion value2)","notes":"net10: the DirectXMath XMQuaternionMultiply form (MultiplyAddEstimate with +-1 factors). a * b; out is [X, Y, Z, W].","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":null,"member":"System.Numerics.Quaternion.op_Multiply(Quaternion value1, Quaternion value2)","notes":"net10: the DirectXMath XMQuaternionMultiply form (MultiplyAddEstimate with +-1 factors). a * b; out is [X, Y, Z, W].","runtime":"10.0.12","sdk":"10.0.401"}
 }

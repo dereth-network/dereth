@@ -102,5 +102,5 @@
     {"in":{"num_augs":2147483647,"strength":2147483647},"out":-150}
   ],
   "generator": "ace-vectors movement",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Physics/Common/EncumbranceSystem.cs","member":"ACE.Server.Physics.Common.EncumbranceSystem.EncumbranceCapacity(int strength, int numAugs)","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Physics/Common/EncumbranceSystem.cs","member":"ACE.Server.Physics.Common.EncumbranceSystem.EncumbranceCapacity(int strength, int numAugs)","runtime":"10.0.12","sdk":"10.0.401"}
 }

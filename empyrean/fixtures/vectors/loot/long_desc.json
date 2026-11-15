@@ -62,5 +62,5 @@
     {"in":{"book":[999,1624],"did":999999},"out":"Test Item of Swift Killer"}
   ],
   "generator": "ace-vectors loot",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Factories/LootGenerationFactory.cs","member":"LootGenerationFactory.GetLongDesc(WorldObject)","notes":"A synthetic Generic item named 'Test Item' with SpellDID `did` (0 = none) and spell book `book`.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Factories/LootGenerationFactory.cs","member":"LootGenerationFactory.GetLongDesc(WorldObject)","notes":"A synthetic Generic item named 'Test Item' with SpellDID `did` (0 = none) and spell book `book`.","runtime":"10.0.12","sdk":"10.0.401"}
 }

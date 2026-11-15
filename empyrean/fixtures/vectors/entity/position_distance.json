@@ -83,5 +83,5 @@
     {"in":{"a":{"cell":4261412865,"rw":1.0,"rz":0.0,"x":0.5,"y":0.5,"z":0.5},"b":{"cell":4261412865,"rw":1.0,"rz":0.0,"x":0.5,"y":0.5,"z":0.5}},"out":{"distance_2d":0.0,"distance_2d_squared":0.0,"distance_to":0.0,"offset":[0.0,0.0,0.0],"squared_distance_to":0.0}}
   ],
   "generator": "ace-vectors entity",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Entity/Position.cs","member":"ACE.Entity.Position.DistanceTo / Distance2D / Distance2DSquared / SquaredDistanceTo / GetOffset","notes":"Positions built with relativePos = true (no normalisation). Same-landblock pairs use local deltas; others add 192 per landblock step.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Entity/Position.cs","member":"ACE.Entity.Position.DistanceTo / Distance2D / Distance2DSquared / SquaredDistanceTo / GetOffset","notes":"Positions built with relativePos = true (no normalisation). Same-landblock pairs use local deltas; others add 192 per landblock step.","runtime":"10.0.12","sdk":"10.0.401"}
 }

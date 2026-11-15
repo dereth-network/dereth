@@ -13,5 +13,5 @@
     {"in":{"name":"class_id_zero","sql":"DELETE FROM `weenie` WHERE `class_Id` = 0;\n\nINSERT INTO `weenie` (`class_Id`, `class_Name`, `type`, `last_Modified`)\nVALUES (0, 'zero', 1, '2026-01-02 03:04:05') /* Generic */;\n","wcid":0},"out":{"error":"try convert failed"}}
   ],
   "generator": "ace-vectors content_export_json",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Adapter/Lifestoned/LifestonedConverter.cs","member":"LifestonedConverter.TryConvertACEWeenieToLSDJSON(Weenie, out string, out LSDWeenie)","notes":"in: {name, sql, ...}; out: {json} (the text ACE writes, CRLF indentation) or {error}. DateTime.UtcNow is 2026-01-02T03:04:05Z. in.wcid is the weenie to read back; out.error is ACE's result string.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Adapter/Lifestoned/LifestonedConverter.cs","member":"LifestonedConverter.TryConvertACEWeenieToLSDJSON(Weenie, out string, out LSDWeenie)","notes":"in: {name, sql, ...}; out: {json} (the text ACE writes, CRLF indentation) or {error}. DateTime.UtcNow is 2026-01-02T03:04:05Z. in.wcid is the weenie to read back; out.error is ACE's result string.","runtime":"10.0.12","sdk":"10.0.401"}
 }

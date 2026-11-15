@@ -1133,5 +1133,5 @@
     {"in":{"f":"ToDouble","s":"0x0000000000000000001"},"out":{"throws":"System.FormatException"}}
   ],
   "generator": "ace-vectors commands",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":null,"member":"System.Convert.ToInt16/ToUInt16/ToInt32/ToUInt32/ToInt64(string), ToInt32/ToUInt32/ToInt64(string, int fromBase), ToBoolean(string), ToDouble(string)","notes":"in.f names the call (base10/base16 for the fromBase overloads); out.value or out.throws. movement/MoveTo (ToInt16), listplayers (ToUInt16), setcoin/givemana (ToInt32), echoflags (ToUInt32, ToInt64), setproperty (the fromBase overloads, ToBoolean, ToDouble), teledungeon (ToUInt32 base 16).","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":null,"member":"System.Convert.ToInt16/ToUInt16/ToInt32/ToUInt32/ToInt64(string), ToInt32/ToUInt32/ToInt64(string, int fromBase), ToBoolean(string), ToDouble(string)","notes":"in.f names the call (base10/base16 for the fromBase overloads); out.value or out.throws. movement/MoveTo (ToInt16), listplayers (ToUInt16), setcoin/givemana (ToInt32), echoflags (ToUInt32, ToInt64), setproperty (the fromBase overloads, ToBoolean, ToDouble), teledungeon (ToUInt32 base 16).","runtime":"10.0.12","sdk":"10.0.401"}
 }

@@ -23,5 +23,5 @@
     {"in":{"attack_type":9,"stances":[2147483718,2147483712,2147483710,2147483708,2147483716]},"out":[9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,false]}
   ],
   "generator": "ace-vectors weapons",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/WorldObjects/WorldObject_Weapon.cs","member":"WorldObject.GetAttackType(MotionStance, float powerLevel, bool offhand) (and GetOffhandAttackType), WorldObject.IsThrustSlash","notes":"in.attack_type is the weapon's W_AttackType; out = [GetAttackType(stance, power, offhand) for stance in in.stances, power in [0, 0.32, 0.33, 0.5, 1], offhand in [false, true]] flattened in that order, then IsThrustSlash.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/WorldObjects/WorldObject_Weapon.cs","member":"WorldObject.GetAttackType(MotionStance, float powerLevel, bool offhand) (and GetOffhandAttackType), WorldObject.IsThrustSlash","notes":"in.attack_type is the weapon's W_AttackType; out = [GetAttackType(stance, power, offhand) for stance in in.stances, power in [0, 0.32, 0.33, 0.5, 1], offhand in [false, true]] flattened in that order, then IsThrustSlash.","runtime":"10.0.12","sdk":"10.0.401"}
 }

@@ -202,5 +202,5 @@
     {"in":{"houses":[2087361190,2087359205,2139060564,2139058561],"slumlord":2056997784},"out":0}
   ],
   "generator": "ace-vectors housing",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Managers/HouseManager.cs","member":"HouseManager.GetHouseGuid(uint, List<uint>) (private)","notes":"in.slumlord and in.houses (a house id's house guids). out is the uint house guid (0: none).","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Managers/HouseManager.cs","member":"HouseManager.GetHouseGuid(uint, List<uint>) (private)","notes":"in.slumlord and in.houses (a house id's house guids). out is the uint house guid (0: none).","runtime":"10.0.12","sdk":"10.0.401"}
 }

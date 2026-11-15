@@ -75,5 +75,5 @@
     {"in":{"type":4294967295},"out":false}
   ],
   "generator": "ace-vectors chat",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/WorldObjects/Managers/SquelchManager.cs","member":"ACE.Server.WorldObjects.Managers.SquelchManager.IsLegalChannel(ChatMessageType channel)","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/WorldObjects/Managers/SquelchManager.cs","member":"ACE.Server.WorldObjects.Managers.SquelchManager.IsLegalChannel(ChatMessageType channel)","runtime":"10.0.12","sdk":"10.0.401"}
 }

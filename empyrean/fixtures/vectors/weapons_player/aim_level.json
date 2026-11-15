@@ -383,5 +383,5 @@
     {"in":{"a":[188.62899780273438,134.58399963378906,48.4109992980957],"b":[162.0760040283203,152.78799438476562,49.72200012207031],"v":[0.0,0.0,0.0]},"out":[1073741866,[-0.824783444404602,0.5654486417770386,0.0]]}
   ],
   "generator": "ace-vectors weapons_player",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/WorldObjects/Creature_Missile.cs","member":"Creature.GetAimLevel(Vector3 velocity) (static), Creature.GetDir2D(Vector3, Vector3)","notes":"in.v = [x, y, z] velocity, in.a / in.b the GetDir2D points; out = [(uint)GetAimLevel(v), GetDir2D(a, b) as [x, y, z]].","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/WorldObjects/Creature_Missile.cs","member":"Creature.GetAimLevel(Vector3 velocity) (static), Creature.GetDir2D(Vector3, Vector3)","notes":"in.v = [x, y, z] velocity, in.a / in.b the GetDir2D points; out = [(uint)GetAimLevel(v), GetDir2D(a, b) as [x, y, z]].","runtime":"10.0.12","sdk":"10.0.401"}
 }

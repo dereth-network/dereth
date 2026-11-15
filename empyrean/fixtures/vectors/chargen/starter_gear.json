@@ -39,5 +39,5 @@
     {"in":{"index":36},"out":{"gear":[{"stack_size":1,"weenie_id":48886}],"heritage":[],"name":"Summoning","skill_id":54,"spells":[]}}
   ],
   "generator": "ace-vectors chargen",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Factories/StarterGearFactory.cs","member":"ACE.Server.Factories.StarterGearFactory.LoadConfigFromResource(): JsonSerializer.Deserialize<StarterGearConfiguration>(starterGear.json, ConfigManager.SerializerOptions)","notes":"The deserializer call StarterGearFactory makes, on the starterGear.json of the ACE build output (identical to Source/ACE.Server/starterGear.json at the harness commit). One case per skill, in list order.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Factories/StarterGearFactory.cs","member":"ACE.Server.Factories.StarterGearFactory.LoadConfigFromResource(): JsonSerializer.Deserialize<StarterGearConfiguration>(starterGear.json, ConfigManager.SerializerOptions)","notes":"The deserializer call StarterGearFactory makes, on the starterGear.json of the ACE build output (identical to Source/ACE.Server/starterGear.json at the harness commit). One case per skill, in list order.","runtime":"10.0.12","sdk":"10.0.401"}
 }

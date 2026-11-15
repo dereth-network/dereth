@@ -1082,5 +1082,5 @@
     {"in":{"gravity":9.800000190734863,"lateral_speed":20.0,"proj_pos":[0.0,0.0,10.0],"target":[0.0,0.0,10.0],"target_velocity":[30.0,0.0,0.0]},"out":{"fire_velocity":[0.0,0.0,0.0],"impact_point":[0.0,0.0,0.0],"ok":false,"time":0.0}}
   ],
   "generator": "ace-vectors physics",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Physics/Trajectory.cs","member":"ACE.Server.Physics.Trajectory.solve_ballistic_arc_lateral(Vector3 proj_pos, float lateral_speed, Vector3 target, Vector3 target_velocity, float gravity, out Vector3 fire_velocity, out float time, out Vector3 impact_point)","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Physics/Trajectory.cs","member":"ACE.Server.Physics.Trajectory.solve_ballistic_arc_lateral(Vector3 proj_pos, float lateral_speed, Vector3 target, Vector3 target_velocity, float gravity, out Vector3 fire_velocity, out float time, out Vector3 impact_point)","runtime":"10.0.12","sdk":"10.0.401"}
 }

@@ -690,5 +690,5 @@
     {"in":{"dat":"HighRes","id":100667956},"out":{"name":"Texture","type":12}}
   ],
   "generator": "ace-vectors ddd",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.DatLoader/DatFile.cs","member":"ACE.DatLoader.DatFile.GetFileType(DatDatabaseType) and DatFileType.ToString()","notes":"out.type is the (uint) DatFileType or null; out.name its ToString().","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.DatLoader/DatFile.cs","member":"ACE.DatLoader.DatFile.GetFileType(DatDatabaseType) and DatFileType.ToString()","notes":"out.type is the (uint) DatFileType or null; out.name its ToString().","runtime":"10.0.12","sdk":"10.0.401"}
 }

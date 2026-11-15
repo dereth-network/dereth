@@ -1082,5 +1082,5 @@
     {"in":{"end_pos":[0.0,0.0,10.0],"gravity":true,"speed":40.0,"start_pos":[0.0,0.0,10.0],"target_velocity":[30.0,0.0,0.0]},"out":["NaN","NaN","NaN"]}
   ],
   "generator": "ace-vectors physics",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Physics/Trajectory2.cs","member":"ACE.Server.Physics.Trajectory2.CalculateTrajectory(Vector3 startPos, Vector3 endPos, Vector3 targetVelocity, float speed, bool gravity)","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Physics/Trajectory2.cs","member":"ACE.Server.Physics.Trajectory2.CalculateTrajectory(Vector3 startPos, Vector3 endPos, Vector3 targetVelocity, float speed, bool gravity)","runtime":"10.0.12","sdk":"10.0.401"}
 }

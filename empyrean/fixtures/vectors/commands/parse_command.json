@@ -58,5 +58,5 @@
     {"in":{"line":"x \"a \u00a0\""},"out":{"command":"x","parameters":["a \u00a0"]}}
   ],
   "generator": "ace-vectors commands",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Command/CommandManager.cs","member":"ACE.Server.Command.CommandManager.ParseCommand(string, out string, out string[])","notes":"out.command and out.parameters (null is C# null), or {throws}.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Command/CommandManager.cs","member":"ACE.Server.Command.CommandManager.ParseCommand(string, out string, out string[])","notes":"out.command and out.parameters (null is C# null), or {throws}.","runtime":"10.0.12","sdk":"10.0.401"}
 }

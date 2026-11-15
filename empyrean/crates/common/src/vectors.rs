@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Map, Value};
 
 /// The ACE commit every vector file must name (the commit this port follows).
-pub const ACE_COMMIT: &str = "47edade3bd3f6044b676d4eb877c4965c7eda62b";
+pub const ACE_COMMIT: &str = "aadedb3d6092e1952366f125b85fabc5d73c19e5";
 
 /// The harness command prefix every file's `generator` starts with.
 pub const GENERATOR_PREFIX: &str = "ace-vectors ";

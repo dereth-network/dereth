@@ -22,5 +22,5 @@
     {"in":{"v":3003,"weenie":true},"out":{"named":"nothing","plain":"nothing"}}
   ],
   "generator": "ace-vectors content_export_sql",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Database/SQLFormatters/SQLWriter.cs","member":"SQLWriter.GetValueForTreasureData(uint, bool)","notes":"in: {v, weenie}; out: {plain, named} (a string or {throws}); named uses dicts.json (Weenies included).","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Database/SQLFormatters/SQLWriter.cs","member":"SQLWriter.GetValueForTreasureData(uint, bool)","notes":"in: {v, weenie}; out: {plain, named} (a string or {throws}); named uses dicts.json (Weenies included).","runtime":"10.0.12","sdk":"10.0.401"}
 }

@@ -802,5 +802,5 @@
     {"in":{"f":377.5,"i":188,"player":true,"u":4294967268},"out":[4294967168,88,277.5,378,278]}
   ],
   "generator": "ace-vectors leaves",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Entity/Cloak.cs","member":"Cloak.GetReducedAmount(WorldObject, uint|int|float); (int)Math.Round(float)","notes":"in: player = the source is a Player (else a Creature); u/i/f = the uint, int and float damage. out = [GetReducedAmount(uint), GetReducedAmount(int), GetReducedAmount(float), (int)Math.Round(f), (int)Math.Round(GetReducedAmount(float))] (the float ShowMessage's two amounts).","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Entity/Cloak.cs","member":"Cloak.GetReducedAmount(WorldObject, uint|int|float); (int)Math.Round(float)","notes":"in: player = the source is a Player (else a Creature); u/i/f = the uint, int and float damage. out = [GetReducedAmount(uint), GetReducedAmount(int), GetReducedAmount(float), (int)Math.Round(f), (int)Math.Round(GetReducedAmount(float))] (the float ShowMessage's two amounts).","runtime":"10.0.12","sdk":"10.0.401"}
 }

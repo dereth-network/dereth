@@ -1002,5 +1002,5 @@
     {"in":{"c0":-12.0,"c1":-12.0,"c2":-12.0},"out":{"num":0,"s0":"NaN","s1":"NaN"}}
   ],
   "generator": "ace-vectors physics",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Physics/Trajectory.cs","member":"ACE.Server.Physics.Trajectory.SolveQuadric(double c0, double c1, double c2, out double s0, out double s1)","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Physics/Trajectory.cs","member":"ACE.Server.Physics.Trajectory.SolveQuadric(double c0, double c1, double c2, out double s0, out double s1)","runtime":"10.0.12","sdk":"10.0.401"}
 }

@@ -7478,5 +7478,5 @@
     {"in":{"enum":"EmoteType","value":-2147483648},"out":{"get_name":{"throws":"System.IndexOutOfRangeException"},"get_name_method":"EmoteTypeExtensions.GetName(EmoteType)","to_string":"-2147483648"}}
   ],
   "generator": "ace-vectors content_gdle",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":null,"member":"Lifestoned.DataModel.Shared enums: ToString() and GetName()","notes":"in: {enum, value}; out: {to_string, get_name (the GetName extension the GDLE binders bind to), get_name_method} (get_name {throws} when it throws). Every defined value, the value after each, then -2..3 and a few far values. The server's generator turns this file into empyrean-content's gdle/lifestoned_enums.rs.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":null,"member":"Lifestoned.DataModel.Shared enums: ToString() and GetName()","notes":"in: {enum, value}; out: {to_string, get_name (the GetName extension the GDLE binders bind to), get_name_method} (get_name {throws} when it throws). Every defined value, the value after each, then -2..3 and a few far values. The server's generator turns this file into empyrean-content's gdle/lifestoned_enums.rs.","runtime":"10.0.12","sdk":"10.0.401"}
 }

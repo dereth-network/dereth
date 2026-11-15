@@ -7,5 +7,5 @@
     {"in":{"rounds":3,"seed":2147483647,"values":[0,1,10,100,999,1000,25000,123456,1000000,-500,2147483647,-2147483648]},"out":[0,1,10,101,940,1011,27030,122028,1095509,-477,2058108075,-2133445418,0,0,10,90,1071,1099,25885,118878,1063381,-534,2147483647,-1946747694,0,1,10,103,1008,916,23435,122303,959434,-548,2147483647,-2147483648]}
   ],
   "generator": "ace-vectors helpers",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Entity/DeathItem.cs","member":"ACE.Server.Entity.DeathItems.GetValueWithVariance(int value)","notes":"ThreadSafeRandom seeded with new System.Random(seed) by reflection, then GetValueWithVariance called on each value in order; out lists the results.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Entity/DeathItem.cs","member":"ACE.Server.Entity.DeathItems.GetValueWithVariance(int value)","notes":"ThreadSafeRandom seeded with new System.Random(seed) by reflection, then GetValueWithVariance called on each value in order; out lists the results.","runtime":"10.0.12","sdk":"10.0.401"}
 }

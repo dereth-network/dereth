@@ -662,5 +662,5 @@
     {"in":{"base_xp":2000000000,"gained_xp":123456789012,"max_level":70,"xp_scheme":"FixedPlusBase"},"out":60}
   ],
   "generator": "ace-vectors formulas",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Entity/ExperienceSystem.cs","member":"ACE.Server.Entity.ExperienceSystem.ItemTotalXPToLevel(ulong gainedXP, ulong baseXP, int maxLevel, ItemXpStyle xpScheme)","notes":"Undef leaves level 0. base_xp 0 is only used with the Fixed/FixedPlusBase schemes (ScalesWithLevel would loop forever).","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Entity/ExperienceSystem.cs","member":"ACE.Server.Entity.ExperienceSystem.ItemTotalXPToLevel(ulong gainedXP, ulong baseXP, int maxLevel, ItemXpStyle xpScheme)","notes":"Undef leaves level 0. base_xp 0 is only used with the Fixed/FixedPlusBase schemes (ScalesWithLevel would loop forever).","runtime":"10.0.12","sdk":"10.0.401"}
 }

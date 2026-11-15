@@ -402,5 +402,5 @@
     {"in":{"difficulty":163,"player":{"class":"Player","id":1342177281,"sk":[[18,1,0,62],[44,2,0,131],[45,1,0,104],[46,3,35,33]],"wcid":1,"wt":10},"skill":18},"out":null}
   ],
   "generator": "ace-vectors crafting",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Managers/RecipeManager.cs","member":"RecipeManager.GetRecipeChance(Player, WorldObject, WorldObject, Recipe)","notes":"Non-tinkering recipes (SalvageType 0). in.player is a spec as tinker_chance's; in.skill and in.difficulty build the Recipe (retired melee and missile skills go through ConvertToMoASkill). The source and target are empty GenericObjects. out is the double chance or null. Inputs from System.Random(5902).","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Managers/RecipeManager.cs","member":"RecipeManager.GetRecipeChance(Player, WorldObject, WorldObject, Recipe)","notes":"Non-tinkering recipes (SalvageType 0). in.player is a spec as tinker_chance's; in.skill and in.difficulty build the Recipe (retired melee and missile skills go through ConvertToMoASkill). The source and target are empty GenericObjects. out is the double chance or null. Inputs from System.Random(5902).","runtime":"10.0.12","sdk":"10.0.401"}
 }

@@ -123,5 +123,5 @@
     {"in":{"x":102.0,"y":102.0},"out":{"cell":4278059072,"cell_x":0,"cell_y":64,"global_cell_x":2032,"global_cell_y":2096,"indoors":false,"landblock":65278,"rw":1.0,"rx":0.0,"ry":0.0,"rz":0.0,"to_loc_string":"0xFEFE0040 [180.000000 180.000000 0.000000] 1.000000 0.000000 0.000000 0.000000","to_string":"FEFE0040 [180 180 0]","x":180.0,"y":180.0,"z":0.0}}
   ],
   "generator": "ace-vectors entity",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Entity/Position.cs","member":"ACE.Entity.Position(Vector2 coordinates) (X = east-west, Y = north-south)","notes":"Floats are written as their exact double.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Entity/Position.cs","member":"ACE.Entity.Position(Vector2 coordinates) (X = east-west, Y = north-south)","notes":"Floats are written as their exact double.","runtime":"10.0.12","sdk":"10.0.401"}
 }

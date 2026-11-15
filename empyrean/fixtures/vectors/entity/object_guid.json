@@ -25,5 +25,5 @@
     {"in":{"full":4294967295},"out":{"full":4294967295,"high":255,"is_dynamic":false,"is_player":false,"is_static":false,"low":16777215,"static_is_dynamic":false,"static_is_player":false,"static_is_static":false,"to_string":"FFFFFFFF","type":"Undef"}}
   ],
   "generator": "ace-vectors entity",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Entity/ObjectGuid.cs","member":"ACE.Entity.ObjectGuid(uint): Type, Low, High, IsPlayer/IsStatic/IsDynamic, ToString","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Entity/ObjectGuid.cs","member":"ACE.Entity.ObjectGuid(uint): Type, Low, High, IsPlayer/IsStatic/IsDynamic, ToString","runtime":"10.0.12","sdk":"10.0.401"}
 }

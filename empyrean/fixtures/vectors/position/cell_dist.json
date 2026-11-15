@@ -662,5 +662,5 @@
     {"in":{"p1":{"cell":65535,"x":191.0,"y":30.0},"p2":{"cell":3332964361,"x":191.0,"y":30.0}},"out":1410}
   ],
   "generator": "ace-vectors position",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Entity/PositionExtensions.cs","member":"ACE.Server.Entity.PositionExtensions.CellDist(this Position p1, Position p2)","notes":"Only pairs whose p2 is outdoors: an indoor p2 reaches GetIndoorCell, which reads the dats.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Entity/PositionExtensions.cs","member":"ACE.Server.Entity.PositionExtensions.CellDist(this Position p1, Position p2)","notes":"Only pairs whose p2 is outdoors: an indoor p2 reaches GetIndoorCell, which reads the dats.","runtime":"10.0.12","sdk":"10.0.401"}
 }

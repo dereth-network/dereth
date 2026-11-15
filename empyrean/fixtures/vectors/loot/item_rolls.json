@@ -874,5 +874,5 @@
     {"in":{"armor_type":0,"call":"GearRatingChance.Roll","item_type":2,"props":[["int",28,50],["int",4,65536]],"qm":0.5,"seed":50432,"tier":8,"wcid":3000},"out":{"post":973071,"results":[0,0,0,1]}}
   ],
   "generator": "ace-vectors loot",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Factories/Tables/","member":"WandSpells.Roll / CasterSlotSpells.Roll / CasterSlotSpells.IsOrb / EquipmentSetChance.Roll / GearRatingChance.Roll","notes":"Synthetic Generic items (wcid, int properties) from WorldObjectFactory.CreateWorldObject; roll is a TreasureRoll {item_type, armor_type}. ThreadSafeRandom reseeded with `seed` after construction; four calls; post = Next(0, 999999).","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Factories/Tables/","member":"WandSpells.Roll / CasterSlotSpells.Roll / CasterSlotSpells.IsOrb / EquipmentSetChance.Roll / GearRatingChance.Roll","notes":"Synthetic Generic items (wcid, int properties) from WorldObjectFactory.CreateWorldObject; roll is a TreasureRoll {item_type, armor_type}. ThreadSafeRandom reseeded with `seed` after construction; four calls; post = Next(0, 999999).","runtime":"10.0.12","sdk":"10.0.401"}
 }

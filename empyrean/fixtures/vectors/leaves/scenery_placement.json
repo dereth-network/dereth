@@ -1002,5 +1002,5 @@
     {"in":{"dx":5.604262828826904,"dy":1.0241705179214478,"k":8,"max":0.9855940937995911,"min":0.5094081163406372,"ox":-11.001976013183594,"oy":-7.54062557220459,"rot":352.630615234375,"x":1872,"y":597},"out":[-7.668602466583252,-6.811840534210205,0.9480403065681458,2.3146674633026123]}
   ],
   "generator": "ace-vectors leaves",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Entity/Scenery.cs","member":"Scenery.Displace; Scenery.ScaleObj; Scenery.RotateObj","notes":"in: ox/oy = the ObjectDesc's BaseLoc origin; dx/dy = DisplaceX/Y; min/max = MinScale/MaxScale; rot = MaxRotation; x/y = the global cell offsets; k = the object's scene index. out = [Displace.X, Displace.Y, ScaleObj, RotateObj].","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Entity/Scenery.cs","member":"Scenery.Displace; Scenery.ScaleObj; Scenery.RotateObj","notes":"in: ox/oy = the ObjectDesc's BaseLoc origin; dx/dy = DisplaceX/Y; min/max = MinScale/MaxScale; rot = MaxRotation; x/y = the global cell offsets; k = the object's scene index. out = [Displace.X, Displace.Y, ScaleObj, RotateObj].","runtime":"10.0.12","sdk":"10.0.401"}
 }

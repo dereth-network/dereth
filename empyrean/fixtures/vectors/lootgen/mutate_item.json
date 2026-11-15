@@ -267,5 +267,5 @@
     {"in":{"profile":6,"seed":7000264,"wcid":20630},"out":{"items":[{"removed":[],"set":[["float",1,5.0],["int",65,101]],"spells":null,"wcid":20630}],"mutated":false,"post":845850}}
   ],
   "generator": "ace-vectors lootgen",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Factories/LootGenerationFactory.cs","member":"LootGenerationFactory.MutateItem(WorldObject, TreasureDeath, bool)","notes":"The /lootgen path: WorldObjectFactory.CreateNewWorldObject(wcid), then ThreadSafeRandom reseeded with `seed` and MutateItem(item, profile, true); out: mutated, the item (difference from its weenie), post.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Factories/LootGenerationFactory.cs","member":"LootGenerationFactory.MutateItem(WorldObject, TreasureDeath, bool)","notes":"The /lootgen path: WorldObjectFactory.CreateNewWorldObject(wcid), then ThreadSafeRandom reseeded with `seed` and MutateItem(item, profile, true); out: mutated, the item (difference from its weenie), post.","runtime":"10.0.12","sdk":"10.0.401"}
 }

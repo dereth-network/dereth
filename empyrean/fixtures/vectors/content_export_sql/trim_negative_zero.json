@@ -335,5 +335,5 @@
     {"in":{"f":-1.7135178831395592E-09},"out":{"f6":"0.000000","g":"0","r":0.0}}
   ],
   "generator": "ace-vectors content_export_sql",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Database/SQLFormatters/SQLWriter.cs","member":"SQLWriter.TrimNegativeZero(float?, 6)","notes":"in: {f} (null for a null float?); out: null or {r: the result, g: {r:0.######}, f6: {r:F6}}.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Database/SQLFormatters/SQLWriter.cs","member":"SQLWriter.TrimNegativeZero(float?, 6)","notes":"in: {f} (null for a null float?); out: null or {r: the result, g: {r:0.######}, f6: {r:F6}}.","runtime":"10.0.12","sdk":"10.0.401"}
 }

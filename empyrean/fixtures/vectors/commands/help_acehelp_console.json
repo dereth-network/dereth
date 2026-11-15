@@ -15,5 +15,5 @@
     {"in":{"parameters":[""]},"out":"Unknown command: \n"}
   ],
   "generator": "ace-vectors commands",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Command/Handlers/HelpCommands.cs","member":"ACE.Server.Command.Handlers.HelpCommands.HandleACEHelp(null, params string[])","notes":"From the console (session null). out is the console text.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Command/Handlers/HelpCommands.cs","member":"ACE.Server.Command.Handlers.HelpCommands.HandleACEHelp(null, params string[])","notes":"From the console (session null). out is the console text.","runtime":"10.0.12","sdk":"10.0.401"}
 }

@@ -17,5 +17,5 @@
     {"in":{"index":14},"out":{"description":"Fixes some possible issues with invisible players and mobs. 0 = default / disabled, 1 = players only, 2 = creatures, 3 = all world objects","item":0,"key":"teleport_visibility_fix"}}
   ],
   "generator": "ace-vectors properties",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Managers/PropertyManager.cs","member":"DefaultPropertyManager.DefaultLongProperties","notes":"One case per entry, in the dictionary's enumeration order (ToDictionary over the literal pairs). in.index is the position; out is {key, item, description}.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Managers/PropertyManager.cs","member":"DefaultPropertyManager.DefaultLongProperties","notes":"One case per entry, in the dictionary's enumeration order (ToDictionary over the literal pairs). in.index is the position; out is {key, item, description}.","runtime":"10.0.12","sdk":"10.0.401"}
 }

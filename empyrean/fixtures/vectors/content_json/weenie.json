@@ -43,5 +43,5 @@
     {"in":{"json":"{\"wcid\": 22, \"weenieType\": 1}","name":"class_id_22_not_named"},"out":{"sql":"DELETE FROM `weenie` WHERE `class_Id` = 22;\n\nINSERT INTO `weenie` (`class_Id`, `class_Name`, `type`, `last_Modified`)\nVALUES (22, 'ace22-22', 1, '2026-01-02 03:04:05') /* Generic */;\n"}}
   ],
   "generator": "ace-vectors content_json",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Command/Handlers/DeveloperContentCommands.cs","member":"DeveloperContentCommands.json2sql_weenie","notes":"in: {name, json}; out: {sql} (the text json2sql writes, LF line endings) or {error: load|convert|write}. DateTime.UtcNow is 2026-01-02 03:04:05; the writers have no name dictionaries.","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Command/Handlers/DeveloperContentCommands.cs","member":"DeveloperContentCommands.json2sql_weenie","notes":"in: {name, json}; out: {sql} (the text json2sql writes, LF line endings) or {error: load|convert|write}. DateTime.UtcNow is 2026-01-02 03:04:05; the writers have no name dictionaries.","runtime":"10.0.12","sdk":"10.0.401"}
 }

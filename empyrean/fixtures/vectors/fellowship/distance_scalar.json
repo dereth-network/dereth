@@ -323,5 +323,5 @@
     {"in":{"earner":[2863923201,5.9784650802612305,0.2917395532131195],"fellow":[2863923205,14.218827247619629,119.63702392578125],"xp_type":0},"out":1.0}
   ],
   "generator": "ace-vectors fellowship",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Entity/Fellowship.cs","member":"Fellowship.GetDistanceScalar(Player earner, Player fellow, XpType xpType)","notes":"in.earner / in.fellow = [cell, x, y] of the Location (z 0, rotation identity), or null for a null player; in.xp_type the XpType as an int. out = the double result (ACE's float arithmetic widened).","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/Entity/Fellowship.cs","member":"Fellowship.GetDistanceScalar(Player earner, Player fellow, XpType xpType)","notes":"in.earner / in.fellow = [cell, x, y] of the Location (z 0, rotation identity), or null for a null player; in.xp_type the XpType as an int. out = the double result (ACE's float arithmetic widened).","runtime":"10.0.12","sdk":"10.0.401"}
 }

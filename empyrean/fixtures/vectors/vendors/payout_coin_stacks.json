@@ -19,5 +19,5 @@
     {"in":{"amount":123456},"out":[[25000,25000,0,null,null,273],[25000,25000,0,null,null,273],[25000,25000,0,null,null,273],[25000,25000,0,null,null,273],[23456,23456,0,null,null,273]]}
   ],
   "generator": "ace-vectors vendors",
-  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/WorldObjects/Player_Commerce.cs","member":"Player.CreatePayoutCoinStacks(int) (private)","notes":"The weenies of the first case's in.weenies are the only ones in DatabaseManager.World ('coinstack' is 273). in.amount is the argument; out lists the created stacks as [StackSize, Value, EncumbranceVal, PaletteTemplate, Shade, WeenieClassId].","runtime":"10.0.12","sdk":"10.0.401"}
+  "source": {"ace_commit":"aadedb3d6092e1952366f125b85fabc5d73c19e5","culture":"en-US","file":"Source/ACE.Server/WorldObjects/Player_Commerce.cs","member":"Player.CreatePayoutCoinStacks(int) (private)","notes":"The weenies of the first case's in.weenies are the only ones in DatabaseManager.World ('coinstack' is 273). in.amount is the argument; out lists the created stacks as [StackSize, Value, EncumbranceVal, PaletteTemplate, Shade, WeenieClassId].","runtime":"10.0.12","sdk":"10.0.401"}
 }
