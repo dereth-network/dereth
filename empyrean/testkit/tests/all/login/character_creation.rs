@@ -1,6 +1,7 @@
 //! ACE: Source/ACE.Server/Factories/PlayerFactory.cs::Create
 //! A character is created over the wire (Ok, first guid, listed); the same name in another case
-//! answers NameInUse once; a taboo name answers NameBanned.
+//! answers NameInUse once; a taboo name answers NameBanned; an account at its slot cap is refused,
+//! however many creates it sends at once.
 //! Fixture: a virtual-time TestServer, isolated stores and synthetic dats.
 
 use std::collections::BTreeMap;
@@ -14,6 +15,7 @@ use empyrean_entity::enums::{PropertyInt, WeenieType};
 use empyrean_net::SessionId;
 use empyrean_testkit::{ClientId, ClientStatus, TestServer};
 use empyrean_world::managers::guid_manager;
+use empyrean_world::managers::property_manager;
 use empyrean_world::managers::world_manager::WorldStatusState;
 
 const ACCOUNT: &str = "acct";
@@ -88,6 +90,61 @@ fn a_character_is_created_over_the_wire_then_its_name_is_taken() {
 
     assert_eq!(ts.shard().get_characters(ACCOUNT_ID, false).len(), 1);
     assert_eq!(ts.client(id).status(), ClientStatus::Connected);
+}
+
+/// With two slots, a third character is answered Corrupt (the retail client offers Create only
+/// below the cap) and is not saved.
+#[test]
+fn an_account_at_its_slot_cap_is_refused_a_new_character() {
+    let (mut ts, id, session) = logged_in();
+    assert!(property_manager::modify_long(
+        &ts.world,
+        "max_chars_per_account",
+        2
+    ));
+
+    for name in ["Aldric", "Brenna"] {
+        let ok = create(&mut ts, id, name);
+        assert_eq!(ok.iter().map(|r| r.response_type).collect::<Vec<_>>(), [1]);
+    }
+    let third = create(&mut ts, id, "Cedric");
+    assert_eq!(
+        third.iter().map(|r| r.response_type).collect::<Vec<_>>(),
+        [5],
+        "Corrupt"
+    );
+
+    assert_eq!(ts.shard().get_characters(ACCOUNT_ID, false).len(), 2);
+    assert_eq!(
+        ts.world.sessions.get(session).map(|s| s.characters.len()),
+        Some(2)
+    );
+}
+
+/// Three creates sent together with two slots free: two are saved and one is answered Corrupt,
+/// although none had been saved when the others were checked.
+#[test]
+fn creates_sent_together_cannot_pass_the_slot_cap() {
+    let (mut ts, id, _) = logged_in();
+    assert!(property_manager::modify_long(
+        &ts.world,
+        "max_chars_per_account",
+        2
+    ));
+
+    for name in ["Aldric", "Brenna", "Cedric"] {
+        ts.send_message(id, NetQueue::Logon, &request(name));
+    }
+    ts.advance(0.5);
+
+    let mut answers: Vec<u32> = ts
+        .received::<CharGenVerificationResponse>(id)
+        .iter()
+        .map(|r| r.response_type)
+        .collect();
+    answers.sort_unstable();
+    assert_eq!(answers, [1, 1, 5]);
+    assert_eq!(ts.shard().get_characters(ACCOUNT_ID, false).len(), 2);
 }
 
 pub(crate) use empyrean_testkit::EmptyShard;

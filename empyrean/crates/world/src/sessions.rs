@@ -68,6 +68,9 @@ pub struct SessionData {
     pub access_level: AccessLevel,
     // ACE: Session.Characters
     pub characters: Vec<CharacterSummary>,
+    /// Not ACE (V526): characters this session has asked to create that are not saved or
+    /// refused yet, counted against the slot cap with `characters`.
+    pub characters_being_created: u32,
     // ACE: Session.Player
     pub player: Option<ObjectGuid>,
     // ACE: Session.logOffRequestTime
@@ -120,6 +123,7 @@ impl Default for SessionData {
             account: None,
             access_level: AccessLevel::Player,
             characters: Vec::new(),
+            characters_being_created: 0,
             player: None,
             log_off_request_time: DotNetDateTime::MIN_VALUE,
             last_character_select_ping_reply: DotNetDateTime::MIN_VALUE,

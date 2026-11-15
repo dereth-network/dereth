@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+- Fixed accounts being able to create more characters than the slot limit.
 - A creature or item that fails during its tick no longer stops the rest of the world.
 - Fixed ways to duplicate or lose items through splitting, giving, trading and vendors.
 - `@god` and `@ungod` work on a character of any era, not only the end of retail's.

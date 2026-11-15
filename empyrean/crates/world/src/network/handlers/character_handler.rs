@@ -110,6 +110,26 @@ fn character_create_ex(
     }
     let name = character_create_info.name.clone().unwrap_or_default();
 
+    // Not ACE's (a fix, V526): an account at its slot cap is answered `Corrupt`. The retail client
+    // offers Create only while the account holds fewer characters than the cap its character list
+    // gave, so a create at the cap did not come from a real client. Characters still being
+    // created count, so creates sent together cannot pass the cap before any is saved.
+    let held = w.sessions.get(session).map_or(0, |s| {
+        s.characters.len() + usize::try_from(s.characters_being_created).unwrap_or(usize::MAX)
+    });
+    let slots =
+        crate::managers::player_manager::property_manager_get_long(w, "max_chars_per_account");
+    if i64::try_from(held).unwrap_or(i64::MAX) >= slots {
+        send_character_create_response(
+            w,
+            session,
+            Response::Corrupt,
+            empyrean_entity::ObjectGuid::default(),
+            "",
+        );
+        return Ok(());
+    }
+
     // Not ACE's: retail's name limit (V248). The wizard stores at most 32
     // characters and never an empty name, so a name outside that did not come from a real client
     // and is answered `Corrupt`, as an out-of-range template is (V243).
@@ -360,10 +380,20 @@ fn character_create_ex(
     }
 
     let char_name = name.clone();
+    // DIVERGE: V526, counted until it is saved or refused.
+    let created = move |w: &mut World| {
+        if let Some(s) = w.sessions.get_mut(session) {
+            s.characters_being_created = s.characters_being_created.saturating_sub(1);
+        }
+    };
+    if let Some(s) = w.sessions.get_mut(session) {
+        s.characters_being_created += 1;
+    }
     w.shard.is_character_name_available(
         name,
         Some(Box::new(move |w: &mut World, is_available: bool| {
             if !is_available {
+                created(w);
                 send_character_create_response(
                     w,
                     session,
@@ -388,6 +418,7 @@ fn character_create_ex(
                 possessed_biotas,
                 character,
                 Some(Box::new(move |w: &mut World, save_success: bool| {
+                    created(w);
                     if !save_success {
                         send_character_create_response(
                             w,
