@@ -109,6 +109,9 @@ pub struct WorldManagerState {
     pub stage_exceptions: u64,
     /// Not ACE: shard callbacks that panicked in [`run_shard_callbacks`].
     pub shard_callback_exceptions: u64,
+    /// Not ACE (V525): one object's heartbeat, monster tick, generator pass or player tick that
+    /// panicked, caught around that object alone.
+    pub object_tick_exceptions: u64,
 }
 
 /// What one iteration of the loop reports to [`update_world`], which decides the sleep from it.
@@ -937,7 +940,7 @@ pub fn run_shard_callbacks(w: &mut World) {
     }
 }
 
-fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
+pub(crate) fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
     panic
         .downcast_ref::<&str>()
         .map(|s| (*s).to_owned())

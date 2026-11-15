@@ -221,6 +221,8 @@ pub struct Landblock {
 
     // Cache used for Tick efficiency
     players: Vec<ObjectGuid>,
+    /// Not ACE (V525): players whose tick panicked, and the time their tick runs again.
+    player_tick_resumes: std::collections::HashMap<ObjectGuid, f64>,
     sorted_creatures_by_next_tick: SortedByTime,
     sorted_world_objects_by_next_heartbeat: SortedByTime,
     sorted_generators_by_next_generator_update: SortedByTime,
@@ -296,6 +298,7 @@ impl Landblock {
             pending_additions: DotNetDict::new(),
             pending_removals: Vec::new(),
             players: Vec::new(),
+            player_tick_resumes: std::collections::HashMap::new(),
             sorted_creatures_by_next_tick: SortedByTime::new(),
             sorted_world_objects_by_next_heartbeat: SortedByTime::new(),
             sorted_generators_by_next_generator_update: SortedByTime::new(),
@@ -886,14 +889,41 @@ pub fn tick_physics(
     pause_monitors(w, id);
 }
 
+/// Not ACE (V525): how long an object whose tick panicked waits before that tick runs again.
+pub const PANICKED_TICK_RETRY_SECONDS: f64 = 5.0;
+
+/// Not ACE (V525): runs one object's tick `what` inside `catch_unwind`. Returns `false`, after
+/// logging and counting the panic, if it panicked.
+fn tick_caught(w: &mut World, guid: ObjectGuid, what: &str, f: impl FnOnce(&mut World)) -> bool {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&mut *w))) {
+        Ok(()) => true,
+        Err(panic) => {
+            let message = crate::managers::world_manager::panic_message(panic.as_ref());
+            log::error!(
+                "{what} of 0x{:08X} threw an exception: {message}; it runs again in {PANICKED_TICK_RETRY_SECONDS} s",
+                guid.full()
+            );
+            w.world_manager.object_tick_exceptions += 1;
+            false
+        }
+    }
+}
+
 /// One pass of a time-ordered tick loop: while the first object is due, take it off, run `f` on
 /// it and, if `requeue`, put it back through `requeue`. Objects gone from the store are dropped.
+///
+/// DIVERGE: V525, each object's `f` runs inside its own `catch_unwind`. A panicking object has its
+/// next time set `PANICKED_TICK_RETRY_SECONDS` on through `push_on` and is requeued, and the pass
+/// goes on with the next object; in ACE the exception leaves the whole landblock pass.
+#[allow(clippy::too_many_arguments)]
 fn run_due(
     w: &mut World,
     id: LandblockId,
     current_unix_time: f64,
+    what: &str,
     list: fn(&mut Landblock) -> &mut SortedByTime,
     key: fn(&WorldObject) -> f64,
+    push_on: fn(&mut WorldObject, f64),
     mut f: impl FnMut(&mut World, ObjectGuid),
     requeue: fn(&mut Landblock, &ObjectStore, ObjectGuid),
 ) {
@@ -906,7 +936,11 @@ fn run_due(
         // If they wanted to run before or at now
         if key(o) <= current_unix_time {
             list(lb_mut(w, id)).remove_first();
-            f(w, first);
+            if !tick_caught(w, first, what, |w| f(w, first)) {
+                if let Some(o) = w.objects.get_mut(first) {
+                    push_on(o, current_unix_time + PANICKED_TICK_RETRY_SECONDS);
+                }
+            }
             if w.landblock_manager.landblocks.get(id).is_none() {
                 return;
             }
@@ -951,8 +985,14 @@ pub fn tick_multi_threaded_work(w: &mut World, id: LandblockId, current_unix_tim
             w,
             id,
             current_unix_time,
+            "Monster_Tick",
             |l| &mut l.sorted_creatures_by_next_tick,
             next_monster_tick_time,
+            |o, t| {
+                if let Some(c) = o.creature.as_mut() {
+                    c.monster_tick.next_monster_tick_time = t;
+                }
+            },
             |w, first| creature_monster_tick(w, first, current_unix_time),
             // All creatures tick at a fixed interval
             |l, _, first| l.sorted_creatures_by_next_tick.add_last(first),
@@ -969,8 +1009,10 @@ pub fn tick_multi_threaded_work(w: &mut World, id: LandblockId, current_unix_tim
         w,
         id,
         current_unix_time,
+        "GeneratorUpdate",
         |l| &mut l.sorted_generators_by_next_generator_update,
         next_generator_update_time,
+        |o, t| o.wo.world_object_tick.next_generator_update_time = t,
         |w, first| world_object_generator_update(w, first, current_unix_time),
         //InsertWorldObjectIntoSortedGeneratorUpdateList(first);
         |l, _, first| l.sorted_generators_by_next_generator_update.add_last(first),
@@ -986,8 +1028,10 @@ pub fn tick_multi_threaded_work(w: &mut World, id: LandblockId, current_unix_tim
         w,
         id,
         current_unix_time,
+        "GeneratorRegeneration",
         |l| &mut l.sorted_generators_by_next_regeneration,
         next_generator_regeneration_time,
+        |o, t| o.wo.world_object_tick.next_generator_regeneration_time = t,
         |w, first| world_object_generator_regeneration(w, first, current_unix_time),
         // Generators can have regnerations at different intervals
         |l, objects, first| {
@@ -1084,7 +1128,23 @@ pub fn tick_single_threaded_work(w: &mut World, id: LandblockId, current_unix_ti
     crate::world_objects::portal_storm::tick(w, id, &players, current_unix_time);
     for player in players {
         if w.objects.contains(player) {
-            player_player_tick(w, player, current_unix_time);
+            // DIVERGE: V525, each player's tick runs inside its own `catch_unwind`; one that panicked
+            // is skipped until `PANICKED_TICK_RETRY_SECONDS` have passed.
+            let resumes = &mut lb_mut(w, id).player_tick_resumes;
+            if let Some(&at) = resumes.get(&player) {
+                if current_unix_time < at {
+                    continue;
+                }
+                resumes.remove(&player);
+            }
+            if !tick_caught(w, player, "Player_Tick", |w| {
+                player_player_tick(w, player, current_unix_time);
+            }) {
+                if let Some(l) = w.landblock_manager.landblocks.get_mut(id) {
+                    l.player_tick_resumes
+                        .insert(player, current_unix_time + PANICKED_TICK_RETRY_SECONDS);
+                }
+            }
         }
     }
     add_cumulative(
@@ -1098,8 +1158,10 @@ pub fn tick_single_threaded_work(w: &mut World, id: LandblockId, current_unix_ti
         w,
         id,
         current_unix_time,
+        "Heartbeat",
         |l| &mut l.sorted_world_objects_by_next_heartbeat,
         next_heartbeat_time,
+        |o, t| o.wo.world_object_tick.next_heartbeat_time = t,
         |w, first| crate::dispatch::heartbeat::heartbeat(w, first, current_unix_time),
         // WorldObjects can have heartbeats at different intervals
         |l, objects, first| l.insert_world_object_into_sorted_heartbeat_list(objects, first),

@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+- A creature or item that fails during its tick no longer stops the rest of the world.
 - Fixed ways to duplicate or lose items through splitting, giving, trading and vendors.
 - `@god` and `@ungod` work on a character of any era, not only the end of retail's.
 - Fixed monster missiles hurting whoever the monster turned on instead of what they hit.
