@@ -31,6 +31,11 @@
 //! - **`--dxil` and `--msl`** also compile every entry point for D3D12's DXIL (with the pinned DXC,
 //!   on Windows) and for Metal's shading language, into `<cargo target dir>/shaders/`, outside the
 //!   tree. A crate checks a target in by naming it in its `shaders.toml`.
+//! - **Imports.** A folder's `shaders.toml` may name other shader folders whose modules its sources
+//!   import (`imports = ["../../gfx-passes/shaders"]`, each a path from the folder): they are on
+//!   the compiler's include path after the folder itself, and their sources are hashed into the
+//!   folder's manifest beside its own, so a shared module edited without regenerating the blobs
+//!   that import it fails `--check` too.
 
 mod fetch;
 #[cfg(test)]
@@ -240,12 +245,17 @@ pub struct Spec {
     /// The targets checked in, in `Target`'s order.
     pub targets: Vec<Target>,
     pub entries: Vec<EntrySpec>,
+    /// The shader folders whose modules the sources import, each a path from the folder with
+    /// forward slashes, in the order they are searched.
+    pub imports: Vec<String>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SpecFile {
     targets: Vec<String>,
+    #[serde(default)]
+    imports: Vec<String>,
     #[serde(default)]
     entry: Vec<EntryFile>,
 }
@@ -259,7 +269,8 @@ struct EntryFile {
 }
 
 /// Reads `shaders.toml`'s text: every target and stage known, every source a plain `.slang` file
-/// name, every function an identifier, and no two entry points sharing a blob.
+/// name, every function an identifier, no two entry points sharing a blob, and every import a
+/// relative path of plain names and `..`, named once.
 pub fn parse_spec(text: &str) -> Result<Spec, String> {
     let file: SpecFile = toml::from_str(text).map_err(|e| format!("{SPEC}: {e}"))?;
     let mut targets = BTreeSet::new();
@@ -270,6 +281,25 @@ pub fn parse_spec(text: &str) -> Result<Spec, String> {
     }
     if targets.is_empty() {
         return Err(format!("{SPEC}: `targets` names none"));
+    }
+    let mut imports = Vec::new();
+    for i in file.imports {
+        let plain_part = |p: &str| {
+            p == ".."
+                || (!p.is_empty()
+                    && p != "."
+                    && p.chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'))
+        };
+        if i.is_empty() || !i.split('/').all(plain_part) {
+            return Err(format!(
+                "{SPEC}: import {i:?} is not a path from the folder of plain names and `..`"
+            ));
+        }
+        if imports.contains(&i) {
+            return Err(format!("{SPEC}: import {i:?} is named twice"));
+        }
+        imports.push(i);
     }
     let mut entries = Vec::new();
     let mut variants = BTreeSet::new();
@@ -317,6 +347,7 @@ pub fn parse_spec(text: &str) -> Result<Spec, String> {
     Ok(Spec {
         targets: targets.into_iter().collect(),
         entries,
+        imports,
     })
 }
 
@@ -371,9 +402,15 @@ fn lf(bytes: &[u8]) -> Vec<u8> {
 }
 
 /// The SHA-256 of every source in the folder (`shaders.toml` and every `.slang` file, outside
-/// `compiled/`), keyed by path from the folder, with forward slashes.
-pub fn source_hashes(dir: &Path) -> Result<BTreeMap<String, String>, String> {
-    fn walk(base: &Path, dir: &Path, out: &mut BTreeMap<String, String>) -> Result<(), String> {
+/// `compiled/`) and of every `.slang` file of the folders it imports, keyed by path from the
+/// folder, with forward slashes.
+pub fn source_hashes(dir: &Path, imports: &[String]) -> Result<BTreeMap<String, String>, String> {
+    fn walk(
+        base: &Path,
+        dir: &Path,
+        own: bool,
+        out: &mut BTreeMap<String, String>,
+    ) -> Result<(), String> {
         let entries = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         for e in entries.flatten() {
             let p = e.path();
@@ -384,9 +421,9 @@ pub fn source_hashes(dir: &Path) -> Result<BTreeMap<String, String>, String> {
                 .replace('\\', "/");
             if p.is_dir() {
                 if rel != COMPILED {
-                    walk(base, &p, out)?;
+                    walk(base, &p, own, out)?;
                 }
-            } else if rel == SPEC || p.extension().is_some_and(|x| x == "slang") {
+            } else if (own && rel == SPEC) || p.extension().is_some_and(|x| x == "slang") {
                 let bytes = std::fs::read(&p).map_err(|e| format!("{}: {e}", p.display()))?;
                 out.insert(rel, sha256_hex(&lf(&bytes)));
             }
@@ -394,7 +431,18 @@ pub fn source_hashes(dir: &Path) -> Result<BTreeMap<String, String>, String> {
         Ok(())
     }
     let mut out = BTreeMap::new();
-    walk(dir, dir, &mut out)?;
+    walk(dir, dir, true, &mut out)?;
+    for i in imports {
+        let folder = dir.join(i);
+        if !folder.join(SPEC).is_file() {
+            return Err(format!(
+                "import {i} is not a shader folder (it has no {SPEC})"
+            ));
+        }
+        let mut theirs = BTreeMap::new();
+        walk(&folder, &folder, false, &mut theirs)?;
+        out.extend(theirs.into_iter().map(|(k, v)| (format!("{i}/{k}"), v)));
+    }
     Ok(out)
 }
 
@@ -533,9 +581,16 @@ pub fn render_index(spec: &Spec) -> String {
     s
 }
 
-/// What compiles one entry point for one target. `slangc` in use; a stand-in in the tests.
+/// What compiles one entry point for one target, the folder `dir` and then each of `imports` (paths
+/// from it) searched for the modules it imports. `slangc` in use; a stand-in in the tests.
 pub trait Compiler {
-    fn compile(&self, dir: &Path, entry: &EntrySpec, target: Target) -> Result<Vec<u8>, String>;
+    fn compile(
+        &self,
+        dir: &Path,
+        entry: &EntrySpec,
+        target: Target,
+        imports: &[String],
+    ) -> Result<Vec<u8>, String>;
 }
 
 /// The pinned `slangc`, with DXC's folder on its `PATH` when the DXIL target is wanted.
@@ -574,7 +629,13 @@ impl Slangc {
 }
 
 impl Compiler for Slangc {
-    fn compile(&self, dir: &Path, entry: &EntrySpec, target: Target) -> Result<Vec<u8>, String> {
+    fn compile(
+        &self,
+        dir: &Path,
+        entry: &EntrySpec,
+        target: Target,
+        imports: &[String],
+    ) -> Result<Vec<u8>, String> {
         let out = std::env::temp_dir().join(format!(
             "dereth-shaders-{}-{}.{}",
             std::process::id(),
@@ -588,6 +649,7 @@ impl Compiler for Slangc {
             .args(COMMON_OPTIONS)
             .args(target.options())
             .args(["-I", "."])
+            .args(imports.iter().flat_map(|i| ["-I", i.as_str()]))
             .arg("-o")
             .arg(&out);
         if let (Target::Dxil, Some(dxc)) = (target, &self.dxc) {
@@ -645,11 +707,19 @@ fn compile_blobs(
             ));
         }
     }
+    for i in &spec.imports {
+        if !root.dir.join(i).join(SPEC).is_file() {
+            return Err(format!(
+                "{}: {SPEC} imports {i}, which is not a shader folder",
+                root.rel
+            ));
+        }
+    }
     let mut blobs = BTreeMap::new();
     let mut failed = Vec::new();
     for &t in targets {
         for e in &spec.entries {
-            match compiler.compile(&root.dir, e, t) {
+            match compiler.compile(&root.dir, e, t, &spec.imports) {
                 Ok(bytes) if bytes.is_empty() => failed.push(format!(
                     "{} {} ({}): the blob is empty",
                     e.source,
@@ -732,7 +802,7 @@ pub fn compile_root(root: &Root, compiler: &dyn Compiler) -> Result<Written, Str
     let manifest = render_manifest(
         &compiler_line(),
         &spec.targets,
-        &source_hashes(&root.dir)?,
+        &source_hashes(&root.dir, &spec.imports)?,
         &records,
     );
     let index = render_index(&spec);
@@ -770,7 +840,7 @@ pub fn check_root(root: &Root) -> Vec<String> {
         Err(e) => return vec![at(e)],
     };
     let compiled = root.dir.join(COMPILED);
-    let sources = match source_hashes(&root.dir) {
+    let sources = match source_hashes(&root.dir, &spec.imports) {
         Ok(s) => s,
         Err(e) => return vec![at(e)],
     };

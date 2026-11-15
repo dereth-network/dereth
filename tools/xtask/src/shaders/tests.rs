@@ -21,7 +21,13 @@ impl Fake {
 }
 
 impl Compiler for Fake {
-    fn compile(&self, dir: &Path, entry: &EntrySpec, target: Target) -> Result<Vec<u8>, String> {
+    fn compile(
+        &self,
+        dir: &Path,
+        entry: &EntrySpec,
+        target: Target,
+        _imports: &[String],
+    ) -> Result<Vec<u8>, String> {
         self.calls.set(self.calls.get() + 1);
         let source = std::fs::read(dir.join(&entry.source)).map_err(|e| e.to_string())?;
         let mut blob = format!("{}:{}:", entry.entry, target.name()).into_bytes();
@@ -203,6 +209,63 @@ fn a_new_entry_point_or_source_without_regenerating_fails_the_check() {
     std::fs::remove_dir_all(&root.dir).ok();
 }
 
+/// **A folder that imports another's modules hashes them into its manifest, and a shared module
+/// edited without regenerating fails the importer's check, naming it by its path from the
+/// importer**; the imported folder's own `shaders.toml` is not the importer's source. An import
+/// that is not a shader folder fails the check and the compile, naming it.
+#[test]
+fn an_imported_module_edited_without_regenerating_fails_the_importers_check() {
+    let shared = folder("imported-shared");
+    let user = folder("imported-user");
+    let rel = format!("../{}", shared.dir.file_name().unwrap().to_string_lossy());
+    let spec = std::fs::read_to_string(user.dir.join(SPEC)).unwrap();
+    std::fs::write(
+        user.dir.join(SPEC),
+        spec.replace(
+            "targets = [\"spirv\"]\n",
+            &format!("targets = [\"spirv\"]\nimports = [\"{rel}\"]\n"),
+        ),
+    )
+    .unwrap();
+    compile_root(&user, &Fake::new()).unwrap();
+    let manifest = std::fs::read_to_string(compiled(&user, MANIFEST)).unwrap();
+    assert!(
+        manifest.contains(&format!("\"{rel}/common.slang\" = ")),
+        "{manifest}"
+    );
+    assert!(
+        !manifest.contains(&format!("\"{rel}/{SPEC}\"")),
+        "{manifest}"
+    );
+    assert_eq!(check_root(&user), Vec::<String>::new());
+
+    std::fs::write(
+        shared.dir.join("common.slang"),
+        "module common;\n// edited\n",
+    )
+    .unwrap();
+    let found = check_root(&user);
+    assert!(
+        found.len() == 1
+            && found[0].contains(&format!(
+                "{rel}/common.slang changed since its blobs were compiled"
+            )),
+        "{found:?}"
+    );
+    compile_root(&user, &Fake::new()).unwrap();
+    assert_eq!(check_root(&user), Vec::<String>::new());
+
+    std::fs::remove_dir_all(&shared.dir).ok();
+    let found = check_root(&user);
+    assert!(
+        found.len() == 1 && found[0].contains("is not a shader folder"),
+        "{found:?}"
+    );
+    let e = compile_root(&user, &Fake::new()).unwrap_err();
+    assert!(e.contains("which is not a shader folder"), "{e}");
+    std::fs::remove_dir_all(&user.dir).ok();
+}
+
 /// **A checkout that wrote CRLF line endings checks the same as the LF one** the blobs were made
 /// from, for the sources, the manifest and the index.
 #[test]
@@ -245,7 +308,8 @@ fn the_index_embeds_each_entry_points_blob_for_each_checked_in_target() {
 }
 
 /// **`shaders.toml` is read strictly**: an unknown target, stage or key, a source that is not a
-/// plain file name, and an entry point named twice are each refused.
+/// plain file name, an entry point named twice, and an import that is not a relative path of plain
+/// names and `..`, or is named twice, are each refused.
 #[test]
 fn shaders_toml_refuses_unknown_targets_stages_keys_paths_and_repeats() {
     let entry = |source: &str, entry: &str, stage: &str| {
@@ -256,6 +320,12 @@ fn shaders_toml_refuses_unknown_targets_stages_keys_paths_and_repeats() {
         entry("a.slang", "vs", "vertex")
     );
     assert!(parse_spec(&ok).is_ok());
+    let with = parse_spec(&ok.replace(
+        "targets = [\"spirv\"]",
+        "targets = [\"spirv\"]\nimports = [\"../../shared/shaders\"]",
+    ))
+    .unwrap();
+    assert_eq!(with.imports, ["../../shared/shaders"]);
     for (bad, why) in [
         (ok.replace("spirv", "hlsl"), "unknown target"),
         (ok.replace("vertex", "pixel"), "unknown stage"),
@@ -268,6 +338,34 @@ fn shaders_toml_refuses_unknown_targets_stages_keys_paths_and_repeats() {
             "named twice",
         ),
         ("targets = []\n".to_owned(), "names none"),
+        (
+            ok.replace(
+                "targets = [\"spirv\"]",
+                "targets = [\"spirv\"]\nimports = [\"/abs\"]",
+            ),
+            "not a path",
+        ),
+        (
+            ok.replace(
+                "targets = [\"spirv\"]",
+                "targets = [\"spirv\"]\nimports = [\"..\\\\x\"]",
+            ),
+            "not a path",
+        ),
+        (
+            ok.replace(
+                "targets = [\"spirv\"]",
+                "targets = [\"spirv\"]\nimports = [\"./x\"]",
+            ),
+            "not a path",
+        ),
+        (
+            ok.replace(
+                "targets = [\"spirv\"]",
+                "targets = [\"spirv\"]\nimports = [\"../x\", \"../x\"]",
+            ),
+            "named twice",
+        ),
     ] {
         let e = parse_spec(&bad).unwrap_err();
         assert!(e.contains(why), "{why}: {e}");
