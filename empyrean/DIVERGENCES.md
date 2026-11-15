@@ -535,3 +535,5 @@ the evidence behind each row. Edit the register, not this file.
 | V529 | robustness | Fixed a use while trading that could leave the client waiting for an answer. | `empyrean-testkit::all::inventory::trade::a_use_of_a_missing_object_while_trading_is_answered` |
 | V530 | robustness | A client that hangs up while its character loads no longer leaves a broken player in the world. | `empyrean-testkit::all::login::enter_world::a_session_that_hangs_up_while_its_character_loads_enters_no_player` |
 | V531 | fix | Fixed wielded items meant to be destroyed on death surviving it. | `empyrean-world::all::players::death_xp::items_bonded_to_be_destroyed_on_death_are_destroyed_wielded_or_not` |
+| V532 | robustness | Fixed players stranded after arriving in an area just as it unloaded. | `empyrean-world::all::world::landblocks::a_landblock_holding_a_player_is_not_unloaded` |
+| V533 | fix | Fixed a way to send a chat line to every player past their chat settings. | `empyrean-testkit::all::chat::chat_between_players::a_turbine_chat_message_to_room_zero_reaches_nobody` |

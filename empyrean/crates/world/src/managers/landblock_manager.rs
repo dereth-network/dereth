@@ -712,6 +712,14 @@ fn unload_landblocks(w: &mut World) {
         let loaded = w.landblock_manager.landblocks.get(landblock).is_some()
             && w.landblock_manager.loaded_landblocks.contains(&landblock);
 
+        // DIVERGE: V532, a landblock holding a player stays loaded and counts as active again:
+        // ACE unloads it when only the player's own heartbeat, not yet run there, would have
+        // kept it awake (a teleport into an idle landblock just before its unload).
+        if loaded && landblock::holds_player(w, landblock) {
+            landblock::set_active(w, landblock, false);
+            continue;
+        }
+
         if loaded {
             landblock::unload(w, landblock);
         }

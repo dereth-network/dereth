@@ -1651,6 +1651,13 @@ pub fn set_active(w: &mut World, id: LandblockId, is_adjacent: bool) {
     }
 }
 
+/// Not ACE (V532): whether the landblock holds a player, its pending additions and removals
+/// taken in first.
+pub fn holds_player(w: &mut World, id: LandblockId) -> bool {
+    process_pending(w, id);
+    !lb(w, id).players.is_empty()
+}
+
 // ACE: Landblock.Unload
 /// Handles the cleanup process for a landblock. Called by `LandblockManager`.
 pub fn unload(w: &mut World, id: LandblockId) {

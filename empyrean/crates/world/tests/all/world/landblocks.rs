@@ -1,4 +1,5 @@
 //! ACE: Source/ACE.Server/Entity/Landblock.cs::TickMultiThreadedWork
+//! Divergence: V532
 //! GuidManager, Landblock, LandblockManager, groups/split, mesh and actors follow ACE.
 //! Fixture: Synthetic landblocks and a mock shard store.
 
@@ -727,6 +728,34 @@ fn an_idle_landblock_goes_dormant_after_a_minute_and_unloads_after_five() {
         not_ported::take_local().get("ACE: LScape.unload_landblock"),
         None
     );
+}
+
+/// A player who arrives in an idle landblock just before its unload keeps it loaded, though the
+/// player has not yet had a heartbeat there to mark it active.
+#[test]
+fn a_landblock_holding_a_player_is_not_unloaded() {
+    let mut h = H::plain();
+    let id = lbid(0x30, 0x30);
+    lm::get_landblock(&mut h.w, id, false, false);
+    h.tick();
+    h.advance(295.0);
+    h.tick();
+    assert!(h.lb(id).is_dormant, "idle");
+
+    // The player arrives; its heartbeat (here never) has not marked the landblock active.
+    let p = h.spawn(player(0x5000_0001), 0x3030_0001);
+    h.advance(10.0);
+    h.tick();
+    assert!(lm::is_loaded(&h.w, id), "still loaded");
+    assert_eq!(h.lb(id).players(), [p]);
+    assert!(!h.lb(id).is_dormant, "active again");
+    assert!(h.w.landblock_manager.destruction_queue().is_empty());
+
+    // Once the player leaves, the landblock unloads as any idle one does.
+    landblock::remove_world_object(&mut h.w, id, p, false, false, true);
+    h.advance(305.0);
+    h.tick();
+    assert!(!lm::is_loaded(&h.w, id), "unloaded once empty");
 }
 
 #[test]
