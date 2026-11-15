@@ -6405,6 +6405,75 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.hands.a-give-shows-the-item-in-the-hand",
+        says: "A give's handing-over, and a person's handing the item back, show a copy of the item \
+               in the hand as its template draws it: the entity it is drawn as and its appearance \
+               as it lies; the give and the item back are answered naming the item so.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HAND-GIVE"),
+        station: "yalain-testkit::cpu::play::gives::an_item_given_and_handed_back_is_in_the_hand_as_its_template_draws_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.hands.a-pickup-and-a-put-down-show-the-item-in-the-hand",
+        says: "Putting an item down and picking it up show a copy of it in the hand as its template \
+               draws it, and both moves are answered naming the item so; an item whose template \
+               names no entity shows its look, with no appearance.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HAND-PICKUP"),
+        station: "yalain-testkit::cpu::play::hands::an_item_put_down_and_picked_up_is_in_the_hand_as_its_template_draws_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.hands.a-take-shows-the-item-in-the-hand",
+        says: "Taking an item out of a corpse or a chest, the player plays its taking behavior with a \
+               copy of the item in its hand, drawn as the item's template's entity in its appearance \
+               as it lies; the take is answered naming the item so.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HAND-TAKE"),
+        station: "yalain-testkit::cpu::play::hands::an_item_taken_from_a_corpse_is_in_the_hand_as_its_template_draws_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.hands.every-answer-names-the-item-as-its-template-draws-it",
+        says: "An item taken with everything else in a corpse, moved within the pack or traded is \
+               answered each time naming the entity its template is drawn as and its appearance \
+               as it lies.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HAND-ANSWERS"),
+        station: "yalain-testkit::cpu::play::hands::an_item_taken_with_the_rest_moved_and_traded_is_named_as_its_template_draws_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.hands.every-recorded-answer-names-the-item-as-its-template-draws-it",
+        says: "Every recorded answer to a move of an item names the entity its template is drawn as \
+               and its appearance as it lies, as the server reads them from the install.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HAND-ANSWERS-2017"),
+        station: "yalain-testkit::corpus::play::hands::every_recorded_move_answer_names_the_item_as_its_template_draws_it",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.hands.every-recorded-copy-is-the-item-as-its-template-draws-it",
+        says: "Every recorded copy of an item in a player's or a person's hand is the entity its \
+               template is drawn as, in its appearance as it lies, as the server reads them from the \
+               install.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HAND-COPIES-2017"),
+        station: "yalain-testkit::corpus::play::hands::every_recorded_copy_of_an_item_in_a_hand_is_the_item_as_its_template_draws_it",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.hands.the-hall-tool-taken-and-given-as-recorded",
+        says: "The training hall's digging tool, taken out of a corpse and given to a person, is shown \
+               in the hand as every recording of it shows: the taking behavior and the handing-over, \
+               each with the same flags, script and copy of the tool.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HAND-TOOL-2017"),
+        station: "yalain-testkit::corpus::play::hands::the_hall_tool_taken_from_a_corpse_and_given_is_shown_in_the_hand_as_recorded",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.interactions.a-use-makes-one-of-several",
         says: "A world's row may name several things an item used on another makes: each use makes \
                one of them, picked by their weights, and nothing else; where the interaction met is \

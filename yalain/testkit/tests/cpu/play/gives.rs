@@ -3,6 +3,7 @@
 //! refusal; a person busy with another player's give, a walk that cannot get there; a part of a
 //! stack; a quest moved on by an item a give brought; a vitae tap; a hero made.
 
+use auberean_protocol::types::BehaviorParams;
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::native_object::QuestInfo;
 use auberean_script::wire::In;
@@ -280,6 +281,8 @@ struct Answer {
     from: u64,
     target: u64,
     item: u64,
+    look: u32,
+    appearance: u32,
 }
 
 fn answers(h: &Harness, b: usize, from: usize) -> Vec<Answer> {
@@ -308,6 +311,8 @@ fn answers(h: &Harness, b: usize, from: usize) -> Vec<Answer> {
                 from: long(16),
                 target: long(2),
                 item: long(44),
+                look: s[38].1,
+                appearance: s[6].1,
             }
         })
         .collect()
@@ -527,6 +532,68 @@ fn an_item_no_step_wants_is_handed_back_with_the_persons_refusal() {
     assert_eq!(a.len(), 2, "answered and back at once: {a:?}");
     assert_eq!(a[1].from, OBJECT);
     assert!(holds(&h, me, ashes));
+}
+
+/// What the hand shows of an item given: a copy of it as its template draws it, the entity it is
+/// drawn as and its appearance as it lies, in the giver's handing-over and in the person's handing
+/// it back (2017: every give named both from the item's template); the give and the item back are
+/// answered naming the item so.
+///
+/// Behaviour: server.hands.a-give-shows-the-item-in-the-hand
+#[test]
+fn an_item_given_and_handed_back_is_in_the_hand_as_its_template_draws_it() {
+    use yalain_content::props::{LOOK_ENTITY, PILE_APPEARANCE};
+    // A health potion, as the install draws it: an appearance other than the common one.
+    const ITEM: u32 = 0x4700_11B1;
+    const ITEM_ENTITY: u32 = 0x4700_11B0;
+    const ITEM_APPEARANCE: u32 = 0x2000_011F;
+    let in_hand = BehaviorParams::BEHAVIOR
+        | BehaviorParams::TARGET
+        | 0x100
+        | BehaviorParams::CLONE
+        | BehaviorParams::CONTEXT;
+    let mut h = world();
+    let mut props = Props::default();
+    props
+        .set(LOOK_ENTITY, yalain_content::Prop::Word(ITEM_ENTITY))
+        .set(PILE_APPEARANCE, yalain_content::Prop::Word(ITEM_APPEARANCE));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(ITEM, 0x1067, props));
+    let (b, me) = player(&mut h, "one", "Elara");
+    let (item, slot) = hold(&mut h, me, ITEM, 1);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(true, queue::WEENIE, &give(me, item, slot, PERSON, 1));
+    h.run(steps(HANDED_AFTER) + steps(gives::HANDED_BACK_AFTER) + 8);
+    let handings: Vec<(u64, u32, u64, u32, u32)> = h
+        .world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::PlayBehavior(e) if e.action.behavior == HANDING => Some((
+                e.sender.id,
+                e.action.bits,
+                e.action.target,
+                e.action.clone_visual,
+                e.action.clone_appearance,
+            )),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        handings,
+        vec![
+            (me, in_hand, item, ITEM_ENTITY, ITEM_APPEARANCE),
+            (PERSON, in_hand, item, ITEM_ENTITY, ITEM_APPEARANCE)
+        ],
+        "the giver's handing-over, then the person's handing it back"
+    );
+    let a = answers(&h, b, from);
+    assert_eq!(a.len(), 2, "answered and back: {a:?}");
+    assert!(
+        a.iter()
+            .all(|x| (x.look, x.appearance) == (ITEM_ENTITY, ITEM_APPEARANCE)),
+        "{a:?}"
+    );
 }
 
 /// A person takes one give at a time: a second player's give to it while the first's is under way

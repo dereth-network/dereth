@@ -216,10 +216,8 @@ pub fn reorganize<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnI
             .note("reorganizing an item the pack does not hold");
         return;
     };
-    let (look, quantity) = s
-        .things
-        .get(h.id)
-        .map_or((0, 1), |t| (t.description.look, t.quantity.max(1)));
+    let quantity = s.things.get(h.id).map_or(1, |t| t.quantity.max(1));
+    let (look, appearance) = inv::hand_look(s, h.id);
     let moved = req.quantity.clamp(1, quantity);
     let target = u32::try_from(req.target_slot.max(0)).unwrap_or(0);
     let answer = Move {
@@ -232,6 +230,7 @@ pub fn reorganize<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnI
         merge_container: player,
         template: h.template,
         look_entity: look,
+        item_appearance: appearance,
         quantity: moved,
         quantity_left: 0,
         auto_merge: false,
@@ -762,13 +761,12 @@ pub fn took_all<S: Store>(
         if holding::place_of(s, item) != Some(from) {
             continue;
         }
-        let Some((quantity, template, look)) = s
-            .things
-            .get(item)
-            .map(|t| (t.quantity.max(1), t.template, t.description.look))
+        let Some((quantity, template)) =
+            s.things.get(item).map(|t| (t.quantity.max(1), t.template))
         else {
             continue;
         };
+        let (look, appearance) = inv::hand_look(s, item);
         // Every item before it was taken or left, and the left ones stand before it still.
         let at = i32::try_from(left.len()).unwrap_or(i32::MAX);
         let m = Move {
@@ -794,6 +792,7 @@ pub fn took_all<S: Store>(
             quiet: true,
             template,
             look_entity: look,
+            item_appearance: appearance,
             split_quantity: quantity,
             ..Move::default()
         };

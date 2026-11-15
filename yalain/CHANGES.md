@@ -11,6 +11,7 @@ what they see, not how it was done.
 - Worlds can now have items that vanish a while after they are made.
 - Worlds can now have people hand something out only once in a while to each player.
 - New `[rates] movement` setting to make players run faster.
+- Fixed items taken from a corpse or chest not showing in your hands.
 
 ## 0.5.0 (2026-11-15)
 - World: portal beacons take no harm until struck by a weapon the imbuer has enchanted.

@@ -241,7 +241,7 @@ fn put_down<S: Store>(
         refuse(net, world, &m, status::CANNOT_PLACE_IN_WORLD);
         return;
     }
-    let item_look = t.description.look;
+    let (item_look, appearance) = crate::inventory::hand_look(s, m.item);
     tracing::debug!(
         ?world,
         item = format_args!("{:#x}", m.item),
@@ -267,6 +267,7 @@ fn put_down<S: Store>(
         fx_script: look::PUT_DOWN_SCRIPT,
         target: m.item,
         clone_visual: item_look,
+        clone_appearance: appearance,
         context,
         ..BehaviorParams::default()
     };
@@ -370,11 +371,13 @@ pub fn put<S: Store>(
     let Some(t) = s.things.get(item) else {
         return;
     };
+    let (look, appearance) = crate::inventory::hand_look(s, item);
     let done = Move {
         actual_from_slot: slot.cast_signed(),
         played_anim: true,
         template: t.template,
-        look_entity: t.description.look,
+        look_entity: look,
+        item_appearance: appearance,
         split_quantity: if t.quantity > 1 { asked.quantity } else { 0 },
         ..asked.clone()
     };

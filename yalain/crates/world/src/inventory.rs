@@ -1071,6 +1071,33 @@ pub fn picking_up_seconds(race: u32, sex: u32) -> f64 {
 
 /// The behavior a player plays with an item's look in its hand (picking it up, putting it down),
 /// seen by every client that sees the player.
+/// What a hand shows of an item it takes, puts down, gives or uses: the entity the item's template
+/// is drawn as, and the template's appearance as the item lies (2017: every copy in a hand named
+/// both from the item's template, 6,211 of them over 623 templates). An item whose template names
+/// no entity shows its look, with no appearance.
+pub fn hand_look<S: Store>(s: &Server<S>, item: u64) -> (u32, u32) {
+    let Some(t) = s.things.get(item) else {
+        return (0, 0);
+    };
+    hand_look_of(
+        s.catalog.get(t.template).map(|c| &c.props),
+        t.description.look,
+    )
+}
+
+/// What a hand shows of an item of a template with these properties and this look: the entity it
+/// is drawn as and its appearance as it lies, else the look and no appearance.
+#[must_use]
+pub fn hand_look_of(props: Option<&yalain_content::Props>, look: u32) -> (u32, u32) {
+    let entity = props
+        .and_then(|p| p.word(yalain_content::props::LOOK_ENTITY))
+        .unwrap_or(look);
+    let appearance = props
+        .and_then(|p| p.word(yalain_content::props::PILE_APPEARANCE))
+        .unwrap_or(0);
+    (entity, appearance)
+}
+
 pub(crate) fn hand_behavior<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1079,9 +1106,10 @@ pub(crate) fn hand_behavior<S: Store>(
     item: u64,
     context: u32,
 ) {
-    let Some(look) = s.things.get(item).map(|t| t.description.look) else {
+    if s.things.get(item).is_none() {
         return;
-    };
+    }
+    let (look, appearance) = hand_look(s, item);
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
@@ -1097,6 +1125,7 @@ pub(crate) fn hand_behavior<S: Store>(
         fx_script,
         target: item,
         clone_visual: look,
+        clone_appearance: appearance,
         context,
         ..BehaviorParams::default()
     };
@@ -1175,7 +1204,13 @@ pub(crate) fn stack_for<S: Store>(
 }
 
 /// A pickup's answer: the move of the item lying in the world into the player's pack.
-fn pickup_move(item: u64, player: u64, quantity: u32, template: u32, look: u32) -> Move {
+fn pickup_move(
+    item: u64,
+    player: u64,
+    quantity: u32,
+    template: u32,
+    (look, appearance): (u32, u32),
+) -> Move {
     Move {
         move_type: PICKED_UP,
         item,
@@ -1192,6 +1227,7 @@ fn pickup_move(item: u64, player: u64, quantity: u32, template: u32, look: u32) 
         played_anim: true,
         template,
         look_entity: look,
+        item_appearance: appearance,
         split_quantity: quantity,
         ..Move::default()
     }
@@ -1209,13 +1245,11 @@ pub fn pickup_refused<S: Store>(
     let Some(player) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
-    let Some((quantity, template, look)) = s
-        .things
-        .get(item)
-        .map(|t| (t.quantity.max(1), t.template, t.description.look))
+    let Some((quantity, template)) = s.things.get(item).map(|t| (t.quantity.max(1), t.template))
     else {
         return;
     };
+    let look = hand_look(s, item);
     let slot = if why == refused::CONTAINER_FULL {
         i32::try_from(PACK_ROOM).unwrap_or(0)
     } else {
@@ -1302,17 +1336,14 @@ pub fn picked_up<S: Store>(
     if !lying {
         return;
     }
-    let Some((instance, stamp, quantity, template, look)) = s.things.get(item).map(|t| {
-        (
-            t.instance,
-            t.position_stamp,
-            t.quantity.max(1),
-            t.template,
-            t.description.look,
-        )
-    }) else {
+    let Some((instance, stamp, quantity, template)) = s
+        .things
+        .get(item)
+        .map(|t| (t.instance, t.position_stamp, t.quantity.max(1), t.template))
+    else {
         return;
     };
+    let look = hand_look(s, item);
     let leave = left_the_ground(item, instance, stamp);
     if let Some((stack, slot, had)) = stack_for(s, world, item, quantity) {
         let slot = i32::try_from(slot).unwrap_or(0);
@@ -1668,8 +1699,8 @@ pub fn close_request<S: Store>(
 }
 
 /// A player takes an item out of the corpse (or chest) it has open: it plays its taking behavior
-/// and the item is told to leave the corpse; it moves when the behavior is through, if it is still
-/// there.
+/// with a copy of the item in its hand, and the item is told to leave the corpse; it moves when the
+/// behavior is through, if it is still there.
 pub fn take<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1680,6 +1711,7 @@ pub fn take<S: Store>(
 ) {
     s.next_context = s.next_context.wrapping_add(1);
     let context = s.next_context;
+    let (look, appearance) = hand_look(s, item);
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
@@ -1689,10 +1721,13 @@ pub fn take<S: Store>(
             | BehaviorParams::FX_SCRIPT
             | BehaviorParams::TARGET
             | 0x100
+            | BehaviorParams::CLONE
             | BehaviorParams::CONTEXT,
         behavior: look::TAKING,
         fx_script: look::TAKE_ONE_SCRIPT,
         target: item,
+        clone_visual: look,
+        clone_appearance: appearance,
         context,
         ..BehaviorParams::default()
     };
@@ -1775,6 +1810,7 @@ pub fn taken<S: Store>(
     );
     let Some(t) = s.things.get(item) else { return };
     let template = t.template;
+    let (look, appearance) = hand_look(s, item);
     let m = Move {
         move_type: move_type::TAKE,
         item,
@@ -1795,6 +1831,8 @@ pub fn taken<S: Store>(
         unlock: true,
         played_anim: true,
         template,
+        look_entity: look,
+        item_appearance: appearance,
         ..Move::default()
     };
     progress::private(net, world, &move_done(&m));
@@ -1825,16 +1863,14 @@ fn joined_stack<S: Store>(
     let Some(player) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
-    let Some((instance, quantity, template, look)) = s.things.get(item).map(|t| {
-        (
-            t.instance,
-            t.quantity.max(1),
-            t.template,
-            t.description.look,
-        )
-    }) else {
+    let Some((instance, quantity, template)) = s
+        .things
+        .get(item)
+        .map(|t| (t.instance, t.quantity.max(1), t.template))
+    else {
         return;
     };
+    let (look, appearance) = hand_look(s, item);
     // Out of the corpse and the world before the stack grows by it.
     if holding::destroy_item(s, item, Place::Contents(from)).is_err() {
         return;
@@ -1860,6 +1896,7 @@ fn joined_stack<S: Store>(
         played_anim: true,
         template,
         look_entity: look,
+        item_appearance: appearance,
         ..Move::default()
     };
     progress::private(net, world, &move_done(&m));

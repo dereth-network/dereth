@@ -760,7 +760,7 @@ fn give<S: Store>(
     };
     let whole = n >= held.quantity;
     let template = held.template;
-    let look = s.things.get(item).map_or(0, |x| x.description.look);
+    let (look, appearance) = inventory::hand_look(s, item);
     let (moved, from) = if whole {
         (item, Place::Pack(giver))
     } else {
@@ -820,6 +820,7 @@ fn give<S: Store>(
         check_take: true,
         template,
         look_entity: look,
+        item_appearance: appearance,
         split_quantity: if held.quantity > 1 || !whole { n } else { 0 },
         ..Move::default()
     };

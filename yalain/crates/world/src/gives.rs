@@ -62,9 +62,6 @@ pub const WALK_FLAGS: u32 = 0x61;
 /// The handing-over behavior (the giver's, and a person's handing an item back).
 pub const HANDING: u32 = 0x4100_00FA;
 
-/// The appearance a handed item shows in the hand (2017: 299 of 360 answers named this one).
-pub const HANDED_APPEARANCE: u32 = 0x2000_0021;
-
 /// How long after the handing-over behavior the give is answered, and after a person's handing
 /// back the item is back, in seconds (2017: the medians of 360 and of 86).
 pub const HANDED_AFTER: f64 = 1.31;
@@ -258,11 +255,8 @@ fn hand_over<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, cl
     g.handed = true;
     let (item, context, asked) = (g.asked.item, g.context, g.asked.quantity);
     let me = p.character;
-    let (look, stack) = s
-        .things
-        .get(item)
-        .map_or((0, 1), |t| (t.description.look, t.quantity.max(1)));
-    let handing = handing_behavior(item, look, context);
+    let stack = s.things.get(item).map_or(1, |t| t.quantity.max(1));
+    let handing = handing_behavior(item, crate::inventory::hand_look(s, item), context);
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
@@ -279,8 +273,9 @@ fn hand_over<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, cl
     s.after(clock, HANDED_AFTER, Timer::Handed { world });
 }
 
-/// The handing-over behavior with an item's look in the hand.
-fn handing_behavior(item: u64, look: u32, context: u32) -> BehaviorParams {
+/// The handing-over behavior with a copy of an item in the hand: the entity it is drawn as and its
+/// appearance.
+fn handing_behavior(item: u64, (look, appearance): (u32, u32), context: u32) -> BehaviorParams {
     let mut b = BehaviorParams {
         bits: BehaviorParams::BEHAVIOR
             | BehaviorParams::TARGET
@@ -290,7 +285,7 @@ fn handing_behavior(item: u64, look: u32, context: u32) -> BehaviorParams {
         behavior: HANDING,
         target: item,
         clone_visual: look,
-        clone_appearance: HANDED_APPEARANCE,
+        clone_appearance: appearance,
         context,
         ..BehaviorParams::default()
     };
@@ -299,8 +294,9 @@ fn handing_behavior(item: u64, look: u32, context: u32) -> BehaviorParams {
     b
 }
 
-/// The answer to a give handed over: the move done, the animation played.
-fn answer(m: &Move, template: u32, look: u32, whole: bool) -> Move {
+/// The answer to a give handed over: the move done, the animation played, the item named as it is
+/// drawn.
+fn answer(m: &Move, template: u32, (look, appearance): (u32, u32), whole: bool) -> Move {
     Move {
         merge: false,
         check_take: false,
@@ -308,7 +304,7 @@ fn answer(m: &Move, template: u32, look: u32, whole: bool) -> Move {
         quantity_left: 0,
         template,
         look_entity: look,
-        item_appearance: HANDED_APPEARANCE,
+        item_appearance: appearance,
         played_anim: true,
         all_taken: whole,
         split_quantity: if whole { 0 } else { m.quantity },
@@ -345,7 +341,8 @@ pub fn handed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, c
     let Some(t) = s.things.get(m.item).filter(|_| held) else {
         return;
     };
-    let (template, look, quantity) = (t.template, t.description.look, t.quantity.max(1));
+    let (template, quantity) = (t.template, t.quantity.max(1));
+    let look = crate::inventory::hand_look(s, m.item);
     let whole = m.quantity >= quantity;
     progress::private(net, world, &move_done(&answer(&m, template, look, whole)));
     let Some((i, object)) = target(s, m.target) else {
@@ -538,7 +535,7 @@ pub(crate) fn hand_back<S: Store>(
         back_and_away(s, net, world, m, to, clock);
         return;
     }
-    let look = s.things.get(m.item).map_or(0, |t| t.description.look);
+    let look = crate::inventory::hand_look(s, m.item);
     let id = presence::content_id(&s.content.objects, i);
     s.next_context = s.next_context.wrapping_add(1);
     let handing = handing_behavior(m.item, look, s.next_context);
@@ -589,7 +586,8 @@ pub fn back<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, m: 
     let Some(t) = s.things.get(m.item) else {
         return false;
     };
-    let (template, look) = (t.template, t.description.look);
+    let template = t.template;
+    let (look, appearance) = crate::inventory::hand_look(s, m.item);
     let part = m.quantity < t.quantity.max(1);
     let back = Move {
         move_type: GIVE,
@@ -613,7 +611,7 @@ pub fn back<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, m: 
         played_anim: true,
         template,
         look_entity: look,
-        item_appearance: HANDED_APPEARANCE,
+        item_appearance: appearance,
         ..Move::default()
     };
     progress::private(net, world, &move_done(&back));

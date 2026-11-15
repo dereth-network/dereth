@@ -12,6 +12,7 @@
 
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
+use yalain_content::props::{LOOK_ENTITY, PILE_APPEARANCE};
 use yalain_content::quests::{QuestDef, QuestTable};
 use yalain_content::{Prop, Props};
 use yalain_testkit::play::server_call;
@@ -24,6 +25,9 @@ use yalain_world::quests::status;
 use yalain_world::state::QuestState;
 
 const POTION: u32 = 0x4700_11B1;
+/// The entity the potion is drawn as and its appearance as it lies, as the install names them.
+const POTION_ENTITY: u32 = 0x4700_11B0;
+const POTION_APPEARANCE: u32 = 0x2000_011F;
 const CHARM: u32 = 0x4700_190C;
 const EGG: u32 = 0x4700_14CC;
 const OVER_TIME: u32 = 0x6F00_2659;
@@ -89,7 +93,9 @@ fn world() -> Harness {
     let mut potion = Props::default();
     potion
         .set("Item_UsageAction", Prop::Word(item_use::POTION_ACTION))
-        .set("Item_IsDestroyOnUse", Prop::Bool(true));
+        .set("Item_IsDestroyOnUse", Prop::Bool(true))
+        .set(LOOK_ENTITY, Prop::Word(POTION_ENTITY))
+        .set(PILE_APPEARANCE, Prop::Word(POTION_APPEARANCE));
     template(&mut h, POTION, potion);
     let mut charm = Props::default();
     charm
@@ -419,7 +425,8 @@ fn records_from(
         .collect()
 }
 
-/// A potion used from the pack: the drink played with the potion in hand for all to see, nothing
+/// A potion used from the pack: the drink played with a copy of the potion in hand for all to see
+/// (the entity it is drawn as, in its appearance as it lies), nothing
 /// more until it has played out (4.24 s), then at once its two effects on the drinker at their
 /// spellcraft, the potion gone, and "You drink {the} %1.".
 /// Behaviour: server.items.a-potion-is-drunk-then-takes-effect
@@ -438,6 +445,11 @@ fn a_potion_is_drunk_and_at_the_drinks_end_takes_effect_and_is_spent() {
     let drink = drink.expect("the drink is played");
     assert_eq!(drink.target, potion, "toward the potion");
     assert_eq!(drink.bits, item_use::BEHAVIOR_BITS);
+    assert_eq!(
+        (drink.clone_visual, drink.clone_appearance),
+        (POTION_ENTITY, POTION_APPEARANCE),
+        "the potion in hand"
+    );
     assert!(
         answers(&h, b, from).is_empty(),
         "nothing before the drink's end"

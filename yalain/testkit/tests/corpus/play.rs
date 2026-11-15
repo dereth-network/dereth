@@ -1684,3 +1684,334 @@ mod crafts {
         assert!(tally[&format!("answered as recorded: {}", error::MISSING_EFFECT)] >= 4);
     }
 }
+
+/// What a hand shows of an item, held to the January 2017 recordings: every copy of an item in a
+/// player's or a person's hand, and every move answered, named the entity the item's template is
+/// drawn as and its appearance as it lies, as this server names them from the September 2013
+/// install; and the training hall's digging tool, taken out of a corpse and given to a person,
+/// shown in the hand as the recordings of it show.
+mod hands {
+    use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+    use auberean_protocol::types::BehaviorParams;
+    use auberean_protocol::{queue, ServerMessage};
+    use yalain_content::{ContentObject, ContentPack, Kind};
+    use yalain_testkit::authored::Portal;
+    use yalain_testkit::play::{server_call, use_of};
+    use yalain_testkit::{Harness, STEP, TEST_ITEM};
+    use yalain_world::calls::{self, Node, Value};
+    use yalain_world::inventory::{self, hand_look_of, move_graph, Move};
+    use yalain_world::things::{Corpse, Thing};
+
+    use super::super::keeping::open;
+
+    const CREATE_OBJECT: i64 = 0x1_0058;
+    const PLAY_BEHAVIOR: i64 = 0x1_007F;
+
+    /// The training hall's digging tool, and the person it is handed to.
+    const TOOL: u32 = 0x4700_1AF1;
+    const SCOUT: u32 = 0x4700_2E03;
+
+    /// What a hand shows of an item of each template, by the install (none for a template that does
+    /// not describe).
+    struct Looks {
+        portal: Portal,
+        by_template: BTreeMap<u32, Option<(u32, u32)>>,
+    }
+
+    impl Looks {
+        fn new() -> Self {
+            Self {
+                portal: Portal::open(),
+                by_template: BTreeMap::new(),
+            }
+        }
+
+        fn of(&mut self, template: u32) -> Option<(u32, u32)> {
+            let portal = &self.portal;
+            *self.by_template.entry(template).or_insert_with(|| {
+                portal
+                    .described(template)
+                    .map(|t| hand_look_of(Some(&t.props), t.description.look))
+            })
+        }
+    }
+
+    /// Every 2017 server message of the kinds asked, in each session's order: (session, raw).
+    fn recorded(kinds: &str) -> Vec<(i64, Vec<u8>)> {
+        let path = auberean_testkit::data::require_capture_index();
+        let con = open(&path);
+        let mut st = con
+            .prepare(&format!(
+                "SELECT m.session_id, m.raw FROM message m JOIN session s USING (session_id) \
+                 JOIN capture c USING (capture_id) WHERE c.file LIKE '2017-%' AND m.dir = 's2c' \
+                 AND m.status = 'ac2' AND ({kinds}) ORDER BY m.session_id, m.idx"
+            ))
+            .expect("the query prepares");
+        let rows = st
+            .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?)))
+            .expect("the query runs");
+        rows.flatten().collect()
+    }
+
+    /// The recorded behaviors toward an item with a copy of it in the hand: (session, the item, its
+    /// parameters), with each session's objects' templates.
+    type Copies = (Vec<(i64, u64, BehaviorParams)>, HashMap<(i64, u64), u32>);
+
+    fn copies_in_hands() -> Copies {
+        let mut templates = HashMap::new();
+        let mut copies = Vec::new();
+        let kinds =
+            format!("m.mtype = {CREATE_OBJECT} OR (m.mtype = {PLAY_BEHAVIOR} AND m.len > 24)");
+        for (session, raw) in recorded(&kinds) {
+            match ServerMessage::decode(&raw) {
+                Ok(ServerMessage::CreateObject(o)) => {
+                    templates.insert((session, o.id), o.weenie.entity_did);
+                }
+                Ok(ServerMessage::PlayBehavior(e))
+                    if e.action.bits & BehaviorParams::CLONE != 0 && e.action.target != 0 =>
+                {
+                    copies.push((session, e.action.target, e.action));
+                }
+                _ => {}
+            }
+        }
+        (copies, templates)
+    }
+
+    /// Every copy of an item the 2017 servers put in a hand (taking, picking up, putting down, giving,
+    /// handing back, using) named the entity the item's template is drawn as and its appearance as it
+    /// lies, as this server reads them from the install for that template.
+    ///
+    /// Behaviour: server.hands.every-recorded-copy-is-the-item-as-its-template-draws-it
+    #[test]
+    fn every_recorded_copy_of_an_item_in_a_hand_is_the_item_as_its_template_draws_it() {
+        let (copies, templates) = copies_in_hands();
+        let mut looks = Looks::new();
+        let (mut checked, mut kinds, mut missed) = (0, BTreeSet::new(), Vec::new());
+        for (session, item, p) in &copies {
+            let Some(template) = templates.get(&(*session, *item)) else {
+                continue;
+            };
+            let Some(look) = looks.of(*template) else {
+                continue;
+            };
+            checked += 1;
+            kinds.insert(*template);
+            if (p.clone_visual, p.clone_appearance) != look {
+                missed.push((*template, p.clone_visual, p.clone_appearance, look));
+            }
+        }
+        assert!(
+            checked > 4000 && kinds.len() > 600,
+            "copies of {} templates: {checked}",
+            kinds.len()
+        );
+        assert!(missed.is_empty(), "named otherwise: {missed:x?}");
+    }
+
+    /// Every move the 2017 servers answered for an item (a pickup, a take, a put-down, a give, an item
+    /// back, a reorganizing, a trade) named the entity the item's template is drawn as and its
+    /// appearance as it lies, as this server reads them from the install.
+    ///
+    /// Behaviour: server.hands.every-recorded-answer-names-the-item-as-its-template-draws-it
+    #[test]
+    fn every_recorded_move_answer_names_the_item_as_its_template_draws_it() {
+        let mut looks = Looks::new();
+        let (mut checked, mut missed) = (0, Vec::new());
+        // The move done, and the reorganization done.
+        let kinds = "m.mtype = 65638 AND substr(m.raw, 5, 4) IN (x'5E000E82', x'55000E82')";
+        for (_, raw) in recorded(kinds) {
+            let Ok(ServerMessage::PlayerCall(c)) = ServerMessage::decode(&raw) else {
+                continue;
+            };
+            let Some(s) = c
+                .args
+                .as_ref()
+                .and_then(|a| calls::values(&a.0).ok())
+                .and_then(|v| {
+                    v.iter().find_map(|x: &Value| match x.root() {
+                        Some(Node::Script { slots, .. }) => Some(slots.clone()),
+                        _ => None,
+                    })
+                })
+            else {
+                continue;
+            };
+            let (template, look, appearance) = (s[22].1, s[38].1, s[6].1);
+            let Some(given) = looks.of(template) else {
+                continue;
+            };
+            checked += 1;
+            if (look, appearance) != given {
+                missed.push((template, look, appearance, given));
+            }
+        }
+        assert!(checked > 10_000, "answers checked: {checked}");
+        assert!(missed.is_empty(), "named otherwise: {missed:x?}");
+    }
+
+    fn steps(seconds: f64) -> usize {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let n = (seconds / STEP).ceil() as usize;
+        n
+    }
+
+    /// What a client was told of a behavior toward an item: (behavior, bits, script, copy, its
+    /// appearance).
+    fn shown(p: &BehaviorParams) -> (u32, u32, u32, u32, u32) {
+        (
+            p.behavior,
+            p.bits,
+            p.fx_script,
+            p.clone_visual,
+            p.clone_appearance,
+        )
+    }
+
+    /// The training hall's digging tool, taken out of a corpse and given to the person 2017's players
+    /// gave it to, is shown in the hand as every 2017 recording of it shows: the taking behavior with its script,
+    /// then the handing-over, each with a copy of the tool drawn as its template's entity, in its
+    /// appearance as it lies. The install's own templates of the tool and the person; the person
+    /// stands beside the player.
+    ///
+    /// Behaviour: server.hands.the-hall-tool-taken-and-given-as-recorded
+    #[test]
+    fn the_hall_tool_taken_from_a_corpse_and_given_is_shown_in_the_hand_as_recorded() {
+        // What 2017 showed of the tool in a hand.
+        let (copies, templates) = copies_in_hands();
+        let recorded: BTreeSet<_> = copies
+            .iter()
+            .filter(|(session, item, _)| templates.get(&(*session, *item)) == Some(&TOOL))
+            .map(|(_, _, p)| shown(p))
+            .collect();
+        let take = recorded
+            .iter()
+            .find(|r| r.0 == inventory::look::TAKING)
+            .copied()
+            .expect("a take of the tool recorded");
+        let give = recorded
+            .iter()
+            .find(|r| r.0 == yalain_world::gives::HANDING)
+            .copied()
+            .expect("a give of the tool recorded");
+        assert_eq!(recorded.len(), 2, "takes and gives alike: {recorded:x?}");
+
+        let portal = Portal::open();
+        let mut h = Harness::new();
+        h.server.catalog = yalain_testkit::test_catalog();
+        h.server.catalog.insert(portal.template(TOOL));
+        let scout = portal.template(SCOUT);
+        let person = 0x8130_0000_0000_0701;
+        h.server.content = ContentPack {
+            objects: vec![ContentObject {
+                object: Some(person),
+                template: SCOUT,
+                description: scout.description.clone(),
+                cell: 0x0299_0109,
+                origin: [60.0, 241.0, -44.6],
+                rotation: [1.0, 0.0, 0.0, 0.0],
+                kind: Kind::Npc,
+                label: String::new(),
+                placed: "the install's person".into(),
+                destination: None,
+                facts: scout.facts,
+                walks: None,
+                gate: None,
+            }],
+            ..ContentPack::default()
+        };
+        let (b, me) = h.player_in_world("one", "Elara");
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &auberean_protocol::ClientMessage::SceneRenderingComplete(
+                auberean_protocol::login::Empty,
+            ),
+        );
+        h.run(5);
+        let world = *h
+            .server
+            .players
+            .iter()
+            .find(|(_, p)| p.character == me)
+            .map(|(c, _)| c)
+            .expect("in the world");
+
+        // The tool in a corpse beside the player, taken.
+        let corpse_t = h
+            .server
+            .catalog
+            .get(TEST_ITEM)
+            .cloned()
+            .expect("a template");
+        let corpse = h.server.things.new_id();
+        let mut c = Thing::of(corpse, &corpse_t, yalain_world::things::Kind::Corpse);
+        c.at = Some(h.server.players[&world].position);
+        let tool = inventory::make_item(&mut h.server, TOOL, 1, 0).expect("made");
+        h.server.things.get_mut(tool).expect("the tool").container = Some(corpse);
+        c.corpse = Some(Corpse {
+            killer: me,
+            contents: vec![tool],
+            killer_level: 1,
+            expires: 1.0e12,
+            ..Default::default()
+        });
+        h.server.things.insert(c);
+        let use_request =
+            |id: u64| server_call(yalain_world::requests::function::USE, &[use_of(id, me)]);
+        h.bots[b].send(true, queue::WEENIE, &use_request(corpse));
+        h.run(5);
+        let from = h.bots[b].inbox.len();
+        h.bots[b].send(true, queue::WEENIE, &use_request(tool));
+        h.run(5 + steps(inventory::TAKING_SECONDS + 0.5));
+        let slot = h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .find(|x| x.id == tool)
+            .map(|x| i32::try_from(x.slot).unwrap_or(0))
+            .expect("the tool taken");
+
+        // Given to the person.
+        let m = Move {
+            move_type: yalain_world::gives::GIVE,
+            merge: true,
+            unlock: true,
+            check_take: true,
+            all_taken: true,
+            grab: true,
+            contain: true,
+            auto_merge: true,
+            target: person,
+            actual_target: person,
+            merge_container: person,
+            from: me,
+            actual_from: me,
+            item: tool,
+            split_item: tool,
+            quantity: 1,
+            quantity_left: 1,
+            from_slot: slot,
+            actual_from_slot: slot,
+            ..Move::default()
+        };
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(yalain_world::drops::function::MOVE_ITEM, &[move_graph(&m)]),
+        );
+        h.run(steps(yalain_world::gives::HANDED_AFTER) + 8);
+        let ours: Vec<_> = h
+            .world_messages(b, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::PlayBehavior(e) if e.sender.id == me && e.action.target == tool => {
+                    Some(shown(&e.action))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ours, vec![take, give], "the take, then the give");
+    }
+}

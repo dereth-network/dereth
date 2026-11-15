@@ -1790,7 +1790,8 @@ pub const STARTING_WEAPONS: [StartingWeapon; 9] = {
 };
 
 /// A starting weapon's template, as [`STARTING_WEAPONS`] gives it: what its qualities and class say
-/// (each worth 1, at least level 1, damage 9 with variance 0.24, speed 70, vigor 4).
+/// (each worth 1, at least level 1, damage 9 with variance 0.24, speed 70, vigor 4), and how it is
+/// drawn.
 ///
 /// # Panics
 /// The template is not a starting weapon.
@@ -1835,6 +1836,26 @@ pub fn starting_weapon(template: u32) -> yalain_content::Template {
     }
     if w.races != 0 {
         props.set("Usage_RequiredRace", Prop::Word(w.races));
+    }
+    // The entity each is drawn as and its appearance as it lies.
+    const DRAWN: [(u32, u32, u32); 9] = [
+        (0x4700_051B, 0x4700_00D5, 0x2000_0154),
+        (0x4700_051C, 0x4700_09F6, 0x2000_0197),
+        (0x4700_051D, 0x4700_0362, 0x2000_0133),
+        (0x4700_0515, 0x4700_00D3, 0x2000_019C),
+        (0x4700_0516, 0x4700_038A, 0x2000_0168),
+        (0x4700_0517, 0x4700_09F4, 0x2000_0186),
+        (0x4700_0521, 0x4700_00D4, 0x2000_015A),
+        (0x4700_0522, 0x4700_036A, 0x2000_0191),
+        (0x4700_0523, 0x4700_0375, 0x2000_01A1),
+    ];
+    if let Some((_, entity, appearance)) = DRAWN.iter().find(|d| d.0 == template) {
+        props
+            .set(yalain_content::props::LOOK_ENTITY, Prop::Word(*entity))
+            .set(
+                yalain_content::props::PILE_APPEARANCE,
+                Prop::Word(*appearance),
+            );
     }
     let mut t = test_template(w.template, w.package, props);
     t.description.look = w.look;

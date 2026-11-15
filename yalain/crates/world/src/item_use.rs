@@ -407,8 +407,8 @@ pub fn begin<S: Store>(
     {
         return false;
     }
-    let look = t.description.look;
     let props = t.props.clone();
+    let (look, appearance) = crate::inventory::hand_look(s, u.item);
     if refuse(s, net, world, u, &props, clock) {
         return true;
     }
@@ -488,6 +488,7 @@ pub fn begin<S: Store>(
         behavior,
         target: u.item,
         clone_visual: look,
+        clone_appearance: appearance,
         context,
         ..BehaviorParams::default()
     };
