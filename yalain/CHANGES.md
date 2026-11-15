@@ -6,6 +6,8 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+
+## 0.5.0 (2026-11-15)
 - World: portal beacons take no harm until struck by a weapon the imbuer has enchanted.
 - World: practice dummies hurt whoever hits them again.
 - World: the Beast of Cacophos heals itself until the five seals are pressed.
