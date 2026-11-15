@@ -20,6 +20,7 @@ use crate::managers::player_manager::player_session;
 use crate::managers::property_manager;
 use crate::network::game_event::events::game_event_salvage_operations_result::game_event_salvage_operations_result;
 use crate::network::game_messages::game_message::enqueue_send;
+use crate::network::structure::salvage_result::SalvageMessage;
 use crate::world_objects::entity::creature_skill::CreatureSkill;
 use crate::world_objects::player_inventory::{self, SearchLocations};
 use crate::world_objects::world_object::{self, WorldObject};
@@ -190,8 +191,8 @@ fn tool_is_valid_ust(w: &mut World, this: ObjectGuid, tool: u32) -> bool {
 
 // ACE: Player.HandleSalvaging
 /// Salvages each listed inventory item with the Ust `tool`: the salvage goes into bags by material,
-/// the items are consumed, the bags are added to the inventory, then one result message per skill
-/// (unless the player squelches Salvaging).
+/// the items are consumed, the bags are added to the inventory, then the result messages (unless
+/// the player squelches Salvaging).
 pub fn handle_salvaging(w: &mut World, this: ObjectGuid, tool: u32, salvage_items: Vec<u32>) {
     // DIVERGE: a world without tinkering (`EraFeatures::tinkering`) refuses salvaging: no item
     // is consumed and no salvage bag made (V421).
@@ -205,6 +206,8 @@ pub fn handle_salvaging(w: &mut World, this: ObjectGuid, tool: u32, salvage_item
 
     let mut salvage_bags: Vec<ObjectGuid> = Vec::new();
     let mut salvage_results = SalvageResults::new();
+    // Not ACE (V535): the items found but not suitable for salvaging, which the result names.
+    let mut not_salvagable: Vec<u32> = Vec::new();
 
     for item_guid in salvage_items {
         let item = container::get_inventory_item(w, this, ObjectGuid::new(item_guid));
@@ -219,6 +222,7 @@ pub fn handle_salvaging(w: &mut World, this: ObjectGuid, tool: u32, salvage_item
                 name(w, this),
                 name(w, item)
             );
+            not_salvagable.push(item.full());
             continue;
         }
 
@@ -230,6 +234,7 @@ pub fn handle_salvaging(w: &mut World, this: ObjectGuid, tool: u32, salvage_item
         }
 
         if obj_mut(w, item).workmanship().is_none() || obj(w, item).retained() {
+            not_salvagable.push(item.full());
             continue;
         }
 
@@ -259,8 +264,28 @@ pub fn handle_salvaging(w: &mut World, this: ObjectGuid, tool: u32, salvage_item
         let Some(session) = player_session(w, this) else {
             return;
         };
-        for (skill, messages) in salvage_results.get_messages().iter() {
-            let m = game_event_salvage_operations_result(w, session, *skill, messages);
+        // DIVERGE: V535, one result to a message, each with its own skill, the items not
+        // suitable for salvaging named in the first; with no result, one message all the same
+        // (naming them, or saying salvaging failed). ACE sends one message a skill holding every
+        // result, and none when nothing was salvaged.
+        let results: Vec<(Skill, SalvageMessage)> = salvage_results
+            .get_messages()
+            .iter()
+            .flat_map(|(skill, messages)| messages.iter().map(move |m| (*skill, *m)))
+            .collect();
+        if results.is_empty() {
+            let m = game_event_salvage_operations_result(
+                w,
+                session,
+                Skill::Salvaging,
+                &not_salvagable,
+                &[],
+            );
+            enqueue_send(w, session, m);
+        }
+        for (k, (skill, message)) in results.into_iter().enumerate() {
+            let named: &[u32] = if k == 0 { &not_salvagable } else { &[] };
+            let m = game_event_salvage_operations_result(w, session, skill, named, &[message]);
             enqueue_send(w, session, m);
         }
     }

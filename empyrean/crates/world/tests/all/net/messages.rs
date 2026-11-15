@@ -1331,6 +1331,7 @@ fn salvage_result_bonus_is_the_salvage_augmentation_times_25() {
         SESSION,
         Skill::Salvaging,
         &[],
+        &[],
     );
     assert_eq!(hex(&m.data[16..]), "28000000000000000000000032000000");
     let m = game_event_salvage_operations_result::game_event_salvage_operations_result(
@@ -1338,8 +1339,21 @@ fn salvage_result_bonus_is_the_salvage_augmentation_times_25() {
         SESSION,
         Skill(6),
         &[],
+        &[],
     );
     assert_eq!(hex(&m.data[16..]), "06000000000000000000000000000000");
+    // V535: the items not suitable for salvaging, a count and their ids.
+    let m = game_event_salvage_operations_result::game_event_salvage_operations_result(
+        &mut w,
+        SESSION,
+        Skill(6),
+        &[0x8000_0001, 0x8000_0002],
+        &[],
+    );
+    assert_eq!(
+        hex(&m.data[16..]),
+        "060000000200000001000080020000800000000000000000"
+    );
 }
 
 #[test]

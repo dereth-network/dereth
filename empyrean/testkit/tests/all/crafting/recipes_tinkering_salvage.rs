@@ -1,6 +1,7 @@
 //! ACE: Source/ACE.Server/Managers/RecipeManager.cs::RecipeManager
 //! A simple recipe makes its product and consumes both; tinker success on a seeded roll, failure
-//! destroys the target; salvaging yields ACE's amount in a bag.
+//! destroys the target; salvaging yields ACE's amount in a bag, and is answered as retail's was
+//! (V535).
 //! Fixture: a virtual-time TestServer, isolated stores and synthetic dats.
 
 use std::sync::Arc;
@@ -783,6 +784,82 @@ fn salvaging_an_item_yields_aces_salvage_amount_in_a_bag() {
         u32::try_from(WeenieError::NotASalvageTool.0).unwrap()
     );
     assert!(ts.world.objects.get(other).is_some());
+}
+
+/// Divergence: V535
+/// Salvaging answers as retail's did: a retained sword alone gets one result naming it and
+/// salvaging nothing; a Steel and an Iron sword with it get one result each, the retained sword
+/// named in the first; and a request whose item is gone still gets one result, empty, for the
+/// client's "Salvaging Failed!".
+#[test]
+fn salvaging_names_the_unsuitable_items_and_sends_one_result_to_a_message() {
+    let mut ts = server();
+    let (id, session) = join(&mut ts, "alpha", ALPHA, 100);
+    let alpha = ObjectGuid::new(ALPHA);
+    ts.world
+        .objects
+        .get_mut(alpha)
+        .unwrap()
+        .biota
+        .properties_skill
+        .as_mut()
+        .unwrap()
+        .get_mut(&Skill::WeaponTinkering)
+        .unwrap()
+        .sac = SkillAdvancementClass::Untrained;
+    let ust = give(&mut ts, UST);
+    let sword = |ts: &mut TestServer, material: MaterialType, retained: bool| {
+        let g = give(ts, SWORD);
+        let o = ts.world.objects.get_mut(g).unwrap();
+        o.set_item_workmanship(Some(5));
+        o.set_property(
+            PropertyInt::MaterialType,
+            i32::try_from(material.0).unwrap(),
+        );
+        if retained {
+            o.set_property(PropertyBool::Retained, true);
+        }
+        g
+    };
+    let kept = sword(&mut ts, MaterialType::Steel, true);
+    let steel = sword(&mut ts, MaterialType::Steel, false);
+    let iron = sword(&mut ts, MaterialType::Iron, false);
+    ts.advance(0.1);
+    let salvage = |ts: &mut TestServer, items: &[u32]| {
+        let request = InventoryCreateTinkeringTool {
+            tool: ObjectId(ust.full()),
+            items: items.iter().map(|i| ObjectId(*i)).collect(),
+        };
+        let (_, g) = exchange(ts, id, session, 0.3, |ts| ts.send_game_action(id, &request));
+        all(&g, SALVAGE_RESULT)
+            .into_iter()
+            .map(|m| m.decode::<SalvageResultMessage>())
+            .collect::<Vec<_>>()
+    };
+
+    let alone = salvage(&mut ts, &[kept.full()]);
+    assert_eq!(alone.len(), 1);
+    assert_eq!(alone[0].not_salvagable, [ObjectId(kept.full())]);
+    assert!(alone[0].results.is_empty());
+    assert!(ts.world.objects.get(kept).is_some(), "kept");
+
+    let three = salvage(&mut ts, &[steel.full(), iron.full(), kept.full()]);
+    assert_eq!(three.len(), 2, "one result to a message");
+    assert_eq!(three[0].not_salvagable, [ObjectId(kept.full())]);
+    assert!(three[1].not_salvagable.is_empty());
+    let mut materials: Vec<u32> = three
+        .iter()
+        .map(|r| {
+            assert_eq!(r.results.len(), 1);
+            r.results[0].material
+        })
+        .collect();
+    materials.sort_unstable();
+    assert_eq!(materials, [MaterialType::Iron.0, MaterialType::Steel.0]);
+
+    let gone = salvage(&mut ts, &[steel.full()]);
+    assert_eq!(gone.len(), 1);
+    assert!(gone[0].not_salvagable.is_empty() && gone[0].results.is_empty());
 }
 
 /// Divergence: V421

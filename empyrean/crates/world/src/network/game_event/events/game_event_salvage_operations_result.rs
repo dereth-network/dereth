@@ -16,12 +16,16 @@ use crate::network::structure::salvage_result::{self, SalvageMessage};
 use crate::World;
 
 // ACE: GameEventSalvageOperationsResult.GameEventSalvageOperationsResult
-/// `new SalvageResult(message)` and its writer.
+/// `new SalvageResult(message)` and its writer, with the items that were not suitable for
+/// salvaging.
+// DIVERGE: V535, the list of items not suitable for salvaging carries them; ACE always writes it
+// empty.
 #[must_use]
 pub fn game_event_salvage_operations_result(
     w: &mut World,
     session: SessionId,
     skill: Skill,
+    not_salvagable: &[u32],
     messages: &[SalvageMessage],
 ) -> GameMessage {
     // 40 is the max seen in retail pcaps
@@ -32,7 +36,11 @@ pub fn game_event_salvage_operations_result(
         40,
     );
     msg.data.write_u32(skill.0.cs_cast());
-    msg.data.write_i32(0); // not salvagable item guid list?
+    msg.data
+        .write_i32(i32::try_from(not_salvagable.len()).unwrap_or(i32::MAX));
+    for item in not_salvagable {
+        msg.data.write_u32(*item);
+    }
     msg.data
         .write_i32(i32::try_from(messages.len()).unwrap_or(i32::MAX));
     for message in messages {
