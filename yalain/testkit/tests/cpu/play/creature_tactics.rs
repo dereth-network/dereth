@@ -419,26 +419,6 @@ fn a_creature_taking_its_weapons_up_again_wields_and_holds_each_before_attaching
     }
 }
 
-/// Each second for `seconds`, a second player hurts the creature (as it has lately done it more
-/// harm than the player it fights); whether the creature turned on it.
-fn harmed_by(h: &mut Harness, id: u64, other: u64, seconds: usize) -> bool {
-    for _ in 0..seconds {
-        let now = h.now.0;
-        if let Some(c) = h
-            .server
-            .things
-            .get_mut(id)
-            .and_then(|t| t.creature.as_mut())
-        {
-            c.harm.push((now, other, 40));
-        }
-        if h.run_until(20, |h| target_of(h, id) == Some(other)) {
-            return true;
-        }
-    }
-    false
-}
-
 /// A creature fighting one player turns on another that has hurt it over the last ten seconds
 /// when the one it fights has not, at one of its next attacks.
 /// Behaviour: server.creatures.turn-on-the-most-harm
@@ -449,9 +429,43 @@ fn a_creature_turns_on_the_player_that_has_hurt_it_most_lately() {
     let (c, other) = h.player_in_world("two", "Babyfare");
     drawn(&mut h, c);
     hardy(&mut h, other);
+    // The other hurts it each second; at each of its attacks, its target freshly the first again,
+    // it turns on the other at the draw's three in ten. Uncounted harm would leave only its far
+    // smaller chance of turning to another player now and then.
+    fn creature(h: &mut Harness, id: u64) -> &mut yalain_world::things::Creature {
+        h.server
+            .things
+            .get_mut(id)
+            .and_then(|t| t.creature.as_mut())
+            .expect("a creature")
+    }
+    let (mut attacks, mut turns) = (0_u32, 0_u32);
+    let mut considered = creature(&mut h, id).considered;
+    let mut hurt_at = f64::NEG_INFINITY;
+    for _ in 0..60_000 {
+        let now = h.now.0;
+        let c = creature(&mut h, id);
+        if now - hurt_at >= 1.0 {
+            c.harm.push((now, other, 40));
+            hurt_at = now;
+        }
+        if c.considered != considered {
+            considered = c.considered;
+            attacks += 1;
+            turns += u32::from(c.target == Some(other));
+            c.target = Some(me);
+            c.target_since = now;
+        }
+        if attacks == 600 {
+            break;
+        }
+        h.step();
+    }
+    assert_eq!(attacks, 600, "it attacks");
+    let share = f64::from(turns) / f64::from(attacks);
     assert!(
-        harmed_by(&mut h, id, other, 40),
-        "it turns on the one hurting it"
+        share > 0.2,
+        "it turns on the one hurting it: {turns} of {attacks}"
     );
 }
 
@@ -507,10 +521,30 @@ fn a_taunt_landing_counts_for_its_caster_for_twenty_seconds_by_its_share_of_whol
     assert_eq!(taunts(&h), [(other, 250), (other, 50)]);
     let player = On::Player(conn(&h, me));
     assert!(!land(&mut h, player, TAUNT, other));
-    assert!(
-        h.run_until(300, |h| target_of(h, id) == Some(other)),
-        "drawn by its taunts, no harm done"
-    );
+    // It draws at one of its attacks, by a chance: thinking again many times within the taunts'
+    // twenty seconds, its target freshly the first each time, it is drawn at the draw's three in
+    // ten. Taunts uncounted would leave only its far smaller chance of turning to another.
+    let now = h.now.0;
+    let n = 1000;
+    let drawn = (0..n)
+        .filter(|_| {
+            let c = h
+                .server
+                .things
+                .get_mut(id)
+                .and_then(|t| t.creature.as_mut())
+                .expect("a creature");
+            c.target = Some(me);
+            c.target_since = now;
+            c.next_attack = now;
+            c.considered = f64::NEG_INFINITY;
+            yalain_world::ai::reconsider_for_test(&mut h.server, id, now);
+            target_of(&h, id) == Some(other)
+        })
+        .count();
+    #[allow(clippy::cast_precision_loss)]
+    let share = drawn as f64 / f64::from(n);
+    assert!(share > 0.2, "drawn by its taunts, no harm done: {share}");
     h.now.0 += yalain_world::ai::TAUNT_REMEMBERED;
     assert!(land(&mut h, On::Creature(id), LOW, me));
     assert_eq!(taunts(&h), [(me, 50)], "the old ones gone");
@@ -835,7 +869,12 @@ fn a_hurt_creature_heals_itself_and_an_unhurt_one_does_not() {
         && e.action.hooks.iter().any(|k| k.bits == 0x981 && k.numbers[3] == 300))
     ));
     let health = h.server.things.get(id).map_or(0, |t| t.health);
-    assert!(health >= 460, "healed: {health}");
+    // Up by the 300, as far as its whole health (drawn for each creature) allows.
+    let whole = h.server.things.get(id).map_or(0, |t| t.max_health);
+    assert!(
+        health >= (200 + 300).min(whole),
+        "healed: {health} of {whole}"
+    );
     // Hurt again at once, it waits out the forty seconds before it heals again.
     if let Some(t) = h.server.things.get_mut(id) {
         t.health = 200;

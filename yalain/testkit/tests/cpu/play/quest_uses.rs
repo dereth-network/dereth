@@ -1153,8 +1153,16 @@ fn a_person_whose_quests_follow_one_another_gives_the_next_at_once() {
         objects: vec![object(0x8130_0000_0000_0801, RYVENNA, [61.0, 241.0, -44.6])],
         ..ContentPack::default()
     };
+    // Each is done once, so the next is all the person may give once the last is done: a done
+    // quest given again at once would be drawn among them.
     h.server.quests = QuestTable {
-        quests: CHAIN.iter().map(|q| quest(*q, 0x2500_2929, 1)).collect(),
+        quests: CHAIN
+            .iter()
+            .map(|q| QuestDef {
+                once: true,
+                ..quest(*q, 0x2500_2929, 1)
+            })
+            .collect(),
         steps: CHAIN
             .iter()
             .enumerate()

@@ -56,6 +56,11 @@ fn def(state: u32, kind: Kind) -> EffectDef {
 /// The summoning skill and pet effect, and the pet's template naming its skill.
 fn with_pet(h: &mut Harness, beetles: u32, flags: u32, skill: Option<Usage>) {
     h.add_creatures(beetles);
+    // The world's beetles go for no one unbidden, from as they appear: one placed within sight of
+    // a player coming in would otherwise go after it before it is calmed.
+    if let Some(t) = h.server.catalog.templates.get_mut(&BEETLE) {
+        t.props.set("AI_FreeAttacking", Prop::Bool(false));
+    }
     let usage = Usage {
         min_range: -1.0,
         max_range: 1.0,

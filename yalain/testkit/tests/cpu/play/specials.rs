@@ -483,6 +483,13 @@ fn deadeye_from_rest_shoots_and_ends_with_the_skills_information() {
     assert!(h.server.players.values().all(|p| p.using.is_none()));
 }
 
+/// The time scale the only player's swings center on by the combat delay of what it wears and
+/// wields, before its pace.
+fn worn_time_scale(h: &Harness) -> f32 {
+    let world = *h.server.players.keys().next().expect("in the world");
+    yalain_world::combat::time_scale_at_delay(yalain_world::combat::delay_worn(&h.server, world))
+}
+
 /// A special goes at its player's pace, from rest and inside a run.
 /// Behaviour: server.weapons.attack-speed-effects
 #[test]
@@ -512,7 +519,12 @@ fn a_special_goes_at_its_players_pace() {
                 _ => None,
             })
             .expect("the special's story");
-        assert!((1.72..=2.12).contains(&ts), "{ts} in a run: {run}");
+        // A tenth either side of its pace times the time scale of what it wears and wields.
+        let at = 1.7 * worn_time_scale(&h);
+        assert!(
+            (at * 0.9 - 1e-3..=at * 1.1 + 1e-3).contains(&ts),
+            "{ts} about {at} in a run: {run}"
+        );
     }
 }
 
@@ -522,7 +534,7 @@ fn a_special_goes_at_its_players_pace() {
 #[test]
 fn a_skill_that_says_it_goes_faster_is_told_at_the_square_of_it() {
     const LONG: u32 = 0x4100_007B;
-    let told = |speed: Option<f32>, run: bool| -> Vec<(f32, f64)> {
+    let told = |speed: Option<f32>, run: bool| -> (Vec<(f32, f64)>, f32) {
         let (mut h, b, me, beetle) = beside_a_beetle();
         practice_target(&mut h, beetle);
         h.arm(b, me, BOW);
@@ -562,13 +574,12 @@ fn a_skill_that_says_it_goes_faster_is_told_at_the_square_of_it() {
             }
         }
         at.retain(|x| x.0 > 0.0);
-        at
+        (at, worn_time_scale(&h))
     };
-    let plain = told(None, true);
-    let fast = told(Some(1.6), true);
+    let (plain, bare) = told(None, true);
+    let (fast, _) = told(Some(1.6), true);
     assert!(plain.len() > 2 && fast.len() > 2);
-    let alone = told(Some(1.6), false);
-    let bare = yalain_world::combat::time_scale_at_delay(0);
+    let (alone, _) = told(Some(1.6), false);
     assert!(
         (bare * 0.9..=bare * 1.1).contains(&plain[0].0),
         "{:?}",
@@ -1802,8 +1813,19 @@ fn a_skills_harm_counts_at_a_draw_by_its_points_and_takes_only_its_damage() {
             t.max_health = 1_000_000;
             t.health = 1_000_000;
         }
-        use_skill(&mut h, b, 6, skill, beetle);
-        h.run(80);
+        // A use lands at a chance: use it again until one does, forty leaving no dice a real
+        // chance of none landing. One that does not land takes nothing and counts no harm.
+        for _ in 0..40 {
+            use_skill(&mut h, b, 6, skill, beetle);
+            h.run(80);
+            if h.server
+                .things
+                .get(beetle)
+                .is_some_and(|t| t.health < 1_000_000)
+            {
+                break;
+            }
+        }
         let t = h.server.things.get(beetle).expect("alive");
         let lost = 1_000_000 - t.health;
         let harm: i64 = t

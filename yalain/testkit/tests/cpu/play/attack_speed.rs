@@ -353,12 +353,19 @@ fn a_players_swings_slow_with_the_combat_delay_it_wears_and_wields() {
     let dressed = swings(&mut h, b, me, beetle, 1500);
     let at = 1.23 - 0.0024 * 70.0;
     let mean = asserted_base(&dressed, at);
-    assert!(mean < bare - 0.03, "{mean} against {bare}");
-    let gaps: Vec<f64> = dressed.windows(2).map(|w| w[1].0 - w[0].0).collect();
-    #[allow(clippy::cast_precision_loss)]
-    let gap = gaps.iter().sum::<f64>() / gaps.len() as f64;
-    let due = next_story_after(&unknown(), mean);
-    assert!((gap - due).abs() < 0.03, "{gap:.3} where {due:.3} was due");
+    // Each swing is drawn within a tenth of its center: over this many, the mean keeps well
+    // within a twentieth of it whatever the dice.
+    assert!((mean - at).abs() < 0.045, "{mean} about {at}");
+    assert!(mean < bare, "{mean} against {bare}");
+    // Each next swing comes at the first step once due by the swing before it, its own drawn time
+    // scale's due and not the run's mean's.
+    for w in dressed.windows(2) {
+        let (gap, due) = (w[1].0 - w[0].0, next_story_after(&unknown(), w[0].1));
+        assert!(
+            (due - 1e-3..=due + yalain_testkit::STEP + 2e-3).contains(&gap),
+            "{gap:.3} where {due:.3} was due"
+        );
+    }
 
     use_it_off(&mut h, b, me, hood);
     assert_eq!(combat::delay_worn(&h.server, world), 8);

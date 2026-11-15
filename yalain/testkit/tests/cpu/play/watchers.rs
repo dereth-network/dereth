@@ -242,13 +242,27 @@ fn a_strike_on_a_holder_tells_what_goes_back_and_the_creature_loses_it() {
     held(&mut h, on, WATCHER, 43, watcher(0.0, 0.25));
     let from = h.bots[b].inbox.len();
     let was = h.server.things.get(id).map_or(0, |t| t.health);
-    let done = h.run_until(2000, |h| {
-        hooks(h, b, from, id, me)
+    // It never rests long enough to regain health (strikes evaded one after another could leave
+    // it that long), so all it loses is what went back.
+    let unrested = |h: &mut Harness| {
+        let now = h.now.0;
+        if let Some(t) = h.server.things.get_mut(id) {
+            t.last_hurt = now;
+        }
+    };
+    let mut done = false;
+    for _ in 0..2000 {
+        unrested(&mut h);
+        h.step();
+        let n = hooks(&h, b, from, id, me)
             .iter()
             .filter(|k| landed(k))
-            .count()
-            >= 6
-    });
+            .count();
+        if n >= 6 {
+            done = true;
+            break;
+        }
+    }
     assert!(done, "it strikes");
     // Let the last strike land, with no other after it.
     if let Some(c) = h
@@ -259,7 +273,10 @@ fn a_strike_on_a_holder_tells_what_goes_back_and_the_creature_loses_it() {
     {
         c.next_attack = f64::INFINITY;
     }
-    h.run(40);
+    for _ in 0..40 {
+        unrested(&mut h);
+        h.step();
+    }
     let told = hooks(&h, b, from, id, me);
     let mut sent = 0;
     for k in &told {

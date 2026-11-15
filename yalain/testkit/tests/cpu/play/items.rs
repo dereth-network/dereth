@@ -1282,6 +1282,13 @@ fn a_forager_s_food_heals_health_and_vigor_and_wears_out_at_its_fifth_use() {
     set(&mut h, yalain_world::player::quality::VIGOR_MAX, 1000);
     set(&mut h, HEALTH, 100);
     set(&mut h, VIGOR, 900);
+    // It regains nothing by itself, so a regeneration step drawn into the drink adds nothing.
+    {
+        use yalain_world::regen::rate::{PEACE_HEALTH, PEACE_VIGOR};
+        let p = h.server.players.get_mut(&world).expect("in");
+        yalain_world::quals::set_float(&mut p.qualities, PEACE_HEALTH, 0.0);
+        yalain_world::quals::set_float(&mut p.qualities, PEACE_VIGOR, 0.0);
+    }
     let from = send_use(&mut h, b, me, food, 3.5);
     assert!(answers(&h, b, from).is_empty(), "drinking");
     let drunk = h.world_messages(b, from).iter().any(

@@ -282,19 +282,29 @@ fn a_chests_key_opens_it_its_contents_shown_to_the_opener_alone_and_it_locks_as_
     let mine = seen(&h, a, fa);
     let gems = mine.iter().filter(|s| *s == "gem").count();
     assert!((1..=2).contains(&gems), "{mine:?}");
-    let mut want: Vec<String> = vec![
-        "flash".into(),
-        "mode 41000002".into(),
-        "opened 0".into(),
-        "open".into(),
-    ];
-    want.extend(std::iter::repeat_n("gem".to_string(), gems));
-    want.extend([
-        "crystal".into(),
-        "key gone".into(),
-        "done 0 flags 317".into(),
-    ]);
-    assert_eq!(mine, want);
+    // The contents go unordered: shown once it is open, but not in a set place among the rest.
+    let content = |s: &String| s == "gem" || s == "crystal";
+    let shown = mine.iter().position(|s| s == "open").expect("shown open");
+    assert!(mine[..shown].iter().all(|s| !content(s)), "{mine:?}");
+    let told: Vec<&String> = mine[shown..].iter().filter(|s| content(s)).collect();
+    assert_eq!(told.len(), gems + 1, "{mine:?}");
+    assert_eq!(
+        told.iter().filter(|s| **s == "crystal").count(),
+        1,
+        "{mine:?}"
+    );
+    let rest: Vec<&String> = mine.iter().filter(|s| !content(s)).collect();
+    assert_eq!(
+        rest,
+        [
+            "flash",
+            "mode 41000002",
+            "opened 0",
+            "open",
+            "key gone",
+            "done 0 flags 317"
+        ]
+    );
     assert_eq!(
         seen(&h, b, fb),
         ["flash", "mode 41000002", "open"],

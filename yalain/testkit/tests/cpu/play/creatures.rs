@@ -499,8 +499,13 @@ fn a_creature_stands_and_swings_while_a_player_is_within_its_reach_and_runs_beyo
             "scale {scale}: not a step"
         );
         keep_off(&mut h, id, reach + 0.1);
-        h.run(4);
-        assert!(gap(&h, id) < reach, "scale {scale}: it runs at the player");
+        // Its next turn comes within a quarter of a second, wherever the last one fell.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let turn = (yalain_world::spawn::STEP_SECONDS / yalain_testkit::STEP).ceil() as usize + 1;
+        assert!(
+            h.run_until(turn, |h| gap(h, id) < reach),
+            "scale {scale}: it runs at the player"
+        );
     }
 }
 

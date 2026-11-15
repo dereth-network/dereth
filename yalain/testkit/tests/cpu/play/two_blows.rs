@@ -253,6 +253,14 @@ fn a_basic_attacks_hook_adds_by_the_players_rating() {
             .get_mut(&816)
             .expect("the skill")
             .cap = 50;
+        // Weapons that add half to the chance of a critical: plain hits and criticals both come
+        // many times over in the run, whatever the dice.
+        for weapon in [RIGHT, LEFT] {
+            if let Some(t) = h.server.catalog.templates.get_mut(&weapon) {
+                t.props
+                    .set(yalain_world::combat::WEAPON_CRITICAL, Prop::Float(0.5));
+            }
+        }
         let from = attack(&mut h, b, beetle);
         h.run(6000);
         let told = stories(&h, b, from, me);

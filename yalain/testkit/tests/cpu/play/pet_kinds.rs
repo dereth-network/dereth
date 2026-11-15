@@ -199,6 +199,19 @@ fn summon(h: &mut Harness, b: usize) -> usize {
     from
 }
 
+/// Use the skill on a creature again and again until a pet comes of it: a strike lands at a chance,
+/// so each use may not; forty of them leave no dice a real chance of never landing.
+fn strike_until_it_lands(h: &mut Harness, b: usize, at: u64, from: usize) -> bool {
+    (0..40).any(|_| {
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(USE_SKILL, &[Arg::Int(1), Arg::Int(SKILL), Arg::LongInt(at)]),
+        );
+        h.run_until(200, |h| pet_added(h, b, from).is_some())
+    })
+}
+
 /// The pet a client was told of since a message.
 fn pet_added(h: &Harness, b: usize, from: usize) -> Option<u64> {
     h.calls(b, from)
@@ -942,18 +955,7 @@ fn a_pet_a_skill_makes_at_a_creature_appears_beside_it_and_goes_after_it() {
     let beetle = beetles(&h)[0];
     put_near(&mut h, beetle, me, 1.0, 1.0);
     let from = h.bots[b].inbox.len();
-    h.bots[b].send(
-        true,
-        queue::WEENIE,
-        &server_call(
-            USE_SKILL,
-            &[Arg::Int(1), Arg::Int(SKILL), Arg::LongInt(beetle)],
-        ),
-    );
-    assert!(
-        h.run_until(600, |h| pet_added(h, b, from).is_some()),
-        "it lands"
-    );
+    assert!(strike_until_it_lands(&mut h, b, beetle, from), "it lands");
     let pet = pet_added(&h, b, from).expect("a pet");
     assert_eq!(target_of(&h, pet), Some(beetle));
     let at = h.server.things.get(pet).and_then(|t| t.at).expect("placed");
@@ -1744,18 +1746,7 @@ fn a_pet_a_skill_makes_at_a_creature_on_a_slope_stands_on_the_ground_beside_it()
         }
     }
     let from = h.bots[b].inbox.len();
-    h.bots[b].send(
-        true,
-        queue::WEENIE,
-        &server_call(
-            USE_SKILL,
-            &[Arg::Int(1), Arg::Int(SKILL), Arg::LongInt(beetle)],
-        ),
-    );
-    assert!(
-        h.run_until(600, |h| pet_added(h, b, from).is_some()),
-        "it lands"
-    );
+    assert!(strike_until_it_lands(&mut h, b, beetle, from), "it lands");
     let pet = pet_added(&h, b, from).expect("a pet");
     assert!(over_slope(&h, pet).abs() < 0.01, "on the ground");
 }
