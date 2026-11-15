@@ -61,6 +61,15 @@
 //! (on each attack, before the answers) and that the holder's focus may be spent to nothing are
 //! ours.
 //!
+//! **Impulses.** An impulse pushes a player once and keeps no record: its client and every client
+//! that knows the player are told the player flies from where it stands, a position with the
+//! impulse flag and its velocity, and the client moves its body. The velocity goes the ways its
+//! effect's flags name, each a unit direction added and made a unit again: along the player's
+//! facing or against it, straight up, away from its caster in three dimensions, or up and back or
+//! forward halfway between; at its speed by spellcraft, never above [`IMPULSE_TOP_SPEED`]
+//! ([`impulse_velocity`]). A creature's body is moved by its watchers' clients alone, and the
+//! server keeps no flight of its own: an impulse on a creature changes nothing here.
+//!
 //! **Lifestone protection.** A player is protected for three minutes as it is resurrected: the
 //! protection is added in the request's tick, before portal space, and its glow (the effect the
 //! resurrection plays on the player) stays on it. It ends, with "You are no longer protected by
@@ -439,6 +448,114 @@ pub struct Cast {
     /// or a give's `effects_quiet`).
     pub quiet: bool,
 }
+
+/// The fastest an impulse sends anything, in meters a second (2017: every push of the strongest
+/// at 50 m/s exactly, 16 of them players' own and 183 others').
+pub const IMPULSE_TOP_SPEED: f32 = 50.0;
+
+/// Which way, and how fast, an impulse of these ways and speed sends its target: the unit
+/// direction of each way it names, added and made a unit again, times the speed, at most
+/// [`IMPULSE_TOP_SPEED`]. Along the target's facing (`facing`, degrees clockwise from north)
+/// forward or back, straight up, or away from its caster (`away`: the offset from the caster to
+/// the target; none, or under 0.0002 m, adds nothing); up and back or forward, halfway between
+/// (2017: a push away from the caster along that offset in three dimensions, 256 of 256; a push up
+/// as (0, 0, speed), 49 of 49). None when its ways name no direction.
+#[must_use]
+pub fn impulse_velocity(
+    ways: u32,
+    speed: f32,
+    facing: f32,
+    away: Option<[f32; 3]>,
+) -> Option<[f32; 3]> {
+    use crate::effect_defs::impulse_way;
+    let unit = |v: [f32; 3]| {
+        let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+        (l >= 0.0002).then(|| [v[0] / l, v[1] / l, v[2] / l])
+    };
+    let rad = facing.to_radians();
+    let forward = [
+        dereth_primitives::num::math::sinf(rad),
+        dereth_primitives::num::math::cosf(rad),
+        0.0,
+    ];
+    let back = [-forward[0], -forward[1], 0.0];
+    let up = [0.0, 0.0, 1.0];
+    let mut parts: Vec<[f32; 3]> = Vec::new();
+    let mut add = |bit: u32, v: Option<[f32; 3]>| {
+        if ways & bit != 0 {
+            parts.extend(v);
+        }
+    };
+    add(impulse_way::FORWARD, Some(forward));
+    add(impulse_way::BACKWARD, Some(back));
+    add(impulse_way::UP, Some(up));
+    add(impulse_way::FROM_CASTER, away.and_then(unit));
+    add(impulse_way::UP_AND_BACK, unit([back[0], back[1], 1.0]));
+    add(
+        impulse_way::UP_AND_FORWARD,
+        unit([forward[0], forward[1], 1.0]),
+    );
+    let sum = parts
+        .iter()
+        .fold([0.0f32; 3], |a, v| [a[0] + v[0], a[1] + v[1], a[2] + v[2]]);
+    let d = unit(sum)?;
+    let speed = speed.clamp(0.0, IMPULSE_TOP_SPEED);
+    (speed > 0.0).then(|| [d[0] * speed, d[1] * speed, d[2] * speed])
+}
+
+/// Where the object of an id stands: a player's character, a thing of the world, or a placed
+/// object.
+fn stands_at<S: Store>(s: &Server<S>, id: u64) -> Option<yalain_store::StoredPosition> {
+    if let Some(p) = s.players.values().find(|p| p.character == id) {
+        return Some(p.position);
+    }
+    if let Some(t) = s.things.get(id) {
+        return t.at;
+    }
+    let i = crate::presence::content_by_id(&s.content.objects, id)?;
+    let o = &s.content.objects[i];
+    Some(yalain_store::StoredPosition {
+        cell: o.cell,
+        origin: o.origin,
+        rotation: o.rotation,
+    })
+}
+
+/// A player is pushed by an impulse: its client and every client that knows it are told it flies
+/// from where it stands, at the impulse's velocity (a position with the impulse flag, its contact
+/// as it was), and the client moves its body; the reports that follow are taken as any are.
+fn push<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    (ways, speed): (u32, f32),
+    caster: u64,
+    clock: Clock,
+) {
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let facing = f32::from(u8::try_from(p.heading_motion >> 24).unwrap_or(0)) * 360.0 / 255.0;
+    let away = stands_at(s, caster)
+        .filter(|_| caster != p.character)
+        .map(|from| {
+            let (dx, dy, dz) = crate::ai::offset(&from, &p.position);
+            [dx, dy, dz]
+        });
+    let Some(v) = impulse_velocity(ways, speed, facing, away) else {
+        return;
+    };
+    let time = net.game_time(clock.local);
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    let mut m = p.next_position(time, crate::world::ON_GROUND | IMPULSE);
+    m.velocity = auberean_primitives::Vec3::new(v[0], v[1], v[2]);
+    crate::presence::tell_position(s, net, world, &m, true, false);
+}
+
+/// The flag of a position that carries an impulse's velocity.
+pub const IMPULSE: u32 = 0x8;
 
 /// The class priority of a record.
 fn priority(def: Option<&EffectDef>, e: &EffectState) -> f32 {
@@ -956,6 +1073,19 @@ pub fn apply_on<S: Store>(
         }
         // A dispel takes off every record its target holds of the effects it names, as each would
         // go at its end; nothing comes back of itself.
+        (Kind::Impulse { speed, ways }, On::Player(world)) => {
+            push(
+                s,
+                net,
+                world,
+                (*ways, speed.at(cast.spellcraft).unwrap_or(0.0)),
+                cast.caster,
+                clock,
+            );
+            true
+        }
+        // A creature's body is the clients' to move, and the server keeps no flight of its own.
+        (Kind::Impulse { .. }, On::Creature(_)) => true,
         (Kind::Dispel(list), _) => {
             let gone: Vec<u32> = records_of(s, on)
                 .iter()

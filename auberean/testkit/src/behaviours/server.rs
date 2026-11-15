@@ -4661,6 +4661,38 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.effects.impulse-matches-2017",
+        says: "Every recorded push of the monsters' knockback attack goes away from its attacker \
+               along their offset in three dimensions at its speed, and every recorded Ground Tremor \
+               straight up at 10 m/s, as this server sends them; no recorded push goes faster than 50 \
+               m/s, and the strongest go at 50.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-IMPULSE-2017"),
+        station: "yalain-testkit::corpus::play::impulses::every_recorded_knockback_and_ground_tremor_goes_as_this_server_sends_it",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.effects.impulse-pushes-a-player",
+        says: "A player an impulse pushes is told, with every client that knows it, a position from \
+               where it stands with the impulse flag, its contact and the impulse's velocity, its \
+               position stamp moved on; no record is kept.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-IMPULSE-WIRE"),
+        station: "yalain-testkit::cpu::impulses::pushes::a_pushed_player_is_told_its_flight_and_so_is_who_sees_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.impulse-velocity",
+        says: "An impulse goes the ways its effect's flags name, each a unit direction added and made \
+               a unit again: along its target's facing or against it, up, away from its caster in \
+               three dimensions, or up and back or forward halfway between; at its speed by \
+               spellcraft, never above 50 m/s.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-IMPULSE"),
+        station: "yalain-testkit::cpu::impulses::pushes::an_impulse_goes_its_ways_at_its_speed_and_no_faster_than_fifty",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.effects.jump-scale-told",
         says: "A record that changes a player's jump tells its jump scale to all who see the \
                player as it comes and again as it goes.",

@@ -2,6 +2,7 @@
 //! private data: the character bodies are made up.
 
 mod entry;
+mod impulses;
 mod operator;
 mod play;
 mod world_mechanisms;

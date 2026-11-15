@@ -3765,3 +3765,26 @@ fn the_installs_three_forces_read_with_their_focus_prices_in_one_class() {
     assert!(matches!(taunt.kind, Kind::Reply { effect, .. } if effect == CHALLENGE));
     assert_ne!(taunt.internal_flags & WATCHES_VITALS, 0);
 }
+
+/// The install's impulses read as pushes: the monsters' knockback (`0x700006C6`) away from its
+/// caster, 10 m/s at spellcraft 1; Ground Tremor (`0x6F000167`) straight up at 10; Mighty Impulse
+/// (`0x6F001AB7`) up and against its target's facing at 66; none of them a lasting record.
+/// Behaviour: server.effects.impulse-velocity
+#[test]
+fn the_installs_impulses_read_as_pushes_with_their_ways_and_speeds() {
+    use yalain_world::effect_defs::impulse_way as way;
+    let p = Portal::open();
+    let t = p.effects(&[0x7000_06C6, 0x6F00_0167, 0x6F00_1AB7]);
+    for (state, ways, speed) in [
+        (0x7000_06C6, way::FROM_CASTER, 10.0),
+        (0x6F00_0167, way::UP, 10.0),
+        (0x6F00_1AB7, way::UP | way::BACKWARD, 66.0),
+    ] {
+        let d = t.get(state).unwrap_or_else(|| panic!("{state:08X}"));
+        let Kind::Impulse { speed: s, ways: w } = &d.kind else {
+            panic!("{state:08X}: {:?}", d.kind)
+        };
+        assert_eq!((*w, s.at(1.0)), (ways, Some(speed)), "{state:08X}");
+        assert!(!d.lasts(), "{state:08X} keeps no record");
+    }
+}

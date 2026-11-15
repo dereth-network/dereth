@@ -2019,3 +2019,141 @@ mod hands {
         assert_eq!(ours, vec![take, give], "the take, then the give");
     }
 }
+
+/// The pushes of January 2017 held to the impulse this server sends: every recorded knockback of
+/// the monsters' "Impulse (Knockback)" attack and every recorded Ground Tremor goes as
+/// `impulse_velocity` sends it for their effects' ways, and no recorded push goes faster than the
+/// top speed.
+mod impulses {
+    use std::collections::HashMap;
+
+    use auberean_protocol::ServerMessage;
+    use auberean_testkit::captures;
+    use yalain_store::StoredPosition;
+    use yalain_world::effect_defs::impulse_way as way;
+    use yalain_world::effects::{impulse_velocity, IMPULSE, IMPULSE_TOP_SPEED};
+
+    const POSITION: u32 = 0x1_0086;
+    const POSITION_CELL: u32 = 0x1_00C1;
+    const STORY: u32 = 0x1_00A8;
+    /// The monsters' knockback attack, whose effect (`0x700006C6`) pushes away from its caster.
+    const KNOCKBACK: u32 = 981;
+    /// Ground Tremor, whose effect (`0x6F000167`) pushes straight up.
+    const GROUND_TREMOR: u32 = 1426;
+
+    /// Every 2017 push named by the attack that made it: the attack's skill, the push, where the
+    /// target and the attacker stood, and the target's heading.
+    struct Push {
+        skill: u32,
+        velocity: [f32; 3],
+        target: StoredPosition,
+        attacker: StoredPosition,
+        heading: u32,
+    }
+
+    fn pushes() -> (Vec<Push>, Vec<[f32; 3]>) {
+        let index = auberean_testkit::data::require_capture_index();
+        let mut named = Vec::new();
+        let mut every = Vec::new();
+        let mut session = -1;
+        let mut at: HashMap<u64, (StoredPosition, u32)> = HashMap::new();
+        let mut struck: HashMap<u64, (f64, u64, u32)> = HashMap::new();
+        captures::messages(&index, &[POSITION, POSITION_CELL, STORY], &[2017], |m| {
+            if m.session != session {
+                session = m.session;
+                at.clear();
+                struck.clear();
+            }
+            match ServerMessage::decode(&m.raw) {
+                Ok(ServerMessage::Position(p) | ServerMessage::PositionCell(p)) => {
+                    let place = StoredPosition {
+                        cell: p.cell,
+                        origin: [p.origin.x, p.origin.y, p.origin.z],
+                        rotation: [1.0, 0.0, 0.0, 0.0],
+                    };
+                    if p.flags & IMPULSE != 0 {
+                        let v = [p.velocity.x, p.velocity.y, p.velocity.z];
+                        every.push(v);
+                        if let Some(&(t, attacker, skill)) = struck.get(&p.sender.id) {
+                            if m.time - t < 2.0 {
+                                if let Some((from, _)) = at.get(&attacker) {
+                                    named.push(Push {
+                                        skill,
+                                        velocity: v,
+                                        target: place,
+                                        attacker: *from,
+                                        heading: p.heading_motion >> 24,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    at.insert(p.sender.id, (place, p.heading_motion >> 24));
+                }
+                Ok(ServerMessage::DoStory(e)) => {
+                    for hook in &e.action.hooks {
+                        if hook.target != 0 {
+                            struck.insert(hook.target, (m.time, e.action.attacker, e.action.skill));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        })
+        .expect("the capture index reads");
+        (named, every)
+    }
+
+    fn length(v: [f32; 3]) -> f32 {
+        (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt()
+    }
+
+    /// Each recorded push of the monsters' knockback goes away from its attacker along their offset in
+    /// three dimensions (within a few tenths of a degree), at its speed (the strongest at 50 m/s), and each recorded Ground Tremor
+    /// straight up at 10, as this server sends them; no recorded push of any kind goes faster than
+    /// 50 m/s.
+    /// Behaviour: server.effects.impulse-matches-2017
+    #[test]
+    fn every_recorded_knockback_and_ground_tremor_goes_as_this_server_sends_it() {
+        let (named, every) = pushes();
+        let mut held = [0usize; 2];
+        for p in &named {
+            let speed = length(p.velocity);
+            #[allow(clippy::cast_precision_loss)]
+            let facing = p.heading as f32 * 360.0 / 255.0;
+            let (ways, n) = match p.skill {
+                KNOCKBACK => (way::FROM_CASTER, 0),
+                GROUND_TREMOR => (way::UP, 1),
+                _ => continue,
+            };
+            let (dx, dy, dz) = yalain_world::ai::offset(&p.attacker, &p.target);
+            let want = impulse_velocity(ways, speed, facing, Some([dx, dy, dz])).expect("a push");
+            // The attacker's place is the last its watchers were told, a moment old: the two agree in
+            // direction within a few tenths of a degree, and in speed.
+            let cos = want.iter().zip(p.velocity).map(|(a, b)| a * b).sum::<f32>()
+                / (length(want) * speed);
+            assert!(
+                cos > 0.999 && (length(want) - speed).abs() < 0.01,
+                "skill {}: sent {want:?}, recorded {:?}",
+                p.skill,
+                p.velocity
+            );
+            held[n] += 1;
+        }
+        assert!(held[0] >= 250, "knockbacks held: {}", held[0]);
+        assert!(held[1] >= 40, "ground tremors held: {}", held[1]);
+        assert!(every.len() > 1_700, "pushes recorded: {}", every.len());
+        assert!(
+            every.iter().all(|v| length(*v) <= IMPULSE_TOP_SPEED + 0.01),
+            "none faster than the top speed"
+        );
+        assert!(
+            every
+                .iter()
+                .filter(|v| (length(**v) - IMPULSE_TOP_SPEED).abs() < 0.01)
+                .count()
+                > 150,
+            "the strongest at the top speed"
+        );
+    }
+}

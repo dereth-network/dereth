@@ -371,8 +371,23 @@ pub enum Kind {
     Places(Placing),
     /// Gives its player so many points of craft experience to spend, at its spellcraft, once.
     CraftExperience(Scale),
+    /// Pushes its target, once: its speed at a spellcraft, and the ways it goes (its flags'
+    /// [`impulse_way`] bits).
+    Impulse { speed: Scale, ways: u32 },
     /// Anything else (kept as a record only).
     Other,
+}
+
+/// The ways an impulse pushes its target, by its effect's flags: along the target's facing,
+/// against it, up, away from its caster, up and against the facing, up and along it.
+pub mod impulse_way {
+    pub const FORWARD: u32 = 0x100;
+    pub const BACKWARD: u32 = 0x200;
+    pub const UP: u32 = 0x400;
+    pub const FROM_CASTER: u32 = 0x800;
+    pub const UP_AND_BACK: u32 = 0x1000;
+    pub const UP_AND_FORWARD: u32 = 0x2000;
+    pub const ALL: u32 = 0x3F00;
 }
 
 /// Where a recall takes its user.
@@ -431,6 +446,7 @@ impl EffectDef {
                     | Kind::GrantItem(_)
                     | Kind::Places(_)
                     | Kind::Dispel(_)
+                    | Kind::Impulse { .. }
                     | Kind::CraftExperience(_)
                     | Kind::Instants(_)
             )
@@ -851,6 +867,11 @@ impl EffectDef {
             Kind::Pet {
                 class: word("m_petClass").unwrap_or(0),
                 lifetime: scale("m_magData"),
+            }
+        } else if is("ImpulseEffect") {
+            Kind::Impulse {
+                speed: scale("m_magData"),
+                ways: flags & impulse_way::ALL,
             }
         } else if is("ParameterizedNumericEffect") {
             Kind::Numeric {
