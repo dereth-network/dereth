@@ -4,11 +4,13 @@
 //!
 //! The device is made here, with every feature the layer asks for (`dereth_gfx::REQUIRED`) and
 //! every one wgpu does, as the version-wide feature structures: the device's own features, all but
-//! protected memory and sparse resources, are turned on. wgpu takes it as a device it did not make
-//! (`device_from_raw`), and the layer adopts it ([`dereth_gfx::Device::adopt`]). Both submit to the
-//! one queue from the thread that draws, so the queue's order orders their work: the remaster's
-//! frame is submitted before the frame wgpu composes from it, and its last barrier leaves the
-//! picture ready to sample, the state wgpu is told it holds.
+//! protected memory and sparse resources, are turned on, and where the adapter has them the
+//! extensions and features ray queries need, for the traced shadows and occlusion. wgpu takes it
+//! as a device it did not make (`device_from_raw`), and the layer adopts it
+//! ([`dereth_gfx::Device::adopt`]). Both submit to the one queue from the thread that draws, so
+//! the queue's order orders their work: the remaster's frame is submitted before the frame wgpu
+//! composes from it, and its last barrier leaves the picture ready to sample, the state wgpu is
+//! told it holds.
 //!
 //! The Vulkan instance under them ([`instance`]) is wgpu's own, but on the Mac: there is no Vulkan
 //! there, so the MoltenVK the program carries is loaded by its path and the instance made on it,
@@ -281,6 +283,20 @@ pub fn open(
     if !extensions.contains(&ash::khr::swapchain::NAME) {
         extensions.push(ash::khr::swapchain::NAME);
     }
+    // Ray queries, where the adapter has them, for the traced shadows and occlusion.
+    let traces = dereth_gfx::rt::adapter_traces(&raw_instance, pd);
+    if traces {
+        wanted.v12.buffer_device_address = vk::TRUE;
+        for e in dereth_gfx::rt::EXTENSIONS {
+            if !extensions.contains(&e) {
+                extensions.push(e);
+            }
+        }
+    }
+    let mut accel = vk::PhysicalDeviceAccelerationStructureFeaturesKHR::default()
+        .acceleration_structure(true)
+        .descriptor_binding_acceleration_structure_update_after_bind(true);
+    let mut query = vk::PhysicalDeviceRayQueryFeaturesKHR::default().ray_query(true);
     let names: Vec<*const std::ffi::c_char> = extensions.iter().map(|e| e.as_ptr()).collect();
     // wgpu draws on the first queue of the first family; the layer records for the same queue.
     let family = 0;
@@ -293,6 +309,9 @@ pub fn open(
         .push_next(&mut wanted.v11)
         .push_next(&mut wanted.v12)
         .push_next(&mut wanted.v13);
+    if traces {
+        features2 = features2.push_next(&mut accel).push_next(&mut query);
+    }
     let create = vk::DeviceCreateInfo::default()
         .queue_create_infos(&queues)
         .enabled_extension_names(&names)
@@ -341,7 +360,7 @@ pub fn open(
         device: raw_device,
         queue: raw_queue,
         queue_family: family,
-        ray_queries: false,
+        ray_queries: traces,
     };
     // SAFETY: the handles are the device made above with every feature the layer requires; the
     // layer is dropped before wgpu's device (`Shared` drops it first, and a holder of the layer
@@ -391,10 +410,11 @@ pub fn open_d3d12(
     let (raw_device, raw_queue) = unsafe { device.as_hal::<Dx12>() }
         .map(|d| (d.raw_device().clone(), d.raw_queue().clone()))
         .ok_or_else(|| fail("no Direct3D 12 device"))?;
+    // The layer traces rays where the device has inline ray queries; it asks nothing enabled.
     let native = dereth_gfx::d3d12::D3d12Native {
         device: raw_device,
         queue: raw_queue,
-        ray_queries: false,
+        ray_queries: true,
     };
     // SAFETY: the device and queue are wgpu's, live while wgpu's device is; the layer is dropped
     // before wgpu's device (`Shared` drops it first, and a holder of the layer keeps a clone of

@@ -108,3 +108,24 @@ stage = "fragment"
 source = "lamps.slang"
 entry = "fs_lamps"
 stage = "fragment"
+
+# Where the device traces rays: how much of the sun reaches each pixel, by rays traced toward it,
+# and the ambient occlusion by rays traced over each pixel's hemisphere, then evened out. The
+# shared passes' shaders, compiled here against this folder's `rt`.
+[[entry]]
+source = "rt_shadow.slang"
+from = "../../../../../dereth/client/crates/gfx-passes/shaders"
+entry = "fs_main"
+stage = "fragment"
+
+[[entry]]
+source = "rt_ao.slang"
+from = "../../../../../dereth/client/crates/gfx-passes/shaders"
+entry = "fs_rays"
+stage = "fragment"
+
+[[entry]]
+source = "rt_ao.slang"
+from = "../../../../../dereth/client/crates/gfx-passes/shaders"
+entry = "fs_filter"
+stage = "fragment"

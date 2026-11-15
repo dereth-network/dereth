@@ -39,11 +39,17 @@ pub enum Entry {
     MotionFsMotion,
     /// `fs_lamps` in `lamps.slang`, the fragment stage.
     LampsFsLamps,
+    /// `fs_main` in `rt_shadow.slang`, the fragment stage.
+    RtShadowFsMain,
+    /// `fs_rays` in `rt_ao.slang`, the fragment stage.
+    RtAoFsRays,
+    /// `fs_filter` in `rt_ao.slang`, the fragment stage.
+    RtAoFsFilter,
 }
 
 impl Entry {
     /// Every entry point, in `shaders.toml`'s order.
-    pub const ALL: [Self; 18] = [Self::TerrainVsTerrain, Self::TerrainFsTerrainBase, Self::TerrainFsTerrainMask, Self::TerrainFsTerrainFar, Self::TerrainVsVeil, Self::TerrainFsVeil, Self::TerrainFsSkyIn, Self::MeshVsMesh, Self::MeshFsMesh, Self::MeshFsRipple, Self::MeshFsWater, Self::MeshFsMeshDepth, Self::TerrainFsTerrainDepth, Self::MeshVsMeshCaster, Self::MeshFsMeshCaster, Self::MotionVsMotion, Self::MotionFsMotion, Self::LampsFsLamps];
+    pub const ALL: [Self; 21] = [Self::TerrainVsTerrain, Self::TerrainFsTerrainBase, Self::TerrainFsTerrainMask, Self::TerrainFsTerrainFar, Self::TerrainVsVeil, Self::TerrainFsVeil, Self::TerrainFsSkyIn, Self::MeshVsMesh, Self::MeshFsMesh, Self::MeshFsRipple, Self::MeshFsWater, Self::MeshFsMeshDepth, Self::TerrainFsTerrainDepth, Self::MeshVsMeshCaster, Self::MeshFsMeshCaster, Self::MotionVsMotion, Self::MotionFsMotion, Self::LampsFsLamps, Self::RtShadowFsMain, Self::RtAoFsRays, Self::RtAoFsFilter];
 
     /// The source file that defines it.
     #[must_use]
@@ -67,6 +73,9 @@ impl Entry {
             Self::MotionVsMotion => "motion.slang",
             Self::MotionFsMotion => "motion.slang",
             Self::LampsFsLamps => "lamps.slang",
+            Self::RtShadowFsMain => "rt_shadow.slang",
+            Self::RtAoFsRays => "rt_ao.slang",
+            Self::RtAoFsFilter => "rt_ao.slang",
         }
     }
 
@@ -92,6 +101,9 @@ impl Entry {
             Self::MotionVsMotion => "vs_motion",
             Self::MotionFsMotion => "fs_motion",
             Self::LampsFsLamps => "fs_lamps",
+            Self::RtShadowFsMain => "fs_main",
+            Self::RtAoFsRays => "fs_rays",
+            Self::RtAoFsFilter => "fs_filter",
         }
     }
 
@@ -117,6 +129,9 @@ impl Entry {
             Self::MotionVsMotion => Stage::Vertex,
             Self::MotionFsMotion => Stage::Fragment,
             Self::LampsFsLamps => Stage::Fragment,
+            Self::RtShadowFsMain => Stage::Fragment,
+            Self::RtAoFsRays => Stage::Fragment,
+            Self::RtAoFsFilter => Stage::Fragment,
         }
     }
 
@@ -142,6 +157,9 @@ impl Entry {
             Self::MotionVsMotion => include_bytes!("spirv/motion.vs_motion.spv"),
             Self::MotionFsMotion => include_bytes!("spirv/motion.fs_motion.spv"),
             Self::LampsFsLamps => include_bytes!("spirv/lamps.fs_lamps.spv"),
+            Self::RtShadowFsMain => include_bytes!("spirv/rt_shadow.fs_main.spv"),
+            Self::RtAoFsRays => include_bytes!("spirv/rt_ao.fs_rays.spv"),
+            Self::RtAoFsFilter => include_bytes!("spirv/rt_ao.fs_filter.spv"),
         }
     }
 
@@ -167,6 +185,9 @@ impl Entry {
             Self::MotionVsMotion => include_bytes!("dxil/motion.vs_motion.dxil"),
             Self::MotionFsMotion => include_bytes!("dxil/motion.fs_motion.dxil"),
             Self::LampsFsLamps => include_bytes!("dxil/lamps.fs_lamps.dxil"),
+            Self::RtShadowFsMain => include_bytes!("dxil/rt_shadow.fs_main.dxil"),
+            Self::RtAoFsRays => include_bytes!("dxil/rt_ao.fs_rays.dxil"),
+            Self::RtAoFsFilter => include_bytes!("dxil/rt_ao.fs_filter.dxil"),
         }
     }
 }

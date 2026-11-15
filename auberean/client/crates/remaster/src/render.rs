@@ -13,7 +13,8 @@
 //! read; then, each when it is on, the ambient occlusion from it, which takes its share of each
 //! surface's ambient light, and the sun's shadows ([`sun`]), which take their share of its
 //! sunlight, in the frame's own draws of the landscape and the objects that stand in it. With
-//! both off the frame is the retail one.
+//! both off the frame is the retail one. Where the device traces rays, both are traced through
+//! the frame's acceleration structures instead ([`traced`]), into the same pictures.
 //!
 //! With the post passes on (the shared passes', `dereth_gfx_passes::post`), the frame is drawn
 //! into their target of its own through a projection moved by a part of a pixel each frame, and
@@ -59,6 +60,7 @@
 mod lamps;
 mod sky;
 mod sun;
+mod traced;
 mod weather;
 
 pub use sky::SkySettings;
@@ -231,7 +233,7 @@ enum Env {
 #[derive(Debug)]
 struct Kept {
     buffer: Buffer,
-    /// Its index in the table, for a buffer the shaders read.
+    /// Its index in the table, for a buffer the shaders read; `u32::MAX` while it is in none.
     index: u32,
     used: u64,
     /// The list it was made from, held so its address stays its own while it keys the buffer. Once
@@ -368,6 +370,9 @@ pub struct Remaster {
     last_crossfaded: usize,
     /// Whether the grass and the leaves sway in the wind.
     sway: bool,
+    /// The traced shadows and occlusion, and how many instances the last frame traced.
+    traced: traced::Traced,
+    last_traced: usize,
     frame: u64,
 }
 
@@ -484,7 +489,14 @@ impl Remaster {
         let ao = AoPass::new(&mut gfx)?;
         let sun = SunMaps::new(&mut gfx)?;
         let post = PostPass::new(&mut gfx)?;
-        let posed = PerFrame::new(&mut gfx, "remaster posed", 1 << 20, BufferUsage::default())?;
+        // The poses are read by the bodies' structures too, where the device traces rays.
+        let posed = PerFrame::new(
+            &mut gfx,
+            "remaster posed",
+            1 << 20,
+            BufferUsage::ACCELERATION_INPUT,
+        )?;
+        let traced = traced::Traced::new(&mut gfx)?;
         let lamps = LampsPass::new(&mut gfx, shader(Entry::LampsFsLamps), COLOR)?;
         let scene_format = dereth_gfx_passes::post::scene_format(&gfx);
         let atmosphere = SkyPass::with_depth(&mut gfx, COLOR, scene_format, Some(DEPTH))?;
@@ -545,13 +557,16 @@ impl Remaster {
             crossfade: false,
             last_crossfaded: 0,
             sway: false,
+            traced,
+            last_traced: 0,
             frame: 0,
         })
     }
 
     /// Every pass of the remaster's look on, as a player who ticks the remaster sees it first: the
-    /// ambient occlusion, outdoors and in, the sun's shadows, the lamps, the physical sky, the
-    /// rain's wet, the anti-aliasing, and linear light with the bloom and the exposure.
+    /// ambient occlusion, outdoors and in, the sun's shadows (both traced where the device traces
+    /// rays), the lamps, the physical sky, the rain's wet, the anti-aliasing, and linear light with
+    /// the bloom and the exposure.
     pub fn look(&mut self) {
         self.set_lamps(true);
         self.set_sky(SkySettings { atmosphere: true });
@@ -570,6 +585,14 @@ impl Remaster {
         self.set_shadows(ShadowSettings {
             on: true,
             ..ShadowSettings::default()
+        });
+        self.set_rt_shadows(dereth_gfx_passes::traced::RtShadowSettings {
+            on: true,
+            ..Default::default()
+        });
+        self.set_rt_ao(dereth_gfx_passes::traced::RtAoSettings {
+            on: true,
+            ..Default::default()
         });
         self.set_post(PostSettings {
             hdr: true,
@@ -823,17 +846,20 @@ impl Remaster {
             return Ok((k.buffer, k.index));
         }
         let data = bytes();
+        // Whole words, so a shader reading a list of 16-bit indices a word at a time stays in it.
         let buffer = gfx.create_buffer(&BufferDesc {
             label: "remaster list",
-            size: (data.len() as u64).max(16),
+            size: (data.len() as u64).max(16).next_multiple_of(4),
             usage: usage | BufferUsage::TRANSFER_DST,
             location: Location::Gpu,
         })?;
         gfx.write_buffer(buffer, 0, &data)?;
-        let index = if usage.contains(BufferUsage::STORAGE) {
+        // An index list is bound in the table only when a shader asks for it
+        // ([`Self::index_binding`]).
+        let index = if usage.contains(BufferUsage::STORAGE) && !usage.contains(BufferUsage::INDEX) {
             gfx.bind_buffer(buffer)?
         } else {
-            0
+            u32::MAX
         };
         store.insert(
             key,
@@ -857,7 +883,7 @@ impl Remaster {
             &mut self.vertices,
             (list, list.len()),
             self.frame,
-            BufferUsage::STORAGE,
+            BufferUsage::STORAGE | BufferUsage::ACCELERATION_INPUT,
             || {
                 let v: Vec<MeshGpuVertex> = list.iter().map(MeshGpuVertex::of).collect();
                 bytes_of(&v).to_vec()
@@ -904,10 +930,33 @@ impl Remaster {
             &mut self.indices,
             (list, list.len()),
             self.frame,
-            BufferUsage::INDEX,
+            BufferUsage::INDEX | BufferUsage::STORAGE | BufferUsage::ACCELERATION_INPUT,
             || bytes_of(list.as_slice()).to_vec(),
         )
         .map(|k| k.0)
+    }
+
+    /// An index list's buffer's index in the table, for a shader that reads it: bound the first
+    /// time it is asked for.
+    ///
+    /// # Errors
+    /// What the device refuses.
+    fn index_binding<T: bytemuck::Pod + Send + Sync>(
+        &mut self,
+        list: &Arc<Vec<T>>,
+    ) -> Result<u32, RemasterError> {
+        let buffer = self.index_list(list)?;
+        let key = (Arc::as_ptr(list) as usize, list.len());
+        match self.indices.get_mut(&key) {
+            Some(k) if k.index != u32::MAX => Ok(k.index),
+            Some(k) => {
+                k.index = self.gfx.bind_buffer(buffer)?;
+                Ok(k.index)
+            }
+            None => Err(RemasterError::Device(dereth_gfx::Error::Invalid(
+                "an index list is not on the device".into(),
+            ))),
+        }
     }
 
     /// The pipeline of `key`, made the first time it is asked for.
@@ -2003,7 +2052,33 @@ impl Remaster {
             }
         }
 
-        // The sun's shadows, outdoors: their casters' constants go with the frame's.
+        // Outdoors, where the device traces rays, what the traced shadows and occlusion trace: the
+        // sun's casters and the cells the frame draws, their constants with the frame's.
+        let traced_plan = if outdoors {
+            let cells: Vec<&ObjectBatch> = in_pass(&frame.objects, Pass::Cells)
+                .into_iter()
+                .filter(shown)
+                .collect();
+            let casters = frame.shadow.as_ref().map_or(&[][..], |s| &s.casters[..]);
+            let wanted = (
+                self.shadows.on && frame.shadow.is_some(),
+                self.ao.settings().on,
+            );
+            self.plan_traced(
+                casters,
+                &cells,
+                wanted,
+                out_sun,
+                &mut records,
+                &mut posed,
+                load,
+            )?
+        } else {
+            None
+        };
+        let traces_sun = traced_plan.is_some() && self.traced.shadow.wants_rays();
+        // The sun's shadows, outdoors: their casters' constants go with the frame's, unless the
+        // sun's share is traced.
         let sun_plan = if outdoors {
             self.plan_sun(
                 frame,
@@ -2012,6 +2087,7 @@ impl Remaster {
                 &mut records,
                 &mut posed,
                 (width, height),
+                traces_sun,
                 load,
             )?
         } else {
@@ -2041,6 +2117,19 @@ impl Remaster {
         }
         self.draws.write(&mut self.gfx, &bytes)?;
         self.posed.write(&mut self.gfx, bytes_of(&posed))?;
+        // The frame's structure, over the poses just written.
+        let traced_frame = match &traced_plan {
+            Some(p) => Some(self.finish_traced(p)?),
+            None => None,
+        };
+        self.last_traced = traced_frame
+            .as_ref()
+            .map_or(0, traced::TracedFrame::instances);
+        let rt_shadow = self.traced.shadow.prepare(
+            glam::Vec3::new(out_u.to_sun[0], out_u.to_sun[1], out_u.to_sun[2]),
+            sun_plan.is_some(),
+            traced_frame.is_some(),
+        );
         // The lights seen from the camera mirrored about the water: its height mirrored, its pitch
         // turned over, the sky's objects moved round the mirrored camera.
         // D2-11030, D2-10552, D2-10553, D2-11031
@@ -2105,6 +2194,12 @@ impl Remaster {
             .prepare(&mut self.gfx, &camera, jitter, &t.gbuffer)?;
         self.last_view_projection = Some(view_projection);
         let ao_mask = ao_plan.as_ref().map_or(u32::MAX, |p| p.mask().0);
+        let rt_ao = self.traced.ao.prepare(
+            &mut self.gfx,
+            &t.gbuffer,
+            ao_plan.as_ref().map(|_| self.ao.settings()),
+            traced_frame.is_some(),
+        )?;
         // The post passes' plan: the world then draws into their target.
         let exposed = math::powf(2.0, self.post.settings().exposure);
         let post_plan = self.post.prepare(
@@ -2421,13 +2516,25 @@ impl Remaster {
                 Ok(())
             },
         )?;
+        // The frame's structure, then the occlusion and (below) the sun's share traced through it;
+        // without one, the screen-space occlusion and the cascades.
+        let traced_scene = match &traced_frame {
+            Some(f) => Some(f.record(&mut r)?),
+            None => None,
+        };
+        let depth = (t.prepass, t.gbuffer.index[4]);
         if let Some(plan) = &ao_plan {
-            plan.record(
-                &mut r,
-                &t.gbuffer,
-                lights[Env::Own as usize],
-                (t.prepass, t.gbuffer.index[4]),
-            )?;
+            match (&rt_ao, &traced_scene) {
+                (Some(traced), Some(scene)) => traced.record(
+                    &mut r,
+                    &t.gbuffer,
+                    lights[Env::Own as usize],
+                    depth,
+                    scene,
+                    plan.mask().1,
+                )?,
+                _ => plan.record(&mut r, &t.gbuffer, lights[Env::Own as usize], depth)?,
+            }
         }
         if let Some(plan) = &lamp_plan {
             LampsPass::record(plan, &mut r, &t.gbuffer)?;
@@ -2436,13 +2543,21 @@ impl Remaster {
             plan.record_map(&mut r, draws, posed_index, (self.white, self.wrap))?;
         }
         if let Some(plan) = &sun_plan {
-            plan.record_maps(&mut r, draws, posed_index, (self.white, self.wrap))?;
-            plan.mask.record(
-                &mut r,
-                &t.gbuffer,
-                lights[Env::Own as usize],
-                (t.prepass, t.gbuffer.index[4]),
-            )?;
+            match (&rt_shadow, &traced_scene) {
+                (Some(traced), Some(scene)) => traced.record(
+                    &mut r,
+                    &t.gbuffer,
+                    lights[Env::Own as usize],
+                    depth,
+                    scene,
+                    plan.mask.visibility,
+                )?,
+                _ => {
+                    plan.record_maps(&mut r, draws, posed_index, (self.white, self.wrap))?;
+                    plan.mask
+                        .record(&mut r, &t.gbuffer, lights[Env::Own as usize], depth)?;
+                }
+            }
         }
         if let Some(plan) = &sky_plan {
             plan.record_tables(&mut r)?;

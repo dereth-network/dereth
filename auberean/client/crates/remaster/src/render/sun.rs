@@ -44,13 +44,13 @@ impl Default for ShadowSettings {
 /// over each point).
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Caster {
-    vertices: u32,
-    posed: Option<u32>,
-    indices: Buffer,
-    index_count: u32,
-    record: u32,
-    texture: u32,
-    sampler: u32,
+    pub(super) vertices: u32,
+    pub(super) posed: Option<u32>,
+    pub(super) indices: Buffer,
+    pub(super) index_count: u32,
+    pub(super) record: u32,
+    pub(super) texture: u32,
+    pub(super) sampler: u32,
 }
 
 impl Caster {
@@ -211,8 +211,9 @@ impl Remaster {
 
     /// Work out the frame's cascades from `camera` and the outdoors' light `out_u`, gather each
     /// one's casters (their constants into `records`, a moved body's pose into `posed`), and write
-    /// the cascades' constants and the sun's share's; `area` is the world's size. `None` when the shadows are off or there is no sun to cast
-    /// them.
+    /// the cascades' constants and the sun's share's; `area` is the world's size. With `traced`,
+    /// the sun's share is traced instead: no caster is gathered and no map drawn. `None` when the
+    /// shadows are off or there is no sun to cast them.
     ///
     /// # Errors
     /// What the device refuses.
@@ -225,6 +226,7 @@ impl Remaster {
         records: &mut Vec<DrawUniforms>,
         posed: &mut Vec<PosedVertex>,
         area: (u32, u32),
+        traced: bool,
         load: &mut dyn FnMut(u32) -> Option<Image>,
     ) -> Result<Option<SunPlan>, RemasterError> {
         let Some(shadow) = frame.shadow.as_ref().filter(|_| self.shadows.on) else {
@@ -261,7 +263,7 @@ impl Remaster {
                 casters: Vec::new(),
             })
             .collect();
-        for b in &shadow.casters {
+        for b in shadow.casters.iter().filter(|_| !traced) {
             if b.indices.is_empty() {
                 continue;
             }

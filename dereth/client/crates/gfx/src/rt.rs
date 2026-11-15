@@ -954,8 +954,11 @@ fn before_builds_copy(device: &ash::Device, cmd: vk::CommandBuffer) {
     unsafe { device.cmd_pipeline_barrier2(cmd, &dep) };
 }
 
-/// Whether the adapter has everything ray queries need, by its extensions and features.
-pub(crate) fn adapter_traces(instance: &ash::Instance, pd: vk::PhysicalDevice) -> bool {
+/// Whether the adapter has everything ray queries need, by its extensions and features: a device
+/// made elsewhere on it can trace rays when made with [`EXTENSIONS`], `bufferDeviceAddress`,
+/// `accelerationStructure` (updated after binding) and `rayQuery`.
+#[must_use]
+pub fn adapter_traces(instance: &ash::Instance, pd: vk::PhysicalDevice) -> bool {
     // SAFETY: a pure query on a live physical device.
     let Ok(available) = (unsafe { instance.enumerate_device_extension_properties(pd) }) else {
         return false;
