@@ -14,7 +14,7 @@
 //   each blurred from the one before, then added back up the chain.
 // - `fs_tonemap`: the bloom laid in, the exposure, a shoulder to display values, and the grade.
 import bindless;
-import retail;
+import frame;
 
 // This pass's own constants, in buffer `post` as float4 rows:
 //   0..3  the last frame's view and projection together, unmoved, in this frame's space

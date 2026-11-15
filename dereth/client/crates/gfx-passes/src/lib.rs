@@ -19,6 +19,7 @@
 //! | [`gbuffer`] | the G-buffer's targets, their formats and the light classes |
 //! | [`frame`] | the camera, the rows of a constants buffer, a buffer rewritten every frame, the push words, the last frame's reprojection |
 //! | [`ao`] | the ambient occlusion: how much of the sky each pixel's surroundings leave it |
+//! | [`post`] | the scene's target of its own, the temporal anti-aliasing, the bloom, the exposure and the tone curve |
 //! | [`sun`] | the sun's cascades, their maps, and how much of the sun reaches each pixel it lights |
 //! | [`shaders`] | the shaders, compiled ahead of time and embedded: each entry point's blobs |
 //!
@@ -28,5 +29,6 @@
 pub mod ao;
 pub mod frame;
 pub mod gbuffer;
+pub mod post;
 pub mod shaders;
 pub mod sun;

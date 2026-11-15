@@ -185,33 +185,6 @@ source = "halo.slang"
 entry = "fs_halo"
 stage = "fragment"
 
-# The post passes: the temporal anti-aliasing (and its check of the motion), the bloom down and
-# back up, and the tone map.
-[[entry]]
-source = "post.slang"
-entry = "fs_taa"
-stage = "fragment"
-
-[[entry]]
-source = "post.slang"
-entry = "fs_taa_check"
-stage = "fragment"
-
-[[entry]]
-source = "post.slang"
-entry = "fs_bloom_down"
-stage = "fragment"
-
-[[entry]]
-source = "post.slang"
-entry = "fs_bloom_up"
-stage = "fragment"
-
-[[entry]]
-source = "post.slang"
-entry = "fs_tonemap"
-stage = "fragment"
-
 # The moving objects drawn again where they moved from.
 [[entry]]
 source = "motion.slang"
