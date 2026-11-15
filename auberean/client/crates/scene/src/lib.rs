@@ -4087,11 +4087,12 @@ impl<'w> Scene<'w> {
             }
             let mut counts = built.frame.counts;
             counts.sky_objects = 0;
-            let (before, after) =
+            let (before, after, dome) =
                 self.builder
                     .sky(spot.position, day.as_ref(), spot.time_of_day, &mut counts);
             built.frame.sky_before = before;
             built.frame.sky_after = after;
+            built.frame.sky_dome = dome;
             built.frame.counts = counts;
         }
         let mut noted = Vec::new();
@@ -4865,6 +4866,11 @@ impl<'w> Scene<'w> {
                 .rooms
                 .as_ref()
                 .is_some_and(|r| r.sight(&built.frame.camera, 4.0 / 3.0).outdoors());
+        built.frame.rain = if sees_out {
+            moment.0.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
         if sees_out {
             let (right, _, _) = (axes.0, axes.1, axes.2);
             built.frame.objects.extend(self.weather.frame(

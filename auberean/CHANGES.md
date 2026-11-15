@@ -6,7 +6,7 @@ Add a line under **Unreleased** when a change lands that a player would notice. 
 not how it was done.
 
 ## Unreleased
-- New Remaster mode with sun shadows, ambient occlusion, smooth edges, bloom and lamplight (`--remaster`).
+- New Remaster mode with sun shadows, ambient occlusion, smooth edges, bloom, lamplight and a physical sky (`--remaster`).
 - Explore mode can be held at a chosen game time (`--explore-time`).
 - Fixed selected text showing as a separate box around each character.
 - Fixed dying creatures staying solid until their bodies disappeared.

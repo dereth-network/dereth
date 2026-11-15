@@ -15,4 +15,5 @@ mod look;
 mod occlusion;
 mod shadows;
 mod shared;
+mod sky;
 mod smoothing;

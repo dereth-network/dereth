@@ -307,6 +307,7 @@ impl SceneBuilder<'_> {
         if !outlook.sky && !outlook.land {
             f.sky_before.clear();
             f.sky_after.clear();
+            f.sky_dome = 0;
             f.flares.clear();
         } else {
             f.outside = Some(f.light);

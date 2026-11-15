@@ -443,11 +443,18 @@ impl Scene<'_> {
         frame.light = self.builder.light(&spot, day.as_ref());
         let mut counts = frame.counts;
         counts.sky_objects = 0;
-        let (before, after) = self
-            .builder
-            .sky(eye, day.as_ref(), spot.time_of_day, &mut counts);
+        let (before, after, dome) =
+            self.builder
+                .sky(eye, day.as_ref(), spot.time_of_day, &mut counts);
         frame.sky_before = before;
         frame.sky_after = after;
+        frame.sky_dome = dome;
+        // The moment's rain, as the world's frame has it (explore mode draws no streaks).
+        frame.rain = day.as_ref().map_or(0.0, |d| {
+            auberean_world::sky::rain(d, spot.time_of_day)
+                .0
+                .clamp(0.0, 1.0)
+        });
         frame.counts = counts;
         // The lights the placed objects' effects carry light what they reach.
         let block_len = self.world.region.land.grid().block_length();

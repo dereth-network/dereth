@@ -111,6 +111,7 @@ fn on_a_shared_device_retail_draws_as_on_its_own_and_the_remasters_picture_reach
     r.set_ao(dereth_gfx_passes::ao::AoSettings::default());
     r.set_shadows(auberean_remaster::render::ShadowSettings::default());
     r.set_post(dereth_gfx_passes::post::PostSettings::default());
+    r.set_sky(auberean_remaster::render::SkySettings::default());
     for s in &STATIONS {
         let f = frame(s);
         let a = own.render(&f, W, H, &mut load).expect("the retail frame");

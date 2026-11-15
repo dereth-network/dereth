@@ -24,6 +24,10 @@
 //! starts from in linear light; and the tone curve brings the frame back to display values,
 //! unchanged below its shoulder.
 //!
+//! With the physical sky on ([`sky`]), the shared passes' scattering atmosphere is drawn over the
+//! day's dome and under its other objects, and a veil of haze over the horizon after retail's
+//! own veil, in the frame and in the water's reflection.
+//!
 //! With the lamps on, the frame's point lights are worked out per pixel by the shared passes'
 //! lamps ([`lamps`]): their light takes the place of the point lights' share where retail lights
 //! an object by them at its vertices, and lights the land as night comes, which retail lights by
@@ -39,8 +43,10 @@
 //! flares. The sun's shadows replace the shadow map and the volumes.
 
 mod lamps;
+mod sky;
 mod sun;
 
+pub use sky::SkySettings;
 pub use sun::ShadowSettings;
 
 use std::collections::HashMap;
@@ -68,6 +74,7 @@ use dereth_gfx_passes::frame::{push_words, Camera, PerFrame, Rows};
 use dereth_gfx_passes::gbuffer::{class, MATERIAL, NORMAL};
 use dereth_gfx_passes::lamps::{LampsFrame, LampsPass};
 use dereth_gfx_passes::post::{Grade, PostPass, PostSettings};
+use dereth_gfx_passes::sky::Sky as SkyPass;
 use dereth_gfx_passes::sun::SunMaps;
 use dereth_primitives::num::math;
 
@@ -297,6 +304,11 @@ pub struct Remaster {
     lamps: LampsPass,
     lamps_on: bool,
     last_lamps: (usize, usize),
+    /// The physical sky: the shared passes' atmosphere, whether it is drawn, and its constants as
+    /// the water's reflection sees it.
+    atmosphere: SkyPass,
+    sky_settings: SkySettings,
+    mirrored_sky: PerFrame,
     frame: u64,
 }
 
@@ -398,6 +410,14 @@ impl Remaster {
         let post = PostPass::new(&mut gfx)?;
         let posed = PerFrame::new(&mut gfx, "remaster posed", 1 << 20, BufferUsage::default())?;
         let lamps = LampsPass::new(&mut gfx, shader(Entry::LampsFsLamps), COLOR)?;
+        let scene_format = dereth_gfx_passes::post::scene_format(&gfx);
+        let atmosphere = SkyPass::with_depth(&mut gfx, COLOR, scene_format, Some(DEPTH))?;
+        let mirrored_sky = PerFrame::new(
+            &mut gfx,
+            "remaster mirrored sky constants",
+            512,
+            BufferUsage::default(),
+        )?;
         Ok(Self {
             gfx,
             adapter,
@@ -428,15 +448,19 @@ impl Remaster {
             lamps,
             lamps_on: false,
             last_lamps: (0, 0),
+            atmosphere,
+            sky_settings: SkySettings::default(),
+            mirrored_sky,
             frame: 0,
         })
     }
 
     /// Every pass of the remaster's look on, as a player who ticks the remaster sees it first: the
-    /// ambient occlusion, outdoors and in, the sun's shadows, the lamps, the anti-aliasing, and
-    /// linear light with the bloom and the exposure.
+    /// ambient occlusion, outdoors and in, the sun's shadows, the lamps, the physical sky, the
+    /// anti-aliasing, and linear light with the bloom and the exposure.
     pub fn look(&mut self) {
         self.set_lamps(true);
+        self.set_sky(SkySettings { atmosphere: true });
         self.set_ao(AoSettings {
             on: true,
             indoors: true,
@@ -469,6 +493,21 @@ impl Remaster {
     #[must_use]
     pub fn last_lamps(&self) -> (usize, usize) {
         self.last_lamps
+    }
+
+    /// How the sky is drawn from the next frame on (off: the day's own sky, as retail draws it).
+    pub fn set_sky(&mut self, settings: SkySettings) {
+        self.sky_settings = settings;
+    }
+
+    /// How the sky is drawn, and how many times the physical sky's tables and its view were drawn.
+    #[must_use]
+    pub fn sky(&self) -> (SkySettings, u64, u64) {
+        (
+            self.sky_settings,
+            self.atmosphere.tables_drawn,
+            self.atmosphere.views_drawn,
+        )
     }
 
     /// How the post passes draw from the next frame on (off: the frame is drawn into the world's
@@ -958,7 +997,7 @@ impl Remaster {
             height,
             mips: 1,
             format: MATERIAL,
-            usage: TextureUsage::COLOR_TARGET | TextureUsage::SAMPLED,
+            usage: TextureUsage::COLOR_TARGET | TextureUsage::SAMPLED | TextureUsage::TRANSFER_SRC,
         })?;
         let normal = self.gfx.create_texture(&TextureDesc {
             label: "remaster normal",
@@ -1077,6 +1116,20 @@ impl Remaster {
             height: t.height,
             rgba,
         }))
+    }
+
+    /// The light class of the nearest surface the depth's pass found at each pixel of the last
+    /// frame, a byte a pixel: 0 where it found none, where the sky shows. `None` before any frame.
+    ///
+    /// # Errors
+    /// What the device refuses.
+    pub fn read_classes(&mut self) -> Result<Option<Vec<u8>>, RemasterError> {
+        let Some(t) = self.targets else {
+            return Ok(None);
+        };
+        self.gfx.wait_idle()?;
+        let rgba = self.gfx.read_texture(t.gbuffer.material, 0)?;
+        Ok(Some(rgba.chunks(4).map(|p| p[0]).collect()))
     }
 
     /// Draw `frame` at `width` x `height` into a picture left on the device, loading pictures with
@@ -1363,9 +1416,34 @@ impl Remaster {
         } else {
             (&[][..], none, none)
         };
+        // With the physical sky on, the dome's draws come first and the physical sky is drawn after
+        // them, under the sky's other objects.
+        let outdoors_light = frame.outside.as_ref().unwrap_or(&frame.light);
+        // D2-10936
+        let skip_sky = (outdoors_light.fog_sky - 1.0).abs() < 0.0002;
+        let physical = self.sky_settings.atmosphere
+            && frame.sky_dome > 0
+            && !sky_before.is_empty()
+            && !skip_sky;
+        let dome = if physical {
+            frame.sky_dome.min(sky_before.len())
+        } else {
+            0
+        };
         objects(
             self,
-            opaque_first(sky_before),
+            opaque_first(&sky_before[..dome]),
+            Env::Sky,
+            Pass::Sky,
+            &mut records,
+            &mut posed,
+            &mut steps,
+            load,
+        )?;
+        let dome_draws = steps.get(Pass::Sky).map_or(0, <[Draw]>::len);
+        objects(
+            self,
+            opaque_first(&sky_before[dome..]),
             Env::Sky,
             Pass::Sky,
             &mut records,
@@ -1641,9 +1719,6 @@ impl Remaster {
             &mut steps,
             load,
         )?;
-        let outdoors_light = frame.outside.as_ref().unwrap_or(&frame.light);
-        // D2-10936
-        let skip_sky = (outdoors_light.fog_sky - 1.0).abs() < 0.0002;
         // The veil is the sky's: no sky drawn, no veil.
         // D2-10940
         let veil = (sky_shown && outdoors_light.fog_sky > 0.0)
@@ -1766,6 +1841,17 @@ impl Remaster {
                 let bytes = Self::light_rows(u, m_view, (REFLECTION_SIZE, REFLECTION_SIZE));
                 self.mirrored[k].write(&mut self.gfx, &bytes)?;
             }
+            if physical {
+                let seen = sky::light(
+                    frame,
+                    m_view,
+                    projection,
+                    glam::Vec3::from(m_eye),
+                    (REFLECTION_SIZE, REFLECTION_SIZE),
+                );
+                let rows = dereth_gfx_passes::sky::rows(&seen);
+                self.mirrored_sky.write(&mut self.gfx, &rows)?;
+            }
         }
 
         let t = self.targets(width, height)?;
@@ -1803,6 +1889,18 @@ impl Remaster {
         } else {
             None
         };
+        // The physical sky: drawn in display values wherever the sky is (into the post passes'
+        // target when they run in display values).
+        let sky_plan = if physical {
+            let seen = sky::light(frame, view, projection, camera.eye, (width, height));
+            Some(
+                self.atmosphere
+                    .prepare(&mut self.gfx, &seen, &[], into_post && !linear)?,
+            )
+        } else {
+            None
+        };
+        let mirrored_sky = self.mirrored_sky.index;
         // The depth's pass's pipelines: each mesh's that marks how near it is, culled as it is,
         // and the land's.
         let mut depth_keys = Vec::new();
@@ -1962,11 +2060,25 @@ impl Remaster {
                         continue;
                     }
                 }
+                // The physical sky as this pass sees it: the frame's, or the mirror's.
+                let seen = sky_plan.as_ref().map(|p| {
+                    (
+                        p,
+                        if reflecting {
+                            mirrored_sky
+                        } else {
+                            p.constants()
+                        },
+                    )
+                });
                 if step == Pass::Veil {
                     if let Some(p) = if post { veil_post } else { veil } {
                         rec.set_pipeline(p)?;
                         rec.push(0, &push_words(&[lights[Env::Outside as usize]]))?;
                         rec.draw(3, 1, 0, 0);
+                    }
+                    if let Some((p, constants)) = seen {
+                        p.draw_into(rec, constants, true, post)?;
                     }
                     continue;
                 }
@@ -1982,9 +2094,20 @@ impl Remaster {
                     }
                     _ => steps.get(step),
                 };
-                for d in list.unwrap_or(&[]) {
+                for (k, d) in list.unwrap_or(&[]).iter().enumerate() {
+                    if step == Pass::Sky && k == dome_draws {
+                        if let Some((p, constants)) = seen {
+                            p.draw_into(rec, constants, false, post)?;
+                        }
+                    }
                     if if reflecting { d.reflected } else { d.shown } {
                         run(rec, d, lights, reflecting, false, post)?;
+                    }
+                }
+                // A sky of the dome alone.
+                if step == Pass::Sky && list.map_or(0, <[Draw]>::len) == dome_draws {
+                    if let Some((p, constants)) = seen {
+                        p.draw_into(rec, constants, false, post)?;
                     }
                 }
             }
@@ -2043,6 +2166,14 @@ impl Remaster {
                 (t.prepass, t.gbuffer.index[4]),
             )?;
         }
+        if let Some(plan) = &sky_plan {
+            plan.record_tables(&mut r)?;
+        }
+        let sky_touches: Vec<Touch> = sky_plan
+            .as_ref()
+            .map(|p| Touch::Texture(p.view_table(), Use::Sampled))
+            .into_iter()
+            .collect();
         if let Some((picture, ripples, depth, _, _)) = reflection_targets {
             r.raster(
                 &RasterPass {
@@ -2056,7 +2187,7 @@ impl Remaster {
                         clear: Some(1.0),
                         write: true,
                     }),
-                    touches: &[],
+                    touches: &sky_touches,
                     area: None,
                 },
                 |rec| steps_in(rec, &mirrored, true, false, Sky::Drawn),
@@ -2100,7 +2231,7 @@ impl Remaster {
                         clear: Some(1.0),
                         write: true,
                     }),
-                    touches: &[],
+                    touches: &sky_touches,
                     area: None,
                 },
                 |rec| steps_in(rec, &lights, false, false, Sky::Only),
@@ -2108,7 +2239,7 @@ impl Remaster {
         }
         // The targets the world draws into: the post passes' with them on.
         let scene = post_plan.map_or(t.gbuffer, |p| p.scene_targets(t.gbuffer));
-        let mut touches = Vec::new();
+        let mut touches = sky_touches.clone();
         if let Some((picture, _, _)) = sky_in {
             touches.push(Touch::Texture(picture, Use::Sampled));
         }

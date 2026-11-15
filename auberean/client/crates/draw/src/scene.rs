@@ -726,6 +726,12 @@ pub struct Frame {
     pub reflection_land: Option<TerrainBatch>,
     pub objects: Vec<ObjectBatch>,
     pub sky_after: Vec<ObjectBatch>,
+    /// How many of `sky_before`'s batches are the dome's (the day's first sky object), which come
+    /// first.
+    pub sky_dome: usize,
+    /// The moment's rain amount, 0 to 1, as the streaks are drawn by; 0 where the frame can't see
+    /// outside.
+    pub rain: f32,
     /// Where frills fade out, from the camera: fully drawn nearer than the first distance, gone
     /// past the second.
     pub frill_fade: [f32; 2],
@@ -2220,7 +2226,7 @@ impl<'a> SceneBuilder<'a> {
             .flatten();
 
         // The sky around the viewer, and its objects' flares.
-        let (sky_before, sky_after) =
+        let (sky_before, sky_after, sky_dome) =
             self.sky(spot.position, day.as_ref(), spot.time_of_day, &mut counts);
         let flares = match (&day, self.light_coronas) {
             (Some(d), true) => crate::flare::sky_flares(d, spot.time_of_day),
@@ -2255,6 +2261,8 @@ impl<'a> SceneBuilder<'a> {
             reflection_land,
             objects,
             sky_after,
+            sky_dome,
+            rain: 0.0,
             frill_fade: {
                 #[allow(clippy::cast_precision_loss)]
                 let end = self.frill_radius as f32 * cell_len * self.frill_reach;
@@ -2324,7 +2332,8 @@ impl<'a> SceneBuilder<'a> {
     }
 
     /// The sky's objects at fraction `t` of day `day`, standing at the viewer: those drawn before
-    /// the world, then those drawn after it. Each sky object is made from what the moment shows of
+    /// the world, those drawn after it, and how many of the first are the dome's (the day's first
+    /// object, when it shows before the world). Each sky object is made from what the moment shows of
     /// it (its own model or a time of day's replacement) the first time it shows that, and kept;
     /// every frame it stands at the viewer's place, turned as the moment turns it.
     // D2-10942, D2-10939, D2-05962
@@ -2334,10 +2343,11 @@ impl<'a> SceneBuilder<'a> {
         day: Option<&auberean_assets::region::DayDesc>,
         t: f32,
         counts: &mut Counts,
-    ) -> (Vec<ObjectBatch>, Vec<ObjectBatch>) {
+    ) -> (Vec<ObjectBatch>, Vec<ObjectBatch>, usize) {
         let (mut before, mut after) = (Vec::new(), Vec::new());
+        let mut dome = 0;
         let Some(day) = day else {
-            return (before, after);
+            return (before, after, dome);
         };
         for piece in sky_pieces(day, t) {
             if !piece.shows(self.camera_in_water) {
@@ -2375,8 +2385,11 @@ impl<'a> SceneBuilder<'a> {
                     before.extend(batches);
                 }
             }
+            if piece.index == 0 && !piece.after {
+                dome = before.len();
+            }
         }
-        (before, after)
+        (before, after, dome)
     }
 
     /// A frame of placed parts and bodies alone, as an interface's scene draws: no ground, no sky,
@@ -2413,6 +2426,8 @@ impl<'a> SceneBuilder<'a> {
             reflection_land: None,
             objects,
             sky_after: Vec::new(),
+            sky_dome: 0,
+            rain: 0.0,
             frill_fade: [f32::MAX, f32::MAX],
             counts,
             shadow: None,
