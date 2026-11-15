@@ -324,21 +324,49 @@ fn main_workspace() -> Option<PathBuf> {
 /// explicitly. An absent input is an oracle nobody consulted, so every row that reads it reports
 /// NO-ORACLE naming the variable, and nothing is built for that row.
 pub fn real_content(profile: Profile, dats: Option<&Path>) -> Vec<Report> {
-    // Each crate, its extra arguments, and whether its tests read the Infiltration pack.
-    const TIERS: &[(&str, &[&str], bool)] = &[
-        ("empyrean-world", &[], true),
-        ("empyrean-testkit", &["--test", "all"], true),
-        ("empyrean-server", &["--test", "all"], false),
+    // Each row: its name after the crate's, the crate, its features, its extra arguments, and
+    // whether its tests read the Infiltration pack.
+    const TIERS: &[(&str, &str, &str, &[&str], bool)] = &[
+        ("", "empyrean-world", "real-content", &[], true),
+        (
+            "",
+            "empyrean-testkit",
+            "real-content",
+            &["--test", "all"],
+            true,
+        ),
+        (
+            "",
+            "empyrean-server",
+            "real-content",
+            &["--test", "all"],
+            false,
+        ),
         // The playtest character commands, whose gear is rolled from both eras' loot.
-        ("empyrean-command", &["--test", "all"], true),
+        (
+            "",
+            "empyrean-command",
+            "real-content",
+            &["--test", "all"],
+            true,
+        ),
+        // Every recorded session replayed against the server, its stream checked against the
+        // recording's invariants.
+        (
+            " (capture replay)",
+            "empyrean-testkit",
+            "real-content,captures",
+            &["--test", "all", "replay::capture_replay"],
+            false,
+        ),
     ];
     let pack = world_pack();
     let infiltration = infiltration_pack();
     let ws = workspace_root();
     TIERS
         .iter()
-        .map(|(krate, extra, needs_infiltration)| {
-            let name = format!("server real content: {krate}");
+        .map(|(suffix, krate, features, extra, needs_infiltration)| {
+            let name = format!("server real content: {krate}{suffix}");
             let mut missing = Vec::new();
             if dats.is_none() {
                 missing.push("the retail dats (set DERETH_TEST_DAT_DIR)");
@@ -357,7 +385,7 @@ pub fn real_content(profile: Profile, dats: Option<&Path>) -> Vec<Report> {
             }
             let mut argv: Vec<&str> = vec!["test", "-q"];
             argv.extend_from_slice(profile.cargo_args());
-            argv.extend_from_slice(&["-p", krate, "--features", "real-content"]);
+            argv.extend_from_slice(&["-p", krate, "--features", features]);
             argv.extend_from_slice(extra);
             println!(
                 "--- {name}: DERETH_TEST_DAT_DIR={} {WORLD_PACK_VAR}={}",
