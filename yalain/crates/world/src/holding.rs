@@ -153,6 +153,9 @@ pub fn move_item<S: Store>(
         t.at = None;
         t.container = None;
     }
+    if from == Place::Ground {
+        s.things.taken_up(item);
+    }
     let slot = match to {
         To::Pack(world, slot) => {
             let Some(p) = s.players.get_mut(&world) else {

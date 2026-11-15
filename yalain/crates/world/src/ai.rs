@@ -274,6 +274,10 @@ pub const LOOK_EVERY: f64 = 1.0;
 /// How long after a creature goes after a player its kin come, in seconds (2017: a median 1.1 s).
 pub const JOINS_AFTER: f64 = 1.1;
 
+/// How long a creature at rest rests between its thoughts of wandering, at least and at most, in
+/// seconds (2017: a median 58 s between walks for creatures of a 20 m range).
+pub const WANDER_REST: (f32, f32) = (30.0, 86.0);
+
 /// The wandering range of a creature whose settings give none above 0, in meters: the game's
 /// scripts' default (2017: outdoor creatures of templates naming no range walked to a median 11.9 m
 /// and p90 25.7 m from where they appeared, a little beyond those of a 20 m range, 10.8 and 22.7;
@@ -390,15 +394,21 @@ pub const IDLE_EVERY: f32 = 450.0;
 /// The position flag of an object touching the ground.
 pub(crate) const ON_GROUND: u32 = 0x4;
 
-/// Every creature acts.
+/// Every creature awake acts: those asleep where no player is near first wake if one has come
+/// near, and those that rest where none is go to sleep ([`crate::rest`]).
 pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
     let now = clock.local.0;
+    let near = crate::rest::near_blocks(s);
+    crate::rest::wake(s, &near, now);
     let mut ids = Vec::new();
     s.fighting.clear();
     if let Some(w) = s.walls.as_mut() {
         w.new_pass();
     }
-    for t in s.things.by_id.values() {
+    for id in s.things.awake() {
+        let Some(t) = s.things.get(id) else {
+            continue;
+        };
         let Some(c) = t.creature.as_ref() else {
             continue;
         };
@@ -413,6 +423,7 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
     for id in ids {
         act(s, net, id, clock, now);
     }
+    crate::rest::sleep_resting(s, &near);
 }
 
 /// The player a creature notices: the nearest within its perception that is in the world, out of
@@ -1448,7 +1459,7 @@ fn arrive_home<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock:
 
 /// Has a walk reached its goal: within [`ARRIVED`] of it on the ground (the height left to the
 /// ground, which on a slope need not meet the goal's)?
-fn arrived(at: &StoredPosition, goal: &StoredPosition) -> bool {
+pub(crate) fn arrived(at: &StoredPosition, goal: &StoredPosition) -> bool {
     let (dx, dy, _) = offset(at, goal);
     (dx * dx + dy * dy).sqrt() <= ARRIVED
 }
@@ -1477,7 +1488,7 @@ pub(crate) fn first_idle<S: Store>(
 
 /// The time to a creature's next idle behavior: drawn as chance spaces them, [`IDLE_EVERY`] on
 /// average.
-fn idle_gap<S: Store>(s: &mut Server<S>) -> f64 {
+pub(crate) fn idle_gap<S: Store>(s: &mut Server<S>) -> f64 {
     let u = s.rng.unit().clamp(0.0, 0.999_999);
     f64::from(-IDLE_EVERY * math::logf(1.0 - u))
 }
@@ -1544,7 +1555,7 @@ fn wander<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Cloc
     }
     // Where the walls are known, a creature no player could see rests: its walls are not read.
     if s.walls.is_some() && !player_near(s, &c.home) {
-        let next = now + f64::from(s.rng.between(30.0, 86.0));
+        let next = now + f64::from(s.rng.between(WANDER_REST.0, WANDER_REST.1));
         if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
             c.next_wander = next;
         }
@@ -1558,7 +1569,7 @@ fn wander<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Cloc
     let (home, chance, scale) = (c.home, c.stats.movement.wander_chance, c.stats.scale);
     let (template, from) = (t.template, t.at.unwrap_or(c.home));
     // Between walks it rests (2017: a median 58 s for creatures of a 20 m range).
-    let next = now + f64::from(s.rng.between(30.0, 86.0));
+    let next = now + f64::from(s.rng.between(WANDER_REST.0, WANDER_REST.1));
     let go = chance <= 0.0 || s.rng.chance(chance);
     let r = range * s.rng.unit().sqrt();
     let a = s.rng.between(0.0, std::f32::consts::TAU);

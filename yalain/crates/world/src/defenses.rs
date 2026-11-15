@@ -114,6 +114,15 @@ pub fn device_of<S: Store>(
         .then_some(device)
 }
 
+/// Is a creature one a defense under way made to attack its device?
+#[must_use]
+pub fn attacks<S: Store>(s: &Server<S>, id: u64) -> bool {
+    s.defenses
+        .running
+        .values()
+        .any(|r| r.attackers.contains(&id))
+}
+
 /// At each world step: each defense under way ends with its device gone, or holds once it has
 /// stood its time, or makes the attackers it lacks that are due.
 pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {

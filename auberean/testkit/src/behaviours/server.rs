@@ -1007,6 +1007,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.camps.looked-at-only-with-something-to-do",
+        says: "After the first step a camp is looked at only when a replacement of its is due, a \
+               creature or item it keeps has gone or been taken up from the ground, it is new or \
+               its event has begun: an idle world's step looks at no camp however many it has, and \
+               a camp far from every player replaces what it lost when due. Our choice.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-IDLE-CAMPS"),
+        station: "yalain-testkit::cpu::operator::idle_world::an_idle_worlds_step_does_no_more_work_with_forty_camps_than_with_one",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.characters.banned-names-from-the-operator",
         says: "A server given a list of banned words refuses a new character whose name holds \
                one, its letters matched in small letters with spaces and marks between them \
@@ -3051,6 +3062,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.asleep-where-no-player-is-near",
+        says: "Where the walls are known, a creature at rest with no player in the landblock of its \
+               place or its home, or one beside it, sleeps and does not act; a player coming near \
+               wakes it, and so does anything that changes it. Our choice.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-IDLE-CREATURES"),
+        station: "yalain-testkit::cpu::operator::idle_world::a_player_coming_near_wakes_the_creatures_there_and_only_those",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.attack-only-what-it-sees",
         says: "A creature attacks only a player in its own cell or one its cell sees; out of its \
                sight it neither shoots nor strikes but closes in, and gives up as it gives up any \
@@ -3845,6 +3866,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-WEAPONS-AGAIN"),
         station: "yalain-testkit::cpu::play::creature_tactics::a_creature_taking_its_weapons_up_again_wields_and_holds_each_before_attaching_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.woken-take-up-their-clocks",
+        says: "Woken, a creature looks about at its own moment of the second as before it slept, \
+               its next idle behavior and its next thought of wandering come after fresh waits, \
+               and no player counts as within its perception since its last step. Our choice.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-IDLE-WAKE-CLOCKS"),
+        station: "yalain-testkit::cpu::operator::idle_world::a_creature_woken_looks_about_at_its_own_moment_and_its_waits_start_afresh",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -636,9 +636,9 @@ type Going = (u64, bool, Option<(u32, StoredPosition)>);
 pub fn expire<S: Store>(s: &mut Server<S>, net: &mut ServerNet, now: f64) {
     let gone: Vec<Going> = s
         .things
-        .by_id
-        .values()
-        .filter_map(|t| {
+        .nodes()
+        .filter_map(|id| {
+            let t = s.things.get(id)?;
             let n = t.node.as_ref()?;
             let back = n.public.then_some(t.template).zip(t.at);
             (n.expires <= now && !n.busy).then_some((t.id, n.uses >= n.max_uses, back))

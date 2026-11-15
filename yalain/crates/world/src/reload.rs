@@ -959,6 +959,7 @@ fn take_camps<S: Store>(
     }
     s.spawns = new;
     s.camps = states;
+    s.camp_watch = crate::spawn::CampWatch::of(&s.camps);
     // Every creature of a camp follows its camp to its new place in the table, or has none.
     for t in s.things.by_id.values_mut() {
         if let Some(c) = t.creature.as_mut() {

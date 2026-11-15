@@ -5,7 +5,7 @@
 //! A thing has an id of the runtime range, a template from the catalog, and either a place in the
 //! world or a container (a corpse, a player) that holds it.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use auberean_protocol::physics::CreateObject;
 use auberean_protocol::text::StringInfo;
@@ -354,12 +354,30 @@ impl Thing {
 }
 
 /// Every thing of the world, by id.
+///
+/// Beside them it keeps what the world's step looks at, so the step's work follows what is going on
+/// rather than how much the world holds ([`crate::rest`]): which creatures are awake and which rest
+/// asleep where no player is near, the corpses and the veins (each goes in its time), and the things
+/// gone or taken up from the ground since the step last asked (a camp replaces what it kept).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Things {
     pub by_id: BTreeMap<u64, Thing>,
     /// The numbers of the block set aside in the store still to give, the first of them next.
     next: u64,
     end: u64,
+    /// The creatures that act at the world's step: all but those asleep.
+    awake: BTreeSet<u64>,
+    /// The creatures asleep, each with the landblocks a player coming near wakes it in, and by
+    /// landblock.
+    asleep: HashMap<u64, [u16; 2]>,
+    sleeping: HashMap<u16, BTreeSet<u64>>,
+    /// Creatures woken since the step last asked.
+    woken: Vec<u64>,
+    /// The corpses and the veins.
+    corpses: BTreeSet<u64>,
+    nodes: BTreeSet<u64>,
+    /// Things gone, or taken up from the ground, since the step last asked.
+    left: Vec<u64>,
 }
 
 impl Things {
@@ -388,7 +406,12 @@ impl Things {
         self.by_id.get(&id)
     }
 
+    /// A thing to change. A creature asleep wakes: whatever changes it may give it something to
+    /// do.
     pub fn get_mut(&mut self, id: u64) -> Option<&mut Thing> {
+        if self.asleep.contains_key(&id) {
+            self.wake(id);
+        }
         self.by_id.get_mut(&id)
     }
 
@@ -405,12 +428,115 @@ impl Things {
             );
             return false;
         }
+        if t.kind == Kind::Creature || t.creature.is_some() {
+            self.awake.insert(t.id);
+        }
+        if t.corpse.is_some() {
+            self.corpses.insert(t.id);
+        }
+        if t.node.is_some() {
+            self.nodes.insert(t.id);
+        }
         self.by_id.insert(t.id, t);
         true
     }
 
     pub fn remove(&mut self, id: u64) -> Option<Thing> {
-        self.by_id.remove(&id)
+        let t = self.by_id.remove(&id)?;
+        self.unlist(id);
+        self.awake.remove(&id);
+        self.corpses.remove(&id);
+        self.nodes.remove(&id);
+        self.left.push(id);
+        Some(t)
+    }
+
+    /// A thing has been taken up from the ground (into a pack, a corpse or a chest, or a holder).
+    pub fn taken_up(&mut self, id: u64) {
+        self.left.push(id);
+    }
+
+    /// The things gone, or taken up from the ground, since this was last asked.
+    pub fn take_left(&mut self) -> Vec<u64> {
+        std::mem::take(&mut self.left)
+    }
+
+    /// The creatures awake, by id.
+    pub fn awake(&self) -> impl Iterator<Item = u64> + '_ {
+        self.awake.iter().copied()
+    }
+
+    /// How many creatures are asleep.
+    #[must_use]
+    pub fn asleep_count(&self) -> usize {
+        self.asleep.len()
+    }
+
+    /// Is a creature asleep?
+    #[must_use]
+    pub fn is_asleep(&self, id: u64) -> bool {
+        self.asleep.contains_key(&id)
+    }
+
+    /// A creature goes to sleep until a player comes near one of these landblocks or something
+    /// changes it.
+    pub fn sleep(&mut self, id: u64, blocks: [u16; 2]) {
+        if !self.by_id.contains_key(&id) || !self.awake.remove(&id) {
+            return;
+        }
+        for b in blocks {
+            self.sleeping.entry(b).or_default().insert(id);
+        }
+        self.asleep.insert(id, blocks);
+    }
+
+    /// Every creature asleep in a landblock wakes.
+    pub fn wake_block(&mut self, block: u16) {
+        let Some(ids) = self.sleeping.remove(&block) else {
+            return;
+        };
+        for id in ids {
+            self.wake(id);
+        }
+    }
+
+    /// A creature asleep wakes.
+    fn wake(&mut self, id: u64) {
+        if self.unlist(id) {
+            self.awake.insert(id);
+            self.woken.push(id);
+        }
+    }
+
+    /// A creature leaves the sleeping. Whether it was asleep.
+    fn unlist(&mut self, id: u64) -> bool {
+        let Some(blocks) = self.asleep.remove(&id) else {
+            return false;
+        };
+        for b in blocks {
+            if let Some(set) = self.sleeping.get_mut(&b) {
+                set.remove(&id);
+                if set.is_empty() {
+                    self.sleeping.remove(&b);
+                }
+            }
+        }
+        true
+    }
+
+    /// The creatures woken since this was last asked.
+    pub fn take_woken(&mut self) -> Vec<u64> {
+        std::mem::take(&mut self.woken)
+    }
+
+    /// The corpses, by id.
+    pub fn corpses(&self) -> impl Iterator<Item = u64> + '_ {
+        self.corpses.iter().copied()
+    }
+
+    /// The veins and other nodes, by id.
+    pub fn nodes(&self) -> impl Iterator<Item = u64> + '_ {
+        self.nodes.iter().copied()
     }
 
     /// The things standing in the world.

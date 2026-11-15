@@ -56,6 +56,7 @@
 //! - [`treasure`]: what a treasure item carries of its own, chosen as it drops.
 //! - [`walkers`]: placed people walking their routes.
 //! - [`reload`]: the world database taken again while the server runs.
+//! - [`rest`]: where no player is near, creatures at rest sleep and camps wait.
 //! - [`saves`], [`shutdown`]: every character in the world kept every few minutes; the world shut
 //!   down, its countdown, cancelled or cut short.
 //! - [`admin`]: the operator's moderation: access levels, accounts made and changed while the
@@ -150,6 +151,7 @@ pub mod regen;
 pub mod reload;
 pub mod reported;
 pub mod requests;
+pub mod rest;
 pub mod resurrections;
 pub mod rng;
 pub mod rules;
@@ -404,6 +406,8 @@ pub struct Server<S: Store> {
     /// The things the world has made, and each camp's state.
     pub things: things::Things,
     pub camps: Vec<spawn::CampState>,
+    /// Which camps the step looks at.
+    pub camp_watch: spawn::CampWatch,
     /// The creatures fighting at the world's last step: those [`ai::attacks_due`] looks at.
     pub fighting: Vec<u64>,
     /// The ground's height outdoors, when the host knows the land.
@@ -880,6 +884,7 @@ impl<S: Store> Server<S> {
             chatter: HashMap::new(),
             things,
             camps: Vec::new(),
+            camp_watch: spawn::CampWatch::default(),
             fighting: Vec::new(),
             ground: None,
             walls: None,

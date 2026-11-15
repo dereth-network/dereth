@@ -278,6 +278,11 @@ fn ends<S: Store>(s: &mut Server<S>, net: &mut ServerNet, key: &str) {
 /// An event starts: its objects are made for every client that sees them (its camps fill at
 /// their next step), and those it hides are forgotten.
 fn starts<S: Store>(s: &mut Server<S>, net: &mut ServerNet, key: &str) {
+    for i in 0..s.spawns.camps.len() {
+        if s.content.events.of_camp(&s.spawns.camps[i].id) == Some(key) {
+            s.camp_watch.look_at(i);
+        }
+    }
     for i in gated_objects(s, key) {
         presence::content_placed(s, net, i, None);
     }

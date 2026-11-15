@@ -183,7 +183,13 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, now: f64) {
             progress::send_int(net, world, cur, next);
         }
     }
-    for t in s.things.by_id.values_mut() {
+    // Only a creature awake can be short of health: one asleep is whole and done regaining
+    // ([`crate::rest`]), and anything that hurts it wakes it.
+    let awake: Vec<u64> = s.things.awake().collect();
+    for id in awake {
+        let Some(t) = s.things.get_mut(id) else {
+            continue;
+        };
         if !t.alive() || t.health >= t.max_health || now - t.last_hurt < CREATURE_REST {
             t.regen_since = 0.0;
             t.regained = 0;

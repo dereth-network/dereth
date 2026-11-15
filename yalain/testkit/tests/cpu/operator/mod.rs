@@ -7,6 +7,7 @@ mod admin_calls;
 mod admins;
 mod answers;
 mod characters;
+mod idle_world;
 mod item_ids;
 mod moderation;
 mod old_saves;

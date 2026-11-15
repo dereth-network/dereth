@@ -26,10 +26,19 @@
 //! names a route sets each creature it makes off along it, toward the camp's starting waypoint
 //! and the camp's way round ([`crate::ai`]).
 //!
+//! **Looked at only with something to do.** After the first step a camp is looked at only when it
+//! may have something to do: a replacement of its has come due, a creature or item it keeps has
+//! gone or been taken up from the ground, it is new to the world (a reload's), or its event has
+//! begun. An idle world's step looks at no camp, however many it has; what a camp makes, and when,
+//! is as it would be if every camp were looked at every step.
+//!
 //! **Appearing.** A new creature is made for every client whose view holds its place, with its
 //! entry effect. It holds the effects the world's rows give its template from that moment, at its
 //! level's spellcraft, for as long as it stands ([`holds_its_effects`]); so does a creature a death
 //! or an effect makes.
+
+use std::cmp::Reverse;
+use std::collections::{BTreeSet, BinaryHeap, HashMap};
 
 use dereth_primitives::num::math;
 use yalain_net::ServerNet;
@@ -71,6 +80,99 @@ pub struct CampState {
     pub due: Vec<f64>,
     pub filled: bool,
     pub fought: Vec<u64>,
+}
+
+impl CampState {
+    /// When its earliest replacement is due, if one is.
+    #[must_use]
+    pub fn earliest(&self) -> Option<f64> {
+        self.due.iter().copied().min_by(f64::total_cmp)
+    }
+}
+
+/// Which camps the step looks at: those that may have something to do.
+#[derive(Debug, Clone, Default)]
+pub struct CampWatch {
+    /// How many of the spawn table's camps it knows of: any beyond are new, and looked at.
+    known: usize,
+    /// Camps with a replacement due, by when.
+    due: BinaryHeap<Reverse<DueAt>>,
+    /// Camps to look at at the next step: new, their event begun, or one of their things gone.
+    pending: BTreeSet<usize>,
+    /// The camp that keeps each thing a camp made.
+    kept_by: HashMap<u64, usize>,
+    /// How many camps the last step looked at.
+    pub looked_at: usize,
+}
+
+/// A camp's replacement due at a time (world seconds).
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct DueAt(f64, usize);
+
+impl Eq for DueAt {}
+
+impl PartialOrd for DueAt {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for DueAt {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.total_cmp(&other.0).then(self.1.cmp(&other.1))
+    }
+}
+
+impl CampWatch {
+    /// Watch a spawn table's camps afresh, from their states: each is looked at at the next step.
+    #[must_use]
+    pub fn of(states: &[CampState]) -> Self {
+        let mut w = Self {
+            known: states.len(),
+            pending: (0..states.len()).collect(),
+            ..Self::default()
+        };
+        for (i, st) in states.iter().enumerate() {
+            for id in &st.alive {
+                w.kept_by.insert(*id, i);
+            }
+            w.due_at(i, st);
+        }
+        w
+    }
+
+    /// A camp is looked at at the next step.
+    pub fn look_at(&mut self, camp: usize) {
+        self.pending.insert(camp);
+    }
+
+    /// A camp is looked at when its earliest replacement is due, if it has one.
+    fn due_at(&mut self, camp: usize, st: &CampState) {
+        if let Some(t) = st.earliest() {
+            self.due.push(Reverse(DueAt(t, camp)));
+        }
+    }
+
+    /// The camps to look at now, in order: new ones, those pending, those whose replacement is due
+    /// and those that kept a thing gone or taken up since.
+    fn now(&mut self, camps: usize, left: &[u64], now: f64) -> Vec<usize> {
+        self.pending.extend(self.known..camps);
+        self.known = camps;
+        let mut look = std::mem::take(&mut self.pending);
+        while let Some(Reverse(DueAt(t, i))) = self.due.peek().copied() {
+            if t > now {
+                break;
+            }
+            self.due.pop();
+            look.insert(i);
+        }
+        for id in left {
+            if let Some(i) = self.kept_by.remove(id) {
+                look.insert(i);
+            }
+        }
+        look.into_iter().filter(|i| *i < camps).collect()
+    }
 }
 
 /// A creature holds the effects the world's rows give its template from its first moment
@@ -167,8 +269,25 @@ pub fn outdoor(landblock: u32, x: f32, y: f32) -> (u32, f32, f32) {
 pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
     use crate::step_timer::Stage;
     let now = clock.local.0;
-    for i in 0..s.spawns.camps.len() {
+    let left = s.things.take_left();
+    if s.spawns.camps.len() < s.camp_watch.known {
+        // The table shrank under it: it watches the camps afresh.
+        s.camp_watch = CampWatch::of(&s.camps);
+    }
+    let look = s.camp_watch.now(s.spawns.camps.len(), &left, now);
+    s.camp_watch.looked_at = look.len();
+    for i in look {
         fill(s, net, i, clock);
+        // One that lacks creatures is looked at again when its next is due; one that lacks none,
+        // when one goes.
+        let next = s
+            .camps
+            .get(i)
+            .filter(|st| st.filled && st.alive.len() < s.spawns.camps[i].population as usize)
+            .and_then(CampState::earliest);
+        if let Some(t) = next {
+            s.camp_watch.due.push(Reverse(DueAt(t, i)));
+        }
     }
     s.step_timer.lap(Stage::Camps);
     crate::ai::step(s, net, clock);
@@ -226,6 +345,7 @@ fn fill<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize, clock: Clock
     for _ in 0..make {
         if let Some(id) = spawn(s, i, now) {
             s.camps[i].alive.push(id);
+            s.camp_watch.kept_by.insert(id, i);
             presence::thing_appears(s, net, id);
             holds_its_effects(s, net, id, clock);
         }
@@ -491,5 +611,8 @@ pub fn died<S: Store>(s: &mut Server<S>, camp: usize, id: u64, now: f64) {
     if let Some(state) = s.camps.get_mut(camp) {
         state.alive.retain(|x| *x != id);
         state.due.push(now + regen);
+        if let Some(t) = state.earliest() {
+            s.camp_watch.due.push(Reverse(DueAt(t, camp)));
+        }
     }
 }

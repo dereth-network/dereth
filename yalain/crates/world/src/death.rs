@@ -1233,7 +1233,11 @@ pub fn expire_corpses<S: Store>(s: &mut Server<S>, net: &mut ServerNet, now: f64
         .filter_map(|p| p.open_container)
         .collect();
     let mut due = Vec::new();
-    for t in s.things.by_id.values_mut() {
+    let corpses: Vec<u64> = s.things.corpses().collect();
+    for id in corpses {
+        let Some(t) = s.things.get_mut(id) else {
+            continue;
+        };
         let Some(c) = t.corpse.as_mut().filter(|c| c.expires <= now) else {
             continue;
         };

@@ -9,6 +9,7 @@ what they see, not how it was done.
 - Players and creatures can no longer walk through rocks and trees out in the open.
 - The status endpoint now says how many objects the world holds.
 - Fixed creatures attacking players they can't see, through walls or from out of view.
+- Fixed slow world steps on servers where no one is near most of the world.
 - Worlds can now have an object that wants one item of a set, picked at random.
 - Worlds can now have items that vanish a while after they are made.
 - Worlds can now have people hand something out only once in a while to each player.
