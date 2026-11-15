@@ -267,6 +267,19 @@ pub fn player_enter_world(
                 enqueue_action(
                     w,
                     Action::delegate(move |w: &mut World| {
+                        // DIVERGE: V530, a session that hung up while its character loaded enters no
+                        // player: ACE goes on and makes one with no session behind it, and throws.
+                        let gone = w.sessions.get(session).is_none()
+                            || w.net
+                                .session(session)
+                                .is_some_and(|s| s.core.pending_termination.is_some());
+                        if gone {
+                            log::debug!(
+                                "PlayerEnterWorld for {}: the session hung up while it loaded",
+                                character.name
+                            );
+                            return;
+                        }
                         let player_biota =
                             crate::managers::player_manager::get_offline_player(w, character_id)
                                 .map_or(player_biota, |o| o.biota.clone());

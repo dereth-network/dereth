@@ -343,8 +343,9 @@ pub fn handle_action_use_item(w: &mut World, this: ObjectGuid, item_guid: u32) {
     )
     .result;
 
-    if is_trading(w, this) {
-        let item = item.expect("System.NullReferenceException: item");
+    // DIVERGE: V529, a use of an object no longer to be found while trading falls through to the
+    // answer for an object not found, where ACE's trade check reads the missing object and throws.
+    if let (true, Some(item)) = (is_trading(w, this), item) {
         let items_in_trade_window = items_in_trade_window(w, this);
         if dispatch::is_being_traded_or_contains_item_being_traded::is_being_traded_or_contains_item_being_traded(w, item, &items_in_trade_window) {
             send_use_done_event(w, this, WeenieError::TradeItemBeingTraded);

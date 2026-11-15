@@ -2,6 +2,7 @@
 //! Trade open refused out of reach/ignored; full trade swaps items; change after accept resets;
 //! attuned refused; receiver cannot carry fails; fellowship invite through ConfirmationResponse;
 //! item in trade cannot be used; rotation kept on exact spot.
+//! Divergence: V529
 //! Fixture: a virtual-time TestServer, isolated stores and synthetic dats.
 
 pub(crate) use std::sync::Arc;
@@ -887,4 +888,32 @@ pub(crate) fn a_traded_item_is_saved_with_an_owner_throughout() {
         Some(BRAVO),
         "handed over: Bravo's"
     );
+}
+
+/// A use of an object no longer to be found, sent while trading, is answered as any such use is:
+/// the use is done, with no error, and nothing breaks (ACE's trade check read the missing object
+/// and threw, so the client was left waiting on its use).
+#[test]
+pub(crate) fn a_use_of_a_missing_object_while_trading_is_answered() {
+    const USE_DONE: u32 = 0x01C7;
+    let (mut ts, a, _) = open_trade(100, 100);
+    let before = ts.world.sessions.inbound.handler_exceptions;
+    let from = ts.received_raw(a).len();
+    ts.send_game_action(
+        a,
+        &dereth_protocol::items::InventoryUseEvent {
+            object: ObjectId(0x8FFF_FFF0),
+        },
+    );
+    ts.advance(0.5);
+    let done: Vec<u32> = got(&ts, a, from)
+        .iter()
+        .filter(|g| g.kind == USE_DONE)
+        .map(|g| {
+            g.decode::<dereth_protocol::objects::ItemUseDone>()
+                .failure_type
+        })
+        .collect();
+    assert_eq!(done, [0], "the use is done, no error");
+    assert_eq!(ts.world.sessions.inbound.handler_exceptions, before);
 }

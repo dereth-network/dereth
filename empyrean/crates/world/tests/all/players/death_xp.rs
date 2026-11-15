@@ -1,5 +1,5 @@
 //! Vectors: fixtures/vectors/death/
-//! Divergence: V390, V398, V400, V405, V406
+//! Divergence: V390, V398, V400, V405, V406, V531
 //! XP/levelling, death, corpses, damage history, death string tables and DeathItems follow ACE.
 //! Fixture: ACE vectors and explicit expected values, synthetic dats, isolated world state.
 
@@ -941,6 +941,38 @@ fn death_items_sort_halve_and_draw_in_aces_order() {
         d.inventory_groups.get(&DeathItemCategory::None).is_some(),
         "groups are built before the filter"
     );
+}
+
+/// The possessions bonded to be destroyed on death are destroyed, the wielded one as well as the
+/// one in the pack.
+#[test]
+fn items_bonded_to_be_destroyed_on_death_are_destroyed_wielded_or_not() {
+    use empyrean_entity::enums::BondedStatus;
+    use empyrean_world::world_objects::player_death;
+    let mut h = H::new();
+    h.player(P1, S1, "Tester", 40, 0);
+    let packed = h.item(0x8000_0200, "Token", ItemType::Gem, 10);
+    let worn = h.item(0x8000_0201, "Armor", ItemType::Armor, 10);
+    for item in [packed, worn] {
+        h.o_mut(item).set_bonded(Some(BondedStatus::Destroy));
+    }
+    assert!(creature_death::container_try_add_to_inventory(
+        &mut h.w, P1, packed
+    ));
+    assert!(creature_death::creature_try_equip_object(
+        &mut h.w,
+        P1,
+        worn,
+        EquipMask::ChestArmor
+    ));
+    h.place(P1);
+
+    let destroyed = player_death::handle_destroy_bonded(&mut h.w, P1);
+
+    assert_eq!(destroyed, [packed, worn]);
+    for item in [packed, worn] {
+        assert!(h.w.objects.get(item).is_none(), "{item:?} is gone");
+    }
 }
 
 /// A level-40 player's corpse holds the rolled number of highest-valued items (bonded ones never

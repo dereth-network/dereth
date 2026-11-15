@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+- Fixed wielded items meant to be destroyed on death surviving it.
 - New limits on logins and new accounts from one address.
 - Fixed items duplicated or lost when the server crashed right after a give, trade or purchase.
 - Fixed accounts being able to create more characters than the slot limit.

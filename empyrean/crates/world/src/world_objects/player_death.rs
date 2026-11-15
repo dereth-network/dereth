@@ -1549,6 +1549,21 @@ pub fn handle_destroy_bonded(w: &mut World, this: ObjectGuid) -> Vec<ObjectGuid>
         .filter(|i| obj(w, *i).bonded() == Some(BondedStatus::Destroy))
         .collect();
     for destroy_item in destroy {
+        // DIVERGE: V531, a wielded item bonded to be destroyed is taken off and destroyed too, where
+        // ACE's consume reaches only the pack and the wielded item outlives the death.
+        if obj(w, destroy_item).current_wielded_location().is_some() {
+            use crate::world_objects::player_inventory::{
+                try_dequip_object_with_networking, DequipObjectAction,
+            };
+            try_dequip_object_with_networking(
+                w,
+                this,
+                destroy_item,
+                DequipObjectAction::ConsumeItem,
+            );
+            destroyed_items.push(destroy_item);
+            continue;
+        }
         let stack_size = obj(w, destroy_item).stack_size().unwrap_or(1);
         player_try_consume_from_inventory_with_networking(w, this, destroy_item, stack_size);
         destroyed_items.push(destroy_item);

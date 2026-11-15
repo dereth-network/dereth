@@ -2,6 +2,7 @@
 //! Enter world sends ACE's messages in order; possessions in inventory order; blocked saved
 //! position -> lifestone; no-log landblock and no-location fallbacks; age every 4-6 s; first-
 //! login gift once.
+//! Divergence: V530
 //! Fixture: a virtual-time TestServer, isolated stores and synthetic dats.
 
 use empyrean_common::era::EraExt as _;
@@ -20,10 +21,11 @@ use empyrean_entity::enums::{
     AccessLevel, PropertyBool, PropertyDataId, PropertyInt, PropertyString, WeenieType,
 };
 use empyrean_entity::ObjectGuid;
-use empyrean_net::{SessionId, SessionState};
+use empyrean_net::{SessionId, SessionState, SessionTerminationReason};
 use empyrean_testkit::land;
 use empyrean_testkit::{ClientId, TestServer};
 use empyrean_world::managers::guid_manager;
+use empyrean_world::managers::world_manager;
 use empyrean_world::managers::world_manager::WorldStatusState;
 use empyrean_world::physics::phys_ext;
 
@@ -821,3 +823,36 @@ mod retail_gift_real {
 }
 
 pub(crate) use empyrean_testkit::EmptyShard;
+
+#[test]
+fn a_session_that_hangs_up_while_its_character_loads_enters_no_player() {
+    let (mut ts, id, session) = server();
+    create(&mut ts, id, "Aldric");
+    ts.send_message(id, NetQueue::Logon, &LoginSendEnterWorldRequest);
+    ts.advance(0.1);
+    // The client hangs up and its session is dropped before its character's possessions arrive.
+    let character = ts.world.sessions.get(session).expect("session").characters[0].clone();
+    let now = ts.world.now;
+    ts.world.net.terminate(
+        session,
+        SessionTerminationReason::NetworkTimeout,
+        None,
+        String::new(),
+        now,
+    );
+    assert!(
+        ts.run_until(5.0, |ts| ts.world.net.session(session).is_none()),
+        "the session drops"
+    );
+    world_manager::player_enter_world(&mut ts.world, session, character);
+    let handler_panics = ts.world.sessions.inbound.handler_exceptions;
+    ts.advance(5.0);
+
+    assert!(
+        ts.world.objects.get(ObjectGuid::new(PLAYER)).is_none(),
+        "no player"
+    );
+    assert_eq!(ts.world.sessions.inbound.handler_exceptions, handler_panics);
+    assert_eq!(ts.world.world_manager.action_queue.act_exceptions(), 0);
+    assert_eq!(ts.world.world_manager.stage_exceptions, 0);
+}
