@@ -213,18 +213,18 @@ pub const WEENIE_CORRECTIONS: &[WeenieCorrection] = &[
     // (161) and retail played LevelUp (138) on the monster as the taunt ran (never 161). Not the
     // old numbering, which would give 162; both are keys of these monsters' script tables, so
     // only the wire tells them apart. (The number of sends retail was seen making.)
-    taunt_script(52575, 85961), // Zefir Thorn Reaver (8)
+    taunt_script(52575, 85963), // Zefir Thorn Reaver (8)
     taunt_script(52583, 33142), // Anekshen Storm Caller (6)
     taunt_script(52585, 33143), // Anekshen Storm Reaver (1)
     taunt_script(52587, 33144), // Anekshen Thorn Dancer (3)
     taunt_script(52589, 33145), // Anekshen Thorn Reaver (9)
-    taunt_script(52620, 68870), // Poisonous Brier Wasp (5)
+    taunt_script(52620, 68866), // Poisonous Brier Wasp (5)
     // Deadly Lightning Volley: its state has Gravity and retail sent it (0x28F48), but its
     // GravityStatus bool says off and takes precedence.
     bool_fix(52621, PropertyBool::GravityStatus, false, true),
     // (The Taunt scripts continue.)
     taunt_script(52626, 38325), // Oaken Guardian (3)
-    taunt_script(52627, 85916), // Guardian Wisp (6)
+    taunt_script(52627, 85918), // Guardian Wisp (6)
     taunt_script(52712, 35686), // Ruuk Ranger (17)
 ];
 
@@ -1518,14 +1518,14 @@ mod tests {
 
     /// The Taunt entries' (wcid, set) pairs, as the pack stores them.
     const TAUNTS: [(u32, u32); 9] = [
-        (52575, 85961),
+        (52575, 85963),
         (52583, 33142),
         (52585, 33143),
         (52587, 33144),
         (52589, 33145),
-        (52620, 68870),
+        (52620, 68866),
         (52626, 38325),
-        (52627, 85916),
+        (52627, 85918),
         (52712, 35686),
     ];
 

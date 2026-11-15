@@ -30,11 +30,11 @@ use crate::era::EraId;
 pub const REPOSITORY: &str = "ACEmulator/ACE-World-16PY-Patches";
 
 /// The release this build is tested against.
-pub const PINNED_TAG: &str = "v0.9.295";
+pub const PINNED_TAG: &str = "v0.9.296";
 
 /// The SHA-256 of [`PINNED_TAG`]'s `.sql.zip` asset, lowercase hex.
 pub const PINNED_ZIP_SHA256: &str =
-    "fd35cff8b2cea8408ae13839b9b1862c30452a1013f43eb62ec83c25349bd148";
+    "e56c594197b03a96963b14e3db61ad205d47f63a69d0c1c72e9bef78878f180c";
 
 /// What a world's release carries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

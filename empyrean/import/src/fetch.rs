@@ -614,26 +614,26 @@ mod tests {
     #[test]
     fn a_release_answer_gives_the_sql_asset_and_its_published_digest() {
         let json = r#"{
-            "tag_name": "v0.9.295",
+            "tag_name": "v0.9.296",
             "assets": [
                 {"name": "notes.txt", "browser_download_url": "https://x/notes.txt"},
-                {"name": "ACE-World-Database-v0.9.295.sql.zip",
-                 "browser_download_url": "https://x/ACE-World-Database-v0.9.295.sql.zip",
-                 "digest": "sha256:FD35CFF8B2CEA8408AE13839B9B1862C30452A1013F43EB62EC83C25349BD148"}
+                {"name": "ACE-World-Database-v0.9.296.sql.zip",
+                 "browser_download_url": "https://x/ACE-World-Database-v0.9.296.sql.zip",
+                 "digest": "sha256:E56C594197B03A96963B14E3DB61AD205D47F63A69D0C1C72E9BEF78878F180C"}
             ]
         }"#;
         assert_eq!(
             parse_release(&PATCHES, json).unwrap(),
             Release {
-                tag: "v0.9.295".into(),
-                url: "https://x/ACE-World-Database-v0.9.295.sql.zip".into(),
+                tag: "v0.9.296".into(),
+                url: "https://x/ACE-World-Database-v0.9.296.sql.zip".into(),
                 expected: Expected::Published(PATCHES.pinned_zip_sha256.into()),
             }
         );
         // The 16PY world reads its own asset name, and not the patches world's.
         let sixteen = json.replace(
-            "ACE-World-Database-v0.9.295.sql.zip",
-            "ACE-World-16PY-db-v0.9.295.sql.zip",
+            "ACE-World-Database-v0.9.296.sql.zip",
+            "ACE-World-16PY-db-v0.9.296.sql.zip",
         );
         assert!(parse_release(&world_release::SIXTEEN_PY, &sixteen).is_ok());
         assert!(parse_release(&world_release::SIXTEEN_PY, json).is_err());

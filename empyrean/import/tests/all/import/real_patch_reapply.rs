@@ -249,7 +249,7 @@ fn compare(old: &Pack, new: &Pack) -> BTreeMap<String, Vec<String>> {
 }
 
 #[test]
-#[ignore = "needs EMPYREAN_ACE_PATCHES: a checkout of ACE-World-16PY-Patches (tag v0.9.295) Database/Patches"]
+#[ignore = "needs EMPYREAN_ACE_PATCHES: a checkout of ACE-World-16PY-Patches (tag v0.9.296) Database/Patches"]
 fn reapply_every_patch_file_gives_back_the_dump() {
     let patches =
         PathBuf::from(std::env::var_os("EMPYREAN_ACE_PATCHES").expect("set EMPYREAN_ACE_PATCHES"));
