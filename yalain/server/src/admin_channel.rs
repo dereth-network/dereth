@@ -469,6 +469,25 @@ mod tests {
         s
     }
 
+    /// Signs in until the channel lets the program in, and reads its hello. A connection turned
+    /// away while the channel is full is closed; each try waits for the channel's answer, a hello
+    /// or a close, and the count only stops a hang.
+    fn let_in(channel: &AdminChannel, dir: &Path) -> (TcpStream, BufReader<TcpStream>) {
+        let mut tries = 0;
+        loop {
+            let (s, mut reader) = signed_in(channel, dir);
+            let mut line = String::new();
+            if reader.read_line(&mut line).is_ok_and(|n| n > 0) {
+                let hello: serde_json::Value =
+                    serde_json::from_str(&line).unwrap_or_else(|_| panic!("JSON: {line:?}"));
+                assert_eq!(hello["hello"], "yalain", "{line}");
+                return (s, reader);
+            }
+            tries += 1;
+            assert!(tries < 100_000, "no place freed");
+        }
+    }
+
     /// Connects and gives the secret.
     fn signed_in(channel: &AdminChannel, dir: &Path) -> (TcpStream, BufReader<TcpStream>) {
         let mut s = connect(channel);
@@ -562,29 +581,17 @@ mod tests {
             s.write_all(first.as_bytes()).expect("write");
             assert!(closed_without_a_word(s), "{first:?}");
         }
+        // A connection turned away keeps its place until its own thread ends, a moment after its
+        // close, so each of the four is let in once a place is free.
         let mut connected = Vec::new();
         for _ in 0..MAX_CLIENTS {
-            let (s, mut reader) = signed_in(&channel, &dir);
-            assert_eq!(next(&mut reader)["hello"], "yalain");
-            connected.push((s, reader));
+            connected.push(let_in(&channel, &dir));
         }
         let (extra, _) = signed_in(&channel, &dir);
         assert!(closed_without_a_word(extra), "a fifth is turned away");
         drop(connected.pop());
-        // The one that left frees its place once its connection has ended: each try waits for the
-        // channel's answer, a hello or a close, and the count only stops a hang.
-        let mut tries = 0;
-        loop {
-            let (s, mut reader) = signed_in(&channel, &dir);
-            let mut line = String::new();
-            if reader.read_line(&mut line).is_ok_and(|n| n > 0) {
-                assert!(line.contains("yalain"), "{line}");
-                drop(s);
-                break;
-            }
-            tries += 1;
-            assert!(tries < 100_000, "no place freed");
-        }
+        // The one that left frees its place once its connection has ended.
+        drop(let_in(&channel, &dir));
         drop(connected);
         channel.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
