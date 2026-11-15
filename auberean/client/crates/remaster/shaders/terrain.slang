@@ -1,7 +1,13 @@
-// The landscape: the near terrain's bottom layer and its blended layers, the sun's shadow map and
-// the clouds' shadows laid over them, then their fog; and the far landscape. The landscape's
-// vertices carry their lit color (worked out on the processor, as the retail client does), their
-// ground's coordinates and their mask's, and the sun's share of the lit color.
+// The landscape: the near terrain's bottom layer and its blended layers, each with the clouds'
+// shadows and the fog laid on in its own draw; and the far landscape. The landscape's vertices
+// carry their lit color (worked out on the processor, as the retail client does), their ground's
+// coordinates and their mask's, and the sun's share of the lit color.
+//
+// Retail lays the clouds' shadows (times its sun's shadow map) and then the fog over the near
+// terrain as two more passes over its layers. Each layer here lays them on its own color instead:
+// the layers blend by their alpha over an opaque bottom layer, so their weights sum to one, and a
+// product and an affine fog come out the same whether they are laid on the blended layers or on
+// each layer before it is blended. The remaster's own shadows replace the shadow map (white).
 import bindless;
 import light;
 
@@ -15,7 +21,7 @@ struct Push
     uint frame;
     // The vertices.
     uint vertices;
-    // The ground (or the shadow map) and its sampler; the mask (or the clouds) and theirs.
+    // The ground and its sampler; the mask (or the far landscape's clouds) and theirs.
     uint tex0;
     uint samp0;
     uint tex1;
@@ -26,6 +32,9 @@ struct Push
     uint light_class;
     // How much of the sun reaches each pixel, the sun's shadows' picture (~0: all of it).
     uint sun;
+    // The clouds' picture and its sampler, for the near terrain's layers.
+    uint clouds;
+    uint samp_clouds;
 };
 
 [[vk::push_constant]]
@@ -40,12 +49,11 @@ struct TerrainOut
     float2 uv : TEXCOORD0;
     float2 mask_uv : TEXCOORD1;
     float fog : TEXCOORD2;
-    // The sun's shadow map's coordinates, and the clouds'.
-    float2 shadow_uv : TEXCOORD3;
-    float2 cloud_uv : TEXCOORD4;
+    // The clouds' picture's coordinates.
+    float2 cloud_uv : TEXCOORD3;
     // What of the lit color the sun gives, and where the point stands in the frame's space.
-    float3 sun : TEXCOORD5;
-    float3 world : TEXCOORD6;
+    float3 sun : TEXCOORD4;
+    float3 world : TEXCOORD5;
 };
 
 [shader("vertex")]
@@ -65,20 +73,32 @@ TerrainOut vs_terrain(uint index : SV_VertexID)
     o.sun = asfloat(b.Load3(at + 44));
     o.world = position;
     o.fog = linear_fog(f, position);
-    o.shadow_uv = apply(f.shadow_uv, float4(position, 1.0)).xy;
     // The ground's place times the clouds' scale, slid by the running time.
     o.cloud_uv = position.xy * f.cloud.x + f.cloud.yz;
     return o;
 }
 
-// The near terrain's own fog, unless it is laid on after the shadows.
-float3 terrain_fogged(Light f, float3 c, float fog)
+// The clouds' shadow at a point: the cloud picture `t` where it lies, or white with no clouds.
+float3 cloud_shade(Light f, uint t, uint s, float2 uv)
+{
+    float3 c = sample(t, s, uv).rgb;
+    if (f.cloud.w < 0.5)
+    {
+        return float3(1.0, 1.0, 1.0);
+    }
+    return c;
+}
+
+// A near layer's color `c` as retail leaves it once its passes over the layers are drawn: where
+// the frame lays the sun's shadow map and the clouds over the near terrain, times the clouds'
+// shadow; then fogged.
+float3 near_fogged(Light f, TerrainOut v, float3 c)
 {
     if (f.terrain.x > 0.5)
     {
-        return c;
+        c = c * cloud_shade(f, push.clouds, push.samp_clouds, v.cloud_uv);
     }
-    return fogged(f, c, fog);
+    return fogged(f, c, v.fog);
 }
 
 // Picture `t`'s first channel at the pixel `position`, or 1 with none (~0).
@@ -123,7 +143,7 @@ float4 fs_terrain_base(TerrainOut v) : SV_Target0
     Light f = light_of(push.frame);
     float4 t = sample(push.tex0, push.samp0, v.uv);
     float3 c = saturate(2.0 * t.rgb * lit(f, v));
-    return float4(terrain_fogged(f, c, v.fog), 1.0);
+    return float4(near_fogged(f, v, c), 1.0);
 }
 
 // A blended layer: the same, with the mask's alpha.
@@ -134,36 +154,7 @@ float4 fs_terrain_mask(TerrainOut v) : SV_Target0
     float4 t = sample(push.tex0, push.samp0, v.uv);
     float4 m = sample(push.tex1, push.samp1, v.mask_uv);
     float3 c = saturate(2.0 * t.rgb * lit(f, v));
-    return float4(terrain_fogged(f, c, v.fog), m.a);
-}
-
-// The clouds' shadow at a point: the cloud picture where it lies, or white with no clouds.
-float3 cloud_shade(Light f, float2 uv)
-{
-    float3 c = sample(push.tex1, push.samp1, uv).rgb;
-    if (f.cloud.w < 0.5)
-    {
-        return float3(1.0, 1.0, 1.0);
-    }
-    return c;
-}
-
-// Over the near terrain's layers: the sun's shadow map (stage 0) times the clouds (stage 1),
-// multiplying what the layers drew.
-[shader("fragment")]
-float4 fs_terrain_shade(TerrainOut v) : SV_Target0
-{
-    Light f = light_of(push.frame);
-    float3 s = sample(push.tex0, push.samp0, v.shadow_uv).rgb;
-    return float4(s * cloud_shade(f, v.cloud_uv), 1.0);
-}
-
-// Then the fog over it: the fog color, as opaque as the point is fogged.
-[shader("fragment")]
-float4 fs_terrain_fog(TerrainOut v) : SV_Target0
-{
-    Light f = light_of(push.frame);
-    return float4(f.fog_color.rgb, 1.0 - v.fog);
+    return float4(near_fogged(f, v, c), m.a);
 }
 
 // The far landscape: the picture added to the lit color, signed and doubled; with the clouds'

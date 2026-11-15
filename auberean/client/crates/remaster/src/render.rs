@@ -1303,8 +1303,8 @@ impl Remaster {
         let land = |this: &mut Self,
                     b: &TerrainBatch,
                     fs: Entry,
-                    textures: [u32; 2],
-                    samplers: [u32; 2],
+                    textures: [u32; 3],
+                    samplers: [u32; 3],
                     steps: &mut Steps,
                     (src, dst): (u32, u32)|
          -> Result<(), RemasterError> {
@@ -1331,8 +1331,8 @@ impl Remaster {
                     index_type: IndexType::U32,
                     index_count: u32::try_from(b.indices.len()).unwrap_or(0),
                     record: 0,
-                    textures: [textures[0], textures[1], this.white],
-                    samplers: [samplers[0], samplers[1], this.wrap],
+                    textures,
+                    samplers,
                     env: Env::Outside,
                     alpha_mode: ALPHA_KEEP,
                     shown: true,
@@ -1350,6 +1350,8 @@ impl Remaster {
             Some(c) => self.picture(c.picture, load)?,
             None => self.white,
         };
+        // The near terrain's layers, each laying the clouds' shadows and the fog on its own color
+        // (retail lays them as two more passes over the layers, which comes out the same).
         for b in near.iter().filter(|b| b.layer == 0) {
             let ground = self.picture(b.ground, load)?;
             let (w, c) = (self.wrap, self.clamp);
@@ -1357,8 +1359,8 @@ impl Remaster {
                 self,
                 b,
                 Entry::TerrainFsTerrainBase,
-                [ground, self.white],
-                [w, c],
+                [ground, self.white, clouds],
+                [w, c, w],
                 &mut steps,
                 OPAQUE,
             )?;
@@ -1374,28 +1376,11 @@ impl Remaster {
                 self,
                 b,
                 Entry::TerrainFsTerrainMask,
-                [ground, mask],
-                [w, c],
+                [ground, mask, clouds],
+                [w, c, w],
                 &mut steps,
                 BLENDED,
             )?;
-        }
-        // With the sun's shadow map, the near terrain's layers are drawn without fog; then each
-        // square once more, multiplied by the shadow map and the clouds, then fogged. The remaster
-        // lays white for the map: its own shadows come from the shared passes.
-        if frame.shadow.is_some() && outdoors {
-            for (fs, blend) in [
-                (
-                    Entry::TerrainFsTerrainShade,
-                    (d3d::BLEND_DEST_COLOR, d3d::BLEND_ZERO),
-                ),
-                (Entry::TerrainFsTerrainFog, BLENDED),
-            ] {
-                for b in near.iter().filter(|b| b.layer == 0) {
-                    let (w, c) = (self.wrap, self.clamp);
-                    land(self, b, fs, [self.white, clouds], [c, w], &mut steps, blend)?;
-                }
-            }
         }
         for b in &far {
             let ground = self.picture(b.ground, load)?;
@@ -1404,8 +1389,8 @@ impl Remaster {
                 self,
                 b,
                 Entry::TerrainFsTerrainFar,
-                [ground, clouds],
-                [w, w],
+                [ground, clouds, self.white],
+                [w, w, w],
                 &mut steps,
                 OPAQUE,
             )?;
@@ -1420,8 +1405,8 @@ impl Remaster {
                 self,
                 l,
                 Entry::TerrainFsTerrainFar,
-                [ground, clouds],
-                [w, w],
+                [ground, clouds, self.white],
+                [w, w, w],
                 &mut reflected_land,
                 OPAQUE,
             )?;
@@ -1813,6 +1798,8 @@ impl Remaster {
                     ao,
                     d.class,
                     sun,
+                    d.textures[2],
+                    d.samplers[2],
                 ]),
             };
             rec.push(0, &words)?;

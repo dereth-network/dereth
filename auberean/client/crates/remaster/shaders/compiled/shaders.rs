@@ -9,10 +9,6 @@ pub enum Entry {
     TerrainFsTerrainBase,
     /// `fs_terrain_mask` in `terrain.slang`, the fragment stage.
     TerrainFsTerrainMask,
-    /// `fs_terrain_shade` in `terrain.slang`, the fragment stage.
-    TerrainFsTerrainShade,
-    /// `fs_terrain_fog` in `terrain.slang`, the fragment stage.
-    TerrainFsTerrainFog,
     /// `fs_terrain_far` in `terrain.slang`, the fragment stage.
     TerrainFsTerrainFar,
     /// `vs_veil` in `terrain.slang`, the vertex stage.
@@ -39,7 +35,7 @@ pub enum Entry {
 
 impl Entry {
     /// Every entry point, in `shaders.toml`'s order.
-    pub const ALL: [Self; 16] = [Self::TerrainVsTerrain, Self::TerrainFsTerrainBase, Self::TerrainFsTerrainMask, Self::TerrainFsTerrainShade, Self::TerrainFsTerrainFog, Self::TerrainFsTerrainFar, Self::TerrainVsVeil, Self::TerrainFsVeil, Self::MeshVsMesh, Self::MeshFsMesh, Self::MeshFsRipple, Self::MeshFsWater, Self::MeshFsMeshDepth, Self::TerrainFsTerrainDepth, Self::MeshVsMeshCaster, Self::MeshFsMeshCaster];
+    pub const ALL: [Self; 14] = [Self::TerrainVsTerrain, Self::TerrainFsTerrainBase, Self::TerrainFsTerrainMask, Self::TerrainFsTerrainFar, Self::TerrainVsVeil, Self::TerrainFsVeil, Self::MeshVsMesh, Self::MeshFsMesh, Self::MeshFsRipple, Self::MeshFsWater, Self::MeshFsMeshDepth, Self::TerrainFsTerrainDepth, Self::MeshVsMeshCaster, Self::MeshFsMeshCaster];
 
     /// The source file that defines it.
     #[must_use]
@@ -48,8 +44,6 @@ impl Entry {
             Self::TerrainVsTerrain => "terrain.slang",
             Self::TerrainFsTerrainBase => "terrain.slang",
             Self::TerrainFsTerrainMask => "terrain.slang",
-            Self::TerrainFsTerrainShade => "terrain.slang",
-            Self::TerrainFsTerrainFog => "terrain.slang",
             Self::TerrainFsTerrainFar => "terrain.slang",
             Self::TerrainVsVeil => "terrain.slang",
             Self::TerrainFsVeil => "terrain.slang",
@@ -71,8 +65,6 @@ impl Entry {
             Self::TerrainVsTerrain => "vs_terrain",
             Self::TerrainFsTerrainBase => "fs_terrain_base",
             Self::TerrainFsTerrainMask => "fs_terrain_mask",
-            Self::TerrainFsTerrainShade => "fs_terrain_shade",
-            Self::TerrainFsTerrainFog => "fs_terrain_fog",
             Self::TerrainFsTerrainFar => "fs_terrain_far",
             Self::TerrainVsVeil => "vs_veil",
             Self::TerrainFsVeil => "fs_veil",
@@ -94,8 +86,6 @@ impl Entry {
             Self::TerrainVsTerrain => Stage::Vertex,
             Self::TerrainFsTerrainBase => Stage::Fragment,
             Self::TerrainFsTerrainMask => Stage::Fragment,
-            Self::TerrainFsTerrainShade => Stage::Fragment,
-            Self::TerrainFsTerrainFog => Stage::Fragment,
             Self::TerrainFsTerrainFar => Stage::Fragment,
             Self::TerrainVsVeil => Stage::Vertex,
             Self::TerrainFsVeil => Stage::Fragment,
@@ -117,8 +107,6 @@ impl Entry {
             Self::TerrainVsTerrain => include_bytes!("spirv/terrain.vs_terrain.spv"),
             Self::TerrainFsTerrainBase => include_bytes!("spirv/terrain.fs_terrain_base.spv"),
             Self::TerrainFsTerrainMask => include_bytes!("spirv/terrain.fs_terrain_mask.spv"),
-            Self::TerrainFsTerrainShade => include_bytes!("spirv/terrain.fs_terrain_shade.spv"),
-            Self::TerrainFsTerrainFog => include_bytes!("spirv/terrain.fs_terrain_fog.spv"),
             Self::TerrainFsTerrainFar => include_bytes!("spirv/terrain.fs_terrain_far.spv"),
             Self::TerrainVsVeil => include_bytes!("spirv/terrain.vs_veil.spv"),
             Self::TerrainFsVeil => include_bytes!("spirv/terrain.fs_veil.spv"),
@@ -140,8 +128,6 @@ impl Entry {
             Self::TerrainVsTerrain => include_bytes!("dxil/terrain.vs_terrain.dxil"),
             Self::TerrainFsTerrainBase => include_bytes!("dxil/terrain.fs_terrain_base.dxil"),
             Self::TerrainFsTerrainMask => include_bytes!("dxil/terrain.fs_terrain_mask.dxil"),
-            Self::TerrainFsTerrainShade => include_bytes!("dxil/terrain.fs_terrain_shade.dxil"),
-            Self::TerrainFsTerrainFog => include_bytes!("dxil/terrain.fs_terrain_fog.dxil"),
             Self::TerrainFsTerrainFar => include_bytes!("dxil/terrain.fs_terrain_far.dxil"),
             Self::TerrainVsVeil => include_bytes!("dxil/terrain.vs_veil.dxil"),
             Self::TerrainFsVeil => include_bytes!("dxil/terrain.fs_veil.dxil"),

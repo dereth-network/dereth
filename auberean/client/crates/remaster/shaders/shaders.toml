@@ -4,8 +4,8 @@ targets = ["spirv", "dxil"]
 # The shared passes' modules: the bindless table, the frame's rows and the light classes.
 imports = ["../../../../../dereth/client/crates/gfx-passes/shaders"]
 
-# The landscape: the near terrain's bottom layer and its blended layers, the shadow map and the
-# clouds laid over them, their fog, and the far landscape.
+# The landscape: the near terrain's bottom layer and its blended layers, each with the clouds and
+# the fog laid on, and the far landscape.
 [[entry]]
 source = "terrain.slang"
 entry = "vs_terrain"
@@ -19,16 +19,6 @@ stage = "fragment"
 [[entry]]
 source = "terrain.slang"
 entry = "fs_terrain_mask"
-stage = "fragment"
-
-[[entry]]
-source = "terrain.slang"
-entry = "fs_terrain_shade"
-stage = "fragment"
-
-[[entry]]
-source = "terrain.slang"
-entry = "fs_terrain_fog"
 stage = "fragment"
 
 [[entry]]

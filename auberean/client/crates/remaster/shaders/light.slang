@@ -27,7 +27,7 @@ public static const uint LIGHT_ROWS = 32;
 //   12     the alpha fog: start, end, 1 / (end - start)
 //   13..16 the world to the sun's shadow map's picture coordinates, as four columns
 //   17     the clouds' shadows: picture repeats per meter, the slide along u and v, 1 when drawn
-//   18     x 1 when the near terrain's shadows and fog are laid on after its layers
+//   18     x 1 when retail lays the sun's shadow map and the clouds over the near terrain
 //   19     the picture's width and height in pixels
 public struct Light
 {
