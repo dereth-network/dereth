@@ -12,7 +12,7 @@ use auberean_draw::mesh::{MeshVertex, PosedVertex};
 use auberean_draw::scene::TerrainVertex;
 use bytemuck::Pod;
 
-use super::{MeshGpuVertex, TerrainGpuVertex};
+use auberean_draw::constants::{MeshGpuVertex, TerrainGpuVertex};
 
 /// How many frames a list's own buffers are kept after the last frame that drew them, so that
 /// what is out of sight a moment is not uploaded again as it comes back.

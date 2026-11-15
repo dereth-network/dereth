@@ -42,16 +42,20 @@ use dereth_primitives::num::math;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use auberean_draw::constants::{
+    bound_stages, draw_uniforms, mat, view_proj, DrawUniforms, FrameUniforms, MeshGpuVertex,
+    TerrainGpuVertex,
+};
 use auberean_draw::cull::Sight;
 use auberean_draw::flare::{flare_quads, FlareFade};
-use auberean_draw::material::{d3d, DrawLayer, Stage, UV_IDENTITY};
+use auberean_draw::material::{d3d, DrawLayer};
 use auberean_draw::picture::Image;
 use auberean_draw::scene::{
     in_order, Frame, ObjectBatch, Pass, PointLights, TerrainBatch, Textures, PASSES,
 };
 use auberean_draw::shadow::{ShadowMap, SHADOW_MAP_SIZE};
 use auberean_world::math::Mat4;
-use bytemuck::{Pod, Zeroable};
+use bytemuck::Zeroable;
 
 mod cache;
 mod pool;
@@ -88,63 +92,6 @@ pub struct Picture {
     pub rgba: Vec<u8>,
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct FrameUniforms {
-    view_proj: [[f32; 4]; 4],
-    eye: [f32; 4],
-    fog: [f32; 4],
-    fog_color: [f32; 4],
-    to_sun: [f32; 4],
-    sun_color: [f32; 4],
-    ambient: [f32; 4],
-    forward: [f32; 4],
-    sun_specular: [f32; 4],
-    alpha_fog: [f32; 4],
-    shadow_uv: [[f32; 4]; 4],
-    // the clouds' picture scale, its slide along u and v, 1 when they are drawn
-    cloud: [f32; 4],
-    // 1 when the near terrain's shadows and fog are laid on after its layers, unused x3
-    terrain: [f32; 4],
-    // the picture's width and height in pixels, unused x2
-    viewport: [f32; 4],
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct DrawUniforms {
-    model: [[f32; 4]; 4],
-    diffuse: [f32; 4],
-    lit_diffuse: [f32; 4],
-    specular: [f32; 4],
-    layer_ambient: [f32; 4],
-    params: [f32; 4],
-    stage: [u32; 4],
-    tfactor: [f32; 4],
-    ops: [[u32; 4]; 3],
-    program: [u32; 4],
-    uv_sets: [u32; 4],
-    uv_rows: [[f32; 4]; 6],
-    pt_origin: [[f32; 4]; 4],
-    pt_diffuse: [[f32; 4]; 4],
-    pt_specular: [[f32; 4]; 4],
-    shade: [f32; 4],
-    light: [f32; 4],
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct MeshGpuVertex {
-    position: [f32; 3],
-    normal: [f32; 3],
-    diffuse: [f32; 4],
-    uv0: [f32; 2],
-    uv1: [f32; 2],
-    tangent_u: [f32; 3],
-    tangent_v: [f32; 3],
-    to_light: [f32; 3],
-}
-
 /// An attribute at `offset` of a vertex, read by the shader at `location`.
 const fn attribute(
     format: wgpu::VertexFormat,
@@ -156,31 +103,6 @@ const fn attribute(
         offset: offset as u64,
         shader_location: location,
     }
-}
-
-impl MeshGpuVertex {
-    fn of(v: &auberean_draw::mesh::MeshVertex) -> Self {
-        let c = auberean_world::color::Color::from_argb(v.diffuse);
-        Self {
-            position: v.position,
-            normal: v.normal,
-            diffuse: [c.r, c.g, c.b, c.a],
-            uv0: v.uv[0],
-            uv1: v.uv[1],
-            tangent_u: v.tangent_u,
-            tangent_v: v.tangent_v,
-            to_light: v.to_light,
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct TerrainGpuVertex {
-    position: [f32; 3],
-    color: [f32; 4],
-    uv: [f32; 2],
-    mask_uv: [f32; 2],
 }
 
 const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
@@ -432,62 +354,6 @@ fn mips(img: &Image) -> Vec<(u32, u32, &[u8])> {
         .chain(&img.smaller)
         .map(|l| (l.width, l.height, l.bgra.as_slice()))
         .collect()
-}
-
-fn mat(m: &Mat4) -> [[f32; 4]; 4] {
-    m.0
-}
-
-/// A right-handed view and projection for a camera at `eye` looking along `forward`, z up, with
-/// depth from 0 (near) to 1 (far): row-vector convention, as the world's transforms. In
-/// perspective `fov_y` degrees high; straight on (`orthographic`), that many metres high and as
-/// wide as the picture's shape makes it.
-// D2-10574
-#[allow(clippy::too_many_arguments)]
-fn view_proj(
-    eye: [f32; 3],
-    forward: [f32; 3],
-    roll: f32,
-    fov_y: f32,
-    orthographic: Option<f32>,
-    aspect: f32,
-    near: f32,
-    far: f32,
-) -> Mat4 {
-    let norm = |v: [f32; 3]| {
-        let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
-        [v[0] / l, v[1] / l, v[2] / l]
-    };
-    let dot = |a: [f32; 3], b: [f32; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-    let f = norm(forward);
-    let (r, u) = auberean_draw::scene::view_axes_of(f, roll);
-    // View: world to camera space (x right, y up, z backward).
-    let view = Mat4([
-        [r[0], u[0], -f[0], 0.0],
-        [r[1], u[1], -f[1], 0.0],
-        [r[2], u[2], -f[2], 0.0],
-        [-dot(r, eye), -dot(u, eye), dot(f, eye), 1.0],
-    ]);
-    if let Some(height) = orthographic {
-        let d = 1.0 / (far - near);
-        let proj = Mat4([
-            [2.0 / (height * aspect), 0.0, 0.0, 0.0],
-            [0.0, 2.0 / height, 0.0, 0.0],
-            [0.0, 0.0, -d, 0.0],
-            [0.0, 0.0, -near * d, 1.0],
-        ]);
-        return view.then(&proj);
-    }
-    let h = 1.0 / math::tanf(fov_y.to_radians() * 0.5);
-    let w = h / aspect;
-    let q = far / (near - far);
-    let proj = Mat4([
-        [w, 0.0, 0.0, 0.0],
-        [0.0, h, 0.0, 0.0],
-        [0.0, 0.0, q, -1.0],
-        [0.0, 0.0, q * near, 0.0],
-    ]);
-    view.then(&proj)
 }
 
 /// How the device takes the game's pictures, which keep blue, green, red, alpha: as they are, or
@@ -1497,7 +1363,7 @@ impl Renderer {
                         (0, false),
                         (0, false),
                     ],
-                    Self::draw_uniforms(
+                    draw_uniforms(
                         &b.layer,
                         &b.transform,
                         black,
@@ -1575,7 +1441,7 @@ impl Renderer {
         let identity = self.uniforms.take(
             &self.device,
             &self.draw_layout,
-            bytemuck::bytes_of(&Self::draw_uniforms(
+            bytemuck::bytes_of(&draw_uniforms(
                 &dummy_layer(),
                 &Mat4::IDENTITY,
                 auberean_world::color::Color::WHITE,
@@ -1884,144 +1750,6 @@ impl Renderer {
 
     /// The stages a draw binds, in its texture slots: its first three (with the normal-mapped
     /// pixel program: the normal map, the diffuse map and the detail map).
-    fn bound_stages(layer: &DrawLayer) -> [Option<Stage>; 3] {
-        [0, 1, 2].map(|k| layer.stages.get(k).copied())
-    }
-
-    fn draw_uniforms(
-        layer: &DrawLayer,
-        model: &Mat4,
-        tint: auberean_world::color::Color,
-        sun: [f32; 4],
-        points: &PointLights,
-    ) -> DrawUniforms {
-        let c = |c: auberean_world::color::Color| {
-            [c.r * tint.r, c.g * tint.g, c.b * tint.b, c.a * tint.a]
-        };
-        let bound = Self::bound_stages(layer);
-        let mut uv_sets = [0u32; 4];
-        let mut uv_rows = [[0.0f32; 4]; 6];
-        for (k, s) in bound.iter().enumerate() {
-            let m = s.map_or(UV_IDENTITY, |s| s.uv_transform);
-            // A coordinate set (the vertex has two), or coordinates the program works out: the
-            // anisotropic ones (source 0x200) or the eye's reflection about the surface (0x100).
-            uv_sets[k] = s.map_or(0, |s| match s.tex_coord {
-                0x100 => 3,
-                0x200 => 2,
-                t => t.min(1),
-            });
-            uv_rows[2 * k] = [m[0], m[1], m[2], 0.0];
-            uv_rows[2 * k + 1] = [m[3], m[4], m[5], 0.0];
-        }
-        let pixel = layer.pixel_program.map_or([0; 4], |p| {
-            let mut opts = 0;
-            for (on, bit) in [
-                (p.detail_on_diffuse, 0x1),
-                (p.detail_on_normal, 0x2),
-                (p.alpha_from_diffuse, 0x4),
-                (p.gloss, 0x8),
-                (p.half_vector_specular, 0x10),
-                (p.environment_add, 0x20),
-                (p.environment_gloss, 0x40),
-                (p.anisotropic, 0x80),
-                (p.normal_detail_first, 0x100),
-                (p.tint_mask, 0x200),
-                (p.color1_half_vector, 0x400),
-            ] {
-                if on {
-                    opts |= bit;
-                }
-            }
-            [1, opts, 0, 0]
-        });
-        // The pixel programs' lit color: the first light's diffuse (the first point light's, else
-        // the sun's, black inside with neither) times the layer's diffuse (and tint), each channel
-        // at most 1, alpha the layer's at most 1.
-        let sun = if points.count > 0 {
-            let f = points.lights[0].diffuse;
-            [f.r, f.g, f.b, 1.0]
-        } else if points.inside {
-            [0.0, 0.0, 0.0, 1.0]
-        } else {
-            sun
-        };
-        let d = c(layer.diffuse);
-        let lit_diffuse = [
-            (sun[0] * d[0]).min(1.0),
-            (sun[1] * d[1]).min(1.0),
-            (sun[2] * d[2]).min(1.0),
-            d[3].min(1.0),
-        ];
-        // The texture stages' arithmetic, for a layer without a pixel program: each of the first
-        // three stages as stored, the rest disabled; a layer with no stages modulates its vertex
-        // color twice by white.
-        let mut ops = [[d3d::OP_DISABLE, 0, d3d::OP_DISABLE, 0]; 3];
-        if layer.stages.is_empty() {
-            ops[0] = [
-                d3d::OP_MODULATE2X,
-                d3d::ARG_TEXTURE | (d3d::ARG_DIFFUSE << 8),
-                d3d::OP_SELECT_ARG1,
-                d3d::ARG_DIFFUSE,
-            ];
-        }
-        for (o, s) in ops.iter_mut().zip(&layer.stages) {
-            *o = [
-                s.color_op,
-                s.color_arg1 | (s.color_arg2 << 8),
-                s.alpha_op,
-                s.alpha_arg1 | (s.alpha_arg2 << 8),
-            ];
-        }
-        // The texture factor is the layer's diffuse color (and tint) as a stored color.
-        let q = |x: f32| (x.clamp(0.0, 1.0) * 255.0).trunc() / 255.0;
-        let tfactor = [q(d[0]), q(d[1]), q(d[2]), q(d[3])];
-        DrawUniforms {
-            model: mat(model),
-            diffuse: d,
-            lit_diffuse,
-            specular: c(layer.specular),
-            layer_ambient: [
-                layer.ambient.r,
-                layer.ambient.g,
-                layer.ambient.b,
-                layer.ambient.a,
-            ],
-            params: [
-                layer.specular_power,
-                if layer.alpha_test {
-                    layer.alpha_ref
-                } else {
-                    -1.0
-                },
-                0.0,
-                0.0,
-            ],
-            stage: [
-                layer.switches,
-                u32::try_from(points.count).unwrap_or(0),
-                u32::from(points.inside),
-                0,
-            ],
-            tfactor,
-            ops,
-            program: pixel,
-            uv_sets,
-            uv_rows,
-            pt_origin: points.lights.map(|l| {
-                let r = l.range.max(0.0002);
-                [l.origin.x, l.origin.y, l.origin.z, 10.0 / (r * r)]
-            }),
-            pt_diffuse: points
-                .lights
-                .map(|l| [l.diffuse.r, l.diffuse.g, l.diffuse.b, 1.0]),
-            pt_specular: points
-                .lights
-                .map(|l| [l.specular.r, l.specular.g, l.specular.b, 1.0]),
-            shade: [0.0; 4],
-            light: sun,
-        }
-    }
-
     /// The picture of the sun's share at each of `spots`, a texel each, made through the shadow
     /// map's group `map`: the group the bodies read it through.
     fn draw_body_spots(
@@ -2396,7 +2124,7 @@ impl Renderer {
         let identity = self.uniforms.take(
             &self.device,
             &self.draw_layout,
-            bytemuck::bytes_of(&Self::draw_uniforms(
+            bytemuck::bytes_of(&draw_uniforms(
                 &dummy_layer(),
                 &Mat4::IDENTITY,
                 auberean_world::color::Color::WHITE,
@@ -2503,15 +2231,14 @@ impl Renderer {
                 key.depth_write = key.depth_write && faded.depth_write;
                 key.posed = b.posed.is_some();
                 this.mesh_pipeline(key);
-                let bound = Self::bound_stages(&b.layer);
+                let bound = bound_stages(&b.layer);
                 let textures = bound.map(|s| {
                     (
                         s.map_or(0, |s| s.texture),
                         s.is_some_and(|s| s.clamp_u || s.clamp_v),
                     )
                 });
-                let mut uniforms =
-                    Self::draw_uniforms(&b.layer, &b.transform, b.tint, sun, &b.points);
+                let mut uniforms = draw_uniforms(&b.layer, &b.transform, b.tint, sun, &b.points);
                 uniforms.params[1] = faded.alpha_ref.unwrap_or(-1.0);
                 if let (Some(at), Some(_)) = (b.ground, &shadow_view) {
                     let mut spots = body_spots.borrow_mut();
@@ -2593,7 +2320,7 @@ impl Renderer {
                     key.depth_write =
                         Self::object_key(&b.layer, sky, writes).depth_write && faded.depth_write;
                     this.mesh_pipeline(key);
-                    let mut u = Self::draw_uniforms(&b.layer, &b.transform, tint, sun, &b.points);
+                    let mut u = draw_uniforms(&b.layer, &b.transform, tint, sun, &b.points);
                     u.params[1] = faded.alpha_ref.unwrap_or(-1.0);
                     u.shade = uniforms.shade;
                     Some((
@@ -2665,7 +2392,7 @@ impl Renderer {
             let draw_group = this.uniforms.take(
                 &this.device,
                 &this.draw_layout,
-                bytemuck::bytes_of(&Self::draw_uniforms(
+                bytemuck::bytes_of(&draw_uniforms(
                     &dummy_layer(),
                     &Mat4::IDENTITY,
                     auberean_world::color::Color::WHITE,
@@ -2801,7 +2528,7 @@ impl Renderer {
                 let group = self.uniforms.take(
                     &self.device,
                     &self.draw_layout,
-                    bytemuck::bytes_of(&Self::draw_uniforms(
+                    bytemuck::bytes_of(&draw_uniforms(
                         &dummy_layer(),
                         &v.transform,
                         auberean_world::color::Color::WHITE,
@@ -2827,7 +2554,7 @@ impl Renderer {
         let darkening = self.uniforms.take(
             &self.device,
             &self.draw_layout,
-            bytemuck::bytes_of(&Self::draw_uniforms(
+            bytemuck::bytes_of(&draw_uniforms(
                 &dummy_layer(),
                 &Mat4::IDENTITY,
                 frame.volumes.strength,
@@ -3346,8 +3073,7 @@ impl Renderer {
                     if b.indices.is_empty() {
                         continue;
                     }
-                    let mut u =
-                        Self::draw_uniforms(&b.layer, &b.transform, b.tint, out_sun, &b.points);
+                    let mut u = draw_uniforms(&b.layer, &b.transform, b.tint, out_sun, &b.points);
                     u.uv_sets = [0, 0, 0, 0];
                     u.uv_rows[0] = [0.5, 0.0, 0.5 * slide, 0.0];
                     u.uv_rows[1] = [0.0, 0.5, 0.5 * slide, 0.0];
@@ -3402,7 +3128,7 @@ impl Renderer {
                 }
                 let key = Self::water_key(&b.layer, target);
                 self.water_pipeline(key);
-                let mut u = Self::draw_uniforms(&b.layer, &b.transform, b.tint, out_sun, &b.points);
+                let mut u = draw_uniforms(&b.layer, &b.transform, b.tint, out_sun, &b.points);
                 u.params[2] = push;
                 let draw_group =
                     self.uniforms
@@ -3632,23 +3358,6 @@ fn clip_of(vp: &Mat4, p: [f32; 3]) -> [f32; 4] {
     out
 }
 
-impl MeshGpuVertex {
-    /// A vertex already on the screen (-1 to 1 across and up, and its depth), with its picture's
-    /// coordinates and its color.
-    fn screen(position: [f32; 3], uv: [f32; 2], color: [f32; 4]) -> Self {
-        Self {
-            position,
-            normal: [0.0, 0.0, 1.0],
-            diffuse: color,
-            uv0: uv,
-            uv1: uv,
-            tangent_u: [0.0; 3],
-            tangent_v: [0.0; 3],
-            to_light: [0.0; 3],
-        }
-    }
-}
-
 impl Renderer {
     /// The answers of the last look for the flares' objects, once they are back: each object was
     /// seen where some of its marker passed the depth test. A look not yet answered is left to
@@ -3723,38 +3432,6 @@ enum Env {
     Sky = 2,
     /// The light cells looked into from the land are drawn under.
     Looked = 3,
-}
-
-impl FrameUniforms {
-    /// The light and fog of `l`: the sun's direction and color, the ambient light, the fog's
-    /// range and color, and how much the fog veils the sky.
-    fn light(&mut self, l: &auberean_world::sky::DayLight) {
-        let to_sun =
-            auberean_world::math::normalize(auberean_world::math::scale(l.light_direction, -1.0));
-        let ambient = l.ambient();
-        let fog_on = l.fog_max > l.fog_min;
-        let fog_span = if fog_on {
-            1.0 / (l.fog_max - l.fog_min)
-        } else {
-            0.0
-        };
-        self.fog = [
-            l.fog_min,
-            l.fog_max,
-            fog_span,
-            if fog_on { 1.0 } else { 0.0 },
-        ];
-        self.fog_color = [l.fog_color.r, l.fog_color.g, l.fog_color.b, l.fog_sky];
-        self.to_sun = [to_sun.x, to_sun.y, to_sun.z, 0.0];
-        self.sun_color = [
-            l.direct_color.r * l.direct_brightness,
-            l.direct_color.g * l.direct_brightness,
-            l.direct_color.b * l.direct_brightness,
-            1.0,
-        ];
-        self.ambient = [ambient.r, ambient.g, ambient.b, 1.0];
-        self.sun_specular = [l.direct_color.r, l.direct_color.g, l.direct_color.b, 1.0];
-    }
 }
 
 /// Every draw of `batches` that are no objects of the world (the sky's, the water's), those that

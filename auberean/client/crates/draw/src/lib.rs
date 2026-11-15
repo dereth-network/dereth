@@ -13,6 +13,8 @@
 //! - [`cull`]: what a frame seen from inside shows at the moment, walked through the doorways.
 //! - [`decal`]: pictures laid over the ground for a moment.
 //! - [`body`]: a posed body, skinned, as mesh batches.
+//! - [`constants`]: the frame's and each draw's constants and the vertices' layouts, as a device
+//!   uploads them.
 //! - [`placed`]: the objects the world places that play, one body for each look.
 //! - [`material`]: a material instance resolved to the layers a device draws.
 //! - [`mesh`]: a mesh's vertices and the detail level at a distance.
@@ -29,6 +31,7 @@
 //! **Must never** hold a device: what leaves here is data a device can upload.
 
 pub mod body;
+pub mod constants;
 pub mod cull;
 pub mod decal;
 pub mod effects;
