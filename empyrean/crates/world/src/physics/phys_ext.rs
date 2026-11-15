@@ -988,6 +988,55 @@ pub fn enter_world_as_recorded(w: &mut World, h: PhysHandle, pos: &PPosition) ->
     now(w).is_some_and(|p| at(&p, &target))
 }
 
+/// Not ACE (V534): whether a body not yet in the world, placed at `pos` as entering the world
+/// would place it, comes to rest on a surface flat enough to walk on (not water). The creatures
+/// about it are set aside while it is asked: the question is what the spot stands on, not who
+/// stands there now.
+pub fn rests_on_walkable_surface(w: &mut World, h: PhysHandle, pos: &PPosition) -> bool {
+    let landblock = pos.cell.landblock();
+    let (x, y) = (i32::from(landblock.0 >> 8), i32::from(landblock.0 & 0xFF));
+    let creatures: Vec<PhysHandle> = (-1..=1)
+        .flat_map(|dx| (-1..=1).map(move |dy| (x + dx, y + dy)))
+        .filter_map(|(bx, by)| {
+            let id = (u32::try_from(bx).ok()? << 24) | (u32::try_from(by).ok()? << 16) | 0xFFFF;
+            w.landblock_manager
+                .landblocks
+                .get(empyrean_entity::LandblockId::new(id))
+        })
+        // Those made this tick are still waiting to join their landblock.
+        .flat_map(|lb| {
+            lb.world_object_guids()
+                .chain(lb.pending_addition_guids())
+                .copied()
+                .collect::<Vec<_>>()
+        })
+        .filter(|g| w.objects.get(*g).is_some_and(|o| o.is_creature()))
+        .filter_map(|g| physics_obj(w, g))
+        .filter(|&b| b != h)
+        .collect();
+    let mut kept = Vec::with_capacity(creatures.len());
+    for &b in &creatures {
+        if let Some(o) = w.physics.get_mut(b) {
+            kept.push((b, o.state));
+            o.state.set_ethereal_bit(true);
+            o.state.set_ignores_collisions(true);
+        }
+    }
+    prepare_mover(w, h);
+    let rests = w.physics.placement_transition(h, pos).is_some_and(|t| {
+        let c = &t.collision_info;
+        c.contact_plane_valid
+            && !c.contact_plane_is_water
+            && dereth_physics::is_valid_walkable(c.contact_plane.normal)
+    });
+    for (b, state) in kept {
+        if let Some(o) = w.physics.get_mut(b) {
+            o.state = state;
+        }
+    }
+    rests
+}
+
 /// Runs `f` with every dat static of the landblock and its eight neighbours out of the way:
 /// ethereal and ignoring collisions, so a transition passes them by. Their states are put back
 /// afterwards.

@@ -14,6 +14,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 - Fixed admin programs dropped after a few idle seconds on Windows, and ones that fall behind keeping their place.
+- Fixed creatures that stand on towers and platforms over steep ground never appearing.
 - Fixed a way to send chat to every player past their chat settings.
 - Fixed players getting stuck after arriving in an area just as it unloaded.
 - Fixed wielded items meant to be destroyed on death surviving it.

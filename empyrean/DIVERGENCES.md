@@ -537,3 +537,4 @@ the evidence behind each row. Edit the register, not this file.
 | V531 | fix | Fixed wielded items meant to be destroyed on death surviving it. | `empyrean-world::all::players::death_xp::items_bonded_to_be_destroyed_on_death_are_destroyed_wielded_or_not` |
 | V532 | robustness | Fixed players stranded after arriving in an area just as it unloaded. | `empyrean-world::all::world::landblocks::a_landblock_holding_a_player_is_not_unloaded` |
 | V533 | fix | Fixed a way to send a chat line to every player past their chat settings. | `empyrean-testkit::all::chat::chat_between_players::a_turbine_chat_message_to_room_zero_reaches_nobody` |
+| V534 | retail | Creatures recorded on towers and platforms over steep ground now appear, as they did in retail. | `empyrean-world::all::world::spawning::real_content::spawns_on_structures_over_steep_ground_enter_the_world` |

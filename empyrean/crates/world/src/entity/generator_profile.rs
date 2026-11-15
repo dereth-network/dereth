@@ -628,7 +628,7 @@ pub fn verify_landblock(w: &World, generator: ObjectGuid, obj: ObjectGuid) -> bo
 
 // ACE: GeneratorProfile.VerifyWalkableSlope
 #[must_use]
-pub fn verify_walkable_slope(w: &World, obj: ObjectGuid) -> bool {
+pub fn verify_walkable_slope(w: &mut World, obj: ObjectGuid) -> bool {
     let location = w
         .objects
         .get(obj)
@@ -637,11 +637,37 @@ pub fn verify_walkable_slope(w: &World, obj: ObjectGuid) -> bool {
     if !location.indoors()
         && !is_walkable(w, &location)
         && !VERIFY_WALKABLE_SLOPE_EXCLUDED_LANDBLOCKS.contains(&location.landblock_id().landblock())
+        // DIVERGE: V534, a spawn the terrain under it would refuse is let in when it comes to rest
+        // on a walkable surface above that terrain (a roof, a tower, a platform it is recorded on).
+        && !stands_on_walkable_surface(w, obj, &location)
     {
         //log.DebugFormat("{0}.VerifyWalkableSlope({1}) - spawn location is unwalkable slope", _generator.Name, obj.Name);
         return false;
     }
     true
+}
+
+/// Not ACE: whether the object, placed at `location` as entering the world would place it, comes to
+/// rest on a surface flat enough to walk on: a roof, a floor or a platform it is recorded standing
+/// on, which the terrain under it does not show.
+fn stands_on_walkable_surface(w: &mut World, obj: ObjectGuid, location: &Position) -> bool {
+    use crate::physics::phys_ext;
+    // The body entering the world would make, made now; entering finds it and places it.
+    if phys_ext::physics_obj(w, obj).is_none() {
+        crate::dispatch::init_physics_obj::init_physics_obj(w, obj);
+    }
+    let Some(h) = phys_ext::physics_obj(w, obj) else {
+        return false;
+    };
+    if phys_ext::cur_cell(w, h).is_some() {
+        return false;
+    }
+    let Some(cell) = phys_ext::get_landcell(w, location.cell()) else {
+        return false;
+    };
+    let mut at = phys_ext::to_physics_position(location);
+    at.cell = cell;
+    phys_ext::rests_on_walkable_surface(w, h, &at)
 }
 
 /// A list of landblocks the excluded from VerifyWalkableSlope check.

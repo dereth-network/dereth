@@ -1,7 +1,8 @@
 //! ACE: Source/ACE.Server/Entity/PositionExtensions.cs::IsWalkable
 //! Walkability/terrain Z/find Z/restrictable cells; spawn specific/scatter placement and slope
-//! refusal; chest generator treasure in inventory; real-content Holtburg generators and terrain
-//! agreement.
+//! refusal; chest generator treasure in inventory; real-content Holtburg generators, spot spawns on
+//! structures over steep ground, and terrain agreement.
+//! Divergence: V534
 //! Fixture: synthetic dats, isolated world state, retail dats or world.pack in the real-content tier.
 
 use std::sync::Arc;
@@ -569,6 +570,199 @@ mod real_content {
                 path.display()
             )
         })
+    }
+
+    /// The generator spawns ACE's slope check refuses because the terrain under them is steep,
+    /// though they stand on a structure above it: the link child's instance, its weenie, the cell
+    /// and spot it is recorded at, and whether retail created it there.
+    const STEEP_SPAWNS: [(u32, u32, u32, f32, f32, f32, bool); 36] = [
+        (
+            0x7070F006, 25861, 0x070F002C, 132.618, 83.0841, 187.805, true,
+        ),
+        (0x70C0900C, 25860, 0x0C090024, 96.104, 84.721, 94.8, true),
+        (
+            0x71BBB001, 11519, 0x1BBB0030, 140.235, 172.706, 82.006, true,
+        ),
+        (0x71BBB002, 11519, 0x1BBB0030, 134.712, 189.78, 82.006, true),
+        (0x71BBB003, 11517, 0x1BBB0030, 126.193, 187.95, 82.055, true),
+        (0x71FBC001, 11695, 0x1FBC0023, 104.084, 59.292, 82.005, true),
+        (
+            0x71FBC002, 11695, 0x1FBC0022, 114.665, 34.5154, 82.005, true,
+        ),
+        (
+            0x71FBC004, 11695, 0x1FBC0021, 110.323, 11.6555, 82.005, true,
+        ),
+        (
+            0x71FBC005, 11695, 0x1FBC0021, 115.019, 1.15979, 82.005, true,
+        ),
+        (
+            0x71FBC007, 11481, 0x1FBC0022, 119.573, 27.0413, 83.505, true,
+        ),
+        (
+            0x7344F003, 20632, 0x344F0040, 186.349, 177.211, 139.58, false,
+        ),
+        (
+            0x7344F004, 20633, 0x344F0040, 178.232, 172.12, 139.584, false,
+        ),
+        (
+            0x7344F005, 20633, 0x344F0040, 174.868, 175.138, 139.584, false,
+        ),
+        (
+            0x73550006, 20634, 0x3550000F, 35.8467, 147.486, 119.584, false,
+        ),
+        (
+            0x73550007, 20634, 0x35500017, 59.993, 156.164, 124.599, false,
+        ),
+        (
+            0x73550008, 20633, 0x3550000F, 44.0242, 156.26, 119.584, false,
+        ),
+        (
+            0x7A95300E, 20633, 0xA953002D, 124.868, 101.261, 179.345, true,
+        ),
+        (
+            0x7A95300F, 20632, 0xA953002D, 132.815, 112.456, 179.341, true,
+        ),
+        (
+            0x7A953010, 20632, 0xA953002D, 130.355, 111.865, 179.341, true,
+        ),
+        (
+            0x7A953011, 20632, 0xA953002D, 131.284, 103.384, 189.252, false,
+        ),
+        (
+            0x7A953012, 20633, 0xA953002D, 131.872, 103.612, 189.58, true,
+        ),
+        (
+            0x7A953018, 20632, 0xA953000D, 43.771, 116.585, 179.297, true,
+        ),
+        (
+            0x7A953019, 20633, 0xA953000D, 45.9993, 112.158, 179.301, true,
+        ),
+        (
+            0x7A95301A, 20633, 0xA953000D, 33.9455, 113.193, 179.301, true,
+        ),
+        (
+            0x7A95301B, 20633, 0xA953000D, 41.886, 114.292, 186.973, true,
+        ),
+        (
+            0x7A95301C, 20632, 0xA953000D, 38.1171, 110.255, 192.235, true,
+        ),
+        (0x71BBC004, 11519, 0x1BBC002B, 139.98, 65.7269, 82.006, true),
+        (
+            0x71BBC005, 11519, 0x1BBC002A, 132.037, 38.8309, 82.006, true,
+        ),
+        (
+            0x71BBC006, 11519, 0x1BBC0029, 132.365, 9.25148, 82.006, true,
+        ),
+        (
+            0x71BBC007, 11517, 0x1BBC002A, 127.812, 24.565, 82.0065, true,
+        ),
+        (
+            0x71BBC008, 11520, 0x1BBC0029, 120.552, 18.6564, 83.506, true,
+        ),
+        (
+            0x71BBC00B, 11520, 0x1BBC002B, 127.762, 57.1209, 82.006, true,
+        ),
+        (
+            0x71BBC00C, 11520, 0x1BBC002B, 126.468, 55.5423, 82.006, true,
+        ),
+        (0x720BF013, 214, 0x20BF000D, 39.4272, 107.525, 82.005, true),
+        (0x720BF014, 214, 0x20BF000A, 34.462, 29.6648, 83.505, false),
+        (0x720BF015, 6640, 0x20BF000A, 33.7091, 40.6336, 82.005, true),
+    ];
+
+    /// A world with the real content and dats, the landblocks `blocks` loaded and ticked once, so
+    /// their generators have made their first spawns; and every object on them.
+    fn loaded(blocks: &[u32]) -> (World, Vec<ObjectGuid>) {
+        let clock = VirtualClock::default();
+        let timers = TimersState::new(&clock);
+        let mut w = World::new(
+            ClockSnapshot::take(&clock, timers.portal_year_ticks),
+            dats(),
+        );
+        w.timers = timers;
+        w.content = Arc::new(pack());
+        gm::initialize(&mut w, &mut EmptyShard);
+        pm::initialize(&mut w, true);
+        ThreadSafeRandom::seed(SEED);
+        for b in blocks {
+            lm::get_landblock(&mut w, LandblockId::new(b << 16 | 0xFFFF), false, false);
+        }
+        w.now = ClockSnapshot::take(&clock, w.timers.portal_year_ticks);
+        let pyt = w.timers.portal_year_ticks;
+        lm::tick(&mut w, pyt);
+        let all = blocks
+            .iter()
+            .flat_map(|b| {
+                w.landblock_manager
+                    .landblocks
+                    .expect(LandblockId::new(b << 16 | 0xFFFF))
+                    .world_object_guids()
+                    .copied()
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        (w, all)
+    }
+
+    /// Generator spawns standing on a structure (a tower, a hive, a platform) over ground too steep
+    /// to walk on enter the world where they are recorded, the 28 retail created there among them;
+    /// they are the only outdoor spot spawns on these landblocks the terrain under them would
+    /// refuse. One stands a metre off its spot: a neighbour recorded 0.6 m away is placed first.
+    #[test]
+    fn spawns_on_structures_over_steep_ground_enter_the_world() {
+        let mut blocks: Vec<u32> = STEEP_SPAWNS.iter().map(|r| r.2 >> 16).collect();
+        blocks.sort_unstable();
+        blocks.dedup();
+        let (w, all) = loaded(&blocks);
+        let objects: Vec<&empyrean_world::world_objects::world_object::WorldObject> =
+            all.iter().filter_map(|g| w.objects.get(*g)).collect();
+        let spawned_at = |wcid: u32, cell: u32, x: f32, y: f32, z: f32, reach: f32| {
+            objects.iter().any(|o| {
+                o.biota.weenie_class_id == wcid
+                    && o.location().is_some_and(|l| {
+                        l.landblock() == cell >> 16
+                            && (l.position_x - x).powi(2) + (l.position_y - y).powi(2)
+                                < reach * reach
+                            && (l.position_z - z).abs() < 1.0
+                    })
+            })
+        };
+        let mut at_the_spot = 0;
+        for (child, wcid, cell, x, y, z, retail) in STEEP_SPAWNS {
+            assert!(
+                spawned_at(wcid, cell, x, y, z, 1.5),
+                "{child:08X} (weenie {wcid}, retail created it there: {retail}) is not in the world"
+            );
+            at_the_spot += usize::from(spawned_at(wcid, cell, x, y, z, 0.05));
+        }
+        assert_eq!(STEEP_SPAWNS.iter().filter(|r| r.6).count(), 28);
+        assert_eq!(at_the_spot, 35);
+
+        // The other spot spawns outdoors stand on terrain the slope check lets in, as before.
+        let mut on_steep_terrain = 0;
+        for gen in &objects {
+            for p in &gen.wo.world_object_generators.generator_profiles {
+                if !p
+                    .regen_location_type()
+                    .contains(RegenLocationType::Specific)
+                {
+                    continue;
+                }
+                for g in p.spawned.keys() {
+                    let Some(at) = w
+                        .objects
+                        .get(ObjectGuid::new(*g))
+                        .and_then(|o| o.location())
+                    else {
+                        continue;
+                    };
+                    if !at.indoors() && !pe::is_walkable(&w, &at) {
+                        on_steep_terrain += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(on_steep_terrain, 36, "the steep spawns alone");
     }
 
     /// Holtburgs generators spawn their objects.
