@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use dereth_primitives::ObjectId;
-use dereth_protocol::comms::CommunicationHearDirectSpeech;
+use dereth_protocol::comms::{CommunicationHearDirectSpeech, CommunicationTransientString};
 use dereth_protocol::objects::{
     CharacterServerSaysAttemptFailed, ItemServerSaysContainId, ItemUseDone,
 };
@@ -16,8 +16,8 @@ use empyrean_content::MemContent;
 use empyrean_dat::FakeDats;
 use empyrean_entity::enums::{
     CharacterOptions1, DestinationType, EmoteCategory, EmoteType, ItemType, PropertyAttribute,
-    PropertyDataId, PropertyFloat, PropertyInt, PropertyString, VendorType, WeenieError,
-    WeenieType,
+    PropertyBool, PropertyDataId, PropertyFloat, PropertyInt, PropertyString, VendorType,
+    WeenieError, WeenieType,
 };
 use empyrean_entity::models::properties_emote::PropertiesEmote;
 use empyrean_entity::models::properties_emote_action::PropertiesEmoteAction;
@@ -37,6 +37,7 @@ const SHOPKEEPER: u32 = 2;
 const GEM: u32 = 3; // stackable, max 100, unit value 10
 const CUP: u32 = 4; // value 100
 const COINSTACK: u32 = 273;
+const SERVICE: u32 = 5; // a vendor service
 
 const ALPHA: u32 = 0x5000_0001;
 
@@ -52,6 +53,7 @@ const PRIVATE_INT: u32 = 0x02CD;
 const TELL: u32 = 0x02BD;
 const CREATE_OBJECT: u32 = 0xF745;
 const SOUND: u32 = 0xF750;
+const TRANSIENT: u32 = 0x02EB;
 
 fn weenie(wcid: u32, name: &str, weenie_type: WeenieType) -> Weenie {
     Weenie::new(wcid, name, weenie_type)
@@ -111,6 +113,12 @@ fn content() -> MemContent {
                 .with_int(PropertyInt::ItemType, int(ItemType::Misc))
                 .with_int(PropertyInt::Value, 100)
                 .with_int(PropertyInt::EncumbranceVal, 5),
+        )
+        .weenie(
+            weenie(SERVICE, "Portal Recall Service", WeenieType::Generic)
+                .with_int(PropertyInt::ItemType, int(ItemType::Misc))
+                .with_int(PropertyInt::Value, 50)
+                .with_bool(PropertyBool::VendorService, true),
         )
         .weenie(
             Weenie::new(COINSTACK, "coinstack", WeenieType::Coin)
@@ -642,3 +650,87 @@ fn a_vendor_out_of_reach_closed_or_out_of_its_value_range_is_refused() {
 pub(crate) use crate::support::messages::{exchange, first, Got};
 
 pub(crate) use empyrean_testkit::EmptyShard;
+
+/// A player at a vendor with 100 pyreals, and the vendor: the client, its session, the player and
+/// the vendor.
+fn at_the_vendor() -> (TestServer, ClientId, SessionId, ObjectGuid, ObjectGuid) {
+    let mut ts = server();
+    let (id, session) = join(&mut ts, "alpha", ALPHA, "Alpha", at(20.0, 20.0));
+    let alpha = ObjectGuid::new(ALPHA);
+    let npc = shopkeeper(&mut ts, at(21.0, 20.0));
+    let coins = new_object(&mut ts, COINSTACK);
+    ts.world
+        .objects
+        .get_mut(coins)
+        .unwrap()
+        .set_stack_size(Some(100));
+    assert!(container::try_add_to_inventory(
+        &mut ts.world,
+        alpha,
+        coins,
+        0,
+        false,
+        true
+    ));
+    player_commerce::update_coin_value(&mut ts.world, alpha, false);
+    ts.advance(0.1);
+    let _ = exchange(&mut ts, id, session, 0.3, |ts| {
+        empyrean_world::dispatch::act_on_use::act_on_use(&mut ts.world, npc, alpha)
+    });
+    (ts, id, session, alpha, npc)
+}
+
+/// What a buy request was answered with in transient words, and the player's pack after.
+fn buy(
+    ts: &mut TestServer,
+    id: ClientId,
+    session: SessionId,
+    npc: ObjectGuid,
+    items: &[(i32, ObjectGuid)],
+) -> Vec<String> {
+    let request = VendorBuy {
+        vendor_id: ObjectId(npc.full()),
+        items: items
+            .iter()
+            .map(|(amount, g)| ItemProfile {
+                amount: *amount,
+                iid: ObjectId(g.full()),
+                pwd: None,
+            })
+            .collect(),
+        alternate_currency_id: 0,
+    };
+    let (_, g) = exchange(ts, id, session, 0.3, |ts| ts.send_game_action(id, &request));
+    g.iter()
+        .filter(|m| m.kind == TRANSIENT)
+        .map(|m| m.decode::<CommunicationTransientString>().text)
+        .collect()
+}
+
+/// A buy that names one of a vendor's items twice is refused whole, "Invalid item", and nothing
+/// is spent or bought (ACE's `BuyItems_ValidateTransaction`).
+#[test]
+fn a_buy_naming_an_item_twice_is_refused() {
+    let (mut ts, id, session, alpha, npc) = at_the_vendor();
+    let shop = vendor::default_items_for_sale(&ts.world, npc);
+    let said = buy(&mut ts, id, session, npc, &[(3, shop[0]), (3, shop[0])]);
+    assert_eq!(said, ["Invalid item"]);
+    assert_eq!(ts.world.objects.get(alpha).unwrap().coin_value(), Some(100));
+    assert_eq!(
+        container::inventory_values(&ts.world, alpha).len(),
+        1,
+        "only the pyreals"
+    );
+}
+
+/// A vendor's service is bought one at a time: a buy of two is refused whole, "Invalid amount",
+/// and nothing is spent (ACE's `BuyItems_ValidateTransaction`).
+#[test]
+fn a_vendors_service_is_bought_one_at_a_time() {
+    let (mut ts, id, session, alpha, npc) = at_the_vendor();
+    let service = new_object(&mut ts, SERVICE);
+    vendor::add_default_item(&mut ts.world, npc, service);
+    let said = buy(&mut ts, id, session, npc, &[(2, service)]);
+    assert_eq!(said, ["Invalid amount"]);
+    assert_eq!(ts.world.objects.get(alpha).unwrap().coin_value(), Some(100));
+}

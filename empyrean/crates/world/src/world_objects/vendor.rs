@@ -668,11 +668,24 @@ pub fn buy_items_validate_transaction(
     let mut default_item_profiles: Vec<ItemProfile> = Vec::new();
     let mut unique_items: Vec<ObjectGuid> = Vec::new();
 
+    let mut requested_guids: std::collections::HashSet<u32> = std::collections::HashSet::new();
+
     // find item profiles in default and unique items
     for item_profile in item_profiles.iter_mut() {
         if !item_profile.is_valid_amount() {
             // reject entire transaction immediately
             player_networking::send_transient_error(w, player, "Invalid amount");
+            return false;
+        }
+
+        if !requested_guids.insert(item_profile.object_guid) {
+            log::warn!(
+                "[VENDOR] {} tried to buy duplicate item {:08X} from {}",
+                name(w, player),
+                item_profile.object_guid,
+                name(w, this)
+            );
+            player_networking::send_transient_error(w, player, "Invalid item");
             return false;
         }
 
@@ -683,6 +696,15 @@ pub fn buy_items_validate_transaction(
             .default_items_for_sale
             .contains_key(&item_guid)
         {
+            // services are not limited by pack space, so only allow one per request
+            if item_profile.amount > 1
+                && obj(w, item_guid)
+                    .get_property(PropertyBool::VendorService)
+                    .unwrap_or(false)
+            {
+                player_networking::send_transient_error(w, player, "Invalid amount");
+                return false;
+            }
             let default_item_for_sale = obj(w, item_guid);
             item_profile.weenie_class_id = default_item_for_sale.biota.weenie_class_id;
             item_profile.palette = default_item_for_sale.palette_template();
