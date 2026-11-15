@@ -26,7 +26,7 @@
 
 pub mod render;
 pub mod shaders;
-#[cfg(not(any(target_arch = "wasm32", target_os = "macos")))]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod shared;
 
 pub use render::{Picture, Remaster};

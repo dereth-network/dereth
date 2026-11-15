@@ -9,9 +9,13 @@
 //! frame is submitted before the frame wgpu composes from it, and its last barrier leaves the
 //! picture ready to sample, the state wgpu is told it holds.
 //!
-//! This is the one module of the crate that calls `unsafe` entry points: making the device from
-//! its raw handles, handing them to wgpu and the layer, and lending wgpu a picture the layer made.
-//! Each says why it holds.
+//! The Vulkan instance under them ([`instance`]) is wgpu's own, but on the Mac: there is no Vulkan
+//! there, so the MoltenVK the program carries is loaded by its path and the instance made on it,
+//! then handed to wgpu.
+//!
+//! This is the one module of the crate that calls `unsafe` entry points: making the instance and
+//! the device from their raw handles, handing them to wgpu and the layer, and lending wgpu a
+//! picture the layer made. Each says why it holds.
 
 #![allow(unsafe_code)]
 
@@ -119,6 +123,114 @@ impl Wanted {
             .collect();
         (w, lacking)
     }
+}
+
+/// The Vulkan instance the shared device is made on, for wgpu: wgpu's own, with only its Vulkan
+/// backend; on the Mac, one made on the MoltenVK the program carries.
+///
+/// # Errors
+/// On the Mac, when no MoltenVK or Vulkan can be loaded, or the instance cannot be made.
+pub fn instance() -> Result<wgpu::Instance, SharedError> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::VULKAN,
+            ..wgpu::InstanceDescriptor::new_without_display_handle_from_env()
+        }))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let entry = moltenvk()?;
+        let flags = wgpu::InstanceFlags::from_build_config().with_env();
+        let api = vk::API_VERSION_1_3;
+        let extensions =
+            wgpu::hal::vulkan::Instance::desired_extensions(&entry, api, flags).map_err(fail)?;
+        let names: Vec<*const std::ffi::c_char> = extensions.iter().map(|e| e.as_ptr()).collect();
+        let app = vk::ApplicationInfo::default().api_version(api);
+        // MoltenVK, a portability implementation, is listed only behind this flag.
+        let create_flags = if extensions.contains(&ash::khr::portability_enumeration::NAME) {
+            vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR
+        } else {
+            vk::InstanceCreateFlags::empty()
+        };
+        let create = vk::InstanceCreateInfo::default()
+            .application_info(&app)
+            .enabled_extension_names(&names)
+            .flags(create_flags);
+        // SAFETY: the instance is made from `entry`, with `extensions` (every one wgpu-hal asked
+        // for, each one the entry has) and the version and flags it is handed to wgpu with below.
+        let raw = unsafe { entry.create_instance(&create, None) }.map_err(fail)?;
+        // SAFETY: `raw` was made from `entry` as above, `extensions` are the ones it was made
+        // with, and wgpu-hal takes ownership of it (no drop callback).
+        let hal = unsafe {
+            wgpu::hal::vulkan::Instance::from_raw(
+                entry,
+                raw,
+                api,
+                0,
+                None,
+                extensions,
+                flags,
+                wgpu::MemoryBudgetThresholds::default(),
+                false,
+                None,
+            )
+        }
+        .map_err(fail)?;
+        // SAFETY: the instance is a Vulkan one, which this build of wgpu holds the backend for.
+        Ok(unsafe { wgpu::Instance::from_hal::<Vulkan>(hal) })
+    }
+}
+
+/// The MoltenVK library's file name, in a bundle and in an install alike.
+#[cfg(target_os = "macos")]
+const MOLTENVK_LIBRARY: &str = "libMoltenVK.dylib";
+
+/// The Mac's Vulkan, which its `dlopen` has no path for: the MoltenVK the program carries (in the
+/// application bundle's `Contents/Frameworks`, then beside the executable), then a Vulkan loader
+/// where the plain `dlopen` finds one, then the SDK's and Homebrew's, then Homebrew's MoltenVK.
+/// MoltenVK exports the Vulkan entry points itself, so it serves as the loader.
+#[cfg(target_os = "macos")]
+fn moltenvk() -> Result<ash::Entry, SharedError> {
+    let mut bundled = Vec::new();
+    if let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(std::path::Path::to_path_buf))
+    {
+        if let Some(contents) = dir.parent() {
+            bundled.push(contents.join("Frameworks").join(MOLTENVK_LIBRARY));
+        }
+        bundled.push(dir.join(MOLTENVK_LIBRARY));
+    }
+    let load = |p: &std::path::Path| {
+        // SAFETY: the file is a Vulkan implementation's library, whose entry points ash loads.
+        unsafe { ash::Entry::load_from(p) }.ok()
+    };
+    if let Some(e) = bundled.iter().find_map(|p| load(p)) {
+        return Ok(e);
+    }
+    // SAFETY: as above, the system's Vulkan loader.
+    if let Ok(e) = unsafe { ash::Entry::load() } {
+        return Ok(e);
+    }
+    let mut installed = Vec::new();
+    if let Some(sdk) = std::env::var_os("VULKAN_SDK") {
+        installed.push(
+            std::path::Path::new(&sdk)
+                .join("lib")
+                .join("libvulkan.dylib"),
+        );
+    }
+    for dir in ["/opt/homebrew/lib", "/usr/local/lib"] {
+        installed.push(std::path::Path::new(dir).join("libvulkan.dylib"));
+    }
+    for dir in ["/opt/homebrew/lib", "/usr/local/lib"] {
+        installed.push(std::path::Path::new(dir).join(MOLTENVK_LIBRARY));
+    }
+    installed
+        .iter()
+        .find_map(|p| load(p))
+        .ok_or_else(|| SharedError("no MoltenVK or Vulkan to make the remaster's device on".into()))
 }
 
 /// A device wgpu and the remaster's layer share, on `instance`'s hardware Vulkan adapter (one that

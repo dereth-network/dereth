@@ -11,8 +11,5 @@ mod common;
 mod identity;
 mod occlusion;
 mod shadows;
-mod smoothing;
-// The shared device is made on Vulkan alone: the Mac's retail device draws on Metal, and the
-// remaster's sharing of it is not built there.
-#[cfg(not(any(target_arch = "wasm32", target_os = "macos")))]
 mod shared;
+mod smoothing;

@@ -37,8 +37,9 @@
 //! The game's sound plays through the default output device; `--no-sound` runs silent.
 //! `--remaster` draws the world with the remaster (`auberean-remaster`) this session, as the
 //! `[Rendering] Remaster=1` line of the preferences does, where the device can draw it: on a Vulkan
-//! device it shares with the retail device, which draws the rest. Where it can't, the retail device
-//! draws the world, as it always does with neither.
+//! device it shares with the retail device, which draws the rest (on the Mac, through the MoltenVK
+//! the program carries, or an installed Vulkan). Where it can't, the retail device draws the world,
+//! as it always does with neither (on the Mac, on Metal).
 //! `--world-overlays` says the world takes this client's own word that it keeps a world's overlay
 //! over its data files (a Yalain world does, and the launcher says so for one); without it the
 //! client answers the world's question of which data it has as the September 2013 client does.
@@ -722,17 +723,22 @@ fn presenter(
     presentation: &Presentation,
     remaster: bool,
 ) -> Result<auberean_present::Presenter, String> {
-    #[cfg(all(feature = "remaster", not(target_os = "macos")))]
+    #[cfg(feature = "remaster")]
     if remaster {
         match remastered(window, presentation) {
             Ok(p) => return Ok(p),
             Err(e) => tracing::warn!(%e, "the remaster is not drawn: the retail device draws"),
         }
     }
-    #[cfg(not(all(feature = "remaster", not(target_os = "macos"))))]
+    #[cfg(not(feature = "remaster"))]
     let _ = remaster;
-    let instance =
-        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+    let mut desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+    // The retail device draws on Metal on the Mac, whatever else the build can draw on (the
+    // remaster's Vulkan), unless the environment names a backend.
+    if cfg!(target_os = "macos") && wgpu::Backends::from_env().is_none() {
+        desc.backends = wgpu::Backends::METAL;
+    }
+    let instance = wgpu::Instance::new(desc);
     let size = window.inner_size();
     let surface = instance
         .create_surface(Arc::clone(window))
@@ -752,14 +758,14 @@ fn presenter(
 }
 
 /// The remaster drawing the world's picture, beside the retail device on the device they share.
-#[cfg(all(feature = "remaster", not(target_os = "macos")))]
+#[cfg(feature = "remaster")]
 struct Remastered {
     painter: auberean_remaster::shared::Painter,
     /// A frame it could not draw, told once; the retail device draws from then on.
     failed: bool,
 }
 
-#[cfg(all(feature = "remaster", not(target_os = "macos")))]
+#[cfg(feature = "remaster")]
 impl auberean_present::WorldPainter for Remastered {
     fn paint(
         &mut self,
@@ -783,15 +789,12 @@ impl auberean_present::WorldPainter for Remastered {
 
 /// The device for `window` that the remaster shares with wgpu, on Vulkan, the remaster drawing the
 /// world and the retail device the rest (the interface's scenes, portal space).
-#[cfg(all(feature = "remaster", not(target_os = "macos")))]
+#[cfg(feature = "remaster")]
 fn remastered(
     window: &Arc<Window>,
     presentation: &Presentation,
 ) -> Result<auberean_present::Presenter, String> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::VULKAN,
-        ..wgpu::InstanceDescriptor::new_without_display_handle_from_env()
-    });
+    let instance = auberean_remaster::shared::instance().map_err(|e| e.to_string())?;
     let size = window.inner_size();
     let surface = instance
         .create_surface(Arc::clone(window))

@@ -58,10 +58,7 @@ fn on_a_shared_device_retail_draws_as_on_its_own_and_the_remasters_picture_reach
     let _turn = turn();
     let records = records();
     let mut load = |id: u32| auberean_draw::picture::load(records, id);
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::VULKAN,
-        ..wgpu::InstanceDescriptor::new_without_display_handle_from_env()
-    });
+    let instance = auberean_remaster::shared::instance().expect("a Vulkan instance");
     let probe = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
         ..Default::default()
