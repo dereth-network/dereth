@@ -37,6 +37,12 @@ source = "terrain.slang"
 entry = "fs_veil"
 stage = "fragment"
 
+# In linear light, the sky drawn in display values into a picture of its own, laid in.
+[[entry]]
+source = "terrain.slang"
+entry = "fs_sky_in"
+stage = "fragment"
+
 # The placed objects and the sky's objects: the vertex program's pieces, then the texture stages
 # or the normal-mapped pixel programs.
 [[entry]]

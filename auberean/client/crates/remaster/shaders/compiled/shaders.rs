@@ -15,6 +15,8 @@ pub enum Entry {
     TerrainVsVeil,
     /// `fs_veil` in `terrain.slang`, the fragment stage.
     TerrainFsVeil,
+    /// `fs_sky_in` in `terrain.slang`, the fragment stage.
+    TerrainFsSkyIn,
     /// `vs_mesh` in `mesh.slang`, the vertex stage.
     MeshVsMesh,
     /// `fs_mesh` in `mesh.slang`, the fragment stage.
@@ -35,7 +37,7 @@ pub enum Entry {
 
 impl Entry {
     /// Every entry point, in `shaders.toml`'s order.
-    pub const ALL: [Self; 14] = [Self::TerrainVsTerrain, Self::TerrainFsTerrainBase, Self::TerrainFsTerrainMask, Self::TerrainFsTerrainFar, Self::TerrainVsVeil, Self::TerrainFsVeil, Self::MeshVsMesh, Self::MeshFsMesh, Self::MeshFsRipple, Self::MeshFsWater, Self::MeshFsMeshDepth, Self::TerrainFsTerrainDepth, Self::MeshVsMeshCaster, Self::MeshFsMeshCaster];
+    pub const ALL: [Self; 15] = [Self::TerrainVsTerrain, Self::TerrainFsTerrainBase, Self::TerrainFsTerrainMask, Self::TerrainFsTerrainFar, Self::TerrainVsVeil, Self::TerrainFsVeil, Self::TerrainFsSkyIn, Self::MeshVsMesh, Self::MeshFsMesh, Self::MeshFsRipple, Self::MeshFsWater, Self::MeshFsMeshDepth, Self::TerrainFsTerrainDepth, Self::MeshVsMeshCaster, Self::MeshFsMeshCaster];
 
     /// The source file that defines it.
     #[must_use]
@@ -47,6 +49,7 @@ impl Entry {
             Self::TerrainFsTerrainFar => "terrain.slang",
             Self::TerrainVsVeil => "terrain.slang",
             Self::TerrainFsVeil => "terrain.slang",
+            Self::TerrainFsSkyIn => "terrain.slang",
             Self::MeshVsMesh => "mesh.slang",
             Self::MeshFsMesh => "mesh.slang",
             Self::MeshFsRipple => "mesh.slang",
@@ -68,6 +71,7 @@ impl Entry {
             Self::TerrainFsTerrainFar => "fs_terrain_far",
             Self::TerrainVsVeil => "vs_veil",
             Self::TerrainFsVeil => "fs_veil",
+            Self::TerrainFsSkyIn => "fs_sky_in",
             Self::MeshVsMesh => "vs_mesh",
             Self::MeshFsMesh => "fs_mesh",
             Self::MeshFsRipple => "fs_ripple",
@@ -89,6 +93,7 @@ impl Entry {
             Self::TerrainFsTerrainFar => Stage::Fragment,
             Self::TerrainVsVeil => Stage::Vertex,
             Self::TerrainFsVeil => Stage::Fragment,
+            Self::TerrainFsSkyIn => Stage::Fragment,
             Self::MeshVsMesh => Stage::Vertex,
             Self::MeshFsMesh => Stage::Fragment,
             Self::MeshFsRipple => Stage::Fragment,
@@ -110,6 +115,7 @@ impl Entry {
             Self::TerrainFsTerrainFar => include_bytes!("spirv/terrain.fs_terrain_far.spv"),
             Self::TerrainVsVeil => include_bytes!("spirv/terrain.vs_veil.spv"),
             Self::TerrainFsVeil => include_bytes!("spirv/terrain.fs_veil.spv"),
+            Self::TerrainFsSkyIn => include_bytes!("spirv/terrain.fs_sky_in.spv"),
             Self::MeshVsMesh => include_bytes!("spirv/mesh.vs_mesh.spv"),
             Self::MeshFsMesh => include_bytes!("spirv/mesh.fs_mesh.spv"),
             Self::MeshFsRipple => include_bytes!("spirv/mesh.fs_ripple.spv"),
@@ -131,6 +137,7 @@ impl Entry {
             Self::TerrainFsTerrainFar => include_bytes!("dxil/terrain.fs_terrain_far.dxil"),
             Self::TerrainVsVeil => include_bytes!("dxil/terrain.vs_veil.dxil"),
             Self::TerrainFsVeil => include_bytes!("dxil/terrain.fs_veil.dxil"),
+            Self::TerrainFsSkyIn => include_bytes!("dxil/terrain.fs_sky_in.dxil"),
             Self::MeshVsMesh => include_bytes!("dxil/mesh.vs_mesh.dxil"),
             Self::MeshFsMesh => include_bytes!("dxil/mesh.fs_mesh.dxil"),
             Self::MeshFsRipple => include_bytes!("dxil/mesh.fs_ripple.dxil"),

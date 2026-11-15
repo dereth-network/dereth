@@ -1,6 +1,8 @@
 // The game's own light, as the retail device works it out: the frame's light, each draw's layer,
 // the vertex program's pieces, the texture stages' arithmetic and the normal-mapped pixel programs.
-// Everything is in display values, as the retail device blends them, with no gamma conversion.
+// Everything is worked out in display values, as the retail device does; a draw into a frame drawn
+// in linear light takes its color to linear light at the very end (`shown`), so the blends and the
+// passes after it work in light.
 //
 // A frame's constants are the shared rows (`frame`) and, from row `LIGHT_ROWS`, the game's own
 // (`Light`); a draw's are `DRAW_ROWS` rows of the frame's draw buffer (`Draw`). With the light's
@@ -204,6 +206,22 @@ public float linear_fog(Light f, float3 world)
 public float3 fogged(Light f, float3 c, float fog)
 {
     return lerp(f.fog_color.rgb, c, fog);
+}
+
+// A display value taken to linear light: the sRGB curve.
+public float3 to_linear(float3 c)
+{
+    float3 low = c / 12.92;
+    float3 high = pow((max(c, 0.0) + 0.055) / 1.055, 2.4);
+    return float3(c.x <= 0.04045 ? low.x : high.x, c.y <= 0.04045 ? low.y : high.y,
+                  c.z <= 0.04045 ? low.z : high.z);
+}
+
+// A draw's finished color `c` as the frame it draws into keeps it: in linear light where `linear`
+// is 1, else as the display value it is.
+public float3 shown(uint linear, float3 c)
+{
+    return linear == 1 ? to_linear(c) : c;
 }
 
 // The normal `n` into the world's frame by `model`, a unit (straight up when it has no length).

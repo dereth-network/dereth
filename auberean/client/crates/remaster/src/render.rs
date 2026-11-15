@@ -17,7 +17,12 @@
 //!
 //! With the post passes on (the shared passes', `dereth_gfx_passes::post`), the frame is drawn
 //! into their target of its own through a projection moved by a part of a pixel each frame, and
-//! the temporal anti-aliasing lays the frames over each other into the world's colors.
+//! the temporal anti-aliasing lays the frames over each other into the world's colors. In linear
+//! light, each draw works its color out in display values as retail does and takes it to linear
+//! light at the end, so the blends, the bloom and the exposure work in light; the sky's objects and
+//! its veil are drawn first as retail draws them, into a picture of their own, which the frame
+//! starts from in linear light; and the tone curve brings the frame back to display values,
+//! unchanged below its shoulder.
 //!
 //! Before the frame, when some water lies below the camera, its reflection: the same scene from the
 //! camera mirrored about the water's plane, into a picture of its own, and the ripples' picture
@@ -147,6 +152,8 @@ enum Program {
     TerrainDepth,
     /// A caster into one of the sun's cascades' maps, through its first stage's alpha.
     MeshCaster,
+    /// In linear light, the sky drawn into its own picture, laid in as the frame's start.
+    SkyIn,
 }
 
 /// A pipeline's key: its program, how it blends (the stored factors), how it tests and writes
@@ -275,6 +282,9 @@ pub struct Remaster {
     post: PostPass,
     cascade_lights: Vec<PerFrame>,
     spheres: HashMap<(usize, usize), (glam::Vec3, f32)>,
+    /// In linear light, the sky's own picture, drawn in display values: it, its index in the
+    /// table, and its size.
+    sky: Option<(Texture, u32, (u32, u32))>,
     frame: u64,
 }
 
@@ -401,12 +411,14 @@ impl Remaster {
             post,
             cascade_lights: Vec::new(),
             spheres: HashMap::new(),
+            sky: None,
             frame: 0,
         })
     }
 
     /// Every pass of the remaster's look on, as a player who ticks the remaster sees it first: the
-    /// ambient occlusion, outdoors and in, the sun's shadows, and the anti-aliasing.
+    /// ambient occlusion, outdoors and in, the sun's shadows, the anti-aliasing, and linear light
+    /// with the bloom and the exposure.
     pub fn look(&mut self) {
         self.set_ao(AoSettings {
             on: true,
@@ -418,6 +430,7 @@ impl Remaster {
             ..ShadowSettings::default()
         });
         self.set_post(PostSettings {
+            hdr: true,
             taa: true,
             ..PostSettings::default()
         });
@@ -685,6 +698,7 @@ impl Remaster {
             Program::Terrain(fs) => (Entry::TerrainVsTerrain, fs),
             Program::Veil => (Entry::TerrainVsVeil, Entry::TerrainFsVeil),
             Program::MeshCaster => (Entry::MeshVsMeshCaster, Entry::MeshFsMeshCaster),
+            Program::SkyIn => (Entry::TerrainVsVeil, Entry::TerrainFsSkyIn),
         };
         let blend = (key.src != d3d::BLEND_ONE || key.dst != d3d::BLEND_ZERO).then(|| Blend {
             src: factor(key.src),
@@ -778,6 +792,31 @@ impl Remaster {
         );
         self.reflection = Some(r);
         Ok(r)
+    }
+
+    /// The sky's own picture at `width` x `height`, for a frame drawn in linear light, and its index
+    /// in the table.
+    fn sky_target(&mut self, width: u32, height: u32) -> Result<(Texture, u32), RemasterError> {
+        if let Some((t, index, size)) = self.sky {
+            if size == (width, height) {
+                return Ok((t, index));
+            }
+            if !self.gfx.owned() {
+                self.gfx.wait_idle()?;
+            }
+            self.gfx.destroy_texture(t);
+        }
+        let t = self.gfx.create_texture(&TextureDesc {
+            label: "remaster sky",
+            width,
+            height,
+            mips: 1,
+            format: COLOR,
+            usage: TextureUsage::COLOR_TARGET | TextureUsage::SAMPLED,
+        })?;
+        let index = self.gfx.bind_texture(t)?;
+        self.sky = Some((t, index, (width, height)));
+        Ok((t, index))
     }
 
     /// The ripples' bump picture, by its index in the table: three waves' push across and down,
@@ -1703,10 +1742,32 @@ impl Remaster {
         self.last_view_projection = Some(view_projection);
         let ao_mask = ao_plan.as_ref().map_or(u32::MAX, |p| p.mask().0);
         // The post passes' plan: the world then draws into their target.
-        let post_plan =
-            self.post
-                .prepare(&mut self.gfx, &camera, &t.gbuffer, 1.0, Grade::default())?;
+        let exposed = math::powf(2.0, self.post.settings().exposure);
+        let post_plan = self.post.prepare(
+            &mut self.gfx,
+            &camera,
+            &t.gbuffer,
+            exposed,
+            Grade::default(),
+        )?;
         let into_post = post_plan.is_some();
+        // In linear light the sky is drawn first into its own picture, in display values.
+        let linear = into_post && self.post.linear();
+        let sky_in = if linear && sky_shown {
+            let (texture, index) = self.sky_target(width, height)?;
+            let p = self.pipeline(Key {
+                program: Program::SkyIn,
+                src: d3d::BLEND_ONE,
+                dst: d3d::BLEND_ZERO,
+                depth_test: false,
+                depth_write: false,
+                cull: d3d::CULL_NONE,
+                post: true,
+            })?;
+            Some((texture, index, p))
+        } else {
+            None
+        };
         // The depth's pass's pipelines: each mesh's that marks how near it is, culled as it is,
         // and the land's.
         let mut depth_keys = Vec::new();
@@ -1736,12 +1797,15 @@ impl Remaster {
         let backdrop = match &sight {
             Some(s) if s.fog => {
                 let [r, g, b, a] = s.fog_color;
-                [r * a, g * a, b * a, 1.0]
+                let c = [r * a, g * a, b * a];
+                let c = if linear { c.map(to_linear) } else { c };
+                [c[0], c[1], c[2], 1.0]
             }
             _ => [0.0, 0.0, 0.0, 1.0],
         };
         // One draw, under the lights `lights` (the frame's or the mirrored ones), as the
-        // reflection draws it when `reflecting`.
+        // reflection draws it when `reflecting`; its color taken to linear light at the end when
+        // it draws into the post passes' target in linear light.
         let run = |rec: &mut dereth_gfx::Draw<'_>,
                    d: &Draw,
                    lights: &[u32; 4],
@@ -1749,6 +1813,7 @@ impl Remaster {
                    depth: bool,
                    post: bool|
          -> Result<(), dereth_gfx::Error> {
+            let into_linear = u32::from(post && linear);
             let (key, record) = match d.faint.filter(|_| reflecting) {
                 Some(f) => f,
                 None if depth => (depth_key(d).unwrap_or(d.key), d.record),
@@ -1786,6 +1851,7 @@ impl Remaster {
                         ao,
                         d.class,
                         sun,
+                        into_linear,
                     ])
                 }
                 _ => push_words(&[
@@ -1800,6 +1866,7 @@ impl Remaster {
                     sun,
                     d.textures[2],
                     d.samplers[2],
+                    into_linear,
                 ]),
             };
             rec.push(0, &words)?;
@@ -1807,14 +1874,29 @@ impl Remaster {
             rec.draw_indexed(d.index_count, 1, 0, 0, 0);
             Ok(())
         };
-        // The world's steps in their order, under `lights`; the reflection draws the land as it
-        // shows it, and neither the water nor the particles and streaks.
+        // The world's steps in their order, under `lights`, the sky as `sky` says; the reflection
+        // draws the land as it shows it, and neither the water nor the particles and streaks.
         let steps_in = |rec: &mut dereth_gfx::Draw<'_>,
                         lights: &[u32; 4],
                         reflecting: bool,
-                        post: bool|
+                        post: bool,
+                        sky: Sky|
          -> Result<(), dereth_gfx::Error> {
             for step in PASSES {
+                let of_sky = matches!(step, Pass::Sky | Pass::Veil);
+                if sky == Sky::Only && !of_sky {
+                    continue;
+                }
+                if let Sky::Laid(p, picture) = sky {
+                    if step == Pass::Sky {
+                        rec.set_pipeline(p)?;
+                        rec.push(0, &push_words(&[0, 0, picture]))?;
+                        rec.draw(3, 1, 0, 0);
+                    }
+                    if of_sky {
+                        continue;
+                    }
+                }
                 if step == Pass::Veil {
                     if let Some(p) = if post { veil_post } else { veil } {
                         rec.set_pipeline(p)?;
@@ -1909,7 +1991,7 @@ impl Remaster {
                     touches: &[],
                     area: None,
                 },
-                |rec| steps_in(rec, &mirrored, true, false),
+                |rec| steps_in(rec, &mirrored, true, false, Sky::Drawn),
             )?;
             if !ripple_draws.is_empty() {
                 r.raster(
@@ -1936,9 +2018,32 @@ impl Remaster {
                 )?;
             }
         }
+        // In linear light, the sky as retail draws it, into its own picture.
+        if let Some((picture, _, _)) = sky_in {
+            r.raster(
+                &RasterPass {
+                    name: "remaster sky",
+                    color: &[ColorAttachment {
+                        texture: picture,
+                        load: Load::Clear([0.0, 0.0, 0.0, 1.0]),
+                    }],
+                    depth: Some(DepthAttachment {
+                        texture: t.depth,
+                        clear: Some(1.0),
+                        write: true,
+                    }),
+                    touches: &[],
+                    area: None,
+                },
+                |rec| steps_in(rec, &lights, false, false, Sky::Only),
+            )?;
+        }
         // The targets the world draws into: the post passes' with them on.
         let scene = post_plan.map_or(t.gbuffer, |p| p.scene_targets(t.gbuffer));
         let mut touches = Vec::new();
+        if let Some((picture, _, _)) = sky_in {
+            touches.push(Touch::Texture(picture, Use::Sampled));
+        }
         if let Some(plan) = &ao_plan {
             touches.push(Touch::Texture(plan.mask().1, Use::Sampled));
         }
@@ -1964,7 +2069,10 @@ impl Remaster {
                 touches: &touches,
                 area: None,
             },
-            |rec| steps_in(rec, &lights, false, into_post),
+            |rec| {
+                let sky = sky_in.map_or(Sky::Drawn, |(_, index, p)| Sky::Laid(p, index));
+                steps_in(rec, &lights, false, into_post, sky)
+            },
         )?;
         if let Some(plan) = &post_plan {
             let gathered = plan.record_taa(
@@ -2042,6 +2150,26 @@ fn depth_key(d: &Draw) -> Option<Key> {
         dst: d3d::BLEND_ZERO,
         ..d.key
     })
+}
+
+/// How a raster pass draws the sky's steps (its objects and its veil).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Sky {
+    /// As the other steps are drawn.
+    Drawn,
+    /// Them alone.
+    Only,
+    /// In their place, the sky's own picture (by its index in the table), laid in by the pipeline.
+    Laid(Pipeline, u32),
+}
+
+/// A display value taken to linear light: the sRGB curve (`to_linear` in `shaders/light.slang`).
+fn to_linear(c: f32) -> f32 {
+    if c <= 0.040_45 {
+        c / 12.92
+    } else {
+        math::powf((c + 0.055) / 1.055, 2.4)
+    }
 }
 
 /// The frame's draws, step by step.

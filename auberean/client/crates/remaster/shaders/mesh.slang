@@ -44,6 +44,8 @@ struct Push
     uint light_class;
     // How much of the sun reaches each pixel, the sun's shadows' picture (~0: all of it).
     uint sun;
+    // 1 when the frame is drawn in linear light.
+    uint linear;
 };
 
 // The frame's alpha under every draw: 127 of 255.
@@ -785,7 +787,7 @@ float4 fs_mesh(MeshOut v) : SV_Target0
     {
         a = min(saturate(a), 1.0 - FRAME_ALPHA);
     }
-    return float4(fogged(f, saturate(c.rgb), v.fog), a);
+    return float4(shown(push.linear, fogged(f, saturate(c.rgb), v.fog)), a);
 }
 
 // The ripples' picture on a water surface: the bump picture's push where it lies (the picture keeps
@@ -809,5 +811,5 @@ float4 fs_water(MeshOut v) : SV_Target0
     float2 ripple = tex(push.tex1, push.samp1, screen).rg;
     float2 at = float2(screen.x, 1.0 - screen.y) + d.params.z * ripple;
     float3 c = tex(push.tex0, push.samp0, at).rgb;
-    return float4(c, FRAME_ALPHA);
+    return float4(shown(push.linear, c), FRAME_ALPHA);
 }

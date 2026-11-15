@@ -35,6 +35,8 @@ struct Push
     // The clouds' picture and its sampler, for the near terrain's layers.
     uint clouds;
     uint samp_clouds;
+    // 1 when the frame is drawn in linear light.
+    uint linear;
 };
 
 [[vk::push_constant]]
@@ -143,7 +145,7 @@ float4 fs_terrain_base(TerrainOut v) : SV_Target0
     Light f = light_of(push.frame);
     float4 t = sample(push.tex0, push.samp0, v.uv);
     float3 c = saturate(2.0 * t.rgb * lit(f, v));
-    return float4(near_fogged(f, v, c), 1.0);
+    return float4(shown(push.linear, near_fogged(f, v, c)), 1.0);
 }
 
 // A blended layer: the same, with the mask's alpha.
@@ -154,7 +156,7 @@ float4 fs_terrain_mask(TerrainOut v) : SV_Target0
     float4 t = sample(push.tex0, push.samp0, v.uv);
     float4 m = sample(push.tex1, push.samp1, v.mask_uv);
     float3 c = saturate(2.0 * t.rgb * lit(f, v));
-    return float4(near_fogged(f, v, c), m.a);
+    return float4(shown(push.linear, near_fogged(f, v, c)), m.a);
 }
 
 // The far landscape: the picture added to the lit color, signed and doubled; with the clouds'
@@ -172,7 +174,7 @@ float4 fs_terrain_far(TerrainOut v) : SV_Target0
         float3 signed_sum = saturate(t.rgb + color - 0.5);
         c = saturate(2.0 * signed_sum * cloud);
     }
-    return float4(fogged(f, c, v.fog), 1.0);
+    return float4(shown(push.linear, fogged(f, c, v.fog)), 1.0);
 }
 
 // The sky's fog veil: a full-screen triangle of the fog color, as opaque as the color's alpha.
@@ -189,4 +191,15 @@ float4 fs_veil() : SV_Target0
 {
     Light f = light_of(push.frame);
     return f.fog_color;
+}
+
+// A frame drawn in linear light starts from the sky drawn as retail draws it, its objects and its
+// veil blended in display values into a picture of its own (`tex0`): each pixel of it, in linear
+// light. The veil is a blend of the fog's color over whatever the sky's objects drew, which in
+// linear light would weigh the bright fog far more than retail's blend does.
+[shader("fragment")]
+float4 fs_sky_in(float4 position : SV_Position) : SV_Target0
+{
+    float3 c = textures[NonUniformResourceIndex(push.tex0)].Load(int3(int2(position.xy), 0)).rgb;
+    return float4(to_linear(c), 1.0);
 }

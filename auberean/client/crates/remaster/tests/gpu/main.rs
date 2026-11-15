@@ -9,6 +9,7 @@
 
 mod common;
 mod identity;
+mod linear;
 mod occlusion;
 mod shadows;
 mod shared;
