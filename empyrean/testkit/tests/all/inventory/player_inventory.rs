@@ -942,3 +942,53 @@ pub(crate) fn a_split_to_the_ground_whose_stack_left_during_the_motion_makes_not
         .collect();
     assert!(said.iter().any(|s| s == "Split failed!"), "{said:?}");
 }
+
+/// A give whose item left the pack while the giver walked to the receiver gives nothing: when the
+/// walk ends the item is looked up again and the give answers "Give failed!", so coins merged away
+/// on the way are not also given (ACE's revalidation of `HandleActionGiveObjectRequest`).
+#[test]
+pub(crate) fn a_give_whose_item_left_on_the_way_gives_nothing() {
+    let mut ts = server();
+    let (alpha, alpha_session) = join(&mut ts, "alpha", ALPHA, "Alpha", at(20.0, 20.0), 100);
+    let (_bravo, _) = join(&mut ts, "bravo", BRAVO, "Bravo", at(28.0, 20.0), 100);
+    let coins = in_pack(&mut ts.world, ALPHA, COIN);
+    let other = in_pack(&mut ts.world, ALPHA, COIN);
+    ts.advance(0.1);
+
+    // The give starts the walk to Bravo; on the way the coins merge into the other stack.
+    ts.send_game_action(
+        alpha,
+        &InventoryGiveObjectRequest {
+            target: ObjectId(BRAVO),
+            item: ObjectId(coins.full()),
+            amount: 10,
+        },
+    );
+    ts.advance(0.2);
+    ts.send_game_action(
+        alpha,
+        &InventoryStackableMerge {
+            merge_from: ObjectId(coins.full()),
+            merge_to: ObjectId(other.full()),
+            amount: 10,
+        },
+    );
+    ts.advance(0.2);
+    assert!(ts.world.objects.get(coins).is_none(), "merged away");
+
+    // Then Alpha reaches Bravo.
+    let (_, a) = exchange(&mut ts, alpha, alpha_session, 2.0, |ts| {
+        walk_to(ts, ALPHA, at(27.5, 20.0));
+    });
+    assert!(
+        container::inventory_values(&ts.world, ObjectGuid::new(BRAVO)).is_empty(),
+        "Bravo is given nothing"
+    );
+    assert_eq!(coins_in_world(&ts), (1, 20), "Alpha keeps every coin");
+    let said: Vec<String> = a
+        .iter()
+        .filter(|m| m.kind == TRANSIENT)
+        .map(|m| m.decode::<CommunicationTransientString>().text)
+        .collect();
+    assert!(said.iter().any(|s| s == "Give failed!"), "{said:?}");
+}

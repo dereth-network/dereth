@@ -4685,11 +4685,6 @@ pub fn handle_action_give_object_request(
         ObjectGuid::new(item_guid),
         SearchLocations::MyInventory | SearchLocations::MyEquippedItems,
     );
-    let give = GiveFrom {
-        item_found_in_container: found.found_in_container,
-        item_root_owner: found.root_owner,
-        item_was_equipped: found.was_equipped,
-    };
 
     let Some(target) = target else {
         transient(w, this, "Target not found!"); // Custom error message
@@ -4733,6 +4728,31 @@ pub fn handle_action_give_object_request(
             }
 
             if !success {
+                save_failed(w, this, item_guid, WeenieError::ActionCancelled);
+                return;
+            }
+
+            // We make sure the item is still valid. It could have changed during our movement
+            let found = find_object(
+                w,
+                this,
+                item,
+                SearchLocations::MyInventory | SearchLocations::MyEquippedItems,
+            );
+            let give = GiveFrom {
+                item_found_in_container: found.found_in_container,
+                item_root_owner: found.root_owner,
+                item_was_equipped: found.was_equipped,
+            };
+            if found.result != Some(item) || obj(w, item).stack_size().is_some_and(|s| s < amount) {
+                log::debug!(
+                    "Player 0x{:08X}:{} tried to give an item that's no longer valid 0x{:08X}:{}.",
+                    this.full(),
+                    name(w, this),
+                    item.full(),
+                    name(w, item)
+                );
+                transient(w, this, "Give failed!"); // Custom error message
                 save_failed(w, this, item_guid, WeenieError::ActionCancelled);
                 return;
             }
