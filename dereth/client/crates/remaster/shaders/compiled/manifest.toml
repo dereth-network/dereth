@@ -21,6 +21,7 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 "../../gfx-passes/shaders/shadow_mask.slang" = "ae469e9fb2e3dfd829e726c18e00afd5c4c00e478e2e7371b0bdfab1a04d39d3"
 "../../gfx-passes/shaders/sky.slang" = "e4dcd28966ab39b96262f334eff3f76d53ba6c3f189a6336f84aa85e4d57ec36"
 "../../gfx-passes/shaders/sky_tables.slang" = "5d58a577cbf7f098e3172d8b74c460494134caafe2a76767df108225a3203aec"
+"../../gfx-passes/shaders/weather.slang" = "539214950c50104af8afe18c929e0a6f8e330259e955db7eb9562a9bf1dc6e6f"
 "air.slang" = "c1e10efbe48872e22bb6a5107b47b5f34fa5e5ecacafdb638ef2c41b902d45c4"
 "card.slang" = "4c20c7b28b65e7471f5d7f9d0750bd6cb46df2b0acc0136d70b59a54a4d6c5bc"
 "cloud_shadow.slang" = "54c2dc24347f177e897413b6ba3532b00c945832ae6ea0651eacb3e8fdacef28"
@@ -60,7 +61,6 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 "terrain.slang" = "1fb7c0356ba111a8b471ec0566bc43d8e15547045507165a1614faf73bec48f4"
 "upscale_inputs.slang" = "1ba823b45ad33ac39fa589c1ac5a19a0b0f38648c901477eb7eb1129518c877f"
 "water.slang" = "b993c4b8f98139cfdbc00bfb32c069b4dab244bdc21e44112af41af352fa2353"
-"weather.slang" = "3eff45f79a0a5d3afe7a5264b9bca9c757833e632275b9adb7a49b1857a93ad3"
 
 [blobs]
 "dxil/air.fs_air.dxil" = { sha256 = "675476b7ed486611e822da0f15699bb6fb7c6318c88782235fed14a131a1c2dd", bytes = 15992 }

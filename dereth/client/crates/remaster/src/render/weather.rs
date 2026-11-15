@@ -18,9 +18,9 @@
 //!   falling snow.
 //! - **Rain and snow.** Particles fixed in the world, drawn over the scene's colors after the
 //!   forward pass (`rain.slang`); splashes where the drops land near the viewer.
-//! - **Shelter.** A depth of the resident statics seen from straight above round the eye, drawn
-//!   again only when the eye moves far enough or what is resident changes, keeps all of it off
-//!   what stands under a roof.
+//! - **Shelter.** A depth of the resident statics seen from straight above round the eye (the
+//!   shared passes' overhead map, [`dereth_gfx_passes::weather`]), drawn again only when the eye
+//!   moves far enough or what is resident changes, keeps all of it off what stands under a roof.
 //!
 //! Nothing switches in one frame: the rain and the snow, and the weather and a dry day, ease into
 //! each other over a few seconds, and the land's share of snow must pass well over or under its
@@ -29,11 +29,13 @@
 //! on.
 
 use dereth_gfx::{
-    Blend, BufferUsage, ColorAttachment, ColorTarget, Compare, Cull, DepthAttachment, DepthState,
-    Device, Factor, Format, GraphicsDesc, IndexType, Load, Pipeline, RasterPass, Recorder, Rect,
-    Texture, TextureDesc, TextureUsage, Touch, Use,
+    Blend, BufferUsage, ColorAttachment, ColorTarget, Compare, Cull, DepthState, Device, Factor,
+    Format, GraphicsDesc, IndexType, Load, Pipeline, RasterPass, Recorder, Rect, Texture, Touch,
+    Use,
 };
-use glam::{Mat4, Vec3, Vec4};
+use dereth_gfx_passes::weather::COVER_FORMAT;
+pub use dereth_gfx_passes::weather::{Cover, COVER_REACH, COVER_SIDE, COVER_STEP, WET_FADE};
+use glam::Vec3;
 
 use super::light::Rows;
 use super::scene::{Bucket, GpuScene};
@@ -70,20 +72,6 @@ pub const LATTICE_PERIOD: f64 = 1440.0;
 pub const RAIN_PARTICLES: [u32; 3] = [1200, 4000, 5000];
 /// How many flakes each of the snow's holds.
 pub const SNOW_PARTICLES: [u32; 3] = [3000, 8000, 12000];
-/// Where the wet starts to fade with distance, and where it is gone, meters.
-pub const WET_FADE: [f32; 2] = [120.0, 260.0];
-/// The overhead map's side, texels.
-pub const COVER_SIDE: u32 = 2048;
-/// How far the overhead map reaches from its centre, meters.
-pub const COVER_REACH: f32 = 128.0;
-/// The steps the overhead map's centre moves in, meters: it is drawn again only when the eye
-/// crosses one.
-pub const COVER_STEP: f32 = 32.0;
-/// How far above and below the eye the overhead map sees, meters, and the steps its top moves in.
-const COVER_DEPTH_REACH: f32 = 300.0;
-const COVER_DEPTH_STEP: f32 = 64.0;
-/// The overhead map's depth.
-const COVER_FORMAT: Format = Format::D32Float;
 /// The particles' quads: two triangles each.
 const QUAD_VERTICES: u32 = 6;
 
@@ -326,53 +314,6 @@ impl Drift {
         self.snow = on(self.snow, f64::from(SNOW_SPEED) * dt);
         self.east = on(self.east, f64::from(wind[0]) * dt);
         self.north = on(self.north, f64::from(wind[1]) * dt);
-    }
-}
-
-/// Where the overhead map stands: its centre (the frame's space) in whole steps of
-/// [`COVER_STEP`], how far it reaches, and the heights its depth spans.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Cover {
-    pub centre: [f32; 2],
-    pub reach: f32,
-    /// The height its depth starts at: depth 0 is this high, depth 1 is `span` below it.
-    pub top: f32,
-    pub span: f32,
-}
-
-impl Cover {
-    /// The map round `eye`.
-    #[must_use]
-    pub fn around(eye: Vec3) -> Self {
-        let snap = |v: f32| (v / COVER_STEP).round() * COVER_STEP;
-        Self {
-            centre: [snap(eye.x), snap(eye.y)],
-            reach: COVER_REACH,
-            top: ((eye.z + COVER_DEPTH_REACH) / COVER_DEPTH_STEP).ceil() * COVER_DEPTH_STEP,
-            span: 2.0 * COVER_DEPTH_REACH,
-        }
-    }
-
-    /// The view and projection that draw the map: straight down, the frame's `x` across and `y`
-    /// up the map, the depth 0 at [`Self::top`].
-    #[must_use]
-    pub fn view_proj(&self) -> Mat4 {
-        let (r, s) = (self.reach, self.span);
-        Mat4::from_cols(
-            Vec4::new(1.0 / r, 0.0, 0.0, 0.0),
-            Vec4::new(0.0, 1.0 / r, 0.0, 0.0),
-            Vec4::new(0.0, 0.0, -1.0 / s, 0.0),
-            Vec4::new(-self.centre[0] / r, -self.centre[1] / r, self.top / s, 1.0),
-        )
-    }
-
-    /// Whether a sphere at `centre` of `radius` reaches into the map.
-    #[must_use]
-    pub fn reaches(&self, centre: Vec3, radius: f32) -> bool {
-        (centre.x - self.centre[0]).abs() <= self.reach + radius
-            && (centre.y - self.centre[1]).abs() <= self.reach + radius
-            && centre.z - radius <= self.top
-            && centre.z + radius >= self.top - self.span
     }
 }
 
@@ -694,26 +635,18 @@ impl WeatherPass {
         #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
         // Meters and seconds narrowed for the device; counts of particles.
         {
-            rows.0
-                .push([wet, gathers, self.time, snow].map(f32::to_bits));
-            rows.0.push(
-                [origin[0] as f32, origin[1] as f32, WET_FADE[0], WET_FADE[1]].map(f32::to_bits),
-            );
-            rows.0.push(
-                [
-                    placed.centre[0],
-                    placed.centre[1],
-                    placed.reach,
-                    COVER_SIDE as f32,
-                ]
-                .map(f32::to_bits),
-            );
-            rows.0.push([
-                placed.top.to_bits(),
-                placed.span.to_bits(),
+            dereth_gfx_passes::weather::rows(
+                &mut rows,
+                &dereth_gfx_passes::weather::State {
+                    wet,
+                    gathers,
+                    time: self.time,
+                    snow,
+                    origin: [origin[0] as f32, origin[1] as f32],
+                },
+                &placed,
                 cover.index,
-                1.0f32.to_bits(),
-            ]);
+            );
             rows.0.push(
                 [
                     self.drift.rain as f32,
@@ -795,18 +728,8 @@ impl WeatherPass {
         if let Some(c) = self.cover {
             return Ok(c);
         }
-        let map = d.create_texture(&TextureDesc {
-            label: "remaster weather cover",
-            width: COVER_SIDE,
-            height: COVER_SIDE,
-            mips: 1,
-            format: COVER_FORMAT,
-            usage: TextureUsage::DEPTH_TARGET | TextureUsage::SAMPLED,
-        })?;
-        let c = CoverMap {
-            map,
-            index: d.bind_texture(map)?,
-        };
+        let (map, index) = dereth_gfx_passes::weather::cover_map(d)?;
+        let c = CoverMap { map, index };
         self.cover = Some(c);
         Ok(c)
     }
@@ -913,27 +836,13 @@ impl WeatherPlan {
         let Some((frame, commands, count, stride)) = self.redraw else {
             return Ok(());
         };
-        r.timestamp("weather cover");
-        r.raster(
-            &RasterPass {
-                name: "weather cover",
-                color: &[],
-                depth: Some(DepthAttachment {
-                    texture: self.cover.map,
-                    clear: Some(1.0),
-                    write: true,
-                }),
-                touches: &[
-                    Touch::Buffer(commands, Use::Indirect),
-                    Touch::Buffer(indices, Use::Index),
-                ],
-                area: Some(Rect {
-                    x: 0,
-                    y: 0,
-                    width: COVER_SIDE,
-                    height: COVER_SIDE,
-                }),
-            },
+        dereth_gfx_passes::weather::record_cover(
+            r,
+            self.cover.map,
+            &[
+                Touch::Buffer(commands, Use::Indirect),
+                Touch::Buffer(indices, Use::Index),
+            ],
             |dr| {
                 if count > 0 {
                     dr.set_pipeline(self.caster)?;
@@ -1034,6 +943,7 @@ impl super::Renderer {
 mod tests {
     //! Behaviour: none (experimental)
     use super::*;
+    use glam::Vec4;
 
     fn frame(rainy_group: bool, enabled: bool, landscape: bool) -> (FrameDelta, bool) {
         let mut f = FrameDelta {

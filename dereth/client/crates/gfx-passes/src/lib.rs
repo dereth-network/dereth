@@ -23,11 +23,12 @@
 //! | [`post`] | the scene's target of its own, the temporal anti-aliasing, the bloom, the exposure and the tone curve |
 //! | [`sun`] | the sun's cascades, their maps, and how much of the sun reaches each pixel it lights |
 //! | [`sky`] | the physical sky: the scattering atmosphere's tables, the sky drawn from them, and the veil over the horizon |
+//! | [`weather`] | the overhead map of what stands over each point round the eye, and the weather's first rows: the wet, the puddles and the shelter the surfaces take |
 //! | [`shaders`] | the shaders, compiled ahead of time and embedded: each entry point's blobs |
 //!
-//! The Slang modules in the crate's `shaders/` folder (`bindless`, `frame`, `atmosphere`) are the
-//! vocabulary a game's own shaders import, so its G-buffer and resolve speak the same layout as
-//! the passes.
+//! The Slang modules in the crate's `shaders/` folder (`bindless`, `frame`, `atmosphere`,
+//! `weather`) are the vocabulary a game's own shaders import, so its G-buffer and resolve speak
+//! the same layout as the passes.
 
 pub mod ao;
 pub mod frame;
@@ -37,3 +38,4 @@ pub mod post;
 pub mod shaders;
 pub mod sky;
 pub mod sun;
+pub mod weather;

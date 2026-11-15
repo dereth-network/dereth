@@ -15,7 +15,7 @@
 module weather;
 
 import bindless;
-import retail;
+import frame;
 
 // The weather's constants, in buffer `weather` as float4 rows:
 //   0  x how wet what stands out in the rain is (0 dry, 1 soaked); y how much the ground
@@ -223,6 +223,43 @@ public float puddle_weight(uint word)
 public uint puddle_byte(float share)
 {
     return uint(saturate(share) * PUDDLE_STEPS + 0.5);
+}
+
+// How wet a surface at `p` (the frame's space), `dist` meters from the eye and facing `n`, out in
+// the rain is, 0 dry to 1 soaked: the more the more it faces the sky, fading with distance, and
+// not at all under a roof or where it is `water` (0 to 1) already. 0 without the weather's
+// constants.
+public float wet_share(uint weather, float3 p, float dist, float3 n, float water)
+{
+    if (weather == NO_WEATHER)
+    {
+        return 0.0;
+    }
+    float soak = row(weather, W_STATE).x;
+    if (soak <= 0.0 || water >= 1.0)
+    {
+        return 0.0;
+    }
+    float4 w = row(weather, W_WORLD);
+    float reach = 1.0 - smoothstep(w.z, w.w, dist);
+    if (reach <= 0.0)
+    {
+        return 0.0;
+    }
+    float up = smoothstep(0.3, 0.85, n.z);
+    float open = 1.0 - shelter_share(weather, p, 0.4);
+    return lerp(0.45, 1.0, up) * reach * open * soak * (1.0 - water);
+}
+
+// A color `c` (display values) as `wet` (0 to 1) soaks it: darkened and deepened in color as
+// soaked material is.
+public float3 soaked(float3 c, float wet)
+{
+    float l = dot(c, float3(0.2126, 0.7152, 0.0722));
+    float3 s = max(lerp(float3(l, l, l), c, 1.0 + 0.3 * wet), 0.0);
+    // A fifth darker in display values, about two fifths in light, as soaked soil is: no more,
+    // since the rainy day's light is dim already.
+    return s * lerp(1.0, WET_DARKEST, wet);
 }
 
 // `albedo` (its color, and its roughness in `a`) as a surface of light class `cls` at
