@@ -105,10 +105,10 @@ fn leave_world(w: &mut World, world_object: ObjectGuid) {
     }
 }
 
-/// The projectile hit `target`: its intended target takes the source's damage (a player through
-/// `DamageTarget`, a monster through the damage event against its attack target), with the
-/// collision sound, Dirty Fighting and the target procs; anything else counts as the environment.
-/// The projectile then leaves the world.
+/// The projectile hit `target`: its intended target takes the source's damage (a player's through
+/// `DamageTarget`, a monster's through the damage event while the monster has an attack target),
+/// with the collision sound, Dirty Fighting and the target procs; anything else counts as the
+/// environment. The projectile then leaves the world.
 // ACE: ProjectileCollisionHelper.OnCollideObject
 #[allow(clippy::too_many_lines)]
 pub fn on_collide_object(w: &mut World, world_object: ObjectGuid, target: ObjectGuid) {
@@ -151,7 +151,11 @@ pub fn on_collide_object(w: &mut World, world_object: ObjectGuid, target: Object
             source_creature.filter(|&s| monster_combat::attack_target(w, s).is_some())
         {
             // todo: clean this up
-            let target_player = monster_combat::attack_target(w, source_creature)
+            // DIVERGE: V524, the creature the missile hit takes the damage reckoned against it.
+            // ACE takes the player from the monster's attack target at the moment of impact, so
+            // a monster that turned on another player, or on a player after shooting at a pet,
+            // gave that player the damage reckoned against the creature hit.
+            let target_player = Some(target_creature)
                 .filter(|&g| w.objects.get(g).is_some_and(WorldObject::is_player));
 
             let event = DamageEvent::calculate_damage(

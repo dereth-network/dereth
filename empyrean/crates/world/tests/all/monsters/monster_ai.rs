@@ -57,7 +57,7 @@ use empyrean_world::world_objects::monster_navigation as nav;
 use empyrean_world::world_objects::world_object::{ProjectileLinks, WorldObject};
 use empyrean_world::world_objects::{
     creature_equipment, creature_missile, monster_melee, monster_missile, monster_tick,
-    player_character, player_melee, player_missile,
+    player_character, player_melee, player_missile, projectile_collision_helper,
 };
 use empyrean_world::World;
 
@@ -1017,17 +1017,7 @@ impl H {
         arrows.biota.weenie_class_id = ARROW_WCID;
         arrows.set_property(PropertyString::Name, "Arrow".to_owned());
         self.w.objects.insert(arrows).unwrap();
-        self.w.content = Arc::new(
-            empyrean_content::MemContent::new().weenie(
-                empyrean_content::models::world::Weenie::new(
-                    ARROW_WCID,
-                    "arrow",
-                    WeenieType::Ammunition,
-                )
-                .with_string(PropertyString::Name, "Arrow")
-                .with_did(empyrean_entity::enums::PropertyDataId::Setup, ARROW_SETUP),
-            ),
-        );
+        self.w.content = Arc::new(empyrean_content::MemContent::new().weenie(arrow_weenie()));
         phys_ext::register_setup(&mut self.w, ARROW_SETUP, {
             let mut g = land::test_setup_geometry();
             g.spheres = vec![dereth_physics::geom::Sphere::new(
@@ -1119,6 +1109,13 @@ fn a_missile_monster_keeps_its_range_turns_and_shoots() {
     );
 }
 
+/// The arrows' weenie, which a launched arrow is made from.
+fn arrow_weenie() -> empyrean_content::models::world::Weenie {
+    empyrean_content::models::world::Weenie::new(ARROW_WCID, "arrow", WeenieType::Ammunition)
+        .with_string(PropertyString::Name, "Arrow")
+        .with_did(empyrean_entity::enums::PropertyDataId::Setup, ARROW_SETUP)
+}
+
 /// A bow monster, awake, in its bow stance with the missile attack chosen, 15 m from the player.
 fn bow_monster_ready() -> H {
     let mut h = H::new();
@@ -1206,6 +1203,119 @@ fn a_missile_monster_does_not_release_at_a_target_that_left_during_the_windup() 
         let fired = h.run_until(2.0, monster_projectile_flying);
         assert_eq!(fired, !leaves, "a shot only at a target in the world");
     }
+}
+
+/// A creature beside the player that the monster can shoot at.
+const MITE: ObjectGuid = ObjectGuid::new(0x8000_0103);
+const MITE_WCID: u32 = 60_101;
+
+/// The mite's weenie: one body part, which every quadrant can hit.
+fn mite_weenie() -> empyrean_content::models::world::Weenie {
+    let mut mite =
+        empyrean_content::models::world::Weenie::new(MITE_WCID, "mite", WeenieType::Creature);
+    mite.weenie_properties_body_part = vec![
+        empyrean_content::models::world::weenie_properties_body_part::WeeniePropertiesBodyPart {
+            object_id: MITE_WCID,
+            key: u16::try_from(empyrean_entity::enums::CombatBodyPart::Head.0).unwrap(),
+            hlf: 1.0,
+            mlf: 1.0,
+            llf: 1.0,
+            hrf: 1.0,
+            mrf: 1.0,
+            lrf: 1.0,
+            hlb: 1.0,
+            mlb: 1.0,
+            llb: 1.0,
+            hrb: 1.0,
+            mrb: 1.0,
+            lrb: 1.0,
+            ..Default::default()
+        },
+    ];
+    mite
+}
+
+/// The monster looses an arrow at `shot_at`, then turns on `turns_on` while it flies, and the arrow
+/// hits `shot_at`: the health the player and the mite each lose.
+fn arrow_after_a_turn(shot_at: ObjectGuid, turns_on: ObjectGuid) -> (u32, u32) {
+    let mut h = H::new();
+    lm::get_landblock(&mut h.w, lb_id(), false, false);
+    h.player(100.0, 115.0);
+    h.monster(100.0, 100.0);
+    h.arm_with_bow();
+    h.creature(Class::Creature, MITE, "Mite", 103.0, 110.0);
+    let mite = h.w.objects.get_mut(MITE).unwrap();
+    mite.biota.weenie_class_id = MITE_WCID;
+    let mut parts = DotNetDict::new();
+    parts.insert(
+        empyrean_entity::enums::CombatBodyPart::Head,
+        empyrean_entity::models::PropertiesBodyPart::default(),
+    );
+    mite.biota.properties_body_part = Some(Arc::new(parts));
+    h.place(MITE);
+    h.w.content = Arc::new(
+        empyrean_content::MemContent::new()
+            .weenie(arrow_weenie())
+            .weenie(mite_weenie()),
+    );
+    // a sure shot: the skill far above any defence here
+    let skills =
+        h.w.objects
+            .get_mut(MONSTER)
+            .unwrap()
+            .biota
+            .properties_skill
+            .get_or_insert_with(DotNetDict::new);
+    skills.insert(
+        Skill::MissileWeapons,
+        PropertiesSkill {
+            init_level: 500,
+            sac: SkillAdvancementClass::Trained,
+            ..PropertiesSkill::default()
+        },
+    );
+    h.w.objects
+        .get_mut(BOW)
+        .unwrap()
+        .set_property(PropertyInt::WeaponSkill, Skill::MissileWeapons.0);
+
+    combat::set_attack_target(&mut h.w, MONSTER, Some(shot_at));
+    let origin = h.pos(MONSTER).pos();
+    let arrow = creature_missile::launch_projectile(
+        &mut h.w,
+        MONSTER,
+        Some(BOW),
+        ARROWS,
+        shot_at,
+        origin + Vector3::new(0.0, 1.0, 1.0),
+        empyrean_common::dotnet::numerics::Quaternion::IDENTITY,
+        Vector3::new(0.0, 10.0, 5.0),
+    )
+    .expect("an arrow");
+    combat::set_attack_target(&mut h.w, MONSTER, Some(turns_on));
+
+    let health = |h: &H, g| {
+        let o = h.o(g);
+        o.health().current(o)
+    };
+    let before = (health(&h, PLAYER), health(&h, MITE));
+    projectile_collision_helper::on_collide_object(&mut h.w, arrow, shot_at);
+    (before.0 - health(&h, PLAYER), before.1 - health(&h, MITE))
+}
+
+/// Divergence: V524
+/// A monster's arrow damages the creature it hit, even when the monster turned on someone else
+/// while it flew: an arrow at a mite, the monster now after the player, hurts the mite alone; an
+/// arrow at the player, the monster now after the mite, hurts the player alone.
+#[test]
+fn a_monsters_arrow_damages_what_it_hit_after_the_monster_turns_on_another() {
+    let (player, mite) = arrow_after_a_turn(MITE, PLAYER);
+    assert_eq!(player, 0, "the player was not hit");
+    assert!(mite > 0, "the mite was hit");
+
+    let (player, mite) = arrow_after_a_turn(PLAYER, MITE);
+    assert!(player > 0, "the player was hit");
+    assert_eq!(mite, 0, "the mite was not hit");
 }
 
 fn hits_peek(h: &H) -> u64 {
