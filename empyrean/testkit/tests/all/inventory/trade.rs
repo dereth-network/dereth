@@ -814,3 +814,34 @@ pub(crate) fn opening_a_trade_on_the_partners_exact_spot_keeps_the_rotation() {
         "the reported facing replaces it"
     );
 }
+
+/// An item a finished trade cannot put in its receiver's pack goes back to its owner: Bravo's pack
+/// fills between the accepts and the transfer, so Alpha's gem returns to Alpha instead of being
+/// lost, and Bravo's cup still reaches Alpha (ACE's `FinalizeTrade`).
+#[test]
+pub(crate) fn an_item_its_receiver_cannot_take_goes_back_to_its_owner() {
+    let (mut ts, a, b) = open_trade(100, 100);
+    let gem = in_pack(&mut ts.world, ALPHA, GEM);
+    let cup = in_pack(&mut ts.world, BRAVO, CUP);
+    ts.advance(0.1);
+    offer(&mut ts, a, b, gem);
+    offer(&mut ts, b, a, cup);
+    ts.send_game_action(a, &accept());
+    ts.advance(0.1);
+    ts.send_game_action(b, &accept());
+    ts.advance(0.1);
+    // Bravo's pack has no room left by the time the items change hands.
+    ts.world
+        .objects
+        .get_mut(ObjectGuid::new(BRAVO))
+        .unwrap()
+        .set_property(PropertyInt::ItemsCapacity, 0);
+    ts.advance(0.5);
+
+    let mut alpha_has = inventory(&ts, ALPHA);
+    alpha_has.sort_unstable();
+    let mut want = vec![gem, cup];
+    want.sort_unstable();
+    assert_eq!(alpha_has, want, "the gem came back, and the cup arrived");
+    assert!(inventory(&ts, BRAVO).is_empty());
+}

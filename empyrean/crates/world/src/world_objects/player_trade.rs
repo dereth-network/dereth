@@ -534,11 +534,30 @@ fn finalize_trade(w: &mut World, this: ObjectGuid, target: ObjectGuid) {
     action_chain.add_delay_seconds(w, 0.5);
     action_chain.add_action(Actor::Landblock(current_landblock), move |w: &mut World| {
         for wo in my_escrow {
-            let _ = player_inventory::try_create_in_inventory_with_networking(w, this, wo);
+            if player_inventory::try_create_in_inventory_with_networking(w, this, wo).is_none()
+                && player_inventory::try_create_in_inventory_with_networking(w, target, wo)
+                    .is_none()
+            {
+                log::warn!(
+                    "Item 0x{:08X}:{} for player {} lost from FinalizeTrade failure.",
+                    wo.full(),
+                    name(w, wo),
+                    name(w, target)
+                );
+            }
         }
 
         for wo in target_escrow {
-            let _ = player_inventory::try_create_in_inventory_with_networking(w, target, wo);
+            if player_inventory::try_create_in_inventory_with_networking(w, target, wo).is_none()
+                && player_inventory::try_create_in_inventory_with_networking(w, this, wo).is_none()
+            {
+                log::warn!(
+                    "Item 0x{:08X}:{} for player {} lost from FinalizeTrade failure.",
+                    wo.full(),
+                    name(w, wo),
+                    name(w, this)
+                );
+            }
         }
 
         weenie_error(w, this, WeenieError::TradeComplete);
