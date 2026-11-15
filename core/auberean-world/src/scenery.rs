@@ -18,6 +18,7 @@
 use dereth_primitives::num::math;
 use std::sync::Arc;
 
+use auberean_assets::entity::{Entity, EntityLookup};
 use auberean_assets::property::{PropertyCollection, PropertyValue};
 use auberean_assets::region::{SceneDesc, TerrainDesc};
 use auberean_assets::visual::{ScatterGroup, Scene, SceneObject};
@@ -28,6 +29,7 @@ use crate::math::{
     circle_over_polygon, cross, dot, normalize, over_polygon, quat_axis_angle, quat_mul,
     rotation_rows, sub, Mat4,
 };
+use crate::place::DRAWN_KINDS;
 use crate::random::fraction;
 use crate::terrain::TerrainBlock;
 
@@ -162,6 +164,21 @@ impl KeptClear {
             }
         }
         c
+    }
+
+    /// What the entities a landblock places keep clear of its scenery: each drawn one at its spot,
+    /// keeping clear what its total properties (its own over its ancestors') ask.
+    #[must_use]
+    pub fn of_placed(entities: &[Entity], lookup: EntityLookup<'_>) -> Vec<Self> {
+        entities
+            .iter()
+            .filter(|e| e.kind.is_some_and(|k| DRAWN_KINDS.contains(&k)))
+            .filter_map(|e| {
+                let f = e.offset.as_ref()?.frame;
+                let total = e.total_properties(lookup);
+                Some(Self::of_entity(f.origin, f.rotation, Some(&total)))
+            })
+            .collect()
     }
 
     /// A point of the block's frame in the object's own frame.
@@ -563,8 +580,18 @@ impl Placer<'_> {
         self.input.land.grid().block_length()
     }
 
+    /// Whether square `(sx, sy)` is over a hole in the land: it has no ground.
+    fn hole(&self, sx: usize, sy: usize) -> bool {
+        let g = &self.input.block.geometry;
+        g.holes
+            .get(sx * g.squares_per_side + sy)
+            .copied()
+            .unwrap_or(false)
+    }
+
     /// The ground under `(x, y)`: of the triangles of the land cell holding it, its squares taken
-    /// x-major and each square's two in order, the first it lies over (within the band).
+    /// x-major and each square's two in order, the first it lies over (within the band). A square
+    /// over a hole has no ground.
     // D2-03823
     fn facet_at(&self, x: f32, y: f32) -> Option<&Facet> {
         let n = self.squares();
@@ -579,6 +606,9 @@ impl Placer<'_> {
         let p = [x, y, 0.0];
         for sx in cx * per..(cx + 1) * per {
             for sy in cy * per..(cy + 1) * per {
+                if self.hole(sx, sy) {
+                    continue;
+                }
                 let k = 2 * (sx * n + sy);
                 if let Some(f) = self.facets[k..k + 2]
                     .iter()
@@ -604,7 +634,7 @@ impl Placer<'_> {
 
     /// Whether every piece of ground a circle of radius `r` about the place reaches is within the
     /// group's slopes in radius (and, for an aligned group, turned within its heading limits);
-    /// a circle reaching off the block fails.
+    /// a circle reaching off the block fails, and a hole has no ground to ask.
     // D2-03644, D2-03831, D2-12424, D2-12428, D2-03611
     fn check_radius(&self, g: &ScatterGroup, place: &Place, scale: Vec3) -> bool {
         let r = if g.scale_check_radius {
@@ -636,6 +666,9 @@ impl Placer<'_> {
             for cy in c(y0)..=c(y1) {
                 for sx in cx * per..(cx + 1) * per {
                     for sy in cy * per..(cy + 1) * per {
+                        if self.hole(sx, sy) {
+                            continue;
+                        }
                         let k = 2 * (sx * n + sy);
                         for f in &self.facets[k..k + 2] {
                             let nz = f.normal.z;

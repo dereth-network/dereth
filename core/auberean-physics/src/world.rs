@@ -4,8 +4,8 @@
 //! The table holds the bodies the host puts in ([`World::insert_body`]), the objects of the world
 //! it puts in ([`World::insert`]: signs, statues, anything with a look), and the scenery of the
 //! world's records, which comes in by itself the first time a body moves in a block: the solid
-//! parts placed in its interior cells, and the placed entities that collide through their setups'
-//! cylinders or spheres. Each entry has a key the table gives it, counted up and never reused
+//! parts placed in its interior cells, and the placed entities and the objects the land grows that
+//! collide through their setups' cylinders or spheres. Each entry has a key the table gives it, counted up and never reused
 //! while the table lives, and the object id the host gave it (none for scenery).
 //!
 //! An entry stands in the collision list of every cell its shape reaches ([`Shape::cross_cells`]),
@@ -1026,7 +1026,8 @@ impl World {
 
     /// The placed entities of `cell`'s block and those around it that collide as objects (through
     /// cylinders or spheres, or through a tree when their properties make them something some mover
-    /// passes through), static and solid: outside, the block's own, once the block is in `land`,
+    /// passes through), static and solid: outside, the block's own and the objects the land grows
+    /// on it, once the block is in `land`,
     /// each of the physics type the client gives them; inside, every interior cell's, once the
     /// block's interior cells are.
     fn add_placed(&mut self, land: &Land, cell: CellId) {

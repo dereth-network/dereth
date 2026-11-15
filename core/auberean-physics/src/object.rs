@@ -17,6 +17,7 @@ use auberean_world::look::{Group, Look};
 use auberean_world::math::Mat4;
 use auberean_world::place::{look_parts, PlaceRecords};
 use auberean_world::records::WorldRecords;
+use auberean_world::scenery::SceneryObject;
 use dereth_physics::geom::BspTree;
 use dereth_physics::source::PhysicsPart;
 use dereth_physics::V3;
@@ -357,22 +358,50 @@ pub fn placed_entity(
     e: &auberean_assets::entity::Entity,
     cell: CellId,
 ) -> Option<(Position, Shape)> {
-    if !e
-        .kind
-        .is_some_and(|k| auberean_world::place::DRAWN_KINDS.contains(&k))
-    {
+    if !drawn(e) {
         return None;
     }
     let mut shape = Shape::of(records, DataId(e.object?), trees)?;
     shape.properties.push(own_properties(e));
+    standing_object(shape, e.scale, entity_frame(e), cell)
+}
+
+/// An object the landscape grows that collides only through its setup's cylinders or spheres, as
+/// a placed entity does: the landscape's objects become the block's objects as its placed
+/// entities do. Where it stands, in `cell`, and its shape with the scale it was grown at. None for
+/// a frill, which is only drawn, or an object with nothing to collide with.
+// D2-03678
+#[must_use]
+pub fn scenery_object(
+    records: &WorldRecords,
+    trees: &mut Trees,
+    s: &SceneryObject,
+    cell: CellId,
+) -> Option<(Position, Shape)> {
+    if s.frill {
+        return None;
+    }
+    let shape = Shape::of(records, s.object, trees)?;
+    standing_object(shape, Some(s.scale), scenery_frame(s), cell)
+}
+
+/// An object standing at `frame` in `cell`, met as an object of the world: one that collides
+/// through cylinders or spheres, or through trees when its properties make it something some
+/// mover passes through; its shape's scale times `own`.
+fn standing_object(
+    mut shape: Shape,
+    own: Option<auberean_primitives::Vec3>,
+    frame: Frame,
+    cell: CellId,
+) -> Option<(Position, Shape)> {
     let by_tree = shape.has_physics_tree();
     if (by_tree && !marks_ethereal(&shape.properties))
         || (!by_tree && shape.cylinders.is_empty() && shape.spheres.is_empty())
     {
         return None;
     }
-    shape.scale = entity_scale(e, shape.scale);
-    Some((Position::new(cell, entity_frame(e)), shape))
+    shape.scale = times(shape.scale, own);
+    Some((Position::new(cell, frame), shape))
 }
 
 /// Whether any of these collections sets a bit of an object's physics type: the object is then
@@ -414,25 +443,55 @@ pub fn placed_solids(
     e: &auberean_assets::entity::Entity,
     cell: CellId,
 ) -> Vec<Solid> {
-    if !e
-        .kind
-        .is_some_and(|k| auberean_world::place::DRAWN_KINDS.contains(&k))
-    {
+    if !drawn(e) {
         return Vec::new();
     }
     let Some(shape) = e.object.and_then(|o| Shape::of(records, DataId(o), trees)) else {
         return Vec::new();
     };
-    let scale = entity_scale(e, shape.scale);
-    let frame = entity_frame(e);
+    let mut properties = shape.properties.clone();
+    properties.push(own_properties(e));
+    standing_solids(&shape, properties, e.scale, entity_frame(e), cell)
+}
+
+/// The solid parts of an object the landscape grows, as those of a placed entity: one for each
+/// part whose mesh has a physics tree, standing where the object was grown, in `cell`, at its
+/// shape's scale times the scale it was grown at. Empty for a frill, which is only drawn, or an
+/// object whose parts have no trees.
+// D2-03678
+#[must_use]
+pub fn scenery_solids(
+    records: &WorldRecords,
+    trees: &mut Trees,
+    s: &SceneryObject,
+    cell: CellId,
+) -> Vec<Solid> {
+    if s.frill {
+        return Vec::new();
+    }
+    let Some(shape) = Shape::of(records, s.object, trees) else {
+        return Vec::new();
+    };
+    let properties = shape.properties.clone();
+    standing_solids(&shape, properties, Some(s.scale), scenery_frame(s), cell)
+}
+
+/// The solid parts of an object of `shape` standing at `frame` in `cell`, at its shape's scale
+/// times `own`, made from entities with these `properties`.
+fn standing_solids(
+    shape: &Shape,
+    properties: Vec<Arc<PropertyCollection>>,
+    own: Option<auberean_primitives::Vec3>,
+    frame: Frame,
+    cell: CellId,
+) -> Vec<Solid> {
+    let scale = times(shape.scale, own);
     let render_box = Shape {
         scale,
         ..shape.clone()
     }
     .render_bounding_box();
     let containment = V3::mag2(scale).sqrt() * shape.containment_radius;
-    let mut properties = shape.properties.clone();
-    properties.push(own_properties(e));
     let marked = marks_ethereal(&properties);
     shape
         .trees
@@ -482,9 +541,15 @@ fn own_properties(e: &auberean_assets::entity::Entity) -> Arc<PropertyCollection
     Arc::new(e.properties.clone().unwrap_or_default())
 }
 
-/// `scale` times a placed entity's own scale.
-fn entity_scale(e: &auberean_assets::entity::Entity, scale: Vec3) -> Vec3 {
-    e.scale.map_or(scale, |s| {
+/// Whether a landblock or cell makes a placed entity into a drawn object.
+fn drawn(e: &auberean_assets::entity::Entity) -> bool {
+    e.kind
+        .is_some_and(|k| auberean_world::place::DRAWN_KINDS.contains(&k))
+}
+
+/// `scale` times an object's own scale, when it has one.
+fn times(scale: Vec3, own: Option<auberean_primitives::Vec3>) -> Vec3 {
+    own.map_or(scale, |s| {
         Vec3::new(scale.x * s.x, scale.y * s.y, scale.z * s.z)
     })
 }
@@ -497,4 +562,10 @@ fn entity_frame(e: &auberean_assets::entity::Entity) -> Frame {
             let (o, q) = (f.frame.origin, f.frame.rotation);
             Frame::new(v3(o), Quat::new(q.w, q.x, q.y, q.z))
         })
+}
+
+/// Where an object the landscape grows stands, in its landblock's frame.
+fn scenery_frame(s: &SceneryObject) -> Frame {
+    let q = s.rotation;
+    Frame::new(v3(s.origin), Quat::new(q.w, q.x, q.y, q.z))
 }

@@ -9,14 +9,18 @@
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, RwLock};
 
-use auberean_assets::landblock::Landblock;
+use auberean_assets::landblock::{Landblock, LandblockInfo};
 use auberean_assets::property::{PropertyCollection, PropertyList, PropertyValue};
+use auberean_primitives::DataId;
 use auberean_world::land::LandConstants;
 use auberean_world::math::over_polygon;
+use auberean_world::place::PlaceRecords;
 use auberean_world::property::BlockProperties;
 use auberean_world::records::{RegionSet, WorldRecords};
-use auberean_world::scenery::on_road;
-use auberean_world::terrain::{vertex_materials, LandSource as TerrainSource, VertexMaterials};
+use auberean_world::scenery::{block_scenery, on_road, KeptClear, SceneryInput, SceneryObject};
+use auberean_world::terrain::{
+    build_block, vertex_materials, LandSource as TerrainSource, VertexMaterials,
+};
 use dereth_physics::cell::{Cell, CellArray, CellInfo, HostCell};
 use dereth_physics::geom::{Plane, Polygon, Sphere};
 use dereth_physics::globals::LAND_HEIGHT_TABLE_LEN;
@@ -115,8 +119,9 @@ pub struct Block {
     pub overhangs: Vec<Overhang>,
     /// The height of the block's water surface, if it has water.
     pub water: Option<f32>,
-    /// The placed entities that collide through their setups' cylinders or spheres, each where it
-    /// stands ([`crate::object::placed_entity`]).
+    /// The placed entities and the objects the land grows that collide through their setups'
+    /// cylinders or spheres, each where it stands ([`crate::object::placed_entity`],
+    /// [`crate::object::scenery_object`]).
     pub objects: Placed,
     /// Whether a body may walk on it: the world's passability map.
     pub passable: bool,
@@ -1027,7 +1032,8 @@ pub fn build(
     build_near(records, region, trees, &mut NearBlocks::default(), x, y)
 }
 
-/// Build block `(x, y)`, its landblock and those around it read through `near`.
+/// Build block `(x, y)`, its landblock and those around it read through `near`: its ground, what
+/// its landblock places and what the land grows on it, frills aside.
 // D2-03759, D2-03687, D2-03635, D2-03764
 pub fn build_near(
     records: &WorldRecords,
@@ -1063,28 +1069,6 @@ pub fn build_near(
         grid.cells_per_side,
         Some(&holes),
     );
-    let mut solids = Vec::new();
-    let mut cell_solids = vec![Vec::new(); CELLS_PER_SIDE * CELLS_PER_SIDE];
-    let mut overhangs = Vec::new();
-    let mut objects = Vec::new();
-    if let Some(info) = records.landblock_info(bx, by) {
-        // Any cell of the block will do: a part's cell only says which block's frame it is in.
-        let any = land_cell_id(x, y, 0, 0);
-        for e in &info.entities.entities {
-            let at = e.offset.as_ref().map_or(Vec3::ZERO, |f| {
-                Vec3::new(f.frame.origin.x, f.frame.origin.y, f.frame.origin.z)
-            });
-            let cell = cell_of(at).map_or(any, |(cx, cy)| land_cell_id(x, y, cx, cy));
-            if let Some((pos, shape)) = crate::object::placed_entity(records, trees, e, cell) {
-                objects.push((pos, Arc::new(shape)));
-            }
-            for s in crate::object::placed_solids(records, trees, e, any) {
-                let i = u32::try_from(solids.len()).unwrap_or(u32::MAX);
-                register(&mut cell_solids, &mut overhangs, &s.bounds, i);
-                solids.push(s);
-            }
-        }
-    }
     let lowest = geometry
         .vertices
         .iter()
@@ -1096,6 +1080,40 @@ pub fn build_near(
         .and_then(|w| w.block(land, bx, by, lowest));
     let water_material = water_block.as_ref().map_or(0, |w| w.physics_material.0);
     let water = water_block.map(|w| w.height);
+    let mut solids = Vec::new();
+    let mut cell_solids = vec![Vec::new(); CELLS_PER_SIDE * CELLS_PER_SIDE];
+    let mut overhangs = Vec::new();
+    let mut objects = Vec::new();
+    // Any cell of the block will do for a solid: a part's cell only says which block's frame it is
+    // in. An object stands in the land cell under its place.
+    let any = land_cell_id(x, y, 0, 0);
+    let cell_at = |at: Vec3| cell_of(at).map_or(any, |(cx, cy)| land_cell_id(x, y, cx, cy));
+    let info = records.landblock_info(bx, by);
+    for e in info.iter().flat_map(|i| &i.entities.entities) {
+        let at = e.offset.as_ref().map_or(Vec3::ZERO, |f| {
+            Vec3::new(f.frame.origin.x, f.frame.origin.y, f.frame.origin.z)
+        });
+        if let Some((pos, shape)) = crate::object::placed_entity(records, trees, e, cell_at(at)) {
+            objects.push((pos, Arc::new(shape)));
+        }
+        for s in crate::object::placed_solids(records, trees, e, any) {
+            let i = u32::try_from(solids.len()).unwrap_or(u32::MAX);
+            register(&mut cell_solids, &mut overhangs, &s.bounds, i);
+            solids.push(s);
+        }
+    }
+    // What the land grows on the block stands in it as what its landblock places does.
+    for g in grown(records, region, near, (bx, by), info.as_ref(), water) {
+        let at = Vec3::new(g.origin.x, g.origin.y, g.origin.z);
+        if let Some((pos, shape)) = crate::object::scenery_object(records, trees, &g, cell_at(at)) {
+            objects.push((pos, Arc::new(shape)));
+        }
+        for s in crate::object::scenery_solids(records, trees, &g, any) {
+            let i = u32::try_from(solids.len()).unwrap_or(u32::MAX);
+            register(&mut cell_solids, &mut overhangs, &s.bounds, i);
+            solids.push(s);
+        }
+    }
     let materials =
         vertex_materials(land, region.surfaces(), &*near, bx, by).map(|vertices| GroundMaterials {
             vertices,
@@ -1115,6 +1133,40 @@ pub fn build_near(
         materials,
         water_material,
     })
+}
+
+/// The objects the land grows on block `(x, y)`, frills among them, as the scene draws them: kept
+/// clear of what its landblock places, with its water.
+fn grown(
+    records: &WorldRecords,
+    region: &RegionSet,
+    near: &NearBlocks,
+    (x, y): (i32, i32),
+    info: Option<&LandblockInfo>,
+    water: Option<f32>,
+) -> Vec<SceneryObject> {
+    let (Some(scenes), Some(lb)) = (region.scenes.as_ref(), TerrainSource::landblock(near, x, y))
+    else {
+        return Vec::new();
+    };
+    let Some(block) = build_block(&region.land, region.surfaces(), near, x, y) else {
+        return Vec::new();
+    };
+    let lookup = |id: u32| PlaceRecords::entity(records, DataId(id));
+    let obstacles = info.map_or_else(Vec::new, |i| {
+        KeptClear::of_placed(&i.entities.entities, &lookup)
+    });
+    let input = SceneryInput {
+        land: &region.land,
+        terrain: &region.terrain,
+        scenes,
+        vertices: &lb.vertices,
+        block: &block,
+        obstacles: &obstacles,
+        degrade: 1.0,
+        water,
+    };
+    block_scenery(&input, records)
 }
 
 /// Register solid `i` in every land cell its bounds reach: those of its own block in the cells'

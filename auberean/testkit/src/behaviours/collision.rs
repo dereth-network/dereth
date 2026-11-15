@@ -489,6 +489,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "collision.objects.what-the-land-grows-is-solid",
+        says: "Every object the land grows but its decorations is an object of the world as what a \
+               landblock places is, colliding through its trees, cylinders or spheres: a body \
+               running at a boulder the land grows, or at a tall tree, stops against it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-SCENERY-SOLID"),
+        station: "auberean-physics::dat::objects::what_the_land_grows_stops_a_body",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "collision.pack.collision-state-survives-packing",
         says: "A body's collisions (settings, touches, properties, water, ground, pushes), a \
                collision report and a line of sight keep every field through their binary form; \

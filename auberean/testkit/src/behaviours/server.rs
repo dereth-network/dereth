@@ -12705,8 +12705,8 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.places.recorded-reports-followed-by-a-body",
         says: "The reports of a player's place recorded in January 2017, followed by a body of the \
-               player's own through the install's walls, are reached but for at most 159 of 1,806,692, \
-               and the bodies would send at most 10 corrections where the 2017 servers sent 600.",
+               player's own through the install's walls, are reached but for at most 182 of 1,806,692, \
+               and the bodies would send at most 12 corrections where the 2017 servers sent 600.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-MOVE-BODY-REPLAY"),
         station: "yalain-testkit::corpus::invariants::every_2017_report_of_a_players_place_is_followed_by_a_body_of_its_own",

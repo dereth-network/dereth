@@ -646,6 +646,45 @@ fn an_object_with_a_tree_at_an_uneven_scale_is_walked_through() {
     assert!(end.y > 138.0, "through the wall: {end:?}");
 }
 
+/// What the land grows stands in the world as what a landblock places: block 0x7BB6 grows a
+/// boulder (entity 0x4700000A, a physics tree, about 6 m across) at (70.3, 70.6) and a tall tree
+/// (entity 0x47000010, an upright cylinder 3.6 m in radius at its scale) at (84.9, 52.3). A body
+/// running east at the boulder is held at its face, never within 3 m of its middle nor past it;
+/// one running north at the tree stops short of it.
+///
+/// Behaviour: collision.objects.what-the-land-grows-is-solid
+#[test]
+fn what_the_land_grows_stops_a_body() {
+    let w = need_world!();
+    let land = land_around(w, 0x7B, 0xB6);
+    let at = |x, y| {
+        Position::new(
+            land_cell_id(0x7B, 0xB6, 3, 3),
+            Frame::new(Vec3::new(x, y, 93.0), Quat::IDENTITY),
+        )
+    };
+    let nearest =
+        |ran: &[Vec3], to: Vec3| ran.iter().map(|p| across(*p, to)).fold(f32::MAX, f32::min);
+
+    let boulder = Vec3::new(70.3, 70.62, 0.0);
+    let mut world = World::new();
+    let ran = run(&land, &mut world, at(60.0, 70.62), 90.0);
+    let (near, end) = (nearest(&ran, boulder), ran[ran.len() - 1]);
+    assert!(
+        near > 3.0 && end.x < boulder.x,
+        "held at the boulder: {near} m from it, at {end:?}"
+    );
+
+    let tree = Vec3::new(84.93, 52.27, 0.0);
+    let mut world = World::new();
+    let ran = run(&land, &mut world, at(84.93, 42.0), 0.0);
+    let (near, end) = (nearest(&ran, tree), ran[ran.len() - 1]);
+    assert!(
+        near > 3.6 && end.y < tree.y,
+        "held south of the tree: {near} m from it, at {end:?}"
+    );
+}
+
 /// An object a cell places with a physics tree at an uneven scale holds nothing up: a body dropped
 /// on the flat one that cell 0x03C6011D places at (153, -15, 77.2), 6 x 6 x 0.1, falls past it to
 /// the cell's floor, where a body is at 77.9 against 78.46 on its top.

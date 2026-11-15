@@ -2655,22 +2655,7 @@ impl<'a> SceneBuilder<'a> {
                 let lookup =
                     |id: u32| auberean_world::place::PlaceRecords::entity(records, DataId(id));
                 let obstacles: Vec<KeptClear> = info
-                    .map(|i| {
-                        i.entities
-                            .entities
-                            .iter()
-                            .filter(|e| {
-                                e.kind.is_some_and(|k| {
-                                    auberean_world::place::DRAWN_KINDS.contains(&k)
-                                })
-                            })
-                            .filter_map(|e| {
-                                let f = e.offset.as_ref()?.frame;
-                                let total = e.total_properties(&lookup);
-                                Some(KeptClear::of_entity(f.origin, f.rotation, Some(&total)))
-                            })
-                            .collect()
-                    })
+                    .map(|i| KeptClear::of_placed(&i.entities.entities, &lookup))
                     .unwrap_or_default();
                 let input = SceneryInput {
                     land: &self.region.land,

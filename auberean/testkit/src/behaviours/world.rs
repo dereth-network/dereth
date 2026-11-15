@@ -638,6 +638,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "world.scenery.nothing-grows-over-a-hole",
+        says: "A hole in the land has no ground, so no scenery group stands over one: no block \
+               with a hole grows anything, frills included, over its hole squares.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-SCENERY-HOLES"),
+        station: "auberean-world::dat::clearance::nothing_the_land_grows_stands_over_a_hole",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "world.scenery.placed-objects-keep-their-clearance-boxes-and-cylinders",
         says: "A block's placed object keeps scenery groups from its spot, or, when its clearance properties set boxes or upright cylinders about it, from those, measured in its own frame; a box with no extent and a cylinder with no radius keep nothing clear.",
         since: RETAIL,

@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Players and creatures can no longer walk through rocks and trees out in the open.
 - The status endpoint now says how many objects the world holds.
 - Fixed creatures attacking players they can't see, through walls or from out of view.
 - Worlds can now have an object that wants one item of a set, picked at random.

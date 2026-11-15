@@ -95,6 +95,60 @@ fn the_worlds_objects_keep_their_clearance() {
     assert!(after < before, "they keep scenery out: {before} -> {after}");
 }
 
+/// Nothing the land grows stands over a hole in it: a hole has no ground for a group to stand on.
+/// In every block with a hole (54 of them, cave mouths) none of its scenery, frills included, stands
+/// over a hole square; block 0x858D grew a boulder over the mouth of its cave.
+///
+/// Behaviour: world.scenery.nothing-grows-over-a-hole
+#[test]
+fn nothing_the_land_grows_stands_over_a_hole() {
+    let w = need_world!();
+    let land = landblocks();
+    let lookup = |id: u32| PlaceRecords::entity(&w.records, DataId(id));
+    let (Some(scenes), terrain) = (w.region.scenes.as_ref(), &w.region.terrain) else {
+        panic!("the region's scenery");
+    };
+    let mut blocks = 0usize;
+    for (&(x, y), lb) in land {
+        let Some(tb) = build_block(&w.region.land, w.region.surfaces(), land, x, y) else {
+            continue;
+        };
+        let g = &tb.geometry;
+        if !g.holes.contains(&true) {
+            continue;
+        }
+        blocks += 1;
+        let obstacles = w.records.landblock_info(x, y).map_or_else(Vec::new, |i| {
+            KeptClear::of_placed(&i.entities.entities, &lookup)
+        });
+        let input = SceneryInput {
+            land: &w.region.land,
+            terrain,
+            scenes,
+            vertices: &lb.vertices,
+            block: &tb,
+            obstacles: &obstacles,
+            degrade: 1.0,
+            water: None,
+        };
+        #[allow(clippy::cast_precision_loss)]
+        let step = w.region.land.grid().block_length() / g.squares_per_side as f32;
+        for o in block_scenery(&input, &w.records) {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let (i, j) = ((o.origin.x / step) as usize, (o.origin.y / step) as usize);
+            let over = i < g.squares_per_side
+                && j < g.squares_per_side
+                && g.holes[i * g.squares_per_side + j];
+            assert!(
+                !over,
+                "{x:02X}{y:02X}: {:08X} at {:?}",
+                o.object.0, o.origin
+            );
+        }
+    }
+    assert!(blocks > 40, "only {blocks} blocks have a hole");
+}
+
 /// **Every terrain kind has a scene field under which it grows nothing, so a block whose vertices all
 /// hold it has no scenery, frills included, while its other fields are as they were.**
 ///
