@@ -49,6 +49,8 @@ struct Push
     // The lamps' light at each pixel, which takes the place of the point lights' share of color 0
     // (~0: none).
     uint lamps;
+    // The weather's constants, the rain's wet (~0: none).
+    uint weather;
 };
 
 // The frame's alpha under every draw: 127 of 255.
@@ -135,6 +137,8 @@ struct MeshOut
     // point lights' share is.
     float3 points0 : TEXCOORD12;
     float3 lamp_tint : TEXCOORD13;
+    // Where the point stands in the frame's space.
+    float3 world : TEXCOORD14;
 };
 
 // The half vector between the eye and the light `to_light` at `world`, in the frame of the
@@ -261,6 +265,7 @@ MeshOut vs_mesh(uint index : SV_VertexID)
     o.sun1 = float4(0.0, 0.0, 0.0, 0.0);
     o.sun_pixel = 0.0;
     o.normal = transform_normal(v.normal, d.model);
+    o.world = world;
     o.points0 = float3(0.0, 0.0, 0.0);
     o.lamp_tint = float3(0.0, 0.0, 0.0);
     if ((sw & LIT_IN_VERTICES) != 0 && d.program.x == 1)
@@ -818,7 +823,8 @@ float4 fs_mesh(MeshOut v) : SV_Target0
     {
         a = min(saturate(a), 1.0 - FRAME_ALPHA);
     }
-    return float4(shown(push.linear, fogged(f, saturate(c.rgb), v.fog)), a);
+    float3 wet = rained(push.weather, f, push.light_class, v.world, normalize(v.normal), saturate(c.rgb));
+    return float4(shown(push.linear, fogged(f, wet, v.fog)), a);
 }
 
 // The ripples' picture on a water surface: the bump picture's push where it lies (the picture keeps

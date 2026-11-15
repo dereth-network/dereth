@@ -14,7 +14,7 @@ use auberean_draw::constants::{bound_stages, draw_uniforms, DrawUniforms, FrameU
 use auberean_draw::material::d3d;
 use auberean_draw::mesh::{MeshVertex, PosedVertex};
 use auberean_draw::picture::Image;
-use auberean_draw::scene::Frame;
+use auberean_draw::scene::{Frame, ObjectBatch};
 use dereth_gfx::{Buffer, DepthAttachment, IndexType, Pipeline, RasterPass, Recorder, Rect};
 use dereth_gfx_passes::frame::{push_words, Camera, PerFrame};
 use dereth_gfx_passes::sun::{cascades, sun_of, MaskPlan, CASCADES};
@@ -40,9 +40,10 @@ impl Default for ShadowSettings {
     }
 }
 
-/// One object's draw into a cascade's map.
+/// One object's draw into a map seen from afar (a cascade's, or the overhead map of what stands
+/// over each point).
 #[derive(Debug, Clone, Copy)]
-struct Caster {
+pub(super) struct Caster {
     vertices: u32,
     posed: Option<u32>,
     indices: Buffer,
@@ -50,6 +51,53 @@ struct Caster {
     record: u32,
     texture: u32,
     sampler: u32,
+}
+
+impl Caster {
+    /// Draw it into the map a raster pass draws: `frame` the map's constants, `draws` and `posed`
+    /// the frame's constants' and poses' indices in the table, `white` and `wrap` the picture and
+    /// sampler a stage without one takes. The pipeline is the casters' ([`Program::MeshCaster`]).
+    ///
+    /// # Errors
+    /// What the layer refuses.
+    pub(super) fn draw(
+        &self,
+        d: &mut dereth_gfx::Draw<'_>,
+        frame: u32,
+        draws: u32,
+        posed: u32,
+        (white, wrap): (u32, u32),
+    ) -> Result<(), dereth_gfx::Error> {
+        d.push(
+            0,
+            &push_words(&[
+                frame,
+                draws,
+                self.record,
+                self.vertices,
+                if self.posed.is_some() {
+                    posed
+                } else {
+                    u32::MAX
+                },
+                self.posed.unwrap_or(0),
+                self.texture,
+                white,
+                white,
+                self.sampler,
+                wrap,
+                wrap,
+                u32::MAX,
+                ALPHA_KEEP,
+                u32::MAX,
+                0,
+                u32::MAX,
+            ]),
+        )?;
+        d.bind_index_buffer(self.indices, 0, IndexType::U16)?;
+        d.draw_indexed(self.index_count, 1, 0, 0, 0);
+        Ok(())
+    }
 }
 
 /// One cascade's part of the frame: its constants' index, its map and its objects.
@@ -71,6 +119,74 @@ pub(super) struct SunPlan {
 }
 
 impl Remaster {
+    /// Where `b` stands and how far it reaches: the sphere round its vertices, in the frame's
+    /// space.
+    pub(super) fn reach_of(&mut self, b: &ObjectBatch) -> (Vec3, f32) {
+        let model = glam::Mat4::from_cols_array_2d(&b.transform.0);
+        let (centre, radius) = self.sphere(&b.vertices);
+        let scale = model
+            .x_axis
+            .truncate()
+            .length()
+            .max(model.y_axis.truncate().length())
+            .max(model.z_axis.truncate().length());
+        (model.transform_point3(centre), radius * scale)
+    }
+
+    /// `b` as a caster: its first stage's picture and sampler, its constants (into `records`, lit
+    /// by `sun_color`), a moved body's pose (into `posed`), and its lists on the device.
+    ///
+    /// # Errors
+    /// What the device refuses.
+    pub(super) fn caster(
+        &mut self,
+        b: &ObjectBatch,
+        sun_color: [f32; 4],
+        records: &mut Vec<DrawUniforms>,
+        posed: &mut Vec<PosedVertex>,
+        load: &mut dyn FnMut(u32) -> Option<Image>,
+    ) -> Result<Caster, RemasterError> {
+        let stage = bound_stages(&b.layer)[0];
+        let (texture, sampler) = match stage {
+            Some(s) => (
+                self.picture(s.texture, load)?,
+                if s.clamp_u || s.clamp_v {
+                    self.clamp
+                } else {
+                    self.wrap
+                },
+            ),
+            None => (self.white, self.wrap),
+        };
+        let record = u32::try_from(records.len()).unwrap_or(u32::MAX);
+        records.push(draw_uniforms(
+            &b.layer,
+            &b.transform,
+            b.tint,
+            sun_color,
+            &b.points,
+        ));
+        let vertices = self.mesh_vertices(&b.vertices)?;
+        let pose = match &b.posed {
+            Some(list) => {
+                let base = u32::try_from(posed.len()).unwrap_or(0);
+                posed.extend_from_slice(list.shared().as_slice());
+                Some(base)
+            }
+            None => None,
+        };
+        let indices = self.index_list(&b.indices)?;
+        Ok(Caster {
+            vertices,
+            posed: pose,
+            indices,
+            index_count: u32::try_from(b.indices.len()).unwrap_or(0),
+            record,
+            texture,
+            sampler,
+        })
+    }
+
     /// The sphere round a mesh's vertices, in its own space: worked out once a list.
     fn sphere(&mut self, list: &Arc<Vec<MeshVertex>>) -> (Vec3, f32) {
         let key = (Arc::as_ptr(list) as usize, list.len());
@@ -149,60 +265,14 @@ impl Remaster {
             if b.indices.is_empty() {
                 continue;
             }
-            let model = glam::Mat4::from_cols_array_2d(&b.transform.0);
-            let (centre, radius) = self.sphere(&b.vertices);
-            let scale = model
-                .x_axis
-                .truncate()
-                .length()
-                .max(model.y_axis.truncate().length())
-                .max(model.z_axis.truncate().length());
-            let (centre, radius) = (model.transform_point3(centre), radius * scale);
+            let (centre, radius) = self.reach_of(b);
             let reached: Vec<usize> = (0..CASCADES)
                 .filter(|&c| b.posed.is_some() || cs[c].reaches(centre, radius))
                 .collect();
             if reached.is_empty() {
                 continue;
             }
-            let stage = bound_stages(&b.layer)[0];
-            let (texture, sampler) = match stage {
-                Some(s) => (
-                    self.picture(s.texture, load)?,
-                    if s.clamp_u || s.clamp_v {
-                        self.clamp
-                    } else {
-                        self.wrap
-                    },
-                ),
-                None => (self.white, self.wrap),
-            };
-            let record = u32::try_from(records.len()).unwrap_or(u32::MAX);
-            records.push(draw_uniforms(
-                &b.layer,
-                &b.transform,
-                b.tint,
-                out_u.sun_color,
-                &b.points,
-            ));
-            let vertices = self.mesh_vertices(&b.vertices)?;
-            let pose = match &b.posed {
-                Some(list) => {
-                    let base = u32::try_from(posed.len()).unwrap_or(0);
-                    posed.extend_from_slice(list.shared().as_slice());
-                    Some(base)
-                }
-                None => None,
-            };
-            let indices = self.index_list(&b.indices)?;
-            let caster = Caster {
-                vertices,
-                posed: pose,
-                indices,
-                index_count: u32::try_from(b.indices.len()).unwrap_or(0),
-                record,
-                texture,
-                sampler,
-            };
+            let caster = self.caster(b, out_u.sun_color, records, posed, load)?;
             for c in reached {
                 plans[c].casters.push(caster);
             }
@@ -263,30 +333,7 @@ impl SunPlan {
                         d.set_pipeline(self.mesh)?;
                     }
                     for c in &cp.casters {
-                        d.push(
-                            0,
-                            &push_words(&[
-                                cp.frame,
-                                draws,
-                                c.record,
-                                c.vertices,
-                                if c.posed.is_some() { posed } else { u32::MAX },
-                                c.posed.unwrap_or(0),
-                                c.texture,
-                                white,
-                                white,
-                                c.sampler,
-                                wrap,
-                                wrap,
-                                u32::MAX,
-                                ALPHA_KEEP,
-                                u32::MAX,
-                                0,
-                                u32::MAX,
-                            ]),
-                        )?;
-                        d.bind_index_buffer(c.indices, 0, IndexType::U16)?;
-                        d.draw_indexed(c.index_count, 1, 0, 0, 0);
+                        c.draw(d, cp.frame, draws, posed, (white, wrap))?;
                     }
                     Ok(())
                 },

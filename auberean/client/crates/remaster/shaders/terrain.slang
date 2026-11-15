@@ -10,6 +10,7 @@
 // each layer before it is blended. The remaster's own shadows replace the shadow map (white).
 import bindless;
 import light;
+import weather;
 
 // A landscape vertex's bytes: its position, its lit color (four floats), its ground's coordinates
 // and its mask's, and what of its lit color the sun gives.
@@ -39,6 +40,8 @@ struct Push
     uint linear;
     // The lamps' light at each pixel, added to the land's (~0: none).
     uint lamps;
+    // The weather's constants, the rain's wet (~0: none).
+    uint weather;
 };
 
 [[vk::push_constant]]
@@ -95,12 +98,18 @@ float3 cloud_shade(Light f, uint t, uint s, float2 uv)
 
 // A near layer's color `c` as retail leaves it once its passes over the layers are drawn: where
 // the frame lays the sun's shadow map and the clouds over the near terrain, times the clouds'
-// shadow; then fogged.
+// shadow; then, in the rain, wet where it is open to the sky; then fogged.
 float3 near_fogged(Light f, TerrainOut v, float3 c)
 {
     if (f.terrain.x > 0.5)
     {
         c = c * cloud_shade(f, push.clouds, push.samp_clouds, v.cloud_uv);
+    }
+    if (push.weather != NO_WEATHER)
+    {
+        // The land never leans past upright: its triangle's slope, turned up.
+        float3 n = normalize(cross(ddx(v.world), ddy(v.world)));
+        c = rained(push.weather, f, push.light_class, v.world, n.z < 0.0 ? -n : n, c);
     }
     return fogged(f, c, v.fog);
 }

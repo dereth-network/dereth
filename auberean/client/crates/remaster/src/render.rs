@@ -28,6 +28,9 @@
 //! day's dome and under its other objects, and a veil of haze over the horizon after retail's
 //! own veil, in the frame and in the water's reflection.
 //!
+//! With the wet on ([`weather`]), while it rains what stands out in the rain is soaked, and the
+//! overhead map of what stands over each point keeps it off what stands under a roof.
+//!
 //! With the lamps on, the frame's point lights are worked out per pixel by the shared passes'
 //! lamps ([`lamps`]): their light takes the place of the point lights' share where retail lights
 //! an object by them at its vertices, and lights the land as night comes, which retail lights by
@@ -45,9 +48,11 @@
 mod lamps;
 mod sky;
 mod sun;
+mod weather;
 
 pub use sky::SkySettings;
 pub use sun::ShadowSettings;
+pub use weather::WeatherSettings;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -309,6 +314,12 @@ pub struct Remaster {
     atmosphere: SkyPass,
     sky_settings: SkySettings,
     mirrored_sky: PerFrame,
+    /// The rain on the world: how it is laid, its constants, the overhead map of what stands over
+    /// each point (made on first use) and that map's constants.
+    weather_settings: WeatherSettings,
+    weather_constants: PerFrame,
+    shelter: Option<(Texture, u32)>,
+    shelter_light: PerFrame,
     frame: u64,
 }
 
@@ -418,6 +429,8 @@ impl Remaster {
             512,
             BufferUsage::default(),
         )?;
+        let weather_constants = weather::buffer(&mut gfx, "remaster weather constants")?;
+        let shelter_light = weather::buffer(&mut gfx, "remaster shelter light")?;
         Ok(Self {
             gfx,
             adapter,
@@ -451,16 +464,24 @@ impl Remaster {
             atmosphere,
             sky_settings: SkySettings::default(),
             mirrored_sky,
+            weather_settings: WeatherSettings::default(),
+            weather_constants,
+            shelter: None,
+            shelter_light,
             frame: 0,
         })
     }
 
     /// Every pass of the remaster's look on, as a player who ticks the remaster sees it first: the
     /// ambient occlusion, outdoors and in, the sun's shadows, the lamps, the physical sky, the
-    /// anti-aliasing, and linear light with the bloom and the exposure.
+    /// rain's wet, the anti-aliasing, and linear light with the bloom and the exposure.
     pub fn look(&mut self) {
         self.set_lamps(true);
         self.set_sky(SkySettings { atmosphere: true });
+        self.set_weather(WeatherSettings {
+            wet: true,
+            ..WeatherSettings::default()
+        });
         self.set_ao(AoSettings {
             on: true,
             indoors: true,
@@ -508,6 +529,17 @@ impl Remaster {
             self.atmosphere.tables_drawn,
             self.atmosphere.views_drawn,
         )
+    }
+
+    /// How the rain is laid on the world from the next frame on (off: as retail draws it, dry).
+    pub fn set_weather(&mut self, settings: WeatherSettings) {
+        self.weather_settings = settings;
+    }
+
+    /// How the rain is laid on the world.
+    #[must_use]
+    pub fn weather(&self) -> WeatherSettings {
+        self.weather_settings
     }
 
     /// How the post passes draw from the next frame on (off: the frame is drawn into the world's
@@ -1790,6 +1822,10 @@ impl Remaster {
         let sun_mask = sun_plan
             .as_ref()
             .map_or(u32::MAX, |p| p.mask.visibility_index);
+        // The rain on the world: its overhead map's casters' constants go with the frame's too.
+        let weather_plan =
+            self.plan_weather(frame, camera.eye, &out_u, &mut records, &mut posed, load)?;
+        let weather_table = weather_plan.as_ref().map_or(u32::MAX, |p| p.constants);
 
         // The frame's constants and poses.
         let mut bytes = Vec::with_capacity(records.len() * std::mem::size_of::<DrawUniforms>());
@@ -1982,10 +2018,10 @@ impl Remaster {
             };
             // The frame's own draws of what stands in the land take the masks; the reflection and
             // the depth's pass don't.
-            let (ao, sun, lamps) = if reflecting || depth || !d.masked {
-                (u32::MAX, u32::MAX, u32::MAX)
+            let (ao, sun, lamps, weather) = if reflecting || depth || !d.masked {
+                (u32::MAX, u32::MAX, u32::MAX, u32::MAX)
             } else {
-                (ao_mask, sun_mask, lamp_light)
+                (ao_mask, sun_mask, lamp_light, weather_table)
             };
             rec.set_pipeline(pipelines[&Key { post, ..key }])?;
             let words = match key.program {
@@ -2014,6 +2050,7 @@ impl Remaster {
                         sun,
                         into_linear,
                         lamps,
+                        weather,
                     ])
                 }
                 _ => push_words(&[
@@ -2030,6 +2067,7 @@ impl Remaster {
                     d.samplers[2],
                     into_linear,
                     lamps,
+                    weather,
                 ]),
             };
             rec.push(0, &words)?;
@@ -2157,6 +2195,9 @@ impl Remaster {
         if let Some(plan) = &lamp_plan {
             LampsPass::record(plan, &mut r, &t.gbuffer)?;
         }
+        if let Some(plan) = &weather_plan {
+            plan.record_map(&mut r, draws, posed_index, (self.white, self.wrap))?;
+        }
         if let Some(plan) = &sun_plan {
             plan.record_maps(&mut r, draws, posed_index, (self.white, self.wrap))?;
             plan.mask.record(
@@ -2251,6 +2292,9 @@ impl Remaster {
         }
         if let Some(plan) = &sun_plan {
             touches.push(Touch::Texture(plan.mask.visibility, Use::Sampled));
+        }
+        if let Some(plan) = &weather_plan {
+            touches.push(Touch::Texture(plan.map, Use::Sampled));
         }
         if let Some((picture, ripples, _, _, _)) = reflection_targets {
             touches.push(Touch::Texture(picture, Use::Sampled));

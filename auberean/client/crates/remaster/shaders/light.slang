@@ -12,6 +12,7 @@ module light;
 
 import bindless;
 __exported import frame;
+import weather;
 
 // The first of the frame's own rows, after the shared ones.
 public static const uint LIGHT_ROWS = 32;
@@ -206,6 +207,32 @@ public float linear_fog(Light f, float3 world)
 public float3 fogged(Light f, float3 c, float fog)
 {
     return lerp(f.fog_color.rgb, c, fog);
+}
+
+// How much of the overcast air wet ground facing the sky mirrors where it is seen edge on.
+static const float SHEEN = 0.04;
+
+// A color `c` (display values) of a surface of light class `cls` at `world` (the frame's space),
+// facing `n` (a unit), as the rain leaves it, by the weather's constants `weather` (~0 for none):
+// soaked where it stands out in the rain, with a faint sheen of the overcast air (the fog's color)
+// the lower the view runs over it; unchanged under a roof, in a room or with no rain.
+public float3 rained(uint weather, Light f, uint cls, float3 world, float3 n, float3 c)
+{
+    if (weather == NO_WEATHER || (cls != CLASS_GROUND && cls != CLASS_SUN))
+    {
+        return c;
+    }
+    float3 to_eye = f.eye.xyz - world;
+    float dist = length(to_eye);
+    float wet = wet_share(weather, world, dist, n, 0.0);
+    if (wet <= 0.0)
+    {
+        return c;
+    }
+    float up = smoothstep(0.3, 0.85, n.z);
+    float edge = 1.0 - saturate(dot(to_eye / max(dist, 1e-4), n));
+    float fresnel = edge * edge * edge * edge * edge;
+    return soaked(c, wet) + f.fog_color.rgb * (SHEEN * fresnel * up * wet);
 }
 
 // A draw's finished color `c` as the frame it draws into keeps it: in linear light where `linear`
