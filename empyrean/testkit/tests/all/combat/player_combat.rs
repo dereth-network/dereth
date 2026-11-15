@@ -1651,3 +1651,66 @@ mod cant_get_there {
         assert_eq!(errors(&ts, id, from), 0, "no error besides");
     }
 }
+
+mod charged_too_far {
+    //! Divergence: V543
+    //! A charge that went too far: "You charged too far!", then the attack ends with an
+    //! `AttackDone` carrying the same error.
+    use super::*;
+    use empyrean_entity::enums::WeenieError;
+
+    #[test]
+    fn a_charge_that_went_too_far_ends_the_attack_with_its_error() {
+        let mut ts = server();
+        let (id, _session) = enter(
+            &mut ts,
+            CharacterOptions1::UseChargeAttack,
+            &[(SWORD, EquipMask::MeleeWeapon)],
+        );
+        drudge(&mut ts, 8.0, 5000);
+        ts.advance(0.2);
+        ts.send_game_action(
+            id,
+            &CombatChangeCombatMode {
+                combat_mode: u32::try_from(CombatMode::Melee.0).unwrap(),
+            },
+        );
+        ts.advance(1.0);
+        ts.send_game_action(
+            id,
+            &CombatTargetedMeleeAttack {
+                target: ObjectId(MONSTER.full()),
+                attack_height: 2,
+                power_level: 1.0,
+            },
+        );
+        ts.advance(0.1);
+        assert!(
+            !player_combat::fields(&ts.world, PLAYER).attacking,
+            "charging"
+        );
+        let from = ts.received_raw(id).len();
+        // The charge's move-to ends as one that went too far, as its fail distance ends it.
+        let h = phys_ext::physics_obj(&ts.world, PLAYER).expect("a body");
+        empyrean_world::physics::motion::cancel_move_to(
+            &mut ts.world,
+            h,
+            WeenieError::YouChargedTooFar,
+        );
+        ts.advance(0.1);
+        let g = got(&ts, id, from);
+        let too_far = u32::try_from(WeenieError::YouChargedTooFar.0).unwrap();
+        let errors: Vec<u32> = g
+            .iter()
+            .filter(|m| m.kind == 0x028A)
+            .map(|m| u32::from_le_bytes(m.blob[16..20].try_into().unwrap()))
+            .collect();
+        assert_eq!(errors, [too_far], "{:04X?}", kinds(&g));
+        let done: Vec<u32> = g
+            .iter()
+            .filter(|m| m.kind == ATTACK_DONE)
+            .map(|m| m.decode::<CombatHandleAttackDoneEvent>().error)
+            .collect();
+        assert_eq!(done, [too_far]);
+    }
+}

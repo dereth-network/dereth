@@ -427,6 +427,11 @@ pub fn player_on_move_complete(
             // `Attack(null, AttackSequence)`: the sequence matches, then `MeleeTarget == null`
             None => crate::world_objects::player_melee::on_attack_done(w, this, WeenieError::None),
         }
+    } else if status == WeenieError::YouChargedTooFar {
+        // DIVERGE: V543, a charge that went too far ends the attack with AttackDone carrying the
+        // same error; ACE's cancel sends AttackDone(ActionCancelled).
+        player_networking::send_weenie_error(w, this, status);
+        crate::world_objects::player_melee::end_charge_too_far(w, this);
     } else {
         player_networking::send_weenie_error(w, this, status);
         crate::world_objects::player_melee::handle_action_cancel_attack(w, this, WeenieError::None);

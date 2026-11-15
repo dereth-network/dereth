@@ -993,3 +993,22 @@ pub fn player_get_power_range(
 ) -> empyrean_entity::enums::PowerAccuracy {
     get_power_range(w, this)
 }
+
+/// Not ACE (V543): a charge that went too far: as the attack's cancel, but its `AttackDone`
+/// carries `YouChargedTooFar`, as the error before it does.
+pub fn end_charge_too_far(w: &mut World, this: ObjectGuid) {
+    if player_combat::fields(w, this).attacking {
+        player_combat::fields_mut(w, this).attack_cancelled = true;
+    } else if attack_target(w, this).is_some() {
+        send_attack_done(w, this, WeenieError::YouChargedTooFar);
+        set_attack_target(w, this, None);
+        fields_mut(w, this).melee_target = None;
+        crate::world_objects::player_missile::fields_mut(w, this).missile_target = None;
+        fields_mut(w, this).attack_queue.clear();
+        player_combat::fields_mut(w, this).attack_cancelled = false;
+    }
+
+    let h =
+        phys_ext::physics_obj(w, this).expect("ACE: PhysicsObj is null (NullReferenceException)");
+    phys_ext::cancel_moveto(w, h);
+}
