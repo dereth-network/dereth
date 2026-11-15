@@ -32,6 +32,10 @@
 //! is drawn again into the post passes' motion picture, where its surface was last frame, so the
 //! anti-aliasing gathers it from where it moved from and it doesn't smear.
 //!
+//! With the crossfade on, an object whose detail changes with distance is drawn in both levels
+//! over a band about each change, each in its share of the pixels by a hash that moves each frame,
+//! so the anti-aliasing blends one level into the other rather than the object popping.
+//!
 //! With the wet on ([`weather`]), while it rains what stands out in the rain is soaked, and the
 //! overhead map of what stands over each point keeps it off what stands under a roof.
 //!
@@ -93,6 +97,11 @@ use crate::shaders::{shader, Entry};
 const COLOR: Format = Format::Rgba8Unorm;
 /// Its depth.
 const DEPTH: Format = Format::D32Float;
+
+/// The crossfade between an object's levels of detail: over this share of the distance either way
+/// about each change, taken at this many distances.
+const LOD_BAND: f32 = 0.06;
+const LOD_SAMPLES: u32 = 16;
 
 /// How many frames a list's or a picture's own buffer is kept after the last frame that drew it.
 const KEEP_FRAMES: u64 = 240;
@@ -249,6 +258,9 @@ struct Draw {
     /// A body's draw: the body's id, the draw's place among the body's, and its place among the
     /// frame's objects.
     body: Option<(u64, usize, usize)>,
+    /// Where the draw is crossfaded between its object's levels of detail: its start and share of
+    /// the pixels, in 65535ths, packed as the shaders read them; `u32::MAX` for all of them.
+    fade: u32,
 }
 
 /// The frame's targets.
@@ -334,6 +346,10 @@ pub struct Remaster {
     motion_on: bool,
     motion_rows: PerFrame,
     last_bodies: HashMap<(u64, usize), Stood>,
+    /// Whether an object's levels of detail are crossfaded, and how many draws the last frame
+    /// crossfaded.
+    crossfade: bool,
+    last_crossfaded: usize,
     frame: u64,
 }
 
@@ -508,6 +524,8 @@ impl Remaster {
             motion_on: false,
             motion_rows,
             last_bodies: HashMap::new(),
+            crossfade: false,
+            last_crossfaded: 0,
             frame: 0,
         })
     }
@@ -523,6 +541,7 @@ impl Remaster {
             ..WeatherSettings::default()
         });
         self.set_motion(true);
+        self.set_crossfade(true);
         self.set_ao(AoSettings {
             on: true,
             indoors: true,
@@ -570,6 +589,19 @@ impl Remaster {
             self.atmosphere.tables_drawn,
             self.atmosphere.views_drawn,
         )
+    }
+
+    /// Whether an object's levels of detail are crossfaded from the next frame on (off: each draw
+    /// shows from where its level begins to where it ends, as retail draws it).
+    pub fn set_crossfade(&mut self, on: bool) {
+        self.crossfade = on;
+    }
+
+    /// Whether an object's levels of detail are crossfaded, and how many draws the last frame
+    /// crossfaded.
+    #[must_use]
+    pub fn crossfade(&self) -> (bool, usize) {
+        (self.crossfade, self.last_crossfaded)
     }
 
     /// Whether the moving bodies' motion is drawn for the anti-aliasing from the next frame on (off:
@@ -1375,7 +1407,7 @@ impl Remaster {
                        load: &mut dyn FnMut(u32) -> Option<Image>|
          -> Result<(), RemasterError> {
             for b in batches {
-                if b.indices.is_empty() || !b.drawn() {
+                if b.indices.is_empty() {
                     continue;
                 }
                 let env = match under {
@@ -1384,6 +1416,34 @@ impl Remaster {
                         Env::Looked
                     }
                     e => e,
+                };
+                // Over the band about a change of its level, the draw shows in its share of the
+                // pixels, whichever level is the choice; out of it, where its level is.
+                let band = if this.crossfade && env != Env::Sky {
+                    b.lod.as_ref().and_then(|l| {
+                        l.band_share(
+                            b.distance_from(frame.camera.position),
+                            LOD_BAND,
+                            LOD_SAMPLES,
+                        )
+                    })
+                } else {
+                    None
+                };
+                let alive = (b.visible.is_none() && b.block.is_none()) || b.tint.a > 0.0;
+                let in_band = band.is_some_and(|(_, share)| share > 0.0) && alive;
+                if !b.drawn() && !in_band {
+                    continue;
+                }
+                let (shown, fade) = match band {
+                    Some((_, share)) if share <= 0.0 => (false, u32::MAX),
+                    Some((start, share)) if share < 1.0 => {
+                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                        let word = |v: f32| (v.clamp(0.0, 1.0) * 65535.0).round() as u32;
+                        (true, word(start) << 16 | word(share))
+                    }
+                    Some(_) => (true, u32::MAX),
+                    None => (b.shown(), u32::MAX),
                 };
                 let sun = match env {
                     Env::Own => sun,
@@ -1480,7 +1540,7 @@ impl Remaster {
                         samplers,
                         env,
                         alpha_mode: alpha_mode(b.layer.source_blend, b.layer.dest_blend),
-                        shown: b.shown(),
+                        shown,
                         reflected: in_reflection && above,
                         faint,
                         class: if step == Pass::Cells {
@@ -1500,6 +1560,7 @@ impl Remaster {
                                     | Pass::Frills
                             ),
                         body: bodies.get(&(std::ptr::from_ref(b) as usize)).copied(),
+                        fade,
                     },
                 );
             }
@@ -1594,6 +1655,7 @@ impl Remaster {
                     class: class::GROUND,
                     masked: true,
                     body: None,
+                    fade: u32::MAX,
                 },
             );
             Ok(())
@@ -1750,6 +1812,7 @@ impl Remaster {
                     class: class::GROUND,
                     masked: false,
                     body: None,
+                    fade: u32::MAX,
                 };
                 if r.ripples {
                     let mut u = draw_uniforms(&b.layer, &b.transform, b.tint, out_sun, &b.points);
@@ -2060,6 +2123,9 @@ impl Remaster {
             None
         };
         let lamp_light = lamp_plan.as_ref().map_or(u32::MAX, |p| p.light_index);
+        self.last_crossfaded = steps.all().filter(|d| d.fade != u32::MAX).count();
+        #[allow(clippy::cast_possible_truncation)] // the frames' number wraps
+        let seed = self.frame as u32;
         let index_of = |l: &[PerFrame; 4]| [l[0].index, l[1].index, l[2].index, l[3].index];
         let lights = index_of(&self.lights);
         let mirrored = index_of(&self.mirrored);
@@ -2131,6 +2197,8 @@ impl Remaster {
                         into_linear,
                         lamps,
                         weather,
+                        if reflecting { u32::MAX } else { d.fade },
+                        seed,
                     ])
                 }
                 _ => push_words(&[

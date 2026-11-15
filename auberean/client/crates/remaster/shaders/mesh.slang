@@ -51,6 +51,11 @@ struct Push
     uint lamps;
     // The weather's constants, the rain's wet (~0: none).
     uint weather;
+    // Where the draw is crossfaded between its object's levels of detail: its share of the pixels
+    // and where it starts, each in 65535ths, the start in the high half (~0: all of them); and the
+    // frame's number, which moves the pixels' hash from frame to frame.
+    uint fade;
+    uint seed;
 };
 
 // The frame's alpha under every draw: 127 of 255.
@@ -754,6 +759,10 @@ float4 surface(Light f, Draw d, MeshOut v, float ao, float sun)
 [shader("fragment")]
 DepthOut fs_mesh_depth(MeshOut v)
 {
+    if (faded_out(v.clip))
+    {
+        discard;
+    }
     Light f = light_of(push.frame);
     Draw d = draw_of(push.draws, push.draw);
     float4 c = surface(f, d, v, 1.0, 1.0);
@@ -763,6 +772,26 @@ DepthOut fs_mesh_depth(MeshOut v)
         discard;
     }
     return depth_out(push.light_class, v.normal, f.eye.xyz - pixel_world(push.frame, v.clip));
+}
+
+// Whether this pixel leaves the draw out where it is crossfaded between its object's levels: of a
+// hash of the pixel and the frame, 0 to 1, the draw shows where the hash falls in its own share,
+// and its object's other level in the share beside it, so the anti-aliasing blends the two.
+bool faded_out(float4 clip)
+{
+    if (push.fade == 0xFFFFFFFF)
+    {
+        return false;
+    }
+    float start = float(push.fade >> 16) / 65535.0;
+    float share = float(push.fade & 0xFFFF) / 65535.0;
+    uint2 p = uint2(clip.xy);
+    uint h = p.x * 1664525u + p.y * 1013904223u + push.seed * 2654435761u;
+    h = (h ^ (h >> 16u)) * 2246822519u;
+    h = (h ^ (h >> 13u)) * 3266489917u;
+    h = h ^ (h >> 16u);
+    float x = float(h & 0xFFFFFFu) / 16777216.0;
+    return x < start || x >= start + share;
 }
 
 // A caster seen from the sun, its first stage's coordinates.
@@ -807,6 +836,10 @@ void fs_mesh_caster(CasterOut v)
 [shader("fragment")]
 float4 fs_mesh(MeshOut v) : SV_Target0
 {
+    if (faded_out(v.clip))
+    {
+        discard;
+    }
     Light f = light_of(push.frame);
     Draw d = draw_of(push.draws, push.draw);
     float4 c = surface(f, d, v, ambient_visibility(v.clip), sun_visibility(v.clip));

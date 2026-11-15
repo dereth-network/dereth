@@ -250,6 +250,31 @@ impl Lod {
         self.shown = self.is_choice(distance, 1.0);
         self.reflected = self.is_choice(distance, REFLECTED_DISTANCE);
     }
+
+    /// Where this draw stands among its object's draws over the distances about `distance`: of
+    /// `samples` distances spread evenly over `band` of it either way, nearest first, the share
+    /// before the first this draw is the choice for, and the share it is the choice for. The
+    /// choices run from the finest draw near to the coarsest far, so the shares of an object's
+    /// draws lay end to end over the band. `None` for an object of one level, which never changes.
+    #[must_use]
+    pub fn band_share(&self, distance: f32, band: f32, samples: u32) -> Option<(f32, f32)> {
+        if self.last == 0 {
+            return None;
+        }
+        let n = samples.max(1);
+        let (mut first, mut count) = (None, 0u32);
+        for j in 0..n {
+            #[allow(clippy::cast_precision_loss)] // a few samples
+            let x = distance * (1.0 + band * (((j as f32 + 0.5) / n as f32) * 2.0 - 1.0));
+            if self.is_choice(x, 1.0) {
+                first.get_or_insert(j);
+                count += 1;
+            }
+        }
+        #[allow(clippy::cast_precision_loss)] // a few samples
+        let share = |k: u32| k as f32 / n as f32;
+        Some((share(first.unwrap_or(0)), share(count)))
+    }
 }
 
 /// How much of an object's distances the water's reflection sees it by.

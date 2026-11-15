@@ -8,6 +8,7 @@
 //! tests run with `--features retail-dats`; one test at a time has a device.
 
 mod common;
+mod crossfade;
 mod identity;
 mod lamps;
 mod linear;
