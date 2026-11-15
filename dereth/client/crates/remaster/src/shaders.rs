@@ -8,9 +8,10 @@
 //!
 //! The blobs' conventions: matrices are column-major in memory and read as `mul(m, v)`; each
 //! entry point keeps its function's name in the blob ([`Entry::name`]); resources are read through
-//! the shared bindless table (`shaders/bindless.slang`: set 0, sampled images at binding 0,
-//! samplers at 1, storage buffers read at 2 and read-written at 3) by indices in the push
-//! constants.
+//! the shared bindless table (the shared passes' `bindless.slang`: set 0, sampled images at
+//! binding 0, samplers at 1, storage buffers read at 2 and read-written at 3) by indices in the
+//! push constants. The shared passes' modules (`bindless`, `frame`) are imported from their folder
+//! (`shaders.toml`'s `imports`).
 
 use std::sync::OnceLock;
 

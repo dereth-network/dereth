@@ -1,0 +1,19 @@
+[package]
+name = "dereth-gfx-passes"
+description = "The remaster's passes that name nothing of the game: the G-buffer's shared layout and the passes that read it, for any game's remaster to draw with."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# Test targets are declared explicitly, so a stray tests/*.rs cannot become one silently.
+autotests = false
+
+[dependencies]
+# The cameras and the constants' matrices are `glam` values, as the remasters hold them.
+glam.workspace = true
+# The backend layer the passes draw with.
+dereth-gfx.workspace = true
+
+[lints]
+workspace = true

@@ -387,7 +387,7 @@ struct Pipelines {
 fn input_pictures_pipeline(gfx: &mut Device) -> Result<Pipeline, dereth_gfx::Error> {
     gfx.create_graphics_pipeline(&GraphicsDesc {
         label: "remaster upscaler inputs as pictures",
-        vertex: shader(Entry::FullscreenVsMain),
+        vertex: dereth_gfx_passes::shaders::fullscreen(),
         fragment: Some(shader(Entry::Fsr3PassesFsInputsAsPictures)),
         color: &[dereth_gfx::Format::R32Float, LINEAR].map(|format| ColorTarget {
             format,
@@ -533,7 +533,7 @@ impl UpscalePass {
         let rcas = compute("remaster upscaler sharpen", Entry::Fsr3PassesCsRcas)?;
         let show = gfx.create_graphics_pipeline(&GraphicsDesc {
             label: "remaster upscaler show",
-            vertex: shader(Entry::FullscreenVsMain),
+            vertex: dereth_gfx_passes::shaders::fullscreen(),
             fragment: Some(shader(Entry::Fsr3PassesFsShow)),
             color: &[ColorTarget {
                 format: LINEAR,

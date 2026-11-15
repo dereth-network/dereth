@@ -33,14 +33,8 @@ pub const NONE: u32 = u32::MAX;
 /// bytes; the last value is left for a room without one.
 pub const ROOM_KEYS: u32 = 0xFFFF;
 
-/// The light classes, as `shaders/retail.slang` names them.
-pub mod class {
-    pub const GROUND: u32 = 1;
-    pub const SUN: u32 = 2;
-    pub const INDOOR: u32 = 3;
-    pub const CELL: u32 = 4;
-    pub const SKY: u32 = 5;
-}
+/// The light classes, as the shared layout names them.
+pub use dereth_gfx_passes::gbuffer::class;
 
 /// The material flags `shaders/gbuffer.slang` reads.
 pub mod flag {

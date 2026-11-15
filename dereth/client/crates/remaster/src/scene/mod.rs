@@ -669,24 +669,7 @@ impl Default for DegradeBias {
 }
 
 /// Where the frame is seen from.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct Camera {
-    /// From the scene's space to the eye's.
-    pub view: Mat4,
-    /// From the eye's space to the clip space Retail Look draws in.
-    pub projection: Mat4,
-    /// The last frame's view and projection together, in this frame's space; `None` on the
-    /// first frame.
-    pub previous_view_projection: Option<Mat4>,
-    /// The eye, in the scene's space.
-    pub eye: Vec3,
-    /// The world's rectangle on the back buffer: x, y, width and height.
-    pub viewport: [u32; 4],
-    pub fov_y: f32,
-    pub aspect: f32,
-    pub near: f32,
-    pub far: f32,
-}
+pub use dereth_gfx_passes::frame::Camera;
 
 /// The light inputs of the frame, exactly as Retail Look reads them.
 #[derive(Debug, Clone, PartialEq, Default)]

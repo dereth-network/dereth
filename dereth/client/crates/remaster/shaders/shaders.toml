@@ -1,6 +1,8 @@
 # The remaster's shaders. `cargo xtask shaders` compiles each entry point below for each target
 # into `compiled/`, which is checked in; `src/shaders.rs` embeds the blobs.
 targets = ["spirv", "dxil"]
+# The shared passes' modules: the bindless table, the frame's rows and the light classes.
+imports = ["../../gfx-passes/shaders"]
 
 # With an art pack, the air over the land, and the clouds' shadows.
 [[entry]]
@@ -16,13 +18,6 @@ stage = "fragment"
 # The openings' depth stamps, drawn into the depth alone.
 [[entry]]
 source = "stamp.slang"
-entry = "vs_main"
-stage = "vertex"
-
-# A triangle that covers the whole target, for the passes that read one picture and write
-# another.
-[[entry]]
-source = "fullscreen.slang"
 entry = "vs_main"
 stage = "vertex"
 
@@ -171,23 +166,6 @@ stage = "fragment"
 [[entry]]
 source = "shadow_mask.slang"
 entry = "fs_main"
-stage = "fragment"
-
-# Ambient occlusion: this frame's at half resolution, gathered over the frames, and brought up to
-# the full resolution.
-[[entry]]
-source = "ao.slang"
-entry = "fs_gtao"
-stage = "fragment"
-
-[[entry]]
-source = "ao.slang"
-entry = "fs_gather"
-stage = "fragment"
-
-[[entry]]
-source = "ao.slang"
-entry = "fs_upsample"
 stage = "fragment"
 
 # The lamps: each piece of the view's list of the lamps that reach it, then the light they add

@@ -9,8 +9,6 @@ pub enum Entry {
     CloudShadowFsMain,
     /// `vs_main` in `stamp.slang`, the vertex stage.
     StampVsMain,
-    /// `vs_main` in `fullscreen.slang`, the vertex stage.
-    FullscreenVsMain,
     /// `fs_main` in `copy.slang`, the fragment stage.
     CopyFsMain,
     /// `vs_main` in `gbuffer.slang`, the vertex stage.
@@ -63,12 +61,6 @@ pub enum Entry {
     GbufferFsCaster,
     /// `fs_main` in `shadow_mask.slang`, the fragment stage.
     ShadowMaskFsMain,
-    /// `fs_gtao` in `ao.slang`, the fragment stage.
-    AoFsGtao,
-    /// `fs_gather` in `ao.slang`, the fragment stage.
-    AoFsGather,
-    /// `fs_upsample` in `ao.slang`, the fragment stage.
-    AoFsUpsample,
     /// `cs_clusters` in `lamps.slang`, the compute stage.
     LampsCsClusters,
     /// `fs_lamps` in `lamps.slang`, the fragment stage.
@@ -213,7 +205,7 @@ pub enum Entry {
 
 impl Entry {
     /// Every entry point, in `shaders.toml`'s order.
-    pub const ALL: [Self; 103] = [Self::AirFsAir, Self::CloudShadowFsMain, Self::StampVsMain, Self::FullscreenVsMain, Self::CopyFsMain, Self::GbufferVsMain, Self::GbufferFsMain, Self::GbufferFsForward, Self::GbufferFsEdge, Self::GbufferFsForwardAny, Self::GbufferFsEdgeAny, Self::TerrainVsMain, Self::TerrainFsMain, Self::ResolveFsVertex, Self::ResolveFsPixel, Self::CompositeFsMain, Self::CullCsMain, Self::InstancesCsChoose, Self::InstancesCsWalkCpu, Self::InstancesCsScan, Self::InstancesCsWalkScan, Self::InstancesCsWalkGroups, Self::InstancesCsWrite, Self::SortCsLocal, Self::SortCsGlobal, Self::SortCsMerge, Self::SortCsEmit, Self::SkinCsMain, Self::GbufferFsCaster, Self::ShadowMaskFsMain, Self::AoFsGtao, Self::AoFsGather, Self::AoFsUpsample, Self::LampsCsClusters, Self::LampsFsLamps, Self::HaloVsHalo, Self::HaloFsHalo, Self::PostFsTaa, Self::PostFsTaaCheck, Self::PostFsBloomDown, Self::PostFsBloomUp, Self::PostFsTonemap, Self::MotionVsMain, Self::MotionFsMain, Self::SkyTablesFsTransmittance, Self::SkyTablesFsMultiple, Self::SkyTablesFsSkyView, Self::SkyFsSky, Self::SkyFsVeil, Self::FogVolumeCsMain, Self::DrawnVsGround, Self::DrawnFsGround, Self::DrawnVsCaster, Self::DrawnCsProbe, Self::DrawnCsGrass, Self::GrassVsBlade, Self::GrassFsBlade, Self::GrassVsBladeMotion, Self::GrassFsBladeMotion, Self::DrawnCsScatter, Self::GrassVsScatter, Self::GrassFsScatter, Self::WaterFsMain, Self::WaterFsTraced, Self::WaterCsWake, Self::LiftCsBases, Self::ImpostorVsBake, Self::ImpostorFsBake, Self::ImpostorVsDraw, Self::ImpostorFsDraw, Self::ImpostorFsGather, Self::ImpostorFsChain, Self::ForestCsCull, Self::ForestVsFar, Self::ForestFsFar, Self::RainFsSplash, Self::RainVsFall, Self::RainFsFall, Self::RtCsInstances, Self::RtCheckCsCheck, Self::GiCsUpdate, Self::GiFsProbes, Self::GiFsScreen, Self::GiFsBlur, Self::GiTraceCsTrace, Self::RtShadowFsMain, Self::RtAoFsRays, Self::RtAoFsFilter, Self::UpscaleInputsCsMain, Self::Fsr3PassesCsClearReconstructed, Self::Fsr3PassesCsPrepareInputs, Self::Fsr3PassesCsFarthestHalf, Self::Fsr3PassesCsShadingLevelZero, Self::Fsr3PassesCsShadingLevel, Self::Fsr3PassesCsShadingChange, Self::Fsr3PassesCsReactivity, Self::Fsr3PassesCsLumaInstability, Self::Fsr3PassesCsAccumulate, Self::Fsr3PassesCsRcas, Self::Fsr3PassesFsShow, Self::Fsr3PassesCsReactiveInput, Self::Fsr3PassesCsExposure, Self::Fsr3PassesFsInputsAsPictures];
+    pub const ALL: [Self; 99] = [Self::AirFsAir, Self::CloudShadowFsMain, Self::StampVsMain, Self::CopyFsMain, Self::GbufferVsMain, Self::GbufferFsMain, Self::GbufferFsForward, Self::GbufferFsEdge, Self::GbufferFsForwardAny, Self::GbufferFsEdgeAny, Self::TerrainVsMain, Self::TerrainFsMain, Self::ResolveFsVertex, Self::ResolveFsPixel, Self::CompositeFsMain, Self::CullCsMain, Self::InstancesCsChoose, Self::InstancesCsWalkCpu, Self::InstancesCsScan, Self::InstancesCsWalkScan, Self::InstancesCsWalkGroups, Self::InstancesCsWrite, Self::SortCsLocal, Self::SortCsGlobal, Self::SortCsMerge, Self::SortCsEmit, Self::SkinCsMain, Self::GbufferFsCaster, Self::ShadowMaskFsMain, Self::LampsCsClusters, Self::LampsFsLamps, Self::HaloVsHalo, Self::HaloFsHalo, Self::PostFsTaa, Self::PostFsTaaCheck, Self::PostFsBloomDown, Self::PostFsBloomUp, Self::PostFsTonemap, Self::MotionVsMain, Self::MotionFsMain, Self::SkyTablesFsTransmittance, Self::SkyTablesFsMultiple, Self::SkyTablesFsSkyView, Self::SkyFsSky, Self::SkyFsVeil, Self::FogVolumeCsMain, Self::DrawnVsGround, Self::DrawnFsGround, Self::DrawnVsCaster, Self::DrawnCsProbe, Self::DrawnCsGrass, Self::GrassVsBlade, Self::GrassFsBlade, Self::GrassVsBladeMotion, Self::GrassFsBladeMotion, Self::DrawnCsScatter, Self::GrassVsScatter, Self::GrassFsScatter, Self::WaterFsMain, Self::WaterFsTraced, Self::WaterCsWake, Self::LiftCsBases, Self::ImpostorVsBake, Self::ImpostorFsBake, Self::ImpostorVsDraw, Self::ImpostorFsDraw, Self::ImpostorFsGather, Self::ImpostorFsChain, Self::ForestCsCull, Self::ForestVsFar, Self::ForestFsFar, Self::RainFsSplash, Self::RainVsFall, Self::RainFsFall, Self::RtCsInstances, Self::RtCheckCsCheck, Self::GiCsUpdate, Self::GiFsProbes, Self::GiFsScreen, Self::GiFsBlur, Self::GiTraceCsTrace, Self::RtShadowFsMain, Self::RtAoFsRays, Self::RtAoFsFilter, Self::UpscaleInputsCsMain, Self::Fsr3PassesCsClearReconstructed, Self::Fsr3PassesCsPrepareInputs, Self::Fsr3PassesCsFarthestHalf, Self::Fsr3PassesCsShadingLevelZero, Self::Fsr3PassesCsShadingLevel, Self::Fsr3PassesCsShadingChange, Self::Fsr3PassesCsReactivity, Self::Fsr3PassesCsLumaInstability, Self::Fsr3PassesCsAccumulate, Self::Fsr3PassesCsRcas, Self::Fsr3PassesFsShow, Self::Fsr3PassesCsReactiveInput, Self::Fsr3PassesCsExposure, Self::Fsr3PassesFsInputsAsPictures];
 
     /// The source file that defines it.
     #[must_use]
@@ -222,7 +214,6 @@ impl Entry {
             Self::AirFsAir => "air.slang",
             Self::CloudShadowFsMain => "cloud_shadow.slang",
             Self::StampVsMain => "stamp.slang",
-            Self::FullscreenVsMain => "fullscreen.slang",
             Self::CopyFsMain => "copy.slang",
             Self::GbufferVsMain => "gbuffer.slang",
             Self::GbufferFsMain => "gbuffer.slang",
@@ -249,9 +240,6 @@ impl Entry {
             Self::SkinCsMain => "skin.slang",
             Self::GbufferFsCaster => "gbuffer.slang",
             Self::ShadowMaskFsMain => "shadow_mask.slang",
-            Self::AoFsGtao => "ao.slang",
-            Self::AoFsGather => "ao.slang",
-            Self::AoFsUpsample => "ao.slang",
             Self::LampsCsClusters => "lamps.slang",
             Self::LampsFsLamps => "lamps.slang",
             Self::HaloVsHalo => "halo.slang",
@@ -332,7 +320,6 @@ impl Entry {
             Self::AirFsAir => "fs_air",
             Self::CloudShadowFsMain => "fs_main",
             Self::StampVsMain => "vs_main",
-            Self::FullscreenVsMain => "vs_main",
             Self::CopyFsMain => "fs_main",
             Self::GbufferVsMain => "vs_main",
             Self::GbufferFsMain => "fs_main",
@@ -359,9 +346,6 @@ impl Entry {
             Self::SkinCsMain => "cs_main",
             Self::GbufferFsCaster => "fs_caster",
             Self::ShadowMaskFsMain => "fs_main",
-            Self::AoFsGtao => "fs_gtao",
-            Self::AoFsGather => "fs_gather",
-            Self::AoFsUpsample => "fs_upsample",
             Self::LampsCsClusters => "cs_clusters",
             Self::LampsFsLamps => "fs_lamps",
             Self::HaloVsHalo => "vs_halo",
@@ -442,7 +426,6 @@ impl Entry {
             Self::AirFsAir => Stage::Fragment,
             Self::CloudShadowFsMain => Stage::Fragment,
             Self::StampVsMain => Stage::Vertex,
-            Self::FullscreenVsMain => Stage::Vertex,
             Self::CopyFsMain => Stage::Fragment,
             Self::GbufferVsMain => Stage::Vertex,
             Self::GbufferFsMain => Stage::Fragment,
@@ -469,9 +452,6 @@ impl Entry {
             Self::SkinCsMain => Stage::Compute,
             Self::GbufferFsCaster => Stage::Fragment,
             Self::ShadowMaskFsMain => Stage::Fragment,
-            Self::AoFsGtao => Stage::Fragment,
-            Self::AoFsGather => Stage::Fragment,
-            Self::AoFsUpsample => Stage::Fragment,
             Self::LampsCsClusters => Stage::Compute,
             Self::LampsFsLamps => Stage::Fragment,
             Self::HaloVsHalo => Stage::Vertex,
@@ -552,7 +532,6 @@ impl Entry {
             Self::AirFsAir => include_bytes!("spirv/air.fs_air.spv"),
             Self::CloudShadowFsMain => include_bytes!("spirv/cloud_shadow.fs_main.spv"),
             Self::StampVsMain => include_bytes!("spirv/stamp.vs_main.spv"),
-            Self::FullscreenVsMain => include_bytes!("spirv/fullscreen.vs_main.spv"),
             Self::CopyFsMain => include_bytes!("spirv/copy.fs_main.spv"),
             Self::GbufferVsMain => include_bytes!("spirv/gbuffer.vs_main.spv"),
             Self::GbufferFsMain => include_bytes!("spirv/gbuffer.fs_main.spv"),
@@ -579,9 +558,6 @@ impl Entry {
             Self::SkinCsMain => include_bytes!("spirv/skin.cs_main.spv"),
             Self::GbufferFsCaster => include_bytes!("spirv/gbuffer.fs_caster.spv"),
             Self::ShadowMaskFsMain => include_bytes!("spirv/shadow_mask.fs_main.spv"),
-            Self::AoFsGtao => include_bytes!("spirv/ao.fs_gtao.spv"),
-            Self::AoFsGather => include_bytes!("spirv/ao.fs_gather.spv"),
-            Self::AoFsUpsample => include_bytes!("spirv/ao.fs_upsample.spv"),
             Self::LampsCsClusters => include_bytes!("spirv/lamps.cs_clusters.spv"),
             Self::LampsFsLamps => include_bytes!("spirv/lamps.fs_lamps.spv"),
             Self::HaloVsHalo => include_bytes!("spirv/halo.vs_halo.spv"),
@@ -662,7 +638,6 @@ impl Entry {
             Self::AirFsAir => include_bytes!("dxil/air.fs_air.dxil"),
             Self::CloudShadowFsMain => include_bytes!("dxil/cloud_shadow.fs_main.dxil"),
             Self::StampVsMain => include_bytes!("dxil/stamp.vs_main.dxil"),
-            Self::FullscreenVsMain => include_bytes!("dxil/fullscreen.vs_main.dxil"),
             Self::CopyFsMain => include_bytes!("dxil/copy.fs_main.dxil"),
             Self::GbufferVsMain => include_bytes!("dxil/gbuffer.vs_main.dxil"),
             Self::GbufferFsMain => include_bytes!("dxil/gbuffer.fs_main.dxil"),
@@ -689,9 +664,6 @@ impl Entry {
             Self::SkinCsMain => include_bytes!("dxil/skin.cs_main.dxil"),
             Self::GbufferFsCaster => include_bytes!("dxil/gbuffer.fs_caster.dxil"),
             Self::ShadowMaskFsMain => include_bytes!("dxil/shadow_mask.fs_main.dxil"),
-            Self::AoFsGtao => include_bytes!("dxil/ao.fs_gtao.dxil"),
-            Self::AoFsGather => include_bytes!("dxil/ao.fs_gather.dxil"),
-            Self::AoFsUpsample => include_bytes!("dxil/ao.fs_upsample.dxil"),
             Self::LampsCsClusters => include_bytes!("dxil/lamps.cs_clusters.dxil"),
             Self::LampsFsLamps => include_bytes!("dxil/lamps.fs_lamps.dxil"),
             Self::HaloVsHalo => include_bytes!("dxil/halo.vs_halo.dxil"),

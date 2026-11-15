@@ -632,7 +632,7 @@ impl SkyPass {
         let table = |d: &mut Device, label, e: Entry| {
             d.create_graphics_pipeline(&GraphicsDesc {
                 label,
-                vertex: shader(Entry::FullscreenVsMain),
+                vertex: dereth_gfx_passes::shaders::fullscreen(),
                 fragment: Some(shader(e)),
                 color: &[ColorTarget {
                     format: TABLE,
@@ -646,7 +646,7 @@ impl SkyPass {
         let over = |d: &mut Device, label, e: Entry, color: Format| {
             d.create_graphics_pipeline(&GraphicsDesc {
                 label,
-                vertex: shader(Entry::FullscreenVsMain),
+                vertex: dereth_gfx_passes::shaders::fullscreen(),
                 fragment: Some(shader(e)),
                 color: &[ColorTarget {
                     format: color,
@@ -686,7 +686,7 @@ impl SkyPass {
             })?,
             air: d.create_graphics_pipeline(&GraphicsDesc {
                 label: "remaster air",
-                vertex: shader(Entry::FullscreenVsMain),
+                vertex: dereth_gfx_passes::shaders::fullscreen(),
                 fragment: Some(shader(Entry::AirFsAir)),
                 color: &[ColorTarget {
                     format: linear,
@@ -698,7 +698,7 @@ impl SkyPass {
             })?,
             cloud_shadow: d.create_graphics_pipeline(&GraphicsDesc {
                 label: "remaster cloud shadow",
-                vertex: shader(Entry::FullscreenVsMain),
+                vertex: dereth_gfx_passes::shaders::fullscreen(),
                 fragment: Some(shader(Entry::CloudShadowFsMain)),
                 color: &[ColorTarget {
                     format: Format::R8Unorm,

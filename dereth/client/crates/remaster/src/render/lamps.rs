@@ -905,7 +905,7 @@ impl LampsPass {
         })?;
         let shade = gfx.create_graphics_pipeline(&GraphicsDesc {
             label: "remaster lamps",
-            vertex: shader(Entry::FullscreenVsMain),
+            vertex: dereth_gfx_passes::shaders::fullscreen(),
             fragment: Some(shader(Entry::LampsFsLamps)),
             color: &[ColorTarget {
                 format: LAMP_LIGHT,

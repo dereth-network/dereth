@@ -160,7 +160,7 @@ impl GiPass {
         let fragment = |gfx: &mut Device, e: Entry| {
             gfx.create_graphics_pipeline(&GraphicsDesc {
                 label: "remaster bounced light",
-                vertex: shader(Entry::FullscreenVsMain),
+                vertex: dereth_gfx_passes::shaders::fullscreen(),
                 fragment: Some(shader(e)),
                 color: &[ColorTarget {
                     format: GI,

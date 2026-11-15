@@ -336,7 +336,7 @@ impl PostPass {
         let full = |gfx: &mut Device, e: Entry, color: &[ColorTarget]| {
             gfx.create_graphics_pipeline(&GraphicsDesc {
                 label: "remaster post",
-                vertex: shader(Entry::FullscreenVsMain),
+                vertex: dereth_gfx_passes::shaders::fullscreen(),
                 fragment: Some(shader(e)),
                 color,
                 depth: None,
@@ -767,22 +767,8 @@ impl PostPass {
     }
 }
 
-/// What takes a point of this frame's clip space, as drawn (its projection moved by `jitter`), to
-/// where `previous`, last frame's view and projection unmoved, had it: `previous` after the inverse
-/// of this frame's `view_proj` moved by `jitter`, worked out in double precision. A pixel's last
-/// place is then found from its place and its depth alone, never through the frame's space, where
-/// dividing out a far point's barely known depth throws it off its line of sight by a share of
-/// its distance from the space's origin; here a depth's error moves the point along that line,
-/// which a turning view does not see.
-#[must_use]
-pub fn reprojection(previous: Mat4, view_proj: Mat4, jitter: [f32; 2]) -> Mat4 {
-    let drawn = glam::DMat4::from_translation(glam::DVec3::new(
-        f64::from(jitter[0]),
-        f64::from(jitter[1]),
-        0.0,
-    )) * view_proj.as_dmat4();
-    (previous.as_dmat4() * drawn.inverse()).as_mat4()
-}
+/// How a pixel is found where it was last frame.
+pub use dereth_gfx_passes::frame::reprojection;
 
 /// The parts of the frame's objects that moved since the last frame and that the G-buffer
 /// draws: a row of five for each of their opaque draw items (the item, then the part's last

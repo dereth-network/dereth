@@ -455,7 +455,7 @@ impl ShadowPass {
             })?,
             mask: d.create_graphics_pipeline(&GraphicsDesc {
                 label: "remaster sun visibility",
-                vertex: shader(Entry::FullscreenVsMain),
+                vertex: dereth_gfx_passes::shaders::fullscreen(),
                 fragment: Some(shader(Entry::ShadowMaskFsMain)),
                 color: &[ColorTarget {
                     format: VISIBILITY,

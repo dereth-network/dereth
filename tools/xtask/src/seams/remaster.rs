@@ -5,7 +5,9 @@
 //!   [`REMASTER_TREE_FORBIDDEN`] in its tree (with every feature, for every target), names none of
 //!   [`REMASTER_NAMES_NOT`] and no identifier starting with one of [`REMASTER_PREFIXES_NOT`] (the
 //!   simulation, the world, the network, the scene, the client past the device and the server),
-//!   and its only dependent is `dereth-remaster`.
+//!   and its only dependents are `dereth-remaster` and the shared passes.
+//! - `dereth-gfx-passes`, the passes that name nothing of the game, holds no workspace crate but
+//!   the layer in its tree and names the same nothing; its only dependent is `dereth-remaster`.
 //! - `dereth-remaster`'s tree holds no workspace crate but [`REMASTER_TREE_DERE`] and none of
 //!   [`REMASTER_TREE_FORBIDDEN`]; its code names the same nothing; its only dependent is
 //!   `dereth-scene`; and only the scene's own remaster files ([`REMASTER_FILES`]) name it.
@@ -32,10 +34,14 @@ pub const REMASTER: &str = "dereth-remaster";
 /// Its backend layer.
 pub const GFX: &str = "dereth-gfx";
 
+/// The passes that name nothing of the game, which a game's remaster draws with.
+pub const GFX_PASSES: &str = "dereth-gfx-passes";
+
 /// The workspace crates the remaster's tree may hold, at any depth, with every feature on.
 pub const REMASTER_TREE_DERE: &[&str] = &[
     "dereth-remaster",
     "dereth-gfx",
+    "dereth-gfx-passes",
     "dereth-render",
     "dereth-render-cpu",
     "dereth-primitives",
@@ -44,8 +50,10 @@ pub const REMASTER_TREE_DERE: &[&str] = &[
 
 /// The remaster's only dependent, and the layer's.
 pub const REMASTER_DEPENDENTS: &[&str] = &["dereth-scene"];
-/// The backend layer's only dependent.
-pub const GFX_DEPENDENTS: &[&str] = &["dereth-remaster"];
+/// The backend layer's only dependents.
+pub const GFX_DEPENDENTS: &[&str] = &["dereth-remaster", "dereth-gfx-passes"];
+/// The shared passes' only dependent.
+pub const GFX_PASSES_DEPENDENTS: &[&str] = &["dereth-remaster"];
 
 /// Platform crates the remaster's tree and the layer's never hold.
 pub const REMASTER_TREE_FORBIDDEN: &[&str] = &["winit", "cpal"];
@@ -387,6 +395,10 @@ pub fn reports(ws: &Path, workspace_rs: &[(PathBuf, String)], row: Row<'_>) -> V
     let gfx_tree = tree(GFX).map(|t| tree_rule(GFX, &t, &members, &[]));
     let gfx_code = Ok(code_rule(&crate_sources(ws, GFX)));
     let gfx_dependents = dependents(GFX).map(|t| dependents_rule(GFX, &t, GFX_DEPENDENTS));
+    let passes_tree = tree(GFX_PASSES).map(|t| tree_rule(GFX_PASSES, &t, &members, &[GFX]));
+    let passes_code = Ok(code_rule(&crate_sources(ws, GFX_PASSES)));
+    let passes_dependents =
+        dependents(GFX_PASSES).map(|t| dependents_rule(GFX_PASSES, &t, GFX_PASSES_DEPENDENTS));
     let (remaster_tree, remaster_code, remaster_dependents) = if has_remaster {
         (
             tree(REMASTER).map(|t| tree_rule(REMASTER, &t, &members, REMASTER_TREE_DERE)),
@@ -422,6 +434,24 @@ pub fn reports(ws: &Path, workspace_rs: &[(PathBuf, String)], row: Row<'_>) -> V
             "seam: remaster layer dependents",
             gfx_dependents,
             format!("only {} depends on {GFX}", GFX_DEPENDENTS.join(", ")),
+        ),
+        row(
+            "seam: remaster passes deps",
+            passes_tree,
+            format!("{GFX_PASSES} reaches no workspace crate but {GFX}"),
+        ),
+        row(
+            "seam: remaster passes code",
+            passes_code,
+            "names no simulation, world, network, server or scene crate or type".to_owned(),
+        ),
+        row(
+            "seam: remaster passes dependents",
+            passes_dependents,
+            format!(
+                "only {} depends on {GFX_PASSES}",
+                GFX_PASSES_DEPENDENTS.join(", ")
+            ),
         ),
         row(
             "seam: remaster deps",
@@ -500,6 +530,38 @@ mod tests {
             tree_rule(REMASTER, &into_scene, &members, REMASTER_TREE_DERE).len(),
             1
         );
+    }
+
+    #[test]
+    fn the_shared_passes_reach_only_the_layer_and_only_the_remaster_depends_on_them() {
+        let members = vec![
+            "dereth-gfx".to_owned(),
+            "dereth-gfx-passes".to_owned(),
+            "dereth-remaster".to_owned(),
+            "dereth-scene".to_owned(),
+        ];
+        let clean = tree(&[
+            (0, "dereth-gfx-passes"),
+            (1, "dereth-gfx"),
+            (2, "ash"),
+            (1, "glam"),
+        ]);
+        assert!(tree_rule(GFX_PASSES, &clean, &members, &[GFX]).is_empty());
+        let reaching = tree(&[
+            (0, "dereth-gfx-passes"),
+            (1, "dereth-gfx"),
+            (1, "dereth-remaster"),
+            (1, "winit"),
+        ]);
+        assert_eq!(tree_rule(GFX_PASSES, &reaching, &members, &[GFX]).len(), 2);
+        let dependents = tree(&[
+            (0, "dereth-gfx-passes"),
+            (1, "dereth-remaster"),
+            (1, "dereth-scene"),
+        ]);
+        let found = dependents_rule(GFX_PASSES, &dependents, GFX_PASSES_DEPENDENTS);
+        assert_eq!(found.len(), 1, "{found:#?}");
+        assert!(found[0].contains("dereth-scene"), "{found:#?}");
     }
 
     #[test]

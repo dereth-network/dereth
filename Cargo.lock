@@ -1827,6 +1827,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "dereth-gfx-passes"
+version = "0.0.0"
+dependencies = [
+ "dereth-gfx",
+ "glam",
+]
+
+[[package]]
 name = "dereth-gltf"
 version = "0.0.0"
 dependencies = [
@@ -2164,6 +2172,7 @@ version = "0.0.0"
 dependencies = [
  "ash",
  "dereth-gfx",
+ "dereth-gfx-passes",
  "dereth-primitives",
  "dereth-render",
  "glam",

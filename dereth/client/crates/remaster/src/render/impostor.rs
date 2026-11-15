@@ -73,7 +73,7 @@ impl Fine {
         });
         gfx.create_graphics_pipeline(&GraphicsDesc {
             label: "remaster tree pictures gathered",
-            vertex: shader(Entry::FullscreenVsMain),
+            vertex: dereth_gfx_passes::shaders::fullscreen(),
             fragment: Some(shader(Entry::ImpostorFsGather)),
             color: &targets,
             depth: None,

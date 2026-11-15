@@ -61,7 +61,7 @@ impl RtShadowPass {
         let pipeline = if gfx.caps().ray_queries {
             Some(gfx.create_graphics_pipeline(&GraphicsDesc {
                 label: "remaster traced sun visibility",
-                vertex: shader(Entry::FullscreenVsMain),
+                vertex: dereth_gfx_passes::shaders::fullscreen(),
                 fragment: Some(shader(Entry::RtShadowFsMain)),
                 color: &[ColorTarget {
                     format: VISIBILITY,

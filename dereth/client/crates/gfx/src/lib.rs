@@ -16,7 +16,8 @@
 //! and one frame.
 //!
 //! **Depends on** `ash` and `gpu-allocator`, and on Windows `windows`: no crate of the workspace.
-//! **Used by** the remaster (`dereth-remaster`), and nothing else.
+//! **Used by** the remaster (`dereth-remaster`) and the passes it shares (`dereth-gfx-passes`),
+//! and nothing else.
 //!
 //! **Must never** reach anything of the game: it holds pictures, buffers and pipelines, and
 //! records what it is told to, so what it draws is decided by its user.

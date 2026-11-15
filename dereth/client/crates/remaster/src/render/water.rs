@@ -239,7 +239,7 @@ impl WaterPass {
         let mut make = |format, entry| {
             gfx.create_graphics_pipeline(&GraphicsDesc {
                 label: "remaster water",
-                vertex: shader(Entry::FullscreenVsMain),
+                vertex: dereth_gfx_passes::shaders::fullscreen(),
                 fragment: Some(shader(entry)),
                 color: &[ColorTarget {
                     format,

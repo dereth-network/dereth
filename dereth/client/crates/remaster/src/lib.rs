@@ -1,9 +1,10 @@
 //! The remaster: the world drawn from retained data, lit by retail's own light model from the
 //! frame's light inputs.
 //!
-//! **Depends on** `dereth-gfx` (the backend layer), `dereth-render` (the Vulkan device's world
-//! hook it draws through), `dereth-primitives` (the texture type its pictures are held in) and
-//! `glam`. **Used by** the scene (`dereth-scene`), behind its `remaster` feature, and nothing
+//! **Depends on** `dereth-gfx` (the backend layer), `dereth-gfx-passes` (the passes that name
+//! nothing of the game, and the G-buffer's layout they read), `dereth-render` (the Vulkan device's
+//! world hook it draws through), `dereth-primitives` (the texture type its pictures are held in)
+//! and `glam`. **Used by** the scene (`dereth-scene`), behind its `remaster` feature, and nothing
 //! else.
 //!
 //! **Must never** reach the simulation, physics, world, network, runtime or interface crates, or

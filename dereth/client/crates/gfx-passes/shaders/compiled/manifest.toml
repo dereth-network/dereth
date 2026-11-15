@@ -1,0 +1,27 @@
+# Written by `cargo xtask shaders`: the compiler, its options, and the SHA-256 of every
+# source and blob. `cargo xtask shaders --check` compares it with the files. Regenerate it;
+# never edit it.
+
+compiler = "slangc 2026.18.3"
+
+[options]
+common = "-matrix-layout-column-major -warnings-as-errors all -warnings-disable 41012"
+spirv = "-target spirv -profile spirv_1_6 -fvk-use-entrypoint-name"
+dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
+
+[sources]
+"ao.slang" = "679e2095efc49c53db1553ab14c3ce87c2c097f2a2126ecb1c8b6a4e2712a88f"
+"bindless.slang" = "9cd85b9ab864f2c9dc38e3dc8021643b24e0b649512bd09a274cd2e2ff2cd5d7"
+"frame.slang" = "04dbc556888b4b4d86ca4f44517d81926b361db177b44564bd59f98e55af5e2a"
+"fullscreen.slang" = "0645f8fe5464b824856e3f04be1e9aaef0dea951957e03e52825f2c68dc6e49e"
+"shaders.toml" = "8f4c0ca64d62039b85bb896d3a5d75a2383a824c621b7b0bb4f42c8b0aa55d8d"
+
+[blobs]
+"dxil/ao.fs_gather.dxil" = { sha256 = "b0ebd5790fb8611af9fd4a5fb82a87becbf51d249192465e86c3ed5cccb53975", bytes = 5976 }
+"dxil/ao.fs_gtao.dxil" = { sha256 = "976c6f334d5faf4a053488ef1137966e4118b6bd98da82053fb2816e5506df55", bytes = 9188 }
+"dxil/ao.fs_upsample.dxil" = { sha256 = "60dc1d7089ddd75c15297ca1fb32c3ad9bc2561974f00b6d8b864993c8cf6f53", bytes = 5828 }
+"dxil/fullscreen.vs_main.dxil" = { sha256 = "2786b35dd122dcb315c3efe6ecd4947ec32adfef86c9ce73efdda9ce60dd8c7b", bytes = 2912 }
+"spirv/ao.fs_gather.spv" = { sha256 = "b1712f6583b9c83f329dbb34ad1f8cc4f00e747bb62447706b40ffdf9c213e10", bytes = 12576 }
+"spirv/ao.fs_gtao.spv" = { sha256 = "7d8a29613b1840346cbe5326297c587c8a752efe24140500846158c035aa833b", bytes = 33540 }
+"spirv/ao.fs_upsample.spv" = { sha256 = "f64dd244d636b1f034b2622e0a0eb7d49b70fe766ee8a9554452d92c84bd2c53", bytes = 9736 }
+"spirv/fullscreen.vs_main.spv" = { sha256 = "c5aeeb389bce75bc5b8d89d222cf36f32dc4a197d382a73c3ed494cfe8149885", bytes = 808 }

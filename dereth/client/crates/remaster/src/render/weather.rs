@@ -479,7 +479,7 @@ impl WeatherPass {
         let mut make = |label, vertex, fragment, format, blend| {
             d.create_graphics_pipeline(&GraphicsDesc {
                 label,
-                vertex: shader(vertex),
+                vertex,
                 fragment: Some(shader(fragment)),
                 color: &[ColorTarget {
                     format,
@@ -502,14 +502,14 @@ impl WeatherPass {
         let splash = [
             make(
                 "remaster splashes",
-                Entry::FullscreenVsMain,
+                dereth_gfx_passes::shaders::fullscreen(),
                 Entry::RainFsSplash,
                 super::COLOR,
                 add,
             )?,
             make(
                 "remaster splashes",
-                Entry::FullscreenVsMain,
+                dereth_gfx_passes::shaders::fullscreen(),
                 Entry::RainFsSplash,
                 linear,
                 add,
@@ -518,14 +518,14 @@ impl WeatherPass {
         let fall_pipelines = [
             make(
                 "remaster rain",
-                Entry::RainVsFall,
+                shader(Entry::RainVsFall),
                 Entry::RainFsFall,
                 super::COLOR,
                 over,
             )?,
             make(
                 "remaster rain",
-                Entry::RainVsFall,
+                shader(Entry::RainVsFall),
                 Entry::RainFsFall,
                 linear,
                 over,

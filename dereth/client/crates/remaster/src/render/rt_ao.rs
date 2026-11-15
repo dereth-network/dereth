@@ -74,7 +74,7 @@ impl RtAoPass {
             let mut make = |label, e, format| {
                 gfx.create_graphics_pipeline(&GraphicsDesc {
                     label,
-                    vertex: shader(Entry::FullscreenVsMain),
+                    vertex: dereth_gfx_passes::shaders::fullscreen(),
                     fragment: Some(shader(e)),
                     color: &[ColorTarget {
                         format,

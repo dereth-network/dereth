@@ -92,8 +92,12 @@ members = [
     "dereth/client",
     "dereth/desktop",
     "dereth/client/crates/render",
-    # The remaster's backend layer, over Vulkan. Only `dereth-remaster` depends on it.
+    # The remaster's backend layer, over Vulkan and Direct3D 12. Only `dereth-remaster` and the
+    # passes it shares depend on it.
     "dereth/client/crates/gfx",
+    # The remaster's passes that name nothing of the game, over a G-buffer of the shared layout,
+    # for any game's remaster to draw with. Only `dereth-remaster` depends on it.
+    "dereth/client/crates/gfx-passes",
     # The remaster, which draws the world from retained data. Only `dereth-scene` depends on it,
     # behind its `remaster` feature.
     "dereth/client/crates/remaster",
@@ -275,6 +279,7 @@ dereth-protocol = { path = "core/protocol" }
 dereth-render = { path = "dereth/client/crates/render", default-features = false }
 dereth-render-cpu = { path = "core/render-cpu", default-features = false }
 dereth-gfx = { path = "dereth/client/crates/gfx" }
+dereth-gfx-passes = { path = "dereth/client/crates/gfx-passes" }
 dereth-remaster = { path = "dereth/client/crates/remaster" }
 dereth-rules = { path = "core/rules", default-features = false }
 dereth-scene = { path = "dereth/client/crates/scene", default-features = false }

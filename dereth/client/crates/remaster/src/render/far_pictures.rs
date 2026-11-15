@@ -128,7 +128,7 @@ impl FarPictures {
         });
         let chain = gfx.create_graphics_pipeline(&GraphicsDesc {
             label: "remaster far pictures",
-            vertex: shader(Entry::FullscreenVsMain),
+            vertex: dereth_gfx_passes::shaders::fullscreen(),
             fragment: Some(shader(Entry::ImpostorFsChain)),
             color: &targets,
             depth: None,

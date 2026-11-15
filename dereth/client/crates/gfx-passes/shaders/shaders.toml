@@ -1,0 +1,28 @@
+# The shared passes' shaders. `cargo xtask shaders` compiles each entry point below for each target
+# into `compiled/`, which is checked in; `src/shaders.rs` embeds the blobs. The modules here
+# (`bindless`, `frame`) are imported by the remasters' own shaders too.
+targets = ["spirv", "dxil"]
+
+# A triangle that covers the whole target, for the passes that read one picture and write
+# another.
+[[entry]]
+source = "fullscreen.slang"
+entry = "vs_main"
+stage = "vertex"
+
+# Ambient occlusion: this frame's at half resolution, gathered over the frames, and brought up to
+# the full resolution.
+[[entry]]
+source = "ao.slang"
+entry = "fs_gtao"
+stage = "fragment"
+
+[[entry]]
+source = "ao.slang"
+entry = "fs_gather"
+stage = "fragment"
+
+[[entry]]
+source = "ao.slang"
+entry = "fs_upsample"
+stage = "fragment"

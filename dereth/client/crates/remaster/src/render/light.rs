@@ -27,33 +27,7 @@ const REACH_EPSILON: f32 = 0.0002;
 pub const SLOTS: usize = 8;
 
 /// Rows of four 32-bit values, as the shaders read a buffer.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Rows(pub Vec<[u32; 4]>);
-
-impl Rows {
-    fn f(&mut self, v: [f32; 4]) {
-        self.0.push(v.map(f32::to_bits));
-    }
-
-    fn u(&mut self, v: [u32; 4]) {
-        self.0.push(v);
-    }
-
-    fn mat(&mut self, m: Mat4) {
-        for c in m.to_cols_array_2d() {
-            self.f(c);
-        }
-    }
-
-    /// The rows as bytes.
-    #[must_use]
-    pub fn bytes(&self) -> Vec<u8> {
-        self.0
-            .iter()
-            .flat_map(|r| r.iter().flat_map(|w| w.to_le_bytes()))
-            .collect()
-    }
-}
+pub use dereth_gfx_passes::frame::Rows;
 
 /// The frame's constants: its camera, its sun, its two ambients, its fog, the screen ramp, the
 /// light mode and the counts of its lights, and the target's extent.

@@ -66,23 +66,9 @@ use crate::assets::{AssetSource, AssetTables, MeshKey};
 use crate::scene::{BlockId, FrameDelta, SceneDelta};
 use crate::shaders::{spirv, Entry};
 
-/// The G-buffer's targets and the world's colors, at the world's size.
-#[derive(Debug, Clone, Copy)]
-pub struct Targets {
-    pub width: u32,
-    pub height: u32,
-    pub albedo: Texture,
-    pub normal: Texture,
-    pub light: Texture,
-    pub material: Texture,
-    pub depth: Texture,
-    pub color: Texture,
-    /// The outdoor surfaces' depth, kept when the viewer stands inside, before the interior
-    /// clears it; outdoors, the depth before the grass, which the frame's depth is made from.
-    pub outdoor_depth: Texture,
-    /// Each one's index in the table, in the order above.
-    pub index: [u32; 7],
-}
+use dereth_gfx_passes::frame::{push_words, PerFrame};
+/// The G-buffer's targets and their formats: the shared layout every pass reads.
+pub use dereth_gfx_passes::gbuffer::{Targets, ALBEDO, COLOR, DEPTH, LIGHT, MATERIAL, NORMAL};
 
 /// The pipelines, every one made at the start.
 #[derive(Debug, Clone, Copy)]
@@ -108,16 +94,8 @@ struct Pipelines {
     stamp: Pipeline,
 }
 
-/// The formats of the G-buffer's targets.
-pub const ALBEDO: Format = Format::Rgba16Float;
-pub const NORMAL: Format = Format::Rg16Snorm;
-pub const LIGHT: Format = Format::Rgba16Float;
-pub const MATERIAL: Format = Format::Rgba8Unorm;
-pub const DEPTH: Format = Format::D32Float;
-
 /// The meshes the far trees' pictures are made of that a frame holds, at most.
 const FAR_MESHES_A_FRAME: usize = 16;
-pub const COLOR: Format = Format::Rgba8Unorm;
 
 /// The commands one cull bucket holds at most.
 const BUCKET_CAPACITY: u32 = 1 << 17;
@@ -148,62 +126,6 @@ pub struct ReadBack {
     /// How much of the sky reaches each pixel, a float a pixel at the render size, when the frame
     /// drew the occlusion.
     pub occlusion: Option<Vec<u8>>,
-}
-
-/// One buffer rewritten every frame, grown when a frame needs more.
-#[derive(Debug)]
-struct PerFrame {
-    buffer: Buffer,
-    index: u32,
-    size: u64,
-    usage: BufferUsage,
-    label: &'static str,
-}
-
-impl PerFrame {
-    fn new(
-        d: &mut Device,
-        label: &'static str,
-        size: u64,
-        usage: BufferUsage,
-    ) -> Result<Self, dereth_gfx::Error> {
-        let usage = usage | BufferUsage::STORAGE;
-        let buffer = d.create_buffer(&BufferDesc {
-            label,
-            size,
-            usage,
-            location: Location::Gpu,
-        })?;
-        let index = d.bind_buffer(buffer)?;
-        Ok(Self {
-            buffer,
-            index,
-            size,
-            usage,
-            label,
-        })
-    }
-
-    /// Write `bytes` at the start, growing the buffer first when they do not fit.
-    fn write(&mut self, d: &mut Device, bytes: &[u8]) -> Result<(), dereth_gfx::Error> {
-        let need = (bytes.len() as u64).max(16);
-        if need > self.size {
-            let size = need.next_power_of_two();
-            let bigger = d.create_buffer(&BufferDesc {
-                label: self.label,
-                size,
-                usage: self.usage,
-                location: Location::Gpu,
-            })?;
-            d.destroy_buffer(std::mem::replace(&mut self.buffer, bigger));
-            self.index = d.bind_buffer(self.buffer)?;
-            self.size = size;
-        }
-        if bytes.is_empty() {
-            return Ok(());
-        }
-        d.write_buffer(self.buffer, 0, bytes)
-    }
 }
 
 /// What the renderer counts, cumulative.
@@ -415,7 +337,7 @@ impl Pipelines {
         let scene = ScenePipelines::new(d, COLOR)?;
         let composite = d.create_graphics_pipeline(&GraphicsDesc {
             label: "remaster composite",
-            vertex: shader(Entry::FullscreenVsMain),
+            vertex: dereth_gfx_passes::shaders::fullscreen(),
             fragment: Some(shader(Entry::CompositeFsMain)),
             color: &[ColorTarget {
                 format: Format::Bgra8Unorm,
@@ -497,7 +419,7 @@ impl ScenePipelines {
         let resolve = |d: &mut Device, e: Entry| {
             d.create_graphics_pipeline(&GraphicsDesc {
                 label: "remaster resolve",
-                vertex: shader(Entry::FullscreenVsMain),
+                vertex: dereth_gfx_passes::shaders::fullscreen(),
                 fragment: Some(shader(e)),
                 color: &color,
                 depth: None,
@@ -628,15 +550,6 @@ impl ScenePipelines {
             sky,
         })
     }
-}
-
-/// Little-endian words, as the shaders' push constants read them.
-fn push_words(w: &[u32]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(w.len() * 4);
-    for x in w {
-        out.extend_from_slice(&x.to_le_bytes());
-    }
-    out
 }
 
 impl Renderer {

@@ -15,7 +15,7 @@
 // - `fs_upsample`: each full-resolution pixel from the half-resolution pixels round it, each
 //   weighed by how near it is and by how near its depth is to the pixel's.
 import bindless;
-import retail;
+import frame;
 
 // This pass's own constants, in buffer `ao` as float4 rows:
 //   0..3  this frame's clip space, as drawn, straight to last frame's, unmoved, as four columns:
