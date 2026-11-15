@@ -142,6 +142,9 @@ pub struct TerrainBlock {
     /// The unit normal at each vertex, x major, taken over every triangle touching it, across
     /// block edges.
     pub normals: Vec<Vec3>,
+    /// Each vertex's terrain kind: the vertex word's terrain field, the kind's index in the
+    /// region's terrain description.
+    pub kinds: Vec<u32>,
     /// What each vertex's terrain kind shows.
     pub terrain: Vec<SurfacePick>,
     /// What each vertex's road shows (no base when the vertex has no road).
@@ -675,6 +678,7 @@ pub fn build_block_blending(
     let hood = Neighborhood::new(land, source, x, y);
     let n = hood.side();
     let mut normals = Vec::with_capacity(side * side);
+    let mut kinds = Vec::with_capacity(side * side);
     let mut terrain = Vec::with_capacity(side * side);
     let mut road = Vec::with_capacity(side * side);
     let mut shadow_bits = Vec::with_capacity(side * side);
@@ -686,8 +690,10 @@ pub fn build_block_blending(
             let word = lb.vertices[usize::try_from(n * i + j).unwrap_or(0)];
             let pitch = normal.x * normal.x + normal.y * normal.y;
             let (gx, gy) = (x * squares_per_side + i, y * squares_per_side + j);
+            let kind = land.word.terrain.of(word);
+            kinds.push(kind);
             let t = surfaces
-                .terrain_surface(land.word.terrain.of(word))
+                .terrain_surface(kind)
                 .map_or(SurfacePick::NONE, |s| surface_pick(s, pitch, gx, gy));
             terrain.push(t);
             let r = surfaces
@@ -724,6 +730,7 @@ pub fn build_block_blending(
         y,
         geometry,
         normals,
+        kinds,
         terrain,
         road,
         shadow_bits,
@@ -748,6 +755,17 @@ impl TerrainBlock {
         } else {
             &self.terrain[k]
         }
+    }
+
+    /// The terrain kind a layer of square `(i, j)` shows: its ground corner's, or `None` for a
+    /// road.
+    #[must_use]
+    pub fn layer_kind(&self, i: usize, j: usize, layer: &Layer) -> Option<u32> {
+        if layer.road {
+            return None;
+        }
+        let (di, dj) = layer.ground.offset();
+        Some(self.kinds[self.vertex(i + di, j + dj)])
     }
 
     /// The mask picture of a layer of square `(i, j)`, if it has one.

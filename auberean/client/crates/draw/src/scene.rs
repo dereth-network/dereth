@@ -92,8 +92,8 @@ pub fn view_axes_of(forward: [f32; 3], roll: f32) -> ([f32; 3], [f32; 3]) {
     ([r.x, r.y, r.z], [u.x, u.y, u.z])
 }
 
-/// A terrain vertex: position, lit color, the ground picture's coordinates and the mask's, and
-/// what of the lit color the sun gives.
+/// A terrain vertex: position, lit color, the ground picture's coordinates and the mask's, what
+/// of the lit color the sun gives, its normal, and which ground it shows.
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct TerrainVertex {
     pub position: [f32; 3],
@@ -104,6 +104,25 @@ pub struct TerrainVertex {
     /// (none where the vertex's own hill keeps the sun off it). The retail device doesn't read
     /// it.
     pub sun: [f32; 3],
+    /// The unit normal the vertex is lit by, taken over every triangle touching it. The retail
+    /// device doesn't read it.
+    pub normal: [f32; 3],
+    /// Which ground the vertex's layer shows. The retail device doesn't read it.
+    pub ground: GroundKind,
+}
+
+/// Which ground a vertex of the landscape shows, for a renderer that tells grounds apart (some
+/// gather puddles in the rain and others don't): a detailed layer's kind of terrain or its road.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum GroundKind {
+    /// Not told: the far landscape, or a vertex made by hand.
+    #[default]
+    Unknown,
+    /// A kind of terrain, by its index in the region's terrain description (the vertex word's
+    /// terrain field); [`Frame::ground_kinds`] names it.
+    Terrain(u32),
+    /// A road.
+    Road,
 }
 
 /// The terrain of one ground and mask: the bottom layer of every square showing that ground, or
@@ -766,6 +785,9 @@ pub struct Frame {
     /// of the viewer's block, whose frame the frame is drawn in. What is fixed to the world rather
     /// than to the frame (a pattern laid over the land) is placed by it.
     pub origin: [f32; 2],
+    /// The region's kinds of terrain by their index ([`GroundKind::Terrain`]'s): each one's name,
+    /// empty where no kind has that index.
+    pub ground_kinds: Arc<Vec<String>>,
     /// Where frills fade out, from the camera: fully drawn nearer than the first distance, gone
     /// past the second.
     pub frill_fade: [f32; 2],
@@ -954,6 +976,8 @@ pub struct SceneBuilder<'a> {
     looked: HashMap<LookedKey, Vec<DrawLayer>>,
     material_kinds: HashMap<u32, u32>,
     grounds: HashMap<u32, Option<u32>>,
+    /// The region's kinds of terrain, named by their index ([`Frame::ground_kinds`]).
+    ground_kinds: Arc<Vec<String>>,
     scenery: HashMap<(i32, i32), Arc<Vec<SceneryObject>>>,
     frill_vertices: HashMap<u32, Arc<Vec<MeshVertex>>>,
     shadow_layers: HashMap<u32, Option<DrawLayer>>,
@@ -1102,6 +1126,29 @@ pub fn far_stride(ring: i32, squares: usize) -> usize {
     (1usize << steps).min(squares.max(1))
 }
 
+/// The names of the region's kinds of terrain `desc` by their index, empty where no kind has that
+/// index; none past what the vertex word's terrain field `field` holds.
+fn ground_kinds(
+    desc: &auberean_assets::region::TerrainDesc,
+    field: auberean_world::land::Field,
+) -> Vec<String> {
+    let mut names = Vec::new();
+    for t in &desc.terrains {
+        let Ok(i) = usize::try_from(t.index) else {
+            continue;
+        };
+        // A field of more than 16 bits would be a broken record: no table that long.
+        if field.bits > 16 || t.index >> field.bits != 0 {
+            continue;
+        }
+        if names.len() <= i {
+            names.resize(i + 1, String::new());
+        }
+        names[i].clone_from(&t.name);
+    }
+    names
+}
+
 /// The two triangles of a square, as corner slots, for its split.
 fn square_triangles(cut: bool) -> [u32; 6] {
     if cut {
@@ -1144,6 +1191,7 @@ impl<'a> SceneBuilder<'a> {
             looked: HashMap::new(),
             material_kinds: HashMap::new(),
             grounds: HashMap::new(),
+            ground_kinds: Arc::new(ground_kinds(&region.terrain, region.land.word.terrain)),
             scenery: HashMap::new(),
             frill_vertices: HashMap::new(),
             shadow_layers: HashMap::new(),
@@ -2304,6 +2352,7 @@ impl<'a> SceneBuilder<'a> {
                 spot.block.0 as f32 * block_len,
                 spot.block.1 as f32 * block_len,
             ],
+            ground_kinds: self.ground_kinds.clone(),
             frill_fade: {
                 #[allow(clippy::cast_precision_loss)]
                 let end = self.frill_radius as f32 * cell_len * self.frill_reach;
@@ -2472,6 +2521,7 @@ impl<'a> SceneBuilder<'a> {
             bodies: Vec::new(),
             wind: [0.0; 3],
             origin: [0.0; 2],
+            ground_kinds: self.ground_kinds.clone(),
             frill_fade: [f32::MAX, f32::MAX],
             counts,
             shadow: None,
@@ -2811,6 +2861,9 @@ impl<'a> SceneBuilder<'a> {
                     } else {
                         0.5
                     };
+                    let kind = tb
+                        .layer_kind(i, j, layer)
+                        .map_or(GroundKind::Road, GroundKind::Terrain);
                     let base = u32::try_from(batch.vertices.len()).unwrap_or(u32::MAX);
                     for (cx, cy) in CORNERS {
                         let k = tb.vertex(i + cx, j + cy);
@@ -2830,6 +2883,11 @@ impl<'a> SceneBuilder<'a> {
                             uv: [u, v],
                             mask_uv: mask.map_or([0.0, 0.0], |(_, rot)| mask_uv(fx, fy, rot)),
                             sun: [c.r - shade.r, c.g - shade.g, c.b - shade.b],
+                            normal: {
+                                let n = tb.normals[k];
+                                [n.x, n.y, n.z]
+                            },
+                            ground: kind,
                         });
                     }
                     Arc::make_mut(&mut batch.indices)
@@ -2890,6 +2948,11 @@ impl<'a> SceneBuilder<'a> {
                     uv: [x * scale, y * scale],
                     mask_uv: [0.0, 0.0],
                     sun: [c.r - shade.r, c.g - shade.g, c.b - shade.b],
+                    normal: {
+                        let n = tb.normals[k];
+                        [n.x, n.y, n.z]
+                    },
+                    ground: GroundKind::Unknown,
                 });
             }
         }

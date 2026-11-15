@@ -6,11 +6,17 @@
 //! the detailed blocks, as the sun's cascades take them; bodies left out, as a body shelters
 //! nothing it doesn't hide already).
 //!
-//! How wet the world is follows the rain amount retail's own streaks are drawn by: the wet comes in
-//! as the streaks do, and is full at the heaviest rain. Rooms and what stands in them never are.
+//! With the puddles on, flat ground out in the rain gathers them where its kind of terrain takes
+//! them ([`super::puddles`]), from a mask fixed to the world: the ground under them soaked through
+//! and smoothed, giving back the overcast air the lower the view runs over them.
 //!
-//! The wet's pattern over the world (the shelter's wandering edge) is placed by the frame's origin
-//! in the world (`Frame::origin`), so it stays put as the viewer crosses into another block.
+//! How wet the world is follows the rain amount retail's own streaks are drawn by: the wet and the
+//! puddles come in as the streaks do, and are full at the heaviest rain. Rooms and what stands in
+//! them never are.
+//!
+//! The wet's pattern over the world (the shelter's wandering edge, the puddles) is placed by the
+//! frame's origin in the world (`Frame::origin`), so it stays put as the viewer crosses into
+//! another block.
 
 use auberean_draw::constants::{DrawUniforms, FrameUniforms};
 use auberean_draw::material::d3d;
@@ -30,8 +36,13 @@ use super::{Key, Program, Remaster, RemasterError};
 pub struct WeatherSettings {
     /// Whether what stands out in the rain is wet while it rains.
     pub wet: bool,
-    /// Whether the overhead map keeps the wet off what stands under a roof (off: every point is
-    /// open to the sky).
+    /// Whether flat ground out in the rain gathers puddles while it rains.
+    pub puddles: bool,
+    /// How readily each ground gathers puddles: the remaster's own table,
+    /// [`super::puddles::PUDDLES`], unless another is given.
+    pub grounds: super::puddles::PuddleTable,
+    /// Whether the overhead map keeps the wet and the puddles off what stands under a roof (off:
+    /// every point is open to the sky).
     pub shelter: bool,
 }
 
@@ -39,6 +50,8 @@ impl Default for WeatherSettings {
     fn default() -> Self {
         Self {
             wet: false,
+            puddles: false,
+            grounds: super::puddles::PUDDLES,
             shelter: true,
         }
     }
@@ -70,7 +83,8 @@ pub(super) struct WeatherPlan {
 }
 
 impl Remaster {
-    /// Work out the rain on `frame`: none when the wet is off or it doesn't rain enough. The
+    /// Work out the rain on `frame`: none when the wet and the puddles are off or it doesn't rain
+    /// enough. The
     /// overhead map's casters' constants go into `records` (lit by the outdoors' light `out_u`),
     /// a moved body's pose into `posed`.
     ///
@@ -86,7 +100,8 @@ impl Remaster {
         load: &mut dyn FnMut(u32) -> Option<Image>,
     ) -> Result<Option<WeatherPlan>, RemasterError> {
         let wet = soak(frame.rain);
-        if !self.weather_settings.wet || wet <= 0.0 {
+        let settings = self.weather_settings;
+        if !(settings.wet || settings.puddles) || wet <= 0.0 {
             return Ok(None);
         }
         let (map, map_index) = match self.shelter {
@@ -104,7 +119,7 @@ impl Remaster {
         let bytes = Self::light_rows(&u, glam::Mat4::IDENTITY, (COVER_SIDE, COVER_SIDE));
         self.shelter_light.write(&mut self.gfx, &bytes)?;
         let mut casters = Vec::new();
-        if self.weather_settings.shelter {
+        if settings.shelter {
             for b in frame.shadow.iter().flat_map(|s| &s.casters) {
                 if b.indices.is_empty() || b.posed.is_some() {
                     continue;
@@ -120,13 +135,15 @@ impl Remaster {
         dereth_gfx_passes::weather::rows(
             &mut rows,
             &State {
-                wet,
+                wet: if settings.wet { wet } else { 0.0 },
+                gathers: if settings.puddles { wet } else { 0.0 },
                 origin: frame.origin,
                 ..State::default()
             },
             &placed,
             map_index,
         );
+        super::puddles::rows(&mut rows, &frame.ground_kinds, &settings.grounds);
         self.weather_constants.write(&mut self.gfx, &rows.bytes())?;
         let pipeline = self.pipeline(Key {
             program: Program::MeshCaster,

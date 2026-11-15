@@ -49,6 +49,7 @@ fn drawn(name: &str) -> Drawn {
     remaster.set_weather(WeatherSettings {
         wet: true,
         shelter: true,
+        ..WeatherSettings::default()
     });
     let (wet, wet_noise) = settled(|| draw(&mut remaster));
     let classes = remaster
@@ -58,6 +59,7 @@ fn drawn(name: &str) -> Drawn {
     remaster.set_weather(WeatherSettings {
         wet: true,
         shelter: false,
+        ..WeatherSettings::default()
     });
     let (open, open_noise) = settled(|| draw(&mut remaster));
     if let Some(dir) = std::env::var_os("AUBEREAN_REMASTER_CAPTURE_DIR") {
@@ -226,6 +228,7 @@ fn the_rains_pattern_is_fixed_to_the_world_by_the_frames_origin() {
     remaster.set_weather(WeatherSettings {
         wet: true,
         shelter: true,
+        ..WeatherSettings::default()
     });
     let s = *STATIONS
         .iter()

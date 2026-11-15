@@ -42,7 +42,8 @@
 //! higher over where they stand; retail holds them still.
 //!
 //! With the wet on ([`weather`]), while it rains what stands out in the rain is soaked, and the
-//! overhead map of what stands over each point keeps it off what stands under a roof.
+//! overhead map of what stands over each point keeps it off what stands under a roof; with the
+//! puddles on, flat ground gathers them where its kind of terrain takes them ([`puddles`]).
 //!
 //! With the lamps on, the frame's point lights are worked out per pixel by the shared passes'
 //! lamps ([`lamps`]): their light takes the place of the point lights' share where retail lights
@@ -59,11 +60,13 @@
 //! flares. The sun's shadows replace the shadow map and the volumes.
 
 mod lamps;
+mod puddles;
 mod sky;
 mod sun;
 mod traced;
 mod weather;
 
+pub use puddles::{weights as puddle_weights, PuddleTable, PUDDLES};
 pub use sky::SkySettings;
 pub use sun::ShadowSettings;
 pub use weather::WeatherSettings;
@@ -142,7 +145,9 @@ const ALPHA_FRAME: u32 = 1;
 const ALPHA_SATURATED: u32 = 2;
 
 /// A landscape vertex as the remaster's shaders read it (`TERRAIN_VERTEX_BYTES` in
-/// `shaders/terrain.slang`): the retail device's, then what of its lit color the sun gives.
+/// `shaders/terrain.slang`): the retail device's, then what of its lit color the sun gives, its
+/// normal, and its ground (a kind of terrain's index, [`puddles::ROAD_GROUND`] or
+/// [`puddles::NO_GROUND`]).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct LandVertex {
@@ -151,6 +156,18 @@ struct LandVertex {
     uv: [f32; 2],
     mask_uv: [f32; 2],
     sun: [f32; 3],
+    normal: [f32; 3],
+    ground: u32,
+}
+
+/// A landscape vertex's ground as the remaster's shaders read it.
+fn ground_word(g: auberean_draw::scene::GroundKind) -> u32 {
+    use auberean_draw::scene::GroundKind;
+    match g {
+        GroundKind::Terrain(k) if (k as usize) < puddles::KINDS => k,
+        GroundKind::Road => puddles::ROAD_GROUND,
+        GroundKind::Terrain(_) | GroundKind::Unknown => puddles::NO_GROUND,
+    }
 }
 
 /// A drawn picture: `width * height` texels of red, green, blue, alpha.
@@ -569,13 +586,14 @@ impl Remaster {
 
     /// Every pass of the remaster's look on, as a player who ticks the remaster sees it first: the
     /// ambient occlusion, outdoors and in, the sun's shadows (both traced where the device traces
-    /// rays), the lamps, the physical sky, the rain's wet, the anti-aliasing, and linear light with
-    /// the bloom and the exposure.
+    /// rays), the lamps, the physical sky, the rain's wet and puddles, the anti-aliasing, and
+    /// linear light with the bloom and the exposure.
     pub fn look(&mut self) {
         self.set_lamps(true);
         self.set_sky(SkySettings { atmosphere: true });
         self.set_weather(WeatherSettings {
             wet: true,
+            puddles: true,
             ..WeatherSettings::default()
         });
         self.set_motion(true);
@@ -916,6 +934,8 @@ impl Remaster {
                         uv: v.uv,
                         mask_uv: v.mask_uv,
                         sun: v.sun,
+                        normal: v.normal,
+                        ground: ground_word(v.ground),
                     })
                     .collect();
                 bytes_of(&v).to_vec()
