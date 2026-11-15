@@ -701,8 +701,10 @@ fn a_creature_no_one_hurts_turns_now_and_then_to_another_player_near_it() {
     let (c, other) = h.player_in_world("two", "Babyfare");
     drawn(&mut h, c);
     hardy(&mut h, other);
+    // At 6.5% of its attacks (11% to one nearer): twenty minutes of them leave no dice a real
+    // chance of none.
     assert!(
-        h.run_until(2400, |h| target_of(h, id) == Some(other)),
+        h.run_until(24_000, |h| target_of(h, id) == Some(other)),
         "it turns to the other"
     );
 }
@@ -901,8 +903,10 @@ fn a_creature_buffs_itself_in_its_fight() {
     );
     hardy(&mut h, me);
     let shows = |m: &ServerMessage| matches!(m, ServerMessage::DoFx(e) if e.sender.id == id && e.action.fx == 0x4100_0518);
+    // A buff at 31% of its first turn and 13% of each later one: ten minutes of turns leave no
+    // dice a real chance of none.
     assert!(
-        h.run_until(1200, |h| h.world_messages(b, 0).iter().any(shows)),
+        h.run_until(12_000, |h| h.world_messages(b, 0).iter().any(shows)),
         "it buffs itself"
     );
     assert!(h.world_messages(b, 0).iter().any(|m| matches!(m,
@@ -1193,13 +1197,17 @@ fn a_players_hits_gain_what_an_armor_debuff_took_from_the_creature() {
     // Its first swings may come before the sword is in its hand.
     h.run(120);
     let from = h.bots[b].inbox.len();
-    h.run(240);
+    // Until a few hits have landed (each lands at a chance).
+    h.run_until(600, |h| hits(h, from).len() >= 3);
     let plain = hits(&h, from);
     assert_eq!(combat::armor_taken(&h.server, id), 0);
     put_on(&mut h, id, me, VACUUM_EFFECT, 50.0);
     assert_eq!(combat::armor_taken(&h.server, id), 100);
+    // A swing's story is on its way for a step: one more delivers those drawn before the debuff.
+    h.step();
     let from = h.bots[b].inbox.len();
-    h.run(240);
+    // Within the debuff's thirty seconds.
+    h.run_until(500, |h| hits(h, from).len() >= 3);
     let debuffed = hits(&h, from);
     assert!(!plain.is_empty() && !debuffed.is_empty());
     assert!(within(&plain, 0), "{plain:?}");
@@ -1603,10 +1611,12 @@ fn a_counter_does_not_answer_harm_over_time() {
     let id = the_creature(&h, b);
     hardy(&mut h, me);
     counter_held(&mut h, me, 1.0);
+    // Its first tick comes as much as 5.6 s after it is put on (`effects::TICK_FIRST`): it lasts
+    // beyond that.
     h.server.effect_table.effects.insert(
         BURN,
         EffectDef {
-            duration: Scale(vec![(0.0, 5.0)]),
+            duration: Scale(vec![(0.0, 12.0)]),
             ..effect_of(
                 BURN,
                 Kind::VitalOverTime {
@@ -1631,11 +1641,12 @@ fn a_counter_does_not_answer_harm_over_time() {
         clock,
     ));
     let was = h.server.things.get(id).map(|t| t.health);
-    h.run(120);
-    let health = h.server.players.get(&world).and_then(|p| {
-        yalain_world::quals::int(&p.qualities, yalain_world::player::quality::HEALTH)
-    });
-    assert!(health < Some(100_000), "it burned");
+    let health = |h: &Harness| {
+        h.server.players.get(&world).and_then(|p| {
+            yalain_world::quals::int(&p.qualities, yalain_world::player::quality::HEALTH)
+        })
+    };
+    assert!(h.run_until(130, |h| health(h) < Some(100_000)), "it burned");
     assert_eq!(h.server.things.get(id).map(|t| t.health), was);
 }
 

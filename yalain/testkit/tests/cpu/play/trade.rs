@@ -1334,8 +1334,14 @@ fn a_medic_tends_its_owner_and_a_keeper_its_owners_pets() {
             ..yalain_testkit::plain_effect(mercenary::TEND_EFFECT)
         },
     );
+    // Nothing of its own comes back, so what it gains is the medic's.
     let set = |h: &mut Harness, n: i32, of: i32| {
         let p = h.server.players.get_mut(&world).expect("in the world");
+        yalain_world::quals::set_float(
+            &mut p.qualities,
+            yalain_world::regen::rate::PEACE_HEALTH,
+            0.0,
+        );
         yalain_world::quals::set_int(&mut p.qualities, quality::HEALTH_MAX, of);
         yalain_world::quals::set_int(&mut p.qualities, quality::HEALTH, n);
     };

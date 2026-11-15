@@ -1052,8 +1052,8 @@ fn a_card_meld_on_a_drum_makes_the_fate_card_only_for_the_characters_whose_rank_
 
 /// A row naming several things a use makes makes one of them each use, picked by their weights,
 /// and never anything else: a card meld whose row makes either fortune's lesser card, three to
-/// one, on drums of ranks other than its user's makes both over many uses, the likelier more
-/// often; where the interaction met is the user's own rank it picks among the row's gated ones.
+/// one, on drums of ranks other than its user's makes both over many uses, the likelier about
+/// three times in four; where the interaction met is the user's own rank it picks among the row's gated ones.
 /// Behaviour: server.interactions.a-use-makes-one-of-several
 #[test]
 fn a_meld_whose_row_names_two_cards_makes_one_of_them_each_use_by_their_weights() {
@@ -1082,10 +1082,11 @@ fn a_meld_whose_row_names_two_cards_makes_one_of_them_each_use_by_their_weights(
             send_use(h, a, me, meld, drum);
         }
     };
-    uses(&mut h, other, 80);
+    uses(&mut h, other, 800);
     let (bona, mala) = (count_of(&h, world, BONA), count_of(&h, world, MALA));
-    assert_eq!(bona + mala, 80, "one card a use");
-    assert!(mala > 0 && bona > 2 * mala, "{bona} to {mala}");
+    assert_eq!(bona + mala, 800, "one card a use");
+    // Three in four the likelier (600, 12 either way is one standard deviation).
+    assert!((520..=680).contains(&bona), "{bona} to {mala}");
     assert_eq!(count_of(&h, world, LESSER_FATE_CARD), 0, "nothing else");
     uses(&mut h, own, 40);
     let (bona, mala) = (

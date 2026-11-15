@@ -204,9 +204,11 @@ fn a_device_stands_its_time_against_its_attackers_and_leaves_what_its_row_names(
     );
     run_for(&mut h, 5.0);
     assert_eq!(said(&h, b, from), [COMES], "its line as it comes");
+    // Each strike lands at a chance: they are told on it at once, and hurt it by its time.
     assert!(
-        h.server.things.get(device).unwrap().health
-            < h.server.things.get(device).unwrap().max_health,
+        h.world_messages(b, from).iter().any(|m| matches!(m,
+            ServerMessage::DoStory(e) if attackers.contains(&e.action.attacker)
+                && e.action.hooks.iter().any(|k| k.target == device))),
         "the attackers strike it"
     );
 
@@ -254,6 +256,11 @@ fn a_device_stands_its_time_against_its_attackers_and_leaves_what_its_row_names(
 
     run_for(&mut h, HOLDS - 36.0);
     assert_eq!(living(&h, DEVICE), [device], "standing before its time");
+    // Hurt by them (it regains all it lost once it rests, so its health may be whole again).
+    assert!(
+        h.server.things.get(device).unwrap().last_hurt > 0.0,
+        "hurt by its attackers"
+    );
     assert_eq!(markers(&h), 0);
     assert_eq!(said(&h, b, from), [COMES, HUMS], "half way, its next line");
     let from = h.bots[b].inbox.len();

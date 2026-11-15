@@ -215,10 +215,23 @@ fn a_players_swing_hurts_a_creature_as_it_lands_by_its_skill() {
         matches!(m, ServerMessage::DoStory(e) if e.action.attacker == me
             && e.action.hooks.iter().any(|k| k.target == beetle && k.bits & 0x800 != 0))
     };
-    assert!(
-        h.run_until(4000, |h| h.world_messages(b, from).iter().any(hit)),
-        "a hit is told"
-    );
+    // Swings are evaded at a chance; while none has hit, the beetle is kept from resting, so it
+    // regains none of its health and the first hit is its last.
+    let mut told = false;
+    for _ in 0..4000 {
+        if h.world_messages(b, from).iter().any(hit) {
+            told = true;
+            break;
+        }
+        let now = h.now.0;
+        h.server
+            .things
+            .get_mut(beetle)
+            .expect("the beetle")
+            .last_hurt = now;
+        h.step();
+    }
+    assert!(told, "a hit is told");
     let told = h.now.0;
     let scale = h
         .world_messages(b, from)
@@ -913,7 +926,7 @@ fn a_weapon_with_an_enchantment_glows_as_it_says() {
         .insert(yalain_testkit::test_template(template, 0x200, props));
     h.server.treasure.equipment.insert(0x200);
     let (mut plain, mut enchanted) = (0, 0);
-    for _ in 0..600 {
+    for _ in 0..6000 {
         let item = yalain_world::inventory::make_item(&mut h.server, template, 1, 9).expect("made");
         yalain_world::treasure::endow(&mut h.server, item, 50, None);
         let t = h.server.things.get(item).expect("made");
@@ -960,7 +973,11 @@ fn a_weapon_with_an_enchantment_glows_as_it_says() {
             assert!(glow <= yalain_content::treasure_tables::GLOW_DRAW, "{glow}");
         }
     }
-    assert!(plain > 300 && enchanted > 60, "{plain} {enchanted}");
+    // About 12% glow by an enchantment (25 either way is one standard deviation).
+    assert!(
+        plain > 3000 && (600..=850).contains(&enchanted),
+        "{plain} {enchanted}"
+    );
 }
 
 /// An effect on the item itself changes the numbers it says: a combat delay no lower than 1.
@@ -1092,8 +1109,12 @@ fn a_slayer_on_a_weapon_puts_nothing_on_what_it_hits() {
         queue::WEENIE,
         &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
     );
-    h.run(2000);
-    assert!(h.server.things.get(beetle).expect("alive").health < 1_000_000);
+    // Until a hit lands (it regains what it lost once it rests).
+    assert!(h.run_until(2000, |h| h
+        .server
+        .things
+        .get(beetle)
+        .is_some_and(|t| t.health < 1_000_000)));
     assert_eq!(h.server.unhandled.counts().len(), before);
 }
 

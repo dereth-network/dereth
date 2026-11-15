@@ -556,6 +556,8 @@ fn a_special_at_another_player_hurts_it_and_tells_the_pk_damage() {
     let mut id = 1;
     let hit = loop {
         assert!(id < 40, "no use landed");
+        // Its recovery counts from the last use's end, which goes by the drawn pace.
+        assert!(h.until_ready(ida, RIPOSTE, 400), "ready again");
         let from_b = h.bots[b].inbox.len();
         use_skill(&mut h, a, id, RIPOSTE, idb);
         h.run(60);

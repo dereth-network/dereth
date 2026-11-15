@@ -318,4 +318,35 @@ impl<S: Store> Harness<S> {
         self.bots[b].send(true, queue::WEENIE, &server_call(f, args));
         self.run(steps);
     }
+
+    /// Step until a player in the world may use a skill again: no use of its under way, the
+    /// skill's recovery and the wait every skill shares over (each counted from a use's end, which
+    /// goes by the drawn pace). Returns whether it came within `steps` steps.
+    pub fn until_ready(&mut self, character: u64, skill: u32, steps: usize) -> bool {
+        let Some(world) = yalain_world::social::world_of(&self.server, character) else {
+            return false;
+        };
+        let Some(usage) = self
+            .server
+            .skill_table
+            .skills
+            .get(&skill)
+            .and_then(|d| d.usage.clone())
+        else {
+            return false;
+        };
+        self.run_until(steps, |h| {
+            h.server
+                .players
+                .get(&world)
+                .is_some_and(|p| p.using.is_none())
+                && yalain_world::skill_use::time_left(
+                    &h.server,
+                    world,
+                    skill,
+                    &usage,
+                    h.net.game_time(h.now),
+                ) <= 0.0
+        })
+    }
 }

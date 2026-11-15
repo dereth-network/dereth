@@ -293,22 +293,31 @@ fn a_second_debuff_keeps_the_appearance_until_the_later_one_runs_out() {
     let beetle = beetles[0];
     place(&mut h, me, beetle, 6.0, 0.0);
     h.arm(b, me, STAVE);
-    let (_, first) = until_it_lands(&mut h, b, VACUUM, beetle, VACUUM_FX);
-    // Again after the recovery, until a second record is on.
-    let mut id = 100;
-    let second = loop {
-        h.run(110);
-        let from = use_skill(&mut h, b, id, VACUUM, beetle);
-        h.run(60);
-        let n = effects::records_of(&h.server, On::Creature(beetle))
+    let vacuums = |h: &Harness| {
+        effects::records_of(&h.server, On::Creature(beetle))
             .iter()
             .filter(|e| e.state == VACUUM_EFFECT)
-            .count();
-        if n == 2 {
-            break from;
+            .count()
+    };
+    // Again after the recovery, until a second record is on. A use lands at a chance, and three
+    // fit in the first's thirty seconds: when none of them lands, wait out whatever is on and
+    // land a first again. Twenty rounds leave no dice a real chance of none.
+    let mut id = 100;
+    let (first, second) = 'rounds: {
+        for _ in 0..20 {
+            assert!(h.run_until(800, |h| vacuums(h) == 0), "the last ran out");
+            let (_, first) = until_it_lands(&mut h, b, VACUUM, beetle, VACUUM_FX);
+            for _ in 0..3 {
+                h.run(110);
+                let from = use_skill(&mut h, b, id, VACUUM, beetle);
+                id += 1;
+                h.run(60);
+                if vacuums(&h) == 2 {
+                    break 'rounds (first, from);
+                }
+            }
         }
-        id += 1;
-        assert!(id < 103, "a second record");
+        panic!("a second record");
     };
     let later = effects::records_of(&h.server, On::Creature(beetle))
         .iter()

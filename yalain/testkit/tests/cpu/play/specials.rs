@@ -1294,6 +1294,11 @@ fn a_special_waits_its_recovery_from_its_last_use() {
 fn riposte_inside_a_run_takes_one_swing_and_the_run_goes_on() {
     let (mut h, b, me, beetle) = beside_a_beetle();
     h.arm(b, me, SWORD);
+    // The beetle lives through the run's swings, however they are drawn.
+    if let Some(t) = h.server.things.get_mut(beetle) {
+        t.max_health = 1_000_000;
+        t.health = 1_000_000;
+    }
     h.bots[b].send(
         true,
         queue::WEENIE,
@@ -1449,8 +1454,25 @@ fn a_recall_short_of_full_vigor_is_refused() {
 /// Behaviour: server.specials.opening-exploited
 #[test]
 fn a_starting_special_exploits_a_creatures_opening() {
+    use yalain_world::player::quality;
     let (mut h, b, me, beetle) = beside_a_beetle();
     h.arm(b, me, SWORD);
+    // A use lands at a chance, so it may take many: the player has the vigor and the health to
+    // see them through, and the beetle the health to live through them.
+    for p in h.server.players.values_mut() {
+        for (q, n) in [
+            (quality::VIGOR_MAX, 5000),
+            (quality::VIGOR, 5000),
+            (quality::HEALTH_MAX, 100_000),
+            (quality::HEALTH, 100_000),
+        ] {
+            yalain_world::quals::set_int(&mut p.qualities, q, n);
+        }
+    }
+    if let Some(t) = h.server.things.get_mut(beetle) {
+        t.max_health = 1_000_000;
+        t.health = 1_000_000;
+    }
     // The beetle comes and strikes, and is open after.
     assert!(
         h.run_until(600, |h| h.world_messages(b, 0).iter().any(
@@ -1464,6 +1486,7 @@ fn a_starting_special_exploits_a_creatures_opening() {
         if !h.server.things.get(beetle).is_some_and(|t| t.alive()) || id > 40 {
             break false;
         }
+        assert!(h.until_ready(me, RIPOSTE, 400), "ready again");
         let from = use_skill(&mut h, b, id, RIPOSTE, beetle);
         h.run(40);
         let msgs = h.world_messages(b, from);

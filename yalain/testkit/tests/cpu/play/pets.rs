@@ -497,6 +497,11 @@ fn a_pet_takes_on_what_its_owner_attacks_and_the_creature_fights_the_pet() {
     let mut h = Harness::new();
     let (b, me, pet) = with_lasher(&mut h);
     let beetle = beetle(&mut h);
+    // It lives through as many strikes as the test waits for.
+    if let Some(t) = h.server.things.get_mut(beetle) {
+        t.max_health = 1_000_000;
+        t.health = 1_000_000;
+    }
     // The owner beside the beetle, so its hits reach.
     let at = h
         .server
@@ -543,8 +548,10 @@ fn a_pet_takes_on_what_its_owner_attacks_and_the_creature_fights_the_pet() {
         hurt_first.expect("the owner hurts it") < pet_first.expect("the pet strikes it"),
         "the owner's hit first"
     );
+    // It turns on the pet at 62% of the pet's strikes that land: a hundred seconds of them leave
+    // no dice a real chance of none.
     assert!(
-        h.run_until(100, |h| target_of(h, beetle) == Some(pet)),
+        h.run_until(2000, |h| target_of(h, beetle) == Some(pet)),
         "the beetle fights the pet"
     );
 }
