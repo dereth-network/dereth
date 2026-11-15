@@ -551,11 +551,20 @@ mod tests {
             count += 1;
             assert!(count < 10_000_000, "no program fell behind");
         }
-        // Each reads what reached it, then the end: the channel closed it.
+        // Each reads what reached it, then the end: the channel closed it. On Windows a connection
+        // closed with lines still unread on its side ends in a reset instead, which is closed too;
+        // the read's guard running out is not.
         for (_s, mut reader) in connected {
             let mut rest = Vec::new();
             let end = reader.read_to_end(&mut rest);
-            assert!(end.is_ok(), "{end:?} after {} bytes", rest.len());
+            let closed = match &end {
+                Ok(_) => true,
+                Err(e) => matches!(
+                    e.kind(),
+                    std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted
+                ),
+            };
+            assert!(closed, "{end:?} after {} bytes", rest.len());
         }
         // Their places are free once their threads end: another program is let in. The count
         // only stops a hang.
