@@ -425,6 +425,20 @@ pub fn turbine_chat_received(
 
             enqueue_send(w, session, response(context_id, adjusted_chat_type));
         } else {
+            // DIVERGE: V533, a line sent by id to a room that is none of the four open to all
+            // players (room 0) is dropped: ACE sends it to every player online, past the rooms'
+            // listen options and `chat_disable_*`, with the chat type the client gave it.
+            if ![
+                turbine_chat_channel::GENERAL,
+                turbine_chat_channel::TRADE,
+                turbine_chat_channel::LFG,
+                turbine_chat_channel::ROLEPLAY,
+            ]
+            .contains(&adjusted_channel_id)
+            {
+                return Ok(());
+            }
+
             // Channel must be one of the channels available to all players
             if is_olthoi_player(w, player) {
                 //HandleChatReject(session, contextId, chatType, gameMessageTurbineChat, "because this account is not 15 days old");

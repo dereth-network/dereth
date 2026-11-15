@@ -1,6 +1,7 @@
 //! ACE: Source/ACE.Server/WorldObjects/Player.cs::HandleActionTalk
 //! Local speech heard in range only; tells reach targets, offline names answered, squelched
 //! senders dropped; TalkDirect in landblock; General turbine chat reaches subscribers only.
+//! Divergence: V533
 //! Fixture: a virtual-time TestServer, isolated stores and synthetic dats.
 
 use std::net::{IpAddr, Ipv4Addr};
@@ -671,4 +672,26 @@ fn a_general_turbine_chat_message_reaches_the_subscribed_players_and_not_the_oth
     t.ts.advance(0.3);
     assert!(chat_since(&t.ts, t.b, mb).is_empty());
     assert_eq!(kinds(&chat_since(&t.ts, t.c, mc)), [TURBINE_CHAT]);
+}
+
+/// TurbineChat: a line sent by id to room 0, which is none of the rooms open to all players,
+/// reaches nobody.
+#[test]
+fn a_turbine_chat_message_to_room_zero_reaches_nobody() {
+    let mut t = three();
+    let [ma, mb, mc] = marks(&t);
+    let m = SendToRoomById {
+        context: 7,
+        room: 0,
+        text: "to everyone".to_owned(),
+        extra: ExtraBlob::Speaker {
+            sender: ALPHA,
+            chat_type: 2,
+        },
+    };
+    t.ts.send_message(t.a, NetQueue::Logon, &m);
+    t.ts.advance(0.3);
+    for (id, mark) in [(t.a, ma), (t.b, mb), (t.c, mc)] {
+        assert!(chat_since(&t.ts, id, mark).is_empty());
+    }
 }
