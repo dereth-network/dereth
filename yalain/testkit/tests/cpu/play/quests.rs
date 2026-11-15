@@ -291,6 +291,101 @@ fn an_item_used_on_an_object_takes_the_player_and_moves_the_quest_on_arrival() {
     assert!(p.play.items.iter().all(|i| i.id != glyph));
 }
 
+/// A template that stacks, a thousand to a stack.
+const STACKING: u32 = 0x4700_2109;
+
+/// The quality an item's quantity is told by.
+const QUANTITY: u32 = 262;
+
+/// A step that takes an item of a template that stacks takes one of the stack, as an item used is
+/// spent: a use of a person leaves a stack of three at two, its new quantity told; the stack used
+/// on an object is left one less again; the last of it is taken whole.
+/// Behaviour: server.quests.a-step-takes-one-of-a-stack
+#[test]
+fn a_step_that_takes_an_item_that_stacks_takes_one_of_the_stack_and_the_last_whole() {
+    let mut h = Harness::new();
+    h.server.catalog = test_catalog();
+    let mut props = yalain_content::Props::default();
+    props.set("Item_MaxStackSize", yalain_content::Prop::Int(1000));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(STACKING, 0x200, props));
+    h.server.content = ContentPack {
+        objects: vec![
+            object(EXPLORER, EXPLORER_TEMPLATE, Kind::Npc, [61.0, 241.0, -44.6]),
+            object(VAULT, VAULT_TEMPLATE, Kind::Static, [61.0, 241.0, -44.6]),
+        ],
+        ..ContentPack::default()
+    };
+    let takes = |needs, trigger| Step {
+        takes: vec![STACKING],
+        ..step(HALL_QUEST, needs, trigger, Update::Advance(needs + 1))
+    };
+    h.server.quests = QuestTable {
+        quests: vec![quest(HALL_QUEST, 0, -999)],
+        steps: vec![
+            takes(1, Trigger::Use(EXPLORER_TEMPLATE)),
+            takes(2, Trigger::UseOn(STACKING, VAULT_TEMPLATE)),
+            takes(3, Trigger::UseOn(STACKING, VAULT_TEMPLATE)),
+        ],
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
+    let (b, me) = h.player_in_world("one", "Elara");
+    at_phase(&mut h, HALL_QUEST, 1);
+    let world = conn_of(&h, me);
+    let stack = yalain_world::inventory::give(&mut h.server, &mut h.net, world, STACKING, 3)
+        .expect("given");
+    let left = |h: &Harness| {
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .find(|i| i.id == stack)
+            .map(|i| i.quantity)
+    };
+    let told = |h: &Harness, from: usize, n: i32| {
+        h.world_messages(b, from).iter().any(|m| {
+            matches!(m, ServerMessage::UpdateIntVisual(q)
+                if q.object.id == stack && q.quality == QUANTITY && q.value == n)
+        })
+    };
+    let destroyed = |h: &Harness, from: usize| {
+        calls_of(h, b, from)
+            .iter()
+            .any(|(f, v)| *f == DISCRETE_DESTROY && v.first() == Some(&Value::Long(stack)))
+    };
+
+    let from = use_explorer(&mut h, b, me);
+    assert_eq!(
+        updates(&h, b, from),
+        vec![0x2000_0002],
+        "the use moved it on"
+    );
+    assert_eq!(left(&h), Some(2), "one of the three taken");
+    assert!(told(&h, from, 2), "its new quantity told");
+    assert!(!destroyed(&h, from), "the stack stays");
+
+    let from = h.bots[b].inbox.len();
+    let on_vault = server_call(USE, &[use_on(stack, VAULT, me)]);
+    h.bots[b].send(true, queue::WEENIE, &on_vault);
+    h.run(20);
+    assert_eq!(
+        updates(&h, b, from),
+        vec![0x2000_0003],
+        "the item used moved it on"
+    );
+    assert_eq!(left(&h), Some(1), "one more taken");
+    assert!(told(&h, from, 1) && !destroyed(&h, from));
+
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(true, queue::WEENIE, &on_vault);
+    h.run(20);
+    assert_eq!(updates(&h, b, from), vec![0x2000_0004]);
+    assert_eq!(left(&h), None, "the last taken whole");
+    assert!(destroyed(&h, from), "and the client told it is gone");
+}
+
 /// A held item used on an object, when its step takes the fellowship along: the user's fellow goes
 /// through portal space as the user does and comes out at the step's place; a player who is no
 /// fellow stays.

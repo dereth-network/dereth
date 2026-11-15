@@ -13830,6 +13830,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-step-takes-one-of-a-stack",
+        says: "A step that takes an item of a template from its player's pack takes one item: one \
+               of a stack leaves the stack one less, its new quantity told, as an item used is \
+               spent; the last of a stack leaves the pack, the client told it is gone. A give's \
+               step keeps the count given.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-STEP-TAKES-ONE"),
+        station: "yalain-testkit::cpu::play::quests::a_step_that_takes_an_item_that_stacks_takes_one_of_the_stack_and_the_last_whole",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-step-takes-the-fellowship-along",
         says: "A step that takes its player somewhere and takes the fellowship along sends each of \
                the player's fellows in the world there too, through portal space, wherever it is: \

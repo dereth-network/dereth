@@ -14,6 +14,7 @@ what they see, not how it was done.
 - New `[rates] movement` setting to make players run faster.
 - Fixed items taken from a corpse or chest not showing in your hands.
 - Fixed corpses appearing before or after a creature finished falling.
+- Fixed quests taking a whole stack of an item when they should take one.
 
 ## 0.5.0 (2026-11-15)
 - World: portal beacons take no harm until struck by a weapon the imbuer has enchanted.

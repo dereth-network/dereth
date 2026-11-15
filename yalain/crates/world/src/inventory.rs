@@ -2231,23 +2231,28 @@ pub fn leave<S: Store>(s: &mut Server<S>, held: &[Held]) {
     }
 }
 
-/// Take an item of a template out of a player's pack and out of the world (a quest takes it, or
-/// it is used up): the client is told it is gone from the pack and forgets it. Returns whether
-/// the player held one.
+/// Take one item of a template out of a player's pack (a quest takes it, or it is used up): one of
+/// a stack leaves the stack one less, its new quantity shown, as an item used does; the last of
+/// one leaves the world, the client told it is gone from the pack and forgetting it. Returns
+/// whether the player held one.
 pub fn take_from_pack<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
     template: u32,
 ) -> bool {
-    let Some(item) = s
+    let Some((item, quantity)) = s
         .players
         .get(&world)
         .and_then(|p| p.play.items.iter().find(|h| h.template == template))
-        .map(|h| h.id)
+        .map(|h| (h.id, h.quantity))
     else {
         return false;
     };
+    if quantity > 1 {
+        crate::craft::use_up(s, net, world, item, 1);
+        return true;
+    }
     let Ok(gone) = holding::destroy_held(s, world, item) else {
         return false;
     };
