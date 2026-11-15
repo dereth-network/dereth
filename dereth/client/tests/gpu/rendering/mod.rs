@@ -41,6 +41,7 @@ mod pre_tod_ground;
 mod preview_level_zero;
 mod rain_extent;
 mod remaster_ao;
+mod remaster_baseline;
 mod remaster_d3d12;
 mod remaster_doorways;
 mod remaster_drawn;
