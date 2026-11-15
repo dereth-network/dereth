@@ -376,7 +376,7 @@ pub fn compare(o: &ReplayOutcome) -> SessionReport {
         name: o.name.clone(),
         phases: rec.groups.len(),
         ace: invariants::check(&o.recorded.msgs),
-        ours: invariants::check(&o.ours),
+        ours: invariants::check_from(&o.ours, invariants::Server::Ours),
         crashed: o.crashed.clone(),
         steered: o.steered.len(),
         capped_waits: o.capped_waits,

@@ -352,7 +352,7 @@ fn every_recording_replays_against_our_server() {
 // ---- the invariant checker on synthetic streams (no recording, no content) -----------------------
 
 mod checker {
-    use empyrean_testkit::capture_replay::invariants::check;
+    use empyrean_testkit::capture_replay::invariants::{check, check_from, Server};
     use empyrean_testkit::capture_replay::recording::Msg;
 
     const ME: u32 = 0x5000_0001;
@@ -513,6 +513,18 @@ mod checker {
         let r = check(&s);
         assert!(r.violations.is_empty());
         assert_eq!(r.documented.get("health-after-logoff"), Some(&1));
+    }
+
+    /// Our server sends an update about an object the client was never sent when the object is
+    /// in its reach, as retail did: documented on our stream, still a violation on ACE's.
+    #[test]
+    fn an_update_about_an_object_never_sent_is_documented_on_our_stream_only() {
+        let mut s = login();
+        s.push(motion(1.0, 0x8000_0099, 1));
+        let ours = check_from(&s, Server::Ours);
+        assert!(ours.violations.is_empty(), "{:?}", ours.violations);
+        assert_eq!(ours.documented.get("reach-update"), Some(&1));
+        assert_eq!(violated(&s), ["known-object"]);
     }
 }
 

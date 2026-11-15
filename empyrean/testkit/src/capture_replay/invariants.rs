@@ -3,7 +3,8 @@
 //! Each invariant was first asserted on every ACE recording. Where ACE breaks one, the invariant is
 //! either narrowed to what ACE does (an **exemption**, named with the ACE member responsible, and
 //! reported as *documented* rather than violated) or dropped and only counted (an
-//! **observation**).
+//! **observation**). Where our server breaks one on purpose, as retail did, the exemption names
+//! the divergence and applies to our stream only.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -23,8 +24,8 @@ pub const INVARIANTS: [(&str, &str); 9] = [
     ("login-shape", "each login sends one PlayerDescription, then one PlayerCreate, then the character's CreateObject"),
 ];
 
-/// The exemptions: an invariant ACE breaks in a narrow, explained way.
-pub const EXEMPTIONS: [(&str, &str, &str); 3] = [
+/// The exemptions: an invariant ACE, or our server on purpose, breaks in a narrow, explained way.
+pub const EXEMPTIONS: [(&str, &str, &str); 4] = [
     (
         "early-announce",
         "known-object",
@@ -44,7 +45,21 @@ pub const EXEMPTIONS: [(&str, &str, &str); 3] = [
         "a vital update one sequence behind the previous one in the same send: Player.ThreadSafeTeleportOnDeath builds \
          its three vital messages, then UpdateVital sends newer ones before them",
     ),
+    (
+        "reach-update",
+        "known-object",
+        "ours only (V286): an update about an object the client was never sent or has forgotten: every object \
+         update goes to the players in the object's landblock and the adjacent ones, as retail sent it, whether \
+         or not they have the object",
+    ),
 ];
+
+/// Whose stream is checked: ACE's recording, or our server's replay of it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Server {
+    Ace,
+    Ours,
+}
 
 /// Observations: properties ACE does not have, counted only.
 pub const OBSERVATIONS: [(&str, &str); 2] = [
@@ -94,10 +109,16 @@ impl InvariantReport {
 /// The early-announce window: how long after an update its object's create may follow.
 pub const EARLY_ANNOUNCE_S: f64 = 2.0;
 
-/// Checks one stream (see [`INVARIANTS`]).
+/// Checks one of ACE's streams (see [`INVARIANTS`]).
+#[must_use]
+pub fn check(msgs: &[Msg]) -> InvariantReport {
+    check_from(msgs, Server::Ace)
+}
+
+/// Checks one stream from `server` (see [`INVARIANTS`]; our server's has its own exemptions).
 #[must_use]
 #[allow(clippy::too_many_lines)]
-pub fn check(msgs: &[Msg]) -> InvariantReport {
+pub fn check_from(msgs: &[Msg], server: Server) -> InvariantReport {
     let mut r = InvariantReport::default();
     let bump = |r: &mut InvariantReport, id: &'static str| *r.checks.entry(id).or_insert(0) += 1;
 
@@ -231,6 +252,8 @@ pub fn check(msgs: &[Msg]) -> InvariantReport {
                 }
                 if created_soon(g, i, m.t) {
                     *r.documented.entry("early-announce").or_insert(0) += 1;
+                } else if server == Server::Ours {
+                    *r.documented.entry("reach-update").or_insert(0) += 1;
                 } else {
                     hit(
                         &mut r,
