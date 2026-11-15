@@ -1,11 +1,12 @@
 //! Behaviour: none (experimental)
 //!
-//! The moving bodies' motion under the anti-aliasing. Fixture: the town by day, the object standing
-//! nearest the look point taken as a body of the frame, moved [`STEP`] meters east between two
-//! frames.
+//! What moves under the anti-aliasing: the moving bodies, and the leaves the wind sways. Fixtures:
+//! the town by day, the object standing nearest the look point taken as a body of the frame, moved
+//! [`STEP`] meters east between two frames; the camp's ferns by day, swaying in the wind as the
+//! clock runs.
 //!
-//! `AUBEREAN_REMASTER_CAPTURE_DIR`, when set, names a folder the frames after the move, with the
-//! motion and without it, and the settled frame are written to.
+//! `AUBEREAN_REMASTER_CAPTURE_DIR`, when set, names a folder the frames after the move (and of the
+//! swaying ferns), with the motion and without it, and the settled frames are written to.
 
 use auberean_draw::scene::{Frame, Pass};
 use auberean_remaster::Remaster;
@@ -148,5 +149,94 @@ fn a_moving_body_is_gathered_from_where_it_moved_from() {
         within_devices(&still_with, &still_without),
         "while nothing moves, the motion changes the frame: {:?} (pixels, levels) apart",
         apart(&still_with, &still_without)
+    );
+}
+
+/// The wind the camp's ferns sway in, meters a second east (a gale, so the leaves flutter by
+/// pixels a frame), and the frames a second the clock runs at.
+const WIND: f32 = 12.0;
+const RATE: f64 = 10.0;
+
+/// The camp's frame at `frames` frames of the clock, in the wind `wind`.
+fn camp_at(base: &Frame, wind: f32, frames: usize) -> Frame {
+    let mut f = base.clone();
+    f.wind = [wind, 0.0, 0.0];
+    #[allow(clippy::cast_precision_loss)] // a few dozen frames
+    let at = frames as f64 / RATE;
+    f.uptime = base.uptime + at;
+    f
+}
+
+/// The camp drawn for [`SETTLE`] frames under the anti-aliasing with the sway on, the clock
+/// running a frame at a time from `from` (or held there, when `held`), with the motion or not: the
+/// last frame.
+fn swaying(base: &Frame, wind: f32, from: usize, held: bool, motion: bool) -> Vec<u8> {
+    let records = records();
+    let mut load = |id: u32| auberean_draw::picture::load(records, id);
+    let mut r = remaster();
+    r.set_sway(true);
+    r.set_motion(motion);
+    let mut last = Vec::new();
+    for k in 0..SETTLE {
+        let f = camp_at(base, wind, if held { from } else { from + k });
+        last = r.render(&f, W, H, &mut load).expect("the frame").rgba;
+    }
+    last
+}
+
+/// **Swaying leaves are gathered from where the wind bent them**: at the camp under the
+/// anti-aliasing, with the ferns swaying in the wind as the clock runs, the last frame is nearer
+/// the frame settled with the clock held at that moment, over the pixels the sway moves, with the
+/// motion drawn than without it, by at least a twentieth (the anti-aliasing still softens what
+/// moves: each frame takes its history from between last frame's pixels); and with no wind the
+/// motion changes no pixel (each drawn on a device of its own: byte for byte, or within
+/// [`CROSS_DEVICE`]).
+///
+/// [`CROSS_DEVICE`]: crate::common::CROSS_DEVICE
+#[test]
+fn swaying_leaves_are_gathered_from_where_the_wind_bent_them() {
+    let _turn = turn();
+    let s = *STATIONS
+        .iter()
+        .find(|s| s.name == "camp-c156")
+        .expect("the station");
+    let base = frame(&s);
+    let end = SETTLE - 1;
+    let with = swaying(&base, WIND, 0, false, true);
+    let without = swaying(&base, WIND, 0, false, false);
+    let settled = swaying(&base, WIND, end, true, false);
+    // Where the sway moves the settled frame: held a frame earlier, by over sixteen levels.
+    let earlier = swaying(&base, WIND, end - 1, true, false);
+    let errors = dereth_gfx::take_validation_errors();
+    assert!(errors.is_empty(), "the validation layer: {errors:#?}");
+    if let Some(dir) = std::env::var_os("AUBEREAN_REMASTER_CAPTURE_DIR") {
+        let dir = std::path::PathBuf::from(dir);
+        write_png(&dir.join("sway-motion-with.png"), W, H, &with);
+        write_png(&dir.join("sway-motion-without.png"), W, H, &without);
+        write_png(&dir.join("sway-motion-settled.png"), W, H, &settled);
+    }
+    let moving: Vec<bool> = earlier
+        .chunks(4)
+        .zip(settled.chunks(4))
+        .map(|(x, y)| (0..3).any(|c| x[c].abs_diff(y[c]) > 16))
+        .collect();
+    let n = moving.iter().filter(|c| **c).count();
+    let near_with = mean_apart(&with, &settled, &moving);
+    let near_without = mean_apart(&without, &settled, &moving);
+    eprintln!(
+        "camp-c156: the sway moves {n} pixels; swaying, {near_with:.2} levels from the settled \
+         frame with the motion, {near_without:.2} without"
+    );
+    assert!(n >= 1000, "the sway moved too little: {n} pixels");
+    assert!(
+        near_with <= near_without * 0.95,
+        "the motion gathered no nearer: {near_with:.2} with, {near_without:.2} without"
+    );
+    let calm_with = swaying(&base, 0.0, 0, false, true);
+    let calm_without = swaying(&base, 0.0, 0, false, false);
+    assert!(
+        within_devices(&calm_with, &calm_without),
+        "with no wind, the motion changes the frame: {:?} (pixels, levels) apart",
+        apart(&calm_with, &calm_without)
     );
 }

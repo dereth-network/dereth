@@ -29,9 +29,10 @@
 //! day's dome and under its other objects, and a veil of haze over the horizon after retail's
 //! own veil, in the frame and in the water's reflection.
 //!
-//! With the anti-aliasing and the motion on, each draw of a body that moved since the last frame
-//! is drawn again into the post passes' motion picture, where its surface was last frame, so the
-//! anti-aliasing gathers it from where it moved from and it doesn't smear.
+//! With the anti-aliasing and the motion on, each draw of a body that moved since the last frame,
+//! and each draw the wind sways, is drawn again into the post passes' motion picture, where its
+//! surface was last frame, so the anti-aliasing gathers it from where it moved from and it doesn't
+//! smear.
 //!
 //! With the crossfade on, an object whose detail changes with distance is drawn in both levels
 //! over a band about each change, each in its share of the pixels by a hash that moves each frame,
@@ -368,8 +369,10 @@ pub struct Remaster {
     /// crossfaded.
     crossfade: bool,
     last_crossfaded: usize,
-    /// Whether the grass and the leaves sway in the wind.
+    /// Whether the grass and the leaves sway in the wind, and the wind they swayed in last frame
+    /// (the frame's wind row), for their motion.
     sway: bool,
+    last_wind: Option<[f32; 4]>,
     /// The traced shadows and occlusion, and how many instances the last frame traced.
     traced: traced::Traced,
     last_traced: usize,
@@ -557,6 +560,7 @@ impl Remaster {
             crossfade: false,
             last_crossfaded: 0,
             sway: false,
+            last_wind: None,
             traced,
             last_traced: 0,
             frame: 0,
@@ -2104,7 +2108,7 @@ impl Remaster {
         // The moving bodies: each body's draw that marks how near it is and stood last frame with
         // as many vertices, with its constants and pose as it stood then.
         let moving = if self.motion_on && self.post.settings().taa {
-            self.moving(frame, &steps, out_sun, &mut records, &mut posed)
+            self.moving(frame, &steps, wind_row, out_sun, &mut records, &mut posed)
         } else {
             self.last_bodies.clear();
             Vec::new()
@@ -2478,6 +2482,7 @@ impl Remaster {
                 })?;
                 let mut rows = Rows::default();
                 rows.mat(camera.previous_view_projection.unwrap_or(view_projection));
+                rows.f(self.last_wind.or(wind_row).unwrap_or([0.0; 4]));
                 self.motion_rows.write(&mut self.gfx, &rows.bytes())?;
                 Some((target, pipeline, self.motion_rows.index))
             }
@@ -2710,6 +2715,7 @@ impl Remaster {
                                 m.last_posed.unwrap_or(0),
                                 last,
                                 t.gbuffer.index[4],
+                                d.sway,
                             ]),
                         )?;
                         rec.bind_index_buffer(d.indices, 0, d.index_type)?;
@@ -2732,25 +2738,40 @@ impl Remaster {
         // Left ready to sample, for whoever shows the picture.
         r.touch(&[Touch::Texture(t.color, Use::Sampled)])?;
         r.submit()?;
+        self.last_wind = wind_row;
         self.retire();
         Ok(t.color)
     }
 
-    /// The frame's moving bodies: each body's draw in `steps` that the depth's pass draws and that
-    /// stood last frame with as many vertices, either moved or posed, with its constants as it
-    /// stood then (into `records`, lit by `sun`) and its pose then (into `posed`). What each body's
-    /// draws stand as now is kept for the next frame.
+    /// What moves under the view this frame: each body's draw in `steps` that the depth's pass
+    /// draws and that stood last frame with as many vertices, either moved or posed, with its
+    /// constants as it stood then (into `records`, lit by `sun`) and its pose then (into `posed`);
+    /// and, while the wind (`wind`, this frame's wind row, or the last frame's) blows, each draw it
+    /// sways that the depth's pass draws. What each body's draws stand as now is kept for the next
+    /// frame.
     fn moving(
         &mut self,
         frame: &Frame,
         steps: &Steps,
+        wind: Option<[f32; 4]>,
         sun: [f32; 4],
         records: &mut Vec<DrawUniforms>,
         posed: &mut Vec<auberean_draw::mesh::PosedVertex>,
     ) -> Vec<Moving> {
         let mut out = Vec::new();
         let mut stood = HashMap::new();
+        // The wind bends what sways this frame or bent it last frame: it moves under the view.
+        let blows = |w: Option<[f32; 4]>| w.is_some_and(|w| w[0] != 0.0 || w[1] != 0.0);
+        let swaying = blows(wind) || blows(self.last_wind);
         for d in steps.all() {
+            if swaying && d.sway != u32::MAX && d.shown && depth_key(d).is_some() {
+                out.push(Moving {
+                    draw: *d,
+                    last_record: d.record,
+                    last_posed: None,
+                });
+                continue;
+            }
             let Some((id, k, at)) = d.body else {
                 continue;
             };
