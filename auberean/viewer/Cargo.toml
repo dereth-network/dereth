@@ -18,6 +18,8 @@ auberean-assets.workspace = true
 auberean-world.workspace = true
 auberean-draw.workspace = true
 auberean-gpu.workspace = true
+# The remaster, drawn in place of the retail device when asked.
+auberean-remaster.workspace = true
 auberean-physics.workspace = true
 auberean-animation.workspace = true
 dereth-primitives.workspace = true

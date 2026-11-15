@@ -188,6 +188,9 @@ members = [
     "auberean/client/crates/draw",
     "auberean/client/crates/gpu",
     "auberean/client/crates/present",
+    # The remaster: the world drawn on Dereth's backend layer and shared passes, beside the wgpu
+    # device and never instead of it.
+    "auberean/client/crates/remaster",
     "auberean/client/crates/scene",
     "auberean/client/crates/shell",
     "auberean/client",
@@ -334,6 +337,7 @@ auberean-friends = { path = "core/auberean-friends" }
 auberean-glue = { path = "core/auberean-glue" }
 auberean-gpu = { path = "auberean/client/crates/gpu" }
 auberean-present = { path = "auberean/client/crates/present" }
+auberean-remaster = { path = "auberean/client/crates/remaster" }
 auberean-scene = { path = "auberean/client/crates/scene" }
 auberean-shell = { path = "auberean/client/crates/shell" }
 auberean-ui = { path = "auberean/client/crates/ui" }

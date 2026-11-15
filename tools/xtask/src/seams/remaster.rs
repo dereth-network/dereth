@@ -5,9 +5,14 @@
 //!   [`REMASTER_TREE_FORBIDDEN`] in its tree (with every feature, for every target), names none of
 //!   [`REMASTER_NAMES_NOT`] and no identifier starting with one of [`REMASTER_PREFIXES_NOT`] (the
 //!   simulation, the world, the network, the scene, the client past the device and the server),
-//!   and its only dependents are `dereth-remaster` and the shared passes.
+//!   and its only dependents are the two remasters and the shared passes.
 //! - `dereth-gfx-passes`, the passes that name nothing of the game, holds no workspace crate but
-//!   the layer in its tree and names the same nothing; its only dependent is `dereth-remaster`.
+//!   the layer in its tree and names the same nothing; its only dependents are the two remasters.
+//! - The second game's remaster (`auberean-remaster`) holds none of
+//!   [`AUBEREAN_REMASTER_TREE_FORBIDDEN`] (a platform, or the retail device it stands beside), names
+//!   none of [`AUBEREAN_REMASTER_NAMES_NOT`] (the game's simulation, network, shell and scene), and
+//!   its only dependents are [`AUBEREAN_REMASTER_DEPENDENTS`]; its browser and headless clients
+//!   ([`AUBEREAN_SHIPPED_CLIENTS`]) hold none of it.
 //! - `dereth-remaster`'s tree holds no workspace crate but [`REMASTER_TREE_DERE`] and none of
 //!   [`REMASTER_TREE_FORBIDDEN`]; its code names the same nothing; its only dependent is
 //!   `dereth-scene`; and only the scene's own remaster files ([`REMASTER_FILES`]) name it.
@@ -37,6 +42,33 @@ pub const GFX: &str = "dereth-gfx";
 /// The passes that name nothing of the game, which a game's remaster draws with.
 pub const GFX_PASSES: &str = "dereth-gfx-passes";
 
+/// The second game's remaster.
+pub const AUBEREAN_REMASTER: &str = "auberean-remaster";
+
+/// Its only dependents: the offline world viewer.
+pub const AUBEREAN_REMASTER_DEPENDENTS: &[&str] = &["auberean-viewer"];
+
+/// What its production tree never holds: a platform, or the retail device, which it stands beside
+/// and never draws with (its tests compare with it).
+pub const AUBEREAN_REMASTER_TREE_FORBIDDEN: &[&str] = &["winit", "cpal", "auberean-gpu"];
+
+/// What its code (comments stripped, its tests included) never names: the game's simulation,
+/// network, shell and scene.
+pub const AUBEREAN_REMASTER_NAMES_NOT: &[&str] = &[
+    "auberean_client_runtime",
+    "auberean_client_net",
+    "auberean_client_model",
+    "auberean_shell",
+    "auberean_scene",
+    "auberean_interface",
+    "auberean_physics",
+    "auberean_protocol",
+];
+
+/// The second game's clients that never carry its remaster, each built on its own: the browser
+/// client and the headless one.
+pub const AUBEREAN_SHIPPED_CLIENTS: &[&str] = &["auberean-web", "auberean-headless"];
+
 /// The workspace crates the remaster's tree may hold, at any depth, with every feature on.
 pub const REMASTER_TREE_DERE: &[&str] = &[
     "dereth-remaster",
@@ -51,9 +83,9 @@ pub const REMASTER_TREE_DERE: &[&str] = &[
 /// The remaster's only dependent, and the layer's.
 pub const REMASTER_DEPENDENTS: &[&str] = &["dereth-scene"];
 /// The backend layer's only dependents.
-pub const GFX_DEPENDENTS: &[&str] = &["dereth-remaster", "dereth-gfx-passes"];
-/// The shared passes' only dependent.
-pub const GFX_PASSES_DEPENDENTS: &[&str] = &["dereth-remaster"];
+pub const GFX_DEPENDENTS: &[&str] = &["dereth-remaster", "dereth-gfx-passes", "auberean-remaster"];
+/// The shared passes' only dependents.
+pub const GFX_PASSES_DEPENDENTS: &[&str] = &["dereth-remaster", "auberean-remaster"];
 
 /// Platform crates the remaster's tree and the layer's never hold.
 pub const REMASTER_TREE_FORBIDDEN: &[&str] = &["winit", "cpal"];
@@ -202,6 +234,27 @@ pub fn code_rule(files: &[(PathBuf, String)]) -> Vec<String> {
                 if names_prefix(code, p) {
                     out.push(format!(
                         "{}:{}: names `{p}...`: {}",
+                        file.display(),
+                        i + 1,
+                        line.trim()
+                    ));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// A crate's code (`files`, comments blanked): no identifier starting with one of `names`.
+pub fn names_rule(files: &[(PathBuf, String)], names: &[&str]) -> Vec<String> {
+    let mut out = Vec::new();
+    for (file, text) in files {
+        let code_text = blank_comments(text);
+        for (i, (code, line)) in code_text.lines().zip(text.lines()).enumerate() {
+            for n in names {
+                if names_prefix(code, n) {
+                    out.push(format!(
+                        "{}:{}: names `{n}`: {}",
                         file.display(),
                         i + 1,
                         line.trim()
@@ -399,6 +452,31 @@ pub fn reports(ws: &Path, workspace_rs: &[(PathBuf, String)], row: Row<'_>) -> V
     let passes_code = Ok(code_rule(&crate_sources(ws, GFX_PASSES)));
     let passes_dependents =
         dependents(GFX_PASSES).map(|t| dependents_rule(GFX_PASSES, &t, GFX_PASSES_DEPENDENTS));
+    let ac2_tree = tree(AUBEREAN_REMASTER)
+        .map(|t| tree_violations(AUBEREAN_REMASTER, &t, AUBEREAN_REMASTER_TREE_FORBIDDEN));
+    let ac2_code = Ok(names_rule(
+        &crate_sources(ws, AUBEREAN_REMASTER),
+        AUBEREAN_REMASTER_NAMES_NOT,
+    ));
+    let ac2_dependents = dependents(AUBEREAN_REMASTER)
+        .map(|t| dependents_rule(AUBEREAN_REMASTER, &t, AUBEREAN_REMASTER_DEPENDENTS));
+    let ac2_shipped = AUBEREAN_SHIPPED_CLIENTS
+        .iter()
+        .map(|p| {
+            feature_tree(ws, p).map(|t| {
+                t.lines()
+                    .filter(|l| {
+                        let n = l.split_whitespace().next().unwrap_or("");
+                        n == AUBEREAN_REMASTER || n == GFX || n == GFX_PASSES
+                    })
+                    .map(|l| format!("`{p}`, built on its own, holds the remaster: {}", l.trim()))
+                    .collect::<Vec<_>>()
+            })
+        })
+        .try_fold(Vec::new(), |mut all, v| {
+            all.extend(v?);
+            Ok::<_, String>(dedup(all))
+        });
     let (remaster_tree, remaster_code, remaster_dependents) = if has_remaster {
         (
             tree(REMASTER).map(|t| tree_rule(REMASTER, &t, &members, REMASTER_TREE_DERE)),
@@ -451,6 +529,32 @@ pub fn reports(ws: &Path, workspace_rs: &[(PathBuf, String)], row: Row<'_>) -> V
             format!(
                 "only {} depends on {GFX_PASSES}",
                 GFX_PASSES_DEPENDENTS.join(", ")
+            ),
+        ),
+        row(
+            "seam: auberean remaster deps",
+            ac2_tree,
+            format!("{AUBEREAN_REMASTER} reaches no window system, sound device or retail device"),
+        ),
+        row(
+            "seam: auberean remaster code",
+            ac2_code,
+            "names no simulation, network, shell or scene crate".to_owned(),
+        ),
+        row(
+            "seam: auberean remaster dependents",
+            ac2_dependents,
+            format!(
+                "only {} depends on {AUBEREAN_REMASTER}",
+                AUBEREAN_REMASTER_DEPENDENTS.join(", ")
+            ),
+        ),
+        row(
+            "seam: auberean browser and headless clients without the remaster",
+            ac2_shipped,
+            format!(
+                "{}, each built on its own for every target, hold no remaster",
+                AUBEREAN_SHIPPED_CLIENTS.join(", ")
             ),
         ),
         row(
@@ -530,6 +634,17 @@ mod tests {
             tree_rule(REMASTER, &into_scene, &members, REMASTER_TREE_DERE).len(),
             1
         );
+    }
+
+    #[test]
+    fn the_auberean_remaster_names_no_game_crate_past_the_frame() {
+        let files = vec![(
+            PathBuf::from("auberean/client/crates/remaster/src/a.rs"),
+            "use auberean_draw::scene::Frame;\n// auberean_shell in a comment is fine\nuse auberean_shell::Shell;\nuse auberean_client_net::X;\n"
+                .to_owned(),
+        )];
+        let found = names_rule(&files, AUBEREAN_REMASTER_NAMES_NOT);
+        assert_eq!(found.len(), 2, "{found:#?}");
     }
 
     #[test]

@@ -2,9 +2,9 @@
 //! network.
 //!
 //! **Depends on** the world (`auberean-world`), its records (`auberean-dat`, `auberean-assets`),
-//! bodies (`auberean-animation`, `auberean-physics`), drawing (`auberean-draw`) and the device
-//! (`auberean-gpu`), with `auberean-primitives` and `dereth-primitives`. **Used by** nothing: it is
-//! the `auberean-viewer` program.
+//! bodies (`auberean-animation`, `auberean-physics`), drawing (`auberean-draw`) and the devices
+//! (`auberean-gpu`, and the remaster, `auberean-remaster`), with `auberean-primitives` and
+//! `dereth-primitives`. **Used by** nothing: it is the `auberean-viewer` program.
 //!
 //! ```text
 //! auberean-viewer --install DIR --block 6FA9 --at 45.2,90.5,85.3 --heading 178 --time 0.4 --out FILE.png
@@ -18,6 +18,9 @@
 //! then running; `--turn-at S` turns left for a second from S, `--jump-at S` jumps at S) and writes
 //! `--frames N` frames from the chase camera, and a strip of them, into the folder `--out`.
 //! `--orbit DEG` swings that camera about the body from straight behind it (180 looks at its front).
+//!
+//! `--remaster` draws the frame with the remaster (`auberean-remaster`) on a device of its own
+//! rather than with the retail device.
 //!
 //! `--uptime SECONDS` is how long the client has been running: the clouds' shadows scroll with it
 //! (default 0). `--no-shadows`, `--no-clouds` and `--no-reflections` turn the static object
@@ -93,6 +96,8 @@ struct Args {
     figure: Option<u32>,
     /// `--appearance TABLE=VALUE`: every key of that appearance table set to the value.
     appearance: Vec<(u32, f32)>,
+    /// `--remaster`: the frame drawn by the remaster rather than the retail device.
+    remaster: bool,
 }
 
 /// A record id written in hex, with or without `0x`.
@@ -141,6 +146,7 @@ fn parse() -> Result<Args, String> {
         pools: true,
         figure: None,
         appearance: Vec::new(),
+        remaster: false,
     };
     let mut it = std::env::args().skip(1);
     while let Some(k) = it.next() {
@@ -229,6 +235,7 @@ fn parse() -> Result<Args, String> {
             "--no-reflections" => a.reflections = false,
             "--no-volumes" => a.volumes = false,
             "--no-pools" => a.pools = false,
+            "--remaster" => a.remaster = true,
             "--disc" => {
                 a.disc = true;
                 a.volumes = false;
@@ -379,11 +386,25 @@ fn run() -> Result<(), String> {
     fx::add_placed(&mut frame, &records, a.block, a.startup, pools);
     // The materials as they stand at the running time asked for.
     frame.move_materials(a.uptime, &auberean_primitives::random::Random::new());
-    let mut renderer = auberean_gpu::Renderer::new().map_err(|e| e.to_string())?;
     let mut load = |id: u32| auberean_draw::picture::load(&records, id);
-    let pic = renderer
-        .render(&frame, a.size.0, a.size.1, &mut load)
-        .map_err(|e| e.to_string())?;
+    let (pic, adapter) = if a.remaster {
+        let mut remaster = auberean_remaster::Remaster::new().map_err(|e| e.to_string())?;
+        let p = remaster
+            .render(&frame, a.size.0, a.size.1, &mut load)
+            .map_err(|e| e.to_string())?;
+        let pic = auberean_gpu::Picture {
+            width: p.width,
+            height: p.height,
+            rgba: p.rgba,
+        };
+        (pic, format!("{} (remaster)", remaster.adapter))
+    } else {
+        let mut renderer = auberean_gpu::Renderer::new().map_err(|e| e.to_string())?;
+        let pic = renderer
+            .render(&frame, a.size.0, a.size.1, &mut load)
+            .map_err(|e| e.to_string())?;
+        (pic, renderer.adapter.clone())
+    };
     write_png(&a.out, &pic)?;
     let c = frame.counts;
     println!(
@@ -396,7 +417,7 @@ fn run() -> Result<(), String> {
         a.at.z,
         a.heading,
         spot.time_of_day,
-        renderer.adapter,
+        adapter,
         c.blocks,
         c.squares,
         c.holes,

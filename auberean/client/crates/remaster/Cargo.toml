@@ -1,0 +1,47 @@
+[package]
+name = "auberean-remaster"
+description = "The remaster: the world drawn on the shared backend layer and passes, beside the retail device and never instead of it, the game's own light model under the passes' masks."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+# Test targets are declared explicitly, so a stray tests/*.rs cannot become one silently.
+autotests = false
+
+[features]
+# Tier switch only: no code is gated on it. It selects the `gpu` test binary, whose tests read the
+# retail install under $AUBEREAN_TEST_DAT_DIR and need a hardware graphics device.
+retail-dats = []
+
+[dependencies]
+# What a frame draws, and the constants the world's shaders read, as the retail device takes them.
+auberean-draw.workspace = true
+# The world's colors, light and arithmetic.
+auberean-world.workspace = true
+# The backend layer the remaster draws with.
+dereth-gfx.workspace = true
+# The passes that name nothing of the game, and the G-buffer's layout and the frame's rows they
+# share with the game's own shaders.
+dereth-gfx-passes.workspace = true
+# The transcendental functions, the same bits on every host.
+dereth-primitives.workspace = true
+# The frame's inverse for the shared rows.
+glam.workspace = true
+bytemuck = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+auberean-dat = { workspace = true, features = ["test-support", "fs"] }
+auberean-assets.workspace = true
+auberean-primitives.workspace = true
+# The retail device, which the remaster at its identity is compared with.
+auberean-gpu.workspace = true
+png.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "gpu"
+path = "tests/gpu/main.rs"
+required-features = ["retail-dats"]

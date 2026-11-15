@@ -133,9 +133,16 @@ pub const DEVICE_NAMES: &[&str] = &[
 ];
 
 /// The first game's client crates the second's client may use: the sound device, the operating
-/// system's error box and its clipboard. (The picture codecs, `dereth-render-cpu`, are a core
-/// crate.)
-pub const CLIENT_MAY_USE: &[&str] = &["dereth-audio-out", "dereth-console", "dereth-clipboard"];
+/// system's error box and its clipboard, and the remaster's backend layer and the passes both
+/// games' remasters share (which name nothing of either game). (The picture codecs,
+/// `dereth-render-cpu`, are a core crate.)
+pub const CLIENT_MAY_USE: &[&str] = &[
+    "dereth-audio-out",
+    "dereth-console",
+    "dereth-clipboard",
+    "dereth-gfx",
+    "dereth-gfx-passes",
+];
 
 /// The crates outside the four parts and the core the server may use: the Dereth Network's
 /// protocol and a world's end of its link, which name no game (the network is self-contained), so

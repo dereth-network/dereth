@@ -8,7 +8,7 @@
 //! | `auberean-corpus` | the installs and the capture index | every `corpus` binary: every recorded message and script call, bodies and looks against the recordings, the recorded logins replayed through the client and against the server |
 //! | `auberean-live` | the installs | the server's `live` binary: our client against the server's executable on loopback; the world builder's: its playtest with the server and our client as programs (it builds them first) |
 //! | `auberean-network` | the installs and the first game's data files | the test kit's `network` binary: the Dereth Network end to end, the hub, a first-game world and two of this game's worlds as programs, with both games' clients; it builds those programs first |
-//! | `auberean-gpu` | the end-of-retail data files and a graphics device | every `gpu` binary: the device's pipelines and frames with every kind of draw |
+//! | `auberean-gpu` | the end-of-retail data files and a graphics device | every `gpu` binary: the device's pipelines and frames with every kind of draw, and the remaster's frames beside it |
 //! | `yalain-soak` | the installs | the server's `soak` binary: the soak and load runs, players playing scripted behaviors on the whole world, measured and checked against their invariants and the host's baseline |
 //!
 //! `cargo xtask gate <tier>` runs one. `cargo xtask ci tier1` runs the crates' tests that read
@@ -131,7 +131,10 @@ pub const GPU_TIER: Tier = Tier {
     title: "Asheron's Call 2 on a graphics device",
     reads: &[Data::Installs],
     builds: &[],
-    runs: &[("auberean-gpu", "retail-dats", "gpu")],
+    runs: &[
+        ("auberean-gpu", "retail-dats", "gpu"),
+        ("auberean-remaster", "retail-dats", "gpu"),
+    ],
 };
 
 /// The soak and load tier: never `ci tier1`'s, `ci tier2`'s or `gates`'; run by name alone.

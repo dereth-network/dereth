@@ -600,6 +600,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "auberean-remaster"
+version = "0.0.0"
+dependencies = [
+ "auberean-assets",
+ "auberean-dat",
+ "auberean-draw",
+ "auberean-gpu",
+ "auberean-primitives",
+ "auberean-world",
+ "bytemuck",
+ "dereth-gfx",
+ "dereth-gfx-passes",
+ "dereth-primitives",
+ "glam",
+ "png",
+]
+
+[[package]]
 name = "auberean-scene"
 version = "0.0.0"
 dependencies = [
@@ -706,6 +724,7 @@ dependencies = [
  "auberean-gpu",
  "auberean-physics",
  "auberean-primitives",
+ "auberean-remaster",
  "auberean-world",
  "dereth-primitives",
  "png",
