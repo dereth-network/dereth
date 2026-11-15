@@ -17,7 +17,7 @@
 //!          [--gunserver HOST [--gunport PORT] [--gunticket] [--gunticketoverride TICKET]]
 //!          [--size 1280x960] [--dev-login ACCOUNT:PASSWORD [--dev-character NAME]]
 //!          [--dev-overlay] [--dev-script FILE] [--shots DIR] [--no-window SECONDS] [--no-sound]
-//!          [--world-overlays] [--verbose]
+//!          [--world-overlays] [--remaster] [--verbose]
 //! auberean --dats <install folder> --explore [LOCATION]
 //! ```
 //!
@@ -35,6 +35,10 @@
 //! for that many seconds (the world is still framed, with no picture made), printing the status
 //! lines.
 //! The game's sound plays through the default output device; `--no-sound` runs silent.
+//! `--remaster` draws the world with the remaster (`auberean-remaster`) this session, as the
+//! `[Rendering] Remaster=1` line of the preferences does, where the device can draw it: on a Vulkan
+//! device it shares with the retail device, which draws the rest. Where it can't, the retail device
+//! draws the world, as it always does with neither.
 //! `--world-overlays` says the world takes this client's own word that it keeps a world's overlay
 //! over its data files (a Yalain world does, and the launcher says so for one); without it the
 //! client answers the world's question of which data it has as the September 2013 client does.
@@ -142,6 +146,8 @@ struct Options {
     no_sound: bool,
     /// The world takes this client's own word on keeping its overlay.
     world_overlays: bool,
+    /// `--remaster`: the world drawn by the remaster this session, whatever the settings say.
+    remaster: bool,
     gun_server: Option<String>,
     gun_port: Option<u16>,
     gun_ticket: bool,
@@ -166,7 +172,7 @@ struct Options {
 
 /// This program's own options, beside the September 2013 client's: each one's form (what it takes
 /// and keeps), long name, help and a switch's value.
-const OWN_OPTIONS: [(u32, &str, &str, i32); 16] = [
+const OWN_OPTIONS: [(u32, &str, &str, i32); 17] = [
     (
         0x11,
         "adminclient",
@@ -220,6 +226,7 @@ const OWN_OPTIONS: [(u32, &str, &str, i32); 16] = [
     (0x32, "shots", "<folder>: Where screenshots go.", 0),
     (0x11, "verbose", "Write more to the log.", 1),
     (0x11, "no-sound", "Play no sound.", 1),
+    (0x11, "remaster", "Draw the world with the remaster.", 1),
     (
         0x11,
         "world-overlays",
@@ -299,6 +306,7 @@ impl Reader for Line {
             "verbose" => self.o.verbose = true,
             "no-sound" => self.o.no_sound = true,
             "world-overlays" => self.o.world_overlays = true,
+            "remaster" => self.o.remaster = true,
             "explore" => self.o.explore = Some(value.to_owned()),
             "no-window" => match value.parse() {
                 Ok(v) => self.o.no_window = Some(v),
@@ -707,11 +715,22 @@ impl Host for Desktop {
     }
 }
 
-/// The device for `window`.
+/// The device for `window`: with the remaster asked for (`remaster`), one the remaster shares, the
+/// remaster drawing the world; else, or where the device can't draw it, the retail device's own.
 fn presenter(
     window: &Arc<Window>,
     presentation: &Presentation,
+    remaster: bool,
 ) -> Result<auberean_present::Presenter, String> {
+    #[cfg(all(feature = "remaster", not(target_os = "macos")))]
+    if remaster {
+        match remastered(window, presentation) {
+            Ok(p) => return Ok(p),
+            Err(e) => tracing::warn!(%e, "the remaster is not drawn: the retail device draws"),
+        }
+    }
+    #[cfg(not(all(feature = "remaster", not(target_os = "macos"))))]
+    let _ = remaster;
     let instance =
         wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
     let size = window.inner_size();
@@ -724,6 +743,86 @@ fn presenter(
         (size.width, size.height),
         presentation.antialiasing,
     )?;
+    p.set_presentation(
+        presentation.full_screen,
+        presentation.triple_buffering,
+        presentation.sync_to_display,
+    );
+    Ok(p)
+}
+
+/// The remaster drawing the world's picture, beside the retail device on the device they share.
+#[cfg(all(feature = "remaster", not(target_os = "macos")))]
+struct Remastered {
+    painter: auberean_remaster::shared::Painter,
+    /// A frame it could not draw, told once; the retail device draws from then on.
+    failed: bool,
+}
+
+#[cfg(all(feature = "remaster", not(target_os = "macos")))]
+impl auberean_present::WorldPainter for Remastered {
+    fn paint(
+        &mut self,
+        frame: &auberean_draw::scene::Frame,
+        size: (u32, u32),
+        load: &mut dyn FnMut(u32) -> Option<auberean_draw::picture::Image>,
+    ) -> Option<wgpu::Texture> {
+        if self.failed {
+            return None;
+        }
+        match self.painter.paint(frame, size, load) {
+            Ok(t) => Some(t),
+            Err(e) => {
+                tracing::error!(%e, "the remaster stopped: the retail device draws");
+                self.failed = true;
+                None
+            }
+        }
+    }
+}
+
+/// The device for `window` that the remaster shares with wgpu, on Vulkan, the remaster drawing the
+/// world and the retail device the rest (the interface's scenes, portal space).
+#[cfg(all(feature = "remaster", not(target_os = "macos")))]
+fn remastered(
+    window: &Arc<Window>,
+    presentation: &Presentation,
+) -> Result<auberean_present::Presenter, String> {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::VULKAN,
+        ..wgpu::InstanceDescriptor::new_without_display_handle_from_env()
+    });
+    let size = window.inner_size();
+    let surface = instance
+        .create_surface(Arc::clone(window))
+        .map_err(|e| format!("no surface for the window: {e}"))?;
+    let probe = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::HighPerformance,
+        compatible_surface: Some(&surface),
+        ..Default::default()
+    }))
+    .map_err(|e| format!("no Vulkan adapter for the window: {e}"))?;
+    let features = auberean_gpu::Renderer::features_on(&probe, presentation.antialiasing);
+    let limits = auberean_gpu::Renderer::limits_on(&probe);
+    drop(probe);
+    let shared = auberean_remaster::shared::open(&instance, Some(&surface), features, &limits)
+        .map_err(|e| e.to_string())?;
+    let (painter, adapter, device, queue) =
+        auberean_remaster::shared::Painter::new(shared).map_err(|e| e.to_string())?;
+    tracing::info!(adapter = %painter.remaster().adapter, "the remaster draws the world");
+    let renderer =
+        auberean_gpu::Renderer::on_device(&adapter, device, queue, presentation.antialiasing);
+    let mut p = auberean_present::Presenter::on(
+        instance,
+        surface,
+        &adapter,
+        renderer,
+        (size.width, size.height),
+    )?;
+    p.set_painter(Some(Box::new(Remastered {
+        painter,
+        failed: false,
+    })));
     p.set_presentation(
         presentation.full_screen,
         presentation.triple_buffering,
@@ -904,7 +1003,7 @@ impl App<'_> {
     fn make_device(&mut self, el: &ActiveEventLoop, w: &Arc<Window>) {
         // The window's surface is let go before another is made on it.
         self.present = None;
-        match presenter(w, &self.shown) {
+        match presenter(w, &self.shown, self.shell.settings.remaster) {
             Ok(made) => self.present = Some(made),
             Err(e) => {
                 self.failed = Some(e);
@@ -1056,7 +1155,7 @@ impl ApplicationHandler for App<'_> {
             }
         };
         self.shown = self.shell.settings.presentation();
-        match presenter(&window, &self.shown) {
+        match presenter(&window, &self.shown, self.shell.settings.remaster) {
             Ok(p) => {
                 tracing::info!(adapter = %p.renderer.adapter, "drawing");
                 self.present = Some(p);
@@ -1282,6 +1381,9 @@ fn run() -> Result<(), String> {
     shell.dev_overlay = o.overlay;
     shell.friends = friends_service(&o);
     shell.world_takes_overlays = o.world_overlays;
+    if o.remaster {
+        shell.settings.remaster = true;
+    }
     if let Some(camera) = explore {
         shell.start_explore(camera);
     }

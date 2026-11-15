@@ -22,8 +22,11 @@
 //! |---|---|
 //! | [`render`] | the remaster: its device, what it keeps there, and each frame's draws |
 //! | [`shaders`] | the shaders, compiled ahead of time and embedded: each entry point's blobs |
+//! | `shared` | the one Vulkan device wgpu and the remaster's layer share, and its pictures lent to wgpu (not on macOS yet) |
 
 pub mod render;
 pub mod shaders;
+#[cfg(not(any(target_arch = "wasm32", target_os = "macos")))]
+pub mod shared;
 
 pub use render::{Picture, Remaster};

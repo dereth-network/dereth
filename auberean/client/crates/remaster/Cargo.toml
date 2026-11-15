@@ -30,6 +30,13 @@ dereth-primitives.workspace = true
 glam.workspace = true
 bytemuck = { version = "1", features = ["derive"] }
 
+# The device the retail device's wgpu and the remaster share: made with the raw Vulkan binding, the
+# version wgpu and the layer both use, and handed to wgpu.
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "macos")))'.dependencies]
+ash = { version = "0.38", default-features = false, features = ["loaded", "std"] }
+wgpu = "30"
+pollster.workspace = true
+
 [dev-dependencies]
 auberean-dat = { workspace = true, features = ["test-support", "fs"] }
 auberean-assets.workspace = true
@@ -37,9 +44,19 @@ auberean-primitives.workspace = true
 # The retail device, which the remaster at its identity is compared with.
 auberean-gpu.workspace = true
 png.workspace = true
+wgpu = "30"
+pollster.workspace = true
 
-[lints]
-workspace = true
+# The workspace's lints, but for `unsafe`: denied rather than forbidden, so the one module that
+# makes the shared device and lends wgpu the remaster's pictures (`src/shared.rs`) can allow it,
+# each block with a SAFETY comment.
+[lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"
+undocumented_unsafe_blocks = "warn"
 
 [[test]]
 name = "gpu"

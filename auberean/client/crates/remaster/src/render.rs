@@ -331,6 +331,12 @@ impl Remaster {
         })
     }
 
+    /// The layer's device the remaster draws on.
+    #[must_use]
+    pub fn device(&self) -> &Device {
+        &self.gfx
+    }
+
     /// The samplers that wrap and that clamp, by their index in the table, filtering as `textures`
     /// says: between a texture's two nearest levels with trilinear filtering on, else from the
     /// nearest alone; along the slant as far as 16 with anisotropic filtering on, only between
@@ -668,6 +674,10 @@ impl Remaster {
         if let Some(t) = self.targets {
             if (t.width, t.height) == (width, height) {
                 return Ok(t);
+            }
+            // On a device it shares, another drawer may still be reading the old picture.
+            if !self.gfx.owned() {
+                self.gfx.wait_idle()?;
             }
             self.gfx.destroy_texture(t.color);
             self.gfx.destroy_texture(t.depth);
@@ -1513,6 +1523,8 @@ impl Remaster {
             },
             |rec| steps_in(rec, &lights, false),
         )?;
+        // Left ready to sample, for whoever shows the picture.
+        r.touch(&[Touch::Texture(t.color, Use::Sampled)])?;
         r.submit()?;
         self.retire();
         Ok(t.color)

@@ -56,5 +56,16 @@ serde_json.workspace = true
 [target.'cfg(target_os = "linux")'.dependencies]
 winit = { workspace = true, features = ["rwh_06", "x11", "wayland", "wayland-dlopen", "wayland-csd-adwaita"] }
 
+[features]
+default = ["remaster"]
+# The remaster, drawn in place of the retail device when the player turns it on. A host that shares
+# this package's desktop pieces (the world builder's editor) builds without it.
+remaster = ["dep:auberean-remaster", "dep:pollster"]
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+auberean-remaster = { workspace = true, optional = true }
+# Waiting for the adapter the remaster's device is made on.
+pollster = { workspace = true, optional = true }
+
 [lints]
 workspace = true

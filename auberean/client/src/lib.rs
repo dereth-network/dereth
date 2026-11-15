@@ -7,7 +7,8 @@
 //! **Depends on** the shell's input and its friends news (`auberean-shell`) and the window system
 //! (`winit`); the rest of the package's dependencies are the program's: the game's interface
 //! (`auberean-interface`, `auberean-ui`), the world it shows (`auberean-scene`), the world's device
-//! (`auberean-gpu`, `auberean-present`) and its frames (`auberean-draw`), the data files
+//! (`auberean-gpu`, `auberean-present`, and the remaster, `auberean-remaster`, behind the `remaster`
+//! feature) and its frames (`auberean-draw`), the data files
 //! (`auberean-dat`, `auberean-assets`, `auberean-world`, `auberean-client-sdk`), the shared math
 //! (`dereth-primitives`), the console (`dereth-console`), the clipboard (`dereth-clipboard`) and the
 //! sound device (`dereth-audio-out`, `dereth-audio`). **Used by** the `auberean` program beside it,

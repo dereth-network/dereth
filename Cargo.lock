@@ -353,6 +353,7 @@ dependencies = [
  "auberean-gpu",
  "auberean-interface",
  "auberean-present",
+ "auberean-remaster",
  "auberean-scene",
  "auberean-shell",
  "auberean-ui",
@@ -366,6 +367,7 @@ dependencies = [
  "embed-resource",
  "open",
  "png",
+ "pollster",
  "serde_json",
  "tracing",
  "tracing-subscriber",
@@ -603,6 +605,7 @@ dependencies = [
 name = "auberean-remaster"
 version = "0.0.0"
 dependencies = [
+ "ash",
  "auberean-assets",
  "auberean-dat",
  "auberean-draw",
@@ -615,6 +618,8 @@ dependencies = [
  "dereth-primitives",
  "glam",
  "png",
+ "pollster",
+ "wgpu",
 ]
 
 [[package]]

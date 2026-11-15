@@ -324,7 +324,7 @@ xtask = { path = "tools/xtask" }
 # builder).
 auberean-animation = { path = "core/auberean-animation" }
 auberean-assets = { path = "core/auberean-assets" }
-auberean-client = { path = "auberean/client" }
+auberean-client = { path = "auberean/client", default-features = false }
 auberean-client-contract = { path = "core/auberean-client-contract" }
 auberean-client-model = { path = "core/auberean-client-model" }
 auberean-client-net = { path = "core/auberean-client-net" }

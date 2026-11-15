@@ -25,6 +25,9 @@ pub struct Settings {
     pub sync_to_display: bool,
     /// The edges smoothed.
     pub antialiasing: bool,
+    /// The world drawn by the remaster rather than the retail device, where the device can draw
+    /// it. Not a retail preference: off unless the player turns it on.
+    pub remaster: bool,
     /// The land's squares blend their corners' grounds.
     pub terrain_blending: bool,
     /// The files the key maps are kept in.
@@ -151,6 +154,7 @@ impl Default for Settings {
             triple_buffering: false,
             sync_to_display: true,
             antialiasing: true,
+            remaster: false,
             terrain_blending: true,
             key_files: crate::keys::KeyFiles::default(),
             profile: Profile::default(),
@@ -183,6 +187,8 @@ const FULL_SCREEN: (&str, &str) = ("Rendering", "FullScreen");
 const TRIPLE_BUFFERING: (&str, &str) = ("Rendering", "TripleBuffering");
 const SYNC_TO_DISPLAY: (&str, &str) = ("Rendering", "SyncToDisplayRefresh");
 const ANTIALIASING: (&str, &str) = ("Rendering", "Antialiasing");
+/// The remaster: this program's own preference, beside the rendering preferences.
+const REMASTER: (&str, &str) = ("Rendering", "Remaster");
 const WIDTH: (&str, &str) = ("Display", "WindowWidth");
 /// The graphics preferences' section; each preference is named by its label less the labels'
 /// common start, a choice's value by its level's.
@@ -317,6 +323,7 @@ impl Settings {
         s.triple_buffering = flag(TRIPLE_BUFFERING, s.triple_buffering);
         s.sync_to_display = flag(SYNC_TO_DISPLAY, s.sync_to_display);
         s.antialiasing = flag(ANTIALIASING, s.antialiasing);
+        s.remaster = flag(REMASTER, s.remaster);
         // The key maps' files: any name kept, else the default.
         let file = |o: (&str, &str), d: &mut String| {
             if let Some(v) = get(o.0, o.1) {
@@ -452,6 +459,7 @@ impl Settings {
                 b(self.sync_to_display),
             ),
             (ANTIALIASING.0, ANTIALIASING.1, b(self.antialiasing)),
+            (REMASTER.0, REMASTER.1, b(self.remaster)),
             (KEY_NORMAL.0, KEY_NORMAL.1, self.key_files.normal.clone()),
             (KEY_SHIFT.0, KEY_SHIFT.1, self.key_files.shift.clone()),
             (KEY_CONTROL.0, KEY_CONTROL.1, self.key_files.control.clone()),

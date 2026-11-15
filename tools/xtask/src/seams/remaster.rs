@@ -45,8 +45,8 @@ pub const GFX_PASSES: &str = "dereth-gfx-passes";
 /// The second game's remaster.
 pub const AUBEREAN_REMASTER: &str = "auberean-remaster";
 
-/// Its only dependents: the offline world viewer.
-pub const AUBEREAN_REMASTER_DEPENDENTS: &[&str] = &["auberean-viewer"];
+/// Its only dependents: the offline world viewer and the desktop client.
+pub const AUBEREAN_REMASTER_DEPENDENTS: &[&str] = &["auberean-viewer", "auberean-client"];
 
 /// What its production tree never holds: a platform, or the retail device, which it stands beside
 /// and never draws with (its tests compare with it).
@@ -65,9 +65,11 @@ pub const AUBEREAN_REMASTER_NAMES_NOT: &[&str] = &[
     "auberean_protocol",
 ];
 
-/// The second game's clients that never carry its remaster, each built on its own: the browser
-/// client and the headless one.
-pub const AUBEREAN_SHIPPED_CLIENTS: &[&str] = &["auberean-web", "auberean-headless"];
+/// The second game's programs that never carry its remaster, each built on its own: the browser
+/// client, the headless one, and the world builder's editor (which shares the desktop client's
+/// pieces without its remaster feature).
+pub const AUBEREAN_SHIPPED_CLIENTS: &[&str] =
+    &["auberean-web", "auberean-headless", "athenaeum-editor"];
 
 /// The workspace crates the remaster's tree may hold, at any depth, with every feature on.
 pub const REMASTER_TREE_DERE: &[&str] = &[
