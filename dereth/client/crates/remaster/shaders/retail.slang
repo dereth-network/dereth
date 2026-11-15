@@ -12,44 +12,6 @@ __exported import frame;
 public static const uint VERTEX_COLORED = 512;
 public static const uint PACK_FOLIAGE = 1024;
 
-public static const float SWAY_TAU = 6.2831853;
-// The sway's motions, each a whole number of cycles in the weather's clock's period (1200 s), so
-// the clock's wrap moves nothing: the slow swing (about 5 s), the gusts that roll across the land
-// (about 20 s), a sideways rock (about 4 s) and the leaves' flutter (about 1 s).
-public static const float SWAY_SWING = SWAY_TAU * 229.0 / 1200.0;
-public static const float SWAY_GUST = SWAY_TAU * 61.0 / 1200.0;
-public static const float SWAY_ROCK = SWAY_TAU * 311.0 / 1200.0;
-public static const float SWAY_FLUTTER = SWAY_TAU * 1259.0 / 1200.0;
-
-// How far the wind moves the vertex at `pos` of a growing model standing at `origin` (both the
-// frame's space), which bends `bend` meters at a wind of a meter a second, in the frame's wind `w`
-// (its row of the frame's constants); a cut-out leaf (`leaf`) flutters as well. The model leans
-// with the wind, further in a gust, and swings about that lean; trees apart swing apart. Only
-// `origin`'s xy is read.
-public float3 swayed(float4 w, float bend, float3 origin, float3 pos, bool leaf)
-{
-    float strength = length(w.xy);
-    if (strength < 1e-4)
-    {
-        return float3(0.0, 0.0, 0.0);
-    }
-    float2 along = w.xy / strength;
-    float2 across = float2(-along.y, along.x);
-    float t = w.z;
-    float phase = dot(origin.xy, float2(0.173, 0.131));
-    float gust = 0.5 + 0.5 * sin(t * SWAY_GUST - dot(origin.xy, float2(0.021, 0.017)));
-    float swing = sin(t * SWAY_SWING + phase);
-    float rock = sin(t * SWAY_ROCK + phase * 1.7);
-    float reach = bend * strength;
-    float3 d = float3(along * reach * (0.4 + 0.35 * gust + 0.25 * swing) + across * reach * 0.12 * rock, 0.0);
-    if (leaf)
-    {
-        float f = sin(t * SWAY_FLUTTER + dot(pos, float3(1.7, 1.3, 2.1)));
-        d += float3(across * 0.05, 0.03) * strength * min(reach * 4.0, 1.0) * f;
-    }
-    return d;
-}
-
 // `c` in hue (turns), saturation and value.
 float3 hsv_of(float3 c)
 {
