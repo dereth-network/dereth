@@ -287,6 +287,11 @@ impl NetworkSession {
             return;
         }
 
+        // ACE-BUG: a client's `RejectRetransmit` is never read. The packets the client will not
+        // send again stay missing, every later packet is held behind the gap, and the server
+        // goes on asking for them. Our client and the retail one reject only packets too old to
+        // matter or carrying nothing that must arrive, so this is not met in play.
+
         // Order-insensitive "half-processing".
         if packet.has_flag(PacketFlags::DISCONNECT) {
             core.terminate(
