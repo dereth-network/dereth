@@ -102,6 +102,34 @@ fn moved(
     (n, up, down)
 }
 
+/// Of the pixels whose class `of` picks: how many there are, and how many of them are brighter and
+/// darker in `b` than in `a` by more than `by` levels of brightness (the channels weighed as the
+/// eye weighs them).
+fn brightness_moved(
+    a: &[u8],
+    b: &[u8],
+    classes: &[u8],
+    by: f32,
+    of: impl Fn(u8) -> bool,
+) -> (usize, usize, usize) {
+    let luma =
+        |p: &[u8]| 0.2126 * f32::from(p[0]) + 0.7152 * f32::from(p[1]) + 0.0722 * f32::from(p[2]);
+    let (mut n, mut up, mut down) = (0, 0, 0);
+    for ((x, y), c) in a.chunks(4).zip(b.chunks(4)).zip(classes) {
+        if !of(*c) {
+            continue;
+        }
+        n += 1;
+        let d = luma(y) - luma(x);
+        if d > by {
+            up += 1;
+        } else if d < -by {
+            down += 1;
+        }
+    }
+    (n, up, down)
+}
+
 /// The land's class and the class of what stands out in the sun.
 const GROUND: u8 = 1;
 const SUN: u8 = 2;
@@ -146,8 +174,11 @@ fn in_the_rain_what_stands_out_in_it_is_wet_and_the_sky_is_untouched() {
 
 /// **What stands under a roof stays dry**: at the daytime stations in the heaviest rain, the
 /// frame with the overhead map is nowhere darker than the frame with every point open by more
-/// than two levels (but where the device's noise allows), and at the stations that see under a
-/// roof some pixels are brighter: kept dry.
+/// than two levels of brightness (but where the device's noise allows), and at the stations that
+/// see under a roof some pixels are brighter: kept dry. Brightness, not each channel: the rain
+/// deepens a color as it darkens it, so a drier pixel may keep a little less of a channel the
+/// soaked one held at nothing and the overcast sheen lifted (two such pixels at the camp, on a
+/// roof's wandering edge, a blue of 6 against 3 while 4 levels brighter).
 #[test]
 fn what_stands_under_a_roof_stays_dry() {
     let _turn = turn();
@@ -160,7 +191,9 @@ fn what_stands_under_a_roof_stays_dry() {
         "wide-6fa9",
     ] {
         let d = drawn(name);
-        let (n, up, down) = moved(&d.open, &d.wet, &d.classes, 2, |c| c == GROUND || c == SUN);
+        let (n, up, down) = brightness_moved(&d.open, &d.wet, &d.classes, 2.0, |c| {
+            c == GROUND || c == SUN
+        });
         eprintln!(
             "{name}: with the shelter, of {n} outdoor pixels {up} drier and {down} wetter by over \
              2 (noise {})",
@@ -173,4 +206,64 @@ fn what_stands_under_a_roof_stays_dry() {
         kept += up;
     }
     assert!(kept >= 100, "the shelter kept only {kept} pixels dry");
+}
+
+/// **The rain's pattern is fixed to the world by the frame's origin**: at the town in the heaviest
+/// rain, the frame drawn with its origin moved, as a viewer standing in another block draws the
+/// same place, differs where the shelter's edge wanders over the world (at least a hundred outdoor
+/// pixels by more than a level), and the frame drawn at its own origin again is the one drawn
+/// before (beyond the device's noise).
+#[test]
+fn the_rains_pattern_is_fixed_to_the_world_by_the_frames_origin() {
+    let _turn = turn();
+    let records = records();
+    let mut load = |id: u32| auberean_draw::picture::load(records, id);
+    let mut remaster = Remaster::with(&dereth_gfx::DeviceDesc {
+        debug: true,
+        ..dereth_gfx::DeviceDesc::default()
+    })
+    .expect("the remaster's device");
+    remaster.set_weather(WeatherSettings {
+        wet: true,
+        shelter: true,
+    });
+    let s = *STATIONS
+        .iter()
+        .find(|s| s.name == "town-6fa9")
+        .expect("the station");
+    let mut f = frame(&s);
+    f.rain = 1.0;
+    let mut moved_f = f.clone();
+    moved_f.origin = [f.origin[0] + 5.5, f.origin[1] + 3.25];
+    let mut draw = |remaster: &mut Remaster, f: &auberean_draw::scene::Frame| {
+        remaster.render(f, W, H, &mut load).expect("the frame").rgba
+    };
+    let (own, own_noise) = settled(|| draw(&mut remaster, &f));
+    let classes = remaster
+        .read_classes()
+        .expect("the classes")
+        .expect("a frame was drawn");
+    let (shifted, moved_noise) = settled(|| draw(&mut remaster, &moved_f));
+    let (again, again_noise) = settled(|| draw(&mut remaster, &f));
+    let noise = own_noise.max(moved_noise).max(again_noise);
+    let outdoors = |c: u8| c == GROUND || c == SUN;
+    let (n, up, down) = moved(&own, &shifted, &classes, 1, outdoors);
+    let (_, back_up, back_down) = moved(&own, &again, &classes, 1, outdoors);
+    eprintln!(
+        "town-6fa9: with the origin moved, {up} brighter and {down} darker of {n} outdoor pixels \
+         by over 1; at its own again, {back_up} and {back_down} (noise {noise})"
+    );
+    assert!(
+        up + down >= 100,
+        "{}: the origin moved {} pixels",
+        s.name,
+        up + down
+    );
+    assert!(
+        back_up + back_down <= noise,
+        "{}: the frame at its own origin changed",
+        s.name
+    );
+    let errors = dereth_gfx::take_validation_errors();
+    assert!(errors.is_empty(), "the validation layer: {errors:#?}");
 }

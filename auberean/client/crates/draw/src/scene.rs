@@ -762,6 +762,10 @@ pub struct Frame {
     /// The moment's wind, meters a second east, north and up, as the rain and the missiles take
     /// it.
     pub wind: [f32; 3],
+    /// Where the frame's origin stands in the world, meters east and north: the south-west corner
+    /// of the viewer's block, whose frame the frame is drawn in. What is fixed to the world rather
+    /// than to the frame (a pattern laid over the land) is placed by it.
+    pub origin: [f32; 2],
     /// Where frills fade out, from the camera: fully drawn nearer than the first distance, gone
     /// past the second.
     pub frill_fade: [f32; 2],
@@ -2295,6 +2299,11 @@ impl<'a> SceneBuilder<'a> {
             rain: 0.0,
             bodies: Vec::new(),
             wind: [0.0; 3],
+            #[allow(clippy::cast_precision_loss)] // block indices are a few hundred
+            origin: [
+                spot.block.0 as f32 * block_len,
+                spot.block.1 as f32 * block_len,
+            ],
             frill_fade: {
                 #[allow(clippy::cast_precision_loss)]
                 let end = self.frill_radius as f32 * cell_len * self.frill_reach;
@@ -2462,6 +2471,7 @@ impl<'a> SceneBuilder<'a> {
             rain: 0.0,
             bodies: Vec::new(),
             wind: [0.0; 3],
+            origin: [0.0; 2],
             frill_fade: [f32::MAX, f32::MAX],
             counts,
             shadow: None,

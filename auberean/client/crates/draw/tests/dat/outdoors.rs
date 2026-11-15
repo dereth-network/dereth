@@ -328,3 +328,22 @@ fn a_screenshot_is_drawn_at_full_detail() {
         "objects past their distance show too: {full} against {plain}"
     );
 }
+
+/// A frame's origin is where its viewer's block's south-west corner stands in the world, so what
+/// is laid over the world rather than over the frame (the remaster's weather) stays put as the
+/// viewer crosses into another block.
+///
+/// Behaviour: none (a choice of this client: what the remaster's world-fixed patterns are placed by)
+#[test]
+fn a_frames_origin_is_its_blocks_corner_in_the_world() {
+    let i = install();
+    let region = i.records.region().expect("the region");
+    let len = region.land.grid().block_length();
+    let mut builder = SceneBuilder::new(&i.records, &region);
+    for block in [(0x69, 0x67), (0x6F, 0xA9)] {
+        let f = builder.frame(&spot(block, Vec3::new(10.0, 20.0, 50.0)), 60.0);
+        #[allow(clippy::cast_precision_loss)] // block indices are a few hundred
+        let corner = [block.0 as f32 * len, block.1 as f32 * len];
+        assert_eq!(f.origin, corner, "block {block:?}");
+    }
+}

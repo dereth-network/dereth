@@ -8,6 +8,9 @@
 //!
 //! How wet the world is follows the rain amount retail's own streaks are drawn by: the wet comes in
 //! as the streaks do, and is full at the heaviest rain. Rooms and what stands in them never are.
+//!
+//! The wet's pattern over the world (the shelter's wandering edge) is placed by the frame's origin
+//! in the world (`Frame::origin`), so it stays put as the viewer crosses into another block.
 
 use auberean_draw::constants::{DrawUniforms, FrameUniforms};
 use auberean_draw::material::d3d;
@@ -118,6 +121,7 @@ impl Remaster {
             &mut rows,
             &State {
                 wet,
+                origin: frame.origin,
                 ..State::default()
             },
             &placed,
