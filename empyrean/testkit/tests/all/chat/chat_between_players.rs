@@ -45,7 +45,7 @@ const BLOCKS: [u16; 10] = [
 ];
 
 const ALPHA: u32 = 0x5000_0001;
-const BRAVO: u32 = 0x5000_0002;
+pub(crate) const BRAVO: u32 = 0x5000_0002;
 const CHARLIE: u32 = 0x5000_0003;
 const DELTA: u32 = 0x5000_0004;
 
@@ -341,14 +341,14 @@ fn kinds(g: &[Got]) -> Vec<u32> {
     g.iter().map(|g| g.kind).collect()
 }
 
-struct Three {
-    ts: TestServer,
-    a: ClientId,
-    b: ClientId,
-    c: ClientId,
+pub(crate) struct Three {
+    pub(crate) ts: TestServer,
+    pub(crate) a: ClientId,
+    pub(crate) b: ClientId,
+    pub(crate) c: ClientId,
 }
 
-fn three() -> Three {
+pub(crate) fn three() -> Three {
     let mut ts = seeded();
     let a = enter(&mut ts, "alpha", ALPHA);
     let b = enter(&mut ts, "bravo", BRAVO);

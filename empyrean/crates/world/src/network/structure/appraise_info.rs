@@ -623,6 +623,14 @@ impl AppraiseInfo {
 
         if o.is_player() {
             let player = wo;
+            // DIVERGE: V542, a player's appraisal always carries its Enlightenment, 0 for one that
+            // never enlightened; ACE sends it only once the character has the property.
+            if !self
+                .properties_int
+                .contains_key(&PropertyInt::Enlightenment)
+            {
+                self.properties_int.insert(PropertyInt::Enlightenment, 0);
+            }
             // handle character options
             if !shims::player_get_character_option(
                 w,

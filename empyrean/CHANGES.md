@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+- Examining a player now always shows their Enlightenment.
 - Fixed admin programs dropped after a few idle seconds on Windows, and ones that fall behind keeping their place.
 - Fixed creatures that stand on towers and platforms over steep ground never appearing.
 - Salvaging now says which items weren't suitable, and when it fails.
