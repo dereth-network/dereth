@@ -8,18 +8,8 @@
 //! tests run with `--features retail-dats`; one test at a time has a device.
 
 mod common;
-mod crossfade;
-#[cfg(windows)]
-mod d3d12;
-mod identity;
-mod lamps;
-mod linear;
-mod look;
-mod motion;
-mod occlusion;
-mod shadows;
-mod shared;
-mod sky;
-mod smoothing;
-mod sway;
-mod weather;
+mod device;
+mod light;
+mod post;
+mod stations;
+mod world;

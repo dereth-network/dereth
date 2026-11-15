@@ -125,7 +125,7 @@ fn by_day_the_physical_sky_lies_over_the_dome_and_leaves_the_land_as_it_was() {
             "{name}: {land_moved} of {land} land pixels moved"
         );
         assert!(
-            super::common::repeat_noise(&d.off, &d.off_again) <= d.noise,
+            crate::common::repeat_noise(&d.off, &d.off_again) <= d.noise,
             "{name}: turned off again, the frame isn't the one drawn before"
         );
     }
