@@ -173,6 +173,11 @@ pub fn get_move_to_motion(
     // CanSideStep and CanWalkBackwards and keeps the threshold at 15.0; ACE adds CanCharge,
     // FailWalk, UseFinalHeading, Sticky and MoveAway to the defaults (0x1EFFF) with 1.0.
     RetailMoveTo::AttackChase.apply(&mut motion.move_to_parameters);
+    // DIVERGE: V541, retail's chase keeps 0.1 m and gives up past 100 m.
+    motion.move_to_parameters.min_distance =
+        crate::network::motion::move_to_parameters::RETAIL_CHASE_MIN_DISTANCE;
+    motion.move_to_parameters.fail_distance =
+        crate::network::motion::move_to_parameters::RETAIL_MONSTER_CHASE_FAIL_DISTANCE;
 
     if run_rate > 0.0 {
         motion.run_rate = run_rate;

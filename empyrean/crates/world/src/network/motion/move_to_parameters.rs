@@ -100,6 +100,18 @@ pub enum RetailMoveTo {
 /// The walk/run threshold of every retail MoveTo (V257), the client's own default.
 pub const RETAIL_WALK_RUN_THRESHOLD: f32 = dereth_animation::motion::DEFAULT_WALK_RUN_THRESHOLD;
 
+/// Not ACE's (retail, V541; the retail captures): the distance the player's melee approach and
+/// charge stop at from the target. ACE sends the target's use radius (else 0.6) on the approach.
+pub const RETAIL_MELEE_DISTANCE_TO_OBJECT: f32 = 0.5;
+
+/// Not ACE's (retail, V541): the minimum distance of the player's melee approach and charge and of
+/// a monster's chase. ACE sends 0.
+pub const RETAIL_CHASE_MIN_DISTANCE: f32 = 0.1;
+
+/// Not ACE's (retail, V541): the fail distance of a monster's chase. ACE sends none (the largest
+/// float).
+pub const RETAIL_MONSTER_CHASE_FAIL_DISTANCE: f32 = 100.0;
+
 impl RetailMoveTo {
     /// The flag word.
     #[must_use]

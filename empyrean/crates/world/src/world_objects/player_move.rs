@@ -338,6 +338,11 @@ pub fn player_move_to(
     RetailMoveTo::AttackChase.apply(&mut motion.move_to_parameters);
     motion.move_to_parameters.speed = 1.5; // charge modifier
     motion.move_to_parameters.fail_distance = 15.0;
+    // DIVERGE: V541, retail's charge stops 0.5 m from the target, no nearer than 0.1 m.
+    motion.move_to_parameters.distance_to_object =
+        crate::network::motion::move_to_parameters::RETAIL_MELEE_DISTANCE_TO_OBJECT;
+    motion.move_to_parameters.min_distance =
+        crate::network::motion::move_to_parameters::RETAIL_CHASE_MIN_DISTANCE;
     motion.run_rate = run_rate;
 
     w.objects
@@ -440,6 +445,10 @@ pub fn get_charge_parameters() -> MovementParameters {
     mvp.hold_key_to_apply = HoldKey::Run;
     mvp.fail_distance = 15.0;
     mvp.speed = 1.5;
+    // DIVERGE: V541, as the clients are sent.
+    mvp.distance_to_object =
+        crate::network::motion::move_to_parameters::RETAIL_MELEE_DISTANCE_TO_OBJECT;
+    mvp.min_distance = crate::network::motion::move_to_parameters::RETAIL_CHASE_MIN_DISTANCE;
 
     mvp
 }

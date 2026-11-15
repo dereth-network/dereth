@@ -268,6 +268,13 @@ pub fn get_move_to_params(
     mvp.distance_to_object = use_radius
         .or_else(|| target_obj.use_radius())
         .unwrap_or(0.6);
+    // DIVERGE: V541, retail's melee approach (the attack chase here) stops 0.5 m from the target,
+    // no nearer than 0.1 m.
+    if kind == RetailMoveTo::AttackChase {
+        use crate::network::motion::move_to_parameters as mtp;
+        mvp.distance_to_object = mtp::RETAIL_MELEE_DISTANCE_TO_OBJECT;
+        mvp.min_distance = mtp::RETAIL_CHASE_MIN_DISTANCE;
+    }
 
     // move directly to portal origin
     //if (target is Portal)

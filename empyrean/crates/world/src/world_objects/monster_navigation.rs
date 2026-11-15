@@ -752,6 +752,10 @@ pub fn get_movement_parameters(w: &mut World, this: ObjectGuid) -> MovementParam
         // are sent, retail's attack chase; ACE adds FailWalk, UseFinalHeading, Sticky and
         // MoveAway to its own defaults without CanWalk (0x1EFFE, threshold 1.0).
         mvp = RetailMoveTo::AttackChase.movement_parameters();
+        // DIVERGE: V541, the chase's minimum and fail distances as the clients are sent.
+        mvp.min_distance = crate::network::motion::move_to_parameters::RETAIL_CHASE_MIN_DISTANCE;
+        mvp.fail_distance =
+            crate::network::motion::move_to_parameters::RETAIL_MONSTER_CHASE_FAIL_DISTANCE;
     } else if let NextMove::CloseTo(distance_to_object) = next {
         // Not ACE's (retail, V336): the run to within the drawn distance,
         // with no minimum distance and no fail distance, not stuck to the target on arrival.

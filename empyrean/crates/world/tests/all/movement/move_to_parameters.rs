@@ -1,4 +1,4 @@
-//! Divergence: V257
+//! Divergence: V257, V541
 //! MoveTo broadcasts carry retail's 15.0 threshold and flag word per kind (attack chase, NPC/home
 //! move, pet follow, melee charge, player chains) and the body moves as told.
 //! Fixture: isolated world state.
@@ -301,5 +301,103 @@ fn the_full_physics_chain_moves_the_body_as_the_clients_are_told() {
         (mvp.flags, mvp.walk_run_threshold, mvp.distance_to_object),
         (USE, 15.0, 2.0),
         "ACE: 0x1EE1F less CanRun, 1.0"
+    );
+}
+
+/// The distances of the MoveTos about `about` the capture holds: (to the object, minimum, fail).
+fn distances(about: ObjectGuid) -> Vec<(f32, f32, f32)> {
+    take_sent()
+        .into_iter()
+        .filter(|(_, _, b)| b[..4] == UPDATE_MOTION.to_le_bytes())
+        .map(|(_, _, b)| {
+            dereth_protocol::read_body_padded::<MovementSetObjectMovement>(&b[4..])
+                .expect("UpdateMotion decodes")
+        })
+        .filter(|m| m.id.0 == about.full())
+        .filter_map(
+            |m| match m.decoded_movement().unwrap().body.decode_move_to().unwrap() {
+                Some(
+                    MoveToArm::MoveToObject { params, .. }
+                    | MoveToArm::MoveToPosition { params, .. },
+                ) => match params {
+                    MovementParameters::MoveTo {
+                        distance_to_object,
+                        min_distance,
+                        fail_distance,
+                        ..
+                    } => Some((distance_to_object, min_distance, fail_distance)),
+                    MovementParameters::TurnTo { .. } => None,
+                },
+                _ => None,
+            },
+        )
+        .collect()
+}
+
+/// Divergence: V541
+/// The distances retail's MoveTos carried: the player's melee approach and charge stop 0.5 m from
+/// the target, no nearer than 0.1 m (the charge failing past 15 m); a monster's chase keeps 0.1 m
+/// and fails past 100 m, on the wire and in its body. A use-move keeps its use radius.
+#[test]
+fn the_melee_approach_charge_and_chase_carry_retails_distances() {
+    let mut h = player_and_monster();
+    target(&mut h, WeenieType::Creature);
+    start_capture();
+    player_move::create_move_to_chain_as(
+        &mut h.w,
+        PLAYER,
+        TARGET,
+        Box::new(|_, _| {}),
+        None,
+        true,
+        RetailMoveTo::AttackChase,
+    );
+    assert_eq!(
+        distances(PLAYER),
+        [(0.5, 0.1, f32::MAX)],
+        "the melee approach"
+    );
+
+    let mut h = player_and_monster();
+    start_capture();
+    player_move::player_move_to(&mut h.w, PLAYER, MONSTER, 0.0);
+    assert_eq!(distances(PLAYER), [(0.5, 0.1, 15.0)], "the charge");
+    let mvp = player_move::get_charge_parameters();
+    assert_eq!((mvp.distance_to_object, mvp.min_distance), (0.5, 0.1));
+
+    let mut h = player_and_monster();
+    start_capture();
+    cn::creature_move_to(&mut h.w, MONSTER, PLAYER, 1.0);
+    let chase = distances(MONSTER);
+    assert_eq!(chase.len(), 1);
+    assert_eq!(
+        (chase[0].1, chase[0].2),
+        (0.1, 100.0),
+        "the monster's chase"
+    );
+    monster_combat::set_attack_target(&mut h.w, MONSTER, Some(PLAYER));
+    let mvp = nav::get_movement_parameters(&mut h.w, MONSTER);
+    assert_eq!(
+        (mvp.min_distance, mvp.fail_distance),
+        (0.1, 100.0),
+        "its body"
+    );
+
+    let mut h = player_and_monster();
+    target(&mut h, WeenieType::Creature);
+    start_capture();
+    player_move::create_move_to_chain_as(
+        &mut h.w,
+        PLAYER,
+        TARGET,
+        Box::new(|_, _| {}),
+        Some(2.0),
+        true,
+        RetailMoveTo::Use,
+    );
+    assert_eq!(
+        distances(PLAYER),
+        [(2.0, 0.0, f32::MAX)],
+        "a use-move as before"
     );
 }

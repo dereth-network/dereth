@@ -337,6 +337,13 @@ pub fn move_to_object(
     // defaults, a use UseFinalHeading, a portal no UseSpheres, a melee approach the attack
     // chase); ACE sends the defaults here.
     kind.apply(&mut move_to_object.move_to_parameters);
+    // DIVERGE: V541, retail's melee approach (the attack chase here) stops 0.5 m from the target,
+    // no nearer than 0.1 m, whatever its use radius.
+    if kind == RetailMoveTo::AttackChase {
+        use crate::network::motion::move_to_parameters as mtp;
+        move_to_object.move_to_parameters.distance_to_object = mtp::RETAIL_MELEE_DISTANCE_TO_OBJECT;
+        move_to_object.move_to_parameters.min_distance = mtp::RETAIL_CHASE_MIN_DISTANCE;
+    }
 
     // move directly to portal origin
     //if (target is Portal)
