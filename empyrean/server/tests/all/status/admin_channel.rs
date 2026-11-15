@@ -1,7 +1,8 @@
 //! Vectors: local console lines, loopback connections and a world thread of the test's own.
 //! The admin channel: its file in the server's folder (loopback address, a new secret, the
 //! process), the secret first or nothing, the console's lines to whoever holds it and its commands
-//! to the world thread, at most four connected, and the file gone once it stops.
+//! to the world thread, at most four connected (a signed-in program kept however long it is idle),
+//! and the file gone once it stops.
 //! Fixture: a temporary folder, a world with fake dat files on a thread of its own, and the
 //! process's console, one channel at a time.
 
@@ -123,6 +124,31 @@ fn closed_without_a_word(mut s: TcpStream) -> bool {
     matches!(s.read_to_end(&mut got), Ok(0)) || (got.is_empty())
 }
 
+/// What the channel sent `s`: nothing when it closed it without a word. A connection it lets in
+/// stays open, so only the first line is read, its hello.
+fn sent(s: TcpStream) -> String {
+    let mut line = String::new();
+    let _ = BufReader::new(s).read_line(&mut line);
+    line
+}
+
+/// Whether each program is still connected, as the channel has left it: a look at its connection
+/// that finds the end, or a reset, means the channel closed it.
+fn still_connected(connected: &[(TcpStream, BufReader<TcpStream>)]) -> Vec<bool> {
+    connected
+        .iter()
+        .map(|(s, _)| {
+            s.set_nonblocking(true).expect("a look without waiting");
+            let open = match s.peek(&mut [0u8; 1]) {
+                Ok(n) => n > 0,
+                Err(e) => e.kind() == std::io::ErrorKind::WouldBlock,
+            };
+            s.set_nonblocking(false).expect("waiting again");
+            open
+        })
+        .collect()
+}
+
 #[test]
 fn the_channel_writes_where_it_listens_and_a_new_secret_in_the_servers_folder_and_removes_them() {
     let _one = ONE_AT_A_TIME
@@ -222,7 +248,12 @@ fn at_most_four_programs_are_connected_at_once() {
         connected.push((s, reader));
     }
     let (extra, _) = signed_in(&channel, &dir);
-    assert!(closed_without_a_word(extra), "a fifth is turned away");
+    let told = sent(extra);
+    assert!(
+        told.is_empty(),
+        "a fifth is turned away, but it was sent {told:?} with the four connected: {:?}",
+        still_connected(&connected)
+    );
     drop(connected.pop());
     // The one that left frees its place once its connection has ended; the guard only stops a
     // hang.

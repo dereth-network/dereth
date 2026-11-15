@@ -70,7 +70,14 @@ pub struct ChannelFile {
 #[derive(Debug, Default)]
 struct Output {
     backlog: VecDeque<String>,
-    readers: Vec<SyncSender<String>>,
+    readers: Vec<Reader>,
+}
+
+/// A connected program's queue of lines, and its connection, to end when it falls too far behind.
+#[derive(Debug)]
+struct Reader {
+    lines: SyncSender<String>,
+    connection: TcpStream,
 }
 
 impl Output {
@@ -79,13 +86,16 @@ impl Output {
             self.backlog.pop_front();
         }
         self.backlog.push_back(line.to_owned());
-        // A reader that has gone, or fallen too far behind, is dropped: its connection ends.
-        self.readers.retain(|r| {
-            !matches!(
-                r.try_send(line.to_owned()),
-                Err(TrySendError::Full(_) | TrySendError::Disconnected(_))
-            )
-        });
+        // A reader that has gone, or fallen too far behind, is dropped and its connection ended,
+        // which frees its place.
+        self.readers
+            .retain(|r| match r.lines.try_send(line.to_owned()) {
+                Ok(()) => true,
+                Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
+                    let _ = r.connection.shutdown(std::net::Shutdown::Both);
+                    false
+                }
+            });
     }
 }
 
@@ -100,6 +110,9 @@ pub struct AdminChannel {
     file: PathBuf,
     stop: Arc<AtomicBool>,
     open: Open,
+    /// The console's lines and their readers, which a test looks at.
+    #[cfg(test)]
+    output: Arc<Mutex<Output>>,
     accept: Option<JoinHandle<()>>,
 }
 
@@ -222,6 +235,7 @@ pub fn start(
     let accept = {
         let stop = Arc::clone(&stop);
         let open = Arc::clone(&open);
+        let output = Arc::clone(&output);
         std::thread::Builder::new()
             .name("Admin channel".into())
             .spawn(move || {
@@ -256,16 +270,17 @@ pub fn start(
                         hello: hello.clone(),
                         commands: commands.clone(),
                     };
-                    let ended = Arc::clone(&open);
-                    let spawned = std::thread::Builder::new()
+                    let place = Place {
+                        open: Arc::clone(&open),
+                        id,
+                    };
+                    // A thread that cannot be started gives the place back as it is dropped.
+                    let _ = std::thread::Builder::new()
                         .name("Admin channel connection".into())
                         .spawn(move || {
+                            let _place = place;
                             connection.serve(stream);
-                            open_remove(&ended, id);
                         });
-                    if spawned.is_err() {
-                        open_remove(&open, id);
-                    }
                 }
             })?
     };
@@ -274,15 +289,25 @@ pub fn start(
         file,
         stop,
         open,
+        #[cfg(test)]
+        output,
         accept: Some(accept),
     })
 }
 
-/// Forgets connection `id` once it has ended.
-fn open_remove(open: &Open, id: u64) {
-    open.lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .retain(|(n, _)| *n != id);
+/// A connection's place among the open ones, given back however its thread ends.
+struct Place {
+    open: Open,
+    id: u64,
+}
+
+impl Drop for Place {
+    fn drop(&mut self) {
+        self.open
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|(n, _)| *n != self.id);
+    }
 }
 
 /// What one connection needs.
@@ -308,37 +333,56 @@ fn read_line(reader: &mut impl BufRead) -> Option<String> {
     Some(String::from_utf8_lossy(&line).into_owned())
 }
 
+/// The connection's reader once its first line, given within [`SECRET_WAIT`], is the secret, and
+/// from then on waiting for each line as long as it takes; `None` when it is not. The wait is set
+/// and lifted on the copy of the connection that reads: on Windows copies do not share it.
+fn sign_in(stream: &TcpStream, secret: &str) -> Option<BufReader<TcpStream>> {
+    let read_half = stream.try_clone().ok()?;
+    read_half.set_nonblocking(false).ok()?;
+    read_half.set_read_timeout(Some(SECRET_WAIT)).ok()?;
+    let mut reader = BufReader::new(read_half);
+    let given = read_line(&mut reader).unwrap_or_default();
+    if !same_secret(given.as_bytes(), secret.as_bytes()) {
+        return None;
+    }
+    reader.get_ref().set_read_timeout(None).ok()?;
+    Some(reader)
+}
+
 impl Connection {
     /// The secret, then lines both ways until either side ends.
     fn serve(self, stream: TcpStream) {
         let _ = stream.set_nonblocking(false);
-        if stream.set_read_timeout(Some(SECRET_WAIT)).is_err() {
-            return;
-        }
-        let Ok(read_half) = stream.try_clone() else {
-            return;
-        };
-        let mut reader = BufReader::new(read_half);
-        let given = read_line(&mut reader).unwrap_or_default();
-        if !same_secret(given.as_bytes(), self.secret.as_bytes()) {
+        let Some(mut reader) = sign_in(&stream, &self.secret) else {
             let _ = stream.shutdown(std::net::Shutdown::Both);
             return;
-        }
-        let _ = stream.set_read_timeout(None);
+        };
+        let (Ok(write_half), Ok(connection)) = (stream.try_clone(), stream.try_clone()) else {
+            let _ = stream.shutdown(std::net::Shutdown::Both);
+            return;
+        };
+        let _ = write_half.set_nonblocking(false);
         let (tx, rx) = mpsc::sync_channel::<String>(QUEUE);
         let backlog: Vec<String> = {
             let mut out = self.output.lock().unwrap_or_else(PoisonError::into_inner);
-            out.readers.push(tx);
+            out.readers.push(Reader {
+                lines: tx,
+                connection,
+            });
             out.backlog.iter().cloned().collect()
-        };
-        let Ok(write_half) = stream.try_clone() else {
-            return;
         };
         let ended = Arc::new(AtomicBool::new(false));
         let writer = {
             let ended = Arc::clone(&ended);
             let hello = self.hello;
-            std::thread::spawn(move || write_lines(write_half, &hello, backlog, &rx, &ended))
+            std::thread::Builder::new()
+                .name("Admin channel writer".into())
+                .spawn(move || write_lines(write_half, &hello, backlog, &rx, &ended))
+        };
+        // Without its writer the program would wait for a hello that never comes: it is closed.
+        let Ok(writer) = writer else {
+            let _ = stream.shutdown(std::net::Shutdown::Both);
+            return;
         };
         let commands = self.commands;
         while let Some(line) = read_line(&mut reader) {
@@ -397,4 +441,140 @@ pub fn read_file(folder: &Path) -> Option<ChannelFile> {
 /// Removes a channel file a server left behind, as one that is off leaves none.
 pub fn remove_stale(folder: &Path) {
     let _ = std::fs::remove_file(folder.join(FILE_NAME));
+}
+
+#[cfg(test)]
+mod tests {
+    //! Divergence: V456 (the admin channel is this server's own; ACE has none).
+    //! The secret's wait, a connection's place, and a program that falls behind the console.
+    use super::*;
+
+    /// A program that has given the secret is waited for however long it sends nothing: the
+    /// secret's wait is lifted on the connection its lines are read from.
+    #[test]
+    fn a_signed_in_program_is_waited_for_however_long_it_is_idle() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("a listener");
+        let mut program =
+            TcpStream::connect(listener.local_addr().expect("its address")).expect("connect");
+        let (server, _) = listener.accept().expect("accepted");
+        writeln!(program, "the secret").expect("written");
+        let reader = sign_in(&server, "the secret").expect("signed in");
+        assert_eq!(
+            reader.get_ref().read_timeout().expect("its wait"),
+            None,
+            "no wait on the connection it reads"
+        );
+    }
+
+    /// A connection's place is given back however its thread ends: a thread never started, or
+    /// one that fails.
+    #[test]
+    fn a_connections_place_is_given_back_however_its_thread_ends() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("a listener");
+        let open: Open = Arc::new(Mutex::new(Vec::new()));
+        for id in [1, 2] {
+            let s =
+                TcpStream::connect(listener.local_addr().expect("its address")).expect("connect");
+            open.lock().expect("the list").push((id, s));
+        }
+        let place = |id| Place {
+            open: Arc::clone(&open),
+            id,
+        };
+        drop(place(1));
+        let failed = place(2);
+        let ended = std::thread::spawn(move || {
+            let _place = failed;
+            panic!("the connection's thread fails");
+        })
+        .join();
+        assert!(ended.is_err(), "the thread failed");
+        assert!(
+            open.lock().expect("the list").is_empty(),
+            "both places back"
+        );
+    }
+
+    /// A program too far behind the console's lines is closed, and its place is freed for another.
+    #[test]
+    fn a_program_too_far_behind_the_console_is_closed_and_its_place_freed() {
+        let dir = std::env::temp_dir().join(format!(
+            "empyrean-admin-channel-behind-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let (commands, _world) = mpsc::channel();
+        let channel = start(&dir, commands, serde_json::json!({ "hello": "empyrean" }))
+            .expect("the channel starts");
+        let secret = read_file(&dir).expect("its file").secret;
+        let let_in = || {
+            let mut s = TcpStream::connect(channel.local_addr()).expect("connect");
+            s.set_read_timeout(Some(Duration::from_secs(60)))
+                .expect("a guard against a hang");
+            writeln!(s, "{secret}").expect("the secret");
+            let mut reader = BufReader::new(s.try_clone().expect("a reader"));
+            let mut hello = String::new();
+            reader.read_line(&mut hello).expect("its hello");
+            assert!(hello.contains("empyrean"), "{hello:?}");
+            (s, reader)
+        };
+        let readers = || {
+            channel
+                .output
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .readers
+                .len()
+        };
+        let mut connected = Vec::new();
+        for _ in 0..MAX_CLIENTS {
+            connected.push(let_in());
+        }
+        // Each is a reader once its connection has signed in; the count only stops a hang.
+        let mut count = 0;
+        while readers() < MAX_CLIENTS {
+            std::thread::yield_now();
+            count += 1;
+            assert!(count < 100_000_000, "not every program became a reader");
+        }
+        // None of the four reads, so the console's lines pile up until each is too far behind;
+        // the count only stops a hang.
+        let line = "x".repeat(1000);
+        let mut count = 0;
+        while readers() > 0 {
+            channel
+                .output
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(&line);
+            count += 1;
+            assert!(count < 10_000_000, "no program fell behind");
+        }
+        // Each reads what reached it, then the end: the channel closed it.
+        for (_s, mut reader) in connected {
+            let mut rest = Vec::new();
+            let end = reader.read_to_end(&mut rest);
+            assert!(end.is_ok(), "{end:?} after {} bytes", rest.len());
+        }
+        // Their places are free once their threads end: another program is let in. The count
+        // only stops a hang.
+        let mut tries = 0;
+        loop {
+            let open = channel
+                .open
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .len();
+            if open == 0 {
+                break;
+            }
+            std::thread::yield_now();
+            tries += 1;
+            assert!(tries < 100_000_000, "{open} places still held");
+        }
+        drop(let_in());
+        channel.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
