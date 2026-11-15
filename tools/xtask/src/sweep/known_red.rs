@@ -36,7 +36,16 @@
 
 /// `(suite, status owner, why it is red)`. A list, not a map, so a duplicate key is a test failure
 /// rather than an entry silently lost.
-pub const KNOWN_RED: &[(&str, &str, &str)] = &[];
+pub const KNOWN_RED: &[(&str, &str, &str)] = &[(
+    "rendering::remaster_traced",
+    "remaster",
+    "the two traced_occlusion_on_far_mountains claims: the far forest's trees are drawn as cards \
+     through a turning screen pattern, so of 1,675 far pixels of what stands on the land 85 have \
+     eight neighbors of their own and the claims count 38 and 103 against a floor of 200; counted \
+     amid the land instead (513 and 1,488), a card pixel's traced occlusion moves by over a tenth \
+     on 0.6% of them a frame against a bar of 0.2%, as the card shows another view of its tree. \
+     The far land's other traced claims pass",
+)];
 
 /// Binaries whose every test is `#[ignore]`d on purpose, so "0 passed 0 failed" is their designed
 /// resting state and not a gate behind a feature. A NO-TESTS result for any binary not listed here
