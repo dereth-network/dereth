@@ -214,6 +214,7 @@ impl Remaster {
             depth_test: true,
             depth_write: true,
             cull: d3d::CULL_NONE,
+            post: false,
         })?;
         let (mask, _) = self.sun.prepare(&mut self.gfx, &cs, strength, area)?;
         Ok(Some(SunPlan {

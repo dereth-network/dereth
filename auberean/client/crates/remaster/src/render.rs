@@ -15,6 +15,10 @@
 //! sunlight, in the frame's own draws of the landscape and the objects that stand in it. With
 //! both off the frame is the retail one.
 //!
+//! With the post passes on (the shared passes', `dereth_gfx_passes::post`), the frame is drawn
+//! into their target of its own through a projection moved by a part of a pixel each frame, and
+//! the temporal anti-aliasing lays the frames over each other into the world's colors.
+//!
 //! Before the frame, when some water lies below the camera, its reflection: the same scene from the
 //! camera mirrored about the water's plane, into a picture of its own, and the ripples' picture
 //! the water's surfaces push it about by.
@@ -51,6 +55,7 @@ use dereth_gfx::{
 use dereth_gfx_passes::ao::{AoPass, AoSettings};
 use dereth_gfx_passes::frame::{push_words, Camera, PerFrame, Rows};
 use dereth_gfx_passes::gbuffer::{class, MATERIAL, NORMAL};
+use dereth_gfx_passes::post::{Grade, PostPass, PostSettings};
 use dereth_gfx_passes::sun::SunMaps;
 use dereth_primitives::num::math;
 
@@ -154,6 +159,8 @@ struct Key {
     depth_test: bool,
     depth_write: bool,
     cull: u32,
+    /// It draws into the post passes' target rather than the world's colors.
+    post: bool,
 }
 
 /// The light a draw is made under: the frame's own, the outdoors' (seen from inside), the sky's,
@@ -260,6 +267,9 @@ pub struct Remaster {
     /// cascade's constants, and each mesh's sphere by its vertex list.
     shadows: ShadowSettings,
     sun: SunMaps,
+    /// The post passes: the scene's target of their own, the anti-aliasing, the bloom and the
+    /// tone map.
+    post: PostPass,
     cascade_lights: Vec<PerFrame>,
     spheres: HashMap<(usize, usize), (glam::Vec3, f32)>,
     frame: u64,
@@ -360,6 +370,7 @@ impl Remaster {
         let draws = PerFrame::new(&mut gfx, "remaster draws", 1 << 20, BufferUsage::default())?;
         let ao = AoPass::new(&mut gfx)?;
         let sun = SunMaps::new(&mut gfx)?;
+        let post = PostPass::new(&mut gfx)?;
         let posed = PerFrame::new(&mut gfx, "remaster posed", 1 << 20, BufferUsage::default())?;
         Ok(Self {
             gfx,
@@ -384,6 +395,7 @@ impl Remaster {
             last_view_projection: None,
             shadows: ShadowSettings::default(),
             sun,
+            post,
             cascade_lights: Vec::new(),
             spheres: HashMap::new(),
             frame: 0,
@@ -391,7 +403,7 @@ impl Remaster {
     }
 
     /// Every pass of the remaster's look on, as a player who ticks the remaster sees it first: the
-    /// ambient occlusion, outdoors and in, and the sun's shadows.
+    /// ambient occlusion, outdoors and in, the sun's shadows, and the anti-aliasing.
     pub fn look(&mut self) {
         self.set_ao(AoSettings {
             on: true,
@@ -402,6 +414,22 @@ impl Remaster {
             on: true,
             ..ShadowSettings::default()
         });
+        self.set_post(PostSettings {
+            taa: true,
+            ..PostSettings::default()
+        });
+    }
+
+    /// How the post passes draw from the next frame on (off: the frame is drawn into the world's
+    /// colors as retail draws it).
+    pub fn set_post(&mut self, settings: PostSettings) {
+        self.post.set_settings(settings);
+    }
+
+    /// How the post passes draw.
+    #[must_use]
+    pub fn post(&self) -> PostSettings {
+        self.post.settings()
     }
 
     /// How the sun's shadows are drawn from the next frame on (off: every surface takes all of the
@@ -664,6 +692,11 @@ impl Remaster {
             blend: None,
             write_alpha: true,
         };
+        let world = if key.post {
+            dereth_gfx_passes::post::scene_format(&self.gfx)
+        } else {
+            COLOR
+        };
         let (color, depth_format): (Vec<ColorTarget>, Format) = match key.program {
             Program::MeshDepth | Program::TerrainDepth => {
                 (vec![target(MATERIAL), target(NORMAL)], DEPTH)
@@ -671,7 +704,7 @@ impl Remaster {
             Program::MeshCaster => (Vec::new(), dereth_gfx_passes::sun::DEPTH),
             _ => (
                 vec![ColorTarget {
-                    format: COLOR,
+                    format: world,
                     blend,
                     write_alpha: false,
                 }],
@@ -983,13 +1016,38 @@ impl Remaster {
             cam.near,
             cam.far,
         ));
+        // The frame's camera, as the shared passes take it, unmoved; and the frame drawn through
+        // a projection moved by the anti-aliasing's part of a pixel, when it runs.
+        let mut camera = Camera {
+            view,
+            projection,
+            previous_view_projection: self.last_view_projection,
+            eye: glam::Vec3::from(eye),
+            viewport: [0, 0, width, height],
+            fov_y: cam.fov_y,
+            aspect,
+            near: cam.near,
+            far: cam.far,
+        };
+        let camera = self.post.jitter(&mut camera, (width, height));
+        let jitter = self.post.drawn_jitter();
+        let drawn = if jitter == [0.0, 0.0] {
+            vp
+        } else {
+            vp.then(&auberean_world::math::Mat4([
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [jitter[0], jitter[1], 0.0, 1.0],
+            ]))
+        };
         // Seen from inside, only what the doorways show at the moment.
         // D2-11042
         let sight = frame.sight(aspect);
         let outdoors = sight.as_ref().is_none_or(Sight::outdoors);
         let sky_shown = sight.as_ref().is_none_or(Sight::sky);
         let mut frame_u = FrameUniforms {
-            view_proj: mat(&vp),
+            view_proj: mat(&drawn),
             eye: [eye[0], eye[1], eye[2], 1.0],
             forward: [forward[0], forward[1], forward[2], 0.0],
             alpha_fog: {
@@ -1080,6 +1138,7 @@ impl Remaster {
                     depth_test: b.layer.depth_test != d3d::CMP_ALWAYS && env != Env::Sky,
                     depth_write: b.layer.depth_write && env != Env::Sky && faded.depth_write,
                     cull: b.layer.cull,
+                    post: false,
                 };
                 let stages = bound_stages(&b.layer);
                 let mut textures = [this.white; 3];
@@ -1231,6 +1290,7 @@ impl Remaster {
                         depth_test: true,
                         depth_write: (src, dst) == OPAQUE,
                         cull: d3d::CULL_CW,
+                        post: false,
                     },
                     vertices,
                     posed: None,
@@ -1434,6 +1494,7 @@ impl Remaster {
                             depth_test: true,
                             depth_write: true,
                             cull: d3d::CULL_NONE,
+                            post: false,
                         },
                         at,
                         [bump, self.white, self.white],
@@ -1454,6 +1515,7 @@ impl Remaster {
                         depth_test: true,
                         depth_write: false,
                         cull: b.layer.cull,
+                        post: false,
                     },
                     at,
                     [
@@ -1501,6 +1563,7 @@ impl Remaster {
                     depth_test: false,
                     depth_write: false,
                     cull: d3d::CULL_NONE,
+                    post: false,
                 })
             })
             .transpose()?;
@@ -1516,19 +1579,33 @@ impl Remaster {
                 e.insert(self.pipeline(key)?);
             }
         }
-
-        // The frame's camera, as the shared passes take it.
-        let camera = Camera {
-            view,
-            projection,
-            previous_view_projection: self.last_view_projection,
-            eye: glam::Vec3::from(eye),
-            viewport: [0, 0, width, height],
-            fov_y: cam.fov_y,
-            aspect,
-            near: cam.near,
-            far: cam.far,
+        let veil_post = match veil.filter(|_| self.post.runs()) {
+            Some(_) => Some(self.pipeline(Key {
+                program: Program::Veil,
+                src: d3d::BLEND_SRC_ALPHA,
+                dst: d3d::BLEND_INV_SRC_ALPHA,
+                depth_test: false,
+                depth_write: false,
+                cull: d3d::CULL_NONE,
+                post: true,
+            })?),
+            None => None,
         };
+        if self.post.runs() {
+            let post_keys: Vec<Key> = steps
+                .all()
+                .map(|d| Key {
+                    post: true,
+                    ..d.key
+                })
+                .collect();
+            for key in post_keys {
+                if let std::collections::hash_map::Entry::Vacant(e) = pipelines.entry(key) {
+                    e.insert(self.pipeline(key)?);
+                }
+            }
+        }
+
         // The sun's shadows, outdoors: their casters' constants go with the frame's.
         let sun_plan = if outdoors {
             self.plan_sun(
@@ -1604,9 +1681,14 @@ impl Remaster {
         let view_projection = projection * view;
         let ao_plan = self
             .ao
-            .prepare(&mut self.gfx, &camera, [0.0, 0.0], &t.gbuffer)?;
+            .prepare(&mut self.gfx, &camera, jitter, &t.gbuffer)?;
         self.last_view_projection = Some(view_projection);
         let ao_mask = ao_plan.as_ref().map_or(u32::MAX, |p| p.mask().0);
+        // The post passes' plan: the world then draws into their target.
+        let post_plan =
+            self.post
+                .prepare(&mut self.gfx, &camera, &t.gbuffer, 1.0, Grade::default())?;
+        let into_post = post_plan.is_some();
         // The depth's pass's pipelines: each mesh's that marks how near it is, culled as it is,
         // and the land's.
         let mut depth_keys = Vec::new();
@@ -1646,7 +1728,8 @@ impl Remaster {
                    d: &Draw,
                    lights: &[u32; 4],
                    reflecting: bool,
-                   depth: bool|
+                   depth: bool,
+                   post: bool|
          -> Result<(), dereth_gfx::Error> {
             let (key, record) = match d.faint.filter(|_| reflecting) {
                 Some(f) => f,
@@ -1660,7 +1743,7 @@ impl Remaster {
             } else {
                 (ao_mask, sun_mask)
             };
-            rec.set_pipeline(pipelines[&key])?;
+            rec.set_pipeline(pipelines[&Key { post, ..key }])?;
             let words = match key.program {
                 Program::Mesh | Program::Water | Program::Ripple | Program::MeshDepth => {
                     push_words(&[
@@ -1708,11 +1791,12 @@ impl Remaster {
         // shows it, and neither the water nor the particles and streaks.
         let steps_in = |rec: &mut dereth_gfx::Draw<'_>,
                         lights: &[u32; 4],
-                        reflecting: bool|
+                        reflecting: bool,
+                        post: bool|
          -> Result<(), dereth_gfx::Error> {
             for step in PASSES {
                 if step == Pass::Veil {
-                    if let Some(p) = veil {
+                    if let Some(p) = if post { veil_post } else { veil } {
                         rec.set_pipeline(p)?;
                         rec.push(0, &push_words(&[lights[Env::Outside as usize]]))?;
                         rec.draw(3, 1, 0, 0);
@@ -1733,7 +1817,7 @@ impl Remaster {
                 };
                 for d in list.unwrap_or(&[]) {
                     if if reflecting { d.reflected } else { d.shown } {
-                        run(rec, d, lights, reflecting, false)?;
+                        run(rec, d, lights, reflecting, false, post)?;
                     }
                 }
             }
@@ -1765,7 +1849,7 @@ impl Remaster {
                 for step in DEPTH_STEPS {
                     for d in steps.get(step).unwrap_or(&[]) {
                         if d.shown && depth_key(d).is_some() {
-                            run(rec, d, &lights, false, true)?;
+                            run(rec, d, &lights, false, true, false)?;
                         }
                     }
                 }
@@ -1805,7 +1889,7 @@ impl Remaster {
                     touches: &[],
                     area: None,
                 },
-                |rec| steps_in(rec, &mirrored, true),
+                |rec| steps_in(rec, &mirrored, true, false),
             )?;
             if !ripple_draws.is_empty() {
                 r.raster(
@@ -1825,13 +1909,15 @@ impl Remaster {
                     },
                     |rec| {
                         for d in &ripple_draws {
-                            run(rec, d, &lights, false, false)?;
+                            run(rec, d, &lights, false, false, false)?;
                         }
                         Ok(())
                     },
                 )?;
             }
         }
+        // The targets the world draws into: the post passes' with them on.
+        let scene = post_plan.map_or(t.gbuffer, |p| p.scene_targets(t.gbuffer));
         let mut touches = Vec::new();
         if let Some(plan) = &ao_plan {
             touches.push(Touch::Texture(plan.mask().1, Use::Sampled));
@@ -1847,7 +1933,7 @@ impl Remaster {
             &RasterPass {
                 name: "remaster world",
                 color: &[ColorAttachment {
-                    texture: t.color,
+                    texture: scene.color,
                     load: Load::Clear(backdrop),
                 }],
                 depth: Some(DepthAttachment {
@@ -1858,8 +1944,18 @@ impl Remaster {
                 touches: &touches,
                 area: None,
             },
-            |rec| steps_in(rec, &lights, false),
+            |rec| steps_in(rec, &lights, false, into_post),
         )?;
+        if let Some(plan) = &post_plan {
+            let gathered = plan.record_taa(
+                &mut r,
+                &scene,
+                lights[Env::Own as usize],
+                (t.depth, t.gbuffer.index[4]),
+                None,
+            )?;
+            plan.record_finish(&mut r, lights[Env::Own as usize], gathered)?;
+        }
         // Left ready to sample, for whoever shows the picture.
         r.touch(&[Touch::Texture(t.color, Use::Sampled)])?;
         r.submit()?;
