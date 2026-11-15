@@ -171,6 +171,12 @@ pub fn view_proj(
     near: f32,
     far: f32,
 ) -> Mat4 {
+    view_matrix(eye, forward, roll).then(&projection_matrix(fov_y, orthographic, aspect, near, far))
+}
+
+/// [`view_proj`]'s view alone: the world to the camera's space (x right, y up, z backward).
+#[must_use]
+pub fn view_matrix(eye: [f32; 3], forward: [f32; 3], roll: f32) -> Mat4 {
     let norm = |v: [f32; 3]| {
         let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
         [v[0] / l, v[1] / l, v[2] / l]
@@ -178,33 +184,41 @@ pub fn view_proj(
     let dot = |a: [f32; 3], b: [f32; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
     let f = norm(forward);
     let (r, u) = crate::scene::view_axes_of(f, roll);
-    // View: world to camera space (x right, y up, z backward).
-    let view = Mat4([
+    Mat4([
         [r[0], u[0], -f[0], 0.0],
         [r[1], u[1], -f[1], 0.0],
         [r[2], u[2], -f[2], 0.0],
         [-dot(r, eye), -dot(u, eye), dot(f, eye), 1.0],
-    ]);
+    ])
+}
+
+/// [`view_proj`]'s projection alone.
+#[must_use]
+pub fn projection_matrix(
+    fov_y: f32,
+    orthographic: Option<f32>,
+    aspect: f32,
+    near: f32,
+    far: f32,
+) -> Mat4 {
     if let Some(height) = orthographic {
         let d = 1.0 / (far - near);
-        let proj = Mat4([
+        return Mat4([
             [2.0 / (height * aspect), 0.0, 0.0, 0.0],
             [0.0, 2.0 / height, 0.0, 0.0],
             [0.0, 0.0, -d, 0.0],
             [0.0, 0.0, -near * d, 1.0],
         ]);
-        return view.then(&proj);
     }
     let h = 1.0 / math::tanf(fov_y.to_radians() * 0.5);
     let w = h / aspect;
     let q = far / (near - far);
-    let proj = Mat4([
+    Mat4([
         [w, 0.0, 0.0, 0.0],
         [0.0, h, 0.0, 0.0],
         [0.0, 0.0, q, -1.0],
         [0.0, 0.0, q * near, 0.0],
-    ]);
-    view.then(&proj)
+    ])
 }
 
 /// A layer's first three stages, each or none.

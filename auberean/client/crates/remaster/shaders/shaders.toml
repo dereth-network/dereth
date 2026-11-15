@@ -69,3 +69,15 @@ stage = "fragment"
 source = "mesh.slang"
 entry = "fs_water"
 stage = "fragment"
+
+# The depth's pass before the frame: what the opaque surfaces cover, and their light classes, for
+# the shared passes.
+[[entry]]
+source = "mesh.slang"
+entry = "fs_mesh_depth"
+stage = "fragment"
+
+[[entry]]
+source = "terrain.slang"
+entry = "fs_terrain_depth"
+stage = "fragment"

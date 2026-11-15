@@ -76,6 +76,8 @@ fn on_a_shared_device_retail_draws_as_on_its_own_and_the_remasters_picture_reach
         auberean_gpu::Renderer::on_device(&adapter, device.clone(), queue.clone(), true);
     let mut own = auberean_gpu::Renderer::new().expect("a device of its own");
     let mut alone = auberean_remaster::Remaster::new().expect("the remaster's own device");
+    // The painter draws the remaster's look, as a player who ticks it sees it.
+    alone.look();
     for s in &STATIONS {
         let f = frame(s);
         let a = own.render(&f, W, H, &mut load).expect("the retail frame");

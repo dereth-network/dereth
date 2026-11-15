@@ -331,7 +331,8 @@ impl Painter {
             device,
             queue,
         } = shared;
-        let remaster = crate::Remaster::on(gfx).map_err(fail)?;
+        let mut remaster = crate::Remaster::on(gfx).map_err(fail)?;
+        remaster.look();
         Ok((
             Self {
                 lent: None,

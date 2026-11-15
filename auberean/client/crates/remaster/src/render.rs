@@ -8,6 +8,11 @@
 //! light it is made under (its own, the outdoors', the sky's, or the light of the cells looked
 //! into) and its own constants, both as the retail device's shaders read them.
 //!
+//! Before the frame, a pass of the opaque surfaces into the depth and the material picture (each
+//! surface's light class), the shared layout's G-buffer the shared passes read; then, when it is
+//! on, the ambient occlusion from it, which takes its share of each surface's ambient light in the
+//! frame's own draws. With the occlusion off the frame is the retail one.
+//!
 //! Before the frame, when some water lies below the camera, its reflection: the same scene from the
 //! camera mirrored about the water's plane, into a picture of its own, and the ripples' picture
 //! the water's surfaces push it about by.
@@ -21,8 +26,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use auberean_draw::constants::{
-    bound_stages, draw_uniforms, mat, view_proj, DrawUniforms, FrameUniforms, MeshGpuVertex,
-    TerrainGpuVertex,
+    bound_stages, draw_uniforms, mat, projection_matrix, view_matrix, view_proj, DrawUniforms,
+    FrameUniforms, MeshGpuVertex, TerrainGpuVertex,
 };
 use auberean_draw::cull::Sight;
 use auberean_draw::material::d3d;
@@ -37,7 +42,9 @@ use dereth_gfx::{
     IndexType, Load, Location, Pipeline, RasterPass, SamplerDesc, Texture, TextureDesc,
     TextureUsage, Touch, Use,
 };
-use dereth_gfx_passes::frame::{push_words, PerFrame, Rows};
+use dereth_gfx_passes::ao::{AoPass, AoSettings};
+use dereth_gfx_passes::frame::{push_words, Camera, PerFrame, Rows};
+use dereth_gfx_passes::gbuffer::{class, MATERIAL};
 use dereth_primitives::num::math;
 
 use crate::shaders::{shader, Entry};
@@ -110,6 +117,10 @@ enum Program {
     Water,
     /// The water's surface into the ripples' picture.
     Ripple,
+    /// The depth's pass: an opaque mesh's, or the near terrain's bottom layer, into the depth and
+    /// the material picture.
+    MeshDepth,
+    TerrainDepth,
 }
 
 /// A pipeline's key: its program, how it blends (the stored factors), how it tests and writes
@@ -169,6 +180,8 @@ struct Draw {
     /// How the reflection draws it when that differs (fainter nearer the edge of its reach): its
     /// pipeline and its constants.
     faint: Option<(Key, u32)>,
+    /// Its light class, which the depth's pass writes.
+    class: u32,
 }
 
 /// The frame's targets.
@@ -178,6 +191,9 @@ struct Targets {
     height: u32,
     color: Texture,
     depth: Texture,
+    /// The shared layout's G-buffer over the same depth: the material picture of the depth's
+    /// pass, and the rest of the layout's targets, which nothing of the remaster reads yet.
+    gbuffer: dereth_gfx_passes::gbuffer::Targets,
 }
 
 /// The remaster: its device, the meshes, landscape and pictures it keeps there, its pipelines and
@@ -211,6 +227,9 @@ pub struct Remaster {
     /// drawn from, by its index in the table.
     reflection: Option<(Texture, Texture, Texture, u32, u32)>,
     bump: Option<u32>,
+    /// The ambient occlusion, and the last frame's view and projection together.
+    ao: AoPass,
+    last_view_projection: Option<glam::Mat4>,
     frame: u64,
 }
 
@@ -307,6 +326,7 @@ impl Remaster {
             light("remaster mirrored looked light")?,
         ];
         let draws = PerFrame::new(&mut gfx, "remaster draws", 1 << 20, BufferUsage::default())?;
+        let ao = AoPass::new(&mut gfx)?;
         let posed = PerFrame::new(&mut gfx, "remaster posed", 1 << 20, BufferUsage::default())?;
         Ok(Self {
             gfx,
@@ -327,8 +347,32 @@ impl Remaster {
             mirrored,
             reflection: None,
             bump: None,
+            ao,
+            last_view_projection: None,
             frame: 0,
         })
+    }
+
+    /// Every pass of the remaster's look on, as a player who ticks the remaster sees it first: the
+    /// ambient occlusion, outdoors and in.
+    pub fn look(&mut self) {
+        self.set_ao(AoSettings {
+            on: true,
+            indoors: true,
+            ..AoSettings::default()
+        });
+    }
+
+    /// How the ambient occlusion is found from the next frame on (off: every surface's ambient as
+    /// retail lights it).
+    pub fn set_ao(&mut self, settings: AoSettings) {
+        self.ao.set_settings(settings);
+    }
+
+    /// How the ambient occlusion is found.
+    #[must_use]
+    pub fn ao(&self) -> AoSettings {
+        self.ao.settings()
     }
 
     /// The layer's device the remaster draws on.
@@ -542,6 +586,8 @@ impl Remaster {
             Program::Mesh => (Entry::MeshVsMesh, Entry::MeshFsMesh),
             Program::Water => (Entry::MeshVsMesh, Entry::MeshFsWater),
             Program::Ripple => (Entry::MeshVsMesh, Entry::MeshFsRipple),
+            Program::MeshDepth => (Entry::MeshVsMesh, Entry::MeshFsMeshDepth),
+            Program::TerrainDepth => (Entry::TerrainVsTerrain, Entry::TerrainFsTerrainDepth),
             Program::Terrain(fs) => (Entry::TerrainVsTerrain, fs),
             Program::Veil => (Entry::TerrainVsVeil, Entry::TerrainFsVeil),
         };
@@ -554,9 +600,13 @@ impl Remaster {
             vertex: shader(vertex),
             fragment: Some(shader(fragment)),
             color: &[ColorTarget {
-                format: COLOR,
+                format: if matches!(key.program, Program::MeshDepth | Program::TerrainDepth) {
+                    MATERIAL
+                } else {
+                    COLOR
+                },
                 blend,
-                write_alpha: false,
+                write_alpha: matches!(key.program, Program::MeshDepth | Program::TerrainDepth),
             }],
             depth: Some(DepthState {
                 format: DEPTH,
@@ -681,6 +731,14 @@ impl Remaster {
             }
             self.gfx.destroy_texture(t.color);
             self.gfx.destroy_texture(t.depth);
+            for x in [
+                t.gbuffer.albedo,
+                t.gbuffer.normal,
+                t.gbuffer.light,
+                t.gbuffer.material,
+            ] {
+                self.gfx.destroy_texture(x);
+            }
         }
         let color = self.gfx.create_texture(&TextureDesc {
             label: "remaster color",
@@ -698,11 +756,54 @@ impl Remaster {
             format: DEPTH,
             usage: TextureUsage::DEPTH_TARGET | TextureUsage::SAMPLED,
         })?;
+        let material = self.gfx.create_texture(&TextureDesc {
+            label: "remaster material",
+            width,
+            height,
+            mips: 1,
+            format: MATERIAL,
+            usage: TextureUsage::COLOR_TARGET | TextureUsage::SAMPLED,
+        })?;
+        let mut unread = |label, format| {
+            self.gfx.create_texture(&TextureDesc {
+                label,
+                width: 1,
+                height: 1,
+                mips: 1,
+                format,
+                usage: TextureUsage::COLOR_TARGET | TextureUsage::SAMPLED,
+            })
+        };
+        let albedo = unread("remaster albedo", dereth_gfx_passes::gbuffer::ALBEDO)?;
+        let normal = unread("remaster normal", dereth_gfx_passes::gbuffer::NORMAL)?;
+        let light = unread("remaster light", dereth_gfx_passes::gbuffer::LIGHT)?;
+        let depth_index = self.gfx.bind_texture(depth)?;
+        let index = [
+            self.gfx.bind_texture(albedo)?,
+            self.gfx.bind_texture(normal)?,
+            self.gfx.bind_texture(light)?,
+            self.gfx.bind_texture(material)?,
+            depth_index,
+            self.gfx.bind_texture(color)?,
+            depth_index,
+        ];
         let t = Targets {
             width,
             height,
             color,
             depth,
+            gbuffer: dereth_gfx_passes::gbuffer::Targets {
+                width,
+                height,
+                albedo,
+                normal,
+                light,
+                material,
+                depth,
+                color,
+                outdoor_depth: depth,
+                index,
+            },
         };
         self.targets = Some(t);
         Ok(t)
@@ -710,12 +811,11 @@ impl Remaster {
 
     /// The constants of a light: the shared rows (the camera, the sun, the ambient, the fog, the
     /// target's extent), then the game's own from `LIGHT_ROWS`.
-    fn light_rows(u: &FrameUniforms, extent: (u32, u32)) -> Vec<u8> {
+    fn light_rows(u: &FrameUniforms, view: glam::Mat4, extent: (u32, u32)) -> Vec<u8> {
         let vp = glam::Mat4::from_cols_array_2d(&u.view_proj);
         let mut rows = Rows::default();
         rows.mat(vp);
-        // The view alone is not kept apart: the passes that read it are not drawn yet.
-        rows.mat(glam::Mat4::IDENTITY);
+        rows.mat(view);
         rows.f(u.eye);
         rows.f(u.to_sun);
         rows.f(u.sun_color);
@@ -791,6 +891,15 @@ impl Remaster {
             cam.near,
             cam.far,
         );
+        let glam_of = |m: auberean_world::math::Mat4| glam::Mat4::from_cols_array_2d(&m.0);
+        let view = glam_of(view_matrix(eye, forward, cam.roll));
+        let projection = glam_of(projection_matrix(
+            cam.fov_y,
+            cam.orthographic,
+            aspect,
+            cam.near,
+            cam.far,
+        ));
         // Seen from inside, only what the doorways show at the moment.
         // D2-11042
         let sight = frame.sight(aspect);
@@ -845,7 +954,7 @@ impl Remaster {
             .into_iter()
             .enumerate()
         {
-            let bytes = Self::light_rows(u, (width, height));
+            let bytes = Self::light_rows(u, view, (width, height));
             self.lights[k].write(&mut self.gfx, &bytes)?;
         }
 
@@ -972,6 +1081,13 @@ impl Remaster {
                         shown: b.shown(),
                         reflected: in_reflection && above,
                         faint,
+                        class: if step == Pass::Cells {
+                            class::CELL
+                        } else if b.points.inside {
+                            class::INDOOR
+                        } else {
+                            class::SUN
+                        },
                     },
                 );
             }
@@ -1037,6 +1153,7 @@ impl Remaster {
                     shown: true,
                     reflected: true,
                     faint: None,
+                    class: class::GROUND,
                 },
             );
             Ok(())
@@ -1205,6 +1322,7 @@ impl Remaster {
                     shown: true,
                     reflected: false,
                     faint: None,
+                    class: class::GROUND,
                 };
                 if r.ripples {
                     let mut u = draw_uniforms(&b.layer, &b.transform, b.tint, out_sun, &b.points);
@@ -1347,16 +1465,49 @@ impl Remaster {
             m_sky.view_proj = mat(&lift.then(&m_vp));
             m_sky.eye = m_frame.eye;
             m_sky.forward = m_frame.forward;
+            let m_view = glam_of(view_matrix(m_eye, m_forward, -cam.roll));
             for (k, u) in [m_frame, mirrored(&out_u), m_sky, mirrored(&looked_u)]
                 .iter()
                 .enumerate()
             {
-                let bytes = Self::light_rows(u, (REFLECTION_SIZE, REFLECTION_SIZE));
+                let bytes = Self::light_rows(u, m_view, (REFLECTION_SIZE, REFLECTION_SIZE));
                 self.mirrored[k].write(&mut self.gfx, &bytes)?;
             }
         }
 
         let t = self.targets(width, height)?;
+        // The ambient occlusion's plan, from this frame's camera and the last frame's.
+        let view_projection = projection * view;
+        let camera = Camera {
+            view,
+            projection,
+            previous_view_projection: self.last_view_projection,
+            eye: glam::Vec3::from(eye),
+            viewport: [0, 0, width, height],
+            fov_y: cam.fov_y,
+            aspect,
+            near: cam.near,
+            far: cam.far,
+        };
+        let ao_plan = self
+            .ao
+            .prepare(&mut self.gfx, &camera, [0.0, 0.0], &t.gbuffer)?;
+        self.last_view_projection = Some(view_projection);
+        let ao_mask = ao_plan.as_ref().map_or(u32::MAX, |p| p.mask().0);
+        // The depth's pass's pipelines: each opaque mesh's, culled as it is, and the land's.
+        let mut depth_keys = Vec::new();
+        for step in [Pass::Terrain, Pass::Cells, Pass::Opaque, Pass::Casters] {
+            for d in steps.get(step).unwrap_or(&[]) {
+                if let Some(k) = depth_key(d) {
+                    depth_keys.push(k);
+                }
+            }
+        }
+        for key in depth_keys {
+            if let std::collections::hash_map::Entry::Vacant(e) = pipelines.entry(key) {
+                e.insert(self.pipeline(key)?);
+            }
+        }
         let index_of = |l: &[PerFrame; 4]| [l[0].index, l[1].index, l[2].index, l[3].index];
         let lights = index_of(&self.lights);
         let mirrored = index_of(&self.mirrored);
@@ -1380,34 +1531,46 @@ impl Remaster {
         let run = |rec: &mut dereth_gfx::Draw<'_>,
                    d: &Draw,
                    lights: &[u32; 4],
-                   reflecting: bool|
+                   reflecting: bool,
+                   depth: bool|
          -> Result<(), dereth_gfx::Error> {
             let (key, record) = match d.faint.filter(|_| reflecting) {
                 Some(f) => f,
+                None if depth => (depth_key(d).unwrap_or(d.key), d.record),
                 None => (d.key, d.record),
+            };
+            // The frame's own draws take the occlusion; the reflection and the depth's pass don't.
+            let ao = if reflecting || depth {
+                u32::MAX
+            } else {
+                ao_mask
             };
             rec.set_pipeline(pipelines[&key])?;
             let words = match key.program {
-                Program::Mesh | Program::Water | Program::Ripple => push_words(&[
-                    lights[d.env as usize],
-                    draws,
-                    record,
-                    d.vertices,
-                    if d.posed.is_some() {
-                        posed_index
-                    } else {
-                        u32::MAX
-                    },
-                    d.posed.unwrap_or(0),
-                    d.textures[0],
-                    d.textures[1],
-                    d.textures[2],
-                    d.samplers[0],
-                    d.samplers[1],
-                    d.samplers[2],
-                    u32::MAX,
-                    d.alpha_mode,
-                ]),
+                Program::Mesh | Program::Water | Program::Ripple | Program::MeshDepth => {
+                    push_words(&[
+                        lights[d.env as usize],
+                        draws,
+                        record,
+                        d.vertices,
+                        if d.posed.is_some() {
+                            posed_index
+                        } else {
+                            u32::MAX
+                        },
+                        d.posed.unwrap_or(0),
+                        d.textures[0],
+                        d.textures[1],
+                        d.textures[2],
+                        d.samplers[0],
+                        d.samplers[1],
+                        d.samplers[2],
+                        u32::MAX,
+                        d.alpha_mode,
+                        ao,
+                        d.class,
+                    ])
+                }
                 _ => push_words(&[
                     lights[d.env as usize],
                     d.vertices,
@@ -1415,6 +1578,8 @@ impl Remaster {
                     d.samplers[0],
                     d.textures[1],
                     d.samplers[1],
+                    ao,
+                    d.class,
                 ]),
             };
             rec.push(0, &words)?;
@@ -1451,13 +1616,47 @@ impl Remaster {
                 };
                 for d in list.unwrap_or(&[]) {
                     if if reflecting { d.reflected } else { d.shown } {
-                        run(rec, d, lights, reflecting)?;
+                        run(rec, d, lights, reflecting, false)?;
                     }
                 }
             }
             Ok(())
         };
         let mut r = self.gfx.begin()?;
+        r.raster(
+            &RasterPass {
+                name: "remaster depth",
+                color: &[ColorAttachment {
+                    texture: t.gbuffer.material,
+                    load: Load::Clear([0.0; 4]),
+                }],
+                depth: Some(DepthAttachment {
+                    texture: t.depth,
+                    clear: Some(1.0),
+                    write: true,
+                }),
+                touches: &[],
+                area: None,
+            },
+            |rec| {
+                for step in [Pass::Terrain, Pass::Cells, Pass::Opaque, Pass::Casters] {
+                    for d in steps.get(step).unwrap_or(&[]) {
+                        if d.shown && depth_key(d).is_some() {
+                            run(rec, d, &lights, false, true)?;
+                        }
+                    }
+                }
+                Ok(())
+            },
+        )?;
+        if let Some(plan) = &ao_plan {
+            plan.record(
+                &mut r,
+                &t.gbuffer,
+                lights[Env::Own as usize],
+                (t.depth, t.gbuffer.index[4]),
+            )?;
+        }
         if let Some((picture, ripples, depth, _, _)) = reflection_targets {
             r.raster(
                 &RasterPass {
@@ -1494,7 +1693,7 @@ impl Remaster {
                     },
                     |rec| {
                         for d in &ripple_draws {
-                            run(rec, d, &lights, false)?;
+                            run(rec, d, &lights, false, false)?;
                         }
                         Ok(())
                     },
@@ -1502,6 +1701,9 @@ impl Remaster {
             }
         }
         let mut touches = Vec::new();
+        if let Some(plan) = &ao_plan {
+            touches.push(Touch::Texture(plan.mask().1, Use::Sampled));
+        }
         if let Some((picture, ripples, _, _, _)) = reflection_targets {
             touches.push(Touch::Texture(picture, Use::Sampled));
             touches.push(Touch::Texture(ripples, Use::Sampled));
@@ -1559,6 +1761,23 @@ impl Remaster {
             }
         }
     }
+}
+
+/// The depth's pass's key for `d`: an opaque mesh (one that writes depth and blends nothing) as its
+/// own culling has it, or the land's bottom layer; `None` for the rest.
+fn depth_key(d: &Draw) -> Option<Key> {
+    let program = match d.key.program {
+        Program::Mesh => Program::MeshDepth,
+        Program::Terrain(Entry::TerrainFsTerrainBase) => Program::TerrainDepth,
+        _ => return None,
+    };
+    let opaque = (d.key.src, d.key.dst) == OPAQUE && d.key.depth_write && d.key.depth_test;
+    opaque.then_some(Key {
+        program,
+        src: d3d::BLEND_ONE,
+        dst: d3d::BLEND_ZERO,
+        ..d.key
+    })
 }
 
 /// The frame's draws, step by step.

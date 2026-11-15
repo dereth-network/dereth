@@ -20,6 +20,10 @@ struct Push
     uint samp0;
     uint tex1;
     uint samp1;
+    // How much of the sky reaches each pixel, the ambient occlusion's picture (~0: all of it).
+    uint ao;
+    // The landscape's light class, which the depth's pass writes into the material picture.
+    uint light_class;
 };
 
 [[vk::push_constant]]
@@ -70,13 +74,33 @@ float3 terrain_fogged(Light f, float3 c, float fog)
     return fogged(f, c, fog);
 }
 
+// The vertex's lit color with the ambient's share taken by the ambient occlusion at the pixel: at
+// open sky the retail color. The ambient is the day's, before the vertex's own color, which the
+// lit color carries too.
+float3 lit(Light f, TerrainOut v)
+{
+    if (push.ao == 0xFFFFFFFF)
+    {
+        return v.color.rgb;
+    }
+    float ao = textures[NonUniformResourceIndex(push.ao)].Load(int3(int2(v.clip.xy), 0)).x;
+    return max(v.color.rgb - (1.0 - ao) * min(f.ambient.rgb, v.color.rgb), 0.0);
+}
+
+// The depth's pass: the near terrain's bottom layer, its light class into the material picture.
+[shader("fragment")]
+float4 fs_terrain_depth(TerrainOut v) : SV_Target0
+{
+    return float4(float(push.light_class) / 255.0, 0.0, 0.0, 0.0);
+}
+
 // The bottom layer: the ground modulated twice by the lit color.
 [shader("fragment")]
 float4 fs_terrain_base(TerrainOut v) : SV_Target0
 {
     Light f = light_of(push.frame);
     float4 t = sample(push.tex0, push.samp0, v.uv);
-    float3 c = saturate(2.0 * t.rgb * v.color.rgb);
+    float3 c = saturate(2.0 * t.rgb * lit(f, v));
     return float4(terrain_fogged(f, c, v.fog), 1.0);
 }
 
@@ -87,7 +111,7 @@ float4 fs_terrain_mask(TerrainOut v) : SV_Target0
     Light f = light_of(push.frame);
     float4 t = sample(push.tex0, push.samp0, v.uv);
     float4 m = sample(push.tex1, push.samp1, v.mask_uv);
-    float3 c = saturate(2.0 * t.rgb * v.color.rgb);
+    float3 c = saturate(2.0 * t.rgb * lit(f, v));
     return float4(terrain_fogged(f, c, v.fog), m.a);
 }
 
@@ -128,10 +152,11 @@ float4 fs_terrain_far(TerrainOut v) : SV_Target0
     Light f = light_of(push.frame);
     float4 t = sample(push.tex0, push.samp0, v.uv);
     float3 cloud = sample(push.tex1, push.samp1, v.cloud_uv).rgb;
-    float3 c = saturate(2.0 * (t.rgb + v.color.rgb - 0.5));
+    float3 color = lit(f, v);
+    float3 c = saturate(2.0 * (t.rgb + color - 0.5));
     if (f.cloud.w > 0.5)
     {
-        float3 signed_sum = saturate(t.rgb + v.color.rgb - 0.5);
+        float3 signed_sum = saturate(t.rgb + color - 0.5);
         c = saturate(2.0 * signed_sum * cloud);
     }
     return float4(fogged(f, c, v.fog), 1.0);

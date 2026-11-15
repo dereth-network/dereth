@@ -27,11 +27,15 @@ pub enum Entry {
     MeshFsRipple,
     /// `fs_water` in `mesh.slang`, the fragment stage.
     MeshFsWater,
+    /// `fs_mesh_depth` in `mesh.slang`, the fragment stage.
+    MeshFsMeshDepth,
+    /// `fs_terrain_depth` in `terrain.slang`, the fragment stage.
+    TerrainFsTerrainDepth,
 }
 
 impl Entry {
     /// Every entry point, in `shaders.toml`'s order.
-    pub const ALL: [Self; 12] = [Self::TerrainVsTerrain, Self::TerrainFsTerrainBase, Self::TerrainFsTerrainMask, Self::TerrainFsTerrainShade, Self::TerrainFsTerrainFog, Self::TerrainFsTerrainFar, Self::TerrainVsVeil, Self::TerrainFsVeil, Self::MeshVsMesh, Self::MeshFsMesh, Self::MeshFsRipple, Self::MeshFsWater];
+    pub const ALL: [Self; 14] = [Self::TerrainVsTerrain, Self::TerrainFsTerrainBase, Self::TerrainFsTerrainMask, Self::TerrainFsTerrainShade, Self::TerrainFsTerrainFog, Self::TerrainFsTerrainFar, Self::TerrainVsVeil, Self::TerrainFsVeil, Self::MeshVsMesh, Self::MeshFsMesh, Self::MeshFsRipple, Self::MeshFsWater, Self::MeshFsMeshDepth, Self::TerrainFsTerrainDepth];
 
     /// The source file that defines it.
     #[must_use]
@@ -49,6 +53,8 @@ impl Entry {
             Self::MeshFsMesh => "mesh.slang",
             Self::MeshFsRipple => "mesh.slang",
             Self::MeshFsWater => "mesh.slang",
+            Self::MeshFsMeshDepth => "mesh.slang",
+            Self::TerrainFsTerrainDepth => "terrain.slang",
         }
     }
 
@@ -68,6 +74,8 @@ impl Entry {
             Self::MeshFsMesh => "fs_mesh",
             Self::MeshFsRipple => "fs_ripple",
             Self::MeshFsWater => "fs_water",
+            Self::MeshFsMeshDepth => "fs_mesh_depth",
+            Self::TerrainFsTerrainDepth => "fs_terrain_depth",
         }
     }
 
@@ -87,6 +95,8 @@ impl Entry {
             Self::MeshFsMesh => Stage::Fragment,
             Self::MeshFsRipple => Stage::Fragment,
             Self::MeshFsWater => Stage::Fragment,
+            Self::MeshFsMeshDepth => Stage::Fragment,
+            Self::TerrainFsTerrainDepth => Stage::Fragment,
         }
     }
 
@@ -106,6 +116,8 @@ impl Entry {
             Self::MeshFsMesh => include_bytes!("spirv/mesh.fs_mesh.spv"),
             Self::MeshFsRipple => include_bytes!("spirv/mesh.fs_ripple.spv"),
             Self::MeshFsWater => include_bytes!("spirv/mesh.fs_water.spv"),
+            Self::MeshFsMeshDepth => include_bytes!("spirv/mesh.fs_mesh_depth.spv"),
+            Self::TerrainFsTerrainDepth => include_bytes!("spirv/terrain.fs_terrain_depth.spv"),
         }
     }
 
@@ -125,6 +137,8 @@ impl Entry {
             Self::MeshFsMesh => include_bytes!("dxil/mesh.fs_mesh.dxil"),
             Self::MeshFsRipple => include_bytes!("dxil/mesh.fs_ripple.dxil"),
             Self::MeshFsWater => include_bytes!("dxil/mesh.fs_water.dxil"),
+            Self::MeshFsMeshDepth => include_bytes!("dxil/mesh.fs_mesh_depth.dxil"),
+            Self::TerrainFsTerrainDepth => include_bytes!("dxil/terrain.fs_terrain_depth.dxil"),
         }
     }
 }
