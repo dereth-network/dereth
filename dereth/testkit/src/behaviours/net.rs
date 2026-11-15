@@ -306,6 +306,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "link.retransmit.a-datagram-lost-before-a-quiet-spell-is-recovered",
+        says: "When the last datagram before a quiet spell is lost, the client's next periodic \
+               packet shows the other end the gap, which it asks for, and the client sends it \
+               again within a few seconds.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-NET-IDLE-LOSS"),
+        station: "dereth-client-net::cpu::net::retransmit::a_datagram_lost_before_a_quiet_spell_is_recovered_by_the_next_periodic_packet",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "link.retransmit.a-lost-datagram-is-naked-and-resent",
         says: "When a datagram is lost on the way, the other end asks for that one sequence number \
                once, the client sends its saved copy again, and once everything has arrived nobody \

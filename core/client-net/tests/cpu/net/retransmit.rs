@@ -274,6 +274,64 @@ fn a_single_dropped_datagram_is_naked_and_resent() {
     assert_eq!(link.resends, 1);
 }
 
+/// Behaviour: link.retransmit.a-datagram-lost-before-a-quiet-spell-is-recovered
+/// **Scenario 1b: the last datagram before a quiet spell.**
+///
+/// No data follows the lost datagram. The client's periodic packets carry its current sequence
+/// number, the cumulative ACK every 2 s first, so the next one shows the peer the gap; the peer
+/// asks for it and the client sends it again, within one ACK period and a tick of the loss.
+#[test]
+fn a_datagram_lost_before_a_quiet_spell_is_recovered_by_the_next_periodic_packet() {
+    let mut link = Link::new();
+    // A connected link: one blob each way's worth of traffic, both ends acking.
+    assert_eq!(link.burst(1, 0.1), vec![2]);
+    let mut t = 0.5;
+    while t < 5.0 {
+        link.tick_b(t);
+        link.tick_a(t + 0.25);
+        t += 0.5;
+    }
+    assert_eq!(link.b_received.len(), 1);
+
+    // The last thing said before the quiet spell is lost.
+    let next = b_receiver(&link).window.highest_id_received + 1;
+    let lost = link.data_seqs.len();
+    link.drop_seqs = vec![next];
+    link.a.send(NetQueue::UiQueue, false, &opcode(1));
+    link.tick_a(t);
+    assert_eq!(link.data_seqs[lost..], [next]);
+    assert_eq!(link.dropped, 1);
+
+    // Nothing more is sent. Both ends tick on a fake clock, a quarter second apart.
+    let lost_at = t;
+    let mut recovered_at = None;
+    while t < lost_at + 20.0 {
+        t += 0.5;
+        link.tick_b(t);
+        link.tick_a(t + 0.25);
+        if recovered_at.is_none() && link.b_received.len() == 2 {
+            recovered_at = Some(t - lost_at);
+        }
+    }
+
+    assert_eq!(
+        link.naked_ids,
+        vec![next],
+        "the peer asked for the lost sequence once"
+    );
+    assert_eq!(link.resends, 1, "and the client sent it again once");
+    assert_eq!(
+        link.b_received[1],
+        opcode(1).to_vec(),
+        "the lost blob arrived"
+    );
+    let recovered_after = recovered_at.expect("recovered");
+    assert!(
+        recovered_after <= 3.0,
+        "within one ACK period (2 s) and a tick: {recovered_after}"
+    );
+}
+
 /// **Scenario 2: a run of drops.**
 ///
 /// Four consecutive datagrams vanish. The NAK builder walks the whole set in
