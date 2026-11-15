@@ -296,6 +296,7 @@ fn a_hazard_kept_from_the_world_harms_no_one() {
     )]);
     h.server.content.events = yalain_content::events::EventTable {
         events: vec![yalain_content::events::Event {
+            ended_by: Vec::new(),
             key: "never".into(),
             game_event: None,
             windows: Vec::new(),

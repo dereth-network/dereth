@@ -59,6 +59,7 @@ fn crystal(id: u64, origin: [f32; 2]) -> ContentObject {
 
 fn quest() -> QuestDef {
     QuestDef {
+        duration_by_calendar: false,
         id: QUEST,
         name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_1F0B),
         description: (0x6C45_9364, 0x2500_1F0B),
@@ -91,6 +92,7 @@ fn quest() -> QuestDef {
 
 fn step(trigger: Trigger, update: Update, takes: Vec<u32>) -> Step {
     Step {
+        out_of_turn: false,
         key: String::new(),
         quest: QUEST,
         needs: 1,

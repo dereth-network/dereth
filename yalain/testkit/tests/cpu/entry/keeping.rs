@@ -506,6 +506,7 @@ fn an_items_instance_stamp_is_one_more_at_each_entry() {
 /// A quest for the entry's list: its wait to be taken again an hour.
 fn hour_quest(id: u32) -> QuestDef {
     QuestDef {
+        duration_by_calendar: false,
         id,
         name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_17EE),
         description: (0x6C45_9364, 0x2500_17EE),

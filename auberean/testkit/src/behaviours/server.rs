@@ -1712,6 +1712,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.content.race-mechanism-rows",
+        says: "An `[[event]]` may name the quests whose completion ends it (`ended_by`) and a weekly \
+               window to the second; a `[[talk]]` row may be said as an event starts (`when = \
+               \"event\"`, naming that one event) as a saying, a broadcast or a notice to every \
+               player (`how = \"notice\"`); a `[[step]]` may run out of turn (`out_of_turn`, moving \
+               no quest); a `[[quest]]` may have its time run on the calendar \
+               (`duration_by_calendar`); an `[[effect_rule]]` may hold back a quality's rises \
+               (`holds_back`). Each compiles to its table, and a line said as an event starts naming \
+               no event or said as a tell, a step out of turn that moves a quest or names no phase, \
+               and a hold back with no quality are refused.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-RALLY-MECHANISM-ROWS"),
+        station: "yalain-world-db::cpu::database::the_rows_of_a_races_mechanisms_read_and_compile",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.content.take-gates-of-classes",
         says: "The items whose classes name a quest for taking them read with it.",
         since: RETAIL,
@@ -4614,6 +4630,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.effects.held-back-rises-count-for-nothing",
+        says: "While a player holds an effect that holds back a quality's rises, the rise any other \
+               effect gives that quality (an amount added, a factor above 1) counts for nothing, but \
+               those of the effects it spares; a lowering still counts, and the rises count again as \
+               it ends.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-RALLY-REGULATOR"),
+        station: "yalain-testkit::cpu::world_mechanisms::held_back::a_rise_an_effect_holds_back_counts_for_nothing_while_it_is_held",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.effects.immunities-as-rows-say",
         says: "An effect a world's rule says leaves another as it ends is an immunity under way: \
                hidden from its holder, it comes on with what it follows and leaves that effect, whose \
@@ -5063,6 +5090,17 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-FAILURE-EVENTS"),
         station: "yalain-testkit::cpu::play::failure_events::a_quests_failure_turns_its_event_on_for_everyone_hiding_its_person_until_the_camp_is_killed",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.events.ended-by-a-quests-completion",
+        says: "An event that names quests it is ended by goes off at once when any player completes \
+               one while it is on: what it gates is gone, a second player's completion in the same \
+               moment finds it off, and it stays off for the rest of its window, coming on again with \
+               its next.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-RALLY-FIRST-WINS"),
+        station: "yalain-testkit::cpu::world_mechanisms::race_end::the_first_to_complete_a_quest_that_ends_an_event_ends_it_for_everyone",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -14336,6 +14374,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.quests.duration-on-the-calendar",
+        says: "A quest whose time runs on the calendar runs out while its player is away: entering \
+               after its time ran out, the player finds it failed as of then, where a quest of time \
+               in the world counts from the time away later.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-RALLY-CHAMPIONSHIP-DAYS"),
+        station: "yalain-testkit::cpu::world_mechanisms::calendar::a_quest_on_the_calendar_runs_out_while_its_player_is_away",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.empty-words-are-still-listed",
         says: "A quest whose description is an empty string, or whose name the install's text \
                lacks, is listed and told as any other; a quest is hidden for naming no \
@@ -15795,6 +15843,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-GIVEN-ROW"),
         station: "yalain-world-db::cpu::database::a_step_on_a_quest_given_compiles_and_reads_back_as_written",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.step-out-of-turn",
+        says: "A step that runs out of turn answers its trigger while its quest is under way at any \
+               phase but its own, with its line and effects and moving no quest; used in turn, the \
+               quest's own step runs instead, and with the quest not under way nothing runs.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-RALLY-FLING"),
+        station: "yalain-testkit::cpu::world_mechanisms::out_of_turn::a_stop_used_out_of_turn_answers_with_its_effect_and_moves_nothing",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -17269,6 +17327,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-TALK-BROADCAST"),
         station: "yalain-testkit::cpu::play::talk::an_idle_broadcast_reaches_the_speakers_landblock_and_the_eight_around_it_every_twenty_to_fifty_seconds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.talk.lines-said-as-an-event-starts",
+        says: "A line said as an event starts is said once as it comes on, no player's act behind it: \
+               a broadcast or a saying from each placed person of its template standing in the world, \
+               and a notice (kind 256, the line's string alone) read by every player in the world.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-RALLY-COUNTDOWN"),
+        station: "yalain-testkit::cpu::world_mechanisms::event_lines::an_events_lines_are_said_as_it_starts",
         tier: Tier::Cpu,
     },
     behaviour! {

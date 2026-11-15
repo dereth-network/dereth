@@ -916,6 +916,7 @@ pub fn quest_mine_done<S: Store>(
             transforms: None,
             chance: None,
             to_fellows: false,
+            out_of_turn: false,
         };
         crate::quests::run(s, net, world, &step, None, clock);
     }

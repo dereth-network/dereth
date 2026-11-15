@@ -65,6 +65,7 @@ fn object(id: u64, template: u32, origin: [f32; 3]) -> ContentObject {
 
 fn errand() -> QuestDef {
     QuestDef {
+        duration_by_calendar: false,
         id: ERRAND,
         name: Words::Ref(0xA860_7CEC, TABLE),
         description: (0x6C45_9364, TABLE),
@@ -98,6 +99,7 @@ fn errand() -> QuestDef {
 /// A step of the errand under way that hands over a scroll at a use of its person, moving nothing.
 fn scroll_step(key: &str, person: u32, scroll: u32) -> Step {
     Step {
+        out_of_turn: false,
         key: key.into(),
         quest: ERRAND,
         needs: 1,

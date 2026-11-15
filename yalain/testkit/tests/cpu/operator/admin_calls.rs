@@ -1722,6 +1722,7 @@ fn a_quest_an_admin_takes_off_a_player_takes_its_subquests_too() {
     const DONE_SUB: u32 = 0x4000_0105;
     const UNRELATED: u32 = 0x4000_0106;
     let def = |id, subquests| QuestDef {
+        duration_by_calendar: false,
         id,
         name: yalain_content::Words::Ref(1, 0x2500_0001),
         description: (2, 0x2500_0001),
@@ -1770,6 +1771,7 @@ fn a_quest_an_admin_takes_off_a_player_takes_its_subquests_too() {
         ],
         steps: [(PARENT, 2u32), (PARENT, 3)]
             .map(|(quest, to)| Step {
+                out_of_turn: false,
                 key: String::new(),
                 quest,
                 needs: to - 1,
@@ -1903,6 +1905,7 @@ fn an_admin_gives_moves_on_and_finishes_a_players_quest() {
     let (me, _) = admin_in_world(&mut h, "two", "Cara");
     h.server.quests = yalain_content::QuestTable {
         quests: vec![yalain_content::quests::QuestDef {
+            duration_by_calendar: false,
             id: QUEST,
             name: yalain_content::Words::Ref(1, 0x2500_0001),
             description: (2, 0x2500_0001),
@@ -2000,6 +2003,7 @@ fn a_quest_an_admin_takes_off_a_player_leaves_its_clients_list_at_once() {
         let (victim, victim_id) = h.player_in_world("one", "Elara");
         let (me, _) = admin_in_world(&mut h, "two", "Cara");
         let def = |id, hidden| yalain_content::quests::QuestDef {
+            duration_by_calendar: false,
             id,
             name: yalain_content::Words::Ref(1, 0x2500_0001),
             description: (2, 0x2500_0001),

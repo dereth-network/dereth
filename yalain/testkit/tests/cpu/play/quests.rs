@@ -60,6 +60,7 @@ fn object(id: u64, template: u32, kind: Kind, origin: [f32; 3]) -> ContentObject
 
 fn quest(id: u32, xp: u64, challenge: i32) -> QuestDef {
     QuestDef {
+        duration_by_calendar: false,
         id,
         name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_17EE),
         description: (0x6C45_9364, 0x2500_17EE),
@@ -92,6 +93,7 @@ fn quest(id: u32, xp: u64, challenge: i32) -> QuestDef {
 
 pub(super) fn step(quest: u32, needs: u32, trigger: Trigger, update: Update) -> Step {
     Step {
+        out_of_turn: false,
         key: String::new(),
         quest,
         needs,

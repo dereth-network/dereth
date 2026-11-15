@@ -750,6 +750,7 @@ fn use_answers(h: &Harness, b: usize, from: usize) -> Vec<(u32, u32, f32)> {
 /// A shown quest of the test world, for a portal to need or give.
 fn portal_quest(id: u32) -> yalain_content::quests::QuestDef {
     yalain_content::quests::QuestDef {
+        duration_by_calendar: false,
         id,
         name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_17EE),
         description: (0x6C45_9364, 0x2500_17EE),

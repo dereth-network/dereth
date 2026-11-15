@@ -31,8 +31,9 @@
 //! phase, 1 in its second): before and after it the journal shows no time and the quest cannot fail
 //! of it. Its time runs only
 //! while its player is in the world: it stands still while the player is away, however long, and
-//! a person's wait after giving a quest runs the same way. A quest's wait to be taken again runs
-//! on the calendar, in the world or not. 2017, between two entries of a character: every timed
+//! a person's wait after giving a quest runs the same way. A world's row may have a quest's time
+//! run on the calendar instead, in the world or not: a player away as it runs out finds the quest
+//! failed on entering. A quest's wait to be taken again runs on the calendar, in the world or not. 2017, between two entries of a character: every timed
 //! quest's time left fell by the same amount, at most the time that passed (585 of 585), and by
 //! the time played where all of it was recorded; 1,651 waits to be taken again fell by the time
 //! that passed, of which 1,583 had a character away a minute or more.
@@ -678,10 +679,15 @@ fn may_run_at_any_level<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_u
         return false;
     };
     let held = &p.play.quests;
-    if phase_of(held, st.quest) != st.needs
-        || !crate::events::step_runs(s, st)
-        || !crate::tallies::step_for(s, st)
-    {
+    // A step that runs out of turn answers its trigger at any phase of its quest under way but its
+    // own.
+    let at = phase_of(held, st.quest);
+    let in_turn = if st.out_of_turn {
+        at != 0 && at != st.needs
+    } else {
+        at == st.needs
+    };
+    if !in_turn || !crate::events::step_runs(s, st) || !crate::tallies::step_for(s, st) {
         return false;
     }
     // A step whose gift can't be made doesn't run: it would take what it takes for nothing.
@@ -2189,6 +2195,9 @@ pub fn apply_led<S: Store>(
         }
     }
     crate::world::keep_player(s, world);
+    if up == Update::Complete {
+        crate::events::quest_done(s, net, quest, clock.unix);
+    }
     crate::escorts::quest_moved(s, net, world, quest);
     if up == Update::Bestow {
         start_timer(s, world, &def, clock);
@@ -2595,6 +2604,46 @@ pub fn time_stood_still(held: &mut [QuestState], away: i64, now_unix: i64) {
                 .updated
                 .saturating_add(away)
                 .min(now_unix.max(st.updated));
+        }
+    }
+}
+
+/// A character enters after `away` seconds out of the world, at `now_unix`: its time stood still
+/// ([`time_stood_still`]), but for a quest under way whose duration runs on the calendar, which
+/// counts from when it did and fails, as of when its time ran out, if that is before now.
+pub fn time_away(
+    table: &yalain_content::QuestTable,
+    held: &mut [QuestState],
+    away: i64,
+    now_unix: i64,
+) {
+    let by_calendar = |st: &QuestState| {
+        st.status == status::UNDERWAY
+            && table
+                .quest(st.quest)
+                .is_some_and(|def| def.duration_by_calendar)
+    };
+    let kept: Vec<(usize, QuestState)> = held
+        .iter()
+        .enumerate()
+        .filter(|(_, st)| by_calendar(st))
+        .map(|(i, st)| (i, *st))
+        .collect();
+    time_stood_still(held, away, now_unix);
+    for (i, st) in kept {
+        held[i] = st;
+        let Some(def) = table.quest(st.quest) else {
+            continue;
+        };
+        let Some(from) = time_since(def, &st) else {
+            continue;
+        };
+        #[allow(clippy::cast_possible_truncation)]
+        let ends = from + def.duration.ceil() as i64;
+        if ends <= now_unix {
+            held[i].status = status::FAILED;
+            held[i].phase = 0;
+            held[i].updated = ends;
         }
     }
 }

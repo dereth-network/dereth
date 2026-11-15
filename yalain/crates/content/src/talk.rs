@@ -1,7 +1,8 @@
 //! What people say, and when: each line a person (or a creature) says, the moment it is said at
-//! (used, given an item, fighting, dying, a player near, unprompted), how it reaches the player (a
-//! tell, a saying everyone near hears, or an emote naming the speaker), and the quest update it
-//! comes with. Every row says where it came from.
+//! (used, given an item, fighting, dying, a player near, unprompted, an event starting), how it
+//! reaches the player (a tell, a saying everyone near hears, an emote naming the speaker, a
+//! broadcast to the landblocks about the speaker, or a notice to every player in the world), and
+//! the quest update it comes with. Every row says where it came from.
 //!
 //! A line is [`Words`]: a string reference into the install's text, or literal text a world
 //! wrote when it has no string table of its own; the client shows a literal unchanged.
@@ -107,6 +108,8 @@ pub enum How {
     /// A line every player in the speaker's landblock and the eight around it reads, whether its
     /// client knows the speaker or not.
     Broadcast,
+    /// A notice every player in the world reads, naming no speaker.
+    Notice,
 }
 
 /// The moment a line is said at.
@@ -124,6 +127,8 @@ pub enum When {
     Near,
     /// Unprompted.
     Idle,
+    /// As the event the line names starts.
+    Event,
 }
 
 /// The quest update a line comes with.
@@ -153,19 +158,21 @@ const ROLES: [(Role, &str); 16] = [
     (Role::Teleport, "teleport"),
     (Role::RefuseMap, "refuse-map"),
 ];
-const HOWS: [(How, &str); 4] = [
+const HOWS: [(How, &str); 5] = [
     (How::Tell, "tell"),
     (How::Say, "say"),
     (How::Emote, "emote"),
     (How::Broadcast, "broadcast"),
+    (How::Notice, "notice"),
 ];
-const WHENS: [(When, &str); 6] = [
+const WHENS: [(When, &str); 7] = [
     (When::Use, "use"),
     (When::Give, "give"),
     (When::Attack, "attack"),
     (When::Death, "death"),
     (When::Near, "near"),
     (When::Idle, "idle"),
+    (When::Event, "event"),
 ];
 const UPDATES: [(TalkUpdate, &str); 4] = [
     (TalkUpdate::Bestow, "bestow"),

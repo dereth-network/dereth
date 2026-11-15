@@ -489,20 +489,34 @@ fn applying<'a>(
 }
 
 /// What the player's effects make of one of its qualities (`type << 16 | quality`): the sum added
-/// to it and the product multiplying it.
+/// to it and the product multiplying it. While it holds an effect that holds back the quality's
+/// rises, a rise any other effect gives it (an amount above 0 added, a factor above 1) counts for
+/// nothing, but those of the effects the rule spares.
 #[must_use]
 pub fn modifier(
     table: &crate::effect_defs::EffectTable,
     records: &[EffectState],
     stat: u32,
 ) -> (f32, f32) {
+    let applying = applying(table, records);
+    let holders: Vec<(u32, &crate::effect_defs::HoldBack)> = applying
+        .iter()
+        .filter_map(|e| table.holds_back.get(&e.state).map(|h| (e.state, h)))
+        .filter(|(_, h)| h.quality == stat)
+        .collect();
+    let held_back = |state: u32| {
+        holders
+            .iter()
+            .any(|(by, h)| *by != state && !h.except.contains(&state))
+    };
     let (mut add, mut mult) = (0.0, 1.0);
-    for e in applying(table, records) {
+    for e in applying {
         let Some(d) = table.get(e.state) else {
             continue;
         };
         for (s, m, v) in d.changes(e.spellcraft) {
-            if s == stat {
+            let rise = if m { v > 1.0 } else { v > 0.0 };
+            if s == stat && !(rise && held_back(e.state)) {
                 if m {
                     mult *= v;
                 } else {

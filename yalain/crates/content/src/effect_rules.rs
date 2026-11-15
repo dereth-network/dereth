@@ -2,7 +2,8 @@
 //! off, the share of its holder's vitae an effect takes or the vitae it gives back, what an
 //! immunity leaves as it ends, the complete reset of skills an effect grants, the untraining an
 //! effect finishes, the skill an effect trains, the items an effect gives, what an effect places in
-//! the world, and the effects a dispel takes off.
+//! the world, the effects a dispel takes off, and the rises in a quality an effect holds back while
+//! it is held.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -66,6 +67,15 @@ pub struct Placing {
     pub name: Option<crate::Words>,
 }
 
+/// What an effect holds back while its player holds it: every rise other effects give one quality
+/// (`type << 16 | quality`, as an effect's change names it) counts for nothing, but those of the
+/// effects it spares (by their saved states).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct HoldBack {
+    pub quality: u32,
+    pub except: Vec<u32>,
+}
+
 /// The world's effect rules, by the effect's saved state.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EffectRules {
@@ -95,4 +105,6 @@ pub struct EffectRules {
     pub places_named: BTreeMap<String, Placing>,
     /// The effects that take these effects (by their saved states) off what they are put on.
     pub dispels: BTreeMap<u32, Vec<u32>>,
+    /// The effects that hold back the rises other effects give a quality while they are held.
+    pub holds_back: BTreeMap<u32, HoldBack>,
 }

@@ -48,6 +48,7 @@ fn person() -> ContentObject {
 
 fn quest(id: u32) -> QuestDef {
     QuestDef {
+        duration_by_calendar: false,
         id,
         name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_28F0),
         description: (0x6C45_9364, 0x2500_28F0),
@@ -87,6 +88,7 @@ fn world(lasts: Option<u32>, until_killed: bool) -> (Harness, [(usize, u64); 2])
     h.server.content.objects = vec![person()];
     h.server.content.events = EventTable {
         events: vec![Event {
+            ended_by: Vec::new(),
             key: "turned".into(),
             game_event: None,
             windows: Vec::new(),

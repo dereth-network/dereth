@@ -14,6 +14,10 @@
 //! the end is not after the start), and a window of the game's day or night runs while the part of
 //! the game's day is not, or is, night by the world's calendar.
 //!
+//! **Ended by a quest's completion.** An event may go off as soon as any player completes one of
+//! its named quests, for everyone, and stay off for the rest of the window it was on in: the
+//! first to complete it holds what the event stood for, and the rest find it gone.
+//!
 //! **Started by a quest's failure.** An event may also come on as a named quest fails for any
 //! player, for everyone, and stay on until a time has passed or a camp's creatures are all dead;
 //! while it is on it may keep placed objects from the world (a person who stands aside while it
@@ -184,6 +188,8 @@ pub struct Event {
     /// The placed objects it keeps from the world while it runs, by their places in the world's
     /// list of placed objects.
     pub hides: Vec<usize>,
+    /// The quests whose completion by any player ends it at once, for the rest of its window.
+    pub ended_by: Vec<u32>,
 }
 
 /// An event a quest's failure starts: as the quest fails for any player, the event comes on for
@@ -280,6 +286,13 @@ impl EventTable {
             .map(|e| e.key.as_str())
     }
 
+    /// The events a quest's completion ends.
+    pub fn ending(&self, quest: u32) -> impl Iterator<Item = &Event> + '_ {
+        self.events
+            .iter()
+            .filter(move |e| e.ended_by.contains(&quest))
+    }
+
     /// The events a quest's failure starts.
     pub fn failing(&self, quest: u32) -> impl Iterator<Item = &Event> + '_ {
         self.events
@@ -316,15 +329,21 @@ impl EventTable {
     }
 }
 
-/// A time of day, `HH:MM`, in seconds into the day.
+/// A time of day, `HH:MM` (seconds may follow the minutes, `HH:MM:SS`), in seconds into the day.
 #[must_use]
 pub fn time_of_day(s: &str) -> Option<u32> {
-    let (h, m) = s.split_once(':')?;
-    if h.len() != 2 || m.len() != 2 {
+    let mut parts = s.split(':');
+    let (h, m) = (parts.next()?, parts.next()?);
+    let sec = parts.next();
+    if parts.next().is_some() || h.len() != 2 || m.len() != 2 || sec.is_some_and(|x| x.len() != 2) {
         return None;
     }
     let (h, m): (u32, u32) = (h.parse().ok()?, m.parse().ok()?);
-    (h < 24 && m < 60).then_some(h * 3600 + m * 60)
+    let sec: u32 = match sec {
+        Some(x) => x.parse().ok()?,
+        None => 0,
+    };
+    (h < 24 && m < 60 && sec < 60).then_some(h * 3600 + m * 60 + sec)
 }
 
 /// A UTC time, `YYYY-MM-DDTHH:MMZ` (seconds may follow the minutes), in seconds since 1970.

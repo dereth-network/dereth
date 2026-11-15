@@ -86,6 +86,7 @@ fn gem_give(item: u32, effect: u32) -> Give {
 
 fn quest(id: u32) -> QuestDef {
     QuestDef {
+        duration_by_calendar: false,
         id,
         name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_2958),
         description: (0x6C45_9364, 0x2500_2958),
@@ -523,6 +524,7 @@ fn a_give_requiring_a_quest_and_a_kingdom_needs_both() {
 #[test]
 fn a_step_for_one_kingdom_runs_only_for_its_players() {
     let step = Step {
+        out_of_turn: false,
         key: String::new(),
         quest: QUEST,
         needs: 0,

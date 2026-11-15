@@ -346,6 +346,7 @@ it on to, is missing) is said in the words of the quest's name in the install's 
 | `state` | † | its definition |
 | `challenge` | | its challenge level |
 | `duration` | | seconds of the player's time in the world it may take, 0 for none |
+| `duration_by_calendar` | | true: its `duration` runs on the calendar, its player in the world or not, and a player away as it runs out finds the quest failed on entering; false when left out |
 | `timed_phase` | | the one phase the duration runs in; left out, every phase from its giving |
 | `retry` | | seconds by the calendar before it is given again |
 | `cancel_wait` | | seconds by the calendar after its player cancels it before it is given again; 300 when left out |
@@ -402,6 +403,7 @@ What moves a quest on, in its quest's file.
 | `chance` | | above 0 and at most 1: the chance it runs each time it may; left out, every time |
 | `again_after` | | seconds by the calendar, above 0: once it has run for a player it runs for that player again only after so many, kept while the player is away; meanwhile a use of a person that would run it is answered with the person's `too-soon` line. Left out, it runs whenever it may |
 | `escort` | | a creature it sets to follow the player for the quest, below |
+| `out_of_turn` | | true, with `update = "none"` and `needs` above 0: it runs when its quest is under way at any phase but `needs`, saying and putting on what it names and moving no quest (a stop of a course used out of its turn); used at `needs`, the quest's own step for it runs instead |
 | `prov` | required | where it came from |
 
 `escort = { template, icon, until, far, portal_fails }` makes the creature of `template` follow the
@@ -1083,6 +1085,7 @@ What an effect of the install does where its own data says nothing. One row per 
 | `then` | | the effect is an immunity under way and leaves this effect as it ends |
 | `reset` | | `skills` or `hero-skills`: putting it on grants its player one complete reset of that kind, which `/skills reset` or `/heroskills reset` uses |
 | `untrains` | | true: putting it on finishes its player's untraining under way at once, as earning its experience again would: the skill untrained, its credits back and its experience given back to spend, the player told so; a player untraining nothing gains nothing |
+| `holds_back` | | `{ quality, except }`: while its player holds it, every rise other effects give `quality` (`type << 16 \| quality`, as an effect's change names it: speed is `0x30127`), an amount above 0 added or a factor above 1, counts for nothing, but those of the effects `except` names (saved states; none when left out); a lowering still counts |
 | `skill` | | a skill, by its number: putting it on trains its player that skill for good, at level 1 by the grant, unraisable and at no cost, told with the effect's own line and appearance; a player who holds it gains nothing |
 | `gives` | | a template: putting it on makes items of it in its player's pack, as the server's gift, with no line of their own; for an effect that names no item it gives, such as one that hands over a quest's item |
 | `count` | | with `gives`: how many, above 0; 1 when left out |
@@ -1138,6 +1141,7 @@ again. What a failure started is not kept across a restart.
 | `on_players` | | effects every player in the world holds while it is on |
 | `failure` | | `{ quest, lasts, until_killed }`: the quest whose failure starts it, how long it stays on then (seconds, above 0) and the camp whose creatures' deaths end it (`key@XXYY`, or `pack:key@XXYY`); at least one of `lasts` and `until_killed` |
 | `hides` | | placed objects (`key@XXYY`, or `pack:key@XXYY`) kept from the world while it is on |
+| `ended_by` | | quests whose completion by any player ends it at once, for everyone, for the rest of the window it is on in (the first to complete one holds what it stood for); it comes on again with its next window |
 | `prov` | required | where it came from |
 
 #### `[[tally]]`

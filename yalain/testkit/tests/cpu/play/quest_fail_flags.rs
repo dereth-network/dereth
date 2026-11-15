@@ -37,6 +37,7 @@ const THERE: u32 = 0x7000_0001;
 
 fn quest(id: u32) -> QuestDef {
     QuestDef {
+        duration_by_calendar: false,
         id,
         name: Words::Ref(0xA860_7CEC, 0x2500_144B),
         description: (0x6C45_9364, 0x2500_144B),

@@ -56,6 +56,7 @@ fn rift() -> ContentObject {
 
 fn quest() -> QuestDef {
     QuestDef {
+        duration_by_calendar: false,
         id: QUEST,
         name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_28F0),
         description: (0x6C45_9364, 0x2500_28F0),
@@ -89,6 +90,7 @@ fn quest() -> QuestDef {
 /// The rift's use gives the quest.
 fn closes() -> Step {
     Step {
+        out_of_turn: false,
         key: "closes".into(),
         quest: QUEST,
         needs: 0,

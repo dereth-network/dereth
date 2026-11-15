@@ -35,6 +35,12 @@
 //! alive. A failure while it is on changes nothing. What a failure started is not kept across a
 //! restart, and is forgotten when a reload changes the world's events.
 //!
+//! **Ended by a quest's completion.** An event that names quests it is ended by goes off the moment
+//! any player completes one of them while it is on: what it gates is gone at once (a second
+//! player completing it in the same moment finds it off), and it stays off for the rest of the
+//! window it was on in, coming on again with its next. What a completion ended is not kept across
+//! a restart.
+//!
 //! **Kept aside.** The placed objects an event hides are kept from the world while it is on: every
 //! client that sees one forgets it as the event starts, and is made it again as the event ends
 //! (unless something else keeps it from the world then); while it is on a use of it or a give to
@@ -56,6 +62,9 @@ pub struct Events {
     /// The events a quest's failure started, by their keys: when each came on and when its time
     /// runs out (seconds since 1970; `i64::MAX` for one only a camp's death ends).
     pub failed: BTreeMap<String, (i64, i64)>,
+    /// The events a quest's completion ended, by their keys: when the window they were ended in
+    /// runs out (seconds since 1970), until when they stay off.
+    pub cut: BTreeMap<String, i64>,
 }
 
 /// Is an event on?
@@ -124,6 +133,9 @@ fn window<S: Store>(
     e: &yalain_content::events::Event,
     unix: i64,
 ) -> Option<(i64, i64)> {
+    if s.events.cut.get(&e.key).is_some_and(|until| unix < *until) {
+        return None;
+    }
     e.running(unix)
         .or_else(|| by_the_game(s, e, unix))
         .or_else(|| crate::tallies::started(s, &e.key, unix))
@@ -152,6 +164,24 @@ pub fn quest_failed<S: Store>(s: &mut Server<S>, quest: u32, unix: i64) {
         .collect();
     for (key, until) in due {
         s.events.failed.insert(key, (unix, until));
+    }
+}
+
+/// A player has completed a quest: each event on that it ends goes off at once, for the rest of
+/// the window it is on in.
+pub fn quest_done<S: Store>(s: &mut Server<S>, net: &mut ServerNet, quest: u32, unix: i64) {
+    let due: Vec<(String, i64)> = s
+        .content
+        .events
+        .ending(quest)
+        .filter(|e| is_on(s, &e.key))
+        .filter_map(|e| window(s, e, unix).map(|(_, until)| (e.key.clone(), until)))
+        .collect();
+    for (key, until) in due {
+        ends(s, net, &key);
+        s.events.cut.insert(key.clone(), until);
+        s.events.on.remove(&key);
+        unhidden(s, net, &key);
     }
 }
 
@@ -217,6 +247,7 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
         crate::tallies::ensure(s);
     }
     failures_over(s, clock.unix);
+    s.events.cut.retain(|_, until| clock.unix < *until);
     let now: BTreeSet<String> = s
         .content
         .events
@@ -251,6 +282,7 @@ pub fn end_all<S: Store>(s: &mut Server<S>, net: &mut ServerNet) {
     }
     s.events.on.clear();
     s.events.failed.clear();
+    s.events.cut.clear();
     for key in &on {
         unhidden(s, net, key);
     }
@@ -276,7 +308,7 @@ fn ends<S: Store>(s: &mut Server<S>, net: &mut ServerNet, key: &str) {
 }
 
 /// An event starts: its objects are made for every client that sees them (its camps fill at
-/// their next step), and those it hides are forgotten.
+/// their next step), those it hides are forgotten, and the lines said as it starts are said.
 fn starts<S: Store>(s: &mut Server<S>, net: &mut ServerNet, key: &str) {
     for i in 0..s.spawns.camps.len() {
         if s.content.events.of_camp(&s.spawns.camps[i].id) == Some(key) {
@@ -289,6 +321,7 @@ fn starts<S: Store>(s: &mut Server<S>, net: &mut ServerNet, key: &str) {
     for i in hidden_objects(s, key) {
         presence::content_gone(s, net, i);
     }
+    crate::talk::event_started(s, net, key);
 }
 
 /// An event has ended: the objects it hid are made again for every client that sees them, unless

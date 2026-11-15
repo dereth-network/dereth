@@ -78,6 +78,7 @@ fn person() -> ContentObject {
 
 fn hidden_quest() -> QuestDef {
     QuestDef {
+        duration_by_calendar: false,
         id: QUEST,
         name: Words::Ref(0, 0),
         description: (0, 0),
@@ -110,6 +111,7 @@ fn hidden_quest() -> QuestDef {
 
 fn grant_step() -> Step {
     Step {
+        out_of_turn: false,
         key: String::new(),
         quest: QUEST,
         needs: 0,

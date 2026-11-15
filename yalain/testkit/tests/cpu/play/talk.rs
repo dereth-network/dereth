@@ -305,6 +305,7 @@ fn a_step_says_its_line_then_the_lines_heard_with_its_update_in_order() {
     ];
     let quests = QuestTable {
         quests: vec![QuestDef {
+            duration_by_calendar: false,
             id: QUEST,
             name: Words::Ref(0xA860_7CEC, 0x2500_0A7E),
             description: (0x6C45_9364, 0x2500_0A7E),
@@ -334,6 +335,7 @@ fn a_step_says_its_line_then_the_lines_heard_with_its_update_in_order() {
             cancel_wait: None,
         }],
         steps: vec![Step {
+            out_of_turn: false,
             key: String::new(),
             quest: QUEST,
             needs: 0,

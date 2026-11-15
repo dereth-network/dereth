@@ -163,6 +163,7 @@ fn only_the_chains_items_quests_and_recipes_lead_to_put_anything_on() {
     .collect();
     let quests = QuestTable {
         quests: vec![QuestDef {
+            duration_by_calendar: false,
             id: 0x4000_0123,
             name: yalain_content::Words::Ref(0, 0),
             description: (0, 0),

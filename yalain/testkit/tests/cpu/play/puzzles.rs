@@ -76,6 +76,7 @@ fn tile(id: u64, template: u32, x: f32) -> ContentObject {
 
 fn quest(id: u32, phases: u32) -> QuestDef {
     QuestDef {
+        duration_by_calendar: false,
         id,
         name: yalain_content::Words::Ref(0, 0),
         description: (0, 0),
@@ -568,6 +569,7 @@ fn a_wrong_use_takes_the_quest_away_and_the_order_starts_over() {
 #[test]
 fn without_such_rows_a_use_runs_its_step_and_a_give_is_refused() {
     let step = Step {
+        out_of_turn: false,
         key: String::new(),
         quest: SHORT,
         needs: 0,
@@ -707,6 +709,7 @@ fn temple(need: yalain_content::item_rows::SequenceNeed) -> (Harness, [u64; 3]) 
     q.quest = None;
     q.forgets_after = Some(FORGETS);
     let step = Step {
+        out_of_turn: false,
         key: "in".into(),
         quest: SHORT,
         needs: 0,

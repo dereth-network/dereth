@@ -231,6 +231,60 @@ pub fn say<S: Store>(
             broadcast(s, net, speaker, words, named.as_deref(), count);
         }
         How::Say => aloud(s, net, Some(world), speaker, words, None, count),
+        How::Notice => notice(s, net, words),
+    }
+}
+
+/// A line every player in the world reads as a notice, naming no speaker (2017: the rally's
+/// warning, a notice of kind 256 by its string alone to every session, 124 of 124).
+fn notice<S: Store>(s: &Server<S>, net: &mut ServerNet, words: &Words) {
+    let text = match words {
+        Words::Ref(string, table) => auberean_protocol::text::StringInfo {
+            string_id: *string,
+            table_id: *table,
+            ..auberean_protocol::text::StringInfo::default()
+        },
+        Words::Literal(l) => auberean_protocol::text::StringInfo::literal(l),
+    };
+    let m = ServerMessage::Notice(auberean_protocol::login::Notice {
+        kind: BROADCAST_KIND,
+        text,
+    });
+    let bytes = m.encode();
+    for conn in s.players.keys() {
+        net.send(*conn, queue::EVENT, BlobKind::UNORDERED, bytes.clone());
+    }
+}
+
+/// An event has started: each line said as it starts is said, no player's act behind it. A notice
+/// reaches every player in the world; a broadcast or a saying comes from each placed person of the
+/// line's template (or its one placed person) standing in the world, as it would unprompted.
+pub fn event_started<S: Store>(s: &Server<S>, net: &mut ServerNet, key: &str) {
+    let lines: Vec<Line> = s
+        .content
+        .events
+        .lines
+        .iter()
+        .filter(|(l, g)| l.when == When::Event && g.on && g.event == key)
+        .map(|(l, _)| l.clone())
+        .collect();
+    for line in lines {
+        if line.how == How::Notice {
+            notice(s, net, &line.words);
+            continue;
+        }
+        let speakers: Vec<usize> = (0..s.content.objects.len())
+            .filter(|i| s.content.objects[*i].template == line.who)
+            .filter(|i| line.object.is_none_or(|o| o == *i))
+            .filter(|i| !crate::events::hides(s, *i))
+            .collect();
+        for i in speakers {
+            let speaker = content_speaker(s, i);
+            match line.how {
+                How::Broadcast => broadcast(s, net, &speaker, &line.words, None, None),
+                _ => said_aloud(s, net, &speaker, &line.words),
+            }
+        }
     }
 }
 

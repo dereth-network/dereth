@@ -58,6 +58,7 @@ fn place(id: u64, template: u32, kind: Kind, origin: [f32; 3]) -> ContentObject 
 
 fn quest() -> QuestDef {
     QuestDef {
+        duration_by_calendar: false,
         id: QUEST,
         name: Words::Ref(0xDC00_3F6C, 0x2500_13D7),
         description: (0x9A21_1010, 0x2500_13D7),
@@ -90,6 +91,7 @@ fn quest() -> QuestDef {
 
 fn step(needs: u32, trigger: Trigger, update: Update) -> Step {
     Step {
+        out_of_turn: false,
         key: format!("at-{needs}"),
         quest: QUEST,
         needs,

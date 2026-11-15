@@ -65,6 +65,7 @@ fn object(id: u64, template: u32, origin: [f32; 3]) -> ContentObject {
 
 fn quest(id: u32, table: u32, phases: usize) -> QuestDef {
     QuestDef {
+        duration_by_calendar: false,
         id,
         name: Words::Ref(0xA860_7CEC, table),
         description: (0x6C45_9364, table),
@@ -97,6 +98,7 @@ fn quest(id: u32, table: u32, phases: usize) -> QuestDef {
 
 fn step(quest: u32, needs: u32, trigger: Trigger, update: Update) -> Step {
     Step {
+        out_of_turn: false,
         key: String::new(),
         quest,
         needs,

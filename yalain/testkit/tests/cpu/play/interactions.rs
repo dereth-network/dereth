@@ -129,6 +129,7 @@ fn hall() -> Harness {
         }],
     );
     h.server.quests.quests.push(QuestDef {
+        duration_by_calendar: false,
         id: ENTER_QUEST,
         name: yalain_content::Words::Ref(0x6EE1_B009, 0x2500_1446),
         description: (0x0121_67D6, 0x2500_1446),
@@ -158,6 +159,7 @@ fn hall() -> Harness {
         cancel_wait: None,
     });
     h.server.quests.steps.push(Step {
+        out_of_turn: false,
         key: String::new(),
         quest: ENTER_QUEST,
         needs: 0,
@@ -381,6 +383,7 @@ fn an_item_used_on_an_object_while_its_step_waits_for_another_phase_is_answered_
         Props::default(),
     ));
     h.server.quests.steps.push(Step {
+        out_of_turn: false,
         key: String::new(),
         quest: HALL_QUEST,
         needs: 6,

@@ -400,6 +400,7 @@ fn a_map_found_at_its_place_moves_on_the_quest_it_is_part_of() {
     let mut h = world();
     let quest = 0x4000_00C7;
     h.server.quests.quests.push(QuestDef {
+        duration_by_calendar: false,
         id: quest,
         name: yalain_content::Words::Ref(1, 0x2500_14B4),
         description: (2, 0x2500_14B4),
@@ -429,6 +430,7 @@ fn a_map_found_at_its_place_moves_on_the_quest_it_is_part_of() {
         cancel_wait: None,
     });
     h.server.quests.steps.push(Step {
+        out_of_turn: false,
         key: String::new(),
         quest,
         needs: 1,

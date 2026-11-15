@@ -8946,3 +8946,123 @@ fn creature_effects_a_steps_given_effects_and_dispels_compile_to_their_tables() 
         );
     }
 }
+
+/// The rows of the general mechanisms a timed race calls on read and compile: an event ended by a
+/// quest's completion, a weekly window to the second, a line said as an event starts and a notice,
+/// a step out of turn, a quest whose time runs on the calendar, and an effect that holds back a
+/// quality's rises. A line said as an event starts with no event or said as a tell, a step out of
+/// turn that moves a quest or names no phase, and a hold back with no quality are refused.
+/// Behaviour: server.content.race-mechanism-rows
+#[test]
+fn the_rows_of_a_races_mechanisms_read_and_compile() {
+    use yalain_content::events::Window;
+    let mut files = fixture();
+    files.insert(
+        "town/server/events.toml".into(),
+        "[[event]]\nkey = \"race\"\nwhen = [{ days = [\"mon\"], from = \"23:59:40\", until = \"00:00\" }]\n\
+         ended_by = [0x40000088]\nprov = { from = \"authored\" }\n"
+            .into(),
+    );
+    files.get_mut("town/server/talk/470033D0.toml").unwrap().push_str(
+        "\n[[talk]]\nkey = \"countdown\"\nwho = 0x470033D0\nline = { table = 0x25002AFC, string = 0x2824938C }\n\
+         how = \"broadcast\"\nwhen = \"event\"\nrequires = [{ event = \"race\" }]\nprov = { from = \"authored\" }\n\n\
+         [[talk]]\nkey = \"warning\"\nwho = 0x470033D0\nline = { table = 0x25002AFC, string = 0x2824938C }\n\
+         how = \"notice\"\nwhen = \"event\"\nrequires = [{ event = \"race\" }]\nprov = { from = \"authored\" }\n",
+    );
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "duration = 72000\n",
+        "duration = 72000\nduration_by_calendar = true\n",
+    );
+    files
+        .get_mut("town/server/quests/40000088.toml")
+        .unwrap()
+        .push_str(
+            "\n[[step]]\nkey = \"meddled\"\nquest = 0x40000088\nneeds = 1\ntrigger = { use = 0x470033D0 }\n\
+             update = \"none\"\nout_of_turn = true\neffects = [0x70002015]\nprov = { from = \"authored\" }\n",
+        );
+    files.insert(
+        "town/server/effects.toml".into(),
+        "[[effect_rule]]\neffect = 0x6F001E05\nholds_back = { quality = 0x30127, except = [0x6F001E06] }\n\
+         prov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let race = t.content.events.event("race").expect("the event");
+    assert_eq!(race.ended_by, [0x4000_0088]);
+    assert_eq!(
+        race.windows,
+        [Window::Weekly {
+            days: 1,
+            from: 23 * 3600 + 59 * 60 + 40,
+            until: 0
+        }]
+    );
+    let said: Vec<(How, When)> = t
+        .content
+        .events
+        .lines
+        .iter()
+        .filter(|(_, g)| g.event == "race" && g.on)
+        .map(|(l, _)| (l.how, l.when))
+        .collect();
+    assert_eq!(
+        said,
+        [(How::Broadcast, When::Event), (How::Notice, When::Event)]
+    );
+    let q = t.quests.quest(0x4000_0088).expect("the quest");
+    assert!(q.duration_by_calendar);
+    assert!(t.quests.steps.iter().any(|s| s.key == "meddled"
+        && s.out_of_turn
+        && s.update == Update::Nothing
+        && s.needs == 1));
+    assert_eq!(
+        t.effect_rules
+            .holds_back
+            .get(&0x6F00_1E05)
+            .map(|h| (h.quality, h.except.clone())),
+        Some((0x3_0127, vec![0x6F00_1E06]))
+    );
+    for (path, from, to) in [
+        (
+            "town/server/talk/470033D0.toml",
+            "how = \"broadcast\"\nwhen = \"event\"\nrequires = [{ event = \"race\" }]\n",
+            "how = \"broadcast\"\nwhen = \"event\"\n",
+        ),
+        (
+            "town/server/talk/470033D0.toml",
+            "how = \"broadcast\"\nwhen = \"event\"",
+            "how = \"tell\"\nwhen = \"event\"",
+        ),
+        (
+            "town/server/quests/40000088.toml",
+            "update = \"none\"\nout_of_turn = true",
+            "update = \"complete\"\nout_of_turn = true",
+        ),
+        (
+            "town/server/quests/40000088.toml",
+            "key = \"meddled\"\nquest = 0x40000088\nneeds = 1",
+            "key = \"meddled\"\nquest = 0x40000088\nneeds = 0",
+        ),
+        (
+            "town/server/effects.toml",
+            "holds_back = { quality = 0x30127, except = [0x6F001E06] }",
+            "holds_back = { except = [0x6F001E06] }",
+        ),
+        (
+            "town/server/events.toml",
+            "from = \"23:59:40\"",
+            "from = \"23:59:60\"",
+        ),
+    ] {
+        let mut f = files.clone();
+        if f[path].contains(from) {
+            edit(&mut f, path, from, to);
+            assert!(read(&f).is_err(), "{to:?} for {from:?}");
+        } else {
+            panic!("{from:?} not in {path}");
+        }
+    }
+}

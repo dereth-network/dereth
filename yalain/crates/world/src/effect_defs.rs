@@ -182,7 +182,9 @@ mod watcher_flag {
 }
 
 /// What a ward keeps off, where its own data names nothing: the world's `[[effect_rule]]` rows.
-pub use yalain_content::effect_rules::{EffectRules, Grant, Placing, Reset, VitaeRestore, Ward};
+pub use yalain_content::effect_rules::{
+    EffectRules, Grant, HoldBack, Placing, Reset, VitaeRestore, Ward,
+};
 
 /// The kind of an effect a world's row makes a ward: its chance the same at any spellcraft.
 #[must_use]
@@ -995,6 +997,8 @@ pub struct EffectTable {
     pub chances: HashMap<u32, Scale>,
     /// The forces among its effects, by saved state ([`EffectDef::force_of`]).
     pub forces: HashMap<u32, Force>,
+    /// What effects hold back while they are held, by saved state (the world's rules).
+    pub holds_back: HashMap<u32, HoldBack>,
 }
 
 impl EffectTable {
@@ -1002,8 +1006,8 @@ impl EffectTable {
     /// does not read is left out), each the world's `rules` name (by saved state) an immunity
     /// leaving the effect they name, a ward keeping off what it names, a tap of its share of vitae,
     /// vitae given back, a complete reset of skills granted, an untraining finished, a skill trained,
-    /// items given, an object placed, or effects dispelled; and what the effects the rules name by name
-    /// alone place.
+    /// items given, an object placed, effects dispelled, or rises in a quality held back; and what the
+    /// effects the rules name by name alone place.
     #[must_use]
     pub fn read(
         lib: &Library,
@@ -1055,6 +1059,9 @@ impl EffectTable {
                 }
                 if let Some(list) = rules.dispels.get(&s) {
                     d.kind = Kind::Dispel(list.clone());
+                }
+                if let Some(h) = rules.holds_back.get(&s) {
+                    t.holds_back.insert(s, h.clone());
                 }
                 if let Some(text) = EffectDef::description_of(lib, &g) {
                     t.descriptions.insert(s, text);

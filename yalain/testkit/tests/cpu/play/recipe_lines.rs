@@ -89,6 +89,7 @@ fn geyser() -> ContentObject {
 
 fn quest() -> QuestDef {
     QuestDef {
+        duration_by_calendar: false,
         id: QUEST,
         name: yalain_content::Words::Ref(0, 0),
         description: (0, 0),
@@ -139,6 +140,7 @@ fn dip(text: Option<(u32, u32)>) -> Give {
 /// A step of the quest that puts this effect on, with this text after it.
 fn step(effect: u32, text: Option<(u32, u32)>) -> Step {
     Step {
+        out_of_turn: false,
         key: String::new(),
         recipes: Vec::new(),
         quest: QUEST,

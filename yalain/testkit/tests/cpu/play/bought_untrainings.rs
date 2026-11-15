@@ -72,6 +72,7 @@ fn place(id: u64, template: u32) -> ContentObject {
 
 fn quest() -> QuestDef {
     QuestDef {
+        duration_by_calendar: false,
         id: QUEST,
         name: Words::Ref(0xA860_7CEC, 0x2500_17F7),
         description: (0x6C45_9364, 0x2500_17F7),
@@ -105,6 +106,7 @@ fn quest() -> QuestDef {
 /// The price given: the quest given, the coins kept, the untraining finished.
 fn sold() -> Step {
     Step {
+        out_of_turn: false,
         key: "sold".into(),
         quest: QUEST,
         needs: 0,

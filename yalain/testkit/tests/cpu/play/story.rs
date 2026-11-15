@@ -131,6 +131,7 @@ fn a_vaults_shard_completes_its_quest_as_the_player_comes_out() {
     const QUEST: u32 = 0x4000_0033;
     let mut h = world();
     h.server.quests.quests = vec![yalain_content::quests::QuestDef {
+        duration_by_calendar: false,
         id: QUEST,
         name: yalain_content::Words::Ref(1, 2),
         description: (3, 4),

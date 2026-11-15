@@ -6,6 +6,8 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Worlds can now have races, with one winner, a countdown and checkpoints taken in order.
+- Worlds can now time quests by the calendar, and give effects that cancel speed buffs.
 - Players and creatures can no longer walk through rocks and trees out in the open.
 - The status endpoint now says how many objects the world holds.
 - Fixed creatures attacking players they can't see, through walls or from out of view.

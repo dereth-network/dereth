@@ -382,6 +382,7 @@ fn entries(con: &Connection) -> BTreeMap<u64, Vec<Entry>> {
 /// A quest with a duration and a wait of the seconds given, for what this server would list.
 fn timed_quest(id: u32, duration: f64, retry: f64) -> QuestDef {
     QuestDef {
+        duration_by_calendar: false,
         id,
         name: yalain_content::Words::Ref(0, 0),
         description: (0, 0),

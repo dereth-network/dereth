@@ -75,6 +75,7 @@ fn object(id: u64, template: u32, origin: [f32; 3]) -> ContentObject {
 
 fn quest(id: u32) -> QuestDef {
     QuestDef {
+        duration_by_calendar: false,
         id,
         name: Words::Ref(0xA860_7CEC, TABLE),
         description: (0x6C45_9364, TABLE),
@@ -108,6 +109,7 @@ fn quest(id: u32) -> QuestDef {
 /// A step that moves no quest and tells a line, on a use of a person.
 fn step(quest: u32, person: u32, tells: u32) -> Step {
     Step {
+        out_of_turn: false,
         key: String::new(),
         quest,
         needs: 0,
@@ -203,6 +205,7 @@ fn world(tally: Tally) -> Harness {
     };
     h.server.content.events = EventTable {
         events: vec![Event {
+            ended_by: Vec::new(),
             key: "fair".into(),
             game_event: None,
             windows: Vec::new(),

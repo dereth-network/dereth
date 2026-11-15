@@ -798,6 +798,7 @@ fn quest_kept(h: &mut Harness, world: ConnId, phase: Option<u32>) {
         .insert(yalain_testkit::test_template(KEPT, 0x200, props));
     h.server.quests = QuestTable {
         quests: vec![QuestDef {
+            duration_by_calendar: false,
             timed_phase: 0,
             id: KEPT_BY,
             name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_17EE),

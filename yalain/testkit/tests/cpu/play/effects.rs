@@ -677,6 +677,7 @@ fn a_quest_steps_effects_come_after_its_gifts_and_before_its_update() {
     let (mut h, b, me) = armed();
     let quest = 0x4000_0016;
     h.server.quests.quests.push(QuestDef {
+        duration_by_calendar: false,
         id: quest,
         name: yalain_content::Words::Ref(1, 2),
         description: (3, 4),
@@ -706,6 +707,7 @@ fn a_quest_steps_effects_come_after_its_gifts_and_before_its_update() {
         cancel_wait: None,
     });
     let step = Step {
+        out_of_turn: false,
         key: String::new(),
         quest,
         needs: 0,

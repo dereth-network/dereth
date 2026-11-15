@@ -590,6 +590,7 @@ fn subquest_definitions(quests: &mut yalain_content::QuestTable, install: &dyn I
             fails_on_death: def.fails.death,
             fails_on_logout: def.fails.logout,
             fails_on_teleport: def.fails.teleport,
+            duration_by_calendar: false,
             once: def.once,
             fellows: def.fellows,
             ranges: def.ranges,
@@ -1252,6 +1253,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     fails_on_death: q.fails_on_death.unwrap_or(def.fails.death),
                     fails_on_logout: q.fails_on_logout.unwrap_or(def.fails.logout),
                     fails_on_teleport: q.fails_on_teleport.unwrap_or(def.fails.teleport),
+                    duration_by_calendar: q.duration_by_calendar,
                     once: q.once.unwrap_or(def.once),
                     // A row says whether; left out, the setup does, and a quest with no setup
                     // stays the killer's. A row that shares a quest whose setup says nothing has
@@ -1414,6 +1416,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     #[allow(clippy::cast_possible_truncation)]
                     chance: s.chance.map(|c| c as f32),
                     to_fellows: s.to_fellows,
+                    out_of_turn: s.out_of_turn,
                 });
             }
             Row::Give(g) => {
@@ -1752,6 +1755,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 if !r.dispels.is_empty() {
                     t.effect_rules.dispels.insert(effect, r.dispels.clone());
                 }
+                if let Some(h) = &r.holds_back {
+                    t.effect_rules.holds_back.insert(effect, h.clone());
+                }
             }
             Row::Mine(r) => {
                 let m = &r.mine;
@@ -1905,6 +1911,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 on_players: r.on_players.clone(),
                 failure: None,
                 hides: Vec::new(),
+                ended_by: r.ended_by.clone(),
             }),
             Row::Tally(r) => {
                 let mut known = true;

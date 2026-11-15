@@ -248,6 +248,7 @@ fn a_day_of_heals_and_crafts() -> Vec<ServerMessage> {
         .quests
         .quests
         .push(yalain_content::quests::QuestDef {
+            duration_by_calendar: false,
             id: quest,
             name: yalain_content::Words::Ref(1, 2),
             description: (3, 4),
@@ -277,6 +278,7 @@ fn a_day_of_heals_and_crafts() -> Vec<ServerMessage> {
             cancel_wait: None,
         });
     let step = Step {
+        out_of_turn: false,
         key: String::new(),
         quest,
         needs: 0,
@@ -632,6 +634,7 @@ fn a_visit() -> Vec<ServerMessage> {
     };
     h.server.quests = QuestTable {
         quests: vec![QuestDef {
+            duration_by_calendar: false,
             id: 0x4000_0088,
             name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_17EE),
             description: (0x6C45_9364, 0x2500_17EE),
@@ -661,6 +664,7 @@ fn a_visit() -> Vec<ServerMessage> {
             cancel_wait: None,
         }],
         steps: vec![Step {
+            out_of_turn: false,
             key: String::new(),
             quest: 0x4000_0088,
             needs: 0,

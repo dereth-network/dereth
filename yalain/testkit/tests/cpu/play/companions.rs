@@ -26,6 +26,7 @@ const TOTEM_T: u32 = 0x4700_2F42;
 
 fn quest(id: u32, table: u32) -> QuestDef {
     QuestDef {
+        duration_by_calendar: false,
         id,
         name: Words::Ref(0xA860_7CEC, table),
         description: (0x6C45_9364, table),
@@ -58,6 +59,7 @@ fn quest(id: u32, table: u32) -> QuestDef {
 
 fn step(quest: u32, needs: u32, trigger: Trigger, update: Update) -> Step {
     Step {
+        out_of_turn: false,
         key: String::new(),
         quest,
         needs,

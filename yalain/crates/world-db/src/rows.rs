@@ -448,6 +448,8 @@ pub struct Quest {
     pub fails_on_death: Option<bool>,
     pub fails_on_logout: Option<bool>,
     pub fails_on_teleport: Option<bool>,
+    /// Its duration runs on the calendar, its player in the world or not.
+    pub duration_by_calendar: bool,
     /// Whether it is given only once.
     pub once: Option<bool>,
     /// Whether a kill's move on it reaches the killer's fellows; left out, as the quest's setup in
@@ -580,6 +582,8 @@ pub struct Step {
     pub escort: Option<Box<yalain_content::escorts::Escort>>,
     /// Where it takes the player, the player's fellows in the world go too.
     pub to_fellows: bool,
+    /// It runs out of turn: when its quest is under way at any phase but `needs`, moving no quest.
+    pub out_of_turn: bool,
     /// For a give of an item it hands back, the effects it puts on that item (their saved states).
     pub given_effects: Vec<u32>,
     /// Seconds by the calendar, above 0: once it has run for a player it runs for that player again
@@ -850,6 +854,8 @@ pub struct Event {
     /// The placed objects it keeps from the world while it is on (`key@XXYY`, or
     /// `pack:key@XXYY`).
     pub hides: Vec<String>,
+    /// The quests whose completion by any player ends it at once, for the rest of its window.
+    pub ended_by: Vec<u32>,
     pub prov: Prov,
 }
 
@@ -914,7 +920,7 @@ struct Requires {
 /// `[[effect_rule]]`: what the world says of an effect where its own data says nothing: what a ward
 /// keeps off, the share of its player's vitae it takes, the effect an immunity leaves as it ends,
 /// the complete reset of skills it grants, the untraining it finishes, the skill it trains, the
-/// items it gives, the effects it dispels.
+/// items it gives, the effects it dispels, the rises in a quality it holds back while held.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EffectRule {
     /// The effect, by its saved state, or by its name for one the install holds no state of.
@@ -937,6 +943,8 @@ pub struct EffectRule {
     pub places: Option<yalain_content::effect_rules::Placing>,
     /// The effects it takes off what it is put on (their saved states).
     pub dispels: Vec<u32>,
+    /// The rises in a quality it holds back while its player holds it.
+    pub holds_back: Option<yalain_content::effect_rules::HoldBack>,
     pub prov: Prov,
 }
 
@@ -1817,6 +1825,7 @@ pub const FIELDS: [(&str, &[&str]); 69] = [
             "fails_on_death",
             "fails_on_logout",
             "fails_on_teleport",
+            "duration_by_calendar",
             "once",
             "fellows",
             "companion_of",
@@ -1857,6 +1866,7 @@ pub const FIELDS: [(&str, &[&str]); 69] = [
             "adds",
             "escort",
             "to_fellows",
+            "out_of_turn",
             "given_effects",
             "again_after",
             "prov",
@@ -2024,6 +2034,7 @@ pub const FIELDS: [(&str, &[&str]); 69] = [
             "on_players",
             "failure",
             "hides",
+            "ended_by",
             "prov",
         ],
     ),
@@ -2052,6 +2063,7 @@ pub const FIELDS: [(&str, &[&str]); 69] = [
             "name",
             "name_text",
             "dispels",
+            "holds_back",
             "prov",
         ],
     ),
@@ -2852,6 +2864,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             fails_on_death: f.bool("fails_on_death"),
             fails_on_logout: f.bool("fails_on_logout"),
             fails_on_teleport: f.bool("fails_on_teleport"),
+            duration_by_calendar: f.bool("duration_by_calendar").unwrap_or(false),
             once: f.bool("once"),
             fellows: f.bool("fellows"),
             companion_of: f.id("companion_of"),
@@ -2885,10 +2898,11 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 sequences,
                 fought,
             } = f.requires_and_events("requires", true);
+            let needs = f.req_u32("needs")?;
             Row::Step(Box::new(Step {
                 key: f.req_symbol("key")?,
                 quest: f.req_id("quest")?,
-                needs: f.req_u32("needs")?,
+                needs,
                 trigger,
                 tell: f.strref("tell"),
                 tell_text: f.text("tell_text"),
@@ -2929,6 +2943,16 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 chance: f.share("chance"),
                 escort: f.escort().map(Box::new),
                 to_fellows: f.bool("to_fellows").unwrap_or(false),
+                out_of_turn: {
+                    let out = f.bool("out_of_turn").unwrap_or(false);
+                    let ok = !out || (update == Update::Nothing && needs > 0);
+                    f.held(
+                        "out_of_turn",
+                        out,
+                        ok,
+                        "a step that runs out of turn moves no quest (update = \"none\") and names the phase it is out of turn with (needs above 0)",
+                    )?
+                },
                 given_effects: f.ids("given_effects"),
                 again_after: {
                     let after = f.u32("again_after");
@@ -2982,7 +3006,11 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             })
         }
         "talk" => {
-            let how = match f.word("how", How::from_word, "tell, say, emote or broadcast") {
+            let how = match f.word(
+                "how",
+                How::from_word,
+                "tell, say, emote, broadcast or notice",
+            ) {
                 Some(Some(h)) => h,
                 Some(None) => return None,
                 None => How::Tell,
@@ -2990,7 +3018,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             let Some(Some(when)) = f.word(
                 "when",
                 When::from_word,
-                "use, give, attack, death, near or idle",
+                "use, give, attack, death, near, idle or event",
             ) else {
                 return f.missing("when");
             };
@@ -3007,6 +3035,22 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 u => u.flatten(),
             };
             let (requires, events) = f.line_gates("requires");
+            if when == When::Event {
+                if events.iter().filter(|g| g.on).count() != 1 {
+                    f.bad(
+                        "requires",
+                        "a line said as an event starts names that one event, on: { event = \"key\" }",
+                    );
+                    return None;
+                }
+                if !matches!(how, How::Say | How::Broadcast | How::Notice) {
+                    f.bad(
+                        "how",
+                        "a line said as an event starts is said, broadcast or a notice",
+                    );
+                    return None;
+                }
+            }
             Row::Talk(Talk {
                 key: f.req_symbol("key")?,
                 who: f.req_id("who")?,
@@ -3635,6 +3679,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 on_players: f.ids("on_players"),
                 failure,
                 hides,
+                ended_by: f.ids("ended_by"),
                 prov: f.req_prov()?,
             })
         }
@@ -3731,6 +3776,10 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 })?,
                 None => Vec::new(),
             };
+            let holds_back = match f.get("holds_back") {
+                Some(_) => Some(f.holds_back()?),
+                None => None,
+            };
             let places = f.placing()?;
             let others = ward.is_some()
                 || vitae_share.is_some()
@@ -3740,13 +3789,14 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 || untrains
                 || skill.is_some()
                 || gives.is_some()
-                || !dispels.is_empty();
+                || !dispels.is_empty()
+                || holds_back.is_some();
             if !others && places.is_none() {
                 f.bad(
-                    "ward, vitae_share, vitae_restore, then, reset, untrains, skill, gives, dispels, places",
+                    "ward, vitae_share, vitae_restore, then, reset, untrains, skill, gives, dispels, holds_back, places",
                     "a rule names a ward, a share of vitae, vitae given back, what an immunity leaves, \
                      a reset it grants, the untraining it finishes, a skill it trains, an item it \
-                     gives, the effects it dispels or what it places",
+                     gives, the effects it dispels, the rises it holds back or what it places",
                 );
                 return None;
             }
@@ -3769,6 +3819,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 gives,
                 places,
                 dispels,
+                holds_back,
                 prov: f.req_prov()?,
             })
         }
@@ -6428,6 +6479,39 @@ impl<'a> Fields<'a> {
             self.bad(
                 "ward",
                 "{ classes, effects, chance }: the classes and the effects it keeps off, at least one, and a chance above 0, at most 1",
+            );
+        }
+        read
+    }
+
+    /// An effect rule's `holds_back`: `{ quality, except }`, the quality (`type << 16 | quality`,
+    /// above 0) whose rises it holds back and the effects it spares (saved states; none when left
+    /// out).
+    fn holds_back(&mut self) -> Option<yalain_content::effect_rules::HoldBack> {
+        let Some(v) = self.get("holds_back") else {
+            return self.missing("holds_back");
+        };
+        let read = v.as_table().and_then(|t| {
+            if t.keys()
+                .any(|k| !["quality", "except"].contains(&k.as_str()))
+            {
+                return None;
+            }
+            let quality = as_u32(t.get("quality")?).filter(|q| *q > 0)?;
+            let except = match t.get("except") {
+                Some(a) => a
+                    .as_array()?
+                    .iter()
+                    .map(as_u32)
+                    .collect::<Option<Vec<_>>>()?,
+                None => Vec::new(),
+            };
+            Some(yalain_content::effect_rules::HoldBack { quality, except })
+        });
+        if read.is_none() {
+            self.bad(
+                "holds_back",
+                "{ quality, except }: the quality whose rises it holds back (type << 16 | quality, above 0) and the effects it spares, by their saved states",
             );
         }
         read

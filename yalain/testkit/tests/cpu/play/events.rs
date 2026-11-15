@@ -48,6 +48,7 @@ fn object() -> ContentObject {
 
 fn step() -> Step {
     Step {
+        out_of_turn: false,
         key: String::new(),
         quest: QUEST,
         needs: 1,
@@ -107,6 +108,7 @@ fn world(windows: Vec<Window>) -> (Harness, usize, u64) {
     h.server.content.objects = vec![object()];
     h.server.content.events = EventTable {
         events: vec![Event {
+            ended_by: Vec::new(),
             key: "fair".into(),
             game_event: None,
             windows,
@@ -335,6 +337,7 @@ fn objects_alike_at_one_place_each_wait_on_their_own_event() {
     h.server.content.events = EventTable {
         events: vec![
             Event {
+                ended_by: Vec::new(),
                 key: "fair".into(),
                 game_event: None,
                 windows: vec![Window::Dated {
@@ -346,6 +349,7 @@ fn objects_alike_at_one_place_each_wait_on_their_own_event() {
                 hides: Vec::new(),
             },
             Event {
+                ended_by: Vec::new(),
                 key: "market".into(),
                 game_event: None,
                 windows: Vec::new(),

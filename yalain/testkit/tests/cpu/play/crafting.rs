@@ -612,6 +612,7 @@ fn a_step_with_its_effects_last_tells_the_update_before_the_recipe() {
         let (mut h, b, _me, world) = in_world();
         h.server.quests = QuestTable {
             quests: vec![QuestDef {
+                duration_by_calendar: false,
                 id: QUEST,
                 name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_17EE),
                 description: (0x6C45_9364, 0x2500_17EE),
@@ -645,6 +646,7 @@ fn a_step_with_its_effects_last_tells_the_update_before_the_recipe() {
             rooms: Vec::new(),
         };
         let step = Step {
+            out_of_turn: false,
             key: String::new(),
             quest: QUEST,
             needs: 0,
@@ -701,6 +703,7 @@ fn a_step_teaches_the_recipes_it_names_and_one_naming_none_teaches_none() {
     for recipes in [vec![MINES_RECIPE, OTHER], Vec::new()] {
         let (mut h, b, _me, world) = in_world();
         let step = Step {
+            out_of_turn: false,
             key: String::new(),
             quest: 0,
             needs: 0,
@@ -1383,6 +1386,7 @@ fn a_quest_given_runs_the_step_waiting_on_it_and_one_withheld_runs_none() {
     const MINE: u32 = 0x4000_0185;
     const UPDATE_QUEST: u32 = 0x8213_0024;
     let def = |id, hidden, required| QuestDef {
+        duration_by_calendar: false,
         id,
         name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_17EE),
         description: (0x6C45_9364, 0x2500_17EE),
@@ -1420,6 +1424,7 @@ fn a_quest_given_runs_the_step_waiting_on_it_and_one_withheld_runs_none() {
                 def(MINE, false, None),
             ],
             steps: vec![Step {
+                out_of_turn: false,
                 key: String::new(),
                 quest: MINE,
                 needs: 0,

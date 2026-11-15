@@ -19,8 +19,8 @@
 //!   level, 4 only those near the killer), the range each phase is counted in from the first
 //!   (joined by `,`; empty: every phase's is 1), the one phase its duration runs in (0 or left out:
 //!   all of them), the wait after a cancel in seconds (empty: the rule's), whether it fails when its
-//!   player leaves the world (0/1) and whether it fails when its player is taken through portal
-//!   space (0/1);
+//!   player leaves the world (0/1), whether it fails when its player is taken through portal
+//!   space (0/1) and whether its duration runs on the calendar (0/1);
 //! - `step`: quest, the phase it needs (0: the quest not under way), the trigger (`use:TEMPLATE`,
 //!   `useon:ITEM:TARGET`, `give:ITEM:TARGET`, `arrive:TEMPLATE`, `take:TEMPLATE`, `kill:TEMPLATE`, `done:QUEST`, `given:QUEST`), the giver's line
 //!   (`string:table`, `=` and literal text, or empty), the update (`bestow`, `advance:N`, `complete`), experience, items
@@ -33,7 +33,9 @@
 //!   (`LEAST:MOST`), the share of a level it pays, for a give that makes its player a hero, the
 //!   transformation (`SECONDS:FX/FX...:BEHAVIOR:STRING:TABLE:NAME`, hex but the seconds, empty
 //!   parts for none), the chance it runs when it may (empty: always), whether its effects tell no
-//!   line (0/1), the recipes it teaches (joined by `,`) and its key among its quest's steps;
+//!   line (0/1), the recipes it teaches (joined by `,`), its key among its quest's steps, whether
+//!   each of its player's fellows goes where it sends the player (0/1) and whether it runs out of
+//!   turn (0/1);
 //! - `give`: what a person or an object does with an item given it that moves no quest: the template
 //!   given to, the item's template (empty: any item), how many of it it wants (empty: whatever is
 //!   given), the items given back (templates joined by `,`, a count after `x`), its effects (saved
@@ -58,6 +60,9 @@ pub struct QuestDef {
     pub journals: Vec<(u32, u32)>,
     pub challenge: i32,
     pub duration: f64,
+    /// Its duration runs on the calendar, its player in the world or not (else only while its
+    /// player is in the world).
+    pub duration_by_calendar: bool,
     /// The one phase its duration runs in, from when that phase comes (0: all, from its giving).
     pub timed_phase: u32,
     pub retry: f64,
@@ -343,6 +348,9 @@ pub struct Step {
     pub chance: Option<f32>,
     /// Where it takes the player, the player's fellows in the world go too, wherever they are.
     pub to_fellows: bool,
+    /// It runs out of turn: when its quest is under way at a phase other than `needs`, the update
+    /// `Nothing` (a use of a stop of a course in the wrong order answered).
+    pub out_of_turn: bool,
 }
 
 /// A give's step that makes its player a hero: the gift kept at once and these appearances and
@@ -600,7 +608,7 @@ impl QuestTable {
                 .join(",");
             let _ = writeln!(
                 out,
-                "quest\t{:08X}\t{}\t{}\t{:08X}\t{}\t{j}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{effects}\t{subs}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                "quest\t{:08X}\t{}\t{}\t{:08X}\t{}\t{j}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{effects}\t{subs}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 q.id,
                 q.name.to_text(),
                 r(q.description),
@@ -630,6 +638,7 @@ impl QuestTable {
                 q.cancel_wait.map_or_else(String::new, |w| w.to_string()),
                 u8::from(q.fails_on_logout),
                 u8::from(q.fails_on_teleport),
+                u8::from(q.duration_by_calendar),
             );
         }
         for s in &self.steps {
@@ -704,7 +713,7 @@ impl QuestTable {
             });
             let _ = writeln!(
                 out,
-                "step\t{:08X}\t{}\t{trigger}\t{}\t{update}\t{}\t{gives}\t{}\t{requires}\t{takes}\t{to}\t{effects}\t{text}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{recipes}\t{}\t{}",
+                "step\t{:08X}\t{}\t{trigger}\t{}\t{update}\t{}\t{gives}\t{}\t{requires}\t{takes}\t{to}\t{effects}\t{text}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{recipes}\t{}\t{}\t{}",
                 s.quest,
                 s.needs,
                 s.tell.as_ref().map(Words::to_text).unwrap_or_default(),
@@ -722,6 +731,7 @@ impl QuestTable {
                 u8::from(s.effects_quiet),
                 s.key,
                 u8::from(s.to_fellows),
+                u8::from(s.out_of_turn),
             );
         }
         for g in &self.gives {
@@ -816,7 +826,7 @@ impl QuestTable {
                         .map_err(at)?;
                     t.rooms.push(row);
                 }
-                "quest" if (13..=28).contains(&c.len()) => t.quests.push(QuestDef {
+                "quest" if (13..=29).contains(&c.len()) => t.quests.push(QuestDef {
                     id: hex(c[1]).map_err(at)?,
                     name: Words::from_text(c[2]).map_err(at)?,
                     description: pair(c[3]).map_err(at)?,
@@ -860,6 +870,7 @@ impl QuestTable {
                     fails_on_death: c.get(17) == Some(&"1"),
                     fails_on_logout: c.get(26) == Some(&"1"),
                     fails_on_teleport: c.get(27) == Some(&"1"),
+                    duration_by_calendar: c.get(28) == Some(&"1"),
                     once: c.get(18) == Some(&"1"),
                     fellows: match c.get(19) {
                         Some(v) if !v.is_empty() => Fellows::of_word(num(v).map_err(at)?),
@@ -892,7 +903,7 @@ impl QuestTable {
                         _ => None,
                     },
                 }),
-                "step" if (9..=24).contains(&c.len()) => {
+                "step" if (9..=25).contains(&c.len()) => {
                     let (kind, tpl) = c[3]
                         .split_once(':')
                         .ok_or_else(|| at(format!("a trigger is kind:template, not {}", c[3])))?;
@@ -1063,6 +1074,7 @@ impl QuestTable {
                             )
                         },
                         to_fellows: col(23) == "1",
+                        out_of_turn: col(24) == "1",
                     });
                 }
                 "give" if (10..=11).contains(&c.len()) => {

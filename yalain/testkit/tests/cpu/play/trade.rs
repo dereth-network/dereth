@@ -858,6 +858,7 @@ fn a_purchase_of_what_the_world_cannot_make_is_refused_and_nothing_is_paid() {
 
 fn quests() -> QuestTable {
     let step = |needs, template, update| Step {
+        out_of_turn: false,
         key: String::new(),
         quest: QUEST,
         needs,
@@ -887,6 +888,7 @@ fn quests() -> QuestTable {
     };
     QuestTable {
         quests: vec![QuestDef {
+            duration_by_calendar: false,
             id: QUEST,
             name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_17EE),
             description: (0x6C45_9364, 0x2500_17EE),

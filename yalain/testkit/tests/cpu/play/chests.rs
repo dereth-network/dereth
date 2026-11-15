@@ -577,6 +577,7 @@ fn an_item_in_the_pack_its_quest_keeps_is_refused_by_its_use() {
         .catalog
         .insert(yalain_testkit::test_template(PIECE, 0x200, piece));
     let def = |hidden: bool| QuestDef {
+        duration_by_calendar: false,
         timed_phase: 0,
         id: QUEST,
         name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_17EE),
@@ -728,6 +729,7 @@ fn an_item_in_the_pack_naming_a_quest_for_its_use_is_judged_by_that_quest() {
         },
     );
     let def = |id: u32| QuestDef {
+        duration_by_calendar: false,
         timed_phase: 0,
         id,
         name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_17EE),
@@ -848,6 +850,7 @@ fn an_item_its_quest_keeps_is_refused_when_taken_until_the_quest_is_where_it_nee
         .catalog
         .insert(yalain_testkit::test_template(GEM, 0x3A1, gem));
     let def = |hidden: bool| QuestDef {
+        duration_by_calendar: false,
         id: QUEST,
         name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_17EE),
         description: (0x6C45_9364, 0x2500_17EE),
@@ -1173,6 +1176,7 @@ fn hidden_quest(h: &mut Harness) {
         .quests
         .quests
         .push(yalain_content::quests::QuestDef {
+            duration_by_calendar: false,
             id: CHEST_QUEST,
             name: yalain_content::Words::Ref(0, 0),
             description: (0, 0),

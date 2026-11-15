@@ -52,6 +52,7 @@ fn remains(id: u64, origin: [f32; 3]) -> ContentObject {
 
 fn quest() -> QuestDef {
     QuestDef {
+        duration_by_calendar: false,
         id: QUEST,
         name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_1F0B),
         description: (0x6C45_9364, 0x2500_1F0B),
@@ -85,6 +86,7 @@ fn quest() -> QuestDef {
 /// A use of the remains gives the quest.
 fn searched() -> Step {
     Step {
+        out_of_turn: false,
         key: "searched".into(),
         quest: QUEST,
         needs: 0,

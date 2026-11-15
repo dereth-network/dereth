@@ -135,6 +135,7 @@ fn world() -> Harness {
     template(&mut h, TROPHY, trophy);
     h.server.quests = QuestTable {
         quests: vec![QuestDef {
+            duration_by_calendar: false,
             id: TOKEN_QUEST,
             name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_17EE),
             description: (0x6C45_9364, 0x2500_17EE),
@@ -796,6 +797,7 @@ fn a_rod_whose_use_moves_a_quest_is_refused_away_from_its_place_and_moves_it_the
     use yalain_content::quests::{Step, Trigger, Update};
     let mut h = world();
     h.server.quests.steps.push(Step {
+        out_of_turn: false,
         key: String::new(),
         quest: TOKEN_QUEST,
         needs: 0,
@@ -956,6 +958,7 @@ fn a_reward_quest_is_completed_with_the_quest_it_rewards() {
             },
         ],
         steps: vec![Step {
+            out_of_turn: false,
             key: String::new(),
             quest: REWARD,
             needs: 0,

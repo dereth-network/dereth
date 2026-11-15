@@ -144,6 +144,7 @@ fn hall(rotation: [f32; 4], keeps_out: bool) -> Harness {
         });
     }
     h.server.quests.quests.push(QuestDef {
+        duration_by_calendar: false,
         id: QUEST,
         name: yalain_content::Words::Ref(0, 0),
         description: (0, 0),

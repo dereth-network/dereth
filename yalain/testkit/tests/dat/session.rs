@@ -271,6 +271,7 @@ fn a_character_entering_again_gives_the_journal_its_quests() {
     let mut s = InProcess::new();
     s.h.server.quests = QuestTable {
         quests: vec![QuestDef {
+            duration_by_calendar: false,
             id: QUEST,
             name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_17EE),
             description: (0x6C45_9364, 0x2500_17EE),
