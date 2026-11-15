@@ -162,12 +162,6 @@ source = "gbuffer.slang"
 entry = "fs_caster"
 stage = "fragment"
 
-# How much of the sun reaches each pixel, from the shadow maps.
-[[entry]]
-source = "shadow_mask.slang"
-entry = "fs_main"
-stage = "fragment"
-
 # The lamps: each piece of the view's list of the lamps that reach it, then the light they add
 # at each pixel.
 [[entry]]

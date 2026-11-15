@@ -26,3 +26,9 @@ stage = "fragment"
 source = "ao.slang"
 entry = "fs_upsample"
 stage = "fragment"
+
+# How much of the sun reaches each pixel the sun lights, from the cascades' shadow maps.
+[[entry]]
+source = "shadow_mask.slang"
+entry = "fs_main"
+stage = "fragment"

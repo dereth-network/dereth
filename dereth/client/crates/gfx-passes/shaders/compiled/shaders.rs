@@ -11,11 +11,13 @@ pub enum Entry {
     AoFsGather,
     /// `fs_upsample` in `ao.slang`, the fragment stage.
     AoFsUpsample,
+    /// `fs_main` in `shadow_mask.slang`, the fragment stage.
+    ShadowMaskFsMain,
 }
 
 impl Entry {
     /// Every entry point, in `shaders.toml`'s order.
-    pub const ALL: [Self; 4] = [Self::FullscreenVsMain, Self::AoFsGtao, Self::AoFsGather, Self::AoFsUpsample];
+    pub const ALL: [Self; 5] = [Self::FullscreenVsMain, Self::AoFsGtao, Self::AoFsGather, Self::AoFsUpsample, Self::ShadowMaskFsMain];
 
     /// The source file that defines it.
     #[must_use]
@@ -25,6 +27,7 @@ impl Entry {
             Self::AoFsGtao => "ao.slang",
             Self::AoFsGather => "ao.slang",
             Self::AoFsUpsample => "ao.slang",
+            Self::ShadowMaskFsMain => "shadow_mask.slang",
         }
     }
 
@@ -36,6 +39,7 @@ impl Entry {
             Self::AoFsGtao => "fs_gtao",
             Self::AoFsGather => "fs_gather",
             Self::AoFsUpsample => "fs_upsample",
+            Self::ShadowMaskFsMain => "fs_main",
         }
     }
 
@@ -47,6 +51,7 @@ impl Entry {
             Self::AoFsGtao => Stage::Fragment,
             Self::AoFsGather => Stage::Fragment,
             Self::AoFsUpsample => Stage::Fragment,
+            Self::ShadowMaskFsMain => Stage::Fragment,
         }
     }
 
@@ -58,6 +63,7 @@ impl Entry {
             Self::AoFsGtao => include_bytes!("spirv/ao.fs_gtao.spv"),
             Self::AoFsGather => include_bytes!("spirv/ao.fs_gather.spv"),
             Self::AoFsUpsample => include_bytes!("spirv/ao.fs_upsample.spv"),
+            Self::ShadowMaskFsMain => include_bytes!("spirv/shadow_mask.fs_main.spv"),
         }
     }
 
@@ -69,6 +75,7 @@ impl Entry {
             Self::AoFsGtao => include_bytes!("dxil/ao.fs_gtao.dxil"),
             Self::AoFsGather => include_bytes!("dxil/ao.fs_gather.dxil"),
             Self::AoFsUpsample => include_bytes!("dxil/ao.fs_upsample.dxil"),
+            Self::ShadowMaskFsMain => include_bytes!("dxil/shadow_mask.fs_main.dxil"),
         }
     }
 }

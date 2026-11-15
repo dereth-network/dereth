@@ -19,6 +19,7 @@
 //! | [`gbuffer`] | the G-buffer's targets, their formats and the light classes |
 //! | [`frame`] | the camera, the rows of a constants buffer, a buffer rewritten every frame, the push words, the last frame's reprojection |
 //! | [`ao`] | the ambient occlusion: how much of the sky each pixel's surroundings leave it |
+//! | [`sun`] | the sun's cascades, their maps, and how much of the sun reaches each pixel it lights |
 //! | [`shaders`] | the shaders, compiled ahead of time and embedded: each entry point's blobs |
 //!
 //! The Slang modules in the crate's `shaders/` folder (`bindless`, `frame`) are the vocabulary a
@@ -28,3 +29,4 @@ pub mod ao;
 pub mod frame;
 pub mod gbuffer;
 pub mod shaders;
+pub mod sun;

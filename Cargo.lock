@@ -1856,6 +1856,7 @@ name = "dereth-gfx-passes"
 version = "0.0.0"
 dependencies = [
  "dereth-gfx",
+ "dereth-primitives",
  "glam",
 ]
 

@@ -7,7 +7,7 @@ import bindless;
 
 // The frame's constants, in storage buffer `frame` at offset 0, as float4 rows:
 //   0..3   the view and projection together, as four columns
-//   4..7   the view (into the eye), as four columns
+//   4..7   the view (into the eye, z the distance ahead of it), as four columns
 //   8      the eye, xyz
 //   9      the sun: its direction scaled by its brightness, xyz (not normalized)
 //   10     the sun's color, rgb
@@ -66,4 +66,33 @@ public uint4 row_u(uint b, uint i)
 public float4 transform(uint b, uint i, float4 v)
 {
     return row(b, i) * v.x + row(b, i + 1) * v.y + row(b, i + 2) * v.z + row(b, i + 3) * v.w;
+}
+
+// The material target's bytes: the light class, the material's kind, and the light set's index
+// over two bytes.
+public float4 material_bytes(uint cls, uint kind, uint set)
+{
+    return float4(float(cls), float(kind), float(set & 0xFF), float((set >> 8) & 0xFF)) / 255.0;
+}
+
+// A unit normal folded into two signed values (octahedral), and back.
+public float2 oct_encode(float3 n)
+{
+    n /= abs(n.x) + abs(n.y) + abs(n.z);
+    float2 e = n.xy;
+    if (n.z < 0.0)
+    {
+        e = (1.0 - abs(n.yx)) * float2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
+    }
+    return e;
+}
+
+public float3 oct_decode(float2 e)
+{
+    float3 n = float3(e.xy, 1.0 - abs(e.x) - abs(e.y));
+    if (n.z < 0.0)
+    {
+        n.xy = (1.0 - abs(n.yx)) * float2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
+    }
+    return normalize(n);
 }

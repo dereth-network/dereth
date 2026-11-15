@@ -195,31 +195,3 @@ public float gamma_scale(uint frame)
     return 1.0 + 2.0 * row(frame, FRAME_SCREEN).x;
 }
 
-// The material target's bytes: the light class, the material's kind, and the light set's index
-// over two bytes.
-public float4 material_bytes(uint cls, uint kind, uint set)
-{
-    return float4(float(cls), float(kind), float(set & 0xFF), float((set >> 8) & 0xFF)) / 255.0;
-}
-
-// A unit normal folded into two signed values (octahedral), and back.
-public float2 oct_encode(float3 n)
-{
-    n /= abs(n.x) + abs(n.y) + abs(n.z);
-    float2 e = n.xy;
-    if (n.z < 0.0)
-    {
-        e = (1.0 - abs(n.yx)) * float2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
-    }
-    return e;
-}
-
-public float3 oct_decode(float2 e)
-{
-    float3 n = float3(e.xy, 1.0 - abs(e.x) - abs(e.y));
-    if (n.z < 0.0)
-    {
-        n.xy = (1.0 - abs(n.yx)) * float2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
-    }
-    return normalize(n);
-}

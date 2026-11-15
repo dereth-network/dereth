@@ -59,8 +59,6 @@ pub enum Entry {
     SkinCsMain,
     /// `fs_caster` in `gbuffer.slang`, the fragment stage.
     GbufferFsCaster,
-    /// `fs_main` in `shadow_mask.slang`, the fragment stage.
-    ShadowMaskFsMain,
     /// `cs_clusters` in `lamps.slang`, the compute stage.
     LampsCsClusters,
     /// `fs_lamps` in `lamps.slang`, the fragment stage.
@@ -205,7 +203,7 @@ pub enum Entry {
 
 impl Entry {
     /// Every entry point, in `shaders.toml`'s order.
-    pub const ALL: [Self; 99] = [Self::AirFsAir, Self::CloudShadowFsMain, Self::StampVsMain, Self::CopyFsMain, Self::GbufferVsMain, Self::GbufferFsMain, Self::GbufferFsForward, Self::GbufferFsEdge, Self::GbufferFsForwardAny, Self::GbufferFsEdgeAny, Self::TerrainVsMain, Self::TerrainFsMain, Self::ResolveFsVertex, Self::ResolveFsPixel, Self::CompositeFsMain, Self::CullCsMain, Self::InstancesCsChoose, Self::InstancesCsWalkCpu, Self::InstancesCsScan, Self::InstancesCsWalkScan, Self::InstancesCsWalkGroups, Self::InstancesCsWrite, Self::SortCsLocal, Self::SortCsGlobal, Self::SortCsMerge, Self::SortCsEmit, Self::SkinCsMain, Self::GbufferFsCaster, Self::ShadowMaskFsMain, Self::LampsCsClusters, Self::LampsFsLamps, Self::HaloVsHalo, Self::HaloFsHalo, Self::PostFsTaa, Self::PostFsTaaCheck, Self::PostFsBloomDown, Self::PostFsBloomUp, Self::PostFsTonemap, Self::MotionVsMain, Self::MotionFsMain, Self::SkyTablesFsTransmittance, Self::SkyTablesFsMultiple, Self::SkyTablesFsSkyView, Self::SkyFsSky, Self::SkyFsVeil, Self::FogVolumeCsMain, Self::DrawnVsGround, Self::DrawnFsGround, Self::DrawnVsCaster, Self::DrawnCsProbe, Self::DrawnCsGrass, Self::GrassVsBlade, Self::GrassFsBlade, Self::GrassVsBladeMotion, Self::GrassFsBladeMotion, Self::DrawnCsScatter, Self::GrassVsScatter, Self::GrassFsScatter, Self::WaterFsMain, Self::WaterFsTraced, Self::WaterCsWake, Self::LiftCsBases, Self::ImpostorVsBake, Self::ImpostorFsBake, Self::ImpostorVsDraw, Self::ImpostorFsDraw, Self::ImpostorFsGather, Self::ImpostorFsChain, Self::ForestCsCull, Self::ForestVsFar, Self::ForestFsFar, Self::RainFsSplash, Self::RainVsFall, Self::RainFsFall, Self::RtCsInstances, Self::RtCheckCsCheck, Self::GiCsUpdate, Self::GiFsProbes, Self::GiFsScreen, Self::GiFsBlur, Self::GiTraceCsTrace, Self::RtShadowFsMain, Self::RtAoFsRays, Self::RtAoFsFilter, Self::UpscaleInputsCsMain, Self::Fsr3PassesCsClearReconstructed, Self::Fsr3PassesCsPrepareInputs, Self::Fsr3PassesCsFarthestHalf, Self::Fsr3PassesCsShadingLevelZero, Self::Fsr3PassesCsShadingLevel, Self::Fsr3PassesCsShadingChange, Self::Fsr3PassesCsReactivity, Self::Fsr3PassesCsLumaInstability, Self::Fsr3PassesCsAccumulate, Self::Fsr3PassesCsRcas, Self::Fsr3PassesFsShow, Self::Fsr3PassesCsReactiveInput, Self::Fsr3PassesCsExposure, Self::Fsr3PassesFsInputsAsPictures];
+    pub const ALL: [Self; 98] = [Self::AirFsAir, Self::CloudShadowFsMain, Self::StampVsMain, Self::CopyFsMain, Self::GbufferVsMain, Self::GbufferFsMain, Self::GbufferFsForward, Self::GbufferFsEdge, Self::GbufferFsForwardAny, Self::GbufferFsEdgeAny, Self::TerrainVsMain, Self::TerrainFsMain, Self::ResolveFsVertex, Self::ResolveFsPixel, Self::CompositeFsMain, Self::CullCsMain, Self::InstancesCsChoose, Self::InstancesCsWalkCpu, Self::InstancesCsScan, Self::InstancesCsWalkScan, Self::InstancesCsWalkGroups, Self::InstancesCsWrite, Self::SortCsLocal, Self::SortCsGlobal, Self::SortCsMerge, Self::SortCsEmit, Self::SkinCsMain, Self::GbufferFsCaster, Self::LampsCsClusters, Self::LampsFsLamps, Self::HaloVsHalo, Self::HaloFsHalo, Self::PostFsTaa, Self::PostFsTaaCheck, Self::PostFsBloomDown, Self::PostFsBloomUp, Self::PostFsTonemap, Self::MotionVsMain, Self::MotionFsMain, Self::SkyTablesFsTransmittance, Self::SkyTablesFsMultiple, Self::SkyTablesFsSkyView, Self::SkyFsSky, Self::SkyFsVeil, Self::FogVolumeCsMain, Self::DrawnVsGround, Self::DrawnFsGround, Self::DrawnVsCaster, Self::DrawnCsProbe, Self::DrawnCsGrass, Self::GrassVsBlade, Self::GrassFsBlade, Self::GrassVsBladeMotion, Self::GrassFsBladeMotion, Self::DrawnCsScatter, Self::GrassVsScatter, Self::GrassFsScatter, Self::WaterFsMain, Self::WaterFsTraced, Self::WaterCsWake, Self::LiftCsBases, Self::ImpostorVsBake, Self::ImpostorFsBake, Self::ImpostorVsDraw, Self::ImpostorFsDraw, Self::ImpostorFsGather, Self::ImpostorFsChain, Self::ForestCsCull, Self::ForestVsFar, Self::ForestFsFar, Self::RainFsSplash, Self::RainVsFall, Self::RainFsFall, Self::RtCsInstances, Self::RtCheckCsCheck, Self::GiCsUpdate, Self::GiFsProbes, Self::GiFsScreen, Self::GiFsBlur, Self::GiTraceCsTrace, Self::RtShadowFsMain, Self::RtAoFsRays, Self::RtAoFsFilter, Self::UpscaleInputsCsMain, Self::Fsr3PassesCsClearReconstructed, Self::Fsr3PassesCsPrepareInputs, Self::Fsr3PassesCsFarthestHalf, Self::Fsr3PassesCsShadingLevelZero, Self::Fsr3PassesCsShadingLevel, Self::Fsr3PassesCsShadingChange, Self::Fsr3PassesCsReactivity, Self::Fsr3PassesCsLumaInstability, Self::Fsr3PassesCsAccumulate, Self::Fsr3PassesCsRcas, Self::Fsr3PassesFsShow, Self::Fsr3PassesCsReactiveInput, Self::Fsr3PassesCsExposure, Self::Fsr3PassesFsInputsAsPictures];
 
     /// The source file that defines it.
     #[must_use]
@@ -239,7 +237,6 @@ impl Entry {
             Self::SortCsEmit => "sort.slang",
             Self::SkinCsMain => "skin.slang",
             Self::GbufferFsCaster => "gbuffer.slang",
-            Self::ShadowMaskFsMain => "shadow_mask.slang",
             Self::LampsCsClusters => "lamps.slang",
             Self::LampsFsLamps => "lamps.slang",
             Self::HaloVsHalo => "halo.slang",
@@ -345,7 +342,6 @@ impl Entry {
             Self::SortCsEmit => "cs_emit",
             Self::SkinCsMain => "cs_main",
             Self::GbufferFsCaster => "fs_caster",
-            Self::ShadowMaskFsMain => "fs_main",
             Self::LampsCsClusters => "cs_clusters",
             Self::LampsFsLamps => "fs_lamps",
             Self::HaloVsHalo => "vs_halo",
@@ -451,7 +447,6 @@ impl Entry {
             Self::SortCsEmit => Stage::Compute,
             Self::SkinCsMain => Stage::Compute,
             Self::GbufferFsCaster => Stage::Fragment,
-            Self::ShadowMaskFsMain => Stage::Fragment,
             Self::LampsCsClusters => Stage::Compute,
             Self::LampsFsLamps => Stage::Fragment,
             Self::HaloVsHalo => Stage::Vertex,
@@ -557,7 +552,6 @@ impl Entry {
             Self::SortCsEmit => include_bytes!("spirv/sort.cs_emit.spv"),
             Self::SkinCsMain => include_bytes!("spirv/skin.cs_main.spv"),
             Self::GbufferFsCaster => include_bytes!("spirv/gbuffer.fs_caster.spv"),
-            Self::ShadowMaskFsMain => include_bytes!("spirv/shadow_mask.fs_main.spv"),
             Self::LampsCsClusters => include_bytes!("spirv/lamps.cs_clusters.spv"),
             Self::LampsFsLamps => include_bytes!("spirv/lamps.fs_lamps.spv"),
             Self::HaloVsHalo => include_bytes!("spirv/halo.vs_halo.spv"),
@@ -663,7 +657,6 @@ impl Entry {
             Self::SortCsEmit => include_bytes!("dxil/sort.cs_emit.dxil"),
             Self::SkinCsMain => include_bytes!("dxil/skin.cs_main.dxil"),
             Self::GbufferFsCaster => include_bytes!("dxil/gbuffer.fs_caster.dxil"),
-            Self::ShadowMaskFsMain => include_bytes!("dxil/shadow_mask.fs_main.dxil"),
             Self::LampsCsClusters => include_bytes!("dxil/lamps.cs_clusters.dxil"),
             Self::LampsFsLamps => include_bytes!("dxil/lamps.fs_lamps.dxil"),
             Self::HaloVsHalo => include_bytes!("dxil/halo.vs_halo.dxil"),

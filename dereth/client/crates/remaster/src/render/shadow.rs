@@ -17,46 +17,26 @@
 //!   compared against the casters with a 4 x 4 tent filter, blended into the next cascade over
 //!   the last fifth of each cascade, and faded out toward the shadows' reach. The shadows fade in
 //!   as the sun rises off the horizon.
+//!
+//! The cascades, their maps and the sun's share are the shared passes' (`dereth_gfx_passes::sun`);
+//! what casts into them, and when a cascade's cache is drawn again, is this module's.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use dereth_gfx::{
-    ColorAttachment, ColorTarget, Compare, Cull, DepthAttachment, DepthState, Device, Format,
-    GraphicsDesc, IndexType, Load, Pipeline, RasterPass, Recorder, Rect, Shader, Texture,
-    TextureDesc, TextureUsage, Touch, Use,
+    Compare, Cull, DepthAttachment, DepthState, Device, GraphicsDesc, IndexType, Pipeline,
+    RasterPass, Recorder, Rect, Shader, Texture, Touch, Use,
 };
-use glam::{Mat4, Vec3, Vec4, Vec4Swizzles};
+pub use dereth_gfx_passes::sun::{
+    cascades, frustum, sun_of, Cascade, CascadeKey, CASCADES, SPLITS,
+};
+use dereth_gfx_passes::sun::{MaskPlan, SunMaps, DEPTH};
+use glam::{Mat4, Vec3, Vec4Swizzles};
 
 use super::scene::{class, Bucket, GpuScene, PartItems, NONE};
 use super::{PerFrame, Targets};
 use crate::scene::{BlockId, Camera, FrameDelta};
 use crate::shaders::{spirv, Entry};
-
-/// The cascades.
-pub const CASCADES: usize = 4;
-
-/// The far end of each cascade, metres along the view.
-pub const SPLITS: [f32; CASCADES] = [14.0, 45.0, 150.0, 560.0];
-
-/// How far toward the sun casters are looked for beyond a cascade's own sphere, metres.
-const REACH: f32 = 900.0;
-
-/// The steps a cascade's depth range moves in, metres.
-const DEPTH_STEP: f32 = 64.0;
-
-/// Where the shadows start to fade out, as a share of the last cascade's reach.
-const FADE_START: f32 = 0.85;
-
-/// The sun's height (the sine of its elevation) below which there are no shadows, and above which
-/// they are at full strength.
-const SUN_LOW: f32 = 0.02;
-const SUN_HIGH: f32 = 0.12;
-
-/// The depth the shadow maps hold.
-const DEPTH: Format = Format::D32Float;
-
-/// The format of the sun's share.
-const VISIBILITY: Format = Format::R8Unorm;
 
 /// What casts the sun's shadows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -117,186 +97,16 @@ fn wind_strength(rows: &[u8]) -> f32 {
     dereth_primitives::num::math::hypotf(f(0), f(1))
 }
 
-/// What places one cascade: when this is the same, the cascade's cached casters are the same.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct CascadeKey {
-    /// The cascade's centre across the sun, in its own texels.
-    pub centre: [i64; 2],
-    /// Its radius, and its depth range in steps toward and away from the sun.
-    pub radius: u32,
-    pub depth: [i64; 2],
-    /// The sun's direction.
-    pub sun: [u32; 3],
-}
-
-/// One cascade.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Cascade {
-    /// From the frame's space to the map's clip space.
-    pub view_proj: Mat4,
-    /// From the frame's space to the sun's: x and y across the sun, z back toward it.
-    pub light_view: Mat4,
-    /// The box it covers in the sun's space: across the sun, and the distances along it.
-    pub across: [f32; 4],
-    pub along: [f32; 2],
-    /// One texel's size, metres.
-    pub texel: f32,
-    /// Its far end along the view, metres.
-    pub far: f32,
-    pub key: CascadeKey,
-}
-
-impl Cascade {
-    /// Whether a sphere in the frame's space reaches into the cascade's box.
-    #[must_use]
-    pub fn reaches(&self, centre: Vec3, radius: f32) -> bool {
-        let q = self.light_view * centre.extend(1.0);
-        let along = -q.z;
-        q.x + radius >= self.across[0]
-            && q.x - radius <= self.across[1]
-            && q.y + radius >= self.across[2]
-            && q.y - radius <= self.across[3]
-            && along + radius >= self.along[0]
-            && along - radius <= self.along[1]
-    }
-
-    /// Whether a box in the frame's space reaches into the cascade's box.
-    #[must_use]
-    pub fn reaches_box(&self, min: Vec3, max: Vec3) -> bool {
-        let mut lo = Vec3::splat(f32::INFINITY);
-        let mut hi = Vec3::splat(f32::NEG_INFINITY);
-        for k in 0..8 {
-            let p = Vec3::new(
-                if k & 1 == 0 { min.x } else { max.x },
-                if k & 2 == 0 { min.y } else { max.y },
-                if k & 4 == 0 { min.z } else { max.z },
-            );
-            let q = (self.light_view * p.extend(1.0)).xyz();
-            lo = lo.min(Vec3::new(q.x, q.y, -q.z));
-            hi = hi.max(Vec3::new(q.x, q.y, -q.z));
-        }
-        hi.x >= self.across[0]
-            && lo.x <= self.across[1]
-            && hi.y >= self.across[2]
-            && lo.y <= self.across[3]
-            && hi.z >= self.along[0]
-            && lo.z <= self.along[1]
-    }
-}
-
-/// The sun's direction toward it, unit length, and how strong the shadows are: `None` when there
-/// is no sun to cast them.
-#[must_use]
-pub fn sun_of(sun: Vec3) -> Option<(Vec3, f32)> {
-    if sun.length_squared() < 1e-8 {
-        return None;
-    }
-    let l = sun.normalize();
-    let strength = ((l.z - SUN_LOW) / (SUN_HIGH - SUN_LOW)).clamp(0.0, 1.0);
-    (strength > 0.0).then_some((l, strength))
-}
-
-/// The four cascades around `camera`'s view, looking down the sun from `sun` (toward the sun,
-/// unit length), for maps `size` texels a side.
-#[must_use]
-#[allow(clippy::cast_possible_truncation)] // texel counts and depth steps are small
-pub fn cascades(camera: &Camera, sun: Vec3, size: u32) -> [Cascade; CASCADES] {
-    let inv = (camera.projection * camera.view).inverse();
-    let un = |x: f32, y: f32| {
-        let p = inv * Vec4::new(x, y, 0.5, 1.0);
-        p.xyz() / p.w
-    };
-    let eye = camera.eye;
-    let forward = (un(0.0, 0.0) - eye).normalize_or(Vec3::Y);
-    let rays: Vec<Vec3> = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
-        .iter()
-        .map(|(x, y)| un(*x, *y) - eye)
-        .collect();
-    let up = if sun.z.abs() > 0.99 { Vec3::Y } else { Vec3::Z };
-    let light_view = Mat4::look_at_rh(Vec3::ZERO, -sun, up);
-    let sun_bits = sun.to_array().map(f32::to_bits);
-    let mut near = camera.near.max(0.05);
-    let mut out = [Cascade {
-        view_proj: Mat4::IDENTITY,
-        light_view,
-        across: [0.0; 4],
-        along: [0.0; 2],
-        texel: 1.0,
-        far: 0.0,
-        key: CascadeKey {
-            centre: [0; 2],
-            radius: 0,
-            depth: [0; 2],
-            sun: sun_bits,
-        },
-    }; CASCADES];
-    for (c, cascade) in out.iter_mut().enumerate() {
-        let far = SPLITS[c].max(near + 1.0);
-        let mut corners = Vec::with_capacity(8);
-        for d in [near, far] {
-            for r in &rays {
-                corners.push(eye + *r * (d / r.dot(forward).max(1e-3)));
-            }
-        }
-        let centre = corners.iter().copied().sum::<Vec3>() / 8.0;
-        let radius = corners
-            .iter()
-            .map(|p| (*p - centre).length())
-            .fold(0.0f32, f32::max);
-        // Whole sixteenths of a metre, so the radius holds still as the view turns.
-        let radius = (radius * 16.0).ceil() / 16.0;
-        #[allow(clippy::cast_precision_loss)] // a map's side
-        let texel = 2.0 * radius / size as f32;
-        let q = light_view * centre.extend(1.0);
-        let cx = (q.x / texel).floor();
-        let cy = (q.y / texel).floor();
-        let (x, y) = (cx * texel, cy * texel);
-        let near_step = ((-q.z - radius - REACH) / DEPTH_STEP).floor();
-        let far_step = ((-q.z + radius) / DEPTH_STEP).ceil();
-        let (z_near, z_far) = (near_step * DEPTH_STEP, far_step * DEPTH_STEP);
-        let proj = Mat4::orthographic_rh(
-            x - radius,
-            x + radius,
-            y - radius,
-            y + radius,
-            z_near,
-            z_far,
-        );
-        *cascade = Cascade {
-            view_proj: proj * light_view,
-            light_view,
-            across: [x - radius, x + radius, y - radius, y + radius],
-            along: [z_near, z_far],
-            texel,
-            far,
-            key: CascadeKey {
-                centre: [cx as i64, cy as i64],
-                radius: radius.to_bits(),
-                depth: [near_step as i64, far_step as i64],
-                sun: sun_bits,
-            },
-        };
-        near = far;
-    }
-    out
-}
-
 /// The pipelines the shadows draw with.
 #[derive(Debug, Clone, Copy)]
 struct Pipelines {
     caster: Pipeline,
     ground: Pipeline,
-    mask: Pipeline,
 }
 
 /// One cascade's resources.
 #[derive(Debug)]
 struct CascadeGpu {
-    /// The map the frame samples, and its index in the table.
-    map: Texture,
-    map_index: u32,
-    /// The blocks' casters, kept between frames.
-    cache: Texture,
     /// The frame's constants as the cascade sees it.
     frame: PerFrame,
     /// The blocks' parts' commands, and the ground blocks, as last drawn into the cache.
@@ -320,10 +130,10 @@ pub struct ShadowPass {
     pub settings: ShadowSettings,
     pipelines: Pipelines,
     cascades: Vec<CascadeGpu>,
-    size: u32,
+    /// The cascades' maps, each with the cache the blocks' casters are kept in between frames,
+    /// and the sun's share.
+    sun: SunMaps,
     keys: [Option<CacheKey>; CASCADES],
-    constants: PerFrame,
-    visibility: Option<(Texture, u32, u32, u32)>,
     /// The objects' instances the shadows wrote, with the transform they wrote.
     written: BTreeMap<u32, Mat4>,
     /// The blocks' parts' spheres in the frame's space, block after block, with whether each is
@@ -359,8 +169,8 @@ pub struct ShadowPlan {
     pipelines: Pipelines,
     cascades: Vec<CascadePlan>,
     size: u32,
-    constants: u32,
-    visibility: Texture,
+    /// The sun's share's part of the frame.
+    mask: MaskPlan,
     /// The sun's share's index in the table.
     pub visibility_index: u32,
     /// The bytes one indirect draw command takes on the device.
@@ -383,23 +193,6 @@ fn words(w: &[u32]) -> Vec<u8> {
 
 fn floats(f: &[f32]) -> Vec<u8> {
     f.iter().flat_map(|x| x.to_le_bytes()).collect()
-}
-
-/// The six planes of a view and projection's frustum, each facing in, as `(normal, distance)` with
-/// a unit normal: a point `p` is inside when `plane.dot(p.extend(1))` is at least 0 for every one.
-/// The depth runs from 0 to 1, as the device's does.
-#[must_use]
-pub fn frustum(m: Mat4) -> [Vec4; 6] {
-    let r = |i: usize| m.row(i);
-    [
-        r(3) + r(0),
-        r(3) - r(0),
-        r(3) + r(1),
-        r(3) - r(1),
-        r(2),
-        r(3) - r(2),
-    ]
-    .map(|p| p / p.truncate().length().max(1e-12))
 }
 
 /// One block's offset from the frame's origin.
@@ -453,27 +246,13 @@ impl ShadowPass {
                 depth,
                 cull: Cull::None,
             })?,
-            mask: d.create_graphics_pipeline(&GraphicsDesc {
-                label: "remaster sun visibility",
-                vertex: dereth_gfx_passes::shaders::fullscreen(),
-                fragment: Some(shader(Entry::ShadowMaskFsMain)),
-                color: &[ColorTarget {
-                    format: VISIBILITY,
-                    blend: None,
-                    write_alpha: true,
-                }],
-                depth: None,
-                cull: Cull::None,
-            })?,
         };
         Ok(Self {
             settings: ShadowSettings::default(),
             pipelines,
             cascades: Vec::new(),
-            size: 0,
+            sun: SunMaps::new(d)?,
             keys: [None; CASCADES],
-            constants: PerFrame::new(d, "remaster shadow cascades", 512, Default::default())?,
-            visibility: None,
             written: BTreeMap::new(),
             spheres: Vec::new(),
             block_boxes: Vec::new(),
@@ -483,40 +262,13 @@ impl ShadowPass {
         })
     }
 
-    /// The cascades' maps, made at the settings' size on first use.
+    /// The cascades' maps, made at the settings' size on first use, and each cascade's buffers.
     fn maps(&mut self, d: &mut Device) -> Result<(), dereth_gfx::Error> {
-        let size = self.settings.size.max(16);
-        if self.size == size && !self.cascades.is_empty() {
-            return Ok(());
+        if self.sun.ensure(d, self.settings.size)? {
+            self.keys = [None; CASCADES];
         }
-        for c in self.cascades.drain(..) {
-            d.destroy_texture(c.map);
-            d.destroy_texture(c.cache);
-        }
-        for _ in 0..CASCADES {
-            let map = d.create_texture(&TextureDesc {
-                label: "remaster shadow map",
-                width: size,
-                height: size,
-                mips: 1,
-                format: DEPTH,
-                usage: TextureUsage::DEPTH_TARGET
-                    | TextureUsage::SAMPLED
-                    | TextureUsage::TRANSFER_DST,
-            })?;
-            let cache = d.create_texture(&TextureDesc {
-                label: "remaster shadow cache",
-                width: size,
-                height: size,
-                mips: 1,
-                format: DEPTH,
-                usage: TextureUsage::DEPTH_TARGET | TextureUsage::TRANSFER_SRC,
-            })?;
-            let map_index = d.bind_texture(map)?;
+        while self.cascades.len() < CASCADES {
             self.cascades.push(CascadeGpu {
-                map,
-                map_index,
-                cache,
                 frame: PerFrame::new(d, "remaster shadow frame", 512, Default::default())?,
                 statics: PerFrame::new(
                     d,
@@ -533,35 +285,7 @@ impl ShadowPass {
                 )?,
             });
         }
-        self.size = size;
-        self.keys = [None; CASCADES];
         Ok(())
-    }
-
-    /// The sun's share, at the world's size.
-    fn visibility(
-        &mut self,
-        d: &mut Device,
-        width: u32,
-        height: u32,
-    ) -> Result<(Texture, u32), dereth_gfx::Error> {
-        if let Some((t, i, w, h)) = self.visibility {
-            if (w, h) == (width, height) {
-                return Ok((t, i));
-            }
-            d.destroy_texture(t);
-        }
-        let t = d.create_texture(&TextureDesc {
-            label: "remaster sun visibility",
-            width,
-            height,
-            mips: 1,
-            format: VISIBILITY,
-            usage: TextureUsage::COLOR_TARGET | TextureUsage::SAMPLED | TextureUsage::TRANSFER_SRC,
-        })?;
-        let i = d.bind_texture(t)?;
-        self.visibility = Some((t, i, width, height));
-        Ok((t, i))
     }
 
     /// The sun's share of the last frame the shadows drew, a byte a pixel, after the device has
@@ -573,11 +297,7 @@ impl ShadowPass {
         &mut self,
         d: &mut Device,
     ) -> Result<Option<Vec<u8>>, dereth_gfx::Error> {
-        let Some((t, ..)) = self.visibility else {
-            return Ok(None);
-        };
-        d.wait_idle()?;
-        d.read_texture(t, 0).map(Some)
+        self.sun.read_visibility(d)
     }
 
     /// Work out the frame's cascades and their casters, and write what they draw.
@@ -607,8 +327,7 @@ impl ShadowPass {
             return Ok(None);
         };
         self.maps(d)?;
-        let (visibility, visibility_index) = self.visibility(d, area.0, area.1)?;
-        let cascades = cascades(camera, sun, self.size);
+        let cascades = cascades(camera, sun, self.sun.size());
         // How far the wind moves the models it sways this frame: a cascade whose texels are
         // smaller is drawn again every frame.
         if self.bend.0 != Some(scene.mesh_generation) {
@@ -734,6 +453,7 @@ impl ShadowPass {
                 redraw_bits |= 1 << c;
             }
             let gpu = &mut self.cascades[c];
+            let maps = self.sun.maps()[c];
             // The frame's constants with the cascade's view and projection.
             let mut rows = frame_rows.to_vec();
             if rows.len() >= 64 {
@@ -828,8 +548,8 @@ impl ShadowPass {
             written_bytes += dyn_cmds.len() as u64;
             dynamic_items += dynamics;
             plans.push(CascadePlan {
-                map: gpu.map,
-                cache: gpu.cache,
+                map: maps.map,
+                cache: maps.cache,
                 frame: gpu.frame.index,
                 redraw,
                 statics: (gpu.statics.buffer, statics),
@@ -839,27 +559,8 @@ impl ShadowPass {
         }
 
         // The sun's share's constants.
-        let mut bytes = Vec::new();
-        for c in &cascades {
-            bytes.extend(floats(&c.view_proj.to_cols_array()));
-        }
-        bytes.extend(floats(&cascades.map(|c| c.far)));
-        bytes.extend(floats(&cascades.map(|c| c.texel)));
-        let maps: Vec<u32> = self.cascades.iter().map(|c| c.map_index).collect();
-        bytes.extend(words(&maps));
-        let reach = SPLITS[CASCADES - 1];
-        #[allow(clippy::cast_precision_loss)] // a map's side
-        bytes.extend(floats(&[
-            reach * FADE_START,
-            reach,
-            strength,
-            self.size as f32,
-        ]));
-        bytes.extend(floats(
-            &cascades.map(|c| 1.0 / (c.along[1] - c.along[0]).max(1e-3)),
-        ));
-        self.constants.write(d, &bytes)?;
-        written_bytes += bytes.len() as u64;
+        let (mask, bytes) = self.sun.prepare(d, &cascades, strength, area)?;
+        written_bytes += bytes;
 
         self.stats.frames += 1;
         self.stats.cascades_redrawn += u64::from(redrawn);
@@ -871,10 +572,9 @@ impl ShadowPass {
         Ok(Some(ShadowPlan {
             pipelines: self.pipelines,
             cascades: plans,
-            size: self.size,
-            constants: self.constants.index,
-            visibility,
-            visibility_index,
+            size: self.sun.size(),
+            visibility_index: mask.visibility_index,
+            mask,
             command_bytes,
             parts: super::instances::PartsCascades {
                 light_view: cascades[0].light_view,
@@ -891,17 +591,14 @@ impl ShadowPlan {
     /// The sun's share's target.
     #[must_use]
     pub fn visibility(&self) -> Texture {
-        self.visibility
+        self.mask.visibility
     }
 
     /// The cascades' constants, by their index in the table, and their maps: what the fog's
     /// shafts look the sun up in.
     #[must_use]
     pub fn cascades(&self) -> (u32, Vec<Texture>) {
-        (
-            self.constants,
-            self.cascades.iter().map(|c| c.map).collect(),
-        )
+        (self.mask.constants, self.mask.maps.clone())
     }
 
     /// Draw the cascades' maps: each cache drawn again where it moved, copied into its map, and
@@ -1043,50 +740,7 @@ impl ShadowPlan {
         frame: u32,
         depth: (Texture, u32),
     ) -> Result<(), dereth_gfx::Error> {
-        let mut touches = vec![
-            Touch::Texture(depth.0, Use::Sampled),
-            Touch::Texture(t.normal, Use::Sampled),
-            Touch::Texture(t.material, Use::Sampled),
-        ];
-        touches.extend(
-            self.cascades
-                .iter()
-                .map(|c| Touch::Texture(c.map, Use::Sampled)),
-        );
-        r.timestamp("sun visibility");
-        r.raster(
-            &RasterPass {
-                name: "sun visibility",
-                color: &[ColorAttachment {
-                    texture: self.visibility,
-                    load: Load::Discard,
-                }],
-                depth: None,
-                touches: &touches,
-                area: Some(Rect {
-                    x: 0,
-                    y: 0,
-                    width: t.width,
-                    height: t.height,
-                }),
-            },
-            |d| {
-                d.set_pipeline(self.pipelines.mask)?;
-                d.push(
-                    0,
-                    &words(&[
-                        frame,
-                        t.index[4],
-                        depth.1,
-                        t.index[1],
-                        t.index[3],
-                        self.constants,
-                    ]),
-                )?;
-                d.draw(3, 1, 0, 0);
-                Ok(())
-            },
-        )
+        self.mask.record(r, t, frame, depth)
     }
 }
 
@@ -1095,23 +749,6 @@ mod tests {
     //! Behaviour: none (experimental)
     use super::*;
     use dereth_primitives::num::math;
-
-    fn camera(eye: Vec3, yaw: f32) -> Camera {
-        // Looking along `yaw` (radians from north) and level, in the frame's space with z up,
-        // through a left-handed projection with y up on the screen.
-        let forward = Vec3::new(math::sinf(yaw), math::cosf(yaw), 0.0);
-        let to_eye = Mat4::look_to_lh(eye, forward, Vec3::Z);
-        Camera {
-            view: to_eye,
-            projection: Mat4::perspective_lh(1.0, 1.5, 0.5, 2000.0),
-            eye,
-            near: 0.5,
-            far: 2000.0,
-            ..Camera::default()
-        }
-    }
-
-    const SUN: Vec3 = Vec3::new(0.3, -0.4, 0.866);
 
     /// The wind the trees sway in is read from the frame's constants as they are written: its
     /// strength, and none once the sway is off and the wind stilled.
@@ -1133,72 +770,5 @@ mod tests {
         let still = super::super::light::swaying(rows, false).bytes();
         assert_eq!(wind_strength(&still), 0.0);
         assert_eq!(wind_strength(&[]), 0.0, "no constants: no wind");
-    }
-
-    /// A cascade holds still, and so does its cache, while the view moves less than one of its
-    /// texels; it moves when the view crosses one.
-    #[test]
-    fn a_cascade_moves_only_when_the_view_moves_by_a_texel() {
-        let sun = SUN.normalize();
-        let a = cascades(&camera(Vec3::new(10.0, 20.0, 5.0), 0.3), sun, 2048);
-        let b = cascades(&camera(Vec3::new(10.0, 20.0, 5.0), 0.3), sun, 2048);
-        assert_eq!(
-            a.map(|c| c.key),
-            b.map(|c| c.key),
-            "the same view, the same cascades"
-        );
-        // Far smaller than the last cascade's texel (about half a metre): it holds still.
-        let c = cascades(&camera(Vec3::new(10.001, 20.0, 5.0), 0.3), sun, 2048);
-        assert_eq!(a[3].key, c[3].key);
-        // A metre: every cascade's texel is smaller, so each moves.
-        let e = cascades(&camera(Vec3::new(11.0, 20.0, 5.0), 0.3), sun, 2048);
-        for k in 0..CASCADES {
-            assert_ne!(a[k].key.centre, e[k].key.centre, "cascade {k}");
-        }
-    }
-
-    /// Turning on the spot keeps each cascade's size: only where it stands changes.
-    #[test]
-    fn turning_keeps_each_cascades_size() {
-        let sun = SUN.normalize();
-        let a = cascades(&camera(Vec3::new(0.0, 0.0, 5.0), 0.0), sun, 2048);
-        let b = cascades(&camera(Vec3::new(0.0, 0.0, 5.0), 1.7), sun, 2048);
-        for k in 0..CASCADES {
-            assert_eq!(a[k].key.radius, b[k].key.radius, "cascade {k}");
-            assert!((a[k].texel - b[k].texel).abs() < 1e-6);
-        }
-    }
-
-    /// The camera's view at each cascade's far end lies inside the cascade, and a caster far
-    /// toward the sun from it still reaches into the cascade's box.
-    #[test]
-    fn each_cascade_covers_its_slice_and_what_stands_toward_the_sun() {
-        let sun = SUN.normalize();
-        let cam = camera(Vec3::new(50.0, 60.0, 5.0), 0.8);
-        let cs = cascades(&cam, sun, 2048);
-        let forward = Vec3::new(math::sinf(0.8), math::cosf(0.8), 0.0);
-        for c in &cs {
-            let p = cam.eye + forward * (c.far * 0.99);
-            assert!(c.reaches(p, 0.0), "far end at {}", c.far);
-            assert!(
-                c.reaches(p + sun * 300.0, 1.0),
-                "a caster 300 m toward the sun"
-            );
-            let q = c.view_proj * p.extend(1.0);
-            assert!((0.0..=1.0).contains(&q.z), "{}", q.z);
-        }
-        // Something far off across the sun is in none of the near ones.
-        assert!(!cs[0].reaches(cam.eye + Vec3::new(500.0, 0.0, 0.0), 1.0));
-    }
-
-    /// No sun, or one at the horizon, casts no shadows; they come in as it rises.
-    #[test]
-    fn the_shadows_fade_in_as_the_sun_rises() {
-        assert!(sun_of(Vec3::ZERO).is_none());
-        assert!(sun_of(Vec3::new(1.0, 0.0, 0.0)).is_none());
-        let (_, low) = sun_of(Vec3::new(1.0, 0.0, 0.07)).expect("a low sun");
-        let (_, high) = sun_of(Vec3::new(0.2, 0.0, 1.0)).expect("a high sun");
-        assert!(low > 0.0 && low < 1.0, "{low}");
-        assert!((high - 1.0).abs() < 1e-6);
     }
 }

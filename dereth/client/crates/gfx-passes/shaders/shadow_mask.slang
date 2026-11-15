@@ -2,7 +2,7 @@
 // covers it, compared against the casters' depth there with a soft filter, blended into the next
 // cascade near a cascade's end, and faded out toward the shadows' reach.
 import bindless;
-import retail;
+import frame;
 
 struct Push
 {

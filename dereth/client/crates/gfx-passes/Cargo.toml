@@ -15,5 +15,9 @@ glam.workspace = true
 # The backend layer the passes draw with.
 dereth-gfx.workspace = true
 
+[dev-dependencies]
+# The tests' trigonometry, as the workspace takes it.
+dereth-primitives.workspace = true
+
 [lints]
 workspace = true
