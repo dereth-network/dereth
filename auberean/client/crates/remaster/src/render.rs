@@ -24,6 +24,11 @@
 //! starts from in linear light; and the tone curve brings the frame back to display values,
 //! unchanged below its shoulder.
 //!
+//! With the lamps on, the frame's point lights are worked out per pixel by the shared passes'
+//! lamps ([`lamps`]): their light takes the place of the point lights' share where retail lights
+//! an object by them at its vertices, and lights the land as night comes, which retail lights by
+//! the sun alone; and a soft halo stands round each light outdoors at night.
+//!
 //! Before the frame, when some water lies below the camera, its reflection: the same scene from the
 //! camera mirrored about the water's plane, into a picture of its own, and the ripples' picture
 //! the water's surfaces push it about by.
@@ -33,6 +38,7 @@
 //! of the near objects, the bodies' shade from it, the volumes of shadow, and the sky's lens
 //! flares. The sun's shadows replace the shadow map and the volumes.
 
+mod lamps;
 mod sun;
 
 pub use sun::ShadowSettings;
@@ -60,6 +66,7 @@ use dereth_gfx::{
 use dereth_gfx_passes::ao::{AoPass, AoSettings};
 use dereth_gfx_passes::frame::{push_words, Camera, PerFrame, Rows};
 use dereth_gfx_passes::gbuffer::{class, MATERIAL, NORMAL};
+use dereth_gfx_passes::lamps::{LampsFrame, LampsPass};
 use dereth_gfx_passes::post::{Grade, PostPass, PostSettings};
 use dereth_gfx_passes::sun::SunMaps;
 use dereth_primitives::num::math;
@@ -285,6 +292,11 @@ pub struct Remaster {
     /// In linear light, the sky's own picture, drawn in display values: it, its index in the
     /// table, and its size.
     sky: Option<(Texture, u32, (u32, u32))>,
+    /// The lamps: the shared passes' lists and light with the remaster's own shading, whether
+    /// they are on, and how many lamps and halos the last frame had.
+    lamps: LampsPass,
+    lamps_on: bool,
+    last_lamps: (usize, usize),
     frame: u64,
 }
 
@@ -385,6 +397,7 @@ impl Remaster {
         let sun = SunMaps::new(&mut gfx)?;
         let post = PostPass::new(&mut gfx)?;
         let posed = PerFrame::new(&mut gfx, "remaster posed", 1 << 20, BufferUsage::default())?;
+        let lamps = LampsPass::new(&mut gfx, shader(Entry::LampsFsLamps), COLOR)?;
         Ok(Self {
             gfx,
             adapter,
@@ -412,14 +425,18 @@ impl Remaster {
             cascade_lights: Vec::new(),
             spheres: HashMap::new(),
             sky: None,
+            lamps,
+            lamps_on: false,
+            last_lamps: (0, 0),
             frame: 0,
         })
     }
 
     /// Every pass of the remaster's look on, as a player who ticks the remaster sees it first: the
-    /// ambient occlusion, outdoors and in, the sun's shadows, the anti-aliasing, and linear light
-    /// with the bloom and the exposure.
+    /// ambient occlusion, outdoors and in, the sun's shadows, the lamps, the anti-aliasing, and
+    /// linear light with the bloom and the exposure.
     pub fn look(&mut self) {
+        self.set_lamps(true);
         self.set_ao(AoSettings {
             on: true,
             indoors: true,
@@ -434,6 +451,24 @@ impl Remaster {
             taa: true,
             ..PostSettings::default()
         });
+    }
+
+    /// Whether the lamps light the frame from the next frame on (off: every point light as retail
+    /// works it out).
+    pub fn set_lamps(&mut self, on: bool) {
+        self.lamps_on = on;
+    }
+
+    /// Whether the lamps light the frame.
+    #[must_use]
+    pub fn lamps(&self) -> bool {
+        self.lamps_on
+    }
+
+    /// How many lamps lit the last frame, and how many halos it drew.
+    #[must_use]
+    pub fn last_lamps(&self) -> (usize, usize) {
+        self.last_lamps
     }
 
     /// How the post passes draw from the next frame on (off: the frame is drawn into the world's
@@ -1783,6 +1818,34 @@ impl Remaster {
                 e.insert(self.pipeline(key)?);
             }
         }
+        // The lamps: the frame's point lights, worked out per pixel from the depth's pass.
+        self.last_lamps = (0, 0);
+        let lamp_plan = if self.lamps_on {
+            let found = lamps::of(frame, camera.eye);
+            self.last_lamps = (found.reaches.len(), found.halos.len());
+            let view = lamps::view(&camera, (width, height));
+            Some(self.lamps.prepare(
+                &mut self.gfx,
+                &t.gbuffer,
+                &LampsFrame {
+                    lamps: &found.rows,
+                    reaches: &found.reaches,
+                    halos: &found.halos,
+                    view,
+                    rows: &dereth_gfx_passes::lamps::frame_rows(
+                        &view,
+                        camera.eye,
+                        0.0,
+                        [true, true],
+                    ),
+                    linear: into_post,
+                    inside: false,
+                },
+            )?)
+        } else {
+            None
+        };
+        let lamp_light = lamp_plan.as_ref().map_or(u32::MAX, |p| p.light_index);
         let index_of = |l: &[PerFrame; 4]| [l[0].index, l[1].index, l[2].index, l[3].index];
         let lights = index_of(&self.lights);
         let mirrored = index_of(&self.mirrored);
@@ -1821,10 +1884,10 @@ impl Remaster {
             };
             // The frame's own draws of what stands in the land take the masks; the reflection and
             // the depth's pass don't.
-            let (ao, sun) = if reflecting || depth || !d.masked {
-                (u32::MAX, u32::MAX)
+            let (ao, sun, lamps) = if reflecting || depth || !d.masked {
+                (u32::MAX, u32::MAX, u32::MAX)
             } else {
-                (ao_mask, sun_mask)
+                (ao_mask, sun_mask, lamp_light)
             };
             rec.set_pipeline(pipelines[&Key { post, ..key }])?;
             let words = match key.program {
@@ -1852,6 +1915,7 @@ impl Remaster {
                         d.class,
                         sun,
                         into_linear,
+                        lamps,
                     ])
                 }
                 _ => push_words(&[
@@ -1867,6 +1931,7 @@ impl Remaster {
                     d.textures[2],
                     d.samplers[2],
                     into_linear,
+                    lamps,
                 ]),
             };
             rec.push(0, &words)?;
@@ -1966,6 +2031,9 @@ impl Remaster {
                 (t.prepass, t.gbuffer.index[4]),
             )?;
         }
+        if let Some(plan) = &lamp_plan {
+            LampsPass::record(plan, &mut r, &t.gbuffer)?;
+        }
         if let Some(plan) = &sun_plan {
             plan.record_maps(&mut r, draws, posed_index, (self.white, self.wrap))?;
             plan.mask.record(
@@ -2044,6 +2112,9 @@ impl Remaster {
         if let Some((picture, _, _)) = sky_in {
             touches.push(Touch::Texture(picture, Use::Sampled));
         }
+        if let Some(plan) = &lamp_plan {
+            touches.push(Touch::Texture(plan.light, Use::Sampled));
+        }
         if let Some(plan) = &ao_plan {
             touches.push(Touch::Texture(plan.mask().1, Use::Sampled));
         }
@@ -2074,6 +2145,10 @@ impl Remaster {
                 steps_in(rec, &lights, false, into_post, sky)
             },
         )?;
+        // The lamps' halos, over everything the world drew.
+        if let Some(plan) = &lamp_plan {
+            LampsPass::record_halos(plan, &mut r, &scene, lights[Env::Own as usize])?;
+        }
         if let Some(plan) = &post_plan {
             let gathered = plan.record_taa(
                 &mut r,

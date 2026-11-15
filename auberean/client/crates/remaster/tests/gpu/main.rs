@@ -9,6 +9,7 @@
 
 mod common;
 mod identity;
+mod lamps;
 mod linear;
 mod occlusion;
 mod shadows;

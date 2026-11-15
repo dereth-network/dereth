@@ -6,7 +6,7 @@ Add a line under **Unreleased** when a change lands that a player would notice. 
 not how it was done.
 
 ## Unreleased
-- New Remaster mode with sun shadows, ambient occlusion, smooth edges and bloom (`--remaster`).
+- New Remaster mode with sun shadows, ambient occlusion, smooth edges, bloom and lamplight (`--remaster`).
 - Fixed selected text showing as a separate box around each character.
 - Fixed dying creatures staying solid until their bodies disappeared.
 - Fixed hidden placeholder objects, like a cube in the Arwic mines, being drawn.

@@ -37,6 +37,8 @@ struct Push
     uint samp_clouds;
     // 1 when the frame is drawn in linear light.
     uint linear;
+    // The lamps' light at each pixel, added to the land's (~0: none).
+    uint lamps;
 };
 
 [[vk::push_constant]]
@@ -114,19 +116,20 @@ float mask_at(uint t, float4 position)
 }
 
 // The vertex's lit color with the ambient's share taken by the ambient occlusion at the pixel and
-// the sun's by the sun's shadows: in open sky and full sun the retail color. The sun's share is
-// the vertex's own; the ambient's is the rest.
+// the sun's by the sun's shadows, and the lamps' light added: in open sky and full sun, with no
+// lamps, the retail color. The sun's share is the vertex's own; the ambient's is the rest.
 float3 lit(Light f, TerrainOut v)
 {
+    float3 lamps = lamp_at(push.lamps, v.clip);
     if (push.ao == 0xFFFFFFFF && push.sun == 0xFFFFFFFF)
     {
-        return v.color.rgb;
+        return v.color.rgb + lamps;
     }
     float ao = mask_at(push.ao, v.clip);
     float sun = mask_at(push.sun, v.clip);
     float3 sunlit = clamp(v.sun, 0.0, v.color.rgb);
     float3 ambient = v.color.rgb - sunlit;
-    return max(v.color.rgb - (1.0 - ao) * ambient - (1.0 - sun) * sunlit, 0.0);
+    return max(v.color.rgb - (1.0 - ao) * ambient - (1.0 - sun) * sunlit, 0.0) + lamps;
 }
 
 // The depth's pass: the near terrain's bottom layer, its light class into the material picture,

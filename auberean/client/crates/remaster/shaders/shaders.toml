@@ -89,3 +89,10 @@ stage = "vertex"
 source = "mesh.slang"
 entry = "fs_mesh_caster"
 stage = "fragment"
+
+# The lamps' light at each pixel, from the shared passes' lists of the lamps that reach each piece
+# of the view.
+[[entry]]
+source = "lamps.slang"
+entry = "fs_lamps"
+stage = "fragment"

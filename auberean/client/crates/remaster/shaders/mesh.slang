@@ -46,6 +46,9 @@ struct Push
     uint sun;
     // 1 when the frame is drawn in linear light.
     uint linear;
+    // The lamps' light at each pixel, which takes the place of the point lights' share of color 0
+    // (~0: none).
+    uint lamps;
 };
 
 // The frame's alpha under every draw: 127 of 255.
@@ -127,6 +130,11 @@ struct MeshOut
     float sun_pixel : TEXCOORD10;
     // The surface's normal in the frame's space, which the depth's pass writes.
     float3 normal : TEXCOORD11;
+    // The point lights' share of color 0, which the lamps take the place of, and what the lamps'
+    // light is multiplied by for its share: the layer's diffuse and the vertex's color, as the
+    // point lights' share is.
+    float3 points0 : TEXCOORD12;
+    float3 lamp_tint : TEXCOORD13;
 };
 
 // The half vector between the eye and the light `to_light` at `world`, in the frame of the
@@ -253,6 +261,8 @@ MeshOut vs_mesh(uint index : SV_VertexID)
     o.sun1 = float4(0.0, 0.0, 0.0, 0.0);
     o.sun_pixel = 0.0;
     o.normal = transform_normal(v.normal, d.model);
+    o.points0 = float3(0.0, 0.0, 0.0);
+    o.lamp_tint = float3(0.0, 0.0, 0.0);
     if ((sw & LIT_IN_VERTICES) != 0 && d.program.x == 1)
     {
         // Lit in the vertices, normal-mapped: color 0 the vertex's direction toward the light in
@@ -349,17 +359,24 @@ MeshOut vs_mesh(uint index : SV_VertexID)
             }
         }
         c1 = float4(c1.rgb * (d.specular.rgb * ground_tint), 0.0);
+        float3 tint = float3(1.0, 1.0, 1.0);
         if ((sw & MATERIAL_DIFFUSE) != 0)
         {
             c0 = c0 * float4(ground_tint, 1.0) * d.diffuse;
+            tint = ground_tint * d.diffuse.rgb;
         }
+        float3 points = c0.rgb;
         c0 = apply_ambient(f, d, c0);
         o.ambient0 = amb;
         if ((sw & VERTEX_DIFFUSE) != 0)
         {
             c0 = c0 * vd;
             o.ambient0 = amb * vd.rgb;
+            points = points * vd.rgb;
+            tint = tint * vd.rgb;
         }
+        o.points0 = points;
+        o.lamp_tint = tint;
     }
     else if (d.program.x == 1)
     {
@@ -396,11 +413,13 @@ MeshOut vs_mesh(uint index : SV_VertexID)
         c0.rgb += s.x * f.sun_color.rgb;
         float3 spec = s.y * f.sun_specular.rgb;
         float3 sun0 = s.x * f.sun_color.rgb;
+        float3 points = float3(0.0, 0.0, 0.0);
         uint count = min(d.stage.y, 4u);
         for (uint k = 0; k < count; k++)
         {
             float3 r = pt_light(f, d, k, world, n, d.params.x);
             c0.rgb += r.x * d.pt_diffuse[k].rgb;
+            points += r.x * d.pt_diffuse[k].rgb;
             spec += r.y * r.z * d.pt_specular[k].rgb;
         }
         if ((sw & SPECULAR) != 0)
@@ -408,10 +427,12 @@ MeshOut vs_mesh(uint index : SV_VertexID)
             c1 = float4(spec * (d.specular.rgb * ground_tint), 0.0);
             o.sun1 = float4(s.y * f.sun_specular.rgb * (d.specular.rgb * ground_tint), 0.0);
         }
+        float3 tint = float3(1.0, 1.0, 1.0);
         if ((sw & MATERIAL_DIFFUSE) != 0)
         {
             c0 = c0 * float4(ground_tint, 1.0) * d.diffuse;
             sun0 = sun0 * ground_tint * d.diffuse.rgb;
+            tint = ground_tint * d.diffuse.rgb;
         }
         c0 = apply_ambient(f, d, c0);
         o.ambient0 = amb;
@@ -420,8 +441,11 @@ MeshOut vs_mesh(uint index : SV_VertexID)
             c0 = c0 * vd;
             o.ambient0 = amb * vd.rgb;
             sun0 = sun0 * vd.rgb;
+            tint = tint * vd.rgb;
         }
         o.sun0 = sun0;
+        o.points0 = points * tint;
+        o.lamp_tint = tint;
     }
     else
     {
@@ -684,13 +708,20 @@ float sun_visibility(float4 position)
 }
 
 // `v` with the ambient's share of its colors taken by the occlusion `ao`, and the sun's by the
-// shadows `sun`: at 1 each (open sky, full sun) the colors are the retail ones.
+// shadows `sun`: at 1 each (open sky, full sun) the colors are the retail ones. With the lamps,
+// their light at the pixel takes the place of the point lights' share of color 0, held to 1 as the
+// device holds a color.
 MeshOut masked(MeshOut v, float ao, float sun)
 {
     MeshOut o = v;
     float shut = 1.0 - ao;
     float dark = 1.0 - sun;
     o.color0 = float4(max(v.color0.rgb - shut * v.ambient0 - dark * v.sun0, 0.0), v.color0.a);
+    if (push.lamps != 0xFFFFFFFF)
+    {
+        float3 lamps = lamp_at(push.lamps, v.clip) * v.lamp_tint;
+        o.color0 = float4(saturate(max(o.color0.rgb - v.points0, 0.0) + lamps), o.color0.a);
+    }
     o.color1 = max(v.color1 - float4(shut * v.ambient1 + dark * v.sun1.rgb, dark * v.sun1.a), 0.0);
     return o;
 }

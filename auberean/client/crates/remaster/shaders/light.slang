@@ -439,6 +439,16 @@ public float4 stage_op(Draw dr, uint op, float4 a1, float4 a2, float4 t, float4 
     }
 }
 
+// The lamps' light at the pixel `position`, the shared lamps' target `t` there, or none (~0).
+public float3 lamp_at(uint t, float4 position)
+{
+    if (t == 0xFFFFFFFF)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+    return textures[NonUniformResourceIndex(t)].Load(int3(int2(position.xy), 0)).rgb;
+}
+
 // The point of the frame's space under pixel `position` (its depth included), from the shared
 // rows of frame constants `frame`: the inverse of the view and projection, and the extent.
 public float3 pixel_world(uint frame, float4 position)
