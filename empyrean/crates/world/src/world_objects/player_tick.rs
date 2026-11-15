@@ -158,6 +158,9 @@ pub fn player_tick(
 
     unsubscribed_allegiance_update(w, this);
 
+    // DIVERGE: V540, a melee approach is judged each tick.
+    crate::world_objects::player_melee::check_approach(w, this);
+
     if let Some(house) = crate::world_objects::player_house::house(w, this).filter(|_| {
         crate::managers::property_manager::get_bool(w, "house_rent_enabled", false, true).item
     }) {

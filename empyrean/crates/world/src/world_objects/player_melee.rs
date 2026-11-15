@@ -53,7 +53,31 @@ pub struct PlayerMeleeFields {
     pub attack_queue: AttackQueue,
     // ACE: Player.PrevMotionCommand
     pub prev_motion_command: MotionCommand,
+    /// Not ACE (V540): the melee approach under way, watched for the player's movement and for
+    /// a stall.
+    pub approach: Option<Approach>,
+    /// Not ACE (V540): approaches begun, numbering each.
+    pub approaches: u64,
 }
+
+/// Not ACE (V540): a melee approach under way: its target, the distance to it when progress was
+/// last made and when that was, and whether the approach is to end as one that can't get there.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Approach {
+    /// Which approach it is, so a later one's watch is not taken for it.
+    pub serial: u64,
+    pub target: ObjectGuid,
+    pub distance: f32,
+    pub since: empyrean_common::dotnet::datetime::DotNetDateTime,
+    pub cant_get_there: bool,
+}
+
+/// Not ACE (V540): how many meters a second a melee approach must close by, judged over a second
+/// at least, to be making progress: the move-to manager's own minimum closing rate.
+pub const APPROACH_MIN_CLOSING_RATE: f32 = 0.25;
+
+/// Not ACE (V540): the seconds a melee approach is given before it is judged.
+pub const APPROACH_WINDOW_SECONDS: f64 = 1.0;
 
 // ============================================================================== helpers
 
@@ -496,6 +520,19 @@ pub fn handle_action_targeted_melee_attack_inner(
         } else {
             //log.Info($"{Name}.CreateMoveToChain({target.Name})");
 
+            // DIVERGE: V540, the approach is watched: the player's own movement, or a second with
+            // no progress while out of reach, ends it as one that can't get there.
+            let now = w.now.utc;
+            let f = fields_mut(w, this);
+            f.approaches += 1;
+            let serial = f.approaches;
+            f.approach = Some(Approach {
+                serial,
+                target,
+                distance: dist,
+                since: now,
+                cant_get_there: false,
+            });
             // Not ACE's (retail captures, V257): retail's melee approach carried the attack
             // chase (0x1EFF0) like the charge; ACE sends a use-move's defaults.
             player_move::create_move_to_chain_as(
@@ -503,8 +540,16 @@ pub fn handle_action_targeted_melee_attack_inner(
                 this,
                 target,
                 Box::new(move |w: &mut World, success: bool| {
+                    let f = fields_mut(w, this);
+                    let stalled = if f.approach.is_some_and(|a| a.serial == serial) {
+                        f.approach.take().is_some_and(|a| a.cant_get_there)
+                    } else {
+                        false
+                    };
                     if success {
                         attack(w, this, target, attack_sequence, false);
+                    } else if stalled {
+                        cant_get_there(w, this);
                     } else {
                         on_attack_done(w, this, WeenieError::None);
                     }
@@ -533,6 +578,11 @@ pub fn on_attack_done(w: &mut World, this: ObjectGuid, _error: WeenieError) {
 
     send_attack_done(w, this, WeenieError::ActionCancelled);
 
+    end_attack(w, this);
+}
+
+/// The attack sequence's end, after its `AttackDone`: no target and nothing queued.
+fn end_attack(w: &mut World, this: ObjectGuid) {
     set_attack_target(w, this, None);
     fields_mut(w, this).melee_target = None;
     crate::world_objects::player_missile::fields_mut(w, this).missile_target = None;
@@ -540,6 +590,83 @@ pub fn on_attack_done(w: &mut World, this: ObjectGuid, _error: WeenieError) {
     fields_mut(w, this).attack_queue.clear();
 
     player_combat::fields_mut(w, this).attack_cancelled = false;
+}
+
+/// Not ACE (V540): a melee approach that can't get there ends: the player is stopped (a motion
+/// state of its stance alone) and told `AttackDone(CantGetThere)` with it, and no error besides.
+fn cant_get_there(w: &mut World, this: ObjectGuid) {
+    let stance = w
+        .objects
+        .get(this)
+        .and_then(world_object_networking::shims::current_motion_state)
+        .map_or(empyrean_entity::enums::MotionStance::NonCombat, |m| {
+            m.stance
+        });
+    world_object_networking::enqueue_broadcast_motion(
+        w,
+        this,
+        &Motion::from_stance(stance),
+        None,
+        None,
+    );
+    send_attack_done(w, this, WeenieError::CantGetThere);
+    end_attack(w, this);
+}
+
+/// Not ACE (V540): the player moved (a movement key pressed or let go) while a melee approach
+/// was under way: it is to end as one that can't get there, when the move-to stops.
+pub fn on_movement_input(w: &mut World, this: ObjectGuid) {
+    if let Some(a) = fields_mut(w, this).approach.as_mut() {
+        a.cant_get_there = true;
+    }
+}
+
+/// Not ACE (V540): the melee approach, judged on the player's tick: out of the target's reach and
+/// closing by less than [`APPROACH_MIN_CLOSING_RATE`] over [`APPROACH_WINDOW_SECONDS`] or more,
+/// it is stopped, to end as one that can't get there.
+pub fn check_approach(w: &mut World, this: ObjectGuid) {
+    let Some(a) = fields(w, this).approach else {
+        return;
+    };
+    if a.cant_get_there {
+        return;
+    }
+    let Some(current_landblock) = w.objects.get(this).and_then(|o| o.current_landblock) else {
+        return;
+    };
+    let Some(reach) = w
+        .objects
+        .get(a.target)
+        .map(|t| t.use_radius().unwrap_or(0.6))
+    else {
+        return;
+    };
+    let (reached, valid) =
+        landblock::within_use_radius(w, current_landblock, this, a.target, Some(reach));
+    if reached || !valid {
+        return;
+    }
+    let elapsed = (w.now.utc - a.since).total_seconds();
+    if elapsed < APPROACH_WINDOW_SECONDS {
+        return;
+    }
+    let distance = crate::world_objects::world_object_use::get_cylinder_distance(w, this, a.target);
+    #[allow(clippy::cast_possible_truncation)] // a second or two
+    let rate = (a.distance - distance) / elapsed as f32;
+    let now = w.now.utc;
+    let Some(a) = fields_mut(w, this).approach.as_mut() else {
+        return;
+    };
+    if rate >= APPROACH_MIN_CLOSING_RATE {
+        a.distance = distance;
+        a.since = now;
+        return;
+    }
+    a.cant_get_there = true;
+    player_move::stop_existing_move_to_chains(w, this);
+    if crate::world_objects::player_move2::fields(w, this).is_player_moving_to2 {
+        crate::world_objects::player_move2::stop_existing_move_to_chains2(w, this);
+    }
 }
 
 /// Called when the client sends the 'Cancel attack' network message: a swing already under way

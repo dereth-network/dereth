@@ -37,6 +37,8 @@ pub fn handle(w: &mut World, message: &mut Payload<'_>, session: SessionId) -> H
     let move_to_state = MoveToState::read(player, &mut reader, numbering).map_err(read_error)?;
     player_move::fields_mut(w, player).current_move_to_state = move_to_state.clone();
 
+    // DIVERGE: V540, the player's own movement ends a melee approach as one that can't get there.
+    crate::world_objects::player_melee::on_movement_input(w, player);
     if player_move::is_player_moving_to(w, player) {
         player_move::stop_existing_move_to_chains(w, player);
     }

@@ -1518,3 +1518,136 @@ mod recorded_content_real {
         );
     }
 }
+
+mod cant_get_there {
+    //! Divergence: V540
+    //! A melee approach that can't get there: the player is stopped and told
+    //! `AttackDone(CantGetThere)` with it, and no error besides.
+    use super::*;
+    use dereth_protocol::movement::{
+        MoveTimestamps, MoveToStatePack, MovementMoveToState, RawMotionState,
+    };
+    use dereth_protocol::types::space::{Frame, PositionWire, Quat};
+    use empyrean_entity::enums::WeenieError;
+
+    /// A melee player 8 m from a drudge, past sticky range, without the charge: the attack walks
+    /// into range (the test's client never moves the player); the messages from its request on.
+    fn approaching(ts: &mut TestServer) -> (ClientId, usize) {
+        let (id, _session) = enter(ts, CharacterOptions1(0), &[(SWORD, EquipMask::MeleeWeapon)]);
+        drudge(ts, 8.0, 5000);
+        ts.advance(0.2);
+        ts.send_game_action(
+            id,
+            &CombatChangeCombatMode {
+                combat_mode: u32::try_from(CombatMode::Melee.0).unwrap(),
+            },
+        );
+        ts.advance(1.0);
+        let from = ts.received_raw(id).len();
+        ts.send_game_action(
+            id,
+            &CombatTargetedMeleeAttack {
+                target: ObjectId(MONSTER.full()),
+                attack_height: 2,
+                power_level: 1.0,
+            },
+        );
+        (id, from)
+    }
+
+    /// The approach's end: its AttackDone's error, and whether the player's stop (a motion of its
+    /// own) came with it, read in the same step just before it.
+    fn ending(ts: &TestServer, id: ClientId, from: usize) -> Option<(u32, bool)> {
+        let g = got(ts, id, from);
+        let at = g.iter().position(|m| m.kind == ATTACK_DONE)?;
+        let done: CombatHandleAttackDoneEvent = g[at].decode();
+        let stopped = at > 0 && g[at - 1].kind == MOVEMENT;
+        Some((done.error, stopped))
+    }
+
+    fn errors(ts: &TestServer, id: ClientId, from: usize) -> usize {
+        kinds(&got(ts, id, from))
+            .iter()
+            .filter(|k| **k == 0x028A || **k == WEENIE_ERROR_WITH_STRING)
+            .count()
+    }
+
+    /// The player makes no progress toward the drudge: a second on, out of reach, the approach
+    /// ends as one that can't get there, not at the move-to's 15 s limit.
+    #[test]
+    fn a_melee_approach_that_makes_no_progress_cant_get_there() {
+        let mut ts = server();
+        let (id, from) = approaching(&mut ts);
+        ts.advance(0.8);
+        assert_eq!(
+            ending(&ts, id, from),
+            None,
+            "still approaching under a second"
+        );
+        assert!(
+            ts.run_until(2.0, |ts| ending(ts, id, from).is_some()),
+            "ended within two seconds"
+        );
+        assert_eq!(
+            ending(&ts, id, from),
+            Some((u32::try_from(WeenieError::CantGetThere.0).unwrap(), true))
+        );
+        assert_eq!(errors(&ts, id, from), 0, "no error besides");
+        assert!(player_melee::fields(&ts.world, PLAYER).approach.is_none());
+    }
+
+    /// The player presses a movement key while the approach is under way: it ends at once as one
+    /// that can't get there.
+    #[test]
+    fn the_players_own_movement_ends_a_melee_approach_as_one_that_cant_get_there() {
+        let mut ts = server();
+        let (id, from) = approaching(&mut ts);
+        ts.advance(0.2);
+        assert_eq!(ending(&ts, id, from), None);
+        let at = ts
+            .world
+            .objects
+            .get(PLAYER)
+            .and_then(WorldObject::location)
+            .expect("a place");
+        ts.send_game_action(
+            id,
+            &MovementMoveToState(MoveToStatePack {
+                raw_motion_state: RawMotionState {
+                    current_holdkey: Some(2),
+                    forward_command: Some(0x4400_0007),
+                    forward_holdkey: Some(2),
+                    ..RawMotionState::default()
+                },
+                position: PositionWire {
+                    objcell_id: at.cell(),
+                    frame: Frame {
+                        origin: dereth_protocol::types::space::Vec3 {
+                            x: at.position_x,
+                            y: at.position_y,
+                            z: at.position_z,
+                        },
+                        orientation: Quat {
+                            w: at.rotation_w,
+                            x: at.rotation_x,
+                            y: at.rotation_y,
+                            z: at.rotation_z,
+                        },
+                    },
+                },
+                timestamps: MoveTimestamps::default(),
+                contact: true,
+                longjump_mode: false,
+            }),
+        );
+        assert!(
+            ts.run_until(0.5, |ts| ending(ts, id, from).is_some()),
+            "ended at once"
+        );
+        assert_eq!(
+            ending(&ts, id, from),
+            Some((u32::try_from(WeenieError::CantGetThere.0).unwrap(), true))
+        );
+        assert_eq!(errors(&ts, id, from), 0, "no error besides");
+    }
+}

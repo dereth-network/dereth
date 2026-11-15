@@ -20,6 +20,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Healing with no stamina left now says you're too tired.
 - Closing a trade no longer shows an extra error line.
 - Training a skill no longer prints a line in chat.
+- A melee attack that can't reach its target now gives up within a second or two.
 - Fixed a way to send chat to every player past their chat settings.
 - Fixed players getting stuck after arriving in an area just as it unloaded.
 - Fixed wielded items meant to be destroyed on death surviving it.
