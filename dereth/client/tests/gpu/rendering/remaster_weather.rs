@@ -856,10 +856,10 @@ fn the_puddles_lie_where_the_ground_takes_them_the_same_near_and_far() {
     assert!(differ * 100 < wet, "{differ} of {wet} puddled spots differ");
 }
 
-/// The puddles never fight the ground (the smoothed ground the player draws): with the clock held,
-/// four frames in a row, the rain falling and the puddles gathering, keep every pixel's puddle
-/// share, and draw the world without the puddles the same to the byte (the puddles mirror the
-/// sky's clouds, which drift with every frame drawn).
+/// The puddles never fight the ground (the smoothed ground the player draws): with the clock held
+/// and the far forest's pictures all made, four frames in a row, the rain falling and the puddles
+/// gathering, keep every pixel's puddle share, and draw the world without the puddles the same to
+/// the byte (the puddles mirror the sky's clouds, which drift with every frame drawn).
 #[test]
 fn the_puddles_never_fight_the_ground() {
     let _gpu = crate::common::gpu_lock();
@@ -913,6 +913,18 @@ fn the_puddles_never_fight_the_ground() {
         shot.scene.remaster_ground_active(),
         "the drawn ground is not drawn"
     );
+    // The far forest's pictures come a few a frame, those still being made when a frame asks for
+    // them on a later one: the view is held until every one is made, so the frames compared are
+    // those of a settled view (a picture arriving changes the far land once, not frame to frame).
+    shot.scene.wait_for_remaster_far_trees();
+    for _ in 0..400 {
+        shot.step_held(&mut gpu);
+        shot.scene.wait_for_remaster_far_trees();
+        let s = shot.scene.draw.remaster_forest_stats(&mut gpu);
+        if s.is_none_or(|s| s.wanted > 0 && s.pictures >= s.wanted) {
+            break;
+        }
+    }
     let mut frames = Vec::new();
     for _ in 0..4 {
         shot.step_held(&mut gpu);
