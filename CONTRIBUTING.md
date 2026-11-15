@@ -171,6 +171,34 @@ cargo xtask publish drafts [<tag>...] [--wait] [--repo <owner/name>] [--yes]
 - Without `--yes` it says what it would publish and changes nothing. It needs a token, as `publish`
   does (`DERETH_PUBLISH_TOKEN`, else `GITHUB_TOKEN`).
 
+## Announcing releases on Discord
+
+When a release is published, the `announce.yml` workflow posts its section of the product's
+`CHANGES.md` to that product's Discord channel. It pins the new post and unpins the product's older
+one, which the new post links to. Pre-releases are not announced, and nor are the products that keep
+no change log (the network's and the web client). Running the workflow by hand with a tag announces
+that release. A release already announced is not posted again. A failed announcement shows as a
+warning in the run's summary; it never fails the release.
+
+```
+cargo xtask announce <product> <version> | --tag <tag> [--release-url <url>] [--dry-run]
+```
+
+`--dry-run` prints the post and sends nothing.
+
+The setup, once, in the GitHub repository's settings:
+
+- **A bot of its own.** Make a Discord application with a bot, and add it to the server. In each
+  changelog channel it needs View Channel, Send Messages, Read Message History and Pin Messages.
+- **The secret `DISCORD_RELEASE_TOKEN`:** the bot's token.
+- **A variable per product, `DISCORD_CHANNEL_<PRODUCT>`,** holding its channel's id. The products are
+  `DERETH`, `EMPYREAN`, `LYCEUM`, `LAUNCHER`, `AUBEREAN`, `YALAIN` and `ATHENAEUM`. A product without
+  its variable is not announced. Several products can share one channel: each post's heading names its
+  product, and each keeps its own newest post pinned.
+
+GitHub starts no workflow from a release published with a workflow's own token. Announce such a release
+by running the workflow by hand.
+
 ## Releasing without GitHub Actions
 
 When the release workflows cannot run, `cargo xtask publish` makes the same GitHub release from

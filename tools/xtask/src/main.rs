@@ -276,6 +276,12 @@ Release and packaging:
                             product's CHANGES.md, then its commits since the previous final
                             <product>-v tag, grouped (the release workflow writes them the same
                             way); a first release has its highlights alone
+  announce <product> <version> | --tag <tag> [--release-url <url>] [--dry-run]
+                            post a published release's CHANGES.md section to its product's
+                            Discord channel (DISCORD_CHANNEL_<PRODUCT>, the bot's token in
+                            DISCORD_RELEASE_TOKEN), pin it and unpin the post before it, which it
+                            links; --dry-run prints the post. Discord's errors are warnings, never
+                            a failure (CONTRIBUTING.md, Announcing releases on Discord)
   version empyrean|dereth|lyceum|auberean|yalain|athenaeum|launcher [--tag <tag>]
                             print the product's version; with --tag, fail unless the tag names it
   bundle-macos              the client as a macOS `Dereth.app` (--dat-dir <dir> links the retail
@@ -402,6 +408,7 @@ fn main() {
         Some("deploy") => deploy::deploy(&args[1..]),
         Some("release") => release::release(&args[1..]),
         Some("release-notes") => release::notes::release_notes(&args[1..]),
+        Some("announce") => release::announce::announce_command(&args[1..]),
         Some("preflight") => preflight::preflight(&args[1..]),
         Some("ship") => preflight::ship_command(&args[1..]),
         Some("version") => package::version_command(&args[1..]),

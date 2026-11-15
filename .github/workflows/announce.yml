@@ -1,0 +1,70 @@
+name: Announce a release
+
+# Posts a release's change log to its product's Discord channel once the release is published: the
+# release workflows leave drafts, so this runs when one goes public, however it was published.
+# `cargo xtask announce` reads the release's section of the product's CHANGES.md from the tagged
+# tree, posts it, pins it, and unpins the product's post before it, which it links. The tag's prefix
+# names the product; a product that keeps no change log, and a pre-release, are not announced.
+#
+# Run by hand with a tag, it announces that release: for a release published by another workflow
+# (GitHub starts no workflow from a workflow's own token), or one that Discord refused. A release
+# already announced is not posted again.
+#
+# The repository's settings hold what it needs (CONTRIBUTING.md, "Announcing releases on Discord"):
+# the release bot's token as the secret DISCORD_RELEASE_TOKEN, and a variable DISCORD_CHANNEL_<PRODUCT>
+# with each announced product's channel id. A product without its variable is not announced.
+#
+# Announcing never fails or holds up a release: Discord's errors are warnings in the run's summary,
+# and the job is allowed to fail.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The release tag to announce (dereth-v0.4.19, ...)
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: announce-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  announce:
+    name: announce on Discord
+    if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+      - name: Install the workspace Rust version
+        shell: bash
+        run: |
+          toolchain=$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml)
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup override set "$toolchain"
+      - name: Post, pin and link the change log
+        shell: bash
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+          DISCORD_RELEASE_TOKEN: ${{ secrets.DISCORD_RELEASE_TOKEN }}
+          DISCORD_CHANNEL_DERETH: ${{ vars.DISCORD_CHANNEL_DERETH }}
+          DISCORD_CHANNEL_EMPYREAN: ${{ vars.DISCORD_CHANNEL_EMPYREAN }}
+          DISCORD_CHANNEL_LYCEUM: ${{ vars.DISCORD_CHANNEL_LYCEUM }}
+          DISCORD_CHANNEL_LAUNCHER: ${{ vars.DISCORD_CHANNEL_LAUNCHER }}
+          DISCORD_CHANNEL_AUBEREAN: ${{ vars.DISCORD_CHANNEL_AUBEREAN }}
+          DISCORD_CHANNEL_YALAIN: ${{ vars.DISCORD_CHANNEL_YALAIN }}
+          DISCORD_CHANNEL_ATHENAEUM: ${{ vars.DISCORD_CHANNEL_ATHENAEUM }}
+        run: |
+          url="${RELEASE_URL:-$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG}"
+          cargo xtask announce --tag "$TAG" --release-url "$url"

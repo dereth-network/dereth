@@ -36,6 +36,7 @@ use crate::package::version::Product;
 use crate::package::{self, git, version};
 use crate::util::{workspace_root, Profile};
 
+pub mod announce;
 pub mod network;
 pub mod notes;
 

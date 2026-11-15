@@ -387,3 +387,34 @@ fn the_release_and_the_xtask_fetch_dlss_at_the_same_pin() {
         );
     }
 }
+
+/// **Announcing a release can neither fail it nor write to the repository**: the announce
+/// workflow runs when a release is published (or by hand with a tag), reads the repository only,
+/// is allowed to fail, and hands every announced product's channel variable and the bot's token to
+/// `cargo xtask announce`, which reads them by those names.
+#[test]
+fn the_announce_workflow_reads_only_may_fail_and_names_every_products_channel() {
+    use crate::release::announce;
+    let workflow = read(".github/workflows/announce.yml");
+    assert!(workflow.contains("  release:\n    types: [published]\n"));
+    assert!(workflow.contains("  workflow_dispatch:\n"));
+    assert!(workflow.contains("permissions:\n  contents: read\n"));
+    assert!(!workflow.contains("write"), "no write permission");
+    assert!(!workflow.contains("git push"));
+    let job = job(&workflow, "announce");
+    assert!(job.contains("    continue-on-error: true\n"));
+    assert!(job.contains("persist-credentials: false"));
+    assert!(job.contains(&format!(
+        "{}: ${{{{ secrets.{} }}}}",
+        announce::TOKEN_VAR,
+        announce::TOKEN_VAR
+    )));
+    for product in announce::PRODUCTS {
+        let var = announce::channel_var(product);
+        assert!(
+            job.contains(&format!("{var}: ${{{{ vars.{var} }}}}")),
+            "{var}"
+        );
+    }
+    assert!(job.contains("cargo xtask announce --tag \"$TAG\" --release-url \"$url\""));
+}
