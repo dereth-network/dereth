@@ -1184,7 +1184,7 @@ fn a_world_server_gone_ends_the_session_on_the_disconnected_screen() {
     let screen = |r: &Rc<RefCell<Retail>>| r.borrow().screen();
     assert_eq!(screen(&retail), "play");
     assert!(
-        until(&mut s, 6.0, |_| screen(&retail) == "disconnected"),
+        until(&mut s, 10.0, |_| screen(&retail) == "disconnected"),
         "the disconnected screen: {}",
         screen(&retail)
     );

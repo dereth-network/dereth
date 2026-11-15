@@ -303,8 +303,9 @@ pub struct Client {
     world_players: Option<u32>,
     /// The scene waits to be reported drawn.
     scene_wanted: bool,
-    /// Whether the host's last frame drew the world; none for a host that draws nothing. The server
-    /// hears the scene is ready only once it has.
+    /// Whether the host's last frame drew the world, out of portal space and not hidden; none for a
+    /// host that draws nothing. The server hears the scene is ready only once it has, after the
+    /// scene was wanted.
     pub world_frame_drawn: Option<bool>,
     portal_space: bool,
     /// The entry's session was ended: one log-off an entry into the world.
@@ -1928,8 +1929,7 @@ impl Client {
                 | Effect::DataRefused(_)
                 | Effect::DownloadWaiting(_)
                 | Effect::DownloadEnds => {}
-                Effect::PlayerCreated(_) => self.scene_wanted = true,
-                Effect::Teleported => self.scene_wanted = true,
+                Effect::PlayerCreated(_) | Effect::Teleported => self.want_scene(),
                 // An entry refused, or a session ended (a boot), for a reason the screens know:
                 // the play screen opened on the entry goes, logging off the character (0 when it
                 // never had one) and leaving the world's connections, as the client does whichever
@@ -2038,7 +2038,7 @@ impl Client {
             ENTER_PORTAL_SPACE => self.portal_space = true,
             EXIT_PORTAL_SPACE => {
                 self.portal_space = false;
-                self.scene_wanted = true;
+                self.want_scene();
             }
             _ => {}
         }
@@ -2783,6 +2783,15 @@ impl Client {
         let time = self.game_time();
         if self.should_send_head(time) {
             self.send_head(time);
+        }
+    }
+
+    /// The scene is to be reported once the host has drawn a frame of the world after this: what
+    /// it drew before does not count.
+    fn want_scene(&mut self) {
+        self.scene_wanted = true;
+        if self.world_frame_drawn.is_some() {
+            self.world_frame_drawn = Some(false);
         }
     }
 

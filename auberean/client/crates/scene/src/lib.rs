@@ -403,7 +403,8 @@ pub struct Scene<'w> {
     arrivals: u32,
     /// The effects of the objects drawn with the world.
     placed_effects: PlacedEffects,
-    /// The last frame built drew the world.
+    /// The last frame built drew the world with portal space over (not the world showing through
+    /// it as it goes out).
     world_was_drawn: bool,
     /// The particle systems every object's effects keep going.
     systems: ParticleSystems,
@@ -1364,7 +1365,7 @@ impl<'w> Scene<'w> {
         // D2-10658
         let world_drawn =
             world && self.world_shown && look.draw_world && self.build_world(now, look.world_fov);
-        self.world_was_drawn = world_drawn;
+        self.world_was_drawn = world_drawn && !self.portal.on();
         if !world_drawn {
             self.play_player_fx_undrawn(now);
         }
@@ -2881,8 +2882,10 @@ impl<'w> Scene<'w> {
         client.world.blocking_for_cells = self.cells.blocking;
 
         self.follow_portal_space(client, now);
-        // The server hears the scene is ready once a frame of the world has been drawn.
-        client.world_frame_drawn = Some(self.world_was_drawn || !self.world_shown);
+        // The server hears the scene is ready once a frame of the world has been drawn with portal
+        // space over: while a story hides the world, not until the story is over.
+        // D2-11003
+        client.world_frame_drawn = Some(self.world_was_drawn && !self.in_portal_space());
 
         // Everything else.
         let player = self.player.as_ref().map(|p| (p.id, p.body.position));

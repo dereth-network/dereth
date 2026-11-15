@@ -727,6 +727,137 @@ fn the_scene_is_reported_after_a_frame_of_the_world() {
     assert!(reported, "it is reported");
 }
 
+/// A session that puts the player in the hall, places it again at 7 s and sends it two meters
+/// along at 8 s (a trip: its teleport stamp moves on), the server not waiting for the scene's
+/// reports.
+fn trip_session() -> Shell<'static, DoubleHost> {
+    let at = |position_stamp: u16, teleport_stamp: u16, x: f32| {
+        ServerMessage::Position(ObjectPosition {
+            sender: ObjectStamp {
+                id: PLAYER,
+                instance_stamp: 1,
+                other_stamp: 0,
+            },
+            time: 0.0,
+            cell: HALL_CELL,
+            origin: Vec3::new(x, HALL_AT.y, HALL_AT.z),
+            heading_motion: u32::from_be_bytes([0, 127, 127, 127]),
+            flags: 0,
+            position_stamp,
+            force_position_stamp: 0,
+            teleport_stamp,
+            velocity: Vec3::new(0.0, 0.0, 0.0),
+        })
+    };
+    let later = [(7.0, at(1, 0, HALL_AT.x)), (8.0, at(2, 1, HALL_AT.x + 2.0))];
+    let mut script = script_then(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &later);
+    script
+        .events
+        .retain(|e| !matches!(e, Step::Msg { msg, .. } if msg.c2s && msg.mtype == 0x100D1));
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    )
+}
+
+/// How many times the client has told the server its scene is ready.
+fn scene_reports(s: &Shell<'_, DoubleHost>) -> usize {
+    s.client.as_ref().map_or(0, |c| {
+        c.sent()
+            .iter()
+            .filter(|m| matches!(m.message, ClientMessage::SceneRenderingComplete(_)))
+            .count()
+    })
+}
+
+/// Step until the entry has been reported, then until the trip of [`trip_session`] has come.
+fn until_the_trip(
+    s: &mut Shell<'static, DoubleHost>,
+    before: impl Fn(&mut Shell<'static, DoubleHost>),
+) {
+    while scene_reports(s) == 0 {
+        assert!(s.host.time < 6.0, "the entry is reported");
+        step(s);
+    }
+    before(s);
+    while !s
+        .client
+        .as_ref()
+        .is_some_and(|c| c.body.teleport_stamp == 1)
+    {
+        assert!(s.host.time < 12.0, "the trip never came");
+        step(s);
+    }
+}
+
+/// A player sent somewhere while a story hides the world (a shard's story plays over the trip) is
+/// not reported arrived until the story is over and a frame of the world has been drawn: the
+/// server waits for that report to let the player move again.
+///
+/// Behaviour: desktop.shell.an-arrival-under-a-story-is-reported-after-it
+#[test]
+fn an_arrival_while_a_story_hides_the_world_is_reported_once_it_shows() {
+    let mut s = trip_session();
+    // The story begins before the trip.
+    until_the_trip(&mut s, |s| s.scene.show_world(false));
+    let until = s.host.time + 5.0;
+    while s.host.time < until {
+        step(&mut s);
+        assert_eq!(
+            scene_reports(&s),
+            1,
+            "reported at {} under the story",
+            s.host.time
+        );
+    }
+    s.scene.show_world(true);
+    let until = s.host.time + 3.0;
+    while scene_reports(&s) == 1 {
+        assert!(s.host.time < until, "reported once the world shows");
+        step(&mut s);
+    }
+    assert_eq!(scene_reports(&s), 2);
+}
+
+/// After a trip the scene is reported once portal space has gone out entirely, not while the
+/// world shows through it as it goes.
+///
+/// Behaviour: desktop.shell.an-arrival-is-reported-once-portal-space-is-over
+#[test]
+fn an_arrival_is_reported_once_portal_space_is_over() {
+    let mut s = trip_session();
+    until_the_trip(&mut s, |_| {});
+    let mut through = false;
+    let mut steps = 0;
+    while steps < 30 || s.scene.in_portal_space() {
+        assert!(steps < 600, "portal space goes out");
+        step(&mut s);
+        steps += 1;
+        if s.scene.in_portal_space() {
+            through |= s.frame().world.is_some();
+            assert_eq!(
+                scene_reports(&s),
+                1,
+                "reported at {} in portal space",
+                s.host.time
+            );
+        }
+    }
+    assert!(through, "the world showed through portal space");
+    let until = s.host.time + 1.0;
+    while scene_reports(&s) == 1 {
+        assert!(s.host.time < until, "reported once portal space is over");
+        step(&mut s);
+    }
+}
+
 /// An effect the server asks of the player's body while the world is out of sight (portal space,
 /// here as the player enters) plays at once, not when the body is next drawn: stopped in the same
 /// moment it would never have shown.
@@ -3340,8 +3471,10 @@ fn what_the_ambient_sound_hears_follows_the_players_cells() {
         })
     };
     let at = Vec3::new(12.0, 12.0, 150.0);
+    // A meter into the hall's cell from its edge, so that settling on the floor keeps it there.
+    let hall_at = Vec3::new(HALL_AT.x, HALL_AT.y + 1.0, HALL_AT.z);
     let later = [
-        (8.0, put(HALL_CELL, HALL_AT, 1)),
+        (8.0, put(HALL_CELL, hall_at, 1)),
         (16.0, put(caverns, caverns_at, 2)),
     ];
     let script = script_until(0x0298_0001, at, Quat::IDENTITY, &[], &later, 40.0);

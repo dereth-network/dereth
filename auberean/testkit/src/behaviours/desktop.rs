@@ -1965,6 +1965,24 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.shell.an-arrival-is-reported-once-portal-space-is-over",
+        says: "After a trip the scene is reported once portal space has gone out entirely, not \
+               while the world shows through it as it goes.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCENE-AFTER-PORTAL"),
+        station: "auberean-shell::dat::session::an_arrival_is_reported_once_portal_space_is_over",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.shell.an-arrival-under-a-story-is-reported-after-it",
+        says: "A player sent somewhere while a story hides the world is reported arrived only \
+               once the story is over and a frame of the world has been drawn.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCENE-AFTER-STORY"),
+        station: "auberean-shell::dat::session::an_arrival_while_a_story_hides_the_world_is_reported_once_it_shows",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.shell.entering-the-world-goes-through-portal-space",
         says: "From the moment it asks to enter the world the client shows portal space; once the \
                server has the player in the world and the client its body, it goes out over two \
