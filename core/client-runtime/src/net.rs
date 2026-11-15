@@ -257,6 +257,9 @@ impl ClientNetwork {
     /// Connection setup minus the socket: parse the host, build the authenticator and
     /// start the login FSM.
     ///
+    /// A `password` (`-v`) makes the login auth type 2, carrying it in its own field. An empty one
+    /// makes it auth type 1, the account alone, which carries `-a account:password` whole.
+    ///
     /// `connection_sequence_number` is the real-time value captured when the request starts; ACE reads it
     /// as `Timestamp` and does nothing with it. It is a parameter rather than a wall-clock read so
     /// a replay is deterministic.
@@ -276,18 +279,31 @@ impl ClientNetwork {
         let logon_addr = resolve_sin_addr(&spec.host, spec.port)
             .ok_or_else(|| ClientNetworkError::BadServerAddress(host.to_string()))?;
 
-        let mut auth = ConnectionAuthenticator::account_password(account, password);
+        let mut auth = if password.is_empty() {
+            // No password switch: the account goes alone, as auth type 1. Given
+            // `-a account:password`, the password travels inside the account string, which is
+            // how a server that takes that form reads it. It is the one credential here, so it
+            // is encoded as windows-1252 like the password below.
+            let mut auth = ConnectionAuthenticator::account_only(account);
+            auth.account = dereth_primitives::text::cp1252::encode(&account.to_ascii_lowercase())
+                .ok_or(ClientNetworkError::BadCredential)?;
+            auth
+        } else {
+            let mut auth = ConnectionAuthenticator::account_password(account, password);
+            // **The password is an archive string, not a packed one**: compressed length, then
+            // the bytes, with **no padding**, where the account name two fields earlier is a
+            // `u16` length, the bytes and zero padding to 4. The authenticator already packs it
+            // that way; it is written again here from the session's string encoder because that
+            // one encodes the text as windows-1252, as the original client's narrow strings are,
+            // and refuses a character that has no windows-1252 form rather than sending its UTF-8
+            // bytes.
+            let mut w = dereth_protocol::Writer::new();
+            w.astring(password)
+                .map_err(|_| ClientNetworkError::BadCredential)?;
+            auth.extra_data = w.into_inner();
+            auth
+        };
         auth.connection_sequence_number = connection_sequence_number;
-        // **The password is an archive string, not a packed one**: compressed length, then the
-        // bytes, with **no padding**, where the account name two fields earlier is a `u16`
-        // length, the bytes and zero padding to 4. The authenticator already packs it that way;
-        // it is written again here from the session's string encoder because that one encodes
-        // the text as windows-1252, as the original client's narrow strings are, and refuses a
-        // character that has no windows-1252 form rather than sending its UTF-8 bytes.
-        let mut w = dereth_protocol::Writer::new();
-        w.astring(password)
-            .map_err(|_| ClientNetworkError::BadCredential)?;
-        auth.extra_data = w.into_inner();
 
         let config = NetConfig {
             host: spec.host,
@@ -993,6 +1009,7 @@ impl NetLink {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dereth_transport::conn::NetAuthType;
 
     /// The `ConnectResponse` goes to the server's port **+ 1** while everything else goes to the
     /// port the server answered from.
@@ -1082,6 +1099,128 @@ mod tests {
         let mut c = ClientNetwork::new("127.0.0.1:19000", 7304, "ac01", "pass", 0).expect("host");
         c.set_logon_version("c118");
         assert_eq!(version_sent(&mut c), b"c118");
+    }
+
+    /// The first datagram a client built from these credentials sends: its login request.
+    fn login_datagram(account: &str, password: &str) -> Vec<u8> {
+        let mut c =
+            ClientNetwork::new("127.0.0.1:19000", 7304, account, password, 0).expect("host");
+        c.tick(LocalTime(0.0));
+        c.take_outgoing().remove(0).0
+    }
+
+    /// What a server that parses the login in place reads from `datagram` as the account and the
+    /// password, when the datagram lands in one shared receive buffer that an earlier, longer
+    /// datagram filled.
+    ///
+    /// It reads strings as a `u16` length, the bytes and padding to 4, copying them out, and an
+    /// auth type 1 account is split at its first colon. An auth type 2 password is a compressed
+    /// length and the bytes, and this reader takes it from where it starts up to the next zero
+    /// byte in the buffer, ignoring the length: what the earlier datagram left after it comes too.
+    fn read_in_place(datagram: &[u8]) -> (Vec<u8>, Vec<u8>) {
+        let mut buffer = [0xA5u8; 484];
+        buffer[..datagram.len()].copy_from_slice(datagram);
+        let data = &buffer[20..];
+        let mut at = 0usize;
+        let word = |at: &mut usize| {
+            let v = u32::from_le_bytes([data[*at], data[*at + 1], data[*at + 2], data[*at + 3]]);
+            *at += 4;
+            v
+        };
+        let string = |at: &mut usize| {
+            let len = usize::from(u16::from_le_bytes([data[*at], data[*at + 1]]));
+            let s = data[*at + 2..*at + 2 + len].to_vec();
+            *at = (*at + 2 + len).next_multiple_of(4);
+            s
+        };
+        let _version = string(&mut at);
+        let _auth_len = word(&mut at);
+        let auth_type = word(&mut at);
+        let _flags = word(&mut at);
+        let _timestamp = word(&mut at);
+        match auth_type {
+            1 => {
+                let both = string(&mut at);
+                let colon = both.iter().position(|&b| b == b':').expect("a colon");
+                (both[..colon].to_vec(), both[colon + 1..].to_vec())
+            }
+            2 => {
+                let account = string(&mut at);
+                let _crypto_len = word(&mut at);
+                let _extra_len = word(&mut at);
+                at += if data[at] & 0x80 == 0 { 1 } else { 2 };
+                let rest = &data[at..];
+                let end = rest.iter().position(|&b| b == 0).unwrap_or(rest.len());
+                (account, rest[..end].to_vec())
+            }
+            other => panic!("auth type {other}"),
+        }
+    }
+
+    /// The authenticator a login request datagram carries.
+    fn auth_of(datagram: &[u8]) -> ConnectionAuthenticator {
+        let p = ParsedPacket::parse(datagram).expect("LoginRequest parses");
+        let body = p
+            .optional
+            .get(&PacketFlags::LOGIN_REQUEST)
+            .expect("a login request")
+            .clone();
+        dereth_transport::conn::LoginRequest::parse(&body)
+            .expect("decodes")
+            .auth
+    }
+
+    /// Behaviour: login.credentials.with-no-password-switch-the-account-goes-alone
+    #[test]
+    fn with_no_password_switch_the_account_goes_alone_and_reads_back_whole() {
+        let alone = auth_of(&login_datagram("Player:Secret", ""));
+        assert_eq!(alone.auth_type, NetAuthType::Account);
+        assert_eq!(alone.account, b"player:secret", "the whole -a, lower-cased");
+        assert!(alone.crypto_data.is_empty() && alone.extra_data.is_empty());
+
+        let with_v = auth_of(&login_datagram("Player", "Secret"));
+        assert_eq!(with_v.auth_type, NetAuthType::AccountPassword);
+        assert_eq!(with_v.account, b"player");
+        assert_eq!(with_v.extra_data, [6, b'S', b'e', b'c', b'r', b'e', b't']);
+
+        // Every length of password modulo 4, so every amount of padding after the string.
+        for len in 1..=8 {
+            let password = &"abcdefgh"[..len];
+            let read = read_in_place(&login_datagram(&format!("player:{password}"), ""));
+            assert_eq!(
+                read,
+                (b"player".to_vec(), password.as_bytes().to_vec()),
+                "type 1, {len}"
+            );
+
+            // The same reader takes a type 2 password with what lay after it.
+            let (account, read) = read_in_place(&login_datagram("player", password));
+            assert_eq!(account, b"player");
+            assert!(
+                read.len() > len && read.starts_with(password.as_bytes()),
+                "type 2, {len}: {read:?}"
+            );
+        }
+    }
+
+    /// A non-ASCII credential is sent as windows-1252 in either form, and one with no
+    /// windows-1252 form is refused rather than sent as UTF-8.
+    #[test]
+    fn the_credential_is_sent_as_windows_1252_in_either_form() {
+        assert_eq!(
+            auth_of(&login_datagram("player:caf\u{e9}", "")).account,
+            b"player:caf\xE9"
+        );
+        assert_eq!(
+            auth_of(&login_datagram("player", "caf\u{e9}")).extra_data,
+            b"\x04caf\xE9"
+        );
+        for (account, password) in [("player:\u{4e00}", ""), ("player", "\u{4e00}")] {
+            assert!(matches!(
+                ClientNetwork::new("127.0.0.1:19000", 7304, account, password, 0),
+                Err(ClientNetworkError::BadCredential)
+            ));
+        }
     }
 
     /// A duplicate `ConnectRequest` at the same iteration is ignored entirely; a newer one is not.

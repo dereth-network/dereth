@@ -111,6 +111,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "login.credentials.with-no-password-switch-the-account-goes-alone",
+        says: "Given a password (-v), the login request carries it in a field of its own. Given \
+               none, the request carries the account alone, lower-cased, so -a account:password \
+               reaches the server as one string, and a server that parses the login inside a \
+               receive buffer an earlier, longer datagram filled still reads the whole password \
+               and nothing after it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-LOGIN-AUTH-TYPE-ONE"),
+        station: "dereth-client-runtime::lib::net::tests::with_no_password_switch_the_account_goes_alone_and_reads_back_whole",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "login.data-download.the-shards-interrogation-is-surfaced-and-left-unanswered",
         says: "The shard's data-download interrogation reaches the client as an event rather than being \
                swallowed by the transport, and this client does not answer it -- which costs it nothing, \

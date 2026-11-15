@@ -808,7 +808,9 @@ pub static ROWS: &[Behaviour] = &[
         id: "presentation.window.the-title-names-the-account-as-it-was-typed",
         says: "The window's title is the client's name followed by the account it logged in \
                with, spelled as the player typed it, so several clients open at once can be told \
-               apart on the task bar; with no account the title is the client's name alone.",
+               apart on the task bar; with no account the title is the client's name alone. \
+               Given the account and password as one -a account:password, it names the account \
+               alone.",
         since: THIS_CLIENT,
         divergence: "CD-006",
         evidence: Evidence::Private("AC-EVID-CONFIG-TITLE"),

@@ -211,7 +211,7 @@ pub fn snapshot<S: Shell>(
         client_version: cx.client_version().to_owned(),
         host: cx.config().host.clone(),
         address: world_address(&cx.config().host, cx.config().port),
-        account: cx.config().account.clone(),
+        account: cx.config().account_name().to_owned(),
         world: pregame.world_name.clone(),
         sigil_slots: cx.hud().view(cx.objects()).aetheria_slots(),
         local_time: local_clock(cx.hud().view(cx.objects()).utc_offset_secs()),

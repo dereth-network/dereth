@@ -1349,7 +1349,8 @@ impl Config {
     /// `Dereth | Tester` rather than `Dereth | tester`. What goes to the server is unaffected.
     ///
     /// An offline run (`--headless`, or any of the offline slices) has no account and gets the
-    /// bare name, which is also what a run whose account is whitespace gets.
+    /// bare name, which is also what a run whose account is whitespace gets. Given
+    /// `-a account:password`, the title names the account alone ([`Self::account_name`]).
     #[must_use]
     pub fn window_title(&self) -> String {
         self.window_title_for("Dereth")
@@ -1358,11 +1359,26 @@ impl Config {
     /// [`Self::window_title`] for a product named `name`: the name, and the account after it.
     #[must_use]
     pub fn window_title_for(&self, name: &str) -> String {
-        let account = self.account_as_typed.trim();
+        let account = self.without_password(&self.account_as_typed).trim();
         if account.is_empty() {
             name.to_string()
         } else {
             format!("{name} | {account}")
+        }
+    }
+
+    /// [`Self::account`] without the password `-a account:password` carries: with no `-v`, the
+    /// part before the first colon. The spelling that may be shown or logged.
+    #[must_use]
+    pub fn account_name(&self) -> &str {
+        self.without_password(&self.account)
+    }
+
+    fn without_password<'a>(&self, account: &'a str) -> &'a str {
+        if self.vg_password.is_empty() {
+            account.split(':').next().unwrap_or(account)
+        } else {
+            account
         }
     }
 

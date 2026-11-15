@@ -257,6 +257,22 @@ impl ConnectionAuthenticator {
         }
     }
 
+    /// The `-a` form with no password switch: auth type 1, the lower-cased account and nothing
+    /// after it. A server that takes `-a account:password` reads both from this one string,
+    /// splitting it at the colon.
+    #[must_use]
+    pub fn account_only(account: &str) -> Self {
+        Self {
+            auth_type: NetAuthType::Account,
+            auth_flags: 0,
+            connection_sequence_number: 0,
+            account: account.to_ascii_lowercase().into_bytes(),
+            account_to_logon_as: None,
+            crypto_data: Vec::new(),
+            extra_data: Vec::new(),
+        }
+    }
+
     /// The authenticator's stream pack.
     #[must_use]
     pub fn pack(&self) -> Vec<u8> {
@@ -1036,6 +1052,25 @@ mod tests {
             &crate::wire::optional::astring_pack(&[b'x'; 0x1_2345])[..4],
             &[0xC0, 0x01, 0x45, 0x23]
         );
+    }
+
+    /// The account-only form is auth type 1: the lower-cased account as a padded packed string,
+    /// then empty crypto data and empty extra data, two zero length words.
+    #[test]
+    fn the_account_only_form_is_type_one_with_nothing_after_the_account() {
+        let auth = ConnectionAuthenticator::account_only("Ac01:Pw");
+        assert_eq!(
+            auth.pack(),
+            [
+                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // type, flags, sequence
+                7, 0, b'a', b'c', b'0', b'1', b':', b'p', b'w', 0, 0, 0, // account
+                0, 0, 0, 0, // no crypto data
+                0, 0, 0, 0, // no extra data
+            ]
+        );
+        let back = LoginRequest::parse(&build_login_request(&auth)).expect("decodes");
+        assert_eq!(back.auth.auth_type, NetAuthType::Account);
+        assert_eq!(back.auth.pack(), auth.pack());
     }
 
     /// The client version is exactly `"1802"` and ACE compares it exactly.

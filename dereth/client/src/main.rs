@@ -114,7 +114,7 @@ fn run_with(
     let cfg_ui_mode = cfg.ui_mode;
     let host = cfg.host.clone();
     let port = cfg.port;
-    let account = cfg.account.clone();
+    let account = cfg.account_name().to_owned();
     let plugins = cfg.plugins.then(|| dereth_client::plugins::DesktopPlugins {
         settings_dir: dereth_desktop::folders::default_settings_dir(
             <dereth_client::Dereth as dereth_desktop::Product>::SETTINGS_DIR_NAME,

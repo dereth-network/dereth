@@ -211,11 +211,15 @@ pub fn plan(req: &LaunchRequest<'_>) -> Result<LaunchPlan, PlanError> {
     match req.install.kind {
         ClientKind::Dereth => {
             let dats = req.dat_dir.as_ref().ok_or(PlanError::NoDats)?;
+            // A GDLE server reads the password whole only from GDLE's own form, as it does from
+            // the retail client. A world played through the relay is reached through it instead,
+            // and the relay reads the password from its own field.
+            if req.world.emulator == Emulator::Gdle && req.world.upstream.is_none() {
+                args.extend([plain("-a"), Arg::AccountAndPassword(req.account.to_owned())]);
+            } else {
+                args.extend([plain("-a"), plain(req.account), plain("-v"), Arg::Password]);
+            }
             args.extend([
-                plain("-a"),
-                plain(req.account),
-                plain("-v"),
-                Arg::Password,
                 plain("-h"),
                 plain(ep.address.clone()),
                 plain("-p"),
@@ -757,8 +761,11 @@ mod tests {
         })
         .to_string();
         let infiltration_bits = EraFeatureBits::of(EraFeatures::INFILTRATION).to_string();
+        let ace: &[&str] = &["-a", "player", "-v", "pw"];
+        let gdle: &[&str] = &["-a", "player:pw"];
         let expect = [
             (
+                ace,
                 "dekaru.ac",
                 "9000",
                 &customdm_bits,
@@ -766,6 +773,7 @@ mod tests {
                 "classicace-customdm",
             ),
             (
+                ace,
                 "74.50.118.178",
                 "9000",
                 &customdm_bits,
@@ -773,6 +781,7 @@ mod tests {
                 "classicace-customdm",
             ),
             (
+                gdle,
                 "serafino.ddns.net",
                 "9060",
                 &infiltration_bits,
@@ -780,6 +789,7 @@ mod tests {
                 "classicdereth",
             ),
             (
+                gdle,
                 "serafino.ddns.net",
                 "9070",
                 &infiltration_bits,
@@ -787,16 +797,15 @@ mod tests {
                 "classicdereth",
             ),
         ];
-        for (w, (host, port, bits, logon, profile)) in worlds.iter().zip(expect) {
+        for (w, (credentials, host, port, bits, logon, profile)) in worlds.iter().zip(expect) {
             let mut r = req(w, &i);
             r.dat_dir = Some(PathBuf::from("/lib/world"));
+            let argv = plan(&r).unwrap().argv("pw");
+            let (given, rest) = argv.split_at(credentials.len());
+            assert_eq!(given, credentials, "{}", w.name);
             assert_eq!(
-                plan(&r).unwrap().argv("pw"),
+                rest,
                 [
-                    "-a",
-                    "player",
-                    "-v",
-                    "pw",
                     "-h",
                     host,
                     "-p",
@@ -909,6 +918,39 @@ mod tests {
             p.argv("pw"),
             ["-h", "eulmore.example", "-p", "19000", "-a", "player:pw"]
         );
+    }
+
+    /// The Dereth client gets GDLE's form on a GDLE world it reaches directly, and logs in with
+    /// the account alone; through the relay it keeps the password switch.
+    #[test]
+    fn the_dereth_client_on_gdle_gets_the_account_and_password_as_one_unless_relayed() {
+        let i = inst(ClientKind::Dereth);
+        let client = |argv: &[String]| {
+            dereth_client_runtime::config::Config::from_args_and_prefs_with(
+                argv,
+                &dereth_client_runtime::config::Preferences::default(),
+            )
+            .unwrap()
+        };
+        let p = plan(&req(&world(Emulator::Gdle), &i)).unwrap();
+        let argv = p.argv("Pw");
+        assert_eq!(argv[..4], ["-a", "player:Pw", "-h", "eulmore.example"]);
+        assert!(
+            p.redacted().contains("-a player:*** -h"),
+            "{}",
+            p.redacted()
+        );
+        let cfg = client(&argv);
+        assert_eq!(
+            (cfg.account.as_str(), cfg.vg_password.as_str()),
+            ("player:pw", "")
+        );
+        assert_eq!(cfg.account_name(), "player");
+
+        let relayed = crate::relayed::on_relay(crate::relayed::RELAYED_WORLDS[0].to_world(), 9400);
+        assert_eq!(relayed.emulator, Emulator::Gdle);
+        let argv = plan(&req(&relayed, &i)).unwrap().argv("Pw");
+        assert_eq!(argv[..4], ["-a", "player", "-v", "Pw"]);
     }
 
     #[test]

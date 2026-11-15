@@ -14,6 +14,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 - Asheron's Call 2 art pack: creatures now walk more naturally.
+- Fixed logging into some GDLE servers.
 
 ## 0.4.18 (2026-11-14)
 - Remaster: faster with lots of plants in view.
