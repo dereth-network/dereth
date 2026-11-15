@@ -1758,6 +1758,7 @@ fn snapshot<S: Store>(
         uptime_seconds: uptime.as_secs(),
         shutting_down: server.shutdown != yalain_world::shutdown::Shutdown::No,
         players: server.players.len(),
+        objects: server.things.by_id.len(),
         logins: server.sessions.len(),
         max_logins: server.cfg.max_sessions,
         connections: net.connection_count(),

@@ -1,7 +1,8 @@
 //! The status endpoint (`--status <ip>:<port>`), as Empyrean's: plain HTTP on its own TCP port,
 //! answering `GET /health` with `ok` and `GET /status` (also `GET /v1/world`) with the world's
 //! state as JSON: its name, the server's version and game, how long it has run, whether it is
-//! open or shutting down, the players in the world, the logins, the connections and the WebSocket
+//! open or shutting down, the players in the world, the objects the world holds
+//! (`world_objects`), the logins, the connections and the WebSocket
 //! endpoint's address (`websocket_url`, null with the endpoint off), and the world's step times
 //! (`world_step`, in milliseconds: the step's budget; since the start, the steps and overruns, the
 //! first step's work, which fills every camp, and the worst since; the creatures that acted at the
@@ -41,6 +42,8 @@ pub struct Snapshot {
     pub shutting_down: bool,
     /// Characters in the world.
     pub players: usize,
+    /// The objects the world holds: creatures, items and everything else it has made.
+    pub objects: usize,
     /// Logins held, and the most the world holds.
     pub logins: usize,
     pub max_logins: u32,
@@ -76,6 +79,7 @@ impl Snapshot {
             "uptime_seconds": self.uptime_seconds,
             "state": if self.shutting_down { "maintenance" } else { "online" },
             "players_online": self.players,
+            "world_objects": self.objects,
             "logins": self.logins,
             "max_logins": self.max_logins,
             "connections": self.connections,
@@ -322,7 +326,8 @@ mod tests {
 
     /// The status endpoint answers `/health` with ok, `/status` and `/v1/world` with the world's
     /// name, the server, its version and game, its uptime and state, the players in the world, the
-    /// logins and connections as the loop last gave them, and anything else with not found.
+    /// objects it holds, the logins and connections as the loop last gave them, and anything else
+    /// with not found.
     /// Behaviour: server.operator.status-endpoint
     #[test]
     fn the_status_endpoint_answers_health_and_the_worlds_state() {
@@ -339,6 +344,7 @@ mod tests {
             uptime_seconds: 61,
             shutting_down: true,
             players: 3,
+            objects: 1234,
             logins: 4,
             max_logins: 128,
             connections: 7,
@@ -360,6 +366,7 @@ mod tests {
             assert_eq!(v["uptime_seconds"], 61);
             assert_eq!(v["state"], "maintenance");
             assert_eq!(v["players_online"], 3);
+            assert_eq!(v["world_objects"], 1234);
             assert_eq!(v["logins"], 4);
             assert_eq!(v["max_logins"], 128);
             assert_eq!(v["connections"], 7);

@@ -471,7 +471,8 @@ With `--status <ip>:<port>` (for example `--status 127.0.0.1:9100`), the server 
 - `GET /health`: `ok`, for a monitor or a health check;
 - `GET /status` (also `GET /v1/world`): the world as JSON: `world_name`, `server` (`yalain`),
   `version`, `game` (`auberean`), `uptime_seconds`, `state` (`online`, or `maintenance` while a
-  shutdown counts down), `players_online` (characters in the world), `logins`, `max_logins`,
+  shutdown counts down), `players_online` (characters in the world), `world_objects` (the objects the
+  world holds), `logins`, `max_logins`,
   `connections`, `saves_failing` (true while the database will not take saves: watch this one) and
   `websocket_url` (section 4.1; `null` with the endpoint off), `world_database` (the world served:
   its `key` and `era`, the `release` it is, the `base` release it lies over and the world whose

@@ -54,10 +54,10 @@ const REGISTRY_DIR: &str = "dereth/testkit/src/behaviours";
 pub const AC2_REGISTRY_DIR: &str = "auberean/testkit/src/behaviours";
 
 /// The test binaries of servers on loopback (the `live` tier, a server; the `network` tier, the
-/// Dereth Network's hub and worlds of both games): they talk to server processes over real
-/// sockets on the real clock, so the timing rule does not hold for them; their waits only guard
-/// against a hang.
-pub const AC2_LOOPBACK_TARGETS: &[&str] = &["live", "network"];
+/// Dereth Network's hub and worlds of both games; the `soak` tier, a server under load): they talk
+/// to server processes over real sockets on the real clock, so the timing rule does not hold for
+/// them; their waits only guard against a hang, or pace players and samples.
+pub const AC2_LOOPBACK_TARGETS: &[&str] = &["live", "network", "soak"];
 
 /// What Asheron's Call 2's test code must not call: its tests never depend on timing.
 pub const AC2_TIMING: &[&str] = &[

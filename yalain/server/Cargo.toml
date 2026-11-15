@@ -62,8 +62,9 @@ zip = { version = "8", default-features = false, features = ["deflate-flate2-zli
 # on loopback with the September 2013 install's data. It alone turns on the test kit's data
 # half, so testing this crate beside the test kit never builds the kit's data binary.
 live = ["yalain-testkit/retail-dats"]
-# Adds the `live` binary's instruments: a soak run of this executable on the whole world, players
-# logged in over loopback, its step times and memory sampled. Never in the default gate.
+# Tier switch: selects the `soak` test binary, the soak and load runs of this executable on the
+# whole world (players logged in over loopback playing scripted behaviors, the world measured and
+# checked). Never in the default gate: `cargo xtask gate yalain-soak` runs it.
 soak = ["live"]
 
 [dev-dependencies]
@@ -81,8 +82,9 @@ auberean-client-sdk = { workspace = true, features = ["fs"] }
 auberean-dat = { workspace = true, features = ["test-support"] }
 yalain-content.workspace = true
 yalain-testkit.workspace = true
-# The soak run's players report their places.
+# The soak run's players report their places and make calls on the server.
 auberean-primitives.workspace = true
+auberean-script.workspace = true
 # The live test's stand-in hub takes the world's link as a WebSocket, and the WebSocket endpoint's
 # live test is its client, with the frame it carries.
 tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
@@ -95,3 +97,8 @@ workspace = true
 name = "live"
 path = "tests/live/main.rs"
 required-features = ["live"]
+
+[[test]]
+name = "soak"
+path = "tests/soak/main.rs"
+required-features = ["soak"]

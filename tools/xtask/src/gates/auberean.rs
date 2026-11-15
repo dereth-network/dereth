@@ -9,12 +9,15 @@
 //! | `auberean-live` | the installs | the server's `live` binary: our client against the server's executable on loopback; the world builder's: its playtest with the server and our client as programs (it builds them first) |
 //! | `auberean-network` | the installs and the first game's data files | the test kit's `network` binary: the Dereth Network end to end, the hub, a first-game world and two of this game's worlds as programs, with both games' clients; it builds those programs first |
 //! | `auberean-gpu` | the end-of-retail data files and a graphics device | every `gpu` binary: the device's pipelines and frames with every kind of draw |
+//! | `yalain-soak` | the installs | the server's `soak` binary: the soak and load runs, players playing scripted behaviors on the whole world, measured and checked against their invariants and the host's baseline |
 //!
 //! `cargo xtask gate <tier>` runs one. `cargo xtask ci tier1` runs the crates' tests that read
 //! nothing, then every tier but `auberean-gpu`, after the first game's rows (`--game auberean` runs
 //! these alone, and `ci auberean` is the same); `ci tier2` runs `auberean-gpu`. A tier whose data
 //! is not found reports `NO-ORACLE`, naming the variable to set, and the run exits non-zero: a
-//! tier that read nothing certified nothing.
+//! tier that read nothing certified nothing. `yalain-soak` is in no `ci` tier and no `gates` run:
+//! only `cargo xtask gate yalain-soak` runs it (it takes minutes, and its settings come from the
+//! environment, as the binary says).
 
 use std::path::PathBuf;
 
@@ -131,9 +134,21 @@ pub const GPU_TIER: Tier = Tier {
     runs: &[("auberean-gpu", "retail-dats", "gpu")],
 };
 
-/// Every tier: the data tiers, then the one on a graphics device.
+/// The soak and load tier: never `ci tier1`'s, `ci tier2`'s or `gates`'; run by name alone.
+pub const SOAK_TIER: Tier = Tier {
+    name: "yalain-soak",
+    title: "Yalain's soak and load runs",
+    reads: &[Data::Installs],
+    builds: &["yalain"],
+    runs: &[("yalain", "soak", "soak")],
+};
+
+/// Every tier: the data tiers, the one on a graphics device, and the soak.
 pub fn tiers() -> impl Iterator<Item = &'static Tier> {
-    TIERS.iter().chain(std::iter::once(&GPU_TIER))
+    TIERS
+        .iter()
+        .chain(std::iter::once(&GPU_TIER))
+        .chain(std::iter::once(&SOAK_TIER))
 }
 
 /// The tier called `name`, if one is.
@@ -190,7 +205,7 @@ pub fn invocation(run: (&str, &str, &str), profile: Profile) -> Vec<String> {
     let mut argv: Vec<String> = vec!["test".into()];
     argv.extend(profile.cargo_args().iter().map(|s| (*s).to_owned()));
     argv.extend(["-p", krate, "--features", features, "--test", binary].map(str::to_owned));
-    if binary == "gpu" {
+    if binary == "gpu" || binary == "soak" {
         argv.extend(["--", "--test-threads=1"].map(str::to_owned));
     }
     argv
@@ -425,6 +440,19 @@ mod tests {
         declared.sort();
         tiered.sort();
         assert_eq!(tiered, declared);
+    }
+
+    /// **The soak tier runs by name alone**: in no `ci` tier and no `gates` run, its binary one test
+    /// at a time.
+    #[test]
+    fn the_soak_tier_runs_by_name_alone() {
+        assert!(!TIERS.iter().any(|t| t.name == SOAK_TIER.name));
+        assert_ne!(GPU_TIER.name, SOAK_TIER.name);
+        assert_eq!(find("yalain-soak").map(|t| t.name), Some("yalain-soak"));
+        assert_eq!(
+            invocation(("yalain", "soak", "soak"), Profile::TestRelease).join(" "),
+            "test --profile test-release -p yalain --features soak --test soak -- --test-threads=1"
+        );
     }
 
     /// **A missing kind of data names its variable**, and a run is the one cargo command.
