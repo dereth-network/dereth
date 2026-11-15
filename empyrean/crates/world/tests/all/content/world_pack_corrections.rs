@@ -109,10 +109,10 @@ mod recorded_content_real {
             };
             let changes = emote_motion_shifts(db.base());
             for expected in [
-                shift(10980, 72547, F::Motion(0), 0x4300_0119, Mc::MeditateState.0),
-                shift(10980, 72548, F::Substyle, 0x4300_0119, Mc::MeditateState.0),
-                shift(24588, 89413, F::Motion(1), 0x4300_0117, Mc::CurtseyState.0),
-                shift(25682, 49419, F::Motion(0), 0x1300_0116, Mc::WarmHands.0),
+                shift(10980, 72549, F::Motion(0), 0x4300_0119, Mc::MeditateState.0),
+                shift(10980, 72550, F::Substyle, 0x4300_0119, Mc::MeditateState.0),
+                shift(24588, 89417, F::Motion(1), 0x4300_0117, Mc::CurtseyState.0),
+                shift(25682, 49415, F::Motion(0), 0x1300_0116, Mc::WarmHands.0),
             ] {
                 assert!(changes.contains(&expected), "{expected:?}");
             }
@@ -157,12 +157,12 @@ mod recorded_content_real {
                 assert_eq!(observed, Some(change.corrected), "{change:?}");
             }
             // changed
-            assert_eq!(motion(25682, 49419, 0), Some(Mc::WarmHands.0));
-            assert_eq!(motion(24588, 89413, 1), Some(Mc::CurtseyState.0));
-            assert_eq!(motion(10980, 72547, 0), Some(Mc::MeditateState.0));
-            assert_eq!(set(&read(10980), 72548).substyle, Some(Mc::MeditateState.0));
+            assert_eq!(motion(25682, 49415, 0), Some(Mc::WarmHands.0));
+            assert_eq!(motion(24588, 89417, 1), Some(Mc::CurtseyState.0));
+            assert_eq!(motion(10980, 72549, 0), Some(Mc::MeditateState.0));
+            assert_eq!(set(&read(10980), 72550).substyle, Some(Mc::MeditateState.0));
             // unchanged
-            let noir = set(&read(25715), 49450);
+            let noir = set(&read(25715), 49446);
             let noir: Vec<u32> = noir
                 .weenie_properties_emote_action
                 .iter()
@@ -172,12 +172,12 @@ mod recorded_content_real {
                 noir.contains(&Mc::NudgeLeft.0) && noir.contains(&Mc::SitState.0),
                 "{noir:#X?}"
             );
-            assert_eq!(motion(25715, 49450, 19), Some(Mc::NudgeLeft.0));
+            assert_eq!(motion(25715, 49446, 19), Some(Mc::NudgeLeft.0));
             assert_eq!(motion(24578, 729, 0), Some(Mc::ScanHorizon.0));
-            assert_eq!(motion(8423, 69877, 0), Some(Mc::MeditateState.0));
+            assert_eq!(motion(8423, 69879, 0), Some(Mc::MeditateState.0));
             assert_eq!(motion(5772, 7956, 0), Some(Mc::DrudgeDance.0));
             assert_eq!(script(38947, 35844, 2), Some(138));
-            assert_eq!(script(40091, 77622, 1), Some(138));
+            assert_eq!(script(40091, 77624, 1), Some(138));
             // Restriction effects retain every value stored in the pack.
             for corrected in db.get_all_weenies() {
                 let stored = db
@@ -240,7 +240,7 @@ mod recorded_content_real {
                 );
             }
             // One of the family retail was not seen taunting with keeps ACE's value.
-            assert_eq!(script(52519, 85959, 0), Some(161));
+            assert_eq!(script(52519, 85961, 0), Some(161));
         }
 
         /// Every recorded correction applies and is reported.
