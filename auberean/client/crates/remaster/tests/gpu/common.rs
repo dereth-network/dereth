@@ -212,6 +212,34 @@ pub fn write_png(path: &std::path::Path, width: u32, height: u32, rgba: &[u8]) {
         .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
 }
 
+/// How far two devices of the one GPU may draw a frame apart: how many pixels may differ, and by
+/// how many levels at most. The same, byte for byte, where the devices draw alike; on the Mac,
+/// MoltenVK's two devices of the one GPU draw a few pixels a few levels apart, the same frame on
+/// one device varying as much from drawing to drawing, with synchronization validation clean and
+/// with or without MoltenVK's fast math. Measured over every Mac run so far: at most 49 pixels
+/// apart at a station, by at most 13 levels. So there a frame may differ in at most 64 pixels, by
+/// at most 16 levels.
+pub const CROSS_DEVICE: (usize, u8) = if cfg!(target_os = "macos") {
+    (64, 16)
+} else {
+    (0, 0)
+};
+
+/// Where two pictures differ at all: how many pixels, and by at most how many levels.
+pub fn apart(a: &[u8], b: &[u8]) -> (usize, u8) {
+    a.chunks(4)
+        .zip(b.chunks(4))
+        .map(|(x, y)| (0..3).map(|c| x[c].abs_diff(y[c])).max().unwrap_or(0))
+        .filter(|d| *d > 0)
+        .fold((0, 0), |(n, most), d| (n + 1, most.max(d)))
+}
+
+/// Whether two devices' drawings of a frame are within [`CROSS_DEVICE`] of each other.
+pub fn within_devices(a: &[u8], b: &[u8]) -> bool {
+    let (n, most) = apart(a, b);
+    n <= CROSS_DEVICE.0 && most <= CROSS_DEVICE.1
+}
+
 /// The pixels of two drawings of the same frame that differ by more than a level in a channel.
 pub fn repeat_noise(a: &[u8], b: &[u8]) -> usize {
     a.chunks(4)

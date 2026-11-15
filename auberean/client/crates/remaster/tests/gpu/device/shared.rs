@@ -6,7 +6,7 @@
 
 use auberean_remaster::shared::{open, Painter};
 
-use crate::common::{frame, records, settled, turn, STATIONS};
+use crate::common::{frame, records, settled, turn, CROSS_DEVICE, STATIONS};
 
 const W: u32 = 640;
 const H: u32 = 480;
@@ -65,18 +65,6 @@ fn apart(a: &[u8], b: &[u8]) -> (usize, u8, [u32; 4]) {
     }
     (count, most, [lo[0], lo[1], hi[0], hi[1]])
 }
-
-/// How far the remaster on its own device may draw a frame from the remaster on the shared one:
-/// the same, byte for byte, where the devices draw alike; on the Mac, MoltenVK's two devices of
-/// the one GPU draw a few pixels a few levels apart, the same frame on one device varying as much
-/// from drawing to drawing, with synchronization validation clean and with or without MoltenVK's
-/// fast math. Measured over every Mac run so far: at most 49 pixels apart at a station, by at
-/// most 13 levels. So there a frame may differ in at most 64 pixels, by at most 16 levels.
-const CROSS_DEVICE: (usize, u8) = if cfg!(target_os = "macos") {
-    (64, 16)
-} else {
-    (0, 0)
-};
 
 /// **On a device it shares with the remaster the retail device draws as on its own, and the
 /// remaster's picture reaches wgpu unchanged**: at every station, the retail frame on the shared

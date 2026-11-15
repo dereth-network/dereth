@@ -110,7 +110,8 @@ const SUN: u8 = 2;
 /// stations in the heaviest rain, with the wet on, at least one in ten of the pixels of the land
 /// and of what stands out in the sun darkens by more than four levels in a channel, and under one
 /// in a hundred brightens by more than eight (the sheen of the overcast air seen edge on); the
-/// sky's pixels don't move.
+/// sky's pixels don't move by more than a level beyond the device's noise, and where the device
+/// draws a frame the same each time, not at all.
 #[test]
 fn in_the_rain_what_stands_out_in_it_is_wet_and_the_sky_is_untouched() {
     let _turn = turn();
@@ -118,10 +119,13 @@ fn in_the_rain_what_stands_out_in_it_is_wet_and_the_sky_is_untouched() {
         let d = drawn(name);
         let (n, up, down) = moved(&d.dry, &d.wet, &d.classes, 4, |c| c == GROUND || c == SUN);
         let (_, bright, _) = moved(&d.dry, &d.wet, &d.classes, 8, |c| c == GROUND || c == SUN);
-        let (sky, sky_up, sky_down) = moved(&d.dry, &d.wet, &d.classes, 0, |c| c == 0);
+        // The sky's pixels moved by more than a level, as the device's noise is counted; and by any.
+        let (sky, sky_up, sky_down) = moved(&d.dry, &d.wet, &d.classes, 1, |c| c == 0);
+        let (_, any_up, any_down) = moved(&d.dry, &d.wet, &d.classes, 0, |c| c == 0);
         eprintln!(
             "{name}: of {n} outdoor pixels {down} darker and {up} brighter by over 4, {bright} \
-             brighter by over 8; sky {sky_up} up, {sky_down} down of {sky} (noise {})",
+             brighter by over 8; sky {sky_up} up, {sky_down} down of {sky} by over 1, {any_up} up, \
+             {any_down} down by any (noise {})",
             d.noise
         );
         assert!(down * 10 >= n, "{name}: the rain wet {down} of {n} pixels");
@@ -132,6 +136,10 @@ fn in_the_rain_what_stands_out_in_it_is_wet_and_the_sky_is_untouched() {
         assert!(
             sky_up + sky_down <= d.noise,
             "{name}: the rain moved the sky: {sky_up} up, {sky_down} down"
+        );
+        assert!(
+            d.noise > 0 || any_up + any_down == 0,
+            "{name}: the rain moved the sky: {any_up} up, {any_down} down by a level"
         );
     }
 }

@@ -11,7 +11,7 @@ use auberean_draw::scene::{Frame, Pass};
 use auberean_remaster::Remaster;
 use dereth_gfx_passes::post::PostSettings;
 
-use crate::common::{frame, records, turn, write_png, STATIONS};
+use crate::common::{apart, frame, records, turn, within_devices, write_png, STATIONS};
 
 const W: u32 = 640;
 const H: u32 = 480;
@@ -102,7 +102,9 @@ fn mean_apart(a: &[u8], b: &[u8], of: &[bool]) -> f64 {
 /// with an object taken as a body and moved a meter, the frame right after the move is nearer
 /// the frame settled with the body where it moved to, over the pixels the move changed, with the
 /// motion drawn than without it, by at least a fifth; and while nothing moves the motion changes no
-/// pixel.
+/// pixel (each drawn on a device of its own: byte for byte, or within [`CROSS_DEVICE`]).
+///
+/// [`CROSS_DEVICE`]: crate::common::CROSS_DEVICE
 #[test]
 fn a_moving_body_is_gathered_from_where_it_moved_from() {
     let _turn = turn();
@@ -143,7 +145,8 @@ fn a_moving_body_is_gathered_from_where_it_moved_from() {
         "the motion gathered no nearer: {with:.2} with, {without:.2} without"
     );
     assert!(
-        still_with == still_without,
-        "while nothing moves, the motion changes the frame"
+        within_devices(&still_with, &still_without),
+        "while nothing moves, the motion changes the frame: {:?} (pixels, levels) apart",
+        apart(&still_with, &still_without)
     );
 }
