@@ -14435,6 +14435,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.quests.hakata-huntress-warder-scroll-hourly-walk",
+        says: "Each town's Warder tracker hands its scroll to one copying them once an hour: each stands \
+               outdoors, its step waits an hour between runs and its shared refusal is its too-soon line; \
+               each hands its scroll over, half an hour on refuses with that line and gives nothing more, \
+               and past the hour hands another over.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-WARDER-SCROLL-HOURLY"),
+        station: "yalain-testkit::corpus::world_db::each_warder_tracker_hands_its_scroll_once_an_hour_and_refuses_in_between",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.hidden-never-listed",
         says: "A hidden quest a character holds is never in the journal it enters the world with; \
                the shown ones are.",
@@ -14925,6 +14936,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.quests.omishan-crystal-serums-walk",
+        says: "One row names the Omishan vault's three crystals and its three serums at even odds; in \
+               the vault, with three of each serum, each crystal refuses the serums it does not want, \
+               which stay in the pack, and takes the one it drew, repairing it and used up; after \
+               the third the repairs are done and the player is sent to the archon's chamber, three \
+               serums spent and six kept.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-OMISHAN-CRYSTAL-SERUMS"),
+        station: "yalain-testkit::corpus::world_db::the_omishan_vaults_crystals_each_take_only_the_serum_drawn_for_them_and_refuse_the_rest",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.omishan-eeruks-loot-walk-through",
         says: "Eeruk's Loot walks through: the Amulet of Seeking used gives it; the Deepdank Tunnels keep their Burun and Lord Eeruk one at a time, who leaves his treasury's key and whose death moves it on; the treasury's door keeps to that phase; each of its five chests, one for each race, opened, holds that race's gauntlets from the profile its kind names, which can't be taken before his death and taken after it end it.",
         since: RETAIL,
@@ -14960,8 +14983,8 @@ pub static ROWS: &[Behaviour] = &[
         id: "server.quests.omishan-master-vault-walk-through",
         says: "The Omishan master vault's gem portal leads in with the archon's quest given; the vault's \
                four kinds of creature leave the three serums; three portals lead to the crystal \
-               chambers, each with its crystal and a way back; a serum used on a crystal begins the \
-               repairs and repairs it, used up, and a repaired crystal takes no more; the third repaired \
+               chambers, each with its crystal and a way back; the serum a crystal drew, used on it, \
+               begins the repairs and repairs it, used up, and a repaired crystal takes no more; the third repaired \
                sends the player to the archon's chamber with the quest moved on; the archon stands \
                alone beside his guards and leaves his hand; a repaired crystal sends a player whose \
                archon stands back to him; the menhir's portal keeps a player out until he falls near \
@@ -15171,6 +15194,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.quests.osteth-cacophos-seal-lasts-four-hours",
+        says: "A Cacophos seal picked up in the heart lasts four hours in the pack: each seal for the \
+               pack lasts the 14,400 seconds of the effect that makes it; a hero at the quest's second \
+               phase who takes the first seal from where it lies holds it until four hours after, and \
+               at the world's step after that it is gone from the pack; the seal on the ground, lying \
+               again in a side room, gives another for four hours more.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-CACOPHOS-SEAL-LIFE"),
+        station: "yalain-testkit::corpus::world_db::a_seal_picked_up_in_the_heart_lasts_four_hours_in_the_pack",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.osteth-cacophos-seals-weaken-the-beast",
         says: "An unsealed Beast of the Cacophos out-heals a modest harm, and a sealed one does not: made by its camp it holds its five heals, a thousand health a second between them, and hurt five hundred a second for a minute it ends higher than it began; its own skill that would cast the heals again is held but never used, neither a help nor an attack; every seal pressed against its stone, the same harm takes tens of thousands of health off it.",
         since: RETAIL,
@@ -15200,6 +15235,22 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WDB-CHAOS-EIDOLON-VORTEXES"),
         station: "yalain-testkit::corpus::world_db::the_eidolons_vortexes_stand_once_it_falls_and_one_touched_ends_its_quest_with_the_crystal",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-chaos-forge-huge-pyreum-drop",
+        says: "The plane of chaos's six bosses now and then leave the huge pyreum the forge's new suit begins with: no source drops it, so the world has each of them leave one at a rare chance of its own (above 0, at most one in twenty), and no other creature; one camp keeps each boss alone. On foot, the eidolon is reached from its dungeon's landing and each platform's golem from where the hammer's quest lands a player on that platform. Played: the eidolon its camp makes, killed again and again, leaves a corpse holding the pyreum.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-CHAOS-FORGE-HUGE-PYREUM"),
+        station: "yalain-testkit::corpus::world_db::the_chaos_planes_six_bosses_now_and_then_leave_the_huge_pyreum_the_forges_new_suit_begins_with",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.osteth-chaos-forge-new-suit-walk-through",
+        says: "A huge pyreum begins the cleansed forge's new suit, and the player's blood ends it with the armor of its race and kingdom: the quest is its setup's (challenge 55, a day long, given again a second after it is done, from level 50); the forge stands in the forge room, reached on foot from the hammer, and given the pyreum from there by one of a kingdom who has cleansed it, it begins the quest. Played: before the forge is cleansed the pyreum is handed back with its line for an item it does not take, and a use says nothing of a suit; once cleansed a use says its instructions for a new suit; the pyreum is handed back to one of no kingdom and to one under level 50, and kept from one of a kingdom with its line as the gem bursts, the quest at its first phase. Each of the five other essences is kept with its line as it boils away, the quest unmoved; the essence that heals moves it to its second phase with its line asking for five of the ebon metal; two of them at once are handed back, and five given one at a time move it a phase each, the first four with the smelting line and the fifth with the spheres'; 99,999 coins are handed back and 100,000 kept with their line, moving it on; the attuned crystal moves it to the last phase with its line, making no star; a use then ends it with the attuning line and the five pieces of the player's race and kingdom, one for each place worn. A second suit is begun a moment later, and the crystal of the tree's chain serves too. Each race of each kingdom is given its own five pieces; one of no kingdom at the last phase is given nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-CHAOS-FORGE-NEW-SUIT"),
+        station: "yalain-testkit::corpus::world_db::a_huge_pyreum_begins_the_cleansed_forges_new_suit_and_the_players_blood_ends_it_with_its_race_and_kingdoms_armor",
         tier: Tier::Corpus,
     },
     behaviour! {
@@ -18414,11 +18465,35 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.world.olthoi-hive-western-land-portal-walk-through",
+        says: "The western hive's portal on the land leads to the top of its mound, as the northeast hive's does: it is named as the northeast one is, from level 35, recalled to and summoned; a player under level 35 can't use it, and one at it is brought to the mound's top, its way out beside it; from there the walker runs down through the mound to the portal at its bottom, which leads to the hive's landing; and the way out of the mound's top leads back to the land beside the portal.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-OLTHOI-HIVE-WEST-PORTAL"),
+        station: "yalain-testkit::corpus::world_db::the_western_hives_portal_on_the_land_leads_to_the_top_of_its_mound_as_the_northeast_ones_does",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.olthoi-hive-western-nymph-walk-through",
+        says: "The western hive's nymph is kept at the eight spawns its map marks, one at a time: the Maturing Olthoi Drone Nymph's one camp in the western hive makes it alone, one at a time, and has a spot in each of eight far chambers, each at least 30 m from the others and 60 m from the landing, clear of the hive's other camps and its ways by 8 m; from the land outside the mound the walker runs down to the portal at its bottom, through to the hive's landing, and every spot is reached on foot from there, the nymph moving there; the farthest is run to and back.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-OLTHOI-HIVE-WEST-NYMPH"),
+        station: "yalain-testkit::corpus::world_db::the_western_hives_nymph_is_kept_at_the_eight_spawns_its_map_marks_reached_from_its_landing",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.world.olthoi-hive-western-walk-through",
         says: "The western hive in the Olthoi Wastes walks through: from the land outside its mound the walker runs in and down to the portal at the mound's bottom, which leads to the hive's landing, its way out beside it; every spot of its camps of Harvester, Gardener and Drone Grubs and Harvester and Gardener Nymphs stands in its own chamber, each kind moving there, and is reached on foot; the farthest is run to and back, every report followed; and the way out leads into the mound by the portal, from which the walker runs up to the land again.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-WDB-OLTHOI-HIVE-WEST"),
         station: "yalain-testkit::corpus::world_db::the_western_olthoi_hive_is_walked_from_the_land_down_its_mound_to_every_camp_and_out",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world.olthoi-hunt-grubs-walk-through",
+        says: "The Olthoi hunts' grubs are kept in the warren under the northeast hive: each of the five hunts' creatures is made by one camp, of its two kinds alone, one at a time, in the warren and nowhere else, the soldier grub's in two chambers 30 m or more apart, every spot clear of the warren's other camps and its ways by 8 m; from the northeast mound the walker goes through to the hive, runs to the portal into the warren, through to its landing, and every spot is reached on foot from there, each kind moving there; the farthest is run to and back.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-OLTHOI-HUNT-WARREN"),
+        station: "yalain-testkit::corpus::world_db::the_olthoi_hunts_grubs_are_kept_in_the_warren_reached_on_foot_from_its_landing",
         tier: Tier::Corpus,
     },
     behaviour! {

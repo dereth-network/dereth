@@ -14105,8 +14105,8 @@ fn the_linvak_master_vaults_conduits_lead_to_the_archon_whose_fall_opens_its_men
 
 /// **The Omishan master vault walks through**: the vault's gem's portal leads in with the archon's
 /// quest given; the vault's four kinds of creature leave the three serums; three portals lead to the
-/// three crystal chambers, each crystal there and a way back to the landing; a serum used on a
-/// crystal begins the repairs and repairs it, used up, and one used on a repaired crystal does
+/// three crystal chambers, each crystal there and a way back to the landing; the serum a
+/// crystal drew, used on it, begins the repairs and repairs it, used up, and one used on a repaired crystal does
 /// nothing; the third crystal repaired ends the repairs and sends the player to the archon's
 /// chamber with the quest moved on; the archon stands alone, his guards beside him, and leaves his
 /// hand; a repaired crystal sends a player whose archon stands back to him; the portal to the menhir
@@ -14230,22 +14230,25 @@ fn the_omishan_master_vaults_crystals_repaired_send_the_player_to_the_archon_and
     for (n, (to, chamber, crystal, sub, back)) in CHAMBERS.into_iter().enumerate() {
         through(&mut h, to);
         assert_eq!(at(&h), chamber, "{to:08X} leads to its chamber");
-        let serum = SERUMS[n];
-        yalain_world::inventory::give(&mut h.server, &mut h.net, world, serum, 1).expect("given");
-        h.run(3);
         let i = placed(t, crystal);
         assert_eq!(
             t.content.objects[i].cell >> 16,
             VAULT,
             "{crystal:08X} in the vault"
         );
+        // The serum this crystal drew (its own walk tries them all).
+        yalain_world::wanting::judge(&mut h.server, i, SERUMS[n]);
+        let serum = yalain_world::wanting::wanted(&h.server, i).expect("drawn");
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, serum, 1).expect("given");
+        h.run(3);
+        let before = held_count(&h, serum);
         let landed = used_on_object(&mut h, b, me, t, (serum, i));
         assert_eq!(
             state_of(&h, sub).map(|q| q.0),
             Some(status::COMPLETED),
             "{crystal:08X} repaired"
         );
-        assert_eq!(held_count(&h, serum), 0, "{serum:08X} used up");
+        assert_eq!(held_count(&h, serum), before - 1, "{serum:08X} used up");
         if n < 2 {
             assert_eq!(
                 state_of(&h, REPAIRS),
@@ -14255,8 +14258,13 @@ fn the_omishan_master_vaults_crystals_repaired_send_the_player_to_the_archon_and
             yalain_world::inventory::give(&mut h.server, &mut h.net, world, serum, 1)
                 .expect("given");
             h.run(3);
+            let kept = held_count(&h, serum);
             used_on_object(&mut h, b, me, t, (serum, i));
-            assert_eq!(held_count(&h, serum), 1, "a repaired crystal takes no more");
+            assert_eq!(
+                held_count(&h, serum),
+                kept,
+                "a repaired crystal takes no more"
+            );
             through(&mut h, back);
             assert_eq!(at(&h), landing, "{back:08X} back to the landing");
         } else {
@@ -14302,6 +14310,156 @@ fn the_omishan_master_vaults_crystals_repaired_send_the_player_to_the_archon_and
     assert!(holds_item(&h, VITAE), "the vault's vitae");
     through(&mut h, MENHIR_ROOM);
     assert_eq!(at(&h), OUT, "the chamber's way out to the land");
+}
+
+/// **The Omishan vault's crystals each want one serum, drawn at random**: one row names the three
+/// crystals and the three serums, at even odds. In the vault, with three of each serum (the worst
+/// case), each crystal refuses the serums it does not want, which stay in the pack for the next, and
+/// takes the one it drew, which repairs it and is used up; the want is met and forgotten. After the
+/// third the repairs are done and the player is sent to the archon's chamber, three serums spent and
+/// six kept.
+/// Behaviour: server.quests.omishan-crystal-serums-walk
+#[test]
+fn the_omishan_vaults_crystals_each_take_only_the_serum_drawn_for_them_and_refuse_the_rest() {
+    use yalain_world::quests::status;
+    const QUEST: u32 = 0x4000_02B5;
+    const REPAIRS: u32 = 0x4000_02B0;
+    const GEM: u32 = 0x4700_13E6;
+    const PORTAL: u32 = 0x4700_13E7;
+    const EXIT: u32 = 0x4700_1154;
+    const SERUMS: [u32; 3] = [0x4700_13E9, 0x4700_13EA, 0x4700_13EB];
+    // Each chamber: the portal to it, where it leads, its crystal and its subquest, its way back.
+    const CHAMBERS: [(u32, u32, u32, u32, u32); 3] = [
+        (
+            0x01BB_022F,
+            0x01BB_0267,
+            0x4700_2F94,
+            0x4000_02B1,
+            0x01BB_0263,
+        ),
+        (
+            0x01BB_01FF,
+            0x01BB_027B,
+            0x4700_2F95,
+            0x4000_02B2,
+            0x01BB_0277,
+        ),
+        (
+            0x01BB_0240,
+            0x01BB_0255,
+            0x4700_2F96,
+            0x4000_02B3,
+            0x01BB_0242,
+        ),
+    ];
+    const ARCHON_ROOM: u32 = 0x01BB_02C8;
+    let t = &compiled().tables;
+    let crystals: Vec<usize> = CHAMBERS.iter().map(|c| placed(t, c.2)).collect();
+    let rows: Vec<&yalain_content::wanting::Wanting> = t
+        .content
+        .wanting
+        .rows
+        .iter()
+        .filter(|r| r.objects.iter().any(|o| crystals.contains(o)))
+        .collect();
+    assert_eq!(rows.len(), 1, "one row for the crystals");
+    let mut objects = rows[0].objects.clone();
+    objects.sort_unstable();
+    let mut want = crystals.clone();
+    want.sort_unstable();
+    assert_eq!(objects, want, "the three crystals, each its own want");
+    assert_eq!(
+        rows[0].items,
+        SERUMS.iter().map(|s| (*s, 1)).collect::<Vec<_>>(),
+        "the three serums at even odds"
+    );
+
+    let portal = yalain_testkit::authored::Portal::open();
+    let (mut h, b, me) = served(t);
+    h.server.quest_ids = quest_ids();
+    set_level(&mut h, 50);
+    let world = player_world(&h);
+    let at = |h: &Harness| h.server.players[&world].position.cell;
+    let through = |h: &mut Harness, cell: u32| {
+        use_person(h, b, me, t, placed_in(t, EXIT, cell));
+        h.run(40);
+    };
+    into_master_vault(&mut h, b, me, t, GEM, PORTAL);
+    assert_eq!(state_of(&h, QUEST), Some((status::UNDERWAY, 1)), "given");
+    let landing = at(&h);
+    for serum in SERUMS {
+        h.server.catalog.insert(as_installed(&portal, serum));
+        for _ in 0..3 {
+            yalain_world::inventory::give(&mut h.server, &mut h.net, world, serum, 1)
+                .expect("given");
+        }
+    }
+    h.run(3);
+    assert_eq!(
+        SERUMS.map(|s| held_count(&h, s)),
+        [3, 3, 3],
+        "the worst case"
+    );
+
+    let mut spent = 0;
+    for (n, (to, chamber, _, sub, back)) in CHAMBERS.into_iter().enumerate() {
+        through(&mut h, to);
+        assert_eq!(at(&h), chamber, "{to:08X} leads to its chamber");
+        let i = crystals[n];
+        let mut landed = chamber;
+        let mut took = None;
+        for serum in SERUMS {
+            let before = SERUMS.map(|s| held_count(&h, s));
+            landed = used_on_object(&mut h, b, me, t, (serum, i));
+            let drawn = yalain_world::wanting::wanted(&h.server, i);
+            if state_of(&h, sub).map(|q| q.0) == Some(status::COMPLETED) {
+                assert_eq!(drawn, None, "met and forgotten");
+                let mut after = before;
+                after[SERUMS.iter().position(|s| *s == serum).unwrap_or(0)] -= 1;
+                assert_eq!(
+                    SERUMS.map(|s| held_count(&h, s)),
+                    after,
+                    "{serum:08X} used up"
+                );
+                took = Some(serum);
+                break;
+            }
+            assert!(
+                drawn.is_some_and(|d| d != serum),
+                "{serum:08X} not the one drawn"
+            );
+            assert_eq!(
+                SERUMS.map(|s| held_count(&h, s)),
+                before,
+                "{serum:08X} refused, kept"
+            );
+        }
+        assert!(
+            took.is_some(),
+            "{:08X} repaired by its serum",
+            CHAMBERS[n].2
+        );
+        spent += 1;
+        if n < 2 {
+            assert_eq!(state_of(&h, REPAIRS), Some((status::UNDERWAY, 1)));
+            through(&mut h, back);
+            assert_eq!(at(&h), landing, "{back:08X} back to the landing");
+        } else {
+            assert_eq!(
+                state_of(&h, REPAIRS).map(|q| q.0),
+                Some(status::COMPLETED),
+                "the repairs done"
+            );
+            assert_eq!(landed, ARCHON_ROOM, "sent to the archon's chamber");
+            assert_eq!(state_of(&h, QUEST), Some((status::UNDERWAY, 2)));
+        }
+    }
+    assert_eq!(spent, 3);
+    assert_eq!(
+        SERUMS.map(|s| held_count(&h, s)).iter().sum::<u32>(),
+        6,
+        "six kept"
+    );
 }
 
 /// **Dungeon bosses stand in their dungeons, and the rare creatures whose deaths send players after
@@ -16570,6 +16728,104 @@ fn the_huntresss_guide_leather_and_cure_the_clutchs_fetish_and_the_rangers_pet_g
     assert_eq!(state_of(&h, MISSING).map(|q| q.0), Some(status::COMPLETED));
     h.run(10);
     assert_eq!(escort_of(&h, me, SCRAPS), None, "gone home");
+}
+
+/// **Each Warder tracker hands its scroll once an hour**: every town's tracker stands outdoors,
+/// reached from the land, and its step for one copying the scrolls waits an hour between runs, its
+/// shared refusal its too-soon line. Walked: each hands its scroll over; half an hour on each
+/// refuses with that line and gives nothing more; past the hour each hands another over.
+/// Behaviour: server.quests.hakata-huntress-warder-scroll-hourly-walk
+#[test]
+fn each_warder_tracker_hands_its_scroll_once_an_hour_and_refuses_in_between() {
+    use yalain_content::quests::Trigger;
+    use yalain_content::talk::Role;
+    const GUIDE_QUEST: u32 = 0x4000_027F;
+    const TABLE: u32 = 0x2500_2A4C;
+    const TAKE_THIS: u32 = 0x0FBA_3EAC;
+    const NOT_YET: u32 = 0xDC2A_290B;
+    const HOUR: i64 = 3600;
+    // Each town's tracker and its scroll.
+    const TRACKERS: [(u32, u32); 7] = [
+        (0x4700_3220, 0x4700_092D),
+        (0x4700_322C, 0x4700_092E),
+        (0x4700_322E, 0x4700_0928),
+        (0x4700_3234, 0x4700_092B),
+        (0x4700_323D, 0x4700_092C),
+        (0x4700_3241, 0x4700_092A),
+        (0x4700_3247, 0x4700_0929),
+    ];
+    let t = &compiled().tables;
+    for (tracker, scroll) in TRACKERS {
+        let step = t
+            .quests
+            .steps
+            .iter()
+            .find(|s| s.quest == GUIDE_QUEST && s.trigger == Trigger::Use(tracker))
+            .unwrap_or_else(|| panic!("{tracker:08X}'s step"));
+        assert_eq!(
+            (step.needs, step.gives.as_slice()),
+            (1, [scroll].as_slice())
+        );
+        assert_eq!(
+            t.content.step_waits.get(&(GUIDE_QUEST, step.key.clone())),
+            Some(&3600),
+            "{tracker:08X} waits an hour"
+        );
+        assert!(
+            t.talk.lines.iter().any(|l| l.who == tracker
+                && l.role == Some(Role::TooSoon)
+                && l.words == yalain_content::Words::Ref(NOT_YET, TABLE)),
+            "{tracker:08X}'s refusal"
+        );
+        let o = &t.content.objects[placed(t, tracker)];
+        assert!(
+            o.cell & 0xFFFF < 0x100,
+            "{tracker:08X} outdoors: {:08X}",
+            o.cell
+        );
+    }
+    let (mut h, b, me) = served(t);
+    set_level(&mut h, 40);
+    put_at_phase(&mut h, GUIDE_QUEST, 1);
+    let count = |h: &Harness, template: u32| -> u32 {
+        h.server.players.values().next().map_or(0, |p| {
+            p.play
+                .items
+                .iter()
+                .filter(|i| i.template == template)
+                .map(|i| i.quantity)
+                .sum()
+        })
+    };
+    let said =
+        |calls: &[(u32, Option<u32>)], line: u32| calls.iter().any(|(_, s)| *s == Some(line));
+    for (tracker, scroll) in TRACKERS {
+        let calls = use_person(&mut h, b, me, t, placed(t, tracker));
+        assert!(said(&calls, TAKE_THIS), "{tracker:08X}: {calls:08X?}");
+        assert_eq!(
+            count(&h, scroll),
+            1,
+            "{tracker:08X} hands over {scroll:08X}"
+        );
+    }
+    h.unix += HOUR / 2;
+    for (tracker, scroll) in TRACKERS {
+        let calls = use_person(&mut h, b, me, t, placed(t, tracker));
+        assert!(
+            said(&calls, NOT_YET) && !said(&calls, TAKE_THIS),
+            "{tracker:08X} within the hour: {calls:08X?}"
+        );
+        assert_eq!(count(&h, scroll), 1, "{tracker:08X} gives nothing more");
+    }
+    h.unix += HOUR / 2 + 60;
+    for (tracker, scroll) in TRACKERS {
+        let calls = use_person(&mut h, b, me, t, placed(t, tracker));
+        assert!(
+            said(&calls, TAKE_THIS),
+            "{tracker:08X} past the hour: {calls:08X?}"
+        );
+        assert_eq!(count(&h, scroll), 2, "{tracker:08X} hands over another");
+    }
 }
 
 /// The world's pet kinds, as a start reads them, and an escort's template as the install has it:
@@ -28173,6 +28429,248 @@ fn the_warren_under_the_northeast_hive_is_walked_from_both_its_portals_to_every_
     assert!(by < 4.0, "beside the portal that led in: {by}");
 }
 
+/// The portal on the land of a hive's mound: the one portal standing outdoors in the mound's block
+/// that leads inside it.
+fn mound_land_portal(t: &Tables, mound: u32) -> usize {
+    let ways: Vec<usize> = (0..t.content.objects.len())
+        .filter(|&i| {
+            let o = &t.content.objects[i];
+            o.template == 0x4700_1154
+                && o.cell >> 16 == mound
+                && o.cell & 0xFFFF < 0x100
+                && o.destination
+                    .as_ref()
+                    .is_some_and(|d| d.cell >> 16 == mound && d.cell & 0xFFFF >= 0x100)
+        })
+        .collect();
+    assert_eq!(
+        ways.len(),
+        1,
+        "one portal on {mound:04X}'s land into the mound"
+    );
+    ways[0]
+}
+
+/// **The western hive's portal on the land leads to the top of its mound, as the northeast
+/// hive's does**: it is named as the northeast one is, from level 35, recalled to and summoned;
+/// a player under level 35 can't use it, and one at it is brought to the mound's top, its way
+/// out beside it; from there the walker runs down through the mound to the portal at its bottom,
+/// which leads to the hive's landing; and the way out of the mound's top leads back to the land
+/// beside the portal.
+/// Behaviour: server.world.olthoi-hive-western-land-portal-walk-through
+#[test]
+fn the_western_hives_portal_on_the_land_leads_to_the_top_of_its_mound_as_the_northeast_ones_does() {
+    use yalain_content::portal::{RECALL, SUMMON};
+    use yalain_world::usable::maps::ground_distance;
+    const MOUND: u32 = 0xDEA8;
+    const HIVE_LANDING: u32 = 0x06F4_0101;
+    let c = compiled();
+    let t = &c.tables;
+    let objects = &t.content.objects;
+    let west = mound_land_portal(t, MOUND);
+    let northeast = mound_land_portal(t, 0xE1A8);
+    for i in [west, northeast] {
+        let f = &objects[i].facts;
+        assert_eq!(
+            f.min_level,
+            Some(35),
+            "{:08X} from level 35",
+            objects[i].cell
+        );
+        assert_eq!(
+            f.portal & (RECALL | SUMMON),
+            RECALL | SUMMON,
+            "recalled and summoned"
+        );
+    }
+    assert_eq!(
+        objects[west].description.name, objects[northeast].description.name,
+        "named as the northeast one"
+    );
+    let mut w = walled(t, &[MOUND, HIVE_LANDING >> 16]);
+    let land = place_of(t, west);
+    w.put(spot(
+        land.cell,
+        [land.origin[0] - 4.0, land.origin[1], land.origin[2]],
+    ));
+    set_level(&mut w.h, 34);
+    let refused = run_through(&mut w, t, west).cell;
+    assert!(
+        refused >> 16 == MOUND && refused & 0xFFFF < 0x100,
+        "not under level 35: {refused:08X}"
+    );
+    set_level(&mut w.h, 35);
+    w.use_placed(t, west);
+    let top = w.at();
+    assert!(
+        top.cell >> 16 == MOUND && top.cell & 0xFFFF >= 0x100,
+        "into the mound: {:08X}",
+        top.cell
+    );
+    let bottom = way_into(t, MOUND, HIVE_LANDING);
+    let deep = place_of(t, bottom).origin[2];
+    assert!(top.origin[2] > deep + 60.0, "the mound's top: {top:?}");
+    let (out, by) = (0..objects.len())
+        .filter(|&i| {
+            objects[i].cell >> 16 == MOUND
+                && objects[i].cell & 0xFFFF >= 0x100
+                && objects[i]
+                    .destination
+                    .as_ref()
+                    .is_some_and(|d| d.cell >> 16 == MOUND && d.cell & 0xFFFF < 0x100)
+        })
+        .map(|i| (i, ground_distance(&top, &place_of(t, i))))
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .expect("a way out of the mound's top");
+    assert!(by < 4.0, "its way out beside where it lands: {by}");
+    on_foot_to(
+        &mut w,
+        place_of(t, bottom),
+        "the portal at the mound's bottom",
+    );
+    w.use_placed(t, bottom);
+    assert_eq!(w.at().cell, HIVE_LANDING, "to the hive's landing");
+    w.put(top);
+    let back = run_through(&mut w, t, out);
+    assert!(back.cell & 0xFFFF < 0x100, "out to the land");
+    let by = ground_distance(&back, &land);
+    assert!(by < 8.0, "beside the portal: {by}");
+}
+
+/// **The western hive's nymph is kept at the eight spawns its map marks, one at a time**: the
+/// Maturing Olthoi Drone Nymph's one camp in the western hive makes it alone, one at a time, and
+/// has a spot in each of eight far chambers, each at least 30 m from the others and 60 m from the
+/// landing, clear of the hive's other camps and its ways by 8 m; from the land outside the mound the
+/// walker runs down to the portal at its bottom, through to the hive's landing, and every spot is
+/// reached on foot from there, the nymph moving there; the farthest is run to and back.
+/// Behaviour: server.world.olthoi-hive-western-nymph-walk-through
+#[test]
+fn the_western_hives_nymph_is_kept_at_the_eight_spawns_its_map_marks_reached_from_its_landing() {
+    use dereth_primitives::num::math::hypotf;
+    const NYMPH: u32 = 0x4700_295E;
+    const MOUND: u32 = 0xDEA8;
+    const HIVE: u32 = 0x06F4;
+    const HIVE_LANDING: u32 = 0x06F4_0101;
+    let c = compiled();
+    let t = &c.tables;
+    let camps: Vec<usize> = (0..t.spawns.camps.len())
+        .filter(|&i| {
+            let camp = &t.spawns.camps[i];
+            camp.cell >> 16 == HIVE && camp.templates.iter().any(|(x, _)| *x == NYMPH)
+        })
+        .collect();
+    assert_eq!(camps.len(), 1, "one camp of the nymph in the hive");
+    let camp = &t.spawns.camps[camps[0]];
+    assert_eq!(camp.population, 1, "one at a time");
+    assert_eq!(camp.spots.len(), 8, "the map's eight spawns");
+    let landing = way_into(t, MOUND, HIVE_LANDING);
+    let landing = t.content.objects[landing]
+        .destination
+        .expect("the hive's landing")
+        .origin;
+    for (k, &(_, a)) in camp.spots.iter().enumerate() {
+        let d = hypotf(a[0] - landing[0], a[1] - landing[1]);
+        assert!(d >= 60.0, "{a:?} {d} m from the landing");
+        for &(_, b) in &camp.spots[k + 1..] {
+            let d = hypotf(a[0] - b[0], a[1] - b[1]);
+            assert!(d >= 30.0, "{a:?} {d} m from {b:?}");
+        }
+    }
+    camps_clear_of_the_rest(c, &camps, HIVE, 8.0);
+    let mut w = walled(t, &[MOUND, HIVE]);
+    w.put(spot(0xDEA8_000C, [28.01, 69.15, 74.8]));
+    let bottom = way_into(t, MOUND, HIVE_LANDING);
+    on_foot_to(
+        &mut w,
+        place_of(t, bottom),
+        "the portal at the mound's bottom",
+    );
+    w.use_placed(t, bottom);
+    assert_eq!(w.at().cell, HIVE_LANDING, "to the hive's landing");
+    assert_eq!(camps_reached_on_foot(c, &mut w, &camps, &[NYMPH], 1.5), 1);
+}
+
+/// **The Olthoi hunts' grubs are kept in the warren under the northeast hive**: each of the five
+/// hunts' creatures is made by one camp, of its two kinds alone, one at a time, in the warren and
+/// nowhere else, the soldier grub's in two chambers 30 m or more apart, every spot clear of the
+/// warren's other camps and its ways by 8 m; from the northeast mound the walker goes through to the
+/// hive, runs to the portal into the warren, through to its landing, and every spot is reached on
+/// foot from there, each kind moving there; the farthest is run to and back.
+/// Behaviour: server.world.olthoi-hunt-grubs-walk-through
+#[test]
+fn the_olthoi_hunts_grubs_are_kept_in_the_warren_reached_on_foot_from_its_landing() {
+    use dereth_primitives::num::math::hypotf;
+    const MOUND: u32 = 0xE1A8;
+    const HIVE: u32 = 0x06F5;
+    const WARREN: u32 = 0x06F3;
+    const HIVE_LANDING: u32 = 0x06F5_0162;
+    const SECOND: u32 = 0x06F3_0141;
+    // Each hunt's two creatures: the worker, soldier, drone, grub tender and noble.
+    const HUNTS: [[u32; 2]; 5] = [
+        [0x4700_2939, 0x4700_293A],
+        [0x4700_292F, 0x4700_2930],
+        [0x4700_290D, 0x4700_290F],
+        [0x4700_2910, 0x4700_2913],
+        [0x4700_2929, 0x4700_292A],
+    ];
+    let c = compiled();
+    let t = &c.tables;
+    let mut camps = Vec::new();
+    for kinds in HUNTS {
+        let of: Vec<usize> = (0..t.spawns.camps.len())
+            .filter(|&i| {
+                t.spawns.camps[i]
+                    .templates
+                    .iter()
+                    .any(|(x, _)| kinds.contains(x))
+            })
+            .collect();
+        assert_eq!(of.len(), 1, "one camp of {:08X}", kinds[0]);
+        let camp = &t.spawns.camps[of[0]];
+        assert!(
+            camp.cell >> 16 == WARREN && camp.cell & 0xFFFF >= 0x100,
+            "{:08X} in the warren: {:08X}",
+            kinds[0],
+            camp.cell
+        );
+        let mut made: Vec<u32> = camp.templates.iter().map(|(x, _)| *x).collect();
+        made.sort_unstable();
+        assert_eq!(made, kinds, "its two kinds alone");
+        assert_eq!(camp.population, 1, "one at a time");
+        camps.push(of[0]);
+    }
+    let soldier = &t.spawns.camps[camps[1]];
+    let apart = soldier
+        .spots
+        .iter()
+        .flat_map(|&(_, a)| {
+            soldier
+                .spots
+                .iter()
+                .map(move |&(_, b)| hypotf(a[0] - b[0], a[1] - b[1]))
+        })
+        .fold(0.0f32, f32::max);
+    assert!(apart >= 30.0, "the soldier grub's two chambers: {apart}");
+    camps_clear_of_the_rest(c, &camps, WARREN, 8.0);
+    let mut w = walled(t, &[MOUND, HIVE, WARREN]);
+    let into_hive = way_into(t, MOUND, HIVE_LANDING);
+    assert_eq!(
+        through(&mut w, t, into_hive).cell,
+        HIVE_LANDING,
+        "in the hive"
+    );
+    let into_warren = way_into(t, HIVE, SECOND);
+    on_foot_to(
+        &mut w,
+        place_of(t, into_warren),
+        "the portal into the warren",
+    );
+    w.use_placed(t, into_warren);
+    assert_eq!(w.at().cell, SECOND, "to the warren's landing");
+    let kinds: Vec<u32> = HUNTS.iter().flatten().copied().collect();
+    assert_eq!(camps_reached_on_foot(c, &mut w, &camps, &kinds, 1.5), 5);
+}
+
 /// **The mine under the Skyport walks through**: its way in from the hills leads to its landing,
 /// its way out beside it; every spot of its camps of Mangler and Mauler banderlings stands in its
 /// own room clear of the ore and the apparatus, each kind moving there, and is reached on foot; the
@@ -31904,8 +32402,8 @@ const CACOPHOS_GLOW: u32 = 0x6F00_1A7C;
 /// pack, used on its own stone, puts its dispel and bar on the beast's camp's creature, leaves the
 /// stone glowing and says the stone's line; each seal on the ground lies at one of two places in
 /// the heart's side rooms at a time, its use giving a hero the seal for the pack at the quest's
-/// second phase, moving the quest nowhere; each stone stands on the lair platform's rim. Returns
-/// the beast's camp's row.
+/// second phase, moving the quest nowhere; each seal for the pack lasts four hours; each stone
+/// stands on the lair platform's rim. Returns the beast's camp's row.
 fn cacophos_rows(t: &Tables) -> usize {
     use yalain_content::item_rows::On;
     use yalain_content::quests::{Trigger, Update};
@@ -31955,6 +32453,7 @@ fn cacophos_rows(t: &Tables) -> usize {
         assert_eq!((on.camp, on.effects.as_slice()), (row, &[dispel, bar][..]));
         assert_eq!(r.effects_here, [CACOPHOS_GLOW], "{key}: the stone glows");
         assert_eq!(r.tell, Some(PRESSED), "{key}: the stone's line");
+        assert_eq!(t.items.lives.get(&pack), Some(&14_400), "{key}: four hours");
         assert!(
             r.gives.is_empty() && r.places.is_empty(),
             "{key}: nothing made"
@@ -32253,6 +32752,64 @@ fn the_same_seal_pressed_twice_takes_no_more_off_the_beast() {
         (after_one - after_two).abs() < 3_000,
         "heals as fast: {after_one} and {after_two}"
     );
+}
+
+/// **A seal picked up in the heart lasts four hours in the pack**: a hero at the quest's second
+/// phase takes the first seal from where it lies in the heart; the seal for the pack ends the four
+/// hours of the effect that makes it after it was taken, is held until then, and at the world's
+/// step after it is gone from the pack. The seal on the ground, lying again in a side room since its
+/// time away, gives another for four hours more.
+/// Behaviour: server.quests.osteth-cacophos-seal-lasts-four-hours
+#[test]
+fn a_seal_picked_up_in_the_heart_lasts_four_hours_in_the_pack() {
+    const FOUR_HOURS: f64 = 14_400.0;
+    let t = &compiled().tables;
+    let row = cacophos_rows(t);
+    let mut w = walled(t, &[0x07EF]);
+    w.h.server.quest_ids = quest_ids();
+    set_level(&mut w.h, 60);
+    seals_served(&mut w, t, row);
+    put_at_phase(&mut w.h, 0x4000_0337, 2);
+    for p in w.h.server.players.values_mut() {
+        yalain_world::quals::set_bool(&mut p.qualities, yalain_world::focus::HERO, true);
+    }
+    let (key, _, pack, ..) = CACOPHOS_SEALS[0];
+    let world = w.world;
+    let held = |w: &Walled| -> Option<u64> {
+        w.h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .find(|x| x.template == pack)
+            .map(|x| x.id)
+    };
+    let take = |w: &mut Walled| -> (u64, f64) {
+        let lying = seal_lying(w, t, key);
+        w.put(beside(&t.content.objects[lying]));
+        let taken = w.h.server.game_now;
+        w.use_placed(t, lying);
+        let id = held(w).unwrap_or_else(|| panic!("{key}: the seal for the pack"));
+        let ends = w.h.server.things.get(id).and_then(|x| x.own.ends);
+        let ends = ends.expect("an end");
+        assert!(
+            (ends - taken - FOUR_HOURS).abs() < 5.0,
+            "{key}: four hours after it was taken: {}",
+            ends - taken
+        );
+        (id, ends)
+    };
+    let (seal, ends) = take(&mut w);
+    let until =
+        |w: &Walled, game: f64| yalain_net::LocalTime(w.h.now.0 + (game - w.h.server.game_now));
+    let before = until(&w, ends - 2.0);
+    w.h.run_to(before);
+    assert_eq!(held(&w), Some(seal), "{key}: held until its end");
+    let after = until(&w, ends + 2.0);
+    w.h.run_to(after);
+    assert_eq!(held(&w), None, "{key}: gone after it");
+    assert!(w.h.server.things.get(seal).is_none());
+    let (again, _) = take(&mut w);
+    assert_ne!(again, seal, "{key}: another seal");
 }
 
 /// **Uncover the Past walks through, from the watchtower's Gurog to the dungeon's five debris piles
@@ -33033,4 +33590,479 @@ fn the_temples_priestess_gives_the_stars_quest_whose_recipes_making_ends_it() {
         Some(status::COMPLETED),
         "not given again"
     );
+}
+
+/// The templates of the pieces a player holds that its race and kingdom wear from the forge's new suit: armor asking
+/// for a race, a kingdom and 92 arcane lore, as the install's own templates say.
+fn forge_suit_held(h: &Harness) -> Vec<(u32, u32, u32, u32)> {
+    let portal = yalain_testkit::authored::Portal::open();
+    let mut out: Vec<(u32, u32, u32, u32)> = h
+        .server
+        .players
+        .values()
+        .flat_map(|p| p.play.items.iter())
+        .filter_map(|x| {
+            let p = as_installed(&portal, x.template).props;
+            (p.int("Usage_RequiredArcaneLore") == Some(92)).then(|| {
+                let w = |n: &str| p.word(n).unwrap_or(0);
+                (
+                    x.template,
+                    w("Usage_RequiredRace"),
+                    w("Usage_RequiredFaction"),
+                    w("Item_ValidInventoryLocations"),
+                )
+            })
+        })
+        .collect();
+    out.sort_unstable();
+    out
+}
+
+/// **A huge pyreum begins the cleansed forge's new suit, and the player's blood ends it with the armor of its race and
+/// kingdom**: the quest is its setup's (challenge 55, a day long, given again a second after it is done, from level
+/// 50); the forge stands in the forge room, reached on foot from the hammer, and given the pyreum from there by one of
+/// a kingdom who has cleansed it, it begins the quest. Played: before the forge is cleansed the pyreum is handed back
+/// with its line for an item it does not take, and a use says nothing of a suit; once cleansed a use says its
+/// instructions for a new suit; the pyreum is handed back to one of no kingdom and to one under level 50, and kept from
+/// one of a kingdom with its line as the gem bursts, the quest at its first phase. Each of the five other essences is
+/// kept with its line as it boils away, the quest unmoved; the essence that heals moves it to its second phase with its
+/// line asking for five of the ebon metal; two of them at once are handed back, and five given one at a time move it a
+/// phase each, the first four with the smelting line and the fifth with the spheres'; 99,999 coins are handed back and
+/// 100,000 kept with their line, moving it on; the attuned crystal moves it to the last phase with its line, making no
+/// star; a use then ends it with the attuning line and the five pieces of the player's race and kingdom, one for each
+/// place worn. A second suit is begun a moment later, and the crystal of the tree's chain serves too. Each race of each
+/// kingdom is given its own five pieces; one of no kingdom at the last phase is given nothing.
+/// Behaviour: server.quests.osteth-chaos-forge-new-suit-walk-through
+#[test]
+fn a_huge_pyreum_begins_the_cleansed_forges_new_suit_and_the_players_blood_ends_it_with_its_race_and_kingdoms_armor(
+) {
+    use yalain_content::quests::{Trigger, Update};
+    use yalain_world::quests::status;
+    const QUEST: u32 = 0x4000_0305;
+    const CLEANSE: u32 = 0x4000_0303;
+    const FORGE: u32 = 0x4700_2F63;
+    const HAMMER: u32 = 0x4700_2F66;
+    const PYREUM: u32 = 0x4700_106B;
+    const HEALS: u32 = 0x4700_1324;
+    const OTHER_ESSENCES: [u32; 5] = [
+        0x4700_1326,
+        0x4700_1327,
+        0x4700_1328,
+        0x4700_1329,
+        0x4700_132A,
+    ];
+    const EBON: u32 = 0x4700_0AFD;
+    const COIN: u32 = 0x4700_0538;
+    const ATTUNED_CRYSTAL: u32 = 0x4700_131C;
+    const TREE_CRYSTAL: u32 = 0x4700_0612;
+    const STAR: u32 = 0x4700_184B;
+    /// The forge's lines: the gem bursting, the essence hissing, another essence boiling away, the metal smelted, the
+    /// fifth's spheres, the coins, the crystal, the blood, its instructions, and an item handed back.
+    const BEGUN: u32 = 0xE026_5634;
+    const HISSES: u32 = 0x01ED_2C80;
+    const BOILS: u32 = 0x728C_DEF5;
+    const SMELTED: u32 = 0xA93F_106A;
+    const SPHERES: u32 = 0xA53F_106A;
+    const COINS_LINE: u32 = 0xFEDD_AFDC;
+    const CRYSTAL_LINE: u32 = 0xBFF4_0440;
+    const ATTUNED: u32 = 0x41AE_4C35;
+    const INSTRUCTIONS: u32 = 0x4C63_015E;
+    const UNTOUCHED: u32 = 0xF1EB_BC45;
+    /// The races by number, and the kingdoms: shadow, order, dominion.
+    const RACES: [u32; 5] = [1, 2, 4, 8, 16];
+    const KINGDOMS: [u32; 3] = [1, 2, 4];
+    let t = &compiled().tables;
+    let objects = &t.content.objects;
+    let forge = placed(t, FORGE);
+    let hammer = placed(t, HAMMER);
+    let quest = t.quests.quest(QUEST).expect("the new suit's quest");
+    assert_eq!(
+        (
+            quest.challenge,
+            quest.min_level,
+            quest.duration,
+            quest.retry
+        ),
+        (55, 50, 86_400.0, 1.0),
+        "its setup's values"
+    );
+    assert_eq!(quest.xp, 0, "no experience for it");
+    let blood: Vec<_> = t
+        .quests
+        .steps
+        .iter()
+        .filter(|s| {
+            s.quest == QUEST && s.trigger == Trigger::Use(FORGE) && s.update == Update::Complete
+        })
+        .collect();
+    assert_eq!(blood.len(), 15, "one ending for each race of each kingdom");
+    assert!(blood
+        .iter()
+        .all(|s| s.needs == 9 && s.races.len() == 1 && s.gives.len() == 5));
+
+    // On foot: the forge from the hammer, and the pyreum given it from there.
+    let portal = yalain_testkit::authored::Portal::open();
+    let mut w = walled(t, &[objects[forge].cell >> 16]);
+    let o = &objects[hammer];
+    w.put(spot(o.cell, [o.origin[0] - 1.5, o.origin[1], o.origin[2]]));
+    assert!(w.run_to(objects[forge].origin, 10.0), "the forge on foot");
+    let body = portal.body(FORGE).expect("the forge's body");
+    w.h.server.catalog.bodies.insert(FORGE, body);
+    w.h.server.quest_ids = quest_ids();
+    w.h.server.kingdom_rows = t.kingdoms.clone();
+    set_level(&mut w.h, 60);
+    let walker = w.world;
+    if let Some(p) = w.h.server.players.get_mut(&walker) {
+        yalain_world::kingdoms::set_kingdom(&mut p.qualities, 2);
+    }
+    put_done(&mut w.h, CLEANSE);
+    assert!(w.give_to(t, forge, PYREUM), "given from there, kept");
+    assert_eq!(state_of(&w.h, QUEST), Some((status::UNDERWAY, 1)), "begun");
+
+    // Played.
+    let (mut h, b, me) = served(t);
+    h.server.quest_ids = quest_ids();
+    h.server.kingdom_rows = t.kingdoms.clone();
+    let world = player_world(&h);
+    let kingdom = |h: &mut Harness, k: u32| {
+        let p = h.server.players.get_mut(&world).expect("in");
+        yalain_world::kingdoms::set_kingdom(&mut p.qualities, k);
+    };
+    let race = |h: &mut Harness, r: u32| {
+        h.server.players.get_mut(&world).expect("in").race = r;
+    };
+    let said = |h: &mut Harness| -> Vec<u32> {
+        use_person(h, b, me, t, forge)
+            .into_iter()
+            .filter_map(|(_, s)| s)
+            .collect()
+    };
+    let unsuited = |h: &mut Harness| {
+        let suit: Vec<u32> = forge_suit_held(h).into_iter().map(|x| x.0).collect();
+        let p = h.server.players.get_mut(&world).expect("in");
+        p.play.items.retain(|x| !suit.contains(&x.template));
+    };
+    for item in [
+        PYREUM,
+        HEALS,
+        EBON,
+        COIN,
+        ATTUNED_CRYSTAL,
+        TREE_CRYSTAL,
+        STAR,
+    ]
+    .into_iter()
+    .chain(OTHER_ESSENCES)
+    {
+        h.server.catalog.insert(as_installed(&portal, item));
+    }
+    set_level(&mut h, 60);
+    race(&mut h, 1);
+    kingdom(&mut h, 2);
+    let told = said(&mut h);
+    assert!(
+        !told.contains(&INSTRUCTIONS),
+        "no suit before the forge is cleansed: {told:08X?}"
+    );
+    let (told, left) = offered(&mut h, b, me, t, (FORGE, PYREUM), (1, 1));
+    assert_eq!(
+        left,
+        Some(1),
+        "the pyreum handed back before the forge is cleansed"
+    );
+    assert!(told.contains(&UNTOUCHED), "untouched: {told:08X?}");
+    assert_eq!(state_of(&h, QUEST), None);
+    put_done(&mut h, CLEANSE);
+    let told = said(&mut h);
+    assert!(
+        told.contains(&INSTRUCTIONS),
+        "its instructions: {told:08X?}"
+    );
+    assert_eq!(state_of(&h, QUEST), None, "a use begins nothing");
+    kingdom(&mut h, 0);
+    let (_, left) = offered(&mut h, b, me, t, (FORGE, PYREUM), (1, 1));
+    assert_eq!(left, Some(1), "handed back to one of no kingdom");
+    assert_eq!(state_of(&h, QUEST), None);
+    kingdom(&mut h, 2);
+    set_level(&mut h, 49);
+    let (_, left) = offered(&mut h, b, me, t, (FORGE, PYREUM), (1, 1));
+    assert_eq!(left, Some(1), "handed back under level 50");
+    assert_eq!(state_of(&h, QUEST), None);
+    set_level(&mut h, 60);
+    let (told, left) = offered(&mut h, b, me, t, (FORGE, PYREUM), (1, 1));
+    assert_eq!(left, None, "the pyreum kept");
+    assert!(told.contains(&BEGUN), "the gem bursts: {told:08X?}");
+    assert_eq!(state_of(&h, QUEST), Some((status::UNDERWAY, 1)), "begun");
+    let (_, left) = offered(&mut h, b, me, t, (FORGE, EBON), (1, 1));
+    assert_eq!(left, Some(1), "the metal is not yet wanted");
+    for essence in OTHER_ESSENCES {
+        let (told, left) = offered(&mut h, b, me, t, (FORGE, essence), (1, 1));
+        assert_eq!(left, None, "{essence:08X} kept");
+        assert!(
+            told.contains(&BOILS),
+            "{essence:08X} boils away: {told:08X?}"
+        );
+        assert_eq!(
+            state_of(&h, QUEST),
+            Some((status::UNDERWAY, 1)),
+            "{essence:08X} moves nothing"
+        );
+    }
+    let (told, left) = offered(&mut h, b, me, t, (FORGE, HEALS), (1, 1));
+    assert_eq!(left, None, "the essence that heals kept");
+    assert!(told.contains(&HISSES), "it hisses: {told:08X?}");
+    assert_eq!(state_of(&h, QUEST), Some((status::UNDERWAY, 2)));
+    let (_, left) = offered(&mut h, b, me, t, (FORGE, EBON), (2, 2));
+    assert_eq!(left, Some(2), "two at once handed back");
+    assert_eq!(state_of(&h, QUEST), Some((status::UNDERWAY, 2)));
+    for n in 0..5_u32 {
+        let (told, left) = offered(&mut h, b, me, t, (FORGE, EBON), (1, 1));
+        assert_eq!(left, None, "the metal {} kept", n + 1);
+        let (line, not) = if n == 4 {
+            (SPHERES, SMELTED)
+        } else {
+            (SMELTED, SPHERES)
+        };
+        assert!(
+            told.contains(&line) && !told.contains(&not),
+            "the metal {}: {told:08X?}",
+            n + 1
+        );
+        assert_eq!(state_of(&h, QUEST), Some((status::UNDERWAY, n + 3)));
+    }
+    let (_, left) = offered(&mut h, b, me, t, (FORGE, COIN), (99_999, 99_999));
+    assert_eq!(left, Some(99_999), "too few coins handed back");
+    assert_eq!(state_of(&h, QUEST), Some((status::UNDERWAY, 7)));
+    let (told, left) = offered(&mut h, b, me, t, (FORGE, COIN), (100_000, 100_000));
+    assert_eq!(left, None, "a hundred thousand kept");
+    assert!(told.contains(&COINS_LINE), "the coins' line: {told:08X?}");
+    assert_eq!(state_of(&h, QUEST), Some((status::UNDERWAY, 8)));
+    let (told, left) = offered(&mut h, b, me, t, (FORGE, ATTUNED_CRYSTAL), (1, 1));
+    assert_eq!(left, None, "the crystal kept");
+    assert!(
+        told.contains(&CRYSTAL_LINE),
+        "the crystal's line: {told:08X?}"
+    );
+    assert!(!holds_item(&h, STAR), "no star made of it");
+    assert_eq!(state_of(&h, QUEST), Some((status::UNDERWAY, 9)));
+    let told = said(&mut h);
+    assert!(told.contains(&ATTUNED), "the blood's line: {told:08X?}");
+    assert_eq!(
+        state_of(&h, QUEST).map(|q| q.0),
+        Some(status::COMPLETED),
+        "ended"
+    );
+    let suit = forge_suit_held(&h);
+    assert_eq!(suit.len(), 5, "five pieces: {suit:08X?}");
+    assert!(
+        suit.iter().all(|x| (x.1, x.2) == (1, 2)),
+        "the human order's: {suit:08X?}"
+    );
+    let mut worn: Vec<u32> = suit.iter().map(|x| x.3).collect();
+    worn.sort_unstable();
+    worn.dedup();
+    assert_eq!(worn.len(), 5, "one for each place worn: {suit:08X?}");
+
+    // A second suit, a moment later, with the tree's crystal.
+    h.advance(2.0);
+    let (_, left) = offered(&mut h, b, me, t, (FORGE, PYREUM), (1, 1));
+    assert_eq!(left, None, "a second pyreum kept");
+    assert_eq!(
+        state_of(&h, QUEST),
+        Some((status::UNDERWAY, 1)),
+        "begun again"
+    );
+    put_at_phase(&mut h, QUEST, 8);
+    let (_, left) = offered(&mut h, b, me, t, (FORGE, TREE_CRYSTAL), (1, 1));
+    assert_eq!(left, None, "the tree's crystal kept");
+    assert_eq!(state_of(&h, QUEST), Some((status::UNDERWAY, 9)));
+
+    // Each race of each kingdom, its own five.
+    for r in RACES {
+        for k in KINGDOMS {
+            unsuited(&mut h);
+            put_at_phase(&mut h, QUEST, 9);
+            race(&mut h, r);
+            kingdom(&mut h, k);
+            said(&mut h);
+            assert_eq!(
+                state_of(&h, QUEST).map(|q| q.0),
+                Some(status::COMPLETED),
+                "race {r} of kingdom {k}"
+            );
+            let suit = forge_suit_held(&h);
+            assert_eq!(suit.len(), 5, "race {r} of kingdom {k}: {suit:08X?}");
+            assert!(
+                suit.iter().all(|x| (x.1, x.2) == (r, k)),
+                "race {r} of kingdom {k}: {suit:08X?}"
+            );
+        }
+    }
+    unsuited(&mut h);
+    put_at_phase(&mut h, QUEST, 9);
+    kingdom(&mut h, 0);
+    said(&mut h);
+    assert_eq!(
+        state_of(&h, QUEST),
+        Some((status::UNDERWAY, 9)),
+        "one of no kingdom"
+    );
+    assert!(forge_suit_held(&h).is_empty(), "given nothing");
+}
+
+/// **The plane of chaos's six bosses now and then leave the huge pyreum the forge's new suit begins with**: no source
+/// drops it, so the world has each of them leave one at a rare chance of its own (above 0, at most one in twenty),
+/// and no other creature; one camp keeps each boss alone. On foot, the eidolon is reached from its dungeon's landing
+/// and each platform's golem from where the hammer's quest lands a player on that platform. Played: the eidolon its
+/// camp makes, killed again and again, leaves a corpse holding the pyreum.
+/// Behaviour: server.quests.osteth-chaos-forge-huge-pyreum-drop
+#[test]
+fn the_chaos_planes_six_bosses_now_and_then_leave_the_huge_pyreum_the_forges_new_suit_begins_with()
+{
+    const PYREUM: u32 = 0x4700_106B;
+    const EIDOLON: u32 = 0x4700_2C94;
+    const WAY_ON: u32 = 0x4700_131E;
+    const CLEANSE: u32 = 0x4000_0303;
+    /// Each boss and its block: the eidolon, then the forge's five platforms' golems.
+    const BOSSES: [(u32, u32); 6] = [
+        (EIDOLON, 0x04B4),
+        (0x4700_250B, 0x04BD),
+        (0x4700_2507, 0x04BE),
+        (0x4700_2509, 0x04BF),
+        (0x4700_2508, 0x04C0),
+        (0x4700_250A, 0x04C1),
+    ];
+    let t = &compiled().tables;
+    let objects = &t.content.objects;
+    for (boss, block) in BOSSES {
+        let camps: Vec<_> = t
+            .spawns
+            .camps
+            .iter()
+            .filter(|c| c.templates.iter().any(|(x, _)| *x == boss))
+            .collect();
+        assert_eq!(camps.len(), 1, "{boss:08X}: one camp keeps it");
+        let camp = camps[0];
+        assert_eq!(
+            (camp.cell >> 16, camp.population),
+            (block, 1),
+            "{boss:08X} alone"
+        );
+        assert!(
+            camp.templates.iter().all(|(x, _)| *x == boss),
+            "{boss:08X} alone"
+        );
+        let chances: Vec<f32> = t
+            .loot
+            .treasures_of(boss, Some(&camp.id))
+            .filter(|d| d.item == PYREUM)
+            .map(|d| d.chance)
+            .collect();
+        assert_eq!(chances.len(), 1, "{boss:08X} leaves the pyreum");
+        assert!(
+            chances[0] > 0.0 && chances[0] <= 0.05,
+            "{boss:08X}: rarely, {}",
+            chances[0]
+        );
+    }
+    let droppers = t.loot.treasures.iter().filter(|d| d.item == PYREUM).count();
+    assert_eq!(droppers, BOSSES.len(), "no other creature leaves it");
+
+    // On foot: the eidolon from its dungeon's landing, each golem from its platform's landing.
+    let landing = objects[placed(t, WAY_ON)]
+        .destination
+        .expect("the way on's landing");
+    for (boss, block) in BOSSES {
+        let from = if boss == EIDOLON {
+            (landing.cell, landing.origin)
+        } else {
+            t.quests
+                .steps
+                .iter()
+                .filter(|s| s.quest == CLEANSE)
+                .filter_map(|s| s.to.as_ref())
+                .find(|p| p.cell >> 16 == block)
+                .map(|p| (p.cell, p.origin))
+                .unwrap_or_else(|| panic!("a landing on {block:04X}"))
+        };
+        assert_eq!(from.0 >> 16, block, "{boss:08X}'s landing in its block");
+        let camp = camps_keeping(t, block, boss)[0];
+        let mut w = walled(t, &[block]);
+        w.put(spot(from.0, from.1));
+        assert!(
+            w.run_far(camp.cell, camp.origin, 4.0),
+            "{boss:08X} on foot from its landing"
+        );
+    }
+
+    // Played: the eidolon killed again and again, until its corpse holds the pyreum.
+    let camp = camps_keeping(t, 0x04B4, EIDOLON)[0].clone();
+    let portal = yalain_testkit::authored::Portal::open();
+    let (mut h, _b, me) = served(t);
+    h.server.loot = t.loot.clone();
+    for kind in [EIDOLON, PYREUM] {
+        h.server.catalog.insert(as_installed(&portal, kind));
+    }
+    h.server.content.guards = yalain_content::guards::GuardTable { rows: Vec::new() };
+    h.server.spawns.camps = vec![camp.clone()];
+    h.server.camps = vec![yalain_world::spawn::CampState::default()];
+    for p in h.server.players.values_mut() {
+        p.position.cell = camp.cell;
+        p.position.origin = camp.origin;
+    }
+    let corpses = |h: &Harness| -> Vec<u64> {
+        let mut v: Vec<u64> = h
+            .server
+            .things
+            .by_id
+            .values()
+            .filter(|x| x.corpse.as_ref().is_some_and(|c| c.creature == EIDOLON))
+            .map(|x| x.id)
+            .collect();
+        v.sort_unstable();
+        v
+    };
+    let holds_pyreum = |h: &Harness, corpse: u64| {
+        h.server
+            .things
+            .get(corpse)
+            .and_then(|x| x.corpse.as_ref())
+            .is_some_and(|c| {
+                c.contents.iter().any(|i| {
+                    h.server
+                        .things
+                        .get(*i)
+                        .is_some_and(|x| x.template == PYREUM)
+                })
+            })
+    };
+    let mut kills = 0;
+    let mut found = false;
+    while !found && kills < 2_000 {
+        assert!(
+            h.run_until(800, |h| !living_of(h, EIDOLON).is_empty()),
+            "its camp makes it again ({kills} kills)"
+        );
+        let id = living_of(&h, EIDOLON)[0];
+        if let Some(c) = h
+            .server
+            .things
+            .get_mut(id)
+            .and_then(|x| x.creature.as_mut())
+        {
+            c.stats.attacks_first = false;
+        }
+        let before = corpses(&h).last().copied().unwrap_or(0);
+        let clock = h.clock();
+        yalain_world::combat::hurt_creature(&mut h.server, &mut h.net, id, me, 100_000_000, clock);
+        assert!(
+            h.run_until(800, |h| corpses(h).last().copied().unwrap_or(0) > before),
+            "its corpse ({kills} kills)"
+        );
+        kills += 1;
+        let corpse = corpses(&h).last().copied().unwrap_or(0);
+        found = holds_pyreum(&h, corpse);
+        h.advance(camp.regen);
+    }
+    assert!(found, "a corpse holds the pyreum within {kills} kills");
 }
