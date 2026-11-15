@@ -317,8 +317,8 @@ fn a_players_corpse_closed_empty_still_lasts_its_minute() {
 }
 
 /// A creature whose template says it never leaves a corpse: whoever sees it die sees it fall, then
-/// made ethereal and hidden in the same tick; no corpse is ever made, and it leaves the world three
-/// seconds after its death.
+/// made passable (its own physics type with the dead bit: 0x0480_0030 for 0x0480_0020) and hidden
+/// in the same tick; no corpse is ever made, and it leaves the world three seconds after its death.
 /// Behaviour: server.corpse.never-left
 #[test]
 fn a_creature_that_never_leaves_a_corpse_is_hidden_as_it_dies_and_leaves_three_seconds_later() {
@@ -339,6 +339,7 @@ fn a_creature_that_never_leaves_a_corpse_is_hidden_as_it_dies_and_leaves_three_s
         let t = h.server.things.get_mut(dummy).expect("the creature");
         t.health = 10;
         t.max_health = 10;
+        t.description.numbers[0] = 0x0480_0020;
         let c = t.creature.as_mut().expect("a creature");
         c.stats.attacks_first = false;
         c.stats.never_leaves_corpse = true;
@@ -355,7 +356,7 @@ fn a_creature_that_never_leaves_a_corpse_is_hidden_as_it_dies_and_leaves_three_s
     });
     let ethereal = at(&|m| {
         matches!(m, ServerMessage::UpdateIntVisual(q)
-            if q.object.id == dummy && q.quality == 3 && q.value == 0x40_0030)
+            if q.object.id == dummy && q.quality == 3 && q.value == 0x0480_0030)
     });
     let hidden = at(&|m| {
         matches!(m, ServerMessage::UpdateBoolVisual(q)

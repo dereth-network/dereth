@@ -611,6 +611,8 @@ pub enum Timer {
         creature: u64,
         killer: u64,
         pose: f32,
+        /// Seconds since the death.
+        after: f64,
     },
     /// A thing leaves the world.
     Vanish { id: u64 },
@@ -1061,7 +1063,8 @@ impl<S: Store> Server<S> {
                     creature,
                     killer,
                     pose,
-                } => death::corpse_appears(self, net, creature, killer, pose, clock),
+                    after,
+                } => death::corpse_appears(self, net, creature, killer, (pose, after), clock),
                 Timer::Vanish { id } => death::vanish(self, net, id),
                 Timer::Missile(f) => missiles::arrives(self, net, f, clock),
                 Timer::PetMissile { pet, target, skill } => {

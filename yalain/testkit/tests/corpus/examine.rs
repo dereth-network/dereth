@@ -2560,3 +2560,132 @@ fn equipment_a_creature_with_a_loot_quality_override_drops_stands_at_its_tens_or
     assert!(ours >= 300 * DRAWS, "{ours}");
     assert_eq!(below, 0, "{below} of {ours}");
 }
+
+/// One recorded death: the dead creature's look and template, its pose, and how long after the
+/// death its corpse came.
+struct Death {
+    look: auberean_protocol::types::VisualDesc,
+    template: u32,
+    pose: Option<f32>,
+    corpse_after: Option<f64>,
+}
+
+/// A session's creature deaths, in the order they came.
+fn deaths(con: &Connection, session: i64) -> Vec<Death> {
+    let mut st = con
+        .prepare(
+            "SELECT t, raw FROM message WHERE session_id = ?1 AND dir = 's2c' AND status = 'ac2'
+             AND mtype IN (65624, 65663, 65665) ORDER BY idx",
+        )
+        .expect("prepares");
+    let mut rows = st.query([session]).expect("runs");
+    let mut seen: HashMap<u64, (auberean_protocol::types::VisualDesc, u32)> = HashMap::new();
+    let mut dying: HashMap<u64, (usize, f64)> = HashMap::new();
+    // The pose's slider comes just before the death's behavior.
+    let mut posed: HashMap<u64, f32> = HashMap::new();
+    let mut out: Vec<Death> = Vec::new();
+    while let Some(row) = rows.next().expect("a row") {
+        let t: f64 = row.get(0).expect("t");
+        let raw: Vec<u8> = row.get(1).expect("raw");
+        match ServerMessage::decode(&raw) {
+            Ok(ServerMessage::CreateObject(c)) => {
+                if c.weenie.entity_did == yalain_world::death::CORPSE_TEMPLATE {
+                    let of = c.weenie.objects[3];
+                    if let Some((i, at)) = dying.remove(&of) {
+                        out[i].corpse_after = Some(t - at);
+                    }
+                } else {
+                    seen.insert(c.id, (c.visual.clone(), c.weenie.entity_did));
+                }
+            }
+            Ok(ServerMessage::PlayBehavior(e))
+                if e.action.behavior == yalain_world::death::look::DEATH =>
+            {
+                let id = e.sender.id;
+                if let (Some((v, template)), false) = (seen.get(&id), dying.contains_key(&id)) {
+                    dying.insert(id, (out.len(), t));
+                    out.push(Death {
+                        look: v.clone(),
+                        template: *template,
+                        pose: posed.get(&id).copied(),
+                        corpse_after: None,
+                    });
+                }
+            }
+            Ok(ServerMessage::MoveSlider(e))
+                if e.action.slider == yalain_world::death::look::POSE =>
+            {
+                if let Some((i, _)) = dying.get(&e.sender.id) {
+                    out[*i].pose.get_or_insert(e.action.value);
+                } else {
+                    posed.insert(e.sender.id, e.action.value);
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Each creature's corpse in the 2017 recordings came as this server times it: as the creature's
+/// fall in its pose ended on its body's own animation, and 0.03 s after. Of every creature death
+/// whose corpse was seen (the players' and the looks sent with their own behavior table left
+/// out), 98% came within 0.15 s of it (10,382 of 10,497), at least fifty more than by the longest
+/// of every part's animation, which puts the humanoid bodies' corpses 12.4 s after their deaths
+/// (10,283).
+/// Behaviour: server.death.corpse-as-the-fall-ends
+#[test]
+fn creatures_corpses_in_2017_came_as_their_falls_ended() {
+    const PLAYER: u32 = 0x4700_0530;
+    let path = auberean_testkit::data::require_capture_index();
+    let con = open(&path);
+    let sessions: Vec<i64> = con
+        .prepare(
+            "SELECT DISTINCT s.session_id FROM session s JOIN capture c USING (capture_id)
+             WHERE s.game = 'ac2' AND c.file LIKE '2017-%'",
+        )
+        .expect("prepares")
+        .query_map([], |r| r.get(0))
+        .expect("runs")
+        .map(|r| r.expect("a session"))
+        .collect();
+    let p = yalain_testkit::authored::Portal::open();
+    let t = yalain_world::timings::Timings::new(p.dat.clone(), p.ctx.clone());
+    let (mut timed, mut near, mut near_every) = (0usize, 0usize, 0usize);
+    for session in sessions {
+        for d in deaths(&con, session) {
+            let (Some(pose), Some(after)) = (d.pose, d.corpse_after) else {
+                continue;
+            };
+            if d.template == PLAYER
+                || d.look.bits & auberean_protocol::types::VisualDesc::BEHAVIOR_TABLE != 0
+            {
+                continue;
+            }
+            let Some(plays) = t.plays_of(&d.look) else {
+                continue;
+            };
+            let Some(fall) = t.fall(&plays, pose) else {
+                continue;
+            };
+            timed += 1;
+            near += usize::from((after - fall - yalain_world::death::CORPSE_PAUSE).abs() <= 0.15);
+            let every = t
+                .timeline_at(
+                    &plays,
+                    yalain_world::death::look::DEAD_MODE,
+                    yalain_world::death::look::DEATH,
+                    (yalain_world::death::look::POSE, pose),
+                )
+                .map_or(0.0, |x| f64::from(x.period));
+            near_every +=
+                usize::from((after - every - yalain_world::death::CORPSE_PAUSE).abs() <= 0.15);
+        }
+    }
+    println!(
+        "2017: {near} of {timed} corpses within 0.15 s of the body's fall, {near_every} of every part's"
+    );
+    assert!(timed > 10_000, "{timed}");
+    assert!(near * 100 >= timed * 98, "{near} of {timed}");
+    assert!(near >= near_every + 50, "{near} against {near_every}");
+}

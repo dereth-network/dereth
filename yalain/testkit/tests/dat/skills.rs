@@ -2533,3 +2533,138 @@ fn the_skills_that_cost_focus_read_with_their_lines_and_all_are_hero_skills() {
     assert_eq!(at(1638, 5.0), ((-10.0, -10.0), 10, 10), "Armor Force");
     assert_eq!(at(207, 30.0).2, 0, "Deadeye costs none");
 }
+
+/// A creature's death as the install plays it: its corpse appears as its fall ends.
+mod falls {
+    use yalain_testkit::authored::Portal;
+    use yalain_testkit::{Harness, STEP, TEST_CREATURE};
+    use yalain_world::death;
+    use yalain_world::timings::Timings;
+
+    /// Carnage Shreth, Revenant Legionary, Axe Orb and Chaos Berserker.
+    const CARNAGE_SHRETH: u32 = 0x4700_2AF6;
+    const REVENANT_LEGIONARY: u32 = 0x4700_2C84;
+    const AXE_ORB: u32 = 0x4700_083D;
+    const CHAOS_BERSERKER: u32 = 0x4700_277B;
+
+    /// A player beside a creature of the test world drawn as a template of the install, with the
+    /// install's animations: the harness, the player's character and the creature.
+    fn drawn_as(p: &Portal, template: u32) -> (Harness, u64, u64) {
+        let look = p.template(template).description.look;
+        let mut h = Harness::new();
+        h.add_creatures(1);
+        let (_, me) = h.player_in_world("one", "Killer");
+        h.run(10);
+        h.server.timings = Some(Timings::new(p.dat.clone(), p.ctx.clone()));
+        let id = h
+            .server
+            .things
+            .by_id
+            .values()
+            .find(|t| t.template == TEST_CREATURE && t.alive())
+            .map(|t| t.id)
+            .expect("a creature");
+        let t = h.server.things.get_mut(id).expect("the creature");
+        t.description.look = look;
+        t.health = 10;
+        t.max_health = 10;
+        t.creature.as_mut().expect("a creature").stats.attacks_first = false;
+        (h, me, id)
+    }
+
+    /// A creature's corpse appears as its fall ends in the pose it was drawn, and 0.03 s after: the
+    /// install's death on its body, in its dead mode, the pose's slider picking the clip. A Carnage
+    /// Shreth's corpse comes 4.24 s after the death in poses 0 and 3, 1.91 in 1 and 4, 1.78 in 2 and
+    /// 5; a Revenant Legionary's 1.20 s but for pose 5's 2.03; an Axe Orb's 2.00 in every pose; a
+    /// Chaos Berserker's 6.03 s, its body's own fall, where a part hung from the body plays for 12.42
+    /// (2017's medians of the time from the death to the corpse: 4.29, 1.88 and 1.79 s over 1,031
+    /// Carnage Shreths; 1.19 and 1.98 over 173 Revenant Legionaries; 1.98 to 2.01 over 369 Axe Orbs;
+    /// 6.08 to 6.13 over 31 Chaos Berserkers).
+    /// Behaviour: server.death.corpse-as-the-fall-ends
+    #[test]
+    fn a_creatures_corpse_appears_as_its_fall_in_its_pose_ends() {
+        let p = Portal::open();
+        let cases: [(u32, [f64; 6], [f64; 6]); 4] = [
+            (
+                CARNAGE_SHRETH,
+                [4.208, 1.875, 1.750, 4.208, 1.875, 1.750],
+                [4.29, 1.88, 1.79, 4.29, 1.88, 1.79],
+            ),
+            (
+                REVENANT_LEGIONARY,
+                [1.167, 1.167, 1.167, 1.167, 1.167, 2.000],
+                [1.19, 1.19, 1.19, 1.19, 1.19, 1.98],
+            ),
+            (AXE_ORB, [1.967; 6], [1.98, 1.98, 1.99, 2.01, 2.00, 1.98]),
+            (
+                CHAOS_BERSERKER,
+                [6.000; 6],
+                [6.12, 6.08, 6.10, 6.10, 6.09, 6.13],
+            ),
+        ];
+        for (template, falls, recorded) in cases {
+            let (h, _, id) = drawn_as(&p, template);
+            for pose in 0..6 {
+                #[allow(clippy::cast_precision_loss)]
+                let after = death::corpse_after(&h.server, id, pose as f32);
+                let fall = falls[pose];
+                assert!(
+                    (after - (fall + 0.03)).abs() < 0.002,
+                    "{template:#x} pose {pose}: {after} after a fall of {fall}"
+                );
+                assert!(
+                    (after - recorded[pose]).abs() < 0.15,
+                    "{template:#x} pose {pose}: {after} against 2017's {}",
+                    recorded[pose]
+                );
+            }
+        }
+    }
+
+    /// A Chaos Berserker killed: its corpse appears 6.03 s after its death, whatever its pose, its
+    /// rights still kept two minutes from the death, and the creature leaves three seconds after its
+    /// corpse.
+    /// Behaviour: server.death.corpse-as-the-fall-ends
+    #[test]
+    fn a_killed_creatures_corpse_comes_as_its_fall_ends_and_its_rights_run_from_the_death() {
+        let p = Portal::open();
+        let (mut h, me, id) = drawn_as(&p, CHAOS_BERSERKER);
+        let died = h.clock();
+        yalain_world::combat::hurt_creature(&mut h.server, &mut h.net, id, me, 50, died);
+        let corpse = |h: &Harness| {
+            h.server
+                .things
+                .by_id
+                .values()
+                .find(|t| t.corpse.as_ref().is_some_and(|c| c.originator == id))
+                .map(|t| t.id)
+        };
+        assert!(h.run_until(400, |h| corpse(h).is_some()), "a corpse");
+        let made = h.now.0 - STEP - died.local.0;
+        assert!(
+            (made - 6.03).abs() <= STEP,
+            "the corpse {made} s after the death"
+        );
+        let c = corpse(&h).expect("a corpse");
+        let unlocks = h
+            .server
+            .things
+            .get(c)
+            .and_then(|t| t.corpse.as_ref())
+            .map(|c| c.unlocks)
+            .expect("its rights");
+        let from_death = unlocks - died.local.0;
+        assert!(
+            (120.0..120.0 + STEP + 1e-9).contains(&from_death),
+            "kept {from_death} s from the death"
+        );
+        let gone = |h: &Harness| h.server.things.get(id).is_none();
+        let corpse_at = h.now.0;
+        assert!(h.run_until(200, gone), "the creature leaves");
+        let left = h.now.0 - corpse_at;
+        assert!(
+            (left - 3.0).abs() <= 2.0 * STEP,
+            "it leaves {left} s after its corpse"
+        );
+    }
+}

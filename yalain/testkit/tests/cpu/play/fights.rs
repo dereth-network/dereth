@@ -302,24 +302,78 @@ fn a_practice_target_is_struck_and_never_strikes_back() {
     );
 }
 
-/// Two seconds after its death the creature's corpse appears where it fell, holding what its loot
-/// profile leaves; three seconds later the creature leaves the world.
+/// Two seconds after its death, where the install does not say how long its fall plays, the
+/// creature's corpse appears where it fell, holding what its loot profile leaves; three seconds
+/// later the creature leaves the world (2017: a median 1.98 s over every fall, the creature gone
+/// a median 3.00 s after its corpse).
 /// Behaviour: server.death.corpse-and-leaving
 #[test]
 fn a_dead_creature_leaves_a_corpse_with_its_loot_and_then_leaves() {
     let (mut h, b, _, beetle) = fight();
+    let died = h.now.0;
     let corpse = h.run_until(200, |h| {
         h.world_messages(b, 0)
             .iter()
             .any(|m| matches!(m, ServerMessage::CreateObject(o) if o.weenie.entity_did == CORPSE))
     });
     assert!(corpse, "a corpse appears");
+    let appeared = h.now.0;
+    assert!(
+        (appeared - died - 2.0).abs() <= 2.0 * yalain_testkit::STEP,
+        "the corpse {} s after the death",
+        appeared - died
+    );
     let left = h.run_until(200, |h| {
         h.world_messages(b, 0)
             .iter()
             .any(|m| matches!(m, ServerMessage::ForgetObject(o) if o.0.id == beetle))
     });
     assert!(left, "the creature leaves");
+    assert!(
+        (h.now.0 - appeared - 3.0).abs() <= 2.0 * yalain_testkit::STEP,
+        "it leaves {} s after its corpse",
+        h.now.0 - appeared
+    );
+}
+
+/// As its corpse appears, the dead creature is told its own physics type with the dead bit, so it
+/// can be walked through: a creature of type 0x0880_0020 (a kingdom's bit among them) is told
+/// 0x0880_0030, once, in the tick its corpse is made, and not as it falls (2017: the dying
+/// creature's own type with the dead bit, 10,520 of 10,520, with its corpse's object).
+/// Behaviour: server.death.dying-creature-made-passable
+#[test]
+fn a_dead_creature_is_made_passable_with_its_own_type_as_its_corpse_appears() {
+    let (mut h, b, _, beetle) = fight_with(|h| {
+        if let Some(t) = h.server.catalog.templates.get_mut(&TEST_CREATURE) {
+            t.description.numbers[0] = 0x0880_0020;
+        }
+    });
+    let told = |h: &Harness| -> Vec<i32> {
+        h.world_messages(b, 0)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::UpdateIntVisual(q) if q.object.id == beetle && q.quality == 3 => {
+                    Some(q.value)
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    let corpse = |h: &Harness| {
+        h.world_messages(b, 0)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::CreateObject(o) if o.weenie.entity_did == CORPSE))
+    };
+    assert!(told(&h).is_empty(), "not as it falls");
+    assert!(h.run_until(200, |h| !told(h).is_empty()), "told");
+    assert!(corpse(&h), "in the tick its corpse is made");
+    assert_eq!(
+        told(&h),
+        vec![0x0880_0030],
+        "its own type, the dead bit set"
+    );
+    h.run(200);
+    assert_eq!(told(&h).len(), 1, "once");
 }
 
 /// An item drawn from a creature's loot profile carries what its dropper's level gives it of its

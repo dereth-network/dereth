@@ -4028,12 +4028,24 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.death.corpse-and-leaving",
-        says: "Two seconds after its death a creature's corpse appears where it fell, holding \
-               what its loot profile leaves; three seconds later the creature leaves the world.",
+        says: "A creature's corpse appears where it fell, holding what its loot profile leaves, \
+               two seconds after its death where the install does not say how long its fall \
+               plays; three seconds later the creature leaves the world.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CORPSE"),
         station: "yalain-testkit::cpu::play::fights::a_dead_creature_leaves_a_corpse_with_its_loot_and_then_leaves",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.death.corpse-as-the-fall-ends",
+        says: "A creature's corpse appears as its fall ends, and 0.03 s after: its death as its \
+               look plays it in its dead mode, the death pose's slider picking the clip, on its \
+               body's own animation map and not that of a part hung from the body. The loot \
+               rights still run two minutes from the death.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-FALL"),
+        station: "yalain-testkit::dat::skills::falls::a_creatures_corpse_appears_as_its_fall_in_its_pose_ends",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.death.corpse-settles",
@@ -4061,6 +4073,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-DEAD-NO-ATTACK"),
         station: "yalain-testkit::cpu::play::dying::a_dead_player_starts_no_attack_run",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.death.dying-creature-made-passable",
+        says: "As its corpse appears, a dead creature is told its own physics type with the dead \
+               bit, once, so it can be walked through; one that leaves no corpse is told so as it \
+               dies.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-DEAD-PASSABLE"),
+        station: "yalain-testkit::cpu::play::fights::a_dead_creature_is_made_passable_with_its_own_type_as_its_corpse_appears",
         tier: Tier::Cpu,
     },
     behaviour! {

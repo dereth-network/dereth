@@ -1,5 +1,6 @@
 //! How long what a body plays takes, as the install's animations say: when a blow lands, when an
-//! attacker's next attack comes, how long a special plays, how long a chest takes to open or close.
+//! attacker's next attack comes, how long a special plays, how long a chest takes to open or close,
+//! how long a creature takes to fall dead.
 //!
 //! The attacker's look in its combat mode plays the story's behavior: a cycle at time scale 1 and
 //! its story hooks ([`auberean_animation::timeline`]). A story's hook numbered n runs at the n-th
@@ -65,8 +66,12 @@ pub struct Timings {
     records: TimelineRecords,
     looks: Mutex<HashMap<u32, Option<Plays>>>,
     played: Mutex<HashMap<(Plays, u32, u32), Option<Timeline>>>,
+    posed: Mutex<HashMap<Posed, Option<Timeline>>>,
     changes: Mutex<HashMap<(Plays, u32, u32), Option<f64>>>,
 }
+
+/// A body, a mode, a behavior, and a slider with its value's bits.
+type Posed = (Plays, u32, u32, (u32, u32));
 
 fn locked<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -80,6 +85,7 @@ impl Timings {
             records: TimelineRecords::new(portal, ctx),
             looks: Mutex::default(),
             played: Mutex::default(),
+            posed: Mutex::default(),
             changes: Mutex::default(),
         }
     }
@@ -134,6 +140,46 @@ impl Timings {
         t
     }
 
+    /// What a body plays for a behavior in a mode, on the ground, with one slider set (a death's
+    /// pose).
+    #[must_use]
+    pub fn timeline_at(
+        &self,
+        plays: &Plays,
+        mode: u32,
+        behavior: u32,
+        slider: (u32, f32),
+    ) -> Option<Timeline> {
+        let key = (
+            plays.clone(),
+            mode,
+            behavior,
+            (slider.0, slider.1.to_bits()),
+        );
+        if let Some(t) = locked(&self.posed).get(&key) {
+            return t.clone();
+        }
+        let t = timeline::timeline_with(&self.records, plays, EARTH, mode, behavior, &[slider]);
+        locked(&self.posed).insert(key, t.clone());
+        t
+    }
+
+    /// How long a body's fall plays in a death pose, at time scale 1, in seconds: its death
+    /// behavior in its dead mode, as the pose's slider picks the clip, on its body's own map (not
+    /// that of a part hung from the body, which may run longer); `None` when the install does not
+    /// say.
+    #[must_use]
+    pub fn fall(&self, plays: &Plays, pose: f32) -> Option<f64> {
+        use crate::death::look;
+        let played = self.timeline_at(
+            &plays.body_only()?,
+            look::DEAD_MODE,
+            look::DEATH,
+            (look::POSE, pose),
+        )?;
+        (played.period > 0.0).then_some(f64::from(played.period))
+    }
+
     /// How long a body takes to go from one mode to another, at time scale 1.
     #[must_use]
     pub fn mode_change(&self, plays: &Plays, from: u32, to: u32) -> Option<f64> {
@@ -185,4 +231,12 @@ pub fn of_thing<S: Store>(s: &Server<S>, id: u64, behavior: u32) -> Timeline {
 pub fn thing_mode_change<S: Store>(s: &Server<S>, id: u64, from: u32, to: u32) -> Option<f64> {
     let t = s.timings.as_ref()?;
     t.mode_change(&thing_plays(s, t, id)?, from, to)
+}
+
+/// How long a thing's fall plays in a death pose, at time scale 1, in seconds ([`Timings::fall`],
+/// on the look it is drawn with); `None` when the install does not say.
+#[must_use]
+pub fn fall<S: Store>(s: &Server<S>, id: u64, pose: f32) -> Option<f64> {
+    let t = s.timings.as_ref()?;
+    t.fall(&thing_plays(s, t, id)?, pose)
 }

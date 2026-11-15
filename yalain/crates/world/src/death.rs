@@ -8,9 +8,20 @@
 //! shared out among the fellows without a text), another creature's to no one; then the killer is
 //! told "You have killed the %1." and moves on any quest the kill triggers. Every client that sees
 //! the creature sees it dead, wounded, unselectable, in its death pose, playing its death. Its camp's replacement is due after the
-//! camp's period. **Two seconds later** its corpse appears where it fell (drawn as the creature,
-//! named "Corpse of ..." the creature, its killer recorded, holding what the creature left), and
-//! **three seconds after that** the creature leaves the world.
+//! camp's period. **As its fall ends** its corpse appears where it fell (drawn as the creature,
+//! named "Corpse of ..." the creature, its killer recorded, holding what the creature left), the
+//! creature itself made passable in the same moment, and **three seconds after that** the creature
+//! leaves the world.
+//!
+//! **The fall** ([`corpse_after`]) is the creature's death as its look plays it in the pose drawn,
+//! its body's own clip (not that of a part hung from the body), then [`CORPSE_PAUSE`]; two seconds
+//! where the install does not say. Its own physics type with the dead bit makes it passable
+//! ([`look::DEAD_BIT`]). (2017: of 10,497 creature deaths, 98.9% came within 0.15 s of the fall's
+//! end and the pause, and 332 of the 340 templates seen dying five times or more had their median
+//! within 0.1 s of it: a Carnage Shreth's corpse 4.3 s after the death in poses 0 and 3 and 1.8 to
+//! 1.9 s in the others, a Revenant Legionary's 1.2 s, a Chaos Berserker's 6.1 s where a part hung
+//! from its body plays for 12.4; the dying creature was told its own type with the dead bit,
+//! 10,520 of 10,520.)
 //!
 //! **Boosts** ([`kill_pays`]). What a creature is worth is first what its own effects make of its
 //! death experience as it dies; each share a player is paid is then that times the player's
@@ -141,14 +152,31 @@ pub mod look {
     pub const CORPSE_FX: u32 = 0x4100_0004;
     pub const CORPSE_MODE: u32 = 0x4100_0003;
     pub const SLIDER: u32 = 0x4000_000A;
-    /// A dead creature's ethereal physics type, and the bit a dead pet's own takes.
-    pub const ETHEREAL: i32 = 0x40_0000 | 0x30;
+    /// The bit a dead thing's own physics type takes: it can be walked through.
     pub const DEAD_BIT: i32 = 0x10;
 }
 
-/// When the corpse appears after the death, and the creature leaves after it, in seconds.
+/// When the corpse appears after the death where the install does not say how long the creature's
+/// fall plays, and when the creature leaves after its corpse, in seconds (2017: a median 1.98 s
+/// over every fall; the creature gone a median 3.00 s after its corpse).
 pub const CORPSE_AFTER: f64 = 2.0;
 pub const LEAVES_AFTER: f64 = 3.0;
+
+/// After a creature's fall ends, when its corpse appears, in seconds (2017: a median 0.03 s at
+/// every length of fall, so it is the server's, not the animation's).
+pub const CORPSE_PAUSE: f64 = 0.03;
+
+/// When a creature's corpse appears after its death in a pose: as its fall ends ([`crate::timings::fall`])
+/// and [`CORPSE_PAUSE`] after; [`CORPSE_AFTER`] where the install does not say.
+#[must_use]
+pub fn corpse_after<S: Store>(s: &Server<S>, id: u64, pose: f32) -> f64 {
+    crate::timings::fall(s, id, pose).map_or(CORPSE_AFTER, |f| f + CORPSE_PAUSE)
+}
+
+/// A dead thing's physics type: its own, with the dead bit.
+fn dead_type(t: &Thing) -> i32 {
+    t.description.numbers[0] | look::DEAD_BIT
+}
 
 /// How long after a death its corpse is kept for those with a right to it, in seconds.
 pub const LOOT_LOCK: f64 = 120.0;
@@ -294,13 +322,15 @@ pub fn creature_dies<S: Store>(
         s.after(clock, NO_CORPSE_LEAVES_AFTER, Timer::Vanish { id });
         return;
     }
+    let after = corpse_after(s, id, pose);
     s.after(
         clock,
-        CORPSE_AFTER,
+        after,
         Timer::Corpse {
             creature: id,
             killer,
             pose,
+            after,
         },
     );
 }
@@ -309,12 +339,16 @@ pub fn creature_dies<S: Store>(
 pub const NO_CORPSE_LEAVES_AFTER: f64 = 3.0;
 
 /// A creature that leaves no corpse, in its death tick: every client that sees it is told it is
-/// ethereal and not drawn (2017: both together, then gone 3.0 s later, 10 of 10 such deaths).
+/// passable (its own physics type with the dead bit) and not drawn (2017: both together, then gone
+/// 3.0 s later, 10 of 10 such deaths).
 fn unseen<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
+    let Some(value) = s.things.get(id).map(dead_type) else {
+        return;
+    };
     let ethereal = ServerMessage::UpdateIntVisual(VisualQuality {
         object: visual(s, id),
         quality: q::ETHEREAL_LOW,
-        value: look::ETHEREAL,
+        value,
     });
     to_all_seeing(s, net, id, &ethereal);
     let hidden = ServerMessage::UpdateBoolVisual(VisualQuality {
@@ -884,28 +918,24 @@ fn claimants<S: Store>(s: &Server<S>, killer: u64) -> Vec<ConnId> {
     out
 }
 
-/// Two seconds after a death: the corpse appears where the creature fell.
+/// As a creature's fall ends (`after` seconds after its death): the corpse appears where it fell,
+/// and the creature is made passable, keeping its own physics type, kingdom and all, with the dead
+/// bit.
 pub fn corpse_appears<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     creature: u64,
     killer: u64,
-    pose: f32,
+    (pose, after): (f32, f64),
     clock: Clock,
 ) {
     let Some(dead) = s.things.get(creature).cloned() else {
         return;
     };
-    // A pet keeps its own physics type, kingdom and all, with the dead bit.
-    let value = if dead.summoner.is_some() {
-        dead.description.numbers[0] | look::DEAD_BIT
-    } else {
-        look::ETHEREAL
-    };
     let ethereal = ServerMessage::UpdateIntVisual(VisualQuality {
         object: visual(s, creature),
         quality: q::ETHEREAL_LOW,
-        value,
+        value: dead_type(&dead),
     });
     to_all_seeing(s, net, creature, &ethereal);
     let Some(corpse_t) = s.catalog.get(CORPSE_TEMPLATE).cloned().or_else(|| {
@@ -970,7 +1000,7 @@ pub fn corpse_appears<S: Store>(
         butchered: false,
         killer_level,
         claimant,
-        unlocks: clock.local.0 + LOOT_LOCK - CORPSE_AFTER,
+        unlocks: clock.local.0 + LOOT_LOCK - after,
         killed_by: Some(killer_name(s, Some(killer))),
         ..Corpse::default()
     });

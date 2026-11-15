@@ -1671,6 +1671,7 @@ pub fn dies<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, killer: u
                 creature: id,
                 killer,
                 pose,
+                after,
             },
         ),
         // No corpse: the body leaves as long after as a corpse's body would.

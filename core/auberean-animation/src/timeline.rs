@@ -49,11 +49,26 @@ impl<T: crate::body::BodyRecords> PlayRecords for T {
     }
 }
 
-/// What a body plays with: its behavior table and its part groups' animation maps.
+/// What a body plays with: its behavior table and its part groups' animation maps, and among them
+/// the map of the group the body hangs from (none when that group has none).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Default)]
 pub struct Plays {
     pub table: DataId,
     pub maps: Vec<DataId>,
+    pub body: DataId,
+}
+
+impl Plays {
+    /// What the body itself plays with, leaving out the groups hung from it (whose own clips may
+    /// run longer than the body's); none when its group has no map.
+    #[must_use]
+    pub fn body_only(&self) -> Option<Self> {
+        (!self.body.is_none()).then(|| Self {
+            table: self.table,
+            maps: vec![self.body],
+            body: self.body,
+        })
+    }
 }
 
 /// A behavior's cycle on a body, at time scale 1: its length and its story hooks' moments, in
@@ -100,6 +115,21 @@ pub fn timeline<R: PlayRecords>(
     mode: u32,
     behavior: u32,
 ) -> Option<Timeline> {
+    timeline_with(records, plays, element, mode, behavior, &[])
+}
+
+/// What `behavior` plays on a body in `element` and `mode` with some sliders set from their
+/// starts (a death pose's slider choosing the fall, say): as [`timeline`], its graphs read
+/// against those values.
+#[must_use]
+pub fn timeline_with<R: PlayRecords>(
+    records: &R,
+    plays: &Plays,
+    element: u32,
+    mode: u32,
+    behavior: u32,
+    set: &[(u32, f32)],
+) -> Option<Timeline> {
     let table = records.behavior_table(plays.table)?;
     let combo = table.combo(&BehaviorKey {
         element,
@@ -109,7 +139,7 @@ pub fn timeline<R: PlayRecords>(
     if !combo.is_valid() {
         return None;
     }
-    key_timeline(records, plays, element, mode, combo.anim_key)
+    key_timeline(records, plays, element, mode, combo.anim_key, set)
 }
 
 fn key_timeline<R: PlayRecords>(
@@ -118,8 +148,12 @@ fn key_timeline<R: PlayRecords>(
     element: u32,
     mode: u32,
     key: u32,
+    set: &[(u32, f32)],
 ) -> Option<Timeline> {
-    let sliders = Sliders::new();
+    let mut sliders = Sliders::new();
+    for (slider, value) in set {
+        sliders.set(*slider, *value);
+    }
     let st = state(&sliders, element, mode);
     let mut found = false;
     let mut out = Timeline::default();
@@ -262,6 +296,10 @@ pub fn plays_of_look(look: &Look) -> Plays {
             .map(|(_, g)| g.anim_map)
             .filter(|m| !m.is_none())
             .collect(),
+        body: look
+            .root
+            .and_then(|k| look.groups.get(k))
+            .map_or(DataId::NONE, |g| g.anim_map),
     }
 }
 
