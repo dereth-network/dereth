@@ -272,7 +272,8 @@ Targets fs_draw(Card in, uniform DrawPush push)
     o.light = float4(per_pixel ? float3(0.0, 0.0, 0.0) : lit, in.fog);
     // A leaf as deep in its crown as the picture shows it.
     uint kind = uint(r2.w + 0.5);
-    o.material = material_bytes(CLASS_SUN, kind, kind == 1 ? uint(saturate(baked.w) * 255.0 + 0.5) : 0);
+    uint deep = kind == 1 ? uint(saturate(baked.w) * 255.0 + 0.5) : 0;
+    o.material = material_bytes(CLASS_SUN, kind, deep | SET_PICTURED);
     return o;
 }
 

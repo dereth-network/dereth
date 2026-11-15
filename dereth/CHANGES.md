@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Remaster: distant forests no longer shimmer with ray-traced shading.
 - Asheron's Call 2 art pack: creatures now walk more naturally.
 - Fixed logging into some GDLE servers.
 

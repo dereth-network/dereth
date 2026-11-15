@@ -624,23 +624,29 @@ fn traced_shadows_on_far_mountains_hold_still_while_the_view_turns() {
     );
 }
 
-/// The most of what stands on the far land (its pixels past [`FAR`] meters, away from its edges)
-/// whose traced occlusion may move by over a tenth from one frame to the next, held under the
-/// anti-aliasing or turning. Measured: none, held or turning; 0.024 held and 0.006 turning while
-/// a ray from a far point standing under retail's ground was shut in by the ground's underside.
+/// The most of what stands on the far land (its pixels past [`FAR`] meters, away from the land's
+/// edges) whose traced occlusion may move by over a tenth from one frame to the next, held under
+/// the anti-aliasing or turning. Measured: none, held or turning; 0.024 held and 0.006 turning
+/// while a ray from a far point standing under retail's ground was shut in by the ground's
+/// underside; 0.006 turning while the far trees' cards traced their occlusion about the normal of
+/// whichever view of the tree a pixel showed that frame.
 const FAR_OCCLUSION_MOVES: f64 = 0.002;
 
 /// The most of [`far_frames`]' far land standing on the ground whose occlusion moved by over a
-/// tenth from one frame to the next, and the fewest such pixels in a frame.
+/// tenth from one frame to the next, and the fewest such pixels in a frame. What stands there is
+/// the far forest, its trees drawn as cards a few pixels across, so a pixel is counted where every
+/// pixel round is on the land (the ground or what stands on it), not only where every one is
+/// another of the trees'.
 fn worst_occlusion_moves(frames: &[(RemasterCapture, Vec<f32>)]) -> (f64, usize) {
-    use crate::instruments::far_shadow_frames::occlusion_moved;
+    use crate::instruments::far_shadow_frames::occlusion_moved_amid;
     let (mut worst, mut fewest) = (0.0f64, usize::MAX);
     for pair in frames.windows(2) {
         let (was, now) = (&pair[0], &pair[1]);
-        let m = occlusion_moved(
+        let m = occlusion_moved_amid(
             (&was.0, &was.1),
             (&now.0, &now.1),
             2,
+            &[1, 2],
             (f64::from(FAR), f64::INFINITY),
         );
         worst = worst.max(m.over_a_tenth);
@@ -651,9 +657,9 @@ fn worst_occlusion_moves(frames: &[(RemasterCapture, Vec<f32>)]) -> (f64, usize)
 
 /// **The traced occlusion on the far mountains holds still while the view is held**: at
 /// [`far_hill`] with the anti-aliasing on, whose projection moves by part of a pixel every frame,
-/// the occlusion of what stands on the far land (past [`FAR`] meters, away from its edges) moves
-/// by over a tenth on under one in five hundred of its pixels from one frame to the next, over
-/// sixteen frames.
+/// the occlusion of what stands on the far land (past [`FAR`] meters, away from the land's edges)
+/// moves by over a tenth on under one in five hundred of its pixels from one frame to the next,
+/// over sixteen frames.
 #[test]
 fn traced_occlusion_on_far_mountains_holds_still_while_the_view_is_held() {
     let _gpu = crate::common::gpu_lock();
@@ -679,9 +685,9 @@ fn traced_occlusion_on_far_mountains_holds_still_while_the_view_is_held() {
 
 /// **The traced occlusion on the far mountains holds still while the view turns**: at
 /// [`far_hill`] without the anti-aliasing, the camera turning by a twentieth of a pixel a frame
-/// one way and then back, the occlusion of what stands on the far land (away from its edges)
-/// moves by over a tenth on under one in five hundred of its pixels from one frame to the next,
-/// over sixteen frames.
+/// one way and then back, the occlusion of what stands on the far land (away from the land's
+/// edges) moves by over a tenth on under one in five hundred of its pixels from one frame to the
+/// next, over sixteen frames.
 #[test]
 fn traced_occlusion_on_far_mountains_holds_still_while_the_view_turns() {
     let _gpu = crate::common::gpu_lock();

@@ -373,8 +373,8 @@ Targets far_targets(Far in, DrawPush push, float3 albedo, float3 N, float depth,
     o.albedo = wetted(push.weather, push.frame, in.position, CLASS_SUN, N, 0.0, float4(albedo, 1.0));
     o.normal = oct_encode(N);
     o.light = float4(per_pixel ? float3(0.0, 0.0, 0.0) : lit, in.fog);
-    // The kind: foliage.
-    o.material = material_bytes(CLASS_SUN, 1, uint(saturate(deep) * 255.0 + 0.5));
+    // The kind: foliage, drawn from pictures.
+    o.material = material_bytes(CLASS_SUN, 1, uint(saturate(deep) * 255.0 + 0.5) | SET_PICTURED);
     o.depth = depth;
     return o;
 }

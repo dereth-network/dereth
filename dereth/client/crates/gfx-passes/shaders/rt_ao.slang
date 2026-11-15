@@ -10,8 +10,12 @@
 //   the surface the game lights its ground by, so ground drawn over it never occludes itself.
 //   Past the near ground, a ray meets it only from above, so a far point's barely known depth,
 //   which may put it under that surface, never has it occluded by the surface's underside.
+//   A surface drawn from pictures (`SET_PICTURED`, a far tree's card) casts its rays over the sky
+//   above it rather than about its normal, which changes as the card shows another view of its
+//   tree from frame to frame, so its occlusion holds still.
 // - `fs_filter`: each pixel's occlusion from the four by four pixels round it that lie on its own
-//   surface (near in depth and facing the same way), which evens the pattern out.
+//   surface (near in depth and facing the same way; two pictured pixels by their depth alone),
+//   which evens the pattern out.
 //
 // The scene's structures are the game's own, and so is the module that reads them: `rt`, found
 // with the game's shaders, names the masks a ray asks for (`RT_GROUND` the ground's structure,
@@ -67,6 +71,12 @@ float4 at(uint t, int2 p)
 uint class_at(int2 p)
 {
     return uint(at(push.material, p).x * 255.0 + 0.5);
+}
+
+// Whether the surface at `p` is drawn from pictures of it (`SET_PICTURED`).
+bool pictured(int2 p)
+{
+    return (uint(at(push.material, p).w * 255.0 + 0.5) << 8) == SET_PICTURED;
 }
 
 // Whether pixels of class `cls` take the occlusion: never the sky, and rooms and what is in them
@@ -161,7 +171,8 @@ float4 fs_rays(float4 position : SV_Position) : SV_Target0
         return float4(1.0, 0.0, 0.0, 0.0);
     }
     float3 world = world_at(position.xy, d);
-    float3 n = oct_decode(at(push.normal, p).xy);
+    // A pictured surface's normal moves from frame to frame; the sky above it holds.
+    float3 n = pictured(p) ? float3(0.0, 0.0, 1.0) : oct_decode(at(push.normal, p).xy);
     float radius = asfloat(push.radius);
     float start = asfloat(push.falloff) * radius;
     float dist = length(world - row(push.frame, FRAME_EYE).xyz);
@@ -223,6 +234,7 @@ float4 fs_filter(float4 position : SV_Position) : SV_Target0
     float3 world = world_at(position.xy, d);
     float z = length(world - row(push.frame, FRAME_EYE).xyz);
     float3 n = oct_decode(at(push.normal, p).xy);
+    bool card = pictured(p);
     float sum = 0.0;
     float weight = 0.0;
     for (int dy = -1; dy <= 2; dy++)
@@ -238,7 +250,10 @@ float4 fs_filter(float4 position : SV_Position) : SV_Target0
             float3 wq = world_at(float2(q) + 0.5, at(depth_of(c), q).x);
             float zq = length(wq - row(push.frame, FRAME_EYE).xyz);
             float3 nq = oct_decode(at(push.normal, q).xy);
-            if (abs(zq - z) > 0.03 * z + 0.05 || dot(nq, n) < 0.8)
+            // Two pictured pixels are of one surface by their depth alone: their normals are
+            // whichever view each shows this frame.
+            bool facing = (card && pictured(q)) || dot(nq, n) >= 0.8;
+            if (abs(zq - z) > 0.03 * z + 0.05 || !facing)
             {
                 continue;
             }

@@ -50,6 +50,12 @@ public static const uint CLASS_INDOOR = 3;
 public static const uint CLASS_CELL = 4;
 public static const uint CLASS_SKY = 5;
 
+// In the material's light set (`material_bytes`), the mark of a surface drawn from pictures of it,
+// one of which a pixel shows by a pattern that moves every frame (a far tree's card): its depth
+// holds but its normal changes from frame to frame, so the passes that would follow its normal
+// (the traced occlusion) take the sky above it instead. Never on a surface lit by its light set.
+public static const uint SET_PICTURED = 0x100;
+
 // One float4 of buffer `b`, the `i`th.
 public float4 row(uint b, uint i)
 {

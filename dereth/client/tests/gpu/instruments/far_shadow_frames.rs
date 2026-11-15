@@ -98,28 +98,42 @@ pub(crate) struct OcclusionMoved {
 /// light class `class` from `reach.0` to `reach.1` meters from the eye: only those whose every
 /// pixel round is of that class in both frames, so an edge moved by part of a pixel is not
 /// counted.
-#[allow(clippy::cast_precision_loss)] // pixel counts
 pub(crate) fn occlusion_moved(
     was: (&RemasterCapture, &[f32]),
     now: (&RemasterCapture, &[f32]),
     class: u8,
     reach: (f64, f64),
 ) -> OcclusionMoved {
+    occlusion_moved_amid(was, now, class, &[class], reach)
+}
+
+/// [`occlusion_moved`] over the pixels of light class `class` in both frames whose every pixel
+/// round is of one of the classes `around` in both: what stands on the land amid the land, say.
+#[allow(clippy::cast_precision_loss)] // pixel counts
+pub(crate) fn occlusion_moved_amid(
+    was: (&RemasterCapture, &[f32]),
+    now: (&RemasterCapture, &[f32]),
+    class: u8,
+    around: &[u8],
+    reach: (f64, f64),
+) -> OcclusionMoved {
     let (c, ao) = now;
     let (b, was_ao) = was;
     let dist = distances(c);
     let w = c.render_size.0 as usize;
-    let of_class = |i: usize| c.class[i] == class && b.class[i] == class;
+    let amid = |i: usize| around.contains(&c.class[i]) && around.contains(&b.class[i]);
     let px: Vec<usize> = (0..dist.len())
         .filter(|&i| {
             let (x, y) = (i % w, i / w);
-            dist[i] > reach.0
+            c.class[i] == class
+                && b.class[i] == class
+                && dist[i] > reach.0
                 && dist[i] < reach.1
                 && x > 0
                 && y > 0
                 && x + 1 < w
                 && (y + 1) * w < c.class.len()
-                && (y - 1..=y + 1).all(|yy| (x - 1..=x + 1).all(|xx| of_class(yy * w + xx)))
+                && (y - 1..=y + 1).all(|yy| (x - 1..=x + 1).all(|xx| amid(yy * w + xx)))
         })
         .collect();
     let n = px.len().max(1) as f64;
