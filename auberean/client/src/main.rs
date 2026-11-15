@@ -18,7 +18,7 @@
 //!          [--size 1280x960] [--dev-login ACCOUNT:PASSWORD [--dev-character NAME]]
 //!          [--dev-overlay] [--dev-script FILE] [--shots DIR] [--no-window SECONDS] [--no-sound]
 //!          [--world-overlays] [--remaster] [--verbose]
-//! auberean --dats <install folder> --explore [LOCATION]
+//! auberean --dats <install folder> --explore [LOCATION] [--explore-time SECONDS]
 //! ```
 //!
 //! The install folder is the September 2013 client's: its data files are the world and the
@@ -48,6 +48,9 @@
 //! (`auberean_shell::explore`): from a location as the game writes one (a position, `0x6FA90015
 //! [45.24 90.51 85.26] 178`, or map coordinates, `41.2S, 12.6E`), quoted or not, or from a lawn in
 //! block 6FA9 with none. A location that does not read stops the client, saying why.
+//! `--explore-time` holds its moment at a game clock in seconds (a recorded server time): the
+//! calendar gives the day and its hour, as a session's clock does. Without it the light is that of
+//! a day with no times of day.
 //!
 //! `--glsticketdirect` gives the login its secret directly, as the September 2013 client's own option
 //! does (it stands for the password after `--account`).
@@ -169,11 +172,13 @@ struct Options {
     create: Option<String>,
     /// `--explore`, with the location it starts from (empty for the default start).
     explore: Option<String>,
+    /// `--explore-time`: the game clock explore mode's moment is held at, seconds.
+    explore_time: Option<f64>,
 }
 
 /// This program's own options, beside the September 2013 client's: each one's form (what it takes
 /// and keeps), long name, help and a switch's value.
-const OWN_OPTIONS: [(u32, &str, &str, i32); 17] = [
+const OWN_OPTIONS: [(u32, &str, &str, i32); 18] = [
     (
         0x11,
         "adminclient",
@@ -246,6 +251,12 @@ const OWN_OPTIONS: [(u32, &str, &str, i32); 17] = [
         "[location]: Fly a camera through the world with no server.",
         0,
     ),
+    (
+        0x32,
+        "explore-time",
+        "<seconds>: Hold explore mode's moment at that game clock.",
+        0,
+    ),
 ];
 
 /// The command line: the September 2013 client's options, read as it reads them, and this
@@ -309,6 +320,10 @@ impl Reader for Line {
             "world-overlays" => self.o.world_overlays = true,
             "remaster" => self.o.remaster = true,
             "explore" => self.o.explore = Some(value.to_owned()),
+            "explore-time" => match value.parse() {
+                Ok(v) => self.o.explore_time = Some(v),
+                Err(e) => return self.fail(&format!("--explore-time: {e} (want seconds)")),
+            },
             "no-window" => match value.parse() {
                 Ok(v) => self.o.no_window = Some(v),
                 Err(e) => return self.fail(&format!("--no-window: {e} (want seconds)")),
@@ -1389,6 +1404,9 @@ fn run() -> Result<(), String> {
     }
     if let Some(camera) = explore {
         shell.start_explore(camera);
+        if let Some(t) = o.explore_time {
+            shell.scene.game_time = t;
+        }
     }
     if let Some(s) = o.size {
         shell.size = s;
