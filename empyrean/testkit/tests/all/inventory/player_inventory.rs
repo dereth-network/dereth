@@ -889,3 +889,56 @@ pub(crate) fn find_by_wcid(w: &World, wcid: u32) -> Option<ObjectGuid> {
 pub(crate) use crate::support::messages::{exchange, first, got, kinds, Got};
 
 pub(crate) use empyrean_testkit::EmptyShard;
+
+/// The coins of every live stack of them among the dynamic guids handed out so far: (stacks,
+/// coins).
+fn coins_in_world(ts: &TestServer) -> (usize, i32) {
+    let stacks: Vec<i32> = (ObjectGuid::DYNAMIC_MIN..ObjectGuid::DYNAMIC_MIN + 0x40)
+        .filter_map(|g| ts.world.objects.get(ObjectGuid::new(g)))
+        .filter(|o| o.biota.weenie_class_id == COIN && !o.wo.world_object.is_destroyed)
+        .map(|o| o.stack_size().unwrap_or(1))
+        .collect();
+    (stacks.len(), stacks.iter().sum())
+}
+
+/// A split to the ground whose stack left the pack while the pickup motion played makes nothing:
+/// when the motion ends the stack is looked up again and the split answers "Split failed!", so no
+/// coins are made from a stack that is gone (ACE's revalidation of
+/// `HandleActionStackableSplitTo3D`).
+#[test]
+pub(crate) fn a_split_to_the_ground_whose_stack_left_during_the_motion_makes_nothing() {
+    let mut ts = server();
+    let (id, session) = join(&mut ts, "alpha", ALPHA, "Alpha", at(20.0, 20.0), 100);
+    let coins = in_pack(&mut ts.world, ALPHA, COIN);
+    let other = in_pack(&mut ts.world, ALPHA, COIN);
+    ts.advance(0.1);
+    let before = coins_in_world(&ts);
+    assert_eq!(before, (2, 20));
+
+    let (_, g) = exchange(&mut ts, id, session, 3.0, |ts| {
+        ts.send_game_action(
+            id,
+            &dereth_protocol::items::InventoryStackableSplitTo3d {
+                stack: ObjectId(coins.full()),
+                amount: 4,
+            },
+        );
+        // The whole stack merges into the other at once, before the motion ends.
+        ts.send_game_action(
+            id,
+            &InventoryStackableMerge {
+                merge_from: ObjectId(coins.full()),
+                merge_to: ObjectId(other.full()),
+                amount: 10,
+            },
+        );
+    });
+    assert!(ts.world.objects.get(coins).is_none(), "merged away");
+    assert_eq!(coins_in_world(&ts), (1, 20), "no coins are made");
+    let said: Vec<String> = g
+        .iter()
+        .filter(|m| m.kind == TRANSIENT)
+        .map(|m| m.decode::<CommunicationTransientString>().text)
+        .collect();
+    assert!(said.iter().any(|s| s == "Split failed!"), "{said:?}");
+}

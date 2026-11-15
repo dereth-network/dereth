@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+- Fixed ways to duplicate or lose items through splitting, giving, trading and vendors.
 - `@god` and `@ungod` work on a character of any era, not only the end of retail's.
 
 ## 0.3.14 (2026-11-14)

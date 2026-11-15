@@ -3573,7 +3573,6 @@ pub fn handle_action_stackable_split_to3_d(
         ObjectGuid::new(stack_id),
         SearchLocations::MyInventory | SearchLocations::MyEquippedItems,
     );
-    let (stack_found_in_container, stack_root_owner) = (found.found_in_container, found.root_owner);
 
     let Some(stack) = found.result else {
         transient(w, this, "Stack not found!"); // Custom error message
@@ -3637,6 +3636,27 @@ pub fn handle_action_stackable_split_to3_d(
     action_chain.add_action(Actor::Object(this), move |w: &mut World| {
         if current_landblock(w, this).is_none() {
             // Maybe we were teleported as we were motioning to drop the item
+            save_failed(w, this, stack_id, WeenieError::ActionCancelled);
+            return;
+        }
+
+        // We make sure the stack is still valid. It could have changed during our pickup animation
+        let found = find_object(
+            w,
+            this,
+            stack,
+            SearchLocations::MyInventory | SearchLocations::MyEquippedItems,
+        );
+        let (stack_found_in_container, stack_root_owner) = (found.found_in_container, found.root_owner);
+        if found.result != Some(stack) || obj(w, stack).stack_size().is_some_and(|s| s <= amount) {
+            log::debug!(
+                "Player 0x{:08X}:{} tried to split an item that's no longer valid 0x{:08X}:{}.",
+                this.full(),
+                name(w, this),
+                stack.full(),
+                name(w, stack)
+            );
+            transient(w, this, "Split failed!"); // Custom error message
             save_failed(w, this, stack_id, WeenieError::ActionCancelled);
             return;
         }
