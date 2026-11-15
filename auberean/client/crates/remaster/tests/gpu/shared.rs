@@ -178,3 +178,115 @@ fn on_a_shared_device_retail_draws_as_on_its_own_and_the_remasters_picture_reach
     let errors = dereth_gfx::take_validation_errors();
     assert!(errors.is_empty(), "the validation layer: {errors:#?}");
 }
+
+/// **On Windows the device may be Direct3D 12, and the same holds**: on a Direct3D 12 device wgpu
+/// made and the layer adopted, at every station the retail frame differs from the one the retail
+/// device draws on a Direct3D 12 device of its own in under one pixel in a thousand (retail's frames
+/// there vary that little from drawing to drawing on one device); the picture the remaster lends
+/// wgpu reads back through wgpu as the remaster reads the same drawing, byte for byte; and the
+/// remaster draws as on a Direct3D 12 device of its own, byte for byte. Each at the remaster's
+/// identity, the remaster's frames settled, with the debug layers quiet.
+#[cfg(windows)]
+#[test]
+fn on_a_shared_direct3d_12_device_the_same_holds() {
+    let _turn = turn();
+    let records = records();
+    let mut load = |id: u32| auberean_draw::picture::load(records, id);
+    let dx12 = || {
+        let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
+        desc.backends = wgpu::Backends::DX12;
+        wgpu::Instance::new(desc)
+    };
+    let instance = dx12();
+    let probe = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::HighPerformance,
+        ..Default::default()
+    }))
+    .expect("a Direct3D 12 adapter");
+    let features = auberean_gpu::Renderer::features_on(&probe, true);
+    let limits = auberean_gpu::Renderer::limits_on(&probe);
+    // The retail device on a Direct3D 12 device of its own.
+    let (own_device, own_queue) =
+        pollster::block_on(probe.request_device(&wgpu::DeviceDescriptor {
+            label: Some("the retail device's own"),
+            required_features: features,
+            required_limits: limits.clone(),
+            ..Default::default()
+        }))
+        .expect("a Direct3D 12 device of its own");
+    let mut own = auberean_gpu::Renderer::on_device(&probe, own_device, own_queue, true);
+    let shared = auberean_remaster::shared::open_d3d12(&instance, None, features, &limits)
+        .expect("the shared Direct3D 12 device");
+    let (mut painter, adapter, device, queue) = Painter::new(shared).expect("the painter");
+    let mut on_shared =
+        auberean_gpu::Renderer::on_device(&adapter, device.clone(), queue.clone(), true);
+    let mut alone = auberean_remaster::Remaster::with(&dereth_gfx::DeviceDesc {
+        backend: dereth_gfx::Backend::D3d12,
+        ..dereth_gfx::DeviceDesc::default()
+    })
+    .expect("the remaster's own Direct3D 12 device");
+    let r = painter.remaster_mut();
+    r.set_ao(dereth_gfx_passes::ao::AoSettings::default());
+    r.set_shadows(auberean_remaster::render::ShadowSettings::default());
+    r.set_post(dereth_gfx_passes::post::PostSettings::default());
+    r.set_sky(auberean_remaster::render::SkySettings::default());
+    r.set_crossfade(false);
+    for s in &STATIONS {
+        let f = frame(s);
+        let a = own.render(&f, W, H, &mut load).expect("the retail frame");
+        let b = on_shared
+            .render(&f, W, H, &mut load)
+            .expect("the retail frame on the shared device");
+        // Retail's frames on Direct3D 12 vary in a few pixels from drawing to drawing on one
+        // device (up to a hundred here, by up to 57 levels at the cave): the frames are held to a
+        // share of the pixels, not byte for byte.
+        let retail = apart(&a.rgba, &b.rgba);
+        eprintln!(
+            "{} (Direct3D 12): retail {} pixels apart by at most {}",
+            s.name, retail.0, retail.1
+        );
+        assert!(
+            retail.0 * 1000 < (W * H) as usize,
+            "{}: the retail frame differs on the shared device: {retail:?}",
+            s.name
+        );
+        let (lent, _) = settled(|| {
+            let t = painter
+                .paint(&f, (W, H), &mut load)
+                .expect("the remaster's frame");
+            read(&device, &queue, &t)
+        });
+        let mine = painter
+            .remaster_mut()
+            .read_drawn()
+            .expect("the remaster's picture on the shared device")
+            .expect("a drawing")
+            .rgba;
+        let (alone_frame, _) = settled(|| {
+            alone
+                .render(&f, W, H, &mut load)
+                .expect("the remaster alone")
+                .rgba
+        });
+        let lending = apart(&lent, &mine);
+        let devices = apart(&mine, &alone_frame);
+        eprintln!(
+            "{} (Direct3D 12): lent {} pixels from read; devices {} pixels apart, by at most {}",
+            s.name, lending.0, devices.0, devices.1
+        );
+        assert!(
+            lent == mine,
+            "{}: the lent picture differs from the remaster's own on the device: {lending:?}",
+            s.name
+        );
+        assert!(
+            devices.0 == 0,
+            "{}: the remaster draws apart on the two devices: {devices:?}",
+            s.name
+        );
+    }
+    drop(on_shared);
+    drop(painter);
+    let errors = dereth_gfx::take_validation_errors();
+    assert!(errors.is_empty(), "the debug layers: {errors:#?}");
+}

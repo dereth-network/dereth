@@ -9,6 +9,8 @@
 
 mod common;
 mod crossfade;
+#[cfg(windows)]
+mod d3d12;
 mod identity;
 mod lamps;
 mod linear;

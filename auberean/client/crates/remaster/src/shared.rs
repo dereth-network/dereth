@@ -1,5 +1,6 @@
 //! One Vulkan device that wgpu (the retail device, the interface and the window) and the remaster's
-//! layer both draw on, and the remaster's pictures lent to wgpu.
+//! layer both draw on, and the remaster's pictures lent to wgpu. On Windows the device may be a
+//! Direct3D 12 one instead ([`open_d3d12`]): wgpu's own, which the layer adopts.
 //!
 //! The device is made here, with every feature the layer asks for (`dereth_gfx::REQUIRED`) and
 //! every one wgpu does, as the version-wide feature structures: the device's own features, all but
@@ -354,6 +355,59 @@ pub fn open(
     })
 }
 
+/// The device wgpu and the layer share on Direct3D 12: wgpu's own, made on its Direct3D 12 adapter
+/// with `features` and `limits` (and, for a window, `surface`), adopted by the layer. The layer asks
+/// the device to enable nothing: what it needs (shader model 6.6, the third resource binding tier)
+/// the adapter has or hasn't, and adopting fails where it hasn't.
+///
+/// # Errors
+/// When there is no such adapter, wgpu refuses the device, or the layer can't draw on it.
+#[cfg(windows)]
+pub fn open_d3d12(
+    instance: &wgpu::Instance,
+    surface: Option<&wgpu::Surface<'_>>,
+    features: wgpu::Features,
+    limits: &wgpu::Limits,
+) -> Result<Shared, SharedError> {
+    use wgpu::hal::api::Dx12;
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::HighPerformance,
+        compatible_surface: surface,
+        ..Default::default()
+    }))
+    .map_err(fail)?;
+    if adapter.get_info().backend != wgpu::Backend::Dx12 {
+        return Err(fail("not a Direct3D 12 adapter"));
+    }
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("shared with the remaster"),
+        required_features: features,
+        required_limits: limits.clone(),
+        ..Default::default()
+    }))
+    .map_err(fail)?;
+    // SAFETY: wgpu's Direct3D 12 device, as made above; the reference is used only to clone its
+    // device and its direct queue, which wgpu submits to.
+    let (raw_device, raw_queue) = unsafe { device.as_hal::<Dx12>() }
+        .map(|d| (d.raw_device().clone(), d.raw_queue().clone()))
+        .ok_or_else(|| fail("no Direct3D 12 device"))?;
+    let native = dereth_gfx::d3d12::D3d12Native {
+        device: raw_device,
+        queue: raw_queue,
+        ray_queries: false,
+    };
+    // SAFETY: the device and queue are wgpu's, live while wgpu's device is; the layer is dropped
+    // before wgpu's device (`Shared` drops it first, and a holder of the layer keeps a clone of
+    // wgpu's device), and it is driven from the thread wgpu submits from.
+    let gfx = unsafe { Device::adopt_d3d12(native, &DeviceDesc::default()) }.map_err(fail)?;
+    Ok(Shared {
+        gfx,
+        adapter,
+        device,
+        queue,
+    })
+}
+
 /// The layer's picture `t` (a color target the remaster draws, `width` x `height`, of the format
 /// [`crate::render`] draws in) as a wgpu texture on `device`, which is the device the layer
 /// shares: wgpu is told it is ready to sample, as the remaster leaves it after each frame, and
@@ -367,24 +421,15 @@ pub fn lend(
     t: Texture,
     (width, height): (u32, u32),
 ) -> Result<wgpu::Texture, SharedError> {
+    #[cfg(windows)]
+    if gfx.backend() == dereth_gfx::Backend::D3d12 {
+        return lend_d3d12(gfx, device, t, (width, height));
+    }
     let raw = gfx
         .raw_texture(t)
         .map_err(fail)?
         .ok_or_else(|| fail("the picture is not a Vulkan image"))?;
-    let desc = wgpu::TextureDescriptor {
-        label: Some("the remaster's world"),
-        size: wgpu::Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[],
-    };
+    let desc = lent_desc(width, height);
     let hal_desc = wgpu::hal::TextureDescriptor {
         label: desc.label,
         size: desc.size,
@@ -415,6 +460,58 @@ pub fn lend(
     Ok(unsafe {
         device.create_texture_from_hal::<Vulkan>(hal_texture, &desc, wgpu::TextureUses::RESOURCE)
     })
+}
+
+/// [`lend`] on Direct3D 12: the layer's resource wrapped for wgpu, in the state both call ready to
+/// sample (read by pixel and other shaders alike).
+#[cfg(windows)]
+fn lend_d3d12(
+    gfx: &Device,
+    device: &wgpu::Device,
+    t: Texture,
+    (width, height): (u32, u32),
+) -> Result<wgpu::Texture, SharedError> {
+    use wgpu::hal::api::Dx12;
+    let resource = gfx
+        .raw_d3d12_texture(t)
+        .map_err(fail)?
+        .ok_or_else(|| fail("the picture is not a Direct3D 12 resource"))?;
+    let desc = lent_desc(width, height);
+    // SAFETY: the resource is the layer's live color target, `width` x `height` of one level and
+    // one sample, of the format `desc` names.
+    let hal_texture = unsafe {
+        wgpu::hal::dx12::Device::texture_from_raw(
+            resource,
+            desc.format,
+            wgpu::TextureDimension::D2,
+            desc.size,
+            1,
+            1,
+        )
+    };
+    // SAFETY: the resource was drawn before wgpu first reads it, and each frame leaves it ready to
+    // sample, the state wgpu is told; the layer outlives the texture.
+    Ok(unsafe {
+        device.create_texture_from_hal::<Dx12>(hal_texture, &desc, wgpu::TextureUses::RESOURCE)
+    })
+}
+
+/// How the lent picture is described to wgpu.
+fn lent_desc(width: u32, height: u32) -> wgpu::TextureDescriptor<'static> {
+    wgpu::TextureDescriptor {
+        label: Some("the remaster's world"),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    }
 }
 
 /// The remaster drawing the world's picture on a device it shares with wgpu: each frame's picture

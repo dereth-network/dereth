@@ -802,14 +802,65 @@ impl auberean_present::WorldPainter for Remastered {
     }
 }
 
-/// The device for `window` that the remaster shares with wgpu, on Vulkan, the remaster drawing the
-/// world and the retail device the rest (the interface's scenes, portal space).
+/// The device for `window` that the remaster shares with wgpu, the remaster drawing the world and
+/// the retail device the rest (the interface's scenes, portal space): on Vulkan; on Windows, on
+/// Direct3D 12 where the environment names it (`WGPU_BACKEND=dx12`) or Vulkan can't be had.
 #[cfg(feature = "remaster")]
 fn remastered(
     window: &Arc<Window>,
     presentation: &Presentation,
 ) -> Result<auberean_present::Presenter, String> {
-    let instance = auberean_remaster::shared::instance().map_err(|e| e.to_string())?;
+    #[cfg(windows)]
+    {
+        let vulkan = || {
+            let instance = auberean_remaster::shared::instance().map_err(|e| e.to_string())?;
+            remastered_on(window, presentation, instance, |i, s, f, l| {
+                auberean_remaster::shared::open(i, Some(s), f, l)
+            })
+        };
+        let d3d12 = || {
+            let mut desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+            desc.backends = wgpu::Backends::DX12;
+            remastered_on(
+                window,
+                presentation,
+                wgpu::Instance::new(desc),
+                |i, s, f, l| auberean_remaster::shared::open_d3d12(i, Some(s), f, l),
+            )
+        };
+        if wgpu::Backends::from_env() == Some(wgpu::Backends::DX12) {
+            return d3d12();
+        }
+        vulkan().or_else(|e| {
+            tracing::warn!(%e, "the remaster's Vulkan device: trying Direct3D 12");
+            d3d12()
+        })
+    }
+    #[cfg(not(windows))]
+    {
+        let instance = auberean_remaster::shared::instance().map_err(|e| e.to_string())?;
+        remastered_on(window, presentation, instance, |i, s, f, l| {
+            auberean_remaster::shared::open(i, Some(s), f, l)
+        })
+    }
+}
+
+/// [`remastered`] on `instance`, the device shared by `open`.
+#[cfg(feature = "remaster")]
+fn remastered_on(
+    window: &Arc<Window>,
+    presentation: &Presentation,
+    instance: wgpu::Instance,
+    open: impl FnOnce(
+        &wgpu::Instance,
+        &wgpu::Surface<'static>,
+        wgpu::Features,
+        &wgpu::Limits,
+    ) -> Result<
+        auberean_remaster::shared::Shared,
+        auberean_remaster::shared::SharedError,
+    >,
+) -> Result<auberean_present::Presenter, String> {
     let size = window.inner_size();
     let surface = instance
         .create_surface(Arc::clone(window))
@@ -819,12 +870,11 @@ fn remastered(
         compatible_surface: Some(&surface),
         ..Default::default()
     }))
-    .map_err(|e| format!("no Vulkan adapter for the window: {e}"))?;
+    .map_err(|e| format!("no adapter for the window: {e}"))?;
     let features = auberean_gpu::Renderer::features_on(&probe, presentation.antialiasing);
     let limits = auberean_gpu::Renderer::limits_on(&probe);
     drop(probe);
-    let shared = auberean_remaster::shared::open(&instance, Some(&surface), features, &limits)
-        .map_err(|e| e.to_string())?;
+    let shared = open(&instance, &surface, features, &limits).map_err(|e| e.to_string())?;
     let (painter, adapter, device, queue) =
         auberean_remaster::shared::Painter::new(shared).map_err(|e| e.to_string())?;
     tracing::info!(adapter = %painter.remaster().adapter, "the remaster draws the world");
