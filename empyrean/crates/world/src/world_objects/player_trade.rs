@@ -317,8 +317,15 @@ pub fn handle_action_close_trade_negotiations(
     f.items_in_trade_window.clear();
     f.trade_partner = ObjectGuid::INVALID;
 
-    send_event(w, this, |d| game_event_close_trade(d, end_trade_reason));
-    weenie_error(w, this, WeenieError::TradeClosed);
+    // DIVERGE: V537, a trade closed the ordinary way is closed with the reason 1105 (the code of
+    // "trade closed") and no error after it; ACE closes it with reason 1 and then sends the error
+    // `TradeClosed` as well. A trade ended by combat keeps its reason.
+    let reason = if end_trade_reason == EndTradeReason::Normal {
+        EndTradeReason(WeenieError::TradeClosed.0)
+    } else {
+        end_trade_reason
+    };
+    send_event(w, this, |d| game_event_close_trade(d, reason));
 }
 
 // ACE: Player.HandleActionAddToTrade

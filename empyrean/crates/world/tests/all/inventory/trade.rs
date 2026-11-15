@@ -1,4 +1,5 @@
 //! Vectors: fixtures/vectors/trade/
+//! Divergence: V537
 //! Trade flow and confirmations; trade-item validity replays ACE trade vectors.
 //! Fixture: ACE vectors and explicit expected values, synthetic dats, isolated world state.
 
@@ -397,7 +398,7 @@ fn opening_registers_both_and_refuses_busy_or_combat() {
 }
 
 /// `GameActionCloseTradeNegotiations` → `HandleActionCloseTradeNegotiations` on both: CloseTrade
-/// (Normal) then WeenieError TradeClosed each, state cleared; a transfer in progress blocks it.
+/// with the reason 1105 alone each (V537), state cleared; a transfer in progress blocks it.
 #[test]
 fn closing_clears_both_sides_unless_a_transfer_is_in_progress() {
     let (mut h, sa, sb) = H::trading();
@@ -431,15 +432,10 @@ fn closing_clears_both_sides_unless_a_transfer_is_in_progress() {
     for (g, s) in [(A, sa), (B, sb)] {
         player_trade::handle_action_close_trade_negotiations(&mut h.w, g, EndTradeReason::Normal);
         let msgs = sent();
-        assert_eq!(
-            events_to(&msgs, s),
-            [GameEventType::CloseTrade, GameEventType::WeenieError]
-        );
-        assert_eq!(first_words(&msgs, s, GameEventType::CloseTrade), [1]);
-        assert_eq!(
-            errors_to(&msgs, s),
-            [WeenieError::TradeClosed.0.cast_unsigned()]
-        );
+        // V537: closed with the reason 1105 alone, as the retail servers closed one.
+        assert_eq!(events_to(&msgs, s), [GameEventType::CloseTrade]);
+        assert_eq!(first_words(&msgs, s, GameEventType::CloseTrade), [1105]);
+        assert!(errors_to(&msgs, s).is_empty());
         assert!(!player_trade::is_trading(&h.w, g));
         assert_eq!(player_trade::trade_partner(&h.w, g), ObjectGuid::INVALID);
         assert!(player_trade::items_in_trade_window(&h.w, g).is_empty());
@@ -505,18 +501,11 @@ fn entering_combat_closes_the_trade_on_both_sides() {
     for s in [sa, sb] {
         assert_eq!(
             events_to(&msgs, s),
-            [
-                GameEventType::WeenieError,
-                GameEventType::CloseTrade,
-                GameEventType::WeenieError
-            ]
+            [GameEventType::WeenieError, GameEventType::CloseTrade]
         );
         assert_eq!(
             errors_to(&msgs, s),
-            [
-                WeenieError::TradeNonCombatMode.0.cast_unsigned(),
-                WeenieError::TradeClosed.0.cast_unsigned()
-            ]
+            [WeenieError::TradeNonCombatMode.0.cast_unsigned()]
         );
         assert_eq!(first_words(&msgs, s, GameEventType::CloseTrade), [2]);
     }
