@@ -4401,6 +4401,43 @@ pub fn handle_god(w: &mut World, session: Option<SessionId>, _parameters: &[Stri
 
 /// The number of `=`-separated entries a well-formed `GodState` string has.
 const GOD_STATE_ENTRIES: usize = 240;
+/// The `=`-separated entries a `GodState` string has besides its skills: the flag, the date, the
+/// credits and level, the experience, six attributes, three vitals and the trailing empty one.
+const GOD_STATE_BASE_ENTRIES: usize = 50;
+/// The entries each skill adds to a `GodState` string.
+const GOD_STATE_SKILL_ENTRIES: usize = 5;
+
+/// Whether `GodState` holds every skill the character has rather than only the end of retail's 38:
+/// in an era with a skill set of its own, whose characters hold skills the end of retail retired.
+fn god_state_keeps_every_skill(w: &World) -> bool {
+    // DIVERGE: V522
+    w.era.creation_skills.is_some()
+}
+
+/// Whether a `GodState` string split at its `=`s is well formed: exactly 240 entries, or with
+/// `every_skill` (Divergence: V522) any number of skills after the attributes and vitals, whose
+/// keys must each be where the string puts them.
+#[must_use]
+pub fn god_state_is_well_formed(entries: &[&str], every_skill: bool) -> bool {
+    if !every_skill {
+        return entries.len() == GOD_STATE_ENTRIES;
+    }
+    let len = entries.len();
+    if len < GOD_STATE_BASE_ENTRIES
+        || !(len - GOD_STATE_BASE_ENTRIES).is_multiple_of(GOD_STATE_SKILL_ENTRIES)
+        || entries.last() != Some(&"")
+    {
+        return false;
+    }
+    let keys = |at: &[usize]| -> std::collections::BTreeSet<&str> {
+        at.iter().map(|&i| entries[i]).collect()
+    };
+    // the credits, level and experience keys, then attributes 1 to 6 at every fourth entry from 10
+    // and the vitals 1, 3 and 5 at every fifth from 34
+    [entries[2], entries[4], entries[6], entries[8]] == ["24", "25", "1", "2"]
+        && keys(&[10, 14, 18, 22, 26, 30]) == ["1", "2", "3", "4", "5", "6"].into()
+        && keys(&[34, 39, 44]) == ["1", "3", "5"].into()
+}
 
 // ACE: AdminCommands.DoGodMode
 /// Saves the return state in `GodState` (unless re-entering after a failed `ungod`), then raises
@@ -4441,8 +4478,9 @@ fn do_god_mode(w: &mut World, player_saved: bool, session: SessionId, exception_
         // Check string is correctly formatted before altering stats
         // correctly formatted return string should have 240 entries
         // if the construction of the string changes - this will need to be updated to match
-        let entries = return_state.split('=').count();
-        if entries != GOD_STATE_ENTRIES {
+        let split: Vec<&str> = return_state.split('=').collect();
+        let entries = split.len();
+        if !god_state_is_well_formed(&split, god_state_keeps_every_skill(w)) {
             send_server_message(
                 w,
                 Some(session),
@@ -4560,7 +4598,8 @@ fn do_god_mode(w: &mut World, player_saved: bool, session: SessionId, exception_
 }
 
 /// `DoGodMode`'s `returnState`: the date, credits, level, experience, then every attribute,
-/// max vital and valid skill record of the biota, in its dictionary order.
+/// max vital and valid skill record of the biota, in its dictionary order (every skill record
+/// where [`god_state_keeps_every_skill`]).
 fn god_return_state(w: &World, player: ObjectGuid) -> String {
     let o = obj(w, player);
     let biota = &o.biota;
@@ -4619,13 +4658,15 @@ fn god_return_state(w: &World, player: ObjectGuid) -> String {
     }
 
     // need all skills
+    let every_skill = god_state_keeps_every_skill(w);
     for (key, sk) in biota
         .properties_skill
         .as_ref()
         .expect("NullReferenceException: biota.PropertiesSkill")
         .iter()
     {
-        if skill_helper::VALID_SKILLS.contains(key) {
+        // DIVERGE: V522, in an era of its own skill set every skill, the retired ones included.
+        if every_skill || skill_helper::VALID_SKILLS.contains(key) {
             return_state += &format!("{}=", key.0);
             return_state += &format!("{}=", sk.level_from_pp);
             return_state += &format!("{}=", sk.sac.0);
@@ -4656,7 +4697,7 @@ pub fn handle_ungod(w: &mut World, session: Option<SessionId>, _parameters: &[St
 
     // correctly formatted return string should have 240 entries
     // if the construction of the string changes - this will need to be updated to match
-    if return_string_arr.len() != GOD_STATE_ENTRIES {
+    if !god_state_is_well_formed(&return_string_arr, god_state_keeps_every_skill(w)) {
         console_write_line(&format!(
             "The returnString was not set to the correct length while {} was attempting to return to normal from godmode.",
             name_of(w, current_player)
@@ -4801,6 +4842,8 @@ fn ungod_restore(
             message: "Index was outside the bounds of the array.".to_owned(),
         })
     };
+    // DIVERGE: V522, the last entry ends the string at any length, not only at 239.
+    let end = return_string_arr.len() - 1;
     let mut i = 2usize;
     while i < return_string_arr.len() {
         match i {
@@ -4845,7 +4888,7 @@ fn ungod_restore(
                 enqueue_send(w, session, m);
                 i += 5;
             }
-            n if n <= 238 => {
+            n if n < end => {
                 let key = Skill(parse_int(arr(i)?)?);
                 let ranks = parse_ushort(arr(i + 1)?)?;
 
@@ -4870,8 +4913,8 @@ fn ungod_restore(
                 enqueue_send(w, session, m);
                 i += 5;
             }
-            239 => {
-                // end of returnString, this will need to be updated if the length of the string changes
+            n if n == end => {
+                // end of returnString
                 let o = obj_mut(w, current_player);
                 let not_null = || CaughtException {
                     source: "System.Private.CoreLib",

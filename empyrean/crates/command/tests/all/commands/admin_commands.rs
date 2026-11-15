@@ -720,3 +720,278 @@ fn a_dat_export_with_the_wrong_parameter_count_prints_its_usage_and_stops() {
         assert_eq!(console(&mut ts, handler, &[]), [usage]);
     }
 }
+
+/// The admin's session in the god-mode tests.
+const GOD_SESSION: empyrean_net::SessionId = empyrean_net::SessionId {
+    client_id: 1,
+    generation: 1,
+};
+
+/// A world of `era` holding one player in the game on [`GOD_SESSION`]: level 12 with 7 skill credits
+/// and its experience, the six attributes and three vitals, and `skills` as (skill, advancement
+/// class, ranks, experience, initial level).
+fn god_world(
+    era: empyrean_common::era::EraId,
+    skills: &[(u32, u32, u16, u32, u32)],
+) -> (empyrean_world::World, empyrean_entity::ObjectGuid) {
+    use empyrean_common::dotnet::DotNetDict;
+    use empyrean_common::era::EraExt;
+    use empyrean_entity::enums::{
+        PropertyAttribute, PropertyAttribute2nd, PropertyInt, PropertyInt64, PropertyString, Skill,
+        SkillAdvancementClass,
+    };
+    use empyrean_entity::models::{PropertiesAttribute, PropertiesAttribute2nd, PropertiesSkill};
+    use empyrean_world::world_objects::world_object::CtorEnv;
+
+    let now = empyrean_common::clock::ClockSnapshot::take(
+        &empyrean_common::clock::VirtualClock::default(),
+        0.0,
+    );
+    let dats = empyrean_testkit::dats::with_stat_tables(empyrean_dat::FakeDats::new())
+        .build()
+        .expect("fake dats");
+    let mut w = empyrean_world::World::new(now, dats);
+    w.era = era.rules();
+
+    let mut biota = empyrean_entity::Biota {
+        id: 0x5000_0001,
+        weenie_class_id: 1,
+        weenie_type: WeenieType::Creature,
+        ..Default::default()
+    };
+    biota.set_property(PropertyString::Name, "Aldric".to_owned());
+    biota.set_property(
+        empyrean_entity::enums::PropertyDataId::CombatTable,
+        0x3000_0000,
+    );
+    biota.set_property(PropertyInt::Level, 12);
+    biota.set_property(PropertyInt::AvailableSkillCredits, 7);
+    biota.set_property(PropertyInt64::TotalExperience, 98_765);
+    biota.set_property(PropertyInt64::AvailableExperience, 4_321);
+    let mut attributes = DotNetDict::new();
+    for a in 1..=6u16 {
+        attributes.insert(
+            PropertyAttribute(a),
+            PropertiesAttribute {
+                init_level: 40 + u32::from(a),
+                level_from_cp: u32::from(a),
+                cp_spent: 100 * u32::from(a),
+            },
+        );
+    }
+    biota.properties_attribute = Some(attributes);
+    let mut vitals = DotNetDict::new();
+    for v in [1u16, 3, 5] {
+        vitals.insert(
+            PropertyAttribute2nd(v),
+            PropertiesAttribute2nd {
+                init_level: 0,
+                level_from_cp: u32::from(v),
+                cp_spent: 10 * u32::from(v),
+                current_level: 30,
+            },
+        );
+    }
+    biota.properties_attribute_2nd = Some(vitals);
+    let mut held = DotNetDict::new();
+    for &(skill, sac, ranks, experience, init) in skills {
+        held.insert(
+            Skill(i32::try_from(skill).expect("a skill")),
+            PropertiesSkill {
+                level_from_pp: ranks,
+                sac: SkillAdvancementClass(sac),
+                pp: experience,
+                init_level: init,
+                ..PropertiesSkill::default()
+            },
+        );
+    }
+    biota.properties_skill = Some(held);
+
+    let character = empyrean_store::models::shard::Character {
+        id: 0x5000_0001,
+        account_id: 1,
+        name: "Aldric".to_owned(),
+        ..Default::default()
+    };
+    let p = CtorEnv::with_world(&w, |env| {
+        empyrean_world::world_objects::player::player_from_biota_with_character(
+            env,
+            empyrean_world::dispatch::Class::Player,
+            biota,
+            Vec::new(),
+            Vec::new(),
+            character,
+            Some(GOD_SESSION),
+        )
+    });
+    let guid = p.guid;
+    w.objects.insert(p).expect("a fresh guid");
+    let mut session = empyrean_world::sessions::SessionData::default();
+    session.set_player(Some(guid));
+    session.set_account(
+        1,
+        "acct".to_owned(),
+        empyrean_entity::enums::AccessLevel::Admin,
+    );
+    w.sessions.insert(GOD_SESSION, session);
+    (w, guid)
+}
+
+/// Runs the database's answers, as the world's tick does.
+fn answer_saves(w: &mut empyrean_world::World) {
+    for callback in w.shard.take_completed() {
+        callback(w);
+    }
+}
+
+/// The character's skill records, credits, level and experience, attributes and vitals.
+fn god_record(w: &empyrean_world::World, guid: empyrean_entity::ObjectGuid) -> String {
+    use empyrean_entity::enums::{PropertyInt, PropertyInt64};
+    let o = w.objects.get(guid).expect("the player");
+    let b = &o.biota;
+    format!(
+        "credits {:?} level {:?} total {:?} unassigned {:?}\nskills {:?}\nattributes {:?}\nvitals {:?}",
+        o.get_property(PropertyInt::AvailableSkillCredits),
+        o.get_property(PropertyInt::Level),
+        o.get_property(PropertyInt64::TotalExperience),
+        o.get_property(PropertyInt64::AvailableExperience),
+        b.properties_skill
+            .as_ref()
+            .expect("skills")
+            .iter()
+            .map(|(k, s)| (k.0, s.sac.0, s.level_from_pp, s.pp, s.init_level))
+            .collect::<Vec<_>>(),
+        b.properties_attribute
+            .as_ref()
+            .expect("attributes")
+            .iter()
+            .map(|(k, a)| (k.0, a.init_level, a.level_from_cp, a.cp_spent))
+            .collect::<Vec<_>>(),
+        b.properties_attribute_2nd
+            .as_ref()
+            .expect("vitals")
+            .iter()
+            .map(|(k, v)| (k.0, v.init_level, v.level_from_cp, v.cp_spent))
+            .collect::<Vec<_>>(),
+    )
+}
+
+/// Divergence: V522
+/// A February 2005 character goes into god mode and comes back with every skill as it was, the
+/// weapon skills the end of retail retired (Sword among them) included, and its credits, level
+/// and experience.
+#[test]
+fn a_february_2005_character_returns_from_god_mode_with_every_skill_and_its_credits() {
+    use empyrean_entity::enums::{PropertyInt, Skill, SkillAdvancementClass};
+    let era = empyrean_common::era::EraId::Infiltration;
+    let era_skills = empyrean_common::era::EraExt::rules(era)
+        .creation_skills
+        .expect("the era's skills");
+    // every skill of the era, Sword specialized and Healing trained, and Two Handed Combat, which
+    // a character there holds untrained
+    let skills: Vec<(u32, u32, u16, u32, u32)> = era_skills
+        .iter()
+        .copied()
+        .chain([41])
+        .map(|s| match s {
+            11 => (s, 3, 50, 123_456, 10),
+            21 => (s, 2, 12, 3_456, 0),
+            _ => (s, 1, 0, 0, 0),
+        })
+        .collect();
+    let (mut w, guid) = god_world(era, &skills);
+    let before = god_record(&w, guid);
+
+    ac::handle_god(&mut w, Some(GOD_SESSION), &[]);
+    answer_saves(&mut w);
+    let o = w.objects.get(guid).expect("the player");
+    assert!(
+        o.god_state().is_some_and(|g| g.starts_with("1=")),
+        "in god mode"
+    );
+    let sword = o
+        .biota
+        .properties_skill
+        .as_ref()
+        .expect("skills")
+        .get(&Skill::Sword)
+        .expect("Sword");
+    assert_eq!(
+        (sword.sac, sword.level_from_pp),
+        (SkillAdvancementClass::Specialized, 226),
+        "Sword is raised"
+    );
+    assert_eq!(o.get_property(PropertyInt::AvailableSkillCredits), Some(0));
+
+    ac::handle_ungod(&mut w, Some(GOD_SESSION), &[]);
+    answer_saves(&mut w);
+    let o = w.objects.get(guid).expect("the player");
+    assert_eq!(o.god_state(), None, "out of god mode");
+    assert_eq!(god_record(&w, guid), before);
+}
+
+/// Divergence: V522
+/// In an era of its own skill set the saved god state is checked by its shape: the fixed keys,
+/// the six attributes and the three vitals where they belong, and five entries a skill. At the
+/// end of retail it must have ACE's 240 entries.
+#[test]
+fn a_god_state_missing_a_vital_or_of_another_length_is_refused() {
+    // the flag, the date, credits and level, experience, then attributes and vitals
+    let mut head: Vec<String> = [
+        "1", "date", "24", "7", "25", "12", "1", "98765", "2", "4321",
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    for a in 1..=6 {
+        head.extend([a.to_string(), "41".into(), "1".into(), "100".into()]);
+    }
+    let vitals = |keys: &[u32]| -> Vec<String> {
+        keys.iter()
+            .flat_map(|k| {
+                [
+                    k.to_string(),
+                    "0".into(),
+                    "1".into(),
+                    "10".into(),
+                    "30".into(),
+                ]
+            })
+            .collect()
+    };
+    let skill = |k: u32| {
+        [
+            k.to_string(),
+            "0".into(),
+            "1".into(),
+            "0".into(),
+            "0".into(),
+        ]
+    };
+    let state = |vital_keys: &[u32], skills: &[u32]| -> String {
+        let mut e = head.clone();
+        e.extend(vitals(vital_keys));
+        e.extend(skills.iter().flat_map(|&k| skill(k)));
+        e.push(String::new());
+        e.join("=")
+    };
+    let ok = |s: &str, every: bool| {
+        ac::god_state_is_well_formed(&s.split('=').collect::<Vec<_>>(), every)
+    };
+
+    let all: Vec<u32> = (1..=38).collect();
+    assert!(ok(&state(&[1, 3, 5], &all), false), "ACE's 240");
+    assert!(!ok(&state(&[1, 3, 5], &all[..36]), false), "ACE wants 240");
+    assert!(ok(&state(&[1, 3, 5], &all[..36]), true), "36 skills");
+    assert!(
+        ok(&state(&[5, 1, 3], &[]), true),
+        "no skills, vitals in any order"
+    );
+    // a vital missing makes a string five entries short, which a skill's count alone would pass
+    assert!(!ok(&state(&[1, 3], &[6, 7, 8]), true), "a vital missing");
+    assert!(!ok(&state(&[1, 3, 3], &[6]), true), "a vital twice");
+    let mut cut = state(&[1, 3, 5], &[6, 7]);
+    cut.truncate(cut.len() - 1);
+    cut.push('0');
+    assert!(!ok(&cut, true), "no trailing entry");
+}
