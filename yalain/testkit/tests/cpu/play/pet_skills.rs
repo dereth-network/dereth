@@ -1372,6 +1372,11 @@ fn a_pet_that_pays_its_attacks_vigor_uses_what_it_can_pay_for() {
         }
         let (b, me) = summoner(&mut h);
         rated(&mut h, me, 10);
+        // The struck beetle turns on the pet's owner now and then: the owner lives through the
+        // minute, so the pet (which dies with it) attacks throughout.
+        let p = player(&mut h, me);
+        quals::set_int(&mut p.qualities, quality::HEALTH_MAX, 100_000);
+        quals::set_int(&mut p.qualities, quality::HEALTH, 100_000);
         let target = beetle(&h);
         let pet = summon(&mut h, b);
         let max = h.server.things.get(pet).map_or(0, |t| t.max_vigor);

@@ -22,7 +22,7 @@ use yalain_world::calls::{self, Node, Value};
 use yalain_world::graph::Builder;
 use yalain_world::plants::{self, text};
 use yalain_world::usable::interactions::{self, Interaction};
-use yalain_world::{item_use, pets};
+use yalain_world::{item_use, pets, Timer};
 
 const USE: u32 = 0x8216_0016;
 const USE_DONE: u32 = 0x8216_0021;
@@ -593,6 +593,11 @@ fn only_its_planter_waters_fertilizes_or_pollinates_a_plant() {
     let mut h = garden();
     let (a, me, world) = gardener(&mut h, "one", &[(SEED, 1), (CAN, 1)]);
     let plant = planted(&mut h, a, me, world);
+    // Its needs stay where care leaves them: its thoughts, at which they may grow (the first 10 to
+    // 20 s after it is planted, within these four uses' time), are put off.
+    h.server
+        .timers
+        .retain(|(_, t)| !matches!(t, Timer::PlantThinks { plant: p } if *p == plant));
     let (b, you, your_world) = gardener(&mut h, "two", &[(CAN, 1), (BAG, 1), (HENNACIN_POLLEN, 1)]);
     stand(&mut h, your_world, [1.0, 2.0]);
     let state = |h: &Harness| {

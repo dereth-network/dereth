@@ -958,11 +958,28 @@ fn a_pet_a_skill_makes_at_a_creature_appears_beside_it_and_goes_after_it() {
     let (b, me) = summoner(&mut h);
     h.run(20);
     let beetle = beetles(&h)[0];
-    put_near(&mut h, beetle, me, 1.0, 1.0);
+    // The beetle 6 m off, within the strike's 10 m, and kept there (it neither fights back nor
+    // moves), so its side and its user's are told apart: 2 m in front of its user toward it is
+    // still 4 m from it.
+    put_near(&mut h, beetle, me, 6.0, 0.0);
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(beetle)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.stats.fights = false;
+        c.wander_to = None;
+        c.moving_to = None;
+        c.closing = None;
+    }
     let from = h.bots[b].inbox.len();
     assert!(strike_until_it_lands(&mut h, b, beetle, from), "it lands");
     let pet = pet_added(&h, b, from).expect("a pet");
     assert_eq!(target_of(&h, pet), Some(beetle));
+    let flat = |a: &yalain_store::StoredPosition, b: &yalain_store::StoredPosition| {
+        dereth_primitives::num::math::hypotf(a.origin[0] - b.origin[0], a.origin[1] - b.origin[1])
+    };
     let at = h.server.things.get(pet).and_then(|t| t.at).expect("placed");
     let there = h
         .server
@@ -970,7 +987,20 @@ fn a_pet_a_skill_makes_at_a_creature_appears_beside_it_and_goes_after_it() {
         .get(beetle)
         .and_then(|t| t.at)
         .expect("placed");
-    assert!((at.origin[0] - there.origin[0]).abs() < 3.0, "beside it");
+    let user = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == me)
+        .map(|p| p.position)
+        .expect("in the world");
+    assert!(flat(&there, &user) > 5.0, "the beetle kept off");
+    assert!(
+        flat(&at, &there) < 1.0,
+        "beside it: {:.2} m from it, {:.2} m from its user",
+        flat(&at, &there),
+        flat(&at, &user)
+    );
 }
 
 /// A skill aimed at a pet lands on one of its user's own of the class it names, and never harms
@@ -1696,7 +1726,9 @@ fn a_staying_pet_set_down_on_a_slope_stands_on_the_ground_and_the_creature_it_ta
     let pet = pet_added(&h, b, from).expect("a pet");
     assert!(over_slope(&h, pet).abs() < 0.01, "on the ground");
     let at = h.server.things.get(pet).and_then(|t| t.at).expect("placed");
-    // The beetle on the ground six meters east of it, sure to strike when it may.
+    // The beetle on the ground six meters east of it, sure to strike when it may, and standing
+    // there until taunted: whatever walk it was on before is dropped, so it stays within the pet's
+    // reach while the pet's strikes go on until one lands.
     if let Some(t) = h.server.things.get_mut(pet) {
         t.max_health = 100_000;
         t.health = 100_000;
@@ -1708,6 +1740,9 @@ fn a_staying_pet_set_down_on_a_slope_stands_on_the_ground_and_the_creature_it_ta
         t.at = Some(to);
         if let Some(c) = t.creature.as_mut() {
             c.home = to;
+            c.wander_to = None;
+            c.moving_to = None;
+            c.closing = None;
         }
     }
     assert!(

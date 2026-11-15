@@ -435,15 +435,18 @@ fn a_hated_only_turret_takes_on_the_marked_past_a_nearer_striker_and_never_turns
         queue::WEENIE,
         &server_call(START_ATTACK, &[Arg::LongInt(turret_id)]),
     );
+    // Struck while it keeps to the marked one: hurt at some step, as it regains all it lost once it
+    // has gone 8 s unhurt.
+    let mut hurt = false;
     for _ in 0..600 {
         h.step();
         assert_eq!(target_of(&h, turret_id), Some(marked), "kept to");
+        hurt |= h
+            .server
+            .things
+            .get(turret_id)
+            .is_some_and(|t| t.health < t.max_health);
     }
-    let hurt = h
-        .server
-        .things
-        .get(turret_id)
-        .is_some_and(|t| t.health < t.max_health);
     assert!(hurt, "struck");
     let elsewhere = yalain_store::StoredPosition {
         cell: 0x0102_0003,

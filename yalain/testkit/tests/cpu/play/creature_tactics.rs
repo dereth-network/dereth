@@ -1552,26 +1552,37 @@ fn a_counter_answers_a_strike_that_lands_on_its_holder_and_not_one_evaded() {
     hardy(&mut h, me);
     counter_held(&mut h, me, 1.0);
     let from = h.bots[b].inbox.len();
-    h.run(1000);
-    let told = h.world_messages(b, from);
-    let (mut landed, mut evaded, mut answers) = (0, 0, 0);
-    for m in &told {
-        let ServerMessage::DoStory(e) = m else {
-            continue;
-        };
-        if e.action.attacker == me && e.sender.id == id {
-            answers += 1;
-        } else if e.action.attacker == id {
-            let code = e.action.hooks.last().map_or(0, |k| k.numbers[0]);
-            if code == Outcome::Hit.code().cast_signed()
-                || code == Outcome::Critical.code().cast_signed()
-            {
-                landed += 1;
-            } else {
-                evaded += 1;
+    let count = |h: &Harness| {
+        let (mut landed, mut evaded, mut answers) = (0, 0, 0);
+        for m in &h.world_messages(b, from) {
+            let ServerMessage::DoStory(e) = m else {
+                continue;
+            };
+            if e.action.attacker == me && e.sender.id == id {
+                answers += 1;
+            } else if e.action.attacker == id {
+                let code = e.action.hooks.last().map_or(0, |k| k.numbers[0]);
+                if code == Outcome::Hit.code().cast_signed()
+                    || code == Outcome::Critical.code().cast_signed()
+                {
+                    landed += 1;
+                } else {
+                    evaded += 1;
+                }
             }
         }
+        (landed, evaded, answers)
+    };
+    // Strikes until more than ten have landed and one has been evaded: about one in three lands,
+    // so 50 s holds about ten, and ten minutes leave no dice a real chance of fewer.
+    for _ in 0..60 {
+        h.run(200);
+        let (landed, evaded, _) = count(&h);
+        if landed > 10 && evaded > 0 {
+            break;
+        }
     }
+    let (landed, evaded, answers) = count(&h);
     assert!(
         landed > 10 && evaded > 0,
         "{landed} landed, {evaded} evaded"

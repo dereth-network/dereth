@@ -367,6 +367,12 @@ fn a_fellows_changed_health_goes_to_every_fellow_and_nothing_unchanged_does() {
         .values_mut()
         .find(|p| p.character == bid)
         .expect("in the world");
+    // It regains nothing by itself, so what goes out is the 41 set here.
+    {
+        use yalain_world::regen::rate::{COMBAT_HEALTH, PEACE_HEALTH};
+        yalain_world::quals::set_float(&mut p.qualities, PEACE_HEALTH, 0.0);
+        yalain_world::quals::set_float(&mut p.qualities, COMBAT_HEALTH, 0.0);
+    }
     yalain_world::quals::set_int(&mut p.qualities, 258, 41);
     let (fa, fb2) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
     let t = h.now.0;

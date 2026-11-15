@@ -324,8 +324,12 @@ fn a_basic_attack_that_names_a_target_effect_lands_it_on_another_player() {
 #[test]
 fn a_strike_at_another_player_hurts_it_as_it_lands_and_the_kill_text_comes_after() {
     let (mut h, (a, ida), (b, idb)) = two_players(Conflict::FreeForAll);
+    // It regains nothing by itself, so the swings it evades before the first hit leave it at 1.
     with_player(&mut h, idb, |p| {
+        use yalain_world::regen::rate::{COMBAT_HEALTH, PEACE_HEALTH};
         quals::set_int(&mut p.qualities, quality::HEALTH, 1);
+        quals::set_float(&mut p.qualities, PEACE_HEALTH, 0.0);
+        quals::set_float(&mut p.qualities, COMBAT_HEALTH, 0.0);
     });
     let from_b = h.bots[b].inbox.len();
     attack(&mut h, a, idb);
