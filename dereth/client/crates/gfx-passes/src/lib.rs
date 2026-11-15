@@ -8,8 +8,8 @@
 //! remaster decides what is drawn and how it is lit, and asks each pass for the masks its resolve
 //! takes.
 //!
-//! **Depends on** `dereth-gfx` (the backend layer) and `glam`. **Used by** the remaster
-//! (`dereth-remaster`), and nothing else.
+//! **Depends on** `dereth-gfx` (the backend layer) and `glam`. **Used by** the remasters
+//! (`dereth-remaster`, `auberean-remaster`), and nothing else.
 //!
 //! **Must never** reach a game: no scene, asset, dat, light rule, simulation or platform. A pass
 //! that needs something of the game takes it as plain data from its caller.
@@ -19,6 +19,7 @@
 //! | [`gbuffer`] | the G-buffer's targets, their formats and the light classes |
 //! | [`frame`] | the camera, the rows of a constants buffer, a buffer rewritten every frame, the push words, the last frame's reprojection |
 //! | [`ao`] | the ambient occlusion: how much of the sky each pixel's surroundings leave it |
+//! | [`lamps`] | the lamps' lists over the pieces of the view, the target of their light, and the halos round them |
 //! | [`post`] | the scene's target of its own, the temporal anti-aliasing, the bloom, the exposure and the tone curve |
 //! | [`sun`] | the sun's cascades, their maps, and how much of the sun reaches each pixel it lights |
 //! | [`shaders`] | the shaders, compiled ahead of time and embedded: each entry point's blobs |
@@ -29,6 +30,7 @@
 pub mod ao;
 pub mod frame;
 pub mod gbuffer;
+pub mod lamps;
 pub mod post;
 pub mod shaders;
 pub mod sun;

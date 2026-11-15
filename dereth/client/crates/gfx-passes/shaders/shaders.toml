@@ -59,3 +59,21 @@ stage = "fragment"
 source = "post.slang"
 entry = "fs_tonemap"
 stage = "fragment"
+
+# The lamps: each piece of the view's list of the lamps that reach it, which the game's own
+# shading reads.
+[[entry]]
+source = "lamps.slang"
+entry = "cs_clusters"
+stage = "compute"
+
+# The soft halo round each lamp the eye can see, added over the scene's colors.
+[[entry]]
+source = "halo.slang"
+entry = "vs_halo"
+stage = "vertex"
+
+[[entry]]
+source = "halo.slang"
+entry = "fs_halo"
+stage = "fragment"

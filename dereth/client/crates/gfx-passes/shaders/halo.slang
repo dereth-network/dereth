@@ -3,7 +3,7 @@
 // surface stands in front of the lamp takes none, so a wall or a post between the eye and the lamp
 // cuts its halo cleanly.
 import bindless;
-import retail;
+import frame;
 
 struct Push
 {

@@ -162,27 +162,11 @@ source = "gbuffer.slang"
 entry = "fs_caster"
 stage = "fragment"
 
-# The lamps: each piece of the view's list of the lamps that reach it, then the light they add
-# at each pixel.
-[[entry]]
-source = "lamps.slang"
-entry = "cs_clusters"
-stage = "compute"
-
+# The lamps: the light they add at each pixel, from the shared passes' lists of the lamps that
+# reach each piece of the view.
 [[entry]]
 source = "lamps.slang"
 entry = "fs_lamps"
-stage = "fragment"
-
-# The soft halo round each lamp the eye can see, added over the scene's colors.
-[[entry]]
-source = "halo.slang"
-entry = "vs_halo"
-stage = "vertex"
-
-[[entry]]
-source = "halo.slang"
-entry = "fs_halo"
 stage = "fragment"
 
 # The moving objects drawn again where they moved from.

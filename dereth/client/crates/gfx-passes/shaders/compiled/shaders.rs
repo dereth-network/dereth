@@ -23,11 +23,17 @@ pub enum Entry {
     PostFsBloomUp,
     /// `fs_tonemap` in `post.slang`, the fragment stage.
     PostFsTonemap,
+    /// `cs_clusters` in `lamps.slang`, the compute stage.
+    LampsCsClusters,
+    /// `vs_halo` in `halo.slang`, the vertex stage.
+    HaloVsHalo,
+    /// `fs_halo` in `halo.slang`, the fragment stage.
+    HaloFsHalo,
 }
 
 impl Entry {
     /// Every entry point, in `shaders.toml`'s order.
-    pub const ALL: [Self; 10] = [Self::FullscreenVsMain, Self::AoFsGtao, Self::AoFsGather, Self::AoFsUpsample, Self::ShadowMaskFsMain, Self::PostFsTaa, Self::PostFsTaaCheck, Self::PostFsBloomDown, Self::PostFsBloomUp, Self::PostFsTonemap];
+    pub const ALL: [Self; 13] = [Self::FullscreenVsMain, Self::AoFsGtao, Self::AoFsGather, Self::AoFsUpsample, Self::ShadowMaskFsMain, Self::PostFsTaa, Self::PostFsTaaCheck, Self::PostFsBloomDown, Self::PostFsBloomUp, Self::PostFsTonemap, Self::LampsCsClusters, Self::HaloVsHalo, Self::HaloFsHalo];
 
     /// The source file that defines it.
     #[must_use]
@@ -43,6 +49,9 @@ impl Entry {
             Self::PostFsBloomDown => "post.slang",
             Self::PostFsBloomUp => "post.slang",
             Self::PostFsTonemap => "post.slang",
+            Self::LampsCsClusters => "lamps.slang",
+            Self::HaloVsHalo => "halo.slang",
+            Self::HaloFsHalo => "halo.slang",
         }
     }
 
@@ -60,6 +69,9 @@ impl Entry {
             Self::PostFsBloomDown => "fs_bloom_down",
             Self::PostFsBloomUp => "fs_bloom_up",
             Self::PostFsTonemap => "fs_tonemap",
+            Self::LampsCsClusters => "cs_clusters",
+            Self::HaloVsHalo => "vs_halo",
+            Self::HaloFsHalo => "fs_halo",
         }
     }
 
@@ -77,6 +89,9 @@ impl Entry {
             Self::PostFsBloomDown => Stage::Fragment,
             Self::PostFsBloomUp => Stage::Fragment,
             Self::PostFsTonemap => Stage::Fragment,
+            Self::LampsCsClusters => Stage::Compute,
+            Self::HaloVsHalo => Stage::Vertex,
+            Self::HaloFsHalo => Stage::Fragment,
         }
     }
 
@@ -94,6 +109,9 @@ impl Entry {
             Self::PostFsBloomDown => include_bytes!("spirv/post.fs_bloom_down.spv"),
             Self::PostFsBloomUp => include_bytes!("spirv/post.fs_bloom_up.spv"),
             Self::PostFsTonemap => include_bytes!("spirv/post.fs_tonemap.spv"),
+            Self::LampsCsClusters => include_bytes!("spirv/lamps.cs_clusters.spv"),
+            Self::HaloVsHalo => include_bytes!("spirv/halo.vs_halo.spv"),
+            Self::HaloFsHalo => include_bytes!("spirv/halo.fs_halo.spv"),
         }
     }
 
@@ -111,6 +129,9 @@ impl Entry {
             Self::PostFsBloomDown => include_bytes!("dxil/post.fs_bloom_down.dxil"),
             Self::PostFsBloomUp => include_bytes!("dxil/post.fs_bloom_up.dxil"),
             Self::PostFsTonemap => include_bytes!("dxil/post.fs_tonemap.dxil"),
+            Self::LampsCsClusters => include_bytes!("dxil/lamps.cs_clusters.dxil"),
+            Self::HaloVsHalo => include_bytes!("dxil/halo.vs_halo.dxil"),
+            Self::HaloFsHalo => include_bytes!("dxil/halo.fs_halo.dxil"),
         }
     }
 }

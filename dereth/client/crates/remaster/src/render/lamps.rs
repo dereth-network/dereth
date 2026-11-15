@@ -25,21 +25,21 @@
 //!   large one, it goes redder as it dims, and its light sways a little.
 //!
 //! The view is cut into [`GRID`] pieces, its tiles of the screen by its slices of depth, and each
-//! piece lists the lamps whose reach meets it (a compute pass, `lamps.slang`'s `cs_clusters`);
-//! each pixel then adds the lamps of its piece (`fs_lamps`) into [`LampsPass`]'s target, the
-//! lamps' light, which the resolve adds. Its alpha says where the lamps replace retail's light
-//! indoors. [`clusters`] is the same listing on the processor.
+//! piece lists the lamps whose reach meets it (the shared passes' lists,
+//! `dereth_gfx_passes::lamps`); each pixel then adds the lamps of its piece (`fs_lamps`) into
+//! [`LampsPass`]'s target, the lamps' light, which the resolve adds. Its alpha says where the
+//! lamps replace retail's light indoors. [`clusters`] is the same listing on the processor.
 
 use std::collections::{BTreeMap, HashMap};
 
-use dereth_gfx::{
-    Blend, Buffer, BufferDesc, BufferUsage, ColorAttachment, ColorTarget, ComputeDesc, Cull,
-    Device, Factor, Format, GraphicsDesc, Load, Location, Pipeline, RasterPass, Recorder, Rect,
-    Texture, TextureDesc, TextureUsage, Touch, Use,
+use dereth_gfx::{Device, Recorder};
+use dereth_gfx_passes::lamps as shared;
+pub use dereth_gfx_passes::lamps::{
+    meets, Halo, LampsPlan, View, GRID, LAMP_LIGHT, PER_PIECE, SLICE_FAR, SLICE_NEAR,
 };
-use glam::{Mat4, Vec3, Vec4, Vec4Swizzles};
+use glam::Vec3;
 
-use super::{push_words, shader, Targets};
+use super::{shader, Targets};
 use crate::scene::{BlockId, FrameDelta, Lamp, LampSource, LightKind, SceneDelta};
 use crate::shaders::Entry;
 
@@ -66,20 +66,6 @@ impl LampSettings {
         self.indoor || self.outdoor
     }
 }
-
-/// The view's pieces: tiles across, tiles down, slices of depth.
-pub const GRID: [u32; 3] = [16, 9, 24];
-
-/// The lamps one piece lists at most.
-pub const PER_PIECE: u32 = 63;
-
-/// The words one piece takes in the list: its count, then its lamps.
-const PIECE_WORDS: u32 = PER_PIECE + 1;
-
-/// The depth the slices start at and end at, metres from the eye. Nearer than the first is the
-/// first slice; nothing farther than the last is lit.
-pub const SLICE_NEAR: f32 = 0.5;
-pub const SLICE_FAR: f32 = 240.0;
 
 /// The lamps listed at most, of each kind.
 pub const MAX_LAMPS: usize = 2048;
@@ -465,15 +451,6 @@ fn lamp_shape(lamp: &Lamp) -> LampShape {
     }
 }
 
-/// One lamp's halo: where it stands, how wide, and its color with the night and its flicker folded
-/// in.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Halo {
-    pub position: Vec3,
-    pub size: f32,
-    pub color: [f32; 3],
-}
-
 /// The outdoor placements' lamps of `outdoor` as `frame` lights them at `t` seconds (its night
 /// `n`), with their halos: the nearest first, and lamps standing in one place as one.
 fn placed_lamps(
@@ -653,155 +630,12 @@ pub fn lamp_rows(lamps: &[GpuLamp]) -> Vec<u8> {
     out
 }
 
-/// The halos' constants as rows of four 32-bit values: the view's right and up, then for each its
-/// place and width, and its color.
-fn halo_rows(view: Mat4, halos: &[Halo]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(32 + halos.len() * 32);
-    let mut f = |v: [f32; 4]| {
-        for x in v {
-            out.extend_from_slice(&x.to_le_bytes());
-        }
-    };
-    let to_world = view.inverse();
-    let (right, up) = (to_world.x_axis, to_world.y_axis);
-    f([right.x, right.y, right.z, 0.0]);
-    f([up.x, up.y, up.z, 0.0]);
-    for h in halos {
-        f([h.position.x, h.position.y, h.position.z, h.size]);
-        f([h.color[0], h.color[1], h.color[2], 0.0]);
-    }
-    out
-}
-
-/// How the view is cut into [`GRID`]'s pieces for a frame: its camera's view and projection and
-/// the world's size in pixels.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct View {
-    pub view: Mat4,
-    pub projection: Mat4,
-    pub extent: (u32, u32),
-}
-
-impl View {
-    /// Each tile's size in pixels.
-    #[must_use]
-    pub fn tile(&self) -> (u32, u32) {
-        (
-            self.extent.0.div_ceil(GRID[0]).max(1),
-            self.extent.1.div_ceil(GRID[1]).max(1),
-        )
-    }
-
-    /// The depth slice `k` starts at, metres from the eye.
-    #[must_use]
-    pub fn slice_depth(k: u32) -> f32 {
-        #[allow(clippy::cast_precision_loss)] // a few dozen slices
-        let t = k as f32 / GRID[2] as f32;
-        SLICE_NEAR * dereth_primitives::num::math::powf(SLICE_FAR / SLICE_NEAR, t)
-    }
-
-    /// The direction from the eye, in the eye's space, through the point `ndc` of the screen,
-    /// scaled to depth 1.
-    fn ray(&self, ndc: (f32, f32)) -> Vec3 {
-        let p = self.projection.inverse() * Vec4::new(ndc.0, ndc.1, 1.0, 1.0);
-        let v = p.xyz() / p.w;
-        if v.z.abs() < 1e-9 {
-            return Vec3::Z;
-        }
-        v / v.z
-    }
-
-    /// Piece `(i, j, k)`'s bounds in the eye's space: its corner nearest the origin of each
-    /// axis, and its farthest.
-    #[must_use]
-    pub fn bounds(&self, i: u32, j: u32, k: u32) -> (Vec3, Vec3) {
-        let (tw, th) = self.tile();
-        #[allow(clippy::cast_precision_loss)] // pixel counts
-        let ndc = |px: u32, py: u32| {
-            (
-                px.min(self.extent.0) as f32 / self.extent.0.max(1) as f32 * 2.0 - 1.0,
-                1.0 - py.min(self.extent.1) as f32 / self.extent.1.max(1) as f32 * 2.0,
-            )
-        };
-        let (z0, z1) = (Self::slice_depth(k), Self::slice_depth(k + 1));
-        let mut lo = Vec3::splat(f32::MAX);
-        let mut hi = Vec3::splat(f32::MIN);
-        for (px, py) in [
-            (i * tw, j * th),
-            ((i + 1) * tw, j * th),
-            (i * tw, (j + 1) * th),
-            ((i + 1) * tw, (j + 1) * th),
-        ] {
-            let r = self.ray(ndc(px, py));
-            for z in [z0, z1] {
-                let p = r * z;
-                lo = lo.min(p);
-                hi = hi.max(p);
-            }
-        }
-        (lo, hi)
-    }
-}
-
-/// Whether the sphere at `centre` of radius `radius` meets the box from `lo` to `hi`.
-#[must_use]
-pub fn meets(centre: Vec3, radius: f32, lo: Vec3, hi: Vec3) -> bool {
-    let nearest = centre.clamp(lo, hi);
-    nearest.distance_squared(centre) <= radius * radius
-}
-
 /// Each piece's lamps, as the compute pass lists them: piece `(i, j, k)` at
 /// `(k * GRID[1] + j) * GRID[0] + i`, its lamps in order, at most [`PER_PIECE`].
 #[must_use]
 pub fn clusters(lamps: &[GpuLamp], v: &View) -> Vec<Vec<u32>> {
-    let eye_space: Vec<Vec3> = lamps
-        .iter()
-        .map(|l| v.view.transform_point3(l.position))
-        .collect();
-    let mut out = Vec::new();
-    for k in 0..GRID[2] {
-        for j in 0..GRID[1] {
-            for i in 0..GRID[0] {
-                let (lo, hi) = v.bounds(i, j, k);
-                let mut list = Vec::new();
-                for (n, (l, c)) in lamps.iter().zip(&eye_space).enumerate() {
-                    if list.len() >= PER_PIECE as usize {
-                        break;
-                    }
-                    if meets(*c, l.reach, lo, hi) {
-                        list.push(u32::try_from(n).unwrap_or(u32::MAX));
-                    }
-                }
-                out.push(list);
-            }
-        }
-    }
-    out
-}
-
-/// The format of the lamps' light.
-pub const LAMP_LIGHT: Format = Format::Rgba16Float;
-
-/// One frame's lamps, as the pass records them.
-#[derive(Debug, Clone, Copy)]
-pub struct LampsPlan {
-    /// The lamps' light, and its index in the table: rgb the light the lamps add, a 1 where they
-    /// take the place of retail's own light indoors.
-    pub light: Texture,
-    pub light_index: u32,
-    lamps: Buffer,
-    lamps_index: u32,
-    pieces: Buffer,
-    pieces_index: u32,
-    rows: u32,
-    count: u32,
-    /// Whether the viewer stands inside with the outdoors drawn: the outdoor surfaces are then
-    /// placed by the outdoor depth.
-    inside: bool,
-    clusters: Pipeline,
-    shade: Pipeline,
-    /// The halos' constants, how many, and how they are drawn on the frame's kind of target.
-    halos: Option<(u32, u32, Pipeline)>,
+    let reaches: Vec<(Vec3, f32)> = lamps.iter().map(|l| (l.position, l.reach)).collect();
+    shared::clusters(&reaches, v)
 }
 
 /// What the pass needs of a frame.
@@ -814,23 +648,14 @@ pub struct LampInputs<'a> {
     pub linear: bool,
 }
 
-/// The lamps' pass: its pipelines, made when it is, its buffers, its target, and the outdoor
-/// placements' lights of the blocks the scene holds.
+/// The lamps' pass: the shared passes' lists, light and halos with the lamps' own shading, and the
+/// outdoor placements' lights of the blocks the scene holds.
 #[derive(Debug)]
 pub struct LampsPass {
     settings: LampSettings,
-    clusters: Pipeline,
-    shade: Pipeline,
-    /// The halos over each kind of target.
-    halo: [(Format, Pipeline); 2],
-    halos: Grow,
-    lamps: Grow,
-    rows: Grow,
+    pass: shared::LampsPass,
     /// The scene's clock when the lamps were first lit.
     lit_from: Option<f64>,
-    pieces: Buffer,
-    pieces_index: u32,
-    light: Option<(Texture, u32, u32, u32)>,
     // ORDER-OK: walked in block order; only the set matters.
     outdoor: BTreeMap<BlockId, Vec<Lamp>>,
     calibration: Calibration,
@@ -843,117 +668,16 @@ pub struct LampsPass {
     last_halos: Vec<Halo>,
 }
 
-/// A storage buffer rewritten every frame, grown when a frame needs more.
-#[derive(Debug)]
-struct Grow {
-    buffer: Buffer,
-    index: u32,
-    size: u64,
-    label: &'static str,
-}
-
-impl Grow {
-    fn new(d: &mut Device, label: &'static str, size: u64) -> Result<Self, dereth_gfx::Error> {
-        let buffer = d.create_buffer(&BufferDesc {
-            label,
-            size,
-            usage: BufferUsage::STORAGE,
-            location: Location::Gpu,
-        })?;
-        let index = d.bind_buffer(buffer)?;
-        Ok(Self {
-            buffer,
-            index,
-            size,
-            label,
-        })
-    }
-
-    fn write(&mut self, d: &mut Device, bytes: &[u8]) -> Result<(), dereth_gfx::Error> {
-        let need = (bytes.len() as u64).max(16);
-        if need > self.size {
-            let size = need.next_power_of_two();
-            let bigger = d.create_buffer(&BufferDesc {
-                label: self.label,
-                size,
-                usage: BufferUsage::STORAGE,
-                location: Location::Gpu,
-            })?;
-            d.destroy_buffer(std::mem::replace(&mut self.buffer, bigger));
-            self.index = d.bind_buffer(self.buffer)?;
-            self.size = size;
-        }
-        if bytes.is_empty() {
-            return Ok(());
-        }
-        d.write_buffer(self.buffer, 0, bytes)
-    }
-}
-
-/// The pieces' list, every piece's words.
-const PIECES_BYTES: u64 = (GRID[0] * GRID[1] * GRID[2] * PIECE_WORDS) as u64 * 4;
-
 impl LampsPass {
     /// The pass on `gfx`, its pipelines made, off.
     ///
     /// # Errors
     /// What the device refuses.
     pub fn new(gfx: &mut Device) -> Result<Self, dereth_gfx::Error> {
-        let clusters = gfx.create_compute_pipeline(&ComputeDesc {
-            label: "remaster lamp lists",
-            shader: shader(Entry::LampsCsClusters),
-        })?;
-        let shade = gfx.create_graphics_pipeline(&GraphicsDesc {
-            label: "remaster lamps",
-            vertex: dereth_gfx_passes::shaders::fullscreen(),
-            fragment: Some(shader(Entry::LampsFsLamps)),
-            color: &[ColorTarget {
-                format: LAMP_LIGHT,
-                blend: None,
-                write_alpha: true,
-            }],
-            depth: None,
-            cull: Cull::None,
-        })?;
-        let linear = super::post::scene_format(gfx);
-        let mut halo = |format| {
-            gfx.create_graphics_pipeline(&GraphicsDesc {
-                label: "remaster lamp halos",
-                vertex: shader(Entry::HaloVsHalo),
-                fragment: Some(shader(Entry::HaloFsHalo)),
-                color: &[ColorTarget {
-                    format,
-                    blend: Some(Blend {
-                        src: Factor::One,
-                        dst: Factor::One,
-                    }),
-                    write_alpha: false,
-                }],
-                depth: None,
-                cull: Cull::None,
-            })
-            .map(|p| (format, p))
-        };
-        let halo = [halo(super::COLOR)?, halo(linear)?];
-        let pieces = gfx.create_buffer(&BufferDesc {
-            label: "remaster lamp pieces",
-            size: PIECES_BYTES,
-            usage: BufferUsage::STORAGE | BufferUsage::TRANSFER_SRC,
-            location: Location::Gpu,
-        })?;
-        let pieces_index = gfx.bind_buffer(pieces)?;
         Ok(Self {
             settings: LampSettings::OFF,
-            clusters,
-            shade,
-            halo,
-            halos: Grow::new(gfx, "remaster lamp halos", 1 << 12)?,
+            pass: shared::LampsPass::new(gfx, shader(Entry::LampsFsLamps), super::COLOR)?,
             lit_from: None,
-            lamps: Grow::new(gfx, "remaster lamps", 1 << 14)?,
-            rows: Grow::new(gfx, "remaster lamp frame", 512)?,
-            pieces,
-            pieces_index,
-            light: None,
             outdoor: BTreeMap::new(),
             calibration: Calibration::default(),
             last_count: 0,
@@ -1077,75 +801,34 @@ impl LampsPass {
             (frame.clock - from) as f32,
         );
         let t = inputs.targets;
-        let light = match self.light {
-            Some((tex, index, w, h)) if (w, h) == (t.width, t.height) => (tex, index),
-            old => {
-                if let Some((tex, ..)) = old {
-                    gfx.destroy_texture(tex);
-                }
-                let tex = gfx.create_texture(&TextureDesc {
-                    label: "remaster lamps' light",
-                    width: t.width,
-                    height: t.height,
-                    mips: 1,
-                    format: LAMP_LIGHT,
-                    usage: TextureUsage::COLOR_TARGET
-                        | TextureUsage::SAMPLED
-                        | TextureUsage::TRANSFER_SRC,
-                })?;
-                let index = gfx.bind_texture(tex)?;
-                self.light = Some((tex, index, t.width, t.height));
-                (tex, index)
-            }
-        };
-        self.lamps.write(gfx, &lamp_rows(&lamps))?;
         let view = View {
             view: frame.camera.view,
             projection: frame.camera.projection,
             extent: (t.width, t.height),
         };
-        self.rows
-            .write(gfx, &frame_rows(&view, frame, self.settings))?;
         let count = u32::try_from(lamps.len()).unwrap_or(u32::MAX);
         self.last_count = count;
         #[cfg(any(test, feature = "test-support"))]
         self.last_halos.clone_from(&halos);
-        let halos = if halos.is_empty() {
-            None
-        } else {
-            self.halos
-                .write(gfx, &halo_rows(frame.camera.view, &halos))?;
-            let format = if inputs.linear {
-                super::post::scene_format(gfx)
-            } else {
-                super::COLOR
-            };
-            self.halo.iter().find(|(f, _)| *f == format).map(|(_, p)| {
-                (
-                    self.halos.index,
-                    u32::try_from(halos.len()).unwrap_or(0),
-                    *p,
-                )
-            })
-        };
+        let reaches: Vec<(Vec3, f32)> = lamps.iter().map(|l| (l.position, l.reach)).collect();
+        let plan = self.pass.prepare(
+            gfx,
+            t,
+            &shared::LampsFrame {
+                lamps: &lamp_rows(&lamps),
+                reaches: &reaches,
+                halos: &halos,
+                view,
+                rows: &frame_rows(&view, frame, self.settings),
+                linear: inputs.linear,
+                inside: frame.landscape && !frame.light.outdoor,
+            },
+        )?;
         #[cfg(any(test, feature = "test-support"))]
         {
             self.last = Some((lamps, view));
         }
-        Ok(Some(LampsPlan {
-            light: light.0,
-            light_index: light.1,
-            lamps: self.lamps.buffer,
-            lamps_index: self.lamps.index,
-            pieces: self.pieces,
-            pieces_index: self.pieces_index,
-            rows: self.rows.index,
-            count,
-            inside: frame.landscape && !frame.light.outdoor,
-            clusters: self.clusters,
-            shade: self.shade,
-            halos,
-        }))
+        Ok(Some(plan))
     }
 
     /// Record the lamps: their lists, then their light, from the G-buffer's targets `t`. It goes
@@ -1158,68 +841,7 @@ impl LampsPass {
         r: &mut Recorder<'_>,
         t: &Targets,
     ) -> Result<(), dereth_gfx::Error> {
-        r.timestamp("lamp lists");
-        r.compute(
-            &[
-                Touch::Buffer(plan.lamps, Use::StorageRead),
-                Touch::Buffer(plan.pieces, Use::StorageWrite),
-            ],
-            |c| {
-                c.set_pipeline(plan.clusters)?;
-                c.push(
-                    0,
-                    &push_words(&[plan.rows, plan.lamps_index, plan.count, plan.pieces_index]),
-                )?;
-                c.dispatch((GRID[0] * GRID[1] * GRID[2]).div_ceil(64), 1, 1);
-                Ok(())
-            },
-        )?;
-        let outdoor_depth = if plan.inside {
-            t.outdoor_depth
-        } else {
-            t.depth
-        };
-        let outdoor_depth_index = if plan.inside { t.index[6] } else { t.index[4] };
-        let words = push_words(&[
-            plan.rows,
-            plan.lamps_index,
-            plan.pieces_index,
-            t.index[1],
-            t.index[3],
-            t.index[4],
-            outdoor_depth_index,
-        ]);
-        r.timestamp("lamps");
-        r.raster(
-            &RasterPass {
-                name: "lamps",
-                color: &[ColorAttachment {
-                    texture: plan.light,
-                    load: Load::Clear([0.0; 4]),
-                }],
-                depth: None,
-                touches: &[
-                    Touch::Buffer(plan.lamps, Use::StorageRead),
-                    Touch::Buffer(plan.pieces, Use::StorageRead),
-                    Touch::Texture(t.normal, Use::Sampled),
-                    Touch::Texture(t.material, Use::Sampled),
-                    Touch::Texture(t.depth, Use::Sampled),
-                    Touch::Texture(outdoor_depth, Use::Sampled),
-                ],
-                area: Some(Rect {
-                    x: 0,
-                    y: 0,
-                    width: t.width,
-                    height: t.height,
-                }),
-            },
-            |d| {
-                d.set_pipeline(plan.shade)?;
-                d.push(0, &words)?;
-                d.draw(3, 1, 0, 0);
-                Ok(())
-            },
-        )
+        shared::LampsPass::record(plan, r, t)
     }
 
     /// Record the lamps' halos over the scene's colors, for frame constants `frame`. It goes after
@@ -1233,84 +855,14 @@ impl LampsPass {
         t: &Targets,
         frame: u32,
     ) -> Result<(), dereth_gfx::Error> {
-        let Some((rows, count, pipeline)) = plan.halos else {
-            return Ok(());
-        };
-        let mut touches = vec![Touch::Texture(t.depth, Use::Sampled)];
-        if plan.inside {
-            touches.push(Touch::Texture(t.outdoor_depth, Use::Sampled));
-        }
-        r.timestamp("lamp halos");
-        let words = push_words(&[
-            frame,
-            rows,
-            t.index[4],
-            if plan.inside { t.index[6] } else { t.index[4] },
-        ]);
-        r.raster(
-            &RasterPass {
-                name: "lamp halos",
-                color: &[ColorAttachment {
-                    texture: t.color,
-                    load: Load::Keep,
-                }],
-                depth: None,
-                touches: &touches,
-                area: Some(Rect {
-                    x: 0,
-                    y: 0,
-                    width: t.width,
-                    height: t.height,
-                }),
-            },
-            |d| {
-                d.set_pipeline(pipeline)?;
-                d.push(0, &words)?;
-                d.draw(6, count, 0, 0);
-                Ok(())
-            },
-        )
+        shared::LampsPass::record_halos(plan, r, t, frame)
     }
 
     /// The last frame's lamps' light and lamp lists, read back once the device has finished
     /// them: the light as four half floats a pixel, and each piece's lamps.
     #[cfg(any(test, feature = "test-support"))]
     pub fn read_back(&self, gfx: &mut Device) -> Option<(Vec<u8>, Vec<Vec<u32>>)> {
-        let (tex, ..) = self.light?;
-        gfx.wait_idle().ok()?;
-        let light = gfx.read_texture(tex, 0).ok()?;
-        let readback = gfx
-            .create_buffer(&BufferDesc {
-                label: "remaster lamp pieces read back",
-                size: PIECES_BYTES,
-                usage: BufferUsage::TRANSFER_DST,
-                location: Location::Readback,
-            })
-            .ok()?;
-        let bytes = (|| {
-            let mut r = gfx.begin()?;
-            r.copy_buffer(self.pieces, 0, readback, 0, PIECES_BYTES)?;
-            r.touch(&[Touch::Buffer(readback, Use::HostRead)])?;
-            let ticket = r.submit()?;
-            gfx.wait(ticket)?;
-            gfx.read_buffer(readback, 0, PIECES_BYTES)
-        })();
-        gfx.destroy_buffer(readback);
-        let words: Vec<u32> = bytes
-            .ok()?
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|w| u32::from_le_bytes(*w))
-            .collect();
-        let lists = words
-            .chunks(PIECE_WORDS as usize)
-            .map(|p| {
-                let n = (p[0] as usize).min(PER_PIECE as usize);
-                p[1..=n].to_vec()
-            })
-            .collect();
-        Some((light, lists))
+        self.pass.read_back(gfx)
     }
 }
 
@@ -1338,38 +890,12 @@ impl super::Renderer {
 /// slices' near and far and how many there are, what the lamps light, and (as words) the grid
 /// and how many lamps a piece lists.
 fn frame_rows(v: &View, frame: &FrameDelta, settings: LampSettings) -> Vec<u8> {
-    let mut out = Vec::new();
-    let mut f = |x: [f32; 4]| {
-        for w in x {
-            out.extend_from_slice(&w.to_le_bytes());
-        }
-    };
-    for m in [
-        v.view,
-        v.projection.inverse(),
-        (v.projection * v.view).inverse(),
-    ] {
-        for c in m.to_cols_array_2d() {
-            f(c);
-        }
-    }
-    let e = frame.camera.eye;
-    f([e.x, e.y, e.z, 1.0]);
-    let (tw, th) = v.tile();
-    #[allow(clippy::cast_precision_loss)] // pixel counts
-    f([v.extent.0 as f32, v.extent.1 as f32, tw as f32, th as f32]);
-    #[allow(clippy::cast_precision_loss)] // a few dozen slices
-    f([SLICE_NEAR, SLICE_FAR, GRID[2] as f32, SOFTEN]);
-    f([
-        if settings.indoor { 1.0 } else { 0.0 },
-        if settings.outdoor { 1.0 } else { 0.0 },
-        0.0,
-        0.0,
-    ]);
-    for w in [GRID[0], GRID[1], GRID[2], PER_PIECE] {
-        out.extend_from_slice(&w.to_le_bytes());
-    }
-    out
+    shared::frame_rows(
+        v,
+        frame.camera.eye,
+        SOFTEN,
+        [settings.indoor, settings.outdoor],
+    )
 }
 
 #[cfg(test)]
@@ -1377,6 +903,7 @@ mod tests {
     //! Behaviour: none (experimental)
     use super::*;
     use crate::scene::Light;
+    use glam::Mat4;
 
     /// The brightness a lamp of `power` and `reach` gives the surfaces round it, as
     /// [`calibrate`] weighs them.
