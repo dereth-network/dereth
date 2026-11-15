@@ -2493,6 +2493,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.text.a-selection-shows-as-one-band-per-line",
+        says: "A text element's selected run shows as one band along each line, each selected \
+               glyph's advance by the line's height with its colors turned over and its alpha \
+               kept, the boxes meeting with no texel turned twice: no seam between glyphs, at any \
+               scale the element is drawn at.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TEXT-SELECTION-BAND"),
+        station: "auberean-ui::cpu::text::a_selection_shows_as_one_band_per_line",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.text.an-element-with-no-font-starts-in-the-default-font",
         says: "A text element with no font of its own starts in the default font the font mapping \
                names.",

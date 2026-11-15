@@ -661,11 +661,13 @@ pub(crate) fn draw_glyph(
     width
 }
 
-/// Turn over the color bits of the texels from `(x0, y0)` to `(x1, y1)` inside `clip` (a
-/// selection shown).
+/// Turn over the color bits of the texels from `(x0, y0)` up to, not taking, `(x1, y1)` inside
+/// `clip`, their alpha kept (a selection shown): boxes side by side meet with no texel turned
+/// twice.
+// D2-09967
 pub(crate) fn not_color_bits(s: &mut Surface, from: (i32, i32), to: (i32, i32), clip: Rect) {
-    for y in from.1..=to.1 {
-        for x in from.0..=to.0 {
+    for y in from.1..to.1 {
+        for x in from.0..to.0 {
             if clip.contains(x, y) {
                 let p = s.get(x, y);
                 s.put(x, y, [!p[0], !p[1], !p[2], p[3]]);

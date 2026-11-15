@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that a player would notice. 
 not how it was done.
 
 ## Unreleased
+- Fixed selected text showing as a separate box around each character.
 - Fixed dying creatures staying solid until their bodies disappeared.
 - Fixed hidden placeholder objects, like a cube in the Arwic mines, being drawn.
 - Fixed walking through rocks and trees out in the open.

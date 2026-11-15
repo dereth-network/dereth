@@ -2141,7 +2141,8 @@ fn percentage(view: i32, paper: i32, size: i32) -> f32 {
 /// Draw a text element's glyphs at `area` (on the screen), clipped to `clip`: each line from the
 /// view's corner, justified within the margins (a text that is not editable and has no
 /// horizontal scroll bar justified across its element), each glyph in its own font and color
-/// (outlined ones over a black outline), selected glyphs turned over; and the caret, while it
+/// (outlined ones over a black outline), each selected glyph's advance by its line's height turned
+/// over (so a selected run shows as one band along each line); and the caret, while it
 /// shows, a line the font's height in the font's color before the glyph it stands at.
 // D2-11790
 pub(crate) fn post_blit(ui: &Ui, s: &mut Surface, h: Handle, area: Rect, clip: Rect) {

@@ -951,3 +951,72 @@ fn an_entry_taking_the_keyboard_turns_the_input_method_on() {
     assert!(u.activate(plain));
     assert!(u.ime().is_none(), "no_IME keeps it off");
 }
+
+/// A selected run is shown turned over as one band per line: from the left of its first glyph to
+/// the right of its last, as high as the line, every texel's color turned over and its alpha kept,
+/// with no seam between glyphs and nothing turned past the band; the element scaled, the band
+/// stays whole.
+///
+/// Behaviour: ui.text.a-selection-shows-as-one-band-per-line
+#[test]
+fn a_selection_shows_as_one_band_per_line() {
+    use auberean_ui::draw::{self, Surface};
+    // The entry's own picture behind its text, and the same turned over.
+    const BACK: [u8; 4] = [0x30, 0x20, 0x10, 0xFF];
+    const TURNED: [u8; 4] = [0xCF, 0xDF, 0xEF, 0xFF];
+    const TYPED: &str = "/xp add 1000000";
+    let mut e = text(
+        "Entry",
+        [0, 0, 199, 19],
+        vec![("editable", V::Bool(true)), ("selectable", V::Bool(true))],
+    );
+    e.states[0].media.push(image(7, 0));
+    let mut u = ui(vec![e], vec![(7, solid(200, 20, BACK))]);
+    let h = entry(&mut u);
+    u.set_text(h, TYPED);
+    u.select_all(h);
+    assert!(!u.caret_shown(h), "no caret over the band");
+    let advance = u.text_state(h).unwrap().glyphs.glyphs[0].width;
+    let run = advance * i32::try_from(TYPED.len()).unwrap();
+    // The turned texels of a picture: their box, and how many there are.
+    let turned = |s: &Surface| {
+        let (mut lo, mut hi, mut n) = ((i32::MAX, i32::MAX), (i32::MIN, i32::MIN), 0);
+        for y in 0..s.height {
+            for x in 0..s.width {
+                if s.get(x, y) == TURNED {
+                    lo = (lo.0.min(x), lo.1.min(y));
+                    hi = (hi.0.max(x), hi.1.max(y));
+                    n += 1;
+                }
+            }
+        }
+        (lo, hi, n)
+    };
+    let mut s = Surface::new(200, 20);
+    draw::draw(&u, &mut s);
+    let (lo, hi, n) = turned(&s);
+    assert_eq!(hi.0 - lo.0 + 1, run, "as wide as the run: {lo:?} to {hi:?}");
+    assert_eq!(hi.1 - lo.1 + 1, 10, "as high as the line: {lo:?} to {hi:?}");
+    assert_eq!(
+        n,
+        run * 10,
+        "every texel of it turned, no seam between glyphs"
+    );
+    for scale in [1.5f32, 2.0] {
+        u.set_object_scale(h, scale);
+        let mut s = Surface::new(400, 40);
+        draw::draw(&u, &mut s);
+        let (lo, hi, _) = turned(&s);
+        // Within the band's edges, every texel is turned: no seam shows between glyphs.
+        let seams: Vec<(i32, i32)> = (lo.1 + 1..hi.1)
+            .flat_map(|y| (lo.0 + 1..hi.0).map(move |x| (x, y)))
+            .filter(|&(x, y)| s.get(x, y) != TURNED)
+            .collect();
+        assert!(hi.0 - lo.0 > run, "scaled by {scale}: {lo:?} to {hi:?}");
+        assert!(
+            seams.is_empty(),
+            "scaled by {scale}: seams at {:?}",
+            &seams[..seams.len().min(8)]
+        );
+    }
+}
