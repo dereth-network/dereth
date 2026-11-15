@@ -567,6 +567,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.inside.an-object-kept-out-of-the-game-is-not-drawn",
+        says: "An object whose drawing properties keep it out of the game (the property not drawn in the game, from the entities it is made from or its own) is not drawn and casts no shadow, for every character; it still stands in the world. Drawn as the tools draw, it shows.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-NOT-IN-GAME"),
+        station: "auberean-draw::dat::inside::an_object_kept_out_of_the_game_is_not_drawn",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.inside.every-doorway-runs-clockwise-from-inside-its-cell",
         says: "Every doorway of every interior cell is stored running clockwise as seen from inside its \
                cell, and names side 1, so the view made from its corners in their order holds what \

@@ -4136,6 +4136,7 @@ impl<'w> Scene<'w> {
             &self.world.records,
             &self.anims,
             &mut self.drawer,
+            &self.table,
             (bx, by),
             self.ticker.alpha(now),
             &mut built.frame.objects,

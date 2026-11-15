@@ -229,6 +229,8 @@ impl<'w> Scene<'w> {
         // The editor's frame is rebuilt as the camera flies: no shadows to work out each time.
         builder.static_shadows = false;
         builder.cloud_shadows = false;
+        // The editor shows the placed objects kept out of the game too, as the tools do.
+        builder.tools_draw = true;
         Self {
             data,
             builder,

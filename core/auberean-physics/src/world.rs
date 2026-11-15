@@ -46,7 +46,7 @@ pub use detect::GameObjects;
 pub(crate) use detection::PHYSICS_SHAPES;
 pub use detection::{split_ray, Detection, NoGameObjects};
 pub(crate) use props::group;
-pub use props::{entity_graphics_state, graphics, render};
+pub use props::{entity_game_draw, entity_graphics_state, graphics, render};
 
 /// The physics type the client gives the entities placed outside.
 pub const STATIC_ETHEREAL: u32 = 0x4000_0038;

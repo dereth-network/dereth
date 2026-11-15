@@ -622,6 +622,41 @@ fn the_scripts_scale_hide_and_slide_the_bodies() {
     assert!(scene.drawn_batches(id).is_none(), "not drawn");
 }
 
+/// A body whose drawing properties keep it out of the game is not drawn: in a recorded session,
+/// once another body drawn in the frame takes the drawing property not drawn in the game, the
+/// next frame has none of its draws (and so it casts no shadow), while it keeps its place in the
+/// world's table.
+///
+/// Behaviour: desktop.bodies.a-body-kept-out-of-the-game-is-not-drawn
+#[test]
+fn a_body_kept_out_of_the_game_is_not_drawn() {
+    use auberean_assets::property::{Property, PropertyList, PropertyValue};
+    use auberean_physics::world::render::INVISIBLE_INGAME;
+    let (c, mut scene, _) = played("1e177f6bfede2082:3", 5.0);
+    let player = c.model.player.expect("the player");
+    let t = c.local_time();
+    scene.frame(t);
+    let id = scene
+        .seen
+        .bodies
+        .iter()
+        .map(|s| s.id)
+        .find(|&id| id != player && scene.drawn_batches(id).is_some_and(|r| !r.is_empty()))
+        .expect("another body drawn");
+    let list: PropertyList = data()
+        .0
+        .records
+        .get(0x3400_0000)
+        .expect("the property list");
+    let mut hidden = Property::named(&list, INVISIBLE_INGAME).expect("in the list");
+    hidden.value = PropertyValue::Bool(true);
+    let key = scene.table().find(id).expect("in the table");
+    assert!(scene.table_mut().apply_render_property(key, &hidden));
+    scene.frame(t);
+    assert!(scene.drawn_batches(id).is_none(), "not drawn");
+    assert_eq!(scene.table().find(id), Some(key), "still in the world");
+}
+
 /// A minute in the world of a 2017 session in which the server scales the speed and the
 /// acceleration of the player (2.185 times) and of the creatures about it: each scale
 /// reaches the body it was sent for within a second (the frame after it takes effect), whether

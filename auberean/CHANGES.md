@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that a player would notice. 
 not how it was done.
 
 ## Unreleased
+- Fixed hidden placeholder objects, like a cube in the Arwic mines, being drawn.
 - Fixed walking through rocks and trees out in the open.
 - Fixed the screen going black for a moment when walking from room to room in dungeons.
 - Fixed quest descriptions showing a string table error instead of their text.

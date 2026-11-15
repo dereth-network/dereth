@@ -559,7 +559,7 @@ impl SceneBuilder<'_> {
                 .flat_map(|g| g.entities.iter())
                 .enumerate()
             {
-                let ps = entity_parts(records, e);
+                let ps = self.drawn_parts(e, entity_parts(records, e));
                 let Some(first) = ps.first() else {
                     continue;
                 };

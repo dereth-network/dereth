@@ -107,6 +107,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.bodies.a-body-kept-out-of-the-game-is-not-drawn",
+        says: "A body whose drawing properties keep it out of the game is not drawn, and so casts no shadow; it keeps its place in the world.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-BODY-NOT-IN-GAME"),
+        station: "auberean-scene::corpus::combat::a_body_kept_out_of_the_game_is_not_drawn",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "desktop.bodies.a-body-takes-a-script-a-motion-description-and-private-effects",
         says: "A body the server asks plays an effect script and takes a new motion description; \
                a private effect plays on the player whoever else is near.",

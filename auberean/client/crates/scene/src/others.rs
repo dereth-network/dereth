@@ -1176,27 +1176,42 @@ impl Others {
         made
     }
 
-    /// The bodies as batches, placed in block `block`'s frame.
+    /// The bodies as batches, placed in block `block`'s frame, those `table` keeps out of the game
+    /// left out.
+    #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &self,
         records: &WorldRecords,
         anims: &CachedRecords<'_>,
         drawer: &mut BodyDrawer,
+        table: &World,
         block: (i32, i32),
         alpha: f32,
         out: &mut Vec<ObjectBatch>,
     ) {
-        self.draw_noting(records, anims, drawer, block, alpha, out, &mut Vec::new());
+        self.draw_noting(
+            records,
+            anims,
+            drawer,
+            table,
+            block,
+            alpha,
+            out,
+            &mut Vec::new(),
+        );
     }
 
     /// The bodies as batches, as [`Self::draw`], each body drawn noted: its id, the range of its
-    /// batches in `out`, where it stands in the block's frame and its heading.
+    /// batches in `out`, where it stands in the block's frame and its heading. A body left out is
+    /// not noted, so it casts no shadow.
+    // D2-06218, D2-06015
     #[allow(clippy::too_many_arguments)]
     pub fn draw_noting(
         &self,
         records: &WorldRecords,
         anims: &CachedRecords<'_>,
         drawer: &mut BodyDrawer,
+        table: &World,
         block: (i32, i32),
         alpha: f32,
         out: &mut Vec<ObjectBatch>,
@@ -1209,8 +1224,11 @@ impl Others {
                 continue;
             };
             // Only the bodies in the world within the detailed blocks around the viewer, and not
-            // those told not to be drawn.
-            if !ob.in_world() || !in_detail(ob.body.position.cell.0, block) || ob.body.is_no_draw()
+            // those told not to be drawn or whose drawing properties keep them out of the game.
+            if !ob.in_world()
+                || !in_detail(ob.body.position.cell.0, block)
+                || ob.body.is_no_draw()
+                || table.find(*id).and_then(|k| table.game_draw(k)) == Some(false)
             {
                 continue;
             }

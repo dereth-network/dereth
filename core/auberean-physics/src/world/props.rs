@@ -68,13 +68,16 @@ fn graphics_bit(id: u32) -> Option<u32> {
     }
 }
 
-/// The graphics state an object made from entity `e` takes from its drawing properties (an
-/// entity a landblock or a cell places, kept whole there): the entities it is made from first
-/// (along its object while that is an entity, found by `entity`), then its own, each truth value
-/// among those saying how it is drawn setting or clearing its bit, as
+/// The properties an object made from entity `e` takes, folded in the order it takes them into
+/// what starts as `start`: those of the entities it is made from first (along its object while
+/// that is an entity, found by `entity`), the farthest first, then its own, as
 /// [`World::apply_entity_properties`] applies them to an object in the world.
-#[must_use]
-pub fn entity_graphics_state(e: &Entity, entity: EntityLookup<'_>) -> u32 {
+fn fold_entity_properties<T>(
+    e: &Entity,
+    entity: EntityLookup<'_>,
+    start: T,
+    step: impl FnMut(T, &Property) -> T,
+) -> T {
     let mut parents = Vec::new();
     let mut at = e.object.unwrap_or(0);
     for _ in 0..CHAIN_LIMIT {
@@ -95,13 +98,35 @@ pub fn entity_graphics_state(e: &Entity, entity: EntityLookup<'_>) -> u32 {
         .chain(own)
         .flatten()
         .flat_map(PropertyCollection::iter)
-        .fold(graphics::NEW, |state, p| {
-            match (graphics_bit(p.id), &p.value) {
-                (Some(bit), PropertyValue::Bool(true)) => state | bit,
-                (Some(bit), PropertyValue::Bool(false)) => state & !bit,
-                _ => state,
-            }
-        })
+        .fold(start, step)
+}
+
+/// The graphics state an object made from entity `e` takes from its drawing properties (an
+/// entity a landblock or a cell places, kept whole there): the entities it is made from first
+/// (along its object while that is an entity, found by `entity`), then its own, each truth value
+/// among those saying how it is drawn setting or clearing its bit, as
+/// [`World::apply_entity_properties`] applies them to an object in the world.
+#[must_use]
+pub fn entity_graphics_state(e: &Entity, entity: EntityLookup<'_>) -> u32 {
+    fold_entity_properties(e, entity, graphics::NEW, |state, p| {
+        match (graphics_bit(p.id), &p.value) {
+            (Some(bit), PropertyValue::Bool(true)) => state | bit,
+            (Some(bit), PropertyValue::Bool(false)) => state & !bit,
+            _ => state,
+        }
+    })
+}
+
+/// Whether an object made from entity `e` is drawn in the game: every object is when it is made,
+/// until a drawing property of the entities it is made from or its own, in the order
+/// [`entity_graphics_state`] takes them, says it is not drawn in the game (or is again).
+// D2-06115, D2-06038, D2-06015
+#[must_use]
+pub fn entity_game_draw(e: &Entity, entity: EntityLookup<'_>) -> bool {
+    fold_entity_properties(e, entity, true, |drawn, p| match (p.id, &p.value) {
+        (render::INVISIBLE_INGAME, PropertyValue::Bool(on)) => !on,
+        _ => drawn,
+    })
 }
 
 impl World {

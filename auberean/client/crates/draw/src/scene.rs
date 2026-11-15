@@ -943,6 +943,8 @@ pub struct SceneBuilder<'a> {
     /// The camera stands under water: the water reflects nothing, and the sky shows only what
     /// shows from there.
     pub camera_in_water: bool,
+    /// Draw as the tools draw: the placed objects kept out of the game are drawn too.
+    pub tools_draw: bool,
     /// The landscape shore effects preference: 0 none, 1 the shores' alpha, 2 that and their foam.
     pub shore_effects: u32,
     /// The light coronas preference: the sky objects' lens flares.
@@ -1111,6 +1113,7 @@ impl<'a> SceneBuilder<'a> {
             cloud_shadows: true,
             water_reflections: true,
             camera_in_water: false,
+            tools_draw: false,
             water_ripples: true,
             shore_effects: 2,
             light_coronas: true,
@@ -1315,6 +1318,22 @@ impl<'a> SceneBuilder<'a> {
             toward,
             detail: first.detail.map(|d| d[model_detail]),
         })
+    }
+
+    /// Parts `p` of an object the world places from entity `e`, as the frame draws them: none, and
+    /// no shadow, for one its drawing properties keep out of the game, unless the frame is drawn
+    /// as the tools draw. The effects its look plays are not its parts.
+    // D2-06218, D2-06015, D2-06016
+    pub(crate) fn drawn_parts(&self, e: &Entity, p: Vec<Part>) -> Vec<Part> {
+        use auberean_physics::world::entity_game_draw;
+        use auberean_world::place::PlaceRecords;
+        let records = self.records;
+        let lookup = |id: u32| records.entity(DataId(id));
+        if self.tools_draw || p.is_empty() || entity_game_draw(e, &lookup) {
+            p
+        } else {
+            Vec::new()
+        }
     }
 
     /// Whether an object made from entity `e` casts a shadow on the land, as its drawing properties
@@ -1955,9 +1974,10 @@ impl<'a> SceneBuilder<'a> {
             for (i, e) in info.entities.entities.iter().enumerate() {
                 let p = entity_parts(self.records, e);
                 if !p.is_empty() {
-                    counts.objects += 1;
                     placed.extend(self.placed_look(e, (bx, by), 0, i));
                 }
+                let p = self.drawn_parts(e, p);
+                counts.objects += usize::from(!p.is_empty());
                 if let Some(c) = self.placed_caster(e, &p, &place, None) {
                     part_casters.push((parts.len()..parts.len() + p.len(), c));
                 }
@@ -2027,9 +2047,10 @@ impl<'a> SceneBuilder<'a> {
                 {
                     let p = entity_parts(self.records, e);
                     if !p.is_empty() {
-                        counts.objects += 1;
                         placed.extend(self.placed_look(e, (bx, by), cell_low(low), i));
                     }
+                    let p = self.drawn_parts(e, p);
+                    counts.objects += usize::from(!p.is_empty());
                     if let Some(c) = self.placed_caster(e, &p, &place, None) {
                         part_casters.push((parts.len()..parts.len() + p.len(), c));
                     }

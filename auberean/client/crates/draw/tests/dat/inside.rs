@@ -482,3 +482,71 @@ fn a_decal_inside_is_laid_on_the_cells_ground_about_it() {
         .all(|t| from_hall.contains(t)));
     assert!(from_hall.len() >= hall_own.len() + other_own.len());
 }
+
+/// An object a cell places whose drawing properties keep it out of the game is not drawn: in the
+/// mines of block `0x7CB9`, cell `0x0110` places a plain cube (entity `0x47000247`, its mesh
+/// `0x06000526`) that its entity marks not drawn in the game; seen from beside it, the frame holds
+/// none of its draws, and none casts a shadow, while the cell's other objects are drawn. Drawn as
+/// the tools draw, it is there.
+///
+/// Behaviour: draw.inside.an-object-kept-out-of-the-game-is-not-drawn
+#[test]
+fn an_object_kept_out_of_the_game_is_not_drawn() {
+    use auberean_physics::world::entity_game_draw;
+    use auberean_primitives::DataId;
+    use auberean_world::place::PlaceRecords;
+    const CUBE: u32 = 0x4700_0247;
+    const CUBE_MESH: u32 = 0x0600_0526;
+    let i = install();
+    let r = &i.records;
+    let (block, low) = ((0x7C, 0xB9), 0x0110);
+    let cell = r.cell(block.0, block.1, low).expect("the mines' cell");
+    let lookup = |id: u32| r.entity(DataId(id));
+    let cube = cell
+        .entities
+        .iter()
+        .flat_map(|g| g.entities.iter())
+        .find(|e| e.object == Some(CUBE))
+        .expect("the cube among the cell's objects");
+    assert!(!entity_game_draw(cube, &lookup), "kept out of the game");
+    let at = cube.offset.as_ref().expect("where it stands").frame.origin;
+    let region = r.region().expect("the region");
+    let outside = Outside {
+        sun: Color::new(0.5, 0.5, 0.5, 1.0),
+        brightness: 1.0,
+        direction: Vec3::new(0.0, 0.0, -1.0),
+        ambient: Color::new(0.2, 0.2, 0.2, 1.0),
+    };
+    let spot = Spot {
+        block,
+        position: Vec3::new(at.x - 3.0, at.y, at.z + 1.0),
+        heading: 90.0,
+        pitch: 0.0,
+        time_of_day: 0.5,
+        day: None,
+    };
+    let cube_draws = |batches: &[ObjectBatch]| {
+        batches
+            .iter()
+            .filter(|b| b.mesh == CUBE_MESH)
+            .filter(|b| {
+                let p = b.transform.point(Vec3::ZERO);
+                (p.x - at.x).abs() < 0.5 && (p.y - at.y).abs() < 0.5 && (p.z - at.z).abs() < 0.5
+            })
+            .count()
+    };
+    let mut builder = SceneBuilder::new(r, &region);
+    let game = builder.interior(&spot, block, low, &outside);
+    let objects = game.iter().filter(|b| b.points.inside).count();
+    assert!(objects > 0, "the cell's other objects are drawn");
+    assert_eq!(cube_draws(&game), 0, "the cube is not drawn");
+    assert!(
+        !game
+            .iter()
+            .any(|b| b.mesh == CUBE_MESH && b.caster.is_some()),
+        "and casts no shadow"
+    );
+    builder.tools_draw = true;
+    let tools = builder.interior(&spot, block, low, &outside);
+    assert!(cube_draws(&tools) > 0, "drawn as the tools draw");
+}
