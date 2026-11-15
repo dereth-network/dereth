@@ -11,15 +11,17 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 
 [sources]
 "../../gfx-passes/shaders/ao.slang" = "679e2095efc49c53db1553ab14c3ce87c2c097f2a2126ecb1c8b6a4e2712a88f"
+"../../gfx-passes/shaders/atmosphere.slang" = "c65ff5ef2e28b74d8b01db53e73f0eeaf1354f86846f01ed559285e15567f324"
 "../../gfx-passes/shaders/bindless.slang" = "9cd85b9ab864f2c9dc38e3dc8021643b24e0b649512bd09a274cd2e2ff2cd5d7"
-"../../gfx-passes/shaders/frame.slang" = "0a79f3bc30ed0fa2408f67373df0db77f6daeb7b911947f18261aa3c8364fa3d"
+"../../gfx-passes/shaders/frame.slang" = "1bb7d1c5ece1a2a65bfd237b12cc224ec0b5132fb22486acc236e2b7e8724bfa"
 "../../gfx-passes/shaders/fullscreen.slang" = "0645f8fe5464b824856e3f04be1e9aaef0dea951957e03e52825f2c68dc6e49e"
 "../../gfx-passes/shaders/halo.slang" = "07ca1cd9df8cfb9afc61054baa73f8f1dabd2f0a61113552ad87f68093550088"
 "../../gfx-passes/shaders/lamps.slang" = "0fc44cea9523c6b6e2388c9a391b54a4031ce15d9f6e6010cdabbbd7f179e160"
 "../../gfx-passes/shaders/post.slang" = "894846057753e2f3a51e173d31f04caedc43fee002f4834467223c5033c6a04d"
 "../../gfx-passes/shaders/shadow_mask.slang" = "ae469e9fb2e3dfd829e726c18e00afd5c4c00e478e2e7371b0bdfab1a04d39d3"
+"../../gfx-passes/shaders/sky.slang" = "e4dcd28966ab39b96262f334eff3f76d53ba6c3f189a6336f84aa85e4d57ec36"
+"../../gfx-passes/shaders/sky_tables.slang" = "5d58a577cbf7f098e3172d8b74c460494134caafe2a76767df108225a3203aec"
 "air.slang" = "c1e10efbe48872e22bb6a5107b47b5f34fa5e5ecacafdb638ef2c41b902d45c4"
-"atmosphere.slang" = "ba54c5087f081d8d36587ea22f7cf00fb3313b30f05e371ab6bf115627aea56c"
 "card.slang" = "4c20c7b28b65e7471f5d7f9d0750bd6cb46df2b0acc0136d70b59a54a4d6c5bc"
 "cloud_shadow.slang" = "54c2dc24347f177e897413b6ba3532b00c945832ae6ea0651eacb3e8fdacef28"
 "composite.slang" = "fd7739c04379bc0d33cd1e783aadff0bb1546011984a101366fc898b5cc9f921"
@@ -39,7 +41,7 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 "half.slang" = "7c40480c3c7d7fc64788d0dd4ea6a32d9ad1ba88a6e76796ea0c49c6083342ca"
 "impostor.slang" = "a5931d74cbc6f0ee54c9bf879965d223389b0025c07b343f10e5f44f2ede25dc"
 "instances.slang" = "0683e148f1ec3a837d9b2cd2d6c26df86b11c78fac028d5879298a4f8129da15"
-"intent.slang" = "4906bdace16cba728c4c8fa626df983d00dc22be169bae3ccb7ecab1c29820af"
+"intent.slang" = "c4730ca75fda1599a56464018673c6a6e23f4fdd2bf40c3d3d082fcc0209fd03"
 "lamps.slang" = "3f6e19bf6b4c9369f3266a294b08a606e5b7af1416ddbfe1d1bb8a9ce3ffb0a3"
 "lift.slang" = "194390d942df2ae02e1fc18b2ad8c3edb6fd108776b42b7976234072b7fcc907"
 "lod.slang" = "7b38f2210e1dcb600e275daf43feb77cccdae4e68dab3f8e6798b797608fe770"
@@ -51,10 +53,8 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 "rt_ao.slang" = "00b90fa4bf3483a10f2cf4dbbf82bf197d61f96b07d63f9519f88fef1b219faa"
 "rt_check.slang" = "ad2c672299d2c8eafc0a0cf479b3d8706cd035a4ca856eb628437921b7fbc600"
 "rt_shadow.slang" = "a51301bdbeb77bff7f722256c7c4bb0868ca4f009817d50ccf1271898533d423"
-"shaders.toml" = "c5838360859d208ccebcbdc0c5ca795bfe0ecf5141377d383afab908d04db9e8"
+"shaders.toml" = "d49ad53acdc2887d9d05955eec45bb5f58a516af5b73f74dcf49dddf4d299a05"
 "skin.slang" = "8eb5af13af147b03e239b11dc5cb2d60af14a5356df8f5434d0e7d36619975e7"
-"sky.slang" = "e0e3d33bd4e92066ca5062f9bfd72f433e5d8347353d922de2ef417c89ecffba"
-"sky_tables.slang" = "95cf2efd4ca91a08956a75caa3c6ae2b5dd66b337762db699896627a7443017f"
 "sort.slang" = "9aa68687bec018866713018c62c0c30bd340938064a897ad6c06bd5d931d7f0b"
 "stamp.slang" = "cfe7256b6f29949bfe07445fdf7b0709182a98e876278988cc33f956c9f20b5d"
 "terrain.slang" = "1fb7c0356ba111a8b471ec0566bc43d8e15547045507165a1614faf73bec48f4"
@@ -137,11 +137,6 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 "dxil/rt_check.cs_check.dxil" = { sha256 = "aa60df000c35108fb0a0636757480f3dc1b58c381b723d697f4996c923e9dc5b", bytes = 6848 }
 "dxil/rt_shadow.fs_main.dxil" = { sha256 = "c8b67bb9b3c0809e9af0f2bb94884878e7d60ca478e034dd5f20c98acc8db9e0", bytes = 16076 }
 "dxil/skin.cs_main.dxil" = { sha256 = "4a51dfe0eaaa0b43dad57d093316d97a2150331b3d36804a809740845efc6a18", bytes = 7912 }
-"dxil/sky.fs_sky.dxil" = { sha256 = "50a557c638a089f14ab5d410aa3bb889bd8132be3a89edefff17c6c12651c348", bytes = 6800 }
-"dxil/sky.fs_veil.dxil" = { sha256 = "04b386d9bf70d29d15bf1abe83fb2de2a8690b5531d67be2396719593ac5c6fd", bytes = 8388 }
-"dxil/sky_tables.fs_multiple.dxil" = { sha256 = "dc1cff85dfbb5b134d08e85afd9bb3df89f19920b25ad993eff17f65153a6989", bytes = 7432 }
-"dxil/sky_tables.fs_sky_view.dxil" = { sha256 = "4ec033ed7b8dde94970590a7993e044b2bbcb84dbc1d27e9a2724c526a98d87d", bytes = 7116 }
-"dxil/sky_tables.fs_transmittance.dxil" = { sha256 = "e263a17cd79b29b50a52c2ef3f220697e865224531f02e10c25955f4e3415b94", bytes = 5364 }
 "dxil/sort.cs_emit.dxil" = { sha256 = "a8e076b54833012830c0441d945cd70b52587e096ef24ed02b61cb38734c43e8", bytes = 4180 }
 "dxil/sort.cs_global.dxil" = { sha256 = "4677dd1b802b94eeb003d2dec31b1b5c31b4fa31df818966a5f9292ee818d68d", bytes = 4160 }
 "dxil/sort.cs_local.dxil" = { sha256 = "c360e3ccb0fed0143a8890a9ad29e182b52434dc993a1c22f86161823c5b1142", bytes = 5312 }
@@ -227,11 +222,6 @@ dxil = "-target dxil -profile sm_6_6 -D DERETH_DXIL"
 "spirv/rt_check.cs_check.spv" = { sha256 = "8b4b83339adac1f107ec5f22d9c4e6cc3ddc3f8c765eeaa123406921888bab88", bytes = 12088 }
 "spirv/rt_shadow.fs_main.spv" = { sha256 = "8042a4eedc99e45a117f81f6f020d27c34a52db3a29c07a42cb01e1c5bf9e0f5", bytes = 49324 }
 "spirv/skin.cs_main.spv" = { sha256 = "0c8b5b5fb29045f7d619e6ba106104b4328e8a6833cdc00322a734be6535fdfd", bytes = 21896 }
-"spirv/sky.fs_sky.spv" = { sha256 = "9f46a4cd67ecea37aa0dff4b9507dac69287d993061feb498cf6005f176026bc", bytes = 15152 }
-"spirv/sky.fs_veil.spv" = { sha256 = "6975f09b736aa34faad4317e47c01b479b5969b64aee2c8d00025038b8953eab", bytes = 28516 }
-"spirv/sky_tables.fs_multiple.spv" = { sha256 = "165605ed95d82708c1bbcf8b6973664ee871006a091b8bcb849c7571d14977ed", bytes = 18128 }
-"spirv/sky_tables.fs_sky_view.spv" = { sha256 = "65d2afd1517a7537aa42c15a28736c9319ce7cd825fad44a013106912e1d5c61", bytes = 17112 }
-"spirv/sky_tables.fs_transmittance.spv" = { sha256 = "834b1bd889ce1c95b5932f5a240429018541bb5858f393e19dad9da20bec9da5", bytes = 7144 }
 "spirv/sort.cs_emit.spv" = { sha256 = "cf955d4d98b5ae2b0aa08d0184597fe2bd13578bdb03b15da7f630c1881814f8", bytes = 3720 }
 "spirv/sort.cs_global.spv" = { sha256 = "4eb95219806631297e371702a6356b5ea8d956bdb9c3b69fbae5a9f0137ede94", bytes = 4380 }
 "spirv/sort.cs_local.spv" = { sha256 = "a984d77168d2a213d412d380d092b987abf7a319a3c8c9997ec708ac7cc3a750", bytes = 8244 }

@@ -29,11 +29,21 @@ pub enum Entry {
     HaloVsHalo,
     /// `fs_halo` in `halo.slang`, the fragment stage.
     HaloFsHalo,
+    /// `fs_transmittance` in `sky_tables.slang`, the fragment stage.
+    SkyTablesFsTransmittance,
+    /// `fs_multiple` in `sky_tables.slang`, the fragment stage.
+    SkyTablesFsMultiple,
+    /// `fs_sky_view` in `sky_tables.slang`, the fragment stage.
+    SkyTablesFsSkyView,
+    /// `fs_sky` in `sky.slang`, the fragment stage.
+    SkyFsSky,
+    /// `fs_veil` in `sky.slang`, the fragment stage.
+    SkyFsVeil,
 }
 
 impl Entry {
     /// Every entry point, in `shaders.toml`'s order.
-    pub const ALL: [Self; 13] = [Self::FullscreenVsMain, Self::AoFsGtao, Self::AoFsGather, Self::AoFsUpsample, Self::ShadowMaskFsMain, Self::PostFsTaa, Self::PostFsTaaCheck, Self::PostFsBloomDown, Self::PostFsBloomUp, Self::PostFsTonemap, Self::LampsCsClusters, Self::HaloVsHalo, Self::HaloFsHalo];
+    pub const ALL: [Self; 18] = [Self::FullscreenVsMain, Self::AoFsGtao, Self::AoFsGather, Self::AoFsUpsample, Self::ShadowMaskFsMain, Self::PostFsTaa, Self::PostFsTaaCheck, Self::PostFsBloomDown, Self::PostFsBloomUp, Self::PostFsTonemap, Self::LampsCsClusters, Self::HaloVsHalo, Self::HaloFsHalo, Self::SkyTablesFsTransmittance, Self::SkyTablesFsMultiple, Self::SkyTablesFsSkyView, Self::SkyFsSky, Self::SkyFsVeil];
 
     /// The source file that defines it.
     #[must_use]
@@ -52,6 +62,11 @@ impl Entry {
             Self::LampsCsClusters => "lamps.slang",
             Self::HaloVsHalo => "halo.slang",
             Self::HaloFsHalo => "halo.slang",
+            Self::SkyTablesFsTransmittance => "sky_tables.slang",
+            Self::SkyTablesFsMultiple => "sky_tables.slang",
+            Self::SkyTablesFsSkyView => "sky_tables.slang",
+            Self::SkyFsSky => "sky.slang",
+            Self::SkyFsVeil => "sky.slang",
         }
     }
 
@@ -72,6 +87,11 @@ impl Entry {
             Self::LampsCsClusters => "cs_clusters",
             Self::HaloVsHalo => "vs_halo",
             Self::HaloFsHalo => "fs_halo",
+            Self::SkyTablesFsTransmittance => "fs_transmittance",
+            Self::SkyTablesFsMultiple => "fs_multiple",
+            Self::SkyTablesFsSkyView => "fs_sky_view",
+            Self::SkyFsSky => "fs_sky",
+            Self::SkyFsVeil => "fs_veil",
         }
     }
 
@@ -92,6 +112,11 @@ impl Entry {
             Self::LampsCsClusters => Stage::Compute,
             Self::HaloVsHalo => Stage::Vertex,
             Self::HaloFsHalo => Stage::Fragment,
+            Self::SkyTablesFsTransmittance => Stage::Fragment,
+            Self::SkyTablesFsMultiple => Stage::Fragment,
+            Self::SkyTablesFsSkyView => Stage::Fragment,
+            Self::SkyFsSky => Stage::Fragment,
+            Self::SkyFsVeil => Stage::Fragment,
         }
     }
 
@@ -112,6 +137,11 @@ impl Entry {
             Self::LampsCsClusters => include_bytes!("spirv/lamps.cs_clusters.spv"),
             Self::HaloVsHalo => include_bytes!("spirv/halo.vs_halo.spv"),
             Self::HaloFsHalo => include_bytes!("spirv/halo.fs_halo.spv"),
+            Self::SkyTablesFsTransmittance => include_bytes!("spirv/sky_tables.fs_transmittance.spv"),
+            Self::SkyTablesFsMultiple => include_bytes!("spirv/sky_tables.fs_multiple.spv"),
+            Self::SkyTablesFsSkyView => include_bytes!("spirv/sky_tables.fs_sky_view.spv"),
+            Self::SkyFsSky => include_bytes!("spirv/sky.fs_sky.spv"),
+            Self::SkyFsVeil => include_bytes!("spirv/sky.fs_veil.spv"),
         }
     }
 
@@ -132,6 +162,11 @@ impl Entry {
             Self::LampsCsClusters => include_bytes!("dxil/lamps.cs_clusters.dxil"),
             Self::HaloVsHalo => include_bytes!("dxil/halo.vs_halo.dxil"),
             Self::HaloFsHalo => include_bytes!("dxil/halo.fs_halo.dxil"),
+            Self::SkyTablesFsTransmittance => include_bytes!("dxil/sky_tables.fs_transmittance.dxil"),
+            Self::SkyTablesFsMultiple => include_bytes!("dxil/sky_tables.fs_multiple.dxil"),
+            Self::SkyTablesFsSkyView => include_bytes!("dxil/sky_tables.fs_sky_view.dxil"),
+            Self::SkyFsSky => include_bytes!("dxil/sky.fs_sky.dxil"),
+            Self::SkyFsVeil => include_bytes!("dxil/sky.fs_veil.dxil"),
         }
     }
 }

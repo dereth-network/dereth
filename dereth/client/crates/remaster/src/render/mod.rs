@@ -740,8 +740,8 @@ impl Renderer {
     pub fn sky(&self) -> (sky::SkySettings, u64, u64) {
         (
             self.atmosphere.settings,
-            self.atmosphere.tables_drawn,
-            self.atmosphere.views_drawn,
+            self.atmosphere.shared.tables_drawn,
+            self.atmosphere.shared.views_drawn,
         )
     }
 

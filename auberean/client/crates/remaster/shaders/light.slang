@@ -208,15 +208,6 @@ public float3 fogged(Light f, float3 c, float fog)
     return lerp(f.fog_color.rgb, c, fog);
 }
 
-// A display value taken to linear light: the sRGB curve.
-public float3 to_linear(float3 c)
-{
-    float3 low = c / 12.92;
-    float3 high = pow((max(c, 0.0) + 0.055) / 1.055, 2.4);
-    return float3(c.x <= 0.04045 ? low.x : high.x, c.y <= 0.04045 ? low.y : high.y,
-                  c.z <= 0.04045 ? low.z : high.z);
-}
-
 // A draw's finished color `c` as the frame it draws into keeps it: in linear light where `linear`
 // is 1, else as the display value it is.
 public float3 shown(uint linear, float3 c)

@@ -5,7 +5,7 @@
 // veil is at each elevation.
 import atmosphere;
 import bindless;
-import retail;
+import frame;
 
 struct Push
 {

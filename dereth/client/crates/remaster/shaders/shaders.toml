@@ -180,34 +180,6 @@ source = "motion.slang"
 entry = "fs_main"
 stage = "fragment"
 
-# The sky's tables: the transmittance, the light scattered more than once, and the sky as seen
-# from the eye.
-[[entry]]
-source = "sky_tables.slang"
-entry = "fs_transmittance"
-stage = "fragment"
-
-[[entry]]
-source = "sky_tables.slang"
-entry = "fs_multiple"
-stage = "fragment"
-
-[[entry]]
-source = "sky_tables.slang"
-entry = "fs_sky_view"
-stage = "fragment"
-
-# The physical sky over the authored dome, and the haze's veil over the horizon.
-[[entry]]
-source = "sky.slang"
-entry = "fs_sky"
-stage = "fragment"
-
-[[entry]]
-source = "sky.slang"
-entry = "fs_veil"
-stage = "fragment"
-
 # The fog's volume: retail's range fog down each direction, and the sun the fog scatters.
 [[entry]]
 source = "fog_volume.slang"

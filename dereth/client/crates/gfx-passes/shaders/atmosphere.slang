@@ -9,8 +9,7 @@
 module atmosphere;
 
 import bindless;
-import retail;
-import intent;
+import frame;
 
 // The constants, as float4 rows of buffer `a`:
 //   0..3  normalised device coordinates to a direction in the frame's space (the inverse of the

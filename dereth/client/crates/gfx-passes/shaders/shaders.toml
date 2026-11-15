@@ -1,6 +1,6 @@
 # The shared passes' shaders. `cargo xtask shaders` compiles each entry point below for each target
 # into `compiled/`, which is checked in; `src/shaders.rs` embeds the blobs. The modules here
-# (`bindless`, `frame`) are imported by the remasters' own shaders too.
+# (`bindless`, `frame`, `atmosphere`) are imported by the remasters' own shaders too.
 targets = ["spirv", "dxil"]
 
 # A triangle that covers the whole target, for the passes that read one picture and write
@@ -76,4 +76,32 @@ stage = "vertex"
 [[entry]]
 source = "halo.slang"
 entry = "fs_halo"
+stage = "fragment"
+
+# The sky's tables: the transmittance, the light scattered more than once, and the sky as seen
+# from the eye.
+[[entry]]
+source = "sky_tables.slang"
+entry = "fs_transmittance"
+stage = "fragment"
+
+[[entry]]
+source = "sky_tables.slang"
+entry = "fs_multiple"
+stage = "fragment"
+
+[[entry]]
+source = "sky_tables.slang"
+entry = "fs_sky_view"
+stage = "fragment"
+
+# The physical sky over the authored dome, and the haze's veil over the horizon.
+[[entry]]
+source = "sky.slang"
+entry = "fs_sky"
+stage = "fragment"
+
+[[entry]]
+source = "sky.slang"
+entry = "fs_veil"
 stage = "fragment"

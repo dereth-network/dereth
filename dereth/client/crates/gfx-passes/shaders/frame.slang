@@ -96,3 +96,12 @@ public float3 oct_decode(float2 e)
     }
     return normalize(n);
 }
+
+// A display value taken to linear light: the sRGB curve, continued above 1.
+public float3 to_linear(float3 c)
+{
+    float3 low = c / 12.92;
+    float3 high = pow((max(c, 0.0) + 0.055) / 1.055, 2.4);
+    return float3(c.x <= 0.04045 ? low.x : high.x, c.y <= 0.04045 ? low.y : high.y,
+                  c.z <= 0.04045 ? low.z : high.z);
+}

@@ -1,11 +1,10 @@
 //! The sky and its atmosphere: a physical sky drawn over the authored sky dome by day, and a veil
-//! of haze over the horizon, both from the lookup tables of a scattering atmosphere (after
-//! Hillaire's model), calibrated to the day's weather and the fog the frame's intent gives.
+//! of haze over the horizon, both from the shared passes' scattering atmosphere
+//! ([`dereth_gfx_passes::sky`]), calibrated to the day's weather and the fog the frame's intent
+//! gives.
 //!
-//! - **The tables.** The transmittance from any height toward any zenith angle and the light
-//!   scattered more than once depend only on the air, which depends on the day's weather: they
-//!   are drawn when it changes. The sky as seen from the eye depends on the sun and the eye's
-//!   height: it is drawn when the sun moves a tenth of a degree or the eye five metres.
+//! - **The tables.** The air depends on the day's weather; the shared passes draw the tables
+//!   again when it changes, and the sky as seen from the eye when the sun or the eye moves.
 //! - **The sky.** The authored dome is drawn first, as retail draws it; then the physical sky over
 //!   it, as opaque as the weather's share of the day (none at night, where the authored dark sky
 //!   and its stars stay); then the stars, the sun, the moons and the clouds, as retail draws them;
@@ -13,12 +12,11 @@
 //!   night. All of it in display values, as the rest of the world.
 
 use dereth_gfx::{
-    Address, Blend, ColorAttachment, ColorTarget, Cull, Device, Draw, Factor, Filter, Format,
-    GraphicsDesc, Load, Pipeline, RasterPass, Recorder, Rect, Sampler, SamplerDesc, Shader,
-    Texture, TextureDesc, TextureUsage,
+    ColorAttachment, ColorTarget, Cull, Device, Draw, Format, GraphicsDesc, Load, Pipeline,
+    RasterPass, Recorder, Rect, Shader, Texture, TextureDesc, TextureUsage,
 };
+use dereth_gfx_passes::sky::{Air, Sky, SkyLight};
 use dereth_primitives::num::math;
-use dereth_primitives::num::to_i32;
 use glam::{Mat4, Vec2, Vec3, Vec4};
 
 use super::scene::NONE;
@@ -26,23 +24,7 @@ use super::PerFrame;
 use crate::scene::{Camera, FrameDelta, SkyObject};
 use crate::shaders::{spirv, Entry};
 
-/// The planet's radius in the sky model, kilometres.
-pub const PLANET_RADIUS_KM: f32 = 6360.0;
-/// The atmosphere's outer radius, kilometres.
-pub const TOP_RADIUS_KM: f32 = 6460.0;
-/// The sky model's radiance for unit sun illuminance is scaled by this before the picture's
-/// roll-off: a noon sky's horizon then sits near the top of the range without clipping.
-pub const EXPOSURE: f32 = 9.5;
-/// The transmittance table's size, the multiple-scattering table's, and the sky-view table's with
-/// its raymarch's steps.
-const TRANSMITTANCE: (u32, u32) = (256, 64);
-const MULTIPLE: (u32, u32) = (32, 32);
-const SKY_VIEW: (u32, u32, u32) = (192, 108, 30);
-/// How bright the horizon's veil is at night against the fog, and how wide, against by day.
-const NIGHT_VEIL: f32 = 0.5;
-const NIGHT_VEIL_BAND: f32 = 0.35;
-/// The tables' format.
-const TABLE: Format = Format::Rgba16Float;
+pub use dereth_gfx_passes::sky::{EXPOSURE, PLANET_RADIUS_KM, TOP_RADIUS_KM};
 
 /// The sky's settings.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -204,6 +186,18 @@ impl Weather {
             Self::Rainy => (9.0, 0.75),
         }
     }
+
+    /// The air of this weather, and how the sky is exposed for it, as the shared sky takes it.
+    #[must_use]
+    pub const fn sky_air(self) -> Air {
+        let (mie, rayleigh) = self.air();
+        Air {
+            mie,
+            rayleigh,
+            overcast: self.overcast(),
+            exposure: self.exposure(),
+        }
+    }
 }
 
 fn smoothstep(a: f32, b: f32, x: f32) -> f32 {
@@ -248,7 +242,7 @@ pub fn day_weight(frame: &FrameDelta) -> f32 {
 /// with it 18 degrees up or higher.
 #[must_use]
 pub fn twilight(frame: &FrameDelta) -> f32 {
-    1.0 - smoothstep(4.0, 18.0, elevation(frame.light.sun))
+    dereth_gfx_passes::sky::twilight(elevation(frame.light.sun))
 }
 
 /// An sRGB-encoded colour's bytes in linear light.
@@ -269,82 +263,50 @@ pub fn srgb_bytes_to_linear(c: [u8; 3]) -> Vec3 {
 /// sun's colour, the more so in the low sun.
 #[must_use]
 pub fn sun_illuminance(frame: &FrameDelta, weather: Weather) -> Vec3 {
-    let tint = srgb_bytes_to_linear(frame.light.sun_color);
-    let peak = tint.max_element().max(1e-3);
-    let t = 0.5 + (0.7 - 0.5) * twilight(frame);
-    let tint = Vec3::ONE.lerp(tint / peak, t);
-    tint * EXPOSURE * weather.exposure()
+    dereth_gfx_passes::sky::sun_illuminance(
+        srgb_bytes_to_linear(frame.light.sun_color),
+        twilight(frame),
+        weather.exposure(),
+    )
 }
 
 /// The direction in the frame's space through each point of the screen: the inverse of the
 /// projection times the view's rotation alone.
 #[must_use]
 pub fn ray_from_ndc(camera: &Camera) -> Mat4 {
-    let mut rotation = camera.view;
-    rotation.w_axis = Vec4::W;
-    (camera.projection * rotation).inverse()
+    dereth_gfx_passes::sky::ray_from_ndc(camera.view, camera.projection)
 }
 
-/// What the tables depend on: the air.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct TablesKey(Weather);
-
-/// What the sky-view table depends on: the air, the sun to a tenth of a degree (elevation and
-/// heading) and the eye's height to five metres.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ViewKey {
-    tables: TablesKey,
-    sun: [i32; 3],
-    height: i32,
+/// What the shared sky is drawn from for `frame`: its weather's air, the authored dome covered by
+/// the weather's share of the day, and the fog the frame's intent gives.
+#[must_use]
+pub fn sky_light(frame: &FrameDelta, extent: (u32, u32), linear: bool) -> SkyLight {
+    let cam = &frame.camera;
+    let weather = Weather::of(&frame.day_group);
+    let day = day_weight(frame);
+    SkyLight {
+        view: cam.view,
+        projection: cam.projection,
+        eye: cam.eye,
+        extent,
+        sun: frame.light.sun,
+        sun_color: srgb_bytes_to_linear(frame.light.sun_color),
+        twilight: twilight(frame),
+        air: weather.sky_air(),
+        day,
+        cover: day * weather.sky_share(),
+        fog: frame
+            .light
+            .fog
+            .map(|f| (f.end, srgb_bytes_to_linear(f.color))),
+        linear,
+    }
 }
 
 /// The constant rows every sky shader reads, for `frame`.
 #[must_use]
-#[allow(clippy::cast_precision_loss)] // a target's extent and table sizes
 pub fn constants(frame: &FrameDelta, extent: (u32, u32), linear: bool) -> Vec<u8> {
-    let cam = &frame.camera;
-    let weather = Weather::of(&frame.day_group);
-    let (mie, rayleigh) = weather.air();
-    let day = day_weight(frame);
-    let fog_max = frame.light.fog.map_or(2400.0, |f| f.end);
-    let band = (0.045 * (2400.0 / fog_max.max(50.0)).sqrt()).clamp(0.03, 0.08)
-        * (NIGHT_VEIL_BAND + (1.0 - NIGHT_VEIL_BAND) * day);
-    let fog_color = frame.light.fog.map_or(Vec3::new(0.55, 0.58, 0.7), |f| {
-        srgb_bytes_to_linear(f.color)
-    });
-    let rows: [Vec4; 12] = [
-        cam.eye.extend((cam.eye.z.max(0.0) + 2.0) * 0.001),
-        Vec4::new(extent.0 as f32, extent.1 as f32, 0.0, 0.0),
-        frame
-            .light
-            .sun
-            .normalize_or(Vec3::Z)
-            .extend(weather.overcast()),
-        sun_illuminance(frame, weather).extend(twilight(frame)),
-        (Vec3::new(5.802e-3, 13.558e-3, 33.1e-3) * rayleigh).extend(-1.0 / 8.0),
-        Vec4::new(3.996e-3 * mie, 4.44e-3 * mie, -1.0 / 1.2, 0.8),
-        Vec4::new(0.650e-3, 1.881e-3, 0.085e-3, 0.0),
-        Vec3::new(0.25, 0.27, 0.2).extend(PLANET_RADIUS_KM),
-        fog_color.extend(0.0),
-        Vec4::new(
-            day * weather.sky_share(),
-            if linear { 1.0 } else { 0.0 },
-            TOP_RADIUS_KM,
-            0.0,
-        ),
-        Vec4::new(SKY_VIEW.0 as f32, SKY_VIEW.1 as f32, 0.0, SKY_VIEW.2 as f32),
-        Vec4::new(band, day, NIGHT_VEIL + (1.0 - NIGHT_VEIL) * day, 0.0),
-    ];
-    let mut out = Vec::with_capacity(16 * 16);
-    for f in ray_from_ndc(cam).to_cols_array() {
-        out.extend_from_slice(&f.to_le_bytes());
-    }
-    for r in rows {
-        for f in r.to_array() {
-            out.extend_from_slice(&f.to_le_bytes());
-        }
-    }
-    out
+    dereth_gfx_passes::sky::rows(&sky_light(frame, extent, linear))
 }
 
 /// Where the clouds' shadow map lies and what it is read from, for a frame whose clouds shade the
@@ -524,15 +486,9 @@ fn air_rows(frame: &FrameDelta, map: Option<(&CloudMap, u32)>) -> [Vec4; 9] {
     ]
 }
 
-/// The sky's pipelines.
+/// The sky's own pipelines, beside the shared sky's.
 #[derive(Debug, Clone, Copy)]
 struct Pipelines {
-    transmittance: Pipeline,
-    multiple: Pipeline,
-    sky_view: Pipeline,
-    /// The sky and the veil, for display targets and for the post passes' linear ones.
-    sky: [Pipeline; 2],
-    veil: [Pipeline; 2],
     fog: Pipeline,
     /// The air over the land, into the post passes' linear target; and the clouds' shadow map.
     air: Pipeline,
@@ -543,36 +499,24 @@ struct Pipelines {
 #[derive(Debug)]
 pub struct SkyPass {
     pub settings: SkySettings,
+    /// The shared sky: its tables, the physical sky and the veil, and how many times its tables
+    /// were drawn.
+    pub shared: Sky,
     pipelines: Pipelines,
-    sampler: (Sampler, u32),
-    tables: Option<[(Texture, u32); 3]>,
-    constants: PerFrame,
-    /// The last frame's constants, for views of the sky other than the frame's own.
-    last_rows: Vec<u8>,
     fog_constants: PerFrame,
     fog_volume: Option<(dereth_gfx::Buffer, u32)>,
-    tables_key: Option<TablesKey>,
-    view_key: Option<ViewKey>,
     /// The copy of the world the air reads, with its index and size.
     air_copy: Option<(Texture, u32, (u32, u32))>,
     /// The clouds' shadow map, and the constants it is worked out from.
     cloud_shadow: Option<(Texture, u32)>,
     cloud_constants: PerFrame,
-    /// Times the air's tables and the sky-view table were drawn.
-    pub tables_drawn: u64,
-    pub views_drawn: u64,
 }
 
 /// What the sky draws this frame.
 #[derive(Debug, Clone)]
 pub struct SkyPlan {
+    shared: dereth_gfx_passes::sky::SkyPlan,
     pipelines: Pipelines,
-    post: bool,
-    constants: u32,
-    sampler: u32,
-    tables: [(Texture, u32); 3],
-    draw_tables: bool,
-    draw_view: bool,
     /// The air over the land, with an art pack.
     air: Option<AirPlan>,
 }
@@ -629,57 +573,8 @@ impl SkyPass {
     /// # Errors
     /// What the device refuses.
     pub fn new(d: &mut Device, color: Format, linear: Format) -> Result<Self, dereth_gfx::Error> {
-        let table = |d: &mut Device, label, e: Entry| {
-            d.create_graphics_pipeline(&GraphicsDesc {
-                label,
-                vertex: dereth_gfx_passes::shaders::fullscreen(),
-                fragment: Some(shader(e)),
-                color: &[ColorTarget {
-                    format: TABLE,
-                    blend: None,
-                    write_alpha: true,
-                }],
-                depth: None,
-                cull: Cull::None,
-            })
-        };
-        let over = |d: &mut Device, label, e: Entry, color: Format| {
-            d.create_graphics_pipeline(&GraphicsDesc {
-                label,
-                vertex: dereth_gfx_passes::shaders::fullscreen(),
-                fragment: Some(shader(e)),
-                color: &[ColorTarget {
-                    format: color,
-                    blend: Some(Blend {
-                        src: Factor::SrcAlpha,
-                        dst: Factor::OneMinusSrcAlpha,
-                    }),
-                    write_alpha: false,
-                }],
-                depth: None,
-                cull: Cull::None,
-            })
-        };
+        let shared = Sky::new(d, color, linear)?;
         let pipelines = Pipelines {
-            transmittance: table(
-                d,
-                "remaster sky transmittance",
-                Entry::SkyTablesFsTransmittance,
-            )?,
-            multiple: table(
-                d,
-                "remaster sky multiple scattering",
-                Entry::SkyTablesFsMultiple,
-            )?,
-            sky_view: table(d, "remaster sky view", Entry::SkyTablesFsSkyView)?,
-            sky: [
-                over(d, "remaster physical sky", Entry::SkyFsSky, color)?,
-                over(d, "remaster physical sky, linear", Entry::SkyFsSky, linear)?,
-            ],
-            veil: [
-                over(d, "remaster horizon veil", Entry::SkyFsVeil, color)?,
-                over(d, "remaster horizon veil, linear", Entry::SkyFsVeil, linear)?,
-            ],
             fog: d.create_compute_pipeline(&dereth_gfx::ComputeDesc {
                 label: "remaster fog volume",
                 shader: shader(Entry::FogVolumeCsMain),
@@ -709,61 +604,22 @@ impl SkyPass {
                 cull: Cull::None,
             })?,
         };
-        let sampler = d.create_sampler(&SamplerDesc {
-            filter: Filter::Linear,
-            mip: Filter::Nearest,
-            address: Address::Clamp,
-            address_v: Address::Clamp,
-            ..SamplerDesc::default()
-        })?;
-        let sampler_index = d.bind_sampler(sampler)?;
         Ok(Self {
             settings: SkySettings::default(),
+            shared,
             pipelines,
-            sampler: (sampler, sampler_index),
-            tables: None,
-            constants: PerFrame::new(d, "remaster sky constants", 512, Default::default())?,
-            last_rows: Vec::new(),
             fog_constants: PerFrame::new(d, "remaster fog constants", 80, Default::default())?,
             air_copy: None,
             cloud_shadow: None,
             cloud_constants: PerFrame::new(d, "remaster cloud constants", 48, Default::default())?,
             fog_volume: None,
-            tables_key: None,
-            view_key: None,
-            tables_drawn: 0,
-            views_drawn: 0,
         })
-    }
-
-    fn tables(&mut self, d: &mut Device) -> Result<[(Texture, u32); 3], dereth_gfx::Error> {
-        if let Some(t) = self.tables {
-            return Ok(t);
-        }
-        let mut make = |label, (w, h): (u32, u32)| -> Result<(Texture, u32), dereth_gfx::Error> {
-            let t = d.create_texture(&TextureDesc {
-                label,
-                width: w,
-                height: h,
-                mips: 1,
-                format: TABLE,
-                usage: TextureUsage::COLOR_TARGET | TextureUsage::SAMPLED,
-            })?;
-            Ok((t, d.bind_texture(t)?))
-        };
-        let t = [
-            make("remaster sky transmittance", TRANSMITTANCE)?,
-            make("remaster sky multiple scattering", MULTIPLE)?,
-            make("remaster sky view", (SKY_VIEW.0, SKY_VIEW.1))?,
-        ];
-        self.tables = Some(t);
-        Ok(t)
     }
 
     /// The sky's constants the frame was drawn with.
     #[must_use]
     pub(crate) fn rows(&self) -> &[u8] {
-        &self.last_rows
+        self.shared.rows()
     }
 
     /// Work out the frame's fog volume, when the fog is drawn from one and the frame has fog:
@@ -852,41 +708,23 @@ impl SkyPass {
         if !self.settings.atmosphere || frame.sky.is_empty() || !frame.landscape {
             return Ok(None);
         }
-        let tables = self.tables(d)?;
-        let mut rows = constants(frame, extent, linear);
+        // The tables are made before the air's pictures, as they always were.
+        self.shared.tables(d)?;
+        let mut more = Vec::new();
         let air = match air {
-            Some(ask) => Some(self.prepare_air(d, frame, ask, &mut rows)?),
+            Some(ask) => Some(self.prepare_air(d, frame, ask, &mut more)?),
             None => {
                 // The rows the shaders read to know the air is not drawn.
-                rows.resize(rows.len() + 9 * 16, 0);
+                more.resize(9 * 16, 0);
                 None
             }
         };
-        self.constants.write(d, &rows)?;
-        self.last_rows = rows;
-        let tables_key = TablesKey(Weather::of(&frame.day_group));
-        let sun = frame.light.sun.normalize_or(Vec3::Z);
-        let view_key = ViewKey {
-            tables: tables_key,
-            sun: (sun * 1800.0 / std::f32::consts::PI)
-                .to_array()
-                .map(|v| to_i32(v.round())),
-            height: to_i32((frame.camera.eye.z / 5.0).round()),
-        };
-        let draw_tables = self.tables_key != Some(tables_key);
-        let draw_view = draw_tables || self.view_key != Some(view_key);
-        self.tables_key = Some(tables_key);
-        self.view_key = Some(view_key);
-        self.tables_drawn += u64::from(draw_tables);
-        self.views_drawn += u64::from(draw_view);
+        let shared = self
+            .shared
+            .prepare(d, &sky_light(frame, extent, linear), &more, post)?;
         Ok(Some(SkyPlan {
+            shared,
             pipelines: self.pipelines,
-            post,
-            constants: self.constants.index,
-            sampler: self.sampler.1,
-            tables,
-            draw_tables,
-            draw_view,
             air,
         }))
     }
@@ -985,80 +823,7 @@ impl SkyPlan {
     /// # Errors
     /// What the layer refuses.
     pub(crate) fn record_tables(&self, r: &mut Recorder<'_>) -> Result<(), dereth_gfx::Error> {
-        let [transmittance, multiple, view] = self.tables;
-        let table = |r: &mut Recorder<'_>,
-                     name: &str,
-                     target: Texture,
-                     size: (u32, u32),
-                     p: Pipeline,
-                     reads: &[Texture]|
-         -> Result<(), dereth_gfx::Error> {
-            let touches: Vec<dereth_gfx::Touch> = reads
-                .iter()
-                .map(|t| dereth_gfx::Touch::Texture(*t, dereth_gfx::Use::Sampled))
-                .collect();
-            r.raster(
-                &RasterPass {
-                    name,
-                    color: &[ColorAttachment {
-                        texture: target,
-                        load: Load::Discard,
-                    }],
-                    depth: None,
-                    touches: &touches,
-                    area: Some(Rect {
-                        x: 0,
-                        y: 0,
-                        width: size.0,
-                        height: size.1,
-                    }),
-                },
-                |d| {
-                    d.set_pipeline(p)?;
-                    #[allow(clippy::cast_precision_loss)] // a table's size
-                    let push = [
-                        words(&[self.constants, transmittance.1, multiple.1, self.sampler]),
-                        (size.0 as f32).to_le_bytes().to_vec(),
-                        (size.1 as f32).to_le_bytes().to_vec(),
-                    ]
-                    .concat();
-                    d.push(0, &push)?;
-                    d.draw(3, 1, 0, 0);
-                    Ok(())
-                },
-            )
-        };
-        if self.draw_tables {
-            r.timestamp("sky tables");
-            table(
-                r,
-                "sky transmittance",
-                transmittance.0,
-                TRANSMITTANCE,
-                self.pipelines.transmittance,
-                &[],
-            )?;
-            table(
-                r,
-                "sky multiple scattering",
-                multiple.0,
-                MULTIPLE,
-                self.pipelines.multiple,
-                &[transmittance.0],
-            )?;
-        }
-        if self.draw_view {
-            r.timestamp("sky view");
-            table(
-                r,
-                "sky view",
-                view.0,
-                (SKY_VIEW.0, SKY_VIEW.1),
-                self.pipelines.sky_view,
-                &[transmittance.0, multiple.0],
-            )?;
-        }
-        Ok(())
+        self.shared.record_tables(r)
     }
 
     /// Whether the air is drawn over the land this frame.
@@ -1072,7 +837,7 @@ impl SkyPlan {
     pub fn cloud_shadows(&self) -> Option<(u32, Texture)> {
         self.air
             .and_then(|a| a.clouds)
-            .map(|(map, _)| (self.constants, map.0))
+            .map(|(map, _)| (self.shared.constants(), map.0))
     }
 
     /// Work out the clouds' shadow map, when they shade the land.
@@ -1105,7 +870,10 @@ impl SkyPlan {
             },
             |d| {
                 d.set_pipeline(self.pipelines.cloud_shadow)?;
-                d.push(0, &words(&[self.constants, clouds, picture, sampler]))?;
+                d.push(
+                    0,
+                    &words(&[self.shared.constants(), clouds, picture, sampler]),
+                )?;
                 d.draw(3, 1, 0, 0);
                 Ok(())
             },
@@ -1128,11 +896,12 @@ impl SkyPlan {
         let Some(air) = self.air else {
             return Ok(());
         };
+        let ([constants, view, sampler], table) = self.shared.view_inputs();
         let mut touches = vec![
             dereth_gfx::Touch::Texture(air.copy.0, dereth_gfx::Use::Sampled),
             dereth_gfx::Touch::Texture(depth.0, dereth_gfx::Use::Sampled),
             dereth_gfx::Touch::Texture(t.material, dereth_gfx::Use::Sampled),
-            dereth_gfx::Touch::Texture(self.tables[2].0, dereth_gfx::Use::Sampled),
+            dereth_gfx::Touch::Texture(table, dereth_gfx::Use::Sampled),
         ];
         touches.extend_from_slice(reads);
         r.timestamp("air");
@@ -1158,13 +927,7 @@ impl SkyPlan {
                 d.push(
                     0,
                     &words(&[
-                        frame,
-                        self.constants,
-                        self.tables[2].1,
-                        self.sampler,
-                        air.copy.1,
-                        depth.1,
-                        t.index[3],
+                        frame, constants, view, sampler, air.copy.1, depth.1, t.index[3],
                     ]),
                 )?;
                 d.draw(3, 1, 0, 0);
@@ -1176,7 +939,7 @@ impl SkyPlan {
     /// What the sky pass touches of the sky's: the sky-view table.
     #[must_use]
     pub fn view_table(&self) -> Texture {
-        self.tables[2].0
+        self.shared.view_table()
     }
 
     /// What another pass reads to find the sky's own light any way it looks: the sky's
@@ -1184,10 +947,7 @@ impl SkyPlan {
     /// table, and the table itself.
     #[must_use]
     pub(crate) fn view_inputs(&self) -> ([u32; 3], Texture) {
-        (
-            [self.constants, self.tables[2].1, self.sampler],
-            self.tables[2].0,
-        )
+        self.shared.view_inputs()
     }
 
     /// Draw the physical sky over what is drawn, in the sky pass.
@@ -1195,7 +955,7 @@ impl SkyPlan {
     /// # Errors
     /// What the layer refuses.
     pub(crate) fn draw_sky(&self, d: &mut Draw<'_>) -> Result<(), dereth_gfx::Error> {
-        self.fullscreen(d, self.pipelines.sky[usize::from(self.post)])
+        self.shared.draw_sky(d)
     }
 
     /// Draw the veil over the horizon, in the sky pass, last.
@@ -1203,7 +963,7 @@ impl SkyPlan {
     /// # Errors
     /// What the layer refuses.
     pub(crate) fn draw_veil(&self, d: &mut Draw<'_>) -> Result<(), dereth_gfx::Error> {
-        self.fullscreen(d, self.pipelines.veil[usize::from(self.post)])
+        self.shared.draw_veil(d)
     }
 
     /// Draw the physical sky, then (`veil`) the veil, seen as the sky's constants `constants`
@@ -1214,22 +974,7 @@ impl SkyPlan {
         constants: u32,
         veil: bool,
     ) -> Result<(), dereth_gfx::Error> {
-        let p = if veil {
-            self.pipelines.veil[usize::from(self.post)]
-        } else {
-            self.pipelines.sky[usize::from(self.post)]
-        };
-        d.set_pipeline(p)?;
-        d.push(0, &words(&[constants, self.tables[2].1, self.sampler]))?;
-        d.draw(3, 1, 0, 0);
-        Ok(())
-    }
-
-    fn fullscreen(&self, d: &mut Draw<'_>, p: Pipeline) -> Result<(), dereth_gfx::Error> {
-        d.set_pipeline(p)?;
-        d.push(0, &words(&[self.constants, self.tables[2].1, self.sampler]))?;
-        d.draw(3, 1, 0, 0);
-        Ok(())
+        self.shared.draw_seen(d, constants, veil)
     }
 }
 

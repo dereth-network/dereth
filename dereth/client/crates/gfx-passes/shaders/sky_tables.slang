@@ -3,7 +3,7 @@
 // in every direction, for unit sun illuminance.
 import atmosphere;
 import bindless;
-import retail;
+import frame;
 
 struct Push
 {
