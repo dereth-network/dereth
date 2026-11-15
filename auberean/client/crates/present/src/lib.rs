@@ -139,6 +139,18 @@ struct KeptCanvas {
     bgra: Vec<u8>,
 }
 
+/// What draws the world's picture in place of the retail device, on the device the composer draws
+/// on (a renderer beside the retail one, sharing its device): the frame at a size, as a picture
+/// ready to sample once the work submitted after it is run; `None` leaves it to the retail device.
+pub trait WorldPainter {
+    fn paint(
+        &mut self,
+        frame: &Frame,
+        size: (u32, u32),
+        load: &mut dyn FnMut(u32) -> Option<Image>,
+    ) -> Option<wgpu::Texture>;
+}
+
 /// What lays a frame's pictures into one, on the world's device, and what it keeps between
 /// frames: the interface's pictures, the overlay's, and the picture it composes. A [`Presenter`]
 /// shows that picture on its surface; a host drawing the game into a picture of its own (an
@@ -162,12 +174,15 @@ pub struct Composer {
     composed: Option<(wgpu::Texture, u32, u32)>,
     /// The overlay's vertices.
     overlay_vertices: Option<wgpu::Buffer>,
+    /// What draws the world's picture in place of the retail device, when something does.
+    painter: Option<Box<dyn WorldPainter>>,
 }
 
 impl std::fmt::Debug for Composer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Composer")
             .field("pictures", &self.pictures.len())
+            .field("painted", &self.painter.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -293,6 +308,11 @@ fn pipeline(
 }
 
 impl Composer {
+    /// The world's picture drawn by `painter` from now on, or by the retail device with none.
+    pub fn set_painter(&mut self, painter: Option<Box<dyn WorldPainter>>) {
+        self.painter = painter;
+    }
+
     /// What composes frames on `renderer`'s device.
     #[must_use]
     pub fn new(renderer: &Renderer) -> Self {
@@ -376,6 +396,7 @@ impl Composer {
             pictures: HashMap::new(),
             composed: None,
             overlay_vertices: None,
+            painter: None,
         }
     }
 
@@ -618,8 +639,10 @@ impl Composer {
             })
             .collect();
         let world_view = world.map(|f| {
-            renderer
-                .draw(f, w, h, load)
+            self.painter
+                .as_mut()
+                .and_then(|p| p.paint(f, (w, h), load))
+                .unwrap_or_else(|| renderer.draw(f, w, h, load))
                 .create_view(&wgpu::TextureViewDescriptor::default())
         });
         let portal_view = portal.map(|(f, a)| {
@@ -952,6 +975,12 @@ impl Presenter {
             to_window_ramped,
             ramp: None,
         })
+    }
+
+    /// The world's picture drawn by `painter` from now on (on this presenter's device), or by the
+    /// retail device with none.
+    pub fn set_painter(&mut self, painter: Option<Box<dyn WorldPainter>>) {
+        self.composer.set_painter(painter);
     }
 
     /// How pictures reach the screen: a window waits for the display's refresh; full screen as
