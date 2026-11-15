@@ -1,4 +1,5 @@
 //! Vectors: fixtures/vectors/quests/
+//! Divergence: V539
 //! QuestManager, ContractManager and Player_Character follow ACE.
 //! Fixture: ACE vectors and explicit expected values, synthetic dats, isolated world state.
 
@@ -1583,9 +1584,24 @@ mod scenario {
             [
                 "Bryn has been added to your friends list.",
                 "Sorry, but you can't be friends with yourself.",
-                "That character does not exist",
-                "That character is already in your friends list",
             ]
+        );
+        // V539: nobody by that name is a transient message, a duplicate the error naming it.
+        assert_eq!(
+            got::<CommunicationTransientString>(&ts, id, mark)
+                .into_iter()
+                .map(|t| t.text)
+                .collect::<Vec<_>>(),
+            ["That character does not exist."]
+        );
+        let already =
+            got::<dereth_protocol::comms::CommunicationWeenieErrorWithString>(&ts, id, mark);
+        assert_eq!(
+            already
+                .iter()
+                .map(|e| (e.error_type, e.text.as_str()))
+                .collect::<Vec<_>>(),
+            [(0x562, "Bryn")]
         );
 
         // Remove, then add again (it is kept for the log in).

@@ -542,3 +542,4 @@ the evidence behind each row. Edit the register, not this file.
 | V536 | retail | Training a skill no longer prints a line in chat. | `empyrean-world::all::players::stats::training_a_skill_costs_credits_and_reports_them` |
 | V537 | retail | Closing a trade no longer shows an extra error line. | `empyrean-world::all::inventory::trade::closing_clears_both_sides_unless_a_transfer_is_in_progress`, `empyrean-world::all::inventory::trade::entering_combat_closes_the_trade_on_both_sides` |
 | V538 | retail | Healing with no stamina left now says you're too tired. | `empyrean-world::all::content::object_use::healing_with_no_stamina_left_is_refused_too_tired` |
+| V539 | retail | Adding a friend now answers in retail's words. | `empyrean-world::all::content::quests::scenario::quests_friends_titles_and_contracts_survive_a_log_out_and_back_in` |

@@ -16,6 +16,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Fixed admin programs dropped after a few idle seconds on Windows, and ones that fall behind keeping their place.
 - Fixed creatures that stand on towers and platforms over steep ground never appearing.
 - Salvaging now says which items weren't suitable, and when it fails.
+- Adding a friend now answers in retail's words.
 - Healing with no stamina left now says you're too tired.
 - Closing a trade no longer shows an extra error line.
 - Training a skill no longer prints a line in chat.

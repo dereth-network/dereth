@@ -245,12 +245,14 @@ pub fn handle_action_add_friend(w: &mut World, this: ObjectGuid, friend_name: &s
     // get friend player info
     let (friend, _) = player_manager::find_by_name(w, friend_name);
 
+    // DIVERGE: V539, a name no character has is answered as a transient message, "That character
+    // does not exist.", and one already listed with the error naming it; ACE says both in chat,
+    // "That character does not exist" and "That character is already in your friends list".
     let Some(friend) = friend else {
-        crate::network::chat_packet::send_server_message(
+        crate::world_objects::player_networking::send_transient_error(
             w,
-            session,
-            "That character does not exist",
-            ChatMessageType::Broadcast,
+            this,
+            "That character does not exist.",
         );
         return;
     };
@@ -263,11 +265,11 @@ pub fn handle_action_add_friend(w: &mut World, this: ObjectGuid, friend_name: &s
     };
 
     if friend_already_exists {
-        crate::network::chat_packet::send_server_message(
+        crate::world_objects::player_networking::send_weenie_error_with_string(
             w,
-            session,
-            "That character is already in your friends list",
-            ChatMessageType::Broadcast,
+            this,
+            empyrean_entity::enums::WeenieErrorWithString::_IsAlreadyOnYourFriendsList,
+            &friend_display_name,
         );
         return;
     }
