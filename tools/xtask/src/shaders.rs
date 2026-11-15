@@ -8,8 +8,8 @@
 //! A crate with shaders keeps them in a `shaders/` folder of its own (`<crate>/shaders/`, or
 //! `<crate>/tests/shaders/` for a test binary's): Slang sources, and `shaders.toml`, which names
 //! the targets and each entry point (its source file, its function and its stage). The task
-//! finds every such folder under `dereth/client/crates/`, compiles each entry point for each target
-//! with the pinned `slangc`, and writes the folder's `compiled/`:
+//! finds every such folder under `dereth/client/crates/` and `auberean/client/crates/`, compiles
+//! each entry point for each target with the pinned `slangc`, and writes the folder's `compiled/`:
 //!
 //! - one blob per entry point and target, `<target>/<source>.<entry>.<ext>`;
 //! - `manifest.toml`: the compiler, its options, and the SHA-256 of every source and every blob;
@@ -50,8 +50,8 @@ use serde::Deserialize;
 use crate::package::sha256_hex;
 use crate::util::{target_dir, workspace_root};
 
-/// Where shader folders are looked for, relative to the workspace root.
-const SEARCH: &str = "dereth/client/crates";
+/// Where shader folders are looked for, relative to the workspace root: each game's client crates.
+const SEARCH: &[&str] = &["dereth/client/crates", "auberean/client/crates"];
 
 /// The file that makes a folder a shader folder.
 const SPEC: &str = "shaders.toml";
@@ -359,15 +359,16 @@ pub struct Root {
     pub rel: String,
 }
 
-/// Every shader folder under `dereth/client/crates/`: a crate's `shaders/` or `tests/shaders/`
-/// that holds a `shaders.toml`, in path order.
+/// Every shader folder under [`SEARCH`]: a crate's `shaders/` or `tests/shaders/` that holds a
+/// `shaders.toml`, in path order.
 #[must_use]
 pub fn roots(ws: &Path) -> Vec<Root> {
     let mut out = Vec::new();
-    let Ok(crates) = std::fs::read_dir(ws.join(SEARCH)) else {
-        return out;
-    };
-    let mut crates: Vec<PathBuf> = crates.flatten().map(|e| e.path()).collect();
+    let mut crates: Vec<PathBuf> = SEARCH
+        .iter()
+        .filter_map(|s| std::fs::read_dir(ws.join(s)).ok())
+        .flat_map(|d| d.flatten().map(|e| e.path()))
+        .collect();
     crates.sort();
     for c in crates {
         for sub in ["shaders", "tests/shaders"] {
