@@ -1,6 +1,6 @@
 # Deliberate divergences from ACE
 
-Empyrean is a port of [ACE](https://github.com/ACEmulator/ACE) (at commit `47edade3`), and this is
+Empyrean is a port of [ACE](https://github.com/ACEmulator/ACE) (at commit `aadedb3d`), and this is
 the list of places where it deliberately behaves differently. The code names a row by its number
 (`V336`). Each row has one of six kinds:
 
