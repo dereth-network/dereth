@@ -675,3 +675,67 @@ fn a_clean_disconnect_waits_for_the_database_callback_even_past_two_seconds() {
     assert!(ts.world.net.session(old).is_none());
     assert!(ts.world.net.find_by_account("acct").is_none());
 }
+
+/// An address that has started its limit of logins in a minute (3 here) is refused another
+/// before any account work: the fourth login from it creates no account, another address's login
+/// still does, and a minute later the address may log in again.
+#[test]
+fn an_address_past_its_login_limit_is_refused_before_any_account_work() {
+    let mut ts = server();
+    assert!(empyrean_world::managers::property_manager::modify_long(
+        &ts.world,
+        "login_requests_per_address_per_minute",
+        3
+    ));
+    let flood = IpAddr::V4(Ipv4Addr::new(10, 9, 9, 9));
+    let ids: Vec<ClientId> = (0..4)
+        .map(|i| ts.add_client_at(&format!("flood{i}"), "pw", flood))
+        .collect();
+    ts.advance(2.0);
+    for i in 0..3 {
+        assert!(
+            ts.auth()
+                .get_account_by_name(&format!("flood{i}"))
+                .is_some(),
+            "login {i} is within the limit"
+        );
+    }
+    assert!(
+        ts.auth().get_account_by_name("flood3").is_none(),
+        "the fourth is refused"
+    );
+    assert_ne!(ts.client(ids[3]).status(), ClientStatus::Connected);
+
+    login(&mut ts, "elsewhere", "pw");
+
+    ts.advance(60.0);
+    let again = ts.add_client_at("flood4", "pw", flood);
+    assert!(ts.run_until(2.0, |ts| ts.client(again).status()
+        == ClientStatus::Connected));
+}
+
+/// An address creates at most its limit of accounts in a day (2 here): the third new account from
+/// it is refused as an unknown account, while an existing account still logs in from it.
+#[test]
+fn an_address_past_its_new_account_limit_creates_no_more() {
+    let mut ts = server();
+    assert!(empyrean_world::managers::property_manager::modify_long(
+        &ts.world,
+        "new_accounts_per_address_per_day",
+        2
+    ));
+    seed_account(&ts, "acct", "secret");
+    let home = IpAddr::V4(Ipv4Addr::new(10, 8, 8, 8));
+    for name in ["first", "second"] {
+        let id = ts.add_client_at(name, "pw", home);
+        assert!(ts.run_until(2.0, |ts| ts.client(id).status() == ClientStatus::Connected));
+    }
+    let third = ts.add_client_at("third", "pw", home);
+    assert!(ts.run_until(2.0, |ts| !errors(ts, third).is_empty()));
+    assert_eq!(errors(&ts, third), vec![ACCOUNT_DOESNT_EXIST]);
+    assert!(ts.auth().get_account_by_name("third").is_none());
+
+    let known = ts.add_client_at("acct", "secret", home);
+    assert!(ts.run_until(2.0, |ts| ts.client(known).status()
+        == ClientStatus::Connected));
+}

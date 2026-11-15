@@ -199,6 +199,8 @@ pub struct Sessions {
     /// limiter for every session (`static`), `new RateLimiter(1000, TimeSpan.FromMinutes(1))`, built
     /// at first use because its stopwatch reads the world's clock.
     pub ddd_data_queue_rate_limiter: Option<RateLimiter>,
+    /// Not ACE (V528): the login requests and created accounts each address made recently.
+    pub login_limits: crate::network::handlers::authentication_handler::LoginLimits,
 }
 
 impl Sessions {

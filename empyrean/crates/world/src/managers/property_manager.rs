@@ -901,7 +901,14 @@ pub mod default_property_manager {
 
     // ACE: DefaultPropertyManager.DefaultLongProperties
     pub static DEFAULT_LONG_PROPERTIES: LazyLock<DotNetDict<&'static str, Property<i64>>> =
-        LazyLock::new(|| dict_of(DEFAULT_LONG_PAIRS, |v: &i64| *v));
+        LazyLock::new(|| {
+            let mut dict = dict_of(DEFAULT_LONG_PAIRS, |v: &i64| *v);
+            // Not ACE's: this server's own options follow ACE's, in [`ADDED_LONG_PAIRS`].
+            for (key, value, description) in ADDED_LONG_PAIRS {
+                dict.add(*key, Property::new(*value, Some((*description).to_owned())));
+            }
+            dict
+        });
 
     // ACE: DefaultPropertyManager.DefaultDoubleProperties
     pub static DEFAULT_DOUBLE_PROPERTIES: LazyLock<DotNetDict<&'static str, Property<f64>>> =
@@ -1035,6 +1042,22 @@ pub mod default_property_manager {
         // Not ACE's (retail, V336): ranged monsters close to a random fraction
         // of their attack range before attacking.
         ("monster_ranged_closing", true, "Ranged and casting monsters whose target is beyond their attack range run to a random fraction (2/3 to 16/15) of that range with a non-sticky chase, then turn and attack, as retail's did (39,987 captured closing moves; see V336). If FALSE, ACE's behaviour: missile monsters stand and turn (switching to melee beyond range), casters beyond range chase stickily, and spell range is capped at 75."),
+    ];
+
+    /// Not ACE's: the long options this server adds to ACE's, each a deliberate divergence, loaded
+    /// after ACE's.
+    pub const ADDED_LONG_PAIRS: &[(&str, i64, &str)] = &[
+        // Not ACE's (V528): login limits, checked before any password or account work.
+        (
+            "login_requests_per_address_per_minute",
+            20,
+            "the number of logins one address may start in a minute; 0 = no limit",
+        ),
+        (
+            "new_accounts_per_address_per_day",
+            5,
+            "the number of accounts one address may create automatically in a day; 0 = no limit",
+        ),
     ];
 
     const DEFAULT_LONG_PAIRS: &[(&str, i64, &str)] = &[

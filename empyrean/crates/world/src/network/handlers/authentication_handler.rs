@@ -35,6 +35,77 @@ use crate::network::game_messages::messages::game_message_server_name::game_mess
 use crate::sessions::{self, CharacterSummary};
 use crate::World;
 
+/// Not ACE (V528): what each address has done recently, for the login limits. Loopback addresses
+/// are not limited (a proxy in front of the server, or the operator's own tools).
+#[derive(Debug, Default)]
+pub struct LoginLimits {
+    /// The times (Unix seconds) of each address's login requests in the last minute.
+    logins: std::collections::HashMap<std::net::IpAddr, std::collections::VecDeque<f64>>,
+    /// The times of each address's automatically created accounts in the last day.
+    accounts: std::collections::HashMap<std::net::IpAddr, std::collections::VecDeque<f64>>,
+}
+
+/// The most addresses either window remembers before it forgets those with nothing recent.
+const LOGIN_LIMIT_ADDRESSES: usize = 16_384;
+
+impl LoginLimits {
+    /// Counts an event of `address` at `now` against `limit` events per `window` seconds: `false`,
+    /// counting nothing, when the address has had `limit` already.
+    fn admit(
+        map: &mut std::collections::HashMap<std::net::IpAddr, std::collections::VecDeque<f64>>,
+        address: std::net::IpAddr,
+        now: f64,
+        window: f64,
+        limit: i64,
+    ) -> bool {
+        if limit <= 0 || address.is_loopback() {
+            return true;
+        }
+        if map.len() >= LOGIN_LIMIT_ADDRESSES && !map.contains_key(&address) {
+            map.retain(|_, times| times.back().is_some_and(|&t| now - t < window));
+        }
+        let times = map.entry(address).or_default();
+        while times.front().is_some_and(|&t| now - t >= window) {
+            times.pop_front();
+        }
+        if i64::try_from(times.len()).unwrap_or(i64::MAX) >= limit {
+            return false;
+        }
+        times.push_back(now);
+        true
+    }
+
+    /// Whether `address` may start another login now (`login_requests_per_address_per_minute`).
+    pub fn admit_login(&mut self, address: std::net::IpAddr, now: f64, limit: i64) -> bool {
+        Self::admit(&mut self.logins, address, now, 60.0, limit)
+    }
+
+    /// Whether `address` may create another account now (`new_accounts_per_address_per_day`).
+    pub fn admit_account(&mut self, address: std::net::IpAddr, now: f64, limit: i64) -> bool {
+        Self::admit(&mut self.accounts, address, now, 86_400.0, limit)
+    }
+}
+
+/// Not ACE (V528): whether a new login request from `address` is within its limit. One beyond it
+/// is answered and dropped before any password or account work.
+pub fn admit_login_request(w: &mut World, session: SessionId, address: std::net::IpAddr) -> bool {
+    let limit =
+        player_manager::property_manager_get_long(w, "login_requests_per_address_per_minute");
+    let now = w.now.unix_time;
+    if w.sessions.login_limits.admit_login(address, now, limit) {
+        return true;
+    }
+    log::warn!("Login from {address} refused: more than {limit} logins from it in a minute");
+    terminate(
+        w,
+        session,
+        SessionTerminationReason::AccountBooted,
+        Some(game_message_character_error(CharacterError::Logon)),
+        String::new(),
+    );
+    false
+}
+
 // ACE: AuthenticationHandler.DefaultAuthTimeout
 /// Seconds until an authentication request will timeout/expire.
 pub const DEFAULT_AUTH_TIMEOUT: i32 = 15;
@@ -56,7 +127,24 @@ pub fn do_login(
             && login_request.password.as_deref() != Some("")
         {
             let accounts = w.auth.lock().accounts_config().clone();
-            if accounts.allow_auto_account_creation {
+            // DIVERGE: V528, an address creates at most `new_accounts_per_address_per_day`
+            // accounts; past that the login goes on with no account, so it is refused as ACE
+            // refuses an unknown account.
+            let limit =
+                player_manager::property_manager_get_long(w, "new_accounts_per_address_per_day");
+            let now = w.now.unix_time;
+            let account_allowed = accounts.allow_auto_account_creation
+                && w.sessions
+                    .login_limits
+                    .admit_account(end_point_c2s.ip(), now, limit);
+            if accounts.allow_auto_account_creation && !account_allowed {
+                log::warn!(
+                    "Auto creating account for {} refused: {} has created {limit} today",
+                    login_request.account,
+                    end_point_c2s.ip()
+                );
+            }
+            if account_allowed {
                 // no account, dynamically create one
                 if w.world_manager.world_status == WorldStatusState::Open {
                     log::info!("Auto creating account for: {}", login_request.account);

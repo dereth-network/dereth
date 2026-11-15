@@ -1041,6 +1041,15 @@ fn handle_network_event(w: &mut World, event: Event) {
             request,
         } => {
             if w.sessions.get(session).is_none() {
+                // DIVERGE: V528, a new session's login counts against its address's limit
+                // before any password or account work (a retained login is not counted again).
+                if !crate::network::handlers::authentication_handler::admit_login_request(
+                    w,
+                    session,
+                    from.ip(),
+                ) {
+                    return;
+                }
                 w.sessions.insert(session, SessionData::default());
             }
             // DIVERGE (V454): retain the request while a cleanly disconnected player finishes

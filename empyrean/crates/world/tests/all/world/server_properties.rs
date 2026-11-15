@@ -153,11 +153,22 @@ fn default_tables_match_aces_in_order_with_descriptions() {
             .map(|(k, p)| (**k, Value::from(p.item), p.description.clone()))
             .collect(),
     );
+    let added_longs: Vec<&str> = dpm::ADDED_LONG_PAIRS.iter().map(|(k, _, _)| *k).collect();
+    let longs: Vec<_> = dpm::DEFAULT_LONG_PROPERTIES.iter().collect();
+    let ace_longs = longs.len() - added_longs.len();
+    assert_eq!(
+        longs[ace_longs..]
+            .iter()
+            .map(|(k, _)| **k)
+            .collect::<Vec<_>>(),
+        added_longs,
+        "the added long options, after ACE's"
+    );
     check(
         "default_long_properties",
-        dpm::DEFAULT_LONG_PROPERTIES
+        longs[..ace_longs]
             .iter()
-            .map(|(k, p)| (*k, Value::from(p.item), p.description.clone()))
+            .map(|(k, p)| (**k, Value::from(p.item), p.description.clone()))
             .collect(),
     );
     check(
@@ -232,6 +243,20 @@ fn cache_script_matches_ace_through_list_properties() {
                 let at = expected
                     .find("\nLong properties:")
                     .expect("the long properties");
+                expected.insert_str(at, &added);
+                // and its own long options after ACE's longs
+                let added: String = dpm::ADDED_LONG_PAIRS
+                    .iter()
+                    .map(|(k, default, d)| {
+                        format!(
+                            "\t{k}: {d} (current is {}, default is {default})\n",
+                            pm::get_long(&w, k, 0, true).item
+                        )
+                    })
+                    .collect();
+                let at = expected
+                    .find("\nDouble properties:")
+                    .expect("the double properties");
                 expected.insert_str(at, &added);
                 assert_eq!(pm::list_properties(&w), expected);
             }

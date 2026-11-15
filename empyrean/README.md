@@ -197,7 +197,7 @@ When you add or change a setting in the code, regenerate the example: run `empyr
 
 ## Server properties Empyrean adds
 
-Set with `/modifybool`; `/showprops` lists them after ACE's.
+Set with `/modifybool` or `/modifylong`; `/showprops` lists them after ACE's.
 
 `monster_ranged_closing` (default **on**, V336): archers and casters close in before attacking,
 as in retail. When a monster picks a missile attack or a spell and its target is beyond that
@@ -210,6 +210,13 @@ keeps the sticky chase.
 Off gives ACE's behavior: a missile monster never moves toward its target (it turns, and switches
 to melee out of range), a caster beyond range chases stickily and casts on the way, and spell range
 is capped at 75 m.
+
+`login_requests_per_address_per_minute` (default **20**, V528) and
+`new_accounts_per_address_per_day` (default **5**): how many logins one address may start in a
+minute, and how many accounts it may create automatically in a day. Logins past the first limit
+are dropped before any password check; past the second, an unknown account is refused as it is
+with auto-creation off. 0 turns a limit off. Loopback addresses are not limited, so a proxy in
+front of the server needs limits of its own.
 
 ## Status endpoint
 

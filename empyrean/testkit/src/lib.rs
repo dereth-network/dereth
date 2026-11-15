@@ -379,6 +379,21 @@ impl TestServer {
         ClientId(n)
     }
 
+    /// Adds a client logging in as `account`/`password` from the address `ip` (several clients may
+    /// share one), without running anything.
+    pub fn add_client_at(&mut self, account: &str, password: &str, ip: IpAddr) -> ClientId {
+        let n = self.clients.len();
+        let port = 40_000 + u16::try_from(n).unwrap_or(0);
+        let server = self.wire.mem.server_addr(PortKind::C2S);
+        self.clients.push(Slot {
+            client: TestClient::new(SocketAddr::new(ip, port), server, account, password),
+            inbox: Vec::new(),
+            next_action_stamp: 1,
+            added_at: self.seconds(),
+        });
+        ClientId(n)
+    }
+
     /// Adds a client and runs until its link is up ([`ClientStatus::Connected`]) or
     /// [`CONNECT_TIMEOUT`](Self::CONNECT_TIMEOUT) of virtual time has passed.
     pub fn connect(&mut self, account: &str, password: &str) -> ClientId {
