@@ -22,6 +22,14 @@ use crate::{Buffer, BufferUsage, Error, Sampler, Texture};
 /// How many samplers the table holds.
 pub const SAMPLERS: u32 = 32;
 
+/// Whether an implementation's answer to whether it can make a table of `counts` (sampled images,
+/// storage buffers in each buffer binding) is an under-report: it refused one within its own
+/// update-after-bind `limits` on each. A refusal of a table over them is the implementation's to
+/// make, and its report stays an error.
+pub(crate) fn under_reported(supported: bool, counts: (u32, u32), limits: (u32, u32)) -> bool {
+    !supported && counts.0 <= limits.0 && counts.1 <= limits.1
+}
+
 /// A list of free indices below a capacity.
 #[derive(Debug)]
 pub(crate) struct Indices {
@@ -66,10 +74,14 @@ pub(crate) struct Bindless {
 }
 
 impl Bindless {
+    /// The table, `textures` sampled images and `buffers` storage buffers in each of the two
+    /// buffer bindings; `limits` the device's update-after-bind limits on each (the images, the
+    /// buffers a binding takes).
     pub(crate) fn new(
         device: &ash::Device,
         textures: u32,
         buffers: u32,
+        limits: (u32, u32),
         accels: Option<u32>,
     ) -> Result<Self, Error> {
         let all = vk::ShaderStageFlags::ALL;
@@ -114,6 +126,17 @@ impl Bindless {
             .flags(vk::DescriptorSetLayoutCreateFlags::UPDATE_AFTER_BIND_POOL)
             .bindings(&bindings)
             .push_next(&mut binding_flags);
+        // Whether the implementation says it can make the table. The counts are held to its
+        // update-after-bind limits; one that answers by their sum against its
+        // `maxPerSetDescriptors` alone, as MoltenVK does (1,212 on Apple's GPUs), says no though
+        // it makes and reads the table, and the validation layer then reports the layout. The
+        // table is made as sized, and that one report told as a warning.
+        let mut support = vk::DescriptorSetLayoutSupport::default();
+        // SAFETY: live locals for the call.
+        unsafe { device.get_descriptor_set_layout_support(&info, &mut support) };
+        if under_reported(support.supported == vk::TRUE, (textures, buffers), limits) {
+            crate::device::layout_support_under_reported();
+        }
         // SAFETY: live locals; destroyed with the table.
         let layout = vkr("vkCreateDescriptorSetLayout", unsafe {
             device.create_descriptor_set_layout(&info, None)
@@ -305,5 +328,46 @@ impl Device {
             e.bindless = Some(index);
         }
         Ok(index)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (experimental)
+    use super::*;
+    use crate::device::told_as_warning;
+
+    const VUID: &str = "VUID-vkCreateDescriptorSetLayout-support-09582";
+
+    /// **A refused table within the update-after-bind limits is the implementation's
+    /// under-report**: its layout's report is told as a warning, and no other report is.
+    #[test]
+    fn a_refused_table_within_the_limits_is_an_under_report_and_only_its_report_a_warning() {
+        let refused = under_reported(false, (16_384, 4_096), (500_000, 250_000));
+        assert!(refused);
+        assert!(told_as_warning(VUID, refused));
+        assert!(!told_as_warning("VUID-vkCmdDraw-None-08600", refused));
+        assert!(!told_as_warning("", refused));
+    }
+
+    /// **A refused table over the limits is not**: its report stays an error.
+    #[test]
+    fn a_refused_table_over_the_limits_is_not_an_under_report() {
+        for (counts, limits) in [
+            ((16_384, 4_096), (8_192, 250_000)),
+            ((16_384, 4_096), (500_000, 1_024)),
+        ] {
+            let refused = under_reported(false, counts, limits);
+            assert!(!refused, "{counts:?} over {limits:?}");
+            assert!(!told_as_warning(VUID, refused));
+        }
+    }
+
+    /// **A table the implementation says it can make changes nothing**: no report is a warning.
+    #[test]
+    fn a_supported_table_changes_nothing() {
+        let supported = under_reported(true, (16_384, 4_096), (500_000, 250_000));
+        assert!(!supported);
+        assert!(!told_as_warning(VUID, supported));
     }
 }

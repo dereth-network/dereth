@@ -326,7 +326,22 @@ unsafe extern "system" fn debug_callback(
             CStr::from_ptr(d.p_message).to_string_lossy().into_owned()
         }
     };
-    if severity.contains(vk::DebugUtilsMessageSeverityFlagsEXT::ERROR) {
+    // SAFETY: as above; the id's name, when there is one, is NUL-terminated for the call.
+    let id = unsafe {
+        let d = &*data;
+        if d.p_message_id_name.is_null() {
+            String::new()
+        } else {
+            CStr::from_ptr(d.p_message_id_name)
+                .to_string_lossy()
+                .into_owned()
+        }
+    };
+    let warning = told_as_warning(
+        &id,
+        LAYOUT_SUPPORT_UNDER_REPORTED.load(std::sync::atomic::Ordering::Relaxed),
+    );
+    if severity.contains(vk::DebugUtilsMessageSeverityFlagsEXT::ERROR) && !warning {
         tracing::error!(target: "dereth::gfx", "validation: {text}");
         if let Ok(mut m) = VALIDATION_ERRORS.lock() {
             m.push(text);
@@ -335,6 +350,32 @@ unsafe extern "system" fn debug_callback(
         tracing::warn!(target: "dereth::gfx", "validation: {text}");
     }
     vk::FALSE
+}
+
+/// The validation layer's report of a descriptor set layout the implementation says it cannot
+/// make.
+const LAYOUT_SUPPORT_VUID: &str = "VUID-vkCreateDescriptorSetLayout-support-09582";
+
+/// Whether an implementation said it cannot make the bindless table though its counts are within
+/// its own update-after-bind limits ([`crate::bindless`]): its layout's report is a warning.
+static LAYOUT_SUPPORT_UNDER_REPORTED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Whether the validation layer's error `id` is told as a warning: the layout's report alone, and
+/// only once an implementation has `under_reported` its support for the bindless table.
+pub(crate) fn told_as_warning(id: &str, under_reported: bool) -> bool {
+    under_reported && id == LAYOUT_SUPPORT_VUID
+}
+
+/// The implementation said it cannot make the bindless table, sized to its own update-after-bind
+/// limits: the layout's report from the validation layer is told as a warning from now on.
+pub(crate) fn layout_support_under_reported() {
+    tracing::warn!(
+        target: "dereth::gfx",
+        "the implementation says it cannot make the bindless table within its update-after-bind \
+         limits; it is made as sized"
+    );
+    LAYOUT_SUPPORT_UNDER_REPORTED.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// The validation layer's errors since they were last taken, for the tests.
@@ -699,6 +740,7 @@ impl Device {
             &device,
             caps.bindless_textures,
             caps.bindless_buffers,
+            (max_images, max_buffers),
             ray_queries.then_some(crate::rt::ACCELS),
         )?;
         let rt = ray_queries.then(|| crate::rt::Rt {
