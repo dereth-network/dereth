@@ -346,23 +346,30 @@ fn read_line(reader: &mut impl BufRead) -> Option<String> {
     Some(String::from_utf8_lossy(&line).into_owned())
 }
 
+/// The connection's reader once its first line, given within [`SECRET_WAIT`], is the secret, and
+/// from then on waiting for each line as long as it takes; `None` when it is not. The wait is set
+/// and lifted on the copy of the connection that reads: on Windows copies do not share it.
+fn sign_in(stream: &TcpStream, secret: &str) -> Option<BufReader<TcpStream>> {
+    let read_half = stream.try_clone().ok()?;
+    read_half.set_nonblocking(false).ok()?;
+    read_half.set_read_timeout(Some(SECRET_WAIT)).ok()?;
+    let mut reader = BufReader::new(read_half);
+    let given = read_line(&mut reader).unwrap_or_default();
+    if !same_secret(given.as_bytes(), secret.as_bytes()) {
+        return None;
+    }
+    reader.get_ref().set_read_timeout(None).ok()?;
+    Some(reader)
+}
+
 impl Connection {
     /// The secret, then lines both ways until either side ends.
     fn serve(self, stream: TcpStream) {
         let _ = stream.set_nonblocking(false);
-        if stream.set_read_timeout(Some(SECRET_WAIT)).is_err() {
-            return;
-        }
-        let Ok(read_half) = stream.try_clone() else {
-            return;
-        };
-        let mut reader = BufReader::new(read_half);
-        let given = read_line(&mut reader).unwrap_or_default();
-        if !same_secret(given.as_bytes(), self.secret.as_bytes()) {
+        let Some(mut reader) = sign_in(&stream, &self.secret) else {
             let _ = stream.shutdown(std::net::Shutdown::Both);
             return;
-        }
-        let _ = stream.set_read_timeout(None);
+        };
         let (tx, rx) = mpsc::sync_channel::<String>(QUEUE);
         let backlog: Vec<String> = {
             let mut out = self.output.lock().unwrap_or_else(PoisonError::into_inner);
@@ -372,6 +379,7 @@ impl Connection {
         let Ok(write_half) = stream.try_clone() else {
             return;
         };
+        let _ = write_half.set_nonblocking(false);
         let ended = Arc::new(AtomicBool::new(false));
         let writer = {
             let ended = Arc::clone(&ended);
@@ -517,10 +525,47 @@ mod tests {
         }
     }
 
-    /// Whether the channel closed `s` without sending anything.
-    fn closed_without_a_word(mut s: TcpStream) -> bool {
-        let mut got = Vec::new();
-        matches!(s.read_to_end(&mut got), Ok(0)) || got.is_empty()
+    /// What the channel sent `s`: nothing when it closed it without a word. A connection it lets
+    /// in stays open, so only the first line is read, its hello.
+    fn sent(s: TcpStream) -> String {
+        let mut line = String::new();
+        let _ = BufReader::new(s).read_line(&mut line);
+        line
+    }
+
+    /// Whether each program is still connected, as the channel has left it: a look at its
+    /// connection that finds the end, or a reset, means the channel closed it.
+    fn still_connected(connected: &[(TcpStream, BufReader<TcpStream>)]) -> Vec<bool> {
+        connected
+            .iter()
+            .map(|(s, _)| {
+                s.set_nonblocking(true).expect("a look without waiting");
+                let open = match s.peek(&mut [0u8; 1]) {
+                    Ok(n) => n > 0,
+                    Err(e) => e.kind() == std::io::ErrorKind::WouldBlock,
+                };
+                s.set_nonblocking(false).expect("waiting again");
+                open
+            })
+            .collect()
+    }
+
+    /// A program that has given the secret is waited for however long it sends nothing: the
+    /// secret's wait is lifted on the connection its lines are read from.
+    /// Behaviour: server.operator.admin-channel-idle
+    #[test]
+    fn a_signed_in_program_is_waited_for_however_long_it_is_idle() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("a listener");
+        let mut program =
+            TcpStream::connect(listener.local_addr().expect("its address")).expect("connect");
+        let (server, _) = listener.accept().expect("accepted");
+        writeln!(program, "the secret").expect("written");
+        let reader = sign_in(&server, "the secret").expect("signed in");
+        assert_eq!(
+            reader.get_ref().read_timeout().expect("its wait"),
+            None,
+            "no wait on the connection it reads"
+        );
     }
 
     /// The channel writes its loopback address, a new secret of 64 hexadecimal digits and the
@@ -579,7 +624,7 @@ mod tests {
         ] {
             let mut s = connect(&channel);
             s.write_all(first.as_bytes()).expect("write");
-            assert!(closed_without_a_word(s), "{first:?}");
+            assert_eq!(sent(s), "", "{first:?}");
         }
         // A connection turned away keeps its place until its own thread ends, a moment after its
         // close, so each of the four is let in once a place is free.
@@ -588,7 +633,12 @@ mod tests {
             connected.push(let_in(&channel, &dir));
         }
         let (extra, _) = signed_in(&channel, &dir);
-        assert!(closed_without_a_word(extra), "a fifth is turned away");
+        let told = sent(extra);
+        assert!(
+            told.is_empty(),
+            "a fifth is turned away, but it was sent {told:?} with the four connected: {:?}",
+            still_connected(&connected)
+        );
         drop(connected.pop());
         // The one that left frees its place once its connection has ended.
         drop(let_in(&channel, &dir));

@@ -10126,6 +10126,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.operator.admin-channel-idle",
+        says: "A program that has given the admin channel's secret stays connected however long \
+               it sends nothing: the secret's wait ends with the secret.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-CHANNEL-IDLE"),
+        station: "yalain::bin.yalain::admin_channel::tests::a_signed_in_program_is_waited_for_however_long_it_is_idle",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.admin-channel-runs-console-commands",
         says: "With --admin-channel the executable's console commands run from a program that \
                gives the channel's secret, answered over the channel as at the console, though \
