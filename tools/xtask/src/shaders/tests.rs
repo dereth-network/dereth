@@ -29,7 +29,7 @@ impl Compiler for Fake {
         _imports: &[String],
     ) -> Result<Vec<u8>, String> {
         self.calls.set(self.calls.get() + 1);
-        let source = std::fs::read(dir.join(&entry.source)).map_err(|e| e.to_string())?;
+        let source = std::fs::read(dir.join(entry.path())).map_err(|e| e.to_string())?;
         let mut blob = format!("{}:{}:", entry.entry, target.name()).into_bytes();
         blob.extend_from_slice(sha256_hex(&lf(&source)).as_bytes());
         Ok(blob)
@@ -266,6 +266,78 @@ fn an_imported_module_edited_without_regenerating_fails_the_importers_check() {
     std::fs::remove_dir_all(&user.dir).ok();
 }
 
+/// **An entry point from an imported folder is compiled in the importing folder, into its blobs**:
+/// its source is read from the imported folder, its blob and variant are named as the folder's
+/// own, and an edit to that source fails the importer's check until it is compiled again.
+#[test]
+fn an_entry_point_from_an_imported_folder_is_compiled_into_the_importers_blobs() {
+    let shared = folder("from-shared");
+    let user = folder("from-user");
+    std::fs::write(
+        shared.dir.join("pass.slang"),
+        "import game;
+void fs_pass() {}
+",
+    )
+    .unwrap();
+    std::fs::write(
+        user.dir.join("game.slang"),
+        "module game;
+",
+    )
+    .unwrap();
+    let rel = format!("../{}", shared.dir.file_name().unwrap().to_string_lossy());
+    let spec = std::fs::read_to_string(user.dir.join(SPEC)).unwrap();
+    std::fs::write(
+        user.dir.join(SPEC),
+        format!(
+            "{}
+[[entry]]
+source = \"pass.slang\"
+from = \"{rel}\"
+entry = \"fs_pass\"
+stage = \"fragment\"
+",
+            spec.replace(
+                "targets = [\"spirv\"]
+",
+                &format!(
+                    "targets = [\"spirv\"]
+imports = [\"{rel}\"]
+"
+                ),
+            )
+        ),
+    )
+    .unwrap();
+    compile_root(&user, &Fake::new()).unwrap();
+    assert!(compiled(&user, "spirv/pass.fs_pass.spv").is_file());
+    let index = std::fs::read_to_string(compiled(&user, INDEX)).unwrap();
+    assert!(index.contains("PassFsPass"), "{index}");
+    assert_eq!(check_root(&user), Vec::<String>::new());
+
+    std::fs::write(
+        shared.dir.join("pass.slang"),
+        "import game;
+void fs_pass() { }
+",
+    )
+    .unwrap();
+    let found = check_root(&user);
+    assert!(
+        found.len() == 1 && found[0].contains(&format!("{rel}/pass.slang changed")),
+        "{found:?}"
+    );
+    compile_root(&user, &Fake::new()).unwrap();
+    assert_eq!(check_root(&user), Vec::<String>::new());
+
+    std::fs::remove_file(shared.dir.join("pass.slang")).unwrap();
+    let e = compile_root(&user, &Fake::new()).unwrap_err();
+    assert!(e.contains("pass.slang, which is not there"), "{e}");
+    std::fs::remove_dir_all(&shared.dir).ok();
+    std::fs::remove_dir_all(&user.dir).ok();
+}
+
 /// **A checkout that wrote CRLF line endings checks the same as the LF one** the blobs were made
 /// from, for the sources, the manifest and the index.
 #[test]
@@ -332,6 +404,14 @@ fn shaders_toml_refuses_unknown_targets_stages_keys_paths_and_repeats() {
         (format!("{ok}extra = 1\n"), "unknown field"),
         (ok.replace("a.slang", "../a.slang"), "not a plain"),
         (ok.replace("a.slang", "a.hlsl"), "not a plain"),
+        (
+            ok.replace(
+                "stage = ",
+                "from = \"../x\"
+stage = ",
+            ),
+            "not one of the folder's imports",
+        ),
         (ok.replace("\"vs\"", "\"vs-main\""), "not a function"),
         (
             format!("{ok}{}", entry("a.slang", "vs", "fragment")),
@@ -554,6 +634,7 @@ fn unpacking_keeps_the_tools_parts_and_refuses_names_that_leave_the_folder() {
 fn an_entry_points_blob_and_variant_come_from_its_source_and_function() {
     let e = EntrySpec {
         source: "g-buffer.slang".into(),
+        from: None,
         entry: "fs_main".into(),
         stage: Stage::Fragment,
     };

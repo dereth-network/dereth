@@ -35,7 +35,10 @@
 //!   import (`imports = ["../../gfx-passes/shaders"]`, each a path from the folder): they are on
 //!   the compiler's include path after the folder itself, and their sources are hashed into the
 //!   folder's manifest beside its own, so a shared module edited without regenerating the blobs
-//!   that import it fails `--check` too.
+//!   that import it fails `--check` too. An entry point may take its source from one of them
+//!   (`from = "../../gfx-passes/shaders"`): a shared pass whose shader imports a module each game
+//!   writes for itself is compiled in each game's folder, against that game's module, into that
+//!   folder's blobs.
 
 mod fetch;
 #[cfg(test)]
@@ -198,14 +201,26 @@ impl Stage {
 /// One entry point `shaders.toml` names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EntrySpec {
-    /// The source file, a plain file name in the shader folder.
+    /// The source file, a plain file name in the shader folder, or in `from`.
     pub source: String,
+    /// The imported folder the source is in, one of the folder's imports; `None` for the folder
+    /// itself. The folder itself is still searched first for the modules the source imports.
+    pub from: Option<String>,
     /// The function, which is also the entry point's name in the blob.
     pub entry: String,
     pub stage: Stage,
 }
 
 impl EntrySpec {
+    /// The source's path from the shader folder, with forward slashes.
+    #[must_use]
+    pub fn path(&self) -> String {
+        match &self.from {
+            Some(f) => format!("{f}/{}", self.source),
+            None => self.source.clone(),
+        }
+    }
+
     /// Its blob's path inside `compiled/`, with forward slashes.
     #[must_use]
     pub fn blob(&self, target: Target) -> String {
@@ -264,13 +279,15 @@ struct SpecFile {
 #[serde(deny_unknown_fields)]
 struct EntryFile {
     source: String,
+    #[serde(default)]
+    from: Option<String>,
     entry: String,
     stage: String,
 }
 
 /// Reads `shaders.toml`'s text: every target and stage known, every source a plain `.slang` file
-/// name, every function an identifier, no two entry points sharing a blob, and every import a
-/// relative path of plain names and `..`, named once.
+/// name, from the folder or one of its imports, every function an identifier, no two entry points
+/// sharing a blob, and every import a relative path of plain names and `..`, named once.
 pub fn parse_spec(text: &str) -> Result<Spec, String> {
     let file: SpecFile = toml::from_str(text).map_err(|e| format!("{SPEC}: {e}"))?;
     let mut targets = BTreeSet::new();
@@ -331,8 +348,15 @@ pub fn parse_spec(text: &str) -> Result<Spec, String> {
                 e.entry
             ));
         }
+        if let Some(f) = e.from.as_ref().filter(|f| !imports.contains(*f)) {
+            return Err(format!(
+                "{SPEC}: {} is from {f:?}, which is not one of the folder's imports",
+                e.source
+            ));
+        }
         let spec = EntrySpec {
             source: e.source,
+            from: e.from,
             entry: e.entry,
             stage,
         };
@@ -645,7 +669,7 @@ impl Compiler for Slangc {
         ));
         let mut cmd = Command::new(&self.exe);
         cmd.current_dir(dir)
-            .arg(&entry.source)
+            .arg(entry.path())
             .args(["-entry", &entry.entry, "-stage", entry.stage.slang()])
             .args(COMMON_OPTIONS)
             .args(target.options())
@@ -701,10 +725,11 @@ fn compile_blobs(
     compiler: &dyn Compiler,
 ) -> Result<BTreeMap<String, Vec<u8>>, String> {
     for e in &spec.entries {
-        if !root.dir.join(&e.source).is_file() {
+        if !root.dir.join(e.path()).is_file() {
             return Err(format!(
                 "{}: {SPEC} names {}, which is not there",
-                root.rel, e.source
+                root.rel,
+                e.path()
             ));
         }
     }
