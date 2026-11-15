@@ -396,3 +396,76 @@ fn a_frozen_body_and_figure_stand_still() {
     assert_ne!(frozen, thawed, "and goes on once thawed");
     assert!(awake, "thawed, the body's updates run again");
 }
+
+/// A dying creature turns passable when the server says: in a recorded 2017 session the server
+/// sends a creature solid to the player (physics type `0x400020`) its type with the passable bit
+/// (`0x400030`) as its corpse appears; from the frame the client has it, the creature's entry in
+/// the world's table is of that type and the player passes through it. A word of its moving mask
+/// sent after leaves the type as it is.
+///
+/// Behaviour: desktop.bodies.a-dying-creature-turns-passable-when-the-server-says
+#[test]
+fn a_dying_creature_turns_passable_when_the_server_says() {
+    use auberean_client_sdk::runtime::description::int;
+    const SESSION: &str = "eb02d82c53d9ba7a:1";
+    const UPDATE_INT_VISUAL: u32 = 0x1006A;
+    let index = auberean_testkit::data::require_capture_index();
+    let mut death = None;
+    captures::capture_messages_in_time_order(&index, &[UPDATE_INT_VISUAL], SESSION, |m| {
+        if let (None, Ok(ServerMessage::UpdateIntVisual(u))) =
+            (&death, ServerMessage::decode(&m.raw))
+        {
+            if u.quality == 3 && u.value == 0x40_0030 {
+                death = Some((m.blob_id, u));
+            }
+        }
+    })
+    .expect("the index reads");
+    let (blob, update) = death.expect("a creature's death in the session");
+    let creature = update.object.id;
+    // Each frame with the creature in the table: whether the client has its new type, the type
+    // its entry holds, and whether the player passes through it.
+    let mut seen = Vec::new();
+    let (mut c, mut scene, _) = played_in_frames(SESSION, 16.0, FRAME, &[], &mut |c, scene| {
+        let table = scene.table();
+        let (Some(p), Some(k)) = (
+            c.model.player.and_then(|p| table.find(p)),
+            table.find(creature),
+        ) else {
+            return;
+        };
+        let told = c.model.object(creature).and_then(|o| int(&o.weenie, 3)) == Some(0x40_0030);
+        let ty = table.physics_type(k).map_or(0, |t| t.mask);
+        seen.push((told, ty, table.interpermeable(p, k)));
+    });
+    assert!(
+        seen.contains(&(false, 0x40_0020, false)),
+        "solid to the player before"
+    );
+    let after: Vec<_> = seen.iter().filter(|s| s.0).collect();
+    assert!(!after.is_empty(), "the death within the replay");
+    assert!(
+        after.iter().all(|s| s.1 == 0x40_0030 && s.2),
+        "passable from the frame the client has it: {after:?}"
+    );
+    let movement = c
+        .model
+        .object(creature)
+        .and_then(|o| int(&o.weenie, 7))
+        .expect("its moving mask");
+    let mut word = update.clone();
+    word.quality = 7;
+    word.value = movement;
+    c.take_message(blob, ServerMessage::UpdateIntVisual(word));
+    let t = c.local_time() + FRAME;
+    c.set_time(LocalTime(t));
+    #[allow(clippy::cast_possible_truncation)]
+    scene.update(&mut c, &Intent::default(), t, FRAME as f32);
+    let table = scene.table();
+    let k = table.find(creature).expect("still in the table");
+    let p = table
+        .find(c.model.player.expect("the player"))
+        .expect("the player's entry");
+    assert_eq!(table.physics_type(k).map(|t| t.mask), Some(0x40_0030));
+    assert!(table.interpermeable(p, k), "still passable");
+}

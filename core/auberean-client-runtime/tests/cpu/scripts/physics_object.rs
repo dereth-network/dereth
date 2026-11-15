@@ -442,3 +442,94 @@ fn an_object_in_a_pack_keeps_what_its_scripts_set_of_its_body() {
         "no body, nothing kept"
     );
 }
+
+/// A body's collision state, as the scripts set and read it: settings that set its own physics
+/// types are kept marked set (so the body takes them, as it takes its masks); before the scripts
+/// set its physics types or masks, reading it gives what the object's description says it is and
+/// passes through (each from its two halves), not nothing, so settings read back and set again
+/// keep them.
+///
+/// Behaviour: script.model.a-bodys-collision-state-starts-as-its-description-says
+#[test]
+fn a_bodys_collision_state_starts_as_its_description_says_and_keeps_what_is_set() {
+    use auberean_client_runtime::description::set_int;
+    use auberean_glue::missile::{PhysicsValue, COLLISION_PARAMETERS};
+    use auberean_physics::collision::{settings, CollisionSettings};
+    use auberean_physics::ethereal::PhysicsTypes;
+    use auberean_script::native_object::Engine;
+    let mut b = Bench::new();
+    {
+        let w = &mut b.host.model.object_mut(ITEM).unwrap().weenie;
+        for (q, v) in [
+            (3, 0x40_0020),
+            (4, 0),
+            (5, 0x42A0_0010),
+            (6, 0),
+            (7, 0x4220_0010),
+            (8, 0),
+        ] {
+            set_int(w, q, v);
+        }
+    }
+    let read = |b: &mut Bench| {
+        let given = b.vm.heap.add_native(
+            COLLISION_PARAMETERS,
+            NativeObject::Opaque {
+                ty: COLLISION_PARAMETERS,
+            },
+        );
+        let out = b.vm.heap.add_relative(NULL, 0);
+        b.call(
+            PHYSICS_OBJECT,
+            0x0B,
+            ITEM_REF,
+            &[(out, tag::REFERENCE), (given, tag::REFERENCE)],
+            0,
+        );
+        match PhysicsValue::of(b.vm.heap.native(given).unwrap()) {
+            Some(PhysicsValue::Collision(s)) => *s,
+            other => panic!("collision settings: {other:?}"),
+        }
+    };
+    let s = read(&mut b);
+    assert_eq!(s.physics_type.mask, 0x40_0020, "its description's type");
+    assert_eq!(s.movement_physics.mask, 0x4220_0010);
+    assert_eq!(s.placement_physics.mask, 0x42A0_0010);
+    assert!(
+        s.has(settings::PHYSICS_TYPE | settings::MOVEMENT_PHYSICS | settings::PLACEMENT_PHYSICS)
+    );
+
+    // Its own physics types set, passable now: kept, and marked set.
+    let mut passable = CollisionSettings {
+        bits: settings::PHYSICS_TYPE,
+        physics_type: PhysicsTypes::new(0x40_0030),
+        ..CollisionSettings::default()
+    };
+    let given = b.vm.heap.add_native(
+        COLLISION_PARAMETERS,
+        NativeObject::Engine(Engine::new(PhysicsValue::Collision(Box::new(
+            passable.clone(),
+        )))),
+    );
+    assert_eq!(
+        b.answer(PHYSICS_OBJECT, 0x0A, ITEM_REF, &[(given, tag::REFERENCE)]),
+        0
+    );
+    let kept = &b.host.bodies[&ITEM].collision;
+    assert!(kept.has(settings::PHYSICS_TYPE), "marked set: {kept:?}");
+    assert_eq!(kept.physics_type.mask, 0x40_0030);
+
+    // Its moving mask's word set after: read back and set again, the type it was given stays.
+    let mut s = read(&mut b);
+    assert_eq!(s.physics_type.mask, 0x40_0030);
+    s.movement_physics = PhysicsTypes::new(0x4220_0011);
+    passable = s;
+    let given = b.vm.heap.add_native(
+        COLLISION_PARAMETERS,
+        NativeObject::Engine(Engine::new(PhysicsValue::Collision(Box::new(passable)))),
+    );
+    b.answer(PHYSICS_OBJECT, 0x0A, ITEM_REF, &[(given, tag::REFERENCE)]);
+    let kept = &b.host.bodies[&ITEM].collision;
+    assert_eq!(kept.physics_type.mask, 0x40_0030, "the type stays");
+    assert_eq!(kept.movement_physics.mask, 0x4220_0011);
+}

@@ -965,6 +965,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "script.model.a-bodys-collision-state-starts-as-its-description-says",
+        says: "A body's collision state starts as its object's description says it is and passes \
+               through (each mask from its two halves): a script reads that until it sets them. \
+               Settings a script sets of its own physics types are kept marked set, so the body \
+               takes them as it takes its masks, and set again with a mask they stay.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-COLLISION-STATE"),
+        station: "auberean-client-runtime::cpu::scripts::physics_object::a_bodys_collision_state_starts_as_its_description_says_and_keeps_what_is_set",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.model.a-collision-ends-in-the-scripts-without-reading-the-profile",
         says: "A collision handed to the scripts of an object in a recorded world runs to its \
                end: the library's answer to the interface's collision function only says it was \

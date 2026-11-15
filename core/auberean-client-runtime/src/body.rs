@@ -3,11 +3,12 @@
 //!
 //! - **The collision state** a body holds: its own physics types, the physics types it passes
 //!   through when placed and when moving, and the objects it passes through placed and moving. A
-//!   body starts solid to every physics type and every object, of no physics type. Setting it
-//!   takes the parts the given settings mark set (the object lists brought up to the given ones;
-//!   its own physics types as they are) and the least impact speeds that are not zero; it answers
-//!   0. Reading it fills the given settings with the body's own physics types, its placement and
-//!   its moving physics types, each marked set, and answers 1.
+//!   body starts as its object's description says it is and passes through, solid to every
+//!   object. Setting it takes the parts the given settings mark set, each then marked set in the
+//!   body's state (the object lists brought up to the given ones; its own physics types as they
+//!   are), and the least impact speeds that are not zero; it answers 0. Reading it fills the given
+//!   settings with the body's own physics types, its placement and its moving physics types, each
+//!   marked set, and answers 1.
 //! - **Drawn or not**: a body's no-draw flag, set or cleared; it answers 1.
 //! - **Its scale**, held between a tenth and ten times, and **whether it slides along edges**, as
 //!   the object's repository sets them with its qualities.
@@ -23,6 +24,7 @@ use std::collections::HashMap;
 
 use auberean_glue::missile::PhysicsValue;
 use auberean_physics::collision::{settings, CollisionSettings};
+use auberean_physics::solid::Ethereality;
 use auberean_protocol::ServerMessage;
 use auberean_script::native::{Call, NativeFn, Status, Stop};
 use auberean_script::native_object::{Engine, NativeObject};
@@ -217,8 +219,42 @@ fn set_collision_state(c: &mut Call<'_>) -> Result<Status, Stop> {
     Ok(Status::Success)
 }
 
-/// What a body takes of settings it is given: the parts they mark set, and the least impact
-/// speeds that are not zero.
+/// A body's own physics types, its placement and its moving physics types: each as the scripts
+/// last set it, or, until they set it, as the object's description says (each mask from its two
+/// halves, or none), as the object's scripts set them when it is made.
+// D2-05926, D2-06115
+fn collision_state(h: &ClientHost, object: u64) -> CollisionSettings {
+    let mut body = h
+        .bodies
+        .get(&object)
+        .map(|b| b.collision.clone())
+        .unwrap_or_default();
+    let made = h
+        .model
+        .object(object)
+        .map_or_else(CollisionSettings::default, |o| {
+            let int = |q| crate::description::int(&o.weenie, q);
+            Ethereality {
+                physics_type: Ethereality::mask(int(3), int(4)),
+                movement: Ethereality::mask(int(7), int(8)),
+                placement: Ethereality::mask(int(5), int(6)),
+            }
+            .settings()
+        });
+    if !body.has(settings::PHYSICS_TYPE) {
+        body.physics_type = made.physics_type;
+    }
+    if !body.has(settings::PLACEMENT_PHYSICS) {
+        body.placement_physics = made.placement_physics;
+    }
+    if !body.has(settings::MOVEMENT_PHYSICS) {
+        body.movement_physics = made.movement_physics;
+    }
+    body
+}
+
+/// What a body takes of settings it is given: the parts they mark set, each marked set in its
+/// state for the scene to apply, and the least impact speeds that are not zero.
 fn take(body: &mut CollisionSettings, s: &CollisionSettings) {
     if s.has(settings::MOVEMENT_PHYSICS) {
         body.movement_physics = s.movement_physics;
@@ -238,6 +274,7 @@ fn take(body: &mut CollisionSettings, s: &CollisionSettings) {
     }
     if s.has(settings::PHYSICS_TYPE) {
         body.physics_type = s.physics_type;
+        body.set_bit(settings::PHYSICS_TYPE);
     }
     if s.min_impact_xy != 0.0 {
         body.min_impact_xy = s.min_impact_xy;
@@ -261,11 +298,7 @@ fn get_collision_state(c: &mut Call<'_>) -> Result<Status, Stop> {
     let (target, _) = c.vm.read_slot(c.host, c.cx, out, 0, &prog)?;
     let mut s = settings_at(c, target)?;
     let answer = if has_body(c, object)? {
-        let body = host(c)?
-            .bodies
-            .get(&object)
-            .map(|b| b.collision.clone())
-            .unwrap_or_default();
+        let body = collision_state(host(c)?, object);
         s.physics_type = body.physics_type;
         s.set_bit(settings::PHYSICS_TYPE);
         s.placement_physics = body.placement_physics;

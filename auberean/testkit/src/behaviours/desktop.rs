@@ -144,6 +144,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.bodies.a-dying-creature-turns-passable-when-the-server-says",
+        says: "A creature the server sends its physics type with the passable bit as its corpse \
+               appears is passable to the player from the frame the client has it; a word of one \
+               of its masks sent after leaves its type as it is.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-DYING-PASSABLE"),
+        station: "auberean-scene::corpus::physics_object::a_dying_creature_turns_passable_when_the_server_says",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "desktop.bodies.a-frozen-body-and-figure-stand-still",
         says: "What the scripts freeze stays: a body with its movement frozen does not move, and \
                while its animation is frozen its figure does not advance.",
