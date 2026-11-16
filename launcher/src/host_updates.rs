@@ -3,15 +3,17 @@
 //!
 //! A newer release is found in the repository's releases ([`components::release_list`]). Its
 //! `release.json`, checked against the release's `SHA256SUMS`, says what upgrading to it involves.
-//! A patch of the same minor version is downloaded by itself; any other release waits for the
-//! person to approve that exact version. Empyrean then backs up the databases, installs, trial
+//! A patch of the same minor version is downloaded by itself. Otherwise the newest release the
+//! server can upgrade to straight is offered, as the server's own updater would choose it, with
+//! what changed in every release it skips ([`choose`]); it waits for the person to approve that
+//! exact version. An Empyrean world is offered only a release that names its own as the one
+//! before it, the only kind Empyrean stages. Empyrean then backs up the databases, installs, trial
 //! starts the new server and restores everything when that fails.
 //!
 //! A Yalain world takes its releases the same way, and installs as Yalain's releases say: with the
 //! world stopped, the program is replaced by the new release's ([`install_yalain`]), after the
-//! world database it pins is fetched when it pins another (`world_database_fetch`) and its store
-//! (`yalain.sqlite`, accounts and characters) is backed up. Undo puts the previous program and
-//! that backup back.
+//! world database it pins is fetched when it pins another and its store (`yalain.sqlite`, accounts
+//! and characters) is backed up. Undo puts the previous program and that backup back.
 //!
 //! A world set to update by itself ([`automatic`]) does all this while it runs, under its
 //! supervisor ([`crate::host_runtime`]), with or without the launcher: the supervisor checks, and
@@ -21,6 +23,7 @@
 
 use crate::{components, host_runtime};
 use dereth_launch::components::{self as metadata, Product, Release};
+use dereth_launch::releases::Version;
 use dereth_launch::world::Game;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -199,87 +202,238 @@ fn check_offer(dir: &Path) -> Result<(), String> {
     let current = metadata::version(&definition.version)
         .ok_or_else(|| format!("Invalid {server} version"))?;
     let list = components::release_list(false, &[product.releases_since(current)])?;
-    let mut releases: Vec<_> = metadata::releases(&list, product)?
-        .into_iter()
-        .filter(|r| metadata::version(&r.version).is_some_and(|v| v > current))
-        .collect();
-    // Take the newest patch first; otherwise offer the next declared upgrade step.
-    releases.sort_by_key(|r| {
-        let version = metadata::version(&r.version).expect("filtered version");
-        let patch = version.major == current.major && version.minor == current.minor;
-        (
-            if patch { 0 } else { 1 },
-            if patch {
-                std::cmp::Reverse(version)
-            } else {
-                std::cmp::Reverse(current)
-            },
-        )
-    });
-    for release in releases {
-        let (sums, index) = release_files(&release)?;
-        let declaration: serde_json::Value =
-            serde_json::from_slice(&index).map_err(|e| e.to_string())?;
-        if declaration["version"] != release.version {
-            return Err("The release's release.json names another version.".into());
-        }
-        let version = metadata::version(&release.version).ok_or("Invalid release version")?;
-        if declaration["upgrade"]["upgrades_from"]
-            .as_str()
-            .and_then(metadata::version)
-            .is_none_or(|minimum| minimum > current)
-        {
-            continue;
-        }
-        let automatic = version.major == current.major
-            && version.minor == current.minor
-            && declaration["upgrade"]["kind"] == "patch";
-        if !automatic && declaration["upgrade"]["previous"] != definition.version {
-            continue;
-        }
-        let offered = release.version.clone();
-        let notes = release.notes.clone();
-        let download_now = automatic && old.skipped_version.as_deref() != Some(offered.as_str());
-        host_runtime::write_json(
-            &dir.join("update-offer.json"),
-            &Offer {
-                release,
-                index,
-                sums,
-                automatic,
-            },
-        )?;
-        save(
+    let releases = metadata::releases(&list, product)?;
+    // Empyrean stages a release that needs approval only from the release before it.
+    let stepwise = product == Product::Empyrean;
+    let Some(choice) = choose(current, stepwise, releases, &mut release_files)? else {
+        return save(
             dir,
             &View {
-                version: Some(offered.clone()),
-                notes,
-                message: Some(if download_now {
-                    format!("Downloading {server} {offered}...")
-                } else {
-                    format!("{server} {offered} is out. Read what changed, then update.")
-                }),
+                message: Some(format!("{server} {} is the newest.", definition.version)),
+                latest: Some(definition.version.clone()),
                 rollback: old.rollback,
-                skipped_version: old.skipped_version.clone(),
+                skipped_version: old.skipped_version,
                 ..Default::default()
             },
-        )?;
-        return if download_now {
-            stage_held(dir, None)
-        } else {
-            Ok(())
-        };
-    }
+        );
+    };
+    let Choice {
+        release,
+        sums,
+        index,
+        automatic,
+        notes,
+    } = choice;
+    let offered = release.version.clone();
+    let download_now = automatic && old.skipped_version.as_deref() != Some(offered.as_str());
+    host_runtime::write_json(
+        &dir.join("update-offer.json"),
+        &Offer {
+            release,
+            index,
+            sums,
+            automatic,
+        },
+    )?;
     save(
         dir,
         &View {
-            message: Some(format!("{server} {} is the newest.", definition.version)),
-            latest: Some(definition.version.clone()),
+            version: Some(offered.clone()),
+            notes,
+            message: Some(if download_now {
+                format!("Downloading {server} {offered}...")
+            } else {
+                format!("{server} {offered} is out. Read what changed, then update.")
+            }),
             rollback: old.rollback,
-            skipped_version: old.skipped_version,
+            skipped_version: old.skipped_version.clone(),
             ..Default::default()
         },
-    )
+    )?;
+    if download_now {
+        stage_held(dir, None)
+    } else {
+        Ok(())
+    }
+}
+
+/// The release a world is offered, with its files.
+struct Choice {
+    release: Release,
+    sums: String,
+    index: Vec<u8>,
+    /// A patch of the world's own minor version, which downloads by itself.
+    automatic: bool,
+    /// What changed, for the person to read before they update.
+    notes: String,
+}
+
+/// Gives a release's `SHA256SUMS`, and its `release.json` checked against them.
+type Files<'a> = dyn FnMut(&Release) -> Result<(String, Vec<u8>), String> + 'a;
+
+/// A newer release as the check read it: its files, and its `release.json`.
+struct Read {
+    release: Release,
+    sums: String,
+    index: Vec<u8>,
+    declaration: serde_json::Value,
+}
+
+/// `release`'s files from `files`, and its `release.json`, which must name it.
+fn read(files: &mut Files<'_>, release: Release) -> Result<Read, String> {
+    let (sums, index) = files(&release)?;
+    let declaration: serde_json::Value =
+        serde_json::from_slice(&index).map_err(|e| e.to_string())?;
+    if declaration["version"] != release.version {
+        return Err("The release's release.json names another version.".into());
+    }
+    Ok(Read {
+        release,
+        sums,
+        index,
+        declaration,
+    })
+}
+
+/// Whether a world on `current` can upgrade straight to the release whose `release.json` is
+/// `declaration`: its `upgrades_from` is `current` or older.
+fn upgrades_straight(declaration: &serde_json::Value, current: Version) -> bool {
+    declaration["upgrade"]["upgrades_from"]
+        .as_str()
+        .and_then(metadata::version)
+        .is_some_and(|minimum| minimum <= current)
+}
+
+/// What a world on `current` is offered among the published `releases`, `files` giving a
+/// release's `SHA256SUMS` and its `release.json`, checked against them.
+///
+/// The newest patch of the world's own minor version comes first, and downloads by itself.
+/// Otherwise it is the newest release the world can upgrade to straight, as the server's own
+/// updater chooses: one whose `upgrades_from` is `current` or older, whether or not the release it
+/// names as its `previous` was ever published. With `stepwise`, its `previous` must be `current`.
+/// Every release newer than the world's up to it must say what upgrading to it involves; one that
+/// does not holds back every release after it.
+fn choose(
+    current: Version,
+    stepwise: bool,
+    releases: Vec<Release>,
+    files: &mut Files<'_>,
+) -> Result<Option<Choice>, String> {
+    let mut newer: Vec<(Version, Release)> = releases
+        .into_iter()
+        .filter_map(|r| Some((metadata::version(&r.version).filter(|v| *v > current)?, r)))
+        .collect();
+    newer.sort_by_key(|(v, _)| std::cmp::Reverse(*v));
+    newer.dedup_by_key(|(v, _)| *v);
+    let mut known: Vec<Option<Read>> = newer.iter().map(|_| None).collect();
+    for (i, (version, release)) in newer.iter().enumerate() {
+        if version.major != current.major || version.minor != current.minor {
+            continue;
+        }
+        let found = read(files, release.clone())?;
+        if found.declaration["upgrade"]["kind"] == "patch"
+            && upgrades_straight(&found.declaration, current)
+        {
+            return Ok(Some(Choice {
+                notes: found.release.notes.clone(),
+                release: found.release,
+                sums: found.sums,
+                index: found.index,
+                automatic: true,
+            }));
+        }
+        known[i] = Some(found);
+    }
+    // Newest first, as `newer` is.
+    let mut all = Vec::with_capacity(newer.len());
+    for ((_, release), found) in newer.into_iter().zip(known) {
+        all.push(match found {
+            Some(found) => found,
+            None => read(files, release)?,
+        });
+    }
+    let running = current.to_string();
+    for i in 0..all.len() {
+        let declaration = &all[i].declaration;
+        if !upgrades_straight(declaration, current)
+            || (stepwise && declaration["upgrade"]["previous"] != running.as_str())
+        {
+            continue;
+        }
+        // It, and every release newer than the world's before it.
+        let between = &all[i..];
+        if between
+            .iter()
+            .any(|b| !b.declaration["upgrade"].is_object())
+        {
+            continue;
+        }
+        let notes = notes_through(between);
+        let chosen = all.swap_remove(i);
+        return Ok(Some(Choice {
+            notes,
+            release: chosen.release,
+            sums: chosen.sums,
+            index: chosen.index,
+            automatic: false,
+        }));
+    }
+    Ok(None)
+}
+
+/// What changed up to the release offered, `between` being it and every release newer than the
+/// world's before it, newest first: each one's notes, then the configuration changes they all
+/// declare, oldest first, as the server's own updater gathers them.
+fn notes_through(between: &[Read]) -> String {
+    let mut text = between
+        .first()
+        .map(|r| r.release.notes.clone())
+        .unwrap_or_default();
+    for skipped in between.iter().skip(1) {
+        let notes = skipped.release.notes.trim();
+        if !notes.is_empty() {
+            paragraph(
+                &mut text,
+                &format!("From {}:\n{notes}", skipped.release.version),
+            );
+        }
+    }
+    let changes: Vec<String> = between
+        .iter()
+        .rev()
+        .filter_map(|r| r.declaration["upgrade"]["config"].as_array())
+        .flatten()
+        .filter_map(config_line)
+        .collect();
+    if !changes.is_empty() {
+        paragraph(&mut text, &changes.join("\n"));
+    }
+    text
+}
+
+/// `more` after `text`, a blank line between them.
+fn paragraph(text: &mut String, more: &str) {
+    text.truncate(text.trim_end().len());
+    if !text.is_empty() {
+        text.push_str("\n\n");
+    }
+    text.push_str(more);
+}
+
+/// A configuration change a release declares, in a line: `Configuration: server.key is removed`,
+/// with its note.
+fn config_line(change: &serde_json::Value) -> Option<String> {
+    let key = change["key"].as_str()?;
+    let what = change["change"].as_str()?;
+    let mut line = match (what, change["to"].as_str()) {
+        ("renamed", Some(to)) => format!("Configuration: {key} is renamed {to}"),
+        _ => format!("Configuration: {key} is {what}"),
+    };
+    if let Some(note) = change["note"].as_str().filter(|n| !n.is_empty()) {
+        line.push_str(": ");
+        line.push_str(note);
+    }
+    Some(line)
 }
 
 /// The SHA-256 `release.json` gives this system's file.
@@ -551,9 +705,10 @@ fn swap_server(
 
 /// Install the Yalain release downloaded into the stopped world in `dir`, as its `release.json`
 /// says: its program copied in beside the world's, the world database it pins fetched by it first
-/// when the release says so (`upgrade.world_database_fetch`), the store backed up; then it takes
-/// the old release's place in the world's server folder, the old one kept aside for Undo, and the
-/// world runs it from the same path as before. Until then nothing the world runs changes, and a
+/// when the release says so (`upgrade.world_database_fetch`) or pins another than the world's fetch
+/// found (`upgrade.world_database`), the store backed up; then it takes the old release's place in
+/// the world's server folder, the old one kept aside for Undo, and the world runs it from the same
+/// path as before. Until then nothing the world runs changes, and a
 /// failure on the way puts the fetch's record back. The version installed.
 ///
 /// # Errors
@@ -590,8 +745,15 @@ pub fn install_yalain(dir: &Path) -> Result<String, String> {
     let fetched_before = std::fs::read_to_string(dir.join(crate::host_yalain::FETCHED)).ok();
     let record_before = std::fs::read(dir.join(YALAIN_ROLLBACK)).ok();
     let mut swapped = false;
+    // A release says whether it pins another world database than the release before it; a world
+    // that skipped that one goes by the release its own fetch found, when its fetch said.
+    let pins_another = index["upgrade"]["world_database_fetch"] == true
+        || index["upgrade"]["world_database"]
+            .as_str()
+            .zip(crate::host_yalain::pinned_release(dir))
+            .is_some_and(|(pin, found)| pin != found);
     let installed = (|| {
-        if index["upgrade"]["world_database_fetch"] == true {
+        if pins_another {
             crate::host_yalain::fetch(&next.join(name), dir)?;
         }
         let backup = backup_store(&yalain_store(dir), &definition.version, &version)?;
@@ -883,10 +1045,10 @@ pub fn cancel(dir: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    /// A stopped Yalain world on 0.1.0, with characters in its store and the pin its fetch found,
-    /// and the release `version` downloaded for it, whose `release.json` says whether it fetches
-    /// another world database first.
-    fn yalain_world(version: &str, fetch: bool) -> tempfile::TempDir {
+    /// A stopped Yalain world on 0.1.0, with characters in its store and the pin its fetch found
+    /// (`v0.21.0`), and the release `version` downloaded for it, whose `release.json` says whether
+    /// it fetches another world database first, and which one it pins.
+    fn yalain_world(version: &str, fetch: bool, pin: &str) -> tempfile::TempDir {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();
         let exe = format!("yalain{}", std::env::consts::EXE_SUFFIX);
@@ -918,7 +1080,7 @@ mod tests {
             serde_json::json!({
                 "version": version,
                 "upgrade": { "kind": "minor", "previous": "0.1.0", "upgrades_from": "0.1.0",
-                             "world_database": "v0.23.0", "world_database_fetch": fetch },
+                             "world_database": pin, "world_database_fetch": fetch },
             })
             .to_string(),
         )
@@ -932,7 +1094,7 @@ mod tests {
     /// was before the update back.
     #[test]
     fn a_yalain_world_installs_a_release_and_undo_puts_the_old_one_and_its_store_back() {
-        let temp = yalain_world("0.2.0", false);
+        let temp = yalain_world("0.2.0", false, "v0.21.0");
         let dir = temp.path();
         save(
             dir,
@@ -986,7 +1148,7 @@ mod tests {
     /// runs the release it ran, with its fetch's record as it was, and starts as before.
     #[test]
     fn a_yalain_release_that_cannot_fetch_its_world_database_leaves_the_world_as_it_was() {
-        let temp = yalain_world("0.3.0", true);
+        let temp = yalain_world("0.3.0", true, "v0.23.0");
         let dir = temp.path();
         save(
             dir,
@@ -1025,12 +1187,36 @@ mod tests {
         );
     }
 
+    /// A release that pins another world database than the world's fetch found fetches it first,
+    /// though its `release.json` says it pins the same one as the release before it: the world
+    /// skipped that release. Here the fetch cannot run, so the release does not go in.
+    #[test]
+    fn a_yalain_release_pinning_another_world_database_than_the_world_has_fetches_it_first() {
+        let temp = yalain_world("0.3.0", false, "v0.23.0");
+        let dir = temp.path();
+        save(
+            dir,
+            &View {
+                version: Some("0.3.0".into()),
+                pending: true,
+                ..View::default()
+            },
+        )
+        .unwrap();
+        apply_pending(dir).unwrap();
+        assert_eq!(host_runtime::read_definition(dir).unwrap().version, "0.1.0");
+        assert!(view(dir)
+            .message
+            .unwrap()
+            .starts_with("The update did not go in:"));
+    }
+
     /// A Yalain world updated twice runs from the same path each time, its server folder, so what
     /// names its program (a firewall rule) keeps naming the one that runs; Undo puts the release
     /// before back at that path too.
     #[test]
     fn a_yalain_world_updated_twice_still_runs_from_the_same_path() {
-        let temp = yalain_world("0.2.0", false);
+        let temp = yalain_world("0.2.0", false, "v0.21.0");
         let dir = temp.path();
         let pending = || {
             save(
@@ -1057,7 +1243,7 @@ mod tests {
             serde_json::json!({
                 "version": "0.2.1",
                 "upgrade": { "kind": "patch", "previous": "0.2.0", "upgrades_from": "0.2.0",
-                             "world_database": "v0.23.0", "world_database_fetch": false },
+                             "world_database": "v0.21.0", "world_database_fetch": false },
             })
             .to_string(),
         )
@@ -1276,5 +1462,173 @@ mod tests {
         );
         assert_eq!(declared_sum(&index, "x86_64-unknown-linux-gnu"), None);
         assert_eq!(declared_sum(b"not json", "x86_64-pc-windows-msvc"), None);
+    }
+
+    /// The release `version`, published with notes of its own, and its `release.json`, which
+    /// declares `upgrade`.
+    fn published(version: &str, upgrade: serde_json::Value) -> (Release, Vec<u8>) {
+        let release = Release {
+            version: version.into(),
+            notes: format!("What {version} changed."),
+            assets: std::collections::BTreeMap::new(),
+            sizes: std::collections::BTreeMap::new(),
+        };
+        let index = serde_json::json!({ "version": version, "upgrade": upgrade });
+        (release, serde_json::to_vec(&index).unwrap())
+    }
+
+    /// A minor release's declaration: the release before it, and the oldest that upgrades to it.
+    fn minor(previous: &str, upgrades_from: &str) -> serde_json::Value {
+        serde_json::json!({ "kind": "minor", "previous": previous, "upgrades_from": upgrades_from })
+    }
+
+    /// What a world on `running` is offered among the published `releases` (with `stepwise`, as an
+    /// Empyrean world is): the version, whether it downloads by itself, and the notes shown.
+    fn offered(
+        running: &str,
+        stepwise: bool,
+        releases: Vec<(Release, Vec<u8>)>,
+    ) -> Option<(String, bool, String)> {
+        let indexes: std::collections::HashMap<String, Vec<u8>> = releases
+            .iter()
+            .map(|(r, index)| (r.version.clone(), index.clone()))
+            .collect();
+        let list = releases.into_iter().map(|(r, _)| r).collect();
+        choose(
+            metadata::version(running).unwrap(),
+            stepwise,
+            list,
+            &mut |r: &Release| Ok((String::new(), indexes[&r.version].clone())),
+        )
+        .unwrap()
+        .map(|c| (c.release.version, c.automatic, c.notes))
+    }
+
+    /// A world on 0.4.0 is offered 0.5.0, which it can upgrade to straight, though 0.5.0 names
+    /// 0.4.1 as the release before it and 0.4.1 was never published.
+    #[test]
+    fn a_world_is_offered_a_release_whose_previous_was_never_published() {
+        let found = offered(
+            "0.4.0",
+            false,
+            vec![published("0.5.0", minor("0.4.1", "0.4.0"))],
+        );
+        let (version, automatic, _) = found.expect("0.5.0 is offered");
+        assert_eq!(version, "0.5.0");
+        assert!(!automatic, "a minor release waits for approval");
+    }
+
+    /// A release that needs a version newer than the world's installed first is not offered, and
+    /// one before it that the world can upgrade to straight is.
+    #[test]
+    fn a_release_that_needs_a_newer_version_installed_first_is_not_offered() {
+        let releases = vec![
+            published("0.6.0", minor("0.5.0", "0.5.0")),
+            published("0.5.0", minor("0.4.1", "0.4.0")),
+        ];
+        assert_eq!(offered("0.4.0", false, releases).unwrap().0, "0.5.0");
+        assert_eq!(
+            offered(
+                "0.4.0",
+                false,
+                vec![published("0.6.0", minor("0.5.0", "0.5.0"))]
+            ),
+            None
+        );
+    }
+
+    /// Of two minor releases a world can upgrade to straight, the newest is offered, as the
+    /// server's own updater takes the newest it can.
+    #[test]
+    fn of_two_releases_a_world_upgrades_to_straight_the_newest_is_offered() {
+        let found = offered(
+            "0.4.0",
+            false,
+            vec![
+                published("0.5.0", minor("0.4.0", "0.4.0")),
+                published("0.6.0", minor("0.5.0", "0.4.0")),
+            ],
+        );
+        assert_eq!(found.unwrap().0, "0.6.0");
+    }
+
+    /// An offer that skips a published release carries what that release changed: its notes, and
+    /// the configuration changes it declares, with the offered release's own. A release on the way
+    /// that declares nothing about upgrading holds back every release after it.
+    #[test]
+    fn an_offer_carries_the_notes_and_configuration_changes_of_the_releases_it_skips() {
+        let mut skipped = minor("0.4.0", "0.4.0");
+        skipped["config"] = serde_json::json!([
+            { "key": "server.old_key", "change": "removed", "note": "Nothing reads it." },
+        ]);
+        let mut newest = minor("0.5.0", "0.4.0");
+        newest["config"] = serde_json::json!([
+            { "key": "server.new_key", "change": "required" },
+        ]);
+        let (version, _, notes) = offered(
+            "0.4.0",
+            false,
+            vec![published("0.6.0", newest), published("0.5.0", skipped)],
+        )
+        .unwrap();
+        assert_eq!(version, "0.6.0");
+        assert_eq!(
+            notes,
+            "What 0.6.0 changed.\n\nFrom 0.5.0:\nWhat 0.5.0 changed.\n\n\
+             Configuration: server.old_key is removed: Nothing reads it.\n\
+             Configuration: server.new_key is required"
+        );
+
+        let silent = published("0.5.0", serde_json::Value::Null);
+        assert_eq!(
+            offered(
+                "0.4.0",
+                false,
+                vec![published("0.6.0", minor("0.5.0", "0.4.0")), silent]
+            ),
+            None
+        );
+    }
+
+    /// A patch of the world's own minor version comes before any newer release, and downloads by
+    /// itself.
+    #[test]
+    fn a_patch_of_the_worlds_own_minor_version_comes_first_and_downloads_by_itself() {
+        let patch =
+            serde_json::json!({ "kind": "patch", "previous": "0.4.0", "upgrades_from": "0.4.0" });
+        let (version, automatic, notes) = offered(
+            "0.4.0",
+            false,
+            vec![
+                published("0.5.0", minor("0.4.1", "0.4.0")),
+                published("0.4.1", patch),
+            ],
+        )
+        .unwrap();
+        assert_eq!((version.as_str(), automatic), ("0.4.1", true));
+        assert_eq!(notes, "What 0.4.1 changed.");
+    }
+
+    /// An Empyrean world, whose Empyrean stages a release only from the one before it, is offered
+    /// only a release that names its own as that.
+    #[test]
+    fn an_empyrean_world_is_offered_only_a_release_that_follows_its_own() {
+        assert_eq!(
+            offered(
+                "0.4.0",
+                true,
+                vec![published("0.5.0", minor("0.4.1", "0.4.0"))]
+            ),
+            None
+        );
+        let found = offered(
+            "0.4.0",
+            true,
+            vec![
+                published("0.5.0", minor("0.4.0", "0.4.0")),
+                published("0.6.0", minor("0.5.0", "0.4.0")),
+            ],
+        );
+        assert_eq!(found.unwrap().0, "0.5.0");
     }
 }

@@ -9,6 +9,7 @@ not how it was done. `cargo xtask release launcher <version>` turns Unreleased i
 section, dated, and opens a new empty one in the same commit as the version.
 
 ## Unreleased
+- Fixed hosted worlds not being offered an update when a release before it was never published.
 
 ## 0.5.5 (2026-11-14)
 - Library: make an Asheron's Call 2 art pack, creatures included, from your own data set.
