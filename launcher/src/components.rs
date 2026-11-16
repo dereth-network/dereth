@@ -1176,8 +1176,8 @@ fn copy_plain(from: &Path, to: &Path) -> Result<(), String> {
 }
 
 /// The files a packaged game client in the launcher's folder `here` needs, each with its path below
-/// the component's folder: the program; the plugin author's tool and the relay with its notices,
-/// which the launcher finds beside the client; a preferences file kept beside it; and on macOS the
+/// the component's folder: the program; the plugin author's tool, the art tool and the relay with its
+/// notices, which the launcher finds beside the client; a preferences file kept beside it; and on macOS the
 /// frameworks, which the program finds at `../Frameworks` from its own folder, so they keep that
 /// place, in a bundle named for the game ([`crate::client_bundle`]).
 fn bundled_files(here: &Path, product: Product) -> Vec<(PathBuf, PathBuf)> {
@@ -1192,6 +1192,7 @@ fn bundled_files(here: &Path, product: Product) -> Vec<(PathBuf, PathBuf)> {
     for name in [
         program_file(product.program()),
         dereth_launch::plugins::TOOL_FILE.to_owned(),
+        program_file(dereth_launch::ac2_look::PROGRAM),
         program_file(RELAY_PROGRAM),
         dereth_launch::interface::PREFERENCES_FILE.to_owned(),
     ] {
@@ -1229,6 +1230,28 @@ fn bundled_files(here: &Path, product: Product) -> Vec<(PathBuf, PathBuf)> {
     files
 }
 
+/// Copy each of `files` that the installed copy of `product` at `version` lacks into it, leaving
+/// every file it has as it is.
+fn fill_missing(
+    root: &Path,
+    product: Product,
+    version: &str,
+    files: &[(PathBuf, PathBuf)],
+) -> Result<(), String> {
+    let dest = components::install_dir(root, product, version)?;
+    for (from, below) in files {
+        let to = dest.join(below);
+        if to.exists() {
+            continue;
+        }
+        if let Some(parent) = to.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        copy_plain(from, &to)?;
+    }
+    Ok(())
+}
+
 /// Whether a packaged client at `bundled` should be copied over the installed copy at `installed`:
 /// there is none, or the packaged one is newer. Neither version reading means no copy.
 fn bundled_is_newer(installed: Option<&str>, bundled: &str) -> bool {
@@ -1256,10 +1279,17 @@ pub fn adopt_bundled(
             continue;
         };
         let installed = read_installed(root, product);
+        let files = bundled_files(here, product);
         if !bundled_is_newer(installed.as_ref().map(|i| i.version.as_str()), &version) {
+            // A copy of this same version made before the package carried one of its files (the
+            // art tool came later) gets that file beside the rest.
+            if installed.as_ref().is_some_and(|i| i.version == version) {
+                if let Err(e) = fill_missing(root, product, &version, &files) {
+                    out.push(Err(e));
+                }
+            }
             continue;
         }
-        let files = bundled_files(here, product);
         let adopted = install_staged(root, product, &version, "", |stage| {
             for (from, below) in &files {
                 let to = stage.join(below);
@@ -2514,6 +2544,55 @@ mod tests {
                 assert_eq!(std::fs::read(notice).unwrap(), name.as_bytes());
             }
         }
+    }
+
+    /// The art pack's build runs the art tool beside the client, so the tool goes with the copy, in
+    /// the bundle or out of one.
+    #[test]
+    fn the_art_tool_is_copied_out_with_the_client() {
+        for (here, tool_at) in [
+            ("Dereth.app/Contents/MacOS", "Dereth.app/Contents/MacOS"),
+            ("package", ""),
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let root = temp.path().join("data");
+            let here = temp.path().join(here);
+            packaged_at(&here, Product::Dereth);
+            let art = program_file(dereth_launch::ac2_look::PROGRAM);
+            std::fs::write(here.join(&art), b"art").unwrap();
+            for adopted in adopt_bundled(&root, &here, &says("0.4.9")) {
+                adopted.unwrap();
+            }
+
+            let client = downloaded(&root, Product::Dereth).expect("the copy is the client");
+            let tool = root.join("components/dereth/0.4.9").join(tool_at).join(&art);
+            assert_eq!(tool, client.with_file_name(&art), "beside the client");
+            assert_eq!(std::fs::read(&tool).unwrap(), b"art");
+        }
+    }
+
+    /// A copy made before the package carried the art tool, at the same version, gets the tool on
+    /// the next start, and keeps every file it had.
+    #[test]
+    fn a_copy_of_the_same_version_gets_the_art_tool_it_lacks() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("data");
+        let here = temp.path().join("package");
+        packaged_at(&here, Product::Dereth);
+        for adopted in adopt_bundled(&root, &here, &says("0.4.9")) {
+            adopted.unwrap();
+        }
+        let client = downloaded(&root, Product::Dereth).expect("the copy is the client");
+        std::fs::write(&client, b"the copy's own").unwrap();
+
+        let art = program_file(dereth_launch::ac2_look::PROGRAM);
+        std::fs::write(here.join(&art), b"art").unwrap();
+        for adopted in adopt_bundled(&root, &here, &says("0.4.9")) {
+            adopted.unwrap();
+        }
+
+        assert_eq!(std::fs::read(client.with_file_name(&art)).unwrap(), b"art");
+        assert_eq!(std::fs::read(&client).unwrap(), b"the copy's own", "nothing else is copied over");
     }
 
     /// A release file holds the relay and its license where a copied client has them, whichever way
