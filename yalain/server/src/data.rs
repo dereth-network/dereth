@@ -1754,6 +1754,7 @@ mod tests {
         };
         let spawns = SpawnTable {
             camps: vec![camp(0x75B9_0001), camp(0x76B9_0001)],
+            masters: Vec::new(),
         };
         land_ground(&p, &spawns, &Catalog::default()).expect("the ground");
         let cell = p.cell().expect("the cell file");
@@ -3010,7 +3011,10 @@ mod tests {
         let p = Portal::over(dat, Vec::new(), None).expect("a context");
         let mut camp = yalain_testkit::test_camp(1);
         camp.templates = vec![(CREATURE, 1)];
-        let spawns = SpawnTable { camps: vec![camp] };
+        let spawns = SpawnTable {
+            camps: vec![camp],
+            masters: Vec::new(),
+        };
         let (c, _) = catalog(
             &p,
             &spawns,

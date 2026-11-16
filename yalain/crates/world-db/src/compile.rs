@@ -2301,6 +2301,38 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             }
         }
     }
+    // Each camp's master camp, once every camp has its place: a master keeps no master of its own.
+    let camp_at = |name: &str, here: Option<u16>| -> Option<usize> {
+        let key = name.split_once(':').map_or(name, |(_, k)| k);
+        let (key, lb) = match key.split_once('@') {
+            Some((k, b)) => (k, u16::from_str_radix(b, 16).ok()),
+            None => (key, here),
+        };
+        lb.and_then(|lb| camps_at.get(&(key, lb)).copied())
+    };
+    let mut masters: Vec<(&Located, usize, usize)> = Vec::new();
+    for l in &merged.rows {
+        let Row::Camp(c) = &l.row else { continue };
+        let Some(name) = &c.parent else { continue };
+        let Some(own) = camp_at(&c.key, l.landblock) else {
+            continue;
+        };
+        match camp_at(name, l.landblock) {
+            None => cx.problem(l, format!("parent: no camp {name} is served")),
+            Some(m) if m == own => cx.problem(l, "parent: a camp is not its own master"),
+            Some(m) => masters.push((l, own, m)),
+        }
+    }
+    let kept_for: std::collections::BTreeSet<usize> =
+        masters.iter().map(|(_, own, _)| *own).collect();
+    for (l, own, m) in masters {
+        if kept_for.contains(&m) {
+            cx.problem(l, "parent: a master camp keeps no master of its own");
+            continue;
+        }
+        let id = |i: usize| t.spawns.camps[i].id.clone();
+        t.spawns.masters.push((id(own), id(m)));
+    }
     // An event's failure and what it hides, once every placed object and camp has its row.
     for l in &merged.rows {
         let Row::Event(r) = &l.row else {

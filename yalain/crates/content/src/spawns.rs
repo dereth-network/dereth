@@ -46,6 +46,9 @@ pub struct Camp {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SpawnTable {
     pub camps: Vec<Camp>,
+    /// The camps that keep their creatures only while a master camp keeps one, each with its
+    /// master: (the camp's id, the master's id). The text form carries none of them.
+    pub masters: Vec<(String, String)>,
 }
 
 /// The table's columns, in order. A table written before the last (a camp's name) still reads, its
@@ -87,6 +90,23 @@ where
 }
 
 impl SpawnTable {
+    /// The master camp (its id) a camp keeps its creatures for, where it has one.
+    #[must_use]
+    pub fn master_of(&self, id: &str) -> Option<&str> {
+        self.masters
+            .iter()
+            .find(|(c, _)| c == id)
+            .map(|(_, m)| m.as_str())
+    }
+
+    /// The camps (their ids) that keep their creatures for a master camp.
+    pub fn serving<'a>(&'a self, master: &'a str) -> impl Iterator<Item = &'a str> + 'a {
+        self.masters
+            .iter()
+            .filter(move |(_, m)| m == master)
+            .map(|(c, _)| c.as_str())
+    }
+
     /// The table as text: a header line, then one tab-separated line per camp.
     #[must_use]
     pub fn to_text(&self) -> String {
@@ -197,6 +217,9 @@ impl SpawnTable {
                 name,
             });
         }
-        Ok(Self { camps })
+        Ok(Self {
+            camps,
+            masters: Vec::new(),
+        })
     }
 }

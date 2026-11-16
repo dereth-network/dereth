@@ -7,6 +7,7 @@ what they see, not how it was done.
 
 ## Unreleased
 - Worlds can now have a guardian that moves round its shrines and sides with its killer's kingdom.
+- Worlds can now have guards that leave when the beacon they guard is destroyed.
 - Knockbacks and other pushes now send players flying.
 - Worlds can now have races, with one winner, a countdown and checkpoints taken in order.
 - Worlds can now time quests by the calendar, and give effects that cancel speed buffs.

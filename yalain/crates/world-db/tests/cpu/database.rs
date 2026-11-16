@@ -4288,6 +4288,39 @@ fn an_event_row_reads_its_windows_and_gates_compile_to_the_event_table() {
 }
 
 #[test]
+fn a_camps_parent_is_its_master_camp_which_keeps_no_master_of_its_own() {
+    const PATH: &str = "town/server/landblocks/77B8.toml";
+    let mut files = fixture();
+    let camp = |key: &str, parent: &str| {
+        format!(
+            "[[camp]]\nkey = \"{key}\"\nat = [10.0, 10.0, 140.0]\npopulation = 3\nregen = 60.0\n\
+             spawns = [{{ template = 0x47002224, weight = 1 }}]\nparent = \"{parent}\"\n\
+             prov = {{ from = \"authored\" }}\n"
+        )
+    };
+    files.insert(PATH.into(), camp("guards", "beetles@77B7"));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.spawns.masters,
+        [("guards".to_string(), "beetles".to_string())]
+    );
+    for (bad, why) in [
+        (camp("guards", "wolves@77B7"), "a camp nobody wrote"),
+        (camp("guards", "guards"), "itself"),
+        (
+            camp("guards", "beetles@77B7") + "\n" + &camp("scouts", "guards"),
+            "a master that has a master",
+        ),
+    ] {
+        files.insert(PATH.into(), bad);
+        assert!(
+            compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).is_err(),
+            "{why}"
+        );
+    }
+}
+
+#[test]
 fn an_event_a_quests_failure_starts_names_its_camp_and_hidden_objects_by_placement() {
     use yalain_content::events::Failure;
     let mut files = fixture();

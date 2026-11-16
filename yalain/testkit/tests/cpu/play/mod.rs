@@ -68,6 +68,7 @@ mod map_trips;
 mod maps;
 mod market;
 mod marks;
+mod master_camps;
 mod mining;
 mod missiles;
 mod mounts;

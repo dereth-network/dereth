@@ -21,6 +21,12 @@
 //! table): those were players' pets and conjurings, seen beside their owners and never made by a
 //! camp (2017: every one of the 417 creatures given a player as its pet was of such a template).
 //!
+//! **Master camps.** A camp may keep its creatures for a master camp (a portal beacon's guards for
+//! the beacon): it keeps none while its master keeps none, and as the master's last dies its
+//! creatures leave the world at once, with no fall and no corpse; it fills again, all at once, when
+//! the master makes another. An outpost's guards go with their beacon, as players' guides of the
+//! time tell it.
+//!
 //! **Moving.** A camp's movement settings stand over its creatures' templates' (a camp may make
 //! them stationary, free of their home, wanderers or not, of another perception), and a camp that
 //! names a route sets each creature it makes off along it, toward the camp's starting waypoint
@@ -28,8 +34,8 @@
 //!
 //! **Looked at only with something to do.** After the first step a camp is looked at only when it
 //! may have something to do: a replacement of its has come due, a creature or item it keeps has
-//! gone or been taken up from the ground, it is new to the world (a reload's), or its event has
-//! begun. An idle world's step looks at no camp, however many it has; what a camp makes, and when,
+//! gone or been taken up from the ground, it is new to the world (a reload's), its event has
+//! begun, or its master camp has made a creature. An idle world's step looks at no camp, however many it has; what a camp makes, and when,
 //! is as it would be if every camp were looked at every step.
 //!
 //! **Appearing.** A new creature is made for every client whose view holds its place, with its
@@ -340,7 +346,7 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
 
 /// Make the creatures a camp lacks that are due.
 fn fill<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize, clock: Clock) {
-    if !crate::events::camp_stands(s, i) {
+    if !crate::events::camp_stands(s, i) || !master_keeps(s, i) {
         return;
     }
     let now = clock.local.0;
@@ -377,6 +383,7 @@ fn fill<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize, clock: Clock
         state.filled = true;
         make = population.saturating_sub(state.alive.len());
     }
+    let mut made = false;
     for _ in 0..make {
         if let Some(id) = spawn(s, i, now) {
             s.camps[i].alive.push(id);
@@ -384,6 +391,64 @@ fn fill<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize, clock: Clock
             aligns(s, id, clock);
             presence::thing_appears(s, net, id);
             holds_its_effects(s, net, id, clock);
+            made = true;
+        }
+    }
+    // The camps it is master of fill again once it keeps a creature.
+    if made {
+        for j in serving(s, i) {
+            s.camp_watch.look_at(j);
+        }
+    }
+}
+
+/// The camps (by their places in the table) that keep their creatures for this one.
+fn serving<S: Store>(s: &Server<S>, master: usize) -> Vec<usize> {
+    if s.spawns.masters.is_empty() {
+        return Vec::new();
+    }
+    let Some(id) = s.spawns.camps.get(master).map(|c| c.id.as_str()) else {
+        return Vec::new();
+    };
+    s.spawns
+        .serving(id)
+        .filter_map(|c| s.spawns.camps.iter().position(|x| x.id == c))
+        .collect()
+}
+
+/// May a camp keep creatures by its master: it has none, or its master keeps one now.
+fn master_keeps<S: Store>(s: &Server<S>, i: usize) -> bool {
+    if s.spawns.masters.is_empty() {
+        return true;
+    }
+    let Some(master) = s
+        .spawns
+        .camps
+        .get(i)
+        .and_then(|c| s.spawns.master_of(&c.id))
+    else {
+        return true;
+    };
+    s.spawns
+        .camps
+        .iter()
+        .position(|c| c.id == master)
+        .is_none_or(|m| s.camps.get(m).is_some_and(|st| !st.alive.is_empty()))
+}
+
+/// A camp's creature has died: if it was the last the camp kept, the creatures of the camps it is
+/// master of leave the world, with no fall and no corpse, until it makes another.
+pub fn master_lost<S: Store>(s: &mut Server<S>, net: &mut ServerNet, master: usize) {
+    if s.camps.get(master).is_none_or(|st| !st.alive.is_empty()) {
+        return;
+    }
+    for j in serving(s, master) {
+        let Some(state) = s.camps.get_mut(j) else {
+            continue;
+        };
+        let gone = std::mem::take(state);
+        for id in gone.alive {
+            crate::death::vanish(s, net, id);
         }
     }
 }

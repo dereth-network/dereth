@@ -320,6 +320,7 @@ pub fn creature_dies<S: Store>(
     let pose = falls(s, net, id, clock);
     if let Some(i) = camp {
         crate::spawn::died(s, i, id, clock.local.0);
+        crate::spawn::master_lost(s, net, i);
     }
     if no_corpse {
         unseen(s, net, id);

@@ -17000,6 +17000,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.spawns.a-camp-stands-with-its-master",
+        says: "A camp that names a master camp keeps its creatures only while the master keeps one: as the \
+               master's last dies they leave the world at once, with no corpse, and the camp fills again, all at \
+               once, when the master makes another (an outpost's guards go with their beacon).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GUARDS-GO-WITH-BEACON"),
+        station: "yalain-testkit::cpu::play::master_camps::a_camps_creatures_leave_with_its_masters_last_and_stand_again_with_its_next",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.specials.barred-by-an-effect",
         says: "A special is refused while its user holds an effect that bars it (status 30025), and \
                goes once the effect is off.",
