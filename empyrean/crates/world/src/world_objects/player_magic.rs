@@ -1121,7 +1121,7 @@ pub(crate) fn fizzle_research_formula(w: &mut World, this: ObjectGuid, formula: 
     speak_spell_words(w, this, &words, false);
 
     let mut chain = ActionChain::new();
-    for motion in windups.into_iter().chain(casts) {
+    for motion in made_windups(windups).into_iter().chain(casts) {
         world_object_networking::enqueue_motion_magic(w, this, &mut chain, motion, CAST_SPEED);
     }
     let formula = formula.to_vec();
@@ -1193,7 +1193,7 @@ pub fn do_windup_gestures(
 
     let mut _windup_time = 0.0f32;
 
-    let windup_gestures = spell.formula_ref().windup_gestures(w);
+    let windup_gestures = made_windups(spell.formula_ref().windup_gestures(w));
     for &windup_gesture in &windup_gestures {
         if record_cast_enabled(w, this) {
             cast_chain.add_action(Actor::Object(this), move |w| {
@@ -1226,7 +1226,7 @@ pub fn do_windup_gestures(
         Console.WriteLine("-------");*/
     }
 
-    if fast_tick {
+    if fast_tick && !windup_gestures.is_empty() {
         _windup_time = world_object_networking::enqueue_motion_action(
             w,
             this,
@@ -1238,6 +1238,18 @@ pub fn do_windup_gestures(
             true,
         );
     }
+}
+
+/// The windup gestures a cast makes, one a scarab, leaving out a scarab that makes none (the Lead
+/// scarab's gesture is `Invalid`).
+// DIVERGE: V546
+// Not ACE's (retail captures): nothing is sent for a windup with no gesture, where ACE sends a
+// Magic-stance motion with no command in it.
+fn made_windups(gestures: Vec<MotionCommand>) -> Vec<MotionCommand> {
+    gestures
+        .into_iter()
+        .filter(|&g| g != MotionCommand::Invalid)
+        .collect()
 }
 
 // ACE: Player.DoCastGesture

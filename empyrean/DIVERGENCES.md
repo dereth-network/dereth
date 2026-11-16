@@ -549,3 +549,4 @@ the evidence behind each row. Edit the register, not this file.
 | V543 | retail | A charge that goes too far ends the attack with the same reason it gives. | `empyrean-testkit::all::combat::player_combat::charged_too_far::a_charge_that_went_too_far_ends_the_attack_with_its_error` |
 | V544 | retail | A jump reaches other players without an empty movement update before it. | `empyrean-testkit::all::movement::player_movement::jump_alone::a_running_jump_reaches_others_and_the_jumper_as_the_jump_alone` |
 | V545 | retail | Doors open and close by their motion alone, with no separate state message. | `empyrean-world::all::content::object_use::a_door_opens_and_closes_by_its_motions_alone` |
+| V546 | retail | A level I spell's cast sends no empty windup motion before its gesture. | `empyrean-world::all::magic::spellcasting::a_scarab_with_no_windup_gesture_sends_nothing_before_the_cast_gesture` |

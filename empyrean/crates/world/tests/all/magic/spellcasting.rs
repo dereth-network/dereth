@@ -460,6 +460,15 @@ fn dats() -> Arc<empyrean_dat::DatManager> {
 }
 
 fn dats_with(defs: Vec<Def>, target_type: u32) -> Arc<empyrean_dat::DatManager> {
+    dats_with_lead(defs, target_type, Mc::MagicHeal.0)
+}
+
+/// The dats, the Lead scarab's windup `lead_gesture`.
+fn dats_with_lead(
+    defs: Vec<Def>,
+    target_type: u32,
+    lead_gesture: u32,
+) -> Arc<empyrean_dat::DatManager> {
     let table = SpellTable {
         id: DataId(0x0E00_000E),
         spell_buckets: 64,
@@ -478,7 +487,7 @@ fn dats_with(defs: Vec<Def>, target_type: u32) -> Arc<empyrean_dat::DatManager> 
         id: DataId(0x0E00_000F),
         buckets: 256,
         components: BTreeMap::from([
-            (1, component("Lead Scarab", 1, Mc::MagicHeal.0)),
+            (1, component("Lead Scarab", 1, lead_gesture)),
             (10, component("Hyssop", 2, 0)),
             (20, component("Powdered Agate", 3, 0)),
             (30, component("Stibnite", 4, 0)),
@@ -1334,6 +1343,118 @@ fn a_self_buff_lands_as_an_enchantment_and_the_client_gets_the_registry_message(
         player_magic::fields(&h.w, PLAYER).last_success_cast_school,
         MagicSchool::CreatureEnchantment
     );
+}
+
+/// The forward command of each motion sent (`0xF74C`, movement type 0), as its index; `None` for a
+/// motion that names none.
+fn forward_command_indices(
+    sends: &[empyrean_world::network::game_messages::game_message::SentMessage],
+) -> Vec<Option<u16>> {
+    let u16_at = |b: &[u8], at: usize| u16::from_le_bytes([b[at], b[at + 1]]);
+    sends
+        .iter()
+        .map(|(_, _, b)| b)
+        .filter(|b| b.len() >= 24 && b[0..4] == 0xF74C_u32.to_le_bytes() && b[16] == 0)
+        .map(|b| {
+            let flags = u32::from_le_bytes(b[20..24].try_into().unwrap());
+            let at = if flags & 0x1 != 0 { 26 } else { 24 };
+            (flags & 0x2 != 0).then(|| u16_at(b, at))
+        })
+        .collect()
+}
+
+/// Divergence: V546
+/// A cast whose scarab makes no windup gesture (the Lead scarab's is `Invalid`) sends nothing
+/// for it: the first motion the cast sends is the talisman's gesture, and the spell lands.
+#[test]
+fn a_scarab_with_no_windup_gesture_sends_nothing_before_the_cast_gesture() {
+    let mut h = H::with_dats(dats_with_lead(defs(), 0, Mc::Invalid.0));
+    h.player(100.0, 100.0);
+    let _ = h.give_components();
+    start_capture();
+    player_magic::handle_action_cast_targeted_spell(
+        &mut h.w,
+        PLAYER,
+        PLAYER.full(),
+        STRENGTH_SELF,
+        None,
+    );
+    assert!(
+        h.run_until(0.5, |h| registry_ids(&h.w, PLAYER)
+            == [i32::try_from(STRENGTH_SELF).unwrap()]),
+        "the buff lands"
+    );
+    let forwards = forward_command_indices(&take_sent());
+    let blast = u16::try_from(Mc::MagicBlast.0 & 0xFFFF).unwrap();
+    assert_eq!(forwards.first(), Some(&Some(blast)), "{forwards:x?}");
+}
+
+/// Divergence: V546
+/// A player killer's cast (the fast-tick cast, its windups sent as actions) sends nothing for a
+/// scarab with no windup gesture, where it sent an action of command index 0: the first motion
+/// is the talisman's gesture. The first attempt is refused while it takes the body into the Magic
+/// stance, as ACE's is; the second casts.
+#[test]
+fn a_player_killers_cast_sends_nothing_for_a_scarab_with_no_windup_gesture() {
+    use empyrean_entity::enums::PlayerKillerStatus;
+    let mut h = H::with_dats(dats_with_lead(defs(), 0, Mc::Invalid.0));
+    h.player(100.0, 100.0);
+    let _ = h.give_components();
+    h.w.objects
+        .get_mut(PLAYER)
+        .unwrap()
+        .set_player_killer_status_prop(PlayerKillerStatus::PK);
+    let cast = |h: &mut H| {
+        player_magic::handle_action_cast_targeted_spell(
+            &mut h.w,
+            PLAYER,
+            PLAYER.full(),
+            STRENGTH_SELF,
+            None,
+        );
+    };
+    cast(&mut h);
+    h.run_until(0.2, |_| false);
+    start_capture();
+    cast(&mut h);
+    assert!(
+        player_magic::fields(&h.w, PLAYER).magic_state.is_casting,
+        "the second attempt casts"
+    );
+    h.run_until(0.5, |_| false);
+    let forwards = forward_command_indices(&take_sent());
+    let blast = u16::try_from(Mc::MagicBlast.0 & 0xFFFF).unwrap();
+    assert_eq!(forwards, [Some(blast)], "the talisman's gesture alone");
+}
+
+/// Divergence: V546
+/// A research formula that is no spell's is cast and fizzles making each scarab's windup, and
+/// sends nothing for a scarab with no windup gesture: the first motion is the talisman's gesture.
+#[test]
+fn a_fizzled_research_formula_sends_nothing_for_a_scarab_with_no_windup_gesture() {
+    use empyrean_world::world_objects::spell_research::handle_test_spell_formula;
+    let mut definition = defs().remove(0);
+    definition.flags = BENEFICIAL;
+    let mut h = H::with_dats(dats_with_lead(
+        vec![definition],
+        ItemType::Creature.0,
+        Mc::Invalid.0,
+    ));
+    let mut features = h.w.era.features;
+    features.spell_research = true;
+    h.w.era = empyrean_common::era::with_features(h.w.era, features);
+    h.player(100.0, 100.0);
+    let _ = h.give_components();
+    start_capture();
+    handle_test_spell_formula(&mut h.w, PLAYER, &[1, 1, 10, 20, 30, 40], PLAYER.full());
+    assert!(
+        player_magic::fields(&h.w, PLAYER).magic_state.is_casting,
+        "the formula is cast"
+    );
+    assert!(h.run_until(3.0, |h| !player_magic::is_busy(&h.w, PLAYER)));
+    let forwards = forward_command_indices(&take_sent());
+    let blast = u16::try_from(Mc::MagicBlast.0 & 0xFFFF).unwrap();
+    assert_eq!(forwards.first(), Some(&Some(blast)), "{forwards:x?}");
 }
 
 /// A fizzle (skill 100 vs power 100: chance 0.5, and this seed's first draw is above it): the cast
