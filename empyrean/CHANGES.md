@@ -32,6 +32,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Fixed ways to duplicate or lose items through splitting, giving, trading and vendors.
 - `@god` and `@ungod` work on a character of any era, not only the end of retail's.
 - Fixed monster missiles hurting whoever the monster turned on instead of what they hit.
+- Launcher-managed updates can now skip a release that was never published.
 
 ## 0.3.14 (2026-11-14)
 - Fixed attacks, spells and items failing for seconds after jumping in place.

@@ -1,9 +1,17 @@
 //! Prepared local updates for a launcher that verifies its downloaded release before staging.
 //! Database migration and trial-start rollback use the same transaction as server updates.
+//!
+//! A release is staged when this version can upgrade straight to it (its `upgrades_from` is this
+//! version or older), as the server's own updater takes it, whether or not the release before it
+//! was ever published. The caller hands over the `release.json` of every published release the
+//! update skips: their configuration changes are checked with the release's own, oldest first, and
+//! one that declares nothing about upgrading refuses the update. Their migrations and world-pack
+//! changes are not lost: the release migrates each database from this build's schema through every
+//! migration up to its own, and its pack is rebuilt whenever it reads another than this build's.
 
 use super::install::{self, Staged};
 use super::policy;
-use super::release::{Facts, Kind, ReleaseIndex};
+use super::release::{ConfigChange, Declaration, Facts, Kind, ReleaseIndex};
 use super::version::Version;
 use super::Updater;
 use empyrean_store::upgrade::{self, UpgradePolicy};
@@ -20,13 +28,16 @@ pub struct Plan {
     pub rebuild_pack: bool,
 }
 
-/// Checks an explicit candidate without weakening automatic update policy.
+/// Checks an explicit candidate without weakening automatic update policy, `skipped` being the
+/// `release.json` of every published release between this version and it.
 ///
 /// # Errors
-/// An unsupported upgrade, mismatched binary, downgrade or missing required configuration.
+/// An unsupported upgrade, mismatched binary, downgrade, a skipped release that cannot be checked
+/// past, or missing required configuration.
 pub fn inspect(
     mine: &Facts,
     index: &ReleaseIndex,
+    skipped: &[ReleaseIndex],
     facts: &Facts,
     can_rebuild: bool,
 ) -> Result<Plan, String> {
@@ -57,20 +68,12 @@ pub fn inspect(
     if facts.databases.auth < mine.databases.auth || facts.databases.shard < mine.databases.shard {
         return Err("The candidate would downgrade the character databases.".into());
     }
-    let needs = policy::needs(mine, declaration, declaration.config.clone());
+    let config = changes_through(&current, &target, declaration, skipped)?;
+    let needs = policy::needs(mine, declaration, config);
     let automatic = current.major == target.major
         && current.minor == target.minor
         && declaration.kind == Kind::Patch
         && needs.is_empty();
-    if !automatic && declaration.previous.as_deref() != Some(mine.version.as_str()) {
-        return Err(format!(
-            "Install {} first so every intervening migration and configuration change is checked.",
-            declaration
-                .previous
-                .as_deref()
-                .unwrap_or("the preceding release")
-        ));
-    }
     if let Some(required) = needs.config.iter().find(|change| change.is_required()) {
         return Err(format!(
             "This release requires configuration changes to {}: {}",
@@ -87,6 +90,53 @@ pub fn inspect(
         needs: needs.describe(),
         rebuild_pack: needs.world_pack_rebuild,
     })
+}
+
+/// The configuration changes of every release from `current` up to `target`, oldest first: those of
+/// the published releases `skipped` between them, then `declaration`'s own, `target`'s.
+///
+/// # Errors
+/// A skipped release that is not between them, that declares nothing about upgrading, or that
+/// brings a database to a newer schema than `target` does.
+fn changes_through(
+    current: &Version,
+    target: &Version,
+    declaration: &Declaration,
+    skipped: &[ReleaseIndex],
+) -> Result<Vec<ConfigChange>, String> {
+    let mut between = Vec::new();
+    for release in skipped {
+        let version = Version::parse(&release.version)?;
+        if release.prerelease || version.is_prerelease() {
+            continue;
+        }
+        if version <= *current || version >= *target {
+            return Err(format!(
+                "{version} is not a release between {current} and {target}."
+            ));
+        }
+        between.push((version, release));
+    }
+    between.sort_by(|a, b| a.0.cmp(&b.0));
+    between.dedup_by(|a, b| a.0 == b.0);
+    let mut config = Vec::new();
+    for (version, release) in between {
+        let Some(passed) = &release.upgrade else {
+            return Err(format!(
+                "{version}, between {current} and {target}, declares nothing about upgrading, so {target} cannot be checked past it."
+            ));
+        };
+        if passed.databases.shard > declaration.databases.shard
+            || passed.databases.auth > declaration.databases.auth
+        {
+            return Err(format!(
+                "{version}, between {current} and {target}, brings the databases to a newer schema than {target} does."
+            ));
+        }
+        config.extend(passed.config.iter().cloned());
+    }
+    config.extend(declaration.config.iter().cloned());
+    Ok(config)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -269,7 +319,8 @@ pub fn rollback(updater: &Updater) -> Result<String, String> {
     Ok(record.from)
 }
 
-/// Copies a verified candidate into a private staging directory while the world may run.
+/// Copies a verified candidate into a private staging directory while the world may run, `skipped`
+/// being the `release.json` of every published release between this version and it ([`inspect`]).
 ///
 /// # Errors
 /// Incompatible content, missing approval, unreadable files or a failed pack rebuild.
@@ -277,12 +328,19 @@ pub fn prepare(
     updater: &Updater,
     candidate: &Path,
     index: &ReleaseIndex,
+    skipped: &[ReleaseIndex],
     approved: Option<&str>,
 ) -> Result<Plan, String> {
     let facts = updater
         .build
         .facts(&candidate.join(install::server_file_name()))?;
-    let plan = inspect(&updater.mine, index, &facts, updater.pack_inputs.is_some())?;
+    let plan = inspect(
+        &updater.mine,
+        index,
+        skipped,
+        &facts,
+        updater.pack_inputs.is_some(),
+    )?;
     if !plan.automatic && approved != Some(plan.version.as_str()) {
         return Err(
             "Review this release and approve its exact version before preparing it.".into(),

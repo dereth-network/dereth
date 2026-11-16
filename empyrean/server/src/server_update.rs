@@ -197,12 +197,14 @@ fn managed_request(mut args: impl Iterator<Item = String>) -> Result<serde_json:
     let mut candidate = None;
     let mut index_path = None;
     let mut approved = None;
+    let mut skipped_paths = Vec::new();
     while let Some(flag) = args.next() {
         let value = args.next().ok_or_else(|| format!("{flag} needs a value"))?;
         match flag.as_str() {
             "--config" => config = Some(value),
             "--candidate" => candidate = Some(std::path::PathBuf::from(value)),
             "--index" => index_path = Some(std::path::PathBuf::from(value)),
+            "--skipped" => skipped_paths.push(std::path::PathBuf::from(value)),
             "--approve" => approved = Some(value),
             _ => return Err(format!("Unknown managed-update flag: {flag}")),
         }
@@ -230,16 +232,29 @@ fn managed_request(mut args: impl Iterator<Item = String>) -> Result<serde_json:
         "check" | "stage" => {
             let candidate = candidate.ok_or("--candidate is required")?;
             let index_path = index_path.ok_or("--index is required")?;
-            let index = update::release::ReleaseIndex::parse(
-                &std::fs::read_to_string(index_path).map_err(|e| e.to_string())?,
-            )?;
+            let read = |path: &std::path::Path| {
+                update::release::ReleaseIndex::parse(
+                    &std::fs::read_to_string(path).map_err(|e| e.to_string())?,
+                )
+            };
+            let index = read(&index_path)?;
+            let skipped = skipped_paths
+                .iter()
+                .map(|path| read(path))
+                .collect::<Result<Vec<_>, _>>()?;
             let plan = if action == "check" {
                 let facts = updater
                     .build
                     .facts(&candidate.join(update::install::server_file_name()))?;
-                managed::inspect(&updater.mine, &index, &facts, updater.pack_inputs.is_some())?
+                managed::inspect(
+                    &updater.mine,
+                    &index,
+                    &skipped,
+                    &facts,
+                    updater.pack_inputs.is_some(),
+                )?
             } else {
-                managed::prepare(&updater, &candidate, &index, approved.as_deref())?
+                managed::prepare(&updater, &candidate, &index, &skipped, approved.as_deref())?
             };
             serde_json::to_value(plan).map_err(|e| e.to_string())
         }

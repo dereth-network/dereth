@@ -906,9 +906,13 @@ the archive and `release.json` against the release's `SHA256SUMS`, as `update` d
 same inputs without staging; `status` reports the prepared update and `cancel` discards it.
 Every control returns a JSON response with `ok` and either `result` or `error`.
 
-Only compatible patches stage automatically. Other releases need `--approve <exact-version>`
-and must declare the installed version as their predecessor. Required configuration changes
-are refused; world-pack changes need the configured source SQL for rebuilding.
+Only compatible patches stage automatically. Other releases need `--approve <exact-version>`.
+A release stages when the installed version can upgrade straight to it (its `upgrades_from` is
+the installed version or older), even when the release before it was never published. Pass the
+`release.json` of every published release it skips with `--skipped <release.json>`, once each:
+their configuration changes are checked with its own, and one that declares nothing about
+upgrading refuses it. Required configuration changes are refused; world-pack changes need the
+configured source SQL for rebuilding.
 
 With the world stopped, `managed-update apply --config <file>` backs up databases and affected
 files, installs the release and trial-starts it. A failed trial restores the backup. An interrupted

@@ -591,7 +591,7 @@ fn managed_patches_are_prepared_without_changing_the_world_and_installed_only_on
     let (candidate, index) = managed_candidate(&installation, "0.1.1", "patch", true);
     let original = installation.read(&install::server_file_name());
     assert!(
-        managed::prepare(&updater, &candidate, &index, None)
+        managed::prepare(&updater, &candidate, &index, &[], None)
             .unwrap()
             .automatic
     );
@@ -616,16 +616,146 @@ fn managed_minor_and_major_releases_need_approval_of_the_exact_target_version() 
         let installation = Installation::new(&format!("managed-approval-{kind}"));
         let updater = managed_updater(&installation);
         let (candidate, index) = managed_candidate(&installation, version, kind, true);
-        assert!(managed::prepare(&updater, &candidate, &index, None).is_err());
-        assert!(managed::prepare(&updater, &candidate, &index, Some("9.9.9")).is_err());
+        assert!(managed::prepare(&updater, &candidate, &index, &[], None).is_err());
+        assert!(managed::prepare(&updater, &candidate, &index, &[], Some("9.9.9")).is_err());
         assert!(managed::pending(&updater).unwrap().is_none());
         assert!(
-            !managed::prepare(&updater, &candidate, &index, Some(version))
+            !managed::prepare(&updater, &candidate, &index, &[], Some(version))
                 .unwrap()
                 .automatic
         );
         assert_eq!(managed::apply(&updater).unwrap().unwrap().version, version);
         assert_eq!(installation.shard_version(), 2);
+    }
+}
+
+/// The `release.json` of the minor release `version`, which names `previous` as the release before
+/// it and `upgrades_from` as the oldest that upgrades straight to it, brings the shard database to
+/// schema `shard` and declares the configuration changes `config`.
+fn managed_index(
+    version: &str,
+    previous: &str,
+    upgrades_from: &str,
+    shard: i64,
+    config: serde_json::Value,
+) -> empyrean_server::update::release::ReleaseIndex {
+    let next = facts(version, shard, 1);
+    empyrean_server::update::release::ReleaseIndex::parse(
+        &serde_json::json!({
+            "version": version, "assets": [], "upgrade": {
+                "kind": "minor", "previous": previous, "upgrades_from": upgrades_from,
+                "databases": next.databases, "world_pack": next.world_pack,
+                "migrations": [], "world_pack_rebuild": false, "config": config
+            }
+        })
+        .to_string(),
+    )
+    .unwrap()
+}
+
+/// A minor release is staged and installed on 0.1.0, which its `upgrades_from` allows, though the
+/// release it names as the one before it, 0.1.1, was never published.
+#[test]
+fn managed_staging_takes_a_release_whose_previous_was_never_published() {
+    use empyrean_server::update::managed;
+    let installation = Installation::new("managed-past-missing");
+    let updater = managed_updater(&installation);
+    let (candidate, _) = managed_candidate(&installation, "0.2.0", "minor", true);
+    let index = managed_index("0.2.0", "0.1.1", "0.1.0", 2, serde_json::json!([]));
+    let plan = managed::prepare(&updater, &candidate, &index, &[], Some("0.2.0")).unwrap();
+    assert!(!plan.automatic);
+    assert_eq!(managed::apply(&updater).unwrap().unwrap().version, "0.2.0");
+    assert_eq!(installation.shard_version(), 2);
+}
+
+/// A release whose `upgrades_from` is newer than the installed version is refused, with nothing
+/// staged.
+#[test]
+fn managed_staging_refuses_a_release_that_needs_a_newer_version_installed_first() {
+    use empyrean_server::update::managed;
+    let installation = Installation::new("managed-too-new");
+    let updater = managed_updater(&installation);
+    let (candidate, _) = managed_candidate(&installation, "0.3.0", "minor", true);
+    let index = managed_index("0.3.0", "0.2.1", "0.2.0", 2, serde_json::json!([]));
+    let err = managed::prepare(&updater, &candidate, &index, &[], Some("0.3.0")).unwrap_err();
+    assert!(err.contains("Install 0.2.0 before this release"), "{err}");
+    assert!(managed::pending(&updater).unwrap().is_none());
+}
+
+/// Staging past a published release carries what it declared: its configuration changes, before
+/// the release's own, and its migration, which the release applies from the installed schema
+/// though it declares no migration of its own.
+#[test]
+fn managed_staging_carries_the_configuration_changes_and_migrations_of_a_skipped_release() {
+    use empyrean_server::update::managed;
+    let installation = Installation::new("managed-carried");
+    let updater = managed_updater(&installation);
+    let skipped = managed_index(
+        "0.2.0",
+        "0.1.0",
+        "0.1.0",
+        2,
+        serde_json::json!([
+            { "key": "server.old_key", "change": "removed", "note": "Nothing reads it." }
+        ]),
+    );
+    let (candidate, _) = managed_candidate(&installation, "0.3.0", "minor", true);
+    let index = managed_index(
+        "0.3.0",
+        "0.2.1",
+        "0.1.0",
+        2,
+        serde_json::json!([{ "key": "server.other_key", "change": "removed" }]),
+    );
+    let plan = managed::prepare(&updater, &candidate, &index, &[skipped], Some("0.3.0")).unwrap();
+    assert_eq!(
+        plan.needs,
+        [
+            "the shard database is migrated from schema 1 to 2 (backed up first)",
+            "configuration: server.old_key is removed: Nothing reads it.",
+            "configuration: server.other_key is removed",
+        ]
+    );
+    assert_eq!(managed::apply(&updater).unwrap().unwrap().version, "0.3.0");
+    assert_eq!(installation.shard_version(), 2);
+}
+
+/// A skipped release whose declaration cannot be honored past it refuses the update, with nothing
+/// staged: one that newly requires a configuration key, one that declares nothing about upgrading,
+/// and one that migrates the databases further than the release does.
+#[test]
+fn managed_staging_refuses_to_skip_a_release_it_cannot_honor() {
+    use empyrean_server::update::managed;
+    let installation = Installation::new("managed-uncheckable");
+    let updater = managed_updater(&installation);
+    let (candidate, _) = managed_candidate(&installation, "0.3.0", "minor", true);
+    let index = managed_index("0.3.0", "0.2.0", "0.1.0", 2, serde_json::json!([]));
+    let requires = managed_index(
+        "0.2.0",
+        "0.1.0",
+        "0.1.0",
+        2,
+        serde_json::json!([
+            { "key": "server.new_key", "change": "required", "note": "Name the world." }
+        ]),
+    );
+    let silent = empyrean_server::update::release::ReleaseIndex::parse(
+        r#"{ "version": "0.2.0", "assets": [] }"#,
+    )
+    .unwrap();
+    let further = managed_index("0.2.0", "0.1.0", "0.1.0", 3, serde_json::json!([]));
+    for (skipped, why) in [
+        (requires, "server.new_key: Name the world."),
+        (silent, "declares nothing about upgrading"),
+        (
+            further,
+            "brings the databases to a newer schema than 0.3.0 does",
+        ),
+    ] {
+        let err =
+            managed::prepare(&updater, &candidate, &index, &[skipped], Some("0.3.0")).unwrap_err();
+        assert!(err.contains(why), "{err}");
+        assert!(managed::pending(&updater).unwrap().is_none());
     }
 }
 
@@ -636,7 +766,7 @@ fn a_modified_staged_binary_is_refused_before_backups_or_installation() {
     let updater = managed_updater(&installation);
     let (candidate, index) = managed_candidate(&installation, "0.1.1", "patch", true);
     let original = installation.read(&install::server_file_name());
-    managed::prepare(&updater, &candidate, &index, None).unwrap();
+    managed::prepare(&updater, &candidate, &index, &[], None).unwrap();
     let receipt: serde_json::Value = serde_json::from_slice(
         &std::fs::read(updater.layout.work_dir.join("managed-pending.json")).unwrap(),
     )
@@ -664,7 +794,7 @@ fn a_failed_managed_trial_restores_binaries_and_database_schema() {
     let updater = managed_updater(&installation);
     let (candidate, index) = managed_candidate(&installation, "0.2.0", "minor", false);
     let original = installation.read(&install::server_file_name());
-    managed::prepare(&updater, &candidate, &index, Some("0.2.0")).unwrap();
+    managed::prepare(&updater, &candidate, &index, &[], Some("0.2.0")).unwrap();
     assert!(managed::apply(&updater)
         .unwrap_err()
         .contains("restored to 0.1.0"));
@@ -679,7 +809,7 @@ fn a_later_rollback_restores_the_preupdate_character_snapshot() {
     let installation = Installation::new("managed-rollback");
     let updater = managed_updater(&installation);
     let (candidate, index) = managed_candidate(&installation, "0.2.0", "minor", true);
-    managed::prepare(&updater, &candidate, &index, Some("0.2.0")).unwrap();
+    managed::prepare(&updater, &candidate, &index, &[], Some("0.2.0")).unwrap();
     managed::apply(&updater).unwrap();
     rusqlite::Connection::open(installation.dir.join("shard.db"))
         .unwrap()
@@ -700,7 +830,7 @@ fn an_interrupted_install_recovers_before_another_update_can_start() {
     let installation = Installation::new("managed-interrupted");
     let updater = managed_updater(&installation);
     let (candidate, index) = managed_candidate(&installation, "0.2.0", "minor", true);
-    managed::prepare(&updater, &candidate, &index, Some("0.2.0")).unwrap();
+    managed::prepare(&updater, &candidate, &index, &[], Some("0.2.0")).unwrap();
     managed::apply(&updater).unwrap();
     let path = updater.layout.work_dir.join("managed-recovery.json");
     let mut journal: serde_json::Value =
@@ -708,7 +838,7 @@ fn an_interrupted_install_recovers_before_another_update_can_start() {
     journal["state"] = "applying".into();
     std::fs::write(&path, serde_json::to_vec(&journal).unwrap()).unwrap();
     assert!(
-        managed::prepare(&updater, &candidate, &index, Some("0.2.0"))
+        managed::prepare(&updater, &candidate, &index, &[], Some("0.2.0"))
             .unwrap_err()
             .contains("interrupted")
     );
@@ -733,7 +863,7 @@ fn canceling_a_prepared_update_leaves_binaries_and_characters_unchanged() {
     let updater = managed_updater(&installation);
     let (candidate, index) = managed_candidate(&installation, "0.1.1", "patch", true);
     let original = installation.read(&install::server_file_name());
-    managed::prepare(&updater, &candidate, &index, None).unwrap();
+    managed::prepare(&updater, &candidate, &index, &[], None).unwrap();
     managed::discard(&updater).unwrap();
     assert!(managed::pending(&updater).unwrap().is_none());
     assert!(managed::apply(&updater).unwrap().is_none());
@@ -747,7 +877,7 @@ fn a_damaged_recovery_backup_refuses_rollback_before_changing_installed_files() 
     let installation = Installation::new("managed-damaged-backup");
     let updater = managed_updater(&installation);
     let (candidate, index) = managed_candidate(&installation, "0.2.0", "minor", true);
-    managed::prepare(&updater, &candidate, &index, Some("0.2.0")).unwrap();
+    managed::prepare(&updater, &candidate, &index, &[], Some("0.2.0")).unwrap();
     managed::apply(&updater).unwrap();
     let installed = installation.read(&install::server_file_name());
     let journal: serde_json::Value = serde_json::from_slice(
@@ -769,7 +899,7 @@ fn an_installed_update_with_an_uncleared_receipt_is_not_applied_twice() {
     let installation = Installation::new("managed-receipt");
     let mut updater = managed_updater(&installation);
     let (candidate, index) = managed_candidate(&installation, "0.1.1", "patch", true);
-    managed::prepare(&updater, &candidate, &index, None).unwrap();
+    managed::prepare(&updater, &candidate, &index, &[], None).unwrap();
     let path = updater.layout.work_dir.join("managed-pending.json");
     let receipt = std::fs::read(&path).unwrap();
     updater.mine = managed::apply(&updater).unwrap().unwrap();
@@ -787,7 +917,7 @@ fn rollback_removes_a_database_created_by_the_trial_when_none_existed_before() {
     let shard = installation.dir.join("shard.db");
     std::fs::remove_file(&shard).unwrap();
     let (candidate, index) = managed_candidate(&installation, "0.1.1", "patch", true);
-    managed::prepare(&updater, &candidate, &index, None).unwrap();
+    managed::prepare(&updater, &candidate, &index, &[], None).unwrap();
     managed::apply(&updater).unwrap();
     assert!(shard.is_file());
     managed::rollback(&updater).unwrap();
@@ -802,7 +932,7 @@ fn later_rollback_restores_configuration_and_content_with_the_characters() {
     let config = installation.dir.join("empyrean.toml");
     std::fs::write(&config, b"original configuration").unwrap();
     let (candidate, index) = managed_candidate(&installation, "0.1.1", "patch", true);
-    managed::prepare(&updater, &candidate, &index, None).unwrap();
+    managed::prepare(&updater, &candidate, &index, &[], None).unwrap();
     managed::apply_with_config(&updater, Some(&config)).unwrap();
     std::fs::write(&config, b"later configuration").unwrap();
     std::fs::write(&updater.layout.world_pack, b"later content").unwrap();

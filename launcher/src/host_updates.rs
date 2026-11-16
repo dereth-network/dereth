@@ -6,9 +6,11 @@
 //! A patch of the same minor version is downloaded by itself. Otherwise the newest release the
 //! server can upgrade to straight is offered, as the server's own updater would choose it, with
 //! what changed in every release it skips ([`choose`]); it waits for the person to approve that
-//! exact version. An Empyrean world is offered only a release that names its own as the one
-//! before it, the only kind Empyrean stages. Empyrean then backs up the databases, installs, trial
-//! starts the new server and restores everything when that fails.
+//! exact version. Empyrean is handed the `release.json` of every published release it skips, and
+//! checks their configuration changes with the release's own; a world on an Empyrean older than
+//! the first that does ([`EMPYREAN_STAGES_SKIPS`]) is offered only a release that names its own as
+//! the one before it. Empyrean then backs up the databases, installs, trial starts the new server
+//! and restores everything when that fails.
 //!
 //! A Yalain world takes its releases the same way, and installs as Yalain's releases say: with the
 //! world stopped, the program is replaced by the new release's ([`install_yalain`]), after the
@@ -59,7 +61,20 @@ struct Offer {
     /// The release's `SHA256SUMS`, as downloaded.
     sums: String,
     automatic: bool,
+    /// The `release.json` of every published release the update skips, oldest first, each checked
+    /// against its release's `SHA256SUMS` when it was found.
+    #[serde(default)]
+    skipped: Vec<Vec<u8>>,
 }
+
+/// The first Empyrean that stages a release past one never published, given the `release.json` of
+/// every published release it skips. An older one stages a release that needs approval only from
+/// the release before it.
+const EMPYREAN_STAGES_SKIPS: Version = Version {
+    major: 0,
+    minor: 3,
+    patch: 15,
+};
 
 /// The file a world keeps whether it updates by itself in.
 const AUTOMATIC: &str = "update-automatic.json";
@@ -203,9 +218,7 @@ fn check_offer(dir: &Path) -> Result<(), String> {
         .ok_or_else(|| format!("Invalid {server} version"))?;
     let list = components::release_list(false, &[product.releases_since(current)])?;
     let releases = metadata::releases(&list, product)?;
-    // Empyrean stages a release that needs approval only from the release before it.
-    let stepwise = product == Product::Empyrean;
-    let Some(choice) = choose(current, stepwise, releases, &mut release_files)? else {
+    let Some(choice) = choose(current, product, releases, &mut release_files)? else {
         return save(
             dir,
             &View {
@@ -223,6 +236,7 @@ fn check_offer(dir: &Path) -> Result<(), String> {
         index,
         automatic,
         notes,
+        skipped,
     } = choice;
     let offered = release.version.clone();
     let download_now = automatic && old.skipped_version.as_deref() != Some(offered.as_str());
@@ -233,6 +247,7 @@ fn check_offer(dir: &Path) -> Result<(), String> {
             index,
             sums,
             automatic,
+            skipped,
         },
     )?;
     save(
@@ -266,6 +281,8 @@ struct Choice {
     automatic: bool,
     /// What changed, for the person to read before they update.
     notes: String,
+    /// The `release.json` of every published release it skips, oldest first.
+    skipped: Vec<Vec<u8>>,
 }
 
 /// Gives a release's `SHA256SUMS`, and its `release.json` checked against them.
@@ -304,21 +321,23 @@ fn upgrades_straight(declaration: &serde_json::Value, current: Version) -> bool 
         .is_some_and(|minimum| minimum <= current)
 }
 
-/// What a world on `current` is offered among the published `releases`, `files` giving a
-/// release's `SHA256SUMS` and its `release.json`, checked against them.
+/// What a world of `product` on `current` is offered among the published `releases`, `files`
+/// giving a release's `SHA256SUMS` and its `release.json`, checked against them.
 ///
 /// The newest patch of the world's own minor version comes first, and downloads by itself.
 /// Otherwise it is the newest release the world can upgrade to straight, as the server's own
 /// updater chooses: one whose `upgrades_from` is `current` or older, whether or not the release it
-/// names as its `previous` was ever published. With `stepwise`, its `previous` must be `current`.
-/// Every release newer than the world's up to it must say what upgrading to it involves; one that
-/// does not holds back every release after it.
+/// names as its `previous` was ever published. On an Empyrean older than
+/// [`EMPYREAN_STAGES_SKIPS`], its `previous` must be `current`. Every release newer than the
+/// world's up to it must say what upgrading to it involves; one that does not holds back every
+/// release after it.
 fn choose(
     current: Version,
-    stepwise: bool,
+    product: Product,
     releases: Vec<Release>,
     files: &mut Files<'_>,
 ) -> Result<Option<Choice>, String> {
+    let stepwise = product == Product::Empyrean && current < EMPYREAN_STAGES_SKIPS;
     let mut newer: Vec<(Version, Release)> = releases
         .into_iter()
         .filter_map(|r| Some((metadata::version(&r.version).filter(|v| *v > current)?, r)))
@@ -340,6 +359,7 @@ fn choose(
                 sums: found.sums,
                 index: found.index,
                 automatic: true,
+                skipped: Vec::new(),
             }));
         }
         known[i] = Some(found);
@@ -369,6 +389,7 @@ fn choose(
             continue;
         }
         let notes = notes_through(between);
+        let skipped = between[1..].iter().rev().map(|r| r.index.clone()).collect();
         let chosen = all.swap_remove(i);
         return Ok(Some(Choice {
             notes,
@@ -376,6 +397,7 @@ fn choose(
             sums: chosen.sums,
             index: chosen.index,
             automatic: false,
+            skipped,
         }));
     }
     Ok(None)
@@ -496,12 +518,21 @@ fn stage_held(dir: &Path, approved: Option<&str>) -> Result<(), String> {
     let index_path = folder.join("checked-release.json");
     std::fs::write(&index_path, &offer.index).map_err(|e| e.to_string())?;
     if product == Product::Empyrean {
+        let mut skipped = Vec::with_capacity(offer.skipped.len());
+        for (n, index) in offer.skipped.iter().enumerate() {
+            let path = folder.join(format!("skipped-{n}-release.json"));
+            std::fs::write(&path, index).map_err(|e| e.to_string())?;
+            skipped.push(path);
+        }
         let mut extra = vec![
             std::ffi::OsStr::new("--candidate"),
             candidate.as_os_str(),
             std::ffi::OsStr::new("--index"),
             index_path.as_os_str(),
         ];
+        for path in &skipped {
+            extra.extend([std::ffi::OsStr::new("--skipped"), path.as_os_str()]);
+        }
         if let Some(version) = approved {
             extra.extend([
                 std::ffi::OsStr::new("--approve"),
@@ -1482,13 +1513,12 @@ mod tests {
         serde_json::json!({ "kind": "minor", "previous": previous, "upgrades_from": upgrades_from })
     }
 
-    /// What a world on `running` is offered among the published `releases` (with `stepwise`, as an
-    /// Empyrean world is): the version, whether it downloads by itself, and the notes shown.
-    fn offered(
+    /// What a world of `product` on `running` is offered among the published `releases`.
+    fn chosen(
         running: &str,
-        stepwise: bool,
+        product: Product,
         releases: Vec<(Release, Vec<u8>)>,
-    ) -> Option<(String, bool, String)> {
+    ) -> Option<Choice> {
         let indexes: std::collections::HashMap<String, Vec<u8>> = releases
             .iter()
             .map(|(r, index)| (r.version.clone(), index.clone()))
@@ -1496,23 +1526,25 @@ mod tests {
         let list = releases.into_iter().map(|(r, _)| r).collect();
         choose(
             metadata::version(running).unwrap(),
-            stepwise,
+            product,
             list,
             &mut |r: &Release| Ok((String::new(), indexes[&r.version].clone())),
         )
         .unwrap()
-        .map(|c| (c.release.version, c.automatic, c.notes))
+    }
+
+    /// What a Yalain world on `running` is offered among the published `releases`: the version,
+    /// whether it downloads by itself, and the notes shown.
+    fn offered(running: &str, releases: Vec<(Release, Vec<u8>)>) -> Option<(String, bool, String)> {
+        chosen(running, Product::Yalain, releases)
+            .map(|c| (c.release.version, c.automatic, c.notes))
     }
 
     /// A world on 0.4.0 is offered 0.5.0, which it can upgrade to straight, though 0.5.0 names
     /// 0.4.1 as the release before it and 0.4.1 was never published.
     #[test]
     fn a_world_is_offered_a_release_whose_previous_was_never_published() {
-        let found = offered(
-            "0.4.0",
-            false,
-            vec![published("0.5.0", minor("0.4.1", "0.4.0"))],
-        );
+        let found = offered("0.4.0", vec![published("0.5.0", minor("0.4.1", "0.4.0"))]);
         let (version, automatic, _) = found.expect("0.5.0 is offered");
         assert_eq!(version, "0.5.0");
         assert!(!automatic, "a minor release waits for approval");
@@ -1526,13 +1558,9 @@ mod tests {
             published("0.6.0", minor("0.5.0", "0.5.0")),
             published("0.5.0", minor("0.4.1", "0.4.0")),
         ];
-        assert_eq!(offered("0.4.0", false, releases).unwrap().0, "0.5.0");
+        assert_eq!(offered("0.4.0", releases).unwrap().0, "0.5.0");
         assert_eq!(
-            offered(
-                "0.4.0",
-                false,
-                vec![published("0.6.0", minor("0.5.0", "0.5.0"))]
-            ),
+            offered("0.4.0", vec![published("0.6.0", minor("0.5.0", "0.5.0"))]),
             None
         );
     }
@@ -1543,7 +1571,6 @@ mod tests {
     fn of_two_releases_a_world_upgrades_to_straight_the_newest_is_offered() {
         let found = offered(
             "0.4.0",
-            false,
             vec![
                 published("0.5.0", minor("0.4.0", "0.4.0")),
                 published("0.6.0", minor("0.5.0", "0.4.0")),
@@ -1567,7 +1594,6 @@ mod tests {
         ]);
         let (version, _, notes) = offered(
             "0.4.0",
-            false,
             vec![published("0.6.0", newest), published("0.5.0", skipped)],
         )
         .unwrap();
@@ -1583,7 +1609,6 @@ mod tests {
         assert_eq!(
             offered(
                 "0.4.0",
-                false,
                 vec![published("0.6.0", minor("0.5.0", "0.4.0")), silent]
             ),
             None
@@ -1598,7 +1623,6 @@ mod tests {
             serde_json::json!({ "kind": "patch", "previous": "0.4.0", "upgrades_from": "0.4.0" });
         let (version, automatic, notes) = offered(
             "0.4.0",
-            false,
             vec![
                 published("0.5.0", minor("0.4.1", "0.4.0")),
                 published("0.4.1", patch),
@@ -1609,26 +1633,40 @@ mod tests {
         assert_eq!(notes, "What 0.4.1 changed.");
     }
 
-    /// An Empyrean world, whose Empyrean stages a release only from the one before it, is offered
-    /// only a release that names its own as that.
+    /// An Empyrean world is offered the newest release it can upgrade to straight, as any world is,
+    /// though the release before it was never published; Empyrean is handed the `release.json` of
+    /// the published release it skips.
     #[test]
-    fn an_empyrean_world_is_offered_only_a_release_that_follows_its_own() {
-        assert_eq!(
-            offered(
-                "0.4.0",
-                true,
-                vec![published("0.5.0", minor("0.4.1", "0.4.0"))]
-            ),
-            None
-        );
-        let found = offered(
+    fn an_empyrean_world_is_offered_a_release_past_one_never_published() {
+        let choice = chosen(
             "0.4.0",
-            true,
+            Product::Empyrean,
             vec![
+                published("0.6.0", minor("0.5.1", "0.4.0")),
                 published("0.5.0", minor("0.4.0", "0.4.0")),
-                published("0.6.0", minor("0.5.0", "0.4.0")),
             ],
-        );
-        assert_eq!(found.unwrap().0, "0.5.0");
+        )
+        .expect("0.6.0 is offered");
+        assert_eq!(choice.release.version, "0.6.0");
+        let skipped: Vec<serde_json::Value> = choice
+            .skipped
+            .iter()
+            .map(|index| serde_json::from_slice(index).unwrap())
+            .collect();
+        assert_eq!(skipped.len(), 1);
+        assert_eq!(skipped[0]["version"], "0.5.0");
+    }
+
+    /// A world on an Empyrean older than the first that stages a release past one never published
+    /// is offered only a release that names its own as the one before it.
+    #[test]
+    fn a_world_on_an_older_empyrean_is_offered_only_a_release_that_follows_its_own() {
+        let offered = |releases| chosen("0.3.14", Product::Empyrean, releases);
+        assert!(offered(vec![published("0.4.0", minor("0.3.15", "0.3.0"))]).is_none());
+        let found = offered(vec![
+            published("0.4.0", minor("0.3.14", "0.3.0")),
+            published("0.5.0", minor("0.4.0", "0.3.0")),
+        ]);
+        assert_eq!(found.unwrap().release.version, "0.4.0");
     }
 }
