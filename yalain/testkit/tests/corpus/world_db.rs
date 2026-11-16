@@ -1564,7 +1564,8 @@ fn a_vaults_shard_completes_the_quest_of_its_vault() {
 }
 
 /// What creatures' death effects make are creatures, and those effects are what the install's
-/// creatures name; the rest of the rows make portals.
+/// creatures name: 24, and the shrine guardians' 480 kingdom monsters; the rest of the rows make
+/// portals or start events.
 /// Behaviour: server.creatures.death-spawns-rows
 #[test]
 fn the_death_spawns_name_creatures() {
@@ -1579,9 +1580,9 @@ fn the_death_spawns_name_creatures() {
     let creatures = t
         .death_spawns
         .values()
-        .filter(|s| s.to.is_none() && !makes_portal(s.template))
+        .filter(|s| s.event.is_none() && s.to.is_none() && !makes_portal(s.template))
         .count();
-    assert_eq!(creatures, 24, "{:?}", t.death_spawns);
+    assert_eq!(creatures, 24 + 480, "{:?}", t.death_spawns);
     let stats = |id: u32| {
         let template = portal.template(id);
         yalain_content::CreatureStats::from_props(&template.props)
@@ -4575,7 +4576,8 @@ fn no_store_sale_pays_back_more_than_it_cost_at_the_best_transmutation_perk() {
 }
 
 /// Every template a world's rows make reads from the install, so a real start can describe it, and
-/// a row a death or a use makes by is a creature, or a portal whose template names its destination.
+/// a row a death or a use makes by is a creature, or a portal whose template names its destination
+/// (a row that starts an event makes nothing).
 /// Behaviour: server.makes.the-rows-name-what-they-make
 #[test]
 fn everything_the_worlds_rows_make_reads_from_the_install() {
@@ -4597,7 +4599,12 @@ fn everything_the_worlds_rows_make_reads_from_the_install() {
     for template in named {
         assert_eq!(portal.template(template).id, template);
     }
-    for (name, spawn) in &t.death_spawns {
+    for (name, spawn) in &t
+        .death_spawns
+        .iter()
+        .filter(|(_, s)| s.event.is_none())
+        .collect::<Vec<_>>()
+    {
         // A portal: its template's own, or the row's place to lead to.
         if spawn.to.is_some()
             || as_installed(&portal, spawn.template)
@@ -6153,8 +6160,8 @@ fn the_heros_transformation_and_the_vitae_tap_read_as_the_server_starts_them() {
 /// friend tables that never attack a player first, the six shooters' rhythms of the start area, the
 /// 14 guards that mark the players they see and the one turret that takes on only the marked. The
 /// legion's strike's own rows (the friend tables that fight others, the pillar players may not
-/// harm) are its walk's to hold, and the safe passages and the effects creatures hold from their
-/// first moment their walks'.
+/// harm) are its walk's to hold, and the safe passages, the effects creatures hold from their
+/// first moment and the shrine guardians' kingdom for a while their walks'.
 /// Behaviour: server.creatures.behavior-rows-as-2017
 #[test]
 fn the_worlds_creature_rows_are_2017s_entry_for_entry() {
@@ -6165,6 +6172,7 @@ fn the_worlds_creature_rows_are_2017s_entry_for_entry() {
     rows.kept_out.clear();
     rows.safe_passage.clear();
     rows.effects.clear();
+    rows.aligned.clear();
     let rows = &rows;
     assert_eq!(rows.concealing.len(), 28);
     let effects: std::collections::BTreeSet<u32> =
@@ -12680,22 +12688,31 @@ fn the_temple_under_the_standing_stone_is_entered_and_its_quests_end_in_it_and_i
 /// A recipe made at the crafting page from held items, one to a slot, with the player's own
 /// recipes: its answer's error (0 when made).
 fn made_with(h: &mut Harness, b: usize, recipe: u32, items: &[u32]) -> Option<u32> {
-    use auberean_script::args::Arg;
-    use auberean_script::library::Elem;
-    use auberean_script::native_object::Item;
-    use yalain_world::craft::function;
     let world = player_world(h);
-    let slots: Vec<(Item, Item)> = (1..)
-        .zip(items)
-        .map(|(slot, t)| {
-            let held = h.server.players[&world]
+    let ids: Vec<u64> = items
+        .iter()
+        .map(|t| {
+            h.server.players[&world]
                 .play
                 .items
                 .iter()
                 .find(|i| i.template == *t)
-                .unwrap_or_else(|| panic!("{t:08X} held"));
-            (Item::Word(slot), Item::Long(held.id))
+                .unwrap_or_else(|| panic!("{t:08X} held"))
+                .id
         })
+        .collect();
+    made_with_ids(h, b, recipe, &ids)
+}
+
+/// As [`made_with`], with the held items themselves, one to a slot (several of one template).
+fn made_with_ids(h: &mut Harness, b: usize, recipe: u32, ids: &[u64]) -> Option<u32> {
+    use auberean_script::args::Arg;
+    use auberean_script::library::Elem;
+    use auberean_script::native_object::Item;
+    use yalain_world::craft::function;
+    let slots: Vec<(Item, Item)> = (1..)
+        .zip(ids)
+        .map(|(slot, id)| (Item::Word(slot), Item::Long(*id)))
         .collect();
     let mut g = yalain_world::graph::Builder::new();
     g.native(
@@ -19426,6 +19443,200 @@ fn the_dereth_rallys_courses_run_from_the_start_round_their_stops_to_rogols_priz
     );
 }
 
+/// **The Dereth Rally's race walks through**: Rogol counts down to each race with ten lines, the
+/// first as the race before ends and the last as it starts, and every player reads the 30-minute
+/// warning; the start strips a racer's speed buffs and keeps new ones from counting while it
+/// races; a stop touched out of turn flings the racer and moves nothing; the first to finish ends
+/// the race at once, its obelisks and stops gone; Rogol's prize pays gold by wins in a row, 1,000
+/// for the first and, with the Golden Saddle and his champion's line, 50,000 for the seventh; the
+/// championship has seven days on the calendar.
+/// Behaviour: server.quests.dereth-rally-race-walk-through
+#[test]
+fn the_dereth_rallys_race_counts_down_strips_speed_flings_out_of_turn_and_ends_at_its_first_finisher(
+) {
+    use yalain_world::events::{hides, is_on};
+    use yalain_world::quests::status;
+    const START: u32 = 0x4700_2F8F;
+    const FINISH: u32 = 0x4700_2F8B;
+    const ROGOL: u32 = 0x4700_2F8D;
+    const STOPS: [u32; 4] = [0x4700_2F83, 0x4700_2F85, 0x4700_2F87, 0x4700_2F89];
+    const COURSE: u32 = 0x4000_033F;
+    const REWARD: u32 = 0x4000_034D;
+    const STREAK: u32 = 0x4000_034B;
+    const GOLD: u32 = 0x4700_0538;
+    const SADDLE: u32 = 0x4700_134A;
+    const DASH: u32 = 0x7000_07E4;
+    const REGULATOR: u32 = 0x6F00_1AB9;
+    const FLING: u32 = 0x2CEF_436E;
+    const CHAMPION: u32 = 0x3414_0CEE;
+    const NOTICE: u32 = 0x3CEE_FC01;
+    // Seconds before a race each countdown line is said.
+    const BEFORE: [i64; 10] = [14_580, 10_800, 7_200, 3_600, 1_800, 900, 300, 60, 20, 0];
+    let t = &compiled().tables;
+    let objects = &t.content.objects;
+    let event = |key: &str| {
+        t.content
+            .events
+            .events
+            .iter()
+            .find(|e| e.key == key)
+            .unwrap_or_else(|| panic!("{key}"))
+    };
+    let (mut h, b, me) = served(t);
+
+    // The countdown: each timer begins its time before every race of the week.
+    let rally = event("dereth-rally");
+    let mut races = Vec::new();
+    for m in 0..7 * 24 * 60 {
+        if let Some((from, _)) = rally.running(h.unix + 60 * m) {
+            if races.last() != Some(&from) {
+                races.push(from);
+            }
+        }
+    }
+    assert_eq!(races.len(), 35);
+    for (i, before) in BEFORE.iter().enumerate() {
+        let timer = event(&format!("dereth-rally-timer-{}", i + 1));
+        for r in &races {
+            assert_eq!(
+                timer.running(r - before).map(|w| w.0),
+                Some(r - before),
+                "timer {} {before} s before {r}",
+                i + 1
+            );
+        }
+    }
+
+    h.server.quest_ids = quest_ids();
+    let mut states: Vec<u32> = t.quests.effect_states().collect();
+    states.push(DASH);
+    h.server.effect_table = effects_read(&states, &t.effect_rules);
+    set_level(&mut h, 20);
+    let start = placed(t, START);
+    let finish = placed(t, FINISH);
+    let rogol = placed(t, ROGOL);
+    let course = event("dereth-rally-course-1");
+    let (from, until) = (0..7 * 24 * 60)
+        .find_map(|m| course.running(h.unix + 60 * m))
+        .expect("course 1 raced");
+
+    // The 30-minute warning, read by the player wherever it is.
+    h.unix = from - 1_800 - 5;
+    world_step(&mut h);
+    let seen = h.bots[b].inbox.len();
+    h.unix = from - 1_800 + 5;
+    world_step(&mut h);
+    assert!(
+        h.world_messages(b, seen).iter().any(|m| matches!(
+            m,
+            ServerMessage::Notice(n) if n.text.string_id == NOTICE && n.kind == 256
+        )),
+        "the warning"
+    );
+
+    // The start strips the racer's speed buffs and keeps new ones from counting.
+    h.unix = from + 10;
+    world_step(&mut h);
+    assert!(is_on(&h.server, "dereth-rally"));
+    let world = player_world(&h);
+    let cast = yalain_world::effects::Cast {
+        caster: me,
+        spellcraft: 1.0,
+        pk: true,
+        ..yalain_world::effects::Cast::default()
+    };
+    let clock = h.clock();
+    yalain_world::effects::apply(&mut h.server, &mut h.net, world, DASH, cast, clock);
+    h.run(2);
+    let speed = |h: &Harness| yalain_world::effects::player_speed(&h.server, player_world(h)).0;
+    assert!(speed(&h) > 1.0, "dash raises speed");
+    use_person(&mut h, b, me, t, start);
+    assert_eq!(state_of(&h, COURSE), Some((status::UNDERWAY, 1)));
+    let records = |h: &Harness, state: u32| {
+        h.server.players[&player_world(h)]
+            .play
+            .effects
+            .iter()
+            .filter(|e| e.state == state)
+            .count()
+    };
+    assert_eq!(records(&h, DASH), 0, "dispelled");
+    assert_eq!(records(&h, REGULATOR), 1, "regulated");
+    let clock = h.clock();
+    yalain_world::effects::apply(&mut h.server, &mut h.net, world, DASH, cast, clock);
+    h.run(2);
+    assert_eq!(records(&h, DASH), 1, "a new dash");
+    assert!(
+        (speed(&h) - 1.0).abs() < 1e-4,
+        "counting for nothing: {}",
+        speed(&h)
+    );
+
+    // A stop out of turn flings the racer; then the stops in turn, and the finish.
+    let stops: Vec<usize> = STOPS
+        .iter()
+        .map(|s| {
+            (0..objects.len())
+                .find(|i| objects[*i].template == *s && !hides(&h.server, *i))
+                .expect("standing")
+        })
+        .collect();
+    let said = use_person(&mut h, b, me, t, stops[1]);
+    assert!(said.iter().any(|(_, s)| *s == Some(FLING)), "flung");
+    assert_eq!(
+        state_of(&h, COURSE),
+        Some((status::UNDERWAY, 1)),
+        "nothing moved"
+    );
+    for s in &stops {
+        use_person(&mut h, b, me, t, *s);
+    }
+    use_person(&mut h, b, me, t, finish);
+    assert_eq!(
+        state_of(&h, COURSE).map(|q| q.0),
+        Some(status::COMPLETED),
+        "won"
+    );
+    assert!(h.unix < until, "before its window's end");
+    assert!(
+        !is_on(&h.server, "dereth-rally") && !is_on(&h.server, "dereth-rally-course-1"),
+        "the race ends at its first finisher"
+    );
+    assert!(
+        hides(&h.server, start) && hides(&h.server, finish),
+        "its obelisks gone"
+    );
+    assert!(stops.iter().all(|s| hides(&h.server, *s)), "its stops gone");
+
+    // Rogol's prize by wins in a row.
+    let gold = held_count(&h, GOLD);
+    use_person(&mut h, b, me, t, rogol);
+    assert_eq!(state_of(&h, REWARD).map(|q| q.0), Some(status::COMPLETED));
+    assert_eq!(held_count(&h, GOLD) - gold, 1_000, "the first win's gold");
+    assert_eq!(state_of(&h, STREAK), Some((status::UNDERWAY, 1)));
+    put_at_phase(&mut h, REWARD, 1);
+    put_at_phase(&mut h, STREAK, 6);
+    let gold = held_count(&h, GOLD);
+    let said = use_person(&mut h, b, me, t, rogol);
+    assert_eq!(
+        held_count(&h, GOLD) - gold,
+        50_000,
+        "the seventh win's gold"
+    );
+    assert!(holds_item(&h, SADDLE), "the Golden Saddle");
+    assert!(
+        said.iter().any(|(_, s)| *s == Some(CHAMPION)),
+        "the champion's line"
+    );
+    assert_eq!(state_of(&h, STREAK).map(|q| q.0), Some(status::COMPLETED));
+    let streak = t.quests.quest(STREAK).expect("the streak's row");
+    assert_eq!(
+        (streak.duration, streak.duration_by_calendar),
+        (604_800.0, true),
+        "seven days on the calendar"
+    );
+}
+
 /// **Eeruk's Loot walks through**: the Amulet of Seeking used gives the quest; the Deepdank Tunnels
 /// keep their Burun and Lord Eeruk one at a time, who leaves the key to his treasury and whose death
 /// moves the quest on; the treasury's door keeps to that phase; each of its five chests, one for
@@ -24558,7 +24769,7 @@ fn retracing_the_path_is_never_given_to_one_who_has_done_the_descent_into_darkne
 
 /// **The town officer's tickets walk through**: the officer stands in camps of three towns; his
 /// killing gives his quest and a ticket, and each killing while it is under way another ticket,
-/// the quest left as it is.
+/// the quest left as it is; it runs out, failed, ten hours of play after it was given.
 /// Behaviour: server.quests.town-officer-tickets-walk-through
 #[test]
 fn killing_the_town_officer_gives_his_quest_and_a_ticket_and_another_ticket_at_each_kill() {
@@ -24587,6 +24798,25 @@ fn killing_the_town_officer_gives_his_quest_and_a_ticket_and_another_ticket_at_e
         "as it was"
     );
     assert_eq!(held_count(&h, TICKET), 2, "another ticket");
+    let given = h.now.0;
+    while h.now.0 < given + 35_000.0 {
+        h.step_by(60.0);
+    }
+    h.run(2);
+    assert_eq!(
+        state_of(&h, QUEST).map(|q| q.0),
+        Some(status::UNDERWAY),
+        "under ten hours"
+    );
+    while h.now.0 < given + 36_120.0 {
+        h.step_by(60.0);
+    }
+    h.run(2);
+    assert_eq!(
+        state_of(&h, QUEST).map(|q| q.0),
+        Some(status::FAILED),
+        "run out at ten hours"
+    );
 }
 
 /// **Nature's Friend walks from the pet lasher's bone through both breach rooms to the great
@@ -34066,4 +34296,759 @@ fn the_chaos_planes_six_bosses_now_and_then_leave_the_huge_pyreum_the_forges_new
         h.advance(camp.regen);
     }
     assert!(found, "a corpse holds the pyreum within {kills} kills");
+}
+
+/// **The kingdom shrines walk through**: the round's guardian stands at the red shrine as the world
+/// starts, the five shrines its stops in their order; killed by a player of the Order, it brings the
+/// Order's radiant to the shrine and the monsters of the Shadow and the Dominion beside it, none of
+/// the Order's, and the next guardian, at the yellow shrine, is the Order's, which no player of the
+/// Order may harm; the radiant used empowers the player and gives the Order's red ray, once; a
+/// Dominion monster killed leaves the Dominion's lens for the empowered, and the lens handed to the
+/// radiant becomes the Dominion's red ray.
+/// Behaviour: server.quests.kingdom-shrines-walk-through
+#[test]
+fn the_shrines_guardian_goes_round_and_its_death_brings_the_killers_radiant_whose_rays_come_of_talk_and_lenses(
+) {
+    use yalain_world::kingdoms::{kingdom, refusal, set_kingdom};
+    use yalain_world::quests::status;
+    use yalain_world::things::Mode;
+    const EMPOWERMENT: u32 = 0x4000_01CD;
+    // Each stop: the neutral guardian, the Order's, and the shrine's landblock.
+    const STOPS: [(u32, u32, u32); 5] = [
+        (0x4700_2600, 0x4700_2601, 0x5CB1),
+        (0x4700_2608, 0x4700_2609, 0xA08A),
+        (0x4700_25FC, 0x4700_25FD, 0x5558),
+        (0x4700_25F8, 0x4700_25F9, 0x4748),
+        (0x4700_2604, 0x4700_2605, 0xB470),
+    ];
+    const RED_ORDER_RADIANT: u32 = 0x4700_3253;
+    const RED_ORDER_RAY: u32 = 0x4700_0B9E;
+    const RED_DOMINION_RAY: u32 = 0x4700_0B98;
+    const DOMINION_LENS: u32 = 0x4700_1832;
+    const SHADOWS: [u32; 2] = [0x4700_2AC3, 0x4700_2AC4];
+    const VIRINDI: [u32; 2] = [0x4700_2D54, 0x4700_2D5A];
+    const GOLEMS: [u32; 2] = [0x4700_24E1, 0x4700_24DD];
+    let t = &compiled().tables;
+    let round = t
+        .content
+        .rounds
+        .rows
+        .iter()
+        .find(|r| r.key == "shrine-guardian")
+        .expect("the shrines' round");
+    let stops: Vec<(u32, u32, u32)> = round
+        .stops
+        .iter()
+        .map(|s| {
+            (
+                s.template,
+                s.template_for(Some(kingdom::ORDER)),
+                s.at.cell >> 16,
+            )
+        })
+        .collect();
+    assert_eq!(stops, STOPS, "red to violet, each neutral and the Order's");
+
+    let portal = yalain_testkit::authored::Portal::open();
+    let (mut h, b, me) = served(t);
+    h.server.quest_ids = quest_ids();
+    h.server.creature_rows = t.creatures.clone();
+    h.server.kingdom_rows = t.kingdoms.clone();
+    h.server.death_spawns = t
+        .death_spawns
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    h.server.loot.treasures = t.loot.treasures.clone();
+    // The catalog a real start reads: the round's creatures and what the deaths make among it.
+    h.server.catalog = portal.catalog(t);
+    set_level(&mut h, 50);
+    let world = player_world(&h);
+    if let Some(p) = h.server.players.get_mut(&world) {
+        set_kingdom(&mut p.qualities, kingdom::ORDER);
+    }
+    h.run(5);
+    let standing = |h: &Harness, template: u32| -> Vec<u64> {
+        let mut v: Vec<u64> = h
+            .server
+            .things
+            .by_id
+            .values()
+            .filter(|t| t.template == template)
+            .filter(|t| t.creature.as_ref().is_some_and(|c| c.mode != Mode::Dead))
+            .map(|t| t.id)
+            .collect();
+        v.sort_unstable();
+        v
+    };
+    // The killer beside the creature, as one fighting it stands.
+    let kill = |h: &mut Harness, id: u64| {
+        let at = h.server.things.get(id).and_then(|t| t.at).expect("placed");
+        for p in h.server.players.values_mut() {
+            p.position.cell = at.cell;
+            p.position.origin = [at.origin[0] + 1.0, at.origin[1], at.origin[2]];
+        }
+        if let Some(t) = h.server.things.get_mut(id) {
+            t.health = 1;
+        }
+        let clock = h.clock();
+        yalain_world::combat::hurt_creature(&mut h.server, &mut h.net, id, me, 50, clock);
+        h.run(5);
+    };
+    let red = standing(&h, STOPS[0].0);
+    assert_eq!(
+        red.len(),
+        1,
+        "the red shrine's guardian as the world starts"
+    );
+    let at = h
+        .server
+        .things
+        .get(red[0])
+        .and_then(|t| t.at)
+        .expect("placed");
+    assert_eq!(at.cell >> 16, 0x5CB1, "at the red shrine");
+
+    let radiant = placed(t, RED_ORDER_RADIANT);
+    assert_eq!(
+        t.content.objects[radiant].cell >> 16,
+        0x5CB1,
+        "in the red shrine"
+    );
+    let stands = |h: &Harness, template: u32| {
+        let id = yalain_world::presence::content_id(&t.content.objects, placed(t, template));
+        yalain_world::events::content_standing(&h.server, id).is_some()
+    };
+    assert!(
+        !stands(&h, RED_ORDER_RADIANT),
+        "no radiant before the guardian's death"
+    );
+    kill(&mut h, red[0]);
+    assert!(
+        stands(&h, RED_ORDER_RADIANT),
+        "the Order's radiant in the red shrine"
+    );
+    assert_eq!(
+        [0x4700_3251, 0x4700_3254].map(|r| stands(&h, r)),
+        [false, false],
+        "not the other kingdoms'"
+    );
+    let made = |h: &Harness, kinds: [u32; 2]| kinds.map(|k| standing(h, k).len());
+    assert_eq!(
+        made(&h, SHADOWS),
+        [3, 1],
+        "the Shadow's monsters, solo and group"
+    );
+    assert_eq!(made(&h, VIRINDI), [3, 1], "the Dominion's");
+    assert_eq!(made(&h, GOLEMS), [0, 0], "none of the killer's own kingdom");
+    let yellow = standing(&h, STOPS[1].1);
+    assert_eq!(yellow.len(), 1, "the yellow shrine's guardian, the Order's");
+    assert_eq!(
+        yalain_world::combat::may_attack_thing(&h.server, world, yellow[0]),
+        Err(refusal::SAME_KINGDOM),
+        "no player of the Order may harm it for a while"
+    );
+
+    use_person(&mut h, b, me, t, radiant);
+    assert_eq!(
+        state_of(&h, EMPOWERMENT).map(|s| s.0),
+        Some(status::UNDERWAY),
+        "empowered"
+    );
+    assert_eq!(held_count(&h, RED_ORDER_RAY), 1, "the Order's red ray");
+    use_person(&mut h, b, me, t, radiant);
+    assert_eq!(held_count(&h, RED_ORDER_RAY), 1, "one a visit");
+
+    let virindi = standing(&h, VIRINDI[1]);
+    kill(&mut h, virindi[0]);
+    // Its corpse lies once it has fallen.
+    let fallen = h.now.0 + 2.5;
+    while h.now.0 < fallen {
+        h.step_by(0.25);
+    }
+    let lens_left = h.server.things.by_id.values().any(|t| {
+        t.corpse.as_ref().is_some_and(|c| {
+            c.originator == virindi[0]
+                && c.contents
+                    .iter()
+                    .filter_map(|i| h.server.things.get(*i))
+                    .any(|i| i.template == DOMINION_LENS)
+        })
+    });
+    assert!(lens_left, "the Dominion's lens, for the empowered");
+    yalain_world::inventory::give(&mut h.server, &mut h.net, world, DOMINION_LENS, 1)
+        .expect("given");
+    h.run(3);
+    let lens = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .find(|i| i.template == DOMINION_LENS)
+        .map(|i| i.id)
+        .expect("a lens held");
+    gave_held(&mut h, (b, me, world), t, RED_ORDER_RADIANT, lens);
+    assert_eq!(
+        held_count(&h, RED_DOMINION_RAY),
+        1,
+        "the Dominion's red ray for its lens"
+    );
+    assert_eq!(held_count(&h, DOMINION_LENS), 0, "the lens taken");
+}
+
+/// **An outpost's guards go with its beacon**: the world's rows give each of the eighteen placed
+/// beacons its guards, the camps of its race beside it. For each beacon, with its camp and its
+/// guards' camps alone in the world: the guards stand with the beacon; as the beacon dies they
+/// leave the world, leaving no corpse, and none stands while the beacon is down; the beacon's camp
+/// makes the next after its period, and every guard camp fills again with it.
+/// Behaviour: server.quests.beacon-guards-walk
+#[test]
+fn each_outposts_guards_leave_the_world_with_its_beacon_and_come_back_with_the_next() {
+    use yalain_world::things::Mode;
+    let t = &compiled().tables;
+    let beacons: std::collections::BTreeSet<&str> =
+        t.spawns.masters.iter().map(|(_, m)| m.as_str()).collect();
+    assert_eq!((t.spawns.masters.len(), beacons.len()), (49, 18));
+    let portal = yalain_testkit::authored::Portal::open();
+    for beacon in beacons {
+        let camp = |id: &str| {
+            t.spawns
+                .camps
+                .iter()
+                .find(|c| c.id == id)
+                .cloned()
+                .unwrap_or_else(|| panic!("camp {id}"))
+        };
+        let master = camp(beacon);
+        let npc_table = as_installed(&portal, master.templates[0].0)
+            .props
+            .text("AI_NPCTable")
+            .map(str::to_string);
+        assert_eq!(
+            npc_table.as_deref(),
+            Some("NPCTable_PortalBeacon"),
+            "{beacon}"
+        );
+        let guards: Vec<String> = t.spawns.serving(beacon).map(str::to_string).collect();
+        let (mut h, _, me) = served(t);
+        h.server.catalog = portal.catalog(t);
+        h.server.spawns = yalain_content::SpawnTable {
+            camps: std::iter::once(master)
+                .chain(guards.iter().map(|g| camp(g)))
+                .collect(),
+            masters: guards
+                .iter()
+                .map(|g| (g.clone(), beacon.to_string()))
+                .collect(),
+        };
+        h.server.camps = vec![yalain_world::spawn::CampState::default(); guards.len() + 1];
+        h.run(5);
+        let kept = |h: &Harness, i: usize| -> Vec<u64> {
+            h.server.camps[i]
+                .alive
+                .iter()
+                .copied()
+                .filter(|id| {
+                    h.server
+                        .things
+                        .get(*id)
+                        .and_then(|t| t.creature.as_ref())
+                        .is_some_and(|c| c.mode != Mode::Dead)
+                })
+                .collect()
+        };
+        let full = |h: &Harness| {
+            (1..=guards.len())
+                .map(|i| kept(h, i).len() == h.server.spawns.camps[i].population as usize)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(kept(&h, 0).len(), 1, "{beacon} stands");
+        assert!(
+            full(&h).iter().all(|f| *f),
+            "{beacon}'s guards stand with it"
+        );
+        let standing: Vec<u64> = (1..=guards.len()).flat_map(|i| kept(&h, i)).collect();
+        let id = kept(&h, 0)[0];
+        if let Some(b) = h.server.things.get_mut(id) {
+            b.health = 1;
+        }
+        let clock = h.clock();
+        yalain_world::combat::hurt_creature(&mut h.server, &mut h.net, id, me, 50, clock);
+        h.run(2);
+        assert!(
+            standing.iter().all(|g| h.server.things.get(*g).is_none()),
+            "{beacon}'s guards leave the world as it dies, no corpse left"
+        );
+        let regen = h.server.spawns.camps[0].regen;
+        let down = h.now.0 + regen * 0.9;
+        while h.now.0 < down {
+            h.step_by(0.25);
+        }
+        assert!(
+            (1..=guards.len()).all(|i| kept(&h, i).is_empty()),
+            "{beacon}'s guards stay gone while it is down"
+        );
+        let back = h.now.0 + regen * 0.2;
+        while h.now.0 < back {
+            h.step_by(0.25);
+        }
+        assert_eq!(kept(&h, 0).len(), 1, "{beacon}'s next");
+        assert!(
+            full(&h).iter().all(|f| *f),
+            "{beacon}'s guards stand again with it"
+        );
+    }
+}
+
+/// **The Order's and the Shadow's headquarters walk through**: each kingdom's way in, the placed
+/// portal in Ikeras named for its headquarters, takes a player of its kingdom to the landing the
+/// raids' portals home lead to, and none of another kingdom; from the landing its mine overseer, its
+/// four mine beacons and its way out are reached on foot; its Omishan beacon gives the raid, the
+/// crystal and the beacons' hour; its overseer gives the boon's task, refuses its own kingdom's
+/// material and takes an enemy kingdom's, completing it; and its way out leads back out beside the
+/// way in.
+/// Behaviour: server.quests.kingdom-headquarters-walk-through
+#[test]
+fn the_orders_and_the_shadows_headquarters_are_entered_by_their_kingdom_and_hold_their_overseer_and_beacons(
+) {
+    use yalain_world::quests::status;
+    use yalain_world::usable::maps::ground_distance;
+    const OMI_RAID: u32 = 0x4000_0355;
+    const PERMISSION: u32 = 0x4000_0359;
+    const BOON: u32 = 0x4000_0351;
+    struct Hq {
+        kingdom: u32,
+        outside: u32,
+        landing: u32,
+        destination: &'static str,
+        exit: u32,
+        overseer: u32,
+        beacons: [u32; 4],
+        omishan: (u32, u32),
+        own: u32,
+        enemy: u32,
+    }
+    let hqs = [
+        Hq {
+            kingdom: 2,
+            outside: 0xCE8C,
+            landing: 0x0BF5_0100,
+            destination: "dng_orderhq",
+            exit: 0xCE8C_0034,
+            overseer: 0x4700_2FC0,
+            beacons: [0x4700_1482, 0x4700_1483, 0x4700_1488, 0x4700_1489],
+            omishan: (0x4700_1488, 0x4700_1476),
+            own: 0x4700_147C,
+            enemy: 0x4700_147E,
+        },
+        Hq {
+            kingdom: 1,
+            outside: 0xCE8D,
+            landing: 0x0BF6_010C,
+            destination: "dng_shadowhq",
+            exit: 0xCE8D_003C,
+            overseer: 0x4700_2FC2,
+            beacons: [0x4700_1484, 0x4700_1485, 0x4700_148A, 0x4700_148B],
+            omishan: (0x4700_148A, 0x4700_1478),
+            own: 0x4700_147E,
+            enemy: 0x4700_147C,
+        },
+    ];
+    let t = &compiled().tables;
+    for hq in &hqs {
+        let block = hq.landing >> 16;
+        let way_in = way_to(t, hq.outside, hq.landing);
+        let arrival = t.content.objects[way_in].destination.expect("a landing");
+        let place = t.places_by_name.get(hq.destination).expect("its place");
+        assert!(
+            ground_distance(
+                &spot(place.cell, place.origin),
+                &spot(arrival.cell, arrival.origin)
+            ) < 1.0,
+            "{:04X}: the portals home lead where the way in does",
+            block
+        );
+        let way_out = way_to(t, block, hq.exit);
+        let in_hq = |template: u32| {
+            let i = placed(t, template);
+            assert_eq!(
+                t.content.objects[i].cell >> 16,
+                block,
+                "{template:08X} in {block:04X}"
+            );
+            i
+        };
+
+        let mut w = walled(t, &[hq.outside, block]);
+        let world = w.world;
+        let at = |w: &Walled| w.h.server.players[&world].position;
+        let beside = |w: &mut Walled, i: usize| {
+            let o = &t.content.objects[i];
+            w.put(spot(o.cell, [o.origin[0] + 1.0, o.origin[1], o.origin[2]]));
+        };
+        {
+            let p = w.h.server.players.get_mut(&world).expect("in");
+            yalain_world::quals::set_int(&mut p.qualities, yalain_world::examine::LEVEL, 50);
+            yalain_world::kingdoms::set_kingdom(&mut p.qualities, 4);
+        }
+        beside(&mut w, way_in);
+        w.use_placed(t, way_in);
+        assert_eq!(
+            at(&w).cell >> 16,
+            hq.outside,
+            "{block:04X}: not for the Dominion"
+        );
+        yalain_world::kingdoms::set_kingdom(
+            &mut w.h.server.players.get_mut(&world).expect("in").qualities,
+            hq.kingdom,
+        );
+        w.use_placed(t, way_in);
+        assert_eq!(at(&w).cell, hq.landing, "{block:04X}: in, at its landing");
+
+        // On foot from the landing, each at least a meter off (a body stands where it is placed).
+        let mut reached = vec![in_hq(hq.overseer), way_out];
+        reached.extend(hq.beacons.map(in_hq));
+        for i in reached {
+            w.put(spot(arrival.cell, arrival.origin));
+            let o = t.content.objects[i].clone();
+            assert!(
+                w.run_to(o.origin, 2.0),
+                "{:08X} reached on foot in {block:04X}",
+                o.template
+            );
+        }
+
+        // The raid, its crystal and the hour.
+        with_uses(&mut w.h, t, &[hq.omishan.0, hq.omishan.1, hq.own, hq.enemy]);
+        w.h.server.quest_ids = quest_ids();
+        w.h.server.kingdom_rows = t.kingdoms.clone();
+        let beacon = in_hq(hq.omishan.0);
+        beside(&mut w, beacon);
+        w.use_placed(t, beacon);
+        assert_eq!(
+            state_of(&w.h, OMI_RAID),
+            Some((status::UNDERWAY, 1)),
+            "{block:04X}: the raid"
+        );
+        assert_eq!(
+            state_of(&w.h, PERMISSION).map(|q| q.0),
+            Some(status::UNDERWAY),
+            "the hour"
+        );
+        assert!(holds_item(&w.h, hq.omishan.1), "{block:04X}: its crystal");
+
+        // The overseer's task.
+        let overseer = in_hq(hq.overseer);
+        beside(&mut w, overseer);
+        w.use_placed(t, overseer);
+        assert_eq!(
+            state_of(&w.h, BOON).map(|q| q.0),
+            Some(status::UNDERWAY),
+            "{block:04X}: the task"
+        );
+        for item in [hq.own, hq.enemy] {
+            yalain_world::inventory::give(&mut w.h.server, &mut w.h.net, world, item, 1)
+                .expect("given");
+        }
+        w.h.run(3);
+        let held = |w: &Walled, template: u32| {
+            w.h.server.players[&world]
+                .play
+                .items
+                .iter()
+                .find(|i| i.template == template)
+                .map(|i| i.id)
+        };
+        let own = held(&w, hq.own).expect("its own kingdom's");
+        gave_held(&mut w.h, (w.b, w.me, world), t, hq.overseer, own);
+        assert!(
+            holds_item(&w.h, hq.own),
+            "{block:04X}: its own kingdom's handed back"
+        );
+        assert_eq!(state_of(&w.h, BOON).map(|q| q.0), Some(status::UNDERWAY));
+        let enemy = held(&w, hq.enemy).expect("an enemy's");
+        gave_held(&mut w.h, (w.b, w.me, world), t, hq.overseer, enemy);
+        assert!(!holds_item(&w.h, hq.enemy), "{block:04X}: an enemy's taken");
+        assert_eq!(
+            state_of(&w.h, BOON).map(|q| q.0),
+            Some(status::COMPLETED),
+            "{block:04X}: done"
+        );
+
+        // Out again.
+        beside(&mut w, way_out);
+        w.use_placed(t, way_out);
+        assert_eq!(at(&w).cell, hq.exit, "{block:04X}: out beside its way in");
+    }
+}
+
+/// **The Radiant rays to the Star of Heroes walk through**: the temple's lasher gives Radiant
+/// Enlightenment and its magister the rays' recipes; each kingdom's five rays, as the shrines give
+/// them, make its beam, the three beams a Radiant Star, and each star made moves the quest on, the
+/// third ending it; the temple's priestess gives the Star of Heroes with its recipe, and six Radiant
+/// Stars assembled into the Star end it.
+/// Behaviour: server.quests.radiant-stars-walk-through
+#[test]
+fn the_shrines_rays_make_beams_radiant_stars_and_the_star_of_heroes_ending_both_quests() {
+    use yalain_world::quests::status;
+    const ENLIGHTENMENT: u32 = 0x4000_01CC;
+    const HEROES: u32 = 0x4000_01CF;
+    const LASHER: u32 = 0x4700_325F;
+    const MAGISTER: u32 = 0x4700_3261;
+    const PRIESTESS: u32 = 0x4700_3264;
+    const RADIANT_STAR: u32 = 0x4700_0B42;
+    const STAR_OF_HEROES: u32 = 0x4700_0BAC;
+    const STAR_RECIPE: u32 = 0x6F00_0320;
+    const HEROES_RECIPE: u32 = 0x6F00_0329;
+    // Each kingdom's beam recipe, its five rays (red to violet) and its beam.
+    const BEAMS: [(u32, u32, u32); 3] = [
+        (0x6F00_0318, 0x4700_0B98, 0x4700_0B9D),
+        (0x6F00_0319, 0x4700_0B9E, 0x4700_0BA3),
+        (0x6F00_031A, 0x4700_0BA4, 0x4700_0BA9),
+    ];
+    let t = &compiled().tables;
+    let portal = yalain_testkit::authored::Portal::open();
+    let recipes: Vec<u32> = (0x6F00_0318..=0x6F00_0320).chain([HEROES_RECIPE]).collect();
+    let (mut h, b, me) = served(t);
+    h.server.quest_ids = quest_ids();
+    h.server.kingdom_rows = t.kingdoms.clone();
+    set_level(&mut h, 50);
+    let world = player_world(&h);
+    yalain_world::kingdoms::set_kingdom(
+        &mut h.server.players.get_mut(&world).expect("in").qualities,
+        2,
+    );
+    let craft = portal.crafting(&[], &recipes);
+    let wanted: Vec<u32> = t
+        .quests
+        .effect_states()
+        .chain(craft.outcome_effects())
+        .collect();
+    h.server
+        .effect_table
+        .effects
+        .extend(effects_read(&wanted, &t.effect_rules).effects);
+    h.server.crafting = craft;
+    let rays = BEAMS.iter().flat_map(|(_, first, _)| *first..*first + 5);
+    let made = BEAMS
+        .iter()
+        .map(|b| b.2)
+        .chain([RADIANT_STAR, STAR_OF_HEROES]);
+    for item in rays.clone().chain(made) {
+        h.server.catalog.insert(as_installed(&portal, item));
+    }
+    let knows = |h: &Harness, recipe: u32| {
+        h.server.players[&world]
+            .play
+            .recipes
+            .iter()
+            .any(|r| r.recipe == recipe)
+    };
+
+    use_person(&mut h, b, me, t, placed(t, LASHER));
+    assert_eq!(
+        state_of(&h, ENLIGHTENMENT),
+        Some((status::UNDERWAY, 1)),
+        "given"
+    );
+    use_person(&mut h, b, me, t, placed(t, MAGISTER));
+    assert!(
+        recipes[..9].iter().all(|r| knows(&h, *r)),
+        "the magister's recipes"
+    );
+    let mut phases = Vec::new();
+    for _ in 0..3 {
+        for ray in rays.clone() {
+            yalain_world::inventory::give(&mut h.server, &mut h.net, world, ray, 1).expect("given");
+        }
+        h.run(3);
+        for (recipe, first, beam) in BEAMS {
+            let five: Vec<u32> = (first..first + 5).collect();
+            assert_eq!(
+                made_with(&mut h, b, recipe, &five),
+                Some(0),
+                "{recipe:08X} made"
+            );
+            assert!(holds_item(&h, beam), "{beam:08X}");
+        }
+        // The star's slots take the Shadow's beam, the Order's, then the Dominion's.
+        let beams: Vec<u32> = BEAMS.iter().rev().map(|b| b.2).collect();
+        assert_eq!(
+            made_with(&mut h, b, STAR_RECIPE, &beams),
+            Some(0),
+            "a Radiant Star"
+        );
+        phases.push(state_of(&h, ENLIGHTENMENT));
+    }
+    assert_eq!(held_count(&h, RADIANT_STAR), 3, "three stars");
+    assert_eq!(
+        phases.last().copied().flatten().map(|q| q.0),
+        Some(status::COMPLETED),
+        "the third star ends it: {phases:?}"
+    );
+    assert_ne!(phases[0], phases[1], "each star moves it on: {phases:?}");
+
+    use_person(&mut h, b, me, t, placed(t, PRIESTESS));
+    assert_eq!(
+        state_of(&h, HEROES).map(|q| q.0),
+        Some(status::UNDERWAY),
+        "the Star of Heroes given"
+    );
+    assert!(knows(&h, HEROES_RECIPE), "with its recipe");
+    for _ in 0..3 {
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, RADIANT_STAR, 1)
+            .expect("given");
+    }
+    h.run(3);
+    let stars: Vec<u64> = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .filter(|i| i.template == RADIANT_STAR)
+        .map(|i| i.id)
+        .collect();
+    assert_eq!(stars.len(), 6, "six stars");
+    assert_eq!(
+        made_with_ids(&mut h, b, HEROES_RECIPE, &stars),
+        Some(0),
+        "the Star assembled"
+    );
+    assert!(holds_item(&h, STAR_OF_HEROES));
+    assert_eq!(
+        state_of(&h, HEROES).map(|q| q.0),
+        Some(status::COMPLETED),
+        "its making ends it"
+    );
+}
+
+/// **Kingdom Armor walk through**: once Radiant Enlightenment is done the temple's smith teaches an
+/// Order player the Order's Kingdom Armor recipes and none of another kingdom's, with the Drudges'
+/// and Empyreans' Unfinished Ancient recipes; an Unfinished Ancient
+/// piece and three Radiant Stars make its Order piece for 50,000 coins; the Chaos Forge hands it
+/// back to one who has not cleansed it, and, cleansed, takes it and gives the Augmented piece of
+/// the same race and slot, as it does another kingdom's piece, in the player's own kingdom.
+/// Behaviour: server.quests.kingdom-armor-walk-through
+#[test]
+fn the_smith_teaches_kingdom_armor_once_the_stars_are_done_and_the_forge_augments_it_for_your_kingdom(
+) {
+    const ENLIGHTENMENT: u32 = 0x4000_01CC;
+    const CLEANSED: u32 = 0x4000_0303;
+    const SMITH: u32 = 0x4700_3267;
+    const FORGE: u32 = 0x4700_2F63;
+    const STAR: u32 = 0x4700_0B42;
+    const UNFINISHED_BOOTS: u32 = 0x4700_0B41;
+    const ORDER_BOOTS_RECIPE: u32 = 0x6F00_02E0;
+    const SHADOW_BOOTS_RECIPE: u32 = 0x6F00_02E1;
+    const DRUDGE_UNFINISHED_RECIPE: u32 = 0x6F00_1E3F;
+    const ORDER_BOOTS: u32 = 0x4700_0B44;
+    const SHADOW_BOOTS: u32 = 0x4700_0B45;
+    const AUGMENTED_ORDER_BOOTS: u32 = 0x4700_06CF;
+    let t = &compiled().tables;
+    let portal = yalain_testkit::authored::Portal::open();
+    let (mut h, b, me) = served(t);
+    h.server.quest_ids = quest_ids();
+    h.server.kingdom_rows = t.kingdoms.clone();
+    set_level(&mut h, 50);
+    let world = player_world(&h);
+    {
+        let p = h.server.players.get_mut(&world).expect("in");
+        yalain_world::kingdoms::set_kingdom(&mut p.qualities, 2);
+        yalain_world::quals::set_int(&mut p.qualities, yalain_world::store::MONEY, 60_000);
+    }
+    let recipes = [
+        ORDER_BOOTS_RECIPE,
+        SHADOW_BOOTS_RECIPE,
+        DRUDGE_UNFINISHED_RECIPE,
+    ];
+    let craft = portal.crafting(&[], &recipes);
+    h.server
+        .effect_table
+        .effects
+        .extend(effects_read(&craft.outcome_effects(), &t.effect_rules).effects);
+    h.server.crafting = craft;
+    for item in [
+        STAR,
+        UNFINISHED_BOOTS,
+        ORDER_BOOTS,
+        SHADOW_BOOTS,
+        AUGMENTED_ORDER_BOOTS,
+    ] {
+        h.server.catalog.insert(as_installed(&portal, item));
+    }
+    let knows = |h: &Harness, recipe: u32| {
+        h.server.players[&world]
+            .play
+            .recipes
+            .iter()
+            .any(|r| r.recipe == recipe)
+    };
+    let smith = placed(t, SMITH);
+    use_person(&mut h, b, me, t, smith);
+    assert!(
+        !knows(&h, ORDER_BOOTS_RECIPE),
+        "nothing before the quest is done"
+    );
+    done_already(&mut h, ENLIGHTENMENT);
+    use_person(&mut h, b, me, t, smith);
+    assert!(
+        knows(&h, ORDER_BOOTS_RECIPE),
+        "the Order's Kingdom Armor recipes"
+    );
+    assert!(!knows(&h, SHADOW_BOOTS_RECIPE), "none of another kingdom's");
+    assert!(
+        knows(&h, DRUDGE_UNFINISHED_RECIPE),
+        "the later races' unfinished pieces"
+    );
+
+    for item in [UNFINISHED_BOOTS, STAR, STAR, STAR] {
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, item, 1).expect("given");
+    }
+    h.run(3);
+    let held = |h: &Harness, template: u32| -> Vec<u64> {
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .filter(|i| i.template == template)
+            .map(|i| i.id)
+            .collect()
+    };
+    let mut slots = held(&h, UNFINISHED_BOOTS);
+    slots.extend(held(&h, STAR));
+    assert_eq!(
+        made_with_ids(&mut h, b, ORDER_BOOTS_RECIPE, &slots),
+        Some(0),
+        "made"
+    );
+    assert!(holds_item(&h, ORDER_BOOTS), "the Order's boots");
+    assert_eq!(held_count(&h, STAR), 0, "the stars spent");
+    assert_eq!(
+        yalain_world::store::money(&h.server.players[&world].qualities),
+        10_000,
+        "for 50,000 coins"
+    );
+
+    let boots = held(&h, ORDER_BOOTS)[0];
+    assert!(
+        gave_held(&mut h, (b, me, world), t, FORGE, boots),
+        "handed back uncleansed"
+    );
+    done_already(&mut h, CLEANSED);
+    gave_held(&mut h, (b, me, world), t, FORGE, boots);
+    assert!(!holds_item(&h, ORDER_BOOTS), "taken");
+    assert_eq!(
+        held(&h, AUGMENTED_ORDER_BOOTS).len(),
+        1,
+        "augmented, of the same race and slot"
+    );
+    yalain_world::inventory::give(&mut h.server, &mut h.net, world, SHADOW_BOOTS, 1)
+        .expect("given");
+    h.run(3);
+    let shadow = held(&h, SHADOW_BOOTS)[0];
+    gave_held(&mut h, (b, me, world), t, FORGE, shadow);
+    assert!(!holds_item(&h, SHADOW_BOOTS), "another kingdom's taken");
+    assert_eq!(
+        held(&h, AUGMENTED_ORDER_BOOTS).len(),
+        2,
+        "and augmented in the player's own kingdom"
+    );
 }

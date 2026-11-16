@@ -14332,6 +14332,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.quests.beacon-guards-walk",
+        says: "An outpost's guards go with its beacon: each of the eighteen placed beacons keeps the camps of its \
+               race beside it as its guards, who leave the world, with no corpse, as it dies, stay gone while it \
+               is down, and stand again with its next.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-BEACON-GUARDS"),
+        station: "yalain-testkit::corpus::world_db::each_outposts_guards_leave_the_world_with_its_beacon_and_come_back_with_the_next",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.cancel-a-quest",
         says: "A quest under way that may be cancelled is cancelled on request: one update of the \
                cancel kind with the quest's record, and the quest no longer under way.",
@@ -14441,6 +14451,20 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WDB-SILVAS-LAIR"),
         station: "yalain-testkit::corpus::world_db::the_master_armorsmiths_helm_quest_is_moved_on_by_his_lair_bosss_fall_and_ended_by_the_helm",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.dereth-rally-race-walk-through",
+        says: "The Dereth Rally's race walks through: Rogol counts down to each race with ten lines \
+               at their times before it, and every player reads the 30-minute warning; the start \
+               strips a racer's speed buffs and keeps new ones from counting while it races; a stop \
+               touched out of turn flings the racer and moves nothing; the first to finish ends the \
+               race at once, its obelisks and stops gone; Rogol's prize pays gold by wins in a row, \
+               with the Golden Saddle and his champion's line at the seventh; the championship has \
+               seven days on the calendar.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-RALLY-RACE"),
+        station: "yalain-testkit::corpus::world_db::the_dereth_rallys_race_counts_down_strips_speed_flings_out_of_turn_and_ends_at_its_first_finisher",
         tier: Tier::Corpus,
     },
     behaviour! {
@@ -14843,6 +14867,42 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-KILL-LEADS-ON"),
         station: "yalain-testkit::cpu::play::kill_quests::a_kills_step_that_leads_somewhere_sends_the_killer",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.kingdom-armor-walk-through",
+        says: "Kingdom Armor walk through: once Radiant Enlightenment is done the temple's smith teaches a player \
+               their kingdom's Kingdom Armor recipes alone, and the later races' Unfinished Ancient ones; a piece and \
+               three Radiant Stars make it for 50,000 coins; the Chaos Forge, once cleansed, takes any kingdom's \
+               piece and gives the Augmented piece of the same race and slot in the player's kingdom.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-KINGDOM-ARMOR"),
+        station: "yalain-testkit::corpus::world_db::the_smith_teaches_kingdom_armor_once_the_stars_are_done_and_the_forge_augments_it_for_your_kingdom",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.kingdom-headquarters-walk-through",
+        says: "The Order's and the Shadow's headquarters walk through: each placed way in, in Ikeras, takes a \
+               player of its kingdom alone to the landing the raids' portals home lead to; its mine overseer, \
+               four beacons and way out are reached on foot; its Omishan beacon gives the raid, the crystal and \
+               the hour; its overseer gives the boon's task, refuses its own kingdom's material and takes an \
+               enemy's; and its way out leads back beside the way in.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-KINGDOM-HEADQUARTERS"),
+        station: "yalain-testkit::corpus::world_db::the_orders_and_the_shadows_headquarters_are_entered_by_their_kingdom_and_hold_their_overseer_and_beacons",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.kingdom-shrines-walk-through",
+        says: "The kingdom shrines walk through: the round's guardian stands at the red shrine, its stops the \
+               five shrines in order; killed by a player of the Order, it brings the Order's radiant and the \
+               Shadow's and the Dominion's monsters, none of the Order's, and the next guardian is the Order's, \
+               which no Order player may harm; the radiant used empowers and gives the Order's red ray once; a \
+               Dominion monster leaves its lens for the empowered, which handed in becomes the Dominion's red \
+               ray.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-KINGDOM-SHRINES"),
+        station: "yalain-testkit::corpus::world_db::the_shrines_guardian_goes_round_and_its_death_brings_the_killers_radiant_whose_rays_come_of_talk_and_lenses",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.quests.knorr-bounty-hills-walk-through",
@@ -15763,6 +15823,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.radiant-stars-walk-through",
+        says: "The Radiant rays to the Star of Heroes walk through: the temple's lasher gives Radiant \
+               Enlightenment and its magister the rays' recipes; each kingdom's five rays make its beam, the three \
+               beams a Radiant Star, each star made moves the quest on and the third ends it; the priestess gives \
+               the Star of Heroes with its recipe, and six Radiant Stars assembled into the Star end it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-RADIANT-STARS"),
+        station: "yalain-testkit::corpus::world_db::the_shrines_rays_make_beams_radiant_stars_and_the_star_of_heroes_ending_both_quests",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.radiant-temple-forge-walk-through",
         says: "Temple Forge Repair walks through: the Radiant Temple's Master Smith turns away one with no craft, an armorsmith under 200 and a weaponsmith, judging their crafting ability, and to an armorsmith of 200 in any race's armor gives it with her line and the recipe that makes the Master Hearthstone; the hearthstone handed to her is kept and ends it, teaching the fifteen unfinished ancient armor recipes; once it is done she no longer judges a use.",
         since: RETAIL,
@@ -16072,7 +16143,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.quests.town-officer-tickets-walk-through",
-        says: "The town officer's tickets walk through: the officer stands in camps of three towns; his killing gives his quest and a ticket, and each killing while it is under way another ticket, the quest left as it is.",
+        says: "The town officer's tickets walk through: the officer stands in camps of three towns; his killing gives his quest and a ticket, and each killing while it is under way another ticket, the quest left as it is; it runs out, failed, ten hours of play after it was given.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WDB-OFFICER-TICKETS"),
         station: "yalain-testkit::corpus::world_db::killing_the_town_officer_gives_his_quest_and_a_ticket_and_another_ticket_at_each_kill",
