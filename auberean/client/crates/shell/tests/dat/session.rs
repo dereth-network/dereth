@@ -6975,6 +6975,7 @@ fn the_host_shows_the_game_as_the_interface_asks() {
                 triple_buffering: true,
                 sync_to_display: false,
                 antialiasing: false,
+                remaster: false,
             }));
         }
     }

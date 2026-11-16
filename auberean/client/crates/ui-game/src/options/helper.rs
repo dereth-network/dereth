@@ -4,6 +4,7 @@
 //!
 //! Each row is made from its template in the toolbar's layout, labelled from a string table, with
 //! its help as the row's tooltip, and keeps a preference ([`super::preference`]): what was applied.
+//! A label or help the table has no entry for is one of this client's own ([`own`]).
 //! Its control shows what the player is setting. A row has changed while its control differs from
 //! its preference; applied, the control's value becomes the preference's; recalled, the
 //! preference's goes back into the control; defaulted, the preference's default goes there.
@@ -117,13 +118,38 @@ fn highlighted(ui: &Ui, h: Option<Handle>) -> bool {
         .is_some_and(|n| n.bool_attr(attr::HIGHLIGHTED))
 }
 
-/// A string by its table's enumeration value.
+/// Words of this client's own, for the options it offers that the September 2013 client didn't:
+/// each one's label and help, and their words.
+pub mod own {
+    use auberean_ui::Token;
+    pub const REMASTER: Token = Token::of("ID_Rendering_Remaster");
+    pub const REMASTER_HELP: Token = Token::of("ID_Rendering_Remaster_Help");
+    const WORDS: [(Token, &str); 2] = [
+        (REMASTER, "Remaster"),
+        (
+            REMASTER_HELP,
+            "Modern light and shadows, a physical sky, rain, puddles and swaying grass.",
+        ),
+    ];
+
+    /// The words of one of them, by its token.
+    #[must_use]
+    pub fn words(id: u32) -> Option<&'static str> {
+        WORDS.iter().find(|(t, _)| t.raw() == id).map(|(_, w)| *w)
+    }
+}
+
+/// A string by its table's enumeration value: the table's entry, else this client's own words for
+/// the token ([`own`]).
 #[must_use]
 pub fn text(ui: &Ui, table_enum: u32, id: u32) -> String {
     let table = ui
         .assets()
         .data_id_by_enum(table_enum, crate::flow::TABLE_MAPPING);
-    ui.assets().text(table, id).unwrap_or_default()
+    ui.assets()
+        .text(table, id)
+        .or_else(|| own::words(id).map(str::to_owned))
+        .unwrap_or_default()
 }
 
 impl Row {

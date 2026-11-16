@@ -2451,6 +2451,10 @@ impl Interface for Retail {
         self.preferences.set_presentation(modes, settings);
     }
 
+    fn offer_remaster(&mut self, offered: bool) {
+        self.preferences.offer_remaster(offered);
+    }
+
     fn toggle_full_screen(&mut self, requests: &mut Vec<Request>) {
         self.preferences.toggle_full_screen();
         if let Some(p) = self.preferences.take_presentation() {

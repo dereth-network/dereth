@@ -426,6 +426,12 @@ impl<'w, H: Host> Shell<'w, H> {
         self.interface.set_presentation(modes, &self.settings);
     }
 
+    /// Whether the host can draw the world with the remaster: the options window's rendering
+    /// section offers a box for it only while it can. A host that does not say offers none.
+    pub fn offer_remaster(&mut self, offered: bool) {
+        self.interface.offer_remaster(offered);
+    }
+
     /// Full screen, or back to the window.
     // D2-08327
     pub fn toggle_full_screen(&mut self) {
@@ -477,7 +483,7 @@ impl<'w, H: Host> Shell<'w, H> {
             Request::FxChannels(c) => self.scene.set_fx_channels(c),
             Request::Presentation(p) => {
                 self.settings.set_presentation(&p);
-                self.host.set_presentation(&p);
+                self.host.set_presentation(&self.settings.presentation());
             }
             Request::KeepPreferences(writes) => {
                 for (section, key, value) in &writes {

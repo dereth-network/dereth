@@ -7,4 +7,5 @@ mod controls;
 mod explore;
 mod keys;
 mod preferences;
+mod remaster;
 mod session;

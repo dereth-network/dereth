@@ -15,6 +15,7 @@ mod names;
 mod options;
 mod pet;
 mod radar;
+mod remaster;
 mod selection;
 mod shop;
 mod skills;

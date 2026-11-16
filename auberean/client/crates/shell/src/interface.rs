@@ -389,6 +389,10 @@ pub trait Interface {
     /// Full screen flipped, as the rendering preferences' own.
     fn toggle_full_screen(&mut self, _requests: &mut Vec<Request>) {}
 
+    /// Whether the host can draw the world with the remaster, so the rendering preferences offer
+    /// it.
+    fn offer_remaster(&mut self, _offered: bool) {}
+
     /// The client's random numbers, the one generator everything in the program draws from.
     fn set_random(&mut self, _random: &auberean_primitives::random::Random) {}
 

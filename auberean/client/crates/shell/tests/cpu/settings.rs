@@ -292,6 +292,7 @@ fn full_screen_keeps_the_pictures_shape_at_the_size_asked_for() {
         triple_buffering: false,
         sync_to_display: true,
         antialiasing: true,
+        remaster: false,
     };
     assert_eq!(p.drawn_in(monitor), asked);
     // 4:3 on a 16:9 monitor: bars of 480 at each side.
@@ -363,6 +364,7 @@ fn a_mac_window_counts_its_size_in_points() {
         triple_buffering: false,
         sync_to_display: true,
         antialiasing: true,
+        remaster: false,
     }
     .shown_in(picture, window);
     assert_eq!(
@@ -411,6 +413,7 @@ fn the_device_is_made_again_as_the_client_shows_the_game_another_way() {
         triple_buffering: false,
         sync_to_display: true,
         antialiasing: false,
+        remaster: false,
     };
     let full = Presentation {
         full_screen: true,

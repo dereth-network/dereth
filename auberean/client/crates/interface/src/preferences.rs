@@ -20,7 +20,10 @@
 //! display's refresh, antialiasing) lists the sizes the host's display can take; its values start as
 //! the settings hold them, follow the window's size while it is a window, and go to the host when
 //! submitted or put back. A flip of full screen goes through the same preference, and shows on the
-//! page.
+//! page. Where the host can draw the world with the remaster, the rendering section ends with a box
+//! for it, this client's own (`[Rendering] Remaster`, its label in this client's own words); it
+//! goes to the host with the rest of the section. Where the host can't, there is no box and the
+//! preference keeps its value.
 
 use auberean_audio::options as sound;
 use auberean_draw::quality::{Graphics, Kind, GRAPHICS, PREFERENCES};
@@ -33,7 +36,7 @@ use auberean_ui_game::options::bank::{
     Bank, Notice, Party, PreferenceFile, KEY_NAMES, SECTION_NAMES,
 };
 use auberean_ui_game::options::client::{Listing, Request, PREFERENCE_STRINGS};
-use auberean_ui_game::options::helper::Change;
+use auberean_ui_game::options::helper::{self, Change};
 use auberean_ui_game::options::preference::{
     Choice, Description, Enumerations, Flag, Number, Pref, Text,
 };
@@ -103,6 +106,10 @@ mod rendering {
     pub const DEFAULT_SIZE: (u32, u32) = (1024, 768);
     /// The least width and height listed.
     pub const LEAST_SIZE: (u32, u32) = (800, 600);
+    /// The remaster: this client's own key, which the data's enumeration of keys doesn't name,
+    /// and the name the file keeps it by.
+    pub const REMASTER: u32 = 0x4100_7E01;
+    pub const REMASTER_NAME: &str = "Remaster";
 }
 
 /// A display's size as one number: its width above its height.
@@ -334,9 +341,15 @@ impl Names {
 
 impl Enumerations for Names {
     fn value_of(&self, enumeration: u32, name: &str) -> Option<u32> {
+        if enumeration == KEY_NAMES && name.eq_ignore_ascii_case(rendering::REMASTER_NAME) {
+            return Some(rendering::REMASTER);
+        }
         self.of(enumeration)?.value(name)
     }
     fn name_of(&self, enumeration: u32, value: u32) -> Option<String> {
+        if (enumeration, value) == (KEY_NAMES, rendering::REMASTER) {
+            return Some(rendering::REMASTER_NAME.to_owned());
+        }
         self.of(enumeration)?.name(value).map(str::to_owned)
     }
 }
@@ -395,6 +408,10 @@ pub struct Preferences {
     fresh_presentation: bool,
     /// The window's size when last looked at.
     window: (u32, u32),
+    /// Whether the host can draw the remaster, so its box is offered.
+    remaster_offered: bool,
+    /// The remaster's preference while no box holds it.
+    remaster: bool,
     /// The preferences the client changed itself, for the page.
     changed: Vec<Change>,
     /// The top gore level and blood color the language allows.
@@ -421,6 +438,8 @@ impl Default for Preferences {
             tooltips: (None, None),
             fresh_presentation: false,
             window: (0, 0),
+            remaster_offered: false,
+            remaster: false,
             changed: Vec::new(),
             tops: (fx::NORMAL, fx::RED),
             forced_tops: (0, 0),
@@ -716,6 +735,10 @@ impl Preferences {
             );
             self.bank.link(k, RENDERING_HANDLER);
         }
+        self.remaster = settings.remaster;
+        if self.remaster_offered {
+            self.put_in_remaster();
+        }
         let p = settings.presentation();
         self.show_size(p.size);
         for (k, on) in [
@@ -723,6 +746,7 @@ impl Preferences {
             (rendering::TRIPLE_BUFFERING, p.triple_buffering),
             (rendering::SYNC, p.sync_to_display),
             (rendering::ANTIALIASING, p.antialiasing),
+            (rendering::REMASTER, settings.remaster),
         ] {
             if let Some(Pref::Flag(mut f)) = self.bank.find(k).cloned() {
                 f.set_value(on);
@@ -730,6 +754,56 @@ impl Preferences {
             }
         }
         self.bank.synchronize(rendering::SECTION);
+        self.relist();
+    }
+
+    /// The remaster's box put in, last of the rendering section, off by default, holding the
+    /// preference's value as applied.
+    fn put_in_remaster(&mut self) {
+        let mut f = Flag::new();
+        f.set_default(false);
+        f.description.describe(
+            PREFERENCE_STRINGS,
+            helper::own::REMASTER.raw(),
+            helper::own::REMASTER_HELP.raw(),
+        );
+        let mut out = Vec::new();
+        self.bank.bless(
+            &mut Pref::Flag(f),
+            rendering::SECTION,
+            rendering::REMASTER,
+            &File(&Profile::default()),
+            &self.names,
+            &mut out,
+        );
+        self.bank.link(rendering::REMASTER, RENDERING_HANDLER);
+        if let Some(Pref::Flag(mut f)) = self.bank.find(rendering::REMASTER).cloned() {
+            f.set_value(self.remaster);
+            self.bank.take_value(&Pref::Flag(f));
+            // Taken as applied; the host already draws it so.
+            self.bank.apply_one(&Pref::Flag(f), &mut out);
+        }
+    }
+
+    /// Whether the host can draw the remaster: its box offered, once the rendering section is put
+    /// in, or taken off the section, the preference keeping the box's value.
+    pub fn offer_remaster(&mut self, offered: bool) {
+        if offered == self.remaster_offered {
+            return;
+        }
+        self.remaster_offered = offered;
+        if self.bank.find(rendering::RESOLUTION).is_none() {
+            return;
+        }
+        if offered {
+            self.put_in_remaster();
+        } else {
+            if let Some(Pref::Flag(f)) = self.bank.find(rendering::REMASTER) {
+                self.remaster = f.get();
+            }
+            let mut out = Vec::new();
+            self.bank.destroy(rendering::REMASTER, &mut out);
+        }
         self.relist();
     }
 
@@ -767,12 +841,17 @@ impl Preferences {
             }
             _ => rendering::DEFAULT_SIZE,
         };
+        let remaster = match self.bank.find(rendering::REMASTER) {
+            Some(Pref::Flag(f)) => f.get(),
+            _ => self.remaster,
+        };
         Presentation {
             size,
             full_screen: on(rendering::FULL_SCREEN),
             triple_buffering: on(rendering::TRIPLE_BUFFERING),
             sync_to_display: on(rendering::SYNC),
             antialiasing: on(rendering::ANTIALIASING),
+            remaster,
         }
     }
 

@@ -28,6 +28,9 @@ pub struct Settings {
     /// The world drawn by the remaster rather than the retail device, where the device can draw
     /// it. Not a retail preference: off unless the player turns it on.
     pub remaster: bool,
+    /// The remaster drawn this run whatever the preference says (the command line asked for it);
+    /// never kept.
+    pub remaster_this_run: bool,
     /// The land's squares blend their corners' grounds.
     pub terrain_blending: bool,
     /// The files the key maps are kept in.
@@ -49,6 +52,8 @@ pub struct Presentation {
     pub sync_to_display: bool,
     /// The edges smoothed.
     pub antialiasing: bool,
+    /// The world drawn by the remaster, where the device can draw it.
+    pub remaster: bool,
 }
 
 impl Presentation {
@@ -155,6 +160,7 @@ impl Default for Settings {
             sync_to_display: true,
             antialiasing: true,
             remaster: false,
+            remaster_this_run: false,
             terrain_blending: true,
             key_files: crate::keys::KeyFiles::default(),
             profile: Profile::default(),
@@ -373,7 +379,8 @@ impl Settings {
         s
     }
 
-    /// How the game is shown on the screen now.
+    /// How the game is shown on the screen now: the world drawn by the remaster when the
+    /// preference or this run asks for it.
     #[must_use]
     pub const fn presentation(&self) -> Presentation {
         Presentation {
@@ -382,16 +389,19 @@ impl Settings {
             triple_buffering: self.triple_buffering,
             sync_to_display: self.sync_to_display,
             antialiasing: self.antialiasing,
+            remaster: self.remaster || self.remaster_this_run,
         }
     }
 
-    /// The game shown on the screen another way, from now on.
+    /// The game shown on the screen another way, from now on: the remaster's preference kept as
+    /// `p` has it, which leaves a remaster asked for this run drawn.
     pub const fn set_presentation(&mut self, p: &Presentation) {
         self.window = p.size;
         self.full_screen = p.full_screen;
         self.triple_buffering = p.triple_buffering;
         self.sync_to_display = p.sync_to_display;
         self.antialiasing = p.antialiasing;
+        self.remaster = p.remaster;
     }
 
     /// The preferences file as read (and kept since).

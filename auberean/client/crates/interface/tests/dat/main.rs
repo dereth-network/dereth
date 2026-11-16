@@ -5,5 +5,6 @@
 
 mod data;
 mod preferences;
+mod remaster;
 mod screens;
 mod text;

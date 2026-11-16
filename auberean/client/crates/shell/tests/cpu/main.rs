@@ -8,5 +8,6 @@ mod keys;
 mod net_binding;
 mod preferences;
 mod profile;
+mod remaster;
 mod settings;
 mod sound;

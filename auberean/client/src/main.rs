@@ -35,11 +35,14 @@
 //! for that many seconds (the world is still framed, with no picture made), printing the status
 //! lines.
 //! The game's sound plays through the default output device; `--no-sound` runs silent.
-//! `--remaster` draws the world with the remaster (`auberean-remaster`) this session, as the
-//! `[Rendering] Remaster=1` line of the preferences does, where the device can draw it: on a Vulkan
+//! The options window's Remaster box (the `[Rendering] Remaster=1` line of the preferences) draws
+//! the world with the remaster (`auberean-remaster`) where the device can draw it: on a Vulkan
 //! device it shares with the retail device, which draws the rest (on the Mac, through the MoltenVK
-//! the program carries, or an installed Vulkan). Where it can't, the retail device draws the world,
-//! as it always does with neither (on the Mac, on Metal).
+//! the program carries, or an installed Vulkan). Applied, the box makes the device again at once,
+//! as antialiasing does. Where the device can't draw it, the retail device draws the world, as it
+//! always does with the box off (on the Mac, on Metal), and once it has failed the box is offered
+//! no more; a program built without the remaster never offers it. `--remaster` draws the remaster
+//! this session whatever the box says, and is never kept.
 //! `--world-overlays` says the world takes this client's own word that it keeps a world's overlay
 //! over its data files (a Yalain world does, and the launcher says so for one); without it the
 //! client answers the world's question of which data it has as the September 2013 client does.
@@ -232,7 +235,12 @@ const OWN_OPTIONS: [(u32, &str, &str, i32); 18] = [
     (0x32, "shots", "<folder>: Where screenshots go.", 0),
     (0x11, "verbose", "Write more to the log.", 1),
     (0x11, "no-sound", "Play no sound.", 1),
-    (0x11, "remaster", "Draw the world with the remaster.", 1),
+    (
+        0x11,
+        "remaster",
+        "Draw the world with the remaster this session.",
+        1,
+    ),
     (
         0x11,
         "world-overlays",
@@ -733,20 +741,27 @@ impl Host for Desktop {
 
 /// The device for `window`: with the remaster asked for (`remaster`), one the remaster shares, the
 /// remaster drawing the world; else, or where the device can't draw it, the retail device's own.
+/// With it, whether the remaster was asked for and could not be drawn.
 fn presenter(
     window: &Arc<Window>,
     presentation: &Presentation,
     remaster: bool,
-) -> Result<auberean_present::Presenter, String> {
+) -> Result<(auberean_present::Presenter, bool), String> {
     #[cfg(feature = "remaster")]
     if remaster {
         match remastered(window, presentation) {
-            Ok(p) => return Ok(p),
+            Ok(p) => return Ok((p, false)),
             Err(e) => tracing::warn!(%e, "the remaster is not drawn: the retail device draws"),
         }
     }
-    #[cfg(not(feature = "remaster"))]
-    let _ = remaster;
+    retail_presenter(window, presentation).map(|p| (p, remaster))
+}
+
+/// The retail device's own for `window`.
+fn retail_presenter(
+    window: &Arc<Window>,
+    presentation: &Presentation,
+) -> Result<auberean_present::Presenter, String> {
     let mut desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
     // The retail device draws on Metal on the Mac, whatever else the build can draw on (the
     // remaster's Vulkan), unless the environment names a backend.
@@ -959,6 +974,8 @@ struct App<'w> {
     perf: Option<perf::PerfLog>,
     /// How the game is shown now.
     shown: Presentation,
+    /// The device could not draw the remaster this session: it is not asked for again.
+    remaster_failed: bool,
     /// The pointer is on a bar, off the picture.
     pointer_on_bar: bool,
     /// The buttons pressed on a bar and not yet let go.
@@ -1071,13 +1088,25 @@ impl App<'_> {
     fn make_device(&mut self, el: &ActiveEventLoop, w: &Arc<Window>) {
         // The window's surface is let go before another is made on it.
         self.present = None;
-        match presenter(w, &self.shown, self.shell.settings.remaster) {
+        match self.presenter(w) {
             Ok(made) => self.present = Some(made),
             Err(e) => {
                 self.failed = Some(e);
                 el.exit();
             }
         }
+    }
+
+    /// A device for window `w`, as the game is now shown: the remaster's when it is asked for and
+    /// the device has not failed to draw it. Once it has, the options window no longer offers it.
+    fn presenter(&mut self, w: &Arc<Window>) -> Result<auberean_present::Presenter, String> {
+        let remaster = self.shown.remaster && !self.remaster_failed;
+        let (made, failed) = presenter(w, &self.shown, remaster)?;
+        if failed {
+            self.remaster_failed = true;
+            self.shell.offer_remaster(false);
+        }
+        Ok(made)
     }
 
     /// The game shown as the rendering preferences now ask: full screen fills the monitor as it
@@ -1099,7 +1128,9 @@ impl App<'_> {
         if !p.full_screen && (was.full_screen || p.size != was.size) {
             let _ = w.request_inner_size(window_size_for(p.size));
         }
-        if p.antialiasing != was.antialiasing {
+        let remade = p.antialiasing != was.antialiasing
+            || (p.remaster != was.remaster && !self.remaster_failed);
+        if remade {
             self.make_device(el, &w);
         } else if let Some(present) = &mut self.present {
             present.set_presentation(p.full_screen, p.triple_buffering, p.sync_to_display);
@@ -1109,7 +1140,7 @@ impl App<'_> {
         }
         // In full screen the window stays as it is while the picture's size changes; a new device
         // starts at the window's own size; a window leaving full screen fills again at once.
-        if p.full_screen || was.full_screen || p.antialiasing != was.antialiasing {
+        if p.full_screen || was.full_screen || remade {
             let size = w.inner_size();
             self.window_sized((size.width, size.height));
         }
@@ -1201,6 +1232,7 @@ impl ApplicationHandler for App<'_> {
         if self.present.is_some() {
             return;
         }
+        self.shell.offer_remaster(cfg!(feature = "remaster"));
         self.shell
             .set_display_modes(&monitor_sizes(el.primary_monitor()));
         let (w, h) = self.shell.size;
@@ -1223,7 +1255,7 @@ impl ApplicationHandler for App<'_> {
             }
         };
         self.shown = self.shell.settings.presentation();
-        match presenter(&window, &self.shown, self.shell.settings.remaster) {
+        match self.presenter(&window) {
             Ok(p) => {
                 tracing::info!(adapter = %p.renderer.adapter, "drawing");
                 self.present = Some(p);
@@ -1449,9 +1481,7 @@ fn run() -> Result<(), String> {
     shell.dev_overlay = o.overlay;
     shell.friends = friends_service(&o);
     shell.world_takes_overlays = o.world_overlays;
-    if o.remaster {
-        shell.settings.remaster = true;
-    }
+    shell.settings.remaster_this_run = o.remaster;
     if let Some(camera) = explore {
         shell.start_explore(camera);
         if let Some(t) = o.explore_time {
@@ -1479,6 +1509,7 @@ fn run() -> Result<(), String> {
         world: &world,
         present: None,
         shown,
+        remaster_failed: false,
         pointer_on_bar: false,
         pressed_on_bar: Vec::new(),
         script,

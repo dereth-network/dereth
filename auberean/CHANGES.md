@@ -6,7 +6,7 @@ Add a line under **Unreleased** when a change lands that a player would notice. 
 not how it was done.
 
 ## Unreleased
-- New Remaster mode with modern light and shadows, a physical sky, rain, puddles and swaying grass (`--remaster`).
+- New Remaster mode with modern light and shadows, a physical sky, rain, puddles and swaying grass, on the options window.
 - Explore mode can be held at a chosen game time (`--explore-time`).
 - Fixed selected text showing as a separate box around each character.
 - Fixed dying creatures staying solid until their bodies disappeared.
