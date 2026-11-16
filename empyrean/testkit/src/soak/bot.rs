@@ -1463,11 +1463,13 @@ impl Bot {
         }
     }
 
-    /// An Aluvian male Soldier (template 6) with Heavy Weapons, Melee Defense, Healing, Jump and Run
-    /// trained, at the bot's start area: the playable-loop scenario's character.
+    /// An Aluvian male Soldier (template 6) with Heavy Weapons, Melee Defense and Healing trained
+    /// over the skills the wizard starts trained at the end of retail (Arcane Lore, Magic Defense,
+    /// Jump, Run, Loyalty and Salvaging, which cost nothing), at the bot's start area: the
+    /// playable-loop scenario's character.
     fn chargen(&self) -> CharacterSendCharGenResult {
         let mut sacs = vec![0; 55];
-        for skill in [44usize, 6, 21, 22, 24] {
+        for skill in [44usize, 6, 21, 14, 15, 22, 24, 36, 40] {
             sacs[skill] = 2;
         }
         let mut result = CharGenResult {

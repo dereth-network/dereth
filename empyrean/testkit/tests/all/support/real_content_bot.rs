@@ -189,12 +189,54 @@ pub(crate) mod real {
         })
     }
 
+    /// The classes the wizard starts an Aluvian's skills at on the world's own tables: a skill
+    /// that costs nothing to train trained (specialized when specializing costs nothing too), if
+    /// the era's skill set has it and it is not a retired weapon skill, which only the server's
+    /// table holds; every other skill Inactive.
+    fn starting_classes(w: &empyrean_world::World) -> Vec<i32> {
+        let skills = w.dats.portal_dat().skill_table();
+        let heritage = w
+            .dats
+            .portal_dat()
+            .char_gen()
+            .heritage_groups
+            .get(&1)
+            .cloned();
+        (0..55u32)
+            .map(|id| {
+                let Some(base) = skills.skills.get(&id) else {
+                    return 0;
+                };
+                let (trained, specialized) = heritage
+                    .as_ref()
+                    .and_then(|h| h.skills.iter().find(|(s, _, _)| *s == id))
+                    .map_or((base.trained_cost, base.specialized_cost), |&(_, t, s)| {
+                        (t, s)
+                    });
+                let retired = empyrean_entity::enums::ext::skill_extensions::RETIRED_WEAPONS
+                    .iter()
+                    .any(|r| u32::try_from(r.0).ok() == Some(id));
+                let in_era = w.era.creation_skills.is_none_or(|s| s.contains(&id));
+                match (trained, specialized) {
+                    _ if retired || !in_era || trained < 0 || specialized < 0 => 0,
+                    (t, s) if t < 1 && s < 1 => 3,
+                    (t, _) if t < 1 => TRAINED,
+                    _ => 0,
+                }
+            })
+            .collect()
+    }
+
     /// An Aluvian male Soldier (template 6: Strength 100, Endurance 60, Coordination 100,
-    /// Quickness 50, Focus 10, Self 10) with the requested skills trained, at start area 0.
-    pub(crate) fn chargen(skills: &[usize]) -> CharacterSendCharGenResult {
-        let mut sacs = vec![0; 55];
+    /// Quickness 50, Focus 10, Self 10) with the requested skills trained over the classes the
+    /// wizard starts them at ([`starting_classes`]), at start area 0.
+    pub(crate) fn chargen(
+        w: &empyrean_world::World,
+        skills: &[usize],
+    ) -> CharacterSendCharGenResult {
+        let mut sacs = starting_classes(w);
         for &skill in skills {
-            sacs[skill] = TRAINED;
+            sacs[skill] = sacs[skill].max(TRAINED);
         }
         let mut result = CharGenResult {
             version: 1,
@@ -560,7 +602,8 @@ pub(crate) mod real {
             "a new account has no characters"
         );
 
-        l.ts.send_message(id, NetQueue::Logon, &chargen(skills));
+        let request = chargen(&l.ts.world, skills);
+        l.ts.send_message(id, NetQueue::Logon, &request);
         assert!(
             l.ts.run_until(2.0, |ts| !ts
                 .received::<CharGenVerificationResponse>(id)

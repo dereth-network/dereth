@@ -550,3 +550,4 @@ the evidence behind each row. Edit the register, not this file.
 | V544 | retail | A jump reaches other players without an empty movement update before it. | `empyrean-testkit::all::movement::player_movement::jump_alone::a_running_jump_reaches_others_and_the_jumper_as_the_jump_alone` |
 | V545 | retail | Doors open and close by their motion alone, with no separate state message. | `empyrean-world::all::content::object_use::a_door_opens_and_closes_by_its_motions_alone` |
 | V546 | retail | A level I spell's cast sends no empty windup motion before its gesture. | `empyrean-world::all::magic::spellcasting::a_scarab_with_no_windup_gesture_sends_nothing_before_the_cast_gesture` |
+| V547 | retail | Character creation refuses a character that leaves a free skill untrained, which the retail client never sends. | `empyrean-world::all::players::chargen::a_create_that_leaves_a_free_skill_below_trained_is_refused` |

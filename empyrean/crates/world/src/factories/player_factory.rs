@@ -576,8 +576,29 @@ pub fn create(
             .iter()
             .enumerate()
         {
+            let i_u32 = u32::try_from(i).unwrap_or(u32::MAX);
+            // DIVERGE: V547
+            // Not ACE's (retail captures): a skill the wizard starts trained, one that costs
+            // nothing to train for the heritage (specialized when specializing is free too), is
+            // refused below that, as the wizard never lowers it; ACE takes any class. A skill
+            // outside the era's skill set is left to the check below, and the retired weapon
+            // skills, which the server's table holds at no cost and the wizard's never does, are
+            // not asked for.
+            let floor = dereth_rules::chargen::default_skill_class(
+                char_gen,
+                skill_table,
+                heritage_key,
+                i_u32,
+            );
+            if floor as u8 >= dereth_rules::chargen::SkillAdvancementClass::Trained as u8
+                && (shared_class(sac) as u8) < floor as u8
+                && w.era.creation_skills.is_none_or(|s| s.contains(&i_u32))
+                && !empyrean_entity::enums::ext::skill_extensions::RETIRED_WEAPONS
+                    .contains(&Skill(i_u32.cs_cast()))
+            {
+                return (CreateResult::InvalidSkillRequested, p);
+            }
             if sac != SkillAdvancementClass::Inactive {
-                let i_u32 = u32::try_from(i).unwrap_or(u32::MAX);
                 // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Entity/Enum/Skill.cs
                 // DIVERGE: an era's skill set (`EraRules.creation_skills`, ClassicACE's
                 // `SkillHelper.ValidSkills` for its ruleset): a trained or specialised skill

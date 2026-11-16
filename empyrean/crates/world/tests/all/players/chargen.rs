@@ -393,13 +393,17 @@ fn content() -> MemContent {
 use empyrean_testkit::EmptyShard;
 
 fn world() -> World {
+    world_with(dats())
+}
+
+fn world_with(dats: Arc<DatManager>) -> World {
     let now = ClockSnapshot {
         portal_year_ticks: 1000.0,
         unix_time: 1_767_225_600.0,
         utc: DotNetDateTime::new(2026, 1, 1),
         monotonic: Duration::ZERO,
     };
-    let mut w = World::new(now, dats());
+    let mut w = World::new(now, dats);
     w.content = Arc::new(content());
     w.world_manager.world_status = WorldStatusState::Open;
     guid_manager::initialize(&mut w, &mut EmptyShard);
@@ -431,25 +435,33 @@ const UNTRAINED: i32 = 1;
 const TRAINED: i32 = 2;
 const SPECIALIZED: i32 = 3;
 
-/// 55 skill advancement classes, Inactive except `set`.
+/// The skills the wizard starts trained, as they cost nothing to train: Arcane Lore (the
+/// heritages' discount), Jump, Run and Loyalty.
+const FREE_SKILLS: [usize; 4] = [14, 22, 24, 36];
+
+/// 55 skill advancement classes as the wizard starts them, the free skills trained and the rest
+/// Inactive, with `set` over them.
 fn sacs(set: &[(usize, i32)]) -> Vec<i32> {
     let mut v = vec![INACTIVE; 55];
+    for skill in FREE_SKILLS {
+        v[skill] = TRAINED;
+    }
     for &(skill, sac) in set {
         v[skill] = sac;
     }
     v
 }
 
-/// Healing, Jump and Run trained; Melee Defense and Arcane Lore specialized; Loyalty untrained:
-/// 6 + 0 + 0 + (10 + 10) + (0 + 1, the heritage discount) = 27 of 50 credits.
+/// Healing, Jump, Run and Loyalty trained; Melee Defense and Arcane Lore specialized:
+/// 6 + 0 + 0 + 0 + (10 + 10) + (0 + 1, the heritage discount) = 27 of 50 credits.
 fn standard_sacs() -> Vec<i32> {
     sacs(&[
         (21, TRAINED),
         (22, TRAINED),
         (24, TRAINED),
+        (36, TRAINED),
         (6, SPECIALIZED),
         (14, SPECIALIZED),
-        (36, UNTRAINED),
     ])
 }
 
@@ -771,7 +783,7 @@ fn the_saved_character_carries_the_requested_appearance_attributes_and_skills() 
     );
     assert_eq!(
         sac_of(&b, Skill::Loyalty),
-        Some(SkillAdvancementClass::Untrained)
+        Some(SkillAdvancementClass::Trained)
     );
     assert_eq!(sac_of(&b, Skill::Axe), None, "Inactive skills are skipped");
 
@@ -1874,6 +1886,34 @@ mod real_content {
         })
     }
 
+    /// The classes the wizard starts `heritage`'s skills at on the world's own tables (a skill
+    /// that costs nothing to train trained, specialized when specializing costs nothing too),
+    /// within the era's skill set and leaving out the retired weapon skills only the server's
+    /// table holds, with `set` over them.
+    fn starting_sacs(w: &World, heritage: u32, set: &[(usize, i32)]) -> Vec<i32> {
+        let char_gen = w.dats.portal_dat().char_gen();
+        let skills = w.dats.portal_dat().skill_table();
+        let mut v: Vec<i32> = (0..55u32)
+            .map(|id| {
+                let retired = empyrean_entity::enums::ext::skill_extensions::RETIRED_WEAPONS
+                    .iter()
+                    .any(|r| u32::try_from(r.0).ok() == Some(id));
+                if retired || w.era.creation_skills.is_some_and(|s| !s.contains(&id)) {
+                    return INACTIVE;
+                }
+                match dereth_rules::chargen::default_skill_class(char_gen, skills, heritage, id) {
+                    dereth_rules::chargen::SkillAdvancementClass::Trained => TRAINED,
+                    dereth_rules::chargen::SkillAdvancementClass::Specialized => SPECIALIZED,
+                    _ => INACTIVE,
+                }
+            })
+            .collect();
+        for &(skill, sac) in set {
+            v[skill] = v[skill].max(sac);
+        }
+        v
+    }
+
     fn real_world(account: &str) -> World {
         let now = ClockSnapshot {
             portal_year_ticks: 1000.0,
@@ -1964,7 +2004,7 @@ mod real_content {
                 "Realtest",
                 heritage,
                 [10; 6],
-                sacs(&[(22, TRAINED), (24, TRAINED), (21, TRAINED)]),
+                starting_sacs(&w, heritage, &[(21, TRAINED)]),
             );
             m.result.gender = gender;
             m.result.start_area = group.primary_start_areas.first().copied().unwrap_or(0);
@@ -2031,7 +2071,7 @@ mod real_content {
                 "Towntest",
                 1,
                 [10; 6],
-                sacs(&[(22, TRAINED), (24, TRAINED), (21, TRAINED)]),
+                starting_sacs(&w, 1, &[(21, TRAINED)]),
             );
             m.result.start_area = u32::try_from(index).unwrap();
             let guid = guid_manager::new_player_guid(&mut w);
@@ -2320,6 +2360,52 @@ fn launch_discards_only_validated_creation_remainders_and_saves_the_result() {
             );
         }
     }
+}
+
+/// Divergence: V547
+/// A skill the wizard starts trained, as it costs nothing to train (Jump, Run and Loyalty in the
+/// table, Arcane Lore by the heritage's discount), sent untrained or inactive is refused, as the
+/// wizard never sends it; trained or specialized it is taken. A free skill outside the era's skill
+/// set is not asked for: Salvaging, free here, need not be sent in a Launch world, and is asked
+/// for at the end of retail.
+#[test]
+fn a_create_that_leaves_a_free_skill_below_trained_is_refused() {
+    use empyrean_common::era::EraId;
+    let mut w = world();
+    for skill in FREE_SKILLS {
+        for sac in [UNTRAINED, INACTIVE] {
+            let lowered = request("Aldric", 1, ABILITIES, sacs(&[(skill, sac)]));
+            assert_eq!(
+                create(&mut w, &lowered).0,
+                CreateResult::InvalidSkillRequested,
+                "skill {skill} at {sac}"
+            );
+        }
+    }
+    let specialized = request("Aldric", 1, ABILITIES, sacs(&[(22, SPECIALIZED)]));
+    assert_eq!(create(&mut w, &specialized).0, CreateResult::Success);
+
+    let mut table = skill_table();
+    table.skills.insert(40, skill(0, 4));
+    let free_salvaging = || {
+        dats_builder()
+            .with_skill_table(table.clone())
+            .build()
+            .expect("dats")
+    };
+    let mut launch = world_with(free_salvaging());
+    launch.era = EraId::Launch.rules();
+    let without = request("Aldric", 1, ABILITIES, sacs(&[]));
+    // Past the skills: this world has no Launch starter content, so the create stops after them.
+    assert_eq!(
+        create(&mut launch, &without).0,
+        CreateResult::StarterProvisioningFailed
+    );
+    let mut eor = world_with(free_salvaging());
+    assert_eq!(
+        create(&mut eor, &without).0,
+        CreateResult::InvalidSkillRequested
+    );
 }
 
 /// Divergence: V461
