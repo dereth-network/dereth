@@ -1732,7 +1732,8 @@ document.addEventListener("mouseover", (ev) => {
 });
 
 // A count only a player's game reported can't be checked, so it doesn't move a world up the list.
-const rankedPlayers = (w) => (w.players_source === "client" ? 0 : w.players ?? 0);
+// A world with no count at all goes after one that counts none.
+const rankedPlayers = (w) => (w.players == null ? -1 : w.players_source === "client" ? 0 : w.players);
 
 // What a world changes from its era, in words: what it adds and what it goes without. Empty when it
 // plays the era as it was.

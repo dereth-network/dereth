@@ -9,6 +9,7 @@ not how it was done. `cargo xtask release launcher <version>` turns Unreleased i
 section, dated, and opens a new empty one in the same commit as the version.
 
 ## Unreleased
+- Worlds with no players now sort above worlds whose count is unknown.
 - Fixed hosted worlds not being offered an update when a release before it was never published.
 
 ## 0.5.5 (2026-11-14)
