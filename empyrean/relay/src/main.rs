@@ -21,7 +21,10 @@ empyrean-relay -- Dereth to an ac1999 server
   --idle-exit <seconds>   stop when no session has run and Dereth has sent nothing for this long
   --report <file>         write what each session exchanged, by opcode
   --version               the relay's version
-  -h, --help              this text";
+  -h, --help              this text
+
+The count of players the server gives goes to the Dereth Network's hub, or to the one
+DERETH_PLAYER_COUNT_HUB names; never for a server on this computer or a private network.";
 
 struct Log;
 
@@ -90,6 +93,12 @@ fn real_main() -> Result<ExitCode, String> {
         .ok_or_else(|| format!("--upstream {upstream}: no IPv4 address"))?;
     let mut seed = [0; 8];
     getrandom::fill(&mut seed).map_err(|e| e.to_string())?;
+    let mut report_count = empyrean_relay::hub::reporter(&upstream, address);
+    let count = move |players: u32| {
+        if let Some(report) = &mut report_count {
+            report(players);
+        }
+    };
     let config = Config {
         port,
         upstream: address,
@@ -111,7 +120,7 @@ fn real_main() -> Result<ExitCode, String> {
         }
         once
     };
-    empyrean_relay::serve::run(config, Box::new(secret), idle_exit, done)
+    empyrean_relay::serve::run(config, Box::new(secret), idle_exit, done, count)
         .map_err(|e| e.to_string())?;
     Ok(ExitCode::SUCCESS)
 }

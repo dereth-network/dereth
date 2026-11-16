@@ -80,18 +80,28 @@ fn wait_until_ready(
     Err("it did not answer".to_owned())
 }
 
-/// Starts the relay `program` for `world`, with its words in `log`.
+/// Starts the relay `program` for `world`, with its words in `log`. It reports the world's count of
+/// players to `hub`, the hub this launcher reads, when that is not the network's own.
 ///
 /// # Errors
 /// What went wrong, for the player.
-pub fn start(program: &Path, world: &World, log: &Path) -> Result<Started, String> {
+pub fn start(
+    program: &Path,
+    world: &World,
+    log: &Path,
+    hub: Option<&str>,
+) -> Result<Started, String> {
     let mut last = String::new();
     for _ in 0..TRIES {
         let port = free_ports(PORTS).ok_or("No free ports for the relay on this computer.")?;
         let args = relayed::relay_args(world, port, IDLE_EXIT_SECONDS)
             .ok_or("This world has no address to connect to.")?;
         let words = std::fs::File::create(log).map_err(|e| format!("{}: {e}", log.display()))?;
-        let mut child = components::command(program)
+        let mut command = components::command(program);
+        if let Some(hub) = hub {
+            command.env(dereth_launch::serverlist::PLAYER_COUNT_HUB_ENV, hub);
+        }
+        let mut child = command
             .args(&args)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -119,12 +129,12 @@ pub fn start(program: &Path, world: &World, log: &Path) -> Result<Started, Strin
 /// that came with the client ([`components::relay_program`]).
 pub fn launch(b: &Shared, c: &components::Shared, choice: crate::backend::Choice) -> LaunchOutcome {
     let err = |message: String| LaunchOutcome::Error { message };
-    let Some((world, log)) = ({
+    let Some((world, log, hub)) = ({
         let backend = lock(b);
         let world = backend.world(&choice.world_slug);
         world.map(|w| {
             let log = backend.data_folder().join(format!("relay-{}.log", w.slug));
-            (w, log)
+            (w, log, backend.player_count_hub())
         })
     }) else {
         return err("That world is no longer listed.".into());
@@ -135,7 +145,7 @@ pub fn launch(b: &Shared, c: &components::Shared, choice: crate::backend::Choice
             world.name
         ));
     };
-    match start(&program, &world, &log) {
+    match start(&program, &world, &log, hub.as_deref()) {
         Ok(started) => lock(b).launch_through(choice, started),
         Err(message) => err(message),
     }

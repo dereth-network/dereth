@@ -38,6 +38,9 @@
 //! And it brings each world's count of players (a row's `population`), from the best source the hub
 //! has, with that source's name and its age in seconds: for many worlds the only count there is.
 //! Its age goes on growing from the read; past [`COUNT_LASTS`] with no newer read it is dropped.
+//! The hub lists no world played through a relay ([`crate::relayed`]), but carries each one's count
+//! beside the list (a page's `relayed`), by the address and port the relay connects to; that count
+//! goes to the relayed world of that address, and is taken the same way.
 //!
 //! [`slug_for`]: crate::serverlist::slug_for
 
@@ -269,6 +272,42 @@ pub fn read_counts(pages: &[String]) -> Result<BTreeMap<String, HubCount>, Malfo
         .collect())
 }
 
+/// Each count of players the hub's list, its pages in order, carries for a world played through a
+/// relay (a page's `relayed`), by the key of the relayed world ([`crate::relayed::RELAYED_WORLDS`])
+/// at its address, in any case, and port. An entry of another game, or at an address no relayed
+/// world has, gives none; the first page to carry a world's count gives it.
+#[must_use]
+pub fn read_relayed_counts(pages: &[String]) -> BTreeMap<String, HubCount> {
+    let mut counts = BTreeMap::new();
+    for page in pages {
+        let Ok(page) = serde_json::from_str::<Value>(page) else {
+            continue;
+        };
+        for entry in page
+            .get("relayed")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if entry.get("game").and_then(Value::as_str) != Some("dereth") {
+                continue;
+            }
+            let host = entry.get("host").and_then(Value::as_str).unwrap_or("");
+            let port = entry.get("port").and_then(Value::as_u64);
+            let Some(world) = crate::relayed::RELAYED_WORLDS
+                .iter()
+                .find(|r| r.host.eq_ignore_ascii_case(host) && Some(u64::from(r.port)) == port)
+            else {
+                continue;
+            };
+            if let Some(count) = entry.get("population").and_then(HubCount::read) {
+                counts.entry(world.slug.to_owned()).or_insert(count);
+            }
+        }
+    }
+    counts
+}
+
 /// The hub's status for the worlds shown, kept in memory, and when to read it again.
 ///
 /// Whoever shows the worlds tells it which list is on screen ([`Self::copy_shown`] for the day's
@@ -289,6 +328,8 @@ pub struct HubWatch {
     said: BTreeMap<String, HubSaid>,
     /// Each world's count of players, as the latest read gave it.
     counts: BTreeMap<String, HubCount>,
+    /// Each relayed world's count of players, as the latest read gave it.
+    relayed_counts: BTreeMap<String, HubCount>,
     /// When that read ended, in seconds since the epoch: the counts' ages are from then.
     counts_at: u64,
     /// When the latest read started, in seconds since the epoch.
@@ -339,6 +380,7 @@ impl HubWatch {
         self.statuses.clear();
         self.said.clear();
         self.counts.clear();
+        self.relayed_counts.clear();
     }
 
     /// A list just fetched at `now` is on screen. The hub's carries each world's status as it is
@@ -350,6 +392,7 @@ impl HubWatch {
                 self.statuses = statuses;
                 self.said = said;
                 self.counts = read_counts(&list.hub).unwrap_or_default();
+                self.relayed_counts = read_relayed_counts(&list.hub);
                 self.counts_at = now;
                 self.last_read = Some(now);
                 self.word_taken = true;
@@ -389,16 +432,19 @@ impl HubWatch {
         if !self.hubs_list_shown {
             return false;
         }
-        let Ok(((statuses, said), counts)) = read.finish(now).and_then(|(list, _)| {
-            let word = read_word(&list.hub).map_err(|e| e.to_string())?;
-            let counts = read_counts(&list.hub).map_err(|e| e.to_string())?;
-            Ok::<_, String>((word, counts))
-        }) else {
+        let Ok(((statuses, said), counts, relayed_counts)) =
+            read.finish(now).and_then(|(list, _)| {
+                let word = read_word(&list.hub).map_err(|e| e.to_string())?;
+                let counts = read_counts(&list.hub).map_err(|e| e.to_string())?;
+                Ok::<_, String>((word, counts, read_relayed_counts(&list.hub)))
+            })
+        else {
             return false;
         };
         self.statuses = statuses;
         self.said = said;
         self.counts = counts;
+        self.relayed_counts = relayed_counts;
         self.counts_at = now;
         self.word_taken = true;
         true
@@ -421,7 +467,19 @@ impl HubWatch {
     /// it is too old to show.
     #[must_use]
     pub fn count(&self, key: &str, now: u64) -> Option<HubCount> {
-        let mut count = self.counts.get(key)?.clone();
+        self.aged(self.counts.get(key)?, now)
+    }
+
+    /// The hub's count of players for the relayed world kept under `key`, by the rule of
+    /// [`Self::count`].
+    #[must_use]
+    pub fn relayed_count(&self, key: &str, now: u64) -> Option<HubCount> {
+        self.aged(self.relayed_counts.get(key)?, now)
+    }
+
+    /// `count`, as old as it is at `now`, until it is too old to show.
+    fn aged(&self, count: &HubCount, now: u64) -> Option<HubCount> {
+        let mut count = count.clone();
         count.age += now.saturating_sub(self.counts_at);
         (count.age < COUNT_LASTS).then_some(count)
     }
@@ -1081,5 +1139,48 @@ mod tests {
         assert_eq!(at(NOW + COUNT_LASTS - 101).map(|c| c.players), Some(630));
         assert_eq!(at(NOW + COUNT_LASTS - 100), None, "too old to show");
         assert_eq!(watch.count("bare", NOW), None);
+    }
+
+    /// Behaviour: none (how a launcher reads the hub's list of worlds).
+    #[test]
+    fn a_relayed_worlds_count_beside_the_list_goes_to_the_relayed_world_at_its_address() {
+        let r = crate::relayed::RELAYED_WORLDS[0];
+        let entry = |host: &str, port: u16, game: &str, players: u32| {
+            json!({"host": host, "port": port, "game": game,
+                   "population": {"players": players, "source": "client", "ageSeconds": 40}})
+        };
+        let with = |relayed: Vec<Value>| {
+            let mut p: Value = serde_json::from_str(&page(&[], None)).unwrap();
+            p["relayed"] = Value::Array(relayed);
+            p.to_string()
+        };
+        let pages = [with(vec![
+            entry("elsewhere.example.org", r.port, "dereth", 1),
+            entry(r.host, r.port + 1, "dereth", 2),
+            entry(r.host, r.port, "auberean", 3),
+            entry(&r.host.to_uppercase(), r.port, "dereth", 4),
+        ])];
+        let counts = read_relayed_counts(&pages);
+        assert_eq!(counts.keys().collect::<Vec<_>>(), [r.slug]);
+        assert_eq!(counts[r.slug].players, 4);
+        let none = json!({"host": r.host, "port": r.port, "game": "dereth", "population": null});
+        assert!(read_relayed_counts(&[with(vec![none])]).is_empty());
+        assert!(
+            read_relayed_counts(&[page(&[], None)]).is_empty(),
+            "an older hub's page"
+        );
+
+        let mut watch = HubWatch::new(&sources(None));
+        watch.list_read(&hub_copy(&pages), NOW);
+        assert_eq!(
+            watch.relayed_count(r.slug, NOW + 60),
+            Some(HubCount {
+                players: 4,
+                source: "client".into(),
+                age: 100
+            })
+        );
+        assert_eq!(watch.count(r.slug, NOW), None, "never a listed world's");
+        assert_eq!(watch.relayed_count(r.slug, NOW + COUNT_LASTS - 40), None);
     }
 }

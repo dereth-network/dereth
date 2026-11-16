@@ -41,6 +41,8 @@ pub const SEEDED_CHARGE: f32 = 0.6;
 pub const STORM_SCRIPT: u32 = 0x72;
 pub const FLAVOR_LINE: &str = "The magic blazes through you!";
 pub const HELD_BACK_RECORD: u32 = 0x0E00_0000;
+/// How many characters the stand-in says are in its world.
+pub const POPULATION: u32 = 3;
 
 /// A zlib stream holding `data` in one stored block.
 fn stored(data: &[u8]) -> Packed {
@@ -76,6 +78,8 @@ pub struct Standin {
     pub received: Vec<Vec<u8>>,
     /// Whether the client said goodbye.
     pub goodbye: bool,
+    /// The lines typed in the chat, in order.
+    pub said: Vec<String>,
     switched: bool,
     characters: Vec<CharacterIdentity>,
     assembling: Vec<u8>,
@@ -93,6 +97,7 @@ impl Standin {
             login_body: Vec::new(),
             received: Vec::new(),
             goodbye: false,
+            said: Vec::new(),
             switched: false,
             characters: Vec::new(),
             assembling: Vec::new(),
@@ -322,6 +327,21 @@ impl Standin {
             // The character logs off, back to the list.
             0xF653 => self.message(4, &0xF653u32.to_le_bytes()),
             0xF7B1 if opcode_of(&message[8..]) == 0x004A => self.cast_answered(),
+            // A line in the chat; the command that asks the world's count is answered as ac1999
+            // answers it, in a line of its own in the default type.
+            0xF7B1 if opcode_of(&message[8..]) == 0x0015 => {
+                let mut r = dereth_protocol::Reader::body(&message[12..]);
+                let line = crate::codec::read_string(&mut r, 1024).unwrap();
+                if line.strip_prefix(['@', '/']) == Some("pop") {
+                    let mut answer = Writer::new();
+                    answer.u32(0xF62C);
+                    let text = format!("Current world population: {POPULATION}");
+                    write_string(&mut answer, &text, 1024).unwrap();
+                    answer.u32(0);
+                    self.message(4, &answer.into_inner());
+                }
+                self.said.push(line);
+            }
             0xF7B1 if opcode_of(&message[8..]) == 0xF61C => {
                 // The server's own view of where the player now is, with no `w` in it.
                 let position = write_blob(&MovementPositionEvent {

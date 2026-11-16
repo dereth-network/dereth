@@ -20,6 +20,7 @@ use crate::codec::{dat::CellRequest, News, Roster};
 use crate::dats::{self, ClientFiles, Push};
 use crate::down::{self, Down, Out};
 use crate::handshake::{self, Handshake, Reply};
+use crate::population::{self, Census};
 use crate::up::{self, Up, UpState};
 use crate::wire::{self, connection, LoginMetadata};
 
@@ -95,6 +96,10 @@ pub struct Bridge {
     to_dereth: Vec<OutboundMessage>,
     to_server: Vec<(Vec<u8>, SocketAddr)>,
     ending: Option<Ending>,
+    /// When to ask the world how many players it has.
+    census: Census,
+    /// The counts the world gave the relay's asks, oldest first.
+    counts: Vec<u32>,
     /// Records of the push held back from Dereth.
     pub withheld: usize,
     /// Sent to the server, by the opcode Dereth used.
@@ -148,6 +153,8 @@ impl Bridge {
             to_dereth: Vec::new(),
             to_server: Vec::new(),
             ending: None,
+            census: Census::default(),
+            counts: Vec::new(),
             withheld: 0,
             forwarded: std::collections::BTreeMap::new(),
             refused: std::collections::BTreeMap::new(),
@@ -183,6 +190,12 @@ impl Bridge {
     /// Why the session must end, once.
     pub fn take_ending(&mut self) -> Option<Ending> {
         self.ending.take()
+    }
+
+    /// The counts of players the world gave the relay's asks since the last call, oldest first
+    /// ([`crate::population`]).
+    pub fn take_counts(&mut self) -> Vec<u32> {
+        std::mem::take(&mut self.counts)
     }
 
     fn say(&mut self, message: OutboundMessage) {
@@ -259,6 +272,9 @@ impl Bridge {
                 if opcode == up::ENTER_WORLD {
                     self.down.character_entering();
                 }
+                if opcode == up::LOG_OFF {
+                    self.census.left();
+                }
                 self.send_up(queue, &out, now);
                 if opcode == up::LOGIN_COMPLETE {
                     self.after_login(now);
@@ -278,7 +294,8 @@ impl Bridge {
     }
 
     /// A character came into the world. The server's squelch list is rebuilt from what the client
-    /// holds, which outlives the character for as long as the session lasts.
+    /// holds, which outlives the character for as long as the session lasts. The world is asked how
+    /// many players it has, when that is due.
     fn after_login(&mut self, now: LocalTime) {
         let ids = self.down.squelched_ids();
         if let Up::Send { queue, bytes } = self.up.squelch_upload(&ids) {
@@ -286,6 +303,20 @@ impl Bridge {
         }
         if let Some(list) = self.down.squelch_list() {
             self.say(list);
+        }
+        self.census.entered(now.0);
+        self.ask_population(now);
+    }
+
+    /// Asks the world how many players it has, as a player would, when that is due at `now`.
+    fn ask_population(&mut self, now: LocalTime) {
+        if self.phase != Phase::Open || !self.census.due(now.0) {
+            return;
+        }
+        match self.up.talk(population::ASK) {
+            Ok(Up::Send { queue, bytes }) => self.send_up(queue, &bytes, now),
+            Ok(_) => {}
+            Err(e) => log::warn!("the ask for the world's count did not encode: {e}"),
         }
     }
 
@@ -576,6 +607,15 @@ impl Bridge {
             Out::EntryReady => self.say_encoded(&LoginEnterGameServerReady),
             Out::Options(options) => self.up.options = options,
             Out::Question => self.up.questions += 1,
+            // The answer to the relay's own ask stays out of the chat; the player's is shown.
+            Out::Population { players, line } => {
+                if self.census.answered() {
+                    self.counts.push(players);
+                } else {
+                    let out = self.down.later(line);
+                    self.say(out);
+                }
+            }
         }
         let _ = now;
     }
@@ -623,6 +663,7 @@ impl Bridge {
             budget = budget.saturating_sub(blob.len());
             self.say(down::plain(blob));
         }
+        self.ask_population(now);
     }
 
     /// Whether the session is over from this side.

@@ -111,6 +111,13 @@ pub enum Out {
     Options(u32),
     /// The server asked a question.
     Question,
+    /// The world's answer to the command that asks how many players it has
+    /// ([`crate::population`]): the count, and the chat line it is, encoded, for when the player
+    /// asked.
+    Population {
+        players: u32,
+        line: Vec<u8>,
+    },
 }
 
 /// The session's translation state.
@@ -789,11 +796,19 @@ impl Down {
             0xF62C => {
                 let mut r = dereth_protocol::Reader::body(body);
                 let text = codec::read_string(&mut r, codec::MAX_NEWS)?;
+                let players = crate::population::answer(&text);
                 let line = CommunicationTextboxString {
                     text,
                     text_type: r.u32()?,
                 };
                 let data = write_blob(&line)?;
+                // Who asked decides whether the player sees it, so it is made a message only then.
+                if let Some(players) = players {
+                    return done(Out::Population {
+                        players,
+                        line: data,
+                    });
+                }
                 done(Out::Later(self.later(data)))
             }
             _ => Ok(Translated::Unknown),

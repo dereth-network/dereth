@@ -99,6 +99,8 @@ pub struct Relay {
     refusing: BTreeMap<SessionId, String>,
     to_server: Vec<ToServer>,
     finished: Vec<Finished>,
+    /// The counts of players the world gave, oldest first ([`crate::population`]).
+    counts: Vec<u32>,
     /// The world's clock as its first grant gave it, and this relay's own clock at that moment.
     world_clock: Option<(f64, f64)>,
 }
@@ -139,6 +141,7 @@ impl Relay {
             refusing: BTreeMap::new(),
             to_server: Vec::new(),
             finished: Vec::new(),
+            counts: Vec::new(),
             world_clock: None,
         }
     }
@@ -306,6 +309,7 @@ impl Relay {
             if let Some(ending) = b.take_ending() {
                 ended.push((*session, ending));
             }
+            self.counts.extend(b.take_counts());
         }
         for (session, ending) in ended {
             let message = boot_account(Some(&ending.reason));
@@ -337,6 +341,11 @@ impl Relay {
     /// What the sessions that ended did.
     pub fn take_finished(&mut self) -> Vec<Finished> {
         std::mem::take(&mut self.finished)
+    }
+
+    /// The counts of players the world gave the relay's asks since the last call, oldest first.
+    pub fn take_counts(&mut self) -> Vec<u32> {
+        std::mem::take(&mut self.counts)
     }
 }
 

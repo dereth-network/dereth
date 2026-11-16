@@ -22,8 +22,8 @@ use empyrean_net::testing::{ClientStatus, TestClient};
 use empyrean_net::{ClockSnapshot, ClockSnapshotExt as _, PortKind};
 
 use super::standin::{
-    Standin, CHARACTER, FLAVOR_LINE, KNOWN_SPELL, PORTAL_RECORD, SEEDED_CHARGE, STORM_SCRIPT,
-    WORLD_CLOCK,
+    Standin, CHARACTER, FLAVOR_LINE, KNOWN_SPELL, POPULATION, PORTAL_RECORD, SEEDED_CHARGE,
+    STORM_SCRIPT, WORLD_CLOCK,
 };
 
 const PORT: u16 = 9000;
@@ -56,6 +56,8 @@ struct Exchange {
     received: Vec<IncomingMessage>,
     transcript: String,
     seen_by_server: usize,
+    /// Each count of players the relay took from the world.
+    counts: Vec<u32>,
 }
 
 fn config() -> Config {
@@ -79,6 +81,7 @@ impl Exchange {
             received: Vec::new(),
             transcript: String::new(),
             seen_by_server: 0,
+            counts: Vec::new(),
         }
     }
 
@@ -95,6 +98,7 @@ impl Exchange {
                 .on_later_datagram(kind, client_addr(), &bytes, self.now);
         }
         self.relay.step(self.now);
+        self.counts.extend(self.relay.take_counts());
         for out in self.relay.take_for_dereth() {
             let port = match out.via_port_kind {
                 PortKind::C2S => PORT,
@@ -450,6 +454,107 @@ fn a_character_that_logs_off_enters_the_world_again_made_anew() {
             .any(|m| m.opcode == 0xF7B0 && wrapped(m) == 0x0013),
         "the second entry's player description reaches Dereth"
     );
+}
+
+/// The lines Dereth was shown in its chat, in order.
+fn chat(x: &Exchange) -> Vec<String> {
+    x.received
+        .iter()
+        .filter_map(|m| {
+            let body = match m.opcode {
+                0xF7E0 => &m.body[..],
+                0xF7B0 if wrapped(m) == 0xF7E0 => &m.body[12..],
+                _ => return None,
+            };
+            let line = read_body::<dereth_protocol::comms::CommunicationTextboxString>(body);
+            Some(line.unwrap().text)
+        })
+        .collect()
+}
+
+/// In the world, its login complete, and the relay's first ask answered.
+fn logged_in() -> Exchange {
+    let (mut x, _) = in_world();
+    assert!(
+        x.server.said.is_empty(),
+        "nothing is asked before the character is in the world"
+    );
+    let mut complete = 0xF7B1u32.to_le_bytes().to_vec();
+    complete.extend(1u32.to_le_bytes());
+    complete.extend(crate::up::LOGIN_COMPLETE.to_le_bytes());
+    x.client.send(NetQueue::Weenie, &complete);
+    for _ in 0..GUARD {
+        if !x.counts.is_empty() {
+            break;
+        }
+        x.step();
+    }
+    assert_eq!(x.server.said, [crate::population::ASK]);
+    assert_eq!(x.counts, [POPULATION], "the count the world gave");
+    x
+}
+
+/// Behaviour: none (the relay's ask of the world's count, against a synthetic answer).
+#[test]
+fn in_the_world_the_relay_asks_the_count_and_keeps_only_its_own_answer_out_of_the_chat() {
+    let mut x = logged_in();
+    let answer = format!("Current world population: {POPULATION}");
+    assert!(!chat(&x).contains(&answer), "{:?}", chat(&x));
+
+    // The player's own ask is answered in the chat, and gives the relay no count.
+    let mut typed = dereth_protocol::Writer::new();
+    typed.u32(0xF7B1);
+    typed.u32(2);
+    typed.u32(0x0015);
+    typed.pstring("@pop").unwrap();
+    x.client.send(NetQueue::Weenie, &typed.into_inner());
+    for _ in 0..GUARD {
+        if chat(&x).contains(&answer) {
+            break;
+        }
+        x.step();
+    }
+    assert!(chat(&x).contains(&answer), "{:?}", chat(&x));
+    assert_eq!(x.server.said, ["@pop", "@pop"]);
+    assert_eq!(x.counts, [POPULATION]);
+}
+
+/// Behaviour: none (the relay's ask of the world's count, on the harness's virtual clock).
+#[test]
+fn the_relay_asks_again_every_fifteen_minutes_while_the_character_is_in_the_world() {
+    let mut x = logged_in();
+    let first = x.now.monotonic.as_secs_f64();
+    let mut asked_again = None;
+    // A step every few seconds keeps both connections busy while the clock runs on.
+    for order in 2..1_000u32 {
+        let mut step = 0xF7B1u32.to_le_bytes().to_vec();
+        step.extend(order.to_le_bytes());
+        step.extend(0xF61Cu32.to_le_bytes());
+        step.extend([1, 2, 3, 4]);
+        x.client.send(NetQueue::Weenie, &step);
+        for _ in 0..5 {
+            x.step();
+        }
+        if x.server.said.len() > 1 {
+            asked_again = Some(x.now.monotonic.as_secs_f64());
+            break;
+        }
+        x.now = x.now.advanced(Duration::from_secs(4));
+    }
+    let again = asked_again.expect("asked again");
+    let after = again - first;
+    assert!(
+        (crate::population::EVERY..crate::population::EVERY + 5.0).contains(&after),
+        "asked again {after} s on"
+    );
+    for _ in 0..GUARD {
+        if x.counts.len() > 1 {
+            break;
+        }
+        x.step();
+    }
+    assert_eq!(x.server.said, [crate::population::ASK; 2]);
+    assert_eq!(x.counts, [POPULATION; 2], "reported each time");
 }
 
 /// Behaviour: none (the relay's clock, against a synthetic grant).

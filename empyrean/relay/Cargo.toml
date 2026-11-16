@@ -27,6 +27,9 @@ log.workspace = true
 thiserror.workspace = true
 sha2.workspace = true
 getrandom.workspace = true
+# The world's count of players, reported to the Dereth Network's hub.
+serde_json.workspace = true
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 
 [dev-dependencies]
 # The whole exchange through the later protocol's real client transport.

@@ -48,6 +48,21 @@ account squelch and global squelch, are refused.
 The status ping answers as a Launch world, from `EraFeatures`. Launch is what the relay's world plays:
 run Dereth with `--era launch`, or through a launcher that read the ping.
 
+## How many players the world has
+
+The 1999 wire tells a client no count at login, so the relay's `Login_WorldInfo` (`0xF7E1`) says 0.
+Once a character is in the world (Dereth's `0x00A1`), the relay types ac1999's `@pop` command
+upstream, as the player's own chat would go (`0x0015`), and again every 15 minutes while the session
+lasts. The server answers in a chat line, `Current world population: N` (`0xF62C`). The answer to
+the relay's own ask, matched by that exact text, stays out of Dereth's chat; a `@pop` the player types
+is answered in the chat as usual. An ask unanswered for a minute is the session's last.
+
+Each count goes to the Dereth Network's hub (`POST /v1/players`, `docs/network/05-hub.md`), or to
+the one `DERETH_PLAYER_COUNT_HUB` names, as a Dereth client reports: the server's address and port as
+`--upstream` names them, and the count, nothing else, on a thread of its own, and a report that
+fails is forgotten. A server on this computer or a private network, by its name or by the address
+it stands for, is never reported.
+
 ## Known limits
 
 - Messages not translated yet are counted, logged once and dropped. `--report` lists them by opcode.

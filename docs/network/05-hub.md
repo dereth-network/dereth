@@ -133,7 +133,7 @@ below only make it slower and costlier).
 |---|---|
 | `GET /healthz` | `{"status":"ok"}` |
 | `GET /v1/config` | the registry's domain and heartbeat lifetime |
-| `GET /v1/servers?q=&ruleset=&federation=&game=&limit=&offset=` | a page of worlds: reporting online first, then by players, then by slug; `federation=on` (or `off`, `unset`) keeps only the worlds with that flag; `game=auberean` (or `dereth`) only that game's worlds, `game=all` every game's, and a list that names no game `dereth`'s alone, so that a reader that knows of no other game is never shown a world it cannot play; a word that names no game, none |
+| `GET /v1/servers?q=&ruleset=&federation=&game=&limit=&offset=` | a page of worlds: reporting online first, then by players, then by slug; `federation=on` (or `off`, `unset`) keeps only the worlds with that flag; `game=auberean` (or `dereth`) only that game's worlds, `game=all` every game's, and a list that names no game `dereth`'s alone, so that a reader that knows of no other game is never shown a world it cannot play; a word that names no game, none. Each page also carries `relayed`, the counts of the worlds launchers play through a relay (below, "How many players a world has") |
 | `GET /v1/servers/<slug>`, `/v1/servers/<slug>/status` | one world, or its status |
 | `GET /v1/resolve/<slug or slug.domain>` | the world with its endpoint resolved to addresses, as the hub already knows them: it never waits on a lookup (section 2.5), and gives only addresses on the public internet (none left answers `503` `DNS_RESOLUTION_FAILED`) |
 | `GET /v1/status` | the network's totals over every game: `total`, `counts` (worlds by state), `playersOnline`, `reportingServers`, `demoServers`, `federatedServers`; and `games`, the same six for each game's worlds alone (`{"dereth": {...}, "auberean": {...}}`), which add up to the whole |
@@ -301,7 +301,21 @@ lists, the totals of `/v1/status` or the two compatibility feeds.
   worlds of its game at that port whose host name stands for that address (a launcher gives
   Auberean the address it looked up), at most 16 names looked up for one report, all within one
   lookup's deadline. One naming none leaves nothing. The latest report for a world replaces the
-  last. A world reached through a launcher's relay has no count: its wire carries none.
+  last.
+- **A world played through a relay** on the player's own computer (a launcher's relayed world,
+  whose wire Dereth does not speak) is registered nowhere, and its wire tells a client no count at
+  login. The hub keeps a short table of such worlds by address, port and game, as the launchers
+  list them: AC1999, `ac1999.cobradragon.com` port 9110, `dereth`. The relay asks its world how many
+  players it has, as a player can ask (ac1999's `@pop`), once a character is in the world and every
+  15 minutes after, and reports the answer as a Dereth client reports, under the world's own
+  address and port, never the loopback address its client connected to. A report at a relayed
+  world's address (any case) and port, of its game, goes to that world, by the same rule as a
+  listed world's: never in a listed world's place, whatever its slug, nor in the totals, the order
+  of the lists or the compatibility feeds, with the same limits and lifetime. The relayed worlds are
+  in no list of worlds; each page of `GET /v1/servers` carries them beside its worlds instead, as
+  `relayed`: `[{"host", "port", "game", "population"}]`, every relayed world of the games the page
+  shows (its `game` query), whatever its other filters, with `population` as above (`client` its
+  only source) or `null`. A launcher shows a relayed world's count from there.
 - **A report cannot be verified.** A world signs nothing a client could pass on, and the client's
   source is public, so anyone can send one with any count. It is bounded instead: it is never listed
   over a world's own word; it is at most 5,000; each client address has five, then one every twelve
@@ -971,8 +985,8 @@ The hub's rules are [02-link-protocol.md](02-link-protocol.md)'s, and these:
   said there or held back (section 5.7); and a line said from Discord only until its world is asked
   to say it (section 5.9). The log names message types and worlds.
 - **No presence history**, no telemetry beyond the registry's heartbeat and a world's latest count
-  (section 1, "How many players a world has"), which every Dereth client reports at login with no
-  setting to turn it off, and which names nobody. While it runs, the
+  (section 1, "How many players a world has"), which every Dereth client reports at login, and a
+  launcher's relay while it plays, with no setting to turn it off, and which names nobody. While it runs, the
   routing remembers in memory alone when each character its worlds watched was last online (at most
   100,000 of them, none past 30 days), to choose which person friends a view holds when a person
   lists more than a view does (section 5.4); a hub that starts again remembers none.

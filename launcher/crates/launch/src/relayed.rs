@@ -8,6 +8,10 @@
 //! A launcher lists them, and asks whether each is up as it asks any world, with the server-tracker
 //! login in the form that wire reads ([`crate::probe::request_1999`]). No setting turns them off:
 //! [`LISTED`] does, in the code.
+//!
+//! How many players each has comes from the hub, which keeps the same table: the relay asks its
+//! world and reports the answer under the world's address and port, and the hub's list carries the
+//! count beside its worlds ([`crate::hubstatus::read_relayed_counts`]).
 
 use dereth_primitives::{EraFeatureOverrides, EraId};
 

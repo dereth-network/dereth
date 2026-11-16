@@ -17,12 +17,17 @@
 //! the later types) and [`handshake`] (the login). [`down`] and [`up`] translate each way, [`dats`]
 //! holds and serves the server's dat push, [`bridge`] is one session and [`relay`] all of them,
 //! with no socket; [`serve`] puts sockets under it.
+//!
+//! **Where it reaches beyond the server:** the Dereth Network's hub, with the count of players the
+//! world gives it ([`population`], [`hub`]), and nothing else.
 
 pub mod bridge;
 pub mod codec;
 pub mod dats;
 pub mod down;
 pub mod handshake;
+pub mod hub;
+pub mod population;
 pub mod relay;
 pub mod report;
 pub mod serve;

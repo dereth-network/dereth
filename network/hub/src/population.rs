@@ -14,6 +14,13 @@
 //! address has only a few. What is kept is the latest count and its time, for each world, in memory
 //! only; the address is kept only as the limit's counter, for as long as that limit lasts, and is
 //! never written or logged.
+//!
+//! **Relayed worlds.** A world launchers play through a relay on the player's own computer is
+//! registered nowhere, so the hub lists it nowhere and knows it only from [`RELAYED_WORLDS`]. The
+//! relay asks the world how many are on and reports that as a client does, under the world's own
+//! address and port. Such a report is taken by the same rule, and kept apart from the listed
+//! worlds' so that no slug can ever take it; the lists carry it beside the worlds
+//! ([`Counts::relayed`]).
 
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -60,6 +67,32 @@ pub const TREESTATS_EVERY: Duration = Duration::from_secs(15 * 60);
 
 /// How long after a failed read of TreeStats the next is made.
 pub const TREESTATS_AFTER_FAILURE: Duration = Duration::from_secs(3600);
+
+/// A world launchers play through a relay on the player's own computer, which no registration
+/// names: where the relay connects, and the game played there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RelayedWorld {
+    pub host: &'static str,
+    pub port: u16,
+    pub game: Game,
+}
+
+/// Every relayed world the hub takes reports for, as the launchers list them.
+pub const RELAYED_WORLDS: &[RelayedWorld] = &[RelayedWorld {
+    host: "ac1999.cobradragon.com",
+    port: 9110,
+    game: Game::Dereth,
+}];
+
+/// The places in [`RELAYED_WORLDS`] of the relayed worlds of `game` at `host` (in any case) and
+/// `port`.
+fn relayed_at(game: Game, host: &str, port: u16) -> impl Iterator<Item = usize> + '_ {
+    RELAYED_WORLDS
+        .iter()
+        .enumerate()
+        .filter(move |(_, r)| r.game == game && r.port == port && r.host.eq_ignore_ascii_case(host))
+        .map(|(i, _)| i)
+}
 
 /// The most of TreeStats' answer that is read.
 const TREESTATS_MOST_BYTES: usize = 256 * 1024;
@@ -142,6 +175,8 @@ pub struct Counts {
     /// The latest report for each world, by its game and slug, so a report for a world of one
     /// game is never another game's, even under a slug that changed hands.
     reports: Mutex<HashMap<(Game, String), Count>>,
+    /// The latest report for each relayed world, by its place in [`RELAYED_WORLDS`].
+    relayed: Mutex<HashMap<usize, Count>>,
     /// TreeStats' latest count for each name ([`name_key`]).
     treestats: Mutex<HashMap<String, Count>>,
     limits: Limits,
@@ -153,6 +188,7 @@ impl Counts {
     pub fn new(per_caller: Rate, overall: Rate) -> Self {
         Self {
             reports: Mutex::new(HashMap::new()),
+            relayed: Mutex::new(HashMap::new()),
             treestats: Mutex::new(HashMap::new()),
             limits: Limits::new(per_caller, overall),
         }
@@ -176,6 +212,38 @@ impl Counts {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         reports.retain(|_, c| c.at + CLIENT_COUNTS_FOR > at);
         reports.insert((game, slug.to_owned()), Count { players, at });
+    }
+
+    /// A report that the relayed world at `place` in [`RELAYED_WORLDS`] has `players` at `at`, in
+    /// place of the last, by the rule of [`Self::record_report`].
+    fn record_relayed(&self, place: usize, players: u32, at: SystemTime) {
+        let mut relayed = self
+            .relayed
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        relayed.retain(|_, c| c.at + CLIENT_COUNTS_FOR > at);
+        relayed.insert(place, Count { players, at });
+    }
+
+    /// Every relayed world as the lists carry it, `{"host", "port", "game", "population"}`, its
+    /// `population` its latest report while that counts at `now`, or `null`.
+    #[must_use]
+    pub fn relayed(&self, now: SystemTime) -> Vec<Value> {
+        let relayed = self
+            .relayed
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        RELAYED_WORLDS
+            .iter()
+            .enumerate()
+            .map(|(i, r)| {
+                let population = listed(relayed.get(&i).copied(), "client", CLIENT_COUNTS_FOR, now);
+                json!({
+                    "host": r.host, "port": r.port, "game": r.game.word(),
+                    "population": population,
+                })
+            })
+            .collect()
     }
 
     /// TreeStats' answer just read, in place of the last.
@@ -301,7 +369,8 @@ fn slugs_resolving_to(
     slugs
 }
 
-/// A client's report: anything well-formed is answered alike, whether or not it named a world.
+/// A client's report: anything well-formed is answered alike, whether or not it named a world. It
+/// goes to the listed worlds it names, and to the relayed world at its address and port.
 pub(crate) fn handle(shared: &Shared, method: &str, body: &[u8], ip: IpAddr) -> crate::api::Reply {
     let reply = |status: u16, v: Value| crate::api::Reply {
         status,
@@ -350,6 +419,9 @@ pub(crate) fn handle(shared: &Shared, method: &str, body: &[u8], ip: IpAddr) -> 
         shared
             .counts
             .record_report(report.game, &slug, report.players, at);
+    }
+    for place in relayed_at(report.game, &report.host, report.port) {
+        shared.counts.record_relayed(place, report.players, at);
     }
     reply(200, json!({}))
 }
@@ -802,5 +874,47 @@ mod tests {
             counts.limits.take(ip, 100.0 + 720.0).is_ok(),
             "twelve minutes on"
         );
+    }
+
+    /// Spec: hub: a relayed world is the one of its game at its address, in any case, and port.
+    #[test]
+    fn a_relayed_world_is_found_by_its_game_address_and_port() {
+        let r = RELAYED_WORLDS[0];
+        let at = |game, host: &str, port| relayed_at(game, host, port).collect::<Vec<_>>();
+        assert_eq!(at(r.game, &r.host.to_uppercase(), r.port), [0]);
+        assert!(at(r.game, r.host, r.port + 1).is_empty());
+        assert!(at(Game::Auberean, r.host, r.port).is_empty());
+        assert!(at(r.game, "elsewhere.example.org", r.port).is_empty());
+    }
+
+    /// Spec: hub: a relayed world's count is the latest report for it, listed with its source and
+    /// age for two hours, and a listed world never shows it, whatever its slug.
+    #[test]
+    fn a_relayed_worlds_count_is_its_latest_report_and_no_listed_worlds() {
+        let r = RELAYED_WORLDS[0];
+        let counts = counts();
+        assert_eq!(
+            counts.relayed(at(NOW)),
+            [json!({"host": r.host, "port": r.port, "game": "dereth", "population": null})]
+        );
+        counts.record_relayed(0, 9, at(NOW - 60));
+        counts.record_relayed(0, 4, at(NOW - 30));
+        assert_eq!(
+            counts.relayed(at(NOW))[0]["population"],
+            json!({"players": 4, "source": "client", "ageSeconds": 30})
+        );
+        let lasts = CLIENT_COUNTS_FOR.as_secs();
+        assert_eq!(
+            counts.relayed(at(NOW + lasts - 31))[0]["population"]["players"],
+            4
+        );
+        assert_eq!(
+            counts.relayed(at(NOW + lasts - 30))[0]["population"],
+            Value::Null
+        );
+
+        let mut namesake = world("ac1999", "AC1999");
+        namesake["endpoint"] = json!({"address": r.host, "port": r.port});
+        assert_eq!(population(&counts, &mut namesake, NOW), Value::Null);
     }
 }

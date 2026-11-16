@@ -258,7 +258,12 @@ impl WorldList {
                     listed && self.hub.word_pending()
                 };
                 let own_count = live.is_some_and(|l| l.players.is_some());
-                let count = self.hub.count(&w.slug, now).filter(|_| listed);
+                // A relayed world's count is carried beside the list, by its address.
+                let count = if w.relayed {
+                    self.hub.relayed_count(&w.slug, now)
+                } else {
+                    self.hub.count(&w.slug, now).filter(|_| listed)
+                };
                 let mut w = worlds::shown(w, answered, heard, hub, state);
                 worlds::take_hub_count(&mut w, count.as_ref(), own_count);
                 w.era_state = worlds::era_state(&w, heard.is_some(), may_answer);
@@ -311,6 +316,49 @@ mod tests {
             .map(|w| w.slug)
             .collect();
         assert_eq!(favorites, ["ironwood"]);
+    }
+
+    /// A world played through a relay shows the count the hub carries for its address beside the
+    /// list, as any world shows the hub's count, unless it is down.
+    #[test]
+    fn a_relayed_world_shows_the_count_the_hub_carries_for_its_address() {
+        let now = fixture::READ_AT;
+        let relayed = crate::relayed::RELAYED_WORLDS[0];
+        let fetch = move |url: &str| -> Result<Vec<u8>, String> {
+            if url.starts_with(HUB_LIST_URL) {
+                let mut page: serde_json::Value =
+                    serde_json::from_str(&fixture::hub_page()).unwrap();
+                page["relayed"] = serde_json::json!([{
+                    "host": relayed.host, "port": relayed.port, "game": "dereth",
+                    "population": {"players": 0, "source": "client", "ageSeconds": 30},
+                }]);
+                Ok(page.to_string().into_bytes())
+            } else {
+                Err(format!("{url}: not found"))
+            }
+        };
+        let mut list = WorldList::default();
+        list.read_with(now, fetch).unwrap();
+        let state = LauncherState::default();
+        let shown = |up: Option<bool>| {
+            list.shown_as(&state, now + 10, |_| (None, up), relayed.slug)
+                .unwrap()
+        };
+        let w = shown(Some(true));
+        assert!(w.relayed);
+        assert_eq!(
+            (w.players, w.players_age, w.players_source.as_deref()),
+            (Some(0), Some(40), Some("client"))
+        );
+        let down = shown(Some(false));
+        assert_eq!((down.players, down.players_source), (None, None));
+        let others = list.shown(&state, now, |_| (None, None));
+        assert!(
+            others
+                .filter(|w| !w.relayed)
+                .all(|w| w.players_source.as_deref() != Some("client")),
+            "no listed world takes it"
+        );
     }
 
     /// The era of an Empyrean world nobody has heard from is being checked while an answer may

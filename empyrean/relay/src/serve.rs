@@ -77,7 +77,7 @@ impl Idle {
 }
 
 /// Run until `done` says to stop (`done` is told each session that ends), or until nothing has
-/// happened for `idle_exit`.
+/// happened for `idle_exit`. `count` is told each count of players the world gives.
 ///
 /// # Errors
 /// A socket that does not bind.
@@ -86,6 +86,7 @@ pub fn run(
     fresh_secret: empyrean_net::status_ping::SecretSource,
     idle_exit: Option<Duration>,
     mut done: impl FnMut(&Finished) -> bool,
+    mut count: impl FnMut(u32),
 ) -> io::Result<()> {
     let clock = SystemClock::new();
     let driver = listen(IpAddr::V4(Ipv4Addr::LOCALHOST), config.port)?;
@@ -144,6 +145,9 @@ pub fn run(
             }
         }
         sockets.retain(|session, _| relay.bridge(*session).is_some());
+        for players in relay.take_counts() {
+            count(players);
+        }
         let mut stop = false;
         for finished in relay.take_finished() {
             stop |= done(&finished);

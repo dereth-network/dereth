@@ -998,9 +998,15 @@ impl Backend {
     /// Put the hub this launcher reads in `command`'s environment, for the client it starts to
     /// report its world's count of players to, when it is not the network's own.
     pub fn report_players_to_hub(&self, command: &mut Command) {
-        if let Some(hub) = dereth_launch::serverlist::other_hub(self.list.sources()) {
+        if let Some(hub) = self.player_count_hub() {
             command.env(dereth_launch::serverlist::PLAYER_COUNT_HUB_ENV, hub);
         }
+    }
+
+    /// The hub this launcher reads, when it is not the network's own: where the clients and relays
+    /// it starts report their world's count of players.
+    pub fn player_count_hub(&self) -> Option<String> {
+        dereth_launch::serverlist::other_hub(self.list.sources())
     }
 
     /// The slugs of the worlds the Dereth Network's hub lists, as the list in use has them; none

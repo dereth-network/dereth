@@ -191,6 +191,10 @@ the player count the world gave it, so the launcher can show how many are playin
 to turn this off. It carries no account, character or id, and the hub keeps only the latest count and
 when it came, never your address ([the hub's rules](docs/network/05-hub.md)).
 
+A world played through the launcher's relay (AC1999) gives no count at login, so while you play it the
+relay asks the world with its `@pop` command, once you're in the world and every 15 minutes after,
+keeps that answer out of your chat, and tells the hub the same way.
+
 ## Where the client keeps its settings
 
 Everything the player saves (`UserPreferences.ini`, key maps, UI layouts, screenshots and

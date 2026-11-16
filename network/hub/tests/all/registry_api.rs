@@ -737,6 +737,82 @@ fn an_auberean_clients_report_reaches_only_its_games_world() {
     assert_eq!(public_world(addr, "frostfell")["population"]["players"], 4);
 }
 
+/// The relayed worlds a page of the list carries, for `game`, once `wanted` holds of them, read
+/// from the list, whose snapshot may be a moment behind. The wait only guards against a hang.
+fn relayed_until(
+    addr: std::net::SocketAddr,
+    game: &str,
+    wanted: impl Fn(&[serde_json::Value]) -> bool,
+) -> Vec<serde_json::Value> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    loop {
+        let path = format!("/v1/servers?game={game}&limit=1");
+        let (status, body) = http(addr, "GET", &path, None, "");
+        assert_eq!(status, 200, "{body}");
+        let page: serde_json::Value = serde_json::from_str(&body).expect("a page");
+        let relayed = page["relayed"]
+            .as_array()
+            .expect("the relayed worlds")
+            .clone();
+        if wanted(&relayed) {
+            return relayed;
+        }
+        assert!(std::time::Instant::now() < deadline, "{page}");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
+/// Spec: hub: a client's report for a relayed world's address and port is carried beside the list's
+/// worlds, with its source and age, and in no world's place or the network's totals; one for an
+/// address no world has leaves nothing; the reports share one address's limits.
+#[test]
+fn a_report_for_a_relayed_world_is_carried_beside_the_list() {
+    use dereth_network_hub::population::RELAYED_WORLDS;
+    let (running, _, _) = super::conformance::hub();
+    let addr = running.local_addr();
+    let r = RELAYED_WORLDS[0];
+    let post = |host: &str, players: u32| {
+        let body = serde_json::json!({"host": host, "port": r.port, "players": players});
+        http(addr, "POST", "/v1/players", None, &body.to_string())
+    };
+
+    let before = relayed_until(addr, "all", |_| true);
+    assert_eq!(
+        before,
+        [
+            serde_json::json!({"host": r.host, "port": r.port, "game": "dereth",
+                            "population": null})
+        ]
+    );
+    let nowhere = post("nowhere.example.org", 9);
+    assert_eq!(nowhere, (200, "{}".to_owned()));
+
+    assert_eq!(post(&r.host.to_uppercase(), 6), nowhere, "answered alike");
+    let shown = relayed_until(addr, "all", |w| w[0]["population"]["source"] == "client");
+    assert_eq!(shown[0]["population"]["players"], 6, "not the other report");
+    assert!(shown[0]["population"]["ageSeconds"].is_u64(), "{shown:?}");
+    assert_eq!(relayed_until(addr, "dereth", |_| true), shown);
+    assert!(
+        relayed_until(addr, "auberean", |_| true).is_empty(),
+        "only the games the page shows"
+    );
+
+    let (_, page) = http(addr, "GET", "/v1/servers?game=all&limit=100", None, "");
+    let page: serde_json::Value = serde_json::from_str(&page).expect("a page");
+    let rows = page["data"].as_array().expect("rows");
+    assert!(rows.iter().all(|w| w["population"].is_null()), "{page}");
+    let (_, totals) = http(addr, "GET", "/v1/status", None, "");
+    let totals: serde_json::Value = serde_json::from_str(&totals).expect("totals");
+    assert_eq!(totals["playersOnline"], 0, "not in the totals");
+
+    for _ in 0..8 {
+        if post(r.host, 1).0 == 429 {
+            return;
+        }
+    }
+    panic!("one address has only a few reports");
+}
+
 /// Spec: hub: a hub told where TreeStats' counts are reads them by itself and lists a count for a
 /// world nothing better speaks for, under the world's name.
 #[test]

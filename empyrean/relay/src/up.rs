@@ -106,6 +106,8 @@ pub const LOGIN_COMPLETE: u32 = 0x00A1;
 
 /// The request to enter the world as a character, after which the server makes the world anew.
 pub const ENTER_WORLD: u32 = 0xF657;
+/// The character leaves the world, back to the character list.
+pub const LOG_OFF: u32 = 0xF653;
 /// The 1999 client's own command to tie to the life stone at hand: it never goes up as speech.
 const SAVE_COMMAND: &str = "save";
 
@@ -344,6 +346,17 @@ impl UpState {
             queue: QUEUE_WEENIE,
             bytes: out,
         }
+    }
+
+    /// `0x0015`: a line typed in the chat, a command among them, as the 1999 client sends the
+    /// player's own.
+    ///
+    /// # Errors
+    /// A line longer than a 1999 string holds.
+    pub fn talk(&mut self, line: &str) -> Result<Up, MessageError> {
+        let mut w = Writer::new();
+        codec::write_string(&mut w, line, codec::MAX_NEWS)?;
+        Ok(self.ordered(0x0015, &w.into_inner()))
     }
 
     /// `0x005C`: the whole squelch list, which a 1999 client shows the server at each login.

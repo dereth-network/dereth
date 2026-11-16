@@ -147,7 +147,8 @@ fetches at most once a day (the refresh button fetches again) and keeps the copy
 these in a table of its own, and lists them. Play starts `empyrean-relay`, which comes with Dereth
 beside the client, on this computer's loopback address and starts the client towards it; the relay
 goes when the client does. Otherwise the launcher only asks such a world whether it is up, as it asks any
-world.
+world. Its count of players comes from the hub, which carries it beside its list: while someone plays
+it, the relay asks the world how many are on and reports the answer.
 
 **Asheron's Call 2 worlds not on the hub** (Icefire) have no list either. The launcher keeps them
 in another table of its own and lists them in that game's realm, played directly by Auberean or the

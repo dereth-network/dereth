@@ -269,6 +269,8 @@ struct Public {
     built: Instant,
     /// Every world the public answers show, rendered.
     worlds: Vec<Value>,
+    /// Every relayed world, with its count ([`crate::population::Counts::relayed`]).
+    relayed: Vec<Value>,
     /// The network's totals.
     totals: Value,
 }
@@ -610,6 +612,7 @@ impl Shared {
             built: Instant::now(),
             totals: crate::registry::totals_of(&worlds, now),
             worlds,
+            relayed: self.counts.relayed(at),
         });
         *self
             .public
@@ -2109,16 +2112,25 @@ fn http(shared: &Shared, head: &Head, body: &[u8], ip: IpAddr) -> (u16, String, 
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(0usize)
                 .min(1_000_000);
+            let games = Games::from_query(q.get("game").map(String::as_str));
             reg_result(shared.public().map(|p| {
-                crate::registry::page_of(
+                let mut page = crate::registry::page_of(
                     &p.worlds,
                     q.get("q").map_or("", String::as_str),
                     q.get("ruleset").map_or("", String::as_str),
                     q.get("federation").map_or("", String::as_str),
-                    Games::from_query(q.get("game").map(String::as_str)),
+                    games,
                     limit,
                     offset,
-                )
+                );
+                // The relayed worlds of the games shown, on every page, beside the worlds.
+                page["relayed"] = p
+                    .relayed
+                    .iter()
+                    .filter(|r| games.shows(r))
+                    .cloned()
+                    .collect();
+                page
             }))
         }
         (_, ["v1", "status"]) if get => reg_result(shared.public().map(|p| p.totals.clone())),

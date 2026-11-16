@@ -668,3 +668,34 @@ fn a_stack_size_and_an_update_of_that_int_share_one_sequence() {
     let (_, update) = unwrapped(&one(&mut d, &words(0x000E, &[OTHER, STACK_SIZE_INT, 6])));
     assert_eq!(update[4], 2, "the next sequence byte of the same property");
 }
+
+#[test]
+fn the_worlds_count_of_players_is_held_apart_as_the_line_it_would_be() {
+    let line = |text: &str| {
+        let mut w = Writer::new();
+        w.u32(0xF62C);
+        codec::write_string(&mut w, text, codec::MAX_NEWS).unwrap();
+        w.u32(0);
+        w.into_inner()
+    };
+    let mut d = entered();
+    let [Out::Population {
+        players,
+        line: held,
+    }] = &d.message(&line("Current world population: 4"))[..]
+    else {
+        panic!("held apart");
+    };
+    assert_eq!(*players, 4);
+    let shown = read_checked::<CommunicationTextboxString>(held).unwrap();
+    assert_eq!(
+        (shown.text.as_str(), shown.text_type),
+        ("Current world population: 4", 0)
+    );
+    let other = one(&mut d, &line("Current world population: four"));
+    assert_eq!(
+        other.data[..4],
+        0xF7E0u32.to_le_bytes(),
+        "any other line passes"
+    );
+}
