@@ -6,6 +6,11 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- World: the quest of the three stars at the five kingdom shrines, and the kingdoms' armor it unlocks.
+- World: the Order's and the Shadow's headquarters can be entered.
+- World: the Dereth Rally runs its races.
+- World: the cleansed forge in the plane of chaos forges augmented armor.
+- World: the western olthoi hive has its nymph boss and a portal in front of its mound.
 - Worlds can now have a guardian that moves round its shrines and sides with its killer's kingdom.
 - Worlds can now have guards that leave when the beacon they guard is destroyed.
 - Knockbacks and other pushes now send players flying.
