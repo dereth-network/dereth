@@ -1121,7 +1121,10 @@ pub(crate) fn fizzle_research_formula(w: &mut World, this: ObjectGuid, formula: 
     speak_spell_words(w, this, &words, false);
 
     let mut chain = ActionChain::new();
-    for motion in made_windups(windups).into_iter().chain(casts) {
+    for windup in made_windups(windups) {
+        enqueue_windup(w, this, &mut chain, &[windup], CAST_SPEED, false);
+    }
+    for motion in casts {
         world_object_networking::enqueue_motion_magic(w, this, &mut chain, motion, CAST_SPEED);
     }
     let formula = formula.to_vec();
@@ -1211,13 +1214,8 @@ pub fn do_windup_gestures(
 
         // don't mess with CurrentMotionState here?
         if !fast_tick {
-            _windup_time = world_object_networking::enqueue_motion_magic(
-                w,
-                this,
-                cast_chain,
-                windup_gesture,
-                CAST_SPEED,
-            );
+            _windup_time =
+                enqueue_windup(w, this, cast_chain, &[windup_gesture], CAST_SPEED, false);
         }
 
         /*Console.WriteLine($"{spell.Name}");
@@ -1227,16 +1225,7 @@ pub fn do_windup_gestures(
     }
 
     if fast_tick && !windup_gestures.is_empty() {
-        _windup_time = world_object_networking::enqueue_motion_action(
-            w,
-            this,
-            cast_chain,
-            &windup_gestures,
-            CAST_SPEED,
-            Some(MotionStance::Magic),
-            false,
-            true,
-        );
+        _windup_time = enqueue_windup(w, this, cast_chain, &windup_gestures, CAST_SPEED, true);
     }
 }
 
@@ -1250,6 +1239,80 @@ fn made_windups(gestures: Vec<MotionCommand>) -> Vec<MotionCommand> {
         .into_iter()
         .filter(|&g| g != MotionCommand::Invalid)
         .collect()
+}
+
+/// Queues on `chain` the windup `gestures` make: the Magic stance with no forward command, each
+/// gesture an action at `speed` ([`windup_motion`]), sent while the cast lasts, then the gestures'
+/// animation time. The fast-tick cast (`fast`) also makes the motion the caster's current one and
+/// plays it on the server's body, as its windup always did.
+// DIVERGE: V551
+// Not ACE's (retail captures): ACE sends each windup gesture as the forward command (a cast's
+// `EnqueueMotionMagic`) or after a forward Ready (the fast tick's `EnqueueMotionAction`); retail
+// sent it as an action with no forward command.
+fn enqueue_windup(
+    w: &mut World,
+    this: ObjectGuid,
+    chain: &mut ActionChain,
+    gestures: &[MotionCommand],
+    speed: f32,
+    fast: bool,
+) -> f32 {
+    use world_object_networking::shims;
+    let motion = windup_motion(this, gestures, speed);
+    let motion_table_id = obj(w, this).motion_table_id();
+    let anim_length: f32 = gestures
+        .iter()
+        .map(|&g| {
+            shims::motion_table_get_animation_length(
+                w,
+                motion_table_id,
+                MotionStance::Magic,
+                g,
+                None,
+                speed,
+            )
+        })
+        .sum();
+    let gestures = gestures.to_vec();
+    chain.add_action(Actor::Object(this), move |w| {
+        if !(w.objects.get(this).is_some_and(WorldObject::is_player)
+            && shims::player_magic_state_is_casting(w, this))
+        {
+            return;
+        }
+        if fast {
+            shims::set_current_motion_state(w, this, Some(motion.clone()));
+            world_object_networking::enqueue_broadcast_motion(w, this, &motion, None, Some(false));
+            world_object_networking::apply_physics_motion(
+                w,
+                this,
+                &Motion::new(MotionStance::Magic, MotionCommand::Ready, speed),
+            );
+            for &g in &gestures {
+                world_object_networking::apply_physics_motion(
+                    w,
+                    this,
+                    &Motion::new(MotionStance::Magic, g, speed),
+                );
+            }
+        } else {
+            world_object_networking::enqueue_broadcast_motion(w, this, &motion, None, None);
+        }
+    });
+    chain.add_delay_seconds(w, f64::from(anim_length));
+    anim_length
+}
+
+/// The motion of a windup: the Magic stance, no forward command, and each of `gestures` an action
+/// at `speed`, turning at the speed a cast's motions turn at.
+fn windup_motion(this: ObjectGuid, gestures: &[MotionCommand], speed: f32) -> Motion {
+    let mut motion = Motion::from_stance(MotionStance::Magic);
+    motion.motion_state.forward_command = MotionCommand::Invalid;
+    motion.motion_state.turn_speed = 2.25;
+    for &g in gestures {
+        motion.motion_state.add_command(this, g, speed);
+    }
+    motion
 }
 
 // ACE: Player.DoCastGesture

@@ -1457,6 +1457,131 @@ fn a_fizzled_research_formula_sends_nothing_for_a_scarab_with_no_windup_gesture(
     assert_eq!(forwards.first(), Some(&Some(blast)), "{forwards:x?}");
 }
 
+/// A motion sent (`0xF74C`, movement type 0), decoded: its stance's index, its forward command's
+/// index if it names one, and its actions, each a command's index and its speed.
+#[derive(Debug, PartialEq)]
+struct SentMotion {
+    style: Option<u16>,
+    forward: Option<u16>,
+    actions: Vec<(u16, f32)>,
+}
+
+fn motions_sent(
+    sends: &[empyrean_world::network::game_messages::game_message::SentMessage],
+) -> Vec<SentMotion> {
+    let u16_at = |b: &[u8], at: usize| u16::from_le_bytes([b[at], b[at + 1]]);
+    let f32_at = |b: &[u8], at: usize| f32::from_le_bytes(b[at..at + 4].try_into().unwrap());
+    sends
+        .iter()
+        .map(|(_, _, b)| b)
+        .filter(|b| b.len() >= 24 && b[0..4] == 0xF74C_u32.to_le_bytes() && b[16] == 0)
+        .map(|b| {
+            let word = u32::from_le_bytes(b[20..24].try_into().unwrap());
+            let (flags, count) = (word & 0x7F, word >> 7);
+            let mut at = 24;
+            let mut take16 = |bit: u32| {
+                (flags & bit != 0).then(|| {
+                    at += 2;
+                    u16_at(b, at - 2)
+                })
+            };
+            let style = take16(0x1);
+            let forward = take16(0x2);
+            let _ = (take16(0x8), take16(0x20));
+            for bit in [0x4, 0x10, 0x40] {
+                if flags & bit != 0 {
+                    at += 4;
+                }
+            }
+            let actions = (0..count as usize)
+                .map(|k| (u16_at(b, at + 8 * k), f32_at(b, at + 8 * k + 4)))
+                .collect();
+            SentMotion {
+                style,
+                forward,
+                actions,
+            }
+        })
+        .collect()
+}
+
+/// A windup as retail sent it: the Magic stance, no forward command, and the scarab's gesture as
+/// its one action at the cast speed (2.0).
+fn is_windup_of(m: &SentMotion, gesture: Mc) -> bool {
+    let index = |c: u32| u16::try_from(c & 0xFFFF).unwrap();
+    m.style == Some(index(MotionStance::Magic.0))
+        && m.forward.is_none()
+        && m.actions == [(index(gesture.0), 2.0)]
+}
+
+/// Divergence: V551
+/// A cast's windup reaches the client as an action, not as the forward command: the first motion
+/// the cast sends is the Magic stance with no forward command and the scarab's gesture as its one
+/// action at speed 2.0; the talisman's gesture follows as the forward command, and no motion
+/// carries the scarab's gesture as its forward command.
+#[test]
+fn a_casts_windup_is_sent_as_an_action_with_no_forward_command() {
+    let mut h = H::new();
+    h.player(100.0, 100.0);
+    let _ = h.give_components();
+    start_capture();
+    player_magic::handle_action_cast_targeted_spell(
+        &mut h.w,
+        PLAYER,
+        PLAYER.full(),
+        STRENGTH_SELF,
+        None,
+    );
+    assert!(
+        h.run_until(0.5, |h| registry_ids(&h.w, PLAYER)
+            == [i32::try_from(STRENGTH_SELF).unwrap()]),
+        "the buff lands"
+    );
+    let sent = motions_sent(&take_sent());
+    let index = |c: Mc| u16::try_from(c.0 & 0xFFFF).unwrap();
+    assert!(is_windup_of(&sent[0], Mc::MagicHeal), "{sent:?}");
+    assert_eq!(sent[1].forward, Some(index(Mc::MagicBlast)), "{sent:?}");
+    assert!(
+        sent.iter().all(|m| m.forward != Some(index(Mc::MagicHeal))),
+        "{sent:?}"
+    );
+}
+
+/// Divergence: V551
+/// A player killer's cast (the fast tick) sends its windup as retail did too: the Magic stance with
+/// no forward command (no forward Ready) and the scarab's gesture as its action.
+#[test]
+fn a_player_killers_windup_is_sent_as_an_action_with_no_forward_command() {
+    use empyrean_entity::enums::PlayerKillerStatus;
+    let mut h = H::new();
+    h.player(100.0, 100.0);
+    let _ = h.give_components();
+    h.w.objects
+        .get_mut(PLAYER)
+        .unwrap()
+        .set_player_killer_status_prop(PlayerKillerStatus::PK);
+    let cast = |h: &mut H| {
+        player_magic::handle_action_cast_targeted_spell(
+            &mut h.w,
+            PLAYER,
+            PLAYER.full(),
+            STRENGTH_SELF,
+            None,
+        );
+    };
+    // The first attempt takes the body into the Magic stance and is refused; the second casts.
+    cast(&mut h);
+    h.run_until(0.2, |_| false);
+    start_capture();
+    cast(&mut h);
+    h.run_until(0.5, |_| false);
+    let sent = motions_sent(&take_sent());
+    assert!(
+        sent.first().is_some_and(|m| is_windup_of(m, Mc::MagicHeal)),
+        "{sent:?}"
+    );
+}
+
 /// A fizzle (skill 100 vs power 100: chance 0.5, and this seed's first draw is above it): the cast
 /// still runs its gestures, then `DoCastSpell_Inner` pays the fizzle's 5 mana, rolls every
 /// component for burning (`Spell.TryBurnComponents`: 0.5 each here), consumes the burned ones from
