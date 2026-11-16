@@ -2074,6 +2074,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
                         quests: &quests,
                         crafting: &crafting,
                         death_spawns: &death_spawns,
+                        rounds: &content.rounds,
                         pets: &pet_kinds,
                         items: &item_rows,
                         plants: &plants,

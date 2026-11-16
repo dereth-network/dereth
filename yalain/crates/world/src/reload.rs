@@ -162,6 +162,7 @@ pub mod table {
     pub const OFFERINGS: &str = "offerings";
     pub const GUARDED: &str = "guarded objects";
     pub const SHIFTING: &str = "shifting objects";
+    pub const ROUNDS: &str = "rounds";
     pub const WANTING: &str = "wanting objects";
     pub const HAZARDS: &str = "hazards";
     pub const DEFENSES: &str = "defended devices";
@@ -301,6 +302,13 @@ impl<S: Store> Server<S> {
         if changed {
             crate::shifting::forget_all(self, net);
             self.content.shifting = std::mem::take(&mut t.content.shifting);
+        }
+        // The rounds: their creatures go, and each row starts again.
+        let changed = t.content.rounds != self.content.rounds;
+        r.note(table::ROUNDS, changed, true);
+        if changed {
+            crate::rounds::forget_all(self, net);
+            self.content.rounds = std::mem::take(&mut t.content.rounds);
         }
         // The wanting objects: every want is forgotten, drawn again as an item next comes.
         let changed = t.content.wanting != self.content.wanting;

@@ -144,6 +144,7 @@ fn a_death_spawn_stands_at_its_offset_from_the_killer_as_the_killer_faces() {
     h.server.death_spawns.insert(
         EFFECT.into(),
         DeathSpawn {
+            event: None,
             template: helper,
             count: 2,
             chance: 1.0,
@@ -204,6 +205,7 @@ fn a_creature_a_death_makes_holds_the_effects_its_rows_give_its_template() {
     h.server.death_spawns.insert(
         EFFECT.into(),
         DeathSpawn {
+            event: None,
             template: helper,
             count: 1,
             chance: 1.0,
@@ -241,6 +243,7 @@ fn a_killer_far_from_the_death_makes_nothing() {
     h.server.death_spawns.insert(
         EFFECT.into(),
         DeathSpawn {
+            event: None,
             template: helper,
             count: 1,
             chance: 1.0,
@@ -297,6 +300,7 @@ fn a_death_spawn_with_no_chance_makes_nothing() {
     h.server.death_spawns.insert(
         EFFECT.into(),
         DeathSpawn {
+            event: None,
             template: helper,
             count: 3,
             chance: 0.0,
@@ -323,6 +327,7 @@ fn only_so_many_of_a_death_effects_creatures_live_at_once() {
     h.server.death_spawns.insert(
         EFFECT.into(),
         DeathSpawn {
+            event: None,
             template: helper,
             count: 5,
             chance: 1.0,
@@ -381,6 +386,7 @@ fn a_death_effects_portals_standing_count_toward_its_limit() {
     h.server.death_spawns.insert(
         EFFECT.into(),
         DeathSpawn {
+            event: None,
             template: PORTAL,
             count: 20,
             chance: 1.0,
@@ -427,6 +433,7 @@ fn an_items_use_makes_what_its_effect_names_before_its_user() {
     h.server.death_spawns.insert(
         SUMMON.into(),
         DeathSpawn {
+            event: None,
             template: helper,
             count: 1,
             chance: 1.0,
@@ -521,6 +528,7 @@ fn a_gem_whose_row_makes_what_cannot_be_made_is_refused_and_kept() {
     h.server.death_spawns.insert(
         SUMMON.into(),
         DeathSpawn {
+            event: None,
             template: MISSING,
             count: 1,
             chance: 1.0,
@@ -606,6 +614,7 @@ fn gem(h: &mut Harness, lasts: Option<f32>) -> u64 {
     h.server.death_spawns.insert(
         "Eff_Summons".into(),
         DeathSpawn {
+            event: None,
             template: helper,
             count: 1,
             chance: 1.0,
@@ -785,6 +794,7 @@ fn a_creatures_death_stands_its_rows_portal_at_its_place_for_its_time_one_at_a_t
     h.server.death_spawns.insert(
         DeathSpawn::of_creature(template),
         DeathSpawn {
+            event: None,
             template: portal,
             count: 1,
             chance: 1.0,
@@ -824,6 +834,7 @@ fn a_creatures_own_row_without_a_place_makes_its_creatures_where_it_died_whereve
     h.server.death_spawns.insert(
         DeathSpawn::of_creature(helper),
         DeathSpawn {
+            event: None,
             template: helper,
             count: 1,
             chance: 1.0,
@@ -866,6 +877,193 @@ fn a_creatures_own_row_without_a_place_makes_its_creatures_where_it_died_whereve
     );
 }
 
+/// A row made only for killers of one kingdom: a death makes the rows for any killer and those for
+/// its killer's own kingdom, and none of another kingdom's; a killer in no kingdom makes the rows
+/// for any killer alone.
+/// Behaviour: server.creatures.a-death-makes-what-its-killers-kingdom-calls-for
+#[test]
+fn a_death_makes_the_rows_for_any_killer_and_those_of_its_killers_kingdom_alone() {
+    use yalain_world::kingdoms::{kingdom, set_kingdom};
+    let (mut h, me) = world();
+    h.add_creatures(6);
+    let helper = beetle_template(&h);
+    let row = |count: u32| DeathSpawn {
+        event: None,
+        template: helper,
+        count,
+        chance: 1.0,
+        offset: [0.0, 2.0],
+        lasts: None,
+        kingdom: None,
+        at: None,
+        to: None,
+        name: None,
+    };
+    let key = DeathSpawn::of_creature(helper);
+    let rows = &mut h.server.death_spawns;
+    rows.insert(key.clone(), row(1));
+    rows.insert(DeathSpawn::for_killers_of(&key, kingdom::ORDER), row(2));
+    rows.insert(DeathSpawn::for_killers_of(&key, kingdom::SHADOW), row(4));
+    let made = |h: &mut Harness| {
+        let before = living(h);
+        kill(h, me, &[]);
+        living(h)
+            .into_iter()
+            .filter(|id| !before.contains(id))
+            .count()
+    };
+    assert_eq!(
+        made(&mut h),
+        1,
+        "a killer in no kingdom: the row for any killer"
+    );
+    for p in h.server.players.values_mut() {
+        set_kingdom(&mut p.qualities, kingdom::ORDER);
+    }
+    assert_eq!(made(&mut h), 1 + 2, "and the Order's, not the Shadow's");
+    for p in h.server.players.values_mut() {
+        set_kingdom(&mut p.qualities, kingdom::DOMINION);
+    }
+    assert_eq!(made(&mut h), 1, "a kingdom with no row of its own");
+}
+
+/// One creature with several named rows, for any killer and for its killer's kingdom: a death makes
+/// every one of them.
+/// Behaviour: server.creatures.a-death-makes-each-of-its-rows
+#[test]
+fn a_death_makes_each_of_its_creatures_named_rows() {
+    use yalain_world::kingdoms::{kingdom, set_kingdom};
+    let (mut h, me) = world();
+    h.add_creatures(4);
+    let helper = beetle_template(&h);
+    let row = |count: u32| DeathSpawn {
+        event: None,
+        template: helper,
+        count,
+        chance: 1.0,
+        offset: [0.0, 2.0],
+        lasts: None,
+        kingdom: None,
+        at: None,
+        to: None,
+        name: None,
+    };
+    let key = DeathSpawn::of_creature(helper);
+    let order = DeathSpawn::for_killers_of(&key, kingdom::ORDER);
+    let rows = &mut h.server.death_spawns;
+    rows.insert(DeathSpawn::named(&key, "first"), row(1));
+    rows.insert(DeathSpawn::named(&key, "second"), row(2));
+    rows.insert(DeathSpawn::named(&order, "orders"), row(4));
+    for p in h.server.players.values_mut() {
+        set_kingdom(&mut p.qualities, kingdom::ORDER);
+    }
+    let before = living(&h);
+    kill(&mut h, me, &[]);
+    let made = living(&h)
+        .into_iter()
+        .filter(|id| !before.contains(id))
+        .count();
+    assert_eq!(made, 1 + 2 + 4, "each of its rows, the Order's too");
+}
+
+/// A creature's row that starts an event: the person placed for the event stands from the next
+/// step after the death for the row's time and no longer, and a death while it stands starts the
+/// time again from that death.
+/// Behaviour: server.creatures.a-death-starts-an-event
+#[test]
+fn a_death_starts_its_rows_event_and_the_person_placed_for_it_stands_its_time() {
+    use yalain_content::events::{Event, EventTable, ObjectGate};
+    const PERSON: u64 = 0x4002_9900_0000_0E02;
+    let (mut h, me) = world();
+    h.add_creatures(2);
+    let at = h.server.players.values().next().expect("a player").position;
+    h.server.content.objects = vec![yalain_content::ContentObject {
+        object: Some(PERSON),
+        template: 0x4700_1154,
+        description: yalain_content::Description {
+            name_text: None,
+            package: 0x13C1,
+            look: 0x1F00_0ED5,
+            enter_fx: 0,
+            scale: None,
+            name: None,
+            numbers: [0; 6],
+            source: "authored for a test".into(),
+        },
+        cell: at.cell,
+        origin: at.origin,
+        rotation: [1.0, 0.0, 0.0, 0.0],
+        kind: yalain_content::Kind::Static,
+        label: String::new(),
+        placed: "authored for a test".into(),
+        destination: None,
+        facts: yalain_content::Facts::default(),
+        walks: None,
+        gate: None,
+    }];
+    h.server.content.events = EventTable {
+        events: vec![Event {
+            ended_by: Vec::new(),
+            key: "radiant".into(),
+            game_event: None,
+            windows: Vec::new(),
+            on_players: Vec::new(),
+            failure: None,
+            hides: Vec::new(),
+        }],
+        camps: Vec::new(),
+        objects: vec![ObjectGate {
+            object: 0,
+            event: "radiant".into(),
+        }],
+        steps: Vec::new(),
+        lines: Vec::new(),
+    };
+    let template = beetle_template(&h);
+    h.server.death_spawns.insert(
+        DeathSpawn::of_creature(template),
+        DeathSpawn {
+            event: Some("radiant".into()),
+            template: 0,
+            count: 1,
+            chance: 1.0,
+            offset: [0.0, 0.0],
+            lasts: Some(60.0),
+            kingdom: None,
+            at: None,
+            to: None,
+            name: None,
+        },
+    );
+    let stands = |h: &Harness| yalain_world::events::content_standing(&h.server, PERSON).is_some();
+    let run_to = |h: &mut Harness, unix: i64| {
+        while h.unix < unix {
+            h.step_by(1.0);
+        }
+        h.run(2);
+    };
+    h.run(2);
+    assert!(!stands(&h), "not before the death");
+    let before = living(&h);
+    kill(&mut h, me, &[]);
+    let died = h.unix;
+    run_to(&mut h, died + 1);
+    assert!(stands(&h), "from the step after the death");
+    assert_eq!(
+        living(&h).len(),
+        before.len() - 1,
+        "and the row makes nothing"
+    );
+    run_to(&mut h, died + 30);
+    assert!(stands(&h), "for its time");
+    kill(&mut h, me, &[]);
+    let again = h.unix;
+    run_to(&mut h, died + 61);
+    assert!(stands(&h), "a death while it stands starts its time again");
+    run_to(&mut h, again + 61);
+    assert!(!stands(&h), "gone once its time is up");
+}
+
 /// A creature's row whose portal template requires a kingdom, and that names none itself, stands a
 /// portal for that kingdom alone.
 /// Behaviour: server.places.a-made-portal-keeps-its-templates-kingdom
@@ -880,6 +1078,7 @@ fn a_creatures_death_portal_is_for_the_kingdom_its_template_requires() {
     h.server.death_spawns.insert(
         DeathSpawn::of_creature(template),
         DeathSpawn {
+            event: None,
             template: portal,
             count: 1,
             chance: 1.0,
@@ -937,6 +1136,7 @@ fn a_creatures_death_makes_a_portal_of_a_template_with_no_destination_when_its_r
     };
     let template = beetle_template(&h);
     let row = |to: Option<Place>| DeathSpawn {
+        event: None,
         template: SHARD,
         count: 1,
         chance: 1.0,
@@ -1051,6 +1251,7 @@ fn a_portal_a_row_makes_is_told_and_examined_by_the_rows_name() {
         h.server.death_spawns.insert(
             DeathSpawn::of_creature(template),
             DeathSpawn {
+                event: None,
                 template: portal,
                 count: 1,
                 chance: 1.0,

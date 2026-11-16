@@ -59,6 +59,8 @@ pub struct Rows<'a> {
     pub quests: &'a QuestTable,
     pub crafting: &'a CraftStart,
     pub death_spawns: &'a BTreeMap<String, DeathSpawn>,
+    /// The rounds: the creatures each stop stands, whoever the killer.
+    pub rounds: &'a yalain_content::rounds::RoundTable,
     pub pets: &'a BTreeMap<u32, yalain_content::PetKind>,
     pub items: &'a yalain_content::item_rows::ItemRows,
     /// The dye plants, the world's rows.
@@ -69,8 +71,8 @@ pub struct Rows<'a> {
 
 /// What a world's rows make or hand on: placed objects (a chest's lock and contents, a door's), its
 /// kinds of pet, what every new character is given, what stores sell, what quest steps and people give, what is taken up for a step and what's
-/// handed in for a gift, what butchery yields, what a death makes, the dye plants and what they
-/// give, and what effects give. Camps and loot are the
+/// handed in for a gift, what butchery yields, what a death makes, what a round's stops stand, the
+/// dye plants and what they give, and what effects give. Camps and loot are the
 /// catalog's own, and the recipes' products and materials [`crate::craft::Crafting::templates`].
 #[must_use]
 pub fn by_the_rows(rows: Rows<'_>) -> Vec<u32> {
@@ -94,7 +96,21 @@ pub fn by_the_rows(rows: Rows<'_>) -> Vec<u32> {
                 .iter()
                 .flat_map(|b| b.items.iter().copied()),
         )
-        .chain(rows.death_spawns.values().map(|d| d.template))
+        .chain(
+            rows.death_spawns
+                .values()
+                .filter(|d| d.event.is_none())
+                .map(|d| d.template),
+        )
+        .chain(
+            rows.rounds
+                .rows
+                .iter()
+                .flat_map(|r| r.stops.iter())
+                .flat_map(|s| {
+                    std::iter::once(s.template).chain(s.by_kingdom.iter().map(|(_, t)| *t))
+                }),
+        )
         .chain(rows.plants.templates())
         .chain(rows.effect_rules.grants.values().map(|g| g.template))
         .chain(rows.effect_rules.places.values().map(|p| p.template))

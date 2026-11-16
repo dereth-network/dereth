@@ -368,6 +368,7 @@ fn a_real_start_describes_everything_a_worlds_rows_make() {
         quests: &t.quests,
         crafting: &t.crafting,
         death_spawns: &t.death_spawns,
+        rounds: &t.content.rounds,
         pets: &t.pet_kinds,
         items: &t.items,
         plants: &t.plants,

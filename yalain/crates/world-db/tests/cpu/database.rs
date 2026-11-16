@@ -4351,7 +4351,7 @@ fn an_event_a_quests_failure_starts_names_its_camp_and_hidden_objects_by_placeme
         (
             "failure = { quest = 0x40000016, lasts = 600 }\n",
             "",
-            "when: an event with no windows is on only while a tally or a quest's failure starts it",
+            "when: an event with no windows is on only while a tally, a quest's failure or a death starts it",
         ),
     ] {
         let mut bad = files.clone();
@@ -6721,6 +6721,26 @@ fn a_creatures_row_reads_its_mark_and_whom_it_takes_on() {
     }
 }
 
+/// A creature's row may align its creatures for a while: the seconds are kept by the template; a
+/// time not above 0 is refused, and a row giving only that is a row.
+#[test]
+fn a_creatures_row_reads_how_long_its_creatures_hold_their_kingdom() {
+    const ROW: &str =
+        "[[creature]]\ntemplate = 0x47002224\naligned_for = 900\nprov = { from = \"authored\" }\n";
+    let mut files = fixture();
+    files.insert("town/server/creatures.toml".into(), ROW.into());
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(t.creatures.aligned.get(&0x4700_2224), Some(&900.0));
+    for no in ["aligned_for = 0", "aligned_for = -5"] {
+        files.insert(
+            "town/server/creatures.toml".into(),
+            ROW.replacen("aligned_for = 900", no, 1),
+        );
+        assert!(read(&files).is_err(), "{no}");
+    }
+}
+
 /// A friend table's row may give the tables its creatures fight with or without its first attacks,
 /// and a creature's row that players may not harm it, with the line their attack is told; a friend
 /// table's row giving neither, tables that are no numbers and a line without the creatures kept from
@@ -7059,6 +7079,143 @@ fn a_plant_row_reads_its_care_items_its_garden_and_its_own_lines_of_how_it_fares
         files.insert("town/server/plants.toml".into(), rows.replacen(from, to, 1));
         let merged = merge(&read(&files).unwrap()).unwrap();
         assert!(compile(&merged, &Fake::new()).is_err(), "{from} to {to}");
+    }
+}
+
+#[test]
+fn a_round_reads_its_stops_places_and_each_kingdoms_creature_and_wants_two_stops() {
+    const PATH: &str = "town/server/creatures.toml";
+    const PLACES: &str = "town/server/lairs.toml";
+    let mut files = fixture();
+    files.insert(
+        PLACES.into(),
+        "[[place]]\nkey = \"red\"\ncell = 0x77B80003\nat = [2.0, 50.0, 183.8]\nprov = { from = \"authored\" }\n\n\
+         [[place]]\nkey = \"blue\"\ncell = 0x77B80003\nat = [9.0, 50.0, 183.8]\nprov = { from = \"authored\" }\n"
+            .to_string(),
+    );
+    let row = "[[round]]\nkey = \"guardian\"\ngap = 60\nstops = [\
+               { at = \"red\", template = 0x47002224, order = 0x47000C8C },\
+               { at = \"blue\", template = 0x47002224 }]\nprov = { from = \"authored\" }\n";
+    files.insert(PATH.into(), row.to_string());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let r = &t.content.rounds.rows[0];
+    assert_eq!(
+        (r.key.as_str(), r.gap, r.stops.len()),
+        ("guardian", Some(60.0), 2)
+    );
+    assert_eq!(r.stops[0].at.origin, [2.0, 50.0, 183.8]);
+    assert_eq!(
+        r.stops[0].template_for(Some(2)),
+        NAMED_PORTAL,
+        "the Order's"
+    );
+    assert_eq!(
+        r.stops[0].template_for(Some(1)),
+        0x4700_2224,
+        "its own for the Shadow's"
+    );
+    assert_eq!(r.stops[1].template_for(Some(2)), 0x4700_2224);
+    // A place nobody wrote is a problem, and the round is left out.
+    files.insert(PATH.into(), row.replacen("\"blue\"", "\"green\"", 1));
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    assert!(compile(&merged, &Fake::new()).is_err(), "an unknown place");
+    for bad in [
+        row.replacen(",{ at = \"blue\", template = 0x47002224 }", "", 1),
+        row.replacen("gap = 60", "gap = 0", 1),
+        row.replacen("order =", "kingdom =", 1),
+    ] {
+        assert_ne!(bad, row, "the case changes the row");
+        files.insert(PATH.into(), bad.clone());
+        assert!(read(&files).is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn a_death_spawn_row_for_killers_of_one_kingdom_is_kept_apart_from_the_row_for_any_killer() {
+    const PATH: &str = "town/server/death_spawns.toml";
+    let mut files = fixture();
+    let rows = "[[death_spawn]]\ncreature = 0x47002224\ntemplate = 0x47002224\n\
+                prov = { from = \"authored\" }\n\n\
+                [[death_spawn]]\ncreature = 0x47002224\ntemplate = 0x47000C8C\nkiller_kingdom = 2\n\
+                prov = { from = \"authored\" }\n";
+    files.insert(PATH.into(), rows.to_string());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let key = yalain_content::DeathSpawn::of_creature(0x4700_2224);
+    assert_eq!(t.death_spawns[&key].template, 0x4700_2224, "for any killer");
+    let order = yalain_content::DeathSpawn::for_killers_of(&key, 2);
+    assert_eq!(
+        t.death_spawns[&order].template, NAMED_PORTAL,
+        "for the Order's killers"
+    );
+    assert_eq!(t.death_spawns.len(), 2);
+    for no in ["killer_kingdom = 3", "killer_kingdom = 0"] {
+        files.insert(PATH.into(), rows.replacen("killer_kingdom = 2", no, 1));
+        assert!(read(&files).is_err(), "{no}");
+    }
+    // Several rows of one creature, each named, are kept apart; a name that is no key is refused.
+    let named = rows.replacen(
+        "template = 0x47002224\n",
+        "template = 0x47002224\nkey = \"a\"\n",
+        1,
+    );
+    files.insert(PATH.into(), named.clone());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert!(t
+        .death_spawns
+        .contains_key(&yalain_content::DeathSpawn::named(&key, "a")));
+    files.insert(
+        PATH.into(),
+        named.replacen("key = \"a\"", "key = \"A B\"", 1),
+    );
+    assert!(read(&files).is_err(), "a name that is no key");
+}
+
+#[test]
+fn a_death_spawn_row_may_start_an_event_for_its_time_in_place_of_making_anything() {
+    const PATH: &str = "town/server/death_spawns.toml";
+    let mut files = fixture();
+    files.insert(
+        "town/server/events.toml".into(),
+        "[[event]]\nkey = \"radiant\"\nprov = { from = \"authored\" }\n".into(),
+    );
+    let row = "[[death_spawn]]\ncreature = 0x47002224\nkiller_kingdom = 2\nkey = \"radiant\"\n\
+               event = \"radiant\"\nlasts = 1800\nprov = { from = \"authored\" }\n";
+    files.insert(PATH.into(), row.to_string());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let key = yalain_content::DeathSpawn::of_creature(0x4700_2224);
+    let key = yalain_content::DeathSpawn::named(
+        &yalain_content::DeathSpawn::for_killers_of(&key, 2),
+        "radiant",
+    );
+    let r = &t.death_spawns[&key];
+    assert_eq!(
+        (r.event.as_deref(), r.lasts, r.template),
+        (Some("radiant"), Some(1800.0), 0)
+    );
+    // An event nobody wrote is a problem.
+    files.insert(
+        PATH.into(),
+        row.replacen("event = \"radiant\"", "event = \"fair\"", 1),
+    );
+    assert!(
+        compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).is_err(),
+        "an unknown event"
+    );
+    // It makes nothing, so it names nothing to make, and it is on for a time of its own.
+    for bad in [
+        row.replacen("lasts = 1800\n", "", 1),
+        row.replacen("lasts = 1800\n", "lasts = 1800\ntemplate = 0x47002224\n", 1),
+        row.replacen("lasts = 1800\n", "lasts = 1800\ncount = 2\n", 1),
+        row.replacen(
+            "lasts = 1800\n",
+            "lasts = 1800\noffset = [0.0, 2.0, 0.0]\n",
+            1,
+        ),
+        row.replacen("event = \"radiant\"", "event = \"Radiant\"", 1),
+    ] {
+        assert_ne!(bad, row, "the case changes the row");
+        files.insert(PATH.into(), bad.clone());
+        assert!(read(&files).is_err(), "{bad}");
     }
 }
 

@@ -35,6 +35,11 @@
 //! alive. A failure while it is on changes nothing. What a failure started is not kept across a
 //! restart, and is forgotten when a reload changes the world's events.
 //!
+//! **Started by a death.** An event a death's row starts ([`crate::death_spawn`]) comes on at the
+//! next step, for everyone, for the row's `lasts`; a death while it is on starts it again from that
+//! death. What a death started is not kept across a restart, and is forgotten when a reload
+//! changes the world's events.
+//!
 //! **Ended by a quest's completion.** An event that names quests it is ended by goes off the moment
 //! any player completes one of them while it is on: what it gates is gone at once (a second
 //! player completing it in the same moment finds it off), and it stays off for the rest of the
@@ -62,6 +67,9 @@ pub struct Events {
     /// The events a quest's failure started, by their keys: when each came on and when its time
     /// runs out (seconds since 1970; `i64::MAX` for one only a camp's death ends).
     pub failed: BTreeMap<String, (i64, i64)>,
+    /// The events a death started, by their keys: when each came on and when its time runs out
+    /// (seconds since 1970).
+    pub deaths: BTreeMap<String, (i64, i64)>,
     /// The events a quest's completion ended, by their keys: when the window they were ended in
     /// runs out (seconds since 1970), until when they stay off.
     pub cut: BTreeMap<String, i64>,
@@ -127,7 +135,8 @@ pub fn line_for<S: Store>(s: &Server<S>, line: &yalain_content::talk::Line) -> b
 }
 
 /// The window of an event that holds `unix`: one of its own by the host's clock, else one of its
-/// own by the game's, else one a full tally gave it, else one a quest's failure gave it.
+/// own by the game's, else one a full tally gave it, else one a quest's failure gave it, else one
+/// a death gave it.
 fn window<S: Store>(
     s: &Server<S>,
     e: &yalain_content::events::Event,
@@ -146,6 +155,21 @@ fn window<S: Store>(
                 .filter(|(from, until)| *from <= unix && unix < *until)
                 .copied()
         })
+        .or_else(|| {
+            s.events
+                .deaths
+                .get(&e.key)
+                .filter(|(from, until)| *from <= unix && unix < *until)
+                .copied()
+        })
+}
+
+/// A death's row starts an event: it comes on at the next step for `lasts` seconds from now, over
+/// what a death started before.
+pub fn death_started<S: Store>(s: &mut Server<S>, key: &str, lasts: f32, unix: i64) {
+    #[allow(clippy::cast_possible_truncation)]
+    let until = unix + lasts.ceil() as i64;
+    s.events.deaths.insert(key.to_string(), (unix, until));
 }
 
 /// A player's quest has failed: each event its failure starts that a failure has not started
@@ -247,6 +271,7 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
         crate::tallies::ensure(s);
     }
     failures_over(s, clock.unix);
+    s.events.deaths.retain(|_, (_, until)| clock.unix < *until);
     s.events.cut.retain(|_, until| clock.unix < *until);
     let now: BTreeSet<String> = s
         .content
@@ -282,6 +307,7 @@ pub fn end_all<S: Store>(s: &mut Server<S>, net: &mut ServerNet) {
     }
     s.events.on.clear();
     s.events.failed.clear();
+    s.events.deaths.clear();
     s.events.cut.clear();
     for key in &on {
         unhidden(s, net, key);

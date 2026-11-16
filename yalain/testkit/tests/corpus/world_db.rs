@@ -4588,6 +4588,7 @@ fn everything_the_worlds_rows_make_reads_from_the_install() {
         quests: &t.quests,
         crafting: &t.crafting,
         death_spawns: &t.death_spawns,
+        rounds: &t.content.rounds,
         pets: &t.pet_kinds,
         items: &items,
         plants: &t.plants,

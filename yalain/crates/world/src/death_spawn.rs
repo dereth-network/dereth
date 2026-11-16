@@ -27,6 +27,20 @@
 //! effect: the death of any of them makes what it names, wherever the killer stands, at the row's
 //! place (facing as the place does), else at its offset from where the creature died, as it faced.
 //! Made at a place, one of the row's stands at a time: a death while it stands makes none.
+//!
+//! **A killer's kingdom.** A row may be made only for killers of one kingdom (its key
+//! [`yalain_content::DeathSpawn::for_killers_of`] its effect's or creature's): a death makes the
+//! rows for any killer and those for the killer's own kingdom, so a world can make a different
+//! thing for each kingdom's killers, such as a guardian's successor of the killer's kingdom. A
+//! killer in no kingdom makes the rows for any killer alone, and an item's use none of a kingdom's.
+//!
+//! **Several rows.** An effect or a creature may have several rows, each with a name of its own
+//! ([`yalain_content::DeathSpawn::named`]): a death makes every one of them, in the order of their
+//! keys, as it makes the row of the plain key.
+//!
+//! **An event.** A row may start an event ([`crate::events`]) in place of making anything: the
+//! death turns it on for the row's `lasts`, for everyone, so that what the event stands (a person
+//! placed for it) stands for that long, such as a shrine's radiant after its guardian's death.
 
 use dereth_primitives::num::math;
 use yalain_net::{ConnId, ServerNet};
@@ -76,10 +90,19 @@ pub fn killed<S: Store>(
         crate::effects::apply_on(s, net, On::Player(killer), state, cast, clock);
     }
     let died = s.things.get(creature).and_then(|t| t.at);
-    let key = yalain_content::DeathSpawn::of_creature(template);
-    if let (Some(spawn), Some(died)) = (s.death_spawns.get(&key).cloned(), died) {
-        let most = if spawn.at.is_some() { 1 } else { MOST };
-        makes(s, net, (died, Some((key.as_str(), most))), spawn, clock);
+    let kingdom = s
+        .players
+        .get(&killer)
+        .and_then(|p| crate::kingdoms::of(&p.qualities));
+    for key in rows_for(
+        s,
+        &yalain_content::DeathSpawn::of_creature(template),
+        kingdom,
+    ) {
+        if let (Some(spawn), Some(died)) = (s.death_spawns.get(&key).cloned(), died) {
+            let most = if spawn.at.is_some() { 1 } else { MOST };
+            makes(s, net, (died, Some((key.as_str(), most))), spawn, clock);
+        }
     }
     let near = s
         .things
@@ -91,14 +114,42 @@ pub fn killed<S: Store>(
     if !near {
         return;
     }
-    for (name, _) in effects {
-        if let Some(spawn) = s.death_spawns.get(name).cloned() {
+    let names: Vec<String> = effects
+        .iter()
+        .flat_map(|(name, _)| rows_for(s, name, kingdom))
+        .collect();
+    for name in names {
+        if let Some(spawn) = s.death_spawns.get(&name).cloned() {
             let Some(from) = s.players.get(&killer).map(|p| p.position) else {
                 return;
             };
             makes(s, net, (from, Some((name.as_str(), MOST))), spawn, clock);
         }
     }
+}
+
+/// The keys of the rows a death makes for an effect's or a creature's key: those for any killer,
+/// then those for the killer's kingdom; for each, the row of the plain key, then its named rows in
+/// the order of their names.
+fn rows_for<S: Store>(s: &Server<S>, key: &str, kingdom: Option<u32>) -> Vec<String> {
+    let heads = std::iter::once(key.to_string())
+        .chain(kingdom.map(|k| yalain_content::DeathSpawn::for_killers_of(key, k)));
+    let mut out = Vec::new();
+    for head in heads {
+        if s.death_spawns.contains_key(&head) {
+            out.push(head.clone());
+        }
+        let named = yalain_content::DeathSpawn::named(&head, "");
+        let mut rows: Vec<String> = s
+            .death_spawns
+            .keys()
+            .filter(|k| k.starts_with(&named))
+            .cloned()
+            .collect();
+        rows.sort();
+        out.extend(rows);
+    }
+    out
 }
 
 /// Does a template name for its use what a world's row makes?
@@ -181,6 +232,13 @@ fn makes<S: Store>(
         origin: p.origin,
         rotation: p.rotation,
     };
+    if let Some(event) = spawn.event.as_deref() {
+        if s.rng.chance(spawn.chance) {
+            let lasts = spawn.lasts.unwrap_or(0.0);
+            crate::events::death_started(s, event, lasts, clock.unix);
+        }
+        return;
+    }
     let Some(template) = s.catalog.get(spawn.template).cloned() else {
         return;
     };
@@ -263,6 +321,7 @@ pub(crate) fn creature_at<S: Store>(
             crate::Timer::MadeEnds { creature: id },
         );
     }
+    crate::spawn::aligns(s, id, clock);
     presence::thing_appears(s, net, id);
     crate::spawn::holds_its_effects(s, net, id, clock);
     Some(id)

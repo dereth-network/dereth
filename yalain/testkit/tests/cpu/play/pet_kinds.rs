@@ -1406,6 +1406,7 @@ fn by_the_rows(kinds: &std::collections::BTreeMap<u32, pets::PetKind>) -> Vec<u3
         quests: &yalain_content::QuestTable::default(),
         crafting: &yalain_content::CraftStart::default(),
         death_spawns: &std::collections::BTreeMap::new(),
+        rounds: &yalain_content::rounds::RoundTable::default(),
         pets: kinds,
         items: &yalain_content::item_rows::ItemRows::default(),
         plants: &yalain_world::plants::DyePlants::default(),

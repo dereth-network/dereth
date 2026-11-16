@@ -175,6 +175,41 @@ impl CampWatch {
     }
 }
 
+/// A new creature whose template the world's rows align ([`CreatureRows::aligned`]) holds the
+/// kingdom its template names (its faction) from its first moment, and shows it, until the row's
+/// time has gone: players of that kingdom may not harm it meanwhile ([`crate::combat`]). Called
+/// before it appears, so it appears holding it.
+///
+/// [`CreatureRows::aligned`]: yalain_content::creature_rows::CreatureRows::aligned
+pub(crate) fn aligns<S: Store>(s: &mut Server<S>, id: u64, clock: Clock) {
+    let Some(template) = s.things.get(id).map(|t| t.template) else {
+        return;
+    };
+    let Some(&seconds) = s.creature_rows.aligned.get(&template) else {
+        return;
+    };
+    let Some(kingdom) = s.catalog.get(template).and_then(|t| t.facts.faction) else {
+        return;
+    };
+    if let Some(t) = s.things.get_mut(id) {
+        t.kingdom = Some(kingdom);
+    }
+    s.after(clock, seconds, crate::Timer::AlignmentEnds { creature: id });
+}
+
+/// An aligned creature's time has gone: it holds no kingdom, and every client that knows it is told
+/// it anew, as a client's own ask for it again is answered.
+pub(crate) fn alignment_ends<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
+    let Some(t) = s.things.get_mut(id) else {
+        return;
+    };
+    if t.kingdom.take().is_none() {
+        return;
+    }
+    let m = auberean_protocol::ServerMessage::CreateObject(crate::things::create(t));
+    presence::to_thing_knowers(s, net, id, yalain_net::BlobKind::UNORDERED, &m);
+}
+
 /// A creature holds the effects the world's rows give its template from its first moment
 /// ([`yalain_content::creature_rows::CreatureEffect`]), each at the spellcraft its row gives the
 /// creature's level, for as long as it stands, shown at once. An effect the world's start never
@@ -346,6 +381,7 @@ fn fill<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize, clock: Clock
         if let Some(id) = spawn(s, i, now) {
             s.camps[i].alive.push(id);
             s.camp_watch.kept_by.insert(id, i);
+            aligns(s, id, clock);
             presence::thing_appears(s, net, id);
             holds_its_effects(s, net, id, clock);
         }

@@ -818,6 +818,7 @@ fn gem_used(s: &mut Script, b: usize, me: u64, w: ConnId) -> String {
     s.h.server.death_spawns.insert(
         SUMMONS.into(),
         yalain_content::DeathSpawn {
+            event: None,
             template,
             count: 1,
             chance: 1.0,

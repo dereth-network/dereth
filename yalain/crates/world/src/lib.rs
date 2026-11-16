@@ -154,6 +154,7 @@ pub mod requests;
 pub mod rest;
 pub mod resurrections;
 pub mod rng;
+pub mod rounds;
 pub mod rules;
 pub mod saves;
 pub mod scenes;
@@ -448,6 +449,8 @@ pub struct Server<S: Store> {
     pub guards: guards::Guards,
     /// The shifting objects' rows as the world keeps them.
     pub shifts: shifting::Shifts,
+    /// The rounds' creatures as the world keeps them.
+    pub rounds: rounds::Rounds,
     /// The item each wanting object wants now.
     pub wants: wanting::Wants,
     /// The hazards' reaches each player stands within.
@@ -636,6 +639,8 @@ pub enum Timer {
     PetUserEffects { pet: u64, skill: u32 },
     /// What a world's row makes has stood its time.
     MadeEnds { creature: u64 },
+    /// A creature that held its template's kingdom for a while holds it no more.
+    AlignmentEnds { creature: u64 },
     /// A creature's heal or buff on itself takes effect.
     CreatureHelps { creature: u64, skill: u32, on: u64 },
     /// A creature's strike reaches the player it was at.
@@ -905,6 +910,7 @@ impl<S: Store> Server<S> {
             levers: usable::levers::Levers::default(),
             guards: guards::Guards::default(),
             shifts: shifting::Shifts::default(),
+            rounds: rounds::Rounds::default(),
             wants: wanting::Wants::default(),
             hazards: hazards::Hazards::default(),
             item_lives: item_lives::Lives::default(),
@@ -1081,6 +1087,7 @@ impl<S: Store> Server<S> {
                     pets::user_effects(self, net, pet, skill, clock);
                 }
                 Timer::MadeEnds { creature } => death_spawn::ends(self, net, creature),
+                Timer::AlignmentEnds { creature } => spawn::alignment_ends(self, net, creature),
                 Timer::CreatureHelps {
                     creature,
                     skill,
@@ -1249,6 +1256,7 @@ impl<S: Store> Server<S> {
             spawn::step(self, net, clock);
             guards::step(self, net, clock);
             shifting::step(self, net, clock);
+            rounds::step(self, net, clock);
             defenses::step(self, net, clock);
             item_lives::step(self, net);
         }

@@ -1691,6 +1691,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         let line = r.kept_out_line.map(|l| (l.string, l.table));
                         t.creatures.kept_out.insert(r.template, line);
                     }
+                    if let Some(seconds) = r.aligned_for {
+                        t.creatures.aligned.insert(r.template, seconds);
+                    }
                 }
             }
             Row::Defense(r) => {
@@ -1936,8 +1939,33 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     }
                 }
             }
+            Row::Round(r) => {
+                let mut held = true;
+                let mut stops = Vec::with_capacity(r.stops.len());
+                for (at, template, by_kingdom) in &r.stops {
+                    held &= cx.template(l, "stops", *template);
+                    for (_, t) in by_kingdom {
+                        held &= cx.template(l, "stops", *t);
+                    }
+                    match cx.place_for(&places, l, "stops", at) {
+                        Some(at) => stops.push(yalain_content::rounds::Stop {
+                            at,
+                            template: *template,
+                            by_kingdom: by_kingdom.clone(),
+                        }),
+                        None => held = false,
+                    }
+                }
+                if held {
+                    t.content.rounds.rows.push(yalain_content::rounds::Round {
+                        key: r.key.clone(),
+                        stops,
+                        gap: r.gap,
+                    });
+                }
+            }
             Row::DeathSpawn(r) => {
-                let mut held = cx.template(l, "template", r.template);
+                let mut held = r.template.is_none_or(|t| cx.template(l, "template", t));
                 if let Some(c) = r.creature {
                     held &= cx.template(l, "creature", c);
                 }
@@ -1954,7 +1982,8 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     t.death_spawns.insert(
                         r.effect.clone(),
                         yalain_content::DeathSpawn {
-                            template: r.template,
+                            event: r.event.clone(),
+                            template: r.template.unwrap_or(0),
                             count: r.count,
                             chance: r.chance,
                             offset: [r.offset.x, r.offset.y],
@@ -2263,6 +2292,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             Row::Object(o) => o.event.iter().collect(),
             Row::Camp(c) => c.event.iter().collect(),
             Row::Step(s) => s.events.iter().collect(),
+            Row::DeathSpawn(d) => d.event.iter().collect(),
             _ => Vec::new(),
         };
         for e in named {
@@ -2669,7 +2699,8 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
     // name. With its own place, any object that is no creature is made a portal.
     for l in &merged.rows {
         let Row::DeathSpawn(r) = &l.row else { continue };
-        let props = yalain_content::Props::of(r.template, &entity, &|id| install.property_name(id));
+        let Some(template) = r.template else { continue };
+        let props = yalain_content::Props::of(template, &entity, &|id| install.property_name(id));
         named_as_a_creature_is(&mut cx, l, "name_text", &r.name, &props);
         let creature = yalain_content::CreatureStats::from_props(&props).is_some();
         match props.text("PortalDestination") {
@@ -2678,19 +2709,19 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 l,
                 format!(
                     "to: {:08X} is a creature: only a portal or an object leads anywhere",
-                    r.template
+                    template
                 ),
             ),
             _ if r.to.is_some() => {}
             Some(name) => {
-                let known = t.places_named.contains_key(&r.template)
+                let known = t.places_named.contains_key(&template)
                     || t.places_by_name.contains_key(&name.to_ascii_lowercase());
                 if !known {
                     cx.warn(
                         l,
                         format!(
                             "template: no place is named by {:08X} or is named {name}, where its portal leads, so none is made",
-                            r.template
+                            template
                         ),
                     );
                 }

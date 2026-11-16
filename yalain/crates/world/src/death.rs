@@ -303,6 +303,10 @@ pub fn creature_dies<S: Store>(
             crate::death_spawn::killed(s, net, world, id, template, &death_effects, clock);
         }
     }
+    let killer_kingdom = world_of(s, killer)
+        .and_then(|w| s.players.get(&w))
+        .and_then(|p| crate::kingdoms::of(&p.qualities));
+    crate::rounds::died(s, net, id, killer_kingdom, clock);
     if let Some(at) = fell_at {
         crate::quests::died_near(s, net, (id, template), &at, clock);
     }
@@ -839,26 +843,32 @@ fn corpse_profile<S: Store>(s: &mut Server<S>, creature: &Thing) -> Vec<u32> {
 
 /// The death treasures a creature leaves: each of its template's and its camp's rolled once at its
 /// chance, each item once; one that names a quest rolled once for each claimant holding it where it
-/// needs it ([`claimants`]); none for a creature no camp keeps. Nothing is drawn for a creature with
-/// no row.
+/// needs it ([`claimants`]); none for a creature no camp keeps, unless a world's death spawn row
+/// made it (its template's alone, then: what a death makes comes no faster than those deaths).
+/// Nothing is drawn for a creature with no row.
 fn death_treasures<S: Store>(
     s: &mut Server<S>,
     creature: &Thing,
     killer: u64,
     clock: Clock,
 ) -> Vec<u32> {
-    let Some(camp) = creature
+    let camp = creature
         .creature
         .as_ref()
         .and_then(|c| c.camp)
         .and_then(|i| s.spawns.camps.get(i))
-        .map(|c| c.id.clone())
-    else {
-        return Vec::new();
+        .map(|c| c.id.clone());
+    let made_by_a_row = || {
+        s.death_spawned
+            .values()
+            .any(|ids| ids.contains(&creature.id))
     };
+    if camp.is_none() && !made_by_a_row() {
+        return Vec::new();
+    }
     let rows: Vec<(u32, f32, Option<yalain_content::QuestGate>)> = s
         .loot
-        .treasures_of(creature.template, Some(&camp))
+        .treasures_of(creature.template, camp.as_deref())
         .map(|t| (t.item, t.chance, t.requires))
         .collect();
     let mut out: Vec<u32> = Vec::new();

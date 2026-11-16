@@ -163,6 +163,7 @@ pub fn item(l: &Located) -> Option<Item> {
         Row::Guarded(r) => Item::Guarded { key: r.key.clone() },
         Row::Shifting(r) => Item::Shifting { key: r.key.clone() },
         Row::Wanting(r) => Item::Wanting { key: r.key.clone() },
+        Row::Round(r) => Item::Round { key: r.key.clone() },
         Row::Hazard(r) => Item::Hazard { key: r.key.clone() },
         Row::Concealing(r) => Item::Concealing {
             effect: r.effect,
@@ -257,6 +258,7 @@ fn value(row: &Row) -> String {
         Row::Guarded(x) => x.prov = crate::rows::Prov::default(),
         Row::Shifting(x) => x.prov = crate::rows::Prov::default(),
         Row::Wanting(x) => x.prov = crate::rows::Prov::default(),
+        Row::Round(x) => x.prov = crate::rows::Prov::default(),
         Row::Hazard(x) => x.prov = crate::rows::Prov::default(),
         Row::Concealing(x) => x.prov = crate::rows::Prov::default(),
         Row::NpcTable(x) => x.prov = crate::rows::Prov::default(),

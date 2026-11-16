@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Worlds can now have a guardian that moves round its shrines and sides with its killer's kingdom.
 - Knockbacks and other pushes now send players flying.
 - Worlds can now have races, with one winner, a countdown and checkpoints taken in order.
 - Worlds can now time quests by the calendar, and give effects that cancel speed buffs.

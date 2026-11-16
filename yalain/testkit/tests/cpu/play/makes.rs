@@ -19,6 +19,7 @@ fn the_rows_name_every_plant_and_crosss_seeds_they_make() {
         quests: &QuestTable::default(),
         crafting: &CraftStart::default(),
         death_spawns: &BTreeMap::new(),
+        rounds: &yalain_content::rounds::RoundTable::default(),
         pets: &BTreeMap::new(),
         items: &yalain_content::item_rows::ItemRows::default(),
         plants: &plants,
@@ -54,9 +55,9 @@ fn every_node_a_maps_effect_names_is_among_the_nodes() {
     }
 }
 
-/// A give row's gift and the item it takes, what a death or a use makes by a row, what a new
-/// character is given by a row, and what an effect gives by a rule, are asked for with the rows'
-/// other makers.
+/// A give row's gift and the item it takes, what a death or a use makes by a row, what a round's
+/// stops stand, whoever the killer, what a new character is given by a row, and what an effect
+/// gives by a rule, are asked for with the rows' other makers.
 /// Behaviour: server.makes.the-rows-name-what-they-make
 #[test]
 fn a_give_rows_gift_and_a_death_spawn_are_named_with_the_other_rows() {
@@ -66,6 +67,8 @@ fn a_give_rows_gift_and_a_death_spawn_are_named_with_the_other_rows() {
     const DUMMY: u32 = 0x4700_2DAE;
     const FIRST_GIFT: u32 = 0x4700_06CD;
     const GRANTED: u32 = 0x4700_0806;
+    const GUARDIAN: u32 = 0x4700_2600;
+    const ORDERS_GUARDIAN: u32 = 0x4700_2601;
     let items = yalain_content::item_rows::ItemRows {
         start_items: BTreeMap::from([(FIRST_GIFT, 1)]),
         ..Default::default()
@@ -90,6 +93,7 @@ fn a_give_rows_gift_and_a_death_spawn_are_named_with_the_other_rows() {
     death_spawns.insert(
         "Eff_Summons".to_owned(),
         DeathSpawn {
+            event: None,
             template: DUMMY,
             count: 1,
             chance: 1.0,
@@ -101,12 +105,29 @@ fn a_give_rows_gift_and_a_death_spawn_are_named_with_the_other_rows() {
             name: None,
         },
     );
+    let stop = yalain_content::rounds::Stop {
+        at: yalain_content::Place {
+            cell: 0x5CB1_0001,
+            origin: [10.0, 10.0, 0.0],
+            rotation: [1.0, 0.0, 0.0, 0.0],
+        },
+        template: GUARDIAN,
+        by_kingdom: vec![(2, ORDERS_GUARDIAN)],
+    };
+    let rounds = yalain_content::rounds::RoundTable {
+        rows: vec![yalain_content::rounds::Round {
+            key: "guardian".into(),
+            stops: vec![stop.clone(), stop],
+            gap: None,
+        }],
+    };
     let named = by_the_rows(Rows {
         objects: &[],
         stores: &StoreTable::default(),
         quests: &quests,
         crafting: &CraftStart::default(),
         death_spawns: &death_spawns,
+        rounds: &rounds,
         pets: &std::collections::BTreeMap::from([(
             0x7000_092A,
             yalain_world::pets::PetKind::new(0x7000_092A, PET, 1096, &[]),
@@ -124,7 +145,16 @@ fn a_give_rows_gift_and_a_death_spawn_are_named_with_the_other_rows() {
             ..Default::default()
         },
     });
-    for t in [GIFT, TAKEN, DUMMY, PET, FIRST_GIFT, GRANTED] {
+    for t in [
+        GIFT,
+        TAKEN,
+        DUMMY,
+        PET,
+        FIRST_GIFT,
+        GRANTED,
+        GUARDIAN,
+        ORDERS_GUARDIAN,
+    ] {
         assert!(named.contains(&t), "{t:08X}");
     }
 }

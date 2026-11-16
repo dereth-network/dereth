@@ -382,7 +382,9 @@ pub fn may_attack_player<S: Store>(s: &Server<S>, world: ConnId, other: ConnId) 
 
 /// May a player harm a thing? A pet is as its owner ([`may_attack_player`]), its own owner's
 /// excepted; a creature the world's rows keep players from harming is kept out (as the client's own
-/// check refuses a target whose permissions keep players out); any other creature may be fought.
+/// check refuses a target whose permissions keep players out); one that holds a kingdom of its own
+/// (aligned by the world's rows) may not be harmed by a player of that kingdom; any other creature
+/// may be fought.
 ///
 /// # Errors
 /// Why not (the client writes the text).
@@ -391,6 +393,14 @@ pub fn may_attack_thing<S: Store>(s: &Server<S>, world: ConnId, thing: u64) -> R
         return Err(crate::kingdoms::refusal::KEPT_OUT);
     }
     let Some(owner) = s.pets.by_id.get(&thing).map(|p| p.owner) else {
+        let its = s.things.get(thing).and_then(|t| t.kingdom);
+        let mine = s
+            .players
+            .get(&world)
+            .and_then(|p| crate::kingdoms::of(&p.qualities));
+        if its.is_some() && its == mine {
+            return Err(crate::kingdoms::refusal::SAME_KINGDOM);
+        }
         return Ok(());
     };
     match s.players.iter().find(|(_, p)| p.character == owner) {

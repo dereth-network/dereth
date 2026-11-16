@@ -92,6 +92,7 @@ fn world(
     h.server.death_spawns.insert(
         EFFECT.into(),
         DeathSpawn {
+            event: None,
             template: PORTAL,
             count: 1,
             chance: 1.0,

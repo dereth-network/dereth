@@ -2915,6 +2915,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.creatures.a-death-makes-each-of-its-rows",
+        says: "A creature's or an effect's several `[[death_spawn]]` rows, each named, are all made at a \
+               death, those for any killer and those for its killer's kingdom.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DEATH-SPAWN-SEVERAL-ROWS"),
+        station: "yalain-testkit::cpu::play::death_spawns::a_death_makes_each_of_its_creatures_named_rows",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.a-death-makes-what-its-killers-kingdom-calls-for",
+        says: "A world's `[[death_spawn]]` row may be made only for killers of one kingdom: a death makes \
+               the rows for any killer and those for its killer's own kingdom, none of another kingdom's, \
+               and a killer in no kingdom makes the rows for any killer alone.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DEATH-SPAWN-BY-KILLERS-KINGDOM"),
+        station: "yalain-testkit::cpu::play::death_spawns::a_death_makes_the_rows_for_any_killer_and_those_of_its_killers_kingdom_alone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.a-death-spawns-row-leads-from-any-template",
         says: "A world's `[[death_spawn]]` row that names a place to lead to makes a portal of a template \
                that names no destination of its own, which takes its user to the row's place; without \
@@ -2922,6 +2941,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-DEATH-SPAWN-ANY-PORTAL"),
         station: "yalain-testkit::cpu::play::death_spawns::a_creatures_death_makes_a_portal_of_a_template_with_no_destination_when_its_row_names_one",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.a-death-starts-an-event",
+        says: "A world's row may have a death start an event in place of making anything: the event is \
+               on from the next step for the row's time and no longer, so what is placed for it (a person) \
+               stands that long, and a death while it is on starts its time again from that death.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DEATH-SPAWN-EVENT"),
+        station: "yalain-testkit::cpu::play::death_spawns::a_death_starts_its_rows_event_and_the_person_placed_for_it_stands_its_time",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -2965,6 +2994,17 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-KILL-OPENS-PORTAL"),
         station: "yalain-testkit::cpu::play::death_spawns::a_creatures_death_stands_its_rows_portal_at_its_place_for_its_time_one_at_a_time",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.a-round-goes-round-its-places-one-at-a-time",
+        says: "A world's `[[round]]` stands its first stop's creature as the world starts; each death of \
+               the round's creature brings the next stop's, one at a time, round to the first after the \
+               last, at once or after the row's gap: the creature the stop names for its killer's kingdom, \
+               else its own.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ROUND-OF-PLACES"),
+        station: "yalain-testkit::cpu::play::rounds::a_rounds_creature_goes_round_its_stops_one_at_a_time_as_its_killers_kingdom_calls_for",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -3021,6 +3061,17 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-USED-WARD"),
         station: "yalain-testkit::cpu::play::items::an_items_ward_goes_on_for_its_time_where_a_creature_row_reads_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.an-aligned-creature-spares-its-kingdom-for-a-while",
+        says: "A creature whose template a world's `[[creature]]` row aligns holds the kingdom its \
+               template names from its first moment, for the row's time: players of that kingdom may not \
+               harm it meanwhile, others may; then it holds none. A template that names no kingdom holds \
+               none.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ALIGNED-CREATURE"),
+        station: "yalain-testkit::cpu::play::aligned_creatures::an_aligned_creature_may_not_be_harmed_by_its_own_kingdom_until_its_time_has_gone",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -8082,6 +8133,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-DEATH-TREASURE-CATALOG"),
         station: "yalain::bin.yalain::data::tests::the_catalog_holds_every_item_a_death_treasure_names",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.death-treasure-of-what-a-death-makes",
+        says: "A creature a world's `[[death_spawn]]` row made, kept by no camp, leaves its template's death \
+               treasure; one of the same template made otherwise, by no camp and no row, leaves none.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DEATH-TREASURE-OF-A-DEATHS-MAKING"),
+        station: "yalain-testkit::cpu::play::death_treasures::a_creature_a_death_spawn_row_made_leaves_its_templates_death_treasure",
         tier: Tier::Cpu,
     },
     behaviour! {

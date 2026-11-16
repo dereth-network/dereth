@@ -745,6 +745,7 @@ pub enum Row {
     Guarded(GuardedRow),
     Shifting(ShiftingRow),
     Wanting(WantingRow),
+    Round(RoundRow),
     Hazard(HazardRow),
     MapRecipes(MapRecipes),
     Spellbinding(Spellbinding),
@@ -808,6 +809,8 @@ pub struct Creature {
     pub only_hated: bool,
     pub players_kept_out: bool,
     pub kept_out_line: Option<StrRef>,
+    /// How long, in seconds, one holds the kingdom its template names after it appears.
+    pub aligned_for: Option<f64>,
     pub prov: Prov,
 }
 
@@ -1087,11 +1090,19 @@ pub struct Area {
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeathSpawn {
     /// The death effect, as a creature's template names it; for a creature's own row, its template
-    /// as [`yalain_content::DeathSpawn::of_creature`] writes it.
+    /// as [`yalain_content::DeathSpawn::of_creature`] writes it; for a row made only for killers of
+    /// one kingdom, either key as [`yalain_content::DeathSpawn::for_killers_of`] writes it; for one
+    /// of several rows, its own name after it, as [`yalain_content::DeathSpawn::named`] writes it.
     pub effect: String,
+    /// The kingdom a killer must be of for the death to make it, as a description's faction names
+    /// it; none, any killer.
+    pub killer_kingdom: Option<u32>,
     /// The creature whose death makes it, for a creature's own row.
     pub creature: Option<u32>,
-    pub template: u32,
+    /// What it makes; or
+    pub template: Option<u32>,
+    /// the event (its key) it starts, for `lasts` seconds, making nothing.
+    pub event: Option<String>,
     pub count: u32,
     pub chance: f32,
     pub offset: At,
@@ -1393,6 +1404,21 @@ pub struct HazardRow {
     pub prov: Prov,
 }
 
+/// One stop of a `[[round]]`: `(place, template, [(kingdom, template)])`.
+pub type RoundStop = (String, u32, Vec<(u32, u32)>);
+
+/// `[[round]]`: one creature at a time going round places in order, each death bringing the next
+/// stop's: the stops, each a place (a `[[place]]` key, or `pack:key`), its creature and the creatures
+/// it stands for each kingdom's killers; and how long after a death the next stands.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RoundRow {
+    pub key: String,
+    /// In the order the creature goes round them.
+    pub stops: Vec<RoundStop>,
+    pub gap: Option<f64>,
+    pub prov: Prov,
+}
+
 /// `[[wanting]]`: placed objects that each want one item of a set, drawn at random and kept until it
 /// is met: the objects (`key@XXYY`, or `pack:key@XXYY`), the set with each item's weight, and what
 /// an object says to an item of the set it does not want.
@@ -1524,6 +1550,7 @@ impl Row {
             Self::Guarded(_) => "guarded",
             Self::Shifting(_) => "shifting",
             Self::Wanting(_) => "wanting",
+            Self::Round(_) => "round",
             Self::Hazard(_) => "hazard",
             Self::MapRecipes(_) => "map_recipes",
             Self::Spellbinding(_) => "spellbinding",
@@ -1599,6 +1626,7 @@ impl Row {
             Self::Guarded(r) => Some(&r.prov),
             Self::Shifting(r) => Some(&r.prov),
             Self::Wanting(r) => Some(&r.prov),
+            Self::Round(r) => Some(&r.prov),
             Self::Hazard(r) => Some(&r.prov),
             Self::MapRecipes(r) => Some(&r.prov),
             Self::Spellbinding(r) => Some(&r.prov),
@@ -1621,7 +1649,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 69] = [
+pub const KINDS: [&str; 70] = [
     "object",
     "camp",
     "loot",
@@ -1675,6 +1703,7 @@ pub const KINDS: [&str; 69] = [
     "guarded",
     "shifting",
     "wanting",
+    "round",
     "hazard",
     "map_recipes",
     "spellbinding",
@@ -1694,7 +1723,7 @@ pub const KINDS: [&str; 69] = [
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 69] = [
+pub const FIELDS: [(&str, &[&str]); 70] = [
     (
         "object",
         &[
@@ -1979,8 +2008,11 @@ pub const FIELDS: [(&str, &[&str]); 69] = [
             "to",
             "lasts",
             "kingdom",
+            "killer_kingdom",
+            "key",
             "name",
             "name_text",
+            "event",
             "prov",
         ],
     ),
@@ -2187,6 +2219,7 @@ pub const FIELDS: [(&str, &[&str]); 69] = [
         &["key", "objects", "gone_for", "moves_after", "prov"],
     ),
     ("wanting", &["key", "objects", "items", "refused", "prov"]),
+    ("round", &["key", "stops", "gap", "prov"]),
     (
         "hazard",
         &[
@@ -2238,6 +2271,7 @@ pub const FIELDS: [(&str, &[&str]); 69] = [
             "only_hated",
             "players_kept_out",
             "kept_out_line",
+            "aligned_for",
             "prov",
         ],
     ),
@@ -3605,6 +3639,36 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 prov: f.req_prov()?,
             })
         }
+        "round" => {
+            let key = f.req_symbol("key")?;
+            let stops = f.list_of(
+                "stops",
+                "a list of { at, template, shadow, order, dominion }: the place, the creature that stands there, and the one it stands after a killer of each kingdom (its own when left out)",
+                &["at", "template", "shadow", "order", "dominion"],
+                |t| {
+                    let at = t.get("at")?.as_str().filter(|s| is_reference(s))?.to_string();
+                    let template = as_u32(t.get("template")?)?;
+                    let mut by_kingdom = Vec::new();
+                    for (word, kingdom) in [("shadow", 1), ("order", 2), ("dominion", 4)] {
+                        if let Some(v) = t.get(word) {
+                            by_kingdom.push((kingdom, as_u32(v)?));
+                        }
+                    }
+                    Some((at, template, by_kingdom))
+                },
+            );
+            let ok = stops.len() >= 2;
+            let stops = f.held("stops", stops, ok, "at least two")?;
+            let gap = f.float("gap");
+            let ok = gap.is_none_or(|t| t > 0.0);
+            let gap = f.held("gap", gap, ok, "above 0")?;
+            Row::Round(RoundRow {
+                key,
+                stops,
+                gap,
+                prov: f.req_prov()?,
+            })
+        }
         "tool" => Row::Tool(Tool {
             template: f.req_id("template")?,
             tool_yield: f.req_u32("yield")?,
@@ -4195,10 +4259,18 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 );
                 return None;
             }
-            if rhythm.is_none() && marks.is_none() && !only_hated && !players_kept_out {
+            let aligned_for = f.float("aligned_for");
+            let ok = aligned_for.is_none_or(|t| t > 0.0);
+            let aligned_for = f.held("aligned_for", aligned_for, ok, "above 0")?;
+            if rhythm.is_none()
+                && marks.is_none()
+                && !only_hated
+                && !players_kept_out
+                && aligned_for.is_none()
+            {
                 f.bad(
-                    "shot_gap, windup, marks, only_hated, players_kept_out",
-                    "a creature's row gives its rhythm, a mark, only_hated or players_kept_out",
+                    "shot_gap, windup, marks, only_hated, players_kept_out, aligned_for",
+                    "a creature's row gives its rhythm, a mark, only_hated, players_kept_out or aligned_for",
                 );
                 return None;
             }
@@ -4209,6 +4281,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 only_hated,
                 players_kept_out,
                 kept_out_line,
+                aligned_for,
                 prov: f.req_prov()?,
             })
         }
@@ -4405,6 +4478,29 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 }
                 (false, None) => return f.missing("effect"),
             };
+            let event = f.key("event");
+            if event.is_none() && f.get("event").is_some() {
+                return None;
+            }
+            if event.is_some() {
+                let makes = [
+                    "template",
+                    "count",
+                    "offset",
+                    "at",
+                    "to",
+                    "kingdom",
+                    "name",
+                    "name_text",
+                ];
+                if let Some(field) = makes.into_iter().find(|n| f.get(n).is_some()) {
+                    f.bad(field, "a row that starts an event makes nothing");
+                    return None;
+                }
+                if f.get("lasts").is_none() {
+                    return f.missing("lasts");
+                }
+            }
             let at = f.symbol("at");
             if at.is_some() && (creature.is_none() || f.get("offset").is_some()) {
                 f.bad(
@@ -4413,8 +4509,11 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 );
                 return None;
             }
-            let offset = match (creature, f.get("offset").is_some()) {
-                (Some(_), false) => At {
+            let offset = match (
+                creature.is_some() || event.is_some(),
+                f.get("offset").is_some(),
+            ) {
+                (true, false) => At {
                     x: 0.0,
                     y: 0.0,
                     z: None,
@@ -4439,10 +4538,33 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 );
                 return None;
             }
+            let killer_kingdom = f.int("killer_kingdom");
+            if killer_kingdom.is_some_and(|k| ![1, 2, 4].contains(&k)) {
+                f.bad(
+                    "killer_kingdom",
+                    "a kingdom is 1 (Shadow), 2 (Order) or 4 (Dominion)",
+                );
+                return None;
+            }
+            let killer_kingdom = killer_kingdom.and_then(|v| u32::try_from(v).ok());
+            let effect = match killer_kingdom {
+                Some(k) => yalain_content::DeathSpawn::for_killers_of(&effect, k),
+                None => effect,
+            };
+            let effect = match f.key("key") {
+                Some(name) => yalain_content::DeathSpawn::named(&effect, &name),
+                None if f.get("key").is_some() => return None,
+                None => effect,
+            };
             Row::DeathSpawn(DeathSpawn {
                 effect,
+                killer_kingdom,
                 creature,
-                template: f.req_id("template")?,
+                template: match event {
+                    Some(_) => None,
+                    None => Some(f.req_id("template")?),
+                },
+                event,
                 count: f
                     .int("count")
                     .and_then(|v| u32::try_from(v).ok())

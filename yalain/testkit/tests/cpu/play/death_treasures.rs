@@ -1,8 +1,9 @@
 //! Death treasures: a world's fixed item for a creature's template or its camp, rolled once at its
 //! chance as the corpse is made, on top of the rest of what the creature leaves; only a creature a
-//! camp keeps leaves one, and a corpse holds an item once however many rows name it; one that names
-//! a quest, once for each of the corpse's claimants holding it. Fixture: the test world's camp of
-//! beetles, its regeneration shortened, and a treasure item.
+//! camp keeps, or one a world's death spawn row made, leaves one, and a corpse holds an item once
+//! however many rows name it; one that names a quest, once for each of the corpse's claimants
+//! holding it. Fixture: the test world's camp of beetles, its regeneration shortened, and a
+//! treasure item.
 
 use std::collections::BTreeMap;
 
@@ -281,8 +282,8 @@ fn a_death_treasure_that_names_a_quest_lies_once_for_each_claimant_holding_it() 
 }
 
 /// A camp's row gives its own creatures its treasure and no other camp's, though they are of one
-/// template, as a template's row gives every camp's; a creature no camp keeps (as one made by a
-/// death or an item's use) leaves neither.
+/// template, as a template's row gives every camp's; a creature no camp keeps and no world's row
+/// made leaves neither.
 /// Behaviour: server.loot.death-treasure-a-camps-creatures
 #[test]
 fn a_camps_death_treasure_is_its_creatures_and_no_others() {
@@ -362,6 +363,99 @@ fn a_camps_death_treasure_is_its_creatures_and_no_others() {
             assert_eq!(camp, None);
         }
     }
+}
+
+/// A creature a world's death spawn row made, kept by no camp, leaves its template's treasure; one
+/// of the same template made otherwise leaves none.
+/// Behaviour: server.loot.death-treasure-of-what-a-death-makes
+#[test]
+fn a_creature_a_death_spawn_row_made_leaves_its_templates_death_treasure() {
+    let mut h = camp_world(1, 60.0, vec![row(Dropper::Template(ELSEWHERE), 1.0)], 5);
+    let mut elsewhere = h
+        .server
+        .catalog
+        .get(TEST_CREATURE)
+        .cloned()
+        .expect("the beetle");
+    elsewhere.id = ELSEWHERE;
+    h.server.catalog.insert(elsewhere.clone());
+    h.server.death_spawns.insert(
+        yalain_content::DeathSpawn::of_creature(TEST_CREATURE),
+        yalain_content::DeathSpawn {
+            event: None,
+            template: ELSEWHERE,
+            count: 1,
+            chance: 1.0,
+            offset: [0.0, 2.0],
+            lasts: None,
+            kingdom: None,
+            at: None,
+            to: None,
+            name: None,
+        },
+    );
+    let (_, me) = h.player_in_world("one", "Kestrel");
+    h.run(5);
+    let stats = yalain_content::CreatureStats::from_props(&elsewhere.props).expect("a creature");
+    let at = StoredPosition {
+        cell: 0x0299_0109,
+        origin: [62.0, 240.0, -44.6],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let loose = yalain_world::spawn::make(
+        &mut h.server,
+        &elsewhere,
+        stats,
+        (at, 0),
+        None,
+        None,
+        h.now.0,
+    );
+    let beetle = *living(&h)
+        .iter()
+        .find(|id| {
+            h.server
+                .things
+                .get(**id)
+                .is_some_and(|t| t.template == TEST_CREATURE)
+        })
+        .expect("the camp's beetle");
+    let hurt = |h: &mut Harness, id: u64| {
+        if let Some(t) = h.server.things.get_mut(id) {
+            t.health = 1;
+        }
+        let clock = h.clock();
+        yalain_world::combat::hurt_creature(&mut h.server, &mut h.net, id, me, 50, clock);
+    };
+    hurt(&mut h, beetle);
+    let made = *living(&h)
+        .iter()
+        .find(|id| {
+            **id != loose
+                && h.server
+                    .things
+                    .get(**id)
+                    .is_some_and(|t| t.template == ELSEWHERE)
+        })
+        .expect("what the beetle's death made");
+    hurt(&mut h, made);
+    hurt(&mut h, loose);
+    run_for(&mut h, 2.5);
+    let holds = |h: &Harness, id: u64| {
+        h.server
+            .things
+            .by_id
+            .values()
+            .find_map(|t| t.corpse.as_ref().filter(|c| c.originator == id))
+            .is_some_and(|c| {
+                c.contents
+                    .iter()
+                    .filter_map(|i| h.server.things.get(*i))
+                    .any(|i| i.template == TREASURE)
+            })
+    };
+    assert!(holds(&h, made), "the row's");
+    assert!(!holds(&h, loose), "one made otherwise");
 }
 
 /// A corpse holds a death treasure once, though its template's row and its camp's both name it;

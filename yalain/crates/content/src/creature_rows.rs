@@ -139,6 +139,9 @@ pub struct CreatureRows {
     /// The templates whose creatures players may not harm, with the line a player's attack on one
     /// is told (a string reference: string id, table), if any.
     pub kept_out: BTreeMap<u32, Option<(u32, u32)>>,
+    /// The templates whose creatures hold the kingdom their template names for a while after they
+    /// appear, and how long, in seconds: players of that kingdom may not harm one meanwhile.
+    pub aligned: BTreeMap<u32, f64>,
     /// The camps and kinds of creature that let pass a player holding an item or bearing an effect.
     pub safe_passage: Vec<SafePassage>,
     /// The effects creatures of some templates hold from their first moment.

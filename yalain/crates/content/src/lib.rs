@@ -49,6 +49,7 @@ pub mod pools;
 pub mod popups;
 pub mod props;
 pub mod quests;
+pub mod rounds;
 pub mod shifting;
 pub mod spawns;
 pub mod stores;
@@ -118,7 +119,7 @@ pub struct WeaponRule {
 /// a template makes, at a place or where it died.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct DeathSpawn {
-    /// The template of what it makes.
+    /// The template of what it makes (0 for a row that starts an event).
     pub template: u32,
     /// How many it tries to make.
     pub count: u32,
@@ -139,6 +140,8 @@ pub struct DeathSpawn {
     pub to: Option<Place>,
     /// The name what it makes is shown and examined by, in place of its template's.
     pub name: Option<Words>,
+    /// The event (its key) the death starts for `lasts` seconds, in place of making anything.
+    pub event: Option<String>,
 }
 
 impl DeathSpawn {
@@ -147,6 +150,20 @@ impl DeathSpawn {
     #[must_use]
     pub fn of_creature(template: u32) -> String {
         format!("0x{template:08X}")
+    }
+
+    /// The key a row made only for killers of one kingdom is found by: its effect's or its
+    /// creature's key, then `@` and the kingdom, as a description's faction names it.
+    #[must_use]
+    pub fn for_killers_of(key: &str, kingdom: u32) -> String {
+        format!("{key}@{kingdom}")
+    }
+
+    /// The key of one of several rows of an effect or a creature (or of its rows for a kingdom's
+    /// killers): that key, then `#` and the row's own name.
+    #[must_use]
+    pub fn named(key: &str, name: &str) -> String {
+        format!("{key}#{name}")
     }
 }
 
@@ -807,6 +824,9 @@ pub struct ContentPack {
     /// The placed objects that each want one item of a set, drawn at random. Not part of the text
     /// form: the world database's wanting rows fill it.
     pub wanting: wanting::WantTable,
+    /// The creatures that go round places one at a time. Not part of the text form: the world
+    /// database's round rows fill it.
+    pub rounds: rounds::RoundTable,
     /// The placed objects and spots that harm a player who uses one or comes within its reach. Not
     /// part of the text form: the world database's hazard rows fill it.
     pub hazards: hazards::HazardTable,
@@ -1194,6 +1214,7 @@ impl ContentPack {
             guards: guards::GuardTable::default(),
             shifting: shifting::ShiftTable::default(),
             wanting: wanting::WantTable::default(),
+            rounds: rounds::RoundTable::default(),
             defenses: defenses::DefenseTable::default(),
             hazards: hazards::HazardTable::default(),
         })

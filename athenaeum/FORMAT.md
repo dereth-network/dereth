@@ -55,7 +55,7 @@ world.lock                         ids given to authored rows, kept across build
 <pack>/server/treasure_families.toml [[treasure_family]]
 <pack>/server/items.toml           [[item_use]], [[book]], [[start_item]], [[item_life]], [[interaction]]
 <pack>/server/puzzles.toml         [[object_states]], [[sequence]], [[lever]], [[offering]], [[guarded]], [[shifting]], [[hazard]], [[wanting]]
-<pack>/server/creatures.toml       [[concealing]], [[npc_table]], [[friend_table]], [[creature]], [[safe_passage]], [[creature_effect]], [[defense]]
+<pack>/server/creatures.toml       [[concealing]], [[npc_table]], [[friend_table]], [[creature]], [[safe_passage]], [[creature_effect]], [[defense]], [[round]]
 ```
 
 `[[object]]`, `[[camp]]` and `[[clearing]]` rows must be written in their landblock's file. Every
@@ -125,7 +125,7 @@ Every row sets one **item**, named by its key:
 | item | key |
 |---|---|
 | `object KEY@XXYY`, `camp KEY@XXYY`, `clearing KEY@XXYY` | the row's `key`, unique within its landblock in its pack |
-| `place KEY`, `talk KEY`, `give KEY`, `route KEY`, `event KEY`, `tally KEY`, `death_treasure KEY`, `object_states KEY`, `sequence KEY`, `lever KEY`, `offering KEY`, `guarded KEY`, `shifting KEY`, `hazard KEY`, `wanting KEY` | the row's `key` |
+| `place KEY`, `talk KEY`, `give KEY`, `route KEY`, `event KEY`, `tally KEY`, `death_treasure KEY`, `object_states KEY`, `sequence KEY`, `lever KEY`, `offering KEY`, `guarded KEY`, `shifting KEY`, `hazard KEY`, `wanting KEY`, `round KEY` | the row's `key` |
 | `loot 0xVALUE` | the death-loot profile's value |
 | `keeper 0xTEMPLATE` | the storekeeper template |
 | `store KEY` | the shop's `key`, unique in the world |
@@ -566,7 +566,10 @@ rolled at every opening whose opener holds that quest where it needs it, a key o
 filled anew at each opening, so a quest's item is there again until the quest moves on (for
 instance, as a `{ take = T }` step moves it). A creature's row that names a quest is rolled once for
 each of its killer and the killer's fellows in the world holding that quest where it needs it as the
-corpse is made, so the corpse holds the item once for each of them.
+corpse is made, so the corpse holds the item once for each of them. Only a creature a camp keeps
+leaves one, so it comes no faster than the camp makes the creature again, or one a world's
+`[[death_spawn]]` row made, which leaves its template's rows' (it comes no faster than the deaths
+that make it).
 
 | field | | meaning |
 |---|---|---|
@@ -885,12 +888,12 @@ own.
 What a creature's death effect makes around its killer, or an item's use effect around its user,
 where the install names it by a name it doesn't resolve: creatures, or a portal. Or what the death
 of any creature of a template makes, where it names no death effect for it: at a place of the
-world, or where the creature died.
+world, or where the creature died. Or an `[[event]]` the death starts, in place of making anything.
 
 | field | | meaning |
 |---|---|---|
 | `effect`, `creature` | one of them | the effect, as templates name it; or the template of the creatures whose death makes it, wherever their killer stands |
-| `template` | required | what it makes: a creature, or a portal: one whose template names a destination, or, with `to`, any object that is no creature |
+| `template`, `event` | one of them | what it makes: a creature, or a portal: one whose template names a destination, or, with `to`, any object that is no creature; or the `[[event]]` (its `key`) it starts, on from the next step for everyone for its `lasts`, which it then needs, and a death while it is on starts that time again (what it starts is not kept across a restart). A row that starts an event names nothing it would make: no `count`, `offset`, `at`, `to`, `kingdom` or name |
 | `count` | | how many it tries to make; 1 when left out |
 | `chance` | | that each is made; 1 when left out |
 | `offset` | `effect` required | where each stands, in meters from the killer or user as it faces, `[x, y, z]`; for a `creature` row, from where the creature died, as it faced, `[0, 0, 0]` when left out |
@@ -898,6 +901,8 @@ world, or where the creature died.
 | `to` | | a portal's: the `[[place]]` it leads to, in place of where its template's destination names; with it, an object that is no creature is made a portal even where its template names no destination |
 | `lasts` | | how long each stands, in seconds; left out, a creature until killed, a portal until the server stops |
 | `kingdom` | | a portal's: the kingdom a player must be of to use it, 1 (Shadow), 2 (Order) or 4 (Dominion); left out, the kingdom its template requires, if any |
+| `key` | | a name of its own (lowercase letters, digits and hyphens), so one effect or creature (or its rows for one kingdom's killers) may have several rows: a death makes every one of them, as it makes the row with none |
+| `killer_kingdom` | | made only where the killer is of this kingdom, 1 (Shadow), 2 (Order) or 4 (Dominion): a death makes its effect's or creature's rows for any killer and those for its killer's own kingdom, so one effect or creature may have a row for each kingdom beside one for any killer; a killer in no kingdom, and an item's use, make none of a kingdom's |
 | `name`, `name_text` | | the name what it makes is shown over it and examined by, in place of its template's (a portal named for where it leads); a creature takes a string reference alone, which its corpse is named after too |
 | `prov` | required | where it came from |
 
@@ -993,6 +998,7 @@ row gives at least one of these.
 | `only_hated` | | true: it takes on only a player a concealing effect makes it hate, and gives up on one that no longer holds the effect |
 | `players_kept_out` | | true: players and their pets may not harm it; an attack on it is refused |
 | `kept_out_line` | | with `players_kept_out`: the line a player's attack on it is told, a string reference `{ table, string }` |
+| `aligned_for` | | seconds above 0 that one of its creatures holds the kingdom its template names (its faction) from its first moment, shown as its own: players of that kingdom may not harm it meanwhile, as a player of the same kingdom is refused; then it holds none, and every client that knows it is told it anew. A template that names no kingdom holds none |
 | `prov` | required | where it came from |
 
 A world with no rows of `[[concealing]]`, `[[npc_table]]`, `[[friend_table]]` or `[[creature]]`
@@ -1059,6 +1065,25 @@ its template's `[[creature]]` row (`players_kept_out`), not by this one.
 | `held_line` | | what it says aloud as it holds, before it goes, a string reference |
 | `prov` | required | where it came from |
 
+#### `[[round]]`
+
+One creature at a time going round places in order, each death bringing the next stop's, such as
+a guardian that moves on from shrine to shrine as it is killed. As the world starts, the first
+stop's creature stands at its place, made as a camp makes one but kept by no camp; outdoors, on the
+ground under the place, as a camp's creature stands. When it dies,
+whoever kills it, the next stop's creature stands at that stop's place, the first's after the
+last: the creature the stop names for its killer's kingdom, where it names one and the killer is a
+player of that kingdom, else the stop's own; at once, or `gap` seconds after the death. A creature
+taken from the world otherwise than by a death stands again where it stood. Nothing of this is
+kept across a restart: the round starts again at its first stop.
+
+| field | | meaning |
+|---|---|---|
+| `key` | required | unique in its pack |
+| `stops` | required | at least two, in the order the creature goes round them: `{ at, template, shadow, order, dominion }`, the `[[place]]` it stands at (`key`, or `pack:key`), facing as the place does, the creature that stands there, and the creature it stands instead after a killer of the Shadow, the Order or the Dominion (each left out: `template`) |
+| `gap` | | seconds from a death to the next stop's creature, above 0; at once when left out |
+| `prov` | required | where it came from |
+
 ### Effects, events and items
 
 #### `[[effect_name]]`
@@ -1120,8 +1145,8 @@ A tip a player is shown once, the first time a moment comes for its character. O
 
 #### `[[event]]`
 
-A named state of the world, on for its times, while a full tally starts it, and after a quest's
-failure starts it. A camp's or an object's `event`, a step's `requires = [{ event = "key" }]`, and a
+A named state of the world, on for its times, while a full tally starts it, after a quest's
+failure starts it, and while a death's `[[death_spawn]]` row starts it. A camp's or an object's `event`, a step's `requires = [{ event = "key" }]`, and a
 line's `requires` (on, or with `on = false` off), name one. While it is on, the placed objects it
 `hides` are kept from the world: forgotten by every client as it starts, made again as it ends; a
 use of one or a give to one finds nothing meanwhile.
