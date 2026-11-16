@@ -112,6 +112,17 @@ struct Slot {
     /// The server's uptime (virtual seconds) when the client was added: the client's own local
     /// clock reads the uptime minus this.
     added_at: f64,
+    /// The datagrams the client received, and their bytes (the UDP payload).
+    received_wire: WireCount,
+}
+
+/// What a client received on the wire: datagrams and their UDP payload bytes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct WireCount {
+    /// Datagrams received.
+    pub datagrams: u64,
+    /// Their UDP payload bytes, packet headers included.
+    pub bytes: u64,
 }
 
 /// A whole server in-process on a virtual clock (see the crate docs).
@@ -323,6 +334,8 @@ impl TestServer {
 
         for slot in &mut self.clients {
             while let Some(d) = self.wire.mem.client_recv(slot.client.addr) {
+                slot.received_wire.datagrams += 1;
+                slot.received_wire.bytes += d.bytes.len() as u64;
                 slot.client
                     .handle_datagram(d.from, &d.bytes, t - slot.added_at);
             }
@@ -375,6 +388,7 @@ impl TestServer {
             inbox: Vec::new(),
             next_action_stamp: 1,
             added_at: self.seconds(),
+            received_wire: WireCount::default(),
         });
         ClientId(n)
     }
@@ -390,6 +404,7 @@ impl TestServer {
             inbox: Vec::new(),
             next_action_stamp: 1,
             added_at: self.seconds(),
+            received_wire: WireCount::default(),
         });
         ClientId(n)
     }
@@ -480,6 +495,15 @@ impl TestServer {
     #[must_use]
     pub fn received_raw(&self, id: ClientId) -> &[IncomingMessage] {
         &self.clients[id.0].inbox
+    }
+
+    /// The datagrams and bytes the client has received on the wire.
+    ///
+    /// # Panics
+    /// When `id` is not a client of this server.
+    #[must_use]
+    pub fn received_wire(&self, id: ClientId) -> WireCount {
+        self.clients[id.0].received_wire
     }
 
     /// The `not_ported!` sites this thread hit since the last call (or since it started), with

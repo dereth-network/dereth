@@ -45,10 +45,10 @@ use empyrean_world::world_objects::kinds::KindData;
 use empyrean_world::world_objects::world_object::WorldObject;
 use empyrean_world::world_objects::{player_location, player_move, portal};
 
-const HOME: u16 = 0xA9B4;
+pub(crate) const HOME: u16 = 0xA9B4;
 /// A landblock far from `HOME` (the teleport, portal and recall destination).
 const FAR: u16 = 0x2B2C;
-const BLOCKS: [u16; 11] = [
+pub(crate) const BLOCKS: [u16; 11] = [
     0xA8B3, 0xA8B4, 0xA8B5, 0xA9B3, 0xA9B4, 0xA9B5, 0xAAB3, 0xAAB4, 0xAAB5, 0xACB4, FAR,
 ];
 
@@ -70,7 +70,7 @@ const EV_WEENIE_ERROR: u32 = 0x028A;
 const I_TELEPORTED: u32 = 60;
 
 /// An outdoor position: the landblock, the cell under `(x, y)` and an identity rotation.
-fn outdoor(lb: u16, x: f32, y: f32, z: f32) -> Position {
+pub(crate) fn outdoor(lb: u16, x: f32, y: f32, z: f32) -> Position {
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let cell = (x / 24.0) as u32 * 8 + (y / 24.0) as u32 + 1;
     Position::from_components(
@@ -86,7 +86,7 @@ fn outdoor(lb: u16, x: f32, y: f32, z: f32) -> Position {
     )
 }
 
-fn wire(p: &Position) -> PositionWire {
+pub(crate) fn wire(p: &Position) -> PositionWire {
     PositionWire {
         objcell_id: p.cell(),
         frame: Frame {
@@ -107,6 +107,11 @@ fn wire(p: &Position) -> PositionWire {
 
 /// Fake dats with the retail-shaped secondary attribute table (max mana = Self, and so on).
 fn dats() -> std::sync::Arc<empyrean_dat::DatManager> {
+    fake_dats().build().expect("fake dats")
+}
+
+/// [`dats`] before it is built, for a module that adds files of its own.
+pub(crate) fn fake_dats() -> FakeDats {
     let f = |attr1: u32, z: u32| SkillFormula {
         w: 0,
         x: 1,
@@ -123,20 +128,35 @@ fn dats() -> std::sync::Arc<empyrean_dat::DatManager> {
     };
     empyrean_testkit::dats::with_stat_tables(FakeDats::new())
         .with_portal(file_id::SECONDARY_ATTRIBUTE_TABLE, table)
-        .build()
-        .expect("fake dats")
 }
 
 /// A server on flat land (20 m high) over `BLOCKS`, with the synthetic test setup.
-fn server() -> TestServer {
-    let mut ts = TestServer::with_dats(dats());
+pub(crate) fn server() -> TestServer {
+    server_with(dats())
+}
+
+/// [`server`] over `dats`.
+pub(crate) fn server_with(dats: std::sync::Arc<empyrean_dat::DatManager>) -> TestServer {
+    let mut ts = TestServer::with_dats(dats);
     land::use_flat_land_with_test_setup(&mut ts.world, &BLOCKS, 10);
     ts
 }
 
 /// An account with one character whose biota stands at `at`: the synthetic body, all attributes
 /// 100, every vital 100 of 100 (with `with_stat_tables`' zero formulas), collisions reported.
-fn seed(ts: &TestServer, account: &str, guid: u32, name: &str, at: Position) {
+pub(crate) fn seed(ts: &TestServer, account: &str, guid: u32, name: &str, at: Position) {
+    seed_with(ts, account, guid, name, at, |_| ());
+}
+
+/// [`seed`], with `edit` run on the biota before it is stored.
+pub(crate) fn seed_with(
+    ts: &TestServer,
+    account: &str,
+    guid: u32,
+    name: &str,
+    at: Position,
+    edit: impl FnOnce(&mut empyrean_entity::Biota),
+) {
     let account_id = ts
         .auth()
         .create_account(
@@ -204,6 +224,7 @@ fn seed(ts: &TestServer, account: &str, guid: u32, name: &str, at: Position) {
         .properties_position
         .get_or_insert_with(DotNetDict::new)
         .insert(PositionType::Location, position);
+    edit(&mut biota);
     let character = Character {
         id: guid,
         account_id,
@@ -246,7 +267,12 @@ fn seeded() -> TestServer {
     ts
 }
 
-fn enter(ts: &mut TestServer, account: &str, guid: u32, at: Position) -> (ClientId, SessionId) {
+pub(crate) fn enter(
+    ts: &mut TestServer,
+    account: &str,
+    guid: u32,
+    at: Position,
+) -> (ClientId, SessionId) {
     let id = ts.connect(account, "pw");
     assert_eq!(
         ts.client(id).status(),
@@ -317,7 +343,7 @@ fn movement_since(ts: &TestServer, id: ClientId, mark: usize) -> Vec<u32> {
         .collect()
 }
 
-fn location(ts: &TestServer, guid: u32) -> Position {
+pub(crate) fn location(ts: &TestServer, guid: u32) -> Position {
     ts.world
         .objects
         .get(ObjectGuid::new(guid))
@@ -325,7 +351,7 @@ fn location(ts: &TestServer, guid: u32) -> Position {
         .expect("a location")
 }
 
-fn run_forward(at: &Position) -> MovementMoveToState {
+pub(crate) fn run_forward(at: &Position) -> MovementMoveToState {
     MovementMoveToState(MoveToStatePack {
         raw_motion_state: RawMotionState {
             current_holdkey: Some(HOLD_RUN),
@@ -340,7 +366,7 @@ fn run_forward(at: &Position) -> MovementMoveToState {
     })
 }
 
-fn autonomous_position(at: &Position, contact: bool) -> MovementAutonomousPosition {
+pub(crate) fn autonomous_position(at: &Position, contact: bool) -> MovementAutonomousPosition {
     MovementAutonomousPosition(AutonomousPosition {
         position: wire(at),
         timestamps: MoveTimestamps::default(),

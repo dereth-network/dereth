@@ -27,7 +27,7 @@ use crate::network::motion::move_to_state::MoveToState;
 use crate::network::motion::movement_data::{Motion, MovementData};
 use crate::network::motion::raw_motion_state::RawMotionState;
 use crate::network::sequence::sequence_type::SequenceType;
-use crate::physics::phys_ext;
+use crate::physics::{object_maint, phys_ext};
 use crate::world_objects::player_move;
 use crate::world_objects::world_object_networking::{self, shims};
 use crate::World;
@@ -83,6 +83,10 @@ pub struct PlayerTickFields {
 
     // ACE: Player.gagNoticeSent
     pub gag_notice_sent: bool,
+
+    /// Not ACE's (retail captures, V548): the cell of the last position sent to the observers
+    /// outside the player's outdoor create window; `None` until the first.
+    pub far_observer_cell: Option<u32>,
 }
 
 fn fields(w: &World, this: ObjectGuid) -> &PlayerTickFields {
@@ -1020,7 +1024,9 @@ pub fn update_player_position(
     let broadcast = o.wo.world_object.requested_location_broadcast;
     let since_update = w.now.utc - o.wo.world_object_networking.last_update_position;
     if broadcast || since_update >= move_to_state_update_position_threshold() {
-        world_object_networking::send_update_position(w, this, false);
+        // DIVERGE: V548, observers outside the create window outdoors get the position only on a
+        // new cell.
+        send_player_update_position(w, this);
     } else {
         let msg = game_message_update_position::game_message_update_position(w, this, false);
         let session = shims::player_session(w, this)
@@ -1033,6 +1039,64 @@ pub fn update_player_position(
     }
 
     landblock_update
+}
+
+/// Not ACE's (retail captures, V548): a player's position, to the player and to every player in
+/// its broadcast reach as `WorldObject.SendUpdatePosition` sends it, except that while the player
+/// is outdoors an observer whose create window it is outside (the round window of outdoor cells,
+/// [`object_maint::create_set_contains`]) gets it only when its cell differs from that of the last
+/// position sent that far. Indoors every observer gets every position. ACE sent every position to
+/// every observer.
+pub fn send_player_update_position(w: &mut World, this: ObjectGuid) {
+    if w.objects.get(this).is_none_or(|o| o.phys.is_none()) {
+        world_object_networking::send_update_position(w, this, false);
+        return;
+    }
+
+    let msg = game_message_update_position::game_message_update_position(w, this, false);
+    let at = location(w, this);
+    let outdoors = at.cell() & 0xFFFF < 0x100;
+    let to_far = !outdoors || fields(w, this).far_observer_cell != Some(at.cell());
+    if to_far {
+        fields_mut(w, this).far_observer_cell = Some(at.cell());
+    }
+
+    if let Some(session) = shims::player_session(w, this) {
+        game_message::enqueue_send(w, session, msg.clone());
+    }
+    let visibility = w.objects.get(this).is_some_and(|o| o.visibility());
+    let mover = phys_ext::to_physics_position(&at);
+    for player in world_object_networking::reach_players(w, this) {
+        if visibility && !shims::player_adminvision(w, player) {
+            continue;
+        }
+        if !to_far && !in_create_window(w, player, &mover) {
+            continue;
+        }
+        if let Some(session) = shims::player_session(w, player) {
+            game_message::enqueue_send(w, session, msg.clone());
+        }
+    }
+
+    let now = w.now.utc;
+    if let Some(o) = w.objects.get_mut(this) {
+        o.wo.world_object_networking.last_update_position = now;
+    }
+}
+
+/// Not ACE's (retail captures, V548): whether a player at `mover` is in `observer`'s create window,
+/// from where the observer is.
+fn in_create_window(w: &World, observer: ObjectGuid, mover: &PPosition) -> bool {
+    w.objects
+        .get(observer)
+        .and_then(crate::world_objects::world_object::WorldObject::location)
+        .is_some_and(|p| {
+            object_maint::create_set_contains(
+                w.physics.land(),
+                &phys_ext::to_physics_position(&p),
+                mover,
+            )
+        })
 }
 
 // ACE: Player.buggedCells
