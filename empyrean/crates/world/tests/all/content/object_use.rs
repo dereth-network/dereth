@@ -786,6 +786,33 @@ fn door_opens_closes_and_resets() {
     );
 }
 
+/// Divergence: V545
+/// A door's opening and its closing reach the player as its motions alone, with no physics
+/// state (`SetState` `0xF74B`), as retail sent none for any door; the server's door is still
+/// ethereal while open and solid once the close has played.
+#[test]
+fn a_door_opens_and_closes_by_its_motions_alone() {
+    let mut h = H::new();
+    let d = h.place(DOOR, 21.0, 20.0);
+    start_capture();
+    dispatch::act_on_use::act_on_use(&mut h.w, d, P);
+    h.run(0.1);
+    assert_eq!(h.o(d).ethereal(), Some(true), "open: ethereal");
+    dispatch::act_on_use::act_on_use(&mut h.w, d, P);
+    h.run(1.0);
+    assert_eq!(h.o(d).ethereal(), Some(false), "the close played: solid");
+    let sent = ops(&sent_to_s());
+    let motions = sent
+        .iter()
+        .filter(|&&o| o == GameMessageOpcode::Motion.0)
+        .count();
+    assert_eq!(motions, 2, "the open and the close: {sent:04X?}");
+    assert!(
+        !sent.contains(&GameMessageOpcode::SetState.0),
+        "{sent:04X?}"
+    );
+}
+
 /// A door used twice within its interval resets only on the second use's timer (the first
 /// timer's `useTimestamp` no longer matches), Door.Reset.
 #[test]

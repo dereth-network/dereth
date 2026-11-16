@@ -548,3 +548,4 @@ the evidence behind each row. Edit the register, not this file.
 | V542 | retail | Examining a player now always shows their Enlightenment. | `empyrean-testkit::all::objects::appraisal::a_players_appraisal_carries_its_enlightenment_even_at_none` |
 | V543 | retail | A charge that goes too far ends the attack with the same reason it gives. | `empyrean-testkit::all::combat::player_combat::charged_too_far::a_charge_that_went_too_far_ends_the_attack_with_its_error` |
 | V544 | retail | A jump reaches other players without an empty movement update before it. | `empyrean-testkit::all::movement::player_movement::jump_alone::a_running_jump_reaches_others_and_the_jumper_as_the_jump_alone` |
+| V545 | retail | Doors open and close by their motion alone, with no separate state message. | `empyrean-world::all::content::object_use::a_door_opens_and_closes_by_its_motions_alone` |

@@ -2822,7 +2822,7 @@ mod body_state {
     use crate::support::creature_world::*;
 
     /// `Door.Open` sets `Ethereal = true` (SetPhysicsPropertyState: the property and the body's
-    /// state bit) and broadcasts the state; `Door.Close` then `FinalizeClose` (after the close
+    /// state bit); `Door.Close` then `FinalizeClose` (after the close
     /// animation, none here) clears both. Neither `SetPhysicsState` nor `EnqueueBroadcastPhysicsState`
     /// is a pointer any more.
     #[test]

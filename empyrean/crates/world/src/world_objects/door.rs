@@ -243,7 +243,9 @@ pub fn open(w: &mut World, this: ObjectGuid, opener: ObjectGuid) {
     crate::world_objects::world_object_properties::set_ethereal(w, this, Some(true));
     obj_mut(w, this).set_is_open(true);
 
-    world_object::enqueue_broadcast_physics_state(w, this);
+    // DIVERGE: V545
+    // Not ACE's (retail captures): the door's physics state is not broadcast; the open motion
+    // alone tells the clients, and the server's body is ethereal as ACE's is.
 
     if opener.full() > 0 {
         let now = w.now.unix_time;
@@ -354,10 +356,11 @@ fn finalize_close(w: &mut World, this: ObjectGuid, close_timestamp: f64) {
             finalize_close(w, this, close_timestamp)
         });
         hold_chain.enqueue_chain(w);
-        return;
     }
 
-    world_object::enqueue_broadcast_physics_state(w, this);
+    // DIVERGE: V545
+    // Not ACE's (retail captures): the door's physics state is not broadcast when it turns solid;
+    // the close motion alone tells the clients.
 }
 
 /// The auto-close timer: unless the door was used again since, returns it to its default state
