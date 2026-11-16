@@ -2242,7 +2242,13 @@ pub fn handle_visible(w: &mut World, session: Option<SessionId>, _parameters: &[
     };
 
     let visible = world_object::is_direct_visible(w, me, target);
-    console_write_line(&format!("Visible: {}", bool_string(visible)));
+    // DIVERGE: V525, the answer goes to the caller's chat; ACE wrote it to the server console.
+    send_server_message(
+        w,
+        session,
+        &format!("Visible: {}", bool_string(visible)),
+        ChatMessageType::Broadcast,
+    );
 }
 
 // ACE: DeveloperCommands.HandleShowStats
@@ -2408,13 +2414,29 @@ pub fn handle_teleport_dist(w: &mut World, session: Option<SessionId>, parameter
         return;
     }
 
-    let last_spawn_pos = admin_commands::LAST_SPAWN_POS
+    // DIVERGE: V525, nothing spawned yet or a distance that is not a number is reported; ACE threw.
+    let Some(last_spawn_pos) = *admin_commands::LAST_SPAWN_POS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .expect("NullReferenceException: AdminCommands.LastSpawnPos");
+    else {
+        send_server_message(
+            w,
+            session,
+            "Nothing has been spawned since the server started.",
+            ChatMessageType::Broadcast,
+        );
+        return;
+    };
 
-    let distance = dotnet_parse::float_try_parse(&parameters[0])
-        .unwrap_or_else(|| panic!("FormatException: float.Parse({})", parameters[0]));
+    let Some(distance) = dotnet_parse::float_try_parse(&parameters[0]) else {
+        send_server_message(
+            w,
+            session,
+            &format!("{} is not a distance.", parameters[0]),
+            ChatMessageType::Broadcast,
+        );
+        return;
+    };
 
     let me = session_player(w, require(session));
     let mut new_pos = Position::new();
@@ -2530,12 +2552,20 @@ fn phys_line(w: &World, h: dereth_physics::PhysHandle) -> String {
 
 /// The dump the object-maintenance commands write to the console: a header, then a line per
 /// object.
-fn object_maint_dump(w: &World, header: &str, count: usize, objs: &[dereth_physics::PhysHandle]) {
-    console_write_line(&format!("\n{header}: {count}"));
-
+fn object_maint_dump(
+    w: &mut World,
+    session: Option<SessionId>,
+    header: &str,
+    count: usize,
+    objs: &[dereth_physics::PhysHandle],
+) {
+    // DIVERGE: V525, the dump goes to the caller's chat; ACE wrote it to the server console.
+    let mut text = format!("\n{header}: {count}");
     for &o in objs {
-        console_write_line(&phys_line(w, o));
+        text.push('\n');
+        text += &phys_line(w, o);
     }
+    send_server_message(w, session, &text, ChatMessageType::Broadcast);
 }
 
 // ACE: DeveloperCommands.HandleKnownObjs
@@ -2547,12 +2577,9 @@ pub fn handle_known_objs(w: &mut World, session: Option<SessionId>, parameters: 
     };
     let h = physics_obj(w, target);
     let header = format!("Known objects to {}", name_of(w, target));
-    object_maint_dump(
-        w,
-        &header,
-        object_maint::get_known_objects_count(w, h),
-        &object_maint::get_known_objects_values(w, h),
-    );
+    let count = object_maint::get_known_objects_count(w, h);
+    let objs = object_maint::get_known_objects_values(w, h);
+    object_maint_dump(w, session, &header, count, &objs);
 }
 
 // ACE: DeveloperCommands.HandleVisibleObjs
@@ -2564,12 +2591,9 @@ pub fn handle_visible_objs(w: &mut World, session: Option<SessionId>, parameters
     };
     let h = physics_obj(w, target);
     let header = format!("Visible objects to {}", name_of(w, target));
-    object_maint_dump(
-        w,
-        &header,
-        object_maint::get_visible_objects_count(w, h),
-        &object_maint::get_visible_objects_values(w, h),
-    );
+    let count = object_maint::get_visible_objects_count(w, h);
+    let objs = object_maint::get_visible_objects_values(w, h);
+    object_maint_dump(w, session, &header, count, &objs);
 }
 
 // ACE: DeveloperCommands.HandleKnownPlayers
@@ -2581,12 +2605,9 @@ pub fn handle_known_players(w: &mut World, session: Option<SessionId>, parameter
     };
     let h = physics_obj(w, target);
     let header = format!("Known players to {}", name_of(w, target));
-    object_maint_dump(
-        w,
-        &header,
-        object_maint::get_known_players_count(w, h),
-        &object_maint::get_known_players_values(w, h),
-    );
+    let count = object_maint::get_known_players_count(w, h);
+    let objs = object_maint::get_known_players_values(w, h);
+    object_maint_dump(w, session, &header, count, &objs);
 }
 
 // ACE: DeveloperCommands.HandleVisiblePlayers
@@ -2601,7 +2622,7 @@ pub fn handle_visible_players(w: &mut World, session: Option<SessionId>, paramet
     let count =
         object_maint::get_visible_objects_values_where(w, h, |o| phys_ext::is_player(w, o)).len();
     let objs = object_maint::get_visible_objects_values_where(w, h, |o| phys_ext::is_player(w, o));
-    object_maint_dump(w, &header, count, &objs);
+    object_maint_dump(w, session, &header, count, &objs);
 }
 
 // ACE: DeveloperCommands.HandleVisibleTargets
@@ -2613,12 +2634,9 @@ pub fn handle_visible_targets(w: &mut World, session: Option<SessionId>, paramet
     };
     let h = physics_obj(w, target);
     let header = format!("Visible targets to {}", name_of(w, target));
-    object_maint_dump(
-        w,
-        &header,
-        object_maint::get_visible_targets_count(w, h),
-        &object_maint::get_visible_targets_values(w, h),
-    );
+    let count = object_maint::get_visible_targets_count(w, h);
+    let objs = object_maint::get_visible_targets_values(w, h);
+    object_maint_dump(w, session, &header, count, &objs);
 }
 
 // ACE: DeveloperCommands.HandleRetaliateTargets
@@ -2630,12 +2648,9 @@ pub fn handle_retaliate_targets(w: &mut World, session: Option<SessionId>, param
     };
     let h = physics_obj(w, target);
     let header = format!("Retaliate targets to {}", name_of(w, target));
-    object_maint_dump(
-        w,
-        &header,
-        object_maint::get_retaliate_targets_count(w, h),
-        &object_maint::get_retaliate_targets_values(w, h),
-    );
+    let count = object_maint::get_retaliate_targets_count(w, h);
+    let objs = object_maint::get_retaliate_targets_values(w, h);
+    object_maint_dump(w, session, &header, count, &objs);
 }
 
 // ACE: DeveloperCommands.HandleDestructionQueue
@@ -2648,21 +2663,19 @@ pub fn handle_destruction_queue(w: &mut World, session: Option<SessionId>, param
     };
     let h = physics_obj(w, target);
 
-    console_write_line(&format!(
+    // DIVERGE: V525, the queue goes to the caller's chat; ACE wrote it to the server console.
+    let mut text = format!(
         "\nDestruction queue for {}: {}",
         name_of(w, target),
         object_maint::get_destruction_queue_count(w, h)
-    ));
+    );
 
     let current_time = phys_ext::physics_timer_current_time(w);
 
     for (o, t) in object_maint::get_destruction_queue_copy(w, h) {
-        console_write_line(&format!(
-            "{}: {}",
-            phys_line(w, o),
-            to_string(t - current_time)
-        ));
+        text += &format!("\n{}: {}", phys_line(w, o), to_string(t - current_time));
     }
+    send_server_message(w, session, &text, ChatMessageType::Broadcast);
 }
 
 // ACE: DeveloperCommands.HandleDebugEmote
@@ -2945,6 +2958,16 @@ pub fn handle_set_purchase_time(w: &mut World, session: Option<SessionId>, _para
     use empyrean_common::time::Time;
 
     let me = session_player(w, require(session));
+    // DIVERGE: V525, a player without a house is told so; ACE dereferenced null.
+    let Some(house) = player_house(w, me) else {
+        send_server_message(
+            w,
+            session,
+            "You do not own a house.",
+            ChatMessageType::Broadcast,
+        );
+        return;
+    };
     let current_time = w.now.utc;
     console_write_line(&format!("Current time: {}", to_common_string(current_time)));
     // subtract 30 days
@@ -2954,7 +2977,6 @@ pub fn handle_set_purchase_time(w: &mut World, session: Option<SessionId>, _para
     purchase_time =
         purchase_time.add_ticks(empyrean_common::dotnet::TimeSpan::from_seconds(1.0).ticks());
     //purchaseTime += TimeSpan.FromMinutes(2);
-    let house = player_house(w, me).expect("NullReferenceException: session.Player.House");
     let purchase_unix: u32 = Time::get_unix_time_at(purchase_time).cs_cast();
     let rent_due = from_unix_time_seconds(i64::from(house_get_rent_due(w, house, purchase_unix)));
 

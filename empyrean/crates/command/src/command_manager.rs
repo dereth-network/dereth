@@ -213,6 +213,8 @@ fn all_command_handlers() -> Vec<CommandHandlerInfo> {
     // namespace, and reflection yields it after the other handler classes (ACE's own table, the
     // `command_registry` vector, has it there). Its `nudge` takes DeveloperCommands' slot.
     all.extend(developer_content_commands::command_handlers());
+    // Not ACE: rows left out or rewritten (see `crate::empyrean::command_table`).
+    crate::empyrean::command_table::apply(&mut all);
     // Not ACE: Empyrean's own commands, after ACE's (a row with an ACE command's name takes that
     // command's slot; see `crate::empyrean`).
     all.extend(crate::empyrean::command_handlers());

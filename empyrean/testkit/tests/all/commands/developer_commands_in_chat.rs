@@ -1145,20 +1145,21 @@ fn forcelogoff_boots_a_player_and_reports_the_path() {
     );
 }
 
+/// Divergence: V525
 #[test]
-fn object_maintenance_dumps_go_to_the_console() {
+fn object_maintenance_dumps_go_to_the_caller() {
     let (mut ts, alpha, _, _, _) = two_players();
 
-    command_manager::start_console_capture();
-    assert_eq!(say(&mut ts, alpha, "@knownobjs"), []);
-    let out = command_manager::take_console_output();
+    let out = say(&mut ts, alpha, "@knownobjs");
+    assert_eq!(out.len(), 1, "{out:?}");
+    let lines: Vec<&str> = out[0].0.lines().collect();
     assert!(
-        out[0].starts_with("\nKnown objects to Alpha Admin: "),
+        lines[1].starts_with("Known objects to Alpha Admin: "),
         "{out:?}"
     );
     assert_eq!(
-        out.len() - 1,
-        out[0]
+        lines.len() - 2,
+        lines[1]
             .rsplit(": ")
             .next()
             .unwrap()
@@ -1168,22 +1169,14 @@ fn object_maintenance_dumps_go_to_the_console() {
     );
 
     // a guid that does not parse, or names no physics object, leaves the player as the target
-    command_manager::start_console_capture();
-    assert_eq!(say(&mut ts, alpha, "@knownplayers nosuchguid"), []);
-    assert_eq!(say(&mut ts, alpha, "@visibleplayers DEADBEEF"), []);
-    let out = command_manager::take_console_output();
+    let out = say(&mut ts, alpha, "@knownplayers nosuchguid");
     assert!(
-        out[0].starts_with(
-            "
-Known players to Alpha Admin: "
-        ),
+        out[0].0.starts_with("\nKnown players to Alpha Admin: "),
         "{out:?}"
     );
+    let out = say(&mut ts, alpha, "@visibleplayers DEADBEEF");
     assert!(
-        out.iter().any(|l| l.starts_with(
-            "
-Visible players to Alpha Admin: "
-        )),
+        out[0].0.starts_with("\nVisible players to Alpha Admin: "),
         "{out:?}"
     );
     // `target` with nothing appraised finds nothing

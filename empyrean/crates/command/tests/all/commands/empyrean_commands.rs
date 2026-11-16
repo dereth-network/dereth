@@ -1,7 +1,8 @@
-//! Divergence: V367, V368, V452
+//! Divergence: V367, V368, V452, V524
 //! Empyrean's own command names sit after ACE's rows and answer on the console; reportbug keeps
 //! ACE's slot with Empyrean's handler and points at the issue tracker; save-world saves what a
-//! clean shutdown saves, with the world left running.
+//! clean shutdown saves, with the world left running; ACE's rows that do nothing here are left out,
+//! and others carry descriptions, usage or flags of our own.
 //! Fixture: checked-in ACE JSON vectors and the local case adapters.
 
 use empyrean_command::command_manager;
@@ -31,13 +32,20 @@ pub const EMPYREAN_NAMES: [&str; 13] = [
 /// ACE's names for Empyrean's commands: ACE's rows, listed as "Same as @<ours> (ACE's name).".
 pub const ALIASES: [&str; 3] = ["acehelp", "acecommands", "aceversion"];
 
-/// Whether an ACE comparison leaves the command out (see the module docs).
+/// Whether an ACE comparison leaves the command out (see the module docs): Empyrean's own rows,
+/// and ACE's rows that `command_table` removes or rewrites (checked in
+/// [`the_command_table_s_edits_are_ace_s_rows_changed_on_purpose`]).
 #[must_use]
 pub fn is_brand_row(command: &str) -> bool {
     let command = command.to_ascii_lowercase();
+    let edited = |name: &str| name.eq_ignore_ascii_case(&command);
     REPLACED.contains(&command.as_str())
         || EMPYREAN_NAMES.contains(&command.as_str())
         || ALIASES.contains(&command.as_str())
+        || empyrean::command_table::REMOVED.iter().any(|n| edited(n))
+        || empyrean::command_table::EDITS
+            .iter()
+            .any(|e| edited(e.command))
 }
 
 /// The table without `config-write` (not in ACE).
@@ -362,4 +370,100 @@ fn save_world_saves_now_and_says_saved_once_the_database_has_answered() {
         save_world::saving_message(1, 1),
         "Saving 1 player and 1 landblock..."
     );
+}
+
+/// Divergence: V524
+/// Each removed row is ACE's and is gone from the table and the listing; each edited row is ACE's,
+/// keeps ACE's other fields, and differs from ACE in every field it sets; every row listed has a
+/// description.
+#[test]
+fn the_command_table_s_edits_are_ace_s_rows_changed_on_purpose() {
+    use empyrean_command::empyrean::command_table::{EDITS, REMOVED};
+    let _table = super::command_manager::initialized_table();
+    let file = empyrean_common::vectors::load_named("commands", "command_registry");
+    let ace = |name: &str| {
+        file.cases
+            .iter()
+            .find(|c| c.output["command"] == name)
+            .map(|c| &c.output)
+            .unwrap_or_else(|| panic!("{name} is ACE's row"))
+    };
+    let all = table();
+    let mut seen = std::collections::BTreeSet::new();
+    for name in REMOVED {
+        assert!(seen.insert(name), "{name} is listed once");
+        ace(name);
+        assert!(
+            command_manager::get_command_by_name(name).is_empty(),
+            "{name} is removed"
+        );
+    }
+    for edit in EDITS {
+        assert!(seen.insert(edit.command), "{} is listed once", edit.command);
+        let e = ace(edit.command);
+        let rows = command_manager::get_command_by_name(edit.command);
+        assert_eq!(rows.len(), 1, "{}", edit.command);
+        let a = &rows[0].attribute;
+        assert_eq!(
+            AccessLevel::NAMES[usize::try_from(a.access.0).unwrap()],
+            e["access"].as_str().unwrap(),
+            "{}",
+            edit.command
+        );
+        let field = |ours: Option<String>, got: String, ace: String, what: &str| match ours {
+            Some(ours) => {
+                assert_eq!(got, ours, "{} {what}", edit.command);
+                assert_ne!(ours, ace, "{} {what} differs from ACE's", edit.command);
+            }
+            None => assert_eq!(got, ace, "{} {what} is ACE's", edit.command),
+        };
+        field(
+            edit.description.map(str::to_owned),
+            a.description.clone(),
+            e["description"].as_str().unwrap().to_owned(),
+            "description",
+        );
+        field(
+            edit.usage.map(str::to_owned),
+            a.usage.clone(),
+            e["usage"].as_str().unwrap().to_owned(),
+            "usage",
+        );
+        field(
+            edit.flags.map(|f| f.0.to_string()),
+            a.flags.0.to_string(),
+            e["flags"].to_string(),
+            "flags",
+        );
+        field(
+            edit.parameter_count.map(|c| c.to_string()),
+            a.parameter_count.to_string(),
+            e["parameter_count"].to_string(),
+            "parameter count",
+        );
+    }
+    for row in &all {
+        let a = &row.attribute;
+        assert!(
+            !a.description.trim().is_empty(),
+            "{} has a description",
+            a.command
+        );
+        assert!(!a.command.contains(' '), "{} can be typed", a.command);
+        assert!(!a.description.contains('\u{2014}'), "{}", a.command);
+    }
+
+    let mut ts = empyrean_testkit::TestServer::new();
+    command_manager::start_console_capture();
+    empyrean_command::handlers::help_commands::handle_ace_commands(&mut ts.world, None, &[]);
+    let listing = command_manager::take_console_output().join("\n");
+    for name in REMOVED {
+        assert!(
+            !listing
+                .lines()
+                .any(|l| l.starts_with(&format!("@{name} - "))),
+            "{name} is not listed"
+        );
+    }
+    assert!(listing.contains("\n@listplayers - Lists the players connected to the server,"));
 }

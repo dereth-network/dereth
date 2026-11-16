@@ -1439,7 +1439,8 @@ pub fn handle_tele_all_to(w: &mut World, session: Option<SessionId>, parameters:
     let mut destination_player = None;
 
     if !parameters.is_empty() {
-        destination_player = player_manager::get_online_player_by_name(w, &parameters[0]);
+        // DIVERGE: V525, a name of several words is the whole name, not its first word.
+        destination_player = player_manager::get_online_player_by_name(w, &parameters.join(" "));
     }
 
     let destination_player = destination_player.unwrap_or(me);
@@ -6971,13 +6972,22 @@ pub fn handle_get_enchantments(w: &mut World, session: Option<SessionId>, _param
         return;
     };
 
+    // DIVERGE: V525, an item with no enchantments says so; ACE dereferenced null.
     let entries: Vec<_> = empyrean_entity::models::properties_enchantment_registry_extensions::get_enchantments_top_layer(
         obj(w, item).biota.properties_enchantment_registry.as_ref(),
     )
-    .expect("NullReferenceException: item.Biota.PropertiesEnchantmentRegistry")
+    .unwrap_or_default()
     .into_iter()
     .cloned()
     .collect();
+    if entries.is_empty() {
+        system_chat(
+            w,
+            s,
+            "The item has no enchantments.",
+            ChatMessageType::Broadcast,
+        );
+    }
 
     for enchantment in entries {
         let e = empyrean_world::network::structure::enchantment::enchantment_from_registry(

@@ -13,6 +13,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+- `@emphelp commands` lists only commands that do something here: .NET garbage collection, retail server-farm and Decal plugin commands, and ACE's empty placeholders are gone, and every listed command has a description and its arguments.
+- Developer inspection commands such as `@knownobjs` and `@lostest` answer in chat, and commands that failed silently now say why.
 
 ## 0.3.14 (2026-11-14)
 - Fixed attacks, spells and items failing for seconds after jumping in place.

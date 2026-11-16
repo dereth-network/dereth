@@ -33,7 +33,6 @@ splits	Items	-	-	Stackable test items
 comps	Items	-	-	Spell components
 food	Items	-	-	Food
 currency	Items	-	-	Currency
-equiptest	Items	-	-	Simulate equipping an item, replacing all others
 movetome	Items	selection	-	Move the examined object to you
 grantitemxp	Items	selection	<amount>	Item XP to the examined item
 givemana	Items	selection	<amount>	Mana to the examined object
@@ -147,9 +146,6 @@ save-world	World	-	-	Save everything and keep running
 event	World	-	[start, stop, disable, enable, clear, status] (name)	An event's state
 save-now	World	-	-	Save your session
 loadalllandblocks	World	confirm	-	Load every landblock; not for a live world
-clearphysicscaches	World	confirm	-	Clear the physics caches
-forcegc	World	confirm	-	Force a garbage collection
-forcegc2	World	confirm	-	Force a compacting garbage collection
 database-shard-cache-pbrt	World	confirm	-	Player biota cache retention
 database-shard-cache-npbrt	World	confirm	-	Non-player biota cache retention
 adminhouse	Housing	confirm	<subcommand>	Manage houses
@@ -173,11 +169,9 @@ rotate-x	Content	-	<degrees>	Rotate an instance on x
 rotate-y	Content	-	<degrees>	Rotate an instance on y
 rotate-z	Content	-	<degrees>	Rotate an instance on z
 clearcache	Content	confirm	-	Clear the database caches
-generate-classnames	Content	-	-	Generate WeenieClassName.cs
 vloc2loc	Content	-	<landblock>	LOCs from the VLOCS dataset
 reload-landblock	Content	confirm	-	Reload this landblock
 reload-dat-overlay	Content	confirm	[folder] [landblock XXYY ...]	Reread the overlay and rebuild its landblocks
-reload-loot-tables	Content	confirm	(profile folder)	Reload the loot tables
 import-treasure	Content	confirm	<death or wielded> <id or all>	Import loot table SQL
 allstats	Inspect	-	-	All the server's stats
 serverstatus	Inspect	-	-	The server's stats
@@ -185,7 +179,6 @@ serverperformance	Inspect	-	-	Performance stats
 landblockperformance	Inspect	-	-	Landblock performance
 landblockstats	Inspect	-	-	Landblock performance
 lbgroupstats	Inspect	-	-	Landblock group stats
-gcstatus	Inspect	-	-	Garbage collection stats
 myiid	Inspect	-	-	Your instance id
 time	Inspect	-	-	The game's time
 trophies	Inspect	selection	-	The target's trophy drops
