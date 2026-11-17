@@ -1,7 +1,7 @@
 //! ACE: Source/ACE.Server/Command/Handlers/AdminCommands.cs::HandleSave
-//! Admin chat commands: teleport to player/location, create items/objects, smite leaves a corpse,
-//! heal refuses creatures, under-privileged refused silently, shutdown countdown and cancel on
-//! virtual time.
+//! Admin chat commands: teleport to player/location, create items/objects, smite leaves a corpse
+//! (and says when its target is gone or already dead), heal refuses creatures, under-privileged
+//! refused silently, shutdown countdown and cancel on virtual time.
 //! Fixture: a virtual-time TestServer, isolated stores and synthetic dats.
 
 use std::sync::Arc;
@@ -503,6 +503,80 @@ fn an_admin_smites_a_monster_which_dies_and_leaves_a_corpse() {
         (104.0, 100.0),
         "where it died"
     );
+}
+
+/// The client's health query names the selection, as a click on the monster sends it.
+fn select(ts: &mut TestServer, id: ClientId, target: ObjectGuid) {
+    ts.send_game_action(
+        id,
+        &CombatQueryHealth {
+            target: ObjectId(target.full()),
+        },
+    );
+    ts.advance(0.5);
+}
+
+/// How many corpses lie on the home landblock.
+fn corpses(ts: &TestServer) -> usize {
+    let lb = LandblockId::new(u32::from(HOME) << 16 | 0xFFFF);
+    ts.world
+        .landblock_manager
+        .landblocks
+        .get(lb)
+        .expect("loaded")
+        .get_all_world_objects_for_diagnostics()
+        .into_iter()
+        .filter(|&g| ts.world.objects.get(g).is_some_and(WorldObject::is_corpse))
+        .count()
+}
+
+/// Divergence: V555
+#[test]
+fn smite_says_so_when_the_monster_it_last_killed_is_still_the_selection() {
+    let (mut ts, alpha, _) = two_players();
+    monster(&mut ts, 104.0, 100.0);
+    select(&mut ts, alpha, MONSTER);
+    let _ = say(&mut ts, alpha, "@smite");
+    ts.advance(1.0);
+    assert!(ts.world.objects.get(MONSTER).is_none(), "killed and gone");
+    assert_eq!(
+        ts.world
+            .objects
+            .get(ObjectGuid::new(ALPHA))
+            .unwrap()
+            .health_query_target(),
+        Some(MONSTER.full()),
+        "nothing told the server the selection went"
+    );
+
+    assert_eq!(
+        say(&mut ts, alpha, "@smite"),
+        [broadcast("Unable to locate what you have selected.")]
+    );
+}
+
+/// Divergence: V555
+#[test]
+fn smite_on_a_monster_already_dead_says_so_and_does_not_kill_it_again() {
+    let (mut ts, alpha, _) = two_players();
+    monster(&mut ts, 104.0, 100.0);
+    select(&mut ts, alpha, MONSTER);
+    {
+        let o = ts.world.objects.get_mut(MONSTER).unwrap();
+        let health = o.health();
+        health.set_current(o, 0);
+    }
+
+    assert_eq!(
+        say(&mut ts, alpha, "@smite"),
+        [broadcast("Drudge is already dead.")]
+    );
+    ts.advance(1.0);
+    assert!(
+        ts.world.objects.get(MONSTER).is_some(),
+        "the smite did not run"
+    );
+    assert_eq!(corpses(&ts), 0, "and left no corpse");
 }
 
 #[test]

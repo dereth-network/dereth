@@ -570,12 +570,14 @@ impl Hud {
             self.notices.drain(..extra);
         }
         // Ask the server for the selection's health once per new selection, as the game's own
-        // target panel does.
+        // target panel does, and ask for none (id 0) once nothing is selected, as that panel does
+        // when its selection goes. Without that the server keeps the last selection, a creature
+        // since killed perhaps, as the one the player has selected.
         let target_id = state.target.as_ref().map(|t| t.id);
         if target_id != self.queried {
-            if let Some(id) = target_id {
-                out.requests.push(UiRequest::QueryHealth(id));
-            }
+            out.requests.push(UiRequest::QueryHealth(
+                target_id.unwrap_or(dereth_primitives::ObjectId(0)),
+            ));
             self.queried = target_id;
         }
         if state.level != self.level_seen {

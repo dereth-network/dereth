@@ -63,7 +63,7 @@ use empyrean_world::world_objects::managers::enchantment_manager;
 use empyrean_world::world_objects::player_inventory::{self, SearchLocations};
 use empyrean_world::world_objects::world_object::{self, CtorEnv, WorldObject};
 use empyrean_world::world_objects::{
-    container, creature_death, creature_equipment, player_location, player_skills,
+    container, creature_death, creature_equipment, monster_combat, player_location, player_skills,
     world_object_networking, world_object_tick,
 };
 use empyrean_world::World;
@@ -1291,7 +1291,9 @@ pub fn handle_smite(w: &mut World, session: Option<SessionId>, parameters: &[Str
             return;
         }
 
-        if let Some(wo) = wo {
+        // DIVERGE: V555, a selection that is no longer here, or a creature already dead, is said
+        // to be so, where ACE passes over both in silence (and smites the dead one again).
+        if let Some(wo) = wo.filter(|&wo| !monster_combat::is_dead(obj(w, wo))) {
             let use_take_damage = property_manager_get_bool(w, "smite_uses_takedamage");
             creature_death::smite(w, wo, me, use_take_damage);
 
@@ -1301,6 +1303,12 @@ pub fn handle_smite(w: &mut World, session: Option<SessionId>, parameters: &[Str
                 name_of(w, wo)
             );
             player_manager::broadcast_to_audit_channel(w, Some(me), &text);
+        } else {
+            let text = wo.map_or_else(
+                || "Unable to locate what you have selected.".to_owned(),
+                |wo| format!("{} is already dead.", name_of(w, wo)),
+            );
+            send_server_message(w, session, &text, ChatMessageType::Broadcast);
         }
     } else {
         send_server_message(
