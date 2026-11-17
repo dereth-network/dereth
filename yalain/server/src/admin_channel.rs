@@ -612,11 +612,20 @@ mod tests {
             count += 1;
             assert!(count < 10_000_000, "no program fell behind");
         }
-        // Each reads what reached it, then the end: the channel closed it.
+        // Each reads what reached it, then the end: the channel closed it. Depending on what it
+        // had still to read when it was closed, the close can reach it as a reset instead (on
+        // Windows), which is closed too; the read's guard running out is not.
         for (_s, mut reader) in connected {
             let mut rest = Vec::new();
             let end = reader.read_to_end(&mut rest);
-            assert!(end.is_ok(), "{end:?} after {} bytes", rest.len());
+            let closed = match &end {
+                Ok(_) => true,
+                Err(e) => matches!(
+                    e.kind(),
+                    std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted
+                ),
+            };
+            assert!(closed, "{end:?} after {} bytes", rest.len());
         }
         // Their places are free: another program is let in.
         drop(let_in(&channel, &dir));
