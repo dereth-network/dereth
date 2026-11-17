@@ -3,7 +3,8 @@
 //! **A player's kingdom.** A character starts in none: the character it is made from names none,
 //! and its description carries none (2017: 2 of 2 new characters). It joins one at a faction
 //! shrine ([`crate::usable::shrines`]): the Shadow, the Order of Dereth, the Dominion, or the
-//! neutral kingdom. The kingdom is kept in the player's description: its faction (a character in
+//! neutral kingdom, as the world's row for the kingdom allows ([`join`]: a least level, no other
+//! kingdom sworn to, a wait since it last left one, gold by its level). The kingdom is kept in the player's description: its faction (a character in
 //! none has no faction at all) and its physics type's kingdom bit (one bit per kingdom; the
 //! neutral bit for a character in none). Its profile names it (2017: 9,114 of 9,114 player
 //! profiles), and so does the profile of a plant it planted; its chat channel is its kingdom's
@@ -44,6 +45,7 @@ use auberean_protocol::quality::VisualQuality;
 use auberean_protocol::types::{Qualities, WeenieDesc};
 use auberean_protocol::ServerMessage;
 use auberean_script::args::Arg;
+use auberean_script::native_object::TextInfo;
 use yalain_content::Conflict;
 use yalain_net::{ConnId, ServerNet};
 use yalain_store::Store;
@@ -96,6 +98,27 @@ pub const CHANNELS_SECONDS: f64 = 0.06;
 pub const JOINED: (u32, u32) = (0xA213_1988, 0x2500_000F);
 pub const JOINED_KINGDOM: u32 = 0xF670_1F4D;
 pub const SHOWN_AS: u32 = 8;
+
+/// What a shrine says to a player its kingdom's join refuses, or charges ([`join`]).
+pub mod join_text {
+    /// "You join {the} %1 for the cost of %2 gold.": the kingdom's name, then the gold.
+    pub const JOINED_FOR: (u32, u32) = (0xF09B_CDD6, 0x2500_000F);
+    /// "You must be at least level %1 to join a Kingdom.": the least level.
+    pub const TOO_LOW: (u32, u32) = (0x48A3_0958, 0x2500_000F);
+    /// "You already belong to a Kingdom."
+    pub const SWORN: (u32, u32) = (0x0501_D1BC, 0x2500_000F);
+    /// "You cannot join {the} %1 so soon after leaving a Kingdom.": the kingdom's name.
+    pub const TOO_SOON: (u32, u32) = (0xFE5E_AEA2, 0x2500_000F);
+    /// "You do not have enough gold to join this Kingdom. You need %1 gold before you may
+    /// proceed.": the gold.
+    pub const TOO_POOR: (u32, u32) = (0x228C_7B8F, 0x2500_000F);
+    /// The variables: the kingdom's name (a string reference), the gold, the level.
+    pub const KINGDOM: u32 = super::JOINED_KINGDOM;
+    pub const GOLD: u32 = 0xCFBF_6640;
+    pub const LEVEL: u32 = 0x5997_B65D;
+    /// The kind of a number's variable.
+    pub const NUMBER_KIND: u16 = 2;
+}
 
 /// The kingdom a kingdom counts as: a player in none counts as neutral. This is the one place that
 /// rule lives: a faction shrine's use ([`of_shrines_kingdom`]) and a step's or a give's kingdom
@@ -485,13 +508,67 @@ pub fn join_after(s: &mut Server<impl Store>, world: ConnId, k: u32, clock: Cloc
     );
 }
 
-/// A player joins a kingdom: its kingdom and physics type change (every client that knows it is
-/// told), it is told it joined, its ethereality follows, and its channels are sent again a moment
-/// later with its kingdom's.
+/// Why a kingdom's join refuses a player, by what the world's row for the kingdom asks
+/// ([`yalain_content::kingdoms::Join`]), each in turn: under its least level; sworn to another
+/// kingdom than the neutral one; within its wait since it last left a kingdom; short of the gold its
+/// level costs. When it may join, the gold it pays (0 for none).
+fn join_refused<S: Store>(s: &Server<S>, world: ConnId, k: u32, now: i64) -> Result<u32, TextInfo> {
+    use join_text as t;
+    let Some(p) = s.players.get(&world) else {
+        return Ok(0);
+    };
+    let Some(row) = s.kingdom_rows.joins.get(&k) else {
+        return Ok(0);
+    };
+    let name = || {
+        let name =
+            crate::profile::string(crate::profile::line::KINGDOMS, crate::profile::kingdom(k));
+        progress::nested(t::KINGDOM, name)
+    };
+    let level = crate::examine::level_of(&p.qualities);
+    if level < row.least_level {
+        let least = progress::word(t::LEVEL, t::NUMBER_KIND, row.least_level.cast_unsigned());
+        return Err(progress::text_with(t::TOO_LOW, vec![least]));
+    }
+    if row.sworn_refused && counted(of(&p.qualities)) != kingdom::NEUTRAL {
+        return Err(progress::text(t::SWORN));
+    }
+    let left = p.play.left_kingdom;
+    if row.wait > 0 && left != 0 && left.saturating_add(i64::from(row.wait)) > now {
+        return Err(progress::text_with(t::TOO_SOON, vec![name()]));
+    }
+    let cost = row.cost(level);
+    if crate::store::money(&p.qualities) < cost {
+        let gold = progress::word(t::GOLD, t::NUMBER_KIND, cost);
+        return Err(progress::text_with(t::TOO_POOR, vec![gold]));
+    }
+    Ok(cost)
+}
+
+/// A player joins a kingdom, as the world's row for the kingdom allows ([`join_refused`]: refused,
+/// it is told why and nothing changes): it pays the gold its level costs, its kingdom and physics
+/// type change (every client that knows it is told), it is told it joined (and for how much, when
+/// it paid), its ethereality follows, and its channels are sent again a moment later with its
+/// kingdom's. A player who leaves one of the three kingdoms so keeps when it left.
 pub fn join<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, k: u32, clock: Clock) {
+    let cost = match join_refused(s, world, k, clock.unix) {
+        Ok(cost) => cost,
+        Err(why) => {
+            progress::private(net, world, &crate::chat::show_text(SHOWN_AS, why));
+            return;
+        }
+    };
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
+    if cost > 0 {
+        let left = (crate::store::money(&p.qualities) - cost).cast_signed();
+        quals::set_int(&mut p.qualities, crate::store::MONEY, left);
+        progress::send_int(net, world, crate::store::MONEY, left);
+    }
+    if counted(of(&p.qualities)) != kingdom::NEUTRAL {
+        p.play.left_kingdom = clock.unix;
+    }
     set_kingdom(&mut p.qualities, k);
     let kingdom_now = visual(p, quality::KINGDOM, k.cast_signed());
     let physics_now = visual(p, quality::PHYSICS_TYPE, physics_type(Some(k)));
@@ -499,15 +576,16 @@ pub fn join<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, k: 
     crate::places::to_all_knowing(s, net, me, &kingdom_now);
     crate::places::to_all_knowing(s, net, me, &physics_now);
     let name = crate::profile::string(crate::profile::line::KINGDOMS, crate::profile::kingdom(k));
-    progress::private(
-        net,
-        world,
-        &crate::chat::show_text(
-            SHOWN_AS,
-            progress::text_with(JOINED, vec![progress::nested(JOINED_KINGDOM, name)]),
-        ),
-    );
+    let named = progress::nested(JOINED_KINGDOM, name);
+    let told = if cost > 0 {
+        let gold = progress::word(join_text::GOLD, join_text::NUMBER_KIND, cost);
+        progress::text_with(join_text::JOINED_FOR, vec![named, gold])
+    } else {
+        progress::text_with(JOINED, vec![named])
+    };
+    progress::private(net, world, &crate::chat::show_text(SHOWN_AS, told));
     settle_ethereality(s, net, world);
+    crate::world::keep_player(s, world);
     s.after(clock, CHANNELS_SECONDS, Timer::KingdomChannels { world });
 }
 

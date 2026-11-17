@@ -5567,6 +5567,73 @@ fn points_bonus_rows_and_kingdom_requirements_compile_and_bad_ones_are_problems(
     assert!(read(&f).is_err(), "a step's unknown kingdom");
 }
 
+/// A kingdom's join row compiles to what the kingdom's shrines ask, by the kingdom; one row a
+/// kingdom; a kingdom by its word, a level from 0, and costs whose levels rise from 0.
+#[test]
+fn kingdom_join_rows_compile_by_kingdom_and_bad_ones_are_problems() {
+    use yalain_content::kingdoms::{kingdom, Join};
+    let row = "[[kingdom_join]]\nkingdom = \"neutral\"\nleast_level = 10\nwait = 60\n\
+               costs = [{ from = 0, gold = 0 }, { from = 21, gold = 15000 }]\n\
+               prov = { from = \"authored\" }\n\n\
+               [[kingdom_join]]\nkingdom = \"order\"\nsworn_refused = true\n\
+               prov = { from = \"authored\" }\n";
+    let mut files = fixture();
+    files.insert("town/server/kingdoms.toml".into(), row.into());
+    let db = read(&files).unwrap();
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&db).unwrap(), &Fake::new()).unwrap();
+    let neutral = Join {
+        least_level: 10,
+        sworn_refused: false,
+        wait: 60,
+        costs: vec![(0, 0), (21, 15_000)],
+    };
+    assert_eq!(t.kingdoms.joins.get(&kingdom::NEUTRAL), Some(&neutral));
+    assert_eq!(neutral.cost(20), 0);
+    assert_eq!(neutral.cost(21), 15_000);
+    assert_eq!(
+        t.kingdoms.joins.get(&kingdom::ORDER),
+        Some(&Join {
+            sworn_refused: true,
+            ..Join::default()
+        }),
+        "what a row leaves out asks nothing"
+    );
+    assert_eq!(t.kingdoms.joins.len(), 2);
+
+    // One row a kingdom.
+    let mut twice = files.clone();
+    twice.insert(
+        "town/server/kingdoms.toml".into(),
+        format!("{row}\n[[kingdom_join]]\nkingdom = \"order\"\nprov = {{ from = \"authored\" }}\n"),
+    );
+    let problems = check(&twice);
+    assert!(
+        problems.iter().any(|p| p.message.contains("set twice")),
+        "{problems:?}"
+    );
+
+    for bad in [
+        "kingdom = \"elves\"",
+        "kingdom = 2",
+        "least_level = 10",
+        "kingdom = \"order\"\nleast_level = -1",
+        "kingdom = \"order\"\ncosts = [{ from = 10, gold = 0 }]",
+        "kingdom = \"order\"\ncosts = [{ from = 0, gold = 0 }, { from = 0, gold = 5 }]",
+        "kingdom = \"order\"\ncosts = [{ from = 0, gold = -5 }]",
+        "kingdom = \"order\"\ncosts = [{ from = 0, cost = 5 }]",
+        "kingdom = \"order\"\nwait = -1",
+        "kingdom = \"order\"\nlasts = 3",
+    ] {
+        let mut f = files.clone();
+        f.insert(
+            "town/server/kingdoms.toml".into(),
+            format!("[[kingdom_join]]\n{bad}\nprov = {{ from = \"authored\" }}\n"),
+        );
+        assert!(read(&f).is_err(), "{bad}");
+    }
+}
+
 #[test]
 fn craft_skill_requirements_compile_beside_their_steps_and_gives_and_bad_ones_are_problems() {
     use yalain_content::crafts::CraftGate;

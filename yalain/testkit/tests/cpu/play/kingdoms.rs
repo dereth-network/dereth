@@ -298,6 +298,242 @@ fn a_player_of_the_shrines_kingdom_already_joins_nothing() {
     }
 }
 
+/// The texts a client was shown since `from`, whole.
+fn shown(h: &Harness, b: usize, from: usize) -> Vec<auberean_script::native_object::TextInfo> {
+    calls_of(h, b, from, SHOW_TEXT)
+        .iter()
+        .filter_map(|v| {
+            v.iter().find_map(|x| match x.root() {
+                Some(Node::TextInfo(t)) => Some(t.clone()),
+                _ => None,
+            })
+        })
+        .collect()
+}
+
+/// A text's variable `id` as a number, or the string id of the reference it holds.
+fn variable(t: &auberean_script::native_object::TextInfo, id: u32) -> Option<u64> {
+    use auberean_script::native_object::VariableValue;
+    t.variables
+        .iter()
+        .find(|v| v.id == id)
+        .and_then(|v| match &v.value {
+            VariableValue::Word(n) => Some(u64::from(*n)),
+            VariableValue::Long(n) => Some(*n),
+            VariableValue::Nested(n) => Some(u64::from(n.string_id)),
+            _ => None,
+        })
+}
+
+/// Change a player in the world.
+fn with_player(h: &mut Harness, me: u64, f: impl FnOnce(&mut yalain_world::world::Player)) {
+    if let Some(p) = h.server.players.values_mut().find(|p| p.character == me) {
+        f(p);
+    }
+}
+
+fn set_level_and_money(h: &mut Harness, me: u64, level: i32, money: i32) {
+    with_player(h, me, |p| {
+        yalain_world::quals::set_int(&mut p.qualities, yalain_world::examine::LEVEL, level);
+        yalain_world::quals::set_int(&mut p.qualities, yalain_world::store::MONEY, money);
+    });
+}
+
+fn money_of(h: &Harness, me: u64) -> u32 {
+    h.server
+        .players
+        .values()
+        .find(|p| p.character == me)
+        .map_or(0, |p| yalain_world::store::money(&p.qualities))
+}
+
+const DOMINION_NAME: u64 = 0x1270_95B3;
+const NEUTRAL_NAME: u64 = 0x1268_95B3;
+const TWO_WEEKS: u32 = 1_209_600;
+
+/// A join's case: the player's level, its kingdom, the seconds since it left one and its money; and
+/// the refusal it meets, with a variable of it and its value (none for a join).
+type Case = (
+    i32,
+    Option<u32>,
+    Option<i64>,
+    i32,
+    Option<((u32, u32), u32, u64)>,
+);
+
+/// A kingdom's join, as the world's row asks it, refuses in turn a player under its least level
+/// (naming the level), one sworn to another kingdom, one that left a kingdom within its wait
+/// (naming the kingdom), and one short of the gold its level costs (naming the gold): each is told
+/// why after its rating, and its kingdom and money stay. A player past the wait who asks nothing
+/// else of it joins, paying what its level costs (here nothing).
+/// Behaviour: server.kingdoms.shrine-join-refusals
+#[test]
+fn a_kingdoms_join_refuses_the_low_the_sworn_the_recent_and_the_poor() {
+    use kingdoms::join_text as t;
+    use yalain_content::kingdoms::Join;
+    let row = Join {
+        least_level: 10,
+        sworn_refused: true,
+        wait: TWO_WEEKS,
+        costs: vec![(0, 0), (41, 500_000)],
+    };
+    let cases: [Case; 5] = [
+        (9, None, None, 0, Some((t::TOO_LOW, t::LEVEL, 10))),
+        (10, Some(kingdom::ORDER), None, 0, Some((t::SWORN, 0, 0))),
+        (
+            10,
+            Some(kingdom::NEUTRAL),
+            Some(i64::from(TWO_WEEKS) - 60),
+            0,
+            Some((t::TOO_SOON, t::KINGDOM, DOMINION_NAME)),
+        ),
+        (
+            41,
+            None,
+            None,
+            499_999,
+            Some((t::TOO_POOR, t::GOLD, 500_000)),
+        ),
+        (
+            40,
+            Some(kingdom::NEUTRAL),
+            Some(i64::from(TWO_WEEKS) + 60),
+            7,
+            None,
+        ),
+    ];
+    for (level, mine, since, money, refused) in cases {
+        let mut h = world_with_a_shrine(Conflict::Peace);
+        h.server
+            .kingdom_rows
+            .joins
+            .insert(kingdom::DOMINION, row.clone());
+        let (a, ida) = h.player_in_world("one", "Elara");
+        set_level_and_money(&mut h, ida, level, money);
+        if let Some(k) = mine {
+            set_kingdom(&mut h, ida, k);
+        }
+        let unix = h.unix;
+        with_player(&mut h, ida, |p| {
+            p.play.left_kingdom = since.map_or(0, |s| unix - s);
+        });
+        h.run(10);
+        let from = use_shrine(&mut h, a, ida);
+        let told = shown(&h, a, from);
+        let last = told.last().expect("told something");
+        let case = format!("level {level}, {mine:?}, {since:?}, {money}");
+        if let Some((text, var, value)) = refused {
+            assert_eq!(told.len(), 2, "the rating, then why: {case}");
+            assert_eq!((last.string_id, last.table), text, "{case}");
+            if var != 0 {
+                assert_eq!(variable(last, var), Some(value), "{case}");
+            }
+            assert_eq!(kingdom_of(&h, ida), mine, "{case}");
+            assert!(visuals(&h, a, from, ida).is_empty(), "{case}");
+        } else {
+            assert_eq!((last.string_id, last.table), kingdoms::JOINED, "{case}");
+            assert_eq!(kingdom_of(&h, ida), Some(kingdom::DOMINION), "{case}");
+        }
+        assert_eq!(
+            money_of(&h, ida),
+            money.cast_unsigned(),
+            "nothing paid: {case}"
+        );
+    }
+}
+
+/// A join its row charges for takes the gold of the player's level band, the player's money sent
+/// to it, and says "You join {the} %1 for the cost of %2 gold."; a player who so leaves one of the
+/// three kingdoms is then kept as having left it, and another kingdom's shrine that waits after a
+/// leaving refuses it until the wait is out, even after it has been away. A player in no kingdom
+/// has left none.
+/// Behaviour: server.kingdoms.shrine-join-cost-and-wait
+#[test]
+fn going_neutral_costs_the_gold_of_the_players_level_and_starts_the_wait_for_another_kingdom() {
+    use kingdoms::join_text as t;
+    use yalain_content::kingdoms::Join;
+    let mut h = world_with_a_shrine(Conflict::Peace);
+    h.server
+        .shrine_kingdoms
+        .insert(SHRINE_PACKAGE, kingdom::NEUTRAL);
+    h.server.kingdom_rows.joins.insert(
+        kingdom::NEUTRAL,
+        Join {
+            least_level: 10,
+            costs: vec![(0, 0), (21, 15_000), (31, 75_000), (41, 500_000)],
+            ..Join::default()
+        },
+    );
+    h.server.kingdom_rows.joins.insert(
+        kingdom::DOMINION,
+        Join {
+            least_level: 10,
+            sworn_refused: true,
+            wait: TWO_WEEKS,
+            ..Join::default()
+        },
+    );
+    let (a, ida) = h.player_in_world("one", "Elara");
+    set_level_and_money(&mut h, ida, 25, 20_000);
+    set_kingdom(&mut h, ida, kingdom::DOMINION);
+    h.run(10);
+    let from = use_shrine(&mut h, a, ida);
+    assert_eq!(kingdom_of(&h, ida), Some(kingdom::NEUTRAL));
+    assert_eq!(money_of(&h, ida), 5_000, "15,000 at level 25");
+    assert!(
+        h.world_messages(a, from).iter().any(|m| matches!(m,
+            ServerMessage::UpdateInt(q) if q.quality == yalain_world::store::MONEY && q.value == 5_000)),
+        "its money sent"
+    );
+    let told = shown(&h, a, from);
+    let last = told.last().expect("told");
+    assert_eq!((last.string_id, last.table), t::JOINED_FOR);
+    assert_eq!(variable(last, t::KINGDOM), Some(NEUTRAL_NAME));
+    assert_eq!(variable(last, t::GOLD), Some(15_000));
+    let left = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == ida)
+        .map(|p| p.play.left_kingdom)
+        .expect("in the world");
+    assert!(
+        left > 0 && left <= h.unix,
+        "kept as having left the Dominion"
+    );
+
+    // Back at the Dominion's shrine within the wait, after a day away from the world: refused.
+    h.server
+        .shrine_kingdoms
+        .insert(SHRINE_PACKAGE, kingdom::DOMINION);
+    h.unix += 86_400;
+    let from = use_shrine(&mut h, a, ida);
+    let told = shown(&h, a, from);
+    assert_eq!(
+        told.last().map(|l| (l.string_id, l.table)),
+        Some(t::TOO_SOON)
+    );
+    assert_eq!(kingdom_of(&h, ida), Some(kingdom::NEUTRAL));
+
+    // The wait out: it joins, and leaving the neutral kingdom starts no new wait.
+    h.unix = left + i64::from(TWO_WEEKS);
+    let from = use_shrine(&mut h, a, ida);
+    assert_eq!(kingdom_of(&h, ida), Some(kingdom::DOMINION));
+    assert_eq!(
+        shown(&h, a, from).last().map(|l| (l.string_id, l.table)),
+        Some(kingdoms::JOINED)
+    );
+    assert_eq!(
+        h.server
+            .players
+            .values()
+            .find(|p| p.character == ida)
+            .map(|p| p.play.left_kingdom),
+        Some(left),
+        "it left the neutral kingdom, no kingdom of the three"
+    );
+}
+
 /// The kingdom skills a player holds, as its play keeps them: the skill and its mask.
 fn held_skills(h: &Harness, me: u64) -> Vec<(u32, u32)> {
     h.server

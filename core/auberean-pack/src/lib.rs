@@ -224,6 +224,8 @@ pub enum Item {
     Tally { key: String },
     /// What an effect does to kingdom points, by the effect's saved state.
     PointsBonus { effect: u32 },
+    /// What a kingdom's shrines ask of a player who would join it, by the kingdom's word.
+    KingdomJoin { kingdom: String },
     /// The tip a player is shown once, by the moment it is shown at.
     Popup { on: String },
     /// What the world says of an effect, by the effect's saved state.
@@ -392,6 +394,9 @@ impl Item {
             ["effect_name", name] => Self::EffectName {
                 name: identifier(name)?,
             },
+            ["kingdom_join", kingdom] => Self::KingdomJoin {
+                kingdom: symbol(kingdom)?,
+            },
             ["popup", on] => Self::Popup { on: symbol(on)? },
             ["effect_rule", effect] => match number(effect) {
                 Some(effect) => Self::EffectRule { effect },
@@ -547,6 +552,7 @@ impl fmt::Display for Item {
             Self::Event { key } => write!(f, "event {key}"),
             Self::Tally { key } => write!(f, "tally {key}"),
             Self::PointsBonus { effect } => write!(f, "points_bonus {effect:#010x}"),
+            Self::KingdomJoin { kingdom } => write!(f, "kingdom_join {kingdom}"),
             Self::Popup { on } => write!(f, "popup {on}"),
             Self::EffectRule { effect } => write!(f, "effect_rule {effect:#010x}"),
             Self::EffectRuleNamed { name } => write!(f, "effect_rule {name}"),

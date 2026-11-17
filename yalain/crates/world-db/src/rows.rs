@@ -743,6 +743,7 @@ pub enum Row {
     Event(Event),
     Tally(Tally),
     PointsBonus(PointsBonus),
+    KingdomJoin(KingdomJoinRow),
     Popup(Popup),
     EffectRule(EffectRule),
     TreasureValue(TreasureValue),
@@ -913,6 +914,16 @@ pub struct PointsBonus {
     pub effect: u32,
     pub add: i32,
     pub up_to: i32,
+    pub prov: Prov,
+}
+
+/// `[[kingdom_join]]`: what a kingdom's faction shrines ask of a player who would join it there: a
+/// least level, that it be sworn to no other kingdom, a wait since it last left one, and gold by its
+/// level. One row per kingdom.
+#[derive(Debug, Clone, PartialEq)]
+pub struct KingdomJoinRow {
+    pub kingdom: u32,
+    pub join: yalain_content::kingdoms::Join,
     pub prov: Prov,
 }
 
@@ -1563,6 +1574,7 @@ impl Row {
             Self::Event(_) => "event",
             Self::Tally(_) => "tally",
             Self::PointsBonus(_) => "points_bonus",
+            Self::KingdomJoin(_) => "kingdom_join",
             Self::Popup(_) => "popup",
             Self::EffectRule(_) => "effect_rule",
             Self::TreasureValue(_) => "treasure_value",
@@ -1642,6 +1654,7 @@ impl Row {
             Self::Event(r) => Some(&r.prov),
             Self::Tally(r) => Some(&r.prov),
             Self::PointsBonus(r) => Some(&r.prov),
+            Self::KingdomJoin(r) => Some(&r.prov),
             Self::Popup(r) => Some(&r.prov),
             Self::EffectRule(r) => Some(&r.prov),
             Self::TreasureValue(r) => Some(&r.prov),
@@ -1691,7 +1704,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 73] = [
+pub const KINDS: [&str; 74] = [
     "object",
     "camp",
     "loot",
@@ -1722,6 +1735,7 @@ pub const KINDS: [&str; 73] = [
     "event",
     "tally",
     "points_bonus",
+    "kingdom_join",
     "popup",
     "effect_rule",
     "treasure_value",
@@ -1768,7 +1782,7 @@ pub const KINDS: [&str; 73] = [
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 73] = [
+pub const FIELDS: [(&str, &[&str]); 74] = [
     (
         "object",
         &[
@@ -2120,6 +2134,17 @@ pub const FIELDS: [(&str, &[&str]); 73] = [
         &["key", "full", "starts", "resets", "clears", "prov"],
     ),
     ("points_bonus", &["effect", "add", "up_to", "prov"]),
+    (
+        "kingdom_join",
+        &[
+            "kingdom",
+            "least_level",
+            "sworn_refused",
+            "wait",
+            "costs",
+            "prov",
+        ],
+    ),
     ("popup", &["on", "effect", "prov"]),
     (
         "effect_rule",
@@ -3843,6 +3868,37 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 effect,
                 add,
                 up_to,
+                prov: f.req_prov()?,
+            })
+        }
+        "kingdom_join" => {
+            use yalain_content::kingdoms::kingdom;
+            let kingdom = match f.word(
+                "kingdom",
+                kingdom::from_word,
+                "neutral, shadow, order or dominion",
+            ) {
+                Some(Some(k)) => k,
+                Some(None) => return None,
+                None => return f.missing("kingdom"),
+            };
+            let least_level = match f.int("least_level").map(i32::try_from) {
+                None => 0,
+                Some(Ok(l)) if l >= 0 => l,
+                Some(_) => {
+                    f.bad("least_level", "a level from 0");
+                    return None;
+                }
+            };
+            let join = yalain_content::kingdoms::Join {
+                least_level,
+                sworn_refused: f.bool("sworn_refused").unwrap_or(false),
+                wait: f.u32("wait").unwrap_or(0),
+                costs: f.join_costs(),
+            };
+            Row::KingdomJoin(KingdomJoinRow {
+                kingdom,
+                join,
                 prov: f.req_prov()?,
             })
         }
@@ -6451,6 +6507,30 @@ impl<'a> Fields<'a> {
             read
         } else {
             self.bad("lodestones", "levels rising from 0");
+            Vec::new()
+        }
+    }
+
+    /// `[[kingdom_join]]`'s `costs`: `{ from, gold }`, the player's least level and the gold a join
+    /// costs from it, levels rising from 0 (none when left out).
+    fn join_costs(&mut self) -> Vec<(i32, u32)> {
+        let read = self.list_of(
+            "costs",
+            "a list of { from, gold }: the player's least level and the gold a join costs from it",
+            &["from", "gold"],
+            |t| {
+                Some((
+                    i32::try_from(t.get("from")?.as_integer()?).ok()?,
+                    as_u32(t.get("gold")?)?,
+                ))
+            },
+        );
+        let rising =
+            read.first().is_none_or(|(f, _)| *f == 0) && read.windows(2).all(|w| w[0].0 < w[1].0);
+        if rising {
+            read
+        } else {
+            self.bad("costs", "levels rising from 0");
             Vec::new()
         }
     }

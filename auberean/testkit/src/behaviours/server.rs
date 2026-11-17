@@ -8005,6 +8005,26 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.kingdoms.shrine-join-cost-and-wait",
+        says: "A join a world's row charges for takes the gold of the player's level band and says so; a \
+               player who leaves one of the three kingdoms so is kept as having left it, and a kingdom \
+               whose row waits after a leaving refuses it until the wait is out, away or not.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KINGDOM-JOIN-COST"),
+        station: "yalain-testkit::cpu::play::kingdoms::going_neutral_costs_the_gold_of_the_players_level_and_starts_the_wait_for_another_kingdom",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.kingdoms.shrine-join-refusals",
+        says: "A kingdom's join, as the world's row asks it, refuses in turn a player under its least level, \
+               one sworn to another kingdom, one within its wait since leaving a kingdom and one short of \
+               its gold, each told why, its kingdom and money unchanged.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KINGDOM-JOIN-REFUSALS"),
+        station: "yalain-testkit::cpu::play::kingdoms::a_kingdoms_join_refuses_the_low_the_sworn_the_recent_and_the_poor",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.kingdoms.shrine-kinds-read",
         says: "Each faction shrine joins the kingdom its script kind names: the placed shrines are the \
                Dominion's, the neutral kingdom's and the Order's.",

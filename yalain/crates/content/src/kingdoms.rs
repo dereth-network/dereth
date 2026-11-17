@@ -1,6 +1,7 @@
 //! What the world database says of kingdoms: the kingdoms themselves, as a description's faction
-//! names them and as a row writes them; the effects that raise a player's kingdom points; and the
-//! quest steps and gives for one kingdom's players alone.
+//! names them and as a row writes them; the effects that raise a player's kingdom points; the quest
+//! steps and gives for one kingdom's players alone; and what a kingdom's shrines ask of a player who
+//! would join it.
 
 use std::collections::BTreeMap;
 
@@ -60,6 +61,32 @@ impl PointsBonus {
     }
 }
 
+/// What a kingdom's faction shrines ask of a player who would join the kingdom there: a least level,
+/// that it be sworn to no other kingdom (in none, or the neutral one), that it left its last kingdom
+/// at least `wait` seconds ago, and gold by its level.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Join {
+    pub least_level: i32,
+    /// A player of another kingdom than the neutral one is refused.
+    pub sworn_refused: bool,
+    /// Seconds by the calendar since the player last left a kingdom; 0 for no wait.
+    pub wait: u32,
+    /// The gold a join costs from each level on: levels rising from 0.
+    pub costs: Vec<(i32, u32)>,
+}
+
+impl Join {
+    /// The gold a player of `level` pays to join: that of the last band at or below its level.
+    #[must_use]
+    pub fn cost(&self, level: i32) -> u32 {
+        self.costs
+            .iter()
+            .take_while(|(from, _)| *from <= level)
+            .last()
+            .map_or(0, |(_, gold)| *gold)
+    }
+}
+
 /// The world database's kingdom rows, as the server keeps them.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct KingdomTable {
@@ -69,6 +96,9 @@ pub struct KingdomTable {
     pub steps: Vec<(Step, u32)>,
     /// Gives taken only from players of one kingdom: the give and the kingdom.
     pub gives: Vec<(Give, u32)>,
+    /// What each kingdom's shrines ask of a player who would join it, by the kingdom; a kingdom no
+    /// row names asks nothing.
+    pub joins: BTreeMap<u32, Join>,
 }
 
 impl KingdomTable {

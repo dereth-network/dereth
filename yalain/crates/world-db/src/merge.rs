@@ -61,6 +61,11 @@ pub fn item(l: &Located) -> Option<Item> {
             key: r.tally.key.clone(),
         },
         Row::PointsBonus(r) => Item::PointsBonus { effect: r.effect },
+        Row::KingdomJoin(r) => Item::KingdomJoin {
+            kingdom: yalain_content::kingdoms::kingdom::word(r.kingdom)
+                .unwrap_or_default()
+                .to_string(),
+        },
         Row::EffectRule(r) => match &r.effect {
             crate::rows::EffectOf::State(effect) => Item::EffectRule { effect: *effect },
             crate::rows::EffectOf::Name(name) => Item::EffectRuleNamed { name: name.clone() },
@@ -221,6 +226,7 @@ fn value(row: &Row) -> String {
         Row::Event(x) => x.prov = crate::rows::Prov::default(),
         Row::Tally(x) => x.prov = crate::rows::Prov::default(),
         Row::PointsBonus(x) => x.prov = crate::rows::Prov::default(),
+        Row::KingdomJoin(x) => x.prov = crate::rows::Prov::default(),
         Row::Popup(x) => x.prov = crate::rows::Prov::default(),
         Row::EffectRule(x) => x.prov = crate::rows::Prov::default(),
         Row::TreasureValue(x) => x.prov = crate::rows::Prov::default(),

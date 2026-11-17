@@ -6,8 +6,9 @@
 //!
 //! A player on foot of another kingdom than the shrine's (a player in none counts as of the
 //! neutral kingdom) joins the shrine's kingdom 3.83 s later ([`crate::kingdoms::join`]; 2017: 1
-//! of 1); one of its kingdom already is told nothing more (5 of 5), unless its kingdom points earn
-//! kingdom skills it does not hold ([`crate::kingdom_skills`]).
+//! of 1), if the world's row for the kingdom lets it then (its least level, no other kingdom sworn
+//! to, its wait since leaving one, its gold); one of its kingdom already is told nothing more (5 of
+//! 5), unless its kingdom points earn kingdom skills it does not hold ([`crate::kingdom_skills`]).
 
 use auberean_protocol::physics::ObjectEvent;
 use auberean_protocol::types::BehaviorParams;

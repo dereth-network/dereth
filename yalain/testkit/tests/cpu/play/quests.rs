@@ -716,10 +716,11 @@ fn a_completion_adds_its_points_to_the_rating_every_time_whatever_the_level() {
     let back = yalain_world::state::PlayState::from_bytes(&play.to_bytes()).expect("reads");
     assert_eq!(back.quest_rating, 1200, "kept");
     // Saved before there was a rating: none (the rating, and the words kept after it since, the
-    // quests completed before and the steps waited on among them, none here).
+    // quests completed before and the steps waited on among them, none here, and when it last left
+    // a kingdom).
     assert!(play.completed_before.is_empty() && play.step_waits.is_empty());
     let mut old = play.to_bytes();
-    old.truncate(old.len() - 20);
+    old.truncate(old.len() - 28);
     old[..4].copy_from_slice(&14u32.to_le_bytes());
     let older = yalain_world::state::PlayState::from_bytes(&old).expect("reads");
     assert_eq!(older.quest_rating, 0, "an older save");

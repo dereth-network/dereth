@@ -49,7 +49,7 @@ world.lock                         ids given to authored rows, kept across build
 <pack>/server/routes.toml          [[route]]
 <pack>/server/areas.toml           [[area]]
 <pack>/server/allegiance.toml      [[allegiance_hall]]
-<pack>/server/kingdoms.toml        [[points_bonus]]
+<pack>/server/kingdoms.toml        [[points_bonus]], [[kingdom_join]]
 <pack>/server/popups.toml          [[popup]]
 <pack>/server/treasure.toml        [[treasure_rules]], [[treasure_sort]]
 <pack>/server/treasure_words.toml  [[treasure_word]]
@@ -1187,6 +1187,27 @@ amount. One row per effect.
 | `effect` | required | its saved state, one the install holds |
 | `add` | required | above 0 |
 | `up_to` | required | kingdom points: the points rise by `add`, never above this |
+| `prov` | required | where it came from |
+
+#### `[[kingdom_join]]`
+
+What a kingdom's faction shrines ask of a player who would join the kingdom there. One row per
+kingdom; a kingdom no row names asks nothing. The ask is made as the join would be (a few seconds
+after the player reaches the shrine), each in turn, and the first one failed is told and nothing
+changes: under `least_level` ("You must be at least level …"); sworn to another kingdom than the
+neutral one, with `sworn_refused` ("You already belong to a Kingdom."); within `wait` seconds of
+leaving its last kingdom ("You cannot join … so soon after leaving a Kingdom."); with less money than
+its level's gold ("You do not have enough gold …"). Otherwise the gold is paid and the player joins,
+told the gold when there was any. A player leaving the Shadow, the Order or the Dominion for another
+kingdom has left a kingdom then.
+
+| field | | meaning |
+|---|---|---|
+| `kingdom` | required | `neutral`, `shadow`, `order` or `dominion` |
+| `least_level` | | the least level it is joined at; 0 when left out |
+| `sworn_refused` | | true: a player sworn to another kingdom than the neutral one is refused; false when left out |
+| `wait` | | seconds by the calendar, kept while the player is away, since it last left a kingdom; 0 when left out |
+| `costs` | | `{ from, gold }`: the gold a join costs from each level on, levels rising from 0; nothing when left out |
 | `prov` | required | where it came from |
 
 #### `[[popup]]`

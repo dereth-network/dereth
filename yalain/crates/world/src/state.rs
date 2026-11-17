@@ -185,14 +185,17 @@ pub struct PlayState {
     /// The steps run for it lately that wait a while before running for it again. One kept before
     /// this was kept waits on none.
     pub step_waits: Vec<StepWait>,
+    /// When it last left a kingdom for another (seconds by the calendar since 1970), 0 for never. One
+    /// kept before this was kept has never left one.
+    pub left_kingdom: i64,
 }
 
 /// The encoding's version (1 held a skill's granted level, a level and its experience only; 2
 /// nothing after the skills; 3 nothing after the recipes; 4 nothing after the scenes; 5 nothing
 /// after the skills' last uses; 6 an item's instance stamp and maker only; 7 nothing after an
 /// item's durability; 8 nothing after a map's place; 9 nothing after an item's bonuses; 10 nothing
-/// after an item's binding; 11 nothing after the hero credits; 12 nothing after the time played; 13 nothing after the cloak; 14 nothing after the suffix; 15 no value of an item's own; 16 no look an item drew, nor the hand it was last in; 17 no effect an item is named for; 18 not whom an item is bound to, nor that a recipe attuned it; 19 no effects a skill put on an item; 20 an item's permanent effects only with what a recipe's item level gave it; 21 no word of starting clothes made as items; 22 no word of the tips shown; 23 nothing after the tips shown; 24 nothing after the quests completed before; 25 no time an item is gone at).
-const VERSION: u32 = 26;
+/// after an item's binding; 11 nothing after the hero credits; 12 nothing after the time played; 13 nothing after the cloak; 14 nothing after the suffix; 15 no value of an item's own; 16 no look an item drew, nor the hand it was last in; 17 no effect an item is named for; 18 not whom an item is bound to, nor that a recipe attuned it; 19 no effects a skill put on an item; 20 an item's permanent effects only with what a recipe's item level gave it; 21 no word of starting clothes made as items; 22 no word of the tips shown; 23 nothing after the tips shown; 24 nothing after the quests completed before; 25 no time an item is gone at; 26 nothing after the step waits).
+const VERSION: u32 = 27;
 
 /// Do these bytes say a newer build kept them (a world that went back to an older build)?
 #[must_use]
@@ -740,6 +743,7 @@ impl PlayState {
             out.extend_from_slice(w.key.as_bytes());
             w64(&mut out, w.ran.cast_unsigned());
         }
+        w64(&mut out, self.left_kingdom.cast_unsigned());
         out
     }
 
@@ -897,6 +901,9 @@ impl PlayState {
                 let ran = r.i64().ok_or_else(bad)?;
                 s.step_waits.push(StepWait { quest, key, ran });
             }
+        }
+        if version >= 27 {
+            s.left_kingdom = r.i64().ok_or_else(bad)?;
         }
         if !r.0.is_empty() {
             return Err(bad());

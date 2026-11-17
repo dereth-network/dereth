@@ -162,6 +162,7 @@ fn world(rows: bool) -> Harness {
             .iter()
             .map(|g| (g.clone(), kingdom::DOMINION))
             .collect(),
+        ..KingdomTable::default()
     };
     h.server.quests = QuestTable {
         quests: vec![quest(QUEST)],

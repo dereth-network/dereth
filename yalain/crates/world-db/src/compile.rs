@@ -1912,6 +1912,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     }
                 }
             }
+            Row::KingdomJoin(r) => {
+                t.kingdoms.joins.insert(r.kingdom, r.join.clone());
+            }
             Row::PointsBonus(r) => {
                 t.kingdoms.points.insert(
                     r.effect,

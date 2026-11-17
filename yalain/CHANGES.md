@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Joining a kingdom can now need a least level, gold and a wait.
 - Falling now hurts, and long falls kill; water and Safe Fall spare you.
 - Swimming now costs vigor, then health, and Swimming Mastery works.
 - Creatures' area attacks now hit everyone nearby, pets included.
