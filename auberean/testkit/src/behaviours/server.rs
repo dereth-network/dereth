@@ -4548,6 +4548,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.death.unfair-kill-changes-no-kingdom",
+        says: "A creature killed by a player it could not reach changes no kingdom: a round's next \
+               creature stands for the kingdom the dead one stood for, not the killer's, and no \
+               quest step a death nearby moves is moved.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-UNFAIR-NO-DEATH-EFFECTS"),
+        station: "yalain-testkit::cpu::play::rounds::a_rounds_creature_killed_by_a_player_it_could_not_reach_keeps_its_kingdom",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.death.unfair-kill-leaves-nothing",
         says: "A creature killed by a player it could not reach leaves its corpse empty: no trophy, \
                no treasure, nothing its death would put on it.",

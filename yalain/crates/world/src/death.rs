@@ -41,12 +41,16 @@
 //! back, from it and its fellows alike, and the player it was for is told once "You receive no
 //! experience, since that wasn't a fair fight. Your opponent couldn't even reach you!" in its
 //! place among the parts; the other damagers' parts are paid. A killer it could not reach moves no
-//! quest on, and its corpse holds nothing. (2017: 12 such texts, each before the kill text, 11 of
-//! 11; a pet's part held back and its owner's other part paid, 2 of 2; a player's own held back and
-//! another part of the kill paid to it, 4 of 4; a vault boss killed so did not complete its vault's
-//! quest, 8 of 8 uses of the vault's portal after one refused. Of the 7 such corpses opened, the
-//! Revenant Legionary's held nothing where 61 of the other 62 of its kind opened held 1 to 3
-//! items; the two Gurog Collaborators whose killer it reached, only a pet not, held an item each.)
+//! quest on, its corpse holds nothing, and its death changes no kingdom: a round's next creature
+//! stands for the kingdom the dead one stood for, and no step a death nearby moves is moved. (2017:
+//! 12 such texts, each before the kill text, 11 of 11; a pet's part held back and its owner's other
+//! part paid, 2 of 2; a player's own held back and another part of the kill paid to it, 4 of 4; a
+//! vault boss killed so did not complete its vault's quest, 8 of 8 uses of the vault's portal after
+//! one refused. Of the 7 such corpses opened, the Revenant Legionary's held nothing where 61 of the
+//! other 62 of its kind opened held 1 to 3 items; the two Gurog Collaborators whose killer it
+//! reached, only a pet not, held an item each. None of the 11 was a guardian's, and no kingdom or
+//! round message followed any. Turbine, February 2003: such a kill gives no death effects, and a
+//! guardian killed so changes no kingdom.)
 //!
 //! **What a corpse holds**: the creature's fixed drops at their rates, the named extras of its
 //! loot profile at theirs, and as many items again drawn from the profile's items as the
@@ -305,11 +309,17 @@ pub fn creature_dies<S: Store>(
             crate::death_spawn::killed(s, net, world, id, template, &death_effects, clock);
         }
     }
-    let killer_kingdom = world_of(s, killer)
-        .and_then(|w| s.players.get(&w))
-        .and_then(|p| crate::kingdoms::of(&p.qualities));
-    crate::rounds::died(s, net, id, killer_kingdom, clock);
-    if let Some(at) = fell_at {
+    // Nor does it change a kingdom (a round's next creature stands for the dead one's) or move
+    // a step a death nearby moves.
+    let kingdom = if unfair {
+        crate::rounds::kingdom_of(s, id)
+    } else {
+        world_of(s, killer)
+            .and_then(|w| s.players.get(&w))
+            .and_then(|p| crate::kingdoms::of(&p.qualities))
+    };
+    crate::rounds::died(s, net, id, kingdom, clock);
+    if let Some(at) = fell_at.filter(|_| !unfair) {
         crate::quests::died_near(s, net, (id, template), &at, clock);
     }
     if let Some(w) = blow_fellow {

@@ -15,7 +15,8 @@ what they see, not how it was done.
 - Gear now enforces its top level and counts your race's own skills.
 - Opportunistic pets now go for the weakest foes, Courageous ones the strongest.
 - Using a skill now counts as fighting for regeneration.
-- Creatures' critical hits now follow their kind: bosses' hit harder, many others' a little softer. Unfair kills leave an empty corpse.
+- Creatures' critical hits now follow their kind: bosses' hit harder, many others' a little softer.
+- Unfair kills leave an empty corpse and change no kingdom.
 - Creatures now wander in short walks and can't hit players on ledges overhead.
 - Killing another player now moves Kingdom Points.
 - Damage between players is a third after armor, and heals mend it at a third.

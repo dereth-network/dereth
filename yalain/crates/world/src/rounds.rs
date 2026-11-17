@@ -6,7 +6,8 @@
 //! ground under the place, as a camp's creature stands. When it dies, the
 //! next stop's creature stands at that stop's place (the first's after the last): the one the stop
 //! names for its killer's kingdom, where it names one and the killer is a player of a kingdom, else
-//! the stop's own; at once, or at the first step after the row's gap. A creature taken from the
+//! the stop's own; at once, or at the first step after the row's gap. A killer the creature could
+//! not reach changes no kingdom: the next stands for the kingdom the dead one stood for. A creature taken from the
 //! world otherwise than by a death stands again where it stood. Nothing of this is kept across a
 //! restart; a reload that changes the rows takes their creatures away and starts each row again.
 
@@ -55,13 +56,33 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
     }
 }
 
-/// A creature died: if it is a round's, the next stop's creature for its killer's kingdom comes, at
-/// once or after the row's gap.
+/// The kingdom a round's standing creature stands for: the one its stop names it for; none for the
+/// stop's own creature, or a creature no round keeps.
+#[must_use]
+pub fn kingdom_of<S: Store>(s: &Server<S>, creature: u64) -> Option<u32> {
+    let (key, stop) = s
+        .rounds
+        .standing
+        .iter()
+        .find(|(_, (_, id))| *id == creature)
+        .map(|(k, (stop, _))| (k, *stop))?;
+    let template = s.things.get(creature)?.template;
+    let r = s.content.rounds.rows.iter().find(|r| r.key == *key)?;
+    r.stops
+        .get(stop)?
+        .by_kingdom
+        .iter()
+        .find(|(_, t)| *t == template)
+        .map(|(k, _)| *k)
+}
+
+/// A creature died: if it is a round's, the next stop's creature for `kingdom` (its killer's, or
+/// none) comes, at once or after the row's gap.
 pub fn died<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     creature: u64,
-    killer_kingdom: Option<u32>,
+    kingdom: Option<u32>,
     clock: Clock,
 ) {
     if s.rounds.standing.is_empty() {
@@ -83,7 +104,7 @@ pub fn died<S: Store>(
         return;
     };
     let next = (stop + 1) % r.stops.len();
-    let template = r.stops[next].template_for(killer_kingdom);
+    let template = r.stops[next].template_for(kingdom);
     match r.gap {
         Some(gap) => {
             s.rounds

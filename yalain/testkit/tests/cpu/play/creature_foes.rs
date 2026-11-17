@@ -405,6 +405,27 @@ fn a_players_kill_moves_a_death_nearbys_step_and_another_templates_death_does_no
     assert_eq!(phase(&h, far, quest), 1, "100 m off");
 }
 
+/// A kill by a player the target could not reach moves no step a death nearby moves, not even the
+/// killer's own; the same kill, fair, moves it (above).
+/// Behaviour: server.death.unfair-kill-changes-no-kingdom
+#[test]
+fn a_kill_by_a_player_the_target_could_not_reach_moves_no_death_nearbys_step() {
+    let (mut h, _, target, near, _, quest) = two_players(false, Trigger::KillNear(TARGET, 30));
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(target)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.unreached = vec![near];
+    }
+    let clock = h.clock();
+    yalain_world::combat::hurt_creature(&mut h.server, &mut h.net, target, near, 5_000, clock);
+    h.run(4);
+    assert!(dead(&h, target));
+    assert_eq!(phase(&h, near, quest), 1, "the killer, near: not moved");
+}
+
 /// A step moved by a hurt of the target's template within 30 m moves the quest of a player that
 /// near at the first blow another creature lands on it, long before it falls, and not of a player
 /// farther off.

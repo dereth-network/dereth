@@ -149,3 +149,43 @@ fn a_rounds_next_creature_waits_out_its_gap() {
     }
     assert_eq!(standing(&h), [(TEST_CREATURE, 75.0)], "after it");
 }
+
+/// The round's creature marked as unable to reach this character.
+fn unreached_by(h: &mut Harness, who: u64) {
+    for t in h.server.things.by_id.values_mut() {
+        if let Some(c) = t.creature.as_mut().filter(|c| c.mode != Mode::Dead) {
+            c.unreached = vec![who];
+        }
+    }
+}
+
+/// A killer the round's creature could not reach changes no kingdom: the next stop stands the
+/// creature of the kingdom the dead one stood for, not the killer's: a creature of no kingdom stays
+/// of none after an Order killer, and the Order's stays the Order's after a Neutral killer.
+/// Behaviour: server.death.unfair-kill-changes-no-kingdom
+#[test]
+fn a_rounds_creature_killed_by_a_player_it_could_not_reach_keeps_its_kingdom() {
+    let (mut h, me) = world(None);
+    for p in h.server.players.values_mut() {
+        set_kingdom(&mut p.qualities, kingdom::ORDER);
+    }
+    unreached_by(&mut h, me);
+    kill(&mut h, me);
+    assert_eq!(
+        standing(&h),
+        [(TEST_CREATURE, 75.0)],
+        "none still, after an Order killer it could not reach"
+    );
+    kill(&mut h, me);
+    assert_eq!(standing(&h), [(ORDERS, 80.0)], "the Order's, a fair kill");
+    for p in h.server.players.values_mut() {
+        set_kingdom(&mut p.qualities, kingdom::NEUTRAL);
+    }
+    unreached_by(&mut h, me);
+    kill(&mut h, me);
+    assert_eq!(
+        standing(&h),
+        [(ORDERS, 70.0)],
+        "the Order's still, after a Neutral killer it could not reach"
+    );
+}
