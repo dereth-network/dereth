@@ -143,6 +143,7 @@ pub mod presence;
 pub mod profile;
 pub mod progress;
 pub mod puzzles;
+pub mod pvp;
 pub mod quals;
 pub mod quests;
 pub mod rates;

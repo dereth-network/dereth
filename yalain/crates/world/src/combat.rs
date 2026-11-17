@@ -908,6 +908,7 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
         };
         let harm = if outcome.landed() {
             let on = other.map_or(On::Creature(run.target), On::Player);
+            let damage = other.map_or(damage, |o| crate::pvp::hit(s, world, o, damage));
             crate::effects::answer_harm(s, on, damage, other.is_some())
         } else {
             crate::effects::Harm::default()
@@ -1078,6 +1079,7 @@ fn stand_and_swing<S: Store>(
     let other = player_target(s, world, run.target);
     let harm = if outcome.landed() && thrown.is_none() {
         let on = other.map_or(On::Creature(run.target), On::Player);
+        let damage = other.map_or(damage, |o| crate::pvp::hit(s, world, o, damage));
         crate::effects::answer_harm(s, on, damage, other.is_some())
     } else {
         crate::effects::Harm::plain(damage)
@@ -1284,7 +1286,8 @@ pub fn lands<S: Store>(s: &mut Server<S>, net: &mut ServerNet, mut l: Landing, c
     }
     if l.thrown && alive && l.outcome.landed() {
         let on = other.map_or(On::Creature(l.target), On::Player);
-        let harm = crate::effects::answer_harm(s, on, l.damage, other.is_some());
+        let damage = other.map_or(l.damage, |o| crate::pvp::hit(s, l.world, o, l.damage));
+        let harm = crate::effects::answer_harm(s, on, damage, other.is_some());
         (l.damage, l.back) = (harm.left, harm.back);
     }
     let hurts = alive && l.outcome.landed() && l.damage > 0;
@@ -2403,10 +2406,20 @@ pub(crate) fn hurt_player<S: Store>(
     damage: i32,
     clock: Clock,
 ) {
+    let before = s
+        .players
+        .get(&world)
+        .and_then(|p| quals::int(&p.qualities, quality::HEALTH));
     let (share, was) = lose_health(s, net, world, damage);
-    let Some(id) = s.players.get(&world).map(|p| p.character) else {
+    let by_player = s.players.values().any(|p| p.character == by);
+    let Some(p) = s.players.get_mut(&world) else {
         return;
     };
+    if by_player && by != p.character {
+        let after = quals::int(&p.qualities, quality::HEALTH).unwrap_or(0);
+        crate::pvp::harmed(p, quality::HEALTH, before.unwrap_or(after) - after);
+    }
+    let id = p.character;
     wounded(s, net, id, share, was);
     after_hurt(s, net, world, by, clock);
     crate::effects::answer_attack(s, net, world, by, clock);

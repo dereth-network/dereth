@@ -987,3 +987,205 @@ fn a_specials_strike_at_a_player_gone_into_portal_space_does_not_hurt_it() {
     // Nor do its effects reach it (coming back from the trip has its own say on its health).
     assert_eq!(h.server.players[&wb].play.effects.len(), before);
 }
+
+fn conn(h: &Harness, id: u64) -> yalain_net::ConnId {
+    yalain_world::social::world_of(&h.server, id).expect("in the world")
+}
+
+/// An effect on the armor stat adding `value` for good.
+fn armor_of(state: u32, class: u32, value: f32) -> yalain_world::effect_defs::EffectDef {
+    use yalain_world::effect_defs::{numeric, EffectDef, Kind, Scale};
+    EffectDef {
+        kind: Kind::Numeric {
+            flags: numeric::ADD,
+            stats: vec![yalain_world::effects::ARMOR_RATING],
+            magnitude: Scale(vec![(0.0, value)]),
+        },
+        duration: Scale(vec![(0.0, 100_000.0)]),
+        internal_flags: 0x1100_0003,
+        eq_class: class,
+        ..yalain_testkit::plain_effect(state)
+    }
+}
+
+/// A player's instant change of a vital (`flags` its vital bits) by `by`, cast by `caster` as a
+/// player's (or not).
+fn instant(h: &mut Harness, on: u64, state: u32, flags: u32, by: f32, caster: (u64, bool)) {
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    h.server.effect_table.effects.insert(
+        state,
+        EffectDef {
+            kind: Kind::InstantVital {
+                flags,
+                change: Scale(vec![(0.0, by)]),
+            },
+            ..yalain_testkit::plain_effect(state)
+        },
+    );
+    let clock = h.clock();
+    let w = conn(h, on);
+    yalain_world::effects::apply_on(
+        &mut h.server,
+        &mut h.net,
+        yalain_world::effects::On::Player(w),
+        state,
+        yalain_world::effects::Cast {
+            caster: caster.0,
+            pk: caster.1,
+            spellcraft: 10.0,
+            ..yalain_world::effects::Cast::default()
+        },
+        clock,
+    );
+}
+
+/// A player's hit on another is reckoned against the target's armor at its full value and a third
+/// of what is left comes off: 120 against 30 armor takes 30, against 1,000,000 a single point; a
+/// whole run's hits on a target of that armor each take one, kept as the attacker's part of what
+/// the target lost.
+/// Behaviour: server.player-fights.a-third-after-armor
+#[test]
+fn a_players_hit_on_another_takes_a_third_of_what_its_armor_leaves() {
+    const WARD: u32 = 0x6F00_7C01;
+    const WALL: u32 = 0x6F00_7C02;
+    let (mut h, (a, ida), (b, idb)) = two_players(Conflict::FreeForAll);
+    let (wa, wb) = (conn(&h, ida), conn(&h, idb));
+    h.server
+        .effect_table
+        .effects
+        .insert(WARD, armor_of(WARD, 21, 30.0));
+    h.server
+        .effect_table
+        .effects
+        .insert(WALL, armor_of(WALL, 22, 1_000_000.0));
+    let on = |h: &mut Harness, state: u32| {
+        let clock = h.clock();
+        yalain_world::effects::apply_on(
+            &mut h.server,
+            &mut h.net,
+            yalain_world::effects::On::Player(wb),
+            state,
+            yalain_world::effects::Cast {
+                spellcraft: 10.0,
+                ..yalain_world::effects::Cast::default()
+            },
+            clock,
+        );
+    };
+    on(&mut h, WARD);
+    assert_eq!(yalain_world::pvp::hit(&h.server, wa, wb, 120), 30);
+    on(&mut h, WALL);
+    assert_eq!(yalain_world::pvp::hit(&h.server, wa, wb, 120), 1);
+    with_player(&mut h, idb, |p| {
+        quals::set_int(&mut p.qualities, quality::HEALTH_MAX, 100_000);
+        quals::set_int(&mut p.qualities, quality::HEALTH, 100_000);
+    });
+    let from = h.bots[b].inbox.len();
+    attack(&mut h, a, idb);
+    assert!(h.run_until(4000, |h| hooks_at(h, b, from, ida, idb)
+        .iter()
+        .filter(|k| k.numbers[3] < 0)
+        .count()
+        >= 3));
+    let taken: Vec<i32> = hooks_at(&h, b, from, ida, idb)
+        .iter()
+        .filter(|k| k.numbers[3] < 0)
+        .map(|k| -k.numbers[3])
+        .collect();
+    assert!(taken.iter().all(|d| *d == 1), "{taken:?}");
+    // What it took is kept as the other player's part of what the target lost.
+    h.run(40);
+    let lost = 100_000 - health_of(&h, idb);
+    assert!(lost > 0);
+    assert_eq!(h.server.players[&wb].pk_lost, [lost, 0]);
+}
+
+/// Harm and vigor another player's effect takes come to a third (90 to 30), and are kept as that
+/// player's part of what the target lost; the same harm cast as no player's takes all of it.
+/// Behaviour: server.player-fights.a-third-after-armor
+#[test]
+fn another_players_harm_and_vigor_taken_are_a_third() {
+    use yalain_world::effect_defs::vital;
+    let (mut h, (_, ida), (_, idb)) = two_players(Conflict::FreeForAll);
+    let wb = conn(&h, idb);
+    with_player(&mut h, idb, |p| {
+        for q in [
+            quality::HEALTH_MAX,
+            quality::HEALTH,
+            quality::VIGOR_MAX,
+            quality::VIGOR,
+        ] {
+            quals::set_int(&mut p.qualities, q, 1000);
+        }
+    });
+    instant(
+        &mut h,
+        idb,
+        0x6F00_7C03,
+        vital::HEALTH | vital::VIGOR,
+        -90.0,
+        (ida, true),
+    );
+    let p = &h.server.players[&wb];
+    let got = (
+        quals::int(&p.qualities, quality::HEALTH),
+        quals::int(&p.qualities, quality::VIGOR),
+        p.pk_lost,
+    );
+    assert_eq!(got, (Some(970), Some(970), [30, 30]));
+    instant(&mut h, idb, 0x6F00_7C04, vital::HEALTH, -90.0, (0, false));
+    assert_eq!(
+        quals::int(&h.server.players[&wb].qualities, quality::HEALTH),
+        Some(880)
+    );
+}
+
+/// A heal restores what no player took first, at full power, then what other players took at a
+/// third: at 900 of 1,000 with 60 of the loss another player's, a heal of 70 restores 40 and 10;
+/// another of 30 restores 10; peace regeneration at a third the same way; a death clears it.
+/// Behaviour: server.player-fights.heals-of-players-damage
+#[test]
+fn heals_restore_damage_another_player_did_at_a_third() {
+    use yalain_world::effect_defs::vital;
+    let (mut h, (_, ida), (_, idb)) = two_players(Conflict::FreeForAll);
+    let wb = conn(&h, idb);
+    let health = |h: &Harness| quals::int(&h.server.players[&wb].qualities, quality::HEALTH);
+    with_player(&mut h, idb, |p| {
+        quals::set_int(&mut p.qualities, quality::HEALTH_MAX, 1000);
+        quals::set_int(&mut p.qualities, quality::HEALTH, 900);
+        p.pk_lost = [60, 0];
+    });
+    instant(&mut h, idb, 0x6F00_7C05, vital::HEALTH, 70.0, (ida, false));
+    assert_eq!(
+        (health(&h), h.server.players[&wb].pk_lost),
+        (Some(950), [50, 0])
+    );
+    instant(&mut h, idb, 0x6F00_7C06, vital::HEALTH, 30.0, (ida, false));
+    assert_eq!(
+        (health(&h), h.server.players[&wb].pk_lost),
+        (Some(960), [40, 0])
+    );
+
+    // Regeneration: the same step's gain, on what no player took and then on a player's part.
+    let step = |h: &mut Harness, lost: [i32; 2]| -> i32 {
+        let now = h.clock().local.0;
+        with_player(h, idb, |p| {
+            quals::set_int(&mut p.qualities, quality::HEALTH, 500);
+            p.pk_lost = lost;
+            p.regen_health = 500;
+            p.last_regen = now - 6.0;
+            p.next_regen = now;
+            p.attacking = None;
+        });
+        let clock = h.clock();
+        yalain_world::regen::step(&mut h.server, &mut h.net, clock);
+        health(h).expect("health") - 500
+    };
+    let full = step(&mut h, [0, 0]);
+    assert!(full > 3, "{full}");
+    assert_eq!(step(&mut h, [500, 0]), full / 3);
+
+    let clock = h.clock();
+    yalain_world::death::player_dies(&mut h.server, &mut h.net, wb, Some(ida), clock);
+    assert_eq!(h.server.players[&wb].pk_lost, [0, 0]);
+}

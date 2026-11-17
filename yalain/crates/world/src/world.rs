@@ -106,6 +106,8 @@ pub struct Player {
     pub fall: crate::falls::Falling,
     /// Its time in the air, from the places its client reports ([`crate::airborne`]).
     pub aloft: crate::airborne::Aloft,
+    /// How much of the health and of the vigor it has lost other players took ([`crate::pvp`]).
+    pub pk_lost: [i32; 2],
     /// When it was last told where it stands after a place it reported was refused.
     pub told_back: f64,
     pub position: StoredPosition,
@@ -498,6 +500,7 @@ pub fn enter<S: Store>(
         behind: Following::default(),
         fall: crate::falls::Falling::default(),
         aloft: crate::airborne::Aloft::default(),
+        pk_lost: [0, 0],
         told_back: f64::NEG_INFINITY,
         view_brought: f64::NEG_INFINITY,
         view_owed: false,

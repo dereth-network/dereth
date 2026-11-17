@@ -1911,9 +1911,25 @@ fn change_vital<S: Store>(
     };
     let max = max_vital(s, p, max_quality).max(1);
     let was = quals::int(&p.qualities, cur).unwrap_or(max);
+    // Harm and vigor taken by another player come to a third; a heal restores what other players
+    // took at a third ([`crate::pvp`]).
+    let from_player = harm_by_player(p.character, amount, (caster, pk));
+    let amount = if from_player && (cur == quality::HEALTH || cur == quality::VIGOR) {
+        crate::pvp::third(amount)
+    } else if amount > 0 {
+        let Some(p) = s.players.get_mut(&world) else {
+            return;
+        };
+        crate::pvp::healed(p, cur, (was, max), amount)
+    } else {
+        amount
+    };
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
     let least = i32::from(cur == quality::HEALTH && p.admin.never_say_die);
     let now = (was + amount).clamp(least.min(was), max.max(was));
-    let by_player = cur == quality::HEALTH && harm_by_player(p.character, amount, (caster, pk));
+    let by_player = cur == quality::HEALTH && from_player;
     if cur == quality::HEALTH {
         let Some(p) = s.players.get_mut(&world) else {
             return;
@@ -1930,6 +1946,9 @@ fn change_vital<S: Store>(
         return;
     };
     quals::set_int(&mut p.qualities, cur, now);
+    if from_player {
+        crate::pvp::harmed(p, cur, was - now);
+    }
     progress::send_int(net, world, cur, now);
     if cur == quality::HEALTH {
         let me = p.character;

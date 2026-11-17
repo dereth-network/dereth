@@ -13659,6 +13659,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.player-fights.a-third-after-armor",
+        says: "A player's hit on another is reckoned against the target's armor at its full value, and a \
+               third of what is left comes off; harm and vigor another player's effects take come to a \
+               third.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PVP-THIRD"),
+        station: "yalain-testkit::cpu::play::player_fights::a_players_hit_on_another_takes_a_third_of_what_its_armor_leaves",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.player-fights.anywhere",
         says: "Two players of different kingdoms whom kingdoms may fight anywhere (their permissions \
                letting kingdoms fight them anywhere) fight in a peace area, each passing through \
@@ -13695,6 +13705,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PVP-OVER-TIME"),
         station: "yalain-testkit::cpu::play::player_fights::a_damage_over_time_from_another_player_is_pk_damage_and_kills",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.player-fights.heals-of-players-damage",
+        says: "A heal or regeneration restores what no player took first, at full power, then what other \
+               players took at a third; a death clears what other players took.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PVP-HEALS"),
+        station: "yalain-testkit::cpu::play::player_fights::heals_restore_damage_another_player_did_at_a_third",
         tier: Tier::Cpu,
     },
     behaviour! {

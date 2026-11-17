@@ -2557,6 +2557,7 @@ fn landings_of<S: Store>(
                     let other = combat::player_target(s, world, t);
                     let on =
                         other.map_or(crate::effects::On::Creature(t), crate::effects::On::Player);
+                    let damage = other.map_or(damage, |o| crate::pvp::hit(s, world, o, damage));
                     crate::effects::answer_harm(s, on, damage, other.is_some())
                 } else {
                     crate::effects::Harm::plain(damage)
@@ -2908,6 +2909,7 @@ fn arrives<S: Store>(
             crate::effects::On::Creature(r.target),
             crate::effects::On::Player,
         );
+        let dmg = player.map_or(dmg, |o| crate::pvp::hit(s, world, o, dmg));
         crate::effects::answer_harm(s, on, dmg, player.is_some())
     } else {
         crate::effects::Harm::plain(dmg)

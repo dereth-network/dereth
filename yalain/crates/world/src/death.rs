@@ -1551,6 +1551,7 @@ pub fn player_dies<S: Store>(
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
+    crate::pvp::died(p);
     p.dying = Some(Dying {
         killer,
         pose,
