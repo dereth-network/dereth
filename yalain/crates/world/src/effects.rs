@@ -834,15 +834,23 @@ pub(crate) fn attribute<S: Store>(
 }
 
 /// A player's greatest of a vital before its effects: what its qualities hold and what its skills
-/// add (focus's has a base of 100).
+/// add (focus's has a base of 100). Health's and vigor's are that times the player's vitae as a
+/// share, a whole number and at least 1, so a player under vitae regains no higher (2017: under
+/// vitae, no peak reached the unreduced greatest); focus's never carries vitae.
 #[must_use]
 pub fn own_greatest<S: Store>(s: &Server<S>, p: &crate::world::Player, max_quality: u32) -> i32 {
-    let own = if max_quality == quality::FOCUS_MAX {
-        crate::focus::BASE + quals::int(&p.qualities, max_quality).unwrap_or(0)
-    } else {
-        quals::int(&p.qualities, max_quality).unwrap_or(100)
-    };
-    own + added_by_skills(s, p, max_quality)
+    if max_quality == quality::FOCUS_MAX {
+        let own = crate::focus::BASE + quals::int(&p.qualities, max_quality).unwrap_or(0);
+        return own + added_by_skills(s, p, max_quality);
+    }
+    let sum =
+        quals::int(&p.qualities, max_quality).unwrap_or(100) + added_by_skills(s, p, max_quality);
+    if !matches!(max_quality, quality::HEALTH_MAX | quality::VIGOR_MAX) {
+        return sum;
+    }
+    let vitae = quals::float(&p.qualities, crate::death::vitae_q::VITAE).unwrap_or(100.0);
+    #[allow(clippy::cast_precision_loss)]
+    dereth_primitives::num::to_i32(sum as f32 * (vitae * 0.01)).max(1)
 }
 
 /// Bring a player's vitals within their greatest, as a perk given up lowers one: each above is

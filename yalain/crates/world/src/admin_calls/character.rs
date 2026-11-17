@@ -720,6 +720,7 @@ fn vitae<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>, f: u32) -> Vec<String> {
     .clamp(0.0, 100.0);
     quals::set_float(&mut p.qualities, death::vitae_q::VITAE, v);
     progress::send_float(cx.net, world, death::vitae_q::VITAE, v);
+    crate::effects::vitals_within_their_greatest(cx.s, cx.net, world);
     vec![format!("Your vitae is {v}.")]
 }
 

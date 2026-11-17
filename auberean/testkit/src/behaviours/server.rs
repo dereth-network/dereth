@@ -16405,6 +16405,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.regen.vitae-lowers-the-greatest",
+        says: "A player's greatest health and vigor before its effects are its own times its \
+               vitae as a share, a whole number: it regains no higher, a tap of vitae lowers what \
+               stands above, and a resurrection's three quarters are of it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-VITAE-GREATEST"),
+        station: "yalain-testkit::cpu::play::regeneration::under_vitae_health_and_vigor_come_back_only_to_their_greatest_times_the_vitae",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.replay.recorded-logins-answered-as-recorded",
         says: "Each January 2017 login replayed against the server, its client's messages sent \
                again in order, is answered with the messages the login server sent, in the same \

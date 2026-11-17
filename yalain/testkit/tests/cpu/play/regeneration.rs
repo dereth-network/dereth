@@ -272,6 +272,96 @@ fn each_step_is_a_share_of_the_greatest_with_the_players_effects() {
     assert_eq!(health.last().map(|x| x.1), Some(630), "full with the buff");
 }
 
+/// Set a player's vitals, greatest and vitae by hand.
+fn under_vitae(h: &mut Harness, world: ConnId, vitae: f32, vitals: [(u32, i32); 4]) {
+    let p = h.server.players.get_mut(&world).expect("in the world");
+    for (k, v) in vitals {
+        quals::set_int(&mut p.qualities, k, v);
+    }
+    quals::set_float(&mut p.qualities, yalain_world::death::vitae_q::VITAE, vitae);
+}
+
+/// Under vitae a player's greatest health and vigor are its own times the vitae's share, a whole
+/// number, and it regains no higher: at 95 vitae, health of 975 stops at 926 and vigor of 1,420
+/// at 1,349. Its effects add on top: with Courage's 30 more health it stops at 956.
+/// Behaviour: server.regen.vitae-lowers-the-greatest
+#[test]
+fn under_vitae_health_and_vigor_come_back_only_to_their_greatest_times_the_vitae() {
+    let (mut h, b, world) = hurt_player();
+    let vitals = [
+        (quality::HEALTH_MAX, 975),
+        (quality::HEALTH, 100),
+        (quality::VIGOR_MAX, 1420),
+        (quality::VIGOR, 50),
+    ];
+    under_vitae(&mut h, world, 95.0, vitals);
+    let got = watch(&mut h, b, 90.0, walk(world, false));
+    let top = |q: u32| got.iter().filter(|x| x.1 == q).map(|x| x.2).max();
+    assert_eq!(top(quality::HEALTH), Some(926), "health");
+    assert_eq!(top(quality::VIGOR), Some(1349), "vigor");
+    assert_eq!(
+        got.iter()
+            .rev()
+            .find(|x| x.1 == quality::HEALTH)
+            .map(|x| x.2),
+        Some(926),
+        "and stays there"
+    );
+
+    let (mut h, b, world) = hurt_player();
+    under_vitae(&mut h, world, 95.0, vitals);
+    give(&mut h, world, COURAGE_EFFECT, 1.0);
+    let got = watch(&mut h, b, 90.0, walk(world, false));
+    let top = got
+        .iter()
+        .filter(|x| x.1 == quality::HEALTH)
+        .map(|x| x.2)
+        .max();
+    assert_eq!(
+        top,
+        Some(956),
+        "the effect's 30 on top of the lowered greatest"
+    );
+}
+
+/// A tap of vitae lowers a player's health and vigor that stand above the greatest the vitae it
+/// leaves makes, each sent: full at 975 and 1,420, a tenth taken leaves 877 and 1,278.
+/// Behaviour: server.regen.vitae-lowers-the-greatest
+#[test]
+fn a_vitae_tap_lowers_health_and_vigor_above_the_greatest_it_leaves() {
+    let (mut h, b, world) = hurt_player();
+    let vitals = [
+        (quality::HEALTH_MAX, 975),
+        (quality::HEALTH, 975),
+        (quality::VIGOR_MAX, 1420),
+        (quality::VIGOR, 1420),
+    ];
+    under_vitae(&mut h, world, 100.0, vitals);
+    let from = h.bots[b].inbox.len();
+    yalain_world::death::tap_vitae(&mut h.server, &mut h.net, world, 0.1);
+    h.run(4);
+    let p = &h.server.players[&world];
+    assert_eq!(quals::int(&p.qualities, quality::HEALTH), Some(877));
+    assert_eq!(quals::int(&p.qualities, quality::VIGOR), Some(1278));
+    let sent: Vec<(u32, i32)> = h
+        .world_messages(b, from)
+        .into_iter()
+        .filter_map(|m| match m {
+            ServerMessage::UpdateInt(q)
+                if q.quality == quality::HEALTH || q.quality == quality::VIGOR =>
+            {
+                Some((q.quality, q.value))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        sent,
+        vec![(quality::HEALTH, 877), (quality::VIGOR, 1278)],
+        "each lowered and sent"
+    );
+}
+
 /// A creature hurt to 10 of its 100 health regains nothing for eight seconds; from then on it
 /// regains its greatest in a minute, in whole points, never a point every step. Hurt again, it
 /// rests again first.

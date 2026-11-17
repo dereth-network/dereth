@@ -250,6 +250,41 @@ fn a_dead_player_is_resurrected_with_three_quarters_of_its_health() {
     );
 }
 
+/// Under vitae, a resurrected player comes back with three quarters of the greatest the vitae it
+/// is left with makes: at level 10 and 95 vitae, health of 975 and vigor of 1,420 come back as
+/// 657 and 958 at 90 vitae (three quarters of 877 and 1,278).
+/// Behaviour: server.regen.vitae-lowers-the-greatest
+#[test]
+fn a_player_under_vitae_comes_back_with_three_quarters_of_the_greatest_its_new_vitae_makes() {
+    use yalain_world::death::vitae_q::VITAE;
+    let mut h = Harness::new();
+    let (b, _) = about_to_die(&mut h);
+    for p in h.server.players.values_mut() {
+        for (k, v) in [(263, 975), (264, 1420), (302, 10)] {
+            yalain_world::quals::set_int(&mut p.qualities, k, v);
+        }
+        yalain_world::quals::set_float(&mut p.qualities, VITAE, 95.0);
+    }
+    let from = h.bots[b].inbox.len();
+    let _ = run_to_death(&mut h, b, from);
+    wait(&mut h, 11.0);
+    h.bots[b].send(true, queue::WEENIE, &server_call(RESURRECT, &[]));
+    wait(&mut h, 2.0);
+    let p = h.server.players.values().next().expect("the player");
+    let vitae = yalain_world::quals::float(&p.qualities, VITAE).expect("vitae");
+    assert!((vitae - 90.0).abs() < 1e-4, "{vitae}");
+    assert_eq!(
+        yalain_world::quals::int(&p.qualities, 258),
+        Some(657),
+        "health"
+    );
+    assert_eq!(
+        yalain_world::quals::int(&p.qualities, 259),
+        Some(958),
+        "vigor"
+    );
+}
+
 /// As it goes, a resurrected player is set standing at once, never played into it: the mode set
 /// to peace, the resurrection's glow, then the arrival's effect as it goes into portal space.
 /// Behaviour: server.death.resurrection-look

@@ -1873,7 +1873,8 @@ pub fn back_after_entry<S: Store>(
 
 /// A share of a player's vitae is taken (a person's tap of it): its vitae is what is left of it,
 /// and the experience still to earn to raise it worked out again, both told (2017: 81 to 72.9 by a
-/// tap of a tenth, with 80,660 to earn, 1 of 1).
+/// tap of a tenth, with 80,660 to earn, 1 of 1); health and vigor above the greatest the vitae left
+/// makes are lowered to it.
 pub fn tap_vitae<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, share: f32) {
     let costs = s.vitae_costs.clone();
     let Some(p) = s.players.get_mut(&world) else {
@@ -1888,6 +1889,7 @@ pub fn tap_vitae<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
         quals::set_long(&mut p.qualities, vitae_q::XP_TO_RAISE, x);
         progress::send_long(net, world, vitae_q::XP_TO_RAISE, x);
     }
+    crate::effects::vitals_within_their_greatest(s, net, world);
     crate::world::keep_player(s, world);
 }
 
@@ -1940,8 +1942,6 @@ pub(crate) fn returns_keeping<S: Store>(
     let Some(p) = s.players.get(&world) else {
         return;
     };
-    let max_health = crate::effects::own_greatest(s, p, crate::player::quality::HEALTH_MAX);
-    let max_vigor = crate::effects::own_greatest(s, p, crate::player::quality::VIGOR_MAX);
     let most_focus = crate::focus::back_with(crate::focus::greatest(s, p), kept_focus);
     let Some(p) = s.players.get_mut(&world) else {
         return;
@@ -1957,11 +1957,18 @@ pub(crate) fn returns_keeping<S: Store>(
             progress::send_long(net, world, vitae_q::XP_TO_RAISE, x);
         }
     }
-    let share = vitae / 100.0;
+    // The greatest as the vitae now left makes it.
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let max_health = crate::effects::own_greatest(s, p, crate::player::quality::HEALTH_MAX);
+    let max_vigor = crate::effects::own_greatest(s, p, crate::player::quality::VIGOR_MAX);
     #[allow(clippy::cast_precision_loss)]
-    let back =
-        |max: i32| dereth_primitives::num::to_i32((max as f32 * share).floor() * RETURNS_WITH);
+    let back = |max: i32| dereth_primitives::num::to_i32(max as f32 * RETURNS_WITH);
     let (health, vigor) = (back(max_health), back(max_vigor));
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
     quals::set_int(&mut p.qualities, crate::player::quality::HEALTH, health);
     quals::set_int(&mut p.qualities, crate::player::quality::VIGOR, vigor);
     progress::send_int(net, world, crate::player::quality::HEALTH, health);
