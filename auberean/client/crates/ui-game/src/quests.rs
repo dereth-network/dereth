@@ -249,7 +249,7 @@ impl Journal {
                 Token::of("ID_Quest_QuestMaxed").raw(),
             ))
         } else if q.seconds_remaining > 0 {
-            let end = f64::from(q.seconds_remaining) + ui.now();
+            let end = f64::from(q.seconds_remaining) + ui.game_now();
             let mut shown = TimeLeft::new(ui);
             shown.init(ui, Some(t), end, 1, 1, 60);
             if let Some(old) = d.time.replace(shown) {

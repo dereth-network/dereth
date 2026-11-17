@@ -791,7 +791,8 @@ pub static ROWS: &[Behaviour] = &[
         id: "ui.examination.a-countdown-shows-the-time-left-the-clock-keeps-current",
         says: "A countdown line of an examination profile shows the time left until its end (a game \
                time) in the string table's words, with the journal's least months, days and minutes \
-               (1, 1 and 60), and the clock keeps them current; the next profile takes it away.",
+               (1, 1 and 60), and the game clock (the server's time, not the client's own) keeps them \
+               current; the next profile takes it away.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-EXAMINATION-COUNTDOWN"),
         station: "auberean-ui-game::dat::play::examination::a_countdown_shows_the_time_left_the_clock_keeps_current",
@@ -1964,8 +1965,9 @@ pub static ROWS: &[Behaviour] = &[
         id: "ui.quests.a-quests-time-left-is-written-in-words-the-clock-keeps-current",
         says: "A quest's time left is written in the string table's words for how much is left: \
                above a month, months and days; above a day, days and hours; above sixty minutes, \
-               hours and minutes; else minutes and seconds. The clock keeps the words current, \
-               each looked at again when its smallest unit runs out, until the time is out.",
+               hours and minutes; else minutes and seconds. The game clock (the server's time) \
+               keeps the words current, each looked at again when its smallest unit runs out, until \
+               the time is out.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-QUEST-TIME"),
         station: "auberean-ui-game::dat::play::examination::a_quests_time_left_is_written_in_words_the_clock_keeps_current",

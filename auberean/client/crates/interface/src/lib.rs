@@ -2239,6 +2239,8 @@ impl Interface for Retail {
             self.preferences.follow_window(game.size);
         }
         self.follow_window();
+        self.ui
+            .use_game_time(game.client.map(auberean_client_sdk::Client::game_time));
         self.ui.use_time(game.now);
         // What the screens are given; then the flow's tick: a screen asked for comes up, and the
         // screen up has its tick.

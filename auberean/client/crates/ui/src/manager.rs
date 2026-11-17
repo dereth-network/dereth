@@ -75,6 +75,9 @@ pub(crate) struct Manager {
     pub drag_owner: Option<Handle>,
     /// The clock.
     pub now: f64,
+    /// The game clock, while a session keeps one: the server's time, on which the times it gives
+    /// (an effect's end) are.
+    pub game_now: Option<f64>,
     /// The pointer moved since the elements under it were last worked out.
     pub moved: bool,
     /// A scroll bar took the wheel step under way.
@@ -129,6 +132,13 @@ impl Ui {
     #[must_use]
     pub fn now(&self) -> f64 {
         self.mgr.now
+    }
+
+    /// The game clock as the interface last saw it, in seconds: the server's time while a session
+    /// keeps it, else the interface's own clock.
+    #[must_use]
+    pub fn game_now(&self) -> f64 {
+        self.mgr.game_now.unwrap_or(self.mgr.now)
     }
 
     /// Where the pointer is.
@@ -747,6 +757,12 @@ impl Ui {
         self.check_drag_and_drop();
         self.broadcast_global(global::TIME, 0);
         self.flush_pending();
+    }
+
+    /// The game clock moved on to `now` (seconds), or none without a session; read by what counts
+    /// down to a time the server gave. Set it before [`Self::use_time`], which those listen for.
+    pub fn use_game_time(&mut self, now: Option<f64>) {
+        self.mgr.game_now = now;
     }
 
     // -----------------------------------------------------------------------------------------

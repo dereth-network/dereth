@@ -2,7 +2,8 @@
 //! more months are left than the display's least, else in days and hours, else hours and minutes,
 //! else minutes and seconds; written again only when the words change, and looked at again when
 //! the smallest unit shown runs out. Panels that show how long something lasts (the examination's
-//! and the journal's) hang one on a text element.
+//! and the journal's) hang one on a text element. It counts on the game clock, the one the server
+//! gives an effect's cast time on.
 
 use auberean_ui::manager::global;
 use auberean_ui::{Handle, Mail, Token, Ui};
@@ -71,7 +72,7 @@ impl TimeLeft {
             ui.listen_for_global_message(self.listener, global::TIME);
             self.listening = true;
         }
-        let now = ui.now();
+        let now = ui.game_now();
         self.compute_time_left(ui, now);
     }
 
@@ -170,7 +171,7 @@ impl TimeLeft {
                 what: global::TIME, ..
             } = m
             {
-                let now = ui.now();
+                let now = ui.game_now();
                 if self.next <= now {
                     self.compute_time_left(ui, now);
                 }

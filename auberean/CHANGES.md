@@ -7,6 +7,7 @@ not how it was done.
 
 ## Unreleased
 - Windows: the taskbar now names the client Auberean.
+- Fixed buffs showing years left.
 - Web: WebGL now asks for the faster graphics card, and the status line names it.
 
 ## 0.1.9 (2026-11-17)

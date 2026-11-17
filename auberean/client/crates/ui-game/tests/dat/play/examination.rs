@@ -808,16 +808,21 @@ fn an_effect_line_lays_out_the_effects_own_lines() {
     );
 }
 
-/// One frame at exactly `now`.
+/// How far the game clock, the server's time, is ahead of the interface's own (the seconds since
+/// the program started): a server whose clock counts from late 2012 is this far ahead in 2026.
+const GAME_AHEAD: f64 = 440_000_000.0;
+
+/// One frame at exactly `now` on the interface's own clock, the game clock [`GAME_AHEAD`] of it.
 fn at(ui: &mut Ui, p: &mut GamePlay, now: f64, notices: &[Notice]) {
+    ui.use_game_time(Some(now + GAME_AHEAD));
     ui.use_time(now);
     p.tick(ui, &View::default(), notices, &mut Vec::new());
 }
 
 /// A quest under way with a time left is written in the string table's words for how much is
 /// left (above a month, months and days; above a day, days and hours; above sixty minutes, hours
-/// and minutes; else minutes and seconds), and the clock keeps the words current: each looked at
-/// again when its smallest unit runs out, until the time is out.
+/// and minutes; else minutes and seconds), and the game clock keeps the words current: each looked
+/// at again when its smallest unit runs out, until the time is out.
 ///
 /// Behaviour: ui.quests.a-quests-time-left-is-written-in-words-the-clock-keeps-current
 #[test]
@@ -904,8 +909,9 @@ fn a_quests_time_left_is_written_in_words_the_clock_keeps_current() {
     assert_eq!(times(&ui)[5], "0:00", "no longer looked at once out");
 }
 
-/// A countdown line of a profile shows the time left until its end in the string table's words,
-/// as the journal's quests do, kept current by the clock; the next profile takes it away.
+/// A countdown line of a profile shows the time left until its end, a time on the game clock (an
+/// effect's cast time and timeout), in the string table's words, as the journal's quests do, kept
+/// current by that clock and not by the interface's own; the next profile takes it away.
 ///
 /// Behaviour: ui.examination.a-countdown-shows-the-time-left-the-clock-keeps-current
 #[test]
@@ -945,9 +951,9 @@ fn a_countdown_shows_the_time_left_the_clock_keeps_current() {
     };
     let shown = profile(vec![
         line(kind::STRING, 0x3FF, 0, Some("Haste")),
-        countdown(2000.0 + 3661.0),
+        countdown(GAME_AHEAD + 2000.0 + 3661.0),
         line(kind::BREAK, 0x3FF, 0, None),
-        countdown(2000.0 + 2.0 * 86_400.0 + 5.0),
+        countdown(GAME_AHEAD + 2000.0 + 2.0 * 86_400.0 + 5.0),
     ]);
     at(&mut ui, &mut p, 2000.0, &[shown]);
     // The row's words in the order laid out.
