@@ -38,12 +38,13 @@
 //! table pays for a use at its level (2 of 2). The product, and the level at which it yields all,
 //! are the world's `[[refining]]` row's for the recipe's script package.
 //!
-//! **Spellbinding** takes an item apart into a totem: a success makes a totem of the item's kind
-//! (2017: 13 of 13), the failures of its check nothing, and both use up what the outcome says. The
-//! totem holds the item's first enchantment, and asks of what it goes on the item's own least level
-//! and Arcane Lore (2017: 41 totems, one enchantment each). An item with none is refused. Which
-//! enchantment of several is our choice. The totem of each sort is the world's `[[spellbinding]]`
-//! row's.
+//! **Spellbinding** takes an item apart into totems: a success makes totems of the item's kind
+//! (2017: 13 of 13), the failures of its check nothing, and both use up what the outcome says. Only
+//! the enchantments the install marks bindable are taken (those on the item and those it gives its
+//! wearer): a minor recipe binds one of them at random, a major one each of them into a totem of its
+//! own, as the recipes' own text says. Each totem holds one enchantment and asks of what it goes on
+//! the item's own least level and Arcane Lore (2017: 41 totems, one enchantment each). An item with
+//! nothing bindable is refused. The totem of each sort is the world's `[[spellbinding]]` row's.
 //!
 //! **Dyeing** gives a piece of armor the color of a dye plant: three of its appearance modifiers
 //! take the plant's value, in the pack and on whoever wears it (2017: 32 of 32 by the armor's next
@@ -341,14 +342,20 @@ pub enum Custom {
         full_at: u32,
         start: u32,
     },
-    /// Spellbinding: it makes a totem of the kind of the item in its first slot.
+    /// Spellbinding: it makes a totem of the kind of the item in its first slot, of one of its
+    /// bindable enchantments at random.
     Spellbind,
+    /// Major spellbinding: a totem of each of the item's bindable enchantments.
+    SpellbindAll,
     /// Dyeing: the item in its first slot takes the color of the dye in its second.
     Dye,
     /// A product it works out for itself: what the world's `[[combination]]` rows say its slots
     /// make, else nothing.
     Unknown,
 }
+
+/// The script package whose recipes bind all of an item's enchantments, a totem each.
+const SPELLBINDING_ALL: &str = "MajorSpellbindingRecipe";
 
 /// The script packages whose recipes bind an item's enchantments into a totem, and whose recipes
 /// work out a product for themselves.
@@ -958,7 +965,9 @@ impl RecipeDef {
         let flags: u32 = word("m_flags").unwrap_or(0);
         let package = lib.package_name(root.package_id());
         // A refining's product is the world's ([`Crafting::take_world_crafts`]).
-        let custom = if SPELLBINDING.contains(&package.as_str()) {
+        let custom = if package == SPELLBINDING_ALL {
+            Custom::SpellbindAll
+        } else if SPELLBINDING.contains(&package.as_str()) {
             Custom::Spellbind
         } else if package == OWN_PRODUCT {
             Custom::Unknown
@@ -1879,10 +1888,10 @@ fn check_slots<S: Store>(
     if slots.len() != def.ingredients_at(spinner).count() {
         return error::INVALID_INGREDIENTS;
     }
-    // Spellbinding takes an enchantment: an item with none is refused.
-    if def.custom == Custom::Spellbind {
+    // Spellbinding takes an enchantment: an item with nothing bindable is refused.
+    if matches!(def.custom, Custom::Spellbind | Custom::SpellbindAll) {
         let holds = slots.first().and_then(|(_, item)| s.things.get(*item));
-        if holds.is_none_or(|t| t.enchantments.is_empty() && t.bonuses.is_empty()) {
+        if holds.is_none_or(|t| bindable(s, t).is_empty()) {
             return error::INVALID_INGREDIENTS;
         }
     }
@@ -2375,10 +2384,10 @@ fn result<S: Store>(
                 Custom::Refine { .. } => {
                     xp = xp.max(refine(s, net, world, &def, &outcome, m.spinner));
                 }
-                Custom::Spellbind => {
+                Custom::Spellbind | Custom::SpellbindAll => {
                     let source = m.slots.first().map(|(_, item)| *item);
                     if let Some(item) = source {
-                        spellbind(s, net, world, item);
+                        spellbind(s, net, world, item, def.custom == Custom::SpellbindAll);
                     }
                 }
                 Custom::Dye => dye(s, net, world, &m.slots),
@@ -2759,27 +2768,56 @@ fn dye<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, slots: &
     }
 }
 
-/// Spellbinding: a totem of the kind of the item taken apart, in the pack, made by the player.
-fn spellbind<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, item: u64) {
+/// The enchantments of an item spellbinding may take, those on it and those it gives its wearer
+/// (true), in that order: each whose effect the install marks bindable.
+fn bindable<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> Vec<(bool, (u32, f32))> {
+    let marked = |state: u32| {
+        s.effect_table
+            .get(state)
+            .is_some_and(|d| d.internal_flags & crate::effect_defs::BINDABLE != 0)
+    };
+    t.enchantments
+        .iter()
+        .map(|e| (false, *e))
+        .chain(t.bonuses.iter().map(|e| (true, *e)))
+        .filter(|(_, (state, _))| marked(*state))
+        .collect()
+}
+
+/// Spellbinding: totems of the kind of the item taken apart, in the pack, made by the player, each
+/// holding one of its bindable enchantments as the item held it: one at random, or each of them.
+fn spellbind<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    item: u64,
+    all: bool,
+) {
     let Some(kind) = totem_of(s, item) else {
         return;
     };
     let Some(source) = s.things.get(item) else {
         return;
     };
-    let on_itself = source.enchantments.first().copied();
-    let on_wearer = source.bonuses.first().copied();
+    let mut taken = bindable(s, source);
     let (least_level, lore) = (source.own.min_level, source.own.arcane_lore);
-    let Some(id) = crate::inventory::give_made(s, net, world, kind, 1) else {
-        return;
-    };
-    if let Some(t) = s.things.get_mut(id) {
-        t.own.min_level = least_level;
-        t.own.arcane_lore = lore;
-        t.own.made = Some(crate::made::Made::default());
-        t.enchantments.extend(on_itself);
-        if on_itself.is_none() {
-            t.bonuses.extend(on_wearer);
+    if !all && !taken.is_empty() {
+        let one = taken.swap_remove(s.rng.below(taken.len()));
+        taken = vec![one];
+    }
+    for (on_wearer, enchantment) in taken {
+        let Some(id) = crate::inventory::give_made(s, net, world, kind, 1) else {
+            continue;
+        };
+        if let Some(t) = s.things.get_mut(id) {
+            t.own.min_level = least_level;
+            t.own.arcane_lore = lore;
+            t.own.made = Some(crate::made::Made::default());
+            if on_wearer {
+                t.bonuses.push(enchantment);
+            } else {
+                t.enchantments.push(enchantment);
+            }
         }
     }
     crate::world::keep_player(s, world);

@@ -1397,6 +1397,8 @@ mod crafts {
     /// Behaviour: server.craft.recorded-crafts-play
     #[test]
     fn every_recorded_craft_plays_at_its_spinner_as_recorded() {
+        // An enchantment of the install's that spellbinding may take.
+        const ENCHANTMENT: u32 = 0x6F00_0394;
         let crafts = recorded();
         let portal = Portal::open();
         let recipes: Vec<u32> = crafts
@@ -1413,6 +1415,12 @@ mod crafts {
         let lib = portal.library();
 
         let mut h = Harness::new();
+        // The enchantment a taken-apart item is given below, as the install defines it: one
+        // spellbinding may take.
+        h.server
+            .effect_table
+            .effects
+            .extend(portal.effects(&[ENCHANTMENT]).effects);
         let (b, me) = h.player_in_world("one", "Elara");
         h.bots[b].send(
             true,
@@ -1585,9 +1593,12 @@ mod crafts {
             }
             h.run(1);
             // What is taken apart held an enchantment: the recording doesn't always say which.
-            if def.custom == yalain_world::craft::Custom::Spellbind {
+            if matches!(
+                def.custom,
+                yalain_world::craft::Custom::Spellbind | yalain_world::craft::Custom::SpellbindAll
+            ) {
                 if let Some(t) = slots.first().and_then(|(_, i)| h.server.things.get_mut(*i)) {
-                    t.enchantments = vec![(0x6F00_0394, 1.0)];
+                    t.enchantments = vec![(ENCHANTMENT, 1.0)];
                 }
             }
             {

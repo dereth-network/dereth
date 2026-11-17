@@ -2660,6 +2660,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.spellbinding-major-takes-each",
+        says: "A major spellbinding binds each of the item's bindable enchantments, those on it and \
+               those it gives its wearer, into a totem of its own; the install's major recipes ask \
+               30 more of the craft skill than the minor at the same item level.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SPELLBINDING-MAJOR"),
+        station: "yalain-testkit::cpu::play::crafting::a_major_spellbinding_makes_a_totem_of_each_bindable_enchantment",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.spellbinding-makes-a-totem",
         says: "Spellbinding makes a totem of the kind of the item taken apart.",
         since: RETAIL,
@@ -2668,9 +2678,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.spellbinding-minor-takes-one-at-random",
+        says: "A minor spellbinding binds one of the item's bindable enchantments, at random, into a \
+               totem; an enchantment the install does not mark bindable is never taken.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SPELLBINDING-MINOR"),
+        station: "yalain-testkit::cpu::play::crafting::a_minor_spellbinding_takes_one_bindable_enchantment_at_random",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.spellbinding-takes-an-enchantment",
-        says: "An item with no enchantment is not taken apart into a totem, and nothing is lost. \
-               Our choice.",
+        says: "An item with no enchantment spellbinding may take is not taken apart into a totem, \
+               and nothing is lost. Our choice.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-SPELLBINDING-EMPTY"),
         station: "yalain-testkit::cpu::play::crafting::spellbinding_refuses_an_item_with_no_enchantment",

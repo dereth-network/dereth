@@ -12,6 +12,7 @@ what they see, not how it was done.
 - Any creature can now drop lodestones and Tesserae, by your level.
 - Enchanted treasure is now worth more than plain treasure of its level.
 - Fixed old copies of the server staying in memory after each update on Windows.
+- Minor spellbinding takes a random enchantment, major takes them all.
 - Group monsters and bosses still in a fight now heal slowly.
 - Examining a creature now shows your real chance to hit it.
 - A summoning that fails no longer starts the skill's recovery.

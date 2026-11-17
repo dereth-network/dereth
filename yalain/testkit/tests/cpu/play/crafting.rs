@@ -2409,6 +2409,7 @@ fn spellbinding_makes_a_totem_of_the_kind_of_the_item_it_takes_apart() {
     ];
     for (source, weapon, armor, shield, expected) in cases {
         let (mut h, b, _me, world) = in_world();
+        known(&mut h, ENCHANTMENT, true);
         if shield {
             h.server.treasure.shields.insert(0x200);
         }
@@ -2484,18 +2485,58 @@ fn spellbinding_makes_a_totem_of_the_kind_of_the_item_it_takes_apart() {
 
 /// An enchantment on an item some tests take apart.
 const ENCHANTMENT: u32 = 0x6F00_0394;
+/// An enchantment an item gives its wearer, and one spellbinding may not take.
+const WORN: u32 = 0x6F00_7101;
+const UNBOUND: u32 = 0x6F00_7102;
+
+/// The world knows an effect that does nothing of note, marked bindable or not.
+fn known(h: &mut Harness, state: u32, bindable: bool) {
+    use yalain_world::effect_defs::{numeric, EffectDef, Kind, Scale, BINDABLE};
+    h.server.effect_table.effects.insert(
+        state,
+        EffectDef {
+            state,
+            kind: Kind::Numeric {
+                flags: numeric::ADD,
+                stats: Vec::new(),
+                magnitude: Scale::default(),
+            },
+            duration: Scale::default(),
+            priority: Scale::default(),
+            fx: 0,
+            external_flags: 0,
+            internal_flags: if bindable { BINDABLE } else { 0 },
+            enum_value: 0,
+            eq_class: 0,
+            name: None,
+            ends_at_logout: false,
+            ends_at_teleport: false,
+        },
+    );
+}
 
 /// A recipe taking an item apart into a totem, known to the player; returns the item.
 fn spellbinding_ready(h: &mut Harness, world: yalain_net::ConnId, source: u32) -> u64 {
+    spellbinding_ready_as(h, world, source, yalain_world::craft::Custom::Spellbind)
+}
+
+/// A recipe taking an item apart into totems as a minor or a major one does, known to the player;
+/// returns the item.
+fn spellbinding_ready_as(
+    h: &mut Harness,
+    world: yalain_net::ConnId,
+    source: u32,
+    custom: yalain_world::craft::Custom,
+) -> u64 {
     use yalain_testkit::totems as totem;
-    use yalain_world::craft::{Action, Custom};
+    use yalain_world::craft::Action;
     let mut props = yalain_content::Props::default();
     props.set("Weapon_Damage", yalain_content::Prop::Int(10));
     h.server
         .catalog
         .insert(yalain_testkit::test_template(source, 0x200, props));
     let def = yalain_world::craft::RecipeDef {
-        custom: Custom::Spellbind,
+        custom,
         ingredients: vec![yalain_world::craft::Ingredient {
             ordinal: 1,
             quantity: 1,
@@ -2553,6 +2594,115 @@ fn spellbinding_refuses_an_item_with_no_enchantment() {
     );
 }
 
+/// What a totem took: the enchantments on it, and those it gives its wearer.
+type Took = (Vec<(u32, f32)>, Vec<(u32, f32)>);
+
+/// Take an item apart holding two bindable enchantments (one on it, one it gives its wearer) and one
+/// that may not be bound; returns what each totem made took.
+fn take_apart(h: &mut Harness, b: usize, world: yalain_net::ConnId, item: u64) -> Vec<Took> {
+    let held = |h: &Harness| -> Vec<u64> {
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .filter(|i| h.server.crafting.crafts.totem_word(i.template).is_some())
+            .map(|i| i.id)
+            .collect()
+    };
+    let before = held(h);
+    let t = h.server.things.get_mut(item).expect("made");
+    t.enchantments = vec![(ENCHANTMENT, 12.0), (UNBOUND, 5.0)];
+    t.bonuses = vec![(WORN, 7.0)];
+    execute(h, b, STEEL_RECIPE, &[(1, item)]);
+    h.run(4);
+    wait(h, 9.0);
+    held(h)
+        .into_iter()
+        .filter(|id| !before.contains(id))
+        .map(|id| {
+            let t = h.server.things.get(id).expect("the totem");
+            (t.enchantments.clone(), t.bonuses.clone())
+        })
+        .collect()
+}
+
+/// A minor spellbinding binds one of the item's bindable enchantments, at random, into a totem: of
+/// an item holding two (one on it, one it gives its wearer) and one that may not be bound, each
+/// making takes one of the two as the item held it, never the third, and over many makings each of
+/// the two.
+/// Behaviour: server.craft.spellbinding-minor-takes-one-at-random
+#[test]
+fn a_minor_spellbinding_takes_one_bindable_enchantment_at_random() {
+    let (mut h, b, _me, world) = in_world();
+    for (state, bindable) in [(ENCHANTMENT, true), (WORN, true), (UNBOUND, false)] {
+        known(&mut h, state, bindable);
+    }
+    let mut item = spellbinding_ready(&mut h, world, 0x4700_207F);
+    let (mut on_it, mut worn) = (0, 0);
+    for _ in 0..24 {
+        let took = take_apart(&mut h, b, world, item);
+        assert_eq!(took.len(), 1, "one totem: {took:?}");
+        match &took[0] {
+            (e, w) if *e == [(ENCHANTMENT, 12.0)] && w.is_empty() => on_it += 1,
+            (e, w) if e.is_empty() && *w == [(WORN, 7.0)] => worn += 1,
+            other => panic!("took {other:?}"),
+        }
+        item = yalain_world::inventory::give(&mut h.server, &mut h.net, world, 0x4700_207F, 1)
+            .expect("another");
+        h.run(2);
+    }
+    assert!(on_it > 0 && worn > 0, "each of the two: {on_it} {worn}");
+}
+
+/// A major spellbinding binds each of the item's bindable enchantments into a totem of its own, as
+/// the item held it, and leaves the one that may not be bound.
+/// Behaviour: server.craft.spellbinding-major-takes-each
+#[test]
+fn a_major_spellbinding_makes_a_totem_of_each_bindable_enchantment() {
+    let (mut h, b, _me, world) = in_world();
+    for (state, bindable) in [(ENCHANTMENT, true), (WORN, true), (UNBOUND, false)] {
+        known(&mut h, state, bindable);
+    }
+    let item = spellbinding_ready_as(
+        &mut h,
+        world,
+        0x4700_207F,
+        yalain_world::craft::Custom::SpellbindAll,
+    );
+    let mut took = take_apart(&mut h, b, world, item);
+    took.sort_by_key(|(e, _)| e.is_empty());
+    assert_eq!(
+        took,
+        vec![
+            (vec![(ENCHANTMENT, 12.0)], Vec::new()),
+            (Vec::new(), vec![(WORN, 7.0)]),
+        ]
+    );
+}
+
+/// An item whose enchantments may none of them be bound is not taken apart: nothing is lost and
+/// nothing made.
+/// Behaviour: server.craft.spellbinding-takes-an-enchantment
+#[test]
+fn spellbinding_refuses_an_item_with_nothing_bindable() {
+    let (mut h, b, _me, world) = in_world();
+    known(&mut h, UNBOUND, false);
+    let item = spellbinding_ready(&mut h, world, 0x4700_207F);
+    h.server.things.get_mut(item).expect("made").enchantments = vec![(UNBOUND, 5.0)];
+    execute(&mut h, b, STEEL_RECIPE, &[(1, item)]);
+    h.run(4);
+    wait(&mut h, 9.0);
+    let p = &h.server.players[&world];
+    assert!(p.play.items.iter().any(|i| i.id == item), "still held");
+    assert!(
+        !p.play
+            .items
+            .iter()
+            .any(|i| h.server.crafting.crafts.totem_word(i.template).is_some()),
+        "no totem"
+    );
+}
+
 /// A world's `[[spellbinding]]` row says which totem its sort of item makes and the word it says it
 /// goes on.
 /// Behaviour: server.craft.spellbinding-by-world-rows
@@ -2562,6 +2712,7 @@ fn a_spellbinding_row_sets_the_totem_its_sort_of_item_makes() {
     const OWN: u32 = 0x4700_7001;
     const WORD: u32 = 0x1234_5678;
     let (mut h, b, _me, world) = in_world();
+    known(&mut h, ENCHANTMENT, true);
     for t in &mut h.server.crafting.crafts.totems {
         if t.sort == Sort::Weapon {
             t.template = OWN;
@@ -2721,6 +2872,7 @@ fn a_dropped_shield_is_taken_apart_into_a_shield_totem_and_takes_one() {
     const BUCKLER: u32 = 0x4700_7006;
     const PLATE: u32 = 0x4700_7007;
     let (mut h, b, me, world) = in_world();
+    known(&mut h, ENCHANTMENT, true);
     let mut props = props_of(&[("Item_ArmorLevel", 20), ("Item_CombatDelay", 6)]);
     props.set(
         "Item_ValidInventoryLocations",

@@ -1536,6 +1536,32 @@ fn every_refining_recipe_reads_with_its_product() {
     assert_eq!(c.recipes[&0x6F00_1081].custom, Custom::Spellbind);
 }
 
+/// The install's spellbinding recipes read as the kind each is: a minor one binds one enchantment,
+/// a major one each of them, and a major one asks 30 more of the craft skill than the minor at the
+/// same item level.
+/// Behaviour: server.craft.spellbinding-major-takes-each
+#[test]
+fn the_installs_major_spellbinding_recipes_bind_each_enchantment_and_are_thirty_harder() {
+    use yalain_world::craft::Custom;
+    let p = Portal::open();
+    let c = p.crafting(&[], &[0x6F00_1081, 0x6F00_1082, 0x6F00_108D, 0x6F00_108E]);
+    for (minor, major) in [(0x6F00_1081, 0x6F00_1082), (0x6F00_108D, 0x6F00_108E)] {
+        assert_eq!(c.recipes[&minor].custom, Custom::Spellbind, "{minor:08X}");
+        assert_eq!(
+            c.recipes[&major].custom,
+            Custom::SpellbindAll,
+            "{major:08X}"
+        );
+        for level in [20, 35, 50] {
+            assert_eq!(
+                c.recipes[&major].difficulty_at(level),
+                c.recipes[&minor].difficulty_at(level) + 30,
+                "{major:08X} at {level}"
+            );
+        }
+    }
+}
+
 /// The install's slots read what they ask: spellbinding's sword by the spinner, a level up to 50
 /// and an Arcane Lore from 51; an armor empowerment's refused flag, which the recipe itself adds;
 /// a recipe's cutoff.

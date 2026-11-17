@@ -110,6 +110,10 @@ pub const REMOVED_ON_DEATH: u32 = 0x40_0000;
 /// An effect's internal flags: it does its target harm.
 pub const HARMFUL: u32 = 0x200_0000;
 
+/// An effect's internal flags: spellbinding may take it from an item into a totem (an enchantment
+/// whose name the client shows orange).
+pub const BINDABLE: u32 = 0x4_0000;
+
 /// An effect's internal flags: one its holder's client is shown (an item's effect without it is
 /// never put on its wearer).
 pub const CLIENT_VISIBLE: u32 = 0x1;
