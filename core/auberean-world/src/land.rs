@@ -2,6 +2,7 @@
 //! width, all read from the region's landscape record, and the terrain rules built from them.
 
 use auberean_assets::region::Landscape;
+use dereth_primitives::shape::PlaneArithmetic;
 use dereth_terrain::land::mesh::{set_height_table_within, LandGrid, TerrainSpec};
 
 use crate::random::sw_to_ne_cut;
@@ -156,6 +157,8 @@ impl LandConstants {
                 },
                 split: sw_to_ne_cut,
                 height_max,
+                // This world's triangle planes are worked in single precision at every step.
+                planes: PlaneArithmetic::Single,
             },
             heights,
             word,

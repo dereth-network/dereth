@@ -13,6 +13,7 @@
 
 use dereth_assets::region::Region;
 use dereth_assets::world::CellLandblock;
+use dereth_primitives::shape::PlaneArithmetic;
 use dereth_primitives::{LandblockId, Vec3};
 
 use crate::consts::{
@@ -180,6 +181,8 @@ pub struct TerrainSpec {
     pub split: fn(i32, i32) -> bool,
     /// The highest entry the height table accepts: the sky height less the greatest object height.
     pub height_max: f32,
+    /// How a triangle's plane is worked out.
+    pub planes: PlaneArithmetic,
 }
 
 impl TerrainSpec {
@@ -189,6 +192,7 @@ impl TerrainSpec {
         grid: LandGrid::DEFAULT,
         split: sw_to_ne_cut,
         height_max: LAND_HEIGHT_MAX,
+        planes: PlaneArithmetic::Double,
     };
 }
 
@@ -344,10 +348,11 @@ pub fn land_geometry(
                 let [a, b, c] = tri;
                 triangles.push(LandTriangle {
                     v: tri,
-                    plane: make_plane(
+                    plane: make_plane_in(
                         vertices[a as usize],
                         vertices[b as usize],
                         vertices[c as usize],
+                        spec.planes,
                     ),
                 });
             }
@@ -384,7 +389,64 @@ pub fn land_geometry(
 /// `d` is `-(N·v0 + N·v1 + N·v2) / 3`, not `-N·v0`. For an exactly planar triangle the two are the
 /// same number mathematically and different floats in practice, and the plane distance feeds
 /// Set a plane's height, which places every tree.
+///
+/// The client works it in double precision and keeps a float only at certain steps, and the
+/// plane's last bit depends on which: the first edge's x and y, each part of the cross product,
+/// and the reciprocal length that scales y and z are kept as floats; the reciprocal that scales x
+/// and the whole sum behind `d` stay in double precision, and `d` is rounded once. It is the
+/// plane bodies stand on, to the bit. This is the first game's ([`PlaneArithmetic::Double`]).
 pub(crate) fn make_plane(a: Vec3, b: Vec3, c: Vec3) -> Plane {
+    make_plane_in(a, b, c, PlaneArithmetic::Double)
+}
+
+/// [`make_plane`] worked in `arithmetic`: as it says, or in single precision at every step.
+#[allow(clippy::cast_possible_truncation)]
+pub(crate) fn make_plane_in(a: Vec3, b: Vec3, c: Vec3, arithmetic: PlaneArithmetic) -> Plane {
+    if arithmetic == PlaneArithmetic::Single {
+        return make_plane_single(a, b, c);
+    }
+    let kept = |x: f64| f64::from(x as f32);
+    let edge = |v: Vec3| {
+        (
+            f64::from(v.x) - f64::from(a.x),
+            f64::from(v.y) - f64::from(a.y),
+            f64::from(v.z) - f64::from(a.z),
+        )
+    };
+    let (ux, uy, uz) = edge(b);
+    let (ux, uy) = (kept(ux), kept(uy));
+    let (vx, vy, vz) = edge(c);
+    let nx = kept(uy * vz - uz * vy);
+    let ny = kept(uz * vx - vz * ux);
+    let nz = kept(vy * ux - uy * vx);
+    let len = ((nz * nz + ny * ny) + nx * nx).sqrt();
+    // The client divides unconditionally, producing inf/NaN for a degenerate polygon. Land cells
+    // have a fixed non-degenerate xy footprint so this branch is unreachable for terrain; it exists
+    // so a malformed caller gets a usable plane rather than NaN propagating into the scenery hash.
+    let n = if len > 0.0 {
+        let inv = 1.0 / len;
+        let inv_kept = kept(inv);
+        Vec3::new(
+            (inv * nx) as f32,
+            (inv_kept * ny) as f32,
+            (inv_kept * nz) as f32,
+        )
+    } else {
+        Vec3::new(0.0, 0.0, 1.0)
+    };
+    let (gx, gy, gz) = (f64::from(n.x), f64::from(n.y), f64::from(n.z));
+    let sum: f64 = [a, b, c]
+        .iter()
+        .map(|v| (gz * f64::from(v.z) + gy * f64::from(v.y)) + gx * f64::from(v.x))
+        .sum();
+    Plane {
+        normal: n,
+        d: (-(sum / 3.0)) as f32,
+    }
+}
+
+/// [`make_plane`] in single precision at every step.
+fn make_plane_single(a: Vec3, b: Vec3, c: Vec3) -> Plane {
     let u = Vec3::new(b.x - a.x, b.y - a.y, b.z - a.z);
     let v = Vec3::new(c.x - a.x, c.y - a.y, c.z - a.z);
     let n = Vec3::new(
@@ -393,9 +455,6 @@ pub(crate) fn make_plane(a: Vec3, b: Vec3, c: Vec3) -> Plane {
         u.x * v.y - u.y * v.x,
     );
     let len = n.magnitude();
-    // The client divides unconditionally, producing inf/NaN for a degenerate polygon. Land cells
-    // have a fixed non-degenerate xy footprint so this branch is unreachable for terrain; it exists
-    // so a malformed caller gets a usable plane rather than NaN propagating into the scenery hash.
     let n = if len > 0.0 {
         let inv = 1.0 / len;
         Vec3::new(n.x * inv, n.y * inv, n.z * inv)
@@ -410,13 +469,17 @@ pub(crate) fn make_plane(a: Vec3, b: Vec3, c: Vec3) -> Plane {
 }
 
 /// Drop a point onto the plane:
-/// `z = -(x·N.x + y·N.y + d) / N.z`, which needs `|N.z| > 0.0002`.
+/// `z = -(x·N.x + y·N.y + d) / N.z`, which needs `|N.z| > 0.0002`. Worked in double precision
+/// and rounded once, as the client does.
 #[must_use]
+#[allow(clippy::cast_possible_truncation)]
 pub fn plane_set_height(p: &Plane, x: f32, y: f32) -> Option<f32> {
     if p.normal.z.abs() <= crate::consts::EPSILON {
         return None;
     }
-    Some(-(x * p.normal.x + y * p.normal.y + p.d) / p.normal.z)
+    let n = p.normal;
+    let sum = (f64::from(y) * f64::from(n.y) + f64::from(x) * f64::from(n.x)) + f64::from(p.d);
+    Some((-(sum / f64::from(n.z))) as f32)
 }
 
 /// Re-run `make_plane` on every triangle after the vertices moved, which
@@ -886,6 +949,7 @@ mod tests {
             grid: TWO_STEP,
             split: checker_split,
             height_max: 1800.0,
+            planes: PlaneArithmetic::Double,
         };
         let table = ramp_table();
         let n = TWO_STEP.vertices_per_side();
@@ -926,6 +990,7 @@ mod tests {
             grid: TWO_STEP,
             split: checker_split,
             height_max: 1800.0,
+            planes: PlaneArithmetic::Double,
         };
         let h = block_heights(&TWO_STEP, 3, 4);
         let mut marks = vec![false; TWO_STEP.vertex_count()];
@@ -951,6 +1016,7 @@ mod tests {
             grid: TWO_STEP,
             split: checker_split,
             height_max: 1800.0,
+            planes: PlaneArithmetic::Double,
         };
         let h = block_heights(&TWO_STEP, 9, 2);
         let table = ramp_table();
@@ -988,6 +1054,31 @@ mod tests {
             set_height_table(&candidate, &previous),
             set_height_table_within(&candidate, &previous, TerrainSpec::DEFAULT.height_max)
         );
+    }
+
+    /// A terrain triangle's plane is the one the client gives it, to the last bit, and a point is
+    /// dropped onto it as the client drops it: the 48 degree slope's two triangles, whose
+    /// distance worked in single precision lands a unit in the last place either side.
+    #[test]
+    fn a_terrain_triangles_plane_and_heights_are_the_clients_to_the_last_bit() {
+        let steep = [0xbf39_7652, 0xbe2b_3224, 0x3f2b_3224, 0xc245_f1fa];
+        let (a, b, c, d) = (
+            Vec3::new(0.0, 168.0, 116.0),
+            Vec3::new(24.0, 168.0, 142.0),
+            Vec3::new(24.0, 192.0, 148.0),
+            Vec3::new(0.0, 192.0, 122.0),
+        );
+        for p in [make_plane(a, b, c), make_plane(a, c, d)] {
+            let n = p.normal;
+            assert_eq!(
+                [n.x.to_bits(), n.y.to_bits(), n.z.to_bits(), p.d.to_bits()],
+                steep,
+                "{p:?}"
+            );
+            // Worked in single precision, this height lands a unit in the last place lower.
+            let z = plane_set_height(&p, f32::from_bits(0x3f93_3f32), f32::from_bits(0x432d_a017));
+            assert_eq!(z.map(f32::to_bits), Some(0x42ed_4e1e));
+        }
     }
 
     /// Oracle: `make_plane`'s winding contract: with +x east and +y north this winding is
