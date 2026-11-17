@@ -7,10 +7,11 @@
 // exactly as the per-pixel resolve has it: saturated, and for the ground truncated to bytes.
 //
 // A frame is drawn in display values, as retail draws it, or linear (`FRAME_POST`): then the sun
-// and the lamps light past 1 while retail's own lights stay clamped as retail clamps them (their
-// fall-off was made for the clamp, and near a light it would sum to many times white), nothing is
-// truncated, the colors are taken from display values to linear light after the fog and the
-// screen ramp, and the post passes bring them back to the display.
+// lights past 1 while retail's own lights stay clamped as retail clamps them (their fall-off was
+// made for the clamp, and near a light it would sum to many times white), nothing is truncated,
+// the colors are taken from display values to linear light after the fog and the screen ramp, and
+// the post passes bring them back to the display. The lamps are retail's lights worked out per
+// pixel, so they are clamped with them.
 module intent;
 
 import retail;
@@ -230,12 +231,12 @@ float3 whitened(float3 lamps, float glow)
     return lerp(lamps, float3(max(lamps.r, max(lamps.g, lamps.b))), glow * LAMP_WHITE);
 }
 
-// The lamps' light as it goes into the linear frame: faint light as it is, strong light held to
-// under twice what retail's clamped light reaches, so that a wall by a torch glows and keeps its
-// color rather than going white.
-float3 lamps_held(float3 lamps)
+// What the lamps add to a surface whose own light, retail's before the sun, is `own`: as much as
+// retail's clamp leaves room for, so a lamp lights a surface as brightly as retail's light can and
+// no brighter.
+float3 lamps_onto(float3 own, Masks m)
 {
-    return lamps / (1.0 + 0.5 * max(lamps.r, max(lamps.g, lamps.b)));
+    return saturate(own + whitened(m.lamps, m.lamp_glow)) - saturate(own);
 }
 
 // The light the pixel takes. With the masks at their identity it is retail's own sum, written as
@@ -274,7 +275,7 @@ public float3 compose(Terms t, Masks m)
                    + gi;
         if (m.linear)
         {
-            return (c + whitened(lamps_held(m.lamps), m.lamp_glow)) * glow;
+            return (c + lamps_onto(t.ambient * m.ambient_visibility, m)) * glow;
         }
         c = min((c + m.lamps) * glow, 1.0);
         return floor(c * 255.0) / 255.0;
@@ -282,15 +283,14 @@ public float3 compose(Terms t, Masks m)
     if (m.pack_lit)
     {
         return ((saturate(t.emissive + t.ambient) + t.sun_color * t.sun_facing) * m.pack_light
-                + whitened(lamps_held(m.lamps), m.lamp_glow) + gi)
+                + lamps_onto(t.emissive + t.ambient, m) + gi)
                * glow;
     }
     if (m.linear)
     {
-        return (saturate(t.emissive + t.ambient * m.ambient_visibility
-                         + (t.burn + t.lights) * (1.0 - m.lamps_replace))
-                + t.sun_color * facing + whitened(lamps_held(m.lamps), m.lamp_glow) + gi)
-               * glow;
+        float3 own = t.emissive + t.ambient * m.ambient_visibility
+                     + (t.burn + t.lights) * (1.0 - m.lamps_replace);
+        return (saturate(own) + lamps_onto(own, m) + t.sun_color * facing + gi) * glow;
     }
     return saturate((t.emissive + t.ambient * m.ambient_visibility + t.sun_color * facing
                      + (t.burn + t.lights) * (1.0 - m.lamps_replace) + m.lamps + gi)

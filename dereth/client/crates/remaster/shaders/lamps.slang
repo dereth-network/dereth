@@ -8,13 +8,14 @@
 //   where the lamps take the place of retail's own light indoors; outdoors, below nought, it is how
 //   much the pixel glows for standing right at a lamp, its flame or its glass.
 //
-// On a room's walls a static light's lamp is retail's burn worked out at the pixel. Elsewhere a
-// static light's lamp falls off with the square of the distance, softened within half a metre,
-// and ends smoothly at its reach; its strength, for each kind of surface, comes calibrated from
-// the processor. A moving light's lamp is retail's light, its intensity over the distance, faded
-// out over the last tenth of its reach. A static light's turn on walls and outdoors is wrapped, lighting to 120
-// degrees as retail's burn does; a moving light's, and every light's on objects, is the plain
-// cosine.
+// On a room's walls a static light's lamp is retail's burn worked out at the pixel. On objects
+// indoors a static light's lamp falls off with the square of the distance, softened within half a
+// metre, and ends smoothly at its reach; its strength comes calibrated from the processor. A
+// moving light's lamp indoors is retail's light, its intensity over the distance, faded out over
+// the last tenth of its reach. Outdoors a lamp lights a broad pool, full at the lamp and fading
+// smoothly to its reach. A static light's turn on walls and every light's outdoors is wrapped,
+// lighting to 120 degrees as retail's burn does; a moving light's indoors, and every light's on
+// objects, is the plain cosine.
 import bindless;
 import retail;
 
@@ -94,6 +95,19 @@ float falloff(float d, float reach, float soften, bool moving)
     return w * w / (d * d + soften * soften);
 }
 
+// An outdoor lamp's pool at distance `d` within reach `reach`, before its strength and the
+// surface's turn: full at the lamp, fading smoothly to nothing at the reach.
+float pool(float d, float reach)
+{
+    if (d >= reach)
+    {
+        return 0.0;
+    }
+    float x = d / reach;
+    float w = 1.0 - x * x;
+    return w * w;
+}
+
 // A pixel of the G-buffer as the lamps see it.
 struct Surface
 {
@@ -165,6 +179,7 @@ float3 lamps_on(ShadePush push, Surface s, out float glow)
         float reach = lp.w;
         bool wrapped = false;
         bool burned = false;
+        bool pooled = false;
         if (s.indoor && (lc.w == KIND_STATIC || lc.w == KIND_MOVING))
         {
             if (s.cls == CLASS_CELL)
@@ -183,6 +198,7 @@ float3 lamps_on(ShadePush push, Surface s, out float glow)
         {
             strength = power.z;
             wrapped = true;
+            pooled = true;
         }
         if (strength <= 0.0)
         {
@@ -196,9 +212,19 @@ float3 lamps_on(ShadePush push, Surface s, out float glow)
             glow = max(glow, power.y * g * g * (3.0 - 2.0 * g));
         }
         float mu = dot(s.n, to / max(dist, 1e-6));
-        out += burned ? lc.rgb * burn_share(dist, mu, strength, reach)
-                      : lc.rgb * strength * turn(mu, wrapped)
-                            * falloff(dist, reach, sl.w, lc.w == KIND_MOVING);
+        if (burned)
+        {
+            out += lc.rgb * burn_share(dist, mu, strength, reach);
+        }
+        else if (pooled)
+        {
+            out += lc.rgb * strength * turn(mu, wrapped) * pool(dist, reach);
+        }
+        else
+        {
+            out += lc.rgb * strength * turn(mu, wrapped)
+                   * falloff(dist, reach, sl.w, lc.w == KIND_MOVING);
+        }
     }
     return out;
 }

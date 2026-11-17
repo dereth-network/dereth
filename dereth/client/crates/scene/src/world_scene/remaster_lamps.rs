@@ -56,6 +56,9 @@ pub struct RemasterLampCapture {
     /// Each lamp listed: whether it lights the indoors, its reach, and its strengths on walls,
     /// on objects and outdoors.
     pub strengths: Vec<(bool, f32, [f32; 3])>,
+    /// Each lamp listed: where it stands, in the frame's space, its color, and whether it is a
+    /// static light's.
+    pub places: Vec<([f32; 3], [f32; 3], bool)>,
     /// The remaster's material target, four bytes a pixel: the light class, the material's kind,
     /// and two bytes the class gives a meaning of its own.
     pub material: Vec<[u8; 4]>,
@@ -141,15 +144,20 @@ impl SceneDraw {
         let r = remaster(gpu)?;
         let renderer = r.renderer();
         let t = renderer.targets()?;
-        let (count, strengths, reference) = {
+        let (count, strengths, places, reference) = {
             let (lamps, reference) = renderer.lamps().reference()?;
             let strengths = lamps
                 .iter()
                 .map(|l| (l.indoor, l.reach, [l.walls, l.objects, l.outdoors]))
                 .collect();
+            let places = lamps
+                .iter()
+                .map(|l| (l.position.to_array(), l.color, l.burned))
+                .collect();
             (
                 u32::try_from(lamps.len()).unwrap_or(u32::MAX),
                 strengths,
+                places,
                 reference,
             )
         };
@@ -193,6 +201,7 @@ impl SceneDraw {
             lamps: count,
             halos,
             strengths,
+            places,
             material,
             lists,
             reference,

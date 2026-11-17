@@ -19,6 +19,10 @@
 //!   its light reaches nothing.
 //! - **Nothing kept.** The lamps keep nothing of the rooms from frame to frame: after a walk, their
 //!   light is the same whether they were on all along or turned on at the end.
+//! - **As bright as retail's light.** With the boxes as the options page ticks them at first, the
+//!   indoor lamps light no part of a room brighter than retail's own light does there.
+//! - **Broad, soft pools.** At night the outdoor lamps light a broad pool round them, brightest by
+//!   the lamp and fading outward; a lamp inside a house lights nothing outdoors.
 //!
 //! Fixture: the retail dats (`DERETH_TEST_DAT_DIR`) and a hardware Vulkan 1.3 device.
 
@@ -539,14 +543,19 @@ fn the_lamps_keep_nothing_of_the_rooms_from_frame_to_frame() {
     assert_eq!(differ, 0, "the lamps' light depends on what came before");
 }
 
-/// The lamps' street drawn with `boxes` until it settles: the frame's colors, and what the lamps
+/// The station the lamps' glow and halos are checked at: four flames and two hung lamps on the
+/// block south-east of Holtburg at midnight, some of them behind what stands nearer the eye.
+const HALO_STATION: &str = "lamps-torch";
+
+/// The station `name` drawn with `boxes` until it settles: the frame's colors, and what the lamps
 /// drew.
 fn street_with(
     store: &Arc<RetailDatStore>,
+    name: &str,
     boxes: &str,
     size: (u32, u32),
 ) -> (Vec<u8>, Option<RemasterLampCapture>) {
-    let station = remaster_frames::stations(store, &["lamps-street"])
+    let station = remaster_frames::stations(store, &[name])
         .pop()
         .expect("the station");
     let cfg = DeviceConfig {
@@ -573,9 +582,9 @@ fn street_with(
     (rgba, lamps)
 }
 
-/// **At night a lamp glows**: with every box ticked, the outdoor lamps' row brightens the lamp's own
-/// flame or glass, which is dull without it, and stands a halo where the lamps' light itself reaches
-/// nothing.
+/// **At night a lamp glows**: at [`HALO_STATION`], with every box ticked, the outdoor lamps' row
+/// brightens the lamp's own flame or glass, which is dull without it, and stands a halo where the
+/// lamps' light itself reaches nothing.
 #[test]
 fn at_night_a_lamp_glows_and_stands_a_halo() {
     use crate::instruments::remaster_look_frames::EVERY_BOX;
@@ -583,8 +592,8 @@ fn at_night_a_lamp_glows_and_stands_a_halo() {
     let store = crate::common::dats();
     let size = (1280, 720);
     let without = EVERY_BOX.replace("RemasterOutdoorLamps=1,", "");
-    let (on, lamps) = street_with(&store, EVERY_BOX, size);
-    let (off, _) = street_with(&store, &without, size);
+    let (on, lamps) = street_with(&store, HALO_STATION, EVERY_BOX, size);
+    let (off, _) = street_with(&store, HALO_STATION, &without, size);
     let lamps = lamps.expect("the lamps drew");
     let (mut bright_on, mut bright_off, mut glowing, mut halo) = (0usize, 0usize, 0usize, 0usize);
     for (i, l) in lamps.light.iter().enumerate() {
@@ -633,8 +642,24 @@ fn is_cut(h: &RemasterHaloSeen) -> bool {
     h.surface < h.distance - 0.35 * h.size - 0.15
 }
 
+/// Whether the lamps' light or a lamp's glow reaches any of the pixels within `radius` of `at` on
+/// the grid the world was drawn at.
+fn lit_round(lamps: &RemasterLampCapture, at: (f32, f32), radius: i64) -> bool {
+    let (w, h) = (i64::from(lamps.width), i64::from(lamps.height));
+    #[allow(clippy::cast_possible_truncation)] // on the grid
+    let (cx, cy) = (at.0 as i64, at.1 as i64);
+    ((cy - radius).max(0)..=(cy + radius).min(h - 1)).any(|y| {
+        ((cx - radius).max(0)..=(cx + radius).min(w - 1)).any(|x| {
+            let p = lamps.light[usize::try_from(y * w + x).unwrap_or(0)];
+            p[0].max(p[1]).max(p[2]) >= 1.0 / 255.0 || p[3] < 0.0
+        })
+    })
+}
+
 /// How far `on` stands over `off` at each halo, its place scaled from the size the world was drawn
-/// at to the frame's: the halos something stands in front of, then the ones the eye can see.
+/// at to the frame's: the halos something stands in front of where the lamps' light and glow reach
+/// none of the lamp's own pixels (so all that could move them is the halo), then the ones the eye
+/// can see.
 fn halos_moved(
     on: &[u8],
     off: &[u8],
@@ -643,60 +668,73 @@ fn halos_moved(
 ) -> (Vec<f64>, Vec<f64>) {
     #[allow(clippy::cast_precision_loss)] // a window's size
     let scale = width as f32 / lamps.width as f32;
+    // The frame's pixels round the lamp's, on the world's grid.
+    #[allow(clippy::cast_possible_truncation)] // a few pixels
+    let reach = (1.0 / scale).ceil() as i64 + 1;
     let (mut cut, mut seen) = (Vec::new(), Vec::new());
     for h in &lamps.halos {
         let at = (h.at.0 * scale, h.at.1 * scale);
         let moved = red_round(on, width, at, 1) - red_round(off, width, at, 1);
-        if is_cut(h) {
-            cut.push(moved);
-        } else {
+        if !is_cut(h) {
             seen.push(moved);
+        } else if !lit_round(lamps, h.at, reach) {
+            cut.push(moved);
         }
     }
     (cut, seen)
 }
 
-/// **A surface nearer than a lamp cuts its halo**: at the street at midnight, where the lamp stands
-/// behind something the frame barely moves at the lamp's own pixel, and where the eye can see the
-/// lamp it moves by far more.
+/// **A surface nearer than a lamp cuts its halo**: at [`HALO_STATION`], where the lamp stands
+/// behind something its light does not reach, the frame barely moves at the lamp's own pixel, and
+/// where the eye can see the lamp it moves by far more.
 #[test]
 fn a_surface_nearer_than_a_lamp_cuts_its_halo() {
     let _gpu = crate::common::gpu_lock();
     let store = crate::common::dats();
     let size = (1280, 720);
     let boxes = halo_boxes();
-    let (on, lamps) = street_with(&store, &boxes, size);
-    let (off, _) = street_with(&store, &boxes.replace("RemasterOutdoorLamps=1,", ""), size);
+    let (on, lamps) = street_with(&store, HALO_STATION, &boxes, size);
+    let (off, _) = street_with(
+        &store,
+        HALO_STATION,
+        &boxes.replace("RemasterOutdoorLamps=1,", ""),
+        size,
+    );
     let (cut, seen) = halos_moved(&on, &off, size.0, &lamps.expect("the lamps drew"));
     eprintln!("behind something {cut:.1?}, in the open {seen:.1?}");
-    assert!(cut.len() >= 2, "lamps behind something: {cut:?}");
+    assert!(!cut.is_empty(), "lamps behind something: {cut:?}");
     assert!(seen.len() >= 2, "lamps in the open: {seen:?}");
     assert!(cut.iter().all(|m| *m <= HALO_CUT), "{cut:?}");
     assert!(seen.iter().all(|m| *m >= HALO_SEEN), "{seen:?}");
 }
 
-/// How far a lamp's own pixels may move when something stands in front of it, display levels: the
-/// lamp's light on that surface, measured up to 2.1.
+/// How far a lamp's own pixels may move when something its light does not reach stands in front of
+/// it, display levels: measured 0.3, where the halo it hides moves them by [`HALO_SEEN`] and more.
 const HALO_CUT: f64 = 6.0;
 
-/// How far at least a lamp in the open moves them, display levels: measured from 210.
+/// How far at least a lamp in the open moves them, display levels: measured from 109 (through FSR).
 const HALO_SEEN: f64 = 100.0;
 
 /// **Through FSR a lamp still stands its halo, and what stands in front of it still cuts it**:
-/// the street at midnight drawn at half the pixels each way.
+/// [`HALO_STATION`] drawn at half the pixels each way.
 #[test]
 fn a_lamps_halo_stands_and_is_cut_through_fsr() {
     let _gpu = crate::common::gpu_lock();
     let store = crate::common::dats();
     let size = (1280, 720);
     let boxes = format!("{},RemasterUpscale=1,RemasterScale=50", halo_boxes());
-    let (on, lamps) = street_with(&store, &boxes, size);
-    let (off, _) = street_with(&store, &boxes.replace("RemasterOutdoorLamps=1,", ""), size);
+    let (on, lamps) = street_with(&store, HALO_STATION, &boxes, size);
+    let (off, _) = street_with(
+        &store,
+        HALO_STATION,
+        &boxes.replace("RemasterOutdoorLamps=1,", ""),
+        size,
+    );
     let lamps = lamps.expect("the lamps drew");
     assert_eq!(lamps.width, size.0 / 2, "drawn at half the pixels");
     let (cut, seen) = halos_moved(&on, &off, size.0, &lamps);
     eprintln!("through FSR: behind something {cut:.1?}, in the open {seen:.1?}");
-    assert!(cut.len() >= 2, "lamps behind something: {cut:?}");
+    assert!(!cut.is_empty(), "lamps behind something: {cut:?}");
     assert!(seen.len() >= 2, "lamps in the open: {seen:?}");
     assert!(cut.iter().all(|m| *m <= HALO_CUT), "{cut:?}");
     assert!(seen.iter().all(|m| *m >= HALO_SEEN), "{seen:?}");
@@ -792,3 +830,186 @@ fn a_flames_halo_flickers_on_the_screen_as_the_clock_goes_on() {
 
 /// How far the pixels round a flame range over the frames, display levels: measured from 11.
 const FLICKER: f64 = 4.0;
+
+/// The stations the indoor lamps are checked at, with the boxes as the options page ticks them at
+/// first: a room of a town building, a house's doorway, a dungeon's corridor and a dungeon's hall
+/// lit by candles.
+const INDOOR_STATIONS: [&str; 4] = ["indoor", "doorway", "dungeon", "dungeon-candles"];
+
+/// How much brighter, display levels, a part of the indoors may be on average with the indoor lamps
+/// than with retail's own light: measured at most 1.8 at [`INDOOR_STATIONS`] at 960 by 540, where
+/// lamps added past retail's clamp made a house's walls 22.2 brighter.
+const INDOOR_OVER: f64 = 4.0;
+
+/// **Indoors the lamps are retail's light, no brighter**: with the boxes as the options page ticks
+/// them at first, at [`INDOOR_STATIONS`], every room the frame shows 2,000 pixels or more of, the
+/// objects indoors, and the brightest quarter of the indoor pixels are on average no brighter with
+/// the indoor lamps than with retail's own light (the indoor lamps' box off) beyond
+/// [`INDOOR_OVER`].
+#[test]
+fn indoors_the_lamps_light_no_brighter_than_retails_own_light() {
+    use crate::instruments::lamp_level_frames::{at_first, drawn, level, mean};
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let size = (960, 540);
+    let (mut checked, mut over) = (0, Vec::new());
+    for name in INDOOR_STATIONS {
+        let station = remaster_frames::stations(&store, &[name])
+            .pop()
+            .expect("the station");
+        let on = drawn(&store, &station, &at_first(""), size);
+        let off = drawn(&store, &station, &at_first("RemasterIndoorLamps=0"), size);
+        // ORDER-OK: reported in order.
+        let mut parts: std::collections::BTreeMap<String, Vec<usize>> =
+            std::collections::BTreeMap::new();
+        for i in 0..on.class.len() {
+            if on.class[i] != off.class[i] {
+                continue;
+            }
+            match on.class[i] {
+                ROOM => parts
+                    .entry(format!("room {:04x}", on.room[i]))
+                    .or_default()
+                    .push(i),
+                INDOOR => parts.entry("objects".to_owned()).or_default().push(i),
+                _ => {}
+            }
+        }
+        let mut top: Vec<usize> = parts.values().flatten().copied().collect();
+        top.sort_by(|a, b| level(&off.rgba, *b).total_cmp(&level(&off.rgba, *a)));
+        top.truncate(top.len() / 4);
+        parts.insert("the brightest quarter".to_owned(), top);
+        for (part, px) in parts.iter().filter(|p| p.1.len() >= 2_000) {
+            let (lamps, retail) = (
+                mean(px, |i| level(&on.rgba, i)),
+                mean(px, |i| level(&off.rgba, i)),
+            );
+            eprintln!(
+                "{name} {part}: {} px, the lamps {lamps:.1}, retail's light {retail:.1}, {:+.1}",
+                px.len(),
+                lamps - retail
+            );
+            if lamps - retail > INDOOR_OVER {
+                over.push(format!(
+                    "{name} {part} ({} px): {lamps:.1} with the lamps against {retail:.1}",
+                    px.len()
+                ));
+            }
+            checked += 1;
+        }
+    }
+    assert!(checked >= 20, "{checked} parts checked");
+    assert!(over.is_empty(), "brighter with the lamps: {over:#?}");
+}
+
+/// The stations the outdoor lamps are checked at, at midnight with the boxes as the options page
+/// ticks them at first: Holtburg's north street of lamp posts, its west end, and a square ringed by
+/// lanterns.
+const OUTDOOR_STATIONS: [&str; 3] = ["lamps-street", "lamps-west", "lanterns-square"];
+
+/// How much brighter at least, display levels, the ground within 12 m of a lamp is on average with
+/// the outdoor lamps than without: measured 5.8 to 10.6 at [`OUTDOOR_STATIONS`] at 960 by 540,
+/// where pools of the square of the distance from a strength of their own lit it 2.3 to 3.8.
+const OUTDOOR_RISE: f64 = 4.0;
+
+/// How much brighter at least the ground 8 m from a lamp is with the outdoor lamps: measured 5.2 to
+/// 10.1, where pools held at retail's clamp within 5 m and ended at 1.3 times the lamp's falloff lit
+/// it 0.6 to 2.3.
+const POOL_FAR: f64 = 4.0;
+
+/// How much brighter a ring of the ground may be than the ring nearer the lamp, display levels:
+/// where two lamps' pools meet, a pixel's nearest lamp is not all its light.
+const POOL_SLACK: f64 = 1.0;
+
+/// **At night the outdoor lamps light a broad, soft pool round them**: at [`OUTDOOR_STATIONS`],
+/// the ground within 12 m of a lamp is brighter with the outdoor lamps than without by
+/// [`OUTDOOR_RISE`] display levels or more on average; the pool is brightest by the lamp and fades
+/// outward, each of the rings at 1, 3, 5 and 8 m from the nearest lamp brightened no more than the
+/// one inside it (but for [`POOL_SLACK`]); and 8 m out the ground is still brightened by
+/// [`POOL_FAR`] or more.
+#[test]
+fn at_night_the_outdoor_lamps_light_a_broad_soft_pool_round_them() {
+    use crate::instruments::lamp_level_frames::{
+        at_first, drawn, level, mean, placed_lamps, rings, RINGS,
+    };
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let size = (960, 540);
+    let mut short = Vec::new();
+    for name in OUTDOOR_STATIONS {
+        let station = remaster_frames::stations(&store, &[name])
+            .pop()
+            .expect("the station");
+        let on = drawn(&store, &station, &at_first(""), size);
+        let off = drawn(&store, &station, &at_first("RemasterOutdoorLamps=0"), size);
+        let lamps = placed_lamps(&on);
+        assert!(lamps.len() >= 2, "{name}: {} lamps", lamps.len());
+        let rings = rings(&on);
+        let rise: Vec<f64> = rings
+            .iter()
+            .map(|px| {
+                let px: Vec<usize> = px
+                    .iter()
+                    .copied()
+                    .filter(|&i| off.class[i] == GROUND)
+                    .collect();
+                assert!(px.len() >= 200, "{name}: {} pixels in a ring", px.len());
+                mean(&px, |i| level(&on.rgba, i)) - mean(&px, |i| level(&off.rgba, i))
+            })
+            .collect();
+        eprintln!(
+            "{name}: {} lamps; the ground brightened {:.1} within 12 m, at {RINGS:?} m {:.1?}",
+            lamps.len(),
+            rise[RINGS.len()],
+            &rise[..RINGS.len()]
+        );
+        if rise[RINGS.len()] < OUTDOOR_RISE {
+            short.push(format!("{name}: within 12 m {:.1}", rise[RINGS.len()]));
+        }
+        for k in 1..4 {
+            if rise[k] > rise[k - 1] + POOL_SLACK {
+                short.push(format!(
+                    "{name}: {:.1} at {} m, past {:.1} at {} m",
+                    rise[k],
+                    RINGS[k],
+                    rise[k - 1],
+                    RINGS[k - 1]
+                ));
+            }
+        }
+        if rise[3] < POOL_FAR {
+            short.push(format!("{name}: {:.1} at 8 m", rise[3]));
+        }
+    }
+    assert!(short.is_empty(), "{short:#?}");
+}
+
+/// The lanterns hung inside the house at Holtburg's north-east corner, across its block, metres.
+const HOUSE_LANTERNS: [[f32; 2]; 3] = [[148.1, 133.8], [155.2, 126.7], [160.6, 132.3]];
+
+/// **A lamp inside a house lights nothing outdoors**: at the lanterns' station at midnight, with
+/// the boxes at first, none of [`HOUSE_LANTERNS`] is among the outdoor lamps, while the lamp posts
+/// in reach are.
+#[test]
+fn a_lamp_inside_a_house_lights_nothing_outdoors() {
+    use crate::instruments::lamp_level_frames::{at_first, drawn, placed_lamps};
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let station = remaster_frames::stations(&store, &["lamps-lantern"])
+        .pop()
+        .expect("the station");
+    let on = drawn(&store, &station, &at_first(""), (960, 540));
+    let lamps = placed_lamps(&on);
+    let inside: Vec<glam::Vec3> = lamps
+        .iter()
+        .map(|l| l.0)
+        .filter(|p| {
+            HOUSE_LANTERNS
+                .iter()
+                .any(|h| glam::Vec2::from_array(*h).distance(p.truncate()) < 0.5)
+        })
+        .collect();
+    eprintln!("{} outdoor lamps; inside the house {inside:?}", lamps.len());
+    assert!(lamps.len() >= 4, "{} outdoor lamps", lamps.len());
+    assert!(inside.is_empty(), "lamps inside the house: {inside:?}");
+}

@@ -14,6 +14,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 - Classic: selecting someone's pet now shows its health bar.
+- Remaster: indoor lamps no longer over-light rooms, and outdoor lamps light up the streets.
 - Remaster: faster on Macs in busy places.
 - Remaster: bounced light is faster on Macs and on cards without ray tracing.
 - macOS: the client's windows take clicks again after leaving full screen.

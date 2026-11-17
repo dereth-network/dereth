@@ -19,10 +19,13 @@
 //! - **Outdoors at night** the outdoor placements' lamps (lamp posts, lanterns, torches: their
 //!   lights, their flames and their warm glowing glass) and the lights of what moves outdoors light
 //!   the ground and what stands on it. Retail lights the outdoors with the sun alone; these come on
-//!   as the sun goes down ([`night`]). A placement's lamp glows too: what is right at it is
-//!   brightened, its flame or its glass, and a soft halo stands round it (`halo.slang`), which what
-//!   stands nearer the eye cuts. A flame flickers: it never repeats, a small flame faster than a
-//!   large one, it goes redder as it dims, and its light sways a little.
+//!   as the sun goes down ([`night`]). A lamp lights a broad, soft pool ([`pool`]): brightest under
+//!   it and fading smoothly to two and a half times its falloff, its own color and intensity, so
+//!   it lights the street and the walls round it rather than a small bright patch. A lamp inside
+//!   a house is the house's, and lights nothing outdoors. A placement's lamp glows too: what is
+//!   right at it is brightened, its flame or its glass, and a soft halo stands round it
+//!   (`halo.slang`), which what stands nearer the eye cuts. A flame flickers: it never repeats, a
+//!   small flame faster than a large one, it goes redder as it dims, and its light sways a little.
 //!
 //! The view is cut into [`GRID`] pieces, its tiles of the screen by its slices of depth, and each
 //! piece lists the lamps whose reach meets it (the shared passes' lists,
@@ -116,13 +119,16 @@ pub fn turn(mu: f32, wrapped: bool) -> f32 {
     }
 }
 
+/// How far retail burns a static light into a room's walls, against its falloff.
+pub const BURN_REACH: f32 = 1.3;
+
 /// Retail's burn of one static light into a room's wall, a channel's share of the light's
 /// color: at distance `d` from a light of `intensity` and `falloff`, on a wall whose normal
 /// makes cosine `mu` with the direction to it. Flat within a metre, the inverse square beyond,
 /// zero past 1.3 times the falloff and past 120 degrees, at most the light's own color.
 #[must_use]
 pub fn retail_burn(d: f32, mu: f32, intensity: f32, falloff: f32) -> f32 {
-    let reach = falloff * 1.3;
+    let reach = falloff * BURN_REACH;
     if d >= reach || mu <= -0.5 {
         return 0.0;
     }
@@ -191,7 +197,7 @@ pub fn calibrate(retail: impl Fn(f32, f32) -> f32, reach: f32, wrapped: bool) ->
 }
 
 /// The kinds of lamp, as the shader tells them apart: a static light indoors (its turn wrapped
-/// on walls), one outdoors (wrapped), a moving one indoors (plain).
+/// on walls), one outdoors (its pool, its turn wrapped), a moving one indoors (plain).
 const KIND_STATIC: f32 = 1.0;
 const KIND_OUTDOOR: f32 = 2.0;
 const KIND_MOVING: f32 = 3.0;
@@ -207,11 +213,11 @@ pub struct GpuLamp {
     pub color: [f32; 3],
     /// Whether it lights the indoors (the light pools) or the outdoors.
     pub indoor: bool,
-    /// Whether it is a static light: on walls its lamp is retail's burn, and outdoors its turn is
-    /// wrapped as the burn's.
+    /// Whether it is a static light: on walls its lamp is retail's burn.
     pub burned: bool,
     /// Its strength on rooms' walls (its intensity: its lamp there is retail's own light), on
-    /// objects indoors, and outdoors (night folded in).
+    /// objects indoors, and outdoors: its pool's at its middle, its night and its flame on its
+    /// color.
     pub walls: f32,
     pub objects: f32,
     pub outdoors: f32,
@@ -255,7 +261,7 @@ impl Calibration {
             .entry((burned, intensity.to_bits(), falloff.to_bits()))
             .or_insert_with(|| {
                 let (reach, strength) = if burned {
-                    let reach = falloff * 1.3;
+                    let reach = falloff * BURN_REACH;
                     (
                         reach,
                         calibrate(|d, mu| retail_burn(d, mu, intensity, falloff), reach, true),
@@ -295,11 +301,38 @@ pub fn night(light: &crate::scene::RetailLight) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-/// How far an outdoor light's pool reaches against its falloff, the least and the most it reaches,
-/// metres, and how strong it is at full brightness.
-const OUTDOOR_RANGE: f32 = 2.0;
+/// The intensity a flame's or a glowing pane's lamp is given, where the data carries no light for
+/// it: the intensity every light the outdoor placements carry has, so a torch lights the ground as a
+/// lamp post does.
+const OUTDOOR_INTENSITY: f32 = 100.0;
+/// How far an outdoor lamp's pool reaches against its falloff, and the least and the most it
+/// reaches, metres.
+const OUTDOOR_RANGE: f32 = 2.5;
 const OUTDOOR_POOL: (f32, f32) = (5.0, 16.0);
-const OUTDOOR_STRENGTH: f32 = 8.0;
+/// An outdoor lamp's pool's strength at its middle, a share of the lamp's color, for a light of
+/// the intensity the outdoor placements' lights carry: the ground within 12 m of Holtburg's lamp
+/// posts at midnight is as much brighter for them as retail's burn of the same lights made it
+/// (measured 10.6 display levels against 10.2), spread over the whole pool rather than held at the
+/// clamp within 5 m of the post.
+const OUTDOOR_STRENGTH: f32 = 0.85;
+
+/// An outdoor lamp's pool at distance `d` within reach `reach`, before its strength and the
+/// surface's turn: full at the lamp, fading smoothly and ever more slowly to nothing at the
+/// reach, so it lights a broad space and has no hot middle.
+#[must_use]
+pub fn pool(d: f32, reach: f32) -> f32 {
+    if d >= reach || reach <= 0.0 {
+        return 0.0;
+    }
+    let x = d / reach;
+    let w = 1.0 - x * x;
+    w * w
+}
+
+/// An outdoor lamp's strength at its pool's middle, for a light of `intensity`.
+fn outdoor_strength(intensity: f32) -> f32 {
+    OUTDOOR_STRENGTH * (intensity / OUTDOOR_INTENSITY).clamp(0.3, 1.0)
+}
 /// The color a flame's warmth takes a moving light toward, and how far.
 const OUTDOOR_WARM: [f32; 3] = [1.0, 0.62, 0.3];
 const OUTDOOR_WARMTH: f32 = 0.5;
@@ -412,12 +445,28 @@ fn flicker(lamp: &Lamp, t: f32) -> Flame {
     }
 }
 
+/// A linear color as a display value: the units retail gives its lights' colors in.
+fn display(c: [f32; 3]) -> [f32; 3] {
+    use dereth_primitives::num::math;
+    c.map(|v| {
+        if v <= 0.003_130_8 {
+            v * 12.92
+        } else {
+            1.055 * math::powf(v, 1.0 / 2.4) - 0.055
+        }
+    })
+}
+
 /// How an outdoor placement's lamp is lit, by what it is.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct LampShape {
+    /// The color its glow and its halo show, linear, and how bright they are.
     color: [f32; 3],
     brightness: f32,
-    /// How far its pool reaches, metres.
+    /// Its light on what is round it: its color in display values, as retail gives a light's, its
+    /// intensity, and how far its pool reaches, metres.
+    light: [f32; 3],
+    intensity: f32,
     reach: f32,
     /// How near a surface takes its glow, and how wide its halo stands, metres.
     glow_reach: f32,
@@ -425,29 +474,44 @@ struct LampShape {
 }
 
 fn lamp_shape(lamp: &Lamp) -> LampShape {
-    let range = lamp.falloff * OUTDOOR_RANGE;
+    let reach = (lamp.falloff * OUTDOOR_RANGE).clamp(OUTDOOR_POOL.0, OUTDOOR_POOL.1);
     match lamp.source {
+        // The light the data carries: its own color and intensity.
         LampSource::Authored => LampShape {
             color: toward(lamp.color, LAMPLIGHT, 0.5),
             brightness: (lamp.intensity / 100.0).clamp(0.3, 1.0),
-            reach: range.clamp(OUTDOOR_POOL.0, OUTDOOR_POOL.1),
+            light: display(lamp.color),
+            intensity: lamp.intensity,
+            reach,
             glow_reach: 0.32,
             halo: 1.0,
         },
-        LampSource::Flame => LampShape {
-            color: toward(lamp.color, FIRE, 0.6),
-            brightness: 0.9,
-            reach: (range * 0.75).clamp(4.0, 10.0),
-            glow_reach: 0.25,
-            halo: 0.75,
-        },
-        LampSource::Glow => LampShape {
-            color: toward(lamp.color, LAMPLIGHT, 0.3),
-            brightness: (lamp.intensity * 0.55).clamp(0.3, 1.0),
-            reach: (range * 0.8).clamp(4.0, 12.0),
-            glow_reach: 0.4,
-            halo: 0.85,
-        },
+        LampSource::Flame => {
+            let color = toward(lamp.color, FIRE, 0.6);
+            let brightness = 0.9;
+            LampShape {
+                color,
+                brightness,
+                light: display(color).map(|c| c * brightness),
+                intensity: OUTDOOR_INTENSITY,
+                reach,
+                glow_reach: 0.25,
+                halo: 0.75,
+            }
+        }
+        LampSource::Glow => {
+            let color = toward(lamp.color, LAMPLIGHT, 0.3);
+            let brightness = (lamp.intensity * 0.55).clamp(0.3, 1.0);
+            LampShape {
+                color,
+                brightness,
+                light: display(color).map(|c| c * brightness),
+                intensity: OUTDOOR_INTENSITY,
+                reach,
+                glow_reach: 0.4,
+                halo: 0.85,
+            }
+        }
     }
 }
 
@@ -483,16 +547,18 @@ fn placed_lamps(
                     position: position + flame.sway,
                     reach: shape.reach,
                     object_reach: shape.reach,
-                    color: [0, 1, 2].map(|c| shape.color[c] * flame.tint[c]),
+                    // Its night and its flame on its color.
+                    color: [0, 1, 2].map(|c| shape.light[c] * flame.tint[c] * k),
                     indoor: false,
                     burned: true,
                     walls: 0.0,
                     objects: 0.0,
-                    outdoors: OUTDOOR_STRENGTH * shape.brightness * k,
+                    outdoors: outdoor_strength(shape.intensity),
                     glow_reach: shape.glow_reach,
                     glow: k,
                 },
                 shape,
+                [0, 1, 2].map(|c| shape.color[c] * flame.tint[c]),
             ));
         }
     }
@@ -501,7 +567,7 @@ fn placed_lamps(
             .distance_squared(eye)
             .total_cmp(&b.0.position.distance_squared(eye))
     });
-    let mut kept: Vec<(GpuLamp, LampShape)> = Vec::with_capacity(lit.len());
+    let mut kept: Vec<(GpuLamp, LampShape, [f32; 3])> = Vec::with_capacity(lit.len());
     for l in lit {
         if !kept
             .iter()
@@ -512,15 +578,15 @@ fn placed_lamps(
     }
     let halos = kept
         .iter()
-        .filter(|(l, _)| l.position.distance(eye) < HALO_REACH)
+        .filter(|(l, _, _)| l.position.distance(eye) < HALO_REACH)
         .take(MAX_HALOS)
-        .map(|(l, s)| Halo {
+        .map(|(l, s, color)| Halo {
             position: l.position,
             size: s.halo,
-            color: l.color.map(|c| c * s.brightness * l.glow),
+            color: color.map(|c| c * s.brightness * l.glow),
         })
         .collect();
-    (kept.into_iter().map(|(l, _)| l).collect(), halos)
+    (kept.into_iter().map(|(l, _, _)| l).collect(), halos)
 }
 
 /// The lamps of the frame as `settings` lights them at `t` seconds: the light pools for the indoors,
@@ -567,7 +633,7 @@ pub fn lamps_of(
             halos = placed;
         }
         for light in frame.lamps.iter().filter(|m| m.kind == LightKind::Point) {
-            // A small warm pool about its foot: no retail light does this for it to be matched to.
+            // A warm pool about it, as a placement's lamp lights.
             let reach = (light.falloff * OUTDOOR_RANGE).clamp(OUTDOOR_POOL.0, OUTDOOR_POOL.1);
             if light.position.distance(eye) > OUTDOOR_REACH + reach {
                 continue;
@@ -576,13 +642,14 @@ pub fn lamps_of(
                 position: light.position,
                 reach,
                 object_reach: reach,
-                color: [0, 1, 2]
-                    .map(|k| light.color[k] + (OUTDOOR_WARM[k] - light.color[k]) * OUTDOOR_WARMTH),
+                color: [0, 1, 2].map(|k| {
+                    (light.color[k] + (OUTDOOR_WARM[k] - light.color[k]) * OUTDOOR_WARMTH) * n
+                }),
                 indoor: false,
-                burned: true,
+                burned: false,
                 walls: 0.0,
                 objects: 0.0,
-                outdoors: OUTDOOR_STRENGTH * (light.intensity / 100.0).clamp(0.3, 1.0) * n,
+                outdoors: outdoor_strength(light.intensity),
                 glow_reach: 0.0,
                 glow: 0.0,
             });
@@ -1251,11 +1318,81 @@ mod tests {
         let mut c = Calibration::default();
         let (a, ha) = lamps_of(&frame, &outdoor, OUTDOORS, &mut c, 1.0);
         let (b, hb) = lamps_of(&frame, &outdoor, OUTDOORS, &mut c, 1.3);
-        assert_ne!(a[0].outdoors, b[0].outdoors, "the flame");
+        assert_ne!(a[0].color, b[0].color, "the flame");
         assert_ne!(ha[0].color, hb[0].color, "its halo");
-        assert_eq!(a[1].outdoors, b[1].outdoors, "the lamp");
+        assert_eq!(a[1].color, b[1].color, "the lamp");
         let (again, _) = lamps_of(&frame, &outdoor, OUTDOORS, &mut c, 1.0);
-        assert_eq!(again[0].outdoors, a[0].outdoors, "by the clock");
+        assert_eq!(again[0].color, a[0].color, "by the clock");
+    }
+
+    /// An outdoor lamp lights a broad pool of its own color: its strength at the middle for its
+    /// intensity, reaching two and a half times its falloff. A flame, which carries no light of its own, is as
+    /// strong as the lights the outdoor placements carry, and a moving light's pool is lit as a
+    /// placement's. As the night comes the color is dimmed, not the reach.
+    #[test]
+    fn an_outdoor_lamp_lights_a_broad_pool_of_its_own_light() {
+        let mut lamp = at(Vec3::new(5.0, 0.0, 2.0), LampSource::Authored);
+        lamp.intensity = 50.0;
+        let (mut frame, outdoor) =
+            street(vec![lamp, at(Vec3::new(40.0, 0.0, 2.0), LampSource::Flame)]);
+        frame.lamps = vec![Light {
+            kind: LightKind::Point,
+            cell: 0,
+            position: Vec3::new(20.0, 0.0, 2.0),
+            direction: Vec3::ZERO,
+            color: [1.0; 3],
+            intensity: 100.0,
+            falloff: 5.0,
+            cone_angle: 0.0,
+        }];
+        let mut c = Calibration::default();
+        let (lamps, _) = lamps_of(&frame, &outdoor, OUTDOORS, &mut c, 0.0);
+        let (lamp, moving, flame) = (lamps[0], lamps[1], lamps[2]);
+        assert!(!lamp.indoor && !moving.indoor);
+        assert_eq!(
+            (lamp.reach, lamp.outdoors),
+            (15.0, OUTDOOR_STRENGTH * 0.5),
+            "two and a half times its falloff, its strength by its intensity"
+        );
+        assert_eq!(
+            (flame.outdoors, moving.outdoors),
+            (OUTDOOR_STRENGTH, OUTDOOR_STRENGTH)
+        );
+        assert_eq!(moving.reach, 12.5);
+        let want = display([1.0, 0.9, 0.7]);
+        assert_eq!(lamp.color, want, "the night full, the color its own");
+        assert!(
+            (want[1] - 0.955).abs() < 1e-3 && (want[2] - 0.854).abs() < 1e-3,
+            "{want:?}"
+        );
+        let kind = |l: &GpuLamp| f32::from_le_bytes(lamp_rows(&[*l])[28..32].try_into().unwrap());
+        assert_eq!((kind(&lamp), kind(&moving)), (KIND_OUTDOOR, KIND_OUTDOOR));
+        frame.light.sun = Vec3::new(0.0, 0.995, 0.1);
+        let n = night(&frame.light);
+        let (dusk, _) = lamps_of(&frame, &outdoor, OUTDOORS, &mut c, 0.0);
+        assert_eq!(
+            (dusk[0].reach, dusk[0].outdoors),
+            (lamp.reach, lamp.outdoors)
+        );
+        for (d, w) in dusk[0].color.iter().zip(want) {
+            assert!((d - w * n).abs() < 1e-6, "{d} for {w} at night {n}");
+        }
+    }
+
+    /// An outdoor lamp's pool is full at the lamp and fades smoothly, never rising, to nothing at
+    /// its reach: half its middle's light a little past half way out.
+    #[test]
+    fn an_outdoor_pool_fades_smoothly_from_its_middle_to_its_reach() {
+        assert_eq!(pool(0.0, 12.0), 1.0);
+        assert_eq!(pool(12.0, 12.0), 0.0);
+        assert!(pool(11.99, 12.0) < 1e-5);
+        let mut last = 1.0;
+        for k in 1..120 {
+            let v = pool(k as f32 * 0.1, 12.0);
+            assert!(v < last && last - v < 0.02, "{k}: {v} after {last}");
+            last = v;
+        }
+        assert!((pool(0.5412 * 12.0, 12.0) - 0.5).abs() < 0.01);
     }
 
     /// A lamp stands as high as its placement is drawn on the ground.

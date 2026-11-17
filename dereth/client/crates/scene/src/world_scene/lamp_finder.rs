@@ -703,13 +703,63 @@ mod survey_town {
                 eprintln!("block {lb:04X}: {} lamps", lamps.len());
                 for l in &lamps {
                     seen.insert(l.object);
+                    let building = info.buildings.iter().any(|b| b.id == l.object);
+                    let nearest = info.buildings.iter().min_by(|a, b| {
+                        let d = |x: &dereth_assets::world::BuildInfo| {
+                            (g(x.frame.origin) - l.position).truncate().length()
+                        };
+                        d(a).total_cmp(&d(b))
+                    });
+                    if let Some(b) = nearest {
+                        let local = g(dereth_primitives::frame::globaltolocal(
+                            &b.frame,
+                            p3(l.position),
+                        ));
+                        let (lo, hi) = decode::<Setup>(&store, DbType::Setup, b.id)
+                            .map(|s| parts(&s))
+                            .unwrap_or_default()
+                            .iter()
+                            .chain(
+                                (divine_type(b.id) == Some(DbType::GfxObj))
+                                    .then(|| (b.id, Frame::default(), Vec3::ONE))
+                                    .iter(),
+                            )
+                            .filter_map(|(gid, f, _)| {
+                                Some((decode::<GfxObj>(&store, DbType::GfxObj, *gid)?, *f))
+                            })
+                            .flat_map(|(gfx, f)| {
+                                gfx.vertex_array
+                                    .vertices
+                                    .iter()
+                                    .map(|v| {
+                                        g(dereth_primitives::frame::localtoglobal(&f, v.position))
+                                    })
+                                    .collect::<Vec<_>>()
+                            })
+                            .fold(
+                                (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)),
+                                |(lo, hi), v| (lo.min(v), hi.max(v)),
+                            );
+                        eprintln!(
+                            "    the nearest building {:08X}: the lamp at ({:.2},{:.2},{:.2}) in its space, \
+                             the building from ({:.1},{:.1},{:.1}) to ({:.1},{:.1},{:.1})",
+                            b.id.0, local.x, local.y, local.z, lo.x, lo.y, lo.z, hi.x, hi.y, hi.z
+                        );
+                    }
+                    let nearest = nearest.map_or(f32::MAX, |b| {
+                        (g(b.frame.origin) - l.position).truncate().length()
+                    });
                     eprintln!(
-                        "  {:08X} {:?} at ({:.1},{:.1},{:.1}) f {:.1} i {:.0}",
+                        "  {:08X}{} {:?} at ({:.1},{:.1},{:.1}) offset ({:.1},{:.1},{:.1}) f {:.1} i {:.0}, a building's middle {nearest:.1} m off",
                         l.object.0,
+                        if building { " building" } else { "" },
                         l.source.kind,
                         l.position.x,
                         l.position.y,
                         l.position.z,
+                        l.source.offset.x,
+                        l.source.offset.y,
+                        l.source.offset.z,
                         l.source.falloff,
                         l.source.intensity
                     );
@@ -739,6 +789,22 @@ mod survey_town {
                 let Some(gfx) = decode::<GfxObj>(&store, DbType::GfxObj, *part) else {
                     continue;
                 };
+                let (lo, hi) = gfx.vertex_array.vertices.iter().fold(
+                    (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)),
+                    |(lo, hi), v| (lo.min(g(v.position)), hi.max(g(v.position))),
+                );
+                eprintln!(
+                    "  part {k} {:08X}: {} polygons, {} glowing, from ({:.2},{:.2},{:.2}) to ({:.2},{:.2},{:.2})",
+                    part.0,
+                    gfx.polygons.len(),
+                    glowing(&store, &gfx).0.len(),
+                    lo.x,
+                    lo.y,
+                    lo.z,
+                    hi.x,
+                    hi.y,
+                    hi.z
+                );
                 for (j, s) in gfx.surfaces.iter().enumerate().take(4) {
                     if let Ok(px) = ts.bgra8(*s) {
                         let rgba: Vec<u8> = px

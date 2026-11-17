@@ -654,8 +654,36 @@ fn block_delta(
     Some(b)
 }
 
+/// How far inside a room's walls a lamp stands to be the room's, metres.
+const IN_ROOM: f32 = 0.05;
+
+/// Each room of `block` as the box its walls stand within, in the room's own space, with its
+/// frame.
+fn room_boxes(block: &BlockDraw) -> Vec<(&Frame, glam::Vec3, glam::Vec3)> {
+    block
+        .env_cells
+        .iter()
+        .filter_map(|c| {
+            let mut corners: Option<(glam::Vec3, glam::Vec3)> = None;
+            for m in &c.meshes {
+                for v in m.vertices.as_chunks::<{ super::OBJECT_VERTEX_STRIDE }>().0 {
+                    let at = |k: usize| f32::from_le_bytes([v[k], v[k + 1], v[k + 2], v[k + 3]]);
+                    let p = v3(dereth_primitives::frame::globaltolocal(
+                        &c.frame,
+                        Vec3::new(at(0), at(4), at(8)),
+                    ));
+                    corners = Some(corners.map_or((p, p), |(lo, hi)| (lo.min(p), hi.max(p))));
+                }
+            }
+            corners.map(|(lo, hi)| (&c.frame, lo, hi))
+        })
+        .collect()
+}
+
 /// The lamps of `block`'s outdoor placements, block-local, each as high as its placement is drawn:
-/// the baked placements and the animated ones drawn as live objects.
+/// the baked placements and the animated ones drawn as live objects. A lamp that stands inside
+/// one of the block's rooms is the room's, as retail lights the room with it, and lights nothing
+/// outdoors.
 fn block_lamps(
     store: &RetailDatStore,
     at: (i32, i32),
@@ -674,8 +702,19 @@ fn block_lamps(
                 .filter(|e| e.animated)
                 .map(|e| (e.setup, &e.frame, e.scale)),
         );
+    let rooms = room_boxes(block);
+    let indoors = |p: glam::Vec3| {
+        rooms.iter().any(|(frame, lo, hi)| {
+            let l = v3(dereth_primitives::frame::globaltolocal(
+                frame,
+                Vec3::new(p.x, p.y, p.z),
+            ));
+            l.cmpgt(*lo + IN_ROOM).all() && l.cmplt(*hi - IN_ROOM).all()
+        })
+    };
     place_lamps(store, placements)
         .into_iter()
+        .filter(|l| !indoors(l.position))
         .map(|l| {
             let p = l.position;
             // LINT-OK: block coordinates, far inside f32's exact range.

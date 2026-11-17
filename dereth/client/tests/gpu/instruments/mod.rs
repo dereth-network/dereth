@@ -9,6 +9,7 @@ mod dungeon_web_frames;
 pub(crate) mod far_shadow_frames;
 mod horizon_frames;
 mod impostor_cut_frames;
+pub(crate) mod lamp_level_frames;
 pub(crate) mod nameplate_frames;
 mod options_shots;
 mod pack_creature_frames;
