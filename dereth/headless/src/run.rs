@@ -766,7 +766,7 @@ impl<'a> Run<'a> {
         if find(self).is_none() {
             let before = self.app.host_state.chargen_response_notices;
             let store = &self.app.store;
-            let mut character = new_character(self.opts.era, || creation_table(store), name, role);
+            let mut character = new_character(self.opts.era, || creation_tables(store), name, role);
             if self.opts.era != Some(dereth_client_sdk::primitives::EraId::Launch) {
                 if let Some((cg, skills)) = skill_tables(store) {
                     with_free_skills(&mut character, &cg, &skills);
@@ -1447,20 +1447,26 @@ fn caster(name: &str) -> dereth_client_sdk::contract::pregame::CharGenResultData
     c
 }
 
+/// The character-creation table and, when the files hold it, the skill table it prices skills by.
+type CreationTables = (
+    dereth_client_sdk::assets::tables::CharGen,
+    Option<dereth_client_sdk::assets::tables::SkillTable>,
+);
+
 /// The character `enter` creates on a world of `era`. A world whose characters take a template
 /// whole (no credits to spend) is sent the character-creation table's template, read from `table`
 /// only then; any other world, or one whose table has no usable template, the soldier (for a
 /// mage, the caster).
 fn new_character(
     era: Option<dereth_client_sdk::primitives::EraId>,
-    table: impl FnOnce() -> Option<dereth_client_sdk::assets::tables::CharGen>,
+    table: impl FnOnce() -> Option<CreationTables>,
     name: &str,
     role: crate::script::Role,
 ) -> dereth_client_sdk::contract::pregame::CharGenResultData {
     (era == Some(dereth_client_sdk::primitives::EraId::Launch))
         .then(table)
         .flatten()
-        .and_then(|cg| templated(&cg, name, role))
+        .and_then(|(cg, skills)| templated(&cg, skills.as_ref(), name, role))
         .unwrap_or_else(|| {
             if role == crate::script::Role::Mage {
                 caster(name)
@@ -1470,16 +1476,23 @@ fn new_character(
         })
 }
 
-/// The character-creation table: the 1999 one when the world's own files are the older ones
-/// beside the later.
-fn creation_table(
-    store: &dereth_client_sdk::dat::RetailDatStore,
-) -> Option<dereth_client_sdk::assets::tables::CharGen> {
-    use dereth_client_sdk::assets::{tables::CharGen, Decode};
+/// The character-creation and skill tables: the 1999 ones when the world's own files are the
+/// older ones beside the later.
+fn creation_tables(store: &dereth_client_sdk::dat::RetailDatStore) -> Option<CreationTables> {
+    use dereth_client_sdk::assets::{
+        tables::{CharGen, SkillTable},
+        Decode,
+    };
     use dereth_client_sdk::primitives::AssetSource as _;
-    let id = dereth_client_sdk::primitives::DataId(0x0E00_0002);
     let store = store.classic_files().unwrap_or_else(|| store.clone());
-    CharGen::decode_payload_in(store.era(), id, &store.read(id).ok()?).ok()
+    let chargen = dereth_client_sdk::primitives::DataId(0x0E00_0002);
+    let skills = dereth_client_sdk::primitives::DataId(0x0E00_0004);
+    let cg = CharGen::decode_payload_in(store.era(), chargen, &store.read(chargen).ok()?).ok()?;
+    let skills = store
+        .read(skills)
+        .ok()
+        .and_then(|bytes| SkillTable::decode_payload_in(store.era(), skills, &bytes).ok());
+    Some((cg, skills))
 }
 
 /// The later files' character-creation and skill tables, which say which skills a heritage
@@ -1530,12 +1543,16 @@ fn with_free_skills(
 
 /// A new character for `enter` in a world whose characters take a template whole: an Aluvian
 /// male of the character-creation table's first template that trains what `role` asks for, its attributes and skills as the template gives them, at the heritage's first start.
+/// A skill the heritage trains for nothing starts trained, as the wizard starts it (specialized
+/// when specializing is free too).
 fn templated(
     cg: &dereth_client_sdk::assets::tables::CharGen,
+    skill_table: Option<&dereth_client_sdk::assets::tables::SkillTable>,
     name: &str,
     role: crate::script::Role,
 ) -> Option<dereth_client_sdk::contract::pregame::CharGenResultData> {
     use crate::script::Role;
+    use dereth_client_sdk::rules::chargen::{default_skill_class, SkillAdvancementClass};
     const BOW: u32 = 2;
     const WAR_MAGIC: u32 = 34;
     let wanted = match role {
@@ -1551,9 +1568,18 @@ fn templated(
     })?;
     let color = *heritage.sexes.get(&1)?.clothing_colors.first()?;
     let mut c = soldier(name);
-    let mut skills = vec![0; 55];
+    let mut skills: Vec<i32> = (0..55u32)
+        .map(
+            |id| match skill_table.map(|t| default_skill_class(cg, t, 1, id)) {
+                Some(SkillAdvancementClass::Specialized) => 3,
+                Some(SkillAdvancementClass::Trained) => 2,
+                _ => 0,
+            },
+        )
+        .collect();
     for &skill in &template.normal_skills {
-        *skills.get_mut(usize::try_from(skill).ok()?)? = 2;
+        let class = skills.get_mut(usize::try_from(skill).ok()?)?;
+        *class = (*class).max(2);
     }
     for &skill in &template.primary_skills {
         *skills.get_mut(usize::try_from(skill).ok()?)? = 3;
@@ -1765,7 +1791,7 @@ mod tests {
     fn a_launch_world_is_sent_the_creation_tables_template_whole() {
         let fighter = new_character(
             Some(EraId::Launch),
-            || Some(creation_table()),
+            || Some((creation_table(), None)),
             "Pell",
             Role::Any,
         );
@@ -1805,7 +1831,7 @@ mod tests {
         );
         let mage = new_character(
             Some(EraId::Launch),
-            || Some(creation_table()),
+            || Some((creation_table(), None)),
             "Pell",
             Role::Mage,
         );
@@ -1816,11 +1842,64 @@ mod tests {
         assert_eq!(mage.skill_advancement_classes[34], 3);
     }
 
+    /// A skill table in which Run (24) costs nothing to train and the fighter's two skills cost
+    /// something.
+    fn skill_table() -> dereth_client_sdk::assets::tables::SkillTable {
+        use dereth_client_sdk::assets::tables::{SkillBase, SkillFormula, SkillTable};
+        let skill = |trained_cost| SkillBase {
+            description: String::new(),
+            name: String::new(),
+            icon: 0,
+            trained_cost,
+            specialized_cost: 4,
+            category: 0,
+            chargen_use: 1,
+            min_level: 1,
+            formula: SkillFormula {
+                w: 0,
+                x: 0,
+                y: 0,
+                z: 0,
+                attr1: 0,
+                attr2: 0,
+            },
+            upper_bound: 0.0,
+            lower_bound: 0.0,
+            learn_mod: 0.0,
+        };
+        SkillTable {
+            id: DataId(0x0E00_0004),
+            buckets: 0,
+            skills: BTreeMap::from([(6, skill(4)), (24, skill(0)), (45, skill(4))]),
+        }
+    }
+
+    #[test]
+    fn a_launch_template_also_trains_the_skills_the_heritage_gets_for_nothing() {
+        let fighter = new_character(
+            Some(EraId::Launch),
+            || Some((creation_table(), Some(skill_table()))),
+            "Pell",
+            Role::Any,
+        );
+        assert_eq!(fighter.skill_advancement_classes[24], 2, "Run is free");
+        assert_eq!(fighter.skill_advancement_classes[6], 2);
+        assert_eq!(fighter.skill_advancement_classes[45], 3);
+        assert_eq!(
+            fighter
+                .skill_advancement_classes
+                .iter()
+                .filter(|&&c| c != 0)
+                .count(),
+            3
+        );
+    }
+
     #[test]
     fn an_archer_is_the_first_template_that_trains_the_bow() {
         let archer = new_character(
             Some(EraId::Launch),
-            || Some(creation_table()),
+            || Some((creation_table(), None)),
             "Pell",
             Role::Archer,
         );
@@ -1834,7 +1913,7 @@ mod tests {
             let read = std::cell::Cell::new(false);
             let table = || {
                 read.set(true);
-                Some(creation_table())
+                Some((creation_table(), None))
             };
             assert_eq!(
                 new_character(era, table, "Pell", Role::Any),
@@ -1846,7 +1925,7 @@ mod tests {
                 "{era:?}: the table is read only for a Launch world"
             );
             assert_eq!(
-                new_character(era, || Some(creation_table()), "Pell", Role::Mage),
+                new_character(era, || Some((creation_table(), None)), "Pell", Role::Mage),
                 caster("Pell")
             );
         }
