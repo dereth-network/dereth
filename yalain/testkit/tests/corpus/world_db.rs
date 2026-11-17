@@ -35724,3 +35724,119 @@ fn a_monarch_reads_a_halls_sign_binds_at_its_stone_and_the_allegiance_recalls_to
     let o = &t.content.objects[ikeras.stone];
     assert!(w.run_to(o.origin, reach), "Ikeras's stone from the landing");
 }
+
+/// **The war and peace shrines stand in their three pairs and work**: each pair, the war shrine
+/// north of the peace shrine, is reached on foot from a way into its land: where a trip lands in its
+/// block, else beside its block's own gateway (where a traveler through it comes and goes), else
+/// where a trip lands in a block beside it. The war shrine's use gives and completes the hidden
+/// quest at once and grants the permission to be fought anywhere; the peace shrine is then refused
+/// until the quest's three days are out, and its use after them revokes the permission. A world
+/// older than these rows has none.
+/// Behaviour: server.world.war-peace-shrines-walk
+#[test]
+fn the_war_and_peace_shrines_are_reached_on_foot_and_grant_then_revoke_the_permission() {
+    use yalain_world::kingdoms::permission::ANYWHERE;
+    const QUEST: u32 = 0x8000_02C7;
+    const WAR: u32 = 0x4700_100E;
+    const PEACE: u32 = 0x4700_100C;
+    let c = compiled();
+    let t = &c.tables;
+    if !t
+        .quests
+        .steps
+        .iter()
+        .any(|s| s.quest == QUEST && s.key == "war")
+    {
+        return;
+    }
+    let of = |template: u32| -> Vec<usize> {
+        let mut v: Vec<usize> = (0..t.content.objects.len())
+            .filter(|&i| t.content.objects[i].template == template)
+            .collect();
+        v.sort_by_key(|&i| t.content.objects[i].cell);
+        v
+    };
+    let (wars, peaces) = (of(WAR), of(PEACE));
+    let blocks: Vec<u32> = wars
+        .iter()
+        .map(|&i| t.content.objects[i].cell >> 16)
+        .collect();
+    assert_eq!(blocks, [0x44AB, 0x4DA2, 0xCE8A], "three pairs, one a block");
+    let landing_in = |block: u32| {
+        t.content
+            .objects
+            .iter()
+            .filter_map(|o| o.destination.as_ref())
+            .find(|d| d.cell >> 16 == block)
+            .map(|d| spot(d.cell, d.origin))
+    };
+    let gateway_of = |block: u32| {
+        t.content
+            .objects
+            .iter()
+            .find(|o| o.cell >> 16 == block && o.destination.is_some())
+            .map(|o| spot(o.cell, [o.origin[0], o.origin[1] - 3.0, o.origin[2]]))
+    };
+    let beside = |block: u32| {
+        let (x, y) = (block >> 8, block & 0xFF);
+        [(1, 0), (-1, 0), (0, 1), (0, -1)]
+            .iter()
+            .find_map(|(dx, dy)| {
+                let b = (x.wrapping_add_signed(*dx) << 8) | y.wrapping_add_signed(*dy);
+                landing_in(b)
+            })
+    };
+    for (&war, &peace) in wars.iter().zip(&peaces) {
+        let block = t.content.objects[war].cell >> 16;
+        assert_eq!(t.content.objects[peace].cell >> 16, block);
+        let (w_at, p_at) = (
+            t.content.objects[war].origin,
+            t.content.objects[peace].origin,
+        );
+        assert!(
+            w_at[1] > p_at[1],
+            "{block:04X}: the war shrine to the north"
+        );
+        let start = landing_in(block)
+            .or_else(|| gateway_of(block))
+            .or_else(|| beside(block))
+            .unwrap_or_else(|| panic!("{block:04X}: a way into its land"));
+        let mut w = walled(t, &[block, start.cell >> 16]);
+        w.h.server.kingdom_rows = t.kingdoms.clone();
+        let world = w.world;
+        let allowed = |w: &Walled| {
+            yalain_world::kingdoms::permissions_of(&yalain_world::quals::read(
+                &w.h.server.players[&world].qualities,
+            ))
+            .0
+        };
+        w.put(start);
+        let shrine = place_of(t, war);
+        if start.cell >> 16 == block {
+            on_foot_to(&mut w, shrine, "the war shrine");
+        } else {
+            assert!(
+                w.run_far(shrine.cell, shrine.origin, 3.0),
+                "{block:04X}: run over from the block beside"
+            );
+        }
+        w.use_placed(t, war);
+        assert_eq!(allowed(&w) & ANYWHERE, ANYWHERE, "{block:04X}: granted");
+        let done = w.h.server.players[&world]
+            .play
+            .quests
+            .iter()
+            .any(|q| q.quest == QUEST && q.status == yalain_world::quests::status::COMPLETED);
+        assert!(done, "{block:04X}: the quest given and completed at once");
+        on_foot_to(&mut w, place_of(t, peace), "the peace shrine");
+        w.use_placed(t, peace);
+        assert_eq!(
+            allowed(&w) & ANYWHERE,
+            ANYWHERE,
+            "{block:04X}: not within three days"
+        );
+        w.h.unix += 259_200;
+        w.use_placed(t, peace);
+        assert_eq!(allowed(&w) & ANYWHERE, 0, "{block:04X}: revoked after them");
+    }
+}

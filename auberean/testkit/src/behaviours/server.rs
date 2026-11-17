@@ -20016,6 +20016,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.world.war-peace-shrines-walk",
+        says: "The war and peace shrines stand in their three pairs, each reached on foot from a way into its land; the war shrine's use grants the permission to be fought anywhere, the peace shrine refuses until three days are out and then revokes it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-WAR-PEACE-SHRINES"),
+        station: "yalain-testkit::corpus::world_db::the_war_and_peace_shrines_are_reached_on_foot_and_grant_then_revoke_the_permission",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.world.worn-armor-kept-across-sessions",
         says: "Armor worn at a logout is worn again at the next entry, and the character list and \
                other players show the character wearing it.",
