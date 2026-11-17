@@ -162,9 +162,12 @@ async fn device_for(
     Ok((adapter, device, queue))
 }
 
+/// The graphics card every device prefers: the more capable of two, on a machine that has two.
+const POWER: wgpu::PowerPreference = wgpu::PowerPreference::HighPerformance;
+
 /// What a device asks `instance` for, in order, until an adapter is granted: the software adapter
 /// and then the graphics card when `software` asks for software, the graphics card alone otherwise.
-/// Each request prefers the more capable of two graphics cards, and one that can present to
+/// Each request prefers the [`POWER`] graphics card, and one that can present to
 /// `surface` when there is one. Asked for the graphics card, `wgpu` hands over a software adapter
 /// only where it finds no graphics card.
 fn adapter_requests<'a, 'b>(
@@ -172,7 +175,7 @@ fn adapter_requests<'a, 'b>(
     software: bool,
 ) -> Vec<wgpu::RequestAdapterOptions<'a, 'b>> {
     let request = |fallback: bool| wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
+        power_preference: POWER,
         force_fallback_adapter: fallback,
         compatible_surface: surface,
         ..Default::default()
@@ -208,15 +211,123 @@ async fn adapter_for(
     Err(format!("no GPU adapter: {refused}"))
 }
 
-/// The graphics APIs a browser's canvas is drawn with: WebGPU where the browser has it and WebGL 2
-/// where it does not, or WebGL 2 alone where `webgl_only` asks for it.
+/// The graphics API a browser's canvas is drawn with: WebGPU when `webgpu` says the browser has it
+/// and it is wanted, WebGL 2 otherwise.
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-fn canvas_backends(webgl_only: bool) -> wgpu::Backends {
-    if webgl_only {
-        wgpu::Backends::GL
+fn canvas_backends(webgpu: bool) -> wgpu::Backends {
+    if webgpu {
+        wgpu::Backends::BROWSER_WEBGPU
     } else {
-        wgpu::Backends::BROWSER_WEBGPU | wgpu::Backends::GL
+        wgpu::Backends::GL
     }
+}
+
+/// A power preference as a browser spells it in a WebGL context's attributes, and in a WebGPU
+/// adapter request, which leaves "default" unsaid.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+fn power_preference_name(power: wgpu::PowerPreference) -> &'static str {
+    match power {
+        wgpu::PowerPreference::None => "default",
+        wgpu::PowerPreference::LowPower => "low-power",
+        wgpu::PowerPreference::HighPerformance => "high-performance",
+    }
+}
+
+/// The attributes a canvas's WebGL 2 context is asked for with.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WebGlContext {
+    antialias: bool,
+    power_preference: &'static str,
+}
+
+/// What a canvas's WebGL 2 context is asked for: no antialiasing, as `wgpu` asks for it, and the
+/// [`POWER`] graphics card, as a WebGPU request asks for it. `wgpu` asks for no graphics card of its
+/// own, which leaves the browser's choice, often the less capable of two.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+fn webgl_context() -> WebGlContext {
+    WebGlContext {
+        antialias: false,
+        power_preference: power_preference_name(POWER),
+    }
+}
+
+/// A WebGPU adapter's name from what the browser says of it: its vendor and architecture, with its
+/// description after them where the browser gives one (some leave it empty).
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+fn webgpu_adapter_name(vendor: &str, architecture: &str, description: &str) -> String {
+    let named = [vendor, architecture]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    match (named.is_empty(), description.is_empty()) {
+        (false, false) => format!("{named} ({description})"),
+        (false, true) => named,
+        (true, false) => description.to_owned(),
+        (true, true) => "an unnamed adapter".to_owned(),
+    }
+}
+
+/// The adapter's line for a browser's canvas: the adapter's name and the graphics API under it, as
+/// a page names them, and whether it is the browser's software adapter.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+fn canvas_adapter_label(name: &str, webgpu: bool, kind: AdapterKind) -> String {
+    let api = if webgpu { "WebGPU" } else { "WebGL 2" };
+    match kind {
+        AdapterKind::Hardware => format!("{name} on {api}"),
+        AdapterKind::Software => format!("{name} on {api} (software)"),
+    }
+}
+
+/// Ask `canvas` for its WebGL 2 context with [`webgl_context`]'s attributes, before `wgpu` asks for
+/// it: a canvas has one context, made by the first request for it, and `wgpu`'s request takes that
+/// one. Where the browser makes none, `wgpu`'s own request says why.
+#[cfg(target_arch = "wasm32")]
+fn ask_for_webgl_context(canvas: &web_sys::OffscreenCanvas) {
+    let asked = webgl_context();
+    let attributes = js_sys::Object::new();
+    let _ = js_sys::Reflect::set(&attributes, &"antialias".into(), &asked.antialias.into());
+    let _ = js_sys::Reflect::set(
+        &attributes,
+        &"powerPreference".into(),
+        &asked.power_preference.into(),
+    );
+    let _ = canvas.get_context_with_context_options("webgl2", &attributes);
+}
+
+/// The vendor, architecture and description of the adapter the browser gives a WebGPU request for
+/// the [`POWER`] graphics card, as the canvas's own request is made; `None` where it gives none.
+/// `wgpu` keeps only the description, which some browsers leave empty.
+#[cfg(target_arch = "wasm32")]
+async fn webgpu_adapter_info() -> Option<[String; 3]> {
+    use js_sys::Reflect;
+    use wasm_bindgen::JsCast as _;
+    let navigator = Reflect::get(&js_sys::global(), &"navigator".into()).ok()?;
+    let gpu = Reflect::get(&navigator, &"gpu".into()).ok()?;
+    let request: js_sys::Function = Reflect::get(&gpu, &"requestAdapter".into())
+        .ok()?
+        .dyn_into()
+        .ok()?;
+    let options = js_sys::Object::new();
+    Reflect::set(
+        &options,
+        &"powerPreference".into(),
+        &power_preference_name(POWER).into(),
+    )
+    .ok()?;
+    let promise: js_sys::Promise = request.call1(&gpu, &options).ok()?.dyn_into().ok()?;
+    let adapter = wasm_bindgen_futures::JsFuture::from(promise).await.ok()?;
+    let info = Reflect::get(&adapter, &"info".into())
+        .ok()
+        .filter(wasm_bindgen::JsValue::is_object)?;
+    let text = |key: &str| {
+        Reflect::get(&info, &key.into())
+            .ok()
+            .and_then(|v| v.as_string())
+            .unwrap_or_default()
+    };
+    Some([text("vendor"), text("architecture"), text("description")])
 }
 
 /// A device on `adapter`, with limits a WebGL 2 device can meet and block compression where the
@@ -301,8 +412,10 @@ fn prepared(
     }
 }
 
-/// A device drawing into `canvas`, on the graphics card ([`on_screen_requests`]): WebGPU where the
-/// browser has it, WebGL 2 where it does not or where `webgl_only` asks for it.
+/// A device drawing into `canvas`, on the graphics card ([`on_screen_requests`], and
+/// [`webgl_context`] with WebGL 2): WebGPU where the browser has it, WebGL 2 where it does not or
+/// where `webgl_only` asks for it. Its adapter's line names the adapter and the API
+/// ([`canvas_adapter_label`]).
 ///
 /// # Errors
 /// No backend comes up, or the canvas has no configuration on it.
@@ -315,9 +428,13 @@ pub async fn prepare_canvas(
 ) -> Result<Prepared, String> {
     canvas.set_width(width);
     canvas.set_height(height);
+    let webgpu = !webgl_only && wgpu::util::is_browser_webgpu_supported().await;
+    if !webgpu {
+        ask_for_webgl_context(&canvas);
+    }
     let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
-    desc.backends = canvas_backends(webgl_only);
-    let instance = wgpu::util::new_instance_with_webgpu_detection(desc).await;
+    desc.backends = canvas_backends(webgpu);
+    let instance = wgpu::Instance::new(desc);
     let surface = instance
         .create_surface(wgpu::SurfaceTarget::OffscreenCanvas(canvas))
         .map_err(|e| format!("no surface: {e}"))?;
@@ -336,7 +453,18 @@ pub async fn prepare_canvas(
     config.present_mode = present_mode(0, &modes);
     surface.configure(&device, &config);
     let format = config.format;
-    Ok(prepared(
+    let info = if webgpu {
+        webgpu_adapter_info().await
+    } else {
+        None
+    };
+    let name = match info {
+        Some([vendor, architecture, description]) => {
+            webgpu_adapter_name(&vendor, &architecture, &description)
+        }
+        None => adapter.get_info().name,
+    };
+    let mut made = prepared(
         &adapter,
         None,
         device,
@@ -348,7 +476,9 @@ pub async fn prepare_canvas(
         },
         format,
         (width, height),
-    ))
+    );
+    made.adapter_name = canvas_adapter_label(&name, webgpu, made.adapter_kind);
+    Ok(made)
 }
 
 /// A device drawing off screen at `width` by `height`: a software adapter when `software` asks
@@ -2422,11 +2552,63 @@ pub(super) mod tests {
     fn a_canvas_or_window_asks_for_the_graphics_card_alone() {
         use wgpu::PowerPreference::HighPerformance;
         assert_eq!(asked(&on_screen_requests(None)), [(HighPerformance, false)]);
+        assert_eq!(canvas_backends(true), wgpu::Backends::BROWSER_WEBGPU);
+        assert_eq!(canvas_backends(false), wgpu::Backends::GL);
+    }
+
+    /// A canvas drawn with WebGL 2 asks its context for the same graphics card a WebGPU request
+    /// asks for, the more capable of two, and for no antialiasing, as `wgpu` asks for it.
+    #[test]
+    fn a_webgl_canvas_asks_for_the_more_capable_graphics_card() {
         assert_eq!(
-            canvas_backends(false),
-            wgpu::Backends::BROWSER_WEBGPU | wgpu::Backends::GL
+            webgl_context(),
+            WebGlContext {
+                antialias: false,
+                power_preference: "high-performance",
+            }
         );
-        assert_eq!(canvas_backends(true), wgpu::Backends::GL);
+        assert_eq!(
+            webgl_context().power_preference,
+            power_preference_name(on_screen_requests(None)[0].power_preference)
+        );
+        assert_eq!(
+            power_preference_name(wgpu::PowerPreference::LowPower),
+            "low-power"
+        );
+        assert_eq!(
+            power_preference_name(wgpu::PowerPreference::None),
+            "default"
+        );
+    }
+
+    /// The browser's line names a WebGPU adapter by its vendor and architecture, which a browser
+    /// gives where it leaves the description empty, and says which API it draws with and whether
+    /// the adapter is the browser's software one.
+    #[test]
+    fn the_browsers_line_names_the_adapter_and_its_api() {
+        assert_eq!(
+            webgpu_adapter_name("nvidia", "blackwell", ""),
+            "nvidia blackwell"
+        );
+        assert_eq!(
+            webgpu_adapter_name("nvidia", "blackwell", "NVIDIA GeForce RTX 5080"),
+            "nvidia blackwell (NVIDIA GeForce RTX 5080)"
+        );
+        assert_eq!(webgpu_adapter_name("apple", "", ""), "apple");
+        assert_eq!(webgpu_adapter_name("", "", "A GPU"), "A GPU");
+        assert_eq!(webgpu_adapter_name("", "", ""), "an unnamed adapter");
+        assert_eq!(
+            canvas_adapter_label("nvidia blackwell", true, AdapterKind::Hardware),
+            "nvidia blackwell on WebGPU"
+        );
+        assert_eq!(
+            canvas_adapter_label("ANGLE (NVIDIA)", false, AdapterKind::Hardware),
+            "ANGLE (NVIDIA) on WebGL 2"
+        );
+        assert_eq!(
+            canvas_adapter_label("google swiftshader", true, AdapterKind::Software),
+            "google swiftshader on WebGPU (software)"
+        );
     }
 
     /// A device off screen asks for the graphics card alone unless software is asked for; then it

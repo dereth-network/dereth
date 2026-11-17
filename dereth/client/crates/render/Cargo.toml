@@ -32,6 +32,9 @@ wgpu = [
     "dep:wgpu",
     "dep:pollster",
     "dep:web-sys",
+    "dep:js-sys",
+    "dep:wasm-bindgen",
+    "dep:wasm-bindgen-futures",
     "windows/Win32_System_LibraryLoader",
     "windows/Win32_System_Diagnostics_Debug",
     "windows/Win32_Graphics_Direct3D_Dxc",
@@ -121,3 +124,8 @@ required-features = ["retail-dats", "vulkan"]
 # A browser device is made on an `OffscreenCanvas` the page hands over.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { workspace = true, features = ["OffscreenCanvas"], optional = true }
+# The canvas's WebGL 2 context is asked for with its attributes, and the WebGPU adapter's vendor
+# and architecture are read, through the browser's own objects.
+js-sys = { version = "0.3.104", optional = true }
+wasm-bindgen = { version = "=0.2.127", optional = true }
+wasm-bindgen-futures = { version = "0.4.77", optional = true }
