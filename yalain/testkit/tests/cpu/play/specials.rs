@@ -1683,9 +1683,16 @@ fn interrupted(h: &Harness, b: usize, from: usize) -> bool {
 /// Behaviour: server.specials.cut-by-a-transmute
 #[test]
 fn a_transmute_cuts_a_special_short_and_an_item_used_does_not() {
+    use yalain_world::player::quality;
     let (mut h, b, me, beetle) = beside_a_beetle();
     practice_target(&mut h, beetle);
     h.arm(b, me, BOW);
+    // Vigor for four uses one after another: a use under way regains none of it.
+    for p in h.server.players.values_mut() {
+        for q in [quality::VIGOR_MAX, quality::VIGOR] {
+            yalain_world::quals::set_int(&mut p.qualities, q, 1000);
+        }
+    }
     let item_used = |h: &mut Harness| {
         h.bots[b].send(
             true,

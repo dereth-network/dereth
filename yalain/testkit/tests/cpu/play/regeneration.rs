@@ -5,13 +5,19 @@
 //! player alone in the test world, its vitals set low by hand, Robustify and a worn item's bonus
 //! from the test effects.
 
-use auberean_protocol::ServerMessage;
+use auberean_protocol::{queue, ServerMessage};
+use auberean_script::args::Arg;
 use yalain_net::ConnId;
-use yalain_testkit::{Harness, COURAGE_EFFECT, ROBUSTIFY_EFFECT, WORN_HEALTH_RATE_EFFECT};
+use yalain_testkit::play::server_call;
+use yalain_testkit::{Harness, COURAGE_EFFECT, DASH, ROBUSTIFY_EFFECT, WORN_HEALTH_RATE_EFFECT};
 use yalain_world::player::quality;
 use yalain_world::regen::{gain, rate, HEALTH_FILLS_IN, PLAYER_STEP};
+use yalain_world::skill_use::function;
 use yalain_world::world::IDLE_MOTION;
 use yalain_world::{effects, quals};
+
+/// A sword, for a skill that needs something in the right hand.
+const SWORD: u32 = 0x4700_051C;
 
 /// A player in the world with health 100 of 600 and vigor 50 of 300.
 fn hurt_player() -> (Harness, usize, ConnId) {
@@ -257,6 +263,49 @@ fn a_hurt_or_a_walk_under_way_at_the_step_puts_it_at_the_combat_rates_a_walk_tha
     // A walk under way at the step puts the step at the combat rates.
     let walking = to_next_step(&mut h, b, world, walk(world, true));
     assert!(walking.is_empty(), "moving at the step: {walking:?}");
+}
+
+/// A skill in use since the last step puts the step at the combat rates, as an attack run does:
+/// Dash used between two steps, standing and unhurt, leaves that step's health where it was for a
+/// player with no combat rates, and the next step, at rest, gives again.
+/// Behaviour: server.regen.combat-when-a-skill-is-in-use
+#[test]
+fn a_skill_in_use_since_the_last_step_puts_it_at_the_combat_rates() {
+    let (mut h, b, world) = hurt_player();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &auberean_protocol::ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    h.run(5);
+    let me = h.server.players[&world].character;
+    h.arm(b, me, SWORD);
+    // Vigor enough for Dash, at its greatest so only health comes back.
+    if let Some(p) = h.server.players.get_mut(&world) {
+        quals::set_int(&mut p.qualities, quality::VIGOR, 300);
+    }
+    let rest = to_next_step(&mut h, b, world, |_| {});
+    assert_eq!(health(&rest).len(), 1, "at rest it regains: {rest:?}");
+    let from = h.bots[b].inbox.len();
+    let used = to_next_step(&mut h, b, world, |h| {
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(
+                function::USE,
+                &[Arg::Int(5), Arg::Int(DASH), Arg::LongInt(me)],
+            ),
+        );
+    });
+    assert!(
+        h.world_messages(b, from)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::VelocityScale(e) if e.action.0 > 1.0)),
+        "Dash was used"
+    );
+    assert!(health(&used).is_empty(), "a skill in use: {used:?}");
+    let after = to_next_step(&mut h, b, world, |_| {});
+    assert_eq!(health(&after).len(), 1, "back at rest: {after:?}");
 }
 
 /// Each step's gain is a share of the vital's greatest with the player's effects: with Courage's

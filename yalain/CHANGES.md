@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Using a skill now counts as fighting for regeneration.
 - Creatures' critical hits now follow their kind: bosses' hit harder, many others' a little softer. Unfair kills leave an empty corpse.
 - Creatures now wander in short walks and can't hit players on ledges overhead.
 - Killing another player now moves Kingdom Points.

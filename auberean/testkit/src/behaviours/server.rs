@@ -16688,6 +16688,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.regen.combat-when-a-skill-is-in-use",
+        says: "A skill in use at any moment since the last step puts a player's regeneration step at \
+               its combat rates, as an attack run does.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-REGEN-SKILL-IN-USE"),
+        station: "yalain-testkit::cpu::play::regeneration::a_skill_in_use_since_the_last_step_puts_it_at_the_combat_rates",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.regen.combat-when-fighting-hurt-or-moving",
         says: "A player regains at its combat rates for a step when it fought or was hurt at any \
                moment since the last step, or is moving at the step itself; a walk that stopped \

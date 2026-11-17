@@ -7,8 +7,11 @@
 //! with the player's effects, as the client shows it.
 //!
 //! **Rates.** At rest the peace rates apply, in combat the combat rates. A player is in combat for
-//! a step when it attacked or was hurt at any moment since the last step, or is moving at the
-//! step itself. Each rate is a float quality as the player's effects make it (the quality plus
+//! a step when it attacked, used a skill or was hurt at any moment since the last step, or is
+//! moving at the step itself: a skill's use raises the attack state as an attack run does (2017:
+//! of 24 steps of players with a combat rate, standing and unhurt, whose only acts since the last
+//! were skill uses with no basic attack, 22 came at the combat rate, the attack state raised in
+//! all 24; 15 of 16 with a harmful use among them, 7 of 8 with helpful ones alone). Each rate is a float quality as the player's effects make it (the quality plus
 //! what they add, times what they multiply): the peace rates are 1 unless something changes them
 //! (health then fills in a minute, vigor in half of one), the combat rates nothing unless an effect
 //! gives them (a buff, a worn item's), so a player without one regains nothing in combat.
@@ -169,8 +172,9 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: crate::Cloc
             p.regen_health = health;
             continue;
         }
-        // Fighting or being hurt at any moment puts the whole step at the combat rates.
-        if p.attacking.is_some() || health < p.regen_health {
+        // Fighting, a skill in use or being hurt at any moment puts the whole step at the combat
+        // rates.
+        if p.attacking.is_some() || p.using.is_some() || health < p.regen_health {
             p.regen_active = true;
         }
         p.regen_health = health;
