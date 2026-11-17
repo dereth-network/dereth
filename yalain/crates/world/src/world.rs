@@ -102,6 +102,8 @@ pub struct Player {
     pub travel: Travel,
     /// How long its body on the server has gone without reaching a place its client reported.
     pub behind: Following,
+    /// Its falling, from the places its client reports ([`crate::falls`]).
+    pub fall: crate::falls::Falling,
     /// When it was last told where it stands after a place it reported was refused.
     pub told_back: f64,
     pub position: StoredPosition,
@@ -492,6 +494,7 @@ pub fn enter<S: Store>(
         force_position_stamp: 0,
         travel: Travel::placed(clock.local.0),
         behind: Following::default(),
+        fall: crate::falls::Falling::default(),
         told_back: f64::NEG_INFINITY,
         view_brought: f64::NEG_INFINITY,
         view_owed: false,
@@ -1422,6 +1425,7 @@ fn moved<S: Store>(
     crate::gives::moved(s, net, world, clock);
     crate::places::walked(s, net, world, clock);
     crate::hazards::moved(s, net, world, clock);
+    crate::falls::moved(s, net, world, &before, c.time, clock);
     crate::usable::chests::moved(s, net, world, clock);
     crate::inventory::moved(s, net, world);
     crate::skill_use::moved(s, net, world, clock);

@@ -5585,6 +5585,45 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.falls.a-fall-hurts-as-it-lands",
+        says: "A player whose client reports it falling (a descent steeper and faster than any walk \
+               or ride down a slope) loses the fall's harm as it lands, told as its health alone, \
+               the fall from where a body dropping from rest would have started; a ride down a \
+               slope is no fall, and a fall that takes all its health kills it by misadventure.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FALL-LANDING"),
+        station: "yalain-testkit::cpu::play::falls::a_player_falling_twenty_meters_loses_its_harm_as_it_lands",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.falls.harm-by-height",
+        says: "A fall of h meters takes floor((h - 2.5) x (1 + 0.00123 x (h - 12.5)^2)) health, the \
+               last factor 1 below 12.5 m and h at most 127.5 m; a mounted player takes h - 2.5 \
+               alone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FALL-HARM"),
+        station: "yalain-testkit::cpu::play::falls::a_falls_harm_grows_with_its_height_and_a_mount_takes_the_steep_part",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.falls.safe-fall-and-the-modifier",
+        says: "A player holding Safe Fall's effect lands unhurt and the effect ends with that fall; \
+               the player's fall modifier multiplies a fall's harm. Our reading of the install: no \
+               recording uses Safe Fall.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FALL-SAFE"),
+        station: "yalain-testkit::cpu::play::falls::safe_fall_spares_one_fall_and_ends",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.falls.water-spares",
+        says: "A fall landing below its block's water surface harms nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FALL-WATER"),
+        station: "yalain-testkit::cpu::play::falls::a_fall_into_water_harms_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.fellowship.a-pets-damage-takes-part-for-its-owner",
         says: "A kill of a group creature goes by who hurt it, a pet's damage counting as its \
                owner's.",

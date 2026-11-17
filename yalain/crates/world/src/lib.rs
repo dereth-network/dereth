@@ -101,6 +101,7 @@ pub mod equip;
 pub mod escorts;
 pub mod events;
 pub mod examine;
+pub mod falls;
 pub mod fellowship;
 pub mod focus;
 pub mod follow;

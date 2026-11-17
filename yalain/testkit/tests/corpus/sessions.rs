@@ -467,6 +467,11 @@ fn replay(con: &Connection, session: i64) -> Option<Outcome> {
         return Some(out);
     }
     h.run(20);
+    // The replay's player has the health a new character has, not the recorded player's: falls
+    // that the recorded player took would kill it, so it takes none.
+    for p in h.server.players.values_mut() {
+        yalain_world::quals::set_float(&mut p.qualities, yalain_world::falls::FALL_MODIFIER, 0.0);
+    }
     let world_up = h.now.0;
     let first_t = recs.first().map_or(0.0, |r| r.t);
     // Our messages, each with its time since the world came up.

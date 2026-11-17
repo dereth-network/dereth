@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Falling now hurts, and long falls kill; water and Safe Fall spare you.
 - Swimming now costs vigor, then health, and Swimming Mastery works.
 - Creatures' area attacks now hit everyone nearby, pets included.
 - Allegiance Recall works: monarchs can bind their allegiance to a hall.
