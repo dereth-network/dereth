@@ -35136,3 +35136,162 @@ fn the_smith_teaches_kingdom_armor_once_the_stars_are_done_and_the_forge_augment
         "and augmented in the player's own kingdom"
     );
 }
+
+/// **The allegiance halls walk through**: the Ondekodo hall is entered by its town's portal; from its
+/// landing a monarch reaches the hall's sign on foot and reading it gives the hidden permission;
+/// reaching the stone, the monarch pays 20,000 and binds the allegiance, the permission done; the
+/// sign gives no permission again within three days; Allegiance Recall from town then takes the
+/// monarch to the hall's spot, from which the stone and the way out are reached on foot. Every
+/// hall's stone is reached on foot from its recall spot, and Ikeras's town portal leads into its
+/// hall, its stone reached from there.
+/// Behaviour: server.quests.allegiance-halls-walk-through
+#[test]
+fn a_monarch_reads_a_halls_sign_binds_at_its_stone_and_the_allegiance_recalls_to_the_hall() {
+    use yalain_world::allegiance::Node;
+    use yalain_world::quests::status;
+    use yalain_world::skill_use::{function as skill, ALLEGIANCE_RECALL};
+    const HALL_QUEST: u32 = 0x4000_01D1;
+    const SIGNS: [u32; 3] = [0x4700_11C3, 0x4700_11C4, 0x4700_11C5];
+    const STONES: [u32; 3] = [0x4700_11BD, 0x4700_11BF, 0x4700_11C1];
+    const VASSAL: u64 = 0x2130_0000_0000_0FFF;
+    const SWORD: u32 = 0x4700_051C;
+    let t = &compiled().tables;
+    let halls = &t.content.halls.rows;
+    assert_eq!(halls.len(), 6, "every hall 2017 saw a stone in");
+    for h in halls {
+        let stone = &t.content.objects[h.stone];
+        assert!(
+            STONES.contains(&stone.template),
+            "{}: a binding stone",
+            h.key
+        );
+        assert_eq!(h.cost, 20_000, "{}: the signs' cost", h.key);
+        assert_eq!(
+            stone.cell >> 16,
+            h.place.cell >> 16,
+            "{}: in its hall",
+            h.key
+        );
+    }
+    let authored = yalain_testkit::authored::Portal::open();
+    let ondekodo = halls
+        .iter()
+        .find(|h| h.place.cell == 0x0DFA_0107)
+        .expect("Ondekodo's hall, where 2017's recalls came out");
+    let stone = t.content.objects[ondekodo.stone].clone();
+    let sign = placed_in(t, SIGNS[1], 0x0DFA_0109);
+    let way_in = way_to(t, 0x5766, 0x0DFA_0100);
+    let way_out = way_to(t, 0x0DFA, 0x5766_0025);
+    let arrival = t.content.objects[way_in].destination.expect("a landing");
+
+    let mut w = walled(t, &[0x5766, 0x0DFA]);
+    let world = w.world;
+    for id in SIGNS.into_iter().chain(STONES) {
+        w.h.server.catalog.insert(as_installed(&authored, id));
+    }
+    w.h.server.quest_ids = quest_ids();
+    {
+        let p = w.h.server.players.get_mut(&world).expect("in");
+        yalain_world::quals::set_int(&mut p.qualities, yalain_world::examine::LEVEL, 20);
+        yalain_world::quals::set_int(&mut p.qualities, yalain_world::store::MONEY, 25_000);
+    }
+    w.h.server.allegiances.nodes.insert(w.me, Node::default());
+    w.h.server.allegiances.nodes.insert(
+        VASSAL,
+        Node {
+            patron: w.me,
+            ..Node::default()
+        },
+    );
+    let beside = |w: &mut Walled, i: usize| {
+        let o = &t.content.objects[i];
+        w.put(spot(o.cell, [o.origin[0] + 1.0, o.origin[1], o.origin[2]]));
+    };
+
+    // In by the town's portal, on foot to the sign: the permission.
+    beside(&mut w, way_in);
+    w.use_placed(t, way_in);
+    assert_eq!(w.at().cell, arrival.cell, "in, at the hall's landing");
+    let s = t.content.objects[sign].clone();
+    assert!(w.run_to(s.origin, 2.0), "the sign reached on foot");
+    w.use_placed(t, sign);
+    assert_eq!(state_of(&w.h, HALL_QUEST), Some((status::UNDERWAY, 1)));
+
+    // On foot to the stone: paid and bound, the permission done.
+    w.put(spot(arrival.cell, arrival.origin));
+    assert!(w.run_to(stone.origin, 2.0), "the stone reached on foot");
+    w.use_placed(t, ondekodo.stone);
+    let money = yalain_world::store::money(&w.h.server.players[&world].qualities);
+    assert_eq!(money, 5_000, "20,000 paid");
+    assert_eq!(
+        state_of(&w.h, HALL_QUEST).map(|q| q.0),
+        Some(status::COMPLETED)
+    );
+    let bound = w.h.server.allegiances.hall_of(VASSAL).expect("bound");
+    assert_eq!(bound.place.cell, 0x0DFA_0107, "for the whole allegiance");
+
+    // The sign gives no permission again within three days.
+    w.put(spot(arrival.cell, arrival.origin));
+    assert!(w.run_to(s.origin, 2.0));
+    w.use_placed(t, sign);
+    assert_eq!(
+        state_of(&w.h, HALL_QUEST).map(|q| q.0),
+        Some(status::COMPLETED),
+        "not again so soon"
+    );
+
+    // From town, the recall (a weapon in hand, as a skill needs): to the hall's spot, whence the
+    // stone and the way out on foot.
+    beside(&mut w, way_in);
+    w.h.server.catalog.insert(authored.template(SWORD));
+    w.h.arm(w.b, w.me, SWORD);
+    w.h.all_hold(ALLEGIANCE_RECALL);
+    w.h.bots[w.b].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            skill::USE,
+            &[
+                auberean_script::args::Arg::Int(1),
+                auberean_script::args::Arg::Int(ALLEGIANCE_RECALL),
+                auberean_script::args::Arg::LongInt(0),
+            ],
+        ),
+    );
+    w.h.run(400);
+    assert_eq!(w.at().cell, 0x0DFA_0107, "recalled to the hall");
+    for goal in [stone.origin, t.content.objects[way_out].origin] {
+        w.put(spot(ondekodo.place.cell, ondekodo.place.origin));
+        assert!(
+            w.run_to(goal, 2.0),
+            "{goal:?} reached from the recall's spot"
+        );
+    }
+
+    // Every hall's stone on foot from its recall spot, to within the reach its use is carried out
+    // at.
+    let reach = yalain_world::usable::halls::REACH - 1.0;
+    for h in halls {
+        let mut w = walled(t, &[h.place.cell >> 16]);
+        w.put(spot(h.place.cell, h.place.origin));
+        let o = &t.content.objects[h.stone];
+        assert!(
+            w.run_to(o.origin, reach),
+            "{}: its stone from its spot",
+            h.key
+        );
+    }
+
+    // Ikeras's town portal into its hall, its stone reached from there.
+    let ikeras = halls
+        .iter()
+        .find(|h| h.place.cell == 0x0BFB_0109)
+        .expect("Ikeras's hall");
+    let way_in = way_to(t, 0xCF8A, 0x0BFB_010B);
+    let mut w = walled(t, &[0xCF8A, 0x0BFB]);
+    beside(&mut w, way_in);
+    w.use_placed(t, way_in);
+    assert_eq!(w.at().cell, 0x0BFB_010B, "into Ikeras's hall");
+    let o = &t.content.objects[ikeras.stone];
+    assert!(w.run_to(o.origin, reach), "Ikeras's stone from the landing");
+}

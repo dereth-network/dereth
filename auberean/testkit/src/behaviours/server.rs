@@ -14820,6 +14820,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.allegiance-halls-walk-through",
+        says: "Allegiance halls walk through: the six halls whose stones 2017 saw each bind for 20,000; in the \
+               Ondekodo hall, entered by its town's portal, a monarch reaches the sign and the stone on foot, reading \
+               the sign gives the permission and the stone binds the allegiance, the sign giving none again within \
+               three days; Allegiance Recall then takes the monarch to the hall's spot, from which the stone and the \
+               way out are reached; every hall's stone is reached from its recall spot, and Ikeras's town portal \
+               leads into its hall.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-ALLEGIANCE-HALLS"),
+        station: "yalain-testkit::corpus::world_db::a_monarch_reads_a_halls_sign_binds_at_its_stone_and_the_allegiance_recalls_to_the_hall",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.an-effects-name-names-its-quest",
         says: "An effect's name says what it does to which quest: the kind, the quest by the \
                enumeration's name with or without the separator, and for an advance the phase; a \
