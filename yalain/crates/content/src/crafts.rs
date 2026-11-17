@@ -10,7 +10,7 @@ use crate::quests::{Give, Step};
 use crate::treasure_tables::Sort;
 
 /// A region's surveyor's map recipes: drawing one has them all wait, a find of one of the region's
-/// maps lets them be drawn again.
+/// maps lets them be drawn again, and a drawing may throw away the region's maps its drawer held.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MapRecipes {
     /// The region, a key.
@@ -23,6 +23,9 @@ pub struct MapRecipes {
     pub recipes: Vec<u32>,
     /// How long they wait after a drawing, in seconds of game time (none: the server's rule).
     pub wait: Option<f64>,
+    /// The effect (its saved state) a drawing puts on its drawer that throws away every map of the
+    /// region it held before (the maps whose find puts on `found`); none: none is thrown away.
+    pub deletes: Option<u32>,
 }
 
 /// The totem spellbinding makes of a sort of item, and the word it says it goes on.
@@ -116,6 +119,15 @@ impl Crafts {
     #[must_use]
     pub fn map_recipes_drawn(&self, effect: u32) -> Option<&MapRecipes> {
         self.map_recipes.values().find(|m| m.drawn == effect)
+    }
+
+    /// The map recipes whose drawing throws away the region's held maps, by the effect's saved
+    /// state.
+    #[must_use]
+    pub fn map_recipes_deleting(&self, effect: u32) -> Option<&MapRecipes> {
+        self.map_recipes
+            .values()
+            .find(|m| m.deletes == Some(effect))
     }
 
     /// The region whose map recipes a map's find lets be drawn again, by its effect's name.

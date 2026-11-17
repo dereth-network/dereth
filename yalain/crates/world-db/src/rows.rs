@@ -1025,7 +1025,8 @@ pub struct MapRegion {
 }
 
 /// `[[map_recipes]]`: a region's surveyor's map recipes, the effect a drawing of one puts on to have
-/// them all wait, the effect a find of the region's maps puts on to end it, and how long they wait.
+/// them all wait, the effect a find of the region's maps puts on to end it, how long they wait, and
+/// the effect a drawing puts on to throw away the region's maps its drawer held.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MapRecipes {
     pub recipes: yalain_content::crafts::MapRecipes,
@@ -2321,7 +2322,9 @@ pub const FIELDS: [(&str, &[&str]); 74] = [
     ),
     (
         "map_recipes",
-        &["region", "drawn", "found", "recipes", "wait", "prov"],
+        &[
+            "region", "drawn", "found", "recipes", "wait", "deletes", "prov",
+        ],
     ),
     ("spellbinding", &["sort", "template", "word", "prov"]),
     (
@@ -4090,6 +4093,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             let wait = f.float("wait");
             let ok = wait.is_none_or(|w| w >= 0.0);
             let wait = f.held("wait", wait, ok, "seconds from 0")?;
+            let deletes = f.id("deletes");
             Row::MapRecipes(MapRecipes {
                 recipes: yalain_content::crafts::MapRecipes {
                     region,
@@ -4097,6 +4101,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                     found,
                     recipes,
                     wait,
+                    deletes,
                 },
                 prov: f.req_prov()?,
             })

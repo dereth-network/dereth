@@ -1918,6 +1918,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.a-drawn-map-throws-away-the-regions-held-maps",
+        says: "A map drawn whose region's row names the effect that throws away its maps: every \
+               map of the region its drawer held before is taken from the pack after the markers \
+               are cleared; the map just drawn and other regions' maps stay.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-MAP-DELETES"),
+        station: "yalain-testkit::cpu::play::crafting::drawing_a_map_throws_away_the_maps_of_its_region_held_before",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.a-knife-stays-while-it-cuts",
         says: "A knife at work on a corpse stays in the pack until the cut is over: it isn't put down, \
                sold or traded. One gone by the end all the same pays nothing and leaves the corpse.",

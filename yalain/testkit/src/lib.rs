@@ -2517,6 +2517,7 @@ pub fn test_crafts() -> yalain_content::crafts::Crafts {
                 found: found.to_string(),
                 recipes: order.iter().map(|o| first + o).collect(),
                 wait: Some(300.0),
+                deletes: None,
             },
         )
     };

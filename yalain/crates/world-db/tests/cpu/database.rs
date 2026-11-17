@@ -6793,7 +6793,7 @@ fn crafting_work_rows_compile_to_map_recipes_totems_and_refinings() {
     let mut files = fixture();
     let rows = "[[map_recipes]]\nregion = \"linvak\"\ndrawn = 0x6F00170C\n\
                 found = \"Eff_ResetLinvakResetTimers\"\nrecipes = [0x6F00109B, 0x6F001099]\n\
-                wait = 300.0\nprov = { from = \"authored\" }\n\n\
+                wait = 300.0\ndeletes = 0x6F001705\nprov = { from = \"authored\" }\n\n\
                 [[map_recipes]]\nregion = \"osteth\"\ndrawn = 0x6F00170E\n\
                 found = \"Eff_ResetOstethResetTimers\"\nrecipes = [0x6F001091]\n\
                 prov = { from = \"authored\" }\n\n\
@@ -6823,6 +6823,13 @@ fn crafting_work_rows_compile_to_map_recipes_totems_and_refinings() {
         )
     );
     assert_eq!(c.map_recipes["osteth"].wait, None, "the server's rule");
+    assert_eq!(linvak.deletes, Some(0x6F00_1705));
+    assert_eq!(c.map_recipes["osteth"].deletes, None, "throws none away");
+    assert_eq!(
+        c.map_recipes_deleting(0x6F00_1705)
+            .map(|m| m.region.as_str()),
+        Some("linvak")
+    );
     assert_eq!(
         c.map_recipes_drawn(0x6F00_170E).map(|m| m.region.as_str()),
         Some("osteth")

@@ -831,6 +831,7 @@ A region's surveyor's map recipes, which wait together. One row per region.
 | `found` | required | the name of the effect a find of one of the region's maps puts on |
 | `recipes` | required | at least one recipe (its saved state) |
 | `wait` | | seconds of game time; 300 when left out |
+| `deletes` | | the effect (its saved state) a drawing puts on that throws away every map of the region its drawer held before (the maps whose find puts on `found`); none thrown away when left out |
 | `prov` | required | where it came from |
 
 #### `[[spellbinding]]`

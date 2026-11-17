@@ -75,7 +75,8 @@
 //! outcome sets the region's wait) has all five wait five minutes, and a map of the region finding
 //! its place lets all five be drawn again; either way the five records come in one call. Which
 //! recipes, the effects that set and end the wait, and its length are the world's `[[map_recipes]]`
-//! rows'.
+//! rows'. A row may name the effect a drawing puts on that throws away the region's maps its drawer
+//! held before: the markers are cleared and each is taken from the pack.
 //!
 //! **A day's craft experience** starts over 22 hours after it last did (at entry, when that came
 //! while the player was away): every craft skill's record is told with nothing earned today.
@@ -1578,6 +1579,42 @@ pub fn recipes_call(rs: &[RecipeState], now: f64) -> ServerMessage {
     session::call(function::UPDATE_RECIPES, &[Arg::Object(b.graph())]).expect("records pack")
 }
 
+/// A map drawn throws away every map of its region its drawer held before (those whose find puts
+/// on `found`), all but those `kept` (the one just drawn): the markers cleared, then each taken from
+/// the pack (2017: 2 of 2 drawings by a player holding one of the region's maps).
+fn throw_away_maps<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    found: &str,
+    kept: &[u64],
+) {
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let maps: Vec<(u64, u32)> = p
+        .play
+        .items
+        .iter()
+        .filter(|h| !kept.contains(&h.id))
+        .filter(|h| {
+            s.catalog.get(h.template).is_some_and(|t| {
+                ["Usage_Effect1", "Usage_Effect2"]
+                    .iter()
+                    .any(|k| t.props.text(k) == Some(found))
+            })
+        })
+        .map(|h| (h.id, h.template))
+        .collect();
+    if maps.is_empty() {
+        return;
+    }
+    crate::usable::maps::clear_markers(net, world);
+    for (item, template) in maps {
+        crate::inventory::take_item(s, net, world, item, template);
+    }
+}
+
 /// How long a region's map recipes wait after one of them is drawn, in seconds of game time, where
 /// its row names no wait.
 pub const MAP_RECIPES_WAIT: f64 = 300.0;
@@ -2493,6 +2530,16 @@ fn result<S: Store>(
             .map(|m| (m.region.clone(), m.wait.unwrap_or(MAP_RECIPES_WAIT)))
         {
             map_recipes_wait(s, net, world, &region, now + wait, now);
+            continue;
+        }
+        if let Some(found) = s
+            .crafting
+            .crafts
+            .map_recipes_deleting(state)
+            .map(|m| m.found.clone())
+        {
+            let kept: Vec<u64> = made.iter().map(|(_, item)| *item).collect();
+            throw_away_maps(s, net, world, &found, &kept);
             continue;
         }
         crate::effects::apply(

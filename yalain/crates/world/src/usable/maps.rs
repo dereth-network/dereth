@@ -347,7 +347,8 @@ pub fn used<S: Store>(
     true
 }
 
-fn clear_markers(net: &mut ServerNet, world: ConnId) {
+/// The markers a map put on the client's radar, cleared.
+pub(crate) fn clear_markers(net: &mut ServerNet, world: ConnId) {
     let clear =
         session::call(function::CLEAR_MARKERS, &[Arg::Int(MARKER_KIND)]).expect("an integer packs");
     progress::private(net, world, &clear);

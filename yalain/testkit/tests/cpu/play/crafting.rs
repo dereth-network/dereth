@@ -883,6 +883,7 @@ fn a_map_recipes_row_sets_which_recipes_a_drawing_has_wait_and_for_how_long() {
             found: "Eff_ResetSawtoothTimers".into(),
             recipes: vec![DRAWN, OTHER],
             wait: Some(60.0),
+            deletes: None,
         },
     );
     // Its own wait, as the install's map recipes' equal their region's.
@@ -914,6 +915,93 @@ fn a_map_recipes_row_sets_which_recipes_a_drawing_has_wait_and_for_how_long() {
             .iter()
             .all(|r| p.play.recipes.iter().all(|x| x.recipe != *r)),
         "Linvak's recipes are not told"
+    );
+}
+
+/// A map drawn whose row names the effect that throws away its region's maps: every map of the
+/// region its drawer held before is taken from the pack, after the markers are cleared, and the map
+/// just drawn and the other region's map stay.
+/// Behaviour: server.craft.a-drawn-map-throws-away-the-regions-held-maps
+#[test]
+fn drawing_a_map_throws_away_the_maps_of_its_region_held_before() {
+    use yalain_content::crafts::MapRecipes;
+    use yalain_content::{Prop, Props};
+    use yalain_world::craft::Action;
+    const SET: u32 = 0x6F00_7770;
+    const DELETES: u32 = 0x6F00_7773;
+    const DRAWN: u32 = 0x6F00_7771;
+    const OLD_MAP: u32 = 0x4700_7771;
+    const NEW_MAP: u32 = 0x4700_7772;
+    const OTHER_MAP: u32 = 0x4700_7773;
+    let (mut h, b, _me, world) = in_world();
+    h.server.crafting.crafts.map_recipes.insert(
+        "sawtooth".into(),
+        MapRecipes {
+            region: "sawtooth".into(),
+            drawn: SET,
+            found: "Eff_ResetSawtoothTimers".into(),
+            recipes: vec![DRAWN],
+            wait: Some(60.0),
+            deletes: Some(DELETES),
+        },
+    );
+    for (t, found) in [
+        (OLD_MAP, "Eff_ResetSawtoothTimers"),
+        (NEW_MAP, "Eff_ResetSawtoothTimers"),
+        (OTHER_MAP, "Eff_ResetLinvakResetTimers"),
+    ] {
+        let mut props = Props::default();
+        props.set("Usage_Effect1", Prop::Text(found.into()));
+        h.server
+            .catalog
+            .insert(yalain_testkit::test_template(t, 0x200, props));
+    }
+    let mut drawing = map_drawing(DRAWN, SET);
+    drawing.checks[0].outcomes[0].actions.splice(
+        0..0,
+        [
+            Action::Effect {
+                state: DELETES,
+                spellcraft: 1.0,
+            },
+            Action::Produce {
+                template: NEW_MAP,
+                quantity: 1,
+                ordinal: 10_006,
+            },
+        ],
+    );
+    h.server.crafting.recipes.insert(DRAWN, drawing);
+    let held = |h: &Harness, t: u32| {
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .filter(|i| i.template == t)
+            .count()
+    };
+    for t in [OLD_MAP, OLD_MAP, OTHER_MAP] {
+        yalain_world::inventory::give_made(&mut h.server, &mut h.net, world, t, 1);
+    }
+    h.run(3);
+    assert_eq!((held(&h, OLD_MAP), held(&h, OTHER_MAP)), (2, 1));
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("in the world")
+        .play
+        .recipes
+        .push(yalain_world::craft::new_recipe(DRAWN));
+    let from = execute(&mut h, b, DRAWN, &[]);
+    wait(&mut h, 8.0);
+    assert_eq!(held(&h, OLD_MAP), 0, "the region's old maps are gone");
+    assert_eq!(held(&h, NEW_MAP), 1, "the map drawn stays");
+    assert_eq!(held(&h, OTHER_MAP), 1, "another region's map stays");
+    assert!(
+        calls_of(&h, b, from)
+            .iter()
+            .any(|(f, _)| *f == yalain_world::usable::maps::function::CLEAR_MARKERS),
+        "the markers cleared"
     );
 }
 
