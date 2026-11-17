@@ -7,6 +7,7 @@ Add a line under **Unreleased** when a change lands that a world builder would n
 see, not how it was done.
 
 ## Unreleased
+- Windows: the taskbar now names the editor Athenaeum.
 
 ## 0.1.8 (2026-11-17)
 - Just moving code around

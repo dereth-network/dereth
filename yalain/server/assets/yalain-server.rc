@@ -1,6 +1,41 @@
-// The application icon, linked into the executable. Windows only: the resource compiler runs
-// from this directory (see build.rs), so the icon is named as the sibling file it is.
+// The application icon and version information, linked into the executable. Windows only: the
+// resource compiler runs from this directory (see build.rs), so the icon is named as the sibling
+// file it is.
 //
 // The ordinal is 1 because Explorer shows the lowest-numbered icon in the file as the
 // executable's own. Nothing loads it by number: the server has no window to put it on.
 1 ICON "yalain.ico"
+
+// The version information: Explorer's file properties show it, and Task Manager names the
+// server by its file description rather than by the file's name. build.rs defines
+// VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH and VERSION_TEXT from the crate's version.
+#define STRINGIZE_(x) #x
+#define STRINGIZE(x) STRINGIZE_(x)
+
+1 VERSIONINFO
+FILEVERSION VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH, 0
+PRODUCTVERSION VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH, 0
+FILEFLAGSMASK 0x3F
+FILEFLAGS 0
+FILEOS 0x40004
+FILETYPE 1
+FILESUBTYPE 0
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName", "Dereth Network"
+            VALUE "FileDescription", "Yalain"
+            VALUE "FileVersion", STRINGIZE(VERSION_TEXT)
+            VALUE "InternalName", "yalain"
+            VALUE "OriginalFilename", "yalain.exe"
+            VALUE "ProductName", "Yalain"
+            VALUE "ProductVersion", STRINGIZE(VERSION_TEXT)
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

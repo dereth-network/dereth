@@ -19,6 +19,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - `@emphelp commands` lists only commands that work here, each with a description.
 - Developer inspection commands answer in chat, and commands that failed silently say why.
 - `@smite` now says when its target is gone or already dead.
+- Windows: Task Manager now names the server Empyrean.
 
 ## 0.3.15 (2026-11-17)
 - Examining a player now always shows their Enlightenment.
