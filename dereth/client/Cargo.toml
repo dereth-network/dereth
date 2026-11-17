@@ -43,8 +43,9 @@ d3d12 = ["dereth-render/d3d12", "dereth-scene/d3d12", "dereth-client-shell/d3d12
 # device's handles, the world hook it draws the world through) and its scene seams (the
 # publisher that hands it each frame's changes and state, and the walk's decide-only mode).
 # Nothing is published, nothing draws through the hook and the walk draws as it always has
-# unless the remaster is turned on (its box on Horizon's Client page, or `--fidelity remaster=1`),
-# on the Vulkan renderer; a build without it is exactly the client without it. It brings `dlss`.
+# unless the remaster is turned on (its box on any interface's Client page, or
+# `--fidelity remaster=1`), on the Vulkan renderer; a build without it is exactly the client
+# without it. It brings `dlss`.
 remaster = ["dereth-scene/remaster", "dereth-render/remaster", "dereth-client-shell/remaster", "dlss"]
 # The remaster's DLSS, on Windows (elsewhere it builds nothing): loaded only if NVIDIA's
 # `nvngx_dlss.dll` stands beside the client, as the Windows release carries it, and as the build

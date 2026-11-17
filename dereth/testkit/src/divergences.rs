@@ -342,15 +342,15 @@ pub static DIVERGENCES: &[Divergence] = &[
     },
     Divergence {
         id: "CD-037",
-        title: "An opt-in remaster under Horizon",
-        change: "Under the Horizon interface, a Remaster box on the Client page draws the world \
-                 with a renderer of this client's own and modern light, on the desktop Vulkan and \
-                 Direct3D 12 renderers, with a box for each of its effects under it, and with an \
-                 art pack's models and look where a pack was given and its box is on. Ticking it \
-                 takes effect at once, in the running session; unticking it gives back Retail \
-                 Look's frame exactly. Everything the game reads still comes from the ordinary \
-                 walk of the world. The box is off by default; the classic and modern interfaces \
-                 never draw the remaster, and the browser client does not contain it. Heavier \
+        title: "An opt-in remaster of the graphics",
+        change: "A Remaster box on every interface's Client page draws the world with a renderer \
+                 of this client's own and modern light, on the desktop Vulkan and Direct3D 12 \
+                 renderers, with a box for each of its effects under it, and with an art pack's \
+                 models and look where a pack was given and its box is on. Ticking it takes \
+                 effect at once, in the running session, under whichever interface is shown; \
+                 unticking it gives back Retail Look's frame exactly. Everything the game reads \
+                 still comes from the ordinary walk of the world. The box is off by default, and \
+                 the browser client does not contain the remaster. Heavier \
                  frames lower the frame rate, and three things follow the frame time as they do \
                  on a slower machine: the automatic degrade, so detail levels and which far \
                  objects are drawn can shift; through the degrade, which objects at the edge of \

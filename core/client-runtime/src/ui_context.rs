@@ -781,29 +781,6 @@ impl<'a, S: Shell> UiContext<'a, S> {
         self.app.present.art_pack_open()
     }
 
-    /// Note whether the interface shown is Horizon, the only one the remaster draws under. The
-    /// drawn world takes it at once (its next preference poll stands the remaster up or takes it
-    /// down), and every world built after it starts with it. A build without the remaster does
-    /// nothing here.
-    #[cfg_attr(not(feature = "fidelity"), allow(clippy::unused_self))]
-    pub fn set_horizon_interface(&mut self, horizon: bool) {
-        #[cfg(feature = "fidelity")]
-        {
-            if self.app.horizon_interface == horizon {
-                return;
-            }
-            self.app.horizon_interface = horizon;
-            let _ = self.app.present.apply_render_preference_requests(vec![
-                dereth_client_contract::UiRequest::SetPreference(
-                    dereth_client_contract::options::names::fidelity::INTERFACE,
-                    dereth_client_contract::PrefValue::Bool(horizon),
-                ),
-            ]);
-        }
-        #[cfg(not(feature = "fidelity"))]
-        let _ = horizon;
-    }
-
     /// A pad's two sticks under the orbit camera, as they are pushed this frame: `movement` moves
     /// the player (right and ahead, each from -1 to 1, `None` when it is let go; see
     /// [`crate::orbit::MovementKeys::stick`]), and `look` turns the camera (right and up, each from

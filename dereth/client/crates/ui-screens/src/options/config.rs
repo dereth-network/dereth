@@ -430,13 +430,21 @@ mod tests {
             .map(|p| v.iter().find(|(k, _)| *k == p).map(|(_, x)| x.clone()))
         };
         let v = restore_default_values();
+        // The remaster's rows, in a build whose options carry them.
+        let remaster: usize = dereth_client_contract::options::sheet::headings_for(
+            dereth_client_contract::options::sheet::PageId::Client,
+            dereth_client_contract::options::interface::Interface::Modern,
+        )
+        .filter(|(h, _)| h.title == dereth_client_contract::options::remaster::HEADING)
+        .map(|(_, rows)| rows.len())
+        .sum();
         assert_eq!(
             v.len(),
-            24 + 3 + 6,
+            24 + 3 + 6 + remaster,
             "retail's 26 rows (its 27 less Sync with Refresh Rate) less the chat font's two, \
              which are the Chat Options page's, plus the three paired volume sliders, this \
              client's three era rows, its background slow-down, its performance panel and its \
-             landscape detail texture"
+             landscape detail texture, and the remaster's rows where the build has them"
         );
         assert_eq!(
             get_landscape(&v),

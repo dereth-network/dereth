@@ -340,7 +340,7 @@ RemasterSky=True
     let c = Config::from_args_and_prefs_with(&argv, &profile).expect("parses");
     assert!(c.render.fidelity.remaster());
     assert_eq!(
-        c.render.fidelity.effective(FidelityFeature::RemasterSky),
+        c.render.fidelity.value(FidelityFeature::RemasterSky),
         1,
         "the profile's stand"
     );

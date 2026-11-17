@@ -56,16 +56,11 @@ impl<S: Shell> App<S> {
         let block = pos.cell.landblock();
         let landblock = (u16::from(block.x()) << 8) | u16::from(block.y());
         // The world and the body are built with the options as they are now, not as they were
-        // at start-up: a second login keeps what the player changed on either interface's page.
-        #[cfg_attr(not(feature = "fidelity"), allow(unused_mut))]
-        let mut cfg = crate::scene::SceneConfig {
+        // at start-up: a second login keeps what the player changed on any interface's page.
+        let cfg = crate::scene::SceneConfig {
             landblock,
             ..with_stored_options(cfg)
         };
-        #[cfg(feature = "fidelity")]
-        {
-            cfg.render.fidelity.interface = self.horizon_interface;
-        }
         tracing::info!(
             "entering the world at landblock 0x{landblock:04X}, cell {:#010X}",
             pos.cell.0
@@ -358,17 +353,12 @@ impl<S: Shell> App<S> {
             if self.world.is_some() {
                 return false;
             }
-            #[cfg_attr(not(feature = "fidelity"), allow(unused_mut))]
             let mut cfg = crate::scene::SceneConfig {
                 landblock,
                 start_cell: None,
                 character: false,
                 ..with_stored_options(armed)
             };
-            #[cfg(feature = "fidelity")]
-            {
-                cfg.render.fidelity.interface = self.horizon_interface;
-            }
             // A fair day at a pleasant hour, unless the run asked for a time of its own: the
             // calendar's own start is a rainy day.
             if cfg.game_time.is_none() && cfg.time_of_day.is_none() {

@@ -47,6 +47,8 @@ dereth-client-runtime = { workspace = true, features = ["test-support"] }
 dereth-client-model = { workspace = true, features = ["test-support"] }
 dereth-client-net = { workspace = true, default-features = true }
 dereth-dat = { workspace = true, features = ["test-support"] }
+# The remaster's rows on the options pages, so the tests see the page the desktop client shows.
+dereth-client-contract = { workspace = true, features = ["fidelity"] }
 
 # One layout test measures the title with the fonts the Windows desktop draws it with.
 [target.'cfg(windows)'.dev-dependencies]

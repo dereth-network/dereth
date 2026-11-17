@@ -1,4 +1,4 @@
-//! The remaster's own boxes on the Horizon page, as the scene carries them out: each turns one
+//! The remaster's own boxes on the options pages, as the scene carries them out: each turns one
 //! thing the remaster can draw on or off, live. Off, each leaves that thing as it was asked for
 //! another way, so a capture or a test that sets one keeps it.
 
@@ -85,8 +85,8 @@ impl RemasterRows {
             grass: f.remaster_feature(F::RemasterGrass),
             flowers: f.remaster_feature(F::RemasterFlowers),
             sway: f.remaster_feature(F::RemasterSway),
-            scale: f.effective(F::RemasterScale),
-            god_rays: f.effective(F::RemasterGodRays),
+            scale: f.value(F::RemasterScale),
+            god_rays: f.value(F::RemasterGodRays),
             cliff_shelves: f.remaster_feature(F::RemasterCliffShelves),
             packs: if f.remaster_feature(F::RemasterArtPack) {
                 RemasterPacks::all()

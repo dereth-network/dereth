@@ -6,8 +6,14 @@
 //! keep their own steps and go through the settings host as before; the rest are edited as the
 //! preferences they are, and Apply writes them. Every row carries the same caption as the other
 //! interface's page, and the sliders the retail page labels at their ends are labelled the same.
+//!
+//! In a build with the remaster, the page ends with its boxes under its own heading, as on the
+//! other interfaces' pages: the art pack's box only while a pack is open, NVIDIA's DLSS named under
+//! them where the client carries its library, and each box's note on the hint line while the
+//! pointer rests on it.
 use super::*;
 use dereth_client_contract::options::interface::Interface;
+use dereth_client_contract::options::remaster;
 use dereth_client_contract::options::sheet::{self, PageId, Row, Value};
 use dereth_client_contract::options::store;
 use dereth_client_contract::PrefValue;
@@ -68,15 +74,18 @@ const GREY: u32 = 0xff64_6464;
 const HEADING: u32 = 0xff00_c8e1;
 const SLIDER_ART: [&str; 3] = ["06001285", "06001286", "06001286"];
 
-/// One line of a scrolling page: a heading or a row.
+/// One line of a scrolling page: a heading, a row, or the attribution under the remaster's rows.
 #[derive(Clone, Copy)]
 enum Line {
     Heading(&'static str),
     Row(&'static Row),
+    /// Under the remaster's rows, the attribution NVIDIA's license asks for where the client
+    /// carries its DLSS library.
+    Attribution,
 }
 
 /// The lines of `page` as the classic interface shows it in the world `c` is in: a row for what
-/// the world's era lacks is left out.
+/// the world's era lacks is left out, and so is a remaster box that would draw nothing.
 fn lines(page: PageId, c: &Context<'_>) -> Vec<Line> {
     let features = c.game.era_features();
     let mut out = Vec::new();
@@ -85,10 +94,20 @@ fn lines(page: PageId, c: &Context<'_>) -> Vec<Line> {
         out.extend(
             rows.into_iter()
                 .filter(|r| r.needs.met(Some(&features)))
+                .filter(|r| !r.preference().is_some_and(remaster::left_off))
                 .map(Line::Row),
         );
+        if h.title == remaster::HEADING && remaster::attributed() {
+            out.push(Line::Attribution);
+        }
     }
     out
+}
+
+/// Whether `row` is one of the remaster's, whose note is its hint.
+fn remaster_row(row: &Row) -> bool {
+    row.preference()
+        .is_some_and(|name| dereth_client_contract::options::names::fidelity::NAMES.contains(&name))
 }
 
 /// How tall `page`'s list is.
@@ -303,6 +322,10 @@ impl Settings {
                     f.label(16, y + 2, title, "courier-14-7", HEADING, clip);
                     continue;
                 }
+                Line::Attribution => {
+                    f.label(14, y + 2, remaster::DLSS_ATTRIBUTION, "15-6", INK, clip);
+                    continue;
+                }
                 Line::Row(r) => r,
             };
             let caption = row.caption_for(Interface::Classic);
@@ -429,6 +452,7 @@ impl Settings {
             }
             match line {
                 Line::Heading(title) => f.label(16, y + 2, title, "courier-14-7", HEADING, clip),
+                Line::Attribution => {}
                 Line::Row(r) => {
                     let Value::Filter { mask, .. } = r.value else {
                         continue;
@@ -695,6 +719,15 @@ impl Settings {
 }
 
 impl Panel for Settings {
+    /// A remaster box's note, on the hint line while the pointer rests on its control.
+    fn hover(&self, at: HoverPoint<'_>, _c: &Context<'_>) -> Option<Hover> {
+        if self.tab != 2 {
+            return None;
+        }
+        let row = at.id.strip_prefix("row:").and_then(client_row)?;
+        let note = row.note.filter(|_| remaster_row(row))?;
+        Hover::lines(row.caption_for(Interface::Classic), note)
+    }
     fn id(&self) -> &'static str {
         "options"
     }

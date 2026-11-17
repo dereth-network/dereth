@@ -137,9 +137,7 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "remaster.options.a-live-fidelity-change-is-kept-for-the-next-world",
         says: "A remaster option changed while playing is recorded in the scene the next \
-               world is built from, as the landscape options are, so a second login keeps it; \
-               the flag that says the Horizon interface is shown is not an option and is not \
-               recorded so.",
+               world is built from, as the landscape options are, so a second login keeps it.",
         since: THIS_CLIENT,
         divergence: "CD-037",
         evidence: Evidence::Private("AC-EVID-HIFI-NEXT-WORLD"),
@@ -150,13 +148,12 @@ pub static ROWS: &[Behaviour] = &[
         id: "remaster.options.every-fidelity-option-is-off-by-default",
         says: "The remaster is off in a fresh profile, with the boxes of what it draws on any \
                card ticked under it, so ticking it alone draws the whole of it; tracing, the \
-               upscalers and the art pack wait for the player. None is in effect unless the \
-               Horizon interface is shown: a profile that ticks every box and starts in the \
-               classic or the modern interface has nothing in effect.",
+               upscalers and the art pack wait for the player. Ticked, it is in effect under \
+               whichever interface the profile starts in.",
         since: THIS_CLIENT,
         divergence: "CD-037",
         evidence: Evidence::Private("AC-EVID-HIFI-PREFS-DEFAULT"),
-        station: "dereth-client-runtime::lib::render_prefs::tests::the_remaster_is_off_at_first_and_none_of_it_is_in_effect_outside_horizon",
+        station: "dereth-client-runtime::lib::render_prefs::tests::the_remaster_is_off_at_first_and_takes_effect_under_every_interface",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -170,23 +167,23 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "remaster.options.the-boxes-are-on-horizons-page-alone-each-off",
-        says: "The experimental rendering effects' seven boxes are on the Horizon interface's \
-               Client page alone, last, under a heading that calls them highly experimental, \
-               each off by default; the classic and the modern interfaces' pages are exactly \
-               what they are without the effects; and a build without the effects has no such \
-               heading.",
+        id: "remaster.options.the-boxes-are-on-every-interfaces-page-each-off",
+        says: "Every interface's Client page ends, in a build with the remaster, with its \
+               heading: its box, off by default, its own boxes as they are at first and its \
+               three menus, the rest of each page as it is without them. The art pack's box is \
+               there only while a pack is open, and NVIDIA's DLSS is named under the rows only \
+               where the client carries its library. A build without the remaster has no such \
+               heading on any page.",
         since: THIS_CLIENT,
         divergence: "CD-037",
         evidence: Evidence::Private("AC-EVID-HIFI-HORIZON-PAGE"),
-        station: "dereth-client-contract::lib::options::sheet::tests::the_remasters_boxes_are_on_horizons_client_page_alone_each_off",
+        station: "dereth-client-contract::lib::options::sheet::tests::the_remasters_boxes_end_every_interfaces_client_page_its_own_box_off",
         tier: Tier::Cpu,
     },
     behaviour! {
         id: "remaster.options.the-fidelity-section-reaches-the-render-preferences",
         says: "The [Fidelity] options reach the render preferences from the profile and by name \
-               on the live path, all off by default, with the flag that says the Horizon \
-               interface is shown.",
+               on the live path, all off by default.",
         since: THIS_CLIENT,
         divergence: "CD-037",
         evidence: Evidence::Private("AC-EVID-HIFI-OPTIONS"),

@@ -1,5 +1,5 @@
-//! The words of the remaster's option: one box on the Horizon interface's Client page, off until
-//! the player ticks it, drawn on the Vulkan and Direct3D 12 renderers; and its own boxes under it,
+//! The words of the remaster's option: one box on every interface's Client page, off until the
+//! player ticks it, drawn on the Vulkan and Direct3D 12 renderers; and its own boxes under it,
 //! one for each thing it can draw past the game's own light, the ones any card draws ticked at
 //! first, so ticking the remaster's box alone draws the whole of it.
 //!
@@ -37,6 +37,52 @@ pub const DLSS_ATTRIBUTION: &str = "NVIDIA DLSS \u{b7} NVIDIA RTX\u{2122}";
 
 /// The heading the box sits under.
 pub const HEADING: &str = shown_name!();
+
+/// What the client carries that the remaster's rows answer to: NVIDIA's DLSS library, which a page
+/// names under the rows, and an open art pack, without which the art pack's box draws nothing and
+/// is left off the page.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Carried {
+    /// NVIDIA's DLSS library stands beside the client.
+    pub dlss: bool,
+    /// An art pack is open.
+    pub art_pack: bool,
+}
+
+thread_local! {
+    /// What the client carries, as its presentation said once it was up; nothing until then.
+    static CARRIED: std::cell::Cell<Carried> = const {
+        std::cell::Cell::new(Carried {
+            dlss: false,
+            art_pack: false,
+        })
+    };
+}
+
+/// Note what the client carries, once its presentation is up, for the pages that show the rows.
+pub fn set_carried(carried: Carried) {
+    CARRIED.set(carried);
+}
+
+/// What the client carries, as last noted ([`set_carried`]).
+#[must_use]
+pub fn carried() -> Carried {
+    CARRIED.get()
+}
+
+/// Whether a page leaves the box `name` off, as it would draw nothing: the art pack's, while no
+/// pack is open.
+#[must_use]
+pub fn left_off(name: &str) -> bool {
+    name == names::REMASTER_ART_PACK && !carried().art_pack
+}
+
+/// Whether a page names NVIDIA's DLSS under the rows, as its license asks of a client that carries
+/// the library.
+#[must_use]
+pub fn attributed() -> bool {
+    carried().dlss
+}
 
 /// The red line at the top of the screen, for a player who ticks the box on any other renderer.
 pub const REFUSED_RENDERER: &str =
@@ -510,6 +556,23 @@ mod tests {
         }
         assert_eq!(CAPTION, "Remaster (preview)");
         assert_eq!(super::super::names::fidelity::REMASTER, "Fidelity.Remaster");
+    }
+
+    /// The art pack's box is left off a page until the client says a pack is open, and DLSS is
+    /// named only where the client says it carries the library; nothing is carried at first.
+    #[test]
+    fn the_art_pack_box_and_the_dlss_line_follow_what_the_client_carries() {
+        assert_eq!(carried(), Carried::default());
+        assert!(left_off(names::REMASTER_ART_PACK));
+        assert!(!left_off(names::REMASTER_SHADOWS));
+        assert!(!attributed());
+        set_carried(Carried {
+            dlss: true,
+            art_pack: true,
+        });
+        assert!(!left_off(names::REMASTER_ART_PACK));
+        assert!(attributed());
+        set_carried(Carried::default());
     }
 
     /// The render scale reads and writes as a share in percent, offers the shares a page lists,

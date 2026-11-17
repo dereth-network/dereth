@@ -15,6 +15,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ## Unreleased
 - Remaster: bounced light is faster on Macs and on cards without ray tracing.
 - macOS: the client's windows take clicks again after leaving full screen.
+- Remaster: now in the Classic and Modern interfaces too, with its options.
 
 ## 0.4.19 (2026-11-17)
 - Remaster: distant forests no longer shimmer with ray-traced shading.

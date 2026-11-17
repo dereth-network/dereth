@@ -1168,8 +1168,7 @@ const CLIENT_SHARED: [Heading; 5] = [
 const CLIENT: [Heading; 5] = CLIENT_SHARED;
 
 /// With the remaster built in, the Client Options page ends with the remaster's boxes under a
-/// heading of their own, on the Horizon interface's page alone: it is the only interface they draw
-/// under.
+/// heading of their own, on every interface's page.
 #[cfg(feature = "fidelity")]
 const CLIENT: [Heading; 6] = {
     let s = CLIENT_SHARED;
@@ -1187,18 +1186,15 @@ const CLIENT: [Heading; 6] = {
     ]
 };
 
-/// The remaster's box, off by default and on the Horizon page alone.
+/// The remaster's box, off by default, its own boxes, and its three menus.
 #[cfg(feature = "fidelity")]
 const REMASTER_ROWS: [Row; 28] = [
-    only(
-        Shown::Only(Interface::Horizon),
-        noted(
-            super::remaster::NOTE,
-            pref(
-                super::remaster::CAPTION,
-                Value::Check(super::names::fidelity::REMASTER),
-                Bool(false),
-            ),
+    noted(
+        super::remaster::NOTE,
+        pref(
+            super::remaster::CAPTION,
+            Value::Check(super::names::fidelity::REMASTER),
+            Bool(false),
         ),
     ),
     remaster_box(0),
@@ -1225,37 +1221,28 @@ const REMASTER_ROWS: [Row; 28] = [
     remaster_box_not_over_metal(21),
     remaster_box(22),
     remaster_box(23),
-    only(
-        Shown::Only(Interface::Horizon),
-        noted(
-            super::remaster::SCALE_NOTE,
-            pref(
-                super::remaster::SCALE_CAPTION,
-                Value::Menu(super::names::fidelity::REMASTER_SCALE),
-                Int(super::remaster::SCALE_DEFAULT as i32),
-            ),
+    noted(
+        super::remaster::SCALE_NOTE,
+        pref(
+            super::remaster::SCALE_CAPTION,
+            Value::Menu(super::names::fidelity::REMASTER_SCALE),
+            Int(super::remaster::SCALE_DEFAULT as i32),
         ),
     ),
-    only(
-        Shown::Only(Interface::Horizon),
-        noted(
-            super::remaster::GOD_RAYS_NOTE,
-            pref(
-                super::remaster::GOD_RAYS_CAPTION,
-                Value::Menu(super::names::fidelity::REMASTER_GOD_RAYS),
-                Int(super::remaster::GOD_RAYS_DEFAULT as i32),
-            ),
+    noted(
+        super::remaster::GOD_RAYS_NOTE,
+        pref(
+            super::remaster::GOD_RAYS_CAPTION,
+            Value::Menu(super::names::fidelity::REMASTER_GOD_RAYS),
+            Int(super::remaster::GOD_RAYS_DEFAULT as i32),
         ),
     ),
-    only(
-        Shown::Only(Interface::Horizon),
-        noted(
-            super::remaster::SCENERY_NOTE,
-            pref(
-                super::remaster::SCENERY_CAPTION,
-                Value::Menu(super::names::fidelity::REMASTER_SCENERY),
-                Int(super::remaster::SCENERY_DEFAULT as i32),
-            ),
+    noted(
+        super::remaster::SCENERY_NOTE,
+        pref(
+            super::remaster::SCENERY_CAPTION,
+            Value::Menu(super::names::fidelity::REMASTER_SCENERY),
+            Int(super::remaster::SCENERY_DEFAULT as i32),
         ),
     ),
 ];
@@ -1271,17 +1258,14 @@ const fn remaster_box_not_over_metal(i: usize) -> Row {
     row
 }
 
-/// One of the remaster's own boxes, on the Horizon page alone, by default as it is at first
+/// One of the remaster's own boxes, by default as it is at first
 /// ([`super::remaster::ticked_at_first`]).
 #[cfg(feature = "fidelity")]
 const fn remaster_box(i: usize) -> Row {
     let f = &super::remaster::FEATURES[i];
-    only(
-        Shown::Only(Interface::Horizon),
-        noted(
-            f.note,
-            pref(f.caption, Value::Check(f.name), Bool(f.at_first)),
-        ),
+    noted(
+        f.note,
+        pref(f.caption, Value::Check(f.name), Bool(f.at_first)),
     )
 }
 
@@ -1576,22 +1560,14 @@ mod tests {
         }
     }
 
-    /// The experimental rendering effects' boxes are on the Horizon interface's Client page
-    /// alone, last, under their own heading, each off by default, with the remaster's box under
-    /// its own just before them; the classic and the modern interfaces' pages are exactly the
-    /// shared headings', row for row; and a build without the effects has no such heading
-    /// anywhere.
-    ///
-    /// Over Metal the boxes that trace rays or ask for DLSS have no row, and the upscaling box
-    /// names MetalFX; elsewhere every box has its row, and upscaling is FSR's.
+    /// Over Metal the boxes that trace rays or ask for DLSS have no row on any interface's page,
+    /// and the upscaling box names MetalFX; elsewhere every box has its row, and upscaling is
+    /// FSR's.
     #[cfg(feature = "fidelity")]
     #[test]
     fn a_box_drawing_nothing_on_this_builds_devices_has_no_row() {
         use crate::options::names::fidelity as names;
         use crate::options::remaster::{drawn_nothing_here, FEATURES};
-        let shown: Vec<&str> = rows_for(PageId::Client, Interface::Horizon)
-            .filter_map(Row::preference)
-            .collect();
         for name in [
             names::REMASTER_TRACED_SHADOWS,
             names::REMASTER_TRACED_OCCLUSION,
@@ -1603,15 +1579,20 @@ mod tests {
                 "{name}"
             );
         }
-        for f in &FEATURES {
-            assert_eq!(
-                shown.contains(&f.name),
-                !drawn_nothing_here(f.name),
-                "{}",
-                f.name
-            );
+        for face in [Interface::Modern, Interface::Classic, Interface::Horizon] {
+            let shown: Vec<&str> = rows_for(PageId::Client, face)
+                .filter_map(Row::preference)
+                .collect();
+            for f in &FEATURES {
+                assert_eq!(
+                    shown.contains(&f.name),
+                    !drawn_nothing_here(f.name),
+                    "{face:?} {}",
+                    f.name
+                );
+            }
+            assert!(shown.contains(&names::REMASTER_BOUNCE), "{face:?}");
         }
-        assert!(shown.contains(&names::REMASTER_BOUNCE));
         let upscale = FEATURES
             .iter()
             .find(|f| f.name == names::REMASTER_UPSCALE)
@@ -1624,73 +1605,75 @@ mod tests {
         assert!(upscale.caption.contains(named), "{}", upscale.caption);
     }
 
-    /// Behaviour: remaster.options.the-boxes-are-on-horizons-page-alone-each-off
+    /// Every interface's Client page ends, in a build with the remaster, with its heading: its
+    /// box, off, its own boxes as they are at first, then its three menus. The rest of each page
+    /// is the shared headings', row for row. A build without the remaster has no such heading on
+    /// any page.
+    ///
+    /// Behaviour: remaster.options.the-boxes-are-on-every-interfaces-page-each-off
     #[test]
-    fn the_remasters_boxes_are_on_horizons_client_page_alone_each_off() {
-        for face in [Interface::Modern, Interface::Classic] {
-            let shown: Vec<&Row> = rows_for(PageId::Client, face).collect();
+    fn the_remasters_boxes_end_every_interfaces_client_page_its_own_box_off() {
+        use crate::options::remaster;
+        for face in [Interface::Modern, Interface::Classic, Interface::Horizon] {
+            let page: Vec<(&Heading, Vec<&Row>)> = headings_for(PageId::Client, face).collect();
             let shared: Vec<&Row> = CLIENT_SHARED
                 .iter()
                 .flat_map(|h| h.rows.iter())
                 .filter(|r| r.shown.on(face) && r.offered())
                 .collect();
-            assert_eq!(shown, shared, "{face:?}");
-            assert!(headings_for(PageId::Client, face)
-                .all(|(h, _)| h.title != crate::options::remaster::HEADING));
-        }
-        let horizon: Vec<(&Heading, Vec<&Row>)> =
-            headings_for(PageId::Client, Interface::Horizon).collect();
-        if cfg!(feature = "fidelity") {
-            let (heading, remaster) = horizon.last().expect("Horizon's Client page has headings");
-            assert_eq!(heading.title, crate::options::remaster::HEADING);
-            let boxes: Vec<_> = crate::options::remaster::FEATURES
+            if !cfg!(feature = "fidelity") {
+                assert!(
+                    page.iter().all(|(h, _)| h.title != remaster::HEADING),
+                    "{face:?}"
+                );
+                let rows: Vec<&Row> = page.iter().flat_map(|(_, r)| r.iter().copied()).collect();
+                assert_eq!(rows, shared, "{face:?}");
+                continue;
+            }
+            let (heading, rows) = page.last().expect("the Client page has headings");
+            assert_eq!(heading.title, remaster::HEADING, "{face:?}");
+            let boxes: Vec<_> = remaster::FEATURES
                 .iter()
-                .filter(|f| !crate::options::remaster::drawn_nothing_here(f.name))
+                .filter(|f| !remaster::drawn_nothing_here(f.name))
                 .collect();
             // The box, its own boxes, the render scale, God Rays and the scenery distance.
-            assert_eq!(remaster.len(), 4 + boxes.len());
+            assert_eq!(rows.len(), 4 + boxes.len(), "{face:?}");
             assert_eq!(
-                remaster[remaster.len() - 2].value,
-                Value::Menu(crate::options::names::fidelity::REMASTER_GOD_RAYS)
+                rows[0].value,
+                Value::Check(crate::options::names::fidelity::REMASTER)
             );
-            assert_eq!(
-                remaster[remaster.len() - 1].value,
-                Value::Menu(crate::options::names::fidelity::REMASTER_SCENERY)
-            );
-            for (row, f) in remaster[1..].iter().zip(boxes) {
+            assert_eq!(rows[0].caption, remaster::CAPTION);
+            assert_eq!(rows[0].default, Some(Bool(false)));
+            for (row, f) in rows[1..].iter().zip(boxes) {
                 assert_eq!(row.value, Value::Check(f.name));
                 assert_eq!(row.caption, f.caption);
                 assert_eq!(
                     row.default,
-                    Some(Bool(crate::options::remaster::ticked_at_first(f.name))),
+                    Some(Bool(remaster::ticked_at_first(f.name))),
                     "{}",
                     f.name
                 );
-                assert_eq!(row.shown, Shown::Only(Interface::Horizon));
             }
             assert_eq!(
-                remaster[0].value,
-                Value::Check(crate::options::names::fidelity::REMASTER)
+                rows[rows.len() - 3].value,
+                Value::Menu(crate::options::names::fidelity::REMASTER_SCALE)
             );
-            assert_eq!(remaster[0].caption, crate::options::remaster::CAPTION);
-            assert_eq!(remaster[0].default, Some(Bool(false)));
-            assert_eq!(remaster[0].shown, Shown::Only(Interface::Horizon));
-            // The rest of Horizon's page is the shared headings'.
-            let rest: Vec<&Row> = horizon[..horizon.len() - 1]
+            assert_eq!(
+                rows[rows.len() - 2].value,
+                Value::Menu(crate::options::names::fidelity::REMASTER_GOD_RAYS)
+            );
+            assert_eq!(
+                rows[rows.len() - 1].value,
+                Value::Menu(crate::options::names::fidelity::REMASTER_SCENERY)
+            );
+            // Every row of it is on every interface's page.
+            assert!(rows.iter().all(|r| r.shown == Shown::Both), "{face:?}");
+            // The rest of the page is the shared headings'.
+            let rest: Vec<&Row> = page[..page.len() - 1]
                 .iter()
                 .flat_map(|(_, r)| r.iter().copied())
                 .collect();
-            let shared: Vec<&Row> = CLIENT_SHARED
-                .iter()
-                .flat_map(|h| h.rows.iter())
-                .filter(|r| r.shown.on(Interface::Horizon) && r.offered())
-                .collect();
-            assert_eq!(rest, shared);
-        } else {
-            assert!(horizon
-                .iter()
-                .all(|(h, _)| h.title != crate::options::remaster::HEADING));
-            assert_eq!(page(PageId::Client).headings.len(), CLIENT_SHARED.len());
+            assert_eq!(rest, shared, "{face:?}");
         }
     }
 

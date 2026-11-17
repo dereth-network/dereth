@@ -463,6 +463,9 @@ pub struct PlayerOptionPage {
     /// How many of the menus got a popup out of — the denominator for
     /// [`Self::menu_entries`]. Eight on the shipped tree; 0 without an asset source.
     pub menu_popups: usize,
+    /// The row naming NVIDIA's DLSS under the remaster's rows, where the client carries its
+    /// library ([`Self::add_attribution`]).
+    pub attribution: Option<ElemHandle>,
 }
 
 impl PlayerOptionPage {
@@ -601,6 +604,24 @@ impl PlayerOptionPage {
         self.headers += 1;
         set_literal_text(ui, row, caption);
         self.header_captions += 1;
+        true
+    }
+
+    /// A line of literal text in the header's bare text row that heads nothing: NVIDIA's DLSS
+    /// named under the remaster's rows. Recorded in [`Self::attribution`].
+    pub fn add_attribution(&mut self, ui: &mut UiSystem, text: &str) -> bool {
+        let Some(row) = self.add_row(ui, template::HEADER) else {
+            return false;
+        };
+        // The row is as wide as a heading needs; the line is longer, so it takes the list's width.
+        let list = self.option_box.as_ref().map(|b| b.handle);
+        let width = list.and_then(|l| ui.node(l)).map(|n| n.region.box_.width());
+        let height = ui.node(row).map(|n| n.region.box_.height());
+        if let (Some(w), Some(h)) = (width, height) {
+            ui.resize_to(row, w, h);
+        }
+        set_literal_text(ui, row, text);
+        self.attribution = Some(row);
         true
     }
 
@@ -1590,12 +1611,17 @@ impl PlayerOptionPage {
     /// retail page builds its own ([`super::config::config_row`]); a row of this client's own
     /// is captioned with literal text.
     ///
+    /// In a build with the remaster the page ends with its rows, as every interface's does: the
+    /// art pack's box only while a pack is open, and NVIDIA's DLSS named under them where the
+    /// client carries its library ([`dereth_client_contract::options::remaster::carried`]).
+    ///
     /// A caption only *appears* if the host installed a string resolver — the ids resolve in
     /// `DataId(0x23000003)`, the `Preference` table. [`Self::header_captions`],
     /// [`Self::slider_end_captions`] and [`UiOption::label`] record what actually landed, so a
     /// headless caller can tell "no registry" from "no string table" from "captioned".
     pub fn init_options(&mut self, ui: &mut UiSystem) -> usize {
         use dereth_client_contract::options::interface::Interface;
+        use dereth_client_contract::options::remaster;
         use dereth_client_contract::options::sheet::{self, PageId};
         for (k, (heading, rows)) in
             sheet::headings_for(PageId::Client, Interface::Modern).enumerate()
@@ -1607,9 +1633,15 @@ impl PlayerOptionPage {
             self.add_literal_header(ui, &caption);
             for r in rows {
                 let Some(p) = r.preference() else { continue };
+                if remaster::left_off(p) {
+                    continue;
+                }
                 if let Some(c) = super::config::config_row(p) {
                     self.add_config_row(ui, &c);
                 }
+            }
+            if heading.title == remaster::HEADING && remaster::attributed() {
+                self.add_attribution(ui, remaster::DLSS_ATTRIBUTION);
             }
         }
         // A slider another option decides is greyed while it is not used. It keeps the retail

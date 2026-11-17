@@ -114,8 +114,8 @@ pub const INTERFACE: &str = "UI.Interface";
 /// Read once, at start-up; `--renderer` on the command line wins over it.
 pub const RENDERER: &str = "Render.Renderer";
 
-/// The `[Fidelity]` section: the remaster's options, drawn only while the Horizon interface is
-/// shown. None of these is a retail preference. Each box is a switch the profile keeps as `True`
+/// The `[Fidelity]` section: the remaster's options, under whichever interface is shown. None of
+/// these is a retail preference. Each box is a switch the profile keeps as `True`
 /// or `False`. Names an earlier build kept here and this one does not know are not read.
 pub mod fidelity {
     /// `Fidelity.Remaster`: the world is drawn by the remaster, on the Vulkan or Direct3D 12
@@ -182,10 +182,6 @@ pub mod fidelity {
     /// `Fidelity.RemasterScenery`: how many rings of blocks round the player's stand their trees,
     /// buildings and objects while the remaster draws, 1 to 4.
     pub const REMASTER_SCENERY: &str = "Fidelity.RemasterScenery";
-    /// `Fidelity.Interface`: whether the interface shown is Horizon, the only one the
-    /// remaster draws under. The client sets it as the interface changes; it is never kept
-    /// in the profile.
-    pub const INTERFACE: &str = "Fidelity.Interface";
     /// `Fidelity.ArtPack`: the art pack the remaster draws, the path of its folder or of the
     /// file it was packed into, read at start-up. `--art-pack` on the command line and `DERETH_ART_PACK` in the environment win
     /// over it. No box sets it.

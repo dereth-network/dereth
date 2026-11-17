@@ -213,6 +213,15 @@ impl<S: Shell> App<S> {
         if !cfg.art_packs.is_empty() {
             present.offer_art_packs(&cfg.art_packs);
         }
+        // What the remaster's rows on the options pages answer to: whether NVIDIA's DLSS library
+        // stands beside the client, and whether an art pack opened.
+        #[cfg(feature = "fidelity")]
+        dereth_client_contract::options::remaster::set_carried(
+            dereth_client_contract::options::remaster::Carried {
+                dlss: present.dlss_carried(),
+                art_pack: present.art_pack_open(),
+            },
+        );
 
         // The player's look file, beside the preferences.
         if !cfg.preferences_file.as_os_str().is_empty() {
@@ -266,8 +275,6 @@ impl<S: Shell> App<S> {
         let object_identity = scene_cfg.object_identity_budget.and_then(|budget| {
             ObjectIdentityPrep::start(&store, budget, scene_cfg.object_identity_cache)
         });
-        #[cfg(feature = "fidelity")]
-        let horizon_interface = cfg.render.fidelity.interface;
         let explore = cfg.explore.then(crate::explore::Explore::default);
         let mut app = Self {
             cfg,
@@ -289,8 +296,6 @@ impl<S: Shell> App<S> {
             orbit: None,
             orbit_keys: crate::orbit::MovementKeys::default(),
             orbit_pending: Vec::new(),
-            #[cfg(feature = "fidelity")]
-            horizon_interface,
             #[cfg(feature = "fidelity")]
             fidelity_told: Vec::new(),
             #[cfg(feature = "fidelity")]

@@ -766,11 +766,6 @@ pub struct App<S: Shell> {
     pub orbit_keys: crate::orbit::MovementKeys,
     /// What the orbit camera's mouse buttons asked of the game since the last dispatch.
     pub orbit_pending: Vec<dereth_client_contract::actions::Action>,
-    /// Whether the interface shown is Horizon, the only one the remaster draws under: every world
-    /// this client builds takes it, and the drawn one follows it as it changes
-    /// ([`crate::ui_context::UiContext::set_horizon_interface`]).
-    #[cfg(feature = "fidelity")]
-    pub horizon_interface: bool,
     /// What the player has been told this session of the remaster refused on this device: each
     /// line is said once.
     #[cfg(feature = "fidelity")]

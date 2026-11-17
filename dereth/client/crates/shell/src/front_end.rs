@@ -1914,7 +1914,6 @@ impl<H: Host> ClientShell<H> {
         cx.set_smooth_movement(false);
         // The game's attack controls again: held, they charge.
         cx.set_press_attacks(false);
-        cx.set_horizon_interface(false);
         self.horizon.active = false;
         cx.hud_mut().horizon_active = false;
         flush_panel_sessions(cx);
@@ -1931,7 +1930,6 @@ impl<H: Host> ClientShell<H> {
             cx.set_orbit_camera(Some(ui.ui.options.orbit));
         }
         self.horizon.active = true;
-        cx.set_horizon_interface(true);
         // Another interface may have rebound keys while this one was put away.
         self.horizon.keys.invalidate();
         cx.hud_mut().horizon_active = true;

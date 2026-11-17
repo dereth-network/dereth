@@ -134,7 +134,7 @@ impl SceneDraw {
         fidelity: &dereth_client_runtime::render_prefs::FidelityPreferences,
     ) -> u32 {
         use dereth_client_runtime::render_prefs::FidelityFeature;
-        match fidelity.effective(FidelityFeature::RemasterScenery) {
+        match fidelity.value(FidelityFeature::RemasterScenery) {
             0 => self.scenery_asked,
             _ if !self.remaster_on() => self.scenery_asked,
             rings => rings,

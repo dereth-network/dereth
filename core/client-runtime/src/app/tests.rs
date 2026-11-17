@@ -826,8 +826,7 @@ fn a_window_that_draws_at_a_share_of_its_screen_offers_the_render_scale_at_its_s
 }
 
 /// A landscape or remaster option set while playing is recorded in the next world's scene;
-/// an option the store holds is read back from it instead, and is not. The interface flag is
-/// not a preference: the next world takes it from the interface shown.
+/// an option the store holds is read back from it instead, and is not.
 ///
 /// Behaviour: remaster.options.a-live-fidelity-change-is-kept-for-the-next-world
 #[test]
@@ -837,22 +836,13 @@ fn a_live_fidelity_or_landscape_change_is_kept_for_the_next_world() {
     for name in fidelity::NAMES {
         assert!(kept_for_the_next_world(name), "{name}");
     }
-    assert!(!kept_for_the_next_world(fidelity::INTERFACE));
     assert!(kept_for_the_next_world(landscape::GROUND));
     assert!(!kept_for_the_next_world("Render.ScreenBrightness"));
     let mut next = crate::scene::SceneConfig::default();
-    for (name, value) in [
-        (
-            fidelity::INTERFACE,
-            dereth_client_contract::PrefValue::Bool(true),
-        ),
-        (
-            fidelity::REMASTER,
-            dereth_client_contract::PrefValue::Bool(true),
-        ),
-    ] {
-        assert!(next.render.set_named(name, &value), "{name}");
-    }
+    assert!(next.render.set_named(
+        fidelity::REMASTER,
+        &dereth_client_contract::PrefValue::Bool(true)
+    ));
     assert!(next.render.fidelity.remaster());
     assert!(!with_stored_options(next)
         .render

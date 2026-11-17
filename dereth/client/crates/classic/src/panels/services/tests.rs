@@ -908,6 +908,107 @@ fn the_client_page_s_render_scale_is_there_where_the_host_offers_it_and_apply_ke
     store::clear();
 }
 
+/// The classic Client Options page ends with the remaster's heading, its box and its own boxes,
+/// captioned as the other interfaces caption them; the art pack's box is there only while a pack
+/// is open, and NVIDIA's DLSS is named under them only where the client carries its library. A
+/// box's note is its hint, and the box ticked and applied writes the remaster's preference, which
+/// every interface reads.
+///
+/// Behaviour: remaster.options.the-boxes-are-on-every-interfaces-page-each-off
+#[test]
+fn the_client_page_ends_with_the_remasters_boxes_and_apply_writes_its_box() {
+    use dereth_client_contract::options::names::fidelity as names;
+    use dereth_client_contract::options::{remaster, store};
+    use dereth_client_contract::PrefValue;
+    store::init();
+    remaster::set_carried(remaster::Carried::default());
+    let v = View::default();
+    let page = || {
+        let mut p = make("sound-graphics").unwrap();
+        let (words, controls) = with_context(&v, |c| {
+            p.event(ControlEvent::Tick, c);
+            whole_client_page(&mut *p, c)
+        });
+        (p, words, controls)
+    };
+    let has = |words: &[String], w: &str| words.iter().any(|t| t == w);
+    let row = |name: &str| format!("row:{name}");
+    let (mut p, words, controls) = page();
+    for caption in [
+        remaster::HEADING,
+        remaster::CAPTION,
+        remaster::SCALE_CAPTION,
+        remaster::GOD_RAYS_CAPTION,
+        remaster::SCENERY_CAPTION,
+    ] {
+        assert!(has(&words, caption), "{caption} is not on the page");
+    }
+    for f in remaster::FEATURES
+        .iter()
+        .filter(|f| !remaster::drawn_nothing_here(f.name) && f.name != names::REMASTER_ART_PACK)
+    {
+        assert!(has(&words, f.caption), "{} is not on the page", f.caption);
+        assert!(controls.iter().any(|k| k.id == row(f.name)), "{}", f.name);
+    }
+    // No pack open, no art pack box; no library beside the client, no line naming it.
+    assert!(controls
+        .iter()
+        .all(|k| k.id != row(names::REMASTER_ART_PACK)));
+    assert!(!has(&words, remaster::DLSS_ATTRIBUTION));
+    // The box's note, while the pointer rests on it.
+    let at = row(names::REMASTER);
+    let hint = with_context(&v, |c| {
+        p.hover(
+            HoverPoint {
+                id: &at,
+                x: 0,
+                y: 0,
+                item: None,
+                row: None,
+            },
+            c,
+        )
+    });
+    assert_eq!(hint, Hover::lines(remaster::CAPTION, remaster::NOTE));
+    // Ticked, nothing is kept before Apply; applied, the box writes the remaster's preference.
+    event(
+        &mut *p,
+        ControlEvent::Check {
+            id: at.clone(),
+            checked: true,
+        },
+        &v,
+    );
+    assert_eq!(
+        store::inq_value(names::REMASTER),
+        Some(PrefValue::Bool(false))
+    );
+    let applied = activate(&mut *p, "apply", &v);
+    assert!(
+        applied.contains(&PanelAction::Game(UiRequest::SetPreference(
+            names::REMASTER,
+            PrefValue::Bool(true)
+        ))),
+        "{applied:?}"
+    );
+    assert_eq!(
+        store::inq_value(names::REMASTER),
+        Some(PrefValue::Bool(true))
+    );
+    // With a pack open and the library beside the client, the box and the line are there.
+    remaster::set_carried(remaster::Carried {
+        dlss: true,
+        art_pack: true,
+    });
+    let (_, words, controls) = page();
+    assert!(controls
+        .iter()
+        .any(|k| k.id == row(names::REMASTER_ART_PACK)));
+    assert!(has(&words, remaster::DLSS_ATTRIBUTION));
+    remaster::set_carried(remaster::Carried::default());
+    store::clear();
+}
+
 #[test]
 fn fellowship_member_layout_hides_creation_options_and_uses_live_vital_rows() {
     use dereth_client_contract::view::{FellowEntry, FellowshipView};

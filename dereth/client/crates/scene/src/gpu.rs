@@ -227,16 +227,16 @@ mod imp {
                 if r.remaster {
                     r.effects = FidelityFeature::ALL
                         .into_iter()
-                        .filter(|&b| b != FidelityFeature::Remaster && f.effective(b) != 0)
+                        .filter(|&b| b != FidelityFeature::Remaster && f.value(b) != 0)
                         .map(|b| {
                             let name = b.name().trim_start_matches("Fidelity.");
-                            format!("{name}={}", f.effective(b))
+                            format!("{name}={}", f.value(b))
                         })
                         .collect::<Vec<_>>()
                         .join(",");
-                    let upscaled = f.effective(FidelityFeature::RemasterUpscale) != 0
-                        || f.effective(FidelityFeature::RemasterDlss) != 0;
-                    let scale = f.effective(FidelityFeature::RemasterScale);
+                    let upscaled = f.value(FidelityFeature::RemasterUpscale) != 0
+                        || f.value(FidelityFeature::RemasterDlss) != 0;
+                    let scale = f.value(FidelityFeature::RemasterScale);
                     r.upscaler = crate::world_scene::remaster_upscaler_drawn().to_owned();
                     if upscaled {
                         r.render_scale = if scale == 0 {
