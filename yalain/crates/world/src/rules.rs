@@ -275,9 +275,11 @@ pub fn armor_lets_through_missiles(player_level: i32) -> f32 {
 }
 
 /// What a creature's hit is made of: its natural damage and variance, what its skill's hook adds at
-/// its rating, the factor of a skill known without its definition (1 otherwise), and the most of
-/// the hit armor leaves it when armor takes nearly all of it (its template's armor threshold, else
-/// [`ARMOR_FLOOR`]'s top).
+/// its rating, the factor of a skill known without its definition (1 otherwise), the most of the
+/// hit armor leaves it when armor takes nearly all of it (its template's armor threshold, else
+/// [`ARMOR_FLOOR`]'s top), and how much more a critical of its skill does before armor (the
+/// modifier the skill's class sets, else [`CRITICAL_BEFORE_ARMOR`]; a hit on the lowest levels,
+/// which reads no armor, keeps [`CREATURE_CRITICAL`]).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Natural {
     pub damage: f32,
@@ -285,6 +287,7 @@ pub struct Natural {
     pub added: f32,
     pub factor: f32,
     pub threshold: f32,
+    pub critical: f32,
 }
 
 /// The most of a creature's hit its armor threshold lets armor leave it: the template's own, else
@@ -300,8 +303,14 @@ pub fn threshold_of(stats: &yalain_content::CreatureStats) -> f32 {
         .unwrap_or(ARMOR_FLOOR.1)
 }
 
-/// A creature's critical on a player, before armor (2017: 327 critical hits, damage with the armor
-/// back on over the plain mean, 1.20 at every rating up to the mean hit).
+/// A creature's critical on a player, before armor, where its skill's class sets no size of its own
+/// (2017: 327 critical hits of skills whose classes set 1.2, damage with the armor back on over the
+/// plain mean, 1.20 at every rating up to the mean hit). A class that sets its own is read: 1 does
+/// no more than a plain hit, a boss's 1.25 to 1.5 more (2017: the Burun's combos, whose class sets
+/// 1, struck 8 criticals of 77 to 96, a mean of 87.5, among plain hits of 70 to 101, a mean of 84,
+/// on the same player, where 1.2 would have made 93 to 141; the Gigurath's Ground Tremor, 1.5, 2
+/// criticals of 964 and 1,116 against plain hits of 523 and 705 on the same players, where 1.2
+/// would have made about 690 and 870).
 pub const CRITICAL_BEFORE_ARMOR: f32 = 1.2;
 /// What a hit can come to when armor has taken more than this much of it: a share drawn from these
 /// (the top a creature's armor threshold may set lower), of the hit before armor, if that's more
@@ -314,11 +323,11 @@ pub const ARMOR_FLOOR: (f32, f32) = (0.01, 0.25);
 pub const LEVEL_BEFORE_ARMOR: i32 = 2;
 
 /// A creature's hit on a player: its natural damage rolled from the share its variance leaves up to
-/// all of it, with what its skill adds (and the factor), a critical a fifth more, less the armor the
-/// player has, a point for a point. What armor leaves is never below a draw of up to a quarter of
-/// the hit, so no rating stops one. Armor effects have taken below nothing adds to the hit (2017: a
-/// group of 1,242 hits at armor 100 within 0.4 of this; a point of armor a point at every level from
-/// 6 up, melee, missile and magic alike).
+/// all of it, with what its skill adds (and the factor), a critical its skill's size more
+/// ([`Natural::critical`]), less the armor the player has, a point for a point. What armor leaves
+/// is never below a draw of up to a quarter of the hit, so no rating stops one. Armor effects have
+/// taken below nothing adds to the hit (2017: a group of 1,242 hits at armor 100 within 0.4 of
+/// this; a point of armor a point at every level from 6 up, melee, missile and magic alike).
 pub fn creature_hit_on_player(
     rng: &mut Rng,
     kind: Kind,
@@ -341,7 +350,7 @@ pub fn creature_hit_on_armor(rng: &mut Rng, n: Natural, armor: f32, critical: bo
     let v = n.variance.clamp(0.0, 1.0);
     let mut d = (n.damage * rng.between(1.0 - v, 1.0) + n.added) * n.factor;
     if critical {
-        d *= CRITICAL_BEFORE_ARMOR;
+        d *= n.critical;
     }
     let floor = rng.between(ARMOR_FLOOR.0, n.threshold.max(ARMOR_FLOOR.0)) * d;
     dereth_primitives::num::to_i32((d - armor).max(floor).round()).max(1)
@@ -390,6 +399,7 @@ pub fn creature_damage(
             added: 0.0,
             factor: 1.0,
             threshold: ARMOR_FLOOR.1,
+            critical: CRITICAL_BEFORE_ARMOR,
         },
         player_level,
         critical,

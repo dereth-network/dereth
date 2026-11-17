@@ -29,6 +29,7 @@ fn plain(damage: f32, variance: f32) -> Natural {
         added: 0.0,
         factor: 1.0,
         threshold: rules::ARMOR_FLOOR.1,
+        critical: rules::CRITICAL_BEFORE_ARMOR,
     }
 }
 

@@ -4482,6 +4482,7 @@ fn creatures_hits_on_pets_take_what_2017_recorded_by_kind_and_level() {
                     added: 0.0,
                     factor: 1.0,
                     threshold: yalain_world::rules::ARMOR_FLOOR.1,
+                    critical: yalain_world::rules::CRITICAL_BEFORE_ARMOR,
                 };
                 let sum: i64 = (0..DRAWS)
                     .map(|_| {

@@ -1474,6 +1474,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.combat.creature-critical-size-by-skill",
+        says: "A creature's critical does as much more, before the player's armor, as its skill's \
+               class sets: 1.2 for most, 1 (no more than a plain hit) for many monsters' attacks, \
+               1.25 to 1.5 for the bosses'.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-CRITICAL-SIZE"),
+        station: "yalain-testkit::cpu::play::creature_weapons::a_creatures_critical_does_what_its_skills_class_sets_more_before_armor",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.combat.creature-damage-through-armor",
         says: "A creature's hit does its natural damage in full to a player of level 1 or 2, \
                whatever it wears; on a creature, the share armor lets through by the level hit.",
@@ -4494,6 +4504,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-UNBOUND-RETURN-ON-THE-GROUND"),
         station: "yalain-testkit::cpu::play::dying::a_player_never_bound_comes_back_on_the_ground_beside_the_nearest_lifestone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.death.unfair-kill-leaves-nothing",
+        says: "A creature killed by a player it could not reach leaves its corpse empty: no trophy, \
+               no treasure, nothing its death would put on it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-UNFAIR-NO-LOOT"),
+        station: "yalain-testkit::cpu::play::fellowships::a_kill_by_a_player_the_creature_could_not_reach_leaves_its_corpse_empty",
         tier: Tier::Cpu,
     },
     behaviour! {

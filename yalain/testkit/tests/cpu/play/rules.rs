@@ -161,6 +161,7 @@ fn a_creatures_skill_adds_its_damage_before_the_players_armor() {
         added: 3.0,
         factor: 1.0,
         threshold: rules::ARMOR_FLOOR.1,
+        critical: rules::CRITICAL_BEFORE_ARMOR,
     };
     assert_eq!(rules::creature_hit(&mut rng, Kind::Melee, n, 1, false), 8);
     assert_eq!(

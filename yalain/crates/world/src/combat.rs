@@ -2311,6 +2311,7 @@ fn creature_blow_on_player<S: Store>(
                 added: skill.added + more,
                 factor: skill.factor,
                 threshold,
+                critical: skill.critical_size,
             },
             my_level,
             armor,
@@ -2529,6 +2530,7 @@ pub(crate) fn creature_blow_on_thing<S: Store>(
         added: skill.added,
         factor: skill.factor,
         threshold: rules::threshold_of(stats),
+        critical: skill.critical_size,
     };
     let critical = outcome == Outcome::Critical;
     let damage = match (outcome.landed(), crate::pets::armor_of(s, target)) {

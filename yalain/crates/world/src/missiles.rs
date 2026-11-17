@@ -76,8 +76,9 @@ use crate::{presence, quals, Clock, Server, Timer};
 /// is a special (0: the general one), whether its hit drains the target too, its greatest range
 /// and whether a use bars it for a while; and its chance of a critical among its landed attacks,
 /// before what the creature's weapon adds (its class's, [`rules::skill_critical`]; for a skill
-/// without a definition, its kind's measured share); and the radius its area hook reaches round its
-/// target (0 for the target alone).
+/// without a definition, its kind's measured share), and how much more a critical of it does before
+/// armor (its class's modifier, [`rules::CRITICAL_BEFORE_ARMOR`] where its class sets none); and the
+/// radius its area hook reaches round its target (0 for the target alone).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AttackSkill {
     pub skill: u32,
@@ -87,6 +88,7 @@ pub struct AttackSkill {
     pub added: f32,
     pub factor: f32,
     pub critical: f64,
+    pub critical_size: f32,
     pub special_chance: f32,
     pub drains: bool,
     pub max_range: f32,
@@ -103,6 +105,7 @@ const fn attack(skill: u32, behavior: u32, kind: Kind, factor: f32) -> AttackSki
         added: 0.0,
         factor,
         critical: rules::fit(rules::Direction::CreatureOnPlayer, kind).critical,
+        critical_size: rules::CRITICAL_BEFORE_ARMOR,
         special_chance: 0.0,
         drains: false,
         max_range: if matches!(kind, Kind::Melee) {
@@ -190,6 +193,7 @@ pub fn attack_skill(
         added,
         factor: 1.0,
         critical: d.critical_threshold.map_or(0.0, rules::skill_critical),
+        critical_size: d.critical_modifier.unwrap_or(rules::CRITICAL_BEFORE_ARMOR),
         special_chance: known.map_or(0.0, |k| k.special_chance),
         drains: known.is_some_and(|k| k.drains),
         max_range: u.max_range,
@@ -741,6 +745,7 @@ fn lands_on_player<S: Store>(
                 added: f.skill.added + more,
                 factor: f.skill.factor,
                 threshold: rules::threshold_of(stats),
+                critical: f.skill.critical_size,
             },
             my_level,
             armor,

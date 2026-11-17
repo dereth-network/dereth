@@ -388,3 +388,84 @@ fn a_creatures_weapon_adds_its_critical_chance_to_its_skills() {
         assert!(results(0.0, 0.0, loosed).iter().all(|r| *r == hit));
     }
 }
+
+/// A creature's critical does as much more, before the player's armor, as its skill's class sets:
+/// a class's 1.5 half again its plain hit, a class's 1 no more than it.
+/// Behaviour: server.combat.creature-critical-size-by-skill
+#[test]
+fn a_creatures_critical_does_what_its_skills_class_sets_more_before_armor() {
+    use yalain_world::missiles::{self, CREATURE_ATTACKS};
+    use yalain_world::rules::Outcome;
+    // What each critical took from the player, of 30 strikes that are critical whenever they land.
+    let criticals = |size: f32| -> Vec<i32> {
+        let mut h = world(
+            creature(&[("AICombat_NaturalDamage", Prop::Float(100.0))]),
+            &[],
+        );
+        let (b, me, id) = noticed(&mut h);
+        let world = *h
+            .server
+            .players
+            .iter()
+            .find(|(_, p)| p.character == me)
+            .expect("in the world")
+            .0;
+        if let Some(p) = h.server.players.get_mut(&world) {
+            yalain_world::quals::set_int(&mut p.qualities, yalain_world::examine::LEVEL, 20);
+            yalain_world::quals::set_int(
+                &mut p.qualities,
+                yalain_world::player::quality::HEALTH_MAX,
+                100_000,
+            );
+            yalain_world::quals::set_int(
+                &mut p.qualities,
+                yalain_world::player::quality::HEALTH,
+                100_000,
+            );
+        }
+        let skill = missiles::AttackSkill {
+            critical: 1.0,
+            critical_size: size,
+            ..CREATURE_ATTACKS[0]
+        };
+        let from = h.bots[b].inbox.len();
+        for _ in 0..30 {
+            if let Some(c) = h
+                .server
+                .things
+                .get_mut(id)
+                .and_then(|t| t.creature.as_mut())
+            {
+                c.next_attack = f64::MAX;
+            }
+            let clock = h.clock();
+            yalain_world::combat::creature_strike_with(
+                &mut h.server,
+                &mut h.net,
+                id,
+                world,
+                skill,
+                false,
+                clock,
+            );
+            h.run(30);
+        }
+        let took: Vec<i32> = h
+            .world_messages(b, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::DoStory(e) if e.action.attacker == id => {
+                    Some(e.action.hooks.clone())
+                }
+                _ => None,
+            })
+            .flatten()
+            .filter(|k| k.numbers[0].cast_unsigned() == Outcome::Critical.code())
+            .map(|k| -k.numbers[3])
+            .collect();
+        assert!(took.len() >= 5, "{size}: {took:?}");
+        took
+    };
+    assert!(criticals(1.5).iter().all(|d| *d == 150), "half again");
+    assert!(criticals(1.0).iter().all(|d| *d == 100), "no more");
+}

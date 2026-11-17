@@ -1083,6 +1083,63 @@ fn a_kill_by_a_player_the_creature_could_not_reach_pays_no_one_and_moves_no_ques
     }
 }
 
+/// A kill by a player the creature could not reach leaves its corpse empty: the same creature,
+/// sure to leave its trophy, leaves it on its corpse for a player it reached.
+/// Behaviour: server.death.unfair-kill-leaves-nothing
+#[test]
+fn a_kill_by_a_player_the_creature_could_not_reach_leaves_its_corpse_empty() {
+    for unreached in [true, false] {
+        let (mut h, [_, (_, bid), _]) = three();
+        h.add_creatures(1);
+        h.run(20);
+        let beetle = h
+            .server
+            .things
+            .by_id
+            .values()
+            .find(|t| t.creature.is_some())
+            .map(|t| t.id)
+            .expect("a beetle");
+        if let Some(cr) = h
+            .server
+            .things
+            .get_mut(beetle)
+            .and_then(|t| t.creature.as_mut())
+        {
+            cr.stats.attacks_first = false;
+            cr.stats.loot_profile = None;
+            cr.stats.trophies = vec![(yalain_testkit::TEST_ITEM, 1.0)];
+            cr.damage_by = vec![(bid, 30)];
+            cr.taken_by = vec![(bid, 30)];
+            if unreached {
+                cr.unreached = vec![bid];
+            }
+        }
+        let clock = h.clock();
+        yalain_world::death::creature_dies(&mut h.server, &mut h.net, beetle, bid, clock);
+        let corpse = |h: &Harness| {
+            h.server
+                .things
+                .by_id
+                .values()
+                .filter_map(|t| t.corpse.as_ref())
+                .find(|c| c.originator == beetle)
+                .map(|c| c.contents.clone())
+        };
+        assert!(h.run_until(400, |h| corpse(h).is_some()), "a corpse");
+        let held: Vec<u32> = corpse(&h)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|i| h.server.things.get(*i).map(|t| t.template))
+            .collect();
+        if unreached {
+            assert!(held.is_empty(), "nothing on it: {held:x?}");
+        } else {
+            assert_eq!(held, vec![yalain_testkit::TEST_ITEM], "its trophy");
+        }
+    }
+}
+
 /// A place offered by one who has since joined another's fellowship is no place: the one it was
 /// offered to stays out, and the other's fellowship takes no one its leader didn't ask.
 /// Behaviour: server.fellowship.a-place-is-its-leaders-to-offer

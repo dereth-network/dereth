@@ -144,6 +144,22 @@ fn a_skills_critical_modifier_is_what_its_class_sets() {
     assert!(set > 1_500, "most used skills set one: {set}");
 }
 
+/// A creature's attack carries the critical size its skill's class sets: the plain melee attack's
+/// 1.2, the Burun combo's 1, the Gigurath's Ground Tremor 1.5 and the Wharu's Circle of Pain 1.25.
+/// Behaviour: server.combat.creature-critical-size-by-skill
+#[test]
+fn a_creatures_attack_carries_the_critical_size_its_skills_class_sets() {
+    let t = Portal::open().skills();
+    for (skill, size) in [(1845, 1.2), (456, 1.0), (1426, 1.5), (1432, 1.25)] {
+        let a = attack_skill(&t, skill, 1).expect("an attack");
+        assert!(
+            (a.critical_size - size).abs() < 1e-6,
+            "{skill}: {}",
+            a.critical_size
+        );
+    }
+}
+
 /// A skill's definition says whether a use whose effect fails leaves it unused: the turret
 /// casing's, the Shreth summoning's and Allegiance Recall's do; the others start the recovery all
 /// the same, as Summon Portal's and Deadeye's do.
