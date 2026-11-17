@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Quest steps can now let a player be fought anywhere by other kingdoms, or stop it.
 - Hero Chants now spend focus while they run, and stop when it runs out.
 - Shields now only guard against attacks from the front.
 - Armor and shields now count no more than your level's caps.

@@ -611,6 +611,8 @@ pub struct Step {
     /// Seconds by the calendar, above 0: once it has run for a player it runs for that player again
     /// only after so many.
     pub again_after: Option<u32>,
+    /// What it does to the permissions its player always lets through.
+    pub permissions: Option<yalain_content::kingdoms::Permits>,
     pub prov: Prov,
 }
 
@@ -1958,6 +1960,7 @@ pub const FIELDS: [(&str, &[&str]); 74] = [
             "out_of_turn",
             "given_effects",
             "again_after",
+            "permissions",
             "prov",
         ],
     ),
@@ -3083,6 +3086,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                     let ok = after.is_none_or(|t| t > 0);
                     f.held("again_after", after, ok, "above 0")?
                 },
+                permissions: f.permits(),
                 prov: f.req_prov()?,
             }))
         }
@@ -6535,6 +6539,27 @@ impl<'a> Fields<'a> {
             self.bad("costs", "levels rising from 0");
             Vec::new()
         }
+    }
+
+    /// A step's `permissions`: `{ grant, revoke }`, the bits it grants and those it revokes, at least
+    /// one of them, and no bit both.
+    fn permits(&mut self) -> Option<yalain_content::kingdoms::Permits> {
+        self.typed(
+            "permissions",
+            "{ grant, revoke }: the permission bits it grants and revokes, at least one, no bit in both",
+            |v| {
+                let t = v.as_table()?;
+                if t.is_empty() || t.keys().any(|k| k != "grant" && k != "revoke") {
+                    return None;
+                }
+                let bits = |k: &str| t.get(k).map_or(Some(0), as_u32);
+                let p = yalain_content::kingdoms::Permits {
+                    grant: bits("grant")?,
+                    revoke: bits("revoke")?,
+                };
+                (p.grant | p.revoke != 0 && p.grant & p.revoke == 0).then_some(p)
+            },
+        )
     }
 
     /// `[[corpse_find]]`'s `bands`: `{ from, items }`, the killer's least level and the items drawn

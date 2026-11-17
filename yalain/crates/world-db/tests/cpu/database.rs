@@ -3544,6 +3544,60 @@ fn a_steps_wait_between_runs_is_read_compiled_by_its_quest_and_key_and_kept_abov
     }
 }
 
+/// A step's `permissions` are read and compiled to what the step of its quest and key grants and
+/// revokes; one with neither, a bit in both or another key is a problem.
+#[test]
+fn a_steps_permissions_compile_by_its_quest_and_key_and_bad_ones_are_problems() {
+    use yalain_content::kingdoms::Permits;
+    let step = |extra: &str| {
+        let mut files = fixture();
+        edit(
+            &mut files,
+            "town/server/quests/40000088.toml",
+            "needs = 0\ntrigger = { use = 0x470033D0 }\n",
+            &format!("needs = 0\ntrigger = {{ use = 0x470033D0 }}\n{extra}"),
+        );
+        files
+    };
+    let plain = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert!(plain.kingdoms.permits.is_empty(), "none named, none kept");
+    let files = step("permissions = { grant = 0xC0000 }\n");
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.kingdoms.permits.into_iter().collect::<Vec<_>>(),
+        [(
+            (0x4000_0088, "s1".to_string()),
+            Permits {
+                grant: 0xC_0000,
+                revoke: 0
+            }
+        )]
+    );
+    let files = step("permissions = { revoke = 0xC0000 }\n");
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(
+        t.kingdoms.permits.values().next(),
+        Some(&Permits {
+            grant: 0,
+            revoke: 0xC_0000
+        })
+    );
+    for bad in [
+        "{}",
+        "{ grant = 0 }",
+        "{ grant = 0xC0000, revoke = 0x40000 }",
+        "{ grant = -1 }",
+        "{ allow = 0xC0000 }",
+        "0xC0000",
+    ] {
+        assert!(
+            read(&step(&format!("permissions = {bad}\n"))).is_err(),
+            "{bad}"
+        );
+    }
+}
+
 /// Behaviour: server.gives.row-wants-a-count
 #[test]
 fn a_give_moving_no_quest_is_checked_for_what_it_wants_and_names() {

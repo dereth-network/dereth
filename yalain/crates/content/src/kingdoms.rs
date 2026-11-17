@@ -1,7 +1,7 @@
 //! What the world database says of kingdoms: the kingdoms themselves, as a description's faction
 //! names them and as a row writes them; the effects that raise a player's kingdom points; the quest
-//! steps and gives for one kingdom's players alone; and what a kingdom's shrines ask of a player who
-//! would join it.
+//! steps and gives for one kingdom's players alone; what a kingdom's shrines ask of a player who
+//! would join it; and the steps that change whom a player lets fight it.
 
 use std::collections::BTreeMap;
 
@@ -87,6 +87,22 @@ impl Join {
     }
 }
 
+/// What a step does to the permissions its player always lets through (the kinds of attacker it
+/// lets harm it, and whom kingdoms may fight anywhere): the bits it grants, then those it revokes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Permits {
+    pub grant: u32,
+    pub revoke: u32,
+}
+
+impl Permits {
+    /// The permissions a player holding `allow` holds after the step.
+    #[must_use]
+    pub const fn applied(self, allow: u32) -> u32 {
+        (allow | self.grant) & !self.revoke
+    }
+}
+
 /// The world database's kingdom rows, as the server keeps them.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct KingdomTable {
@@ -99,6 +115,8 @@ pub struct KingdomTable {
     /// What each kingdom's shrines ask of a player who would join it, by the kingdom; a kingdom no
     /// row names asks nothing.
     pub joins: BTreeMap<u32, Join>,
+    /// What steps do to their player's permissions, by the step's quest and key.
+    pub permits: BTreeMap<(u32, String), Permits>,
 }
 
 impl KingdomTable {

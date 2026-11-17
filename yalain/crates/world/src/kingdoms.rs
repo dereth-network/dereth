@@ -34,10 +34,11 @@
 //! peace, never across two places of different statuses, anyone where all fight, else only a
 //! player of another kingdom, and in a controlled area neither of them neutral. A player whose
 //! permissions let kingdoms fight it anywhere (its "always true" permissions holding
-//! [`permission::ANYWHERE`]) holds a peace area as kingdom against kingdom anywhere, unless it is
-//! protected: such players of different kingdoms fight in peace areas (2017: every recorded fight
-//! between players, 108 harmful hooks of 108, was between such players of different kingdoms in a
-//! peace area), and its ethereality follows, as a protection begins and ends too (32 of 34).
+//! [`permission::ANYWHERE`]; a world's step grants or revokes them, [`step_ran`]) holds a peace area
+//! as kingdom against kingdom anywhere, unless it is protected: such players of different kingdoms
+//! fight in peace areas (2017: every recorded fight between players, 108 harmful hooks of 108, was
+//! between such players of different kingdoms in a peace area), and its ethereality follows, as a
+//! protection begins and ends too (32 of 34).
 
 use std::collections::BTreeMap;
 
@@ -73,6 +74,10 @@ pub mod quality {
     pub const KINGDOM: u32 = 2000;
     pub const PHYSICS_TYPE: u32 = 3;
     pub const ETHEREALITY: u32 = 7;
+    /// The permissions it always lets through, the description's first of its two permission
+    /// numbers.
+    // D2-12030
+    pub const PERMISSIONS: u32 = 550;
 }
 
 /// The description's numbers a kingdom changes: its faction, its physics type, its movement
@@ -485,6 +490,41 @@ pub fn check<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     }
     progress::private(net, world, &status_call(now));
     settle_ethereality(s, net, world);
+}
+
+/// A step that changes whom its player lets fight it has run ([`yalain_content::kingdoms::Permits`]):
+/// the bits it grants are added to the permissions the player always lets through and those it
+/// revokes taken away; when that changes them, every client that knows the player is told, its
+/// ethereality follows (a player whom kingdoms may fight anywhere holds a peace area as kingdom
+/// against kingdom), and it is kept.
+pub fn step_ran<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    step: &yalain_content::quests::Step,
+) {
+    let Some(permits) = s
+        .kingdom_rows
+        .permits
+        .get(&(step.quest, step.key.clone()))
+        .copied()
+    else {
+        return;
+    };
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    let (allow, deny) = permissions_of(&quals::read(&p.qualities));
+    let now = permits.applied(allow);
+    if now == allow {
+        return;
+    }
+    set_permissions(&mut p.qualities, now, deny);
+    let told = visual(p, quality::PERMISSIONS, now.cast_signed());
+    let me = p.character;
+    crate::places::to_all_knowing(s, net, me, &told);
+    settle_ethereality(s, net, world);
+    crate::world::keep_player(s, world);
 }
 
 /// Whether a player is of a shrine's kingdom already (a player in none is of the neutral one).

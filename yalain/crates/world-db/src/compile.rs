@@ -1380,6 +1380,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 if let Some(after) = s.again_after {
                     t.content.step_waits.insert((s.quest, s.key.clone()), after);
                 }
+                if let Some(p) = s.permissions {
+                    t.kingdoms.permits.insert((s.quest, s.key.clone()), p);
+                }
                 t.quests.steps.push(TableStep {
                     key: s.key.clone(),
                     quest: s.quest,

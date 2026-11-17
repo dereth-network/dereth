@@ -8100,6 +8100,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.kingdoms.step-permissions",
+        says: "A step a world's row has grant or revoke permission bits changes the permissions its player \
+               always lets through: every client that knows the player is told them, and its ethereality \
+               follows; a step that changes nothing tells nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KINGDOM-STEP-PERMITS"),
+        station: "yalain-testkit::cpu::play::kingdoms::a_step_grants_and_revokes_the_permission_to_be_fought_anywhere_and_every_watcher_is_told",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.login.a-new-session-enters-after-a-log-off",
         says: "A new client of an account whose character has logged off and left enters that \
                character at once.",

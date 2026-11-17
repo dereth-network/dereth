@@ -1009,3 +1009,186 @@ fn a_players_ethereality_passes_through_the_kingdoms_it_may_not_fight() {
     assert_eq!(kingdoms::physics_type(Some(1)), 0x0880_0020);
     assert_eq!(kingdoms::physics_type(Some(2)), 0x1080_0020);
 }
+
+const WAR: u64 = 0x4002_9900_0000_0071;
+const PEACE: u64 = 0x4002_9900_0000_0072;
+const WAR_TEMPLATE: u32 = 0x4700_100E;
+const PEACE_TEMPLATE: u32 = 0x4700_100C;
+const BANNER_QUEST: u32 = 0x8000_02C7;
+
+fn banner_quest() -> yalain_content::quests::QuestDef {
+    yalain_content::quests::QuestDef {
+        duration_by_calendar: false,
+        id: BANNER_QUEST,
+        name: yalain_content::Words::Ref(0xA860_7CEC, 0x2500_16A1),
+        description: (0x6C45_9364, 0x2500_16A1),
+        icon: 0x4100_034B,
+        play_fx: false,
+        journals: Vec::new(),
+        challenge: -1,
+        duration: 0.0,
+        timed_phase: 0,
+        retry: 0.0,
+        xp: 0,
+        cancellable: false,
+        placed: "authored for a test".into(),
+        hidden: true,
+        effects: Vec::new(),
+        subquests: Vec::new(),
+        min_level: 0,
+        fails_on_death: false,
+        fails_on_logout: false,
+        fails_on_teleport: false,
+        once: false,
+        fellows: yalain_content::quests::Fellows::default(),
+        ranges: Vec::new(),
+        hero_only: false,
+        pay: yalain_content::quests::CompletionPay::default(),
+        required: None,
+        cancel_wait: None,
+    }
+}
+
+/// A step of the banner quest run by a use of a template, moving nothing.
+fn banner_step(key: &str, template: u32) -> yalain_content::quests::Step {
+    yalain_content::quests::Step {
+        out_of_turn: false,
+        key: key.into(),
+        quest: BANNER_QUEST,
+        needs: 0,
+        trigger: yalain_content::quests::Trigger::Use(template),
+        tell: None,
+        update: yalain_content::quests::Update::Nothing,
+        xp: 0,
+        gives: Vec::new(),
+        counts: Vec::new(),
+        effects: Vec::new(),
+        text: None,
+        recipes: Vec::new(),
+        placed: "authored for a test".into(),
+        requires: Vec::new(),
+        takes: Vec::new(),
+        races: Vec::new(),
+        effects_last: false,
+        effects_quiet: false,
+        wants: None,
+        fellows: false,
+        levels: None,
+        xp_share: 0.0,
+        to: None,
+        transforms: None,
+        chance: None,
+        to_fellows: false,
+    }
+}
+
+/// A use of a placed object by a player in the world, run until it is through.
+fn use_object(h: &mut Harness, a: usize, me: u64, id: u64) -> usize {
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::USE, &[use_of(id, me)]),
+    );
+    h.run_to(yalain_net::LocalTime(h.now.0 + 10.0));
+    h.run(5);
+    from
+}
+
+/// The permissions a player in the world always lets through.
+fn allowed(h: &Harness, me: u64) -> u32 {
+    h.server
+        .players
+        .values()
+        .find(|p| p.character == me)
+        .map_or(0, |p| {
+            kingdoms::permissions_of(&yalain_world::quals::read(&p.qualities)).0
+        })
+}
+
+/// A step a world's row has grant the permission to be fought anywhere adds it to its player's
+/// permissions: every client that knows the player is told them, and its ethereality in a peace
+/// area follows (it passes through its own kingdom alone). Run again it changes nothing and tells
+/// nothing. A step that revokes it takes it away, told the same, the player passing through every
+/// kingdom again.
+/// Behaviour: server.kingdoms.step-permissions
+#[test]
+fn a_step_grants_and_revokes_the_permission_to_be_fought_anywhere_and_every_watcher_is_told() {
+    use yalain_content::kingdoms::Permits;
+    let mut h = world_with_a_shrine(Conflict::Peace);
+    for (id, template) in [(WAR, WAR_TEMPLATE), (PEACE, PEACE_TEMPLATE)] {
+        h.server
+            .content
+            .objects
+            .push(object(id, template, 0x19B, None));
+    }
+    h.server.quests = yalain_content::quests::QuestTable {
+        quests: vec![banner_quest()],
+        steps: vec![
+            banner_step("war", WAR_TEMPLATE),
+            banner_step("peace", PEACE_TEMPLATE),
+        ],
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
+    let anywhere = kingdoms::permission::ANYWHERE;
+    h.server.kingdom_rows.permits.insert(
+        (BANNER_QUEST, "war".into()),
+        Permits {
+            grant: anywhere,
+            revoke: 0,
+        },
+    );
+    h.server.kingdom_rows.permits.insert(
+        (BANNER_QUEST, "peace".into()),
+        Permits {
+            grant: 0,
+            revoke: anywhere,
+        },
+    );
+    let (a, ida) = h.player_in_world("one", "Elara");
+    let (b, _) = h.player_in_world("two", "Babyfare");
+    set_kingdom(&mut h, ida, kingdom::DOMINION);
+    h.run(10);
+    assert_eq!(allowed(&h, ida), 0);
+
+    let fb = h.bots[b].inbox.len();
+    use_object(&mut h, a, ida, WAR);
+    assert_eq!(allowed(&h, ida), anywhere, "granted");
+    let told: Vec<_> = visuals(&h, b, fb, ida)
+        .into_iter()
+        .filter(|(q, _)| *q == quality::PERMISSIONS || *q == quality::ETHEREALITY)
+        .collect();
+    assert_eq!(
+        told,
+        [
+            (quality::PERMISSIONS, anywhere.cast_signed()),
+            (quality::ETHEREALITY, 0x2220_0010)
+        ],
+        "its permissions, then its own kingdom alone passed through"
+    );
+
+    let fb = h.bots[b].inbox.len();
+    use_object(&mut h, a, ida, WAR);
+    assert_eq!(allowed(&h, ida), anywhere);
+    assert!(
+        visuals(&h, b, fb, ida).is_empty(),
+        "no change, nothing told"
+    );
+
+    let fb = h.bots[b].inbox.len();
+    use_object(&mut h, a, ida, PEACE);
+    assert_eq!(allowed(&h, ida), 0, "revoked");
+    let told: Vec<_> = visuals(&h, b, fb, ida)
+        .into_iter()
+        .filter(|(q, _)| *q == quality::PERMISSIONS || *q == quality::ETHEREALITY)
+        .collect();
+    assert_eq!(
+        told,
+        [
+            (quality::PERMISSIONS, 0),
+            (quality::ETHEREALITY, 0x3E20_0010)
+        ],
+        "every kingdom passed through again"
+    );
+}

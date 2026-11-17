@@ -427,6 +427,7 @@ What moves a quest on, in its quest's file.
 | `transforms` | | a give's step that makes its player a hero: `{ seconds, fx, behavior, text, name }` |
 | `chance` | | above 0 and at most 1: the chance it runs each time it may; left out, every time |
 | `again_after` | | seconds by the calendar, above 0: once it has run for a player it runs for that player again only after so many, kept while the player is away; meanwhile a use of a person that would run it is answered with the person's `too-soon` line. Left out, it runs whenever it may |
+| `permissions` | | `{ grant, revoke }`, either or both, no bit in both: bits added to and taken from the permissions its player always lets through, after its effects; a change is told to every client that knows the player. `grant = 0xC0000` lets players of other kingdoms who hold it too fight the player anywhere, peace areas included |
 | `escort` | | a creature it sets to follow the player for the quest, below |
 | `out_of_turn` | | true, with `update = "none"` and `needs` above 0: it runs when its quest is under way at any phase but `needs`, saying and putting on what it names and moving no quest (a stop of a course used out of its turn); used at `needs`, the quest's own step for it runs instead |
 | `prov` | required | where it came from |
