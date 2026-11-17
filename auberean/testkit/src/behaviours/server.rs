@@ -5348,6 +5348,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.examination.chance-to-hit-is-the-landing-chance",
+        says: "Examining a creature shows the chance the player's basic attack lands on it: its \
+               accuracy against the creature's evasion by the landing curve, in whole percent, \
+               kept to 5 to 95, whatever their levels.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-EXAMINE-CHANCE"),
+        station: "yalain-testkit::cpu::play::ratings::examining_a_creature_shows_the_chance_the_players_basic_attack_lands_on_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.examination.destroyed-on-use-by-kind",
         says: "Keys, glyphs, potions and the other items whose template or class makes them so say \
                they are destroyed on use; an item that wears by its uses does not.",

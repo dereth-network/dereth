@@ -27,12 +27,13 @@ pub const LEVEL_POINTS_UP_TO: i32 = 50;
 /// The attribute category whose value adds to a player's level part (Heroic Mastery).
 pub const HEROIC_MASTERY_CATEGORY: u32 = 6;
 
-/// Who an attack's rating is of: a player, by its world connection, or a thing in the world (a
-/// creature, a pet).
+/// Who an attack's rating is of: a player, by its world connection, a thing in the world (a
+/// creature, a pet), or a creature not in the world as its template makes it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Rater {
     Player(ConnId),
     Thing(u64),
+    Template(u32),
 }
 
 /// The ratings of an attack with a skill: its user's accuracy against its target's evasion, each
@@ -100,6 +101,31 @@ pub fn sum<S: Store>(s: &Server<S>, who: Rater, parts: &[RatingPart]) -> f64 {
                             .map_or(0, |(_, r)| u32::try_from(*r).unwrap_or(0));
                         let rating = crate::effects::skill_rating(&s.effect_table, records, k, own);
                         f64::from(part.weight) * f64::from(rating)
+                    }
+                })
+                .sum()
+        }
+        Rater::Template(template) => {
+            let Some(stats) = s
+                .catalog
+                .get(template)
+                .and_then(|t| yalain_content::CreatureStats::from_props(&t.props))
+            else {
+                return 0.0;
+            };
+            parts
+                .iter()
+                .map(|part| match part.of {
+                    Rated::Level => 0.0,
+                    Rated::Skill(k) => {
+                        let own = stats
+                            .skills
+                            .iter()
+                            .find(|(sk, _)| *sk == k)
+                            .map_or(0, |x| x.1);
+                        #[allow(clippy::cast_precision_loss)]
+                        let own = own.max(0) as f64;
+                        f64::from(part.weight) * own
                     }
                 })
                 .sum()

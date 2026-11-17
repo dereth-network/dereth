@@ -1170,14 +1170,6 @@ pub fn place(
     p
 }
 
-/// The chance a player of one level has to hit a monster of another, as this server rules it
-/// (the 2017 servers' rule is not known): half, five more each level above the monster, five
-/// less each level below, between 5 and 95.
-#[must_use]
-pub fn chance_to_hit(attacker: i32, target: i32) -> u32 {
-    (50 + 5 * (attacker - target)).clamp(5, 95).cast_unsigned()
-}
-
 /// The strings of item profiles (in the general table unless said).
 pub mod item_line {
     pub const VALUE_LABEL: u32 = 0x2F3E_4575;

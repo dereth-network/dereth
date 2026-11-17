@@ -359,6 +359,23 @@ pub fn damage_pool<S: Store>(s: &Server<S>, world: ConnId, skill: u32) -> rules:
     }
 }
 
+/// The chance a player's basic attack lands on a creature, as examining the creature shows it, in
+/// whole percent: the landing chance of the first basic attack it may swing (a bare-handed swing
+/// without one) against the creature's evasion, kept to 5 to 95 (2017: basic attacks landed at the
+/// chance shown, 49,173 of them by band). A class's adept part and heroes' perks are no part of a
+/// basic attack's ratings.
+#[must_use]
+pub fn shown_chance<S: Store>(s: &Server<S>, world: ConnId, creature: Rater) -> u32 {
+    let skill = auto_attacks(s, world)
+        .first()
+        .map_or(MELEE_SKILLS[0].0, |(k, _)| *k);
+    let ratings = crate::ratings::of(s, skill, Rater::Player(world), creature);
+    let chance = (rules::landing_chance(ratings) * 100.0).round();
+    dereth_primitives::num::to_i32_f64(chance)
+        .clamp(5, 95)
+        .cast_unsigned()
+}
+
 /// The client of another player a player's attack is aimed at (none: a thing, the player itself,
 /// or one it may not be told of).
 #[must_use]

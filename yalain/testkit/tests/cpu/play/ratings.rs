@@ -216,6 +216,102 @@ fn an_attacks_accuracy_and_evasion_are_the_parts_its_skill_names() {
     assert!(none.accuracy == 0.0 && none.evasion == 0.0, "{none:?}");
 }
 
+/// The profile a client is told of on examining an object, asking for some tabs: the bytes of the
+/// request it repeats, and the profile.
+fn examined(h: &mut Harness, b: usize, object: u64, asked: u32) -> (Vec<u8>, Vec<u8>) {
+    use auberean_script::native_object::NativeObject;
+    use yalain_world::calls::{self, Node};
+    use yalain_world::graph::Builder;
+    let mut request = Vec::new();
+    for w in [0x4000_0002u32, 0] {
+        request.extend(w.to_le_bytes());
+    }
+    request.extend(object.to_le_bytes());
+    request.extend(asked.to_le_bytes());
+    let mut g = Builder::new();
+    g.native(
+        154,
+        NativeObject::Packed {
+            ty: 154,
+            bytes: request.clone(),
+        },
+    );
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            yalain_world::requests::function::EXAMINE,
+            &[Arg::Object(g.graph())],
+        ),
+    );
+    h.run(30);
+    let profile = h
+        .world_messages(b, from)
+        .into_iter()
+        .find_map(|m| match m {
+            ServerMessage::PlayerCall(c)
+                if c.function.0 == yalain_world::profile::EXAMINATION_PROFILE =>
+            {
+                let v = calls::values(&c.args?.0).ok()?;
+                match v[0].root() {
+                    Some(Node::Native { ty: 153, bytes }) => Some(bytes.clone()),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+        .expect("a profile");
+    (request, profile)
+}
+
+/// Examining a creature shows the chance the player's basic attack lands on it: its accuracy
+/// against the creature's evasion by the measured curve, in whole percent, kept to 5 to 95,
+/// whatever their levels: 300 against 100 shows 70; far behind 5, far ahead 95.
+/// Behaviour: server.examination.chance-to-hit-is-the-landing-chance
+#[test]
+fn examining_a_creature_shows_the_chance_the_players_basic_attack_lands_on_it() {
+    let mut h = Harness::new();
+    h.add_creatures(1);
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    h.arm(b, me, STARTER_SWORD);
+    let beetle = creature_of(&h, b);
+    let world = *h.server.players.keys().next().expect("in the world");
+    // Every attack rates its user's attack attribute against its target's defense.
+    let mut ids: Vec<u32> = h.server.skill_table.skills.keys().copied().collect();
+    ids.extend(yalain_world::combat::MELEE_SKILLS.iter().map(|(k, _)| *k));
+    for k in ids {
+        let d = h.server.skill_table.skills.entry(k).or_insert(SkillDef {
+            id: k,
+            ..SkillDef::default()
+        });
+        d.accuracy = vec![part(Rated::Skill(ATTACK), 1.0)];
+        d.evasion = vec![part(Rated::Skill(DEFENSE), 1.0)];
+    }
+    for (mine, its, shown) in [(300, 100, 70), (0, 1_000, 5), (1_000, 0, 95)] {
+        let p = h.server.players.get_mut(&world).expect("the player");
+        p.play.skills.retain(|s| s.skill != ATTACK);
+        p.play.skills.push(trained(ATTACK, mine));
+        let t = h.server.things.get_mut(beetle).expect("the beetle");
+        let c = t.creature.as_mut().expect("a creature");
+        c.stats.skills.retain(|(k, _)| *k != DEFENSE);
+        c.stats.skills.push((DEFENSE, its));
+        let t = h.server.things.get(beetle).expect("the beetle");
+        let vitals = yalain_world::examine::Vitals {
+            health: t.health.cast_unsigned(),
+            max_health: t.max_health.cast_unsigned(),
+            vigor: t.vigor.cast_unsigned(),
+            max_vigor: t.max_vigor.cast_unsigned(),
+            pk_damage: 0,
+            pk_vigor_loss: 0,
+        };
+        let want = yalain_world::profile::monster(0x203, &t.facts, vitals, shown);
+        let (request, got) = examined(&mut h, b, beetle, 0x203);
+        assert_eq!(got, want.packed(&request), "{mine} against {its}: {shown}");
+    }
+}
+
 /// A player's swings and a creature's strikes land by their ratings: far more accuracy than
 /// evasion lands them nineteen times in twenty, far less one time in twenty.
 /// Behaviour: server.combat.landing-chance

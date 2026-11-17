@@ -540,7 +540,6 @@ fn profile_bytes<S: Store>(
     now: f64,
 ) -> Option<Vec<u8>> {
     let me = s.players.get(&world)?;
-    let my_level = examine::level_of(&me.qualities);
     let seen = crate::presence::player_for(s, world, req.object).and_then(|w| s.players.get(&w));
     let profile = if let Some(q) = seen {
         let v = with_skills_greatest(s, q, Vitals::of_qualities(&q.qualities).unwrap_or_default());
@@ -586,7 +585,7 @@ fn profile_bytes<S: Store>(
                 req.asked,
                 &t.facts,
                 thing_vitals(t),
-                profile::chance_to_hit(my_level, t.level()),
+                crate::combat::shown_chance(s, world, crate::ratings::Rater::Thing(t.id)),
             ),
             crate::things::Kind::Item => {
                 let mut v = item_view(s, t);
@@ -643,7 +642,7 @@ fn profile_bytes<S: Store>(
                 req.asked,
                 f,
                 examine::content_vitals(o).unwrap_or_default(),
-                profile::chance_to_hit(my_level, f.level.unwrap_or(1)),
+                crate::combat::shown_chance(s, world, crate::ratings::Rater::Template(o.template)),
             ),
             yalain_content::Kind::Npc => profile::npc(
                 req.asked,
