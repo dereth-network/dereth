@@ -12,6 +12,7 @@
 //! Every pipeline is made when the renderer is ([`Renderer::new`]); none is made while drawing.
 
 pub mod ao;
+mod batch;
 #[cfg(all(feature = "dlss", windows))]
 pub mod dlss;
 pub mod drawn;
@@ -219,6 +220,10 @@ pub struct Renderer {
     sets: PerFrame,
     offsets: PerFrame,
     visible: PerFrame,
+    /// Where the device's draws take no count from a buffer: each bucket's items grouped by
+    /// their mesh, one instanced draw a group, and the item each instance draws.
+    batched: PerFrame,
+    remap: PerFrame,
     forward: PerFrame,
     ground_drawn: PerFrame,
     overrides: PerFrame,
@@ -617,6 +622,8 @@ impl Renderer {
                 BufferUsage::default(),
             )?,
             forward: per_frame(&mut gfx, "remaster forward", 1 << 18, BufferUsage::INDIRECT)?,
+            batched: per_frame(&mut gfx, "remaster batched", 1 << 18, BufferUsage::INDIRECT)?,
+            remap: per_frame(&mut gfx, "remaster remap", 1 << 18, BufferUsage::default())?,
             ao: self::ao::AoPass::new(&mut gfx)?,
             packs: crate::assets::pack::PackSwaps::default(),
             skins: skins::Skins::default(),

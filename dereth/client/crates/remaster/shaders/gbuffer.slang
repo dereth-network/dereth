@@ -46,6 +46,9 @@ struct Push
     uint maps;
     // The weather's constants (~0 for none): what stands out in the rain is drawn wet.
     uint weather;
+    // Where a draw's instances are several items of one mesh: each instance's item, from the
+    // draw's first instance on (~0 where the first instance is the item itself).
+    uint remap;
 };
 
 // A vertex's rows: its position and normal, its texture coordinates, then its tangent and, in
@@ -117,12 +120,17 @@ Item item_at(uint i)
 [shader("vertex")]
 Varyings vs_main(uint vertex : SV_VertexID
 #ifndef DERETH_DXIL
-    , uint item : SV_StartInstanceLocation
+    , uint first : SV_StartInstanceLocation
+    , uint instance : SV_InstanceID
 #endif
 )
 {
 #ifdef DERETH_DXIL
     uint item = draw_item.value;
+#else
+    uint item = push.remap != 0xFFFFFFFF
+        ? buffers[NonUniformResourceIndex(push.remap)].Load((first + instance) * 4)
+        : first;
 #endif
     Item it = item_at(item);
     uint v = it.vertex_base + vertex;

@@ -57,6 +57,10 @@ pub struct Plan {
     bucket_counts: [u32; CULLED_BUCKETS as usize],
     /// Whether the device takes an indirect draw's count from a buffer.
     indirect_count: bool,
+    /// The buckets drawn as instanced draws of a mesh's items, where they are: the view's, and
+    /// the water's mirrored view's.
+    batched: Option<Batched>,
+    batched_mirror: Option<Batched>,
     indices: Buffer,
     ground_vertices: u32,
     ground_cells: u32,
@@ -602,6 +606,54 @@ impl Renderer {
             &self.scene,
         );
         bytes += put(&mut self.visible, &mut self.gfx, push_words(&placed))?;
+        // Where draws take no count from a buffer, the buckets as instanced draws of each mesh's
+        // items, the view's and the mirrored view's, each without what it cannot see.
+        let (batched, batched_mirror) = if !self.gfx.caps().indirect_count
+            && parts.is_none()
+            && super::command_bytes(&self.gfx) == batch_command_bytes()
+        {
+            let spheres = super::batch::part_spheres(
+                self.scene.item_draws.len(),
+                self.scene.blocks.iter().map(|(id, b)| {
+                    (
+                        (
+                            i32::from(id >> 8) - frame.origin[0],
+                            i32::from(id & 0xFF) - frame.origin[1],
+                        ),
+                        b.parts.as_slice(),
+                    )
+                }),
+            );
+            let lists = |clip| {
+                super::batch::batch(
+                    &visible,
+                    split,
+                    &self.scene.buckets,
+                    &self.scene.item_draws,
+                    &spheres,
+                    &super::shadow::frustum(clip),
+                )
+            };
+            let seen = lists(camera.projection * camera.view);
+            let runs = seen.runs;
+            let (both, mirror_runs) = match mirror {
+                Some(m) => {
+                    let (both, r) = seen.then(&lists(m));
+                    (both, Some(r))
+                }
+                None => (seen, None),
+            };
+            bytes += put(&mut self.batched, &mut self.gfx, push_words(&both.commands))?;
+            bytes += put(&mut self.remap, &mut self.gfx, push_words(&both.remap))?;
+            let made = |runs| Batched {
+                commands: self.batched.buffer,
+                remap: self.remap.index,
+                runs,
+            };
+            (Some(made(runs)), mirror_runs.map(made))
+        } else {
+            (None, None)
+        };
         // The sky's, the edges' and the forward pass's commands, in their orders, in runs of one
         // pipeline; the outdoors' edges and blended surfaces where the device does not sort them.
         let backend = self.gfx.backend();
@@ -807,6 +859,8 @@ impl Renderer {
             counts_index: self.counts_index,
             bucket_counts: next.map(|n| n.min(BUCKET_CAPACITY)),
             indirect_count: self.gfx.caps().indirect_count,
+            batched,
+            batched_mirror,
             indices: self.scene.indices.buffer,
             ground_vertices: self.scene.ground_vertices.index,
             ground_cells: self.scene.ground_cells.index,
@@ -878,17 +932,45 @@ impl Plan {
         d: &mut dereth_gfx::Draw<'_>,
         first: u32,
     ) -> Result<(), dereth_gfx::Error> {
-        self.draw_buckets_seen(d, first, self.frame)
+        self.draw_buckets_seen(d, first, self.frame, self.batched.as_ref())
     }
 
-    /// [`Self::draw_buckets`] with the frame's constants from the buffer `frame`.
+    /// The mirrored view's instanced draws, or the view's where it has none of its own: where
+    /// the buckets are drawn instanced, no command an item is written.
+    fn mirror_batch(&self) -> Option<&Batched> {
+        self.batched_mirror.as_ref().or(self.batched.as_ref())
+    }
+
+    /// [`Self::draw_buckets`] with the frame's constants from the buffer `frame`, as `batched`
+    /// draws them where it is given.
     fn draw_buckets_seen(
         &self,
         d: &mut dereth_gfx::Draw<'_>,
         first: u32,
         frame: u32,
+        batched: Option<&Batched>,
     ) -> Result<(), dereth_gfx::Error> {
         d.bind_index_buffer(self.indices, 0, IndexType::U32)?;
+        if let Some(batched) = batched {
+            for b in first..(first + GROUP_BUCKETS).min(CULLED_BUCKETS) {
+                let (at, n) = batched.runs[b as usize];
+                if n == 0 {
+                    continue;
+                }
+                d.set_pipeline(self.pipelines.gbuffer[(b - first) as usize])?;
+                d.push(
+                    0,
+                    &self.gbuffer_push_remapped(frame, 0, NONE, batched.remap),
+                )?;
+                d.draw_indexed_indirect(
+                    batched.commands,
+                    u64::from(at) * u64::from(self.command_bytes),
+                    n,
+                    self.command_bytes,
+                )?;
+            }
+            return Ok(());
+        }
         for b in first..(first + GROUP_BUCKETS).min(CULLED_BUCKETS) {
             d.set_pipeline(self.pipelines.gbuffer[(b - first) as usize])?;
             d.push(0, &self.gbuffer_push_seen(frame, 0, NONE))?;
@@ -951,7 +1033,7 @@ impl Plan {
                 if let Some(g) = &self.drawn_ground {
                     let [wrap, clamp] = self.ground_samplers;
                     g.draw_ground(d, p.frame, wrap, clamp, self.weather_table())?;
-                    return self.draw_buckets_seen(d, 0, p.frame);
+                    return self.draw_buckets_seen(d, 0, p.frame, self.mirror_batch());
                 }
                 d.set_pipeline(self.pipelines.ground)?;
                 for (side, first, count) in &self.ground_groups {
@@ -972,7 +1054,7 @@ impl Plan {
                     )?;
                     d.draw(side * side * 6, *count, 0, 0);
                 }
-                self.draw_buckets_seen(d, 0, p.frame)
+                self.draw_buckets_seen(d, 0, p.frame, self.mirror_batch())
             },
         )?;
         let mut sky_touches = vec![
@@ -1151,6 +1233,12 @@ impl Plan {
     /// The G-buffer pass's push words, with the frame's constants from the buffer `frame`, and the
     /// pixels whose material in the target `mask` is the interior's left alone (`NONE`: none).
     fn gbuffer_push_seen(&self, frame: u32, lit_always: u32, mask: u32) -> Vec<u8> {
+        self.gbuffer_push_remapped(frame, lit_always, mask, NONE)
+    }
+
+    /// [`Self::gbuffer_push_seen`], each instance's item read from `remap` (`NONE`: the draw's
+    /// first instance is its item).
+    fn gbuffer_push_remapped(&self, frame: u32, lit_always: u32, mask: u32, remap: u32) -> Vec<u8> {
         push_words(&[
             frame,
             self.items,
@@ -1172,6 +1260,7 @@ impl Plan {
             mask,
             self.material_maps,
             self.weather_table(),
+            remap,
         ])
     }
 
@@ -1284,12 +1373,17 @@ impl Plan {
             .parts
             .as_ref()
             .map_or([NONE; 2], super::instances::PartsPlan::walk_indices);
+        // Instanced draws are listed by the processor and need no command an item.
+        let cull = self.batched.is_none();
         r.compute(
             &[
                 Touch::Buffer(self.counts, Use::StorageWrite),
                 Touch::Buffer(self.commands, Use::StorageWrite),
             ],
             |c| {
+                if !cull {
+                    return Ok(());
+                }
                 c.set_pipeline(self.pipelines.cull)?;
                 c.push(
                     0,
@@ -1382,6 +1476,9 @@ impl Plan {
             Touch::Buffer(self.counts, Use::Indirect),
             Touch::Buffer(self.indices, Use::Index),
         ];
+        if let Some(b) = &self.batched {
+            gbuffer_touches.push(Touch::Buffer(b.commands, Use::Indirect));
+        }
         if let Some(g) = &self.drawn_ground {
             gbuffer_touches.extend(g.touches());
         }
@@ -1990,4 +2087,20 @@ fn placed_items(
         }
     }
     (placed, next)
+}
+
+/// A view's buckets drawn as instanced draws, one a mesh's items ([`super::batch`]): the commands,
+/// the table each instance's item is read from, and each bucket's first command and how many.
+#[derive(Debug, Clone, Copy)]
+struct Batched {
+    commands: Buffer,
+    remap: u32,
+    runs: [(u32, u32); CULLED_BUCKETS as usize],
+}
+
+/// The bytes of the commands [`super::batch`] writes: Vulkan's indexed indirect draw.
+const fn batch_command_bytes() -> u32 {
+    #[allow(clippy::cast_possible_truncation)] // five words
+    let words = super::batch::COMMAND_WORDS as u32;
+    words * 4
 }
