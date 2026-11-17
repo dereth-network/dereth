@@ -1,7 +1,7 @@
 //! ACE: Source/ACE.Server/Command/Handlers/DeveloperCommands.cs::DeveloperCommands
 //! Developer chat commands: whoami/gps/echo/chatdump, tele* variants, vitals tweaks/harm/rip,
 //! player flags/coins/comps/faction, appraised-monster inspect/edit, inventory create,
-//! forcelogoff, object dumps to console.
+//! forcelogoff, object dumps to the caller, commands that say what they lack.
 //! Fixture: a virtual-time TestServer, isolated stores and synthetic dats.
 
 use std::sync::Arc;
@@ -1145,20 +1145,21 @@ fn forcelogoff_boots_a_player_and_reports_the_path() {
     );
 }
 
+/// Divergence: V554
 #[test]
-fn object_maintenance_dumps_go_to_the_console() {
+fn object_maintenance_dumps_go_to_the_caller() {
     let (mut ts, alpha, _, _, _) = two_players();
 
-    command_manager::start_console_capture();
-    assert_eq!(say(&mut ts, alpha, "@knownobjs"), []);
-    let out = command_manager::take_console_output();
+    let out = say(&mut ts, alpha, "@knownobjs");
+    assert_eq!(out.len(), 1, "{out:?}");
+    let lines: Vec<&str> = out[0].0.lines().collect();
     assert!(
-        out[0].starts_with("\nKnown objects to Alpha Admin: "),
+        lines[1].starts_with("Known objects to Alpha Admin: "),
         "{out:?}"
     );
     assert_eq!(
-        out.len() - 1,
-        out[0]
+        lines.len() - 2,
+        lines[1]
             .rsplit(": ")
             .next()
             .unwrap()
@@ -1168,22 +1169,14 @@ fn object_maintenance_dumps_go_to_the_console() {
     );
 
     // a guid that does not parse, or names no physics object, leaves the player as the target
-    command_manager::start_console_capture();
-    assert_eq!(say(&mut ts, alpha, "@knownplayers nosuchguid"), []);
-    assert_eq!(say(&mut ts, alpha, "@visibleplayers DEADBEEF"), []);
-    let out = command_manager::take_console_output();
+    let out = say(&mut ts, alpha, "@knownplayers nosuchguid");
     assert!(
-        out[0].starts_with(
-            "
-Known players to Alpha Admin: "
-        ),
+        out[0].0.starts_with("\nKnown players to Alpha Admin: "),
         "{out:?}"
     );
+    let out = say(&mut ts, alpha, "@visibleplayers DEADBEEF");
     assert!(
-        out.iter().any(|l| l.starts_with(
-            "
-Visible players to Alpha Admin: "
-        )),
+        out[0].0.starts_with("\nVisible players to Alpha Admin: "),
         "{out:?}"
     );
     // `target` with nothing appraised finds nothing
@@ -1210,6 +1203,83 @@ Visible players to Alpha Admin: "
     );
     assert!(reply[1].0.starts_with("Location: 0x"), "{:?}", reply[1].0);
     assert!(reply[2].0.starts_with("Physics : 0x"), "{:?}", reply[2].0);
+
+    let out = say(&mut ts, alpha, "@destructionqueue");
+    assert_eq!(out.len(), 1, "{out:?}");
+    assert!(
+        out[0]
+            .0
+            .starts_with("\nDestruction queue for Alpha Admin: "),
+        "{out:?}"
+    );
+
+    // with something appraised, the answer is in chat
+    monster(&mut ts, 104.0, 100.0);
+    ts.world
+        .objects
+        .get_mut(ObjectGuid::new(ALPHA))
+        .unwrap()
+        .set_current_appraisal_target(Some(MONSTER.full()));
+    command_manager::start_console_capture();
+    let out = say(&mut ts, alpha, "@lostest");
+    assert_eq!(out.len(), 1, "{out:?}");
+    assert!(out[0].0.starts_with("Visible: "), "{out:?}");
+    assert_eq!(command_manager::take_console_output(), Vec::<String>::new());
+}
+
+/// Divergence: V554
+#[test]
+fn commands_missing_what_they_need_say_so_in_chat() {
+    let (mut ts, alpha, _, _, _) = two_players();
+
+    assert_eq!(
+        say(&mut ts, alpha, "@setpurchasetime"),
+        [broadcast("You do not own a house.")]
+    );
+
+    monster(&mut ts, 104.0, 100.0);
+    appraise_monster(&mut ts);
+    ts.world
+        .objects
+        .get_mut(MONSTER)
+        .unwrap()
+        .biota
+        .properties_enchantment_registry = None;
+    assert_eq!(
+        say(&mut ts, alpha, "@getenchantments"),
+        [broadcast("The item has no enchantments.")]
+    );
+
+    // the last spawn position is the server's own; any one will do here
+    let here = location(&ts, ObjectGuid::new(ALPHA));
+    *empyrean_command::handlers::admin_commands::LAST_SPAWN_POS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(here);
+    assert_eq!(
+        say(&mut ts, alpha, "@teledist far"),
+        [broadcast("far is not a distance.")]
+    );
+}
+
+/// Divergence: V554
+#[test]
+fn teleallto_takes_a_name_of_several_words() {
+    let (mut ts, alpha, _, _, _) = two_players();
+    let bravo_at = location(&ts, ObjectGuid::new(BRAVO));
+
+    say(&mut ts, alpha, "@teleallto Bravo Player");
+    let alpha_at = location(&ts, ObjectGuid::new(ALPHA));
+    assert_eq!(
+        (alpha_at.cell(), alpha_at.position_x, alpha_at.position_y),
+        (bravo_at.cell(), bravo_at.position_x, bravo_at.position_y),
+        "Alpha goes to Bravo"
+    );
+    let bravo_now = location(&ts, ObjectGuid::new(BRAVO));
+    assert_eq!(
+        (bravo_now.position_x, bravo_now.position_y),
+        (bravo_at.position_x, bravo_at.position_y),
+        "Bravo stays"
+    );
 }
 
 pub(crate) use empyrean_testkit::EmptyShard;

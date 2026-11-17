@@ -120,7 +120,7 @@ pub fn handle_all_stats(w: &mut World, session: Option<SessionId>, parameters: &
 
     handle_lb_group_stats(w, session, parameters);
 
-    handle_gc_status(w, session, parameters);
+    // DIVERGE: V553, no `gcstatus`: there is no .NET garbage collector to report on.
 
     developer_database_commands_handle_database_queue_info(w, session, parameters);
 }

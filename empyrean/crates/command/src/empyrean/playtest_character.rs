@@ -61,7 +61,7 @@ pub fn command_handlers() -> Vec<CommandHandlerInfo> {
     vec![CommandHandlerInfo { handler, handler_name, attribute: CommandHandlerAttribute::with_description(
         "playtest-character", AccessLevel::Admin, CommandHandlerFlag::ConsoleInvoke,
         "Make a playtest character from a recipe, keeping a character backup first unless told not to.",
-        "create <account> <character> <recipe.json> <result.json> | apply <character> <recipe.json> <backup.sqlite or -> <result.json> [replace] | preview <recipe.json> <result.json> | restore <character> <backup.sqlite> <before-restore.sqlite> | export <character> <file.empyrean-character> [<note.json>]",
+        "account <account> | create <account> <character> <recipe.json> <result.json> | apply <character> <recipe.json> <backup.sqlite or -> <result.json> [replace] | preview <recipe.json> <result.json> | restore <character> <backup.sqlite> <before-restore.sqlite> | export <character> <file.empyrean-character> [<note.json>]",
     ) }]
 }
 

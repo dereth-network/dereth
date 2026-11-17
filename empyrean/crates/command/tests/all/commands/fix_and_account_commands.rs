@@ -5,7 +5,6 @@
 //! Fixture: synthetic command arguments, handler tables and isolated server state.
 
 use std::net::{IpAddr, Ipv4Addr};
-use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Arc;
 
 use empyrean_command::command_handler::CommandHandler;
@@ -206,11 +205,11 @@ fn accounts_are_created_and_changed_from_the_console() {
         console(&mut ts, acc::handle_account_get, &["u64alpha"]),
         [format!("User: u64alpha, ID: {}", alpha.account_id)]
     );
-    let missing = catch_unwind(AssertUnwindSafe(|| {
-        console(&mut ts, acc::handle_account_get, &["nobody"])
-    }));
-    assert!(missing.is_err(), "ACE dereferences the null account");
-    let _ = command_manager::take_console_output();
+    // Divergence: V554, ACE dereferences the null account.
+    assert_eq!(
+        console(&mut ts, acc::handle_account_get, &["nobody"]),
+        ["Account nobody does not exist."]
+    );
 
     assert_eq!(
         console(

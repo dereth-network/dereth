@@ -16,6 +16,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Fixed old copies of the server staying in memory after each update on Windows.
 - Launch: looted armor comes in more varied colors, and dinnerware drops in materials.
 - Launch: corpses and chests list weapons and armor first, valuables last.
+- `@emphelp commands` lists only commands that work here, each with a description.
+- Developer inspection commands answer in chat, and commands that failed silently say why.
 
 ## 0.3.15 (2026-11-17)
 - Examining a player now always shows their Enlightenment.

@@ -25,6 +25,8 @@
 //!   brought into an account here, when the operator allows it.
 //! - [`treasure`]: `import-treasure` and `roll-treasure`, new names: a world builder's loot tables
 //!   imported into the running world, and one drawn without anything made in it.
+//! - [`command_table`]: no command of its own: ACE's rows that are left out of the table, and
+//!   those given a description, usage, flags or parameter count of our own.
 //!
 //! [`command_handlers`] is added to the table after every ported file, so a row here with an ACE
 //! command's name replaces ACE's row in its slot, and a new name is added at the end.
@@ -33,6 +35,7 @@
 //! behaviour is ACE's, it forwards to the ported handler rather than copying it.
 
 pub mod character_file;
+pub mod command_table;
 pub mod dn;
 pub mod help_commands;
 pub mod playtest_character;

@@ -186,15 +186,12 @@ pub fn handle_account_create(w: &mut World, session: Option<SessionId>, paramete
 
 // ACE: AccountCommands.HandleAccountGet
 /// `accountget username`: gets an account (console only).
-///
-/// # Panics
-/// An unknown account (ACE's `NullReferenceException`; the command manager logs it).
 pub fn handle_account_get(w: &mut World, _session: Option<SessionId>, parameters: &[String]) {
-    let account = w
-        .auth
-        .lock()
-        .get_account_by_name(&parameters[0])
-        .expect("NullReferenceException: account");
+    // DIVERGE: V554, an unknown account is reported; ACE dereferenced null.
+    let Some(account) = w.auth.lock().get_account_by_name(&parameters[0]) else {
+        console_write_line(&format!("Account {} does not exist.", parameters[0]));
+        return;
+    };
     console_write_line(&format!(
         "User: {}, ID: {}",
         account.account_name, account.account_id

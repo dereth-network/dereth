@@ -33,7 +33,7 @@ pub fn command_handlers() -> Vec<CommandHandlerInfo> {
             AccessLevel::Developer,
             CommandHandlerFlag::None,
             "Reads the world's data overlay again, and builds landblocks again from it.",
-            "[<folder>] [<landblock> ...]\n<folder> - the overlay's folder; the one read now if not given\n<landblock> - a landblock to build again, as XXYY",
+            "[--revision <n>] [<folder>] [<landblock> ...]\n<n> - the overlay revision this reload applies, reported back\n<folder> - the overlay's folder; the one read now if not given\n<landblock> - a landblock to build again, as XXYY",
         ),
     }]
 }

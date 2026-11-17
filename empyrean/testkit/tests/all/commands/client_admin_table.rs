@@ -10,41 +10,8 @@ use empyrean_command::command_handler_flag::CommandHandlerFlag;
 use empyrean_command::command_manager;
 use empyrean_entity::enums::AccessLevel;
 
-/// Staff commands the plugin leaves out: their handlers are empty, or a line cannot reach them,
-/// or (`accountcreate`, `set-accountpassword`) they carry a password its boxes would show.
-const NOT_IN_THE_WINDOW: &[&str] = &[
-    "accountcreate",
-    "adminui",
-    "deaf",
-    "draw",
-    "dumpattackers",
-    "freeze",
-    "housekeep",
-    "lbinterval",
-    "lbthresh",
-    "limbo",
-    "location",
-    "magic god",
-    "myserver",
-    "queryplugin",
-    "querypluginlist",
-    "radar",
-    "raise",
-    "rares dump",
-    "reloadsysmsg",
-    "repeat",
-    "serverlist",
-    "set-accountpassword",
-    "setadvclass",
-    "snoop",
-    "spendxp",
-    "stormnumstormed",
-    "stormthresh",
-    "trainskill",
-    "unfreeze",
-    "unlock",
-    "userlimit",
-];
+/// Staff commands the plugin leaves out: they carry a password its boxes would show.
+const NOT_IN_THE_WINDOW: &[&str] = &["accountcreate", "set-accountpassword"];
 
 /// The verbs of the plugin's table: the first column of each row.
 fn client_table() -> BTreeSet<String> {

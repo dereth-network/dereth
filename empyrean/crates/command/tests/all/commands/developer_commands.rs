@@ -701,7 +701,8 @@ fn developer_console_lines_run_on_the_world_thread() {
             "There are 0 compatible clothingbase tables for setup 5",
             "",
             "",
-            ".NET Garbage Collection forced",
+            // forcegc is not in the table (V553)
+            "Invalid Command",
         ]
     );
 }

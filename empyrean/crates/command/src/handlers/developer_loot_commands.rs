@@ -116,12 +116,12 @@ pub fn test_loot_generator(w: &mut World, _session: Option<SessionId>, parameter
         return;
     };
 
-    // (with one parameter, ACE's `parameters[1]` throws IndexOutOfRangeException)
-    let Some(tier) = dotnet_parse::int_try_parse(
-        parameters
-            .get(1)
-            .expect("IndexOutOfRangeException: parameters[1]"),
-    ) else {
+    // DIVERGE: V554, a missing tier is reported; ACE's `parameters[1]` threw.
+    let Some(tier) = parameters.get(1) else {
+        console_write_line("Need to specify a loot tier");
+        return;
+    };
+    let Some(tier) = dotnet_parse::int_try_parse(tier) else {
         console_write_line("Tier is not an integer");
         return;
     };

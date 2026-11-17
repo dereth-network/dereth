@@ -484,6 +484,16 @@ fn every_handler_is_registered_once() {
     }
 }
 
+/// Divergence: V554
+#[test]
+fn testlootgen_without_a_tier_says_so_on_the_console() {
+    let mut ts = empyrean_testkit::TestServer::new();
+    assert_eq!(
+        console(&mut ts, dlc::test_loot_generator, &["5"]),
+        ["Need to specify a loot tier"]
+    );
+}
+
 #[test]
 fn loot_test_commands_check_their_parameters_on_the_console() {
     let mut ts = empyrean_testkit::TestServer::new();
