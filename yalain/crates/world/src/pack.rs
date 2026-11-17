@@ -150,11 +150,11 @@ fn destroyed<S: Store>(
 
 /// The slot an item moved to goes in at: the slot named, no further than just past its segment's
 /// items. `None` when the segment has no room.
-fn place_for(held: &[Held], target: u32) -> Option<u32> {
+fn place_for(held: &[Held], rooms: &inv::Rooms, target: u32) -> Option<u32> {
     // A client's slot past the bags is just past the last bag's items.
-    let segment = inv::segment_of(target.min(inv::PACK_ROOM - 1));
+    let segment = inv::segment_of(target.min(inv::OVERFLOW - 1));
     let n = inv::segment_counts(held)[segment];
-    if n >= inv::SEGMENTS[segment] {
+    if n >= rooms[segment] {
         return None;
     }
     Some(target.min(inv::segment_start(segment) + n))
@@ -200,10 +200,10 @@ pub fn reorganize<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnI
         progress::private(net, world, &reorganize_done(&m));
         return;
     }
-    let Some((player, mut held)) = s
+    let Some((player, mut held, rooms)) = s
         .players
         .get(&world)
-        .map(|p| (p.character, p.play.items.clone()))
+        .map(|p| (p.character, p.play.items.clone(), inv::rooms_of(s, p)))
     else {
         return;
     };
@@ -238,7 +238,7 @@ pub fn reorganize<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnI
         ..req
     };
     if moved < quantity {
-        split(s, net, world, &mut held, &h, moved, target, answer);
+        split(s, net, world, &mut held, &rooms, &h, moved, target, answer);
         return;
     }
     // The item leaves its slot, its segment closing up.
@@ -263,7 +263,7 @@ pub fn reorganize<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnI
         finish(s, world, held);
         return;
     }
-    let Some(slot) = place_for(&held, target) else {
+    let Some(slot) = place_for(&held, &rooms, target) else {
         let m = Move {
             status: status::CONTAINER_FULL,
             ..answer
@@ -297,12 +297,13 @@ fn split<S: Store>(
     net: &mut ServerNet,
     world: ConnId,
     held: &mut Vec<Held>,
+    rooms: &inv::Rooms,
     h: &Held,
     moved: u32,
     target: u32,
     answer: Move,
 ) {
-    let Some(slot) = place_for(held, target) else {
+    let Some(slot) = place_for(held, rooms, target) else {
         let m = Move {
             status: status::CONTAINER_FULL,
             ..answer
@@ -594,7 +595,7 @@ pub fn from_money_bag<S: Store>(
     let full = s
         .players
         .get(&world)
-        .is_none_or(|p| inv::pack_full(&p.play.items));
+        .is_none_or(|p| inv::pack_full(&p.play.items, &inv::rooms_of(s, p)));
     if full || crate::places::actions_locked(s, world) {
         return;
     }
@@ -835,7 +836,7 @@ pub fn took_all<S: Store>(
             let full = s
                 .players
                 .get(&world)
-                .is_none_or(|p| inv::pack_full(&p.play.items));
+                .is_none_or(|p| inv::pack_full(&p.play.items, &inv::rooms_of(s, p)));
             if full {
                 last_error = status::CONTAINER_FULL;
                 left.push(item);

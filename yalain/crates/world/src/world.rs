@@ -458,6 +458,16 @@ pub fn enter<S: Store>(
     let new_character = st.play.is_empty() || first_entry;
     let conflict = crate::kingdoms::status_at(&s.content.conflict, s.cfg.ruleset, position.cell);
     crate::kingdoms::entering(&mut st.qualities, conflict, new_character);
+    // The pack's size and its last bag follow the bags' perk it holds.
+    let rooms = crate::inventory::rooms(crate::skills::bag_places(
+        &s.skill_table,
+        &crate::skills::held(
+            s.start.skills.get(&c.race).map_or(&[][..], Vec::as_slice),
+            &play.skills,
+        ),
+    ));
+    crate::inventory::size_the_pack(&mut st.qualities, &rooms);
+    crate::inventory::fit_bags(&mut play.items, &rooms);
     s.saves.hold(character, st.clone());
     let mut options = Options::from_packed(&st.options).map_err(|e| {
         tracing::error!(
@@ -708,6 +718,7 @@ pub fn enter<S: Store>(
     let clashed = crate::inventory::fresh_ids_for_clashes(&mut s.things, &mut p.play, &c.name);
     // Whatever it wielded when it left, it still wields; the pack holds the rest.
     crate::inventory::close_up(&mut p.play.items);
+    let rooms = crate::inventory::rooms_of(s, &p);
     let mut pack: Vec<&crate::state::Held> =
         p.play.items.iter().filter(|h| h.location == 0).collect();
     pack.sort_by_key(|h| crate::inventory::pack_order(h.slot));
@@ -757,7 +768,7 @@ pub fn enter<S: Store>(
         tables: crate::skills::RepositoryTables::of(&s.skill_table, &held),
         skills: held,
         options: p.options.to_packed(),
-        segments: crate::inventory::pack_segments(&p.play.items),
+        segments: crate::inventory::pack_segments(&p.play.items, &rooms),
         money: crate::store::money(&p.qualities),
         contents,
         quests: crate::quests::list(&s.quests, &p.play.quests, game_now, game_epoch),

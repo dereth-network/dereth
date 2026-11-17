@@ -796,7 +796,7 @@ fn take_off_to<S: Store>(
         .get(h.template)
         .and_then(|t| fit_of(&t.props))
         .unwrap_or_default();
-    let full = crate::inventory::pack_full(&p.play.items);
+    let full = crate::inventory::pack_full(&p.play.items, &crate::inventory::rooms_of(s, p));
     // Its effects go just before the answer, unless it cannot come off.
     let stopped = if full {
         Vec::new()
@@ -1115,10 +1115,9 @@ fn put_away<S: Store>(
     // Back at the pack's end, where the client puts it, or at the slot named.
     let slot = match to {
         Some((slot, _)) => crate::inventory::named_slot(slot),
-        None => s
-            .players
-            .get(&world)
-            .map_or(0, |p| crate::inventory::end_slot(&p.play.items)),
+        None => s.players.get(&world).map_or(0, |p| {
+            crate::inventory::end_slot(&p.play.items, &crate::inventory::rooms_of(s, p))
+        }),
     };
     let contain = s.things.get_mut(item).map(|t| {
         t.position_stamp = t.position_stamp.wrapping_add(1);

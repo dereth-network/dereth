@@ -349,10 +349,7 @@ pub fn done<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, w: 
         progress::private(net, world, &m);
         return;
     }
-    if s.players
-        .get(&world)
-        .is_some_and(|p| crate::inventory::pack_full(&p.play.items))
-    {
+    if crate::inventory::pack_full_of(s, world) {
         // No place for it: the corpse still to butcher, the knife unworn, nothing paid.
         let m = crate::places::use_answer_to(&w.used, me, 0, TARGET_KIND, 0.0, refusal::NO_ROOM);
         progress::private(net, world, &m);

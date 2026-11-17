@@ -288,6 +288,7 @@ fn build<S: Store>(
             None => wanted_items.push((template, quantity)),
         }
     }
+    let rooms = crate::inventory::rooms(crate::skills::bag_places(&s.skill_table, &skills));
     for (template, quantity) in wanted_items {
         let holds: u32 = play
             .items
@@ -307,11 +308,11 @@ fn build<S: Store>(
         let more = quantity - holds;
         let (items, each) = if most > 1 { (1, more) } else { (more, 1) };
         for _ in 0..items {
-            if !crate::inventory::fits_in_pack(&play.items, 1) {
+            if !crate::inventory::fits_in_pack(&play.items, &rooms, 1) {
                 return Err("the items do not fit in the pack".into());
             }
             // Put in the pack as an item given to a player is.
-            let slot = crate::inventory::room_for_one(&mut play.items);
+            let slot = crate::inventory::room_for_one(&mut play.items, &rooms);
             play.items.push(Held {
                 id: s.things.new_id(),
                 template,

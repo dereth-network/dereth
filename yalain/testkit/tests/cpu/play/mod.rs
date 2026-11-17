@@ -82,6 +82,7 @@ mod mounts;
 mod offerings;
 mod own_requests;
 mod pack;
+mod pack_rat;
 mod paper_doll;
 mod patrols;
 mod people_routes;

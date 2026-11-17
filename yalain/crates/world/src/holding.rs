@@ -158,11 +158,12 @@ pub fn move_item<S: Store>(
     }
     let slot = match to {
         To::Pack(world, slot) => {
+            let rooms = crate::inventory::rooms_for(s, world);
             let Some(p) = s.players.get_mut(&world) else {
                 return Ok(0);
             };
             let slot = match slot {
-                Slot::Room => room_for_one(&mut p.play.items),
+                Slot::Room => room_for_one(&mut p.play.items, &rooms),
                 Slot::At(n) => {
                     insert_at(&mut p.play.items, n);
                     n

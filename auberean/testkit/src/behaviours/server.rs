@@ -7056,6 +7056,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.a-shrunk-last-bag-loses-nothing",
+        says: "When the last bag's places shrink past the items it holds, those past them go to the \
+               pack itself after its own items, in their order; none is lost. Our choice: the client \
+               refuses an untraining that would need it, and no recording holds a bag that shrank.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PACK-RAT-SHRINK"),
+        station: "yalain-testkit::cpu::play::pack_rat::items_past_a_shrunk_last_bag_go_to_the_pack_itself_in_their_order",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.a-stack-pays-for-each-piece",
         says: "Each piece of a stack with a value of its own brings that value, sold whole or \
                piece by piece, and its profile shows the value of them all.",
@@ -7503,6 +7513,27 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-TAKE-ALL"),
         station: "yalain-testkit::cpu::play::pack::taking_all_from_an_open_corpse_brings_every_item_into_the_pack_in_its_order",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.inventory.the-bags-perk-grows-the-last-bag",
+        says: "The bags' perk gives the last bag more places: of its ranks held, the value of the one \
+               with the highest priority (Pack Rat 1 to 6: one to six places), not their sum; an item \
+               coming in fills them before the pack itself runs past its places.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PACK-RAT"),
+        station: "yalain-testkit::cpu::play::pack_rat::pack_rat_gives_the_last_bag_the_highest_ranks_places_more",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.inventory.the-bags-perk-tells-the-client",
+        says: "When the bags' perk changes the last bag's places, the client is told the pack's size \
+               quality (280, 78 and the perk's places), the contents with each segment's places, and \
+               to lay out its bags again, the last taking the places past the others'; a character \
+               enters with them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PACK-RAT-TOLD"),
+        station: "yalain-testkit::cpu::play::pack_rat::training_pack_rat_tells_the_client_the_packs_size_its_segments_and_to_lay_out_its_bags",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -10642,6 +10673,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-SAID"),
         station: "yalain-testkit::cpu::operator::moderation::admins_say_the_commands_in_game_and_a_players_line_is_only_said",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.an-old-save-keeps-its-items-past-the-bags",
+        says: "A play state kept before the last bag could grow reads with nothing moved or lost: the \
+               pack's own items past its places, kept numbered just past the last bag, take numbers \
+               no grown bag reaches, in their order, and every other item keeps its slot.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-OLD-SAVES-PAST-BAGS"),
+        station: "yalain-testkit::cpu::operator::old_saves::a_play_state_kept_at_version_twenty_seven_keeps_its_items_past_the_bags_in_the_pack",
         tier: Tier::Cpu,
     },
     behaviour! {

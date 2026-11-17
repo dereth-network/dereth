@@ -466,6 +466,7 @@ pub fn purchase<S: Store>(
     }
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let price = (sale.cost * quantity as f32).ceil() as u32;
+    let rooms = crate::inventory::rooms_for(s, world);
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
@@ -476,7 +477,7 @@ pub fn purchase<S: Store>(
         progress::private(net, world, &m);
         return;
     }
-    let room = crate::inventory::fits_in_pack(&p.play.items, 1);
+    let room = crate::inventory::fits_in_pack(&p.play.items, &rooms, 1);
     let open = |s: &mut Server<S>, v: i32| {
         ServerMessage::UpdateBoolVisual(VisualQuality {
             object: crate::places::object_stamp(s, keeper),

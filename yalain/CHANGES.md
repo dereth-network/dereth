@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Pack Rat now gives your last bag one more place per rank.
 - Chests can now hold a rare when their loot names one.
 - A quest step in the world's rows can now train a skill.
 - Monsters now play their victory emote over a player they kill, about half the time.

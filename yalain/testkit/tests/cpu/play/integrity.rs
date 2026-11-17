@@ -265,7 +265,11 @@ fn an_item_being_taken_by_one_who_leaves_stays_in_the_corpse() {
 fn an_item_taken_into_a_full_pack_stays_in_the_corpse() {
     let (mut h, (a, ida), _) = players();
     let (c, items) = corpse(&mut h, ida, 1);
-    while inventory::fits_in_pack(&h.server.players[&world_of(&h, ida)].play.items, 1) {
+    while inventory::fits_in_pack(
+        &h.server.players[&world_of(&h, ida)].play.items,
+        &inventory::SEGMENTS,
+        1,
+    ) {
         hold(&mut h, ida, TEST_ITEM, 1);
     }
     h.ask(a, USE, &[use_of(c, ida)], 5);
@@ -299,7 +303,11 @@ fn a_taken_item_joins_its_stack_even_in_a_full_pack() {
         .catalog
         .insert(yalain_testkit::test_template(GEM, 0x1067, stacks));
     let gems = hold(&mut h, ida, GEM, 3);
-    while inventory::fits_in_pack(&h.server.players[&world_of(&h, ida)].play.items, 1) {
+    while inventory::fits_in_pack(
+        &h.server.players[&world_of(&h, ida)].play.items,
+        &inventory::SEGMENTS,
+        1,
+    ) {
         hold(&mut h, ida, TEST_ITEM, 1);
     }
     let in_pack = h.server.players[&world_of(&h, ida)].play.items.len();
@@ -364,7 +372,11 @@ fn a_corpse_turned_into_money_with_a_full_pack_says_it_ran_past_the_room() {
     h.server
         .catalog
         .insert(yalain_testkit::test_template(TEST_ITEM, 0x1067, props));
-    while inventory::fits_in_pack(&h.server.players[&world_of(&h, ida)].play.items, 1) {
+    while inventory::fits_in_pack(
+        &h.server.players[&world_of(&h, ida)].play.items,
+        &inventory::SEGMENTS,
+        1,
+    ) {
         hold(&mut h, ida, TEST_ITEM, 1);
     }
     let in_pack = h.server.players[&world_of(&h, ida)].play.items.len();

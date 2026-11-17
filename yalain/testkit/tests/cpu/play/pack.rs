@@ -197,7 +197,7 @@ fn an_item_given_to_a_full_pack_goes_to_the_front_of_the_first_bag() {
     assert_eq!(slots[0][24].1, 42, "into the first bag's first place");
     let items = &h.server.players[&world].play.items;
     assert_eq!(
-        inventory::pack_segments(items),
+        inventory::pack_segments(items, &inventory::SEGMENTS),
         [(42, 42), (12, 1), (12, 0), (12, 0)],
         "the pack full, one in the first bag"
     );
@@ -1154,14 +1154,14 @@ fn an_item_kept_past_the_last_bag_is_told_in_the_pack_itself() {
         .iter_mut()
         .find(|x| x.id == items[0])
         .unwrap()
-        .slot = inventory::PACK_ROOM;
+        .slot = inventory::OVERFLOW;
     p.play
         .items
         .iter_mut()
         .find(|x| x.id == items[1])
         .unwrap()
         .slot = 66;
-    assert_eq!(inventory::segment_of(inventory::PACK_ROOM), 0);
+    assert_eq!(inventory::segment_of(inventory::OVERFLOW), 0);
     let (segments, contents) = windows(&h, world);
     assert_eq!(segments, [(42, 2), (12, 0), (12, 0), (12, 1)]);
     assert_eq!(contents, [items[2], items[0], items[1]], "the pack's first");

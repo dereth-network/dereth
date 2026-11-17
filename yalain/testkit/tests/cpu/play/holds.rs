@@ -481,7 +481,7 @@ fn a_weapon_put_away_past_every_segment_goes_to_the_packs_front() {
     let put = items.iter().find(|x| x.id == sword).expect("held");
     assert_eq!((put.location, put.slot), (0, 0), "at the front");
     assert_eq!(
-        inventory::pack_segments(items),
+        inventory::pack_segments(items, &inventory::SEGMENTS),
         [(42, 43), (12, 12), (12, 12), (12, 12)]
     );
     let mut slots: Vec<u32> = items.iter().map(|x| x.slot).collect();

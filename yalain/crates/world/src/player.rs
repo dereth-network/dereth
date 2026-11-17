@@ -59,7 +59,8 @@ pub mod quality {
     pub const RACE: u32 = 290;
     pub const SEX: u32 = 291;
     pub const SPECIES: u32 = 292;
-    pub const KIND: u32 = 280;
+    /// The most items its pack and bags hold (its template sets 78).
+    pub const PACK_SIZE: u32 = 280;
     pub const UNSET: u32 = 950;
     pub const HEALTH_RATE: u32 = 262;
     pub const VIGOR_RATE: u32 = 263;
@@ -180,7 +181,7 @@ pub fn new_qualities(name: &str, race: u32, sex: u32, body: u32) -> Qualities {
     let ints = Table::from_inserted(
         3,
         [
-            (quality::KIND, 78),
+            (quality::PACK_SIZE, 78),
             (quality::RACE, race as i32),
             (quality::SEX, sex as i32),
             (quality::SPECIES, species(race) as i32),

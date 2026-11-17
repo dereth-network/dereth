@@ -20,7 +20,11 @@
 //!
 //! **The pack and its bags.** A player's pack is four segments of one list: the pack itself (42
 //! places, slots 0-41) and three bags of 12 (slots 42-53, 54-65 and 66-77). A slot names a segment
-//! and a place in it; each segment keeps its items together from its first slot.
+//! and a place in it; each segment keeps its items together from its first slot. The bags' perk
+//! gives the last bag more places (slots 78 on): those of the highest of its ranks a player holds.
+//! When the last bag's places change, the player's client is told the pack's size, its segments
+//! and to lay out its bags again; an item past the places a shrunk bag has left goes to the pack
+//! itself.
 //!
 //! **Where an item comes in.** An item given, bought or taken goes to the front of the first
 //! segment with room (slot 0 while the pack itself has room), every item of that segment moving up
@@ -56,6 +60,8 @@ pub mod function {
     pub const CLOSE_DONE: u32 = 0x820E_0060;
     pub const MOVE_DONE: u32 = 0x820E_005E;
     pub const RESET_CONTENTS: u32 = 0x820E_0053;
+    /// The client lays out its bags again (`PostCEvt_UpdateBackpack`).
+    pub const UPDATE_BACKPACK: u32 = 0x820E_006D;
     pub const TRANSMUTE_ALL: u32 = 0x820E_0065;
     pub const TRANSMUTE_ALL_DONE: u32 = 0x820E_006A;
     pub const DISCRETE_DESTROY: u32 = 0x820E_0058;
@@ -106,9 +112,84 @@ pub const PACK_SLOTS: u32 = 42;
 /// The segments of a player's pack: the pack itself and its three bags, each segment's places.
 pub const SEGMENTS: [u32; 4] = [PACK_SLOTS, 12, 12, 12];
 
-/// The places of a player's pack and its bags together. The pack itself numbers its items past its
-/// own places from here on: the bags' numbers are fixed, and these are ours, never named to a client.
+/// The places of a player's pack and its bags together, the last bag with no perk's places.
 pub const PACK_ROOM: u32 = PACK_SLOTS + 36;
+
+/// The pack itself numbers its items past its own places from here on, past the last bag at its
+/// largest, so that the last bag growing or shrinking renumbers none of them. The bags' numbers
+/// are fixed, and these are ours, never named to a client.
+pub const OVERFLOW: u32 = 1_000;
+
+/// The pack itself numbered its items past its own places from this slot on, before the last bag
+/// could grow.
+pub const OLD_OVERFLOW: u32 = PACK_ROOM;
+
+/// Each segment's places: the pack itself's and its bags'.
+pub type Rooms = [u32; 4];
+
+/// The places of each segment of a pack whose last bag has so many more (the bags' perk's).
+#[must_use]
+pub fn rooms(more: u32) -> Rooms {
+    let mut r = SEGMENTS;
+    let last = r.len() - 1;
+    r[last] += more.min(OVERFLOW - PACK_ROOM);
+    r
+}
+
+/// The places of a player's pack and bags as the perks it holds give them.
+#[must_use]
+pub fn rooms_of<S: Store>(s: &Server<S>, p: &crate::world::Player) -> Rooms {
+    let starting = s.start.skills.get(&p.race).map_or(&[][..], Vec::as_slice);
+    let held = crate::skills::held(starting, &p.play.skills);
+    rooms(crate::skills::bag_places(&s.skill_table, &held))
+}
+
+/// The places of a player's pack and bags; a player not in the world has the bags' own.
+#[must_use]
+pub fn rooms_for<S: Store>(s: &Server<S>, world: ConnId) -> Rooms {
+    s.players.get(&world).map_or(SEGMENTS, |p| rooms_of(s, p))
+}
+
+/// The most items a pack and its bags hold: the player's pack size quality.
+#[must_use]
+pub fn pack_size(rooms: &Rooms) -> u32 {
+    rooms.iter().sum()
+}
+
+/// Set a player's pack size quality to its pack's and bags' places. Returns whether it changed (a
+/// player kept with none has its template's, the bags' own).
+pub fn size_the_pack(qualities: &mut Vec<u8>, rooms: &Rooms) -> bool {
+    let size = i32::try_from(pack_size(rooms)).unwrap_or(i32::MAX);
+    let was = crate::quals::int(qualities, crate::player::quality::PACK_SIZE)
+        .unwrap_or(PACK_ROOM.cast_signed());
+    if was == size {
+        return false;
+    }
+    crate::quals::set_int(qualities, crate::player::quality::PACK_SIZE, size);
+    true
+}
+
+/// A player's last bag follows the bags' perk it holds. When its places change, the items past
+/// those it has left go to the pack itself, and the client is told the pack's size, its contents
+/// in their segments, and to lay out its bags again (the last of them takes the places past the
+/// others').
+// D2-02941
+pub fn bags_follow_skills<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    let rooms = rooms_for(s, world);
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    if !size_the_pack(&mut p.qualities, &rooms) {
+        return;
+    }
+    fit_bags(&mut p.play.items, &rooms);
+    let size = i32::try_from(pack_size(&rooms)).unwrap_or(i32::MAX);
+    progress::send_int(net, world, crate::player::quality::PACK_SIZE, size);
+    progress::private(net, world, &reset_contents(s, world));
+    let lay_out = session::call(function::UPDATE_BACKPACK, &[]).expect("no arguments pack");
+    progress::private(net, world, &lay_out);
+    crate::world::keep_player(s, world);
+}
 
 /// The first slot of each segment.
 #[must_use]
@@ -116,10 +197,11 @@ pub fn segment_start(segment: usize) -> u32 {
     SEGMENTS[..segment.min(SEGMENTS.len())].iter().sum()
 }
 
-/// The segment an item's slot is in (a slot past the last bag is the pack itself).
+/// The segment an item's slot is in (a slot past the pack's own places, from [`OVERFLOW`] on, is
+/// the pack itself; one past the last bag's own places is the last bag's).
 #[must_use]
 pub fn segment_of(slot: u32) -> usize {
-    if slot >= PACK_ROOM {
+    if slot >= OVERFLOW {
         return 0;
     }
     (1..SEGMENTS.len())
@@ -131,7 +213,7 @@ pub fn segment_of(slot: u32) -> usize {
 /// The slot of the item at a place in its segment.
 fn slot_at(segment: usize, place: u32) -> u32 {
     if segment == 0 && place >= PACK_SLOTS {
-        PACK_ROOM + (place - PACK_SLOTS)
+        OVERFLOW + (place - PACK_SLOTS)
     } else {
         segment_start(segment) + place
     }
@@ -143,10 +225,11 @@ pub fn pack_order(slot: u32) -> (usize, u32) {
     (segment_of(slot), slot)
 }
 
-/// A slot to name to a client: one past the bags names no segment there, so the pack's front.
+/// A slot to name to a client: one past the pack's own places names no segment there, so the
+/// pack's front.
 #[must_use]
 pub fn named_slot(slot: u32) -> u32 {
-    if slot >= PACK_ROOM {
+    if slot >= OVERFLOW {
         0
     } else {
         slot
@@ -166,19 +249,48 @@ pub fn segment_counts(held: &[Held]) -> [u32; 4] {
 /// The segments of a pack as its session start and its contents name them: each segment's places
 /// and how many of them hold an item.
 #[must_use]
-pub fn pack_segments(held: &[Held]) -> Vec<(u32, u32)> {
+pub fn pack_segments(held: &[Held], rooms: &Rooms) -> Vec<(u32, u32)> {
     let n = segment_counts(held);
-    SEGMENTS.iter().zip(n).map(|(room, n)| (*room, n)).collect()
+    rooms.iter().zip(n).map(|(room, n)| (*room, n)).collect()
 }
 
 /// The slot after the last item of the first segment with room (the pack's front when every
 /// segment is full).
 #[must_use]
-pub fn end_slot(held: &[Held]) -> u32 {
+pub fn end_slot(held: &[Held], rooms: &Rooms) -> u32 {
     let n = segment_counts(held);
-    (0..SEGMENTS.len())
-        .find(|s| n[*s] < SEGMENTS[*s])
+    (0..rooms.len())
+        .find(|s| n[*s] < rooms[*s])
         .map_or(0, |segment| segment_start(segment) + n[segment])
+}
+
+/// Keep each bag within its places: the items of a bag past them (the last bag's, when it has
+/// shrunk) go to the pack itself, after its own items, in their order. Returns whether any did.
+pub fn fit_bags(held: &mut [Held], rooms: &Rooms) -> bool {
+    close_up(held);
+    let past_its_places = |h: &Held| {
+        let segment = segment_of(h.slot);
+        h.location == 0 && segment != 0 && h.slot >= segment_start(segment) + rooms[segment]
+    };
+    let mut past: Vec<usize> = (0..held.len())
+        .filter(|i| past_its_places(&held[*i]))
+        .collect();
+    if past.is_empty() {
+        return false;
+    }
+    past.sort_by_key(|i| held[*i].slot);
+    let after = held
+        .iter()
+        .filter(|h| h.location == 0 && segment_of(h.slot) == 0)
+        .map(|h| h.slot + 1)
+        .max()
+        .unwrap_or(0)
+        .max(OVERFLOW);
+    for (i, slot) in past.into_iter().zip(after..) {
+        held[i].slot = slot;
+    }
+    close_up(held);
+    true
 }
 
 /// Make room at a slot of a pack: every item of the slot's segment at or after it moves up one.
@@ -189,7 +301,7 @@ pub fn insert_at(held: &mut [Held], slot: u32) {
         .filter(|h| h.location == 0 && segment_of(h.slot) == segment && h.slot >= slot)
     {
         h.slot = if h.slot + 1 == PACK_SLOTS {
-            PACK_ROOM
+            OVERFLOW
         } else {
             h.slot + 1
         };
@@ -841,25 +953,31 @@ pub fn close_up(items: &mut [Held]) {
 
 /// Whether a player's pack and its bags hold an item in every place. What a player makes (a craft's
 /// product, a cut, what it mines) waits for a place then; what it is given or takes does not.
-pub(crate) fn pack_full(held: &[Held]) -> bool {
-    !fits_in_pack(held, 1)
+pub(crate) fn pack_full(held: &[Held], rooms: &Rooms) -> bool {
+    !fits_in_pack(held, rooms, 1)
+}
+
+/// Whether an in-world player's pack and bags hold an item in every place (not so for one not in
+/// the world).
+pub(crate) fn pack_full_of<S: Store>(s: &Server<S>, world: ConnId) -> bool {
+    s.players
+        .get(&world)
+        .is_some_and(|p| pack_full(&p.play.items, &rooms_of(s, p)))
 }
 
 /// Whether a player's pack and its bags have room for this many more items.
 #[must_use]
-pub fn fits_in_pack(held: &[Held], incoming: usize) -> bool {
+pub fn fits_in_pack(held: &[Held], rooms: &Rooms, incoming: usize) -> bool {
     let in_pack = held.iter().filter(|h| h.location == 0).count();
-    in_pack.saturating_add(incoming) <= PACK_ROOM as usize
+    in_pack.saturating_add(incoming) <= pack_size(rooms) as usize
 }
 
 /// Make room for an item coming into a pack: at the front of the first segment with room, its
 /// items each moving up one slot, as the client puts it at the slot the move names; at the pack's
 /// front when every segment is full, a gift held all the same. Returns the slot.
-pub(crate) fn room_for_one(held: &mut [Held]) -> u32 {
+pub(crate) fn room_for_one(held: &mut [Held], rooms: &Rooms) -> u32 {
     let n = segment_counts(held);
-    let segment = (0..SEGMENTS.len())
-        .find(|s| n[*s] < SEGMENTS[*s])
-        .unwrap_or(0);
+    let segment = (0..rooms.len()).find(|s| n[*s] < rooms[*s]).unwrap_or(0);
     let slot = segment_start(segment);
     insert_at(held, slot);
     slot
@@ -1251,7 +1369,7 @@ pub fn pickup_refused<S: Store>(
     };
     let look = hand_look(s, item);
     let slot = if why == refused::CONTAINER_FULL {
-        i32::try_from(PACK_ROOM).unwrap_or(0)
+        i32::try_from(pack_size(&rooms_for(s, world))).unwrap_or(0)
     } else {
         0
     };
@@ -1375,10 +1493,7 @@ pub fn picked_up<S: Store>(
         to_holder(s, net, world, stack, &more);
         gone_from_where_it_lay(s, net, item);
     } else {
-        let full = s
-            .players
-            .get(&world)
-            .is_some_and(|p| pack_full(&p.play.items));
+        let full = pack_full_of(s, world);
         if full {
             pickup_refused(s, net, world, item, refused::CONTAINER_FULL);
             return;
@@ -1415,11 +1530,8 @@ fn arrive<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u
     let Some(player) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
-    // Past the pack's room the move says so (2017: 7 of 7, at 78 items or more).
-    let past_room = s
-        .players
-        .get(&world)
-        .is_some_and(|p| pack_full(&p.play.items));
+    // Past the pack's room the move says so (2017: 7 of 7, at 78 items or more, its size).
+    let past_room = pack_full_of(s, world);
     m.overflow |= past_room;
     m.used_overflow = past_room;
     let Some(slot) = hold(s, world, id, Place::Nowhere) else {
@@ -1770,10 +1882,7 @@ pub fn taken<S: Store>(
     let from_slot = holding::slot_in(s, corpse, item).unwrap_or(0);
     let quantity = s.things.get(item).map_or(1, |t| t.quantity.max(1));
     let stack = stack_for(s, world, item, quantity).filter(|_| there);
-    let full = stack.is_none()
-        && s.players
-            .get(&world)
-            .is_some_and(|p| pack_full(&p.play.items));
+    let full = stack.is_none() && pack_full_of(s, world);
     if !there || full {
         let m = Move {
             move_type: move_type::TAKE,
@@ -1970,10 +2079,7 @@ pub fn transmute_all<S: Store>(
     let mut refused = Vec::new();
     // Each item passes through the pack, which holds it no longer than this answer: it needs no
     // room, and into a full pack its move says it ran past (2017: 6 of 6).
-    let past_room = s
-        .players
-        .get(&world)
-        .is_some_and(|p| pack_full(&p.play.items));
+    let past_room = pack_full_of(s, world);
     for (slot, item) in contents.iter().enumerate() {
         if holding::place_of(s, *item) != Some(Place::Contents(corpse)) {
             continue;
@@ -2139,7 +2245,7 @@ pub fn reset_contents<S: Store>(s: &Server<S>, world: ConnId) -> ServerMessage {
     session::call(
         function::RESET_CONTENTS,
         &[
-            session::segments_arg(&pack_segments(&held)),
+            session::segments_arg(&pack_segments(&held, &rooms_for(s, world))),
             id_list(&[]),
             id_list(&ids),
         ],

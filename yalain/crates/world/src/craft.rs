@@ -2365,11 +2365,7 @@ fn result<S: Store>(
         Action::Custom => matches!(def.custom, Custom::Refine { .. }) || combined.is_some(),
         _ => false,
     });
-    if makes_item
-        && s.players
-            .get(&world)
-            .is_some_and(|p| crate::inventory::pack_full(&p.play.items))
-    {
+    if makes_item && crate::inventory::pack_full_of(s, world) {
         progress::private(net, world, &executed(error::NO_ROOM, m.recipe));
         return;
     }

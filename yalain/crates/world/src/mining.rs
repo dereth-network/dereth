@@ -375,7 +375,9 @@ fn pack_full_of<S: Store>(s: &Server<S>, me: u64) -> bool {
     s.players
         .values()
         .find(|p| p.character == me)
-        .is_some_and(|p| crate::inventory::pack_full(&p.play.items))
+        .is_some_and(|p| {
+            crate::inventory::pack_full(&p.play.items, &crate::inventory::rooms_of(s, p))
+        })
 }
 
 /// Why a player at a node may not mine it (none: it may).

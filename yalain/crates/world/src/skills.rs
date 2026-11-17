@@ -128,7 +128,7 @@ pub mod untraining {
     pub const LAST_PERK_UNTRAIN: u32 = 310;
     pub const PERK_WAIT: f64 = 604_800.0;
     /// The kind of the perk that gives a bag's places.
-    pub const BAGS_PERK: u32 = 18;
+    pub const BAGS_PERK: u32 = super::perk_kind::BAGS;
 }
 
 /// A skill being untrained: the skill, the experience the player must earn to finish it (the
@@ -445,6 +445,20 @@ pub mod perk_kind {
     pub const INTELLIGENCE: u32 = 39;
     pub const VITALITY: u32 = 40;
     pub const HEROISM: u32 = 41;
+    /// Places more in the last bag.
+    pub const BAGS: u32 = 18;
+}
+
+/// The places the bags' perk a character holds adds to its last bag: of its ranks held, the
+/// highest's.
+#[must_use]
+pub fn bag_places(table: &SkillTable, skills: &[Held]) -> u32 {
+    perk_value(table, skills, perk_kind::BAGS).map_or(0, |v| {
+        // A rank's value is a whole number of places.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let places = v.max(0.0).min(f64::from(u32::MAX)) as u32;
+        places
+    })
 }
 
 /// What a character holding these skills has of a kind of perk: of those it holds, the one with the
@@ -1689,6 +1703,7 @@ pub fn trained_for_good<S: Store>(
     for h in changed.iter().chain(std::iter::once(&new)) {
         progress::private(net, world, &info_update(h, None));
     }
+    crate::inventory::bags_follow_skills(s, net, world);
     crate::world::keep_player(s, world);
     true
 }
@@ -1759,6 +1774,7 @@ pub fn train<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v:
         vec![nested(VAR_SKILL, progress::text(d.name))],
     );
     progress::say(net, world, said);
+    crate::inventory::bags_follow_skills(s, net, world);
     crate::world::keep_player(s, world);
 }
 
@@ -1836,7 +1852,8 @@ fn untrain_refusal_now<S: Store>(
         if last.is_some_and(|t| t + untraining::PERK_WAIT > now) {
             return Some(refusal::PERK_TOO_SOON);
         }
-        if perk.kind == untraining::BAGS_PERK && last_bag_full(p) {
+        if perk.kind == untraining::BAGS_PERK && last_bag_full(p, &crate::inventory::rooms_of(s, p))
+        {
             return Some(refusal::LAST_BAG_FULL);
         }
     }
@@ -1847,21 +1864,59 @@ fn untrain_refusal_now<S: Store>(
     on_timer.then_some(refusal::ON_ITS_TIMER)
 }
 
-/// Is every place of the player's last bag (the one a perk gives) taken?
-fn last_bag_full(p: &crate::world::Player) -> bool {
+/// Is every place of the player's last bag (the one the bags' perk grows) taken?
+fn last_bag_full(p: &crate::world::Player, rooms: &crate::inventory::Rooms) -> bool {
+    last_bag_held(p) >= rooms[rooms.len() - 1] as usize
+}
+
+/// The bags' perks a reset leaves of those it takes: as untraining them one at a time, the highest
+/// first, while the last bag has a free place; those left when it has none stay.
+fn bags_perks_a_reset_keeps(
+    table: &SkillTable,
+    skills: &[Held],
+    taken: &impl Fn(u32) -> bool,
+    in_last_bag: usize,
+) -> Vec<u32> {
+    let bags_perk = |h: &Held| {
+        table
+            .skills
+            .get(&h.skill)
+            .and_then(|d| d.perk)
+            .filter(|x| x.kind == untraining::BAGS_PERK && taken(h.skill))
+    };
+    let mut left = skills.to_vec();
+    loop {
+        let mut top: Option<(u32, i32)> = None;
+        for h in &left {
+            if let Some(x) = bags_perk(h) {
+                if top.is_none_or(|(_, p)| x.priority > p) {
+                    top = Some((h.skill, x.priority));
+                }
+            }
+        }
+        let Some((skill, _)) = top else {
+            break;
+        };
+        let rooms = crate::inventory::rooms(bag_places(table, &left));
+        if in_last_bag >= rooms[rooms.len() - 1] as usize {
+            break;
+        }
+        left.retain(|h| h.skill != skill);
+    }
+    left.iter()
+        .filter(|h| bags_perk(h).is_some())
+        .map(|h| h.skill)
+        .collect()
+}
+
+/// How many items the player's last bag holds.
+fn last_bag_held(p: &crate::world::Player) -> usize {
     let last_bag = crate::inventory::SEGMENTS.len() - 1;
-    let places = crate::inventory::SEGMENTS[last_bag] as usize;
-    let held = p
-        .play
+    p.play
         .items
         .iter()
-        .filter(|h| {
-            h.location == 0
-                && h.slot < crate::inventory::PACK_ROOM
-                && crate::inventory::segment_of(h.slot) == last_bag
-        })
-        .count();
-    held >= places
+        .filter(|h| h.location == 0 && crate::inventory::segment_of(h.slot) == last_bag)
+        .count()
 }
 
 /// A player asks to untrain a skill it trained. With no experience put into it, it is untrained at
@@ -2015,6 +2070,7 @@ fn untrained<S: Store>(
         progress::private(net, world, &repository_of(s, p));
     }
     crate::effects::vitals_within_their_greatest(s, net, world);
+    crate::inventory::bags_follow_skills(s, net, world);
     crate::world::keep_player(s, world);
 }
 
@@ -2220,19 +2276,14 @@ fn reset_all<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, ki
             .get(&skill)
             .is_some_and(|d| (d.flags & flag::HERO != 0) == hero)
     };
-    // What the reset leaves as it is: skills of the other kind, a bags perk whose bag is full, and
-    // whatever a skill it leaves stands on (a parent or a prerequisite), as untraining would.
-    let bag_full = last_bag_full(p);
+    // What the reset leaves as it is: skills of the other kind, the bags' perks whose places the
+    // last bag still holds items in, and whatever a skill it leaves stands on (a parent or a
+    // prerequisite), as untraining would.
+    let bags_kept = bags_perks_a_reset_keeps(table, &skills, &of_kind, last_bag_held(p));
     let mut untouched: Vec<u32> = skills
         .iter()
         .map(|h| h.skill)
-        .filter(|&k| {
-            !of_kind(k)
-                || table.skills.get(&k).is_some_and(|d| {
-                    d.perk
-                        .is_some_and(|x| x.kind == untraining::BAGS_PERK && bag_full)
-                })
-        })
+        .filter(|&k| !of_kind(k) || bags_kept.contains(&k))
         .collect();
     let mut grew = true;
     while grew {
@@ -2338,6 +2389,7 @@ fn reset_all<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, ki
         &crate::chat::show_text(reset::SHOWN_AS, progress::text(said)),
     );
     crate::effects::vitals_within_their_greatest(s, net, world);
+    crate::inventory::bags_follow_skills(s, net, world);
     crate::world::keep_player(s, world);
 }
 

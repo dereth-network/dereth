@@ -194,8 +194,21 @@ pub struct PlayState {
 /// nothing after the skills; 3 nothing after the recipes; 4 nothing after the scenes; 5 nothing
 /// after the skills' last uses; 6 an item's instance stamp and maker only; 7 nothing after an
 /// item's durability; 8 nothing after a map's place; 9 nothing after an item's bonuses; 10 nothing
-/// after an item's binding; 11 nothing after the hero credits; 12 nothing after the time played; 13 nothing after the cloak; 14 nothing after the suffix; 15 no value of an item's own; 16 no look an item drew, nor the hand it was last in; 17 no effect an item is named for; 18 not whom an item is bound to, nor that a recipe attuned it; 19 no effects a skill put on an item; 20 an item's permanent effects only with what a recipe's item level gave it; 21 no word of starting clothes made as items; 22 no word of the tips shown; 23 nothing after the tips shown; 24 nothing after the quests completed before; 25 no time an item is gone at; 26 nothing after the step waits).
-const VERSION: u32 = 27;
+/// after an item's binding; 11 nothing after the hero credits; 12 nothing after the time played; 13 nothing after the cloak; 14 nothing after the suffix; 15 no value of an item's own; 16 no look an item drew, nor the hand it was last in; 17 no effect an item is named for; 18 not whom an item is bound to, nor that a recipe attuned it; 19 no effects a skill put on an item; 20 an item's permanent effects only with what a recipe's item level gave it; 21 no word of starting clothes made as items; 22 no word of the tips shown; 23 nothing after the tips shown; 24 nothing after the quests completed before; 25 no time an item is gone at; 26 nothing after the step waits; 27 the pack's own items past its places numbered from just past the last bag, where a grown last bag's places are now).
+const VERSION: u32 = 28;
+
+/// The pack's own items past its places, kept numbered from just past the last bag, take the
+/// numbers they have now, in the same order: the places a grown last bag adds would otherwise read
+/// them as its own.
+fn renumber_past_the_bags(items: &mut [Held]) {
+    use crate::inventory::{OLD_OVERFLOW, OVERFLOW};
+    for h in items
+        .iter_mut()
+        .filter(|h| h.location == 0 && h.slot >= OLD_OVERFLOW)
+    {
+        h.slot = OVERFLOW + (h.slot - OLD_OVERFLOW);
+    }
+}
 
 /// Do these bytes say a newer build kept them (a world that went back to an older build)?
 #[must_use]
@@ -907,6 +920,9 @@ impl PlayState {
         }
         if !r.0.is_empty() {
             return Err(bad());
+        }
+        if version < 28 {
+            renumber_past_the_bags(&mut s.items);
         }
         Ok(s)
     }

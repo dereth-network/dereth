@@ -619,7 +619,9 @@ fn no_room<S: Store>(s: &Server<S>, t: &Trade) -> Option<u32> {
         s.players
             .values()
             .find(|p| p.character == who)
-            .is_none_or(|p| inventory::fits_in_pack(&p.play.items, incoming))
+            .is_none_or(|p| {
+                inventory::fits_in_pack(&p.play.items, &inventory::rooms_of(s, p), incoming)
+            })
     };
     if !fits(t.master, t.slave_items.len()) {
         return Some(error::ASKER_NO_ROOM);

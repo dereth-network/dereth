@@ -205,6 +205,7 @@ pub fn shrine_used<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Conn
         world,
         &crate::chat::show_text(SHOWN_AS, progress::text(UPDATED)),
     );
+    crate::inventory::bags_follow_skills(s, net, world);
     crate::world::keep_player(s, world);
 }
 

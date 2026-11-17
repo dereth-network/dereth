@@ -1382,7 +1382,7 @@ pub fn collect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
         let room = s
             .players
             .get(&world)
-            .is_some_and(|p| inventory::fits_in_pack(&p.play.items, 1));
+            .is_some_and(|p| inventory::fits_in_pack(&p.play.items, &inventory::rooms_of(s, p), 1));
         let refused = if left == 0 || !made {
             Some(store::error::COLLECT_FAILED)
         } else if room {
@@ -1521,7 +1521,7 @@ pub fn purchase<S: Store>(
     let full = s
         .players
         .get(&world)
-        .is_none_or(|p| !inventory::fits_in_pack(&p.play.items, 1));
+        .is_none_or(|p| !inventory::fits_in_pack(&p.play.items, &inventory::rooms_of(s, p), 1));
     if full {
         let m = call(
             store::function::REQUEST_DONE,
