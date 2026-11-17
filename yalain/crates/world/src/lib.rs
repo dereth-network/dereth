@@ -134,6 +134,7 @@ pub mod options;
 pub mod pack;
 pub mod personal;
 pub mod pets;
+pub mod pk_points;
 pub mod places;
 pub mod placing;
 pub mod plants;

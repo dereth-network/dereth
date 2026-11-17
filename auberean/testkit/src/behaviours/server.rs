@@ -13727,6 +13727,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.player-fights.kill-moves-kingdom-points",
+        says: "A death at another player's hand moves kingdom points from the dead player to those who \
+               harmed it in the 300 s before, shared by the harm each did, each gain twenty times the \
+               dead player's chance of beating it on a 400-point scale; the dead player loses their sum.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PVP-KINGDOM-POINTS"),
+        station: "yalain-testkit::cpu::play::player_fights::a_kill_between_players_of_equal_points_moves_ten_from_the_dead_to_its_killer",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.player-fights.no-skill-from-portal-space",
         says: "A player in portal space is refused a skill's use; what it aims at isn't struck.",
         since: RETAIL,

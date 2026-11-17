@@ -1938,7 +1938,7 @@ fn change_vital<S: Store>(
         let sender = crate::combat::player_event(p, ()).sender;
         let mut told = health_story(sender, caster, amount);
         if by_player {
-            crate::combat::with_pk_damage(&mut told, me);
+            crate::combat::pk_harm(s, &mut told, me, clock.local.0);
         }
         crate::combat::to_all_seeing(s, net, me, &told);
     }
@@ -2629,7 +2629,7 @@ pub fn tick<S: Store>(
             if harm_by_player(me, amount, (e.caster, e.pk)) {
                 let sender = crate::combat::player_event(p, ()).sender;
                 let mut told = health_story(sender, e.caster, amount);
-                crate::combat::with_pk_damage(&mut told, me);
+                crate::combat::pk_harm(s, &mut told, me, clock.local.0);
                 crate::combat::to_all_seeing(s, net, me, &told);
             }
         }

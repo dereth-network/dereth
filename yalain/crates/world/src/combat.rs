@@ -461,6 +461,13 @@ pub fn with_pk_damage(m: &mut ServerMessage, player: u64) {
     }
 }
 
+/// A story's harm to another player told as PK damage ([`with_pk_damage`]), and kept as its
+/// attacker's part in a fight with the player ([`crate::pk_points::harmed`]) at `now`.
+pub fn pk_harm<S: Store>(s: &mut Server<S>, m: &mut ServerMessage, player: u64, now: f64) {
+    with_pk_damage(m, player);
+    crate::pk_points::harmed(s, m, player, now);
+}
+
 /// Is a player dead (its health gone)?
 #[must_use]
 pub fn is_dead(p: &Player) -> bool {
@@ -939,7 +946,7 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
         e.action.hooks = crate::skill_use::story_hooks_with(u, run.target, 0, &blows);
     }
     if other.is_some() {
-        with_pk_damage(&mut st, run.target);
+        pk_harm(s, &mut st, run.target, clock.local.0);
     }
     to_all_seeing(s, net, id, &st);
     let played = crate::timings::of_player(s, world, behavior);
@@ -1107,7 +1114,7 @@ fn stand_and_swing<S: Store>(
         },
     ));
     if player_target(s, world, run.target).is_some() {
-        with_pk_damage(&mut told, run.target);
+        pk_harm(s, &mut told, run.target, clock.local.0);
     }
     to_all_seeing(s, net, id, &told);
     if crate::skill_use::moving_cancels(&u) && weapon != 0 {
@@ -1242,7 +1249,7 @@ fn throw_twice<S: Store>(
         },
     ));
     if player_target(s, world, run.target).is_some() {
-        with_pk_damage(&mut told, run.target);
+        pk_harm(s, &mut told, run.target, clock.local.0);
     }
     to_all_seeing(s, net, id, &told);
     for (landing, after) in told_of {
@@ -1340,7 +1347,7 @@ pub fn lands<S: Store>(s: &mut Server<S>, net: &mut ServerNet, mut l: Landing, c
             },
         });
         if other.is_some() {
-            with_pk_damage(&mut told, l.target);
+            pk_harm(s, &mut told, l.target, clock.local.0);
         }
         to_all_seeing(s, net, l.target, &told);
     }

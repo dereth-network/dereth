@@ -2342,7 +2342,7 @@ fn story<S: Store>(
     }
     let mut told = told;
     if hostile_at_player {
-        combat::with_pk_damage(&mut told, target);
+        combat::pk_harm(s, &mut told, target, clock.local.0);
     }
     to_all_seeing(s, net, me, &told);
     for (item, _) in &held {
@@ -2952,7 +2952,7 @@ fn arrives<S: Store>(
         },
     });
     if player.is_some() {
-        combat::with_pk_damage(&mut told, r.target);
+        combat::pk_harm(s, &mut told, r.target, clock.local.0);
     }
     to_all_seeing(s, net, r.target, &told);
     if let Some(c) = player {

@@ -1189,3 +1189,116 @@ fn heals_restore_damage_another_player_did_at_a_third() {
     yalain_world::death::player_dies(&mut h.server, &mut h.net, wb, Some(ida), clock);
     assert_eq!(h.server.players[&wb].pk_lost, [0, 0]);
 }
+
+fn points_of(h: &Harness, me: u64) -> i32 {
+    h.server
+        .players
+        .values()
+        .find(|p| p.character == me)
+        .map(|p| yalain_world::pk_points::points_of(&p.qualities))
+        .expect("in the world")
+}
+
+/// A player killed by another of equal kingdom points (500 each, as every character starts) loses
+/// ten of them, and its killer, who did all the harm, gains ten.
+/// Behaviour: server.player-fights.kill-moves-kingdom-points
+#[test]
+fn a_kill_between_players_of_equal_points_moves_ten_from_the_dead_to_its_killer() {
+    let (mut h, (a, ida), (_, idb)) = two_players(Conflict::FreeForAll);
+    with_player(&mut h, idb, |p| {
+        quals::set_int(&mut p.qualities, quality::HEALTH, 1);
+    });
+    attack(&mut h, a, idb);
+    assert!(h.run_until(4000, |h| health_of(h, idb) <= 0), "the death");
+    h.run(5);
+    assert_eq!((points_of(&h, ida), points_of(&h, idb)), (510, 490));
+}
+
+/// Points move by the share of the harm each fighter did lately and by how far its points stand
+/// from the dead player's: 2017's kill, the killer at 1,600 with 68% of the harm gaining 11 and a
+/// helper at 1,956 with 32% gaining 3, the dead player at 1,887 losing 14. Harm done more than
+/// 300 s before counts for nothing; a fighter 640 points above the dead player gains nothing; a
+/// death at no player's hand moves nothing.
+/// Behaviour: server.player-fights.kill-moves-kingdom-points
+#[test]
+fn a_kills_points_are_shared_by_harm_and_scaled_by_the_points_between() {
+    use yalain_world::kingdom_skills::POINTS;
+    use yalain_world::pk_points::Part;
+    let (mut h, (_, ida), (_, idb)) = two_players(Conflict::FreeForAll);
+    let (_, idc) = h.player_in_world("three", "Corvin");
+    let (_, idd) = h.player_in_world("four", "Dunmor");
+    h.run(5);
+    let now = h.clock().local.0;
+    for (id, points) in [(ida, 1600), (idb, 1887), (idc, 1956), (idd, 500)] {
+        with_player(&mut h, id, |p| {
+            quals::set_int(&mut p.qualities, POINTS, points)
+        });
+    }
+    with_player(&mut h, idb, |p| {
+        p.harmed_by.insert(
+            ida,
+            Part {
+                harm: 68,
+                last: now - 10.0,
+            },
+        );
+        p.harmed_by.insert(
+            idc,
+            Part {
+                harm: 32,
+                last: now - 299.0,
+            },
+        );
+        p.harmed_by.insert(
+            idd,
+            Part {
+                harm: 500,
+                last: now - 301.0,
+            },
+        );
+    });
+    let wb = yalain_world::social::world_of(&h.server, idb).expect("in the world");
+    let clock = h.clock();
+    yalain_world::death::player_dies(&mut h.server, &mut h.net, wb, Some(ida), clock);
+    let got: Vec<i32> = [ida, idc, idb, idd]
+        .iter()
+        .map(|id| points_of(&h, *id))
+        .collect();
+    assert_eq!(got, [1611, 1959, 1873, 500]);
+    assert!(
+        h.server.players[&wb].harmed_by.is_empty(),
+        "the harm kept ends"
+    );
+
+    // 640 points above the dead player: nothing moves.
+    with_player(&mut h, ida, |p| {
+        quals::set_int(&mut p.qualities, POINTS, 1140)
+    });
+    let wd = yalain_world::social::world_of(&h.server, idd).expect("in the world");
+    with_player(&mut h, idd, |p| {
+        p.harmed_by.insert(
+            ida,
+            Part {
+                harm: 40,
+                last: now,
+            },
+        );
+    });
+    yalain_world::death::player_dies(&mut h.server, &mut h.net, wd, Some(ida), clock);
+    assert_eq!((points_of(&h, ida), points_of(&h, idd)), (1140, 500));
+
+    // A death at no player's hand moves nothing, whoever harmed the player, and ends the harm kept.
+    let wc = yalain_world::social::world_of(&h.server, idc).expect("in the world");
+    with_player(&mut h, idc, |p| {
+        p.harmed_by.insert(
+            ida,
+            Part {
+                harm: 40,
+                last: now,
+            },
+        );
+    });
+    yalain_world::death::player_dies(&mut h.server, &mut h.net, wc, None, clock);
+    assert_eq!((points_of(&h, ida), points_of(&h, idc)), (1140, 1959));
+    assert!(h.server.players[&wc].harmed_by.is_empty());
+}

@@ -108,6 +108,8 @@ pub struct Player {
     pub aloft: crate::airborne::Aloft,
     /// How much of the health and of the vigor it has lost other players took ([`crate::pvp`]).
     pub pk_lost: [i32; 2],
+    /// The harm other players have done it lately, by attacker ([`crate::pk_points`]).
+    pub harmed_by: BTreeMap<u64, crate::pk_points::Part>,
     /// When it was last told where it stands after a place it reported was refused.
     pub told_back: f64,
     pub position: StoredPosition,
@@ -501,6 +503,7 @@ pub fn enter<S: Store>(
         fall: crate::falls::Falling::default(),
         aloft: crate::airborne::Aloft::default(),
         pk_lost: [0, 0],
+        harmed_by: BTreeMap::new(),
         told_back: f64::NEG_INFINITY,
         view_brought: f64::NEG_INFINITY,
         view_owed: false,
