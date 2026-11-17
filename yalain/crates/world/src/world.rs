@@ -104,6 +104,8 @@ pub struct Player {
     pub behind: Following,
     /// Its falling, from the places its client reports ([`crate::falls`]).
     pub fall: crate::falls::Falling,
+    /// Its time in the air, from the places its client reports ([`crate::airborne`]).
+    pub aloft: crate::airborne::Aloft,
     /// When it was last told where it stands after a place it reported was refused.
     pub told_back: f64,
     pub position: StoredPosition,
@@ -495,6 +497,7 @@ pub fn enter<S: Store>(
         travel: Travel::placed(clock.local.0),
         behind: Following::default(),
         fall: crate::falls::Falling::default(),
+        aloft: crate::airborne::Aloft::default(),
         told_back: f64::NEG_INFINITY,
         view_brought: f64::NEG_INFINITY,
         view_owed: false,
@@ -1410,6 +1413,11 @@ fn moved<S: Store>(
         m.velocity = c.jump_velocity;
     }
     let jumped = c.flags & position_flags::JUMP != 0;
+    p.aloft.report(
+        clock.local.0,
+        origin[2],
+        jumped.then_some(c.jump_velocity.z),
+    );
     presence::tell_position(s, net, world, &m, s.cfg.echo_positions, new_cell);
     let moved_view = cell >> 16 != before.cell >> 16
         || (presence::indoors(cell) && cell != before.cell)

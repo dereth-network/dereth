@@ -143,6 +143,8 @@ pub mod refusal {
     pub const ON_YOUR_PET: u32 = 22_026;
     /// Not while swimming.
     pub const SWIMMING: u32 = 30_013;
+    /// Not in the air (the client says the skill cannot be used right now).
+    pub const IN_THE_AIR: u32 = 30_043;
 }
 
 /// The player's qualities of the wait every skill shares: how long it lasts, and when it last
@@ -1269,6 +1271,11 @@ fn check<S: Store>(
     };
     if combat::is_dead(p) {
         return Err(refusal::DEAD);
+    }
+    // 2017: 44 of 49 refusals as in the air came with the player's height changing over the
+    // 0.8 s before, 17 of 51 within 1.2 s of its jump (uses carried out: 20 of 35,009).
+    if p.aloft.in_the_air(clock.local.0) {
+        return Err(refusal::IN_THE_AIR);
     }
     if p.trip.is_some() {
         return Err(refusal::INTERRUPTED);

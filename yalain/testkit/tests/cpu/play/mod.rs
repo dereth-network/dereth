@@ -1,6 +1,7 @@
 //! Playing: creatures, fights and deaths, missiles, quests, skills, trade, what people say and the
 //! rolls; heals, buffs and effects; crafting and butchery; the basic attacks of each weapon.
 
+mod airborne;
 mod aligned_creatures;
 mod allegiance;
 mod allegiance_halls;

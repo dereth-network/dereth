@@ -76,6 +76,7 @@ pub mod admin_calls;
 pub mod admin_groups;
 pub mod admin_library;
 pub mod ai;
+pub mod airborne;
 pub mod allegiance;
 pub mod allegiance_management;
 pub mod answers;

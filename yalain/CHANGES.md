@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Skills can no longer be used in mid-air.
 - Skills can't be used on yourself, fellows, your own pet, corpses or while swimming, as retail refused.
 - Joining a kingdom can now need a least level, gold and a wait.
 - Falling now hurts, and long falls kill; water and Safe Fall spare you.

@@ -17069,6 +17069,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.skills.not-in-the-air",
+        says: "A player is refused any skill's use in the air, as the client says of one it cannot use \
+               right now: from a reported jump until it comes back down, and while the reports after \
+               it keep going down.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SKILL-IN-THE-AIR"),
+        station: "yalain-testkit::cpu::play::airborne::no_skill_is_used_in_the_air_until_the_jump_comes_down",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.skills.not-while-swimming",
         says: "A player whose feet are 1.25 m or more under its block's water surface is refused any \
                skill's use, as the client says of one swimming; wading less deep it uses them.",
