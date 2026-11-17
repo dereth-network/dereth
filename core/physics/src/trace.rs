@@ -8,12 +8,13 @@
 //! nothing in normal play reads it.
 //!
 //! **What is here and what is not.** The recorder, the record shape and the comparison (with the
-//! spec's tolerance rule) are implemented. The **fixtures are not**: `fixtures/physics/traces/`
-//! does not exist, and producing it is the expensive half — a debugger script against the client,
-//! or a `.pcap` of a scripted walk against the
-//! local ACE server. `tests/cpu/instruments/recorded_traces.rs` therefore reports the scenario list as missing rather than
-//! passing vacuously, which is the honest signal: a gate that passes when there is nothing to
-//! compare is not a gate.
+//! spec's tolerance rule) are implemented, and a [`crate::PhysicsWorld`] traces one object's
+//! sub-steps when asked (`trace_object`, `take_trace`). The **recorded traces are not**: they are
+//! recorded from the retail client, so they stay out of this tree, and replaying one rebuilds its
+//! scene's collision from the retail dats. `tests/cpu/instruments/recorded_traces.rs` reads them
+//! only from the folder `DERETH_TEST_PHYSICS_TRACES` names, and reports every required scenario
+//! missing from it rather than passing vacuously, which is the honest signal: a gate that passes
+//! when there is nothing to compare is not a gate.
 
 use dereth_primitives::{CellId, Quat, Vec3};
 
@@ -22,7 +23,7 @@ use crate::transition::TransitionState;
 
 /// One line of a trace: the state at the end of one **sub-step**.
 ///
-/// The field set is the one `traces/<scenario>.jsonl` records.
+/// The field set is the one a recorded trace's `<scenario>.jsonl` holds.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraceRecord {
     /// The time at the frame that produced this sub-step.
@@ -40,6 +41,9 @@ pub struct TraceRecord {
     pub contact_plane: Option<Plane>,
     pub state: u32,
     pub transient_state: u32,
+    /// What the sub-step's sweep answered: `Ok` when the move was made, `Collided` when it was
+    /// refused and the origin kept, `Invalid` when no sweep ran (the object had nowhere to go, or
+    /// no collision geometry).
     pub transition_state: TransitionState,
 }
 
@@ -180,8 +184,8 @@ pub fn compare(recorded: &[TraceRecord], replayed: &[TraceRecord]) -> Vec<Diverg
     out
 }
 
-/// The scenarios the gate must contain, each with the behaviour it exercises. The fixture
-/// generator has to produce a `traces/<name>.jsonl` and `<name>.input.json` for each.
+/// The scenarios the gate must contain, each with the behavior it exercises. Each is recorded as
+/// a `<name>.jsonl` and a `<name>.input.json` in the traces folder.
 pub const REQUIRED_SCENARIOS: &[(&str, &str)] = &[
     ("walk_up_48_degree_slope", "the walkable-floor threshold"),
     ("sled_9_degree_slope", "the slope friction branch"),
@@ -201,8 +205,8 @@ pub const REQUIRED_SCENARIOS: &[(&str, &str)] = &[
         "landblock-edge cell continuity",
     ),
     (
-        "walk_through_portal_into_dungeon",
-        "portal cell expansion into a dungeon",
+        "walk_from_outdoors_into_dungeon",
+        "portal cell expansion from outdoors into a dungeon",
     ),
     (
         "collide_with_moving_object",

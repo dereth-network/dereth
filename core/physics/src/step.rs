@@ -230,6 +230,9 @@ pub struct PhysicsWorld {
     /// The host's entry-restriction answer, handed to every transition. `None` (the
     /// client's) asks the gate keepers' pushed records.
     entry_host: Option<Arc<dyn crate::transition::EntryRestrictionHost>>,
+    /// The one object whose sub-steps are being traced, and its trace.
+    #[cfg(feature = "trace")]
+    trace: Option<(PhysHandle, crate::trace::TraceRecorder)>,
 }
 
 impl std::fmt::Debug for PhysicsWorld {
@@ -261,6 +264,59 @@ impl PhysicsWorld {
             obj_maint_is_active: true,
             ethereal_deferrals: 0,
             entry_host: None,
+            #[cfg(feature = "trace")]
+            trace: None,
+        }
+    }
+
+    /// Trace `h`: from now on every sub-step of that object pushes one record of its state at the
+    /// sub-step's end. Replaces any trace in progress.
+    #[cfg(feature = "trace")]
+    pub fn trace_object(&mut self, h: PhysHandle) {
+        self.trace = Some((h, crate::trace::TraceRecorder::new()));
+    }
+
+    /// The records traced so far, leaving the trace running with none.
+    #[cfg(feature = "trace")]
+    pub fn take_trace(&mut self) -> Vec<crate::trace::TraceRecord> {
+        self.trace
+            .as_mut()
+            .map(|(_, r)| std::mem::take(&mut r.records))
+            .unwrap_or_default()
+    }
+
+    /// One record of `h`'s state at the end of a sub-step, if `h` is being traced.
+    #[cfg(feature = "trace")]
+    fn trace_sub_step(
+        &mut self,
+        h: PhysHandle,
+        now: LocalTime,
+        outcome: crate::transition::TransitionState,
+    ) {
+        let Some((traced, _)) = self.trace.as_ref() else {
+            return;
+        };
+        if *traced != h {
+            return;
+        }
+        let Some(o) = self.objects.get(h) else {
+            return;
+        };
+        let record = crate::trace::TraceRecord {
+            t: now.0,
+            update_time: self.sim_time,
+            cell: o.position.cell,
+            origin: o.position.frame.origin,
+            quat: o.position.frame.rotation,
+            velocity: o.velocity_vector,
+            cached_velocity: o.cached_velocity,
+            contact_plane: o.transient_state.in_contact().then_some(o.contact_plane),
+            state: o.state.0,
+            transient_state: o.transient_state.0,
+            transition_state: outcome,
+        };
+        if let Some((_, r)) = self.trace.as_mut() {
+            r.push(record);
         }
     }
 
@@ -871,6 +927,10 @@ impl PhysicsWorld {
                 .objects
                 .get(h)
                 .is_some_and(|o| new_pos.frame.origin.eq_eps(o.position.frame.origin));
+            // What the sub-step's sweep answered, for the trace: no sweep at all (nothing with
+            // collision geometry, or nowhere to go), the move refused, or the move made.
+            #[cfg(feature = "trace")]
+            let mut outcome = crate::transition::TransitionState::Invalid;
 
             if !has_geometry {
                 if let Some(o) = self.objects.get_mut(h) {
@@ -909,7 +969,16 @@ impl PhysicsWorld {
                 }
                 let from = self.objects.get(h).map(|o| o.position);
                 if let Some(from) = from {
-                    match self.transition(h, &from, &target, false) {
+                    let swept = self.transition(h, &from, &target, false);
+                    #[cfg(feature = "trace")]
+                    {
+                        outcome = if swept.is_some() {
+                            crate::transition::TransitionState::Ok
+                        } else {
+                            crate::transition::TransitionState::Collided
+                        };
+                    }
+                    match swept {
                         None => {
                             if let Some(o) = self.objects.get_mut(h) {
                                 // The **origin is put back**, the rotation is kept,
@@ -946,6 +1015,8 @@ impl PhysicsWorld {
             // time and part-array movement handling (which the motion seam's `tick_movement`
             // above represents).
             self.position_use_time(h);
+            #[cfg(feature = "trace")]
+            self.trace_sub_step(h, now, outcome);
         }
     }
 

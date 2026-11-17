@@ -5,5 +5,6 @@ mod placement_push;
 mod rules;
 mod slide_normal_rotation;
 mod step_up_budget;
+mod sub_step_trace;
 mod trace_comparison;
 mod walk_scenarios;

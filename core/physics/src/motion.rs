@@ -56,8 +56,8 @@ impl MotionSource for NullMotion {
     }
 }
 
-/// Replays a recorded offset-per-sub-step sequence — exactly what the physics trace fixtures carry
-/// in their `.input.json`. Past the end of the sequence it behaves as [`NullMotion`].
+/// Replays a recorded offset-per-sub-step sequence — exactly what a recorded physics trace carries
+/// for each sub-step. Past the end of the sequence it behaves as [`NullMotion`].
 #[derive(Debug, Clone)]
 pub struct ScriptedMotion {
     offsets: Vec<Frame>,

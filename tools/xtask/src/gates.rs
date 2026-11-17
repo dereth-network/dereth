@@ -300,7 +300,7 @@ fn tier_features(krate: &str) -> &'static [&'static str] {
         // The application's halves: their unit tests hold a device, on the backend they held it
         // on inside `dereth-client`.
         "dereth-scene" | "dereth-client-shell" => &["retail-dats", "vulkan"],
-        // dereth-physics's `dat` binary includes the recorded-trace comparison.
+        // dereth-physics's trace recorder and the tests of it are built with `trace`.
         "dereth-physics" => &["retail-dats", "trace"],
         "dereth-animation"
         | "dereth-art"

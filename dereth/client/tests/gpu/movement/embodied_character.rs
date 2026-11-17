@@ -3,8 +3,8 @@
 //! animation/physics callbacks, stands in its ready cycle rather than the falling one, runs physics
 //! at 30 Hz whatever the frame rate, places its parts as a step function of time, and is drawn in
 //! front of the camera with its palette. Two runs of one script give the same physics trace (the
-//! physics crate's trace format and comparison), which is reproducibility, not fidelity: no
-//! recorded retail trace exists to compare against.
+//! physics crate's trace format and comparison), which is reproducibility, not fidelity: neither
+//! run is compared with a recorded retail trace.
 //! Fixture: `Character` and `WorldScene` on Holtburg's landblock from the retail dats; the drawn
 //! checks use a headless software device.
 
@@ -555,11 +555,10 @@ fn a_body_standing_on_the_ground_plays_its_ready_cycle_and_not_the_falling_one()
 /// Oracle: `dereth_physics::trace`'s own record shape and `compare`, with its tolerance rule
 /// (`1e-5` for the first 100 records, `1e-4` after; cell and both state words exactly).
 ///
-/// **This is reproducibility, not fidelity.** No recorded retail physics trace exists
-/// (`fixtures/physics/traces/` is absent), so there is nothing to match; what is shown
-/// is that two runs of the same script through the whole stack — dat read, motion table, animation
-/// player, seam, transition system — produce matching traces under those comparison rules, a
-/// precondition for a captured fixture ever being comparable.
+/// **This is reproducibility, not fidelity.** Nothing here is compared with a recorded retail
+/// physics trace; what is shown is that two runs of the same script through the whole stack — dat
+/// read, motion table, animation player, seam, transition system — produce matching traces under
+/// those comparison rules, a precondition for a run ever being comparable with a recorded one.
 #[test]
 fn two_runs_of_the_same_script_produce_the_same_physics_trace() {
     let store = store();
