@@ -6,6 +6,8 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+
+## 0.6.0 (2026-11-17)
 - World: the quest of the three stars at the five kingdom shrines, and the kingdoms' armor it unlocks.
 - World: the Order's and the Shadow's headquarters can be entered.
 - World: the Dereth Rally runs its races.
