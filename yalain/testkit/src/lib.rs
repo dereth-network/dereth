@@ -2502,13 +2502,16 @@ pub mod totems {
 
 /// The crafting work the test world's rows would name: Linvak's, Omishan's and Osteth's five map
 /// recipes each (crystal, iron, stone, wood, silver), set waiting five minutes by the effect a
-/// drawing puts on and drawn again by their maps' finds; the three totems, each with its word; the
+/// drawing puts on and drawn again by their maps' finds, a drawing throwing away the region's held
+/// maps by its own effect; the three totems, each with its word; the
 /// ten refining recipes' products, each all it takes at level 150.
 #[must_use]
 pub fn test_crafts() -> yalain_content::crafts::Crafts {
     use yalain_content::crafts::{Crafts, MapRecipes, Refining, Totem};
     use yalain_content::treasure_tables::Sort;
     let map = |region: &str, drawn: u32, found: &str, first: u32, order: [u32; 5]| {
+        // Each region's effect that throws away its maps is seven below its drawing's.
+        let deletes = drawn - 7;
         (
             region.to_string(),
             MapRecipes {
@@ -2517,7 +2520,7 @@ pub fn test_crafts() -> yalain_content::crafts::Crafts {
                 found: found.to_string(),
                 recipes: order.iter().map(|o| first + o).collect(),
                 wait: Some(300.0),
-                deletes: None,
+                deletes: Some(deletes),
             },
         )
     };
