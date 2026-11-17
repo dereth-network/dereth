@@ -17006,6 +17006,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.sight.heights",
+        says: "Two places see each other along a line a meter, a meter and a half or two meters above each \
+               that gets through from both ends, and not along one that gets through only higher up or \
+               from one end only.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SIGHT-HEIGHTS"),
+        station: "yalain-testkit::dat::walls::two_places_see_each_other_along_a_line_two_meters_up_where_lower_lines_stop",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.sight.into-buildings",
         says: "From outdoors a place sees into a building's room only through a doorway out of it, and from \
                inside out only through one: a building's entry room, not the rooms beyond it.",
@@ -17017,7 +17027,7 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.sight.walls-and-rock",
         says: "Walls, floors and rock stand between two places indoors: two places see each other along a \
-               line a meter or a meter and a half above each that gets through from either end.",
+               line a meter, a meter and a half or two meters above each that gets through from both ends.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SIGHT-WALLS"),
         station: "yalain-testkit::dat::walls::walls_and_rock_stand_between_two_places_indoors",

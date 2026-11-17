@@ -8,11 +8,13 @@
 use auberean_assets::Context;
 use auberean_dat::locate::{install_dats, DatName};
 use auberean_dat::DatFile;
+use auberean_physics::ethereal::SightLine;
 use auberean_physics::geom::point_to_local;
 use auberean_physics::land::Land;
+use auberean_physics::world::World;
 use auberean_world::records::WorldRecords;
 use dereth_primitives::num::math;
-use dereth_primitives::{CellId, Vec3};
+use dereth_primitives::{CellId, Frame, Position, Quat, Vec3};
 use yalain_store::StoredPosition;
 use yalain_testkit::{Harness, TEST_CREATURE};
 use yalain_world::walls::{
@@ -2076,6 +2078,98 @@ fn walls_and_rock_stand_between_two_places_indoors() {
     assert!(!w.sees(&room, &copy), "the other copy, through the rock");
 }
 
+/// Two places see each other along a line two meters above each where the lines a meter and a meter
+/// and a half up stop, and not along one that gets through only higher, nor along one that gets
+/// through from one end only: places 2017's creatures shot players from and at, both standing still,
+/// in block 0x06FD across a hall (17 shots) and outdoors in block 0xE487 (11 shots); in block 0x05FC
+/// a creature that had shot the player stood beside it in one room, the line clear only two and a
+/// half meters up, and shot nothing in half a minute; in block 0x049F a line between two rooms
+/// gets through from one of them only, at every height.
+/// Behaviour: server.sight.heights
+#[test]
+fn two_places_see_each_other_along_a_line_two_meters_up_where_lower_lines_stop() {
+    let mut w = walls();
+    let lines = sight_world();
+    for (shooter, target, what) in [
+        (
+            place(0x06FD_0258, 348.046_23, 114.503_845, 28.471_941),
+            place(0x06FD_0259, 347.166_32, 92.999_04, 25.460_26),
+            "across the hall",
+        ),
+        (
+            place(0xE487_0018, 47.866_264, 150.439_76, 94.035_09),
+            place(0xE487_0010, 21.980_806, 150.244_89, 96.431_03),
+            "outdoors",
+        ),
+    ] {
+        assert!(
+            !lines_at(&mut w, &lines, &shooter, &target, &[1.0, 1.5]),
+            "{what}: lower lines stop"
+        );
+        assert!(w.sees(&shooter, &target), "{what}: seen two meters up");
+        assert!(w.sees(&target, &shooter), "{what}: from the other end");
+    }
+    let shooter = place(0x05FC_0118, 4.296_125, -102.128_265, -16.943_937);
+    let target = place(0x05FC_0118, 2.657_464_7, -106.280_9, -16.955_05);
+    assert!(
+        lines_at(&mut w, &lines, &shooter, &target, &[2.5]),
+        "clear higher up"
+    );
+    assert!(!w.sees(&shooter, &target), "not seen");
+    let a = place(0x049F_0105, 82.901_985, -110.747_2, 11.597_852);
+    let b = place(0x049F_0104, 66.810_394, -109.955_734, 10.898_771);
+    w.read_around(a.cell);
+    assert!(
+        SIGHT_RISE
+            .iter()
+            .all(|h| one_line(&w, &lines, &b, &a, *h) && !one_line(&w, &lines, &a, &b, *h)),
+        "clear from one end only"
+    );
+    assert!(!w.sees(&a, &b), "not seen");
+    assert!(!w.sees(&b, &a), "from either end");
+}
+
+/// Whether the line from `a` to `b`, `rise` above each, gets through, traced as sight traces it.
+fn one_line(w: &Walls, lines: &World, a: &StoredPosition, b: &StoredPosition, rise: f32) -> bool {
+    let at = |p: &StoredPosition| {
+        Position::new(
+            CellId(p.cell),
+            Frame::new(
+                Vec3::new(p.origin[0], p.origin[1], p.origin[2] + rise),
+                Quat::IDENTITY,
+            ),
+        )
+    };
+    let mut los = SightLine::default();
+    los.set_from_begin_and_end_position(&at(a), &at(b));
+    !lines.los_check(w.land(), &mut los) || los.trace_result != 1
+}
+
+/// A world holding nothing placed, with the install's physics types, to trace lines of sight over
+/// the walls' land.
+fn sight_world() -> World {
+    let mut world = World::new();
+    if let Some(list) = records().get::<auberean_assets::property::PropertyList>(0x3400_0000) {
+        world.set_property_list(list);
+    }
+    world
+}
+
+/// Whether two places see each other along a line at any of `rises` above each, from both ends.
+fn lines_at(
+    w: &mut Walls,
+    lines: &World,
+    a: &StoredPosition,
+    b: &StoredPosition,
+    rises: &[f32],
+) -> bool {
+    w.read_around(a.cell);
+    w.read_around(b.cell);
+    rises
+        .iter()
+        .any(|h| one_line(w, lines, a, b, *h) && one_line(w, lines, b, a, *h))
+}
+
 /// Outdoors the ground stands between two places on either side of a hill: in block 0x6FA9 a rise
 /// several meters over both ends stops the line between them, the ground alone; over flat ground
 /// the line gets through.
@@ -2152,11 +2246,15 @@ fn outdoors_a_place_sees_into_a_buildings_entry_room_through_its_doorway_and_no_
     assert!(w.sees(&entry, &outside), "and out");
     assert!(!w.sees(&outside, &below), "not the room below");
     assert!(!w.sees(&below, &outside), "nor out of it");
-    // A line that gets through from one end only is not sight: from west of the building it gets
-    // through at a meter and a half, from inside the entry room at neither height.
+    // A creature by the entry room's far wall shot a player west of the building along a line that
+    // gets through both ways only two meters up.
     let by_the_wall = place(0x8B91_0100, 109.6, 41.79, 63.35);
     let west = place(0x8B91_0023, 96.95, 40.01, 66.0);
-    assert!(!w.sees(&west, &by_the_wall), "one way only");
+    assert!(
+        w.sees(&by_the_wall, &west),
+        "out through the doorway, two meters up"
+    );
+    assert!(w.sees(&west, &by_the_wall), "and in");
     let shooter = place(0x9C96_0100, 137.57, 128.36, 179.75);
     let target = place(0x9C96_0037, 127.35, 128.53, 177.87);
     assert!(w.sees(&shooter, &target), "out through the doorway");

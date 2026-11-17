@@ -443,8 +443,11 @@ impl Following {
 const OUTSIDE: u16 = 0;
 
 /// How far above where each of two places stands a line of sight between them runs, in meters:
-/// they see each other along a line at either height.
-pub const SIGHT_RISE: [f32; 2] = [1.0, 1.5];
+/// they see each other along a line at any of these heights. (2017: of 8,294 shots creatures fired
+/// with both ends still, a line a meter or a meter and a half up refused 128, and 107 of those were
+/// clear two meters up; lines first clear at two meters were shot along about as often as lines
+/// clear lower down, those first clear at two and a half seldom.)
+pub const SIGHT_RISE: [f32; 3] = [1.0, 1.5, 2.0];
 
 /// A line of sight's result when something stopped it.
 const STOPPED: u32 = 1;
@@ -698,8 +701,8 @@ impl Walls {
         g
     }
 
-    /// Whether two places see each other: a straight line between them a meter above each, or a
-    /// meter and a half, gets through from either end, and no closed door stands across it. Each
+    /// Whether two places see each other: a straight line between them a meter above each, a meter
+    /// and a half or two meters, gets through from either end, and no closed door stands across it. Each
     /// line is traced as the client traces its own lines of sight ([`World::los_check`]): inside,
     /// room by room, stopped by each room's walls, floors and ceilings and going on through its
     /// doorways, into the next room or out over the land; outside, stopped by the ground and by the
