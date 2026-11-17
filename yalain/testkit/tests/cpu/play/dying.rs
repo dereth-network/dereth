@@ -217,6 +217,132 @@ fn a_players_corpse_is_followed_by_its_settling_as_a_creatures_is() {
     );
 }
 
+/// Step for `seconds`, noting the time each client's messages arrived at (`times`, per client, one
+/// for each message of its inbox).
+fn wait_noting(h: &mut Harness, seconds: f64, times: &mut [Vec<f64>]) {
+    let t = h.now.0 + seconds;
+    while h.now.0 < t {
+        h.step();
+        for (b, bot) in h.bots.iter().enumerate() {
+            let have = times[b].len();
+            times[b].resize(have.max(bot.inbox.len()), h.now.0);
+        }
+    }
+}
+
+/// A client's world messages with the times they arrived at.
+fn timed(h: &Harness, b: usize, times: &[f64]) -> Vec<(f64, ServerMessage)> {
+    h.bots[b]
+        .inbox
+        .iter()
+        .zip(times)
+        .filter(|(r, _)| r.world)
+        .filter_map(|(r, t)| r.message().map(|m| (*t, m)))
+        .collect()
+}
+
+/// A client watching a player die, and the player itself, take every message about it and its
+/// corpse as the client takes them: on the player's own connection the corpse's long making (a
+/// player's look) is overtaken by the corpse's settling, which waits for it; a minute later the
+/// corpse is forgotten and then seen to leave, in one instant.
+/// Behaviour: server.death.watched-player-death-in-order
+#[test]
+fn a_player_death_and_its_corpse_reach_a_watching_client_in_an_order_it_takes() {
+    use auberean_protocol::table::Table;
+    use auberean_protocol::types::PartGroupDesc;
+    use yalain_testkit::invariants::Checker;
+
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    let (w, _) = h.player_in_world("two", "Watcher");
+    scene_drawn(&mut h, b);
+    scene_drawn(&mut h, w);
+    let world = h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .map(|(c, _)| *c)
+        .expect("the player");
+    // Dressed as a player is: a part group for each piece worn.
+    let groups = (1..=20).map(|k| {
+        (
+            k,
+            PartGroupDesc {
+                bits: PartGroupDesc::KEY | PartGroupDesc::SETUP | PartGroupDesc::ANIM_MAP,
+                key: k,
+                setup: 0x0200_0000 + k,
+                anim_map: 0x2200_0000 + k,
+                ..PartGroupDesc::default()
+            },
+        )
+    });
+    if let Some(p) = h.server.players.get_mut(&world) {
+        p.look.bits |= auberean_protocol::types::VisualDesc::PART_GROUPS;
+        p.look.part_groups = Table::from_inserted(2, groups);
+    }
+    let mut times: Vec<Vec<f64>> = h
+        .bots
+        .iter()
+        .map(|bot| vec![0.0; bot.inbox.len()])
+        .collect();
+    wait_noting(&mut h, 1.0, &mut times);
+    let clock = h.clock();
+    yalain_world::death::player_dies(&mut h.server, &mut h.net, world, None, clock);
+    wait_noting(&mut h, 11.0, &mut times);
+    let corpse = h
+        .world_messages(w, 0)
+        .into_iter()
+        .find_map(|m| match m {
+            ServerMessage::CreateObject(o) if o.weenie.entity_did == CORPSE => Some(o.id),
+            _ => None,
+        })
+        .expect("the watcher is told of the corpse");
+    wait_noting(&mut h, 61.0, &mut times);
+    let about = |m: &ServerMessage| yalain_testkit::invariants::object_named(m).map(|o| o.id);
+    // The player's own client is told of its corpse behind what it was told as it died: there the
+    // corpse's long making is overtaken by its settling.
+    let own = timed(&h, b, &times[b]);
+    let making = own
+        .iter()
+        .position(|(_, m)| matches!(m, ServerMessage::CreateObject(o) if o.id == corpse))
+        .expect("made");
+    let settling = own
+        .iter()
+        .position(|(_, m)| about(m) == Some(corpse))
+        .expect("settled");
+    assert!(settling < making, "the settling overtakes the long making");
+    for c in [b, w] {
+        let gone: Vec<(f64, &str)> = timed(&h, c, &times[c])
+            .iter()
+            .filter_map(|(t, m)| match m {
+                ServerMessage::ForgetObject(o) if o.0.id == corpse => Some((*t, "forgotten")),
+                ServerMessage::ObjectLeaves(e) if e.sender.id == corpse => Some((*t, "leaves")),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(gone.len(), 2, "client {c}: {gone:?}");
+        assert_eq!(gone[0].0, gone[1].0, "client {c}: in one instant");
+        assert_eq!(
+            (gone[0].1, gone[1].1),
+            ("forgotten", "leaves"),
+            "client {c}"
+        );
+    }
+    for c in [b, w] {
+        let mut check = Checker::new();
+        for (t, m) in timed(&h, c, &times[c]) {
+            check.see(t, &m);
+        }
+        check.finish();
+        assert_eq!(
+            check.breaches,
+            std::collections::BTreeMap::new(),
+            "client {c} takes every message"
+        );
+    }
+}
+
 /// Asked for once the corpse is made, the resurrection takes the player through portal space; a
 /// second and a half later it is alive again with three quarters of its health.
 /// Behaviour: server.death.resurrection

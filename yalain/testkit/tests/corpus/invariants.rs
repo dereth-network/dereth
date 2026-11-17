@@ -49,7 +49,7 @@ fn the_recorded_2017_world_connections_keep_the_object_and_stamp_invariants() {
     let con = open(&path);
     let mut stmt = con
         .prepare(
-            "SELECT s.capture_id, m.raw, m.session_id FROM message m JOIN session s USING (session_id) \
+            "SELECT s.capture_id, m.raw, m.session_id, m.t FROM message m JOIN session s USING (session_id) \
              JOIN capture c USING (capture_id) \
              WHERE s.game = 'ac2' AND s.world_login = 1 AND c.file LIKE '2017-%' \
              AND m.status = 'ac2' AND m.dir = 's2c' ORDER BY s.capture_id, m.t, m.session_id, m.idx",
@@ -65,6 +65,7 @@ fn the_recorded_2017_world_connections_keep_the_object_and_stamp_invariants() {
     // saw made (the capture began in mid-session).
     let mut entered = false;
     let mut flush = |c: &mut Checker, entered: bool| {
+        c.finish();
         for (k, n) in std::mem::take(&mut c.checked) {
             *checked.entry(k).or_default() += n;
         }
@@ -88,13 +89,14 @@ fn the_recorded_2017_world_connections_keep_the_object_and_stamp_invariants() {
             sessions += 1;
         }
         c.on_connection(r.get(2).expect("session"));
+        let t: f64 = r.get(3).expect("time");
         if let Ok(m) = ServerMessage::decode(&raw) {
             if matches!(m, ServerMessage::PlayerObject(_)) {
                 flush(&mut c, entered);
                 c = Checker::new();
                 entered = true;
             }
-            c.see(&m);
+            c.see(t, &m);
         }
     }
     flush(&mut c, entered);

@@ -30,7 +30,7 @@ use rusqlite::{Connection, OpenFlags};
 use yalain_content::{ContentObject, ContentPack, Description, Kind};
 use yalain_store::{Character, Store};
 use yalain_testkit::invariants::Checker;
-use yalain_testkit::Harness;
+use yalain_testkit::{Harness, STEP};
 use yalain_world::calls::{self, Node, Value};
 
 const STEPS: usize = 400;
@@ -467,14 +467,9 @@ fn replay(con: &Connection, session: i64) -> Option<Outcome> {
         return Some(out);
     }
     h.run(20);
-    // The replay's player has the health a new character has, not the recorded player's: falls
-    // that the recorded player took would kill it, so it takes none.
-    for p in h.server.players.values_mut() {
-        yalain_world::quals::set_float(&mut p.qualities, yalain_world::falls::FALL_MODIFIER, 0.0);
-    }
     let world_up = h.now.0;
     let first_t = recs.first().map_or(0.0, |r| r.t);
-    // Our messages, each with its time since the world came up.
+    // Our messages, each with the time since the world came up of the step it arrived in.
     let mut seen_upto = 0usize;
     let mut ours: Vec<(f64, ServerMessage)> = Vec::new();
     let mut requests: Vec<(f64, f64, Request)> = Vec::new();
@@ -500,7 +495,16 @@ fn replay(con: &Connection, session: i64) -> Option<Outcome> {
         }
         *upto = h.bots[b].inbox.len();
     };
+    let step = |h: &mut Harness,
+                dt: f64,
+                ours: &mut Vec<(f64, ServerMessage)>,
+                upto: &mut usize,
+                stamps: &mut (u16, u16)| {
+        h.step_by(dt);
+        collect(h, ours, upto, stamps);
+    };
     let mut stamps = (0u16, 1u16);
+    collect(&h, &mut ours, &mut seen_upto, &mut stamps);
     for r in recs.iter().filter(|r| !r.to_client) {
         let Ok(ClientBlob::Message(mut m)) = ClientBlob::decode(r.queue, &r.raw) else {
             continue;
@@ -508,8 +512,11 @@ fn replay(con: &Connection, session: i64) -> Option<Outcome> {
         if !yalain_world::world::is_world_message(&m) {
             continue;
         }
-        h.run_to(yalain_net::LocalTime(world_up + (r.t - first_t)));
-        collect(&h, &mut ours, &mut seen_upto, &mut stamps);
+        let until = world_up + (r.t - first_t);
+        while h.now.0 < until {
+            let dt = (until - h.now.0).clamp(STEP, 1.0);
+            step(&mut h, dt, &mut ours, &mut seen_upto, &mut stamps);
+        }
         if let ClientMessage::Position(p) = &mut m {
             (p.teleport_stamp, p.instance_stamp) = stamps;
         }
@@ -517,16 +524,18 @@ fn replay(con: &Connection, session: i64) -> Option<Outcome> {
             requests.push((r.t - first_t, h.now.0 - world_up, q));
         }
         h.bots[b].send(true, r.queue, &m);
-        h.run(3);
-        // Our answers carry the time they arrived, not the time of the next request.
-        collect(&h, &mut ours, &mut seen_upto, &mut stamps);
+        for _ in 0..3 {
+            step(&mut h, STEP, &mut ours, &mut seen_upto, &mut stamps);
+        }
     }
-    h.run(60);
-    collect(&h, &mut ours, &mut seen_upto, &mut stamps);
-    for (_, m) in &ours {
-        out.checker.see(m);
+    for _ in 0..60 {
+        step(&mut h, STEP, &mut ours, &mut seen_upto, &mut stamps);
+    }
+    for (t, m) in &ours {
+        out.checker.see(*t, m);
         count(&mut out.ours, m);
     }
+    out.checker.finish();
     for (_, m) in &recorded {
         count(&mut out.recorded, m);
     }

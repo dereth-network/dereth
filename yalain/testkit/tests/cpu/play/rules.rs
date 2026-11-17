@@ -387,3 +387,68 @@ fn the_checker_orders_stamps_as_the_client_does() {
     assert!(newer(0x1234, 0x9234));
     assert!(!newer(0x9234, 0x1234));
 }
+
+/// The invariant checker takes messages about objects as the client does: one about an object not
+/// yet made waits for its making, and is dropped (a breach) once 25 s pass after the last such
+/// message with none; a forgotten object is still there for what comes in the same instant, and
+/// gone in the next.
+/// Behaviour: server.replay.the-checker-takes-objects-as-the-client-does
+#[test]
+fn the_checker_takes_messages_about_objects_as_the_client_does() {
+    use auberean_protocol::physics::{CreateObject, Fx, Leave, ObjectEvent, ObjectOnly};
+    use auberean_protocol::types::ObjectStamp;
+    use auberean_protocol::ServerMessage;
+    use yalain_testkit::invariants::Checker;
+
+    let at = |id: u64| ObjectStamp {
+        id,
+        instance_stamp: 0,
+        other_stamp: 1,
+    };
+    let fx = |id: u64| {
+        ServerMessage::DoFx(ObjectEvent {
+            sender: at(id),
+            action: Fx { fx: 1, scalar: 1.0 },
+        })
+    };
+    let made = |id: u64| {
+        ServerMessage::CreateObject(CreateObject {
+            id,
+            ..CreateObject::default()
+        })
+    };
+    let forget = |id: u64| ServerMessage::ForgetObject(ObjectOnly(at(id)));
+    let leave = |id: u64| {
+        ServerMessage::ObjectLeaves(ObjectEvent {
+            sender: at(id),
+            action: Leave { stamp: 2 },
+        })
+    };
+    let breaches = |seen: &[(f64, ServerMessage)]| {
+        let mut c = Checker::new();
+        for (t, m) in seen {
+            c.see(*t, m);
+        }
+        c.finish();
+        c.breach_count()
+    };
+    assert_eq!(
+        breaches(&[(1.0, fx(1)), (1.0, made(1))]),
+        0,
+        "made in the same instant"
+    );
+    assert_eq!(
+        breaches(&[(1.0, fx(1)), (20.0, fx(1)), (44.0, made(1))]),
+        0,
+        "a later message waits on"
+    );
+    assert_eq!(
+        breaches(&[(1.0, fx(1)), (27.0, made(1))]),
+        1,
+        "dropped after 25 s"
+    );
+    assert_eq!(breaches(&[(1.0, fx(1)), (1.0, fx(1))]), 2, "never made");
+    let forgot = |then: f64| breaches(&[(0.0, made(1)), (5.0, forget(1)), (then, leave(1))]);
+    assert_eq!(forgot(5.0), 0, "left in the instant it was forgotten");
+    assert_eq!(forgot(5.05), 1, "left after it was forgotten");
+}

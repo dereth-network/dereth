@@ -4481,6 +4481,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.death.watched-player-death-in-order",
+        says: "A client watching a player die is told of it and its corpse in an order it takes: the \
+               corpse's settling may overtake its long making (a player's look) and waits for it; a \
+               minute later the corpse is forgotten and then seen to leave, in one instant.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PLAYER-DEATH-ORDER"),
+        station: "yalain-testkit::cpu::play::dying::a_player_death_and_its_corpse_reach_a_watching_client_in_an_order_it_takes",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.effects.a-chain-puts-on-each-of-its-effects",
         says: "A chain of other effects that an item's use, a quest or a recipe's outcome leads to puts each on at once, in its order, as each does itself, a chain held in it in its place and each chain once; its own appearance plays; a chain of effects the server doesn't know, or one only a skill's combination adds, does nothing.",
         since: RETAIL,
@@ -16672,6 +16682,17 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CHECKER-STAMPS"),
         station: "yalain-testkit::cpu::play::rules::the_checker_orders_stamps_as_the_client_does",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.replay.the-checker-takes-objects-as-the-client-does",
+        says: "The checker of what a world connection sends takes messages about objects as the client \
+               does: one about an object not yet made waits for its making and is dropped once 25 s \
+               pass after the last such message with none; a forgotten object is still there for what \
+               comes in the same instant and gone in the next.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHECKER-OBJECTS"),
+        station: "yalain-testkit::cpu::play::rules::the_checker_takes_messages_about_objects_as_the_client_does",
         tier: Tier::Cpu,
     },
     behaviour! {

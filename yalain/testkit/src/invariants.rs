@@ -2,7 +2,10 @@
 //! session and on the server's answer to its replay:
 //!
 //! - **known object**: a message about an object names one the connection made (or its player)
-//!   and has not told the client to forget since;
+//!   and has not told the client to forget since, taken as the client takes it: a message about an
+//!   object it does not have waits for the object to be made, and is dropped once 25 s have passed
+//!   since the last such message with no making; an object told to be forgotten goes before the
+//!   client's next instant, so what comes in the same instant still finds it;
 //! - **stamps**: per object and connection, the position stamp of each position is newer than the
 //!   last one, and the teleport stamp never older; each making of an object carries an instance
 //!   stamp no older than the last.
@@ -83,10 +86,21 @@ pub fn kind(m: &ServerMessage) -> String {
     }
 }
 
-/// The invariants over one connection's messages, in the order the client takes them.
+/// How long the client keeps messages about an object it does not have, after the last of them
+/// came, before it drops them for want of the object's making.
+pub const WAITS_FOR_MAKING: f64 = 25.0;
+
+/// The invariants over one connection's messages, in the order the client takes them, each with
+/// the time it came.
 #[derive(Debug, Default)]
 pub struct Checker {
     known: HashSet<u64>,
+    /// Told to be forgotten in the current instant: still there until the next.
+    forgetting: HashSet<u64>,
+    /// Per object not made: when the last message about it came, and the kinds of those waiting.
+    waiting: HashMap<u64, (f64, Vec<String>)>,
+    /// The time of the current instant.
+    now: f64,
     /// The connection the next messages come on: each world server keeps its own stamps.
     connection: i64,
     /// Per connection and object: the last position stamp and teleport stamp.
@@ -111,14 +125,47 @@ impl Checker {
     }
 
     fn breach(&mut self, what: &str, m: &ServerMessage) {
-        *self
-            .breaches
-            .entry(format!("{what}: {}", kind(m)))
-            .or_default() += 1;
+        self.breach_of(what, &kind(m));
     }
 
-    /// Take the next message.
-    pub fn see(&mut self, m: &ServerMessage) {
+    fn breach_of(&mut self, what: &str, kind: &str) {
+        *self.breaches.entry(format!("{what}: {kind}")).or_default() += 1;
+    }
+
+    /// A new instant at `t`: the objects forgotten before it go, and the messages that have waited
+    /// too long for their object's making are dropped.
+    fn next_instant(&mut self, t: f64) {
+        for id in std::mem::take(&mut self.forgetting) {
+            self.known.remove(&id);
+        }
+        let dropped: Vec<u64> = self
+            .waiting
+            .iter()
+            .filter(|(_, (last, _))| t - last > WAITS_FOR_MAKING)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in dropped {
+            if let Some((_, kinds)) = self.waiting.remove(&id) {
+                for k in kinds {
+                    self.breach_of("about an object not made", &k);
+                }
+            }
+        }
+        self.now = t;
+    }
+
+    /// An object is made: what waited for it is taken.
+    fn made(&mut self, id: u64) {
+        self.known.insert(id);
+        self.forgetting.remove(&id);
+        self.waiting.remove(&id);
+    }
+
+    /// Take the next message, which came at `t` (seconds, on any clock that only moves forward).
+    pub fn see(&mut self, t: f64, m: &ServerMessage) {
+        if t > self.now {
+            self.next_instant(t);
+        }
         match m {
             ServerMessage::CreateObject(o) => {
                 let stamp = o.physics.instance_stamp;
@@ -128,11 +175,11 @@ impl Checker {
                     }
                 }
                 self.instances.insert(o.id, stamp);
-                self.known.insert(o.id);
+                self.made(o.id);
                 return;
             }
             ServerMessage::PlayerObject(p) => {
-                self.known.insert(p.id);
+                self.made(p.id);
                 return;
             }
             _ => {}
@@ -142,7 +189,9 @@ impl Checker {
         };
         *self.checked.entry(kind(m)).or_default() += 1;
         if !self.known.contains(&o.id) {
-            self.breach("about an object not made", m);
+            let w = self.waiting.entry(o.id).or_insert((t, Vec::new()));
+            w.0 = t;
+            w.1.push(kind(m));
         }
         if let ServerMessage::Position(p) | ServerMessage::PositionCell(p) = m {
             let key = (self.connection, o.id);
@@ -158,8 +207,15 @@ impl Checker {
                 .insert(key, (p.position_stamp, p.teleport_stamp));
         }
         if let ServerMessage::ForgetObject(_) = m {
-            self.known.remove(&o.id);
+            if self.known.contains(&o.id) {
+                self.forgetting.insert(o.id);
+            }
         }
+    }
+
+    /// The connection's messages are over: what still waits for a making never had one.
+    pub fn finish(&mut self) {
+        self.next_instant(f64::INFINITY);
     }
 
     /// How many breaches in all.
