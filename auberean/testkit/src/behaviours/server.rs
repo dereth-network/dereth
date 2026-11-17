@@ -16359,6 +16359,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.regen.a-creature-in-a-fight-regains-its-combat-rate",
+        says: "A creature still in a fight, unhurt for eight seconds, regains its template's combat \
+               rate of its greatest health a minute where the template sets one, not its greatest \
+               in a minute; one whose template sets none regains as at rest.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-REGEN-CREATURE-COMBAT"),
+        station: "yalain-testkit::cpu::play::regeneration::a_creature_in_a_fight_regains_its_templates_combat_rate_of_its_health",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.regen.a-creature-unhurt-regains-a-share-a-second",
         says: "A creature not hurt for eight seconds regains its greatest health in a minute, \
                in whole points as the share adds up; nothing is sent for it.",
@@ -16366,6 +16376,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-REGEN-CREATURE"),
         station: "yalain-testkit::cpu::play::regeneration::a_creature_unhurt_for_eight_seconds_regains_its_greatest_health_in_a_minute",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.regen.combat-rate-read-from-templates",
+        says: "A creature template's combat rate of health regeneration reads as its data sets it, \
+               and a template that sets none has none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-REGEN-COMBAT-RATE-READ"),
+        station: "yalain-testkit::dat::effects::a_creature_templates_combat_regeneration_rate_reads_as_its_data_sets_it",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.regen.combat-rates-from-effects",

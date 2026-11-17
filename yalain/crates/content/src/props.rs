@@ -374,6 +374,9 @@ pub struct CreatureStats {
     /// Health and vigor regained a second at rest.
     pub health_regen: f32,
     pub vigor_regen: f32,
+    /// The share of its greatest health it regains a minute in a fight, if its template sets one
+    /// (a group monster's tenth, a big one's 0.15).
+    pub combat_health_regen: Option<f32>,
     /// Whether its template lets it attack a player it notices (else only one that attacks it);
     /// the world's friend table rows may still say its kind never does.
     pub attacks_first: bool,
@@ -439,6 +442,7 @@ pub mod creature_property {
     pub const DEATH_FOCUS: &str = "GameplayStatistics_DeathFocus";
     pub const HEALTH_REGEN: &str = "GameplayStatistics_HealthRegenRate";
     pub const VIGOR_REGEN: &str = "GameplayStatistics_VigorRegenRate";
+    pub const COMBAT_HEALTH_REGEN: &str = "GameplayStatistics_CombatHealthRegenRate";
     pub const NATURAL_DAMAGE: &str = "AICombat_NaturalDamage";
     pub const NATURAL_VARIANCE: &str = "AICombat_NaturalVariance";
     pub const ARMOR: &str = "NPC_ArmorLevel";
@@ -605,6 +609,7 @@ impl CreatureStats {
             armor_threshold: p.float(k::ARMOR_THRESHOLD).filter(|t| *t > 0.0),
             health_regen: p.float(k::HEALTH_REGEN).unwrap_or(0.0),
             vigor_regen: p.float(k::VIGOR_REGEN).unwrap_or(0.0),
+            combat_health_regen: p.float(k::COMBAT_HEALTH_REGEN).filter(|r| *r >= 0.0),
             attacks_first: match p.get(k::FREE_ATTACKING) {
                 Some(Prop::Bool(b)) => *b,
                 _ => true,

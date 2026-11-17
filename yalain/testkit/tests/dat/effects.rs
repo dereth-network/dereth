@@ -2232,6 +2232,24 @@ fn templates_that_never_leave_a_corpse_are_read_so_and_have_nothing_to_leave() {
     assert!(!plain.never_leaves_corpse);
 }
 
+/// A creature template's combat rate of health regeneration reads as its data sets it: a big group
+/// monster's 0.15 (the Weeping Bloodstone), a group monster's 0.1 (the Carnage Shreth); a template
+/// that sets none has none (the Skeletal Remains).
+/// Behaviour: server.regen.combat-rate-read-from-templates
+#[test]
+fn a_creature_templates_combat_regeneration_rate_reads_as_its_data_sets_it() {
+    use yalain_content::CreatureStats;
+    let p = Portal::open();
+    let rate = |id: u32| {
+        CreatureStats::from_props(&p.template(id).props)
+            .expect("a creature")
+            .combat_health_regen
+    };
+    assert_eq!(rate(0x4700_2253), Some(0.15));
+    assert_eq!(rate(0x4700_2AF6), Some(0.1));
+    assert_eq!(rate(0x4700_2B5E), None);
+}
+
 /// The install's armor effects give a player what 2017's records of them said, each counted once:
 /// an Obelisk Ward's 6, Lumbering Might's 40 at a spellcraft of 30 and 79 at 43, and of the two
 /// together, one class, the stronger.

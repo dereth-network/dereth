@@ -227,10 +227,11 @@ pub struct Thing {
     pub fresh: bool,
     /// When it was last hurt (world seconds).
     pub last_hurt: f64,
-    /// When it began regaining health (world seconds; 0 while it is not), and how much it has
-    /// regained since.
+    /// When it began regaining health (world seconds; 0 while it is not), how much it has
+    /// regained since, and the share of its greatest a minute it has been regaining at.
     pub regen_since: f64,
     pub regained: i32,
+    pub regen_rate: f64,
     pub creature: Option<Creature>,
     pub corpse: Option<Corpse>,
     pub node: Option<Node>,
@@ -316,6 +317,7 @@ impl Thing {
             last_hurt: 0.0,
             regen_since: 0.0,
             regained: 0,
+            regen_rate: 0.0,
             creature: None,
             corpse: None,
             node: None,

@@ -272,6 +272,65 @@ fn each_step_is_a_share_of_the_greatest_with_the_players_effects() {
     assert_eq!(health.last().map(|x| x.1), Some(630), "full with the buff");
 }
 
+/// A creature still in a fight, unhurt for eight seconds, regains its template's combat rate of its
+/// greatest health a minute, not its greatest in a minute: at 0.15 of 40,000, 100 a second. One
+/// whose template sets no combat rate regains its greatest in a minute in a fight as at rest.
+/// Behaviour: server.regen.a-creature-in-a-fight-regains-its-combat-rate
+#[test]
+fn a_creature_in_a_fight_regains_its_templates_combat_rate_of_its_health() {
+    use yalain_world::things::Mode;
+    for (rate, per_second) in [(Some(0.15f32), 100.0), (None, 40_000.0 / 60.0)] {
+        let mut h = Harness::new();
+        h.add_creatures(1);
+        let (_, me) = h.player_in_world("one", "Elara");
+        h.run_until(400, |h| h.server.things.by_id.values().any(|t| t.alive()));
+        let world = *h.server.players.keys().next().expect("in the world");
+        {
+            // The player outlasts the fight.
+            let p = h.server.players.get_mut(&world).expect("in the world");
+            quals::set_int(&mut p.qualities, quality::HEALTH_MAX, 1_000_000);
+            quals::set_int(&mut p.qualities, quality::HEALTH, 1_000_000);
+        }
+        let at = h.server.players[&world].position;
+        let id = h
+            .server
+            .things
+            .by_id
+            .values()
+            .find(|t| t.alive())
+            .map(|t| t.id)
+            .expect("the camp's creature");
+        let hurt = h.now.0;
+        if let Some(t) = h.server.things.get_mut(id) {
+            t.at = Some(at);
+            t.max_health = 40_000;
+            t.health = 4_000;
+            t.last_hurt = hurt;
+            let c = t.creature.as_mut().expect("a creature");
+            c.stats.combat_health_regen = rate;
+            c.stats.natural_damage = 0.0;
+            c.mode = Mode::Chasing;
+            c.target = Some(me);
+        }
+        while h.now.0 < hurt + 8.0 + 20.0 {
+            h.step();
+        }
+        let t = h.server.things.get(id).expect("the creature");
+        assert_eq!(
+            t.creature.as_ref().map(|c| c.mode),
+            Some(Mode::Chasing),
+            "still in the fight"
+        );
+        // 20 s at its rate, within a step either way.
+        let want = per_second * 20.0;
+        let got = f64::from(t.health - 4_000);
+        assert!(
+            (got - want).abs() <= per_second * 0.5,
+            "{rate:?}: regained {got}, not {want}"
+        );
+    }
+}
+
 /// Set a player's vitals, greatest and vitae by hand.
 fn under_vitae(h: &mut Harness, world: ConnId, vitae: f32, vitals: [(u32, i32); 4]) {
     let p = h.server.players.get_mut(&world).expect("in the world");
