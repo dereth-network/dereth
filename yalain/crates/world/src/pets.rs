@@ -686,6 +686,11 @@ fn summon_kind<S: Store>(
     if let Some(h) = kind.health_at(level) {
         stats.max_health = h.max(stats.max_health);
     }
+    if let Some(p) = s.players.get(&world) {
+        stats.max_health = dereth_primitives::num::to_i32_f64(
+            (f64::from(stats.max_health) * crate::combat_perks::pet_health(s, p)).round(),
+        );
+    }
     stats.max_vigor = kind.vigor_per_level.unwrap_or(VIGOR_PER_LEVEL) * level;
     let own = props.float(KIND_VELOCITY).unwrap_or(1.0);
     let velocity = VELOCITY_FACTOR * own.max(crate::effects::player_speed(s, world).0);
@@ -1583,7 +1588,11 @@ fn order_attack<S: Store>(
         progress::private(net, world, &crate::combat::failed(err));
         return;
     }
-    if crate::presence::distance(&from, &at).is_none_or(|d| d > ATTACK_RANGE) {
+    let range = ATTACK_RANGE
+        + s.players
+            .get(&world)
+            .map_or(0.0, |p| crate::combat_perks::command_range(s, p));
+    if crate::presence::distance(&from, &at).is_none_or(|d| d > range) {
         progress::private(
             net,
             world,
@@ -2345,7 +2354,15 @@ fn roll<S: Store>(
         .get(target)
         .and_then(|t| t.creature.as_ref())
         .map_or(0, |c| c.stats.armor);
-    (Outcome::Hit, pet_hit(&mut s.rng, kind, level, armor))
+    let hit = pet_hit(&mut s.rng, kind, level, armor);
+    let by = s
+        .pets
+        .by_id
+        .get(&id)
+        .and_then(|p| s.players.values().find(|q| q.character == p.owner))
+        .map_or(1.0, |p| crate::combat_perks::pet_damage(s, p));
+    let hit = dereth_primitives::num::to_i32_f64((f64::from(hit) * by).round());
+    (Outcome::Hit, hit)
 }
 
 /// What a pet's strike comes to once the creature's effects have watched it.

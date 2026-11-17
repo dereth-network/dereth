@@ -13,6 +13,8 @@
 //!   attribute.
 //! - **A creature's** rating in a skill is its template's level in it, with its effects; its level
 //!   part is nothing.
+//! - **A player's perks** add to either ([`crate::combat_perks`]): its accuracy by the time of day
+//!   and against a creature's category, its evasion indoors or outdoors and against one.
 
 use yalain_net::ConnId;
 use yalain_store::Store;
@@ -43,9 +45,19 @@ pub fn of<S: Store>(s: &Server<S>, skill: u32, attacker: Rater, defender: Rater)
     let Some(d) = s.skill_table.skills.get(&skill) else {
         return Ratings::default();
     };
+    let perks = |who: Rater, other: Rater, accuracy: bool| match who {
+        Rater::Player(world) => s.players.get(&world).map_or(0.0, |p| {
+            if accuracy {
+                crate::combat_perks::accuracy(s, p, other)
+            } else {
+                crate::combat_perks::evasion(s, p, other)
+            }
+        }),
+        _ => 0.0,
+    };
     Ratings {
-        accuracy: sum(s, attacker, &d.accuracy),
-        evasion: sum(s, defender, &d.evasion),
+        accuracy: sum(s, attacker, &d.accuracy) + perks(attacker, defender, true),
+        evasion: sum(s, defender, &d.evasion) + perks(defender, attacker, false),
     }
 }
 

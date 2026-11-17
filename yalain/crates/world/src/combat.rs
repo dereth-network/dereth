@@ -879,7 +879,7 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
                 .and_then(|u| u.hooks.get(index))
                 .is_some_and(|h| h.flags & crate::skill_use::hook_flag::LEFT_HAND != 0);
         let weapon = if left { hands.left } else { hands.right };
-        let bonus = critical_bonus(s, weapon.map(|(w, _)| w));
+        let bonus = player_critical(s, world, weapon.map(|(w, _)| w));
         let ratings = ratings_on(s, world, skill, run.target);
         let outcome = rules::roll_basic(&mut s.rng, kind, ratings, bonus);
         let Some(p) = s.players.get(&world) else {
@@ -1050,7 +1050,7 @@ fn stand_and_swing<S: Store>(
     }
     let thrown = crate::skill_use::missile_hook(&u).cloned();
     let kind = kind_of(s, skill, thrown.is_some());
-    let critical = critical_bonus(s, Some(weapon));
+    let critical = player_critical(s, world, Some(weapon));
     let ratings = ratings_on(s, world, skill, run.target);
     let outcome = rules::roll_basic(&mut s.rng, kind, ratings, critical);
     let damage = if outcome.landed() {
@@ -1180,7 +1180,7 @@ fn throw_twice<S: Store>(
         let left = h.flags & crate::skill_use::hook_flag::LEFT_HAND != 0;
         let weapon = if left { hands.left } else { hands.right }.map(|(w, _)| w);
         // Each throw is critical with what its own hand's weapon adds, as a swing is.
-        let bonus = critical_bonus(s, weapon);
+        let bonus = player_critical(s, world, weapon);
         let ratings = ratings_on(s, world, skill, run.target);
         let outcome = rules::roll_basic(&mut s.rng, kind, ratings, bonus);
         let Some(p) = s.players.get(&world) else {
@@ -1733,6 +1733,16 @@ fn hurt_creature_noticed<S: Store>(
     if damage > 0 {
         crate::pets::owner_hurt(s, by, id);
     }
+    // A player's Facade changes how much of it the creature notices.
+    let noticed = s
+        .players
+        .values()
+        .find(|p| p.character == by)
+        .map_or(noticed, |p| {
+            #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
+            let scaled = (noticed as f64 * crate::combat_perks::noticed(s, p)).round() as i64;
+            scaled
+        });
     let Some(t) = s.things.get_mut(id) else {
         return;
     };
@@ -1851,6 +1861,16 @@ pub fn critical_bonus<S: Store>(s: &Server<S>, weapon: Option<u64>) -> f64 {
         .sum::<f64>()
 }
 
+/// What a player's weapon and its perks add to the chance of its criticals ([`critical_bonus`],
+/// [`crate::combat_perks::critical`]).
+#[must_use]
+pub fn player_critical<S: Store>(s: &Server<S>, world: ConnId, weapon: Option<u64>) -> f64 {
+    critical_bonus(s, weapon)
+        + s.players
+            .get(&world)
+            .map_or(0.0, |p| crate::combat_perks::critical(s, p))
+}
+
 /// What the weapon a creature holds adds to the chance of its attacks' criticals: the first one's
 /// ([`critical_bonus`]).
 #[must_use]
@@ -1883,7 +1903,7 @@ fn hitter_with<S: Store>(s: &Server<S>, p: &Player, weapon: Option<u64>) -> rule
         level: crate::examine::level_of(&p.qualities),
         weapon: weapon.and_then(|w| weapon_damage(s, w)),
         added: crate::effects::damage_added(s, p),
-        critical: critical_bonus(s, weapon),
+        critical: critical_bonus(s, weapon) + crate::combat_perks::critical(s, p),
         pool: 0,
     }
 }

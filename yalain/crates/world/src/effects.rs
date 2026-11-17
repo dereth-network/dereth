@@ -1896,6 +1896,13 @@ fn change_vital<S: Store>(
             return;
         }
         left
+    } else if cur == quality::HEALTH && amount > 0 {
+        // A heal of its health: more by its Fortitude.
+        let by = s
+            .players
+            .get(&world)
+            .map_or(1.0, |p| crate::combat_perks::heals(s, p));
+        dereth_primitives::num::to_i32_f64((f64::from(amount) * by).round())
     } else {
         amount
     };

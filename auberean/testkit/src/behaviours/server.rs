@@ -11441,6 +11441,35 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.perks.criticals-heals-notice",
+        says: "A hero's Deadly Precision adds to the chance of its criticals, its Fortitude makes the heals \
+               of health it receives more, and its Facade the share of its damage creatures notice, each \
+               by the value its perk's rank holds.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HERO-PERKS-CRITICALS-HEALS"),
+        station: "yalain-testkit::cpu::play::hero_perks::fortitude_makes_the_heals_a_player_receives_more",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.perks.pets-by-demeanor-and-presence",
+        says: "A hero's Demeanors make its pets' greatest health or damage more by their value, and its \
+               Commanding Presence lets an attack order send them that many meters farther.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HERO-PERKS-PETS"),
+        station: "yalain-testkit::cpu::play::pets::a_rangers_demeanors_make_its_pets_hardier_and_harder_hitting",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.perks.ratings",
+        says: "A hero's perks add to its ratings where they apply: Night or Day Stalker to its accuracy by \
+               night or by day, Hunter against a creature of its category, Defense Against to its \
+               evasion against one, Dungeon Crawler indoors and Plains Walker outdoors.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HERO-PERKS-RATINGS"),
+        station: "yalain-testkit::cpu::play::hero_perks::a_heros_perks_add_to_its_accuracy_and_evasion_where_they_apply",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.a-contract-hires-a-mercenary",
         says: "A contract bought hires its mercenary at once, dismisses the one before it and is used \
                up. This server's own stand-in for summons in no data it holds.",

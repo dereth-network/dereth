@@ -2024,7 +2024,7 @@ fn by_its_hand<S: Store>(
     };
     combat::weapon_damage(s, left).map_or(me, |weapon| rules::Hitter {
         weapon: Some(weapon),
-        critical: combat::critical_bonus(s, Some(left)),
+        critical: combat::critical_bonus(s, Some(left)) + crate::combat_perks::critical(s, p),
         ..me
     })
 }

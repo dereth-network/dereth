@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Heroes' combat perks now work: Stalkers, Hunters, Defense, Fortitude, Facades and more.
 - Green recipes give no craft experience, and recipes pay less after a busy day.
 - Quest steps can now let a player be fought anywhere by other kingdoms, or stop it.
 - Hero Chants now spend focus while they run, and stop when it runs out.

@@ -446,6 +446,8 @@ pub mod creature_property {
     pub const NATURAL_DAMAGE: &str = "AICombat_NaturalDamage";
     pub const NATURAL_VARIANCE: &str = "AICombat_NaturalVariance";
     pub const ARMOR: &str = "NPC_ArmorLevel";
+    /// Its category (nature, decay, martial, arcane), as heroes' perks against them name it.
+    pub const CATEGORY: &str = "NPC_DamageType";
     pub const ARMOR_THRESHOLD: &str = "NPC_ArmorThreshold";
     pub const PERCEPTION: &str = "AI_PerceptionRadius";
     pub const HOMESICK: &str = "AI_HomesickRadius";

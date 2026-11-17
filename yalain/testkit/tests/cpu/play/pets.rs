@@ -1831,3 +1831,127 @@ fn a_corpse_a_pet_made_opens_to_its_owner_and_not_to_another() {
     assert!(!yalain_world::death::may_loot(&h.server, oid, corpse, now));
     assert!(yalain_world::death::may_loot(&h.server, me, corpse, now));
 }
+
+/// Give a player a perk of a kind at a value (its own made-up skill).
+fn holds_perk(h: &mut Harness, me: u64, kind: u32, value: f64) {
+    let skill = 9_000 + kind;
+    h.server.skill_table.skills.insert(
+        skill,
+        SkillDef {
+            id: skill,
+            perk: Some(yalain_world::skills::Perk {
+                kind,
+                value,
+                priority: 1,
+            }),
+            ..SkillDef::default()
+        },
+    );
+    player(h, me).play.skills.push(SkillState {
+        skill,
+        granted: 0,
+        mask: 0x1,
+        cost: 0,
+        children: 0,
+        dependents: 0,
+        spent: 0,
+    });
+}
+
+/// A Ranger's Lasher, summoned holding these perks, out beside the beetle, and the owner striking
+/// it: the Lasher's greatest health and the damage of its first strikes on the beetle.
+fn lasher_of(perks: &[(u32, f64)]) -> (i32, Vec<i32>) {
+    let mut h = Harness::new();
+    with_natures_aid(&mut h);
+    // Hits big enough that a twelfth more shows in each.
+    for k in h.server.pets.kinds.values_mut() {
+        k.per_level_squared = 40.0;
+    }
+    let (b, me) = ranger(&mut h, "one", "Kestrel");
+    for (kind, value) in perks {
+        holds_perk(&mut h, me, *kind, *value);
+    }
+    let from = summon(&mut h, b, 1);
+    let pet = h
+        .calls(b, from)
+        .iter()
+        .find(|(f, _)| *f == function::ADD)
+        .and_then(|(_, v)| pet_of(v))
+        .expect("a pet added");
+    let health = h.server.things.get(pet).map_or(0, |t| t.max_health);
+    let beetle = beetle(&mut h);
+    if let Some(t) = h.server.things.get_mut(beetle) {
+        t.max_health = 1_000_000;
+        t.health = 1_000_000;
+    }
+    let at = h
+        .server
+        .things
+        .get(beetle)
+        .and_then(|t| t.at)
+        .expect("placed");
+    let conn = conn_of(&h, me);
+    if let Some(p) = h.server.players.get_mut(&conn) {
+        p.position.origin = [at.origin[0] - 1.0, at.origin[1], at.origin[2]];
+    }
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(0x8204_0008, &[Arg::LongInt(beetle)]),
+    );
+    let hits = |h: &Harness| -> Vec<i32> {
+        h.world_messages(b, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::DoStory(e) if e.action.attacker == pet => Some(e),
+                _ => None,
+            })
+            .flat_map(|e| e.action.hooks.iter())
+            .filter(|k| k.target == beetle && k.numbers[3] < 0)
+            .map(|k| -k.numbers[3])
+            .collect()
+    };
+    assert!(h.run_until(2000, |h| hits(h).len() >= 3), "the pet strikes");
+    (health, hits(&h).into_iter().take(3).collect())
+}
+
+/// A Ranger's Nurturing Demeanor makes its pets' greatest health more by its share, and its
+/// Aggressive Demeanor their damage (the top rank, 1.12 each): the same Lasher summoned and
+/// striking the same way, its health and each of its hits are 1.12 times the plain one's.
+/// Behaviour: server.perks.pets-by-demeanor-and-presence
+#[test]
+fn a_rangers_demeanors_make_its_pets_hardier_and_harder_hitting() {
+    let (health, hits) = lasher_of(&[]);
+    let (more_health, harder) = lasher_of(&[(15, 1.12), (14, 1.12)]);
+    #[allow(clippy::cast_possible_truncation)]
+    let by = |n: i32| (f64::from(n) * 1.12).round() as i32;
+    assert_eq!(more_health, by(health), "{health}");
+    assert_eq!(harder, hits.iter().map(|n| by(*n)).collect::<Vec<_>>());
+}
+
+/// A Ranger's Commanding Presence sends its pets as far again as its value past their own reach:
+/// at 40 m, an attack order its pet takes with ten meters more.
+/// Behaviour: server.perks.pets-by-demeanor-and-presence
+#[test]
+fn commanding_presence_sends_pets_after_targets_farther_off() {
+    let mut h = Harness::new();
+    let (b, me, pet) = with_lasher(&mut h);
+    let beetle = beetle(&mut h);
+    let at = h
+        .server
+        .things
+        .get(beetle)
+        .and_then(|t| t.at)
+        .expect("placed");
+    let conn = conn_of(&h, me);
+    if let Some(p) = h.server.players.get_mut(&conn) {
+        p.position.origin = [at.origin[0] - 40.0, at.origin[1], at.origin[2]];
+    }
+    order(&mut h, b, function::ATTACK, &[Arg::LongInt(beetle)]);
+    assert_eq!(target_of(&h, pet), None, "too far");
+    holds_perk(&mut h, me, 13, 10.0);
+    let from = order(&mut h, b, function::ATTACK, &[Arg::LongInt(beetle)]);
+    assert!(h.texts(b, from).is_empty(), "no answer");
+    assert_eq!(target_of(&h, pet), Some(beetle));
+}

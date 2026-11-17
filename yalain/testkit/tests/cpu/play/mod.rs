@@ -56,6 +56,7 @@ mod gives;
 mod guarded_objects;
 mod hands;
 mod hazards;
+mod hero_perks;
 mod holds;
 mod integrity;
 mod interactions;

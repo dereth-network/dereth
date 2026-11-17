@@ -89,6 +89,7 @@ pub mod characters;
 pub mod chargen;
 pub mod chat;
 pub mod combat;
+pub mod combat_perks;
 pub mod craft;
 pub mod creature_rows;
 pub mod death;
@@ -435,6 +436,8 @@ pub struct Server<S: Store> {
     pub levels: levels::LevelTable,
     /// The world's calendar, which says when it is night; none, never.
     pub calendar: Option<auberean_world::calendar::GameClock>,
+    /// Whether it is night in the world, by the calendar, as of the world's last step.
+    pub night: bool,
     /// The parts of the game's day, by the calendar: where each begins (a share of the day) and
     /// whether it is night.
     pub day_parts: Vec<(f32, bool)>,
@@ -915,6 +918,7 @@ impl<S: Store> Server<S> {
             levels: levels::LevelTable::default(),
             skill_table: skills::SkillTable::default(),
             calendar: None,
+            night: false,
             day_parts: Vec::new(),
             effect_table: effect_defs::EffectTable::default(),
             creature_effects: effects::CreatureRecords::default(),
