@@ -3012,8 +3012,9 @@ fn recall_out<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, c
     );
 }
 
-/// A use is over: the skill's information (when it was last used, from which its recovery counts;
-/// a recall's start of the wait every skill shares), and, used from rest, the player not
+/// A use is over: the skill's information (when it was last used, from which its recovery counts,
+/// or never, for a summoning that set no pet down of a skill whose definition says it is then
+/// unused; a recall's start of the wait every skill shares), and, used from rest, the player not
 /// attacking, stopped and at peace; inside a run, the run's next swing. A request waiting is taken
 /// up.
 fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
@@ -3074,7 +3075,23 @@ fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: C
             clock,
         );
     }
-    skill_info(s, net, world, &x, now_game, 0);
+    // A summoning that set no pet down leaves a skill whose definition says so unused: no
+    // recovery to wait, and its client told it was never used (2017: 8 of 8 failed summonings,
+    // each tried again within a minute).
+    let failed = !summons.is_empty() && summons.iter().all(|id| s.pets.failed.contains_key(id));
+    let unused = failed
+        && s.skill_table
+            .skills
+            .get(&x.req.skill)
+            .is_some_and(|d| d.unused_on_failure);
+    if unused {
+        if let Some(p) = s.players.get_mut(&world) {
+            p.last_used.remove(&x.req.skill);
+        }
+        skill_unused(s, net, world, &x);
+    } else {
+        skill_info(s, net, world, &x, now_game, 0);
+    }
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
@@ -3244,6 +3261,24 @@ fn skill_info<S: Store>(
             net,
             world,
             &crate::skills::used_update(&h, rating, x.began, now),
+        );
+    }
+}
+
+/// The skill's information after a use that left it unused: never used, so nothing to wait.
+fn skill_unused<S: Store>(s: &Server<S>, net: &mut ServerNet, world: ConnId, x: &Using) {
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
+    let held = crate::skills::held(&starting, &p.play.skills);
+    let rating = effective_rating(s, p, &held, x.req.skill);
+    if let Some(mut h) = held.iter().find(|h| h.skill == x.req.skill).copied() {
+        h.mask &= !HAS_LAST_USED;
+        progress::private(
+            net,
+            world,
+            &crate::skills::used_update(&h, rating, x.began, 0.0),
         );
     }
 }

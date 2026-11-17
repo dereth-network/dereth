@@ -11545,6 +11545,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.pets.failed-summoning-leaves-the-skill-unused",
+        says: "A summoning that sets no pet down (a turret indoors) leaves its skill unused when \
+               the skill's definition says so: no recovery to wait, the skill told as never used, \
+               and it may be used again at once. One that works starts the recovery.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SUMMON-FAILS-UNUSED"),
+        station: "yalain-testkit::cpu::play::pet_kinds::a_failed_summoning_leaves_its_skill_unused_and_one_that_works_starts_its_recovery",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.fires-what-makes-a-pet",
         says: "A pet whose skill has no blow and makes another pet fires it at what it takes on, at the \
                skill's own pace, the pet made its owner's and going after the creature; with no row for \
@@ -17163,6 +17173,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-UNTRAINING-HOLDS"),
         station: "yalain-testkit::cpu::play::untraining::a_skill_being_untrained_is_not_raised_and_nothing_is_trained_on_it",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.unused-on-failure-read",
+        says: "Whether a use whose effect fails leaves a skill unused is what its definition \
+               says: the summonings', walls' and decoys' and Allegiance Recall's say so; every \
+               other skill's starts the recovery all the same.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SKILL-UNUSED-ON-FAILURE"),
+        station: "yalain-testkit::dat::skills::a_skills_definition_says_whether_a_use_whose_effect_fails_leaves_it_unused",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.skills.used-only-when-held",

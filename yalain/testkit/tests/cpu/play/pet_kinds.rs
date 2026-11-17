@@ -566,6 +566,87 @@ fn a_turret_summoned_indoors_fails_and_never_appears() {
     assert!(!h.server.pets.is_pet(pet));
 }
 
+/// Put a player out in the open, on a block's land.
+fn outdoors(h: &mut Harness, me: u64) {
+    let (cell, x, y) = yalain_world::spawn::outdoor(0xA9B4, 40.0, 40.0);
+    let p = h
+        .server
+        .players
+        .values_mut()
+        .find(|p| p.character == me)
+        .expect("in the world");
+    p.position.cell = cell;
+    p.position.origin = [x, y, 0.0];
+}
+
+/// What the skill's information told since a message: when it was last used, and its mask.
+fn skill_told(h: &Harness, b: usize, from: usize) -> Vec<(f64, u32)> {
+    h.calls(b, from)
+        .iter()
+        .filter(|(f, _)| *f == yalain_world::skills::function::UPDATE_INFO)
+        .filter_map(|(_, v)| match v.first().and_then(Value::root) {
+            Some(yalain_world::calls::Node::Script { slots, .. }) => Some((
+                f64::from_bits(u64::from(slots[1].1) << 32 | u64::from(slots[0].1)),
+                slots[7].1,
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A summoning whose turret can't be set down indoors leaves its skill unused when the skill's
+/// definition says so: the skill's information tells it was never used, and it may be used again at
+/// once, the summoning failing again. Outdoors the turret appears and the skill waits its recovery:
+/// asked again, it is refused as not ready.
+/// Behaviour: server.pets.failed-summoning-leaves-the-skill-unused
+#[test]
+fn a_failed_summoning_leaves_its_skill_unused_and_one_that_works_starts_its_recovery() {
+    use yalain_world::skill_use::{function as used, refusal, HAS_LAST_USED};
+    let mut h = Harness::new();
+    with_kind(&mut h, &TURRET, 1);
+    if let Some(d) = h.server.skill_table.skills.get_mut(&SKILL) {
+        d.unused_on_failure = true;
+        if let Some(u) = d.usage.as_mut() {
+            u.recovery = 600.0;
+        }
+    }
+    let (b, me) = summoner(&mut h);
+    h.run(20);
+    // The test hall is indoors.
+    let from = summon(&mut h, b);
+    assert!(h
+        .texts(b, from)
+        .contains(&(1, pets::text::SUMMONING_FAILS.0)));
+    let told = skill_told(&h, b, from);
+    assert_eq!(told.len(), 1, "{told:?}");
+    assert_eq!(told[0].0, 0.0, "never used");
+    assert_eq!(told[0].1 & HAS_LAST_USED, 0, "the mask says so");
+    let refused = |h: &Harness, from: usize| {
+        h.calls(b, from)
+            .iter()
+            .any(|(f, v)| *f == used::REFUSED && v.contains(&Value::Int(refusal::NOT_RESET)))
+    };
+    let from = summon(&mut h, b);
+    assert!(!refused(&h, from), "nothing to wait");
+    assert!(
+        h.texts(b, from)
+            .contains(&(1, pets::text::SUMMONING_FAILS.0)),
+        "used again at once"
+    );
+
+    outdoors(&mut h, me);
+    let from = summon(&mut h, b);
+    let turret = pet_added(&h, b, from).expect("told of");
+    assert!(h.server.pets.is_pet(turret), "a turret outdoors");
+    let told = skill_told(&h, b, from);
+    assert!(
+        told.iter().all(|(t, m)| *t > 0.0 && m & HAS_LAST_USED != 0),
+        "{told:?}"
+    );
+    let from = summon(&mut h, b);
+    assert!(refused(&h, from), "its recovery to wait");
+}
+
 /// The Axe Orb's swing hits its one target four times, each with its own result; the Taunt Orb's
 /// strike harms nothing (a result with no health taken), and the creature may turn on it.
 /// Behaviour: server.pets.orbs

@@ -397,6 +397,10 @@ pub struct SkillDef {
     /// ([`notices_damage`]); none when no class of it sets them.
     pub taunt_bonus: Option<f32>,
     pub notices_damage: Option<f32>,
+    /// A use whose effect fails (a summoning that can't set its pet down) leaves it unused, with no
+    /// recovery to wait: its definition says so, as summonings', walls' and decoys' do; every
+    /// other skill's starts the recovery all the same.
+    pub unused_on_failure: bool,
 }
 
 /// One part of an attack's accuracy or its target's evasion: what is rated, and how many points
@@ -847,6 +851,9 @@ impl SkillDef {
             evasion: Vec::new(),
             taunt_bonus: None,
             notices_damage: None,
+            unused_on_failure: nav
+                .field(root, "mShouldStartTimerOnEffectFailure")
+                .is_ok_and(|v: u32| v == 0),
         })
     }
 }

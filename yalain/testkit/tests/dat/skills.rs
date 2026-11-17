@@ -144,6 +144,23 @@ fn a_skills_critical_modifier_is_what_its_class_sets() {
     assert!(set > 1_500, "most used skills set one: {set}");
 }
 
+/// A skill's definition says whether a use whose effect fails leaves it unused: the turret
+/// casing's, the Shreth summoning's and Allegiance Recall's do; the others start the recovery all
+/// the same, as Summon Portal's and Deadeye's do.
+/// Behaviour: server.skills.unused-on-failure-read
+#[test]
+fn a_skills_definition_says_whether_a_use_whose_effect_fails_leaves_it_unused() {
+    let t = Portal::open().skills();
+    for skill in [444, 706, 999] {
+        assert!(t.skills[&skill].unused_on_failure, "{skill}");
+    }
+    for skill in [871, 207] {
+        assert!(!t.skills[&skill].unused_on_failure, "{skill}");
+    }
+    let n = t.skills.values().filter(|d| d.unused_on_failure).count();
+    assert!((45..=52).contains(&n), "{n}");
+}
+
 /// The two summoning skills are used as the recall is, at half the user's vigor: Summon Lifestone
 /// and Summon Portal power up for 10 seconds, only on their user, and name the effects that open
 /// their portals; the portal's template is one that is not walked into.
