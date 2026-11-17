@@ -1281,6 +1281,40 @@ mod tests {
         );
     }
 
+    /// Each realm's list is filtered by its own game's rules, as the launcher names each world's
+    /// filter; a filter the realm does not offer filters nothing. A hosted Yalain world's rules are
+    /// the ones its configuration takes, by the names the list shows.
+    #[test]
+    fn each_realms_rules_filter_is_its_own_games() {
+        use dereth_launch::world::Game;
+        let page = include_str!("../ui/app.js");
+        for (game, word) in [(Game::Dereth, "dereth"), (Game::Auberean, "auberean")] {
+            let filters: Vec<String> = game
+                .rules_filters()
+                .iter()
+                .map(|(k, l)| format!(r#"["{k}", "{l}"]"#))
+                .collect();
+            let line = format!("  {word}: [{}],", filters.join(", "));
+            assert!(page.contains(&line), "{line}");
+        }
+        assert!(page.contains(
+            ".filter((w) => !realmFilters().some(([k]) => k === ui.filter) || w.rules === ui.filter)"
+        ));
+        let yalain: Vec<String> = crate::host_yalain::RULESETS
+            .iter()
+            .map(|(w, l)| format!(r#"["{w}", "{l}"]"#))
+            .collect();
+        let line = format!("const YALAIN_RULESETS = [{}];", yalain.join(", "));
+        assert!(page.contains(&line), "{line}");
+        assert!(page.contains(r#"data-srv-field="ruleset""#));
+        // A hosted world is registered from the link that carries its rules.
+        assert_eq!(
+            page.matches("data-url=\"${esc(h.register_link ?? NETWORK_REGISTER)}\"")
+                .count(),
+            2
+        );
+    }
+
     /// The window is titled for the network, whichever game it opens on.
     #[test]
     fn the_window_is_titled_dereth_network() {

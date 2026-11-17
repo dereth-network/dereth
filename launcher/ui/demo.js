@@ -43,8 +43,14 @@
     return { name, label: special ?? words[0].toUpperCase() + words.slice(1), dated };
   });
 
+  // The rules filter a world falls under, as the backend gives each world its `rules`.
+  const rulesOf = (ruleset, game) => {
+    const r = (ruleset ?? "").toLowerCase();
+    if (game === "auberean") return { standard: "standard", pve: "standard", kvk: "kvk", ffa: "ffa" }[r] ?? null;
+    return r.includes("pve") ? "pve" : r.includes("pvp") || r.includes("pk") ? "pvp" : null;
+  };
   const world = (slug, name, emulator, state, players, ruleset, extra = {}) => ({
-    slug, name, description: null, ruleset, emulator, state, players,
+    slug, name, description: null, ruleset, rules: rulesOf(ruleset, extra.game), emulator, state, players,
     era: null, era_features: null, era_source: null, features_source: null,
     emulator_version: null, list_id: null, development_status: "Stable",
     endpoint: { address: `${slug}.dereth.network`, port: 9000, transport: null },
@@ -78,15 +84,15 @@
     world("morningthaw", "Morningthaw", "ace", "unknown", null, "PvE"),
     world("darktide", "Darktide", "ace", "unknown", null, "PK"),
     // Auberean's worlds, served by Yalain.
-    world("lumenvale", "Lumenvale", "yalain", "online", 9, "PvE", {
+    world("lumenvale", "Lumenvale", "yalain", "online", 9, "Standard", {
       game: "auberean", description: "Internal dereth.network testbed world for Auberean.",
       emulator_version: "0.1.0", development_status: "Development",
       links: { website: "https://dereth.network", discord: null, rules: null, guide: null },
     }),
-    world("shardfall", "Shardfall", "yalain", "high", 186, "PvE", { game: "auberean", description: "As it was at the end. Events every weekend.", emulator_version: "0.1.0" }),
-    world("duskmere", "Duskmere", "yalain", "online", 41, "PvP", { game: "auberean", description: "Faction war, every night." }),
-    world("emberreach", "Emberreach", "yalain", "unknown", null, "PvE", { game: "auberean", development_status: "Experimental" }),
-    world("tidecall", "Tidecall", "yalain", "offline", null, "PvE", { game: "auberean" }),
+    world("shardfall", "Shardfall", "yalain", "high", 186, "Standard", { game: "auberean", description: "As it was at the end. Events every weekend.", emulator_version: "0.1.0" }),
+    world("duskmere", "Duskmere", "yalain", "online", 41, "KvK", { game: "auberean", description: "Faction war, every night." }),
+    world("emberreach", "Emberreach", "yalain", "unknown", null, "FFA", { game: "auberean", development_status: "Experimental" }),
+    world("tidecall", "Tidecall", "yalain", "offline", null, "Standard", { game: "auberean" }),
   ];
 
   const inst = (id, kind, client_id, version, date, path, extra = {}) => ({
@@ -404,7 +410,7 @@
 
   // Every world, each marked a favorite when the player starred it, as the launcher marks them.
   const allWorlds = () => [...worlds, ...state.custom_worlds.map((c) => ({
-    ...world(c.slug, c.name, c.emulator ?? "unknown", "unknown", null, c.ruleset ?? null),
+    ...world(c.slug, c.name, c.emulator ?? "unknown", "unknown", null, c.ruleset ?? null, { game: c.game ?? "dereth" }),
     endpoint: { address: c.host, port: c.port, transport: null },
     description: `Added by you: ${c.host}:${c.port}`, development_status: null, game: c.game ?? "dereth",
   }))].map((w) => ({ ...w, favorite: (state.favorite_worlds ?? []).includes(w.slug) }));

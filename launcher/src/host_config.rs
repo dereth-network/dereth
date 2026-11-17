@@ -217,6 +217,9 @@ pub struct Settings {
     pub federation: Federation,
     /// `[dat_overlay]`'s patching.
     pub patching: Patching,
+    /// A Yalain world's `server.ruleset`: where its players may fight, `standard`,
+    /// `kingdom-vs-kingdom` or `free-for-all` ([`crate::host_yalain::RULESETS`]).
+    pub ruleset: String,
 }
 /// The status endpoint's address when nothing else is set: this computer's alone.
 fn loopback() -> IpAddr {
@@ -257,6 +260,7 @@ impl Default for Settings {
             websocket: WebSocket::default(),
             federation: Federation::default(),
             patching: Patching::default(),
+            ruleset: crate::host_yalain::RULESETS[0].0.into(),
         }
     }
 }
@@ -805,6 +809,8 @@ impl Settings {
             websocket,
             federation,
             patching,
+            // A Yalain world's own, which its settings read ([`crate::host_yalain::from_config`]).
+            ruleset: defaults.ruleset.clone(),
         })
     }
     pub fn update_config(&self, original: &str) -> Result<String, String> {

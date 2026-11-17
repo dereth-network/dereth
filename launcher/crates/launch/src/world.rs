@@ -42,6 +42,17 @@ impl Game {
             .into_iter()
             .find(|g| g.word() == word)
     }
+
+    /// The rules the world list's filter offers for the game's worlds, in order: each filter's key
+    /// ([`World::rules`]) and the ruleset it shows, as the hub's list names it. An Asheron's Call 2
+    /// world says where its players may fight: at peace but for its conflict areas, kingdoms
+    /// against each other anywhere, or anyone against anyone.
+    pub fn rules_filters(self) -> &'static [(&'static str, &'static str)] {
+        match self {
+            Game::Dereth => &[("pve", "PvE"), ("pvp", "PvP")],
+            Game::Auberean => &[("standard", "Standard"), ("kvk", "KvK"), ("ffa", "FFA")],
+        }
+    }
 }
 
 /// The server software a world runs. It decides the command-line form a retail client needs and
@@ -290,6 +301,10 @@ pub struct World {
     /// How sure the shown era is ([`EraState`]). Set by [`crate::listing::WorldList::shown`].
     #[serde(default)]
     pub era_state: EraState,
+    /// The world list's rules filter the world falls under ([`World::rules_of`]). Set by
+    /// [`crate::listing::WorldList::shown`].
+    #[serde(default)]
+    pub rules: Option<String>,
     /// Whether the player starred the world in the world list, which shows it first
     /// ([`crate::state::LauncherState::is_favorite_world`]). Set by
     /// [`crate::listing::WorldList::shown`].
@@ -373,6 +388,27 @@ pub struct World {
 pub const END_OF_RETAIL_NET_VERSION: &str = "1802";
 
 impl World {
+    /// The key of the world list's rules filter ([`Game::rules_filters`]) the world falls under,
+    /// by its ruleset: an Asheron's Call world's `pve` for one that names PvE, `pvp` for one that
+    /// names PvP or player killing; an Asheron's Call 2 world's `standard`, `kvk` or `ffa` for the
+    /// ruleset of that name, and `standard` for `PvE`, which such a world was registered with
+    /// before it could name its own. `None` for rules no filter names.
+    pub fn rules_of(&self) -> Option<&'static str> {
+        let said = self.ruleset.as_deref()?.trim().to_ascii_lowercase();
+        match self.game {
+            Game::Dereth if said.contains("pve") => Some("pve"),
+            Game::Dereth if said.contains("pvp") || said.contains("pk") => Some("pvp"),
+            Game::Dereth => None,
+            Game::Auberean if said == "pve" => Some("standard"),
+            Game::Auberean => self
+                .game
+                .rules_filters()
+                .iter()
+                .find(|(key, shown)| said == *key || said == shown.to_ascii_lowercase())
+                .map(|(key, _)| *key),
+        }
+    }
+
     /// Whether the world's plugin policy is published at a URL (rather than written in the entry).
     #[must_use]
     pub fn plugin_policy_url(&self) -> Option<&str> {
@@ -840,5 +876,36 @@ mod tests {
         assert_eq!(w[0].links.website.as_deref(), Some("https://a.example"));
         assert!(parse_page(b"{}").is_err());
         assert!(parse_page(b"nonsense").is_err());
+    }
+
+    /// An Asheron's Call 2 world's rules filter is its own ruleset's (a word in any case, or the
+    /// name the list shows), and one registered as PvE is standard; any other ruleset, and an
+    /// Asheron's Call world's PvE or PvP, is not one of its filters. An Asheron's Call world keeps
+    /// PvE and PvP (player killing counts as PvP).
+    #[test]
+    fn a_worlds_rules_filter_is_one_of_its_games() {
+        let of = |game: Game, ruleset: Option<&str>| {
+            let mut w = World::new("w", "W");
+            w.game = game;
+            w.ruleset = ruleset.map(str::to_owned);
+            w.rules_of()
+        };
+        let ac2 = |r: &str| of(Game::Auberean, Some(r));
+        assert_eq!(ac2("Standard"), Some("standard"));
+        assert_eq!(ac2("KvK"), Some("kvk"));
+        assert_eq!(ac2("ffa"), Some("ffa"));
+        assert_eq!(ac2("PvE"), Some("standard"));
+        assert_eq!(ac2("PvP"), None);
+        assert_eq!(ac2("Custom"), None);
+        let ac1 = |r: &str| of(Game::Dereth, Some(r));
+        assert_eq!(ac1("PvE"), Some("pve"));
+        assert_eq!(ac1("PvP-lite"), Some("pvp"));
+        assert_eq!(ac1("PK"), Some("pvp"));
+        assert_eq!(ac1("KvK"), None);
+        assert_eq!(ac1("Custom"), None);
+        assert_eq!(of(Game::Auberean, None), None);
+        let keys = |g: Game| -> Vec<&str> { g.rules_filters().iter().map(|(k, _)| *k).collect() };
+        assert_eq!(keys(Game::Dereth), ["pve", "pvp"]);
+        assert_eq!(keys(Game::Auberean), ["standard", "kvk", "ffa"]);
     }
 }

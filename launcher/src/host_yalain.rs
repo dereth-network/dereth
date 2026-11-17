@@ -56,6 +56,37 @@ pub const OWN_DATABASE: &str = "world-database";
 /// The ports a world takes from its login port on.
 pub const PORTS: u16 = 4;
 
+/// The rulesets a world may have, as `[server] ruleset` names them, each with its name on the
+/// Dereth Network's list of worlds; the first is Yalain's own when the file names none.
+pub const RULESETS: [(&str, &str); 3] = [
+    ("standard", "Standard"),
+    ("kingdom-vs-kingdom", "KvK"),
+    ("free-for-all", "FFA"),
+];
+
+/// The Dereth Network's page where an operator registers a world.
+pub const REGISTER_PAGE: &str = "https://dereth.network/operators/";
+
+/// The link that opens the Dereth Network's form to register the world: started as an Asheron's
+/// Call 2 world of its name, at its login port, with the rules it is set to as the hub names them
+/// (`Standard`, `KvK` or `FFA`), so that its listing says what it enforces.
+#[must_use]
+pub fn register_link(settings: &Settings) -> String {
+    let rules = listed_ruleset(&settings.ruleset).unwrap_or(RULESETS[0].1);
+    format!(
+        "{REGISTER_PAGE}?register&game=auberean&ruleset={rules}&name={}&port={}#register",
+        dereth_launch::join::encode(&settings.name),
+        settings.port
+    )
+}
+
+/// The name on the list of worlds of the ruleset `[server] ruleset` names; `None` for a word that
+/// names none.
+#[must_use]
+pub fn listed_ruleset(word: &str) -> Option<&'static str> {
+    RULESETS.iter().find(|(w, _)| *w == word).map(|(_, l)| *l)
+}
+
 /// Whether a world listening on `bind` lets players on other computers in.
 #[must_use]
 pub fn others_allowed(bind: &str) -> bool {
@@ -168,7 +199,7 @@ pub fn check_updates_off(text: &str) -> Result<(), String> {
 }
 
 /// The settings a configuration file's `text` holds, as the page shows them: Empyrean's keys, with
-/// the welcome message from `[server] message_of_the_day`.
+/// the welcome message from `[server] message_of_the_day` and the ruleset from `[server] ruleset`.
 ///
 /// # Errors
 /// In words for a person, when the text does not read.
@@ -180,6 +211,12 @@ pub fn from_config(text: &str) -> Result<Settings, String> {
         .and_then(|t| t.get("message_of_the_day"))
         .and_then(toml_edit::Item::as_str)
         .unwrap_or("")
+        .to_owned();
+    s.ruleset = doc
+        .get("server")
+        .and_then(|t| t.get("ruleset"))
+        .and_then(toml_edit::Item::as_str)
+        .unwrap_or(RULESETS[0].0)
         .to_owned();
     Ok(s)
 }
@@ -216,7 +253,8 @@ pub fn writes_players_install(text: &str) -> (bool, bool) {
 
 /// The configuration file's `original` text with `settings` saved over it, keeping every key the
 /// page has no field for and every comment: Empyrean's keys where Yalain has the setting, the
-/// welcome message as `message_of_the_day`, the status endpoint on this computer, the world's own
+/// welcome message as `message_of_the_day`, the ruleset as `ruleset` (left out while it is the
+/// standard one and the file names none), the status endpoint on this computer, the world's own
 /// database, and the stop when the supervisor's console closes.
 ///
 /// # Errors
@@ -258,6 +296,14 @@ pub fn update_config(settings: &Settings, original: &str) -> Result<String, Stri
     set(&mut server["shutdown_interval"], settings.shutdown_warning);
     set(&mut server["log_level"], &settings.log_level);
     set(&mut server["stop_at_console_end"], true);
+    put(
+        &mut doc,
+        &["server"],
+        "ruleset",
+        settings.ruleset.as_str(),
+        RULESETS[0].0,
+    )?;
+    let server = &mut doc["server"];
     // The launcher updates its worlds itself, so Yalain's own updater never races it.
     set(&mut server["update"], "off");
     let network = &mut server["network"];
@@ -313,6 +359,9 @@ pub fn validate(settings: &Settings) -> Result<(), String> {
         return Err(
             "Choose a port from 1 to 65532: the world takes it and the three after it.".into(),
         );
+    }
+    if listed_ruleset(&settings.ruleset).is_none() {
+        return Err("Choose the world's rules: Standard, KvK or FFA.".into());
     }
     if !settings.dats.is_absolute() {
         return Err("Choose your Asheron's Call 2 folder.".into());
@@ -945,5 +994,52 @@ mod tests {
         assert!(after.contains("player_save_interval = 60"), "{after}");
         assert!(after.contains("maximum_allowed_sessions = 50"), "{after}");
         assert_eq!(read(d.path()).unwrap().status_port, 9104, "kept");
+    }
+
+    /// A world's rules are kept as `[server] ruleset` and read back: left out of a file that names
+    /// none while they are the standard ones, which is what such a file reads as. A word Yalain
+    /// takes for no ruleset is refused. On the list of worlds each is named as the hub names it.
+    #[test]
+    fn a_worlds_rules_are_kept_as_its_ruleset_and_read_back() {
+        let d = tempfile::tempdir().unwrap();
+        let mut s = settings(Path::new("/ac2"));
+        write(d.path(), &s).unwrap();
+        let text = config_text(d.path());
+        assert!(!text.contains("ruleset"), "{text}");
+        assert_eq!(read(d.path()).unwrap().ruleset, "standard");
+        for word in ["kingdom-vs-kingdom", "free-for-all", "standard"] {
+            s.ruleset = word.into();
+            write(d.path(), &s).unwrap();
+            let text = config_text(d.path());
+            let doc = text.parse::<DocumentMut>().unwrap();
+            assert_eq!(doc["server"]["ruleset"].as_str(), Some(word), "{text}");
+            assert_eq!(read(d.path()).unwrap().ruleset, word);
+        }
+        assert_eq!(
+            ["standard", "kingdom-vs-kingdom", "free-for-all", "pvp"].map(listed_ruleset),
+            [Some("Standard"), Some("KvK"), Some("FFA"), None]
+        );
+        s.ruleset = "pvp".into();
+        assert!(validate(&s).unwrap_err().contains("rules"));
+    }
+
+    /// The link to register a world on the Dereth Network starts the hub's form with the world's
+    /// game, the rules it is set to (as the hub names them), its name and its login port.
+    #[test]
+    fn the_register_link_carries_the_rules_the_world_is_set_to() {
+        let mut s = settings(Path::new("/ac2"));
+        s.name = "Dawn Song".into();
+        assert_eq!(
+            register_link(&s),
+            "https://dereth.network/operators/?register&game=auberean&ruleset=Standard\
+             &name=Dawn%20Song&port=9200#register"
+        );
+        for (word, named) in [("kingdom-vs-kingdom", "KvK"), ("free-for-all", "FFA")] {
+            s.ruleset = word.into();
+            assert!(
+                register_link(&s).contains(&format!("&ruleset={named}&")),
+                "{word}"
+            );
+        }
     }
 }

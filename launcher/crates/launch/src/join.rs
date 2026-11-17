@@ -114,7 +114,8 @@ fn decode(s: &str) -> String {
 
 /// `s` percent-encoded for a query or fragment value: letters, digits and `-._~` as they are,
 /// every other byte as `%XX`.
-fn encode(s: &str) -> String {
+#[must_use]
+pub fn encode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
         if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {

@@ -578,7 +578,8 @@ pub struct NewServer {
     pub name: String,
     pub host: String,
     pub port: String,
-    /// `PvE` or `PvP`; `None` when not said.
+    /// `PvE` or `PvP` for an Asheron's Call world, `Standard`, `KvK` or `FFA` for an Asheron's Call
+    /// 2 world; `None` when not said.
     #[serde(default)]
     pub ruleset: Option<String>,
     /// Unknown when not said.
@@ -2302,11 +2303,18 @@ impl Backend {
         let definition = crate::host_runtime::read_definition(dir)?;
         let settings = crate::host_runtime::read_settings(dir, definition.game)?;
         let host = crate::host_yalain::local_host(&settings.bind);
+        // A Yalain world's rules are its own; Empyrean's say nothing of them.
+        let ruleset = match definition.game {
+            Game::Dereth => None,
+            Game::Auberean => {
+                crate::host_yalain::listed_ruleset(&settings.ruleset).map(str::to_owned)
+            }
+        };
         let slug = self.add_custom_world(&NewServer {
             name: settings.name,
             host,
             port: settings.port.to_string(),
-            ruleset: None,
+            ruleset,
             emulator: match definition.game {
                 Game::Dereth => Emulator::Empyrean,
                 Game::Auberean => Emulator::Yalain,

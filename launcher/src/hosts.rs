@@ -59,6 +59,10 @@ pub struct View {
     pub federation_slug: Option<String>,
     /// That slug is on the Dereth Network's list.
     pub listed: bool,
+    /// For a Yalain world, the link that opens the Dereth Network's form to register it, started
+    /// with its name, its login port and the rules it is set to
+    /// ([`crate::host_yalain::register_link`]).
+    pub register_link: Option<String>,
     /// What it plays besides its settings: its world database, overlays and network key.
     pub plays: crate::host_config::Plays,
     /// For a world that plays a published Lyceum world: whether that world's saved sources differ
@@ -321,6 +325,8 @@ pub fn views(shared: &Shared) -> Vec<View> {
             }
             crate::lyceum_world::current_digest(&p.source).map(|now| now != p.sources)
         });
+        let register_link = (definition.game == Game::Auberean)
+            .then(|| crate::host_yalain::register_link(&settings));
         views.push(View {
             busy: store.busy.get(&definition.id).cloned(),
             message: store.messages.get(&definition.id).cloned().or(unread),
@@ -340,6 +346,7 @@ pub fn views(shared: &Shared) -> Vec<View> {
             source_gone,
             federation_slug: federation_slug(&text),
             listed: false,
+            register_link,
             plays: match definition.game {
                 Game::Dereth => crate::host_config::plays(&text, &dir),
                 Game::Auberean => crate::host_yalain::plays(&text, &dir, Some(&program)),

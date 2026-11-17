@@ -11,6 +11,8 @@ section, dated, and opens a new empty one in the same commit as the version.
 ## Unreleased
 - The Asheron's Call 2 side no longer says it is in its infancy.
 - Library: the Asheron's Call 2 art pack's ground no longer carries the heavy detail grain.
+- Asheron's Call 2 worlds show and filter by their rules: Standard, KvK or FFA.
+- Hosted Asheron's Call 2 worlds can now be KvK or FFA worlds.
 
 ## 0.5.6 (2026-11-17)
 - Fixed the Asheron's Call 2 art pack's Build button staying greyed out.

@@ -40,7 +40,7 @@ const ui = {
   snap: null,
   homeSel: 0,
   search: "",
-  filter: null,            // the Worlds list's one rules filter: null | "pve" | "pvp"
+  filter: null,            // the Worlds list's one rules filter, of the realm's game's (FILTERS): null | "pve" | "pvp" | "standard" | "kvk" | "ffa"
   expanded: null,          // the Worlds list's one open row: a world's slug, or null
   folded: { favorites: false, custom: false, online: false, offline: true },   // the Worlds list's closed sections
   addServer: null,         // the Worlds list's "add a world" form, while it is open: { name, host, port, emulator, ruleset, error }
@@ -822,6 +822,9 @@ const TIP_OTHERS = "If checked, anyone on your local network (or outside your lo
 const TIP_PER_ADDRESS = "The most players at once from each unique IP address. Empty is no limit.";
 const TIP_WELCOME = "What the character screen says, line by line. Not every client shows it.";
 const TIP_YALAIN_WELCOME = "Shown to each player as their character enters the world, line by line.";
+const TIP_YALAIN_RULES = "Where players may fight. Standard: only in the world's conflict areas. KvK: players of different kingdoms, anywhere. FFA: anyone, anywhere.";
+// A Yalain world's rules, as yalain.toml's server.ruleset names them, and as the list shows them.
+const YALAIN_RULESETS = [["standard", "Standard"], ["kingdom-vs-kingdom", "KvK"], ["free-for-all", "FFA"]];
 const TIP_PLAY = "Players can play this world in their web browser at https://play.dereth.network. The world needs a secure connection for it: a certificate and its key, or a TLS proxy in front.";
 const TIP_PLAY_YALAIN = "Takes connections from web browsers. The world needs a secure connection for it: a certificate and its key, or a TLS proxy in front.";
 const TIP_PROXY = "A proxy such as nginx or Cloudflare handles the secure connection. It must be the only way in.";
@@ -973,7 +976,7 @@ function listRow(h) {
   const state = h.listed && slug
     ? stateMark("online", `Listed as <a href="#" data-url="${esc(networkPage(slug))}" title="Its page on the Dereth Network">${esc(slug)}</a>`)
     : stateMark("unknown", "Unlisted");
-  return `<div class="share-row"><button class="btn mini-btn" data-url="${NETWORK_REGISTER}" title="The Dereth Network's page for operators">List on the Dereth Network</button>${state}</div>`;
+  return `<div class="share-row"><button class="btn mini-btn" data-url="${esc(h.register_link ?? NETWORK_REGISTER)}" title="The Dereth Network's page for operators">List on the Dereth Network</button>${state}</div>`;
 }
 
 // Delete World, confirmed in place.
@@ -1217,7 +1220,7 @@ function settingsPage() {
       ${checkRow("set-fed-on", "LINK TO THE DERETH NETWORK", "federation.enabled", !!s.federation?.enabled, { tip: TIP_LINK })}
       ${formRow("set-fed-slug", "SLUG", textField("set-fed-slug", "federation.slug", s, `placeholder="my-world"${tipOf(TIP_SLUG)}`), { tip: TIP_SLUG })}
       ${formRow("set-fed-key", "KEY", keyField(h), { tip: TIP_KEY })}
-      <span></span><div class="pair"><button class="btn mini-btn" data-url="${NETWORK_REGISTER}" title="The Dereth Network's page for operators">Link this world</button>
+      <span></span><div class="pair"><button class="btn mini-btn" data-url="${esc(h.register_link ?? NETWORK_REGISTER)}" title="The Dereth Network's page for operators">Link this world</button>
         ${h.listed ? `<span class="good small">Listed on the Dereth Network.</span>` : `<span class="muted small">Not listed yet.</span>`}</div>
     </div>`;
 
@@ -1246,6 +1249,7 @@ function settingsPage() {
       ${formRow("set-dats", "GAME DATA", datsField("set-dats", s, false, "auberean"))}
       <span class="lab">WORLD BASE</span><div class="pair"><span class="small">${worldBase(h)}</span>${getDatabase}</div>
       ${formRow("set-welcome", "WELCOME", `<textarea id="set-welcome" class="field area" rows="3" data-srv-field="welcome" placeholder="No message"${tipOf(TIP_YALAIN_WELCOME)}>${esc(s.welcome ?? "")}</textarea>`, { tip: TIP_YALAIN_WELCOME })}
+      ${formRow("set-rules", "RULES", `<select id="set-rules" class="field narrow-select" data-srv-field="ruleset"${tipOf(TIP_YALAIN_RULES)}>${YALAIN_RULESETS.map(([v, l]) => `<option value="${v}" ${(s.ruleset ?? "standard") === v ? "selected" : ""}>${l}</option>`).join("")}</select>`, { tip: TIP_YALAIN_RULES })}
       ${portRow("set-port", s, "auberean")}
     </div>`;
   const athenaeum = h.publication
@@ -1653,10 +1657,27 @@ function home() {
 
 // ----- Worlds -------------------------------------------------------------------------------------
 
-const FILTERS = [
-  ["pve", "PvE"],
-  ["pvp", "PvP"],
-];
+// The rules each game's worlds are filtered by: the filter's key, which a world carries as its
+// `rules`, and the ruleset the list shows. An Asheron's Call 2 world says where its players may
+// fight: at peace but for its conflict areas, kingdoms against each other anywhere, or anyone.
+const FILTERS = {
+  dereth: [["pve", "PvE"], ["pvp", "PvP"]],
+  auberean: [["standard", "Standard"], ["kvk", "KvK"], ["ffa", "FFA"]],
+};
+const realmFilters = () => FILTERS[realmGame()] ?? FILTERS.dereth;
+
+// A world's rules as the list shows them: an Asheron's Call 2 world's by its filter's name (one
+// registered as PvE before such worlds had their own reads Standard), any other's as it says them.
+function rulesText(w) {
+  const own = w.game === "auberean" ? FILTERS.auberean.find(([k]) => k === w.rules)?.[1] : null;
+  return own ?? w.ruleset ?? "";
+}
+
+// The rulesets a world added by hand may name, by its game.
+const RULESETS = {
+  dereth: [["", "Unknown"], ["PvE", "PvE"], ["PvP", "PvP"]],
+  auberean: [["", "Unknown"], ["Standard", "Standard"], ["KvK", "KvK"], ["FFA", "FFA"]],
+};
 
 // The emulators a player can name for a server they add, by the backend's names: Unknown, the
 // default, then Empyrean first.
@@ -1686,12 +1707,7 @@ function visibleWorlds() {
   return ui.snap.worlds
     .filter(inRealm)
     .filter((w) => !q || w.name.toLowerCase().includes(q) || (w.description ?? "").toLowerCase().includes(q))
-    .filter((w) => {
-      const rs = (w.ruleset ?? "").toLowerCase();
-      if (ui.filter === "pve") return rs.includes("pve");
-      if (ui.filter === "pvp") return rs.includes("pvp") || rs.includes("pk");
-      return true;
-    })
+    .filter((w) => !realmFilters().some(([k]) => k === ui.filter) || w.rules === ui.filter)
     .sort((a, b) => (reached(b) - reached(a)) || (rank[a.state] - rank[b.state]) || (rankedPlayers(b) - rankedPlayers(a)) || a.name.localeCompare(b.name));
 }
 
@@ -1754,7 +1770,7 @@ function worldDetail(w) {
   const facts = [
     ["EMULATOR", emulatorLabel(w)],
     ["STATUS", w.development_status ?? "unknown"],
-    ["RULES", w.ruleset ?? "unknown"],
+    ["RULES", rulesText(w) || "unknown"],
     ["PLAYERS", playersLabel(w)],
     ...(w.reach?.text ? [["REACHED", w.reach.text]] : []),
   ];
@@ -1781,7 +1797,7 @@ function worldRow(w) {
   return `<tr data-world="${esc(w.slug)}" class="${w.state === "offline" ? "dim" : ""} ${open ? "open" : ""}">
       <td>${bead(w.state)}</td><td class="name">${esc(w.name)}</td>
       <td>${esc(emulatorLabel(w))}</td><td>${esc(eraText(w))}</td>
-      <td>${esc(w.ruleset ?? "")}</td><td>${playersCount(w, playersLabel(w))}</td><td class="end"><div class="pin">${pin}</div></td></tr>`
+      <td>${esc(rulesText(w))}</td><td>${playersCount(w, playersLabel(w))}</td><td class="end"><div class="pin">${pin}</div></td></tr>`
     + (open ? worldDetail(w) : "");
 }
 
@@ -1814,7 +1830,7 @@ function worlds() {
     ? `<p class="small warn">${esc(say("worlds.stale", `${s.list_error ?? ""} — showing the list from ${from}`, s.list_error ?? "", from))}</p>` : "";
   const a = ui.addServer;
   const emulatorOpts = (EMULATORS[a?.game ?? REALMS[ui.realm].game] ?? EMULATORS.dereth).map(([v, l]) => `<option value="${v}" ${a?.emulator === v ? "selected" : ""}>${l}</option>`).join("");
-  const rulesOpts = [["", "Unknown"], ["PvE", "PvE"], ["PvP", "PvP"]].map(([v, l]) => `<option value="${v}" ${a?.ruleset === v ? "selected" : ""}>${l}</option>`).join("");
+  const rulesOpts = (RULESETS[a?.game ?? REALMS[ui.realm].game] ?? RULESETS.dereth).map(([v, l]) => `<option value="${v}" ${a?.ruleset === v ? "selected" : ""}>${l}</option>`).join("");
   const form = a
     ? `<section class="panel pending"><header><h1>ADD A WORLD</h1></header>
         ${a.fromLink ? `<p class="small muted">From a link a friend sent. Check it, then Add.</p>` : ""}
@@ -1836,7 +1852,7 @@ function worlds() {
         <button class="btn icon-btn" data-act="refresh" title="Fetch the world list again">↻</button></header>
         <div class="btns" style="margin-bottom:12px">
           <input id="search" class="field" autocomplete="off" style="max-width:360px" placeholder="search" value="${esc(ui.search)}">
-          <div class="toggle" role="group" aria-label="Rules">${FILTERS.map(([k, l]) => `<button class="${ui.filter === k ? "on" : ""}" data-filter="${k}" aria-pressed="${ui.filter === k}">${l}</button>`).join("")}</div>
+          <div class="toggle" role="group" aria-label="Rules">${realmFilters().map(([k, l]) => `<button class="${ui.filter === k ? "on" : ""}" data-filter="${k}" aria-pressed="${ui.filter === k}">${l}</button>`).join("")}</div>
         </div>
         ${stale}
         <div class="scroll">${body}</div>
@@ -1986,7 +2002,7 @@ function worldPage() {
 
   const isAc2 = world.game === "auberean";
   const playersFact = world.players != null ? `${world.players} players` : "players unknown";
-  const facts = [stateLabel(world), playersFact, world.ruleset, eraFact(world), isAc2 ? null : emulatorLabel(world)].filter(Boolean);
+  const facts = [stateLabel(world), playersFact, rulesText(world), eraFact(world), isAc2 ? null : emulatorLabel(world)].filter(Boolean);
   const links = [["Website", world.links.website], ["Discord", world.links.discord], ["Rules", world.links.rules]].filter(([, u]) => u);
   const custom = ui.snap.state.custom_worlds.some((c) => c.slug === world.slug);
 
@@ -3779,6 +3795,7 @@ async function setRealm(realm, from) {
   ui.homeSel = 0;
   ui.expanded = null;
   ui.addServer = null;
+  ui.filter = null;
   // What is the other game's: a world's page goes back to the realm's list, a world server's to
   // the realm's server, and Plugins, Dereth's alone, to Play.
   if (ui.screen === "world") ui.screen = "worlds";

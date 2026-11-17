@@ -268,6 +268,7 @@ impl WorldList {
                 worlds::take_hub_count(&mut w, count.as_ref(), own_count);
                 w.era_state = worlds::era_state(&w, heard.is_some(), may_answer);
                 w.favorite = state.is_favorite_world(&w.slug);
+                w.rules = w.rules_of().map(str::to_owned);
                 w
             })
             .collect()
@@ -316,6 +317,51 @@ mod tests {
             .map(|w| w.slug)
             .collect();
         assert_eq!(favorites, ["ironwood"]);
+    }
+
+    /// Each world is shown with the ruleset the hub's list gives it and the rules filter it falls
+    /// under: an Asheron's Call 2 world's own (`Standard`, `KvK`, `FFA`; one registered as `PvE`
+    /// before such worlds had their own is standard), an Asheron's Call world's PvE or PvP.
+    #[test]
+    fn each_world_is_shown_with_its_ruleset_and_the_rules_filter_of_its_game() {
+        let now = fixture::READ_AT;
+        let fetch = move |url: &str| -> Result<Vec<u8>, String> {
+            if url.starts_with(HUB_LIST_URL) {
+                let mut page: serde_json::Value =
+                    serde_json::from_str(&fixture::hub_page()).unwrap();
+                let rows = page["data"].as_array_mut().unwrap();
+                for (slug, game, ruleset) in [
+                    ("calm", "auberean", "Standard"),
+                    ("kings", "auberean", "KvK"),
+                    ("brawl", "auberean", "FFA"),
+                    ("older", "auberean", "PvE"),
+                    ("duels", "dereth", "PvP-lite"),
+                ] {
+                    rows.push(serde_json::json!({
+                        "slug": slug, "name": slug, "game": game, "ruleset": ruleset,
+                        "emulator": {"family": "Test"},
+                        "endpoint": {"mode": "manual", "address": "192.0.2.40", "port": 9000},
+                        "status": {"state": "online", "playersOnline": 1},
+                    }));
+                }
+                Ok(page.to_string().into_bytes())
+            } else {
+                Err(format!("{url}: not found"))
+            }
+        };
+        let mut list = WorldList::default();
+        list.read_with(now, fetch).unwrap();
+        let state = LauncherState::default();
+        let shown = |slug: &str| {
+            let w = list.shown_as(&state, now, |_| (None, None), slug).unwrap();
+            (w.ruleset, w.rules)
+        };
+        let said = |r: &str, k: &str| (Some(r.to_owned()), Some(k.to_owned()));
+        assert_eq!(shown("calm"), said("Standard", "standard"));
+        assert_eq!(shown("kings"), said("KvK", "kvk"));
+        assert_eq!(shown("brawl"), said("FFA", "ffa"));
+        assert_eq!(shown("older"), said("PvE", "standard"));
+        assert_eq!(shown("duels"), said("PvP-lite", "pvp"));
     }
 
     /// A world played through a relay shows the count the hub carries for its address beside the
