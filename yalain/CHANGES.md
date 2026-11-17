@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Fixed old copies of the server staying in memory after each update on Windows.
 
 ## 0.6.0 (2026-11-17)
 - World: the quest of the three stars at the five kingdom shrines, and the kingdoms' armor it unlocks.

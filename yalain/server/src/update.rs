@@ -19,7 +19,7 @@
 //! `server.update`, and when neither names one, by hand means `minor`.
 
 use std::ffi::OsString;
-use std::io::Write as _;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{ExitCode, Stdio};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -463,20 +463,30 @@ pub fn after_shutdown(
     ))
 }
 
-/// The console's reader cannot stop reading, so it forwards what it reads to the new process.
+/// The console's reader cannot stop reading, so it forwards what it reads to the new process: the
+/// lines read since the world stopped before this returns, then each line as it comes.
 fn forward_console(typed: Receiver<String>) -> ForwardConsole {
     Box::new(move |mut stdin| {
+        for line in typed.try_iter() {
+            if !write_line(&mut *stdin, &line) {
+                return;
+            }
+        }
         std::thread::spawn(move || {
             for line in typed {
-                if writeln!(stdin, "{line}")
-                    .and_then(|()| stdin.flush())
-                    .is_err()
-                {
+                if !write_line(&mut *stdin, &line) {
                     return;
                 }
             }
         });
     })
+}
+
+/// Writes `line` to `to` as one line; whether it was written.
+fn write_line(to: &mut dyn Write, line: &str) -> bool {
+    to.write_all(format!("{line}\n").as_bytes())
+        .and_then(|()| to.flush())
+        .is_ok()
 }
 
 /// The health check's report (`--update-trial`): the server is up, so this build's facts are written

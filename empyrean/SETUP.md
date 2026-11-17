@@ -730,7 +730,9 @@ configured for it:
   and `journalctl -u empyrean` shows the whole update. The unit in 4.5 works as it is.
 - **Windows (a service wrapper, or a terminal):** Windows cannot replace a running process, so the
   old process starts the new server as its child, in the same console, and waits for it; the
-  wrapper still sees its process running. Stopping the service stops the new server as usual (the
+  wrapper still sees its process running. Later updates go through the same waiting process,
+  which starts each new release in turn, so the service never runs more than the waiting process
+  and the server. Stopping the service stops the new server as usual (the
   Ctrl-C reaches it through the shared console; a wrapper that ends the process tree ends both).
   The waiting process holds no files, ports or databases, and is gone the next time the service is
   restarted. Console input reaches the new server: a terminal is read by the new server itself,

@@ -583,7 +583,8 @@ configured for it. On Linux and macOS the process replaces itself with the new p
 process ID, so a service manager sees the same main process keep running. On Windows, which cannot
 replace a running process, the old process starts the new server as its child, in the same console,
 and waits for it, holding no files, ports or databases; what is typed at the console is passed on
-to the new server.
+to the new server. Later updates go through the same waiting process, which starts each new release
+in turn, so the service never runs more than the waiting process and the server.
 
 **By hand**, with any `update` setting:
 

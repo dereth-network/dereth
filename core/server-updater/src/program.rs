@@ -56,11 +56,13 @@ pub fn copy(from: &Path, to: &Path) -> io::Result<()> {
     make_executable(to)
 }
 
-/// Starts `command` while no program is being written.
+/// Starts `command` while no program is being written. It does not inherit what tells a server
+/// that its parent starts it again after an update ([`crate::handover`]), unless `command` says so.
 ///
 /// # Errors
 /// When it cannot be started.
 pub fn spawn(command: &mut Command) -> io::Result<Child> {
+    crate::handover::only_where_set(command);
     let _starting = starting();
     command.spawn()
 }

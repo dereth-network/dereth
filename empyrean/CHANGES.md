@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+- Fixed old copies of the server staying in memory after each update on Windows.
 - Launch: looted armor comes in more varied colors, and dinnerware drops in materials.
 - Launch: corpses and chests list weapons and armor first, valuables last.
 
