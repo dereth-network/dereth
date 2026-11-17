@@ -14559,6 +14559,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-step-trains-its-skills",
+        says: "A quest step whose row names skills trains each for good as it runs, after its recipes, \
+               as an effect's grant of a skill does: level 1 by the grant, unraisable, costing nothing, \
+               told as the repository and the skill's information.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STEP-TRAINS-SKILLS"),
+        station: "yalain-testkit::cpu::play::skill_grants::a_step_naming_a_skill_trains_it_for_good_as_it_runs",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-step-waits-between-its-runs-for-a-player",
         says: "A step with a wait between runs, once it has run for a player, runs for that player \
                again only when that many seconds by the calendar have passed, the wait kept while \

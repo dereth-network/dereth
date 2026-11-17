@@ -324,6 +324,7 @@ fn two_players(fights: bool, trigger: Trigger) -> (Harness, u64, u64, u64, u64, 
     h.server.quests.quests.push(q);
     h.server.quests.steps.push(Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: String::new(),
         quest,
         needs: 1,

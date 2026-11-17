@@ -7,6 +7,7 @@ what they see, not how it was done.
 
 ## Unreleased
 - Chests can now hold a rare when their loot names one.
+- A quest step in the world's rows can now train a skill.
 - Monsters now play their victory emote over a player they kill, about half the time.
 - Drawing a new surveyor's map now throws away your old maps of that region.
 - /charactername and /allegiancename now get an answer instead of silence.

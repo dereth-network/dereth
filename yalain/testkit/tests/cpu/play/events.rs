@@ -49,6 +49,7 @@ fn object() -> ContentObject {
 fn step() -> Step {
     Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: String::new(),
         quest: QUEST,
         needs: 1,

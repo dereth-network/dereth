@@ -60,6 +60,7 @@ fn quest(id: u32, table: u32) -> QuestDef {
 fn step(quest: u32, needs: u32, trigger: Trigger, update: Update) -> Step {
     Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: String::new(),
         quest,
         needs,

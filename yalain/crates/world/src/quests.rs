@@ -1975,8 +1975,9 @@ fn for_fellows<S: Store>(
 
 /// A step's effects on the player (a reward, a recipe learned), cast by the player itself, then
 /// what they say (a text one of them told already is not told again; none of their own lines for a
-/// step whose effects are quiet), then the recipes it teaches by name, then what it does to whom
-/// the player lets fight it; a step that transforms its player makes it a hero first.
+/// step whose effects are quiet), then the recipes it teaches by name, then the skills it trains
+/// for good (told as an effect's grant of one is), then what it does to whom the player lets fight
+/// it; a step that transforms its player makes it a hero first.
 fn step_effects<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -2006,6 +2007,9 @@ fn step_effects<S: Store>(
     }
     for r in &step.recipes {
         crate::craft::learn(s, net, world, *r, clock);
+    }
+    for k in &step.skills {
+        crate::skills::trained_for_good(s, net, world, *k);
     }
     crate::kingdoms::step_ran(s, net, world, step);
 }

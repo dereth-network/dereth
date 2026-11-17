@@ -798,6 +798,7 @@ fn a_rod_whose_use_moves_a_quest_is_refused_away_from_its_place_and_moves_it_the
     let mut h = world();
     h.server.quests.steps.push(Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: String::new(),
         quest: TOKEN_QUEST,
         needs: 0,
@@ -959,6 +960,7 @@ fn a_reward_quest_is_completed_with_the_quest_it_rewards() {
         ],
         steps: vec![Step {
             out_of_turn: false,
+            skills: Vec::new(),
             key: String::new(),
             quest: REWARD,
             needs: 0,

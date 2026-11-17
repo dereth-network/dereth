@@ -100,6 +100,7 @@ fn errand() -> QuestDef {
 fn scroll_step(key: &str, person: u32, scroll: u32) -> Step {
     Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: key.into(),
         quest: ERRAND,
         needs: 1,

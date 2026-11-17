@@ -431,6 +431,7 @@ fn a_map_found_at_its_place_moves_on_the_quest_it_is_part_of() {
     });
     h.server.quests.steps.push(Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: String::new(),
         quest,
         needs: 1,

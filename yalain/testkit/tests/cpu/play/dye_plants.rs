@@ -1048,6 +1048,7 @@ fn crop_garden() -> Harness {
         .insert("QuestCropTest".into(), CROP_QUEST);
     h.server.quests.steps.push(Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: String::new(),
         quest: CROP_QUEST,
         needs: 3,

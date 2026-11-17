@@ -104,6 +104,7 @@ pub(super) fn step(needs: u32, update: Update) -> Step {
         chance: None,
         to_fellows: false,
         out_of_turn: false,
+        skills: Vec::new(),
     }
 }
 

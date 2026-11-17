@@ -537,6 +537,7 @@ fn a_kills_step_runs_first_and_its_quest_is_not_moved_again_by_the_effect() {
     assert_eq!(phase(&h, me), 1);
     h.server.quests.steps.push(Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: String::new(),
         quest: QUEST,
         needs: 1,
@@ -676,6 +677,7 @@ fn a_kill_or_a_step_gives_a_quest_only_with_the_quest_it_requires_at_its_status(
 fn giving_step() -> Step {
     Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: String::new(),
         quest: QUEST,
         needs: 0,
@@ -787,6 +789,7 @@ fn an_item_acquired_moves_the_quest_its_template_names() {
     holds(&mut h, me, status::UNDERWAY, 1);
     h.server.quests.steps.push(Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: String::new(),
         quest: QUEST,
         needs: 1,
@@ -827,6 +830,7 @@ fn an_item_acquired_moves_the_quest_its_template_names() {
     });
     h.server.quests.steps.push(Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: String::new(),
         quest: OTHER,
         needs: 0,
@@ -1007,6 +1011,7 @@ fn a_kills_step_that_leads_somewhere_sends_the_killer() {
     };
     let step = |needs: u32, to| Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: String::new(),
         quest: QUEST,
         needs,
@@ -1070,6 +1075,7 @@ fn land(h: &mut Harness) {
 pub(super) fn leading_step(template: u32, needs: u32, to: yalain_content::quests::Place) -> Step {
     Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: String::new(),
         quest: QUEST,
         needs,
@@ -1446,6 +1452,7 @@ fn a_kills_step_sends_the_killer_to_a_free_room_of_its_row() {
     h.server.quests.rooms = vec![vec![room(0), room(1), room(2)]];
     h.server.quests.steps = vec![Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: String::new(),
         quest: QUEST,
         needs: 1,
@@ -1643,6 +1650,7 @@ fn a_named_camps_creature_goes_by_its_name_and_only_its_kill_moves_the_camps_ste
     );
     h.server.quests.steps.push(Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: String::new(),
         quest: QUEST,
         needs: 1,
@@ -1705,6 +1713,7 @@ const GEM: u32 = yalain_testkit::TEST_ITEM;
 fn chance_step(template: u32, chance: f32) -> Step {
     Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: String::new(),
         quest: QUEST,
         needs: 1,

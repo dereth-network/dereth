@@ -1053,6 +1053,7 @@ fn banner_quest() -> yalain_content::quests::QuestDef {
 fn banner_step(key: &str, template: u32) -> yalain_content::quests::Step {
     yalain_content::quests::Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: key.into(),
         quest: BANNER_QUEST,
         needs: 0,

@@ -34,8 +34,8 @@
 //!   transformation (`SECONDS:FX/FX...:BEHAVIOR:STRING:TABLE:NAME`, hex but the seconds, empty
 //!   parts for none), the chance it runs when it may (empty: always), whether its effects tell no
 //!   line (0/1), the recipes it teaches (joined by `,`), its key among its quest's steps, whether
-//!   each of its player's fellows goes where it sends the player (0/1) and whether it runs out of
-//!   turn (0/1);
+//!   each of its player's fellows goes where it sends the player (0/1), whether it runs out of
+//!   turn (0/1) and the skills it trains (their numbers, joined by `,`);
 //! - `give`: what a person or an object does with an item given it that moves no quest: the template
 //!   given to, the item's template (empty: any item), how many of it it wants (empty: whatever is
 //!   given), the items given back (templates joined by `,`, a count after `x`), its effects (saved
@@ -317,6 +317,8 @@ pub struct Step {
     pub text: Option<(u32, u32)>,
     /// The recipes it teaches the player.
     pub recipes: Vec<u32>,
+    /// The skills it trains the player for good, as an effect's grant of a skill does.
+    pub skills: Vec<u32>,
     pub placed: String,
     /// Other quests it requires, at a phase or done.
     pub requires: Vec<(u32, Need)>,
@@ -687,6 +689,12 @@ impl QuestTable {
                 .map(|g| format!("{g:08X}"))
                 .collect::<Vec<_>>()
                 .join(",");
+            let skills = s
+                .skills
+                .iter()
+                .map(u32::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
             let requires = s
                 .requires
                 .iter()
@@ -713,7 +721,7 @@ impl QuestTable {
             });
             let _ = writeln!(
                 out,
-                "step\t{:08X}\t{}\t{trigger}\t{}\t{update}\t{}\t{gives}\t{}\t{requires}\t{takes}\t{to}\t{effects}\t{text}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{recipes}\t{}\t{}\t{}",
+                "step\t{:08X}\t{}\t{trigger}\t{}\t{update}\t{}\t{gives}\t{}\t{requires}\t{takes}\t{to}\t{effects}\t{text}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{recipes}\t{}\t{}\t{}\t{skills}",
                 s.quest,
                 s.needs,
                 s.tell.as_ref().map(Words::to_text).unwrap_or_default(),
@@ -903,7 +911,7 @@ impl QuestTable {
                         _ => None,
                     },
                 }),
-                "step" if (9..=25).contains(&c.len()) => {
+                "step" if (9..=26).contains(&c.len()) => {
                     let (kind, tpl) = c[3]
                         .split_once(':')
                         .ok_or_else(|| at(format!("a trigger is kind:template, not {}", c[3])))?;
@@ -1034,6 +1042,12 @@ impl QuestTable {
                             .split(',')
                             .filter(|x| !x.is_empty())
                             .map(hex)
+                            .collect::<Result<_, _>>()
+                            .map_err(at)?,
+                        skills: col(25)
+                            .split(',')
+                            .filter(|x| !x.is_empty())
+                            .map(num)
                             .collect::<Result<_, _>>()
                             .map_err(at)?,
                         placed: c[8].to_string(),

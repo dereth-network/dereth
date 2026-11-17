@@ -1,7 +1,8 @@
 //! Skills granted by an effect: a world's rule makes an effect train its player a skill for good,
 //! told as the install's grants are; a quest step gated by an act runs only once the player holds
 //! the act whole, so a person whose use completes a hidden quest with such an effect grants its
-//! skill once the act is whole, and says its own line at a use otherwise.
+//! skill once the act is whole, and says its own line at a use otherwise. A step may train a skill
+//! of its own, with no effect.
 
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
@@ -112,6 +113,7 @@ fn hidden_quest() -> QuestDef {
 fn grant_step() -> Step {
     Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: String::new(),
         quest: QUEST,
         needs: 0,
@@ -416,6 +418,32 @@ fn a_step_gated_by_an_act_runs_once_the_act_is_whole_and_its_effect_trains_the_s
     let said: Vec<u32> = texts(&h, b, from).iter().map(|t| t.string_id).collect();
     assert_eq!(said, [NO_NOTE], "done once: its line again");
     assert_eq!(grant_order(&h, b, from), (vec!["text"], false));
+}
+
+/// A step that trains a skill of its own, with no effect, trains it for good as it runs: the
+/// person's use completes the hidden quest and the skill is trained (level 1 by the grant,
+/// unraisable, costing nothing), told as the repository and the skill's information, with no
+/// effect's line or appearance.
+/// Behaviour: server.quests.a-step-trains-its-skills
+#[test]
+fn a_step_naming_a_skill_trains_it_for_good_as_it_runs() {
+    let mut h = world(false);
+    let mut step = grant_step();
+    step.effects = Vec::new();
+    step.skills = vec![SKILL];
+    h.server.quests.steps = vec![step];
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let from = use_it(&mut h, b, me);
+    assert!(quest_done(&h, me), "the hidden quest done");
+    assert_eq!(
+        held_skill(&h, me),
+        Some((1, mask::TRAINED | mask::CANNOT_RAISE, 0))
+    );
+    assert_eq!(
+        grant_order(&h, b, from),
+        (vec!["repository", "skill"], false)
+    );
 }
 
 /// A world without the step: the person says its line whatever the player holds.

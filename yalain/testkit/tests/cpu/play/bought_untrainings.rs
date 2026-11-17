@@ -107,6 +107,7 @@ fn quest() -> QuestDef {
 fn sold() -> Step {
     Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: "sold".into(),
         quest: QUEST,
         needs: 0,

@@ -708,6 +708,7 @@ fn a_quest_steps_effects_come_after_its_gifts_and_before_its_update() {
     });
     let step = Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: String::new(),
         quest,
         needs: 0,

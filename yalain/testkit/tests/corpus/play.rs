@@ -285,6 +285,7 @@ fn a_day_of_heals_and_crafts() -> Vec<ServerMessage> {
         });
     let step = Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: String::new(),
         quest,
         needs: 0,
@@ -671,6 +672,7 @@ fn a_visit() -> Vec<ServerMessage> {
         }],
         steps: vec![Step {
             out_of_turn: false,
+            skills: Vec::new(),
             key: String::new(),
             quest: 0x4000_0088,
             needs: 0,

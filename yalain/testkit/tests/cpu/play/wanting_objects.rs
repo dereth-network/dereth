@@ -93,6 +93,7 @@ fn quest() -> QuestDef {
 fn step(trigger: Trigger, update: Update, takes: Vec<u32>) -> Step {
     Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: String::new(),
         quest: QUEST,
         needs: 1,

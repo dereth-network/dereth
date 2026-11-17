@@ -110,6 +110,7 @@ fn quest(id: u32) -> QuestDef {
 fn step(quest: u32, person: u32, tells: u32) -> Step {
     Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: String::new(),
         quest,
         needs: 0,

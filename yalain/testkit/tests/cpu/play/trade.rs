@@ -859,6 +859,7 @@ fn a_purchase_of_what_the_world_cannot_make_is_refused_and_nothing_is_paid() {
 fn quests() -> QuestTable {
     let step = |needs, template, update| Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: String::new(),
         quest: QUEST,
         needs,

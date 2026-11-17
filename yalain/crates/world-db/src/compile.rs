@@ -1402,6 +1402,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     effects: s.effects.clone(),
                     text: s.text.map(|r| (r.string, r.table)),
                     recipes: s.recipes.clone(),
+                    skills: s.skills.clone(),
                     placed: prov_text(&s.prov),
                     requires: s
                         .requires

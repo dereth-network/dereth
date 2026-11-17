@@ -141,6 +141,7 @@ fn dip(text: Option<(u32, u32)>) -> Give {
 fn step(effect: u32, text: Option<(u32, u32)>) -> Step {
     Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: String::new(),
         recipes: Vec::new(),
         quest: QUEST,

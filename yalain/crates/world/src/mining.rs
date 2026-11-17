@@ -917,6 +917,7 @@ pub fn quest_mine_done<S: Store>(
             chance: None,
             to_fellows: false,
             out_of_turn: false,
+            skills: Vec::new(),
         };
         crate::quests::run(s, net, world, &step, None, clock);
     }

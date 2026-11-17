@@ -336,6 +336,7 @@ fn a_step_says_its_line_then_the_lines_heard_with_its_update_in_order() {
         }],
         steps: vec![Step {
             out_of_turn: false,
+            skills: Vec::new(),
             key: String::new(),
             quest: QUEST,
             needs: 0,

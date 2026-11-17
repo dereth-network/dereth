@@ -160,6 +160,7 @@ fn hall() -> Harness {
     });
     h.server.quests.steps.push(Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: String::new(),
         quest: ENTER_QUEST,
         needs: 0,
@@ -384,6 +385,7 @@ fn an_item_used_on_an_object_while_its_step_waits_for_another_phase_is_answered_
     ));
     h.server.quests.steps.push(Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: String::new(),
         quest: HALL_QUEST,
         needs: 6,

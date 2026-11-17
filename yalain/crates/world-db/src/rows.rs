@@ -553,6 +553,8 @@ pub struct Step {
     pub text: Option<StrRef>,
     /// The recipes it teaches the player (the install's, or the world's `[[recipe]]` rows').
     pub recipes: Vec<u32>,
+    /// The skills it trains the player for good (their numbers).
+    pub skills: Vec<u32>,
     /// Other quests it requires.
     pub requires: Vec<(u32, Need)>,
     /// The `[[event]]`s it runs only while they run.
@@ -1942,6 +1944,7 @@ pub const FIELDS: [(&str, &[&str]); 74] = [
             "effects",
             "text",
             "recipes",
+            "skills",
             "requires",
             "takes",
             "to",
@@ -3045,6 +3048,18 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 effects: f.ids("effects"),
                 text: f.strref("text"),
                 recipes: f.ids("recipes"),
+                skills: f
+                    .typed(
+                        "skills",
+                        "a list of skills (their numbers, such as 925)",
+                        |v| {
+                            v.as_array()?
+                                .iter()
+                                .map(|n| as_u32(n).filter(|n| *n > 0))
+                                .collect::<Option<Vec<_>>>()
+                        },
+                    )
+                    .unwrap_or_default(),
                 requires,
                 events,
                 tallies,

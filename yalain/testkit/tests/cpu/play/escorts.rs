@@ -92,6 +92,7 @@ fn quest() -> QuestDef {
 fn step(needs: u32, trigger: Trigger, update: Update) -> Step {
     Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: format!("at-{needs}"),
         quest: QUEST,
         needs,

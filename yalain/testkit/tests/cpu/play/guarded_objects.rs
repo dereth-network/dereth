@@ -91,6 +91,7 @@ fn quest() -> QuestDef {
 fn closes() -> Step {
     Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: "closes".into(),
         quest: QUEST,
         needs: 0,

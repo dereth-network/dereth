@@ -570,6 +570,7 @@ fn a_wrong_use_takes_the_quest_away_and_the_order_starts_over() {
 fn without_such_rows_a_use_runs_its_step_and_a_give_is_refused() {
     let step = Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: String::new(),
         quest: SHORT,
         needs: 0,
@@ -710,6 +711,7 @@ fn temple(need: yalain_content::item_rows::SequenceNeed) -> (Harness, [u64; 3]) 
     q.forgets_after = Some(FORGETS);
     let step = Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: "in".into(),
         quest: SHORT,
         needs: 0,

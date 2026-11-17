@@ -87,6 +87,7 @@ fn quest() -> QuestDef {
 fn searched() -> Step {
     Step {
         out_of_turn: false,
+        skills: Vec::new(),
         key: "searched".into(),
         quest: QUEST,
         needs: 0,

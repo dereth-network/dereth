@@ -13,6 +13,7 @@ fn course() -> (Harness, u64) {
     h.server.content.objects = vec![super::common::object()];
     let flung = yalain_content::quests::Step {
         out_of_turn: true,
+        skills: Vec::new(),
         effects: vec![COURAGE_EFFECT],
         ..step(1, Update::Nothing)
     };
