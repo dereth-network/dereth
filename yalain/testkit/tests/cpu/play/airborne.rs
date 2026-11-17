@@ -126,3 +126,44 @@ fn a_jump_off_a_ledge_is_in_the_air_while_the_reports_keep_going_down() {
     reports(&mut h, b, world, -0.5, None);
     assert_eq!(refusal_of(&mut h, b, 3, me), None);
 }
+
+/// The client reports its player `dz` m lower than where it stands, `dt` seconds after its last
+/// report, with no jump.
+fn drops(h: &mut Harness, b: usize, world: ConnId, dz: f32, dt: f64) {
+    run_for(h, dt);
+    let p = &h.server.players[&world];
+    let at = p.position;
+    let mut m = report(
+        at.cell,
+        Vec3::new(at.origin[0], at.origin[1], at.origin[2] - dz),
+        0,
+        yalain_world::world::IDLE_MOTION,
+        p.teleport_stamp,
+    );
+    if let ClientMessage::Position(c) = &mut m {
+        c.time = h.now.0;
+    }
+    h.bots[b].send(true, queue::WEENIE, &m);
+    h.run(1);
+}
+
+/// Down a slope at a walk, a use is carried out. Off a ledge with no jump: once the reports go down
+/// as a fall does (2 m in 0.2 s, straight down),
+/// a use is refused as in the air; the first report that goes down no further lands the player,
+/// and no use is refused as in the air.
+/// Behaviour: server.skills.not-in-the-air
+#[test]
+fn a_fall_off_a_ledge_with_no_jump_is_in_the_air() {
+    let (mut h, b, me, world) = armed();
+    // Down a slope at a walk (1 m/s) is no fall.
+    drops(&mut h, b, world, 0.0, 0.2);
+    drops(&mut h, b, world, 0.2, 0.2);
+    assert_eq!(refusal_of(&mut h, b, 1, me), None);
+    run_for(&mut h, 4.0);
+    drops(&mut h, b, world, 0.0, 0.2);
+    drops(&mut h, b, world, 2.0, 0.2);
+    assert_eq!(refusal_of(&mut h, b, 2, me), Some(refusal::IN_THE_AIR));
+    drops(&mut h, b, world, 0.0, 0.2);
+    // Landed: no longer in the air (the skill may still be recovering from its first use).
+    assert_ne!(refusal_of(&mut h, b, 3, me), Some(refusal::IN_THE_AIR));
+}

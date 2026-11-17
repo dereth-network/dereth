@@ -1273,8 +1273,9 @@ fn check<S: Store>(
         return Err(refusal::DEAD);
     }
     // 2017: 44 of 49 refusals as in the air came with the player's height changing over the
-    // 0.8 s before, 17 of 51 within 1.2 s of its jump (uses carried out: 20 of 35,009).
-    if p.aloft.in_the_air(clock.local.0) {
+    // 0.8 s before, 17 of 51 within 1.2 s of its jump (uses carried out: 20 of 35,009); of the 34
+    // with no jump just before, 3 in a fall the falls' rule tells (uses carried out: 11 of 13,677).
+    if crate::airborne::in_the_air(p, clock.local.0) {
         return Err(refusal::IN_THE_AIR);
     }
     if p.trip.is_some() {

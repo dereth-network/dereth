@@ -17238,8 +17238,8 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.skills.not-in-the-air",
         says: "A player is refused any skill's use in the air, as the client says of one it cannot use \
-               right now: from a reported jump until it comes back down, and while the reports after \
-               it keep going down.",
+               right now: from a reported jump until it comes back down, while the reports after it \
+               keep going down, and in a fall off a ledge with no jump.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SKILL-IN-THE-AIR"),
         station: "yalain-testkit::cpu::play::airborne::no_skill_is_used_in_the_air_until_the_jump_comes_down",

@@ -1,8 +1,9 @@
 //! In the air: a player is in the air from a jump its client reports until the jump comes back to
 //! the height it left from (twice its rise at the jump's upward speed), and for as long after as
 //! the places its client reports keep going down (off a ledge), within [`STALE`] seconds of the
-//! last of them. A report that goes down no further lands it. No skill is used in the air
-//! ([`crate::skill_use`]).
+//! last of them. A report that goes down no further lands it. A fall under way, by the places its
+//! client reports and with no jump before it, is in the air too ([`crate::falls`]: off a ledge).
+//! No skill is used in the air ([`crate::skill_use`]).
 
 /// How fast a body in the air gains downward speed, in meters a second each second.
 pub const GRAVITY: f32 = 9.8;
@@ -10,6 +11,12 @@ pub const GRAVITY: f32 = 9.8;
 pub const DOWN: f32 = 0.05;
 /// How long after its last report a player still going down is taken as in the air, in seconds.
 pub const STALE: f64 = 1.0;
+
+/// Is a player in the air at `now`: a jump's time ([`Aloft`]), or a fall under way?
+#[must_use]
+pub fn in_the_air(p: &crate::world::Player, now: f64) -> bool {
+    p.aloft.in_the_air(now) || p.fall.falling()
+}
 
 /// A player's time in the air, from the places its client reports.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]

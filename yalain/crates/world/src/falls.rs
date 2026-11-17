@@ -76,6 +76,14 @@ struct Descent {
     fastest: f32,
 }
 
+impl Falling {
+    /// Is a fall under way: a descent one of whose steps went down as a fall does?
+    #[must_use]
+    pub fn falling(&self) -> bool {
+        self.descent.is_some_and(|d| d.fastest > 0.0)
+    }
+}
+
 /// The health a fall of `height` meters takes, mounted or not, before the fall modifier.
 #[must_use]
 pub fn harm(height: f32, mounted: bool) -> i32 {
