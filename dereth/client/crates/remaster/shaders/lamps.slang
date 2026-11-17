@@ -8,14 +8,17 @@
 //   where the lamps take the place of retail's own light indoors; outdoors, below nought, it is how
 //   much the pixel glows for standing right at a lamp, its flame or its glass.
 //
-// On a room's walls a static light's lamp is retail's burn worked out at the pixel. On objects
-// indoors a static light's lamp falls off with the square of the distance, softened within half a
-// metre, and ends smoothly at its reach; its strength comes calibrated from the processor. A
-// moving light's lamp indoors is retail's light, its intensity over the distance, faded out over
-// the last tenth of its reach. Outdoors a lamp lights a broad pool, full at the lamp and fading
-// smoothly to its reach. A static light's turn on walls and every light's outdoors is wrapped,
-// lighting to 120 degrees as retail's burn does; a moving light's indoors, and every light's on
-// objects, is the plain cosine.
+// On a room's walls and outdoors a lamp lights a broad pool, full at the lamp and fading smoothly to
+// its reach, its strength calibrated on the processor. On walls a share of its light falls off as
+// retail's own does instead, softened near the light and ended smoothly, and the two together
+// rise ever slower toward the lamp's color, with no edge anywhere. A moving light's lamp lights
+// only the walls of the rooms its light reaches through the doorways.
+// On objects indoors a static light's lamp falls off with the square of the distance, softened
+// within half a metre, and ends smoothly at its reach, its strength calibrated; a moving light's
+// lamp is retail's light, its intensity over the distance, faded out over the last tenth of its
+// reach. A static light's turn on walls and every light's outdoors is wrapped, lighting to 120
+// degrees as retail's burn does; a moving light's on walls, and every light's on objects, is the
+// plain cosine.
 import bindless;
 import retail;
 
@@ -28,6 +31,9 @@ import retail;
 //   14     the first slice's depth, the last's, how many slices, and the softening distance
 //   15     x 1 when the indoors is lit, y 1 when the outdoors is
 //   16     (as words) the tiles across and down, the slices, and the lamps a piece lists at most
+//   17 + 2l, 18 + 2l   (as words) the rooms lamp `l` lights: the keys their walls carry in the
+//          material target, two to a word, 0xFFFF where there is none; every word all ones where it
+//          lights every room
 static const uint ROW_VIEW = 0;
 static const uint ROW_INV_PROJ = 4;
 static const uint ROW_INV_VIEW_PROJ = 8;
@@ -36,14 +42,29 @@ static const uint ROW_EXTENT = 13;
 static const uint ROW_SLICES = 14;
 static const uint ROW_LIT = 15;
 static const uint ROW_GRID = 16;
+static const uint ROW_ROOMS = 17;
 
 // A lamp is three float4 rows in buffer `lamps`: where it is and its reach; its color and kind
 // (1 a static light indoors, 2 a light outdoors, 3 a moving light indoors); its strength on
-// walls, on objects, and outdoors, and its reach on objects. Outdoors the first two are how near a
-// surface takes its glow, and how much.
+// walls, on objects, and (indoors) the strength of its share on walls shaped as retail's own
+// light or (outdoors) its strength, and its reach on objects. Outdoors the first two are how near
+// a surface takes its glow, and how much.
 static const float KIND_STATIC = 1.0;
 static const float KIND_OUTDOOR = 2.0;
 static const float KIND_MOVING = 3.0;
+
+// How far retail burns a static light into a room's walls, and how far it lights with a moving
+// one, against its falloff (a light's reach on objects).
+static const float BURN_REACH = 1.3;
+static const float MOVING_REACH = 1.5;
+
+// Within how many metres a static light's and a moving light's own light on walls stops growing
+// nearer (a static light's, and how near a wall turns from any light less).
+static const float WALL_SOFTEN = 1.0;
+static const float MOVING_SOFTEN = 3.0;
+
+// Over how many metres behind a wall a static light's glow through it fades.
+static const float BEHIND_FADE = 1.5;
 
 struct ShadePush
 {
@@ -65,16 +86,19 @@ float turn(float mu, bool wrapped)
     return wrapped ? max((mu + 0.5) * (2.0 / 3.0), 0.0) : max(mu, 0.0);
 }
 
-// A static light's share of retail's burn at distance `d` and cosine `mu`, worked out at the
-// pixel: within `range`, flat within a metre and the inverse square beyond, at most 1.
-float burn_share(float d, float mu, float intensity, float range)
+// How a room's wall takes a lamp's light at cosine `mu` (worked out as though the lamp were
+// `WALL_SOFTEN` further off, so a wall turns from a light less the nearer it stands), the lamp
+// `behind` metres behind the wall's plane (nought in front of it): a static light's wrapped as its
+// burn is in front, and from behind a third of it, fading with the depth, the same all over a flat
+// wall, so a light set into a wall glows through it evenly, as retail spreading its burn from the
+// wall's corners does, with no dark hole ringed by light; a moving light's the plain cosine.
+float wall_turn(float mu, float behind, bool wrapped)
 {
-    if (d >= range)
+    if (!wrapped)
     {
-        return 0.0;
+        return max(mu, 0.0);
     }
-    float near = d * d > 1.0 ? 1.0 / (d * d) : 1.0;
-    return min((1.0 - d / range) * intensity * turn(mu, true) * near, 1.0);
+    return mu >= 0.0 ? (mu + 0.5) * (2.0 / 3.0) : exp(-behind / BEHIND_FADE) / 3.0;
 }
 
 // A lamp's light at distance `d` within reach `reach`, before its strength and the surface's
@@ -93,6 +117,35 @@ float falloff(float d, float reach, float soften, bool moving)
     float x = d / reach;
     float w = saturate(1.0 - x * x * x * x);
     return w * w / (d * d + soften * soften);
+}
+
+// How a lamp's light ends at its reach: 1 near it, 0 at `d == reach`, smoothly between.
+float window(float d, float reach)
+{
+    if (d >= reach)
+    {
+        return 0.0;
+    }
+    float x = d / reach;
+    float w = saturate(1.0 - x * x * x * x);
+    return w * w;
+}
+
+// A lamp's share of its light on a room's wall shaped as retail's own light falls off, at
+// distance `d` before its strength and the surface's turn, for a light of falloff `fall`: a
+// static light's the inverse square softened within `WALL_SOFTEN`, a moving light's the inverse of
+// the distance softened within `MOVING_SOFTEN`, each ended smoothly at retail's reach (a moving
+// light's over less of it, as retail's light ends there at once).
+float retail_on_walls(float d, float fall, bool moving)
+{
+    if (!moving)
+    {
+        return window(d, fall * BURN_REACH) / (d * d + WALL_SOFTEN * WALL_SOFTEN);
+    }
+    float x = min(d / (fall * MOVING_REACH), 1.0);
+    float x2 = x * x;
+    float w = 1.0 - x2 * x2 * x2 * x2;
+    return w * w / sqrt(d * d + MOVING_SOFTEN * MOVING_SOFTEN);
 }
 
 // An outdoor lamp's pool at distance `d` within reach `reach`, before its strength and the
@@ -117,6 +170,8 @@ struct Surface
     bool outdoor;
     float3 world;
     float3 n;
+    // On a room's walls, the key the room carries.
+    uint room;
     // Its view depth, and where it is on the screen.
     float z;
     float2 position;
@@ -127,6 +182,7 @@ Surface surface_at(ShadePush push, int2 p, float2 position)
     Surface s;
     uint4 mat = uint4(textures[NonUniformResourceIndex(push.material)].Load(int3(p, 0)) * 255.0 + 0.5);
     s.cls = mat.x;
+    s.room = mat.z | (mat.w << 8);
     s.position = position;
     float4 lit = row(push.rows, ROW_LIT);
     s.indoor = (s.cls == CLASS_CELL || s.cls == CLASS_INDOOR) && lit.x > 0.5;
@@ -147,6 +203,27 @@ Surface surface_at(ShadePush push, int2 p, float2 position)
     s.world = h.xyz / h.w;
     s.z = transform(push.rows, ROW_VIEW, float4(s.world, 1.0)).z;
     return s;
+}
+
+// Whether lamp `l` lights the room of key `room`: one of those it lists, or any where it lists
+// none.
+bool lights_room(uint rows, uint l, uint room)
+{
+    uint4 a = row_u(rows, ROW_ROOMS + l * 2);
+    if (all(a == 0xFFFFFFFF))
+    {
+        return true;
+    }
+    uint4 b = row_u(rows, ROW_ROOMS + l * 2 + 1);
+    uint words[8] = { a.x, a.y, a.z, a.w, b.x, b.y, b.z, b.w };
+    for (uint k = 0; k < 8; k++)
+    {
+        if ((words[k] & 0xFFFF) == room || (words[k] >> 16) == room)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 // The light of a surface's lamps, and how much it glows.
@@ -178,15 +255,20 @@ float3 lamps_on(ShadePush push, Surface s, out float glow)
         float strength = 0.0;
         float reach = lp.w;
         bool wrapped = false;
-        bool burned = false;
         bool pooled = false;
         if (s.indoor && (lc.w == KIND_STATIC || lc.w == KIND_MOVING))
         {
             if (s.cls == CLASS_CELL)
             {
+                // A room's walls take only the lamps whose light reaches them through the
+                // doorways, none through a wall.
+                if (!lights_room(push.rows, l, s.room))
+                {
+                    continue;
+                }
                 strength = power.x;
                 wrapped = lc.w == KIND_STATIC;
-                burned = wrapped;
+                pooled = true;
             }
             else
             {
@@ -212,13 +294,21 @@ float3 lamps_on(ShadePush push, Surface s, out float glow)
             glow = max(glow, power.y * g * g * (3.0 - 2.0 * g));
         }
         float mu = dot(s.n, to / max(dist, 1e-6));
-        if (burned)
+        if (pooled)
         {
-            out += lc.rgb * burn_share(dist, mu, strength, reach);
-        }
-        else if (pooled)
-        {
-            out += lc.rgb * strength * turn(mu, wrapped) * pool(dist, reach);
+            if (s.indoor)
+            {
+                float facing = dot(s.n, to);
+                float t = wall_turn(facing / sqrt(dist * dist + WALL_SOFTEN * WALL_SOFTEN),
+                                    max(-facing, 0.0), wrapped);
+                float light = t * (strength * pool(dist, reach)
+                                   + power.z * retail_on_walls(dist, power.w, lc.w == KIND_MOVING));
+                out += lc.rgb * lamp_shoulder(light);
+            }
+            else
+            {
+                out += lc.rgb * min(strength * turn(mu, wrapped) * pool(dist, reach), 1.0);
+            }
         }
         else
         {

@@ -773,13 +773,15 @@ impl SceneDraw {
         self.queue(ws, &actions);
     }
 
-    /// The frame's light pools and the env-cell burn-in.
+    /// The frame's light pools and the env-cell burn-in. Both pools take only the light records
+    /// of the cells visible from the player's cell ([`Self::light_cells`]), so a light in a room
+    /// that cell cannot see lights nothing, however near it stands.
     ///
-    /// * On a cell change, clear the static-light count and rebuild the static pool from every
-    ///   visible cell's light records whose `state & 1` is set. The current degrade level sets
+    /// * On a cell change, clear the static-light count and rebuild the static pool from those
+    ///   cells' light records whose `state & 1` is set. The current degrade level sets
     ///   the static and dynamic pool caps.
     /// * On every frame, clear the dynamic-light count, add the viewer light, then add every
-    ///   non-static light record of the visible environment cells. A light belongs to a cell
+    ///   non-static light record of those cells. A light belongs to a cell
     ///   only after light registration, so an object standing in a land cell, or held after
     ///   `leave_world`, contributes nothing.
     /// * Environment-cell drawing updates static vertex colors for every cell whose burn is
@@ -796,8 +798,14 @@ impl SceneDraw {
             self.light_pools.max_static = level.max_static_lights;
             self.light_pools.max_dynamic = level.max_dynamic_lights;
             self.light_pools.clear_statics();
+            self.light_cells = self.light_cells(ws, cell);
+            let seen = |c: CellId| self.light_cells.as_ref().is_none_or(|s| s.contains(&c.0));
             for block in self.blocks.values() {
-                for l in block.cell_lights.iter().filter(|l| l.is_static) {
+                for l in block
+                    .cell_lights
+                    .iter()
+                    .filter(|l| l.is_static && seen(l.cell))
+                {
                     // The offset from the player block to the light cell, plus `frame.origin`,
                     // gives the object's frame in the player's space, which
                     // in this build is render space -- the block origin folded in.
@@ -813,7 +821,10 @@ impl SceneDraw {
                         .add_static_from(&l.info, l.cell, &frame, player.origin);
                 }
             }
-            self.static_pool_key = Some(key);
+            // A body whose cell the land source does not hold yet sees no table: try again on
+            // the next frame rather than keep every cell's lights until the next cell change.
+            let settled = self.light_cells.is_some() || ws.character.is_none();
+            self.static_pool_key = settled.then_some(key);
         }
         self.light_pools.clear_dynamics();
         let has_player = ws.character.is_some();
@@ -831,6 +842,13 @@ impl SceneDraw {
             }
             let Some(pos) = o.sim.position else { continue };
             if dereth_physics::landdefs::is_outdoors(pos.cell) {
+                continue;
+            }
+            if self
+                .light_cells
+                .as_ref()
+                .is_some_and(|s| !s.contains(&pos.cell.0))
+            {
                 continue;
             }
             if !o.sim.state.is_lighting_on() || o.sim.state.is_static() {
@@ -872,6 +890,34 @@ impl SceneDraw {
                 cell.burned_count = Some(count);
             }
         }
+    }
+
+    /// The cells whose light records the light pools take: the client's visible-cell table as a
+    /// change of the player's cell rebuilds it. That is the player's cell and every cell its
+    /// stab list names; for a player outdoors, or in a cell that sees outside, it is also every
+    /// cell a resident block's buildings show through their doorways. `None`, for every cell,
+    /// when there is no body, or the land source does not hold the body's cell yet.
+    fn light_cells(&self, ws: &WorldState, cell: u32) -> Option<BTreeSet<u32>> {
+        let land = ws.character.as_ref()?.land();
+        let mut cells = BTreeSet::new();
+        let sees_outside = if dereth_physics::landdefs::is_outdoors(CellId(cell)) {
+            true
+        } else {
+            let env = dereth_physics::LandSource::env_cell(land.as_ref(), CellId(cell))?;
+            cells.insert(cell);
+            cells.extend(env.stab_list.iter().map(|c| c.0));
+            env.seen_outside
+        };
+        if sees_outside {
+            for block in self.blocks.values() {
+                for building in &block.building_views {
+                    for portal in &building.portals {
+                        cells.extend(portal.stab_list.iter().map(|c| c.0));
+                    }
+                }
+            }
+        }
+        Some(cells)
     }
 
     /// The scene's sunlight description, as the tail of

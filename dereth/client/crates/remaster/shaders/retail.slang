@@ -157,3 +157,21 @@ public float gamma_scale(uint frame)
     return 1.0 + 2.0 * row(frame, FRAME_SCREEN).x;
 }
 
+// Up to which brightness, against the light's color, a surface takes the lamps' light as it is.
+public static const float LAMP_KNEE = 0.8;
+
+// The brightness a surface takes from light `x`: `x` up to `LAMP_KNEE`, then rising ever slower
+// toward 1 with no corner, so no ring shows where the light reaches the most a surface can take.
+public float lamp_shoulder(float x)
+{
+    if (x <= LAMP_KNEE)
+    {
+        return x;
+    }
+    return LAMP_KNEE + (1.0 - LAMP_KNEE) * (1.0 - exp(-(x - LAMP_KNEE) / (1.0 - LAMP_KNEE)));
+}
+
+public float3 lamp_shoulder(float3 x)
+{
+    return float3(lamp_shoulder(x.r), lamp_shoulder(x.g), lamp_shoulder(x.b));
+}

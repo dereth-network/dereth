@@ -879,3 +879,55 @@ mod survey_blocks {
         }
     }
 }
+
+#[cfg(test)]
+mod survey_lights {
+    use super::*;
+
+    /// Not a claim: every setup's lights by color, intensity and falloff, with the purple and
+    /// magenta ones, and those of an intensity or falloff past the usual, listed.
+    /// Behaviour: none (a survey printed for a person to read)
+    #[test]
+    #[ignore = "survey: prints, reads the retail dats"]
+    fn survey_the_lights_every_setup_carries() {
+        let Some(store) = dereth_dat::testing::open_store() else {
+            return;
+        };
+        let (mut setups, mut lights) = (0usize, 0usize);
+        let mut by: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+        for id in store.ids_of(DbType::Setup) {
+            let Some(s) = decode::<Setup>(&store, DbType::Setup, id) else {
+                continue;
+            };
+            if s.lights.is_empty() {
+                continue;
+            }
+            setups += 1;
+            for l in s.lights.values() {
+                lights += 1;
+                let [a, r, g, b] = l.color_argb.to_be_bytes();
+                let c = [r, g, b].map(|v| f32::from(v) / 255.0);
+                let (h, sat, v) = hsv(c);
+                let purple = sat > 0.3 && (250.0..=340.0).contains(&h);
+                let odd = l.intensity > 100.0 || l.falloff > 20.0 || l.intensity <= 0.0;
+                *by.entry(format!("i {:.0} f {:.0}", l.intensity, l.falloff))
+                    .or_default() += 1;
+                if purple || odd {
+                    eprintln!(
+                        "{:08X}{}{} color {a:02X}{r:02X}{g:02X}{b:02X} (h {h:.0} s {sat:.2} v {v:.2}) i {} f {} at ({:.2},{:.2},{:.2}) parts {}",
+                        id.0,
+                        if purple { " PURPLE" } else { "" },
+                        if odd { " ODD" } else { "" },
+                        l.intensity,
+                        l.falloff,
+                        l.frame.origin.x,
+                        l.frame.origin.y,
+                        l.frame.origin.z,
+                        s.parts.len()
+                    );
+                }
+            }
+        }
+        eprintln!("{setups} setups carry {lights} lights; by intensity and falloff: {by:?}");
+    }
+}

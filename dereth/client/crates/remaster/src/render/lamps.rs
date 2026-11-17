@@ -97,6 +97,81 @@ pub fn falloff(d: f32, reach: f32) -> f32 {
     window(d, reach) / (d * d + SOFTEN * SOFTEN)
 }
 
+/// Within how many metres a static light's own light on rooms' walls stops growing nearer: the
+/// metre within which retail burns it flat.
+pub const WALL_SOFTEN: f32 = 1.0;
+
+/// Within how many metres a moving light's own light on rooms' walls is softened, as retail
+/// spreading it over a wall from its corners softens it near the light.
+pub const MOVING_SOFTEN: f32 = 3.0;
+
+/// A static light's own light on a room's wall at distance `d` within reach `reach`, before its
+/// strength and the surface's turn: the inverse square, softened within [`WALL_SOFTEN`] and ended
+/// smoothly at the reach.
+#[must_use]
+pub fn wall_falloff(d: f32, reach: f32) -> f32 {
+    window(d, reach) / (d * d + WALL_SOFTEN * WALL_SOFTEN)
+}
+
+/// A moving light's own light on a room's wall at distance `d` within reach `reach`, before its
+/// intensity and the surface's turn: the inverse of the distance, softened within
+/// [`MOVING_SOFTEN`] and ended smoothly over the last of the reach, as retail's ends there at once.
+#[must_use]
+pub fn wall_falloff_moving(d: f32, reach: f32) -> f32 {
+    if d >= reach || reach <= 0.0 {
+        return 0.0;
+    }
+    let x = d / reach;
+    let w = 1.0 - x.powi(8);
+    w * w / (d * d + MOVING_SOFTEN * MOVING_SOFTEN).sqrt()
+}
+
+/// Over how many metres behind a wall a static light's glow through it fades ([`wall_turn`]).
+pub const BEHIND_FADE: f32 = 1.5;
+
+/// How a room's wall at distance `d` from a lamp, its normal at cosine `mu` with the direction to
+/// it, takes its light: turned from it less the nearer it stands, as though the lamp were
+/// [`WALL_SOFTEN`] further off; a static light's wrapped as its burn is ([`turn`]) in front, and
+/// from behind a third of it, fading over [`BEHIND_FADE`] with the depth behind the wall, the
+/// same all over a flat wall, so a light set into a wall glows through it evenly, as retail
+/// spreading its burn from the wall's corners does, with no dark hole ringed by light; a moving
+/// light's the plain cosine.
+#[must_use]
+pub fn wall_turn(mu: f32, d: f32, wrapped: bool) -> f32 {
+    if wrapped && mu < 0.0 {
+        return dereth_primitives::num::math::expf(mu * d / BEHIND_FADE) / 3.0;
+    }
+    turn(near_turn_cosine(mu, d).max(0.0), wrapped)
+}
+
+/// How a surface at distance `d` from a lamp, its normal at cosine `mu` with the direction to
+/// it, takes its light as retail turns it ([`turn`]), worked out as though the lamp were
+/// [`WALL_SOFTEN`] further off.
+#[must_use]
+pub fn near_turn(mu: f32, d: f32, wrapped: bool) -> f32 {
+    turn(near_turn_cosine(mu, d), wrapped)
+}
+
+/// The cosine `mu` of a surface at distance `d` from a lamp, as though the lamp were
+/// [`WALL_SOFTEN`] further off.
+fn near_turn_cosine(mu: f32, d: f32) -> f32 {
+    mu * d / (d * d + WALL_SOFTEN * WALL_SOFTEN).sqrt()
+}
+
+/// Up to which brightness, against the light's color, a room's wall takes a lamp's light as it
+/// is; past it the light rises ever slower toward the color.
+pub const KNEE: f32 = 0.8;
+
+/// The brightness a room's wall takes from a lamp's light `x`: `x` up to [`KNEE`], then rising
+/// ever slower toward 1 with no corner, so no ring shows where a lamp's light reaches its most.
+#[must_use]
+pub fn shoulder(x: f32) -> f32 {
+    if x <= KNEE {
+        return x;
+    }
+    KNEE + (1.0 - KNEE) * (1.0 - dereth_primitives::num::math::expf(-(x - KNEE) / (1.0 - KNEE)))
+}
+
 /// A moving light's lamp's light at distance `d` within reach `reach`, before its intensity and
 /// the surface's turn: retail's, the inverse of the distance, faded out over the last tenth of
 /// the reach where retail's ends at once.
@@ -196,6 +271,121 @@ pub fn calibrate(retail: impl Fn(f32, f32) -> f32, reach: f32, wrapped: bool) ->
     0.5 * (lo + hi)
 }
 
+/// How far an indoor lamp's pool reaches on rooms' walls, against its light's falloff: the reach
+/// whose rooms come out nearest Retail Look's at the four indoor stations, where retail spreads a
+/// light over a wall from its corners (nearer than at 1.65 or 1.3 times; at 1.6 times the
+/// hideout's floor comes out 14 display levels too bright).
+pub const ROOM_RANGE: f32 = 2.0;
+
+/// How much of a static light's light on rooms' walls is shaped as its burn falls off
+/// ([`wall_falloff`]), the rest its broad pool, and how much of a moving light's as its light
+/// falls off ([`wall_falloff_moving`]): the shares that bring the rooms at the four indoor
+/// stations nearest Retail Look's while the hideout's floor and evenness stay with it (measured
+/// 3.8 display levels off on average, against 4.1 with the pool alone; with both at 0.6, two of a
+/// house's rooms came out a further 1.2 darker; with 15% more light, the hideout's floor 5.1
+/// too bright).
+pub const RETAIL_SHARE: f32 = 0.6;
+pub const MOVING_SHARE: f32 = 0.8;
+
+/// The strength a lamp lighting a broad pool ([`pool`]) on rooms' walls out to `reach` needs so
+/// that the brightness it gives the surfaces round it (each turned to it as `wrapped` says, see
+/// [`near_turn`], and eased toward its color by [`shoulder`]) adds up to what `retail` gives them
+/// out to `retail_reach`: over every distance, each weighted by the area of the sphere there, and
+/// every turn of the surface.
+#[must_use]
+pub fn calibrate_pool(
+    retail: impl Fn(f32, f32) -> f32,
+    retail_reach: f32,
+    reach: f32,
+    wrapped: bool,
+) -> f32 {
+    match_energy(
+        retail,
+        retail_reach,
+        reach,
+        wrapped,
+        |d| pool(d, reach),
+        shoulder,
+    )
+}
+
+/// The strength a static light's own light on rooms' walls ([`wall_falloff`]) needs so that the
+/// brightness it gives the surfaces round it (turned to it as retail's burn turns them, see
+/// [`near_turn`], each eased toward the light's color by [`shoulder`]) adds up to what `retail`
+/// gives them out to `reach`, weighed as [`calibrate_pool`] weighs them.
+#[must_use]
+pub fn calibrate_wall(retail: impl Fn(f32, f32) -> f32, reach: f32) -> f32 {
+    match_energy(
+        retail,
+        reach,
+        reach,
+        true,
+        |d| wall_falloff(d, reach),
+        shoulder,
+    )
+}
+
+/// The strength a lamp lighting `shape` (its light at a distance, before its strength and the
+/// surface's turn) on rooms' walls out to `reach` needs so that the brightness it gives the
+/// surfaces round it, each turned to it as `wrapped` says ([`near_turn`]: a light behind a wall
+/// lights it no more than retail's burn does, so the glow through it is over and above) and eased
+/// toward its color by `ease`, adds up to what
+/// `retail` gives them out to `retail_reach`: over every distance, each weighted by the area of
+/// the sphere there, and every turn of the surface.
+fn match_energy(
+    retail: impl Fn(f32, f32) -> f32,
+    retail_reach: f32,
+    reach: f32,
+    wrapped: bool,
+    shape: impl Fn(f32) -> f32,
+    ease: impl Fn(f32) -> f32,
+) -> f32 {
+    const DISTANCES: usize = 96;
+    const TURNS: usize = 48;
+    let far = retail_reach.max(reach);
+    if far <= 0.0 || reach <= 0.0 {
+        return 0.0;
+    }
+    #[allow(clippy::cast_precision_loss)] // small grid counts
+    let sample =
+        |k: usize, n: usize, span: f32, from: f32| from + (k as f32 + 0.5) * span / n as f32;
+    let mut points = Vec::with_capacity(DISTANCES * TURNS);
+    for i in 0..DISTANCES {
+        let d = sample(i, DISTANCES, far, 0.0);
+        for j in 0..TURNS {
+            let mu = sample(j, TURNS, 2.0, -1.0);
+            points.push((d, mu, d * d));
+        }
+    }
+    let want: f32 = points
+        .iter()
+        .filter(|p| p.0 < retail_reach)
+        .map(|&(d, mu, a)| retail(d, mu) * a)
+        .sum();
+    if want <= 0.0 {
+        return 0.0;
+    }
+    let given = |power: f32| -> f32 {
+        points
+            .iter()
+            .map(|&(d, mu, a)| ease(power * near_turn(mu, d, wrapped) * shape(d)) * a)
+            .sum()
+    };
+    let (mut lo, mut hi) = (0.0f32, 1.0f32);
+    while given(hi) < want && hi < 1.0e7 {
+        hi *= 4.0;
+    }
+    for _ in 0..48 {
+        let mid = 0.5 * (lo + hi);
+        if given(mid) < want {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    0.5 * (lo + hi)
+}
+
 /// The kinds of lamp, as the shader tells them apart: a static light indoors (its turn wrapped
 /// on walls), one outdoors (its pool, its turn wrapped), a moving one indoors (plain).
 const KIND_STATIC: f32 = 1.0;
@@ -215,25 +405,31 @@ pub struct GpuLamp {
     pub indoor: bool,
     /// Whether it is a static light: on walls its lamp is retail's burn.
     pub burned: bool,
-    /// Its strength on rooms' walls (its intensity: its lamp there is retail's own light), on
-    /// objects indoors, and outdoors: its pool's at its middle, its night and its flame on its
-    /// color.
+    /// Its strength on rooms' walls (its pool's at its middle), on objects indoors, and outdoors:
+    /// its pool's at its middle, its night and its flame on its color.
     pub walls: f32,
     pub objects: f32,
     pub outdoors: f32,
+    /// On rooms' walls, the strength of its share shaped as retail's own light; nought outdoors.
+    pub core: f32,
     /// How near a surface brightens with the lamp's own glow, metres, and how much (night and
     /// flicker folded in); nought for a lamp that doesn't glow.
     pub glow_reach: f32,
     pub glow: f32,
+    /// The cell an indoor lamp stands in, by its full id; nought outdoors.
+    pub cell: u32,
 }
 
 /// One light's lamp, as [`Calibration::lamp`] works it out: its reach on walls and on objects,
-/// and its strength.
+/// and its strength on each.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Calibrated {
     pub reach: f32,
     pub object_reach: f32,
+    pub walls: f32,
     pub strength: f32,
+    /// The strength of its share on walls shaped as retail's own light.
+    pub core: f32,
 }
 
 /// Each light's lamp, worked out once per light.
@@ -247,10 +443,17 @@ impl Calibration {
     /// The lamp of a light of `intensity` and `falloff`, burned into walls when `burned` (a
     /// static light) or lighting them as it is drawn (a moving one).
     ///
-    /// A static light reaches as far as retail burns it, 1.3 times its falloff, and its strength
-    /// is matched to the burn, its turn wrapped as the burn's is. A moving light reaches as far
-    /// as retail lights with it, 1.5 times its falloff, its strength its intensity: its lamp is
-    /// retail's light ([`falloff_moving`]).
+    /// On rooms' walls every light lights [`RETAIL_SHARE`] (a moving one [`MOVING_SHARE`]) of its
+    /// light shaped as retail's own light falls off (a static light's matched to the burn,
+    /// [`calibrate_wall`]; a moving light's at its intensity) and the rest as a broad pool
+    /// ([`pool`]) out to [`ROOM_RANGE`] times its falloff, its strength matched to the light
+    /// retail gives the surfaces round it: a
+    /// static light's burn, its turn wrapped as the burn's is, out to 1.3 times its falloff; a
+    /// moving light's retail light, its turn plain, out to 1.5 times its falloff.
+    ///
+    /// On objects a static light reaches as far as retail burns it, its strength matched to the
+    /// burn; a moving light as far as retail lights with it, its strength its intensity: its lamp
+    /// is retail's light ([`falloff_moving`]).
     ///
     /// Objects take the lamp with its turn plain, out to the falloff: retail lights an object only
     /// by the lights whose falloff meets it, and lights it at full brightness wherever it faces a
@@ -260,19 +463,33 @@ impl Calibration {
             .memo
             .entry((burned, intensity.to_bits(), falloff.to_bits()))
             .or_insert_with(|| {
-                let (reach, strength) = if burned {
+                let walls_reach = falloff * ROOM_RANGE;
+                let (reach, strength, walls, core) = if burned {
                     let reach = falloff * BURN_REACH;
+                    let burn = |d, mu| retail_burn(d, mu, intensity, falloff);
                     (
                         reach,
-                        calibrate(|d, mu| retail_burn(d, mu, intensity, falloff), reach, true),
+                        calibrate(burn, reach, true),
+                        calibrate_pool(burn, reach, walls_reach, true),
+                        calibrate_wall(|d, mu| burn(d, mu) * RETAIL_SHARE, reach),
                     )
                 } else {
-                    (falloff * 1.5, intensity)
+                    let reach = falloff * 1.5;
+                    let light = |d, mu| retail_point(d, mu, intensity, falloff);
+                    (
+                        reach,
+                        intensity,
+                        calibrate_pool(light, reach, walls_reach, false),
+                        intensity * MOVING_SHARE,
+                    )
                 };
+                let share = if burned { RETAIL_SHARE } else { MOVING_SHARE };
                 Calibrated {
-                    reach,
+                    reach: walls_reach.max(reach),
                     object_reach: falloff.min(reach),
+                    walls: walls * (1.0 - share),
                     strength,
+                    core,
                 }
             })
     }
@@ -554,8 +771,10 @@ fn placed_lamps(
                     walls: 0.0,
                     objects: 0.0,
                     outdoors: outdoor_strength(shape.intensity),
+                    core: 0.0,
                     glow_reach: shape.glow_reach,
                     glow: k,
+                    cell: 0,
                 },
                 shape,
                 [0, 1, 2].map(|c| shape.color[c] * flame.tint[c]),
@@ -617,11 +836,13 @@ pub fn lamps_of(
                 color: p.color,
                 indoor: true,
                 burned,
-                walls: p.intensity,
+                walls: c.walls,
                 objects: c.strength,
                 outdoors: 0.0,
+                core: c.core,
                 glow_reach: 0.0,
                 glow: 0.0,
+                cell: p.cell,
             });
         }
     }
@@ -650,8 +871,10 @@ pub fn lamps_of(
                 walls: 0.0,
                 objects: 0.0,
                 outdoors: outdoor_strength(light.intensity),
+                core: 0.0,
                 glow_reach: 0.0,
                 glow: 0.0,
+                cell: 0,
             });
         }
         // The nearest first, so a capped list keeps the ones nearest the eye.
@@ -666,8 +889,111 @@ pub fn lamps_of(
     (out, halos)
 }
 
+/// The most rooms one indoor lamp lights; one that reaches more lights every room.
+pub const LAMP_ROOMS: usize = 16;
+
+/// One room of the blocks held: its block, and each of its openings into another room, by that
+/// room's cell id, with where the opening's middle stands in the block's own space and how far its
+/// corners lie from it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RoomOpenings {
+    pub block: BlockId,
+    pub openings: Vec<(u32, Vec3, f32)>,
+}
+
+/// The rooms of the blocks held, by their cells' full ids.
+pub type Rooms = BTreeMap<u32, RoomOpenings>;
+
+/// Where block `id`'s own space stands in the frame's.
+fn block_offset(frame: &FrameDelta, id: BlockId) -> Vec3 {
+    let (x, y) = (i32::from(id >> 8), i32::from(id & 0xFF));
+    #[allow(clippy::cast_precision_loss)] // a few hundred blocks
+    Vec3::new(
+        (x - frame.origin[0]) as f32 * 192.0,
+        (y - frame.origin[1]) as f32 * 192.0,
+        0.0,
+    )
+}
+
+/// The rooms an indoor lamp in `cell` at `at` (the frame's space) lights out to `reach`: its own,
+/// and every room joined to one of those by an opening within its reach, as light passes through a
+/// doorway and not through a wall. `None` where its cell is no room held, or it reaches more than
+/// [`LAMP_ROOMS`]: then it lights every room.
+#[must_use]
+pub fn rooms_reached(
+    frame: &FrameDelta,
+    rooms: &Rooms,
+    cell: u32,
+    at: Vec3,
+    reach: f32,
+) -> Option<Vec<u32>> {
+    rooms.get(&cell)?;
+    let mut lit = vec![cell];
+    let mut next = 0;
+    while let Some(&id) = lit.get(next) {
+        next += 1;
+        let Some(room) = rooms.get(&id) else {
+            continue;
+        };
+        let offset = block_offset(frame, room.block);
+        for &(other, middle, radius) in &room.openings {
+            if lit.contains(&other) || !rooms.contains_key(&other) {
+                continue;
+            }
+            if (middle + offset).distance(at) - radius < reach {
+                if lit.len() == LAMP_ROOMS {
+                    return None;
+                }
+                lit.push(other);
+            }
+        }
+    }
+    Some(lit)
+}
+
+/// The rooms' rows the pass's constants end with, two a lamp: the keys the walls of the rooms a
+/// moving light's lamp indoors lights carry in the material target (`keys`, by the rooms' cells'
+/// ids), two to a word and 0xFFFF where there is none; every word all ones for a lamp that lights
+/// every room.
+#[must_use]
+pub fn room_rows(
+    frame: &FrameDelta,
+    rooms: &Rooms,
+    keys: &BTreeMap<u32, u32>,
+    lamps: &[GpuLamp],
+) -> Vec<u8> {
+    let mut out = Vec::with_capacity(lamps.len() * 32);
+    for l in lamps {
+        // A static light lights every room in its reach, as retail burns it into the walls; a
+        // moving one only the rooms its light reaches through the doorways.
+        let lit = (l.indoor && !l.burned && l.cell != 0)
+            .then(|| rooms_reached(frame, rooms, l.cell, l.position, l.reach))
+            .flatten()
+            .and_then(|lit| {
+                lit.iter()
+                    .map(|id| keys.get(id).copied().filter(|k| *k < 0xFFFF))
+                    .collect::<Option<Vec<u32>>>()
+            });
+        let mut words = [u32::MAX; LAMP_ROOMS / 2];
+        if let Some(lit) = lit {
+            let mut halves = [0xFFFFu32; LAMP_ROOMS];
+            for (h, key) in halves.iter_mut().zip(&lit) {
+                *h = *key;
+            }
+            for (w, pair) in words.iter_mut().zip(halves.as_chunks::<2>().0) {
+                *w = pair[0] | (pair[1] << 16);
+            }
+        }
+        for w in words {
+            out.extend_from_slice(&w.to_le_bytes());
+        }
+    }
+    out
+}
+
 /// The lamps as rows of four 32-bit values, three a lamp: where it is and its reach, its color
-/// and kind, and its three strengths with its reach on objects.
+/// and kind, and its strengths (indoors on walls, on objects and its share of retail's own light
+/// on walls; outdoors its glow's reach and its glow, and its strength) with its reach on objects.
 #[must_use]
 pub fn lamp_rows(lamps: &[GpuLamp]) -> Vec<u8> {
     let mut out = Vec::with_capacity(lamps.len() * 48);
@@ -689,7 +1015,7 @@ pub fn lamp_rows(lamps: &[GpuLamp]) -> Vec<u8> {
             },
         ]);
         if l.indoor {
-            f([l.walls, l.objects, l.outdoors, l.object_reach]);
+            f([l.walls, l.objects, l.core, l.object_reach]);
         } else {
             f([l.glow_reach, l.glow, l.outdoors, l.object_reach]);
         }
@@ -709,6 +1035,8 @@ pub fn clusters(lamps: &[GpuLamp], v: &View) -> Vec<Vec<u32>> {
 #[derive(Debug)]
 pub struct LampInputs<'a> {
     pub frame: &'a FrameDelta,
+    /// The keys the rooms' walls carry in the material target, by the rooms' cells' ids.
+    pub room_keys: &'a BTreeMap<u32, u32>,
     /// The world's targets.
     pub targets: &'a Targets,
     /// Whether the scene's colors are linear this frame, as the post passes want them.
@@ -725,6 +1053,8 @@ pub struct LampsPass {
     lit_from: Option<f64>,
     // ORDER-OK: walked in block order; only the set matters.
     outdoor: BTreeMap<BlockId, Vec<Lamp>>,
+    /// The rooms of the blocks held.
+    rooms: Rooms,
     calibration: Calibration,
     last_count: u32,
     /// The last frame's lamps and how its view was cut, for [`Self::reference`].
@@ -746,6 +1076,7 @@ impl LampsPass {
             pass: shared::LampsPass::new(gfx, shader(Entry::LampsFsLamps), super::COLOR)?,
             lit_from: None,
             outdoor: BTreeMap::new(),
+            rooms: Rooms::new(),
             calibration: Calibration::default(),
             last_count: 0,
             #[cfg(any(test, feature = "test-support"))]
@@ -824,9 +1155,45 @@ impl LampsPass {
                     } else {
                         self.outdoor.insert(b.block, b.lamps.clone());
                     }
+                    self.rooms.retain(|_, r| r.block != b.block);
+                    for room in &b.rooms {
+                        let openings = room
+                            .portals
+                            .iter()
+                            .filter_map(|p| {
+                                // An opening may name the room beyond by the low half of its id
+                                // alone, in the same block.
+                                let other = match p.other? {
+                                    o if o <= 0xFFFF => (room.id & 0xFFFF_0000) | o,
+                                    o => o,
+                                };
+                                let corners: Vec<Vec3> = p
+                                    .polygon
+                                    .iter()
+                                    .map(|c| room.frame.transform_point3(*c))
+                                    .collect();
+                                #[allow(clippy::cast_precision_loss)] // a few corners
+                                let middle = corners.iter().copied().sum::<Vec3>()
+                                    / corners.len().max(1) as f32;
+                                let radius = corners
+                                    .iter()
+                                    .map(|c| c.distance(middle))
+                                    .fold(0.0f32, f32::max);
+                                Some((other, middle, radius))
+                            })
+                            .collect();
+                        self.rooms.insert(
+                            room.id,
+                            RoomOpenings {
+                                block: b.block,
+                                openings,
+                            },
+                        );
+                    }
                 }
                 SceneDelta::BlockOut(id) => {
                     self.outdoor.remove(id);
+                    self.rooms.retain(|_, r| r.block != *id);
                 }
                 _ => {}
             }
@@ -886,7 +1253,11 @@ impl LampsPass {
                 reaches: &reaches,
                 halos: &halos,
                 view,
-                rows: &frame_rows(&view, frame, self.settings),
+                rows: &[
+                    frame_rows(&view, frame, self.settings),
+                    room_rows(frame, &self.rooms, inputs.room_keys, &lamps),
+                ]
+                .concat(),
                 linear: inputs.linear,
                 inside: frame.landscape && !frame.light.outdoor,
             },
@@ -1100,8 +1471,10 @@ mod tests {
             walls: 1.0,
             objects: 1.0,
             outdoors: 0.0,
+            core: 0.0,
             glow_reach: 0.0,
             glow: 0.0,
+            cell: 0,
         }
     }
 
@@ -1203,11 +1576,26 @@ mod tests {
         let (day, no_halos) = lamps_of(&frame, &outdoor, all, &mut c, 0.0);
         assert!(no_halos.is_empty(), "no halo by day");
         assert_eq!(day.len(), 2, "by day, the pools alone");
-        let burn = calibrate(|d, mu| retail_burn(d, mu, 100.0, 4.0), 5.2, true);
+        let burn = |d, mu| retail_burn(d, mu, 100.0, 4.0);
+        let moving = |d, mu| retail_point(d, mu, 2.25, 10.0);
         assert_eq!(
             (day[0].walls, day[0].objects, day[1].walls, day[1].objects),
-            (100.0, burn, 2.25, 2.25),
-            "on walls each light's intensity; on objects a static light by its burn"
+            (
+                calibrate_pool(burn, 5.2, 8.0, true) * (1.0 - RETAIL_SHARE),
+                calibrate(burn, 5.2, true),
+                calibrate_pool(moving, 15.0, 20.0, false) * (1.0 - MOVING_SHARE),
+                2.25
+            ),
+            "on walls each light's pool matched to retail's light, for the share that is not \
+             retail's own; on objects a static light by its burn and a moving one its intensity"
+        );
+        assert_eq!(
+            (day[0].core, day[1].core),
+            (
+                calibrate_wall(|d, mu| burn(d, mu) * RETAIL_SHARE, 5.2),
+                2.25 * MOVING_SHARE
+            ),
+            "on walls the rest shaped as retail's own light, a static light's matched to its burn"
         );
         assert_eq!(
             (
@@ -1216,8 +1604,8 @@ mod tests {
                 day[1].reach,
                 day[1].object_reach
             ),
-            (5.2, 4.0, 15.0, 10.0),
-            "walls as far as retail lights them, objects as far as it chooses their lights"
+            (8.0, 4.0, 20.0, 10.0),
+            "walls as far as the pools reach, objects as far as retail chooses their lights"
         );
         assert!(day[0].burned && !day[1].burned);
         frame.light.sun = Vec3::ZERO;
@@ -1393,6 +1781,147 @@ mod tests {
             last = v;
         }
         assert!((pool(0.5412 * 12.0, 12.0) - 0.5).abs() < 0.01);
+    }
+
+    /// A pool calibrated to a light gives the surfaces round it the light's brightness, and fades to
+    /// nothing at its reach with no rim.
+    #[test]
+    fn a_rooms_pool_gives_the_surfaces_round_it_retails_brightness() {
+        for (intensity, fall) in [(100.0, 4.0), (100.0, 8.0), (50.0, 3.0)] {
+            let burn = |d, mu| retail_burn(d, mu, intensity, fall);
+            let (reach, pool_reach) = (fall * BURN_REACH, fall * ROOM_RANGE);
+            let power = calibrate_pool(burn, reach, pool_reach, true);
+            let (mut want, mut got) = (0.0, 0.0);
+            for i in 0..400 {
+                let d = (i as f32 + 0.5) * pool_reach / 400.0;
+                for j in 0..100 {
+                    let mu = -1.0 + (j as f32 + 0.5) * 0.02;
+                    if d < reach {
+                        want += burn(d, mu) * d * d;
+                    }
+                    got += shoulder(power * near_turn(mu, d, true) * pool(d, pool_reach)) * d * d;
+                }
+            }
+            assert!(
+                (got - want).abs() <= want * 0.02,
+                "{intensity} {fall}: {got} for {want}"
+            );
+            // No rim: by the last twentieth of its reach the pool has all but gone, where the
+            // burn ends at its reach from a fifth of the light's color or more.
+            let edge = 0.95 * pool_reach;
+            assert!(
+                power * pool(edge, pool_reach) < 0.1,
+                "{intensity} {fall}: {power}"
+            );
+        }
+    }
+
+    /// A wall's light has no edge: along a wall a light stands half a metre in front of, or a
+    /// third of a metre behind (a torch set into it), the light every lamp of a static and a
+    /// moving light gives changes its slope by under a thousandth of the light's color from one
+    /// centimetre to the next (measured at most 0.0001, and 0.006 where a light's light stopped
+    /// at its color), with no ring where a light reaches its most or ends; and the wall
+    /// a static light is set into is lit all round it, as retail's burn lights it, with no dark
+    /// hole.
+    #[test]
+    fn a_walls_light_bends_smoothly_and_has_no_dark_hole_round_a_light_set_into_it() {
+        let mut c = Calibration::default();
+        for (burned, intensity, fall) in [(true, 100.0, 4.0), (true, 1.6, 6.0), (false, 2.25, 10.0)]
+        {
+            let lamp = c.lamp(burned, intensity, fall);
+            let shape = |d: f32| {
+                if burned {
+                    wall_falloff(d, fall * BURN_REACH)
+                } else {
+                    wall_falloff_moving(d, fall * 1.5)
+                }
+            };
+            for depth in [0.5f32, -0.33] {
+                // The wall's light at `x` metres along it from the foot of the light.
+                let at = |x: f32| {
+                    let d = (x * x + depth * depth).sqrt();
+                    let t = wall_turn(depth / d, d, burned);
+                    shoulder(t * (lamp.walls * pool(d, lamp.reach) + lamp.core * shape(d)))
+                };
+                let step = 0.01;
+                let mut worst = 0.0f32;
+                for i in 1..2500 {
+                    #[allow(clippy::cast_precision_loss)] // a small count
+                    let x = i as f32 * step;
+                    let bend = at(x + step) - 2.0 * at(x) + at(x - step);
+                    worst = worst.max(bend.abs());
+                }
+                assert!(
+                    worst < 0.001,
+                    "{burned} {intensity} {fall} {depth}: bends {worst}"
+                );
+                if burned && depth < 0.0 {
+                    for i in 0..100 {
+                        #[allow(clippy::cast_precision_loss)] // a small count
+                        let x = i as f32 * 0.01;
+                        assert!(at(x) > 0.0, "{burned} {intensity} {fall}: dark at {x}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// Rooms joined by an opening: a light reaches the rooms whose openings stand within its reach
+    /// of it, through one room into the next, and no room it has no opening to; a room no block
+    /// holds leaves it lighting every room.
+    #[test]
+    fn a_moving_lights_lamp_keeps_to_the_rooms_its_light_reaches_through_doorways() {
+        let frame = FrameDelta {
+            origin: [0x01, 0x9E],
+            ..FrameDelta::default()
+        };
+        let block = crate::scene::block_id(0x01, 0x9E);
+        let room = |openings: Vec<(u32, Vec3, f32)>| RoomOpenings { block, openings };
+        let mut rooms = Rooms::new();
+        // A row of rooms 1-2-3 with doorways at x = 10 and x = 20, and room 4 off room 1 at y = 30.
+        rooms.insert(
+            1,
+            room(vec![
+                (2, Vec3::new(10.0, 0.0, 1.0), 1.0),
+                (4, Vec3::new(0.0, 30.0, 1.0), 1.0),
+            ]),
+        );
+        rooms.insert(
+            2,
+            room(vec![
+                (1, Vec3::new(10.0, 0.0, 1.0), 1.0),
+                (3, Vec3::new(20.0, 0.0, 1.0), 1.0),
+            ]),
+        );
+        rooms.insert(3, room(vec![(2, Vec3::new(20.0, 0.0, 1.0), 1.0)]));
+        rooms.insert(4, room(vec![(1, Vec3::new(0.0, 30.0, 1.0), 1.0)]));
+        let at = Vec3::new(5.0, 0.0, 1.0);
+        assert_eq!(rooms_reached(&frame, &rooms, 1, at, 8.0), Some(vec![1, 2]));
+        assert_eq!(
+            rooms_reached(&frame, &rooms, 1, at, 18.0),
+            Some(vec![1, 2, 3])
+        );
+        assert_eq!(rooms_reached(&frame, &rooms, 1, at, 3.0), Some(vec![1]));
+        assert_eq!(rooms_reached(&frame, &rooms, 9, at, 8.0), None);
+        let mut l = lamp(at, 8.0);
+        l.burned = false;
+        l.cell = 1;
+        let keys: BTreeMap<u32, u32> = [(1, 7), (2, 8), (3, 9), (4, 10)].into_iter().collect();
+        let rows = room_rows(&frame, &rooms, &keys, &[l]);
+        let words: Vec<u32> = rows
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|w| u32::from_le_bytes(*w))
+            .collect();
+        assert_eq!(words[0], 7 | (8 << 16), "the keys of rooms 1 and 2");
+        assert!(words[1..].iter().all(|w| *w == u32::MAX));
+        l.burned = true;
+        let rows = room_rows(&frame, &rooms, &keys, &[l]);
+        assert!(
+            rows.iter().all(|b| *b == 0xFF),
+            "a static light lights every room"
+        );
     }
 
     /// A lamp stands as high as its placement is drawn on the ground.

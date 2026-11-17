@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Fixed a portal's light showing through dungeon walls; remaster indoor lamps are softer.
 - Classic: selecting someone's pet now shows its health bar.
 - Remaster: indoor lamps no longer over-light rooms, and outdoor lamps light up the streets.
 - Remaster: faster on Macs in busy places.

@@ -1,11 +1,12 @@
 //! Scene lighting: resident light pools, interior vertex lighting and outdoor sunlight. Lights
-//! come from the setup entries of resident statics; the static pool is rebuilt from the resident
-//! cells and sorted by squared distance from the player, and a white viewer light (falloff 10,
-//! intensity 2.25) rides 2 m above the player. An object draw selects at most eight lights,
-//! dynamics first in distance order and then statics; a cell mesh has its static lights burned
-//! into its vertices, and an outdoor draw is lit by the sun. Unseen interiors take a white 0.2
-//! ambient. Fixture: the retail dats' training academy (0x8602) and outdoor Holtburg drawn on a
-//! software device with a local body; no datagrams. The burn and the selection are checked against
+//! come from the setup entries of resident statics and objects; the pools take the lights of the
+//! cells the player's cell sees, the static pool sorted by squared distance from the player, and a
+//! white viewer light (falloff 10, intensity 2.25) rides 2 m above the player. An object draw
+//! selects at most eight lights, dynamics first in distance order and then statics; a cell mesh
+//! has its static lights burned into its vertices, and an outdoor draw is lit by the sun. Unseen
+//! interiors take a white 0.2 ambient. Fixture: the retail dats' training academy (0x8602), the
+//! drudges' hideout (0x019E) and outdoor Holtburg drawn with a local body; no datagrams but the
+//! hideout's portal. The burn and the selection are checked against
 //! standalone evaluations kept in this file; image checks compare runs with lighting on and off,
 //! or with a frame-matched untreated control.
 
@@ -172,8 +173,8 @@ fn outdoor_cfg(time_of_day: f32, lighting: bool) -> SceneConfig {
 /// active detail stage. Lighting differences count pixels; detail differences count bytes.
 /// Neither is a comparison with a retail capture.
 ///
-/// The static pool is populated from the resident cells, not filtered to the cells drawn; this
-/// station does not prove the resident block enumerates exactly the cells retail holds.
+/// The static pool is populated from the cells the body's cell sees, not filtered to the cells
+/// drawn.
 #[test]
 fn the_holtburg_starter_cell_has_the_complete_indoor_lighting_chain() {
     let store = store();
@@ -769,4 +770,108 @@ fn the_selection_blink_bright_half_now_exceeds_the_baseline() {
         r_up + r_down <= 8,
         "RESTORED is not back at the control: +{r_up}/-{r_down}"
     );
+}
+
+// -------------------------------------------------------------------------------------------
+// 6. Lights shine only from the rooms the player's room sees.
+// -------------------------------------------------------------------------------------------
+
+/// A room of the drudges' hideout, as a player reported it at foredawn: where they stood and the
+/// camera held where it was.
+const HIDEOUT_ROOM: &str = "dereth report 1; loc 0x019E0133 [39.381969 -44.385536 0.005000] \
+    -0.824723 0.000000 0.000000 -0.565536; camera 0x019E [43.571823 -46.003914 1.57238] yaw \
+    -5.080997 pitch -0.015000092 cell 0x019E0134; fov 89.8 vertical 53.52318 aspect 1; mode \
+    orbit; time 0.134 Foredawn, set here; clock 309064601.61073184; weather auto";
+
+/// The hideout's exit portal as the server places it, its purple light on: its setup, its cell
+/// (a room that the reported room cannot see, two rooms away beyond the far wall), where it
+/// stands and its physics state.
+const HIDEOUT_PORTAL: (u32, u32, [f32; 3], u32) =
+    (0x0200_01B3, 0x019E_0121, [23.1, -39.7, 0.0], 0x0C0C);
+
+/// Where a player stands in the portal's own room, two metres from it.
+const PORTAL_ROOM: (u32, [f32; 3]) = (0x019E_0121, [21.1, -39.7, 0.005]);
+
+/// How many pixels of the reported room may come out a saturated magenta, the portal's color:
+/// measured none, where the portal's light lit the room's far wall in 58 of them.
+const PORTAL_TINT: usize = 10;
+
+/// The hideout drawn from where the player stood (or, given `stand`, from the portal's room) with
+/// the exit portal in place: the frame, and whether the portal's light is in the frame's lights.
+fn hideout_with_portal(
+    store: &Arc<RetailDatStore>,
+    stand: Option<(u32, [f32; 3])>,
+) -> (Vec<u8>, bool) {
+    use crate::instruments::stations::{report_station, Place, Shot};
+    use dereth_client_runtime::report::VisualReport;
+    let report = VisualReport::parse(HIDEOUT_ROOM).expect("the report reads");
+    let mut station = report_station(&report, Some(8));
+    if let Some((cell, at)) = stand {
+        station.place = Place::Body {
+            cell,
+            origin: Vec3::new(at[0], at[1], at[2]),
+            yaw: 270.0,
+        };
+    }
+    let mut gpu = crate::common::test_gpu(960, 540);
+    let mut shot = Shot::open(store, &mut gpu, &station);
+    if stand.is_none() {
+        shot.apply_report(&report);
+    }
+    shot.poll(&mut gpu);
+    let (setup, cell, at, state) = HIDEOUT_PORTAL;
+    shot.create_object_in_state(
+        0x8300_0B00,
+        setup,
+        cell,
+        Vec3::new(at[0], at[1], at[2]),
+        0.0,
+        state,
+    );
+    for _ in 0..20 {
+        shot.step_held(&mut gpu);
+    }
+    let rgba = crate::instruments::stations::capture(&mut gpu);
+    let lit = shot
+        .scene
+        .light_pools()
+        .dynamics
+        .iter()
+        .any(|l| l.cell_id == CellId(cell));
+    (rgba, lit)
+}
+
+/// Behaviour: rendering.lighting.a-light-shines-only-from-the-rooms-the-players-room-sees
+/// **A lit object lights nothing from a room the player's room cannot see**: in a room of the
+/// drudges' hideout the exit portal's light, two rooms away beyond the far wall, is not among the
+/// frame's lights and tints at most [`PORTAL_TINT`] of the room's pixels magenta; from the portal's
+/// own room it is among them.
+#[test]
+fn a_portal_two_rooms_away_lights_nothing_while_its_own_room_takes_its_light() {
+    let _gpu = crate::common::gpu_lock();
+    let store = store();
+    let (rgba, lit) = hideout_with_portal(&store, None);
+    let magenta = rgba
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|p| {
+            let (r, g, b) = (i32::from(p[0]), i32::from(p[1]), i32::from(p[2]));
+            r > g + 25 && b > g + 25
+        })
+        .count();
+    let (_, lit_beside) = hideout_with_portal(&store, Some(PORTAL_ROOM));
+    eprintln!(
+        "hideout: the portal's light lit from the room {lit}, beside it {lit_beside}; {magenta} \
+         magenta pixels"
+    );
+    assert!(
+        lit_beside,
+        "the portal's light is not lit even in its own room"
+    );
+    assert!(
+        !lit,
+        "the portal's light is lit from a room that cannot see it"
+    );
+    assert!(magenta <= PORTAL_TINT, "{magenta} pixels magenta");
 }

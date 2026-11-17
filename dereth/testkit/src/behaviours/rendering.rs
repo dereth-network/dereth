@@ -491,6 +491,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.lighting.a-light-shines-only-from-the-rooms-the-players-room-sees",
+        says: "A lit object in a room that the player's room cannot see lights nothing, however \
+               near it stands: in a room of the drudges' hideout, the exit portal's purple light \
+               two rooms away beyond the wall leaves the room its own color, while a player in the \
+               portal's room is lit by it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-LIGHTS-FROM-VISIBLE-CELLS"),
+        station: "dereth-client::gpu::rendering::lighting::a_portal_two_rooms_away_lights_nothing_while_its_own_room_takes_its_light",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "rendering.lighting.a-stretched-part-is-lit-along-its-true-surface",
         says: "A piece of a creature, item or plant that its model squashes or stretches along one \
                axis is lit along the true slope of its stretched surface, the same whether it is \

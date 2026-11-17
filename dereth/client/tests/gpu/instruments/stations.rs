@@ -2100,6 +2100,19 @@ impl Shot {
         origin: Vec3,
         heading: f32,
     ) {
+        self.create_object_in_state(id, setup, cell, origin, heading, 0);
+    }
+
+    /// [`Self::create_object_in`], its physics state `state` (its lights on, say).
+    pub(crate) fn create_object_in_state(
+        &mut self,
+        id: u32,
+        setup: u32,
+        cell: u32,
+        origin: Vec3,
+        heading: f32,
+        state: u32,
+    ) {
         use dereth_protocol::types::{physicsdesc::flags, ObjDesc, PhysicsDesc, PublicWeenieDesc};
         let r = heading.to_radians();
         let payload = dereth_protocol::objects::ObjectCreatePayload {
@@ -2108,7 +2121,7 @@ impl Shot {
             physicsdesc: PhysicsDesc {
                 bitfield: flags::POSITION | flags::SETUP,
                 setup_id: Some(setup),
-                state: 0,
+                state,
                 position: Some(dereth_protocol::types::PositionWire {
                     objcell_id: cell,
                     frame: dereth_protocol::types::Frame {

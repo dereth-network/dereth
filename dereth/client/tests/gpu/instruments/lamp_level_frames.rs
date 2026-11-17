@@ -288,6 +288,20 @@ pub(crate) fn pool_shape(rgba: &[u8], off: &[u8], rings: &[Vec<usize>]) -> Strin
     line
 }
 
+/// The lamps' light as a picture at its own size: the light in color, at most 1, and the light
+/// class of the pixel in alpha.
+fn write_light(path: &std::path::Path, l: &RemasterLampCapture) {
+    let mut rgba = Vec::with_capacity(l.light.len() * 4);
+    for (light, material) in l.light.iter().zip(&l.material) {
+        for c in &light[..3] {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a byte of light
+            rgba.push((c.clamp(0.0, 1.0) * 255.0 + 0.5) as u8);
+        }
+        rgba.push(material[0]);
+    }
+    stations::write_png(path, l.width, l.height, &rgba);
+}
+
 /// Each station drawn by Retail Look and the remaster, its boxes at first and one at a time off:
 /// the lit parts' brightness printed and the pictures written.
 #[test]
@@ -335,6 +349,9 @@ fn measure_the_lamps_beside_retail() {
         }
         let base = &draws[0].1;
         println!("{name}");
+        if let (Some(dir), Some(l)) = (dir.as_ref(), base.lamps.as_ref()) {
+            write_light(&dir.join(format!("{name}-{tag}-light.png")), l);
+        }
         if let Some(l) = base.lamps.as_ref() {
             let mut kinds: Vec<String> = l
                 .strengths
@@ -504,5 +521,199 @@ fn print_the_halos_cut_and_seen() {
             .filter(|h| h.surface < h.distance - 0.35 * h.size - 0.15)
             .count();
         println!("{name}: {} halos, {cut} cut", halos.len());
+    }
+}
+
+/// A reported place drawn by the remaster with boxes of its own, an art pack and creatures standing
+/// in it, as a player's own view of it: the picture written, and how many of its pixels are a
+/// saturated magenta printed.
+///
+/// - `DERETH_PLACE`: the report line (required).
+/// - `DERETH_PLACE_BOXES`: the boxes, as `--fidelity` takes them (default the report's own).
+/// - `DERETH_ART_PACK`: the art pack's folder or packed file (default none).
+/// - `DERETH_PLACE_CREATURES`: `setup:cell:x,y,z,heading[:state]` entries joined by `;` (hex setup,
+///   cell and physics state).
+/// - `DERETH_PLACE_FRAMES`: frames held before the picture (default 60).
+/// - `DERETH_PLACE_FROM`: a report line of a place the player stands at first, its frames held,
+///   before arriving at the place (default none: drawn there from the start).
+/// - `DERETH_PLACE_TAG`: the picture's name under `DERETH_REMASTER_CAPTURE_DIR`.
+#[test]
+#[ignore = "instrument: draws a reported place with its boxes, a pack and creatures; run with --ignored"]
+fn draw_a_reported_place_with_its_boxes_and_creatures() {
+    use dereth_client_runtime::report::VisualReport;
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let report =
+        VisualReport::parse(&env("DERETH_PLACE").expect("DERETH_PLACE")).expect("the report reads");
+    let boxes = env("DERETH_PLACE_BOXES")
+        .unwrap_or_else(|| format!("Remaster=1,{}", report.render.effects));
+    let size = remaster_frames::size();
+    #[allow(unused_mut)]
+    let mut cfg = DeviceConfig {
+        width: size.0,
+        height: size.1,
+        remaster: true,
+        ..DeviceConfig::default()
+    };
+    // What DLSS asks of the device, where its library stands beside the test binary.
+    #[cfg(all(feature = "dlss", windows))]
+    {
+        cfg.remaster_extensions = dereth_scene::world_scene::remaster_device_extensions();
+    }
+    let mut gpu = Gpu::new_on(crate::common::remaster_backend(), None, &cfg).expect("a device");
+    let from = env("DERETH_PLACE_FROM")
+        .map(|l| VisualReport::parse(&l).expect("the first place's report reads"));
+    let first = from.as_ref().unwrap_or(&report);
+    let station = stations::report_station(first, Some(8));
+    let mut shot = Shot::open(&store, &mut gpu, &station);
+    shot.apply_report(first);
+    shot.poll(&mut gpu);
+    if let Some(path) = env("DERETH_ART_PACK").map(std::path::PathBuf::from) {
+        let pack = Arc::new(dereth_scene::art_pack::ArtPack::open_path(&path).expect("the pack"));
+        let folder = path.is_dir().then(|| path.clone());
+        shot.scene.draw.set_remaster_pack(Some(pack), folder);
+    }
+    shot.scene.draw.cfg.render.fidelity =
+        FidelityPreferences::parse_switch(&boxes).expect("the boxes read");
+    shot.poll(&mut gpu);
+    let frames = env("DERETH_PLACE_FRAMES")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(60);
+    if from.is_some() {
+        shot.step_held(&mut gpu);
+        shot.scene.wait_for_remaster_ground();
+        for _ in 0..frames {
+            shot.step_held(&mut gpu);
+        }
+        shot.apply_report(&report);
+    }
+    let hex = |v: &str| u32::from_str_radix(v.trim().trim_start_matches("0x"), 16).expect("hex");
+    for (i, c) in env("DERETH_PLACE_CREATURES")
+        .unwrap_or_default()
+        .split(';')
+        .filter(|s| !s.trim().is_empty())
+        .enumerate()
+    {
+        let mut it = c.split(':');
+        let (setup, cell) = (
+            hex(it.next().expect("setup")),
+            hex(it.next().expect("cell")),
+        );
+        let n: Vec<f32> = it
+            .next()
+            .expect("where")
+            .split(',')
+            .map(|v| v.trim().parse().expect("a number"))
+            .collect();
+        shot.create_object_in_state(
+            0x8300_0A00 + u32::try_from(i).unwrap_or(0),
+            setup,
+            cell,
+            dereth_primitives::Vec3::new(n[0], n[1], n[2]),
+            n[3],
+            it.next().map_or(0, hex),
+        );
+    }
+    shot.step_held(&mut gpu);
+    shot.scene.wait_for_remaster_ground();
+    for _ in 0..frames {
+        shot.step_held(&mut gpu);
+    }
+    // A trip away and back: to each place of `DERETH_PLACE_TRIP` in turn, then back here.
+    if let Some(trip) = env("DERETH_PLACE_TRIP") {
+        let tag = env("DERETH_PLACE_TAG").unwrap_or_else(|| "place".to_owned());
+        if let Some(dir) = env("DERETH_REMASTER_CAPTURE_DIR").map(std::path::PathBuf::from) {
+            let before = capture(&mut gpu);
+            stations::write_png(
+                &dir.join(format!("{tag}-before.png")),
+                size.0,
+                size.1,
+                &before,
+            );
+        }
+        for line in trip.split('|') {
+            let away = VisualReport::parse(line).expect("a trip's report reads");
+            shot.apply_report(&away);
+            shot.step(&mut gpu);
+            shot.scene.wait_for_remaster_ground();
+            for _ in 0..frames {
+                shot.step(&mut gpu);
+            }
+        }
+        shot.apply_report(&report);
+        shot.step(&mut gpu);
+        shot.scene.wait_for_remaster_ground();
+        for _ in 0..frames {
+            shot.step_held(&mut gpu);
+        }
+    }
+    let rgba = capture(&mut gpu);
+    let magenta = rgba
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|p| {
+            let (r, g, b) = (i32::from(p[0]), i32::from(p[1]), i32::from(p[2]));
+            r > g + 25 && b > g + 25
+        })
+        .count();
+    if let Some(l) = shot.scene.draw.remaster_lamp_capture(&mut gpu) {
+        if let Some(dir) = env("DERETH_REMASTER_CAPTURE_DIR").map(std::path::PathBuf::from) {
+            let tag = env("DERETH_PLACE_TAG").unwrap_or_else(|| "place".to_owned());
+            write_light(&dir.join(format!("{tag}-light.png")), &l);
+        }
+        // The lamps' light at the magenta pixels, where the world is drawn at the frame's size.
+        if l.width == size.0 && l.height == size.1 {
+            let (mut sum, mut n) = ([0.0f64; 4], 0usize);
+            for (p, light) in rgba.as_chunks::<4>().0.iter().zip(&l.light) {
+                let (r, g, b) = (i32::from(p[0]), i32::from(p[1]), i32::from(p[2]));
+                if r > g + 25 && b > g + 25 {
+                    for (s, v) in sum.iter_mut().zip(light) {
+                        *s += f64::from(*v);
+                    }
+                    n += 1;
+                }
+            }
+            #[allow(clippy::cast_precision_loss)] // a pixel count
+            let n = n.max(1) as f64;
+            println!(
+                "  the lamps' light at the magenta pixels {:.3} {:.3} {:.3}, alpha {:.2}",
+                sum[0] / n,
+                sum[1] / n,
+                sum[2] / n,
+                sum[3] / n
+            );
+        }
+        let mut kinds: Vec<String> = l
+            .places
+            .iter()
+            .zip(&l.strengths)
+            .map(|((at, c, burned), (indoor, reach, s))| {
+                format!(
+                    "{} {} at ({:.1},{:.1},{:.1}) color ({:.2},{:.2},{:.2}) reach {reach:.1} strength {:.1}",
+                    if *indoor { "indoor" } else { "outdoor" },
+                    if *burned { "static" } else { "moving" },
+                    at[0],
+                    at[1],
+                    at[2],
+                    c[0],
+                    c[1],
+                    c[2],
+                    s[0].max(s[2])
+                )
+            })
+            .collect();
+        kinds.sort();
+        for k in kinds {
+            println!("  {k}");
+        }
+    }
+    let tag = env("DERETH_PLACE_TAG").unwrap_or_else(|| "place".to_owned());
+    println!(
+        "{tag}: {magenta} magenta pixels, upscaled by {}",
+        dereth_scene::world_scene::remaster_upscaler_drawn()
+    );
+    if let Some(dir) = env("DERETH_REMASTER_CAPTURE_DIR").map(std::path::PathBuf::from) {
+        stations::write_png(&dir.join(format!("{tag}.png")), size.0, size.1, &rgba);
     }
 }

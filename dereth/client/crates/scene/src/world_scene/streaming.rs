@@ -253,6 +253,7 @@ impl SceneDraw {
             light_pools: LightPools::new(0.0),
             viewer_light: true,
             static_pool_key: None,
+            light_cells: None,
             character_parts: Vec::new(),
             character_part_levels: Vec::new(),
             character_part_draw_pos: Vec::new(),

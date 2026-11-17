@@ -1307,6 +1307,10 @@ pub struct SceneDraw {
     /// the cell did, so a new resident block is a rebuild too (a superset of retail's
     /// rebuilds).
     static_pool_key: Option<(u32, Vec<(i32, i32)>)>,
+    /// The cells whose light records the two pools take, as the client's visible-cell table
+    /// holds them for the player's cell ([`Self::light_cells`]); `None` takes every cell's.
+    /// Built with the static pool.
+    light_cells: Option<BTreeSet<u32>>,
     /// `character_parts[i]` draws `part_array.parts[i]`. Built once: nothing here
     /// swaps a part's `gfxobj_id`, because that is `ObjDesc` and comes from the server.
     character_parts: Vec<PartLevels>,

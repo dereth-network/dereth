@@ -455,10 +455,18 @@ impl Renderer {
         bytes += self
             .scene
             .write_frame_items(&mut self.gfx, first, &drawn.particle_items)?;
+        // The keys the rooms' walls carry, by their cells' ids, for the lamps that keep to rooms.
+        let room_keys: std::collections::BTreeMap<u32, u32> = self
+            .scene
+            .blocks
+            .values()
+            .flat_map(|b| b.rooms.iter().map(|r| (r.id, r.key)))
+            .collect();
         let lamps = self.lamps.prepare(
             &mut self.gfx,
             &super::lamps::LampInputs {
                 frame: &frame,
+                room_keys: &room_keys,
                 targets: &targets,
                 linear: post.is_some(),
             },

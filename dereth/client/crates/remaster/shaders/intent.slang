@@ -231,12 +231,12 @@ float3 whitened(float3 lamps, float glow)
     return lerp(lamps, float3(max(lamps.r, max(lamps.g, lamps.b))), glow * LAMP_WHITE);
 }
 
-// What the lamps add to a surface whose own light, retail's before the sun, is `own`: as much as
-// retail's clamp leaves room for, so a lamp lights a surface as brightly as retail's light can and
-// no brighter.
+// What the lamps add to a surface whose own light, retail's before the sun, is `own`: within
+// retail's clamp, so a lamp lights a surface no brighter than retail's light can, nearing it ever
+// slower with no corner where the light reaches it.
 float3 lamps_onto(float3 own, Masks m)
 {
-    return saturate(own + whitened(m.lamps, m.lamp_glow)) - saturate(own);
+    return lamp_shoulder(own + whitened(m.lamps, m.lamp_glow)) - lamp_shoulder(own);
 }
 
 // The light the pixel takes. With the masks at their identity it is retail's own sum, written as
@@ -292,9 +292,10 @@ public float3 compose(Terms t, Masks m)
                      + (t.burn + t.lights) * (1.0 - m.lamps_replace);
         return (saturate(own) + lamps_onto(own, m) + t.sun_color * facing + gi) * glow;
     }
-    return saturate((t.emissive + t.ambient * m.ambient_visibility + t.sun_color * facing
-                     + (t.burn + t.lights) * (1.0 - m.lamps_replace) + m.lamps + gi)
-                    * glow);
+    float3 own = t.emissive + t.ambient * m.ambient_visibility
+                 + (t.burn + t.lights) * (1.0 - m.lamps_replace);
+    float3 lamps = lamp_shoulder(own + m.lamps) - lamp_shoulder(own);
+    return saturate((own + lamps + t.sun_color * facing + gi) * glow);
 }
 
 // The color the resolve leaves for a surface of own color `albedo` under light `light`, fogged by
