@@ -1302,3 +1302,62 @@ fn a_kills_points_are_shared_by_harm_and_scaled_by_the_points_between() {
     assert_eq!((points_of(&h, ida), points_of(&h, idc)), (1140, 1959));
     assert!(h.server.players[&wc].harmed_by.is_empty());
 }
+
+/// Give a player a perk of a kind at a value (its own made-up skill).
+fn holds_perk(h: &mut Harness, me: u64, kind: u32, value: f64) {
+    let skill = 9_000 + kind;
+    h.server.skill_table.skills.insert(
+        skill,
+        yalain_world::skills::SkillDef {
+            id: skill,
+            perk: Some(yalain_world::skills::Perk {
+                kind,
+                value,
+                priority: 1,
+            }),
+            ..yalain_world::skills::SkillDef::default()
+        },
+    );
+    with_player(h, me, |p| {
+        p.play.skills.push(yalain_world::state::SkillState {
+            skill,
+            granted: 0,
+            mask: 0x1,
+            cost: 0,
+            children: 0,
+            dependents: 0,
+            spent: 0,
+        });
+    });
+}
+
+/// Between players of two kingdoms, the attacker's Kingdom Soldier makes its hit more and the
+/// target's Kingdom Guard less: a hit of 300 (no armor) takes 100, 103 with the top Soldier, 97 with
+/// the top Guard as well; nothing changes when either is neutral or both are of one kingdom.
+/// Behaviour: server.perks.kingdom-soldier-and-guard
+#[test]
+fn kingdom_soldier_and_guard_change_hits_between_players_of_two_kingdoms() {
+    let (mut h, (_, ida), (_, idb)) = two_players(Conflict::FreeForAll);
+    let (wa, wb) = (conn(&h, ida), conn(&h, idb));
+    let hit = |h: &Harness| yalain_world::pvp::hit(&h.server, wa, wb, 300);
+    assert_eq!(hit(&h), 100);
+    holds_perk(&mut h, ida, 21, 1.03);
+    assert_eq!(hit(&h), 103);
+    holds_perk(&mut h, idb, 22, 0.94);
+    assert_eq!(hit(&h), 97);
+    with_player(&mut h, idb, |p| {
+        kingdoms::set_kingdom(&mut p.qualities, kingdom::NEUTRAL);
+    });
+    assert_eq!(hit(&h), 100, "a neutral target");
+    with_player(&mut h, idb, |p| {
+        kingdoms::set_kingdom(&mut p.qualities, kingdom::SHADOW);
+    });
+    assert_eq!(hit(&h), 100, "one kingdom");
+    with_player(&mut h, idb, |p| {
+        kingdoms::set_kingdom(&mut p.qualities, kingdom::ORDER);
+    });
+    with_player(&mut h, ida, |p| {
+        kingdoms::set_kingdom(&mut p.qualities, kingdom::NEUTRAL);
+    });
+    assert_eq!(hit(&h), 100, "a neutral attacker");
+}

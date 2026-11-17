@@ -44,7 +44,8 @@ pub fn third(amount: i32) -> i32 {
 }
 
 /// What a hit of `raw` (before armor) by one player takes off another: the target's armor against
-/// the attacker off, at least one point left, a third of it.
+/// the attacker off, at least one point left, a third of it; then the two players' kingdom perks
+/// ([`crate::combat_perks::between_kingdoms`]).
 #[must_use]
 pub fn hit<S: Store>(s: &Server<S>, attacker: ConnId, target: ConnId, raw: i32) -> i32 {
     if raw <= 0 {
@@ -53,7 +54,11 @@ pub fn hit<S: Store>(s: &Server<S>, attacker: ConnId, target: ConnId, raw: i32) 
     let from = s.players.get(&attacker).map(|p| p.position);
     let armor = crate::combat::armor_against(s, target, from.as_ref());
     let left = dereth_primitives::num::to_i32((raw as f32 - armor).round()).max(1);
-    third(left)
+    let by = match (s.players.get(&attacker), s.players.get(&target)) {
+        (Some(a), Some(t)) => crate::combat_perks::between_kingdoms(s, a, t),
+        _ => 1.0,
+    };
+    dereth_primitives::num::to_i32_f64((f64::from(third(left)) * by).round()).max(1)
 }
 
 /// A player lost `lost` of a vital to another player.

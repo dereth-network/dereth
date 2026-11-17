@@ -7,6 +7,9 @@
 //! - **Hunter** of a creature category: accuracy against creatures of it (+15, 30, 50);
 //! - **Defense Against** a creature category: evasion against creatures of it (+15, 30, 50);
 //! - **Dungeon Crawler, Plains Walker:** evasion indoors, outdoors (+20, 35, 50);
+//! - **Kingdom Soldier, Kingdom Guard:** the damage it does to a player of another kingdom (×1.01 to
+//!   ×1.03), the damage it takes from one (×0.98 to ×0.94); nothing for a neutral player, or
+//!   between two of one kingdom (the Hero guide);
 //! - **Deadly Precision:** the chance of a critical (+0.5%, 1%, 1.5%);
 //! - **Fortitude:** heals of health it receives (+4% to +24%);
 //! - **Imposing Facade, Unimposing Facade:** the share of the damage it does that creatures notice
@@ -46,6 +49,8 @@ pub mod kind {
     pub const COMMANDING_PRESENCE: u32 = 13;
     pub const AGGRESSIVE_DEMEANOR: u32 = 14;
     pub const NURTURING_DEMEANOR: u32 = 15;
+    pub const KINGDOM_SOLDIER: u32 = 21;
+    pub const KINGDOM_GUARD: u32 = 22;
     pub const DEADLY_PRECISION: u32 = 23;
     pub const FORTITUDE: u32 = 24;
     pub const IMPOSING_FACADE: u32 = 25;
@@ -157,4 +162,21 @@ pub fn pet_damage<S: Store>(s: &Server<S>, p: &Player) -> f64 {
 #[must_use]
 pub fn pet_health<S: Store>(s: &Server<S>, p: &Player) -> f64 {
     perk(s, p, kind::NURTURING_DEMEANOR).unwrap_or(1.0)
+}
+
+/// What a hit of one player on another is multiplied by: the attacker's Kingdom Soldier and the
+/// target's Kingdom Guard, when the two are of different kingdoms and neither is neutral (one in
+/// no kingdom counts as neutral); one otherwise.
+#[must_use]
+pub fn between_kingdoms<S: Store>(s: &Server<S>, attacker: &Player, target: &Player) -> f64 {
+    use crate::kingdoms::{counted_of, kingdom};
+    let (a, t) = (
+        counted_of(&attacker.qualities),
+        counted_of(&target.qualities),
+    );
+    if a == t || a == kingdom::NEUTRAL || t == kingdom::NEUTRAL {
+        return 1.0;
+    }
+    perk(s, attacker, kind::KINGDOM_SOLDIER).unwrap_or(1.0)
+        * perk(s, target, kind::KINGDOM_GUARD).unwrap_or(1.0)
 }

@@ -11549,6 +11549,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.perks.kingdom-soldier-and-guard",
+        says: "Between players of two kingdoms, neither neutral, the attacker's Kingdom Soldier makes its \
+               hits more and the target's Kingdom Guard less, by the values their perks' ranks hold.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HERO-PERKS-KINGDOM"),
+        station: "yalain-testkit::cpu::play::player_fights::kingdom_soldier_and_guard_change_hits_between_players_of_two_kingdoms",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.perks.pets-by-demeanor-and-presence",
         says: "A hero's Demeanors make its pets' greatest health or damage more by their value, and its \
                Commanding Presence lets an attack order send them that many meters farther.",
