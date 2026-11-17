@@ -3,6 +3,7 @@
 //! Transcribed from the client's own plane code, plus the plane constructor, the
 //! snap-to-plane step, the height setter and the time-of-intersection solve.
 
+use dereth_primitives::shape::PlaneArithmetic;
 use dereth_primitives::{Position, Vec3};
 
 use crate::geom::sphere::Ray;
@@ -35,7 +36,12 @@ pub trait PlaneExt {
     /// The original computes it as `-(v.x*N.x + v.y*N.y + d)/N.z - (-d)/N.z`, which is the
     /// direction-only form: the two `d/N.z` terms cancel, leaving `-(v.x*N.x + v.y*N.y)/N.z`.
     /// It is written out here in the original's shape because the two divisions round separately.
+    /// This is the first game's, worked as [`PlaneArithmetic::Double`].
     fn snap_to_plane(&self, v: &mut Vec3);
+
+    /// [`Self::snap_to_plane`] worked in `arithmetic`: in double precision, the reciprocal too,
+    /// and rounded to single once; or in single precision at every step.
+    fn snap_to_plane_in(&self, v: &mut Vec3, arithmetic: PlaneArithmetic);
 
     /// Solve the plane for Z at `(p.x, p.y)`. Returns `false`
     /// (leaving `p` untouched) for a near-vertical plane.
@@ -49,9 +55,17 @@ pub trait PlaneExt {
     /// Express a plane given in `from`'s frame in `at`'s.
     ///
     /// Note the original rebuilds `d` from the transformed point `-d * N`, not by transforming
-    /// `d` directly; the two differ once the frames have different origins.
+    /// `d` directly; the two differ once the frames have different origins. This is the first
+    /// game's, worked as [`PlaneArithmetic::Double`].
     #[must_use]
     fn localtoglobal(&self, at: &Position, from: &Position) -> Self;
+
+    /// [`Self::localtoglobal`] worked in `arithmetic`: in double precision with `from`'s
+    /// matrix as the client keeps it ([`math::l2g_wide`]), each part of the normal, the point
+    /// and `d` rounded to single once; or in single precision at every step.
+    #[must_use]
+    fn localtoglobal_in(&self, at: &Position, from: &Position, arithmetic: PlaneArithmetic)
+        -> Self;
 
     /// The eight corners against the plane with a `2e-4`
     /// band; any disagreement is `CROSSING`.
@@ -74,17 +88,44 @@ impl PlaneExt for Plane {
     }
 
     fn snap_to_plane(&self, v: &mut Vec3) {
-        if self.normal.z.abs() > EPSILON {
+        self.snap_to_plane_in(v, PlaneArithmetic::Double);
+    }
+
+    fn snap_to_plane_in(&self, v: &mut Vec3, arithmetic: PlaneArithmetic) {
+        if self.normal.z.abs() <= EPSILON {
+            return;
+        }
+        if arithmetic == PlaneArithmetic::Single {
             let inv = 1.0 / self.normal.z;
             v.z = 0.0;
             v.z = -(self.normal.z * 0.0 + v.x * self.normal.x + v.y * self.normal.y + self.d) * inv
                 - -self.d * inv;
+            return;
+        }
+        let (nx, ny, nz) = (
+            f64::from(self.normal.x),
+            f64::from(self.normal.y),
+            f64::from(self.normal.z),
+        );
+        let d = f64::from(self.d);
+        let inv = 1.0 / nz;
+        let sum = ((f64::from(v.y) * ny + f64::from(v.x) * nx) + nz * 0.0) + d;
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            v.z = (-sum * inv - -d * inv) as f32;
         }
     }
 
     fn set_height(&self, p: &mut Vec3) -> bool {
         if self.normal.z.abs() > EPSILON {
-            p.z = -((p.x * self.normal.x + p.y * self.normal.y + self.d) / self.normal.z);
+            // Worked in double precision and rounded once.
+            let n = self.normal;
+            let sum = (f64::from(p.y) * f64::from(n.y) + f64::from(p.x) * f64::from(n.x))
+                + f64::from(self.d);
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                p.z = (-(sum / f64::from(n.z))) as f32;
+            }
             true
         } else {
             false
@@ -105,13 +146,50 @@ impl PlaneExt for Plane {
     }
 
     fn localtoglobal(&self, at: &Position, from: &Position) -> Self {
+        self.localtoglobal_in(at, from, PlaneArithmetic::Double)
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn localtoglobal_in(
+        &self,
+        at: &Position,
+        from: &Position,
+        arithmetic: PlaneArithmetic,
+    ) -> Self {
         let point = self.normal.mul(-self.d);
-        let m = math::l2g(from.frame.rotation);
-        let normal = math::localtoglobalvec(m, self.normal);
-        let p = math::pos_localtoglobal(at, from, point);
+        if arithmetic == PlaneArithmetic::Single {
+            let m = math::l2g(from.frame.rotation);
+            let normal = math::localtoglobalvec(m, self.normal);
+            let p = math::pos_localtoglobal(at, from, point);
+            return Self {
+                normal,
+                d: -(normal.x * p.x + normal.y * p.y + normal.z * p.z),
+            };
+        }
+        let m = math::l2g_wide(from.frame.rotation).0.map(f64::from);
+        let n = self.normal;
+        let (nx, ny, nz) = (f64::from(n.x), f64::from(n.y), f64::from(n.z));
+        let normal = Vec3::new(
+            ((m[6] * nz + m[3] * ny) + m[0] * nx) as f32,
+            ((m[7] * nz + m[4] * ny) + m[1] * nx) as f32,
+            ((m[8] * nz + m[5] * ny) + m[2] * nx) as f32,
+        );
+        let (px, py, pz) = (f64::from(point.x), f64::from(point.y), f64::from(point.z));
+        let o = from.frame.origin;
+        let turned = Vec3::new(
+            (((m[3] * py + m[0] * px) + m[6] * pz) + f64::from(o.x)) as f32,
+            (((m[4] * py + m[1] * px) + m[7] * pz) + f64::from(o.y)) as f32,
+            (((m[5] * py + m[2] * px) + m[8] * pz) + f64::from(o.z)) as f32,
+        );
+        let p = crate::landdefs::get_block_offset(at.cell, from.cell).add(turned);
+        let (gx, gy, gz) = (
+            f64::from(normal.x),
+            f64::from(normal.y),
+            f64::from(normal.z),
+        );
         Self {
             normal,
-            d: -(normal.x * p.x + normal.y * p.y + normal.z * p.z),
+            d: (-((gz * f64::from(p.z) + gy * f64::from(p.y)) + gx * f64::from(p.x))) as f32,
         }
     }
 
@@ -193,6 +271,27 @@ mod tests {
     }
 
     #[test]
+    fn set_height_is_worked_in_double_precision_and_rounded_once() {
+        // The 48 degree slope's plane: worked in single precision, the height lands one unit in
+        // the last place lower (0x42ed_4e1d).
+        let plane = Plane {
+            normal: Vec3::new(
+                f32::from_bits(0xbf39_7652),
+                f32::from_bits(0xbe2b_3224),
+                f32::from_bits(0x3f2b_3224),
+            ),
+            d: f32::from_bits(0xc245_f1fa),
+        };
+        let mut p = Vec3::new(
+            f32::from_bits(0x3f93_3f32),
+            f32::from_bits(0x432d_a017),
+            0.0,
+        );
+        assert!(plane.set_height(&mut p));
+        assert_eq!(p.z.to_bits(), 0x42ed_4e1e, "{p:?}");
+    }
+
+    #[test]
     fn snap_to_plane_makes_the_vector_parallel_to_the_plane() {
         // 45-degree ramp again; a purely horizontal +X movement must gain +X worth of Z.
         let inv = 1.0 / 2.0_f32.sqrt();
@@ -212,6 +311,28 @@ mod tests {
             "{}",
             plane.dot_point(on)
         );
+    }
+
+    #[test]
+    fn snap_to_plane_is_worked_in_double_precision_and_rounded_once() {
+        // A sled's step on a 9 degree slope far from the origin: the two terms in `d` cancel,
+        // and worked in single precision what is left of them is off in its fifth digit
+        // (0x3c2b_c000).
+        let plane = Plane {
+            normal: Vec3::new(
+                0.0,
+                f32::from_bits(0x3e28_5835),
+                f32::from_bits(0x3f7c_8450),
+            ),
+            d: f32::from_bits(0xc2bd_633c),
+        };
+        let mut v = Vec3::new(
+            f32::from_bits(0x3e2a_26b0),
+            f32::from_bits(0xbd80_cfd3),
+            0.0,
+        );
+        plane.snap_to_plane(&mut v);
+        assert_eq!(v.z.to_bits(), 0x3c2b_bfc4, "{v:?}");
     }
 
     #[test]

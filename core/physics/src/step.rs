@@ -923,11 +923,10 @@ impl PhysicsWorld {
                             }
                         }
                         Some(t) => {
-                            let achieved = math::get_offset(&from, &t.sphere_path.curr_pos);
-                            #[allow(clippy::cast_possible_truncation)]
-                            let inv = (1.0 / quantum) as f32;
+                            let achieved =
+                                math::achieved_velocity(&from, &t.sphere_path.curr_pos, quantum);
                             if let Some(o) = self.objects.get_mut(h) {
-                                o.cached_velocity = achieved.mul(inv);
+                                o.cached_velocity = achieved;
                             }
                             self.set_position_internal(h, &t);
                         }
@@ -1026,7 +1025,7 @@ impl PhysicsWorld {
         if let Some(m) = o.motion.as_mut() {
             m.adjust_position_offset(&mut offset, quantum);
         }
-        *out = math::combine(&o.position.frame, &offset);
+        *out = math::combine_wide(&o.position.frame, &offset);
         if !hidden {
             o.update_physics_internal(quantum, out);
         }
@@ -1715,13 +1714,27 @@ impl PhysicsWorld {
                 if o.state.is_inelastic() {
                     o.velocity_vector = Vec3::ZERO;
                 } else {
-                    let d = ci.collision_normal.dot(o.velocity_vector);
+                    let n = ci.collision_normal;
+                    let (nx, ny, nz) = (f64::from(n.x), f64::from(n.y), f64::from(n.z));
+                    let v = o.velocity_vector;
+                    let (vx, vy, vz) = (f64::from(v.x), f64::from(v.y), f64::from(v.z));
+                    let d = (vz * nz + vy * ny) + nx * vx;
                     if d < 0.0 {
                         // v' = v - (1 + e) * (v . n) * n; with the default e = 0.05 this removes
-                        // 105% of the into-surface component, a very slight bounce.
-                        o.velocity_vector = o
-                            .velocity_vector
-                            .add(ci.collision_normal.mul(-(elasticity + 1.0) * d));
+                        // 105% of the into-surface component, a very slight bounce. The client
+                        // works it in double precision and keeps the push as a float only along
+                        // y and z, and the speed it lands with depends on it to the last bit.
+                        let k = -(d * (f64::from(elasticity) + 1.0));
+                        #[allow(clippy::cast_possible_truncation)]
+                        let kept = |x: f64| f64::from(x as f32);
+                        #[allow(clippy::cast_possible_truncation)]
+                        {
+                            o.velocity_vector = Vec3::new(
+                                (k * nx + vx) as f32,
+                                (kept(k * ny) + vy) as f32,
+                                (kept(k * nz) + vz) as f32,
+                            );
+                        }
                     }
                 }
             }

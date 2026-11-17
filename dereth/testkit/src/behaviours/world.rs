@@ -1093,6 +1093,33 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "physics.motion.a-body-walking-on-level-ground-moves-as-the-clients",
+        says: "A body walking on level ground ends every step exactly where the original client's \
+               does, to the last digit, even right beside the corner where four landblocks meet.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-PHYSICS-TRACES-CROSS-LANDBLOCK-BOUNDARY-DIAGONALLY"),
+        station: "dereth-physics::cpu::motion::client_steps::a_body_walking_from_a_landblock_corner_moves_as_the_clients_to_the_last_bit",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "physics.motion.a-body-walking-straight-keeps-the-clients-facing",
+        says: "A body walking straight on keeps exactly the original client's facing, to the last \
+               digit, step after step.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-PHYSICS-TRACES-SWIM-INTO-DEEP-SEA"),
+        station: "dereth-physics::cpu::motion::client_steps::a_body_walking_straight_keeps_the_clients_facing_to_the_last_bit",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "physics.motion.a-bodys-achieved-velocity-is-the-clients",
+        says: "The speed a body is seen to have moved at over a step is exactly the original \
+               client's, to the last digit.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-PHYSICS-TRACES-SAME-WALK-AT-250FPS"),
+        station: "dereth-physics::cpu::motion::client_steps::a_bodys_achieved_velocity_is_the_clients_to_the_last_bit",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "physics.motion.setting-spin-does-not-wake-a-sleeping-body",
         says: "Giving a resting body a spin does not wake it: over a whole simulated second it \
                neither turns nor moves, even with a velocity loaded, until something else wakes \
@@ -1122,6 +1149,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "physics.polygons.an-interior-floors-plane-in-the-world-is-the-clients",
+        says: "A dungeon floor's surface, a ramp's included, sits in the world exactly where the \
+               original client puts it: its tilt and its height match to the last digit.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-PHYSICS-TRACES-WALK-FROM-OUTDOORS-INTO-DUNGEON"),
+        station: "dereth-physics::cpu::geometry::planes::an_interior_floors_plane_in_the_world_is_the_clients_to_the_last_bit",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "physics.sledding.a-body-set-sledding-where-it-stands-faces-north",
         says: "A body set sledding while it stands on a slope faces north as it starts to creep \
                down, whichever way it faced before, and faces the way it slides once something \
@@ -1129,6 +1165,24 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-PHYSICS-TRACES-SLED-FROM-STANDING-9-DEGREE-SLOPE"),
         station: "dereth-physics::cpu::motion::sledding::a_body_set_sledding_where_it_stands_on_a_slope_faces_north_until_pushed",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "physics.sledding.a-sled-flies-lands-and-slides-as-the-clients",
+        says: "A sled pushed off a slope flies, lands with a slight bounce and slides on exactly \
+               as the original client's does, its place and its speed matching to the last digit.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-PHYSICS-TRACES-SLED-FROM-STANDING-11-DEGREE-SLOPE"),
+        station: "dereth-physics::cpu::motion::client_steps::a_pushed_sled_flies_lands_and_slides_as_the_clients_to_the_last_bit",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "physics.slope.a-body-walking-up-a-steep-slope-stands-at-the-clients-height",
+        says: "A body walking up even a steep slope stands at exactly the original client's height \
+               at every step, to the last digit.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-PHYSICS-TRACES-WALK-UP-48-DEGREE-SLOPE-HEIGHT"),
+        station: "dereth-physics::cpu::motion::client_steps::a_body_walking_up_a_steep_slope_stands_at_the_clients_height_to_the_last_bit",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -5,6 +5,7 @@
 //! The attempt budgets are **3 / 5 / 1 exactly** and they are what bounds the
 //! work: every `TransitionState` except `Ok` means "retry".
 
+use dereth_primitives::shape::PlaneArithmetic;
 use dereth_primitives::{CellId, Vec3};
 
 use crate::cell::{Cell, CellArray};
@@ -60,8 +61,109 @@ pub fn calc_num_steps(t: &Transition) -> (Vec3, Vec3, u32) {
 
 /// What makes a character slide along walls and floors
 /// instead of stopping.
+///
+/// Worked in the world's [`super::TransitionRules::plane_arithmetic`]. The first game's client
+/// works every sum here in double precision and keeps a float only where noted, and a body's
+/// height on a slope depends on it to the last bit.
 #[must_use]
 pub fn adjust_offset(t: &mut Transition, offset: Vec3) -> Vec3 {
+    match t.rules.plane_arithmetic {
+        PlaneArithmetic::Double => adjust_offset_double(t, offset),
+        PlaneArithmetic::Single => adjust_offset_single(t, offset),
+    }
+}
+
+#[allow(clippy::cast_possible_truncation)]
+fn adjust_offset_double(t: &mut Transition, offset: Vec3) -> Vec3 {
+    let wide = |a: Vec3| (f64::from(a.x), f64::from(a.y), f64::from(a.z));
+    let kept = |x: f64| f64::from(x as f32);
+    let mut v = offset;
+    let (x, y, z) = wide(v);
+    let mut sliding = false;
+    if t.collision_info.sliding_normal_valid {
+        let (sx, sy, sz) = wide(t.collision_info.sliding_normal);
+        if (z * sz + y * sy) + x * sx < 0.0 {
+            sliding = true;
+        } else {
+            // Moving away from the wall: forget it.
+            t.collision_info.sliding_normal_valid = false;
+        }
+    }
+
+    if !t.collision_info.contact_plane_valid {
+        if sliding {
+            // Kept as floats: the parts of the push along y and z.
+            let (sx, sy, sz) = wide(t.collision_info.sliding_normal);
+            let along = (x * sx + z * sz) + y * sy;
+            v = Vec3::new(
+                (x - along * sx) as f32,
+                (y - kept(along * sy)) as f32,
+                (z - kept(along * sz)) as f32,
+            );
+        }
+    } else {
+        let plane = t.collision_info.contact_plane;
+        let (nx, ny, nz) = wide(plane.normal);
+        // Kept as a float.
+        let d = ((z * nz + y * ny) + x * nx) as f32;
+        if sliding {
+            // The wall/floor intersection line, kept as floats and normalised.
+            let (sx, sy, sz) = wide(t.collision_info.sliding_normal);
+            let mut axis = Vec3::new(
+                (sz * ny - sy * nz) as f32,
+                (sx * nz - sz * nx) as f32,
+                (sy * nx - sx * ny) as f32,
+            );
+            if math::normalize_check_small_wide(&mut axis) {
+                // Degenerate crease: stop.
+                v = Vec3::ZERO;
+            } else {
+                let (ax, ay, az) = wide(axis);
+                let along = (az * z + ay * y) + ax * x;
+                v = Vec3::new(
+                    (ax * along) as f32,
+                    (ay * along) as f32,
+                    (az * along) as f32,
+                );
+            }
+        } else if d <= 0.0 {
+            // Kept as a float: the part of the push along z.
+            let d = f64::from(d);
+            v = Vec3::new(
+                (x - d * nx) as f32,
+                (y - d * ny) as f32,
+                (z - kept(d * nz)) as f32,
+            );
+        } else {
+            plane.snap_to_plane(&mut v);
+        }
+
+        // Keep the sphere from sinking into a non-water contact plane.
+        if !t.collision_info.contact_plane_is_water && t.collision_info.contact_plane_cell_id.0 != 0
+        {
+            let off = t.rules.block_offset(
+                t.sphere_path.check_pos.cell,
+                t.collision_info.contact_plane_cell_id,
+            );
+            let s = t.sphere_path.global_sphere[0];
+            let (cx, cy, cz) = wide(s.center);
+            let (ox, oy, oz) = wide(off);
+            let dist = (((cz - oz) * nz + (cy - oy) * ny) + (cx - ox) * nx) + f64::from(plane.d);
+            let r = f64::from(s.radius);
+            if dist < r - f64::from(EPSILON) {
+                let dz = (r - dist) / nz;
+                if dz.abs() < r {
+                    t.sphere_path
+                        .add_offset_to_check_pos(Vec3::new(0.0, 0.0, dz as f32));
+                }
+            }
+        }
+    }
+    v
+}
+
+/// [`adjust_offset`] in single precision at every step.
+fn adjust_offset_single(t: &mut Transition, offset: Vec3) -> Vec3 {
     let mut v = offset;
     let mut sliding = false;
     if t.collision_info.sliding_normal_valid {
@@ -93,7 +195,7 @@ pub fn adjust_offset(t: &mut Transition, offset: Vec3) -> Vec3 {
         } else if d <= 0.0 {
             v = v.sub(plane.normal.mul(d));
         } else {
-            plane.snap_to_plane(&mut v);
+            plane.snap_to_plane_in(&mut v, PlaneArithmetic::Single);
         }
 
         // Keep the sphere from sinking into a non-water contact plane.

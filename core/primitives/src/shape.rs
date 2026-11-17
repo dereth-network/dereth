@@ -33,6 +33,18 @@ pub struct CylSphere {
     pub height: f32,
 }
 
+/// How a game works out its planes and the physics over them: building a polygon's plane, and
+/// moving a body along, onto and out of one. The two games' clients differ in the last bit, so
+/// each game chooses its own, once.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PlaneArithmetic {
+    /// The first game's: in double precision, kept as a float only where its client keeps one.
+    #[default]
+    Double,
+    /// Single precision at every step.
+    Single,
+}
+
 /// A plane in the client's form: a normal `N` and the offset `d` such that `N·p + d == 0` on the
 /// plane, so `N·p + d` is the signed distance of `p` when `N` is a unit vector. The dat serialises
 /// the normal, then `d`. The plane is in whatever frame its `d` was computed in.

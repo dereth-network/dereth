@@ -46,6 +46,7 @@ fn other_rules() -> TransitionRules {
         parallel_band: 0.0,
         env_collision_normal_up: true,
         slide: None,
+        plane_arithmetic: dereth_physics::geom::PlaneArithmetic::Single,
     }
 }
 

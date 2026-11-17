@@ -1,10 +1,13 @@
 //! A polygon's plane is the client's to the last bit: the normal and the distance a terrain
-//! triangle gets, which decide the height a body stands at on it.
-//! Fixture: terrain triangles of a 48 degree, an 11 degree and a 9 degree slope, with the planes the
-//! client gives them (as bit patterns).
+//! triangle gets, which decide the height a body stands at on it, and an interior floor's plane
+//! carried into the world.
+//! Fixture: terrain triangles of a 48 degree, an 11 degree and a 9 degree slope, and a dungeon
+//! ramp's two triangles in its room's frame, with the planes the client gives them (as bit
+//! patterns).
 
-use dereth_physics::geom::Polygon;
-use dereth_primitives::Vec3;
+use dereth_physics::geom::{PlaneExt, Polygon};
+use dereth_physics::Plane;
+use dereth_primitives::{CellId, Frame, Position, Quat, Vec3};
 
 /// A plane as `[normal.x, normal.y, normal.z, d]` bit patterns.
 fn bits(p: &Polygon) -> [u32; 4] {
@@ -70,5 +73,62 @@ fn a_terrain_triangles_plane_is_the_clients_to_the_last_bit() {
     ];
     for (what, p, want) in cases {
         assert_eq!(bits(&p), want, "{what}: {:?}", p.plane);
+    }
+}
+
+/// A plane as `[normal.x, normal.y, normal.z, d]` from bit patterns.
+fn plane(b: [u32; 4]) -> Plane {
+    Plane {
+        normal: Vec3::new(
+            f32::from_bits(b[0]),
+            f32::from_bits(b[1]),
+            f32::from_bits(b[2]),
+        ),
+        d: f32::from_bits(b[3]),
+    }
+}
+
+/// The plane of a dungeon ramp, kept in its room's own frame, is the client's in the world to the
+/// last bit: turned by the room's rotation as the client keeps it and moved to the room's place.
+/// Worked in single precision, the normal's smallest part and the distance each land an ulp or
+/// more away.
+///
+/// Behaviour: physics.polygons.an-interior-floors-plane-in-the-world-is-the-clients
+#[test]
+fn an_interior_floors_plane_in_the_world_is_the_clients_to_the_last_bit() {
+    let cell = CellId(0xD756_0100);
+    let turn = f32::from_bits(0xbf35_04f7);
+    let room = Position::new(
+        cell,
+        Frame::new(
+            Vec3::new(108.0, 60.0, 40.0),
+            Quat::new(turn, 0.0, 0.0, turn),
+        ),
+    );
+    let here = Position::new(cell, Frame::default());
+    let cases = [
+        (
+            "the ramp's first triangle",
+            [0x0000_0000, 0x3ee1_d6db, 0x3f65_c00d, 0x3fd6_8c1b],
+            [0xbee1_d6e4, 0xb497_963c, 0x3f65_c00d, 0x4156_a6b4],
+        ),
+        (
+            "the ramp's second triangle",
+            [0xb2c4_61c9, 0x3ee1_d6db, 0x3f65_c00e, 0x3fd6_8c1d],
+            [0xbee1_d6e4, 0xb4a3_dc59, 0x3f65_c00e, 0x4156_a6b3],
+        ),
+    ];
+    for (what, local, world) in cases {
+        let got = plane(local).localtoglobal(&here, &room);
+        assert_eq!(
+            [
+                got.normal.x.to_bits(),
+                got.normal.y.to_bits(),
+                got.normal.z.to_bits(),
+                got.d.to_bits()
+            ],
+            world,
+            "{what}: {got:?}"
+        );
     }
 }

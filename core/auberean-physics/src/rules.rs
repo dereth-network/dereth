@@ -28,7 +28,8 @@ pub const PLACEMENT_RING_FRACTION: f32 = 0.9;
 // D2-04171, D2-04172, D2-04179, D2-04180, D2-04181
 pub const PARALLEL_BAND: f32 = 0.0;
 
-/// How this world works out a polygon's plane: in single precision at every step.
+/// How this world works out a polygon's plane, and moves a body along, onto and out of one: in
+/// single precision at every step.
 pub const PLANE_ARITHMETIC: PlaneArithmetic = PlaneArithmetic::Single;
 
 /// A polygon of this world, its plane worked out in [`PLANE_ARITHMETIC`].
@@ -73,6 +74,8 @@ pub const fn rules() -> TransitionRules {
         // The mover slides by this world's slide, and a physics tree's normal is turned into the
         // world, for its step up and its slide, in double precision.
         slide: Some(SLIDE),
+        // A move is worked along, onto and out of the ground in single precision.
+        plane_arithmetic: PLANE_ARITHMETIC,
     }
 }
 

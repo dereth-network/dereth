@@ -7,6 +7,7 @@
 //! client's own choice of every one of them, so a transition that never sets its rules behaves
 //! exactly as it always has.
 
+use dereth_primitives::shape::PlaneArithmetic;
 use dereth_primitives::{CellId, Frame, Position, Quat, Vec3};
 
 use crate::geom::sphere::Sphere;
@@ -75,6 +76,10 @@ pub struct TransitionRules {
     /// otherwise than this client; when `None`, the shared slide
     /// ([`super::collide::slide_sphere`]).
     pub slide: Option<Slide>,
+    /// How a move is worked along, onto and out of the ground: its projection onto the ground
+    /// it stands on, the lift out of ground it sank into, the drop back onto the land, and a
+    /// plane carried from a cell's frame into the world.
+    pub plane_arithmetic: PlaneArithmetic,
 }
 
 /// A world's own slide: how the mover's sphere slides along a surface it meets, and how a physics
@@ -113,7 +118,7 @@ impl PartialEq for Slide {
 pub enum Turning {
     /// The arc's weights in double precision, a straight blend within `0.0002` of no turn or when
     /// a weight leaves 0 to 1 ([`crate::math::interpolate_rotation`]); a rotation that comes out
-    /// invalid leaves the frame's as it was ([`crate::math::set_rotate`]).
+    /// invalid leaves the frame's as it was ([`crate::math::set_rotate_wide`]).
     #[default]
     Guarded,
     /// The arc's weights in single precision, a straight blend within `0.001` of no turn
@@ -126,7 +131,7 @@ impl Turning {
     /// Set `f`'s rotation to `q`.
     pub fn set_rotate(self, f: &mut Frame, q: Quat) {
         match self {
-            Self::Guarded => crate::math::set_rotate(f, q.w, q.x, q.y, q.z),
+            Self::Guarded => crate::math::set_rotate_wide(f, q.w, q.x, q.y, q.z),
             Self::Plain => crate::math::set_rotate_plain(f, q),
         }
     }
@@ -159,6 +164,7 @@ impl Default for TransitionRules {
             parallel_band: EPSILON,
             env_collision_normal_up: false,
             slide: None,
+            plane_arithmetic: PlaneArithmetic::Double,
         }
     }
 }
@@ -226,6 +232,7 @@ mod tests {
         assert_eq!(r.turning, Turning::Guarded);
         assert_eq!(r.parallel_band.to_bits(), EPSILON.to_bits());
         assert!(r.slide.is_none());
+        assert_eq!(r.plane_arithmetic, PlaneArithmetic::Double);
     }
 
     #[test]

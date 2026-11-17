@@ -8,6 +8,7 @@
 //! Velocity cancellation is the one exception and is deferred through
 //! [`super::Transition::kill_velocity`].
 
+use dereth_primitives::shape::PlaneArithmetic;
 use dereth_primitives::{CellId, Vec3};
 
 use crate::cell::Cell;
@@ -558,11 +559,29 @@ pub fn validate_walkable(
     }
 
     // Normal objects: measure the *bottom* of the sphere against the plane, plus the water depth.
-    let low = sphere.center.sub(Vec3::new(0.0, 0.0, sphere.radius));
-    let d = plane.dot_point(low) + water_depth;
+    // Worked in the world's plane arithmetic. The first game's client works the distance, the
+    // lift and the new interpolation in double precision and keeps the lift and the interpolation
+    // as floats: rounding every step instead puts a body on a slope an ulp higher or lower.
+    let double = t.rules.plane_arithmetic == PlaneArithmetic::Double;
+    let (nx, ny, nz) = (
+        f64::from(plane.normal.x),
+        f64::from(plane.normal.y),
+        f64::from(plane.normal.z),
+    );
+    let c = sphere.center;
+    let d = if double {
+        ((((f64::from(c.z) - f64::from(sphere.radius)) * nz + f64::from(c.y) * ny)
+            + f64::from(c.x) * nx)
+            + f64::from(plane.d))
+            + f64::from(water_depth)
+    } else {
+        let low = c.sub(Vec3::new(0.0, 0.0, sphere.radius));
+        f64::from(plane.dot_point(low) + water_depth)
+    };
+    let eps = f64::from(EPSILON);
 
-    if d >= -EPSILON {
-        if d > EPSILON {
+    if d >= -eps {
+        if d > eps {
             return TransitionState::Ok;
         }
         let walkable = t.rules.is_valid_walkable(plane.normal);
@@ -582,14 +601,19 @@ pub fn validate_walkable(
     if t.sphere_path.check_walkable {
         return TransitionState::Collided;
     }
-    let lift = d / plane.normal.z;
+    #[allow(clippy::cast_possible_truncation)]
+    let lift = if double {
+        (d / nz) as f32
+    } else {
+        (d as f32) / plane.normal.z
+    };
     let walkable = t.rules.is_valid_walkable(plane.normal);
     let mut result = TransitionState::Ok;
     if t.sphere_path.step_down || !t.object_info.has(ObjectInfoState::ON_WALKABLE) || walkable {
         t.collision_info
             .set_contact_plane_on(*plane, is_water, true, false);
         t.collision_info.contact_plane_cell_id = cell_id;
-        if t.sphere_path.step_down {
+        if t.sphere_path.step_down && !double {
             let denom = t.sphere_path.step_down_amt * t.sphere_path.walk_interp;
             // A world that guards a zero drop lowers the sphere without dividing by it.
             let guarded = t.rules.step_down_guards_zero_drop && denom.abs() < EPSILON;
@@ -599,6 +623,22 @@ pub fn validate_walkable(
                     return TransitionState::Collided;
                 }
                 t.sphere_path.walk_interp = interp;
+            }
+        } else if t.sphere_path.step_down {
+            let walk_interp = f64::from(t.sphere_path.walk_interp);
+            let denom = f64::from(t.sphere_path.step_down_amt) * walk_interp;
+            // A world that guards a zero drop lowers the sphere without dividing by it.
+            let guarded = t.rules.step_down_guards_zero_drop && denom.abs() < eps;
+            if !guarded {
+                let interp = (1.0 - (-1.0 / denom) * f64::from(lift)) * walk_interp;
+                // The floor is the double nearest -0.1, not the float.
+                if interp >= walk_interp || interp < -0.1 {
+                    return TransitionState::Collided;
+                }
+                #[allow(clippy::cast_possible_truncation)]
+                {
+                    t.sphere_path.walk_interp = interp as f32;
+                }
             }
         }
         t.sphere_path
@@ -903,7 +943,11 @@ fn bsp_find_collisions_on(
                     let delta = valid.center.sub(local.center).mul(scale);
                     let world_delta = crate::math::localtoglobalvec(m, delta);
                     t.sphere_path.add_offset_to_check_pos(world_delta);
-                    let mut contact = poly.plane.localtoglobal(&t.sphere_path.check_pos, &pos);
+                    let mut contact = poly.plane.localtoglobal_in(
+                        &t.sphere_path.check_pos,
+                        &pos,
+                        t.rules.plane_arithmetic,
+                    );
                     contact.d *= scale;
                     t.collision_info
                         .set_contact_plane_on(contact, false, false, environment);
@@ -916,7 +960,11 @@ fn bsp_find_collisions_on(
                     let world_delta = times(crate::math::localtoglobalvec(m, delta), scale);
                     t.sphere_path.add_offset_to_check_pos(world_delta);
                     let contact = plane_scaled_by(
-                        poly.plane.localtoglobal(&t.sphere_path.check_pos, &pos),
+                        poly.plane.localtoglobal_in(
+                            &t.sphere_path.check_pos,
+                            &pos,
+                            t.rules.plane_arithmetic,
+                        ),
                         inverse,
                     );
                     t.collision_info
@@ -1246,7 +1294,9 @@ fn bsp_step_sphere_down(
     let world_delta = crate::math::localtoglobalvec(crate::math::l2g(pos.frame.rotation), delta);
     t.sphere_path.walk_interp = interp;
     t.sphere_path.add_offset_to_check_pos(world_delta);
-    let mut contact = poly.plane.localtoglobal(&t.sphere_path.check_pos, &pos);
+    let mut contact =
+        poly.plane
+            .localtoglobal_in(&t.sphere_path.check_pos, &pos, t.rules.plane_arithmetic);
     contact.d *= scale;
     t.collision_info
         .set_contact_plane_on(contact, false, false, environment);
@@ -1316,7 +1366,8 @@ fn bsp_step_sphere_down_axes(
     t.sphere_path.walk_interp = interp;
     t.sphere_path.add_offset_to_check_pos(offset);
     let contact = plane_scaled_by(
-        poly.plane.localtoglobal(&t.sphere_path.check_pos, &pos),
+        poly.plane
+            .localtoglobal_in(&t.sphere_path.check_pos, &pos, t.rules.plane_arithmetic),
         inverse,
     );
     t.collision_info

@@ -34,14 +34,121 @@ pub fn within_block(p: Vec3, margin: f32) -> bool {
 
 /// The compass heading of a vector's horizontal part, in **degrees** (0 = +Y, north, increasing
 /// clockwise). The vertical part is dropped first, and a horizontal part too small to normalise
-/// answers 0.
+/// answers 0. The direction is normalised as [`normalize_check_small_wide`] does it.
 #[must_use]
 pub fn flat_heading(v: Vec3) -> f32 {
     let mut flat = Vec3::new(v.x, v.y, 0.0);
-    if flat.normalize_check_small() {
+    if normalize_check_small_wide(&mut flat) {
         return 0.0;
     }
     vector_get_heading(flat)
+}
+
+/// The rotation matrix of `q` as the client keeps it beside every frame: each entry worked in
+/// double precision from the quaternion and rounded to single once. [`l2g`] rounds every step and
+/// can land an entry an ulp away.
+#[must_use]
+#[allow(clippy::cast_possible_truncation)]
+pub fn l2g_wide(q: Quat) -> Mat3 {
+    let (w, x, y, z) = (
+        f64::from(q.w),
+        f64::from(q.x),
+        f64::from(q.y),
+        f64::from(q.z),
+    );
+    let (x2, y2, z2) = (x + x, y + y, z + z);
+    let (wx, wy, wz) = (w * x2, w * y2, w * z2);
+    let (xx, xy, xz) = (x * x2, x * y2, x * z2);
+    let (yy, yz, zz) = (y * y2, y * z2, z * z2);
+    let one_minus_xx = 1.0 - xx;
+    Mat3([
+        ((1.0 - yy) - zz) as f32,
+        (xy + wz) as f32,
+        (xz - wy) as f32,
+        (xy - wz) as f32,
+        (one_minus_xx - zz) as f32,
+        (yz + wx) as f32,
+        (xz + wy) as f32,
+        (yz - wx) as f32,
+        (one_minus_xx - yy) as f32,
+    ])
+}
+
+/// [`set_rotate`] as the client works it: the length in double precision, and each component
+/// multiplied by its reciprocal there and rounded to single once. An invalid result leaves the
+/// rotation as it was.
+#[allow(clippy::cast_possible_truncation)]
+pub fn set_rotate_wide(f: &mut Frame, w: f32, x: f32, y: f32, z: f32) {
+    let old = f.rotation;
+    let (w, x, y, z) = (f64::from(w), f64::from(x), f64::from(y), f64::from(z));
+    let inv = 1.0 / (((w * w + x * x) + y * y) + z * z).sqrt();
+    f.rotation = Quat::new(
+        (w * inv) as f32,
+        (x * inv) as f32,
+        (y * inv) as f32,
+        (z * inv) as f32,
+    );
+    if !frame_is_valid(f) {
+        f.rotation = old;
+    }
+}
+
+/// [`combine`] as the client works it when a body's position takes the sub-step's offset, in
+/// double precision: `b`'s origin turned by `a`'s matrix as the client keeps it ([`l2g_wide`])
+/// and added to `a`'s origin, rounded to single once; the rotations' product rounded to single
+/// once and normalised by [`set_rotate_wide`].
+#[must_use]
+#[allow(clippy::cast_possible_truncation)]
+pub fn combine_wide(a: &Frame, b: &Frame) -> Frame {
+    let m = l2g_wide(a.rotation).0.map(f64::from);
+    let (x, y, z) = (
+        f64::from(b.origin.x),
+        f64::from(b.origin.y),
+        f64::from(b.origin.z),
+    );
+    let o = a.origin;
+    let origin = Vec3::new(
+        (((m[6] * z + m[0] * x) + m[3] * y) + f64::from(o.x)) as f32,
+        (((m[7] * z + m[1] * x) + m[4] * y) + f64::from(o.y)) as f32,
+        (((m[8] * z + m[2] * x) + m[5] * y) + f64::from(o.z)) as f32,
+    );
+    let mut out = Frame::new(origin, Quat::IDENTITY);
+    let wide = |q: Quat| {
+        (
+            f64::from(q.w),
+            f64::from(q.x),
+            f64::from(q.y),
+            f64::from(q.z),
+        )
+    };
+    let ((pw, px, py, pz), (qw, qx, qy, qz)) = (wide(a.rotation), wide(b.rotation));
+    set_rotate_wide(
+        &mut out,
+        (((pw * qw - qx * px) - qy * py) - qz * pz) as f32,
+        (((pw * qx + qz * py) + qw * px) - qy * pz) as f32,
+        (((qy * pw - qz * px) + pz * qx) + py * qw) as f32,
+        (((qy * px + qz * pw) - py * qx) + pz * qw) as f32,
+    );
+    out
+}
+
+/// Normalise `v` in place as the client's physics does: the length in double precision, and each
+/// component multiplied by the length's reciprocal there and rounded to single once. Answers
+/// `true`, leaving `v` as it was, when the length is under [`EPSILON`].
+///
+/// Worked wholly in single precision instead, a component can land an ulp away.
+pub fn normalize_check_small_wide(v: &mut Vec3) -> bool {
+    let (x, y, z) = (f64::from(v.x), f64::from(v.y), f64::from(v.z));
+    let len = ((x * x + y * y) + z * z).sqrt();
+    if len < f64::from(EPSILON) {
+        return true;
+    }
+    let inv = 1.0 / len;
+    #[allow(clippy::cast_possible_truncation)]
+    {
+        *v = Vec3::new((inv * x) as f32, (inv * y) as f32, (inv * z) as f32);
+    }
+    false
 }
 
 /// a finite origin and **at least one** NaN
@@ -69,39 +176,46 @@ pub fn interpolate_origin(a: &Frame, b: &Frame, t: f32) -> Vec3 {
 /// Slerp with the shortest-arc negation, a lerp
 /// fallback below `1 - |dot| <= 2e-4`, and a second lerp fallback when either computed sine
 /// weight escapes `[0, 1]`.
+///
+/// Worked as the client works it, in double precision: the dot product, the weights (never
+/// rounded to single), each blended component rounded to single once, and the result normalised
+/// by [`set_rotate_wide`].
+#[allow(clippy::cast_possible_truncation)]
 pub fn interpolate_rotation(out: &mut Frame, a: &Frame, b: &Frame, t: f32) {
     let (qa, mut qb) = (a.rotation, b.rotation);
-    let mut dot = qa.w * qb.w + qa.x * qb.x + qa.y * qb.y + qa.z * qb.z;
+    let wide = |q: Quat| {
+        (
+            f64::from(q.w),
+            f64::from(q.x),
+            f64::from(q.y),
+            f64::from(q.z),
+        )
+    };
+    let (aw, ax, ay, az) = wide(qa);
+    let (bw, bx, by, bz) = wide(qb);
+    let mut dot = ((ay * by + aw * bw) + ax * bx) + az * bz;
     if dot < 0.0 {
         dot = -dot;
         qb = Quat::new(-qb.w, -qb.x, -qb.y, -qb.z);
     }
-    let (wa, wb);
-    if 1.0 - dot <= EPSILON {
-        wa = 1.0 - t;
-        wb = t;
-    } else {
-        let theta = math::acos(f64::from(dot));
-        let sin_theta = math::sin(theta);
-        let sa = math::sin((1.0 - f64::from(t)) * theta) / sin_theta;
-        let sb = math::sin(f64::from(t) * theta) / sin_theta;
+    let t = f64::from(t);
+    let (mut wa, mut wb) = (1.0 - t, t);
+    if 1.0 - dot > f64::from(EPSILON) {
+        let theta = math::acos(dot);
+        let inv_sin = 1.0 / math::sin(theta);
+        let sa = math::sin(theta * (1.0 - t)) * inv_sin;
+        let sb = math::sin(t * theta) * inv_sin;
         if (0.0..=1.0).contains(&sa) && (0.0..=1.0).contains(&sb) {
-            #[allow(clippy::cast_possible_truncation)]
-            {
-                wa = sa as f32;
-                wb = sb as f32;
-            }
-        } else {
-            wa = 1.0 - t;
-            wb = t;
+            (wa, wb) = (sa, sb);
         }
     }
-    set_rotate(
+    let (bw, bx, by, bz) = wide(qb);
+    set_rotate_wide(
         out,
-        qb.w * wb + qa.w * wa,
-        qb.x * wb + qa.x * wa,
-        qb.y * wb + qa.y * wa,
-        qa.z * wa + qb.z * wb,
+        (aw * wa + bw * wb) as f32,
+        (ax * wa + bx * wb) as f32,
+        (ay * wa + by * wb) as f32,
+        (bz * wb + az * wa) as f32,
     );
 }
 
@@ -161,6 +275,30 @@ pub fn slerp_rotation_plain(out: &mut Frame, a: &Frame, b: &Frame, t: f32) {
 #[must_use]
 pub fn get_offset(from: &Position, to: &Position) -> Vec3 {
     dereth_primitives::position::get_offset(from, to)
+}
+
+/// The velocity a body achieved moving from `from` to `to` in a sub-step of `quantum` seconds,
+/// worked as the client works it, to the last bit.
+///
+/// The offset's x is the block offset plus the end less the start in double precision, rounded
+/// once; its y and z keep the block offset plus the end as a float first. The step is taken as a
+/// float and the offset divided by it through its reciprocal: in double precision for x, kept as
+/// a float for y and z.
+#[must_use]
+#[allow(clippy::cast_possible_truncation)]
+pub fn achieved_velocity(from: &Position, to: &Position, quantum: f64) -> Vec3 {
+    let off = dereth_primitives::position::block_offset(from.cell, to.cell);
+    let (a, b) = (from.frame.origin, to.frame.origin);
+    let x = ((f64::from(off.x) + f64::from(b.x)) - f64::from(a.x)) as f32;
+    let y = (off.y + b.y) - a.y;
+    let z = (off.z + b.z) - a.z;
+    let inv = 1.0 / f64::from(quantum as f32);
+    let inv_kept = f64::from(inv as f32);
+    Vec3::new(
+        (inv * f64::from(x)) as f32,
+        (inv_kept * f64::from(y)) as f32,
+        (inv_kept * f64::from(z)) as f32,
+    )
 }
 
 /// The distance between two positions - full 3-D.
@@ -300,6 +438,53 @@ mod tests {
         // 90 degrees clockwise from +Y is +X
         assert!(h.eq_eps(Vec3::new(1.0, 0.0, 0.0)), "{h:?}");
         assert!((get_heading(&f) - 90.0).abs() < 1e-2, "{}", get_heading(&f));
+    }
+
+    #[test]
+    fn a_blend_with_no_turn_keeps_a_unit_rotation_to_the_last_bit() {
+        // East: made unit length in single precision, its parts would each grow by one unit in
+        // the last place (0x3f35_04f4).
+        let east = Frame::new(
+            Vec3::ZERO,
+            Quat::new(
+                f32::from_bits(0x3f35_04f3),
+                0.0,
+                0.0,
+                f32::from_bits(0xbf35_04f3),
+            ),
+        );
+        for t in [1.0, 0.5] {
+            let mut out = Frame::default();
+            interpolate_rotation(&mut out, &east, &east, t);
+            let q = out.rotation;
+            assert_eq!(
+                [q.w, q.x, q.y, q.z].map(f32::to_bits),
+                [0x3f35_04f3, 0, 0, 0xbf35_04f3],
+                "{t}: {q:?}"
+            );
+        }
+        let mut f = Frame::default();
+        set_rotate_wide(&mut f, east.rotation.w, 0.0, 0.0, east.rotation.z);
+        assert_eq!(f.rotation, east.rotation);
+    }
+
+    #[test]
+    fn a_flat_heading_normalises_in_double_precision() {
+        // Normalised in single precision, this direction's heading is one unit in the last
+        // place smaller (0x4219_e355).
+        let v = Vec3::new(
+            f32::from_bits(0x3e3a_9140),
+            f32::from_bits(0x3e6a_c860),
+            f32::from_bits(0x3e24_6744),
+        );
+        assert_eq!(
+            flat_heading(v).to_bits(),
+            0x4219_e356,
+            "{}",
+            flat_heading(v)
+        );
+        // Too short to have a direction once the vertical part is gone: north.
+        assert_eq!(flat_heading(Vec3::new(1e-4, -1e-4, -9.8)).to_bits(), 0);
     }
 
     #[test]

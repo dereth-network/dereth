@@ -935,18 +935,29 @@ impl PhysicsObj {
     /// normal's Z is **below** `cos(10 degrees)` — on slopes *steeper* than 10 degrees. ACE tests
     /// `> 0.99999536f`; both the direction and the constant are wrong there, and porting ACE's
     /// version makes flat ground slippery and slopes sticky.
+    ///
+    /// The client works it in double precision, with the time step as a float: the velocity's
+    /// part into the surface, the part removed (kept as a float only along z), and the decay
+    /// factor, which multiplies each component and is rounded with it.
+    #[allow(clippy::cast_possible_truncation)]
     pub fn calc_friction(&mut self, quantum: f64, velocity_mag2: f32) {
         if !self.transient_state.on_walkable() {
             return;
         }
-        let angle = self.contact_plane.normal.dot(self.velocity_vector);
-        if angle >= globals::SMALL_VELOCITY {
+        let n = self.contact_plane.normal;
+        let (nx, ny, nz) = (f64::from(n.x), f64::from(n.y), f64::from(n.z));
+        let v = self.velocity_vector;
+        let (vx, vy, vz) = (f64::from(v.x), f64::from(v.y), f64::from(v.z));
+        let angle = (vz * nz + vy * ny) + vx * nx;
+        if angle >= f64::from(globals::SMALL_VELOCITY) {
             return;
         }
         // Remove the into-surface component.
-        self.velocity_vector = self
-            .velocity_vector
-            .sub(self.contact_plane.normal.mul(angle));
+        self.velocity_vector = Vec3::new(
+            (vx - angle * nx) as f32,
+            (vy - angle * ny) as f32,
+            (vz - f64::from((angle * nz) as f32)) as f32,
+        );
 
         let f = if self.state.is_sledding() {
             if velocity_mag2 < globals::SLED_SLOW_SQ {
@@ -961,9 +972,14 @@ impl PhysicsObj {
         } else {
             self.friction
         };
-        #[allow(clippy::cast_possible_truncation)]
-        let scale = nmath::pow(f64::from(1.0 - f), quantum) as f32;
-        self.velocity_vector = self.velocity_vector.mul(scale);
+        let q = f64::from(quantum as f32);
+        let scale = nmath::pow(1.0 - f64::from(f), q);
+        let v = self.velocity_vector;
+        self.velocity_vector = Vec3::new(
+            (scale * f64::from(v.x)) as f32,
+            (scale * f64::from(v.y)) as f32,
+            (scale * f64::from(v.z)) as f32,
+        );
     }
 
     /// The integration half of one sub-step.
@@ -971,31 +987,57 @@ impl PhysicsObj {
     /// Note the clamp normalises the **direction** and rescales to exactly 50 m/s, and the
     /// squared magnitude fed to friction is then the clamped `2500.0`. ACE's separate 50 m/s
     /// speed cap and Z anti-cheat are server additions and are **not** this.
+    ///
+    /// The client works it in double precision, with the time step as a float, and keeps floats
+    /// only at certain steps; a falling body's height depends on which to the last bit. The
+    /// squared speed is kept as a float. Of the movement, the acceleration's part along x is
+    /// kept after each multiplication by the time step, along y once, along z not at all; the
+    /// whole movement is kept along x, and along z after the velocity's part is kept, and not
+    /// along y. The velocity gains the acceleration's step, kept as a float only along z.
+    #[allow(clippy::cast_possible_truncation)]
     pub fn update_physics_internal(&mut self, quantum: f64, frame: &mut Frame) {
-        let mut v2 = self.velocity_vector.mag2();
+        let kept = |x: f64| f64::from(x as f32);
+        let q = f64::from(quantum as f32);
+        let v = self.velocity_vector;
+        let (vx, vy, vz) = (f64::from(v.x), f64::from(v.y), f64::from(v.z));
+        let mut v2 = ((vx * vx + vy * vy) + vz * vz) as f32;
         if v2 > 0.0 {
             if v2 > globals::MAX_VELOCITY_SQ {
-                self.velocity_vector = self.velocity_vector.normalize().mul(globals::MAX_VELOCITY);
+                let mut dir = self.velocity_vector;
+                let _ = math::normalize_check_small_wide(&mut dir);
+                self.velocity_vector = dir.mul(globals::MAX_VELOCITY);
                 v2 = globals::MAX_VELOCITY_SQ;
             }
             self.calc_friction(quantum, v2);
-            if (v2 - globals::SMALL_VELOCITY_SQ) < globals::EPSILON {
+            let small = f64::from(globals::SMALL_VELOCITY);
+            if f64::from(v2) - small * small < f64::from(globals::EPSILON) {
                 self.velocity_vector = Vec3::ZERO;
             }
-            #[allow(clippy::cast_possible_truncation)]
-            let q = quantum as f32;
-            frame.origin = frame
-                .origin
-                .add(self.velocity_vector.mul(q))
-                .add(self.acceleration_vector.mul(0.5 * q * q));
+            let a = self.acceleration_vector;
+            let (ax, ay, az) = (f64::from(a.x), f64::from(a.y), f64::from(a.z));
+            let v = self.velocity_vector;
+            let (vx, vy, vz) = (f64::from(v.x), f64::from(v.y), f64::from(v.z));
+            let move_x = kept(q * vx + kept(kept(ax * 0.5 * q) * q));
+            let move_y = q * vy + kept(ay * 0.5 * q * q);
+            let move_z = kept(kept(q * vz) + az * 0.5 * q * q);
+            let o = frame.origin;
+            frame.origin = Vec3::new(
+                (move_x + f64::from(o.x)) as f32,
+                (move_y + f64::from(o.y)) as f32,
+                (move_z + f64::from(o.z)) as f32,
+            );
         } else if self.motion.is_none() && self.transient_state.on_walkable() {
             // Nothing moving and no motion manager: go to sleep.
             self.transient_state.set_active_bit(false);
         }
-        #[allow(clippy::cast_possible_truncation)]
-        let q = quantum as f32;
-        self.velocity_vector = self.velocity_vector.add(self.acceleration_vector.mul(q));
-        math::grotate(frame, self.omega_vector.mul(q));
+        let a = self.acceleration_vector;
+        let v = self.velocity_vector;
+        self.velocity_vector = Vec3::new(
+            (q * f64::from(a.x) + f64::from(v.x)) as f32,
+            (q * f64::from(a.y) + f64::from(v.y)) as f32,
+            (kept(q * f64::from(a.z)) + f64::from(v.z)) as f32,
+        );
+        math::grotate(frame, self.omega_vector.mul(quantum as f32));
     }
 
     /// Per-object update timestamp at index `ts`.

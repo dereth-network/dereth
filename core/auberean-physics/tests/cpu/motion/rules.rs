@@ -41,7 +41,8 @@ fn this_worlds_transition_settings() {
 }
 
 /// A placement asks the cell it is in and then the others again after any adjustment, up to three
-/// times; a move turns its sub-steps by a plain slerp, blending straight within 0.001 of no turn.
+/// times; a move turns its sub-steps by a plain slerp, blending straight within 0.001 of no turn,
+/// and is worked over the ground in single precision.
 ///
 /// Behaviour: transition.rules.placements-retry-and-moves-turn-plainly
 #[test]
@@ -49,6 +50,10 @@ fn placements_retry_the_other_cells_and_moves_turn_plainly() {
     let r = rules();
     assert!(r.placement_retries_other_cells);
     assert_eq!(r.turning, Turning::Plain);
+    assert_eq!(
+        r.plane_arithmetic,
+        dereth_physics::geom::PlaneArithmetic::Single
+    );
 }
 
 /// The polygon tests take a movement as lying along a polygon only when it is exactly: a sphere

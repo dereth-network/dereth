@@ -23,16 +23,8 @@ pub enum PolySide {
     Positive,
 }
 
-/// How a polygon's plane is worked out. The two games' clients differ in the plane's last bit, so
-/// each game builds its polygons with its own.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum PlaneArithmetic {
-    /// The first game's: in double precision, kept as a float only where its client keeps one.
-    #[default]
-    Double,
-    /// Single precision at every step.
-    Single,
-}
+/// How a polygon's plane is worked out; each game builds its polygons with its own.
+pub use dereth_primitives::shape::PlaneArithmetic;
 
 /// A convex polygon. The client shares `CVertex` objects between the renderer and physics; here
 /// the positions are copied, because nothing in physics mutates them after construction.
