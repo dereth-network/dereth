@@ -1,6 +1,6 @@
 [package]
 name = "dereth-console"
-description = "The desktop's native console attachment, error box and read-only display queries."
+description = "The desktop's native console attachment, error box, read-only display queries and window class icon."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,8 +11,8 @@ publish = false
 # workspace sets `unsafe_code = "forbid"`, `forbid` cannot be lifted by an inner `#[allow]`, and
 # `dereth-client`'s own manifest asserts that it keeps `forbid`. So the console call this crate
 # exists for cannot live in `dereth-client`. `deny` here, with one `#[allow(unsafe_code)]` on
-# each native module (console, modal error box, read-only desktop queries), is the narrowest
-# scope the language offers.
+# each native module (console, modal error box, read-only desktop queries, window class icon), is
+# the narrowest scope the language offers.
 #
 # The precedents are `dereth-primitives`' `text` module (kernel32 NLS conversion) and `dereth-clipboard` (user32 clipboard).
 # Like those, this crate takes **no dependencies at all**: a few `extern "system"` declarations are

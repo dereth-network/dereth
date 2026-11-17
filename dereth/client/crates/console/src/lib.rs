@@ -1,11 +1,13 @@
-//! The desktop's native console attachment, error box and read-only display queries.
+//! The desktop's native console attachment, error box, read-only display queries and window
+//! class icon.
 //!
 //! **Depends on** no other crate. **Used by** the client
 //! (`dereth-client`) and the desktop host (`dereth-desktop`).
 //!
 //! **Must never** own or close a native handle, retain a caller's buffer or reach the client
-//! runtime. Unsafe calls are confined to console attachment, the modal error box, and the
-//! read-only caret/monitor queries. Each call returns plain values and keeps its buffers local.
+//! runtime. Unsafe calls are confined to console attachment, the modal error box, the
+//! read-only caret/monitor queries, and the executable's shared icon on a window's class. Each call
+//! returns plain values and keeps its buffers local.
 //!
 //! Under the windows subsystem Windows creates no console, and this crate never makes one: a player
 //! who starts the client from Explorer or from the launcher sees the game's window and nothing
@@ -34,6 +36,10 @@ mod message_box;
 #[allow(unsafe_code)]
 mod desktop_queries;
 
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod window_class;
+
 /// The system's caret interval in milliseconds; 530 on hosts without the native query.
 #[must_use]
 pub fn caret_blink_millis() -> u32 {
@@ -58,6 +64,29 @@ pub fn monitor_work_area(handle: isize) -> Option<(i32, i32, i32, i32)> {
     {
         let _ = handle;
         None
+    }
+}
+
+/// Put the executable's own icon `resource` on the class of `window` (a native window handle this
+/// process made) as the class's big and small icons, at the system's standard sizes. Returns
+/// whether both loaded; one that did not is left off, and the class keeps what it had there.
+///
+/// A window's own icons are what its title bar and taskbar button show. The class's are what the
+/// taskbar shows when it asks the window for its icon and the window's thread does not answer in
+/// time, which it reads without the thread. A class with none leaves the button the system's
+/// generic icon, and the taskbar keeps that until the window's icon next changes.
+///
+/// The icons are shared ones, which the system owns: nothing here is ever freed, and calling this
+/// again loads nothing new. Off Windows nothing is done, and nothing loads.
+pub fn set_class_icon(window: isize, resource: u16) -> bool {
+    #[cfg(windows)]
+    {
+        window_class::set_class_icon(window, resource)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (window, resource);
+        false
     }
 }
 

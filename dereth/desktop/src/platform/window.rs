@@ -109,7 +109,8 @@ const IDI_APP: u16 = 1;
 /// known to have, so the attributes carry the 100% pair and [`set_application_icon`] sets the
 /// pair again for the window's real scale, once it exists and whenever that scale changes.
 /// `assets/dereth.ico` carries a real frame for each common scale, so `LoadImage` picks rather
-/// than resamples.
+/// than resamples. The window's class carries the icon too ([`set_class_icon`]), for a taskbar
+/// that asks while the window is too busy to answer.
 ///
 /// A failure here is not a startup failure. `Icon::from_resource` can only fail when the resource
 /// is missing, and a client that runs with the wrong icon is worth more than one that refuses to
@@ -152,23 +153,83 @@ fn icon_sizes(scale_factor: f64) -> (u32, u32) {
     (at(16), at(32))
 }
 
+/// One of the window's two icons.
+#[cfg_attr(not(windows), allow(dead_code))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IconSlot {
+    /// `ICON_SMALL`: the title bar and the Alt-Tab row.
+    TitleBar,
+    /// `ICON_BIG`: the taskbar button.
+    Taskbar,
+}
+
+/// Load the window's two icons at `sizes` (the title bar's, then the taskbar's) and hand each one
+/// that loads to `set`, the window's own setter, where `None` takes an icon off. One that fails to
+/// load is not handed over at all, so the window keeps the icon it has: `None` would leave the
+/// taskbar button the system's generic icon.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn reload_icons<I>(
+    sizes: (u32, u32),
+    mut load: impl FnMut(u32) -> Option<I>,
+    mut set: impl FnMut(IconSlot, Option<I>),
+) {
+    for (slot, px) in [(IconSlot::TitleBar, sizes.0), (IconSlot::Taskbar, sizes.1)] {
+        if let Some(icon) = load(px) {
+            set(slot, Some(icon));
+        }
+    }
+}
+
 /// The application icon again, at the window's current scale. See [`with_application_icon`].
 #[cfg(windows)]
 fn set_application_icon(window: &winit::window::Window) {
     use winit::platform::windows::{IconExtWindows as _, WindowExtWindows as _};
 
-    let (small, big) = icon_sizes(window.scale_factor());
     let load = |px: u32| {
         winit::window::Icon::from_resource(IDI_APP, Some(winit::dpi::PhysicalSize::new(px, px)))
             .map_err(|e| tracing::warn!("icon resource {IDI_APP} at {px}x{px}: {e}"))
             .ok()
     };
-    window.set_window_icon(load(small));
-    window.set_taskbar_icon(load(big));
+    reload_icons(
+        icon_sizes(window.scale_factor()),
+        load,
+        |slot, icon| match slot {
+            IconSlot::TitleBar => window.set_window_icon(icon),
+            IconSlot::Taskbar => window.set_taskbar_icon(icon),
+        },
+    );
 }
 
 #[cfg(not(windows))]
 fn set_application_icon(_window: &winit::window::Window) {}
+
+/// Put the application icon on the window's class as well, as soon as the window is made.
+///
+/// The taskbar asks a new window for its icon when it makes the window's button, and waits well
+/// under a second for the answer. The window shows as it is made, and the start-up that follows
+/// keeps this thread from answering for a few hundred milliseconds on a fast machine, and longer
+/// on a slow or busy one. When the wait runs out the taskbar takes the
+/// class's icon, which it reads without asking the thread, and keeps what it got until the
+/// window's icon next changes. winit registers its class with no icon, so the button would show
+/// the system's generic one for the whole run while the title bar showed ours.
+///
+/// The class's icons are the executable's own at the system's standard sizes, and the taskbar
+/// scales them; they are set once, and stay right across a scale change. A failure is printed and
+/// otherwise ignored, as [`with_application_icon`]'s is.
+#[cfg(windows)]
+fn set_class_icon(window: &winit::window::Window) {
+    use winit::raw_window_handle::{HasWindowHandle as _, RawWindowHandle};
+    let hwnd = window.window_handle().ok().and_then(|h| match h.as_raw() {
+        RawWindowHandle::Win32(h) => Some(h.hwnd.get()),
+        _ => None,
+    });
+    if !hwnd.is_some_and(|hwnd| dereth_console::set_class_icon(hwnd, IDI_APP)) {
+        tracing::warn!("icon resource {IDI_APP}: not put on the window's class");
+    }
+}
+
+#[cfg(not(windows))]
+fn set_class_icon(_window: &winit::window::Window) {}
 
 /// The window's icon, as pixels, for the window systems that want it that way.
 ///
@@ -1196,6 +1257,8 @@ impl winit::application::ApplicationHandler for Opening<'_> {
             event_loop
                 .create_window(attributes)
                 .map(|window| {
+                    // First, before this thread does anything that keeps it from answering.
+                    set_class_icon(&window);
                     // A window the player resizes holds no limits: they would hold it at its
                     // first size.
                     let pins = is_wayland(&window) && !self.look.resizable;
@@ -2218,6 +2281,45 @@ mod tests {
         assert_eq!(icon_sizes(2.0), (32, 64));
         assert_eq!(icon_sizes(0.0), (16, 32), "never below the 100% pair");
         assert_eq!(icon_sizes(f64::NAN), (16, 32));
+    }
+
+    /// An icon that fails to load at a new scale leaves the window the one it had, for the title
+    /// bar and the taskbar alike, rather than taking it off.
+    ///
+    /// Behaviour: none (this client's window icons; nothing retail to compare).
+    #[test]
+    fn an_icon_that_fails_to_load_leaves_the_window_the_one_it_had() {
+        #[derive(Debug, PartialEq)]
+        struct Icons {
+            title_bar: Option<String>,
+            taskbar: Option<String>,
+        }
+        let mut window = Icons {
+            title_bar: Some("16".to_owned()),
+            taskbar: Some("32".to_owned()),
+        };
+        let mut reload = |sizes, loads: &dyn Fn(u32) -> bool| {
+            reload_icons(
+                sizes,
+                |px| loads(px).then(|| px.to_string()),
+                |slot, icon| match slot {
+                    IconSlot::TitleBar => window.title_bar = icon,
+                    IconSlot::Taskbar => window.taskbar = icon,
+                },
+            );
+        };
+        reload((20, 40), &|px| px == 20);
+        reload((24, 48), &|px| px == 48);
+        reload((28, 56), &|_| false);
+        reload((32, 64), &|_| true);
+        reload((36, 72), &|px| px == 36);
+        assert_eq!(
+            window,
+            Icons {
+                title_bar: Some("36".to_owned()),
+                taskbar: Some("64".to_owned()),
+            }
+        );
     }
 
     /// A tool's window (the editor's) is resized and maximised freely; the game's keeps the size
