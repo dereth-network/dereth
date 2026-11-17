@@ -6241,6 +6241,14 @@ fn treasure_rows(t: &yalain_content::treasure_tables::TreasureTables) -> String 
         if let Some((lo, hi)) = s.damage_share {
             let _ = writeln!(out, "damage_share = [{lo:?}, {hi:?}]");
         }
+        if !s.damage_scale.is_empty() {
+            let points: Vec<String> = s
+                .damage_scale
+                .iter()
+                .map(|(l, x)| format!("[{l}, {x:?}]"))
+                .collect();
+            let _ = writeln!(out, "damage_scale = [{}]", points.join(", "));
+        }
         if !s.vigor.is_empty() {
             let bands: Vec<String> = s
                 .vigor
@@ -6428,6 +6436,8 @@ fn a_worlds_treasure_rows_replace_the_kinds_they_give_whole() {
     own.rules.above_base = vec![0.0, 1.0];
     own.rules.above_base_override = Some(vec![148.0, 183.0, 60.0]);
     own.weapon.vigor[0].most = 2;
+    own.weapon.damage_scale = vec![(50, 1.0), (75, 0.81), (150, 1.07)];
+    own.armor.rating_share.push((99, 1.5));
     own.shield.slot_chance = 0.25;
     own.jewelry.counts = vec![yalain_content::treasure_tables::CountBand {
         from: 0,
@@ -6505,7 +6515,11 @@ fn treasure_rows_that_break_their_rules_are_problems() {
         (good.replacen("sort = \"jewelry\"", "sort = \"jewelry\"\nspan = [0.25, 0.29]", 1), "span: not a field of a jewelry row"),
         (good.replacen("span = [0.25, 0.29]\n", "", 1), "span: missing: a shield row has it"),
         (good.replacen("sort = \"weapon\"", "sort = \"wand\"", 1), "sort: weapon, armor, shield or jewelry"),
-        (good.replacen("rating_share = [[0, 0.75], [50, 1.0]]", "rating_share = [[50, 0.75], [0, 1.0]]", 1), "rating_share"),
+        (good.replacen("rating_share = [[0, 0.75]", "rating_share = [[50, 0.75]", 1), "rating_share"),
+        (good.replacen("rating_share = [[0, 0.75]", "rating_share = [[0, 2.5]", 1), "rating_share"),
+        (good.replacen("span = [0.25, 0.29]", "span = [0.25, 0.29]\ndamage_scale = [[55, 1.0], [50, 0.9]]", 1), "damage_scale"),
+        (good.replacen("span = [0.25, 0.29]", "span = [0.25, 0.29]\ndamage_scale = [[50, 0.0]]", 1), "damage_scale"),
+        (good.replacen("sort = \"armor\"", "sort = \"armor\"\ndamage_scale = [[50, 1.0]]", 1), "damage_scale: not a field of a armor row"),
         (good.replacen("slot_chance = 0.5", "slot_chance = 2.0", 1), "slot_chance: from 0 to 1"),
         (format!("{good}\n[[treasure_rules]]\nabove_base = [1.0]\nmost_level = 9\nlore = {{ above = 51, from = -6, to = -1 }}\npotion_tiers = [0, 16, 30, 40, 45]\npotion_spellcraft = [0.0, 100.0]\nlook = {{ glow_most = 0.65, round_chance = 0.1, round_from = 0.1, round_tenths = 4 }}\nprov = {{ from = \"authored\" }}\n"), "treasure_rules"),
     ] {

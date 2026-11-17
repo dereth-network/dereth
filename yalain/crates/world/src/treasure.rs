@@ -19,8 +19,8 @@
 //!
 //! **Its numbers.** A template's damage and armor are placeholders, so a treasure weapon, shield or
 //! piece of armor gets its own by its item level (its least level, or its dropper's base from level
-//! 50 on), near what a made one has there: see [`numbers`]. The curves are fit to the recorded items,
-//! not known. A shield is told by its class, as most shields' templates hold no weapon's damage.
+//! 50 on), near what a made one has there, a weapon's damage share times what its world's scale gives at
+//! that level: see [`numbers`]. The curves are fit to the recorded items, not known. A shield is told by its class, as most shields' templates hold no weapon's damage.
 //!
 //! **Its enchantments.** It may draw some by its level: see [`enchantments`]. Each is cast at one
 //! below its item level, and it is named for one of them. An effect on what it hits lands by that
@@ -228,7 +228,7 @@ pub fn numbers(
     };
     if is_weapon {
         let (least, most) = of.damage_share.unwrap_or_default();
-        let share = rng.between(least, most);
+        let share = rng.between(least, most) * of.damage_scale_at(level);
         let (low, high) = of.vigor_at(level);
         let vigor =
             low + i32::try_from(rng.below((high - low + 1).cast_unsigned() as usize)).unwrap_or(0);

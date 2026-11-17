@@ -300,7 +300,8 @@ pub struct TreasureRules {
 }
 
 /// `[[treasure_sort]]`: the numbers one sort of treasure item draws by: how many enchantments by
-/// level band, and (by the sort) its share of a made item's damage, its vigor cost, its span, its
+/// level band, and (by the sort) its share of a made item's damage and what that is times by level
+/// (`damage_scale`, which a weapon or shield row may leave out), its vigor cost, its span, its
 /// combat delay, its share of a made item's rating and its enchantment slot. Its families and
 /// words are not among them.
 #[derive(Debug, Clone, PartialEq)]
@@ -2203,6 +2204,7 @@ pub const FIELDS: [(&str, &[&str]); 74] = [
             "sort",
             "counts",
             "damage_share",
+            "damage_scale",
             "vigor",
             "span",
             "delays",
@@ -6722,6 +6724,19 @@ impl<'a> Fields<'a> {
             let p = self.req("damage_share", "[least, most]", pair_of)?;
             let ok = share_ok(p.0) && share_ok(p.1) && p.0 <= p.1;
             tables.damage_share = Some(self.held("damage_share", p, ok, SHARES)?);
+            if self.t.contains_key("damage_scale") {
+                let points = self.req("damage_scale", "a list of [level, times]", level_points)?;
+                let ok = points_ok(&points, MOST_TIMES);
+                tables.damage_scale = self.held(
+                    "damage_scale",
+                    points,
+                    ok,
+                    "at least one point, levels from 0 and rising, each above 0 and at most 2",
+                )?;
+            }
+        } else if self.t.contains_key("damage_scale") {
+            self.bad("damage_scale", &format!("not a field of a {name} row"));
+            return None;
         }
         if own.contains(&"vigor") {
             let bands = self.req(
@@ -6780,23 +6795,13 @@ impl<'a> Fields<'a> {
             tables.delays = Some(self.held("delays", d, ok, &rule)?);
         }
         if own.contains(&"rating_share") {
-            let points = self.req("rating_share", "a list of [level, share]", |v| {
-                v.as_array()?
-                    .iter()
-                    .map(|p| {
-                        let p = p.as_array().filter(|p| p.len() == 2)?;
-                        Some((int_of(&p[0])?, number_of(&p[1])?))
-                    })
-                    .collect::<Option<Vec<_>>>()
-            })?;
-            let ok = !points.is_empty()
-                && points.windows(2).all(|w| w[0].0 < w[1].0)
-                && points.iter().all(|(l, s)| *l >= 0 && share_ok(*s));
+            let points = self.req("rating_share", "a list of [level, share]", level_points)?;
+            let ok = points_ok(&points, MOST_TIMES);
             tables.rating_share = self.held(
                 "rating_share",
                 points,
                 ok,
-                "at least one point, levels from 0 and rising, each share from 0 to 1",
+                "at least one point, levels from 0 and rising, each share above 0 and at most 2",
             )?;
             for name in ["rating_spread", "slot_chance"] {
                 let x = self.req(name, "a number", number_of)?;
@@ -7175,6 +7180,29 @@ fn edges_ok(e: &[i32]) -> bool {
 /// A share or a chance: from 0 to 1.
 fn share_ok(x: f32) -> bool {
     (0.0..=1.0).contains(&x)
+}
+
+/// The most a treasure item's share of a made one's numbers may be, at a level, times.
+const MOST_TIMES: f32 = 2.0;
+
+/// A list of `[level, value]`.
+fn level_points(v: &toml::Value) -> Option<Vec<(i32, f32)>> {
+    v.as_array()?
+        .iter()
+        .map(|p| {
+            let p = p.as_array().filter(|p| p.len() == 2)?;
+            Some((int_of(&p[0])?, number_of(&p[1])?))
+        })
+        .collect()
+}
+
+/// Points by level: at least one, levels from 0 and rising, each value above 0 and at most `most`.
+fn points_ok(points: &[(i32, f32)], most: f32) -> bool {
+    !points.is_empty()
+        && points.windows(2).all(|w| w[0].0 < w[1].0)
+        && points
+            .iter()
+            .all(|(l, x)| *l >= 0 && *x > 0.0 && *x <= most)
 }
 
 /// A table with exactly these keys.

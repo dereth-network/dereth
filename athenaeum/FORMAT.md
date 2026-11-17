@@ -676,14 +676,16 @@ server's own.
 #### `[[treasure_sort]]`
 
 The numbers one sort of treasure item draws by. A world gives all four sorts or none. Each sort has
-its own fields beside `counts`: weapons `damage_share`, `vigor` and `delays`; armor `delays`,
-`rating_share`, `rating_spread` and `slot_chance`; shields all of those and `span`; jewelry none.
+its own fields beside `counts`: weapons `damage_share`, `damage_scale`, `vigor` and `delays`; armor
+`delays`, `rating_share`, `rating_spread` and `slot_chance`; shields all of those and `span`;
+jewelry none.
 
 | field | | meaning |
 |---|---|---|
 | `sort` | required | `weapon`, `armor`, `shield` or `jewelry` |
 | `counts` | | bands of the item's own level, `[{ from, weights }]`: how often an item of the band has 0, 1, 2, ... enchantments |
 | `damage_share` | | `[least, most]`, greatest damage as a share of a made weapon's at their level |
+| `damage_scale` | | `[[level, times], ...]`, what that share is times by level: levels from 0 and rising, each above 0 and at most 2, in proportion between them and held past the ends |
 | `vigor` | | bands of the vigor they cost, `[{ from, least, most, every }]` |
 | `span` | | `[least, most]`, a shield's span of damage when its template names none |
 | `delays` | | `{ from, weights }`, how often each delay between blows from `from` up is drawn |

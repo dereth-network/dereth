@@ -340,6 +340,9 @@ pub struct SortTables {
     pub counts: Vec<CountBand>,
     /// Its damage, of a made weapon's at its level, at least and at most.
     pub damage_share: Option<(f32, f32)>,
+    /// Its damage share times this, at levels and in proportion between them, the ends held (none:
+    /// times 1).
+    pub damage_scale: Vec<(i32, f32)>,
     /// Its vigor cost by level.
     pub vigor: Vec<VigorBand>,
     /// A shield's span of damage when its template names none.
@@ -384,23 +387,34 @@ impl SortTables {
     /// Its rating share at a level.
     #[must_use]
     pub fn rating_share_at(&self, level: i32) -> f32 {
-        let points = &self.rating_share;
-        let (Some(first), Some(last)) = (points.first(), points.last()) else {
-            return 1.0;
-        };
-        if level <= first.0 {
-            return first.1;
-        }
-        if level >= last.0 {
-            return last.1;
-        }
-        let i = points.iter().rposition(|p| p.0 <= level).unwrap_or(0);
-        let (l0, s0) = points[i];
-        let (l1, s1) = points[i + 1];
-        #[allow(clippy::cast_precision_loss)]
-        let (l, l0, l1) = (level as f32, l0 as f32, l1 as f32);
-        s0 + (s1 - s0) * (l - l0) / (l1 - l0)
+        between(&self.rating_share, level)
     }
+
+    /// What its damage share is times at a level.
+    #[must_use]
+    pub fn damage_scale_at(&self, level: i32) -> f32 {
+        between(&self.damage_scale, level)
+    }
+}
+
+/// A value at a level of points (level, value) rising by level: in proportion between the two it
+/// lies between, the nearer end's outside them, 1 with none.
+fn between(points: &[(i32, f32)], level: i32) -> f32 {
+    let (Some(first), Some(last)) = (points.first(), points.last()) else {
+        return 1.0;
+    };
+    if level <= first.0 {
+        return first.1;
+    }
+    if level >= last.0 {
+        return last.1;
+    }
+    let i = points.iter().rposition(|p| p.0 <= level).unwrap_or(0);
+    let (l0, s0) = points[i];
+    let (l1, s1) = points[i + 1];
+    #[allow(clippy::cast_precision_loss)]
+    let (l, l0, l1) = (level as f32, l0 as f32, l1 as f32);
+    s0 + (s1 - s0) * (l - l0) / (l1 - l0)
 }
 
 /// The index of the last band whose least level an item level reaches (the first when it reaches
@@ -543,6 +557,7 @@ impl TreasureTables {
             shield: SortTables {
                 counts: counts(&effects::SHIELD_COUNTS),
                 damage_share: Some(WEAPON_DAMAGE_SHARE),
+                damage_scale: Vec::new(),
                 vigor: SHIELD_VIGOR.to_vec(),
                 span: Some(SHIELD_SPAN),
                 delays: delays(5, &SHIELD_DELAYS),

@@ -648,6 +648,30 @@ fn a_treasure_items_numbers_follow_its_level() {
     }
 }
 
+/// A world's damage scale multiplies a treasure weapon's damage share by its level, in proportion
+/// between its points and held past them: with times 1 at 50 and a half at 100, a weapon at 75 does
+/// three quarters of its share of a made one's 558, and one at 40 its whole share.
+/// Behaviour: server.loot.treasure-numbers-from-rows
+#[test]
+fn a_worlds_damage_scale_multiplies_a_treasure_weapons_damage_by_its_level() {
+    use yalain_content::{Prop, Props};
+    use yalain_world::rng::Rng;
+    use yalain_world::treasure::{numbers, Sort, TreasureTables};
+    let mut weapon = Props::default();
+    weapon.set("Weapon_Damage", Prop::Int(10));
+    let mut tables = TreasureTables::retail_2017();
+    tables.weapon.damage_scale = vec![(50, 1.0), (100, 0.5)];
+    let mut rng = Rng::new(916);
+    for _ in 0..500 {
+        let w = numbers(&mut rng, &tables, &weapon, Sort::Weapon, 75, 9).expect("a weapon");
+        let (most, _) = w.damage.expect("its damage");
+        assert!((351..=406).contains(&most), "at level 75: {most}");
+        let w = numbers(&mut rng, &tables, &weapon, Sort::Weapon, 40, 9).expect("a weapon");
+        let (most, _) = w.damage.expect("its damage");
+        assert!((199..=232).contains(&most), "at level 40: {most}");
+    }
+}
+
 /// A weapon drawn from a loot profile takes those numbers as it drops, worth what it drew, and a hit
 /// with it reads them.
 /// Behaviour: server.loot.treasure-numbers-by-level

@@ -42,6 +42,10 @@ fn export(t: &TreasureTables) -> Value {
             if let Some((lo, hi)) = s.damage_share {
                 o.insert("damage_share".into(), json!([n(lo), n(hi)]));
             }
+            if !s.damage_scale.is_empty() {
+                let points = s.damage_scale.iter().map(|(l, x)| json!([l, n(*x)]));
+                o.insert("damage_scale".into(), Value::Array(points.collect()));
+            }
             if !s.vigor.is_empty() {
                 let bands = s.vigor.iter().map(|b| {
                     let mut v = json!({"from": b.from, "least": b.least, "most": b.most});
@@ -207,6 +211,13 @@ fn import(v: &Value) -> TreasureTables {
                 })
                 .collect(),
             damage_share: s.get("damage_share").map(pair),
+            damage_scale: s.get("damage_scale").map_or_else(Vec::new, |p| {
+                p.as_array()
+                    .expect("points")
+                    .iter()
+                    .map(|x| (i(&x[0]), f(&x[1])))
+                    .collect()
+            }),
             vigor: s.get("vigor").map_or_else(Vec::new, |bands| {
                 bands
                     .as_array()
