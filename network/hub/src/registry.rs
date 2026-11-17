@@ -242,6 +242,28 @@ fn unspecified() -> String {
     "Unspecified".to_owned()
 }
 
+/// The rulesets a world of `game` may name. An Asheron's Call 2 world names where its players may
+/// fight: `Standard` (peace, but for its conflict areas), `KvK` (kingdoms fight anywhere) or `FFA`
+/// (anyone fights anywhere).
+#[must_use]
+pub fn rulesets(game: Game) -> &'static [&'static str] {
+    match game {
+        Game::Dereth => &["PvE", "PvP", "PvP-lite", "Custom"],
+        Game::Auberean => &["Standard", "KvK", "FFA"],
+    }
+}
+
+/// The ruleset a world of `game` that names `said` has: an Asheron's Call 2 world that names
+/// `PvE`, as such worlds were registered before they had rulesets of their own (and as an older
+/// site or launcher still registers one), is `Standard`; any other is as it names it.
+#[must_use]
+pub fn ruleset_of(game: Game, said: &str) -> &str {
+    match (game, said) {
+        (Game::Auberean, "PvE") => "Standard",
+        _ => said,
+    }
+}
+
 /// The first release's registration form (`ip`, `port`, `software`), still accepted.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -344,8 +366,20 @@ impl Registration {
         if chars(&self.description) > 2000 {
             return Err(RegistryError::bad("description: at most 2000 characters"));
         }
-        if !["PvE", "PvP", "PvP-lite", "Custom"].contains(&self.ruleset.as_str()) {
-            return Err(RegistryError::bad("ruleset: PvE, PvP, PvP-lite or Custom"));
+        // A registration that names no game may be a changed one, whose world's game is checked
+        // once it is known.
+        match self.game {
+            Some(game) => self.check_ruleset(game)?,
+            None => {
+                if !Game::ALL
+                    .iter()
+                    .any(|g| rulesets(*g).contains(&self.ruleset.as_str()))
+                {
+                    return Err(RegistryError::bad(
+                        "ruleset: PvE, PvP, PvP-lite or Custom; for an Asheron's Call 2 world Standard, KvK or FFA",
+                    ));
+                }
+            }
         }
         if !(2..=60).contains(&chars(&self.region)) || chars(&self.maturity) > 60 {
             return Err(RegistryError::bad("region or maturity"));
@@ -385,6 +419,36 @@ impl Registration {
             return Err(RegistryError::bad("emulator.version: 1-60 characters"));
         }
         Ok(())
+    }
+}
+
+impl Registration {
+    /// Whether the ruleset is one a world of `game` may name ([`ruleset_of`]). An Asheron's Call 2
+    /// world's `PvP` is refused: it could mean `KvK` or `FFA`, and the world would be listed under
+    /// rules it may not have.
+    ///
+    /// # Errors
+    /// A 400 naming the rulesets the game's worlds may name.
+    fn check_ruleset(&self, game: Game) -> Result<()> {
+        if rulesets(game).contains(&ruleset_of(game, &self.ruleset)) {
+            return Ok(());
+        }
+        Err(RegistryError::bad(match game {
+            Game::Dereth => "ruleset: PvE, PvP, PvP-lite or Custom",
+            Game::Auberean => "ruleset: Standard, KvK or FFA for an Asheron's Call 2 world",
+        }))
+    }
+
+    /// The registration as a world of `game` keeps it, its ruleset as [`ruleset_of`] reads it.
+    ///
+    /// # Errors
+    /// A 400 for a ruleset the game's worlds may not name ([`Self::check_ruleset`]).
+    fn for_game(&self, game: Game) -> Result<Self> {
+        self.check_ruleset(game)?;
+        Ok(Self {
+            ruleset: ruleset_of(game, &self.ruleset).to_owned(),
+            ..self.clone()
+        })
     }
 }
 
@@ -1302,6 +1366,8 @@ impl Registry {
         hub_operator: bool,
     ) -> Result<(Value, String)> {
         r.check()?;
+        let kept = r.for_game(r.game.unwrap_or_default())?;
+        let r = &kept;
         self.validate_endpoint(r, hub_operator)?;
         self.expire_pending()?;
         if self.row(&r.slug)?.is_some() {
@@ -1362,8 +1428,10 @@ impl Registry {
                 "Review and claim this listing before editing it",
             ));
         }
-        let mut registry = row.registry.clone();
         let game = r.game.unwrap_or(row.game);
+        let kept = r.for_game(game)?;
+        let r = &kept;
+        let mut registry = row.registry.clone();
         set_game(&mut registry, game);
         if game != row.game {
             self.event_by(&row.id, "game-set", actor, &json!({ "game": game }))?;
@@ -1813,6 +1881,8 @@ impl Registry {
             _ => json!("operator"),
         };
         let mut v = serde_json::to_value(m).expect("serialisable");
+        // A world kept with a ruleset its game reads as another is shown with that one.
+        v["ruleset"] = json!(ruleset_of(row.game, &m.ruleset));
         let ip = address
             .as_deref()
             .filter(|a| a.parse::<std::net::IpAddr>().is_ok())
@@ -3214,6 +3284,111 @@ mod tests {
         serde_json::from_value(v).expect("a heartbeat")
     }
 
+    /// Spec: hub: an Asheron's Call 2 world's ruleset is `Standard`, `KvK` or `FFA`, and an
+    /// Asheron's Call world's `PvE`, `PvP`, `PvP-lite` or `Custom`: one game's is refused (400)
+    /// for the other's world, a changed registration that names no game is held to its world's
+    /// game, and the list returns the ruleset registered and filters by it.
+    #[test]
+    fn a_worlds_ruleset_is_one_its_games_worlds_may_name() {
+        let (_, c) = clock();
+        let r = Registry::open(":memory:", "dereth.network", c).expect("open");
+        let with = |slug: &str, game: Option<&str>, ruleset: &str| {
+            let mut v = serde_json::to_value(reg(slug)).expect("a registration");
+            if let Some(g) = game {
+                v["game"] = json!(g);
+            }
+            v["ruleset"] = json!(ruleset);
+            v
+        };
+        for (slug, ruleset) in [("calm", "Standard"), ("kings", "KvK"), ("brawl", "FFA")] {
+            let reg = Registration::from_json(&with(slug, Some("auberean"), ruleset))
+                .expect("an Asheron's Call 2 world's ruleset");
+            r.register(&reg).expect("registered");
+        }
+        let refused = |v: &Value| Registration::from_json(v).map(|_| ()).map_err(|e| e.status);
+        assert_eq!(refused(&with("pvp2", Some("auberean"), "PvP")), Err(400));
+        assert_eq!(refused(&with("kvk1", Some("dereth"), "KvK")), Err(400));
+        assert_eq!(refused(&with("odd", Some("auberean"), "kvk")), Err(400));
+        // Naming no game, it is an Asheron's Call world's as it is registered.
+        let unnamed = Registration::from_json(&with("kvk2", None, "KvK")).expect("read");
+        assert_eq!(r.register(&unnamed).map_err(|e| e.status).err(), Some(400));
+        // A changed registration that names no game keeps its world's game, and its ruleset.
+        let pvp = Registration::from_json(&with("kings", None, "PvP")).expect("read");
+        assert_eq!(r.update(&pvp).map_err(|e| e.status).err(), Some(400));
+        let ffa = Registration::from_json(&with("kings", None, "FFA")).expect("read");
+        r.update(&ffa).expect("changed");
+        let listed = |ruleset: &str| -> Vec<(String, String)> {
+            let page = r
+                .list_filtered("", ruleset, "", Games::All, 100, 0)
+                .expect("a page");
+            page["data"]
+                .as_array()
+                .expect("rows")
+                .iter()
+                .map(|w| {
+                    (
+                        w["slug"].as_str().unwrap_or("").to_owned(),
+                        w["ruleset"].as_str().unwrap_or("").to_owned(),
+                    )
+                })
+                .collect()
+        };
+        let pair = |a: &str, b: &str| (a.to_owned(), b.to_owned());
+        assert_eq!(
+            listed(""),
+            [
+                pair("brawl", "FFA"),
+                pair("calm", "Standard"),
+                pair("kings", "FFA")
+            ]
+        );
+        assert_eq!(listed("Standard"), [pair("calm", "Standard")]);
+        assert!(listed("KvK").is_empty());
+    }
+
+    /// Spec: hub: an Asheron's Call 2 world registered with `PvE`, as an older site or launcher
+    /// registers one, is kept and listed as `Standard`, and so is a changed registration of it
+    /// that names no game; a world kept with `PvE` before its heartbeat named the game is listed as
+    /// `Standard` too. Its `PvP` is refused: it could mean `KvK` or `FFA`.
+    #[test]
+    fn an_asherons_call_2_worlds_pve_is_standard_and_its_pvp_refused() {
+        let (_, c) = clock();
+        let r = Registry::open(":memory:", "dereth.network", c).expect("open");
+        let named = |slug: &str, ruleset: &str| {
+            let mut v = serde_json::to_value(reg(slug)).expect("a registration");
+            v["game"] = json!("auberean");
+            v["ruleset"] = json!(ruleset);
+            Registration::from_json(&v)
+        };
+        r.register(&named("older", "PvE").expect("read"))
+            .expect("registered");
+        let shown = |slug: &str| r.server(slug).expect("read").expect("present")["ruleset"].clone();
+        assert_eq!(columns(&r, "older").0["ruleset"], json!("Standard"));
+        assert_eq!(shown("older"), json!("Standard"));
+        r.update(&reg("older")).expect("changed");
+        assert_eq!(columns(&r, "older").0["ruleset"], json!("Standard"));
+        r.register(&reg("drift")).expect("registered");
+        r.heartbeat("drift", &beat(Some("auberean")), None)
+            .expect("accepted");
+        assert_eq!(
+            columns(&r, "drift").0["ruleset"],
+            json!("PvE"),
+            "kept as registered"
+        );
+        assert_eq!(shown("drift"), json!("Standard"));
+        let page = r
+            .list_filtered("", "Standard", "", Games::All, 100, 0)
+            .expect("a page");
+        assert_eq!(page["total"], json!(2));
+        assert_eq!(
+            named("brawler", "PvP").map(|_| ()).map_err(|e| e.status),
+            Err(400)
+        );
+        let mut pvp = reg("older");
+        pvp.ruleset = "PvP".into();
+        assert_eq!(r.update(&pvp).map_err(|e| e.status).err(), Some(400));
+    }
+
     /// Spec: hub: a world whose registration names no game runs `dereth`, and one that names
     /// `auberean` runs it; the game is shown with the world and kept in its registry record, never
     /// in its registration's column, which reads as it did in a hub that knew no game.
@@ -3224,6 +3399,7 @@ mod tests {
         r.register(&reg("coldeve")).expect("registered");
         let mut shard = serde_json::to_value(reg("shardfall")).expect("a registration");
         shard["game"] = json!("auberean");
+        shard["ruleset"] = json!("Standard");
         let shard = Registration::from_json(&shard).expect("read");
         assert_eq!(shard.game, Some(Game::Auberean));
         r.register(&shard).expect("registered");
@@ -3355,22 +3531,23 @@ mod tests {
         let (_, c) = clock();
         let r = Registry::open(":memory:", "dereth.network", c).expect("open");
         r.register(&reg("shardfall")).expect("registered");
-        let mut shard = reg("shardfall");
-        shard.game = Some(Game::Auberean);
+        let mut shard = reg_of("shardfall", Game::Auberean);
         r.update(&shard).expect("updated");
         let game = || r.server("shardfall").expect("read").expect("present")["game"].clone();
         assert_eq!(game(), json!("auberean"));
-        r.update(&reg("shardfall")).expect("updated");
+        shard.game = None;
+        r.update(&shard).expect("updated");
         assert_eq!(game(), json!("auberean"), "a registration naming none");
-        shard.game = Some(Game::Dereth);
+        let shard = reg_of("shardfall", Game::Dereth);
         r.update(&shard).expect("updated");
         assert_eq!(game(), json!("dereth"));
     }
 
-    /// A registration of `slug` naming `game`.
+    /// A registration of `slug` naming `game`, with a ruleset of that game's.
     fn reg_of(slug: &str, game: Game) -> Registration {
         let mut r = reg(slug);
         r.game = Some(game);
+        r.ruleset = rulesets(game)[0].to_owned();
         r
     }
 

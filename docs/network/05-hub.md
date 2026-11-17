@@ -28,9 +28,18 @@ below only make it slower and costlier).
 ## 1. The registry
 
 - **A world** has a slug (2–40 of `a-z`, `0-9` and inner hyphens, not one of the platform's words
-  below), a name (2–80 characters, no angle bracket), a description, a ruleset (`PvE`, `PvP`,
-  `PvP-lite`, `Custom`), a region, a maturity, optional website and Discord links, its game endpoint (a fixed address and port, or the address
+  below), a name (2–80 characters, no angle bracket), a description, a ruleset (below), a region, a maturity, optional website and Discord links, its game endpoint (a fixed address and port, or the address
   its heartbeats come from), its emulator, its game (below), and a federation flag ([01](01-addresses-and-settings.md)).
+- **A world's ruleset** is one its game's worlds may name, spelled exactly so: an Asheron's Call
+  world's `PvE`, `PvP`, `PvP-lite` or `Custom`; an Asheron's Call 2 world's `Standard` (peace,
+  but for the world's conflict areas), `KvK` (kingdoms fight anywhere) or `FFA` (anyone fights
+  anywhere). An Asheron's Call 2 world's `PvE`, which such worlds were registered with before they
+  had rulesets of their own (and which an older site or launcher still sends), is taken as
+  `Standard`: kept as `Standard`, and a world kept with it before is listed as `Standard`. Any
+  other, or one of the other game's, is refused (`400`); an Asheron's Call 2 world's `PvP` too,
+  since it could mean `KvK` or `FFA`. A replaced registration that names no game is held to the
+  world's game as it was. The lists return each world's `ruleset`, and `/v1/servers?ruleset=`
+  keeps the worlds of that ruleset alone.
 - **A world's game** is the game its players play there: `dereth` (Asheron's Call) or `auberean`
   (Asheron's Call 2), spelled exactly so. A registration may name it (`"game"`); a new world that
   names none runs `dereth`, and a replaced registration that names none leaves the world's game as
@@ -504,7 +513,8 @@ The registration body is the same as the command line's `register` file:
 }
 ```
 
-`game` may be left out (section 1).
+`game` may be left out (section 1). An Asheron's Call 2 world names `"game": "auberean"` and its
+own ruleset, such as `"ruleset": "KvK"`.
 
 - **The operator's Discord account** must be at least 30 days old (the hub's setting
   `minAccountAgeDays`, section 2.14), by the time its id says it was made, to register a world or

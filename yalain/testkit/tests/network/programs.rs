@@ -412,10 +412,15 @@ fn registration(dir: &Path, slug: &str, game: &str, family: &str, port: u16) -> 
     let file = dir.join(format!("{slug}.json"));
     let registration = format!(
         r#"{{"slug": "{slug}", "name": "World {upper}", "description": "A loopback test world.",
-            "ruleset": "PvE", "game": "{game}",
+            "ruleset": "{ruleset}", "game": "{game}",
             "endpoint": {{"mode": "manual", "address": "127.0.0.1", "port": {port}}},
             "emulator": {{"family": "{family}"}}}}"#,
-        upper = slug.to_uppercase()
+        upper = slug.to_uppercase(),
+        ruleset = if game == "auberean" {
+            "Standard"
+        } else {
+            "PvE"
+        },
     );
     std::fs::write(&file, registration).expect("a registration");
     file

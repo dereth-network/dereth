@@ -338,7 +338,7 @@ mod tests {
     /// Registers `shardfall`, a world of the second game.
     fn ac2_world(r: &Registry) {
         let shard = crate::registry::Registration::from_json(&json!({
-            "slug": "shardfall", "name": "Shardfall", "ruleset": "PvE", "game": "auberean",
+            "slug": "shardfall", "name": "Shardfall", "ruleset": "Standard", "game": "auberean",
             "endpoint": { "mode": "manual", "address": "192.0.2.2", "port": 9000 },
             "emulator": { "family": "Yalain" },
         }))

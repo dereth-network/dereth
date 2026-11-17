@@ -683,12 +683,15 @@ fn an_auberean_clients_report_reaches_only_its_games_world() {
     };
     let (running, _, _) = super::conformance::hub_with(config);
     let addr = running.local_addr();
-    for (slug, game) in [("frostfell", "auberean"), ("samehost", "dereth")] {
+    for (slug, game, ruleset) in [
+        ("frostfell", "auberean", "Standard"),
+        ("samehost", "dereth", "PvE"),
+    ] {
         running
             .registry()
             .register(
                 &Registration::from_json(&serde_json::json!({
-                    "slug": slug, "name": slug, "ruleset": "PvE", "game": game,
+                    "slug": slug, "name": slug, "ruleset": ruleset, "game": game,
                     "endpoint": { "mode": "manual", "address": "ac2.example.org", "port": 8610 },
                     "emulator": { "family": "Test" },
                 }))
