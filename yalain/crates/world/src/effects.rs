@@ -525,7 +525,8 @@ fn stands_at<S: Store>(s: &Server<S>, id: u64) -> Option<yalain_store::StoredPos
 
 /// A player is pushed by an impulse: its client and every client that knows it are told it flies
 /// from where it stands, at the impulse's velocity (a position with the impulse flag, its contact
-/// as it was), and the client moves its body; the reports that follow are taken as any are.
+/// as it was), and the client moves its body; the reports that follow are taken as any are. A push
+/// with an upward speed puts it in the air as a jump at that speed would ([`crate::airborne`]).
 fn push<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -551,6 +552,10 @@ fn push<S: Store>(
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
+    if v[2] > 0.0 {
+        p.aloft
+            .report(clock.local.0, p.position.origin[2], Some(v[2]));
+    }
     let mut m = p.next_position(time, crate::world::ON_GROUND | IMPULSE);
     m.velocity = auberean_primitives::Vec3::new(v[0], v[1], v[2]);
     crate::presence::tell_position(s, net, world, &m, true, false);

@@ -1,7 +1,7 @@
-//! In the air: a player is in the air from a jump its client reports until the jump comes back to
-//! the height it left from (twice its rise at the jump's upward speed), and for as long after as
-//! the places its client reports keep going down (off a ledge), within [`STALE`] seconds of the
-//! last of them. A report that goes down no further lands it. A fall under way, by the places its
+//! In the air: a player is in the air from a jump its client reports, or a push upward the server
+//! gives it (an impulse), until it comes back to the height it left from (twice its rise at its
+//! upward speed), and for as long after as the places its client reports keep going down (off a
+//! ledge), within [`STALE`] seconds of the last of them. A report that goes down no further lands it. A fall under way, by the places its
 //! client reports and with no jump before it, is in the air too ([`crate::falls`]: off a ledge).
 //! No skill is used in the air ([`crate::skill_use`]).
 
@@ -32,7 +32,8 @@ pub struct Aloft {
 }
 
 impl Aloft {
-    /// A report taken at `now` (world seconds): its height, and its jump's velocity if it jumped.
+    /// A report taken at `now` (world seconds): its height, and its jump's upward speed if it
+    /// jumped (or the upward speed of a push the server gave it there).
     pub fn report(&mut self, now: f64, z: f32, jump: Option<f32>) {
         let before = self.z;
         self.z = z;

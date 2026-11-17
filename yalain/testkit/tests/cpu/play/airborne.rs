@@ -167,3 +167,55 @@ fn a_fall_off_a_ledge_with_no_jump_is_in_the_air() {
     // Landed: no longer in the air (the skill may still be recovering from its first use).
     assert_ne!(refusal_of(&mut h, b, 3, me), Some(refusal::IN_THE_AIR));
 }
+
+/// The server pushes the player once, its ways at `speed` m/s (an impulse effect cast on it by
+/// itself).
+fn pushed(h: &mut Harness, world: ConnId, me: u64, ways: u32, speed: f32) {
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    const PUSH: u32 = 0x6F00_A101;
+    let dash = h
+        .server
+        .effect_table
+        .get(yalain_testkit::DASH_EFFECT)
+        .cloned()
+        .expect("dash");
+    h.server.effect_table.effects.insert(
+        PUSH,
+        EffectDef {
+            state: PUSH,
+            kind: Kind::Impulse {
+                speed: Scale(vec![(1.0, speed)]),
+                ways,
+            },
+            duration: Scale::default(),
+            eq_class: 0,
+            ..dash
+        },
+    );
+    let cast = yalain_world::effects::Cast {
+        caster: me,
+        spellcraft: 1.0,
+        ..yalain_world::effects::Cast::default()
+    };
+    let clock = h.clock();
+    yalain_world::effects::apply(&mut h.server, &mut h.net, world, PUSH, cast, clock);
+    h.run(1);
+}
+
+/// A push straight up at 4.9 m/s puts the player in the air as a jump at that speed does (2017:
+/// every use asked within an upward push's time aloft was refused, 5 of 5, 4 of them as in the
+/// air): a use asked at once is refused as in the air, one asked after its second is carried out.
+/// A push along the ground leaves the player on it.
+/// Behaviour: server.skills.not-in-the-air
+#[test]
+fn a_push_upward_is_in_the_air_as_a_jump_is() {
+    use yalain_world::effect_defs::impulse_way as way;
+    let (mut h, b, me, world) = armed();
+    pushed(&mut h, world, me, way::UP, 4.9);
+    assert_eq!(refusal_of(&mut h, b, 1, me), Some(refusal::IN_THE_AIR));
+    run_for(&mut h, 1.2);
+    assert_eq!(refusal_of(&mut h, b, 2, me), None);
+    pushed(&mut h, world, me, way::FORWARD, 20.0);
+    // On the ground (the skill may still be recovering from its last use).
+    assert_ne!(refusal_of(&mut h, b, 3, me), Some(refusal::IN_THE_AIR));
+}
