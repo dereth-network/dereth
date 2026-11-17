@@ -393,7 +393,10 @@ pub fn try_use_item(w: &mut World, this: ObjectGuid, item: ObjectGuid, success: 
     //Console.WriteLine($"{Name}.TryUseItem({item.Name}, {success})");
     fields_mut(w, this).last_use_time = 0.0;
 
-    if success {
+    // DIVERGE: V556, an item gone from the world before the use reached it (destroyed while the
+    // player turned or walked to it) is not activated, and the use is still done; ACE activates its
+    // detached object.
+    if success && w.objects.contains(item) {
         dispatch::on_activate::on_activate(w, item, this);
     }
 

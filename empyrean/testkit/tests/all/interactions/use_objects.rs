@@ -1,6 +1,7 @@
 //! ACE: Source/ACE.Server/WorldObjects/Player_Use.cs::HandleActionUseItem
 //! Door opens for all and closes on its timer; chest walked to and opened; locked chest opens
-//! with its key only; apple raises health; healing kit; corpse opened and looted; vendor via Use.
+//! with its key only; a use carried out after its item is gone is still done; apple raises health;
+//! healing kit; corpse opened and looted; vendor via Use.
 //! Fixture: a virtual-time TestServer, isolated stores and synthetic dats.
 
 use std::sync::Arc;
@@ -570,6 +571,28 @@ fn a_chest_out_of_reach_is_walked_to_then_opened() {
     assert_eq!(
         player_use::fields(&ts.world, ObjectGuid::new(ALPHA)).last_opened_container_id,
         chest
+    );
+}
+
+/// A use carried out after its item is gone (a chest destroyed while the player turned or walked
+/// to it, the move-to chain's callback then reporting it reached): the use is still done (UseDone,
+/// no error), and nothing is opened.
+#[test]
+fn a_use_carried_out_after_its_item_is_gone_is_still_done() {
+    let mut ts = server();
+    let (alpha, _) = join(&mut ts, "alpha", ALPHA, "Alpha", at(20.0, 20.0));
+    let chest = on_ground(&mut ts, CHEST, at(21.0, 20.0));
+    ts.advance(0.5);
+    world_object::destroy(&mut ts.world, chest, true, false);
+    assert!(ts.world.objects.get(chest).is_none());
+
+    let got = during(&mut ts, &[alpha], 0.5, |ts| {
+        player_use::try_use_item(&mut ts.world, ObjectGuid::new(ALPHA), chest, true);
+    });
+    assert_eq!(use_dones(&got[0]), [0], "{:04X?}", kinds(&got[0]));
+    assert_eq!(
+        player_use::fields(&ts.world, ObjectGuid::new(ALPHA)).last_opened_container_id,
+        ObjectGuid::new(0)
     );
 }
 
