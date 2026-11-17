@@ -1,7 +1,7 @@
 //! Falls: a player whose client reports it falling is hurt by the height as it lands, mounted or
 //! not, spared by Safe Fall, by its fall modifier and by water; a ride down a slope is no fall.
 //! Fixture: a player where a character starts (outdoors over made-up ground and water where a test
-//! says), its client reporting places a fifth of a second apart.
+//! says), regaining no health, its client reporting places a fifth of a second apart.
 
 use auberean_primitives::Vec3;
 use auberean_protocol::physics::ClientPosition;
@@ -13,6 +13,7 @@ use yalain_world::calls::{Node, Value};
 use yalain_world::effect_defs::{EffectDef, Kind as EffectKind, Scale};
 use yalain_world::falls;
 use yalain_world::player::quality;
+use yalain_world::regen::rate::PEACE_HEALTH;
 
 /// The gap between two of the client's reports, in seconds.
 const STEP: f64 = 0.2;
@@ -20,7 +21,8 @@ const DEATH_MESSAGE: u32 = 0x8207_002B;
 /// A made-up effect of Safe Fall's type.
 const SAFE: u32 = 0x7000_7D01;
 
-/// A player in the world with health to spare: the harness, its client, its world connection and
+/// A player in the world with health to spare, regaining none, so its health shows every fall's
+/// harm however its regeneration steps fall: the harness, its client, its world connection and
 /// where it stands.
 fn player(health: i32) -> (Harness, usize, ConnId, StoredPosition) {
     let mut h = Harness::new();
@@ -39,6 +41,7 @@ fn player(health: i32) -> (Harness, usize, ConnId, StoredPosition) {
         .map(|(w, p)| {
             yalain_world::quals::set_int(&mut p.qualities, quality::HEALTH_MAX, health);
             yalain_world::quals::set_int(&mut p.qualities, quality::HEALTH, health);
+            yalain_world::quals::set_float(&mut p.qualities, PEACE_HEALTH, 0.0);
             (*w, p.position)
         })
         .expect("in the world");
