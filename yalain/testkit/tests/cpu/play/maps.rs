@@ -575,8 +575,8 @@ fn mining_a_maps_node_sometimes_unearths_a_lodestone_in_place_of_the_ore() {
     assert_eq!(lodestones(&h), 1, "and no other");
 }
 
-/// A lodestone found is of the quality the finder's level gives: crumbling to 29, brittle 30 to
-/// 44, rough 45 to 59, smooth 60 to 74, shining from 75; each material's family its own.
+/// A lodestone found is of the quality the finder's level gives: crumbling to 24, brittle 25 to
+/// 39, rough 40 to 54, smooth 55 to 69, shining from 70; each material's family its own.
 /// Behaviour: server.craft.mining-find-quality-by-level
 #[test]
 fn a_found_lodestones_quality_follows_the_finders_level() {
@@ -592,14 +592,14 @@ fn a_found_lodestones_quality_follows_the_finders_level() {
     let rusty = g.mine(0x6F00_069C).expect("iron");
     for (level, lodestone) in [
         (1, crumbling),
-        (29, crumbling),
-        (30, brittle),
-        (44, brittle),
-        (45, rough),
-        (59, rough),
-        (60, smooth),
-        (74, smooth),
-        (75, shining),
+        (24, crumbling),
+        (25, brittle),
+        (39, brittle),
+        (40, rough),
+        (54, rough),
+        (55, smooth),
+        (69, smooth),
+        (70, shining),
         (150, shining),
     ] {
         assert_eq!(rusty.lodestone(level), Some(lodestone), "level {level}");

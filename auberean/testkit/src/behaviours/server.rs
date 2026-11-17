@@ -2446,8 +2446,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.craft.mining-find-quality-by-level",
-        says: "A lodestone found in mining is of the quality the finder's level gives: crumbling to 29, \
-               brittle 30 to 44, rough 45 to 59, smooth 60 to 74, shining from 75.",
+        says: "A lodestone found in mining is of the quality the finder's level gives: crumbling to 24, \
+               brittle 25 to 39, rough 40 to 54, smooth 55 to 69, shining from 70.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-LODESTONE-BANDS"),
         station: "yalain-testkit::cpu::play::maps::a_found_lodestones_quality_follows_the_finders_level",

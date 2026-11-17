@@ -2363,7 +2363,7 @@ pub fn test_gathering() -> yalain_content::gathering::Gathering {
                 answer: (answers[0], T),
                 rich_answer: (answers[1], T),
                 delving: Some((format!("Eff_SummonMine_{material}_Delving"), node)),
-                lodestones: [0, 30, 45, 60, 75].into_iter().zip(l).collect(),
+                lodestones: [0, 25, 40, 55, 70].into_iter().zip(l).collect(),
                 find_chance: 7.0 / 165.0,
                 finds: vec![(0x4700_052F, 2.0 / 7.0)],
             },
