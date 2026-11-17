@@ -13703,6 +13703,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.wiki-lifestones-walk-through",
+        says: "The lifestone a wiki region page lists where no lifestone was recorded and no 2017 \
+               recording came near stands more than 500 m from every other lifestone, on the land \
+               above the water and on the ground; a body on open ground 12 m off runs up to it, where \
+               a recall to it lands, and its use binds the player there.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-WIKI-LIFESTONES"),
+        station: "yalain-testkit::corpus::world_db::the_wikis_lifestone_no_recording_reached_stands_on_open_land_reached_and_bound_on_foot",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.plants.a-reload-reads-the-rows",
         says: "A reload takes up the world's `[[plant]]` and `[[plant_cross]]` rows at once: a seed a \
                new row names plants its plant, one no row names any longer plants nothing.",

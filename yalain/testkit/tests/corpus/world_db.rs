@@ -36243,3 +36243,105 @@ fn the_war_and_peace_shrines_are_reached_on_foot_and_grant_then_revoke_the_permi
         assert_eq!(allowed(&w) & ANYWHERE, 0, "{block:04X}: revoked after them");
     }
 }
+
+/// **The lifestone a wiki region page lists where no recording went stands on open land and
+/// binds**: it is a lifestone, more than 500 m from every other lifestone, on the land above the
+/// water and on the ground there; a body put on open ground 12 m off runs up to it, where a recall
+/// to it lands, and its use binds the player there.
+/// Behaviour: server.places.wiki-lifestones-walk-through
+#[test]
+fn the_wikis_lifestone_no_recording_reached_stands_on_open_land_reached_and_bound_on_foot() {
+    use yalain_world::places::{kind, BESIDE_LIFESTONE, LIFESTONE};
+    use yalain_world::usable::maps::ground_distance;
+    let c = compiled();
+    let t = &c.tables;
+    let portal = yalain_testkit::authored::Portal::open();
+    let objects = &t.content.objects;
+    let stones: Vec<usize> = c
+        .merged
+        .rows
+        .iter()
+        .filter(|l| l.pack == "wiki-lifestones")
+        .filter_map(|l| match &l.row {
+            rows::Row::Object(o) => Some((o.template, o.cell.expect("a cell"))),
+            _ => None,
+        })
+        .map(|(template, cell)| {
+            objects
+                .iter()
+                .position(|o| o.template == template && o.cell == cell)
+                .expect("placed")
+        })
+        .collect();
+    assert_eq!(stones.len(), 1, "the wiki's lifestone no recording reached");
+    let lifestones: Vec<usize> = (0..objects.len())
+        .filter(|&i| portal.derives(objects[i].template, &[LIFESTONE]))
+        .collect();
+    let at = |i: usize| spot(objects[i].cell, objects[i].origin);
+    let i = stones[0];
+    assert!(lifestones.contains(&i), "{}: a lifestone", objects[i].label);
+    let near = lifestones
+        .iter()
+        .filter(|&&j| j != i)
+        .map(|&j| ground_distance(&at(i), &at(j)))
+        .fold(f32::INFINITY, f32::min);
+    assert!(near > 500.0, "another lifestone {near} m off");
+    let stone = at(i);
+    let mut w = walled(t, &[stone.cell >> 16]);
+    let package = portal.template(objects[i].template).description.package;
+    w.h.server.lifestone_packages.insert(package);
+    assert!(stone.cell & 0xFFFF < 0x100, "on the land");
+    let walls = w.h.server.walls.as_mut().expect("the walls");
+    assert!(!under_water(walls, &stone), "above the water");
+    walls.read_place(stone.cell);
+    let ground = walls
+        .land()
+        .ground(
+            dereth_primitives::CellId(stone.cell).landblock(),
+            dereth_primitives::Vec3::new(stone.origin[0], stone.origin[1], 0.0),
+        )
+        .expect("the ground")
+        .0;
+    assert!(
+        (stone.origin[2] - ground).abs() < 0.5,
+        "on the ground, {} against {ground}",
+        stone.origin[2]
+    );
+    // From open ground 12 m off, the first of eight ways round it that is above the water.
+    let reached = (0..8u8).any(|k| {
+        use dereth_primitives::num::math;
+        let a = f32::from(k) * std::f32::consts::TAU / 8.0;
+        let (x, y) = (
+            stone.origin[0] + 12.0 * math::sinf(a),
+            stone.origin[1] + 12.0 * math::cosf(a),
+        );
+        let (cell, x, y) = yalain_world::spawn::outdoor(stone.cell >> 16, x, y);
+        let walls = w.h.server.walls.as_mut().expect("the walls");
+        walls.read_place(cell);
+        let Some((z, _)) = walls.land().ground(
+            dereth_primitives::CellId(cell).landblock(),
+            dereth_primitives::Vec3::new(x, y, 0.0),
+        ) else {
+            return false;
+        };
+        let off = spot(cell, [x, y, z]);
+        if under_water(walls, &off) {
+            return false;
+        }
+        w.put(off);
+        w.way_across(&stone, BESIDE_LIFESTONE)
+            .is_some_and(|way| w.run_along(&way) == way.len())
+    });
+    assert!(reached, "reached on foot");
+    w.use_placed(t, i);
+    let bound = w.h.server.players[&w.world]
+        .places
+        .iter()
+        .find(|(k, _)| *k == kind::LIFESTONE)
+        .map(|(_, p)| *p)
+        .expect("bound");
+    assert!(
+        ground_distance(&bound, &stone) <= BESIDE_LIFESTONE + 0.5,
+        "bound where it stands"
+    );
+}
