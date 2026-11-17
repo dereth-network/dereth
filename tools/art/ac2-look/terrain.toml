@@ -5,10 +5,10 @@
 # road also carry the detail picture their group names, at its own repeat (AC2 itself loaded
 # this grain but never drew it). With `pebbles = false`, the presentation's own pebbles are kept
 # off every ground and the road the look lays.
-version = 4
+version = 5
 picture_limit = 1024
 relief_strength = 6
-detail = true
+detail = false
 pebbles = false
 
 [[ground]]

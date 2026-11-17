@@ -9,6 +9,7 @@ not how it was done. `cargo xtask release launcher <version>` turns Unreleased i
 section, dated, and opens a new empty one in the same commit as the version.
 
 ## Unreleased
+- Library: the Asheron's Call 2 art pack's ground no longer carries the heavy detail grain.
 
 ## 0.5.6 (2026-11-17)
 - Fixed the Asheron's Call 2 art pack's Build button staying greyed out.

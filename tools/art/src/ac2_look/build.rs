@@ -865,7 +865,7 @@ mod tests {
     )]
     fn every_ground_carries_its_detail_picture_and_keeps_pebbles_off_when_the_table_asks() {
         let mut t = Tables::built_in().expect("the tables");
-        assert!(t.terrain.detail);
+        assert!(!t.terrain.detail, "the built-in look leaves the detail off");
         assert!(!t.terrain.pebbles);
         let ac2 = auberean_dat::testing::require_target_install();
         let dir =
@@ -890,6 +890,7 @@ mod tests {
             });
             (built.map(|b| b.left_out), text, details)
         };
+        t.terrain.detail = true;
         let with = manifest(&t, "with.dat");
         t.terrain.detail = false;
         t.terrain.pebbles = true;
