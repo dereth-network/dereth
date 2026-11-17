@@ -113,6 +113,36 @@ fn a_creature_at_rest_outdoors_walks_within_its_range_and_stands_where_it_ends()
     );
 }
 
+/// A walk at rest is a short one from where the creature stands, kept within its wandering range of
+/// home: walk after walk, each from where the last ended, the median walk is a third to a half of
+/// the range (not most of it, as a goal anywhere about home would make it), and every walk ends
+/// within the range, a walk from its very edge too.
+/// Behaviour: server.creatures.wander-short-walks
+#[test]
+fn a_walk_at_rest_is_drawn_from_where_the_creature_stands_and_ends_within_its_range() {
+    let mut rng = yalain_world::rng::Rng::new(7);
+    let range = 20.0_f32;
+    let far = |p: [f32; 2]| (p[0] * p[0] + p[1] * p[1]).sqrt();
+    let mut at = [0.0_f32, 0.0];
+    let mut walks = Vec::new();
+    for _ in 0..2000 {
+        let goal = ai::wander_goal(&mut rng, at, range);
+        assert!(far(goal) <= range + 1e-3, "{goal:?}");
+        walks.push(far([goal[0] - at[0], goal[1] - at[1]]));
+        at = goal;
+    }
+    walks.sort_by(f32::total_cmp);
+    let median = walks[walks.len() / 2];
+    assert!(
+        (0.3 * range..0.5 * range).contains(&median),
+        "median walk {median}"
+    );
+    for _ in 0..200 {
+        let goal = ai::wander_goal(&mut rng, [range, 0.0], range);
+        assert!(far(goal) <= range + 1e-3, "from the edge: {goal:?}");
+    }
+}
+
 /// On a slope a walk still ends where it should, on the ground at its goal (the goal's height is
 /// home's, the ground's is not), and the creature stands there and wanders again later.
 /// Behaviour: server.creatures.wander-and-stop-standing

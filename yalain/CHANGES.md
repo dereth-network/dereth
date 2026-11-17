@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Creatures now wander in short walks and can't hit players on ledges overhead.
 - Killing another player now moves Kingdom Points.
 - Damage between players is a third after armor, and heals mend it at a third.
 - Heroes' combat perks now work: Stalkers, Hunters, Defense, Fortitude, Facades and more.

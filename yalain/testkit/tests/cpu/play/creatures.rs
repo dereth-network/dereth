@@ -509,6 +509,36 @@ fn a_creature_stands_and_swings_while_a_player_is_within_its_reach_and_runs_beyo
     }
 }
 
+/// A creature's swing reaches across the ground, not up a ledge: a player a meter off and 3 m above
+/// it, out of its swing, is never struck however long it is due; the same player 2 m above is.
+/// Behaviour: server.creatures.no-swing-up-a-ledge
+#[test]
+fn a_creature_does_not_swing_at_a_player_on_a_ledge_above_it() {
+    let mut h = Harness::new();
+    let (id, _) = after_player(&mut h, 1.0);
+    // The player a meter off across the ground and `up` above the creature, wherever it goes.
+    let above = |h: &mut Harness, up: f32| {
+        let at = h.server.things.get(id).and_then(|t| t.at).expect("placed");
+        let p = h.server.players.values_mut().next().expect("a player");
+        p.position.origin = [at.origin[0] - 1.0, at.origin[1], at.origin[2] + up];
+        p.position.cell = at.cell;
+    };
+    let was = due(&h, id);
+    assert!(was < h.now.0 + 5.0, "due soon: {was}");
+    while h.now.0 < was + 10.0 {
+        above(&mut h, 3.0);
+        h.step();
+    }
+    assert_eq!(due(&h, id), was, "no swing up the ledge");
+    let mut steps = 0;
+    while due(&h, id) == was {
+        above(&mut h, 2.0);
+        h.step();
+        steps += 1;
+        assert!(steps < 400, "it swings at 2 m");
+    }
+}
+
 /// A player who keeps within a running creature's reach, but away from where it stops, is swung at
 /// on the run; one beyond its reach is not.
 /// Behaviour: server.creatures.swings-at-who-keeps-away

@@ -18,7 +18,8 @@
 //!   ([`crate::missiles`]), stands and shoots; else it runs toward the player at 6.4 m/s times its
 //!   scale (2017's measured speed), facing it, its place sent to the clients that see it every
 //!   world step (no movement order: 2017 sent creatures none); within reach it strikes as often as
-//!   its attacks allow.
+//!   its attacks allow, its reach measured across the ground and a player more than a few meters
+//!   above or below out of it ([`in_swing`]): one on a ledge overhead is not struck.
 //! - **Sight.** It attacks only a player it sees: one whose client was told of it, with nothing
 //!   between them ([`sees`]: walls, floors, the ground, buildings, rocks and closed doors stop the
 //!   line). Out of its sight it neither shoots nor strikes but closes in, a shooter as a creature
@@ -76,11 +77,12 @@
 //! - **Held and slowed.** Its effects' speed scales its running and walking: a hold stops it where
 //!   it stands, where it still turns and attacks what it reaches (2017: held creatures moved 96 m
 //!   in 21,877 held seconds and attacked 3,060 times).
-//! - **Wandering.** At rest, now and then it walks to a point within its wandering range of home
-//!   (25 m, the scripts' default, for a template that names none; 2017's without a range wandered
-//!   a little farther than those of 20 m), setting out with its wandering chance (0.1 for one
-//!   naming none: 2017's walked 8.3 times an hour near a player, those of 0.2 13.6; one naming 0
-//!   always sets out). A creature whose
+//! - **Wandering.** At rest, now and then it walks a short way from where it stands, to a point
+//!   still within its wandering range of home (25 m, the scripts' default, for a template that
+//!   names none; 2017's without a range wandered a little farther than those of 20 m): a walk's
+//!   length is drawn evenly up to the range ([`wander_goal`]). It sets out with its wandering
+//!   chance (0.1 for one naming none: 2017's walked 8.3 times an hour near a player, those of 0.2
+//!   13.6; one naming 0 always sets out). A creature whose
 //!   homesick radius is under 5 m never wanders (2017: 0 of 40 walked at rest, the training
 //!   halls' among them), nor does one whose template says it does not wander, nor one that only
 //!   turns. Indoors a creature at rest stays where it is (2017: 4 of 324 watched five minutes or
@@ -590,10 +592,27 @@ fn attacks_from_here<S: Store>(s: &Server<S>, t: &crate::things::Thing, now: f64
     };
     let reach = body_radius_of(s, t.id) + REACHES_PAST_BODY;
     presence::distance(&at, &p.position).is_some_and(|d| {
-        (d <= reach && c.closing.is_none())
+        (in_swing(&at, &p.position, reach) && c.closing.is_none())
             || (c.ranged && d <= crate::missiles::MISSILE_RANGE)
             || c.stats.turns_only()
     })
+}
+
+/// How far above or below a creature a player may stand and still be within its swing, in meters,
+/// whatever the creature's size (2017: of 1,379 melee swings at players within 4 m of the creature
+/// on the ground, the player stood at most 2.69 m above it and 2.04 m below; 3 above 2 m).
+pub const SWING_HEIGHT: f32 = 2.75;
+
+/// Is a player at `place` within the swing of a creature at `at` whose reach, measured on the
+/// ground between their middles as 2017's was, is `reach`: within it across the ground and at most
+/// [`SWING_HEIGHT`] above or below? A player on a ledge straight overhead is out of its swing.
+#[must_use]
+pub fn in_swing(at: &StoredPosition, place: &StoredPosition, reach: f32) -> bool {
+    if presence::distance(at, place).is_none() {
+        return false;
+    }
+    let (dx, dy, dz) = offset(at, place);
+    (dx * dx + dy * dy).sqrt() <= reach && dz.abs() <= SWING_HEIGHT
 }
 
 /// A creature's body's radius.
@@ -804,7 +823,8 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
             // chose to strike swings within (2017: shooters struck 9 in 10 of their attacks within
             // it and 2 in 100 beyond, the edge moving with the body).
             let reach = body_radius_of(s, id) + REACHES_PAST_BODY;
-            if ranged && d.is_some_and(|d| d > reach) {
+            let strikes = in_swing(&at, &place, reach);
+            if ranged && !strikes {
                 // Shooting: in range and in sight it stands and shoots; beyond its range it runs
                 // in, and out of its sight it closes in until it sees the player.
                 if !seen {
@@ -824,7 +844,6 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                 // within reach; one that got there, or never had to run, stands for as long as the
                 // player stays within reach.
                 let radius = body_radius_of(s, id);
-                let d = d.unwrap_or(f32::MAX);
                 let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) else {
                     return;
                 };
@@ -841,13 +860,13 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                     };
                 let (dx, dy, _) = offset(&at, &place);
                 let there = (dx * dx + dy * dy).sqrt() <= stop + 0.01;
-                if d > reach || (was.is_some() && !there) {
+                if !strikes || (was.is_some() && !there) {
                     c.closing = Some(place);
                 } else {
                     c.closing = None;
                 }
                 let runs = c.closing.is_some();
-                if d <= reach && seen {
+                if strikes && seen {
                     // A target in melee reach is struck, for the rest of the fight.
                     c.ranged = false;
                 }
@@ -855,7 +874,7 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                     let step = step_toward(s, net, id, &place, run, stop, RUNNING, clock);
                     cannot_reach(s, id, target);
                     // Within reach and held up, it comes no nearer: it stands and strikes from there.
-                    if step == Step::Blocked && d <= reach {
+                    if step == Step::Blocked && strikes {
                         if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
                             c.closing = None;
                         }
@@ -863,7 +882,7 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                 } else {
                     face(s, net, id, &place, clock);
                 }
-                if seen && d <= reach && (!runs || moved) {
+                if seen && strikes && (!runs || moved) {
                     crate::combat::creature_strikes(s, net, id, conn, clock);
                 }
             }
@@ -1618,8 +1637,38 @@ fn idle<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, now: f64) {
     crate::combat::to_all_seeing(s, net, id, &m);
 }
 
-/// Now and then, a creature at rest takes a step toward a point within its wandering range of
-/// home (one step each world step until it is there).
+/// How many times a walk's goal is drawn again when it falls beyond the wandering range of home,
+/// before the walk goes as far as it may toward it instead.
+const WANDER_DRAWS: usize = 8;
+
+/// Where a creature standing at `from` (meters from home, across and along) walks at rest: a walk
+/// of a length drawn evenly up to its wandering range, in any direction, drawn again when it would
+/// end beyond the range of home; where none of [`WANDER_DRAWS`] lands within it, the edge of the
+/// range toward the last. Meters from home. (2017: outdoor creatures' walks at rest, from where
+/// they stood to where they next stood, a median 6.8 m and a tenth past 19.2 m for a range of 20 m
+/// over 2,648 walks, 2.7 and 8.6 m for 10 m over 92; drawn this way 7.9 and 16.8, 3.9 and 8.4;
+/// drawn anywhere within the range of home 17.7 and 29.7. The 24 creatures of 20 m seen walking
+/// five times or more kept within a median 18.2 m of the middle of their walks.)
+#[must_use]
+pub fn wander_goal(rng: &mut crate::rng::Rng, from: [f32; 2], range: f32) -> [f32; 2] {
+    let mut goal = from;
+    for _ in 0..WANDER_DRAWS {
+        let length = range * rng.unit();
+        let a = rng.between(0.0, std::f32::consts::TAU);
+        goal = [
+            from[0] + length * math::cosf(a),
+            from[1] + length * math::sinf(a),
+        ];
+        if (goal[0] * goal[0] + goal[1] * goal[1]).sqrt() <= range {
+            return goal;
+        }
+    }
+    let far = (goal[0] * goal[0] + goal[1] * goal[1]).sqrt();
+    [goal[0] * range / far, goal[1] * range / far]
+}
+
+/// Now and then, a creature at rest takes a step toward a point a short walk from where it stands,
+/// within its wandering range of home (one step each world step until it is there).
 fn wander<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, now: f64) {
     let Some(t) = s.things.get(id) else { return };
     let Some(c) = t.creature.as_ref() else { return };
@@ -1662,14 +1711,10 @@ fn wander<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Cloc
     // Between walks it rests (2017: a median 58 s for creatures of a 20 m range).
     let next = now + f64::from(s.rng.between(WANDER_REST.0, WANDER_REST.1));
     let go = chance <= 0.0 || s.rng.chance(chance);
-    let r = range * s.rng.unit().sqrt();
-    let a = s.rng.between(0.0, std::f32::consts::TAU);
-    let (x, y) = (
-        home.origin[0] + r * math::cosf(a),
-        home.origin[1] + r * math::sinf(a),
-    );
+    let (dx, dy, _) = offset(&home, &from);
+    let [x, y] = wander_goal(&mut s.rng, [dx, dy], range);
     let goal = Some(StoredPosition {
-        origin: [x, y, home.origin[2]],
+        origin: [home.origin[0] + x, home.origin[1] + y, home.origin[2]],
         ..home
     });
     // Where the walls are known, only a point it can walk to, by the way it will walk.

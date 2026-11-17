@@ -3700,6 +3700,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.no-swing-up-a-ledge",
+        says: "A creature's swing reaches a player within its reach across the ground and no more \
+               than 2.75 m above or below it: a player on a ledge overhead is not struck.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-SWING-HEIGHT"),
+        station: "yalain-testkit::cpu::play::creatures::a_creature_does_not_swing_at_a_player_on_a_ledge_above_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.not-wandering-never-wander",
         says: "A creature whose template says it does not wander never wanders.",
         since: RETAIL,
@@ -3974,6 +3983,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-STOP-STANDING"),
         station: "yalain-testkit::cpu::play::resting::a_creature_that_runs_home_is_told_standing_when_it_gets_there",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.wander-short-walks",
+        says: "A creature at rest walks a short way from where it stands, a length drawn evenly up to \
+               its wandering range, to a point still within that range of home.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-WANDER-WALKS"),
+        station: "yalain-testkit::cpu::play::resting::a_walk_at_rest_is_drawn_from_where_the_creature_stands_and_ends_within_its_range",
         tier: Tier::Cpu,
     },
     behaviour! {
