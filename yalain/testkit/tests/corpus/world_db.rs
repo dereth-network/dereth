@@ -33071,6 +33071,80 @@ fn a_chaos_crystal_given_to_the_cleansed_forge_becomes_the_star_which_arramoras_
     }
 }
 
+/// **The first star given to Arramora's beacon trains the Arramora recall, whose landing reaches the
+/// beacon on foot**: the great reward's two steps and the lesser reward's two train skill 1045; the
+/// recall's landing stands in the beacon's block, and from it a walker reaches the foot of the
+/// beacon's base and gives it a star from there, completing the great reward's quest and trained.
+/// Played: a player who gave its first star before the recall was trained, holding none, gives
+/// another and completes the lesser reward's quest, trained; a star after that leaves it as it was.
+/// Behaviour: server.quests.arramora-recall-walk-through
+#[test]
+fn the_first_star_given_to_arramoras_beacon_trains_the_arramora_recall() {
+    use yalain_content::quests::Trigger;
+    use yalain_world::quests::status;
+    const BEACON: u32 = 0x4700_326A;
+    const STAR: u32 = 0x4700_184B;
+    const GREAT: u32 = 0x4000_0266;
+    const LESSER: u32 = 0x4000_0267;
+    const RECALL: u32 = yalain_world::skill_use::ARRAMORA_RECALL;
+    let t = &compiled().tables;
+    let objects = &t.content.objects;
+    let trained = |h: &Harness| {
+        h.server
+            .players
+            .values()
+            .flat_map(|p| p.play.skills.iter())
+            .filter(|s| s.skill == RECALL)
+            .count()
+    };
+    for quest in [GREAT, LESSER] {
+        let steps: Vec<_> = t
+            .quests
+            .steps
+            .iter()
+            .filter(|s| s.quest == quest && matches!(s.trigger, Trigger::Give(_, BEACON)))
+            .collect();
+        assert_eq!(steps.len(), 2, "{quest:08X}: a step for each star");
+        for s in steps {
+            assert_eq!(s.skills, [RECALL], "{quest:08X} {}", s.key);
+        }
+    }
+
+    // On foot: from the recall's landing to the foot of the beacon's base, three and a half meters
+    // below it, and the star given from there.
+    let i = placed(t, BEACON);
+    let beacon = &objects[i];
+    let landing = t.places_by_name[yalain_testkit::ARRAMORA_PLACE];
+    assert_eq!(landing.cell >> 16, beacon.cell >> 16, "the beacon's block");
+    let mut w = walled(t, &[beacon.cell >> 16]);
+    w.put(spot(landing.cell, landing.origin));
+    let below = [beacon.origin[0], beacon.origin[1], beacon.origin[2] - 3.0];
+    assert!(w.run_to(below, 6.0), "to the beacon on foot");
+    let portal = yalain_testkit::authored::Portal::open();
+    w.h.server.quest_ids = quest_ids();
+    w.h.server.catalog.insert(as_installed(&portal, STAR));
+    let body = portal.body(BEACON).expect("the beacon's body");
+    w.h.server.catalog.bodies.insert(BEACON, body);
+    assert!(w.give_to(t, i, STAR), "given from there, kept");
+    assert_eq!(state_of(&w.h, GREAT).map(|q| q.0), Some(status::COMPLETED));
+    assert_eq!(trained(&w.h), 1, "trained there");
+
+    // Played.
+    let (mut h, b, me) = served(t);
+    h.server.quest_ids = quest_ids();
+    set_level(&mut h, 60);
+    h.server.catalog.insert(as_installed(&portal, STAR));
+    put_done(&mut h, GREAT);
+    assert_eq!(trained(&h), 0, "its first star given, the recall not held");
+    let (_, left) = offered(&mut h, b, me, t, (BEACON, STAR), (1, 1));
+    assert_eq!(left, None, "a later star kept");
+    assert_eq!(state_of(&h, LESSER).map(|q| q.0), Some(status::COMPLETED));
+    assert_eq!(trained(&h), 1, "the recall trained");
+    let (_, left) = offered(&mut h, b, me, t, (BEACON, STAR), (1, 1));
+    assert_eq!(left, None, "another star kept");
+    assert_eq!(trained(&h), 1, "held once");
+}
+
 /// **The island beyond the tunnels walks down through its heart to the beast and back to the
 /// sage**: the portal into the heart stands inside the opening atop the island's mountain, its
 /// arrival the quest's second phase; the heart's way out leads back to the opening, and the portal

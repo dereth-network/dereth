@@ -15005,6 +15005,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.quests.arramora-recall-walk-through",
+        says: "A star given to Arramora's beacon trains the Arramora recall, whose landing reaches the \
+               beacon on foot: the great reward's two steps and the lesser reward's two train the skill; \
+               a player who gives the beacon its first star completes the great reward's quest and holds \
+               the skill, trained; one who gave its first before the recall was trained gets it with a \
+               later star, and a star after that leaves it as it was.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-ARRAMORA-RECALL"),
+        station: "yalain-testkit::corpus::world_db::the_first_star_given_to_arramoras_beacon_trains_the_arramora_recall",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.arrival-through-one-portal",
         says: "A step made on arrival through one placed portal moves its quest when the player comes \
                out of that portal's trip, and not out of another portal of the same kind.",
