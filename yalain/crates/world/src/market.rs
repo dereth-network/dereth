@@ -13,6 +13,9 @@
 //!
 //! **A store chosen** from the catalog shows the sales players put up in it.
 //!
+//! **Asked twice**: a store or the consignments asked for again while the shopper is in them (its
+//! client sent the asking twice) is answered as too busy, and nothing else.
+//!
 //! **Consignments**: entering them shows the player's own (and its reminder of them at that
 //! broker). Putting an item up for a price takes a charge of a hundredth of what it would fetch
 //! (at least 1), moves the item to the broker and shows the consignment. Collecting an unsold one
@@ -788,6 +791,14 @@ pub fn enter_store<S: Store>(
     if !near(s, world, keeper) {
         return;
     }
+    let again = s
+        .players
+        .get(&world)
+        .and_then(|p| p.shopping)
+        .is_some_and(|(k, st, _)| k == keeper && st == store);
+    if again {
+        return too_busy(net, world);
+    }
     let Some(m) = page_of(
         s,
         world,
@@ -954,9 +965,16 @@ pub fn enter_consignment<S: Store>(
     if !near(s, world, keeper) {
         return;
     }
-    let Some(me) = s.players.get(&world).map(|p| p.character) else {
+    let Some((me, at)) = s
+        .players
+        .get(&world)
+        .map(|p| (p.character, p.at_consignments))
+    else {
         return;
     };
+    if at == Some(keeper) {
+        return too_busy(net, world);
+    }
     let mine = s.market.list.iter().filter(|c| c.owner == me).count();
     if !page_allowed(s, world, 0, mine, now) {
         return;
@@ -967,6 +985,17 @@ pub fn enter_consignment<S: Store>(
     if let Some(p) = s.players.get_mut(&world) {
         p.at_consignments = Some(keeper);
     }
+}
+
+/// A store's asking the shopper's client sent twice, the second answered as too busy (2017: the
+/// second of a store asked for twice 0.07 s apart, and of the consignments 0.03 s apart; no asking
+/// of 16 others came while the shopper was in that store).
+fn too_busy(net: &mut ServerNet, world: ConnId) {
+    let m = call(
+        store::function::REQUEST_DONE,
+        &[Arg::Int(store::error::TOO_BUSY)],
+    );
+    progress::private(net, world, &m);
 }
 
 /// The client leaves the consignments page, or its catalog (not answered).

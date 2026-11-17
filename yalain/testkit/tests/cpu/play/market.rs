@@ -11,7 +11,7 @@ use yalain_testkit::{test_template, Harness};
 use yalain_world::graph::{Builder, Slot};
 use yalain_world::market::{function, Broker};
 use yalain_world::places::function::USE_DONE;
-use yalain_world::store::function::{ENTER_STORE, PURCHASE};
+use yalain_world::store::function::{ENTER_STORE, LEAVE_STORE, PURCHASE};
 
 const BROKER: u64 = 0x40FE_FA00_0000_0003;
 const BROKER_TEMPLATE: u32 = 0x4700_2E8B;
@@ -484,6 +484,7 @@ fn a_consignment_tells_its_seller_how_many_are_left_and_how_many_sold() {
     let sword = put_up_a_made_item(&mut h, a, ida);
     // Each consignment's left and sold, in the page and the reminder the seller is sent.
     let shown = |h: &mut Harness| -> Vec<(u32, u32)> {
+        h.ask(a, function::LEAVE_CONSIGNMENT, &[Arg::LongInt(BROKER)], 1);
         let from = h.bots[a].inbox.len();
         h.ask(a, function::ENTER_CONSIGNMENT, &[Arg::LongInt(BROKER)], 10);
         let mut found = Vec::new();
@@ -1291,6 +1292,7 @@ fn market_pages_come_out_of_an_allowance_of_rows() {
     let from = h.bots[a].inbox.len();
     for _ in 0..50 {
         h.ask(a, function::ENTER_STORE, &page, 1);
+        h.ask(a, LEAVE_STORE, &[Arg::LongInt(BROKER)], 0);
     }
     h.run(5);
     assert_eq!(pages(&h, from), 50, "a player's pages are all answered");
@@ -1302,7 +1304,9 @@ fn market_pages_come_out_of_an_allowance_of_rows() {
     // Two at once: the first takes all there is, and the second is not answered however long it waits.
     let from = h.bots[a].inbox.len();
     let ask = yalain_testkit::play::server_call(function::ENTER_STORE, &page);
+    let leave = yalain_testkit::play::server_call(LEAVE_STORE, &[Arg::LongInt(BROKER)]);
     h.bots[a].send(true, auberean_protocol::queue::WEENIE, &ask);
+    h.bots[a].send(true, auberean_protocol::queue::WEENIE, &leave);
     h.bots[a].send(true, auberean_protocol::queue::WEENIE, &ask);
     assert!(
         h.run_until(5_000, |h| pages(h, from) >= 1),
@@ -1313,6 +1317,7 @@ fn market_pages_come_out_of_an_allowance_of_rows() {
         "the next is not answered"
     );
     h.step_by(full);
+    h.ask(a, LEAVE_STORE, &[Arg::LongInt(BROKER)], 0);
     let from = h.bots[a].inbox.len();
     h.ask(a, function::ENTER_STORE, &page, 1);
     assert!(h.run_until(5_000, |h| pages(h, from) >= 1), "back in time");
@@ -1533,6 +1538,7 @@ fn catalog_sent(h: &mut Harness, b: usize, id: u64) -> Vec<yalain_world::calls::
 
 /// A consignment's flags, as its seller's page and reminder show them.
 fn flags_shown(h: &mut Harness, a: usize) -> Vec<u32> {
+    h.ask(a, function::LEAVE_CONSIGNMENT, &[Arg::LongInt(BROKER)], 1);
     let from = h.bots[a].inbox.len();
     h.ask(a, function::ENTER_CONSIGNMENT, &[Arg::LongInt(BROKER)], 10);
     let c = yalain_world::market::CONSIGNMENT.0;
@@ -2428,4 +2434,68 @@ fn a_restock_refused_moves_nothing_and_charges_nothing() {
     assert_eq!(held_quantity(&h, idb, item), Some(7));
     assert_eq!(h.server.things.get(item).map(|t| t.quantity), Some(7));
     assert_eq!(money_of(&h, ida), 499);
+}
+
+/// The store-request answers a client was sent since `from`: each `Store_Request_Done`'s status.
+fn requests_done(h: &Harness, b: usize, from: usize) -> Vec<i64> {
+    h.world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            M::PlayerCall(c) if c.function.0 == yalain_world::store::function::REQUEST_DONE => {
+                let v = yalain_world::calls::values(&c.args.as_ref()?.0).ok()?;
+                v.iter().find_map(|x| match x {
+                    yalain_world::calls::Value::Int(i) => Some(i64::from(*i)),
+                    _ => None,
+                })
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// A store and the consignments, each asked for twice as a client may send it: the first is
+/// shown, the second answered as too busy (45010) and nothing else; another store is shown.
+/// Behaviour: server.market.asked-twice-too-busy
+#[test]
+fn a_store_or_the_consignments_asked_for_twice_is_too_busy_the_second_time() {
+    const OTHER_STORE: u32 = 0x6F00_150C;
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Shopper");
+    at_the_broker(&mut h, ida);
+    let enter = |h: &mut Harness, store: u32| {
+        let from = h.bots[a].inbox.len();
+        h.ask(
+            a,
+            function::ENTER_STORE,
+            &[Arg::Int(store), Arg::LongInt(BROKER)],
+            10,
+        );
+        from
+    };
+    let from = enter(&mut h, STORE);
+    assert!(h.functions(a, from).contains(&ENTER_STORE), "shown");
+    assert!(requests_done(&h, a, from).is_empty());
+    let from = enter(&mut h, STORE);
+    assert_eq!(requests_done(&h, a, from), [45_010], "too busy");
+    assert!(
+        !h.functions(a, from).contains(&ENTER_STORE),
+        "not shown again"
+    );
+    let from = enter(&mut h, OTHER_STORE);
+    assert!(h.functions(a, from).contains(&ENTER_STORE), "another store");
+    assert!(requests_done(&h, a, from).is_empty());
+    let consign = |h: &mut Harness| {
+        let from = h.bots[a].inbox.len();
+        h.ask(a, function::ENTER_CONSIGNMENT, &[Arg::LongInt(BROKER)], 10);
+        from
+    };
+    let from = consign(&mut h);
+    assert!(h
+        .functions(a, from)
+        .contains(&function::ENTER_CONSIGNMENT_DONE));
+    let from = consign(&mut h);
+    assert_eq!(requests_done(&h, a, from), [45_010], "too busy");
+    assert!(!h
+        .functions(a, from)
+        .contains(&function::ENTER_CONSIGNMENT_DONE));
 }

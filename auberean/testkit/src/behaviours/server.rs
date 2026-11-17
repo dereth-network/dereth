@@ -9245,6 +9245,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.market.asked-twice-too-busy",
+        says: "A broker's store or the consignments asked for while the shopper is already in \
+               them (the client sent the asking twice) is answered as too busy, 45010, and \
+               nothing else.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MARKET-ASKED-TWICE"),
+        station: "yalain-testkit::cpu::play::market::a_store_or_the_consignments_asked_for_twice_is_too_busy_the_second_time",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.market.catalog-consignments-and-player-sales",
         says: "Using a broker answers the use, then shows its catalog; an item put up for sale \
                takes a hundredth of what it would fetch, moves to the broker and shows the \

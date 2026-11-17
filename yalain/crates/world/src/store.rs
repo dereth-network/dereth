@@ -74,6 +74,8 @@ pub mod error {
     pub const NOT_FOUND: u32 = 45001;
     pub const NOT_ENOUGH_COIN: u32 = 45006;
     pub const SALE_REFUSED: u32 = 45009;
+    /// "Your storekeeper is too busy to handle your transaction right now."
+    pub const TOO_BUSY: u32 = 45010;
     pub const COLLECT_FAILED: u32 = 45014;
     pub const NO_ROOM: u32 = 45016;
 }
