@@ -2453,49 +2453,55 @@ fn requests_done(h: &Harness, b: usize, from: usize) -> Vec<i64> {
         .collect()
 }
 
-/// A store and the consignments, each asked for twice as a client may send it: the first is
-/// shown, the second answered as too busy (45010) and nothing else; another store is shown.
+/// A store and the consignments, each asked for twice at once as a client may send it: the first is
+/// shown, the second answered as too busy (45010) and nothing else; the same asked for again a
+/// second later, while the shopper is still in it, is shown again, and so is another store.
 /// Behaviour: server.market.asked-twice-too-busy
 #[test]
-fn a_store_or_the_consignments_asked_for_twice_is_too_busy_the_second_time() {
+fn a_store_or_the_consignments_asked_for_twice_at_once_is_too_busy_the_second_time() {
     const OTHER_STORE: u32 = 0x6F00_150C;
     let mut h = world();
     let (a, ida) = h.player_in_world("one", "Shopper");
     at_the_broker(&mut h, ida);
-    let enter = |h: &mut Harness, store: u32| {
-        let from = h.bots[a].inbox.len();
-        h.ask(
-            a,
+    let store = |s: u32| {
+        (
             function::ENTER_STORE,
-            &[Arg::Int(store), Arg::LongInt(BROKER)],
-            10,
-        );
-        from
+            vec![Arg::Int(s), Arg::LongInt(BROKER)],
+        )
     };
-    let from = enter(&mut h, STORE);
-    assert!(h.functions(a, from).contains(&ENTER_STORE), "shown");
-    assert!(requests_done(&h, a, from).is_empty());
-    let from = enter(&mut h, STORE);
-    assert_eq!(requests_done(&h, a, from), [45_010], "too busy");
-    assert!(
-        !h.functions(a, from).contains(&ENTER_STORE),
-        "not shown again"
-    );
-    let from = enter(&mut h, OTHER_STORE);
-    assert!(h.functions(a, from).contains(&ENTER_STORE), "another store");
-    assert!(requests_done(&h, a, from).is_empty());
-    let consign = |h: &mut Harness| {
+    let consignments = (function::ENTER_CONSIGNMENT, vec![Arg::LongInt(BROKER)]);
+    // The asking sent `times` in one step; what came back: the pages shown, and the refusals.
+    let ask = |h: &mut Harness, (f, args): &(u32, Vec<Arg>), shows: u32, times: usize| {
         let from = h.bots[a].inbox.len();
-        h.ask(a, function::ENTER_CONSIGNMENT, &[Arg::LongInt(BROKER)], 10);
-        from
+        for _ in 0..times {
+            h.bots[a].send(
+                true,
+                auberean_protocol::queue::WEENIE,
+                &yalain_testkit::play::server_call(*f, args),
+            );
+        }
+        h.run(20);
+        let pages = h.functions(a, from).iter().filter(|x| **x == shows).count();
+        (pages, requests_done(h, a, from))
     };
-    let from = consign(&mut h);
-    assert!(h
-        .functions(a, from)
-        .contains(&function::ENTER_CONSIGNMENT_DONE));
-    let from = consign(&mut h);
-    assert_eq!(requests_done(&h, a, from), [45_010], "too busy");
-    assert!(!h
-        .functions(a, from)
-        .contains(&function::ENTER_CONSIGNMENT_DONE));
+    let shows = function::ENTER_CONSIGNMENT_DONE;
+    assert_eq!(
+        ask(&mut h, &store(STORE), ENTER_STORE, 2),
+        (1, vec![45_010])
+    );
+    assert_eq!(
+        ask(&mut h, &store(STORE), ENTER_STORE, 1),
+        (1, vec![]),
+        "a second on, still in it: shown again"
+    );
+    assert_eq!(
+        ask(&mut h, &store(OTHER_STORE), ENTER_STORE, 1),
+        (1, vec![])
+    );
+    assert_eq!(ask(&mut h, &consignments, shows, 2), (1, vec![45_010]));
+    assert_eq!(
+        ask(&mut h, &consignments, shows, 1),
+        (1, vec![]),
+        "a second on: shown again"
+    );
 }

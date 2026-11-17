@@ -13,8 +13,11 @@
 //!
 //! **A store chosen** from the catalog shows the sales players put up in it.
 //!
-//! **Asked twice**: a store or the consignments asked for again while the shopper is in them (its
-//! client sent the asking twice) is answered as too busy, and nothing else.
+//! **Asked twice**: a store or the consignments asked for again while the shopper is in them, within
+//! [`ASKED_AGAIN_WITHIN`] of the asking that showed them (its client sent the asking twice), is
+//! answered as too busy, and nothing else. Asked for again later, while the shopper is still in them, they are shown again: the
+//! client's catalog stays open beside a store, its store button and list live, so a shopper may
+//! ask again for what it has open.
 //!
 //! **Consignments**: entering them shows the player's own (and its reminder of them at that
 //! broker). Putting an item up for a price takes a charge of a hundredth of what it would fetch
@@ -125,6 +128,11 @@ pub const CATALOG_EVERY: f64 = 34.0;
 pub const FIRST_UPDATE: f64 = 2.5;
 /// How far a broker is walked to.
 pub const BROKER_REACH: f32 = 5.0;
+/// How soon after the asking that showed a store or the consignments the same asking is too busy,
+/// in seconds (2017: the second of two askings 0.07 s and 0.03 s apart, each before the first's
+/// answer; 18 enterings of a store or the consignments answered 0.08 to 0.28 s after their asking,
+/// and no other asking for what the shopper had open).
+pub const ASKED_AGAIN_WITHIN: f64 = 0.3;
 
 /// How long a consignment stays on sale, in seconds. The client counts down to ten days and forgets
 /// its reminder of one at eleven; the one sale recorded that long was unexpired at 10.91 days.
@@ -791,12 +799,7 @@ pub fn enter_store<S: Store>(
     if !near(s, world, keeper) {
         return;
     }
-    let again = s
-        .players
-        .get(&world)
-        .and_then(|p| p.shopping)
-        .is_some_and(|(k, st, _)| k == keeper && st == store);
-    if again {
+    if asked_again(s, world, (keeper, Some(store)), now) {
         return too_busy(net, world);
     }
     let Some(m) = page_of(
@@ -814,6 +817,7 @@ pub fn enter_store<S: Store>(
     progress::private(net, world, &m);
     if let Some(p) = s.players.get_mut(&world) {
         p.shopping = Some((keeper, store, 0));
+        p.page_asked = Some((keeper, Some(store), now.0));
     }
 }
 
@@ -965,14 +969,10 @@ pub fn enter_consignment<S: Store>(
     if !near(s, world, keeper) {
         return;
     }
-    let Some((me, at)) = s
-        .players
-        .get(&world)
-        .map(|p| (p.character, p.at_consignments))
-    else {
+    let Some(me) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
-    if at == Some(keeper) {
+    if asked_again(s, world, (keeper, None), now) {
         return too_busy(net, world);
     }
     let mine = s.market.list.iter().filter(|c| c.owner == me).count();
@@ -984,12 +984,36 @@ pub fn enter_consignment<S: Store>(
     progress::private(net, world, &m);
     if let Some(p) = s.players.get_mut(&world) {
         p.at_consignments = Some(keeper);
+        p.page_asked = Some((keeper, None, now.0));
     }
 }
 
+/// Whether this asking (a broker, and its store or none for the consignments) is for what the
+/// shopper is in, within [`ASKED_AGAIN_WITHIN`] of the asking that showed it.
+fn asked_again<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    page: (u64, Option<u32>),
+    now: LocalTime,
+) -> bool {
+    let Some(p) = s.players.get(&world) else {
+        return false;
+    };
+    let within = p
+        .page_asked
+        .is_some_and(|(k, st, at)| (k, st) == page && now.0 - at < ASKED_AGAIN_WITHIN);
+    let in_it = match page {
+        (keeper, Some(store)) => p
+            .shopping
+            .is_some_and(|(k, st, _)| k == keeper && st == store),
+        (keeper, None) => p.at_consignments == Some(keeper),
+    };
+    within && in_it
+}
+
 /// A store's asking the shopper's client sent twice, the second answered as too busy (2017: the
-/// second of a store asked for twice 0.07 s apart, and of the consignments 0.03 s apart; no asking
-/// of 16 others came while the shopper was in that store).
+/// second of a store asked for twice 0.07 s apart, and of the consignments 0.03 s apart, each
+/// before the first was answered).
 fn too_busy(net: &mut ServerNet, world: ConnId) {
     let m = call(
         store::function::REQUEST_DONE,

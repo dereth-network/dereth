@@ -11,7 +11,7 @@ what they see, not how it was done.
 - Monsters now play their victory emote over a player they kill, about half the time.
 - Drawing a new surveyor's map now throws away your old maps of that region.
 - /charactername and /allegiancename now get an answer instead of silence.
-- A market store asked for twice now says the storekeeper is too busy.
+- A market store asked for twice at once now says the storekeeper is too busy.
 - Gear now enforces its top level and counts your race's own skills.
 - Opportunistic pets now go for the weakest foes, Courageous ones the strongest.
 - Using a skill now counts as fighting for regeneration.

@@ -154,6 +154,9 @@ pub struct Player {
     pub shopping: Option<(u64, u32, u32)>,
     /// The broker whose consignments page it has open.
     pub at_consignments: Option<u64>,
+    /// The market page its client last asked for and was shown: the broker, the store (none for
+    /// the consignments), and when (local seconds).
+    pub page_asked: Option<(u64, Option<u32>, f64)>,
     /// The rows of market pages its connection may yet have ([`crate::market`]).
     pub page_rows: Option<crate::call_limit::Bucket>,
     /// Its attack run, while it attacks.
@@ -529,6 +532,7 @@ pub fn enter<S: Store>(
         play,
         shopping: None,
         at_consignments: None,
+        page_asked: None,
         page_rows: None,
         attacking: None,
         dying: None,

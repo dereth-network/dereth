@@ -9297,12 +9297,13 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.market.asked-twice-too-busy",
-        says: "A broker's store or the consignments asked for while the shopper is already in \
-               them (the client sent the asking twice) is answered as too busy, 45010, and \
-               nothing else.",
+        says: "A broker's store or the consignments asked for again within a fraction of a \
+               second of the asking that showed them (the client sent the asking twice) is \
+               answered as too busy, 45010, and nothing else; asked for again later, while the \
+               shopper is still in them, they are shown again.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-MARKET-ASKED-TWICE"),
-        station: "yalain-testkit::cpu::play::market::a_store_or_the_consignments_asked_for_twice_is_too_busy_the_second_time",
+        station: "yalain-testkit::cpu::play::market::a_store_or_the_consignments_asked_for_twice_at_once_is_too_busy_the_second_time",
         tier: Tier::Cpu,
     },
     behaviour! {
