@@ -1,5 +1,5 @@
 //! The character levels: the experience each level starts at, and the health, vigor, skill
-//! credits and hero skill credits it brings, read from the client's level table (a saved state the client also reads to
+//! credits and hero skill credits it brings and the most hero skill credits it allows, read from the client's level table (a saved state the client also reads to
 //! show a character's progress).
 
 use auberean_script::graph::Graph;
@@ -25,6 +25,9 @@ pub struct Level {
     pub skill_credits: i32,
     /// The hero skill credits reaching the level grants (100 a level from level 45).
     pub hero_credits: i32,
+    /// The most hero skill credits a character of the level may have had, those its levels
+    /// granted and those Tesserae gave together (none below level 45).
+    pub hero_credit_cap: i32,
 }
 
 /// Every level, from level 1.
@@ -64,6 +67,9 @@ impl LevelTable {
                 skill_credits: nav.field(o, "mSkillCredits")?.cast_signed(),
                 hero_credits: nav
                     .field(o, "mHeroSkillCredits")
+                    .map_or(0, u32::cast_signed),
+                hero_credit_cap: nav
+                    .field(o, "mHeroSkillCreditCap")
                     .map_or(0, u32::cast_signed),
             });
         }

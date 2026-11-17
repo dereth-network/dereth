@@ -1096,6 +1096,16 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             | Row::TreasurePotion(_)
             | Row::TreasureSort(_)
             | Row::TreasureFamily(_) => {}
+            Row::CorpseFind(r) => {
+                if !r.find.items().all(|i| cx.template(l, "bands", i)) {
+                    continue;
+                }
+                t.loot.finds.push(yalain_content::CorpseFind {
+                    placed: prov_text(&r.prov),
+                    confidence: confidence_word(&r.prov),
+                    ..r.find.clone()
+                });
+            }
             Row::TreasureValue(r) => {
                 t.loot
                     .values

@@ -5,11 +5,13 @@
 //!
 //! Beside the profiles, the death treasures: a fixed item that every creature or chest of a
 //! template, or every creature a camp keeps, leaves at a chance of its own (a chest's, for its
-//! opener alone while a quest is where it needs it); and the values a treasure item a creature
-//! leaves draws its own value from, by the creature's level.
+//! opener alone while a quest is where it needs it); the values a treasure item a creature
+//! leaves draws its own value from, by the creature's level; and the finds any creature's corpse
+//! may hold beside its profile's draw.
 //!
 //! The text form is tab-separated, one profile per line; the death treasures follow under a header
-//! of their own, one a line, then the pools and the values, each under a line of its own.
+//! of their own, one a line, then the pools, the values and the finds, each under a line of its
+//! own.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -78,6 +80,50 @@ pub struct DeathTreasure {
     pub confidence: String,
 }
 
+/// A find any creature's corpse may hold beside its profile's draw: one roll at each kill, at a
+/// chance of its own, for a killer and a creature its gates let through; the item is drawn evenly
+/// from the band of the killer's level.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CorpseFind {
+    pub key: String,
+    /// The chance a corpse its gates let through holds it, from above 0 to 1.
+    pub chance: f32,
+    /// The template property that, true, keeps a creature from ever leaving it.
+    pub never: Option<String>,
+    /// The least level of a creature that leaves it.
+    pub least_level: Option<i32>,
+    /// How many levels below its killer a creature that leaves it may be, at most.
+    pub below_killer: Option<i32>,
+    /// Whether it is left only for a killer whose hero skill credits, held and spent, are under
+    /// its level's cap.
+    pub hero_cap: bool,
+    /// The items by the killer's least level, the levels rising from 0.
+    pub bands: Vec<(i32, Vec<u32>)>,
+    pub placed: String,
+    pub confidence: String,
+}
+
+impl CorpseFind {
+    /// The items a killer of a level draws from: those of the last band whose least level it
+    /// reaches, else the first band's.
+    #[must_use]
+    pub fn band(&self, level: i32) -> &[u32] {
+        self.bands
+            .iter()
+            .rev()
+            .find(|(from, _)| level >= *from)
+            .or(self.bands.first())
+            .map_or(&[], |(_, items)| items.as_slice())
+    }
+
+    /// Every item it may be.
+    pub fn items(&self) -> impl Iterator<Item = u32> + '_ {
+        self.bands
+            .iter()
+            .flat_map(|(_, items)| items.iter().copied())
+    }
+}
+
 /// Every profile, by name, and the death treasures.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct LootTable {
@@ -87,6 +133,8 @@ pub struct LootTable {
     /// The own values a treasure item a creature of a level leaves is drawn from, by the level:
     /// each value as often as it was given.
     pub values: BTreeMap<i32, Vec<u32>>,
+    /// The finds any creature's corpse may hold, in the rows' order.
+    pub finds: Vec<CorpseFind>,
 }
 
 /// The line that starts the pools' part of a table's text.
@@ -94,6 +142,22 @@ const POOLS_PART: &str = "[pools]";
 
 /// The line that starts the values' part of a table's text, after the pools'.
 const VALUES_PART: &str = "[values]";
+
+/// The line that starts the finds' part of a table's text, after the values'.
+const FINDS_PART: &str = "[finds]";
+
+/// The finds' columns, in order.
+pub const FIND_COLUMNS: [&str; 9] = [
+    "find",
+    "chance",
+    "never",
+    "least level",
+    "below killer",
+    "hero cap",
+    "bands",
+    "placed",
+    "confidence",
+];
 
 /// The table's columns, in order.
 pub const COLUMNS: [&str; 7] = [
@@ -207,6 +271,36 @@ impl LootTable {
                 let _ = writeln!(out, "{level}\t{}", values.join(","));
             }
         }
+        if !self.finds.is_empty() {
+            out.push_str(FINDS_PART);
+            out.push('\n');
+            out.push_str(&FIND_COLUMNS.join("\t"));
+            out.push('\n');
+            for f in &self.finds {
+                let bands = f
+                    .bands
+                    .iter()
+                    .map(|(from, items)| {
+                        let items: Vec<String> = items.iter().map(|t| format!("{t:08X}")).collect();
+                        format!("{from}:{}", items.join("+"))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let num = |v: Option<i32>| v.map_or_else(String::new, |v| v.to_string());
+                let _ = writeln!(
+                    out,
+                    "{}\t{}\t{}\t{}\t{}\t{}\t{bands}\t{}\t{}",
+                    f.key,
+                    f.chance,
+                    f.never.as_deref().unwrap_or_default(),
+                    num(f.least_level),
+                    num(f.below_killer),
+                    if f.hero_cap { "yes" } else { "" },
+                    f.placed.replace(['\t', '\n'], " "),
+                    f.confidence
+                );
+            }
+        }
         out
     }
 
@@ -253,6 +347,59 @@ impl LootTable {
         Ok(out)
     }
 
+    /// The finds' part of a table's text.
+    fn finds_of(text: &str) -> Result<Vec<CorpseFind>, String> {
+        let mut out = Vec::new();
+        for (n, line) in text.lines().enumerate().skip(1) {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let at = |e: String| format!("{FINDS_PART} line {}: {e}", n + 1);
+            let c: Vec<&str> = line.split('\t').collect();
+            if c.len() != FIND_COLUMNS.len() {
+                return Err(at(format!(
+                    "{} columns, not {}",
+                    c.len(),
+                    FIND_COLUMNS.len()
+                )));
+            }
+            let num = |s: &str| -> Result<Option<i32>, String> {
+                if s.is_empty() {
+                    Ok(None)
+                } else {
+                    s.parse().map(Some).map_err(|e| format!("{s}: {e}"))
+                }
+            };
+            let bands = c[6]
+                .split(',')
+                .filter(|s| !s.is_empty())
+                .map(|b| {
+                    let (from, items) = b
+                        .split_once(':')
+                        .ok_or_else(|| format!("a band is LEVEL:ITEMS, not {b}"))?;
+                    let from = from.parse::<i32>().map_err(|e| format!("{from}: {e}"))?;
+                    let items = items.split('+').map(hex).collect::<Result<Vec<_>, _>>()?;
+                    Ok((from, items))
+                })
+                .collect::<Result<Vec<_>, String>>()
+                .map_err(at)?;
+            out.push(CorpseFind {
+                key: c[0].to_string(),
+                chance: c[1]
+                    .parse::<f32>()
+                    .map_err(|e| at(format!("{}: {e}", c[1])))?,
+                never: (!c[2].is_empty()).then(|| c[2].to_string()),
+                least_level: num(c[3]).map_err(at)?,
+                below_killer: num(c[4]).map_err(at)?,
+                hero_cap: c[5] == "yes",
+                bands,
+                placed: c[7].to_string(),
+                confidence: c[8].to_string(),
+            });
+        }
+        Ok(out)
+    }
+
     /// A death treasure's line.
     fn treasure(c: &[&str]) -> Result<DeathTreasure, String> {
         if c.len() != TREASURE_COLUMNS.len() {
@@ -291,6 +438,10 @@ impl LootTable {
     /// # Errors
     /// A line without its columns, or a value that does not read.
     pub fn from_text(text: &str) -> Result<Self, String> {
+        let (text, finds) = match text.split_once(&format!("\n{FINDS_PART}\n")) {
+            Some((t, f)) => (t, Self::finds_of(f)?),
+            None => (text, Vec::new()),
+        };
         let (text, values) = match text.split_once(&format!("\n{VALUES_PART}\n")) {
             Some((t, v)) => (t, Self::values_of(v)?),
             None => (text, BTreeMap::new()),
@@ -361,6 +512,7 @@ impl LootTable {
             treasures,
             pools,
             values,
+            finds,
         })
     }
 }

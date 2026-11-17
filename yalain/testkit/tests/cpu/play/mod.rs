@@ -20,6 +20,7 @@ mod combinations;
 mod companions;
 mod concealing;
 mod conservation;
+mod corpse_finds;
 mod corpse_profiles;
 mod corpse_rights;
 mod corpse_rot;

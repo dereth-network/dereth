@@ -421,6 +421,11 @@ pub fn catalog(
                 .chain(lp.extras.iter().map(|(t, _)| *t))
         }))
         .chain(loot.treasures.iter().map(|d| d.item))
+        .chain(
+            loot.finds
+                .iter()
+                .flat_map(yalain_content::CorpseFind::items),
+        )
         .chain(loot.pools.pools.values().flat_map(|pool| {
             pool.entries.iter().filter_map(|e| match e.to {
                 yalain_content::pools::Target::Template(t) => Some(t),
@@ -3044,6 +3049,61 @@ mod tests {
         )
         .expect("the catalog");
         assert!(!c.templates.contains_key(&ITEM), "named by nothing else");
+    }
+
+    /// The catalog holds every item a corpse find names, though no camp or profile names it, so a
+    /// corpse can be given it.
+    /// Behaviour: server.loot.corpse-find-in-the-catalog
+    #[test]
+    fn the_catalog_holds_every_item_a_corpse_find_names() {
+        const ITEM: u32 = 0x4700_1919;
+        let (dat, _) = tallied(&DatName::Portal);
+        let p = Portal::over(dat, Vec::new(), None).expect("a context");
+        let loot = LootTable {
+            finds: vec![yalain_content::CorpseFind {
+                key: "finds".into(),
+                chance: 0.5,
+                never: None,
+                least_level: None,
+                below_killer: None,
+                hero_cap: false,
+                bands: vec![(0, vec![ITEM])],
+                placed: "authored for a test".into(),
+                confidence: "authored".into(),
+            }],
+            ..LootTable::default()
+        };
+        let held = |loot: &LootTable| {
+            catalog(
+                &p,
+                &SpawnTable::default(),
+                loot,
+                &[],
+                &TreasureTables::default(),
+                yalain_testkit::test_worn_looks(),
+            )
+            .expect("the catalog")
+            .0
+            .templates
+            .contains_key(&ITEM)
+        };
+        assert!(held(&loot));
+        assert!(!held(&LootTable::default()), "named by nothing else");
+    }
+
+    /// The level table gives each level the most hero skill credits a character of it may have had:
+    /// none below 45, 125 at 45, 750 at 50, 19,750 at 150.
+    /// Behaviour: server.skills.hero-credit-cap-by-level
+    #[test]
+    fn the_level_table_caps_hero_skill_credits_from_level_45() {
+        let (dat, _) = tallied(&DatName::Portal);
+        let p = Portal::over(dat, Vec::new(), None).expect("a context");
+        let levels = level_table(&p).expect("the level table");
+        let cap = |l| levels.level(l).map(|x| x.hero_credit_cap);
+        assert_eq!(
+            [cap(1), cap(44), cap(45), cap(50), cap(150)],
+            [Some(0), Some(0), Some(125), Some(750), Some(19_750)]
+        );
     }
 
     /// The catalog holds the corpse a camp's creature leaves in place of the common one, with the

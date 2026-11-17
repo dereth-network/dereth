@@ -284,6 +284,54 @@ fn the_worlds_mine_and_map_region_rows_hold_the_test_worlds_entry_for_entry() {
     }
 }
 
+/// A world's corpse finds give a lodestone of each of the five kinds a mine unearths at the killer's
+/// level, the same band mining gives, never from a creature its template marks or more than a level
+/// below the killer; and a Tessera only from a creature of level 42 or more, for a killer under its
+/// hero skill credit cap. A world older than these rows has none.
+/// Behaviour: server.loot.corpse-find-rows
+#[test]
+fn the_worlds_corpse_finds_give_mining_bands_lodestones_and_tesserae_from_level_42() {
+    let t = &compiled().tables;
+    let Some(stones) = t.loot.finds.iter().find(|f| f.key == "lodestones") else {
+        return;
+    };
+    for level in [1, 24, 25, 39, 40, 54, 55, 69, 70, 150] {
+        let mut band = stones.band(level).to_vec();
+        let mut mined: Vec<u32> = t
+            .gathering
+            .mines
+            .values()
+            .filter_map(|m| m.lodestone(level))
+            .collect();
+        band.sort_unstable();
+        mined.sort_unstable();
+        assert_eq!(band, mined, "level {level}");
+    }
+    assert_eq!(
+        (
+            stones.never.as_deref(),
+            stones.below_killer,
+            stones.hero_cap
+        ),
+        (Some("NPC_NeverDropLodestones"), Some(1), false)
+    );
+    let tesserae = t
+        .loot
+        .finds
+        .iter()
+        .find(|f| f.key == "tesserae")
+        .expect("Tesserae beside the lodestones");
+    assert_eq!(
+        (
+            tesserae.never.as_deref(),
+            tesserae.least_level,
+            tesserae.hero_cap
+        ),
+        (Some("NPC_NeverDropTesserae"), Some(42), true)
+    );
+    assert_eq!(tesserae.items().collect::<Vec<_>>(), [0x4700_052F]);
+}
+
 /// A world's item use, book and first gift rows hold the test world's, entry for entry: the
 /// forager's food's and the training hall's potions' effects, behavior and wear, what the cards and
 /// the Shi show, and the guide every new character is given.

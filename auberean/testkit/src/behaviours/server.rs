@@ -2368,7 +2368,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "A lodestone found in mining is of the quality the finder's level gives: crumbling to 29, \
                brittle 30 to 44, rough 45 to 59, smooth 60 to 74, shining from 75.",
         since: RETAIL,
-        evidence: Evidence::Private("AC2-EVID-SRV-LODESTONE-QUALITY"),
+        evidence: Evidence::Private("AC2-EVID-SRV-LODESTONE-BANDS"),
         station: "yalain-testkit::cpu::play::maps::a_found_lodestones_quality_follows_the_finders_level",
         tier: Tier::Cpu,
     },
@@ -8099,6 +8099,53 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-WALK-AWAY"),
         station: "yalain-testkit::cpu::play::fights::an_open_corpse_closes_when_its_opener_walks_away",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.corpse-find-by-killers-level",
+        says: "A world's corpse find is rolled once at each player's kill, at its chance, and its \
+               item is drawn evenly from the band of the killer's level, whatever the creature's \
+               own; a kill no player made holds none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-FINDS"),
+        station: "yalain-testkit::cpu::play::corpse_finds::a_corpse_finds_item_is_drawn_from_the_band_of_its_killers_level",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.corpse-find-gates",
+        says: "A corpse find is held only by a creature whose template does not set its never flag, \
+               at or above its least level, and no further below its killer than it allows.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-FIND-GATES"),
+        station: "yalain-testkit::cpu::play::corpse_finds::a_corpse_find_is_held_only_by_a_creature_its_gates_let_through",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.corpse-find-in-the-catalog",
+        says: "The server's catalog holds every item a corpse find names, though no camp or loot profile names it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-FIND-CATALOG"),
+        station: "yalain::bin.yalain::data::tests::the_catalog_holds_every_item_a_corpse_find_names",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.corpse-find-rows",
+        says: "A world's corpse finds give a lodestone of each kind a mine unearths at the killer's level, \
+               never from a creature its template marks or more than a level below the killer, and a \
+               Tessera only from a creature of level 42 or more, for a killer under its hero skill credit cap.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-CORPSE-FINDS-2017"),
+        station: "yalain-testkit::corpus::world_db::the_worlds_corpse_finds_give_mining_bands_lodestones_and_tesserae_from_level_42",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.loot.corpse-find-under-the-hero-credit-cap",
+        says: "A corpse find capped by hero skill credits is held only for a killer whose hero skill \
+               credits, held and spent, are under its level's cap, so never for a killer below \
+               level 45.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-FIND-HERO-CAP"),
+        station: "yalain-testkit::cpu::play::corpse_finds::a_corpse_find_capped_by_hero_credits_is_held_only_under_the_killers_cap",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -16795,6 +16842,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SKILL-FOCUS-REFUSED"),
         station: "yalain-testkit::cpu::play::skill_focus::a_use_short_of_its_focus_cost_is_refused_with_the_clients_reason_before_its_target",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.hero-credit-cap-by-level",
+        says: "The level table gives each level the most hero skill credits a character of it may \
+               have had: none below 45, 125 at 45, 750 at 50, 19,750 at 150.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HERO-CREDIT-CAP"),
+        station: "yalain::bin.yalain::data::tests::the_level_table_caps_hero_skill_credits_from_level_45",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -742,8 +742,9 @@ fn fixed<S: Store>(s: &mut Server<S>, level: i32, template: u32) -> (u32, Option
 }
 
 /// What a dead creature leaves: its fixed drops, its profile's extras, the profile's draw (from its
-/// items, or its pools for its killer: [`crate::treasure_pools`]), its death treasures, and what its
-/// own corpse holds ([`corpse_profile`]). Each item is its template and, for treasure (those drawn
+/// items, or its pools for its killer: [`crate::treasure_pools`]), the world's corpse finds its
+/// killer and it are let through for ([`corpse_finds`]), its death treasures, and what its own
+/// corpse holds ([`corpse_profile`]). Each item is its template and, for treasure (those drawn
 /// from the profile, and a treasure potion wherever it comes from: [`fixed`]), its own value
 /// ([`treasure_value`]); none for the rest.
 pub fn roll_loot<S: Store>(
@@ -814,11 +815,58 @@ pub fn roll_loot<S: Store>(
         }
         out.extend(crate::treasure_pools::rare(s, profile_name, base, race).map(|t| (t, None)));
     }
+    for t in corpse_finds(s, creature, killer) {
+        out.push(fixed(s, level, t));
+    }
     let treasures = death_treasures(s, creature, killer, clock);
     let own = corpse_profile(s, creature);
     out.truncate(MOST_ITEMS.saturating_sub(treasures.len() + own.len()));
     for t in treasures.into_iter().chain(own) {
         out.push(fixed(s, level, t));
+    }
+    out
+}
+
+/// The world's corpse finds a dead creature leaves for its killer, one roll each: a find is rolled
+/// only for a player's kill, of a creature whose template does not refuse it, at or above its least
+/// level and no further below the killer than it allows, and (where it says so) for a killer whose
+/// hero skill credits, held and spent, are under its level's cap; its item is drawn evenly from the
+/// band of the killer's level. A find whose gates stop it rolls nothing.
+fn corpse_finds<S: Store>(s: &mut Server<S>, creature: &Thing, killer: u64) -> Vec<u32> {
+    let (Some(c), Some(p)) = (
+        creature.creature.as_ref(),
+        s.players.values().find(|p| p.character == killer),
+    ) else {
+        return Vec::new();
+    };
+    let dropper = c.stats.level;
+    let level = crate::examine::level_of(&p.qualities);
+    let had = i64::from(crate::skills::hero_credits_had(s, p));
+    let cap = s.levels.level(level).map_or(0, |l| l.hero_credit_cap);
+    let props = s.catalog.get(creature.template).map(|t| &t.props);
+    let finds: Vec<usize> = s
+        .loot
+        .finds
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| {
+            f.never
+                .as_deref()
+                .is_none_or(|n| !props.is_some_and(|p| p.flag(n)))
+                && f.least_level.is_none_or(|l| dropper >= l)
+                && f.below_killer.is_none_or(|b| dropper >= level - b)
+                && (!f.hero_cap || had < i64::from(cap))
+        })
+        .map(|(i, _)| i)
+        .collect();
+    let mut out = Vec::new();
+    for i in finds {
+        let f = &s.loot.finds[i];
+        let (chance, band) = (f.chance, f.band(level).to_vec());
+        if band.is_empty() || !s.rng.chance(chance) {
+            continue;
+        }
+        out.push(band[s.rng.below(band.len())]);
     }
     out
 }

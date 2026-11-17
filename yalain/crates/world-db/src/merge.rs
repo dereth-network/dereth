@@ -69,6 +69,9 @@ pub fn item(l: &Located) -> Option<Item> {
             on: r.on.word().to_string(),
         },
         Row::TreasureValue(r) => Item::TreasureValue { level: r.level },
+        Row::CorpseFind(r) => Item::CorpseFind {
+            key: r.find.key.clone(),
+        },
         Row::TreasureRules(_) => Item::TreasureRules,
         Row::TreasureWord(r) => Item::TreasureWord {
             sort: r.sort.name().to_string(),
@@ -220,6 +223,7 @@ fn value(row: &Row) -> String {
         Row::Popup(x) => x.prov = crate::rows::Prov::default(),
         Row::EffectRule(x) => x.prov = crate::rows::Prov::default(),
         Row::TreasureValue(x) => x.prov = crate::rows::Prov::default(),
+        Row::CorpseFind(x) => x.prov = crate::rows::Prov::default(),
         Row::TreasureRules(x) => x.prov = crate::rows::Prov::default(),
         Row::TreasureWord(x) => x.prov = crate::rows::Prov::default(),
         Row::TreasureLook(x) => x.prov = crate::rows::Prov::default(),

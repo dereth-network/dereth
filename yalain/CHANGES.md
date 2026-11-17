@@ -9,6 +9,7 @@ what they see, not how it was done.
 - Swimming now costs vigor, then health, and Swimming Mastery works.
 - Creatures' area attacks now hit everyone nearby, pets included.
 - Allegiance Recall works: monarchs can bind their allegiance to a hall.
+- Any creature can now drop lodestones and Tesserae, by your level.
 - Fixed old copies of the server staying in memory after each update on Windows.
 - Hills, buildings and closed doors now block sight for creatures, pets and players' skills.
 

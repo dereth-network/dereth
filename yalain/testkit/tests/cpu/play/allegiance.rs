@@ -426,6 +426,7 @@ fn levels() -> yalain_world::levels::LevelTable {
                 vigor: 100,
                 skill_credits: 1,
                 hero_credits: 0,
+                hero_credit_cap: 0,
             })
             .collect(),
     }

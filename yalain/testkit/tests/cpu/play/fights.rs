@@ -33,6 +33,7 @@ fn levels() -> LevelTable {
                 vigor: 100,
                 skill_credits: 0,
                 hero_credits: 0,
+                hero_credit_cap: 0,
             },
             Level {
                 xp: 10,
@@ -40,6 +41,7 @@ fn levels() -> LevelTable {
                 vigor: 130,
                 skill_credits: 1,
                 hero_credits: 0,
+                hero_credit_cap: 0,
             },
             Level {
                 xp: 1000,
@@ -47,6 +49,7 @@ fn levels() -> LevelTable {
                 vigor: 160,
                 skill_credits: 1,
                 hero_credits: 0,
+                hero_credit_cap: 0,
             },
         ],
     }

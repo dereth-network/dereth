@@ -5987,6 +5987,90 @@ fn treasure_values_compile_by_level_and_bad_ones_are_problems() {
     }
 }
 
+#[test]
+fn corpse_finds_compile_with_their_gates_and_bands_and_bad_ones_are_problems() {
+    let with = |rows: &str| {
+        let mut files = fixture();
+        let path = files
+            .keys()
+            .find(|k| k.ends_with("loot.toml"))
+            .expect("loot rows")
+            .clone();
+        let text = files.get(&path).expect("read").clone();
+        files.insert(path, format!("{text}\n{rows}"));
+        files
+    };
+    let good = "[[corpse_find]]\nkey = \"stones\"\nchance = 0.25\nnever = \"NPC_NeverDropStones\"\nbelow_killer = 1\nbands = [{ from = 0, items = [0x47002224] }, { from = 25, items = [0x4700115B, 0x47002224] }]\nprov = { from = \"authored\" }\n\n[[corpse_find]]\nkey = \"tokens\"\nchance = 0.5\nleast_level = 42\nhero_cap = true\nbands = [{ from = 0, items = [0x4700115B] }]\nprov = { from = \"authored\" }\n";
+    let files = with(good);
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let [stones, tokens] = &t.loot.finds[..] else {
+        panic!("two finds: {:?}", t.loot.finds);
+    };
+    assert_eq!(
+        (stones.key.as_str(), stones.chance, stones.never.as_deref()),
+        ("stones", 0.25, Some("NPC_NeverDropStones"))
+    );
+    assert_eq!(
+        (stones.below_killer, stones.least_level, stones.hero_cap),
+        (Some(1), None, false)
+    );
+    assert_eq!(stones.band(24), [0x4700_2224], "below the second band");
+    assert_eq!(stones.band(25), [0x4700_115B, 0x4700_2224], "from it");
+    assert_eq!(
+        (tokens.least_level, tokens.below_killer, tokens.hero_cap),
+        (Some(42), None, true)
+    );
+    assert_eq!(
+        yalain_content::LootTable::from_text(&t.loot.to_text()).unwrap(),
+        t.loot,
+        "it reads back as written"
+    );
+    let bad = |rows: &str| -> Vec<String> {
+        let files = with(rows);
+        check(&files)
+            .iter()
+            .map(ToString::to_string)
+            .chain(
+                read(&files)
+                    .ok()
+                    .and_then(|r| merge(&r).err())
+                    .into_iter()
+                    .flatten()
+                    .map(|p| p.to_string()),
+            )
+            .collect()
+    };
+    for (rows, says) in [
+        (good.replace("chance = 0.25", "chance = 0"), "a chance is a number above 0"),
+        (
+            good.replace("{ from = 0, items = [0x47002224] }, ", ""),
+            "levels rising from 0",
+        ),
+        (good.replace("items = [0x4700115B] }", "items = [] }"), "bands"),
+        (
+            format!("{good}\n[[corpse_find]]\nkey = \"tokens\"\nchance = 0.1\nbands = [{{ from = 0, items = [0x4700115B] }}]\nprov = {{ from = \"authored\" }}\n"),
+            "corpse_find tokens",
+        ),
+    ] {
+        let problems = bad(&rows);
+        assert!(
+            problems.iter().any(|p| p.contains(says)),
+            "{says}: {problems:?}"
+        );
+    }
+    let unknown = with(&good.replace("0x4700115B, 0x47002224", "0x4700115B, 0x47009999"));
+    let problems = compile(&merge(&read(&unknown).unwrap()).unwrap(), &Fake::new())
+        .err()
+        .unwrap_or_default();
+    assert!(
+        problems.iter().any(|p| p
+            .to_string()
+            .contains("template 47009999 is not in the install")),
+        "{problems:?}"
+    );
+}
+
 /// The treasure numbers written as `[[treasure_rules]]` and `[[treasure_sort]]` rows, each weighted
 /// list in its order.
 fn treasure_rows(t: &yalain_content::treasure_tables::TreasureTables) -> String {

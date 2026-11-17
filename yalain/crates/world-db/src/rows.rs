@@ -269,6 +269,16 @@ pub struct TreasureValue {
     pub prov: Prov,
 }
 
+/// `[[corpse_find]]`: a find any creature's corpse may hold beside its profile's draw, rolled once at
+/// each kill: its chance, its gates (a template property that keeps a creature from leaving it, the
+/// creature's least level, how far below its killer it may be, the killer's hero skill credit cap)
+/// and its items by the killer's level.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CorpseFind {
+    pub find: yalain_content::CorpseFind,
+    pub prov: Prov,
+}
+
 /// `[[treasure_rules]]`: what every treasure item draws by, whatever its sort: its own least level
 /// above its dropper's base, its Arcane Lore, a potion's tier and spellcraft, and its look. A world
 /// has one.
@@ -725,6 +735,7 @@ pub enum Row {
     Popup(Popup),
     EffectRule(EffectRule),
     TreasureValue(TreasureValue),
+    CorpseFind(CorpseFind),
     TreasureRules(TreasureRules),
     TreasureSort(TreasureSort),
     TreasureWord(TreasureWord),
@@ -1543,6 +1554,7 @@ impl Row {
             Self::Popup(_) => "popup",
             Self::EffectRule(_) => "effect_rule",
             Self::TreasureValue(_) => "treasure_value",
+            Self::CorpseFind(_) => "corpse_find",
             Self::TreasureRules(_) => "treasure_rules",
             Self::TreasureSort(_) => "treasure_sort",
             Self::TreasureWord(_) => "treasure_word",
@@ -1620,6 +1632,7 @@ impl Row {
             Self::Popup(r) => Some(&r.prov),
             Self::EffectRule(r) => Some(&r.prov),
             Self::TreasureValue(r) => Some(&r.prov),
+            Self::CorpseFind(r) => Some(&r.prov),
             Self::TreasureRules(r) => Some(&r.prov),
             Self::TreasureSort(r) => Some(&r.prov),
             Self::TreasureWord(r) => Some(&r.prov),
@@ -1664,7 +1677,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 71] = [
+pub const KINDS: [&str; 72] = [
     "object",
     "camp",
     "loot",
@@ -1698,6 +1711,7 @@ pub const KINDS: [&str; 71] = [
     "popup",
     "effect_rule",
     "treasure_value",
+    "corpse_find",
     "treasure_rules",
     "treasure_sort",
     "treasure_word",
@@ -1739,7 +1753,7 @@ pub const KINDS: [&str; 71] = [
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 71] = [
+pub const FIELDS: [(&str, &[&str]); 72] = [
     (
         "object",
         &[
@@ -2116,6 +2130,19 @@ pub const FIELDS: [(&str, &[&str]); 71] = [
         ],
     ),
     ("treasure_value", &["level", "values", "prov"]),
+    (
+        "corpse_find",
+        &[
+            "key",
+            "chance",
+            "never",
+            "least_level",
+            "below_killer",
+            "hero_cap",
+            "bands",
+            "prov",
+        ],
+    ),
     (
         "treasure_rules",
         &[
@@ -4743,6 +4770,37 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 prov: f.req_prov()?,
             })
         }
+        "corpse_find" => {
+            let key = f.req_symbol("key")?;
+            let chance = to_f32(f.req_float("chance")?);
+            if chance.is_nan() || chance <= 0.0 || chance > 1.0 {
+                f.bad("chance", "a chance is a number above 0, at most 1");
+                return None;
+            }
+            let never = f.ident("never");
+            let least_level = f.int("least_level").and_then(|l| i32::try_from(l).ok());
+            let below_killer = f.int("below_killer").and_then(|l| i32::try_from(l).ok());
+            let hero_cap = f.bool("hero_cap").unwrap_or(false);
+            let bands = f.find_bands();
+            if bands.is_empty() {
+                f.bad("bands", "a list of at least one { from, items }");
+                return None;
+            }
+            Row::CorpseFind(CorpseFind {
+                find: yalain_content::CorpseFind {
+                    key,
+                    chance,
+                    never,
+                    least_level,
+                    below_killer,
+                    hero_cap,
+                    bands,
+                    placed: String::new(),
+                    confidence: String::new(),
+                },
+                prov: f.req_prov()?,
+            })
+        }
         "treasure_rules" => {
             let rules = f.treasure_rules()?;
             Row::TreasureRules(TreasureRules {
@@ -6359,6 +6417,34 @@ impl<'a> Fields<'a> {
             read
         } else {
             self.bad("lodestones", "levels rising from 0");
+            Vec::new()
+        }
+    }
+
+    /// `[[corpse_find]]`'s `bands`: `{ from, items }`, the killer's least level and the items drawn
+    /// evenly at it, levels rising from 0, each with at least one item.
+    fn find_bands(&mut self) -> Vec<(i32, Vec<u32>)> {
+        let read = self.list_of(
+            "bands",
+            "a list of { from, items }: the killer's least level and the items drawn at it",
+            &["from", "items"],
+            |t| {
+                let items = t
+                    .get("items")?
+                    .as_array()?
+                    .iter()
+                    .map(as_u32)
+                    .collect::<Option<Vec<_>>>()
+                    .filter(|i| !i.is_empty())?;
+                Some((i32::try_from(t.get("from")?.as_integer()?).ok()?, items))
+            },
+        );
+        let rising =
+            read.first().is_none_or(|(f, _)| *f == 0) && read.windows(2).all(|w| w[0].0 < w[1].0);
+        if rising {
+            read
+        } else {
+            self.bad("bands", "levels rising from 0");
             Vec::new()
         }
     }

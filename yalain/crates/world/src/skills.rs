@@ -1375,6 +1375,26 @@ pub fn repository_of<S: Store>(s: &Server<S>, p: &crate::world::Player) -> Serve
     repository_of_untraining(s, p, None)
 }
 
+/// The hero skill credits a player has had: those it holds and those its trained hero skills
+/// cost.
+#[must_use]
+pub fn hero_credits_had<S: Store>(s: &Server<S>, p: &crate::world::Player) -> u32 {
+    let spent: u32 = p
+        .play
+        .skills
+        .iter()
+        .filter(|h| h.mask & mask::TRAINED != 0)
+        .filter(|h| {
+            s.skill_table
+                .skills
+                .get(&h.skill)
+                .is_some_and(|d| d.flags & flag::HERO != 0)
+        })
+        .map(|h| h.cost)
+        .sum();
+    p.play.hero_credits.saturating_add(spent)
+}
+
 /// A player's repository update with the skill being untrained and the experience to earn.
 #[must_use]
 pub fn repository_of_untraining<S: Store>(

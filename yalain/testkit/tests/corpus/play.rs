@@ -86,6 +86,7 @@ fn a_play() -> Vec<ServerMessage> {
                 vigor: 100,
                 skill_credits: 0,
                 hero_credits: 0,
+                hero_credit_cap: 0,
             },
             yalain_world::levels::Level {
                 xp: 10,
@@ -93,6 +94,7 @@ fn a_play() -> Vec<ServerMessage> {
                 vigor: 130,
                 skill_credits: 1,
                 hero_credits: 0,
+                hero_credit_cap: 0,
             },
         ],
     };

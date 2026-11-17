@@ -44,6 +44,7 @@ world.lock                         ids given to authored rows, kept across build
 <pack>/server/effects.toml         [[effect_name]], [[effect_rule]]
 <pack>/server/events.toml          [[event]], [[tally]]
 <pack>/server/values.toml          [[treasure_value]]
+<pack>/server/finds.toml           [[corpse_find]]
 <pack>/server/routes.toml          [[route]]
 <pack>/server/areas.toml           [[area]]
 <pack>/server/allegiance.toml      [[allegiance_hall]]
@@ -152,6 +153,7 @@ Every row sets one **item**, named by its key:
 | `treasure_potion KIND` | the kind's name |
 | `treasure_family SORT ORDER` | the sort and the family's `order` |
 | `treasure_value LEVEL` | the creatures' level |
+| `corpse_find KEY` | the row's `key` |
 | `mine 0xSKILL` | the mining craft skill |
 | `map_region REGION` | the region's key |
 | `worn 0xTEMPLATE 0xRACES 0xSEXES` | the template and the races and sexes it fits |
@@ -620,6 +622,23 @@ level that has one.
 |---|---|---|
 | `level` | required | the creature's level |
 | `values` | required | whole numbers, at least one: each treasure item carries one, drawn evenly |
+| `prov` | required | where it came from |
+
+#### `[[corpse_find]]`
+
+Something any creature's corpse may hold beside its loot, rolled once at each kill a player made.
+Its item is one of the band's the killer's level reaches, drawn evenly. It is no treasure: it keeps
+its template's value. A gate left out stops no kill.
+
+| field | | meaning |
+|---|---|---|
+| `key` | required | its name |
+| `chance` | required | above 0, at most 1 |
+| `never` | | a template property of the install: a creature whose template sets it true leaves none |
+| `least_level` | | the least level of a creature that leaves it |
+| `below_killer` | | how many levels below its killer a creature that leaves it may be, at most |
+| `hero_cap` | | `true`: only for a killer whose hero skill credits, held and spent, are under the cap the level table gives its level |
+| `bands` | required | `{ from, items }`, the killer's least level and the templates drawn at it, levels rising from 0, each with at least one |
 | `prov` | required | where it came from |
 
 #### `[[treasure_rules]]`
