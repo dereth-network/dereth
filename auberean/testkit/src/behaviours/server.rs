@@ -13612,6 +13612,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.unopened-sigil-caches-walk-through",
+        says: "Each Order Cache and Singularity Trove the world places whose profile no recorded \
+               opening showed has a row of treasure at a level, is reached on foot from its \
+               dungeon's way in, and opens to its key, holding only what its row names.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-CHEST-LOOT-2017"),
+        station: "yalain-testkit::corpus::world_db::the_sigil_caches_no_recording_opened_are_walked_to_and_open_with_their_key_to_treasure",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.places.use-from-rest-in-reach",
         says: "A player at rest within a person's reach and the 4 m a client at rest is allowed is \
                answered at once when it uses the person, without a further report of its place; \

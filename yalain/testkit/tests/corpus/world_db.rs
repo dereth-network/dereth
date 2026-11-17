@@ -506,8 +506,9 @@ fn nothing_a_store_sells_is_worth_what_it_costs() {
     }
 }
 
-/// The chests recorded with treasure draw it at their kind's level and band; none pays more than
-/// its kind was seen to, and those of an unknown level stay as their templates have them.
+/// The chests recorded with treasure, and the sigil caches no opening showed, draw it at their
+/// kind's level and band; none pays more than its kind (or its recorded kin) was seen to, and
+/// those of an unknown level stay as their templates have them.
 /// Behaviour: server.places.a-chests-draw-is-treasure-of-its-level
 #[test]
 fn the_recorded_chests_draw_treasure_within_what_2017_showed() {
@@ -528,11 +529,16 @@ fn the_recorded_chests_draw_treasure_within_what_2017_showed() {
         ("GP_Chest_SigilLugian_UberHoard", 213),
         ("GP_Chest_SigilTumerok_UberHoard", 95),
         ("GP_SHRETHBaseUltraTreasureHoard", 231),
+        // The caches no opening showed, at their recorded kin's level and band.
+        ("GP_Chest_SigilHuman_Armor_HighHoard", 20),
+        ("GP_Chest_SigilHuman_Trinkets_HighHoard", 20),
+        ("GP_Chest_SigilHuman_Trinkets_LowHoard", 20),
+        ("GP_Chest_SigilLugian_StandardHoard", 86),
     ] {
         let (_, (low, high)) = got[name];
         assert!(low > 0 && high <= most, "{name}: {low} to {high}");
     }
-    assert_eq!(got.len(), 8);
+    assert_eq!(got.len(), 12);
 }
 
 /// Who a store's sales are for comes from the install: the honey shop and the fur trader hide
@@ -19152,6 +19158,189 @@ fn a_boss_with_three_possible_spots_stands_at_one_of_them_at_a_time() {
         stood.iter().any(|s| s.len() > 1),
         "the spot is drawn anew: {stood:?}"
     );
+}
+
+/// The sigil caches the world places whose profile no recorded opening showed, each with the cell
+/// it stands in and the key that opens it: the Order Caches of the Lasher Caves, the Mist Caverns
+/// and the Wasp Hive, and the Singularity Troves of the mage academy and the reliquary.
+const UNOPENED_CACHES: [(u32, u32, u32); 5] = [
+    (0x4700_0F51, 0x858D_012A, 0x4700_111C),
+    (0x4700_0F59, 0x7097_0119, 0x4700_111C),
+    (0x4700_0F5A, 0x9AB5_012A, 0x4700_111C),
+    (0x4700_0F61, 0x07FA_0169, 0x4700_111E),
+    (0x4700_0F61, 0x0AFC_0137, 0x4700_111E),
+];
+
+/// A way on foot from where the walker stands, inside a cave of a block on the land, out to the
+/// land of that block: its places in order, the first left out; none when the cave has no way out.
+fn way_out_to_the_land(w: &mut Walled) -> Option<Vec<yalain_store::StoredPosition>> {
+    use dereth_primitives::num::math;
+    let start = w.at();
+    let walls = w.h.server.walls.as_mut().expect("the walls");
+    #[allow(clippy::cast_possible_truncation)]
+    let key = |p: &yalain_store::StoredPosition| {
+        (
+            (p.origin[0] / 0.75).floor() as i32,
+            (p.origin[1] / 0.75).floor() as i32,
+            (p.origin[2] / 3.0).floor() as i32,
+        )
+    };
+    let dirs: Vec<[f32; 2]> = (0..8u8)
+        .map(|k| {
+            let a = f32::from(k) * std::f32::consts::TAU / 8.0;
+            [math::sinf(a), math::cosf(a)]
+        })
+        .collect();
+    let mut places = vec![start];
+    let mut from = vec![0];
+    let mut seen = std::collections::HashSet::from([key(&start)]);
+    let mut next = 0;
+    while next < places.len() && places.len() < 200_000 {
+        let at = places[next];
+        for d in &dirs {
+            let Some(to) = step_on(walls, &at, *d) else {
+                continue;
+            };
+            if to.cell >> 16 != start.cell >> 16 || !seen.insert(key(&to)) {
+                continue;
+            }
+            places.push(to);
+            from.push(next);
+            if to.cell & 0xFFFF < 0x100 {
+                let way = way_from_first(&from, places.len() - 1);
+                return Some(way.into_iter().map(|i| places[i]).collect());
+            }
+        }
+        next += 1;
+    }
+    None
+}
+
+/// **The sigil caches no recording opened are walked to and open with their key to treasure**: each
+/// of the five Order Caches and Singularity Troves whose profile no 2017 opening showed has a row,
+/// of treasure at a level; a body reaches it on foot from its dungeon's way in (the land at a
+/// cave's mouth, run out to and back in from, or the landing of the portal on the land into its
+/// dungeon); and its key used on it there opens it for its user, holding only what its row names,
+/// the key used up.
+/// Behaviour: server.places.unopened-sigil-caches-walk-through
+#[test]
+fn the_sigil_caches_no_recording_opened_are_walked_to_and_open_with_their_key_to_treasure() {
+    use yalain_world::usable::chests::{self, Phase};
+    use yalain_world::usable::maps::ground_distance;
+    let t = &compiled().tables;
+    let portal = yalain_testkit::authored::Portal::open();
+    for (chest, cell, key) in UNOPENED_CACHES {
+        let i = placed_in(t, chest, cell);
+        let kind = as_installed(&portal, chest);
+        let profile = kind.props.word("GeneratorProfile").expect("its profile");
+        let name = dat_install_profile(profile);
+        let row = t
+            .loot
+            .profile(&name)
+            .unwrap_or_else(|| panic!("{cell:08X}: {name} has a row"))
+            .clone();
+        assert!(
+            !row.items.is_empty() && row.chest.is_some(),
+            "{cell:08X}: {name} draws treasure at a level"
+        );
+        let block = cell >> 16;
+        let at = place_of(t, i);
+        let way_in = t.content.objects.iter().position(|o| {
+            o.cell >> 16 != block
+                && o.destination
+                    .as_ref()
+                    .is_some_and(|d| d.cell >> 16 == block)
+        });
+        let mut w = if let Some(way_in) = way_in {
+            let land = t.content.objects[way_in].cell >> 16;
+            let mut w = walled(t, &[land, block]);
+            assert_eq!(
+                through(&mut w, t, way_in).cell >> 16,
+                block,
+                "{cell:08X}: the portal leads into its dungeon"
+            );
+            w
+        } else {
+            // A cave of a block on the land: out from beside the cache to the land, and back in.
+            let mut w = walled(t, &[block]);
+            let beside = beside_way_in(&mut w, at);
+            w.put(beside);
+            let out = way_out_to_the_land(&mut w)
+                .unwrap_or_else(|| panic!("{cell:08X}: a way out to the land"));
+            assert_eq!(w.run_along(&out), out.len(), "{cell:08X}: out to the land");
+            assert!(w.at().cell & 0xFFFF < 0x100, "{cell:08X}: on the land");
+            w
+        };
+        let (places, from) = reached_on_foot(&mut w, 1.0);
+        let near = places
+            .iter()
+            .position(|p| {
+                p.cell >> 16 == block
+                    && ground_distance(p, &at) <= 2.5
+                    && (p.origin[2] - at.origin[2]).abs() <= 2.0
+            })
+            .unwrap_or_else(|| panic!("{cell:08X}: reached on foot from its way in"));
+        let way: Vec<_> = way_from_first(&from, near)
+            .into_iter()
+            .map(|k| places[k])
+            .collect();
+        assert_eq!(w.run_along(&way), way.len(), "{cell:08X}: in to it");
+
+        // Its key, used on it from there.
+        let h = &mut w.h;
+        h.server.chests.packages.insert(kind.description.package);
+        h.server.catalog.insert(kind);
+        h.server.catalog.profiles.insert(profile, name.clone());
+        h.server.loot = t.loot.clone();
+        for (item, _) in &row.items {
+            h.server.catalog.insert(as_installed(&portal, *item));
+        }
+        h.server.catalog.insert(as_installed(&portal, key));
+        yalain_world::inventory::give(&mut h.server, &mut h.net, w.world, key, 1);
+        h.run(3);
+        let held = h.server.players[&w.world]
+            .play
+            .items
+            .iter()
+            .find(|x| x.template == key)
+            .expect("the key held")
+            .id;
+        let target = yalain_world::presence::content_id(&t.content.objects, i);
+        h.bots[w.b].send(
+            true,
+            queue::WEENIE,
+            &server_call(0x8216_0016, &[use_on(held, w.me, target)]),
+        );
+        h.run(80);
+        assert!(
+            h.server
+                .chests
+                .by_id
+                .get(&target)
+                .is_some_and(|c| c.phase == Phase::Open && c.opener == Some(w.world)),
+            "{cell:08X}: its key opens it"
+        );
+        let inside: Vec<u32> = chests::contents(&h.server, target)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|x| h.server.things.get(*x).map(|x| x.template))
+            .collect();
+        assert!(!inside.is_empty(), "{cell:08X}: it holds treasure");
+        assert!(
+            inside
+                .iter()
+                .all(|x| row.items.iter().any(|(item, _)| item == x)),
+            "{cell:08X}: only what its row names: {inside:08X?}"
+        );
+        assert!(
+            !h.server.players[&w.world]
+                .play
+                .items
+                .iter()
+                .any(|x| x.template == key),
+            "{cell:08X}: the key used up"
+        );
+    }
 }
 
 /// **The mosswart's rescue walks through**: two fungal huts and the fenced hut stand where 2017
