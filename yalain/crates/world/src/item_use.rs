@@ -229,6 +229,8 @@ pub const EXAMINE_ACTION: u32 = 0x22;
 pub mod refusal {
     /// The player is below the item's least level.
     pub const LEVEL_TOO_LOW: u32 = 10_009;
+    /// The player is above the item's greatest level.
+    pub const LEVEL_TOO_HIGH: u32 = 10_010;
     /// The player is not of the kingdom the object needs.
     pub const WRONG_KINGDOM: u32 = 10_011;
     /// The player has never had the quest the item needs.
@@ -660,7 +662,8 @@ pub fn not_hero(props: &Props, qualities: &[u8]) -> bool {
 /// Why a player may not use an item of these properties now, if it may not: for monarchs alone and
 /// the player none, moving (an item that may not be used so), a mount's item with its hands full,
 /// a mount on or indoors, too far from the item's place, its quest (one the server knows) not where
-/// the item needs it, below the item's least level, for heroes alone and the player none.
+/// the item needs it, below the item's least level or above its greatest, for heroes alone and the
+/// player none.
 fn refused<S: Store>(s: &Server<S>, world: ConnId, props: &Props, clock: Clock) -> Option<u32> {
     let p = s.players.get(&world)?;
     if not_monarch(s, world, props) {
@@ -695,10 +698,23 @@ fn refused<S: Store>(s: &Server<S>, world: ConnId, props: &Props, clock: Clock) 
         return Some(why);
     }
     let least = props.int("Usage_MinLevel").unwrap_or(0);
-    if i64::from(crate::examine::level_of(&p.qualities)) < least {
+    let level = i64::from(crate::examine::level_of(&p.qualities));
+    if level < least {
         return Some(refusal::LEVEL_TOO_LOW);
     }
+    if above_greatest(props, level) {
+        return Some(refusal::LEVEL_TOO_HIGH);
+    }
     not_hero(props, &p.qualities).then_some(refusal::HERO_ONLY)
+}
+
+/// Is a player of this level above the greatest level an item of these properties names (none
+/// named, or 0: no greatest)? The item's examination shows the greatest beside the least.
+#[must_use]
+pub fn above_greatest(props: &Props, level: i64) -> bool {
+    props
+        .int("Usage_MaxLevel")
+        .is_some_and(|most| most > 0 && level > most)
 }
 
 /// May an item of these properties not be used moving?

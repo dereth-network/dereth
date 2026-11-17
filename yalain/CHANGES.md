@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Gear now enforces its top level and counts your race's own skills.
 - Opportunistic pets now go for the weakest foes, Courageous ones the strongest.
 - Using a skill now counts as fighting for regeneration.
 - Creatures' critical hits now follow their kind: bosses' hit harder, many others' a little softer. Unfair kills leave an empty corpse.

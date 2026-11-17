@@ -5250,8 +5250,9 @@ pub static ROWS: &[Behaviour] = &[
         id: "server.equip.requirements-refuse",
         says: "An item used to put it on is refused, its answer alone with the use's flags 316 and \
                nothing put on, when its template names a race the player is not of (10015), a skill \
-               the player does not hold (10013), a least level above the player's (10009), or a \
-               quest not where it needs it (a hidden one's as mysterious, 10043), in that order.",
+               the player has not trained (10013; its race's own skills count), a least level above \
+               the player's (10009), a greatest level below it (10010), or a quest not where it \
+               needs it (a hidden one's as mysterious, 10043), in that order.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-EQUIP-REQUIREMENTS"),
         station: "yalain-testkit::cpu::play::wearing::a_chest_piece_whose_race_skill_level_or_quest_the_wearer_lacks_is_refused_in_that_order",
@@ -7740,7 +7741,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.items.class-properties",
-        says: "A template that names nothing itself has what its class's code says: its value, armor, delay, weapon damage, speed, vigor, least level and race, and a chest's contents.",
+        says: "A template that names nothing itself has what its class's code says: its value, armor, delay, weapon damage, speed, vigor, least level, race and the skill it needs, and a chest's contents.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-ITEM-CLASS-PROPERTIES"),
         station: "yalain-testkit::dat::effects::a_template_with_no_properties_has_what_its_class_says",
@@ -7765,6 +7766,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-FOOD-READ"),
         station: "yalain-testkit::dat::effects::a_forager_s_food_reads_as_a_drink_that_heals_health_and_vigor",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.items.greatest-level",
+        says: "An item used by a player above the greatest level its template names is refused \
+               10010 and does nothing; at that level it works.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-MAX-LEVEL"),
+        station: "yalain-testkit::cpu::play::items::an_egg_used_above_its_greatest_level_is_refused_and_works_at_it",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.items.hero-only",

@@ -586,6 +586,141 @@ fn a_chest_piece_whose_race_skill_level_or_quest_the_wearer_lacks_is_refused_in_
     assert_eq!(held(&h, me, item).0, 2, "on the chest");
 }
 
+/// A chest piece whose greatest level is below the wearer's is refused 10010, after its least
+/// level, answered alone and left in the pack; at its greatest level it is worn.
+/// Behaviour: server.equip.requirements-refuse
+#[test]
+fn a_chest_piece_above_whose_greatest_level_the_wearer_is_is_refused() {
+    use yalain_world::item_use::refusal as use_refusal;
+    const CAPPED: u32 = 0x4700_7108;
+    const LEVEL: u32 = 302;
+    let (mut h, a, me, _) = two_players();
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .unwrap()
+        .0;
+    let (race, sex) = {
+        let p = &h.server.players[&world];
+        (p.race, p.sex)
+    };
+    let mut t = garment(CAPPED, (2, 2, 0), CHEST_LOOK, race, sex);
+    t.props
+        .set("Usage_MinLevel", Prop::Int(40))
+        .set("Usage_MaxLevel", Prop::Int(60));
+    h.server.catalog.insert(t);
+    let set_level = |h: &mut Harness, level: i32| {
+        yalain_world::quals::set_int(
+            &mut h.server.players.get_mut(&world).unwrap().qualities,
+            LEVEL,
+            level,
+        );
+    };
+    set_level(&mut h, 30);
+    let fa = h.bots[a].inbox.len();
+    let item = h.arm(a, me, CAPPED);
+    let refused = |h: &mut Harness, fa: usize, why: u32, what: &str| {
+        assert_eq!(use_answers(h, a, fa), [(why, 316, 0)], "{what}");
+        assert!(answers(h, a, fa).is_empty(), "{what}: no equipping");
+        assert_eq!(held(h, me, item).0, 0, "{what}: still in the pack");
+    };
+    refused(
+        &mut h,
+        fa,
+        use_refusal::LEVEL_TOO_LOW,
+        "below its least level",
+    );
+    set_level(&mut h, 61);
+    let fa = h.bots[a].inbox.len();
+    use_it(&mut h, a, me, item);
+    refused(
+        &mut h,
+        fa,
+        use_refusal::LEVEL_TOO_HIGH,
+        "above its greatest",
+    );
+    set_level(&mut h, 60);
+    let fa = h.bots[a].inbox.len();
+    use_it(&mut h, a, me, item);
+    assert!(
+        use_answers(&h, a, fa).is_empty(),
+        "at its greatest: no refusal"
+    );
+    assert_eq!(answers(&h, a, fa).len(), 1, "worn");
+    assert_eq!(held(&h, me, item).0, 2, "on the chest");
+}
+
+/// A chest piece that needs a skill the wearer's race starts with is worn though the wearer never
+/// trained it; one whose skill the wearer has untrained is refused 10013.
+/// Behaviour: server.equip.requirements-refuse
+#[test]
+fn a_chest_piece_needing_a_skill_the_wearers_race_starts_with_is_worn() {
+    use yalain_world::state::SkillState;
+    const RACIAL: u32 = 0x4700_7109;
+    const SKILL: u32 = 0x2DB;
+    let (mut h, a, me, _) = two_players();
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .unwrap()
+        .0;
+    let (race, sex) = {
+        let p = &h.server.players[&world];
+        (p.race, p.sex)
+    };
+    let mut t = garment(RACIAL, (2, 2, 0), CHEST_LOOK, race, sex);
+    t.props.set("Usage_RequiredSkill1", Prop::Word(SKILL));
+    h.server.catalog.insert(t);
+    h.server
+        .start
+        .skills
+        .entry(race)
+        .or_default()
+        .push((SKILL, 1));
+    assert!(
+        !h.server.players[&world]
+            .play
+            .skills
+            .iter()
+            .any(|s| s.skill == SKILL),
+        "not among the skills the player keeps"
+    );
+    let fa = h.bots[a].inbox.len();
+    let item = h.arm(a, me, RACIAL);
+    assert!(use_answers(&h, a, fa).is_empty(), "no refusal");
+    assert_eq!(answers(&h, a, fa).len(), 1, "worn");
+    assert_eq!(held(&h, me, item).0, 2, "on the chest");
+    use_it(&mut h, a, me, item);
+    assert_eq!(held(&h, me, item).0, 0, "taken off again");
+    h.server
+        .players
+        .get_mut(&world)
+        .unwrap()
+        .play
+        .skills
+        .push(SkillState {
+            skill: SKILL,
+            granted: 1,
+            mask: 0,
+            cost: 0,
+            children: 0,
+            dependents: 0,
+            spent: 0,
+        });
+    let fa = h.bots[a].inbox.len();
+    use_it(&mut h, a, me, item);
+    assert_eq!(
+        use_answers(&h, a, fa),
+        [(equip::refusal::MISSING_SKILL, 316, 0)],
+        "untrained"
+    );
+    assert_eq!(held(&h, me, item).0, 0, "still in the pack");
+}
+
 /// A chest piece for heroes alone is refused to anyone else (10049), answered alone and left in
 /// the pack; a hero wears it.
 /// Behaviour: server.equip.hero-only

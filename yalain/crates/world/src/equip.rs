@@ -438,9 +438,10 @@ fn iid_update<S: Store>(s: &mut Server<S>, item: u64, quality: u32, value: u64) 
 }
 
 /// Why a player may not put on an item of these properties, if it may not: its race is not among
-/// the item's, it does not hold a skill the item needs, it is below the item's least level, the
-/// item is for heroes alone and the player none, its Arcane Lore is below the item's, or the quest
-/// the item needs is not where it needs it. A
+/// the item's, it has not trained a skill the item needs (its race's own skills among those it
+/// has), it is below the item's least level or above its greatest, the item is for heroes alone and
+/// the player none, its Arcane Lore is below the item's, or the quest the item needs is not where it
+/// needs it. A
 /// treasure item's own least level and Arcane Lore stand in for its template's (2017: the item's own
 /// least level above the player's, 8 of 9 refusals 10009 whose player's level is known; its own
 /// Arcane Lore, 47 to 53, 5 of 5 refusals 10050 of players of level 51 to 54; the level first, 3
@@ -462,10 +463,16 @@ fn refused<S: Store>(
     {
         return Some(refusal::WRONG_RACE);
     }
+    let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
+    let held = crate::skills::held(&starting, &p.play.skills);
     let missing = ["Usage_RequiredSkill1", "Usage_RequiredSkill2"]
         .iter()
         .filter_map(|n| props.word(n).filter(|k| *k != 0))
-        .any(|k| !p.play.skills.iter().any(|h| h.skill == k));
+        .any(|k| {
+            !held
+                .iter()
+                .any(|h| h.skill == k && h.mask & crate::skills::mask::TRAINED != 0)
+        });
     if missing {
         return Some(refusal::MISSING_SKILL);
     }
@@ -474,8 +481,12 @@ fn refused<S: Store>(
         .map(i64::from)
         .or_else(|| props.int("Usage_MinLevel"))
         .unwrap_or(0);
-    if i64::from(crate::examine::level_of(&p.qualities)) < least {
+    let level = i64::from(crate::examine::level_of(&p.qualities));
+    if level < least {
         return Some(crate::item_use::refusal::LEVEL_TOO_LOW);
+    }
+    if crate::item_use::above_greatest(props, level) {
+        return Some(crate::item_use::refusal::LEVEL_TOO_HIGH);
     }
     if crate::item_use::not_hero(props, &p.qualities) {
         return Some(crate::item_use::refusal::HERO_ONLY);

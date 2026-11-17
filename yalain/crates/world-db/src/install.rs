@@ -655,10 +655,10 @@ fn read_setup(lib: &Library, start: usize, end: usize) -> Setup {
 
 /// The calls a template's class makes that say what its properties would, and the property each
 /// says: a weapon's damage, variance, vigor and speed; its value; a garment's and a shield's armor
-/// and delay; its least level and race; the quest and its status that taking it asks; how long a
-/// creature's corpse lasts; whether it is bound to whoever holds it; the key it carries; whether
-/// its use destroys it; the generator profile a chest's contents come from.
-const CLASS_SETTERS: [(u32, &str); 20] = [
+/// and delay; its least level, race and the skills it needs; the quest and its status that taking it
+/// asks; how long a creature's corpse lasts; whether it is bound to whoever holds it; the key it
+/// carries; whether its use destroys it; the generator profile a chest's contents come from.
+const CLASS_SETTERS: [(u32, &str); 22] = [
     (0x019E_000D, "Weapon_Damage"),
     (0x019E_000E, "Weapon_Variance"),
     (0x019E_001E, "Weapon_VigorCost"),
@@ -670,6 +670,8 @@ const CLASS_SETTERS: [(u32, &str); 20] = [
     (0x019D_000C, "Item_CombatDelay"),
     (0x0172_00EA, "Usage_MinLevel"),
     (0x0172_0001, "Usage_RequiredRace"),
+    (0x0172_0011, "Usage_RequiredSkill1"),
+    (0x0172_0012, "Usage_RequiredSkill2"),
     (0x0172_00AC, TAKING_QUEST),
     (0x0172_00B0, TAKING_STATUS),
     (0x00B7_004D, "NPC_BaseRotTime"),
@@ -802,8 +804,11 @@ fn class_literals(lib: &Library, start: usize, end: usize) -> Vec<(&'static str,
                         ("Item_Value", Some(Prop::Int(0))) => out.push((*name, Prop::Int(0))),
                         // Any other zero says nothing: its template isn't armor, or any race's.
                         (_, Some(Prop::Int(0)) | None) => {}
-                        // A race is a set of flags, not a number.
-                        ("Usage_RequiredRace", Some(Prop::Int(i))) => {
+                        // A race is a set of flags, and a skill a skill's number, not amounts.
+                        (
+                            "Usage_RequiredRace" | "Usage_RequiredSkill1" | "Usage_RequiredSkill2",
+                            Some(Prop::Int(i)),
+                        ) => {
                             out.push((*name, Prop::Word(u32::try_from(i).unwrap_or(0))));
                         }
                         (_, Some(v)) => out.push((*name, v)),

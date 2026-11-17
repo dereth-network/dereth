@@ -1154,6 +1154,37 @@ fn an_egg_used_below_its_least_level_is_refused() {
     assert!(records_from(&h, world, egg).is_empty());
 }
 
+/// An item used above its greatest level is refused (10010) and does nothing; at its greatest
+/// level it works.
+/// Behaviour: server.items.greatest-level
+#[test]
+fn an_egg_used_above_its_greatest_level_is_refused_and_works_at_it() {
+    let mut h = world();
+    let mut egg = h.server.catalog.get(EGG).expect("the egg").clone();
+    egg.props.set("Usage_MaxLevel", Prop::Int(60));
+    h.server.catalog.insert(egg);
+    let (b, me, world) = in_world(&mut h);
+    at_level(&mut h, world, 61);
+    let egg = give(&mut h, world, EGG, 1);
+    let from = send_use(&mut h, b, me, egg, 0.2);
+    assert_eq!(
+        answers(&h, b, from)
+            .iter()
+            .map(|a| a.status)
+            .collect::<Vec<_>>(),
+        vec![refusal::LEVEL_TOO_HIGH]
+    );
+    assert_eq!(refusal::LEVEL_TOO_HIGH, 10_010);
+    assert!(records_from(&h, world, egg).is_empty());
+    at_level(&mut h, world, 60);
+    let from = send_use(&mut h, b, me, egg, 0.2);
+    assert!(
+        answers(&h, b, from).iter().all(|a| a.status == 0),
+        "at its greatest level it is not refused"
+    );
+    assert_eq!(records_from(&h, world, egg).len(), 1, "and it works");
+}
+
 /// An item only looked at is shown to its user as an examination, then the use is answered at
 /// once.
 /// Behaviour: server.items.looked-at

@@ -1995,6 +1995,23 @@ fn a_template_with_no_properties_has_what_its_class_says() {
     );
 }
 
+/// A weapon whose template names no skill it needs has the one its class's start-up sets, beside
+/// the race: a handblade Tumeroks alone wield with Handblades (731), a flail humans wield with
+/// skill 148; the starting bow, whose class sets none, needs none.
+/// Behaviour: server.items.class-properties
+#[test]
+fn a_weapon_with_no_skill_of_its_own_needs_the_one_its_class_sets() {
+    let p = Portal::open();
+    let handblade = p.template(0x4700_1E06).props;
+    assert_eq!(handblade.word("Usage_RequiredSkill1"), Some(731));
+    assert_eq!(handblade.word("Usage_RequiredRace"), Some(4));
+    let flail = p.template(0x4700_1D9F).props;
+    assert_eq!(flail.word("Usage_RequiredSkill1"), Some(148));
+    assert_eq!(flail.word("Usage_RequiredRace"), Some(1));
+    let bow = p.template(0x4700_051B).props;
+    assert_eq!(bow.word("Usage_RequiredSkill1"), None, "none");
+}
+
 /// A chest whose template names nothing has the generator profile its class sets for its contents:
 /// the Frozen Ravine's tyrant chest and Eeruk's three treasury chests their own hoards, a tier chest
 /// its tier's.
