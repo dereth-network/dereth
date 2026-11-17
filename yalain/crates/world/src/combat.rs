@@ -2026,14 +2026,115 @@ pub fn creature_strike_with<S: Store>(
 ) -> f64 {
     let unknown = crate::timings::ends(&crate::timings::unknown(), CREATURE_TIME_SCALE)
         + crate::timings::THING_PAUSE;
-    let Some(c) = s.things.get(id).and_then(|t| t.creature.as_ref()) else {
+    let Some((pid, outcome, harm)) = creature_blow_on_player(s, id, skill, target) else {
         return unknown;
     };
+    // A special with an area reaches every other player and pet in it as well.
+    let (players, pets) = if special && skill.radius > 0.0 {
+        crate::missiles::area_victims(s, target, skill.radius)
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    let others: Vec<(ConnId, u64, Outcome, crate::effects::Harm)> = players
+        .into_iter()
+        .filter_map(|c| creature_blow_on_player(s, id, skill, c).map(|(p, o, h)| (c, p, o, h)))
+        .collect();
+    let stats = s
+        .things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .map(|c| c.stats.clone())
+        .unwrap_or_default();
+    let pets: Vec<(u64, Outcome, crate::effects::Harm)> = pets
+        .into_iter()
+        .map(|pet| {
+            let (o, h) = creature_blow_on_thing(s, id, &stats, skill, pet);
+            (pet, o, h)
+        })
+        .collect();
+    let ts = CREATURE_TIME_SCALE * s.rng.between(0.9, 1.1) * attack_pace(s, id);
+    let mut st = story(
+        s,
+        Attacker::Thing(id),
+        Swing {
+            skill: skill.skill,
+            behavior: skill.behavior,
+            time_scale: ts,
+            target: pid,
+            outcome,
+            damage: harm.left,
+            back: harm.back,
+        },
+    );
+    if let ServerMessage::DoStory(e) = &mut st {
+        if special {
+            e.action.bits = crate::missiles::SPECIAL;
+        }
+        let swing = |target, outcome, harm: crate::effects::Harm| Swing {
+            skill: skill.skill,
+            behavior: skill.behavior,
+            time_scale: ts,
+            target,
+            outcome,
+            damage: harm.left,
+            back: harm.back,
+        };
+        e.action.hooks.extend(
+            others
+                .iter()
+                .map(|&(_, p, o, h)| swing(p, o, h).hook())
+                .chain(pets.iter().map(|&(t, o, h)| swing(t, o, h).hook())),
+        );
+    }
+    to_all_seeing(s, net, id, &st);
+    if OPENS_AFTER_ATTACK.contains(&skill.skill) {
+        crate::skill_use::creature_attacked(s, id, clock);
+    }
+    let played = crate::timings::of_thing(s, id, skill.behavior);
+    let lands = crate::timings::lands(&played, 1, ts);
+    for (target, _, outcome, harm) in std::iter::once((target, pid, outcome, harm)).chain(others) {
+        if outcome.landed() {
+            s.after(
+                clock,
+                lands,
+                crate::Timer::CreatureStrikeLands {
+                    creature: id,
+                    target,
+                    harm,
+                },
+            );
+        }
+    }
+    for (target, outcome, harm) in pets {
+        if outcome.landed() {
+            s.after(
+                clock,
+                lands,
+                crate::Timer::ThingStrikeLands {
+                    by: id,
+                    target,
+                    skill: skill.skill,
+                    harm,
+                },
+            );
+        }
+    }
+    crate::timings::ends(&played, ts) + crate::timings::THING_PAUSE
+}
+
+/// A creature's strike on a player with a skill, rolled: whom it names, how it came out and the
+/// harm it does once the player's effects have answered it; none for a player not in the world.
+/// Strikes are evaded, never missed.
+fn creature_blow_on_player<S: Store>(
+    s: &mut Server<S>,
+    id: u64,
+    skill: crate::missiles::AttackSkill,
+    target: ConnId,
+) -> Option<(u64, Outcome, crate::effects::Harm)> {
+    let c = s.things.get(id).and_then(|t| t.creature.as_ref())?;
     let (natural, variance) = (c.stats.natural_damage, c.stats.natural_variance);
     let threshold = rules::threshold_of(&c.stats);
-    let Some(p) = s.players.get(&target) else {
-        return unknown;
-    };
+    let p = s.players.get(&target)?;
     let (pid, my_level) = (p.character, crate::examine::level_of(&p.qualities));
     let critical = skill.critical + creature_critical_bonus(s, id);
     let ratings = crate::ratings::of(s, skill.skill, Rater::Thing(id), Rater::Player(target));
@@ -2044,7 +2145,6 @@ pub fn creature_strike_with<S: Store>(
         ratings,
         critical,
     );
-    // Strikes are evaded, never missed.
     let outcome = if outcome == Outcome::Miss {
         Outcome::Evade
     } else {
@@ -2075,42 +2175,7 @@ pub fn creature_strike_with<S: Store>(
     } else {
         crate::effects::Harm::default()
     };
-    let ts = CREATURE_TIME_SCALE * s.rng.between(0.9, 1.1) * attack_pace(s, id);
-    let mut st = story(
-        s,
-        Attacker::Thing(id),
-        Swing {
-            skill: skill.skill,
-            behavior: skill.behavior,
-            time_scale: ts,
-            target: pid,
-            outcome,
-            damage: harm.left,
-            back: harm.back,
-        },
-    );
-    if special {
-        if let ServerMessage::DoStory(e) = &mut st {
-            e.action.bits = crate::missiles::SPECIAL;
-        }
-    }
-    to_all_seeing(s, net, id, &st);
-    if OPENS_AFTER_ATTACK.contains(&skill.skill) {
-        crate::skill_use::creature_attacked(s, id, clock);
-    }
-    let played = crate::timings::of_thing(s, id, skill.behavior);
-    if outcome.landed() {
-        s.after(
-            clock,
-            crate::timings::lands(&played, 1, ts),
-            crate::Timer::CreatureStrikeLands {
-                creature: id,
-                target,
-                harm,
-            },
-        );
-    }
-    crate::timings::ends(&played, ts) + crate::timings::THING_PAUSE
+    Some((pid, outcome, harm))
 }
 
 /// A creature's strike reaches its target: the player hurt, and dead if that was the last of its
@@ -2238,39 +2303,7 @@ pub fn thing_strikes_thing<S: Store>(
         crate::missiles::pick_basic(s, &stats, &melee)
             .unwrap_or(crate::missiles::CREATURE_ATTACKS[0])
     };
-    let their_level = s.things.get(target).map_or(1, crate::things::Thing::level);
-    let critical = skill.critical + creature_critical_bonus(s, id);
-    let ratings = crate::ratings::of(s, skill.skill, Rater::Thing(id), Rater::Thing(target));
-    let outcome = rules::roll_with_critical(
-        &mut s.rng,
-        Direction::CreatureOnPlayer,
-        skill.kind,
-        ratings,
-        critical,
-    );
-    let outcome = if outcome == Outcome::Miss {
-        Outcome::Evade
-    } else {
-        outcome
-    };
-    let natural = rules::Natural {
-        damage: stats.natural_damage,
-        variance: stats.natural_variance,
-        added: skill.added,
-        factor: skill.factor,
-        threshold: rules::threshold_of(&stats),
-    };
-    let critical = outcome == Outcome::Critical;
-    let damage = match (outcome.landed(), crate::pets::armor_of(s, target)) {
-        (false, _) => 0,
-        (true, Some(armor)) => rules::creature_hit_on_armor(&mut s.rng, natural, armor, critical),
-        (true, None) => rules::creature_hit(&mut s.rng, skill.kind, natural, their_level, critical),
-    };
-    let harm = if outcome.landed() {
-        crate::effects::answer_harm(s, On::Creature(target), damage, false)
-    } else {
-        crate::effects::Harm::default()
-    };
+    let (outcome, harm) = creature_blow_on_thing(s, id, &stats, skill, target);
     let ts = CREATURE_TIME_SCALE * s.rng.between(0.9, 1.1);
     let st = story(
         s,
@@ -2304,6 +2337,52 @@ pub fn thing_strikes_thing<S: Store>(
             },
         );
     }
+}
+
+/// A creature's or a pet's strike on another thing with a skill, rolled: how it came out and the
+/// harm it does once the target's effects have answered it. A pet whose kind gives its armor takes
+/// the hit less that armor, as a player does; any other target takes its level's share.
+pub(crate) fn creature_blow_on_thing<S: Store>(
+    s: &mut Server<S>,
+    id: u64,
+    stats: &yalain_content::CreatureStats,
+    skill: crate::missiles::AttackSkill,
+    target: u64,
+) -> (Outcome, crate::effects::Harm) {
+    let their_level = s.things.get(target).map_or(1, crate::things::Thing::level);
+    let critical = skill.critical + creature_critical_bonus(s, id);
+    let ratings = crate::ratings::of(s, skill.skill, Rater::Thing(id), Rater::Thing(target));
+    let outcome = rules::roll_with_critical(
+        &mut s.rng,
+        Direction::CreatureOnPlayer,
+        skill.kind,
+        ratings,
+        critical,
+    );
+    let outcome = if outcome == Outcome::Miss {
+        Outcome::Evade
+    } else {
+        outcome
+    };
+    let natural = rules::Natural {
+        damage: stats.natural_damage,
+        variance: stats.natural_variance,
+        added: skill.added,
+        factor: skill.factor,
+        threshold: rules::threshold_of(stats),
+    };
+    let critical = outcome == Outcome::Critical;
+    let damage = match (outcome.landed(), crate::pets::armor_of(s, target)) {
+        (false, _) => 0,
+        (true, Some(armor)) => rules::creature_hit_on_armor(&mut s.rng, natural, armor, critical),
+        (true, None) => rules::creature_hit(&mut s.rng, skill.kind, natural, their_level, critical),
+    };
+    let harm = if outcome.landed() {
+        crate::effects::answer_harm(s, On::Creature(target), damage, false)
+    } else {
+        crate::effects::Harm::default()
+    };
+    (outcome, harm)
 }
 
 /// A strike between things reaches its target: one dead or gone by now is not hurt by it.

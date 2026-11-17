@@ -24,6 +24,7 @@ mod corpse_profiles;
 mod corpse_rights;
 mod corpse_rot;
 mod crafting;
+mod creature_areas;
 mod creature_effects;
 mod creature_foes;
 mod creature_tactics;

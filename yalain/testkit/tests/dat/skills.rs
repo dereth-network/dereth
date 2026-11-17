@@ -2668,3 +2668,16 @@ mod falls {
         );
     }
 }
+
+/// A creature's special with an area reads the area's radius from its skill's hook marked as an
+/// area: the blast that strikes all about its target and the area missile 12.5 m; the plain strike,
+/// whose hook gives a radius but no area mark, reaches its target alone.
+/// Behaviour: server.creatures.area-specials-reach-everyone-in-their-radius
+#[test]
+fn a_creatures_area_specials_read_their_radius_from_the_hook_marked_as_an_area() {
+    let t = Portal::open().skills();
+    for (skill, radius) in [(1822, 12.5), (1853, 12.5), (981, 12.0), (1845, 0.0)] {
+        let a = attack_skill(&t, skill, 1).expect("an attack");
+        assert!((a.radius - radius).abs() < 1e-3, "{skill}: {}", a.radius);
+    }
+}

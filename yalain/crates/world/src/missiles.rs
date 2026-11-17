@@ -71,7 +71,8 @@ use crate::{presence, quals, Clock, Server, Timer};
 /// is a special (0: the general one), whether its hit drains the target too, its greatest range
 /// and whether a use bars it for a while; and its chance of a critical among its landed attacks,
 /// before what the creature's weapon adds (its class's, [`rules::skill_critical`]; for a skill
-/// without a definition, its kind's measured share).
+/// without a definition, its kind's measured share); and the radius its area hook reaches round its
+/// target (0 for the target alone).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AttackSkill {
     pub skill: u32,
@@ -85,6 +86,7 @@ pub struct AttackSkill {
     pub drains: bool,
     pub max_range: f32,
     pub barred_after: bool,
+    pub radius: f32,
 }
 
 const fn attack(skill: u32, behavior: u32, kind: Kind, factor: f32) -> AttackSkill {
@@ -104,6 +106,7 @@ const fn attack(skill: u32, behavior: u32, kind: Kind, factor: f32) -> AttackSki
             MISSILE_RANGE
         },
         barred_after: true,
+        radius: 0.0,
     }
 }
 
@@ -186,7 +189,63 @@ pub fn attack_skill(
         drains: known.is_some_and(|k| k.drains),
         max_range: u.max_range,
         barred_after: u.barred_after,
+        radius: u
+            .hooks
+            .iter()
+            .filter(|h| h.flags & crate::skill_use::hook_flag::AREA != 0)
+            .map(|h| h.radius)
+            .fold(0.0f32, f32::max),
     })
+}
+
+/// Whom a creature's special with an area reaches besides its target, a player: every other player
+/// and every pet whose body is within `radius` of the target's (2017, the specials with an area:
+/// the other players they reached a median 3 to 9 m from the target, 15 to 28 m from the creature;
+/// 920 of 1,001 players within the radius of 1822's target reached; pets reached among them). A
+/// player dead, dying, in portal space or protected is not reached. By id, players then pets.
+#[must_use]
+pub fn area_victims<S: Store>(
+    s: &Server<S>,
+    target: ConnId,
+    radius: f32,
+) -> (Vec<ConnId>, Vec<u64>) {
+    let Some(center) = s.players.get(&target).map(|p| p.position) else {
+        return (Vec::new(), Vec::new());
+    };
+    let body = crate::reach::PLAYER;
+    let within = |at: &StoredPosition, b| {
+        crate::reach::gap(&center, body, at, b).is_some_and(|d| d <= radius)
+    };
+    let mut players: Vec<ConnId> = s
+        .players
+        .iter()
+        .filter(|(c, p)| {
+            **c != target
+                && p.dying.is_none()
+                && p.trip.is_none()
+                && !combat::is_dead(p)
+                && !crate::effects::protected(p)
+                && within(&p.position, body)
+        })
+        .map(|(c, _)| *c)
+        .collect();
+    players.sort_unstable();
+    let mut pets: Vec<u64> = s
+        .pets
+        .by_id
+        .keys()
+        .copied()
+        .filter(|id| {
+            s.things.get(*id).is_some_and(|t| {
+                t.alive()
+                    && t.at
+                        .as_ref()
+                        .is_some_and(|at| within(at, crate::reach::body_of(s, *id)))
+            })
+        })
+        .collect();
+    pets.sort_unstable();
+    (players, pets)
 }
 
 /// How often a creature draws one of its basic attacks against the others: for a creature of the
@@ -525,7 +584,9 @@ pub fn launch<S: Store>(
     );
 }
 
-/// A missile arrives: its target tells how it came out, its health first when it is hurt.
+/// A missile arrives: its target tells how it came out, its health first when it is hurt. A
+/// special with an area reaches every other player and pet in it too, all told in the target's one
+/// story (2017: one arrival naming each target, each with its health change).
 pub fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, f: Flight, clock: Clock) {
     let Some(world) = s
         .players
@@ -539,20 +600,109 @@ pub fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, f: Flight, cloc
         return;
     };
     let Some(c) = t.creature.as_ref() else { return };
-    let (level, natural, variance, threshold) = (
-        c.stats.level,
-        c.stats.natural_damage,
-        c.stats.natural_variance,
-        rules::threshold_of(&c.stats),
-    );
+    let (level, stats) = (c.stats.level, c.stats.clone());
     let Some(p) = s.players.get(&world) else {
         return;
     };
     if combat::is_dead(p) || p.trip.is_some() {
         return;
     }
-    let my_level = crate::examine::level_of(&p.qualities);
     let moved = presence::distance(&f.from, &p.position).is_none_or(|d| d > MOVED);
+    let mut players = vec![lands_on_player(s, net, &f, &stats, world, moved)];
+    let (others, pets) = if f.special && f.skill.radius > 0.0 {
+        area_victims(s, world, f.skill.radius)
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    players.extend(
+        others
+            .into_iter()
+            .map(|c| lands_on_player(s, net, &f, &stats, c, false)),
+    );
+    let pets: Vec<(u64, Outcome, crate::effects::Harm)> = pets
+        .into_iter()
+        .map(|pet| {
+            let (o, h) = combat::creature_blow_on_thing(s, f.creature, &stats, f.skill, pet);
+            (pet, o, h)
+        })
+        .collect();
+    let swing = |target, outcome, harm: crate::effects::Harm| combat::Swing {
+        skill: f.skill.skill,
+        behavior: f.skill.behavior,
+        time_scale: 1.0,
+        target,
+        outcome,
+        damage: harm.left,
+        back: harm.back,
+    };
+    let hooks = players
+        .iter()
+        .flatten()
+        .map(|l| swing(l.character, l.outcome, l.harm).hook())
+        .chain(pets.iter().map(|&(t, o, h)| swing(t, o, h).hook()))
+        .collect();
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    let told = ServerMessage::DoStory(combat::player_event(
+        p,
+        PhysicsStory {
+            bits: if f.special { SPECIAL_ARRIVAL } else { ARRIVAL },
+            attacker: f.creature,
+            skill: f.skill.skill,
+            hooks,
+            ..PhysicsStory::default()
+        },
+    ));
+    to_all_seeing(s, net, f.target, &told);
+    for l in players.into_iter().flatten() {
+        if let Some((share, was)) = l.hurt {
+            combat::wounded(s, net, l.character, share, was);
+        }
+        if l.outcome.landed() && f.skill.drains {
+            drain(s, net, l.world, f.creature, level);
+        }
+        combat::after_hurt(s, net, l.world, f.creature, clock);
+        if l.outcome.landed() {
+            crate::effects::answer_attack(s, net, l.world, f.creature, clock);
+            crate::effects::harm_back(s, net, f.creature, l.character, l.harm.back, clock);
+            combat::creature_blow_landed(s, net, f.creature, l.world, clock);
+        }
+    }
+    for (pet, outcome, harm) in pets {
+        if outcome.landed() {
+            crate::pets::struck(s, net, pet, (f.creature, f.skill.skill), harm.left, clock);
+            crate::effects::harm_back(s, net, f.creature, pet, harm.back, clock);
+        }
+    }
+}
+
+/// How a creature's missile came out on one player it reached, its health taken already.
+struct Landing {
+    world: ConnId,
+    character: u64,
+    outcome: Outcome,
+    harm: crate::effects::Harm,
+    /// The player's share of health after and before, when it was hurt.
+    hurt: Option<(f32, f32)>,
+}
+
+/// A creature's missile reaches a player: rolled (`moved` when the player has left where it was
+/// aimed at), the damage through its armor and its effects, its health taken; none for a player
+/// not in the world, dead or in portal space.
+fn lands_on_player<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    f: &Flight,
+    stats: &CreatureStats,
+    world: ConnId,
+    moved: bool,
+) -> Option<Landing> {
+    let p = s.players.get(&world)?;
+    if combat::is_dead(p) || p.trip.is_some() {
+        return None;
+    }
+    let (character, my_level) = (p.character, crate::examine::level_of(&p.qualities));
     let critical = f.skill.critical + combat::creature_critical_bonus(s, f.creature);
     let ratings = crate::ratings::of(
         s,
@@ -568,11 +718,11 @@ pub fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, f: Flight, cloc
             &mut s.rng,
             f.skill.kind,
             rules::Natural {
-                damage: natural,
-                variance,
+                damage: stats.natural_damage,
+                variance: stats.natural_variance,
                 added: f.skill.added + more,
                 factor: f.skill.factor,
-                threshold,
+                threshold: rules::threshold_of(stats),
             },
             my_level,
             armor,
@@ -589,41 +739,13 @@ pub fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, f: Flight, cloc
     let hurt = outcome
         .landed()
         .then(|| combat::lose_health(s, net, world, harm.left));
-    let swing = combat::Swing {
-        skill: f.skill.skill,
-        behavior: f.skill.behavior,
-        time_scale: 1.0,
-        target: f.target,
+    Some(Landing {
+        world,
+        character,
         outcome,
-        damage: harm.left,
-        back: harm.back,
-    };
-    let Some(p) = s.players.get_mut(&world) else {
-        return;
-    };
-    let told = ServerMessage::DoStory(combat::player_event(
-        p,
-        PhysicsStory {
-            bits: if f.special { SPECIAL_ARRIVAL } else { ARRIVAL },
-            attacker: f.creature,
-            skill: f.skill.skill,
-            hooks: vec![swing.hook()],
-            ..PhysicsStory::default()
-        },
-    ));
-    to_all_seeing(s, net, f.target, &told);
-    if let Some((share, was)) = hurt {
-        combat::wounded(s, net, f.target, share, was);
-    }
-    if outcome.landed() && f.skill.drains {
-        drain(s, net, world, f.creature, level);
-    }
-    combat::after_hurt(s, net, world, f.creature, clock);
-    if outcome.landed() {
-        crate::effects::answer_attack(s, net, world, f.creature, clock);
-        crate::effects::harm_back(s, net, f.creature, f.target, harm.back, clock);
-        combat::creature_blow_landed(s, net, f.creature, world, clock);
-    }
+        harm,
+        hurt,
+    })
 }
 
 /// How much a harming missile's drain takes at the attacker's level: 2 at level 1 to 150 at level

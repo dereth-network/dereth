@@ -3111,6 +3111,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.area-specials-reach-everyone-in-their-radius",
+        says: "A creature's special whose skill has an area reaches every player and pet within the \
+               area's radius of its target, each named in the one story with its own outcome; one \
+               without an area reaches its target alone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-AREA-SPECIALS"),
+        station: "yalain-testkit::cpu::play::creature_areas::a_creatures_area_special_strikes_every_player_and_pet_within_its_radius",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.armor-debuff-in-a-special",
         says: "What a landed special's effect takes from a creature's armor counts in the next hit \
                of a special, on the whole server with the install's own skills.",
