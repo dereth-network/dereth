@@ -13745,6 +13745,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.plants.chart-crosses-walk-through",
+        says: "The dye gardener's crosses walk through by the 2013 guide's chart: each of the nine kinds of \
+               seed it charts, pollinated with each of the twelve pollens, gives the seeds and count its \
+               cell gives, and the four kinds it never planted cross with nothing. The gardener is a run \
+               from the nearest portal's landing and sells the dark green seed, her garden a run from her; \
+               there a dark green plant pollinated with the red pollen ripens to three light green seeds, \
+               and a black plant pollinated with it to the black plant and its pollen.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-DYE-CROSSES-CHART"),
+        station: "yalain-testkit::corpus::world_db::the_gardeners_seeds_cross_as_the_chart_charts_and_a_black_plant_gives_its_plain_harvest",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.plants.cross",
         says: "A ripe dye plant pollinated with a pollen of a known cross gives so many seeds of \
                the cross's species and nothing else (Berimphur with Hennacin pollen: three Siennan \

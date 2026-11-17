@@ -17355,6 +17355,199 @@ fn kantens_dye_errand_is_done_with_plants_crossed_from_the_gardeners_seeds() {
     assert_eq!(state_of(&h, QUEST).map(|q| q.0), Some(status::COMPLETED));
 }
 
+/// **The dye gardener's crosses walk through by the 2013 guide's chart**: each of the nine kinds of
+/// seed it charts, pollinated with each of the twelve pollens, gives the seeds and count its cell
+/// gives, two of them the crosses 2017 recorded; the black, pink, orange and clear plants it never
+/// planted cross with nothing. The gardener stands within a run of the nearest portal's landing, sells
+/// the dark green seed, and her garden is a run from her. There a dark green plant pollinated with the
+/// red pollen ripens to three light green seeds and nothing else, and a black plant pollinated with
+/// it ripens to the black plant and its own pollen.
+/// Behaviour: server.plants.chart-crosses-walk-through
+#[test]
+fn the_gardeners_seeds_cross_as_the_chart_charts_and_a_black_plant_gives_its_plain_harvest() {
+    use yalain_world::usable::maps::ground_distance;
+    const GARDENER: u32 = 0x4700_33F9;
+    const STORE: u32 = 0x6F00_16FC;
+    // The kinds' seeds, by color.
+    const BLACK: u32 = 0x4700_1452;
+    const BRONZE: u32 = 0x4700_1453;
+    const BROWN: u32 = 0x4700_1454;
+    const CLEAR: u32 = 0x4700_1455;
+    const D_BLUE: u32 = 0x4700_1456;
+    const D_GREEN: u32 = 0x4700_1457;
+    const GOLD: u32 = 0x4700_1458;
+    const L_BLUE: u32 = 0x4700_1459;
+    const L_GREEN: u32 = 0x4700_145A;
+    const ORANGE: u32 = 0x4700_145B;
+    const PINK: u32 = 0x4700_145C;
+    const PURPLE: u32 = 0x4700_145D;
+    const RED: u32 = 0x4700_145E;
+    // The chart's pollens, in its columns' order, and for each seed planted, in its rows' order,
+    // how many seeds of which kind each pollen gives.
+    const POLLENS: [u32; 12] = [
+        D_GREEN, RED, BROWN, BRONZE, GOLD, L_GREEN, PURPLE, D_BLUE, L_BLUE, BLACK, PINK, ORANGE,
+    ];
+    #[rustfmt::skip]
+    const CHART: [(u32, [(u32, u32); 12]); 9] = [
+        (D_GREEN, [(3, D_GREEN), (3, L_GREEN), (3, BRONZE), (3, GOLD), (3, BRONZE), (3, D_GREEN),
+                   (3, D_GREEN), (3, L_GREEN), (3, GOLD), (3, GOLD), (3, BRONZE), (1, CLEAR)]),
+        (RED, [(3, L_GREEN), (3, RED), (3, GOLD), (3, L_GREEN), (3, RED), (3, GOLD),
+               (3, L_GREEN), (3, BRONZE), (3, RED), (3, L_GREEN), (1, CLEAR), (3, GOLD)]),
+        (BROWN, [(3, GOLD), (3, BRONZE), (3, BROWN), (3, BROWN), (3, L_GREEN), (3, BRONZE),
+                 (3, BRONZE), (3, BROWN), (3, GOLD), (1, CLEAR), (3, L_GREEN), (3, BRONZE)]),
+        (BRONZE, [(3, L_GREEN), (3, BRONZE), (3, BROWN), (2, BRONZE), (2, L_BLUE), (2, PURPLE),
+                  (2, L_BLUE), (2, BRONZE), (2, D_BLUE), (2, CLEAR), (3, PURPLE), (3, D_BLUE)]),
+        (GOLD, [(3, GOLD), (3, RED), (3, L_GREEN), (2, D_BLUE), (2, GOLD), (2, L_BLUE),
+                (2, D_BLUE), (2, PURPLE), (2, GOLD), (3, PURPLE), (2, CLEAR), (3, L_BLUE)]),
+        (L_GREEN, [(3, D_GREEN), (3, GOLD), (3, BRONZE), (2, PURPLE), (2, D_BLUE), (2, L_GREEN),
+                   (2, L_GREEN), (2, L_BLUE), (2, PURPLE), (3, L_BLUE), (3, D_BLUE), (2, CLEAR)]),
+        (PURPLE, [(3, D_GREEN), (3, BRONZE), (3, GOLD), (2, D_BLUE), (2, L_BLUE), (2, L_GREEN),
+                  (1, PURPLE), (1, BLACK), (1, PINK), (2, PINK), (2, ORANGE), (3, CLEAR)]),
+        (D_BLUE, [(3, BRONZE), (3, L_GREEN), (3, BROWN), (2, BRONZE), (2, PURPLE), (2, D_BLUE),
+                  (1, BLACK), (1, D_BLUE), (1, ORANGE), (3, CLEAR), (2, BLACK), (2, ORANGE)]),
+        (L_BLUE, [(3, GOLD), (3, RED), (3, BRONZE), (2, L_BLUE), (2, GOLD), (2, PURPLE),
+                  (1, PINK), (1, ORANGE), (1, L_BLUE), (2, BLACK), (3, CLEAR), (2, PINK)]),
+    ];
+    let t = &compiled().tables;
+    let kind = |seed: u32| t.plants.sown_by(seed).expect("a kind of dye plant");
+    let pollen = |seed: u32| kind(seed).pollen.expect("its pollen");
+    for (planted, cells) in CHART {
+        for (by, (count, seeds)) in POLLENS.into_iter().zip(cells) {
+            let cross = t.plants.cross(kind(planted).plant, pollen(by));
+            assert_eq!(
+                cross.map(|c| (c.count, c.seeds)),
+                Some((count, seeds)),
+                "{planted:08X} by {by:08X}'s pollen"
+            );
+        }
+    }
+    for unplanted in [BLACK, PINK, ORANGE, CLEAR] {
+        let plant = kind(unplanted).plant;
+        assert!(
+            t.plants.crosses.keys().all(|(p, _)| *p != plant),
+            "{unplanted:08X}: no cross"
+        );
+    }
+
+    // On foot: from the nearest portal's landing on the land to the gardener, and on to her garden.
+    let objects = &t.content.objects;
+    let portal = yalain_testkit::authored::Portal::open();
+    let gardener = &objects[placed(t, GARDENER)];
+    let her = spot(gardener.cell, gardener.origin);
+    let sold: Vec<u32> = t.stores.sales_of(STORE).iter().map(|s| s.product).collect();
+    assert!(sold.contains(&D_GREEN), "she sells the dark green seed");
+    let garden = as_installed(&portal, D_GREEN)
+        .props
+        .get("Usage_RequiredLocation")
+        .and_then(|p| match p {
+            yalain_content::Prop::Place(cell, origin) => Some(spot(*cell, *origin)),
+            _ => None,
+        })
+        .expect("the seed's garden");
+    assert!(
+        ground_distance(&her, &garden) < 80.0,
+        "her garden within the seed's 80 m of her"
+    );
+    let way_in = objects
+        .iter()
+        .filter_map(|o| o.destination.as_ref())
+        .map(|d| spot(d.cell, d.origin))
+        .filter(|d| d.cell & 0xFFFF < 0x100)
+        .min_by(|a, b| ground_distance(a, &her).total_cmp(&ground_distance(b, &her)))
+        .expect("a portal's landing");
+    let mut w = walled(t, &[way_in.cell >> 16, her.cell >> 16, garden.cell >> 16]);
+    w.put(way_in);
+    for (to, what) in [(her, "the gardener"), (garden, "her garden")] {
+        let way = w
+            .way_across(&to, 4.0)
+            .unwrap_or_else(|| panic!("a way to {what}"));
+        assert_eq!(w.run_along(&way), way.len(), "{what} reached on foot");
+    }
+
+    // In her garden.
+    let (b, me, world) = (w.b, w.me, w.world);
+    let h = &mut w.h;
+    let plants = [D_GREEN, BLACK].map(|s| kind(s).plant);
+    for x in [D_GREEN, BLACK, pollen(RED), pollen(BLACK), L_GREEN]
+        .into_iter()
+        .chain(plants)
+        .chain([kind(D_GREEN).harvest, kind(BLACK).harvest])
+    {
+        h.server.catalog.insert(as_installed(&portal, x));
+    }
+    h.server.plants.kinds = t.plants.clone();
+    let targets = plants.map(|p| (p, portal.template(p).description.package));
+    h.server.interactions = portal.interactions(&[pollen(RED)], &targets);
+    let count = |h: &Harness, template: u32| -> u32 {
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .filter(|i| i.template == template)
+            .map(|i| i.quantity.max(1))
+            .sum()
+    };
+    let held = |h: &Harness, template: u32| {
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .find(|i| i.template == template)
+            .map(|i| i.id)
+            .expect("held")
+    };
+    let wait = |h: &mut Harness, seconds: f64, plant: Option<u64>| {
+        let end = h.now.0 + seconds;
+        while h.now.0 < end {
+            // Tended all along.
+            if let Some(p) = plant.and_then(|p| h.server.plants.by_id.get_mut(&p)) {
+                p.water = 3;
+                p.fertilizer = 3;
+            }
+            h.step();
+        }
+    };
+    let use_it = |h: &mut Harness, item: u64, on: u64| {
+        let arg = if on == 0 {
+            use_of(item, me)
+        } else {
+            use_on(item, me, on)
+        };
+        h.bots[b].send(true, queue::WEENIE, &server_call(0x8216_0016, &[arg]));
+        wait(h, 3.0, None);
+    };
+    // A seed planted, pollinated with the red pollen and ripened: what its harvest gave.
+    let grow = |h: &mut Harness, seed: u32| -> Vec<(u32, u32)> {
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, seed, 1).expect("a seed");
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, pollen(RED), 1)
+            .expect("the red pollen");
+        h.run(3);
+        let item = held(h, seed);
+        use_it(h, item, 0);
+        let plant = *h.server.plants.by_id.keys().next().expect("planted");
+        let item = held(h, pollen(RED));
+        use_it(h, item, plant);
+        assert_eq!(h.server.plants.by_id[&plant].pollen, Some(pollen(RED)));
+        wait(h, yalain_world::plants::RIPE_SECONDS, Some(plant));
+        let before: Vec<(u32, u32)> = [L_GREEN, kind(BLACK).harvest, pollen(BLACK)]
+            .map(|x| (x, count(h, x)))
+            .to_vec();
+        use_it(h, plant, 0);
+        assert!(h.server.plants.by_id.is_empty(), "harvested");
+        before
+            .into_iter()
+            .map(|(x, n)| (x, count(h, x) - n))
+            .filter(|(_, n)| *n > 0)
+            .collect()
+    };
+    assert_eq!(grow(h, D_GREEN), [(L_GREEN, 3)], "three light green seeds");
+    assert_eq!(
+        grow(h, BLACK),
+        [(kind(BLACK).harvest, 1), (pollen(BLACK), 1)],
+        "the black plant and its pollen"
+    );
+}
+
 /// **The Disciples of Orulaan's errands walk through**: Menaluc gives the alms errand and, used
 /// again, his bag; the bag handed to the Disciple ends it. The Disciple gives the teeth errand only
 /// to one who has done his first task; five teeth of each kind, from the mature gromnies of that
