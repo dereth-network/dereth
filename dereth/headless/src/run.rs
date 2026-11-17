@@ -766,7 +766,12 @@ impl<'a> Run<'a> {
         if find(self).is_none() {
             let before = self.app.host_state.chargen_response_notices;
             let store = &self.app.store;
-            let character = new_character(self.opts.era, || creation_table(store), name, role);
+            let mut character = new_character(self.opts.era, || creation_table(store), name, role);
+            if self.opts.era != Some(dereth_client_sdk::primitives::EraId::Launch) {
+                if let Some((cg, skills)) = skill_tables(store) {
+                    with_free_skills(&mut character, &cg, &skills);
+                }
+            }
             self.app
                 .run_chargen_actions(vec![CharGenAction::SendCharGenResult(Box::new(character))]);
             let answered = |run: &mut Self| run.app.host_state.chargen_response_notices != before;
@@ -1477,6 +1482,52 @@ fn creation_table(
     CharGen::decode_payload_in(store.era(), id, &store.read(id).ok()?).ok()
 }
 
+/// The later files' character-creation and skill tables, which say which skills a heritage
+/// starts with.
+fn skill_tables(
+    store: &dereth_client_sdk::dat::RetailDatStore,
+) -> Option<(
+    dereth_client_sdk::assets::tables::CharGen,
+    dereth_client_sdk::assets::tables::SkillTable,
+)> {
+    use dereth_client_sdk::assets::{
+        tables::{CharGen, SkillTable},
+        Decode,
+    };
+    use dereth_client_sdk::primitives::AssetSource as _;
+    let read = |id: u32| store.read(dereth_client_sdk::primitives::DataId(id)).ok();
+    let cg = CharGen::decode_payload_in(
+        store.era(),
+        dereth_client_sdk::primitives::DataId(0x0E00_0002),
+        &read(0x0E00_0002)?,
+    )
+    .ok()?;
+    let skills = SkillTable::decode_payload_in(
+        store.era(),
+        dereth_client_sdk::primitives::DataId(0x0E00_0004),
+        &read(0x0E00_0004)?,
+    )
+    .ok()?;
+    Some((cg, skills))
+}
+
+/// Each skill `c`'s heritage gives free, raised to the class it starts at, as the client's own
+/// character creation starts it: a world refuses a character that leaves one of them below.
+fn with_free_skills(
+    c: &mut dereth_client_sdk::contract::pregame::CharGenResultData,
+    cg: &dereth_client_sdk::assets::tables::CharGen,
+    skills: &dereth_client_sdk::assets::tables::SkillTable,
+) {
+    use dereth_client_sdk::rules::chargen::{default_skill_class, SkillAdvancementClass};
+    for (id, class) in c.skill_advancement_classes.iter_mut().enumerate() {
+        let Ok(id) = u32::try_from(id) else { continue };
+        let free = default_skill_class(cg, skills, c.heritage_group, id);
+        if free as i32 >= SkillAdvancementClass::Trained as i32 && *class < free as i32 {
+            *class = free as i32;
+        }
+    }
+}
+
 /// A new character for `enter` in a world whose characters take a template whole: an Aluvian
 /// male of the character-creation table's first template that trains what `role` asks for, its attributes and skills as the template gives them, at the heritage's first start.
 fn templated(
@@ -1576,7 +1627,9 @@ fn soldier(name: &str) -> dereth_client_sdk::contract::pregame::CharGenResultDat
 
 #[cfg(test)]
 mod tests {
-    use super::{caster, ended_why, new_character, settings_preferences, soldier};
+    use super::{
+        caster, ended_why, new_character, settings_preferences, soldier, with_free_skills,
+    };
     use crate::script::Role;
     use dereth_client_sdk::net::client_session::DisconnectReason;
 
@@ -1658,6 +1711,54 @@ mod tests {
             heritage_order: vec![1],
             heritage_groups: BTreeMap::from([(1, heritage)]),
         }
+    }
+
+    /// A skill the heritage gives free goes out trained, as the client's own creation starts it, or
+    /// a world refuses the character; one it trains already, or doesn't give, is left as it is.
+    #[test]
+    fn a_new_character_carries_the_skills_its_heritage_gives_free() {
+        use dereth_client_sdk::assets::tables::{SkillBase, SkillFormula, SkillTable};
+        let row = |trained: i32| SkillBase {
+            description: String::new(),
+            name: String::new(),
+            icon: 0,
+            trained_cost: trained,
+            specialized_cost: 8,
+            category: 1,
+            chargen_use: 0,
+            min_level: 1,
+            formula: SkillFormula {
+                w: 0,
+                x: 1,
+                y: 1,
+                z: 3,
+                attr1: 4,
+                attr2: 3,
+            },
+            upper_bound: 0.0,
+            lower_bound: 0.0,
+            learn_mod: 0.0,
+        };
+        let skills = SkillTable {
+            id: DataId(0x0E00_0004),
+            buckets: 11,
+            skills: BTreeMap::from([(14, row(0)), (22, row(4)), (34, row(0))]),
+        };
+        let mut c = caster("Pell");
+        assert_eq!(c.skill_advancement_classes[14], 0);
+        with_free_skills(&mut c, &creation_table(), &skills);
+        assert_eq!(
+            c.skill_advancement_classes[14], 2,
+            "the free skill, trained"
+        );
+        assert_eq!(
+            c.skill_advancement_classes[22], 0,
+            "a skill that costs credits stays"
+        );
+        assert_eq!(
+            c.skill_advancement_classes[34], 2,
+            "one trained already stays trained"
+        );
     }
 
     #[test]
