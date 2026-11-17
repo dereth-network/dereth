@@ -24,6 +24,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Windows: the taskbar now names the client Dereth.
 - Web: WebGL now asks for the faster graphics card, and the status line names it.
 - Fixed sleds starting off facing the wrong way on a slope.
+- Fixed examining a creature with negative armor showing a huge armor level.
 
 ## 0.4.19 (2026-11-17)
 - Remaster: distant forests no longer shimmer with ray-traced shading.

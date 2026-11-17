@@ -395,6 +395,11 @@ pub fn property_text(v: Value) -> String {
         Value::DataId(p, _) => named("PropertyDataId", p.name(), p.0),
         Value::EmoteScript(a, _) => format!("emote set {} action {} script", a.emote_set, a.order),
         Value::Skill(skill, _) => named("Skill", skill.name(), skill.0.try_into().unwrap_or(0)),
+        Value::BodyArmor(_) => {
+            "body armor (head, chest, abdomen, upper arm, lower arm, hand, upper \
+                                leg, lower leg, foot)"
+                .to_owned()
+        }
     }
 }
 
@@ -408,6 +413,11 @@ pub fn value_text(v: Value) -> String {
         #[allow(clippy::cast_sign_loss)]
         Value::EmoteScript(_, Some(x)) => script_text(x as u32),
         Value::Skill(_, Some(x)) => x.to_string(),
+        Value::BodyArmor(places) => places
+            .iter()
+            .map(|x| x.map_or_else(|| "-".to_owned(), |x| x.to_string()))
+            .collect::<Vec<_>>()
+            .join(","),
         Value::Int(_, None)
         | Value::Bool(_, None)
         | Value::DataId(_, None)

@@ -170,8 +170,8 @@ fn a_failed_assessment_of_a_player_hides_its_faction_and_society_rank() {
 
 /// Divergence: V557, V394
 /// A monster assessed successfully shows its armor levels, its body's armor in the places it has
-/// a body part; a player's are what it wears alone. An era before assessment showed armor levels
-/// shows none.
+/// a body part, a weak body's negative armor as it is; a player's are what it wears alone. An era
+/// before assessment showed armor levels shows none.
 #[test]
 fn a_monster_assessed_successfully_shows_its_bodys_armor_levels() {
     let mut h = ranked_monster();
@@ -195,6 +195,26 @@ fn a_monster_assessed_successfully_shows_its_bodys_armor_levels() {
         (0, 0),
         "a player's come from its armor"
     );
+
+    // A weak body's negative armor is sent as it is, and is no zero.
+    let mut weak = h
+        .o(MONSTER)
+        .biota
+        .properties_body_part
+        .as_deref()
+        .cloned()
+        .unwrap();
+    weak.get_mut(&CombatBodyPart::Head).unwrap().base_armor = -300;
+    h.w.objects
+        .get_mut(MONSTER)
+        .unwrap()
+        .biota
+        .properties_body_part = Some(Arc::new(weak));
+    let levels = appraise_info_new(&mut h.w, MONSTER, PLAYER, true)
+        .armor_levels
+        .expect("the monster's armor levels");
+    assert_eq!(levels.head.cast_signed(), -300);
+    assert_eq!(levels.head, 0xFFFF_FED4);
 
     h.w.era = EraId::Infiltration.rules();
     let old = appraise_info_new(&mut h.w, MONSTER, PLAYER, true);

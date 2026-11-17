@@ -1,7 +1,7 @@
 # Deception as the end-of-retail server used it, one value per weenie class: the difficulty it
 # sent back with the assessor's Assess Creature skill after a successful assessment. Retail
 # sent one value per class in every reading, whatever the distance. These are the creatures
-# (and summoned pets) whose value differs from what ACE's world database stores.
+# whose value differs from what ACE's world database stores.
 #
 # stored: the Deception the database stores (its initial level plus ranks; none: no row).
 # retail: the value retail used. readings: how many times retail sent it. name: the weenie's.
@@ -209,21 +209,6 @@ wcid	stored	retail	readings	name
 44809	150	135	35	Grievver Shredder
 44815	25	180	35	Shadow Flyer
 45083	none	100	2	Pet Gumdrop
-48883	400	110	1	Golem
-48885	475	135	1	Golem
-48968	475	135	8	Elemental
-49015	570	185	1	Zombie
-49025	400	110	64	Zombie
-49029	570	185	2	Zombie
-49086	570	185	1	K'nath
-49092	530	155	2	K'nath
-49100	570	185	1	K'nath
-49111	430	120	1	Moar
-49128	570	185	1	Moar
-49135	570	185	1	Swarm
-49205	570	185	2	Wisp
-49393	570	185	1	Maiden
-49414	570	185	3	Maiden
 51340	400	100	1	Bloodstone Fragment
 51749	none	90	1	Rynthid Minion
 52028	none	200	1	Corrupted Warrior

@@ -22,9 +22,10 @@
 //! Individual entries stay individually evidenced, and neither bulk entries nor a new rule are
 //! added here without a deliberate, reviewed decision.
 //!
-//! One such decision is a table of data rather than code: each creature's Deception as retail
-//! used it ([`deception`], V559), one entry per weenie class read from a data file. Its entries
-//! work exactly as the others do; [`weenie_corrections`] lists them all.
+//! Such decisions are tables of data rather than code, read from data files beside this module,
+//! one entry per weenie class: each creature's and summoned pet's Deception as retail used it
+//! ([`deception`]) and each creature's body armor as retail showed it ([`mod@body_armor`]), both V559.
+//! Their entries work exactly as the others do; [`weenie_corrections`] lists them all.
 //!
 //! The individual entries are scoped to the eras whose content they were evidenced on
 //! ([`ENTRY_ERAS`]: the end of retail). On a pack built for another era ([`crate::pack::Pack::era`])
@@ -51,6 +52,7 @@ use crate::models::world::{
 use crate::pack::TableId;
 use crate::world_database::WorldDatabaseBase;
 
+pub mod body_armor;
 pub mod deception;
 pub mod report;
 
@@ -64,6 +66,33 @@ pub enum Value {
     EmoteScript(EmoteAction, Option<i32>),
     /// A skill's level as its row stores it, the initial level plus the ranks; `None` is no row.
     Skill(Skill, Option<u32>),
+    /// The base armor of the body parts at the nine places an assessment shows ([`PLACES`]: the
+    /// parts keyed 0 to 8, head to foot); `None` is no part there.
+    BodyArmor([Option<i32>; PLACES]),
+}
+
+/// The places an assessment shows armor at: the body parts keyed 0 to 8 (head, chest, abdomen,
+/// upper arm, lower arm, hand, upper leg, lower leg, foot).
+pub const PLACES: usize = 9;
+
+/// The data lines of a tab-separated table: comment lines (`#`) and blank lines skipped, the first
+/// other line `header`; each with the error that names it and its fields.
+pub(crate) fn table_lines<'a>(
+    text: &'a str,
+    header: &str,
+) -> Result<Vec<(String, Vec<&'a str>)>, String> {
+    let mut lines = text
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| !l.is_empty() && !l.starts_with('#'));
+    match lines.next() {
+        Some((_, l)) if l == header => {}
+        Some((n, _)) => return Err(format!("line {}: not the table's header", n + 1)),
+        None => return Err("no header".to_owned()),
+    }
+    Ok(lines
+        .map(|(n, l)| (format!("line {}: {l:?}", n + 1), l.split('\t').collect()))
+        .collect())
 }
 
 /// One action of a weenie's emote table: the emote set's row id and the action's order in it.
@@ -388,6 +417,16 @@ fn skill_row(w: &Weenie, s: Skill) -> Option<u32> {
         .map(|r| r.init_level.saturating_add(u32::from(r.level_from_pp)))
 }
 
+fn body_armor(w: &Weenie) -> [Option<i32>; PLACES] {
+    let mut out = [None; PLACES];
+    for part in &w.weenie_properties_body_part {
+        if let Some(place) = out.get_mut(usize::from(part.key)) {
+            *place = Some(part.base_armor);
+        }
+    }
+    out
+}
+
 fn emote_action(w: &Weenie, a: EmoteAction) -> Option<&WeeniePropertiesEmoteAction> {
     let set = w
         .weenie_properties_emote
@@ -415,6 +454,7 @@ fn holds(w: &Weenie, v: Value) -> bool {
         Value::DataId(p, want) => did_row(w, p) == want,
         Value::EmoteScript(a, want) => emote_action(w, a).is_some_and(|r| r.p_script == want),
         Value::Skill(s, want) => skill_row(w, s) == want,
+        Value::BodyArmor(want) => body_armor(w) == want,
     }
 }
 
@@ -490,6 +530,14 @@ fn set(w: &mut Weenie, v: Value) {
             }
             rows.sort_by_key(|r| r.r#type);
         }
+        // Only the base armor of the parts there are changes; a place with no part stays so.
+        Value::BodyArmor(armor) => {
+            for part in &mut w.weenie_properties_body_part {
+                if let Some(Some(base)) = armor.get(usize::from(part.key)) {
+                    part.base_armor = *base;
+                }
+            }
+        }
     }
 }
 
@@ -502,6 +550,7 @@ pub fn weenie_corrections() -> &'static [WeenieCorrection] {
         let mut all: Vec<WeenieCorrection> = WEENIE_CORRECTIONS
             .iter()
             .chain(deception::corrections())
+            .chain(body_armor::corrections())
             .copied()
             .collect();
         all.sort_by_key(|c| c.weenie_class_id);
@@ -807,6 +856,7 @@ pub fn current(w: &Weenie, v: Value) -> Option<Value> {
         Value::DataId(p, _) => Value::DataId(p, did_row(w, p)),
         Value::EmoteScript(a, _) => Value::EmoteScript(a, emote_action(w, a)?.p_script),
         Value::Skill(s, _) => Value::Skill(s, skill_row(w, s)),
+        Value::BodyArmor(_) => Value::BodyArmor(body_armor(w)),
     })
 }
 
@@ -827,6 +877,10 @@ fn canonical_value(v: Value) -> String {
             format!("emote_script {} {} {}", a.emote_set, a.order, opt_text(x))
         }
         Value::Skill(skill, x) => format!("skill {} {}", skill.0, opt_text(x)),
+        Value::BodyArmor(places) => {
+            let places: Vec<String> = places.iter().map(|x| opt_text(*x)).collect();
+            format!("body_armor {}", places.join(","))
+        }
     }
 }
 
@@ -949,6 +1003,7 @@ mod tests {
     use empyrean_entity::enums::WeenieType;
 
     use super::*;
+    use crate::models::world::WeeniePropertiesBodyPart;
 
     #[test]
     fn a_correction_applies_only_over_the_stored_value() {
@@ -1831,6 +1886,9 @@ mod tests {
                 (Value::DataId(a, _), Value::DataId(b, _)) => a == b,
                 (Value::EmoteScript(a, _), Value::EmoteScript(b, _)) => a == b,
                 (Value::Skill(a, _), Value::Skill(b, _)) => a == b,
+                (Value::BodyArmor(a), Value::BodyArmor(b)) => {
+                    a.iter().zip(&b).all(|(x, y)| x.is_some() == y.is_some())
+                }
                 _ => false,
             };
             assert!(same_property && c.stored != c.corrected, "{c:?}");
@@ -1919,28 +1977,184 @@ mod tests {
     }
 
     /// Divergence: V559
-    /// The Deception table reads whole: 223 classes (155 stored another value, 53 had none, and
-    /// 15 summoned pets), each once, each differing from what is stored.
+    /// The Deception tables read whole: 208 creature classes (155 stored another value, 53 had
+    /// none) and 183 summoned pet classes, each class once and differing from what is stored.
     #[test]
-    fn the_deception_table_reads_every_class_once() {
-        let rows = deception::parse(deception::TABLE).expect("the table reads");
-        assert_eq!(rows.len(), 223);
+    fn the_deception_tables_read_every_class_once() {
+        let rows = deception::parse(deception::TABLE).expect("the creature table reads");
+        assert_eq!(rows.len(), 208);
         assert_eq!(rows.iter().filter(|r| r.stored.is_none()).count(), 53);
-        assert!(rows
+        assert!(rows.iter().all(|r| r.readings > 0));
+        let pets = deception::parse_pets(deception::PET_TABLE).expect("the pet table reads");
+        assert_eq!(pets.len(), 183);
+        let mut ids: Vec<u32> = rows
             .iter()
-            .all(|r| r.stored != Some(r.retail) && r.readings > 0));
-        let mut ids: Vec<u32> = rows.iter().map(|r| r.weenie_class_id).collect();
+            .chain(&pets)
+            .map(|r| r.weenie_class_id)
+            .collect();
         ids.sort_unstable();
         ids.dedup();
-        assert_eq!(ids.len(), rows.len(), "one row per class");
-        assert_eq!(deception::corrections().len(), rows.len());
+        assert_eq!(ids.len(), rows.len() + pets.len(), "one row per class");
+        assert!(rows.iter().chain(&pets).all(|r| r.stored != Some(r.retail)));
+        assert_eq!(deception::corrections().len(), ids.len());
+        let armor = body_armor::parse(body_armor::TABLE).expect("the armor table reads");
         assert_eq!(
             weenie_corrections().len(),
-            WEENIE_CORRECTIONS.len() + rows.len()
+            WEENIE_CORRECTIONS.len() + ids.len() + armor.len()
         );
         assert!(
             deception::parse("wcid\tstored\tretail\treadings\tname\n8\t40\tx\t2\tA\n").is_err()
         );
         assert!(deception::parse("8\t40\t50\t2\tA\n").is_err(), "no header");
+    }
+
+    /// Divergence: V559
+    /// Every summoned pet of a measured tier takes that tier's one measured Deception (400 to 110,
+    /// 430 to 120, 475 to 135, 530 to 155, 570 to 185); the tiers no pet was measured at, levels 50
+    /// and 80 among them, are not in the table.
+    #[test]
+    fn every_pet_of_a_measured_tier_takes_its_tiers_deception() {
+        let pets = deception::parse_pets(deception::PET_TABLE).expect("the pet table reads");
+        let mut tiers = std::collections::BTreeMap::new();
+        for p in &pets {
+            let stored = p.stored.expect("a pet stores its tier's number");
+            assert_eq!(
+                *tiers.entry(stored).or_insert(p.retail),
+                p.retail,
+                "one value per tier: {p:?}"
+            );
+        }
+        assert_eq!(
+            tiers.into_iter().collect::<Vec<_>>(),
+            [(400, 110), (430, 120), (475, 135), (530, 155), (570, 185)]
+        );
+        assert_eq!(pets.iter().filter(|p| p.readings > 0).count(), 15);
+        assert!(pets
+            .iter()
+            .all(|p| p.level != Some(50) && p.level != Some(80)));
+
+        // A level-125 golem no assessment measured reads its tier's value.
+        let mut golem = deceiving(48881, Some(430));
+        assert_eq!(apply(&mut golem), 1);
+        assert_eq!(deception_row(&golem).map(|r| r.init_level), Some(120));
+    }
+
+    /// A creature as ACE's world data stores it, with body parts keyed `key` at `armor`.
+    fn bodied(weenie_class_id: u32, parts: &[(u16, i32)]) -> Weenie {
+        let mut w = Weenie::new(weenie_class_id, "creature", WeenieType::Creature);
+        for &(key, base_armor) in parts {
+            w.weenie_properties_body_part
+                .push(WeeniePropertiesBodyPart {
+                    object_id: weenie_class_id,
+                    key,
+                    base_armor,
+                    armor_vs_slash: base_armor,
+                    ..WeeniePropertiesBodyPart::default()
+                });
+        }
+        w
+    }
+
+    fn base_armor(w: &Weenie) -> Vec<(u16, i32, i32)> {
+        w.weenie_properties_body_part
+            .iter()
+            .map(|p| (p.key, p.base_armor, p.armor_vs_slash))
+            .collect()
+    }
+
+    /// Divergence: V559
+    /// A creature reads with the body armor retail showed: a humanoid at all nine places, a body
+    /// with other parts at its head alone. Its parts' other values, and parts that are none of the
+    /// nine places, keep what is stored.
+    #[test]
+    fn a_creature_reads_with_retails_body_armor() {
+        // Banderling Scout: a humanoid body.
+        let stored = [
+            (0, 30),
+            (1, 40),
+            (2, 40),
+            (3, 30),
+            (4, 30),
+            (5, 30),
+            (6, 30),
+            (7, 30),
+            (8, 30),
+        ];
+        let mut scout = bodied(6, &stored);
+        assert_eq!(apply(&mut scout), 1);
+        let read: Vec<i32> = base_armor(&scout).iter().map(|p| p.1).collect();
+        assert_eq!(read, [20, 22, 30, 22, 22, 30, 22, 22, 22]);
+        assert!(
+            base_armor(&scout)
+                .iter()
+                .zip(stored)
+                .all(|(p, s)| p.2 == s.1),
+            "the armor against each damage type is kept"
+        );
+
+        // Olthoi Worker: head 130 and legs; retail showed the head at 90.
+        let mut worker = bodied(3, &[(0, 130), (16, 130), (18, 130), (19, 130), (20, 130)]);
+        assert_eq!(apply(&mut worker), 1);
+        assert_eq!(
+            base_armor(&worker)
+                .iter()
+                .map(|p| (p.0, p.1))
+                .collect::<Vec<_>>(),
+            [(0, 90), (16, 130), (18, 130), (19, 130), (20, 130)]
+        );
+    }
+
+    /// Divergence: V559
+    /// A body armor entry is left alone, and reported stale, once any of the nine places stores
+    /// something else.
+    #[test]
+    fn a_body_armor_entry_applies_only_over_the_stored_body() {
+        let edited = [
+            (0, 30),
+            (1, 40),
+            (2, 40),
+            (3, 30),
+            (4, 30),
+            (5, 30),
+            (6, 30),
+            (7, 30),
+            (8, 31),
+        ];
+        let mut scout = bodied(6, &edited);
+        assert_eq!(apply(&mut scout), 0);
+        assert_eq!(base_armor(&scout)[8].1, 31);
+        let stale = stale_corrections(&bodied(6, &edited));
+        assert_eq!(stale.len(), 1);
+        assert_eq!(stale[0].divergence, body_armor::DIVERGENCE);
+        // A body with a part the entry does not name is another body.
+        assert_eq!(apply(&mut bodied(3, &[(0, 130), (1, 130)])), 0);
+    }
+
+    /// Divergence: V559
+    /// The body armor table reads whole: 1,037 classes, each once; each corrected body is the
+    /// readout less what is worn, at exactly the places the stored body has parts, and differs from
+    /// it.
+    #[test]
+    fn the_body_armor_table_reads_every_class_once() {
+        let rows = body_armor::parse(body_armor::TABLE).expect("the table reads");
+        assert_eq!(rows.len(), 1037);
+        let mut ids: Vec<u32> = rows.iter().map(|r| r.weenie_class_id).collect();
+        ids.dedup();
+        assert_eq!(ids.len(), rows.len(), "one row per class, in order");
+        for r in &rows {
+            assert_ne!(r.stored, r.corrected, "{r:?}");
+            for k in 0..PLACES {
+                match (r.stored[k], r.corrected[k]) {
+                    (Some(_), Some(c)) => assert_eq!(c, r.readout[k] - r.worn[k], "{r:?}"),
+                    (None, None) => assert_eq!(r.readout[k], r.worn[k], "{r:?}"),
+                    _ => panic!("the corrected places are the stored ones: {r:?}"),
+                }
+            }
+        }
+        assert!(body_armor::parse(
+            "wcid\tstored\tcorrected\treadout\tworn\treadings\tname\n\
+             3\t130\t90\t90\t0\t1\tA\n"
+        )
+        .is_err());
     }
 }

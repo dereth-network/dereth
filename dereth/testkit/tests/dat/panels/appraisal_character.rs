@@ -182,7 +182,7 @@ fn set_viewer_society(
 /// lines beside them are its gender, its heritage and its character title, and the pane's list of
 /// rows it cannot draw is empty because they were drawn.
 pub(super) fn the_character_pane_rows_are_the_shards_own_numbers() {
-    let (mut c, _peer, profile) = assessing_the_recorded(ARMOUR_SESSION, APPRAISED_PLAYER);
+    let (mut c, mut peer, profile) = assessing_the_recorded(ARMOUR_SESSION, APPRAISED_PLAYER);
     let carries = profile.creature_profile.is_some()
         && profile.base_armor == Some([170, 150, 150, 150, 150, 170, 150, 150, 170]);
 
@@ -210,9 +210,25 @@ pub(super) fn the_character_pane_rows_are_the_shards_own_numbers() {
         // holding the last one.
         && p.allegiance.is_none();
 
+    // The numbers are signed: a weak body's negative armor reads as it is.
+    let mut weak = profile.clone();
+    weak.base_armor = Some([
+        (-300i32).cast_unsigned(),
+        150,
+        150,
+        150,
+        150,
+        170,
+        150,
+        150,
+        170,
+    ]);
+    let got = row_pairs(&reassess(&mut c, &mut peer, APPRAISED_PLAYER, &weak).rows);
+    let signed = got.contains(&("Head/Chest/Groin".to_owned(), "AL: -300/150/150".to_owned()));
+
     c.assert_behaviour(
         "examine.character.the-armour-rows-are-the-shards-own-numbers-and-the-three-lines-beside-them",
-        move |_| carries && rows_read && all_drawn && beside,
+        move |_| carries && rows_read && all_drawn && beside && signed,
     );
     c.shutdown();
 }

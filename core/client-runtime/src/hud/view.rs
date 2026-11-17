@@ -2616,9 +2616,8 @@ impl GameView for HudView<'_> {
             patron_title: am::inq::string(p, 0x23),
             // The same key number as `patron_title`, in the **int** table.
             allegiance_followers: am::inq::int(p, 0x23),
-            base_armor: p
-                .base_armor
-                .map(|a| a.map(|v| i32::try_from(v).unwrap_or(i32::MAX))),
+            // The levels are signed: a creature with a weak body sends a negative one.
+            base_armor: p.base_armor.map(|a| a.map(u32::cast_signed)),
             ratings: [
                 0x133u32, 0x134, 0x139, 0x13A, 0x13B, 0x13C, 0x143, 0x15E, 0x15F, 0x17D, 0x17E,
                 0x182, 0x183,

@@ -176,7 +176,8 @@ const HIDDEN_ON_FAILURE: &[PropertyInt] = &[
 
 /// Not ACE: adds a creature's body armor to its armor levels: each of the nine places takes the
 /// base armor of the body part of the same place (head, chest, abdomen, upper arm, lower arm,
-/// hand, upper leg, lower leg, foot), where the creature has one.
+/// hand, upper leg, lower leg, foot), where the creature has one. The levels are signed: a weak
+/// body's negative armor is sent as it is, as its two's complement.
 fn add_body_armor(creature: &WorldObject, levels: &mut ArmorLevel) {
     use empyrean_entity::enums::CombatBodyPart as Part;
     let Some(parts) = creature.biota.properties_body_part.as_ref() else {
@@ -194,7 +195,10 @@ fn add_body_armor(creature: &WorldObject, levels: &mut ArmorLevel) {
         (Part::Foot, &mut levels.foot),
     ] {
         if let Some(p) = parts.get(&part) {
-            *level = u32::try_from(i64::from(*level) + i64::from(p.base_armor)).unwrap_or(0);
+            *level = level
+                .cast_signed()
+                .wrapping_add(p.base_armor)
+                .cast_unsigned();
         }
     }
 }

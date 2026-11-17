@@ -277,8 +277,9 @@ mod recorded_content_real {
         }
 
         /// Divergence: V559
-        /// Every creature in the Deception table reads with the value retail gave it, and one
-        /// made in the world rolls against it; the pack keeps what it stores.
+        /// Every creature and summoned pet in the Deception tables reads with the value retail
+        /// gave it, and one made in the world rolls against it; the pack keeps what it stores. A
+        /// pet of a tier no pet was measured at keeps its own.
         #[test]
         fn creatures_read_with_retails_deception() {
             use empyrean_content::corrections::deception;
@@ -286,7 +287,8 @@ mod recorded_content_real {
             use empyrean_world::world_objects::world_object_magic::creature_get_creature_skill_current;
 
             let db = pack();
-            let rows = deception::parse(deception::TABLE).expect("the table reads");
+            let mut rows = deception::parse(deception::TABLE).expect("the table reads");
+            rows.extend(deception::parse_pets(deception::PET_TABLE).expect("the pet table reads"));
             for row in &rows {
                 let read = db
                     .get_cached_weenie(row.weenie_class_id)
@@ -309,9 +311,10 @@ mod recorded_content_real {
                 assert_eq!(kept, row.stored, "the pack keeps its value: {row:?}");
             }
 
-            // Elite Guardian (none stored) and Iron Golem (80 stored), made in the world.
+            // Elite Guardian (none stored), Iron Golem (80 stored), a level-125 golem no assessment
+            // measured (430 stored) and a level-50 one (310, kept), made in the world.
             let mut h = world();
-            for (wcid, retail) in [(34615, 250), (197, 140)] {
+            for (wcid, retail) in [(34615, 250), (197, 140), (48881, 120), (49059, 310)] {
                 let g = ObjectGuid::new(0x8000_0000 | wcid);
                 let o = CtorEnv::with_world(&h.w, |env| {
                     factory::create_new_world_object_by_wcid(env, wcid, g)
@@ -323,6 +326,74 @@ mod recorded_content_real {
                     retail,
                     "{wcid}"
                 );
+            }
+        }
+
+        /// Divergence: V559
+        /// Every creature in the body armor table reads with the body retail showed at the nine
+        /// places, and one made in the world shows retail's armor levels when assessed; the pack
+        /// keeps what it stores.
+        #[test]
+        fn creatures_read_with_retails_body_armor() {
+            use empyrean_content::corrections::body_armor;
+            use empyrean_entity::enums::CombatBodyPart;
+            use empyrean_world::network::structure::appraise_info::appraise_info_new;
+
+            let db = pack();
+            let rows = body_armor::parse(body_armor::TABLE).expect("the table reads");
+            for row in &rows {
+                let read = db
+                    .get_cached_weenie(row.weenie_class_id)
+                    .unwrap_or_else(|| panic!("{row:?} is in the pack"));
+                let parts = read.properties_body_part.as_ref().expect("a body");
+                for (k, want) in row.corrected.iter().enumerate() {
+                    let place = CombatBodyPart(i32::try_from(k).unwrap());
+                    assert_eq!(parts.get(&place).map(|p| p.base_armor), *want, "{row:?}");
+                }
+                let stored = db
+                    .base()
+                    .get_stored_weenie(row.weenie_class_id)
+                    .expect("in the pack");
+                for (k, want) in row.stored.iter().enumerate() {
+                    let kept = stored
+                        .weenie_properties_body_part
+                        .iter()
+                        .find(|p| usize::from(p.key) == k)
+                        .map(|p| p.base_armor);
+                    assert_eq!(kept, *want, "the pack keeps its body: {row:?}");
+                }
+            }
+
+            // Olthoi Worker, Banderling Scout, Male Tusker and Crystal Lord wear nothing: assessed,
+            // they show retail's readout, the Crystal Lord's -300 at every place as it is.
+            let mut h = world();
+            for wcid in [3, 6, 11, 35124] {
+                let row = rows
+                    .iter()
+                    .find(|r| r.weenie_class_id == wcid)
+                    .expect("in the table");
+                let g = ObjectGuid::new(0x8000_0000 | wcid);
+                let o = CtorEnv::with_world(&h.w, |env| {
+                    factory::create_new_world_object_by_wcid(env, wcid, g)
+                })
+                .expect("the weenie");
+                h.w.objects.insert(o).expect("a fresh guid");
+                let levels = appraise_info_new(&mut h.w, g, ObjectGuid::new(0x5000_0001), true)
+                    .armor_levels
+                    .expect("armor levels");
+                let shown = [
+                    levels.head,
+                    levels.chest,
+                    levels.abdomen,
+                    levels.upper_arm,
+                    levels.lower_arm,
+                    levels.hand,
+                    levels.upper_leg,
+                    levels.lower_leg,
+                    levels.foot,
+                ]
+                .map(u32::cast_signed);
+                assert_eq!(shown, row.readout, "{wcid}");
             }
         }
 
