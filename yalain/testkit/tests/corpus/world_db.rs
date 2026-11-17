@@ -332,6 +332,41 @@ fn the_worlds_corpse_finds_give_mining_bands_lodestones_and_tesserae_from_level_
     assert_eq!(tesserae.items().collect::<Vec<_>>(), [0x4700_052F]);
 }
 
+/// A world's kingdom joins ask level 10 at every kingdom's shrines; the neutral one charges nothing
+/// to level 20, then 15,000, 75,000 and 500,000 gold from levels 21, 31 and 41; the other three
+/// refuse a player sworn to another kingdom and wait two weeks after it left one. A world older than
+/// these rows asks nothing.
+/// Behaviour: server.kingdoms.join-rows
+#[test]
+fn the_worlds_kingdom_joins_ask_level_10_and_going_neutral_costs_gold_by_level() {
+    use yalain_content::kingdoms::kingdom;
+    let joins = &compiled().tables.kingdoms.joins;
+    let Some(neutral) = joins.get(&kingdom::NEUTRAL) else {
+        return;
+    };
+    assert_eq!(neutral.least_level, 10);
+    assert!(!neutral.sworn_refused && neutral.wait == 0);
+    for (level, gold) in [
+        (10, 0),
+        (20, 0),
+        (21, 15_000),
+        (30, 15_000),
+        (31, 75_000),
+        (40, 75_000),
+    ] {
+        assert_eq!(neutral.cost(level), gold, "level {level}");
+    }
+    assert_eq!((neutral.cost(41), neutral.cost(150)), (500_000, 500_000));
+    for k in [kingdom::SHADOW, kingdom::ORDER, kingdom::DOMINION] {
+        let j = joins.get(&k).expect("each kingdom's row");
+        assert_eq!(
+            (j.least_level, j.sworn_refused, j.wait, j.cost(150)),
+            (10, true, 1_209_600, 0),
+            "{k:#x}"
+        );
+    }
+}
+
 /// A world's item use, book and first gift rows hold the test world's, entry for entry: the
 /// forager's food's and the training hall's potions' effects, behavior and wear, what the cards and
 /// the Shi show, and the guide every new character is given.

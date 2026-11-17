@@ -7913,6 +7913,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.kingdoms.join-rows",
+        says: "A world's kingdom joins ask level 10 at every kingdom's shrines; going neutral costs \
+               nothing to level 20, then 15,000, 75,000 and 500,000 gold; the other kingdoms refuse a \
+               player sworn to another and wait two weeks after it left one.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-KINGDOM-JOINS"),
+        station: "yalain-testkit::corpus::world_db::the_worlds_kingdom_joins_ask_level_10_and_going_neutral_costs_gold_by_level",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.kingdoms.kept",
         says: "A player's kingdom is kept: its description and its object carry it as it enters again \
                (its faction and its physics type's kingdom bit), and so does the object other \
