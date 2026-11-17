@@ -1579,7 +1579,7 @@ dependencies = [
 
 [[package]]
 name = "dereth-client"
-version = "0.4.18"
+version = "0.4.19"
 dependencies = [
  "dereth-animation",
  "dereth-assets",
@@ -1873,7 +1873,7 @@ dependencies = [
 
 [[package]]
 name = "dereth-headless"
-version = "0.4.18"
+version = "0.4.19"
 dependencies = [
  "ctrlc",
  "dereth-client-sdk",
@@ -2061,7 +2061,7 @@ dependencies = [
 
 [[package]]
 name = "dereth-plugin"
-version = "0.4.18"
+version = "0.4.19"
 dependencies = [
  "dereth-plugin-api",
  "dereth-plugin-lua",
@@ -2408,7 +2408,7 @@ dependencies = [
 
 [[package]]
 name = "dereth-web"
-version = "0.4.18"
+version = "0.4.19"
 dependencies = [
  "dereth-classic-dat",
  "dereth-classic-fonts",
@@ -2448,7 +2448,7 @@ dependencies = [
 
 [[package]]
 name = "dereth-web-front"
-version = "0.4.18"
+version = "0.4.19"
 dependencies = [
  "dereth-client-net",
  "dereth-client-runtime",
