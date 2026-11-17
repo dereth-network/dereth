@@ -7,6 +7,8 @@ Add a line under **Unreleased** when a change lands that a world builder would n
 see, not how it was done.
 
 ## Unreleased
+
+## 0.1.8 (2026-11-17)
 - Just moving code around
 
 ## 0.1.7 (2026-11-14)
