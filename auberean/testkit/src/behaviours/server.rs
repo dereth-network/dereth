@@ -18084,6 +18084,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.toggles.chants-spend-focus",
+        says: "A toggled skill whose own effects drain its user's focus over time, as each Hero Chant's \
+               does, takes that focus while it is on and turns off once none is left.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHANTS-SPEND-FOCUS"),
+        station: "yalain-testkit::cpu::play::auras::a_toggled_skill_draining_focus_turns_off_when_the_focus_is_gone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.toggles.off-in-portal-space",
         says: "Going into portal space turns a toggled skill that turns on no aura off as it \
                does an aura: its toggle off, then its records taken off.",

@@ -2716,3 +2716,38 @@ fn the_level_table_holds_each_levels_armor_and_shield_caps() {
     let shields: Vec<i32> = [20, 25, 30, 35, 40].iter().map(|l| cap(*l).1).collect();
     assert_eq!(shields, [27, 39, 61, 86, 120]);
 }
+
+/// Each Hero Chant, a toggled skill, puts on its user beside its aura a change over time that
+/// takes focus alone: 1 a second at spellcraft 1, 3 at 10.
+/// Behaviour: server.toggles.chants-spend-focus
+#[test]
+fn each_hero_chant_drains_its_users_focus_over_time() {
+    use yalain_world::effect_defs::{vital, Kind};
+    let p = Portal::open();
+    let t = p.skills();
+    for chant in [1604, 1648, 1663, 1670, 1674, 1681, 1692, 1747, 1773, 2169] {
+        let d = &t.skills[&chant];
+        assert_ne!(d.flags & yalain_world::skills::flag::TOGGLE, 0, "{chant}");
+        let u = d.usage.as_ref().expect("its use");
+        let fx = p.effects(&u.user_effects);
+        let drains: Vec<_> = u
+            .user_effects
+            .iter()
+            .filter_map(|e| match fx.get(*e).map(|d| &d.kind) {
+                Some(Kind::VitalOverTime { flags, per_second }) => {
+                    Some((*flags, per_second.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(drains.len(), 1, "{chant}");
+        let (flags, rate) = &drains[0];
+        assert_ne!(flags & vital::FOCUS_OVER_TIME, 0, "{chant}");
+        assert_eq!(flags & (vital::HEALTH | vital::VIGOR), 0, "{chant}");
+        assert_eq!(
+            (rate.at(1.0), rate.at(10.0)),
+            (Some(-1.0), Some(-3.0)),
+            "{chant}"
+        );
+    }
+}

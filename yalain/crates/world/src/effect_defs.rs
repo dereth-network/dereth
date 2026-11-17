@@ -78,6 +78,8 @@ pub mod vital {
     pub const FOCUS: u32 = 0x4;
     /// The change is a share of the vital's greatest value.
     pub const OF_MAX: u32 = 0x40;
+    /// A change over time's focus (its own bit, apart from an instant change's).
+    pub const FOCUS_OVER_TIME: u32 = 0x1000;
 }
 
 /// Which vitals a transfer changes (its flags).

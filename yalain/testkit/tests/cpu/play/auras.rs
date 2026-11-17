@@ -1097,3 +1097,65 @@ fn portal_to(to: Place) -> ContentObject {
         gate: None,
     }
 }
+
+/// A toggled skill whose own effects drain its user's focus over time (as each Hero Chant's does,
+/// 1 to 3 a second) takes that focus at each of the record's ticks while it is on; once a tick
+/// leaves no focus, the skill turns off as a use would turn it off: the toggle off, its records
+/// taken off, "You stop …".
+/// Behaviour: server.toggles.chants-spend-focus
+#[test]
+fn a_toggled_skill_draining_focus_turns_off_when_the_focus_is_gone() {
+    use yalain_world::effect_defs::{vital, Kind as EffectKind, Scale};
+    let mut h = Harness::new();
+    let (b, me) = armed(&mut h, "one", "Elara");
+    trains_lumbering_might(&mut h, me);
+    h.server.effect_table.effects.insert(
+        LUMBERING_MIGHT_HEALTH,
+        yalain_world::effect_defs::EffectDef {
+            kind: EffectKind::VitalOverTime {
+                flags: vital::FOCUS_OVER_TIME | 0x10,
+                per_second: Scale(vec![(0.0, -5.0)]),
+            },
+            ..yalain_testkit::plain_effect(LUMBERING_MIGHT_HEALTH)
+        },
+    );
+    quals::set_int(&mut player(&mut h, me).qualities, quality::FOCUS, 60);
+    let from = use_skill(&mut h, b, 1, LUMBERING_MIGHT, 0);
+    h.run(80);
+    assert_eq!(lumbering_records(&mut h, me).len(), 2, "on");
+    let off = |h: &Harness| {
+        calls_of(h, b, from)
+            .iter()
+            .any(|(f, v)| *f == effect_fn::TOGGLE && v.first() == Some(&Value::Int(0)))
+    };
+    assert!(h.run_until(1200, |h| off(h)), "it turns off");
+    let focus: Vec<i32> = h
+        .world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::UpdateInt(q) if q.quality == quality::FOCUS => Some(q.value),
+            _ => None,
+        })
+        .collect();
+    assert!(focus.len() >= 2, "{focus:?}");
+    assert!(focus.windows(2).all(|w| w[1] < w[0]), "{focus:?}");
+    assert!(focus[0] < 60 && focus[0] > 0, "{focus:?}");
+    assert_eq!(focus.last(), Some(&0));
+    let got = calls_of(&h, b, from);
+    let at = got
+        .iter()
+        .position(|(f, v)| *f == effect_fn::TOGGLE && v.first() == Some(&Value::Int(0)))
+        .expect("the toggle off");
+    assert_eq!(got[at].1, [Value::Int(0), Value::Int(LUMBERING_MIGHT)]);
+    let tail: Vec<u32> = got[at..].iter().map(|(f, _)| *f).take(4).collect();
+    assert_eq!(
+        tail,
+        [
+            effect_fn::TOGGLE,
+            effect_fn::REMOVE,
+            effect_fn::REMOVE,
+            SHOW_TEXT
+        ]
+    );
+    assert!(lumbering_records(&mut h, me).is_empty());
+}

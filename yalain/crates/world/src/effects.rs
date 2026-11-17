@@ -49,7 +49,9 @@
 //!
 //! **A toggled skill that turns on no aura** ([`toggled_on`]) holds a record of each of its effects
 //! while it is on, told toggled ([`TOGGLED`]); turning it off, by its use or by portal space as an
-//! aura's, takes them off.
+//! aura's, takes them off. One whose record takes its user's focus over time (each Hero Chant's)
+//! turns off the same way once a tick leaves no focus (Turbine, May 2005: "If the player runs out of
+//! Focus, the skill turns off").
 //!
 //! **A force** ([`crate::effect_defs::Force`]: the heroes' Taunt, Armor and Reflection Force) is
 //! such a record held at a price, as the install's descriptions and the guides give it: each attack
@@ -1375,6 +1377,40 @@ fn force_off<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, re
     stop_fx(s, net, world, &stop);
 }
 
+/// A toggled skill whose record this is turns off, all its records with it, as a use would turn it
+/// off, without the use: the toggle off, its records taken off (an aura's with its pulses'), "You
+/// stop …" with the skill's name, its appearances stopped. The skill is the one the player holds
+/// whose own effects name the record.
+fn toggled_skill_off<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    record: EffectState,
+) {
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
+    let held = crate::skills::held(&starting, &p.play.skills);
+    let skill = held.iter().find_map(|h| {
+        let d = s.skill_table.skills.get(&h.skill)?;
+        let u = d.usage.as_ref()?;
+        (d.flags & crate::skills::flag::TOGGLE != 0
+            && d.state == record.skill
+            && u.user_effects.contains(&record.state))
+        .then(|| (h.skill, d.name, d.state, u.user_effects.clone()))
+    });
+    let Some((id, name, state, effects)) = skill else {
+        force_off(s, net, world, record);
+        return;
+    };
+    progress::private(net, world, &toggle_call(false, id));
+    let records = toggled_held(s, world, state, &effects);
+    let stop = toggled_records_off(s, net, world, &records);
+    progress::private(net, world, &toggled_off_text(name));
+    stop_fx(s, net, world, &stop);
+}
+
 /// "You stop …", a toggled skill's name in it.
 #[must_use]
 pub fn toggled_off_text(name: (u32, u32)) -> ServerMessage {
@@ -2542,10 +2578,21 @@ pub fn tick<S: Store>(
             for (bit, cur, max) in [
                 (vital::HEALTH, quality::HEALTH, quality::HEALTH_MAX),
                 (vital::VIGOR, quality::VIGOR, quality::VIGOR_MAX),
+                (vital::FOCUS_OVER_TIME, quality::FOCUS, quality::FOCUS_MAX),
             ] {
                 if flags & bit != 0 {
                     change_vital(s, net, world, (cur, max), amount, (e.caster, e.pk), clock);
                 }
+            }
+        }
+        if flags & vital::FOCUS_OVER_TIME != 0 && rate < 0.0 && e.flags == TOGGLED {
+            let spent = s
+                .players
+                .get(&world)
+                .is_some_and(|p| quals::int(&p.qualities, quality::FOCUS).unwrap_or(0) <= 0);
+            if spent {
+                toggled_skill_off(s, net, world, e);
+                return;
             }
         }
     } else if flags & vital::HEALTH != 0 {
