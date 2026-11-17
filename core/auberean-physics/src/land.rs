@@ -256,7 +256,7 @@ impl Block {
                 for t in &self.geometry.triangles[2 * n..2 * n + 2] {
                     let v = t.v.map(|k| self.geometry.vertices[k as usize]);
                     if over_polygon(&v.map(|c| [c.x, c.y, c.z]), p, true) {
-                        return Some((Polygon::new(v.to_vec()), t.plane));
+                        return Some((crate::rules::polygon(v.to_vec()), t.plane));
                     }
                 }
             }

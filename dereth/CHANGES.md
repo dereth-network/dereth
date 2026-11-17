@@ -22,6 +22,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Horizon: admin commands no longer act on a creature after it's deselected.
 - Windows: the taskbar now names the client Dereth.
 - Web: WebGL now asks for the faster graphics card, and the status line names it.
+- Fixed sleds starting off facing the wrong way on a slope.
 
 ## 0.4.19 (2026-11-17)
 - Remaster: distant forests no longer shimmer with ray-traced shading.

@@ -18,7 +18,7 @@ pub mod sphere;
 pub use bbox::{BBox, BBoxExt};
 pub use bsp::{BspNode, BspNodeKind, BspTree};
 pub use plane::{Plane, PlaneExt, Sidedness};
-pub use polygon::Polygon;
+pub use polygon::{PlaneArithmetic, Polygon};
 pub use sphere::{CylSphere, CylSphereExt, Ray, Sphere, SphereExt};
 
 /// The result of the cell-BSP volume tests: the shared outside / straddling / inside answer.

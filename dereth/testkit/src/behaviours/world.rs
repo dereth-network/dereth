@@ -1113,6 +1113,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "physics.polygons.a-terrain-triangles-plane-is-the-clients-to-the-last-bit",
+        says: "The ground's surface is exactly the original client's: the tilt and the height of \
+               a slope, even a steep one, match it to the last digit.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-PHYSICS-TRACES-WALK-UP-48-DEGREE-SLOPE"),
+        station: "dereth-physics::cpu::geometry::planes::a_terrain_triangles_plane_is_the_clients_to_the_last_bit",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "physics.sledding.a-body-set-sledding-where-it-stands-faces-north",
+        says: "A body set sledding while it stands on a slope faces north as it starts to creep \
+               down, whichever way it faced before, and faces the way it slides once something \
+               sets it moving.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-PHYSICS-TRACES-SLED-FROM-STANDING-9-DEGREE-SLOPE"),
+        station: "dereth-physics::cpu::motion::sledding::a_body_set_sledding_where_it_stands_on_a_slope_faces_north_until_pushed",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "physics.step-down.a-body-stepping-onto-a-sphere-rides-its-tangent-plane",
         says: "A body walking over a dome-shaped object rides its surface frame by frame, standing \
                on the dome's own slope where it touches, and stops where the dome becomes too \

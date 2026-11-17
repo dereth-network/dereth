@@ -25,7 +25,7 @@ use auberean_physics::land::Land;
 use auberean_physics::object::Shape;
 use auberean_physics::pack::{Pack, Writer};
 use auberean_physics::world::{self as table, split_ray, GameObjects, WorldObject};
-use dereth_physics::geom::{BspNode, BspNodeKind, BspTree, Polygon, Sphere};
+use dereth_physics::geom::{BspNode, BspNodeKind, BspTree, Sphere};
 use dereth_physics::source::EnvCellGeometry;
 use dereth_primitives::shape::{CylSphere, Plane};
 use dereth_primitives::{CellId, Frame, Position, Quat, Vec3};
@@ -682,7 +682,7 @@ fn watches_are_counted_and_the_first_and_last_tell() {
 /// A cell with one wall: the plane `y = 5` from -5 to 5 across and up, facing `-y`, solid behind.
 fn walled_cell(land: &Land) -> CellId {
     let id = CellId(0x4040_0100);
-    let wall = Polygon::new(vec![
+    let wall = auberean_physics::rules::polygon(vec![
         Vec3::new(-5.0, 5.0, -5.0),
         Vec3::new(5.0, 5.0, -5.0),
         Vec3::new(5.0, 5.0, 5.0),
@@ -1101,7 +1101,7 @@ mod rooms {
     use auberean_physics::geom::Ray;
     use auberean_physics::land::Land;
     use auberean_physics::world::{self as table, WorldObject};
-    use dereth_physics::geom::{BspNode, BspNodeKind, BspTree, Polygon, Sphere};
+    use dereth_physics::geom::{BspNode, BspNodeKind, BspTree, Sphere};
     use dereth_physics::source::{CellPortal, EnvCellGeometry};
     use dereth_primitives::shape::Plane;
     use dereth_primitives::{CellId, Frame, Position, Quat, Vec3};
@@ -1180,7 +1180,7 @@ mod rooms {
         };
         CellPortal {
             other_cell_id: other,
-            portal: Polygon::new(corners),
+            portal: auberean_physics::rules::polygon(corners),
             portal_side: false,
             other_portal_id: back,
             exact_match: false,

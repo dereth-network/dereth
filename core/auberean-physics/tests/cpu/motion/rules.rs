@@ -11,7 +11,7 @@ use auberean_physics::rules::{rules, BLOCK_LENGTH, WALKABLE_Z};
 use auberean_physics::Land;
 use dereth_physics::arena::Arena;
 use dereth_physics::cell::{CellArray, CellResolver};
-use dereth_physics::geom::{Polygon, Sphere};
+use dereth_physics::geom::Sphere;
 use dereth_physics::source::{CellPortal, EnvCellGeometry, LandSource};
 use dereth_physics::transition::insert::check_other_cells;
 use dereth_physics::transition::{Transition, TransitionCtx, TransitionState, Turning};
@@ -61,7 +61,7 @@ fn placements_retry_the_other_cells_and_moves_turn_plainly() {
 fn the_polygon_tests_take_only_an_exact_parallel_as_parallel() {
     let band = rules().parallel_band;
     assert_eq!(band.to_bits(), 0.0f32.to_bits());
-    let floor = Polygon::new(vec![
+    let floor = auberean_physics::rules::polygon(vec![
         Vec3::new(-4.0, -4.0, 0.0),
         Vec3::new(4.0, -4.0, 0.0),
         Vec3::new(4.0, 4.0, 0.0),
@@ -179,7 +179,7 @@ fn a_body_in_a_doorway_out_reaches_the_20_m_land_cells_under_it() {
     land.insert(Block::flat(0x40, 0x40, 0.0));
     let room = CellId(0x4040_0100);
     // The doorway is the room's own plane y = 0, a 2 m square about the room's origin.
-    let doorway = Polygon::new(vec![
+    let doorway = auberean_physics::rules::polygon(vec![
         Vec3::new(-1.0, 0.0, -1.0),
         Vec3::new(1.0, 0.0, -1.0),
         Vec3::new(1.0, 0.0, 1.0),

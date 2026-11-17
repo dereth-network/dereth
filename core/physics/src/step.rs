@@ -900,14 +900,10 @@ impl PhysicsWorld {
                             target.frame = f;
                         }
                     } else if o.state.is_sledding() && !o.velocity_vector.is_zero() {
+                        // The heading of the velocity's horizontal part: a body that only
+                        // falls (one standing on a slope) has none, and faces north.
                         let mut f = target.frame;
-                        let v = o.velocity_vector;
-                        let heading = {
-                            let mut probe = Frame::default();
-                            math::set_vector_heading(&mut probe, v);
-                            math::get_heading(&probe)
-                        };
-                        math::set_heading(&mut f, heading);
+                        math::set_heading(&mut f, math::flat_heading(o.velocity_vector));
                         target.frame = f;
                     }
                 }

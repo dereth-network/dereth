@@ -32,6 +32,18 @@ pub fn within_block(p: Vec3, margin: f32) -> bool {
 // Frame
 // ---------------------------------------------------------------------------------------------
 
+/// The compass heading of a vector's horizontal part, in **degrees** (0 = +Y, north, increasing
+/// clockwise). The vertical part is dropped first, and a horizontal part too small to normalise
+/// answers 0.
+#[must_use]
+pub fn flat_heading(v: Vec3) -> f32 {
+    let mut flat = Vec3::new(v.x, v.y, 0.0);
+    if flat.normalize_check_small() {
+        return 0.0;
+    }
+    vector_get_heading(flat)
+}
+
 /// a finite origin and **at least one** NaN
 /// quaternion component.
 #[must_use]

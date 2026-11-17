@@ -43,7 +43,7 @@ fn polygon(p: &MeshPolygon, at: &[Vec3]) -> Option<Polygon> {
         .map(|&k| at.get(usize::from(k)).copied())
         .collect();
     let vertices = vertices?;
-    (vertices.len() >= 3).then(|| Polygon::new(vertices))
+    (vertices.len() >= 3).then(|| crate::rules::polygon(vertices))
 }
 
 /// A mesh's physics polygons in the shared core's form, or `None` when its vertices store no
@@ -55,7 +55,7 @@ pub fn physics_polygons(mesh: &Mesh) -> Option<Vec<Polygon>> {
     Some(
         mesh.physics_polygons
             .iter()
-            .map(|p| polygon(p, &at).unwrap_or_else(|| Polygon::new(vec![Vec3::ZERO; 3])))
+            .map(|p| polygon(p, &at).unwrap_or_else(|| crate::rules::polygon(vec![Vec3::ZERO; 3])))
             .collect(),
     )
 }

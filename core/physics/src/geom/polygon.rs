@@ -23,6 +23,17 @@ pub enum PolySide {
     Positive,
 }
 
+/// How a polygon's plane is worked out. The two games' clients differ in the plane's last bit, so
+/// each game builds its polygons with its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PlaneArithmetic {
+    /// The first game's: in double precision, kept as a float only where its client keeps one.
+    #[default]
+    Double,
+    /// Single precision at every step.
+    Single,
+}
+
 /// A convex polygon. The client shares `CVertex` objects between the renderer and physics; here
 /// the positions are copied, because nothing in physics mutates them after construction.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -35,15 +46,21 @@ pub struct Polygon {
 }
 
 impl Polygon {
-    /// Build a polygon and run [`Self::make_plane`].
+    /// Build a polygon and run [`Self::make_plane`]: the first game's plane.
     #[must_use]
     pub fn new(vertices: Vec<Vec3>) -> Self {
+        Self::with_plane(vertices, PlaneArithmetic::Double)
+    }
+
+    /// Build a polygon with its plane worked out in `arithmetic`.
+    #[must_use]
+    pub fn with_plane(vertices: Vec<Vec3>, arithmetic: PlaneArithmetic) -> Self {
         let mut p = Self {
             vertices,
             plane: Plane::default(),
             pos_surface: 0,
         };
-        p.make_plane();
+        p.make_plane_in(arithmetic);
         p
     }
 
@@ -57,7 +74,27 @@ impl Polygon {
     ///
     /// The normal is the sum of `cross(v[k+1] - v[0], v[k+2] - v[0])` over `k = 0 ..= n - 3`,
     /// normalised; `d` is minus the **mean** of `dot(N, v[i])`, not `-dot(N, v[0])`.
+    ///
+    /// The client works this in double precision and keeps a float only at certain steps, and
+    /// the plane's last bit depends on which: rounding every step instead moves `d`, or a
+    /// component of the normal, by one unit in the last place on ordinary terrain triangles.
+    /// Kept as floats: the first edge's x and y, each cross product's x and y, the running z sum,
+    /// and the reciprocal length that scales y and z. The x and y sums, the reciprocal length
+    /// that scales x, and the whole sum behind `d` stay in double precision; `d` is rounded once.
     pub fn make_plane(&mut self) {
+        self.make_plane_in(PlaneArithmetic::Double);
+    }
+
+    /// Build the polygon's plane in `arithmetic`: [`Self::make_plane`]'s sums, worked as it says
+    /// or in single precision at every step.
+    pub fn make_plane_in(&mut self, arithmetic: PlaneArithmetic) {
+        match arithmetic {
+            PlaneArithmetic::Double => self.make_plane_double(),
+            PlaneArithmetic::Single => self.make_plane_single(),
+        }
+    }
+
+    fn make_plane_single(&mut self) {
         let n = self.vertices.len();
         let mut acc = Vec3::ZERO;
         if n >= 3 {
@@ -76,6 +113,53 @@ impl Polygon {
         }
         #[allow(clippy::cast_precision_loss)]
         let d = -(sum / n as f32);
+        self.plane = Plane { normal, d };
+    }
+
+    fn make_plane_double(&mut self) {
+        #[allow(clippy::cast_possible_truncation)]
+        fn kept(x: f64) -> f64 {
+            f64::from(x as f32)
+        }
+        let n = self.vertices.len();
+        let (mut sum_x, mut sum_y, mut sum_z) = (0.0_f64, 0.0_f64, 0.0_f64);
+        if n >= 3 {
+            let v0 = self.vertices[0];
+            let edge = |v: Vec3| {
+                (
+                    f64::from(v.x) - f64::from(v0.x),
+                    f64::from(v.y) - f64::from(v0.y),
+                    f64::from(v.z) - f64::from(v0.z),
+                )
+            };
+            for k in 0..n - 2 {
+                let (ax, ay, az) = edge(self.vertices[k + 1]);
+                let (ax, ay) = (kept(ax), kept(ay));
+                let (bx, by, bz) = edge(self.vertices[k + 2]);
+                sum_x += kept(ay * bz - az * by);
+                sum_y += kept(az * bx - bz * ax);
+                sum_z = kept((by * ax - ay * bx) + sum_z);
+            }
+        }
+        let inv = 1.0 / ((sum_z * sum_z + sum_y * sum_y) + sum_x * sum_x).sqrt();
+        let inv_kept = kept(inv);
+        #[allow(clippy::cast_possible_truncation)]
+        let normal = Vec3::new(
+            (inv * sum_x) as f32,
+            (inv_kept * sum_y) as f32,
+            (inv_kept * sum_z) as f32,
+        );
+        let (nx, ny, nz) = (
+            f64::from(normal.x),
+            f64::from(normal.y),
+            f64::from(normal.z),
+        );
+        let mut sum = 0.0_f64;
+        for v in &self.vertices {
+            sum += (nz * f64::from(v.z) + ny * f64::from(v.y)) + nx * f64::from(v.x);
+        }
+        #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+        let d = -(sum / n as f64) as f32;
         self.plane = Plane { normal, d };
     }
 

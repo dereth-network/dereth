@@ -33,7 +33,7 @@ use auberean_world::look::{Atoms, Group, Look, LookRecords, MaterialAtom, MeshAt
 use auberean_world::math::Mat4;
 use auberean_world::place::{LoadedSetup, PlaceRecords};
 use dereth_physics::arena::Arena;
-use dereth_physics::geom::{BspNode, BspNodeKind, BspTree, Polygon, Sphere};
+use dereth_physics::geom::{BspNode, BspNodeKind, BspTree, Sphere};
 use dereth_physics::transition::{Transition, TransitionCtx, TransitionState};
 use dereth_physics::PhysicsObj;
 use dereth_primitives::shape::{CylSphere, Plane};
@@ -733,7 +733,7 @@ fn floor_tree() -> Arc<BspTree> {
 fn ball_tree() -> Arc<BspTree> {
     Arc::new(BspTree {
         nodes: vec![leaf(true, vec![0], 1.0)],
-        polygons: vec![Polygon::new(vec![
+        polygons: vec![auberean_physics::rules::polygon(vec![
             Vec3::new(-1.0, -1.0, 0.0),
             Vec3::new(1.0, -1.0, 0.0),
             Vec3::new(0.0, 1.0, 0.0),

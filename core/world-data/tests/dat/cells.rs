@@ -67,7 +67,7 @@ fn interior_cells_build_to_the_recorded_geometry() {
     }
     assert_eq!(
         format!("{cells} cells, {} bytes, digest {:016X}", d.1, d.0),
-        "90390 cells, 2775859816 bytes, digest 99BFBFE670EF42C0"
+        "90390 cells, 2777366398 bytes, digest 74FDBFB18240E04C"
     );
 }
 

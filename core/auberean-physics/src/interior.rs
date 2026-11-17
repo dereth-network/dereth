@@ -114,7 +114,7 @@ pub fn cell_on_shape(
                         .iter()
                         .map(|&k| at.get(usize::from(k)).copied())
                         .collect();
-                    v.filter(|v| v.len() >= 3).map(Polygon::new)
+                    v.filter(|v| v.len() >= 3).map(crate::rules::polygon)
                 })?;
             // D2-04239, D2-04240, D2-04233
             let other = if p.flags & NO_OTHER_CELL != 0 {

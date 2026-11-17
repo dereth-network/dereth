@@ -4,7 +4,9 @@
 //! sub-step may be, how long its landblocks are, where placement starts scattering, and a few
 //! small behaviors. These are this world's.
 
+use dereth_physics::geom::{PlaneArithmetic, Polygon};
 use dereth_physics::transition::{Slide, TransitionRules, Turning};
+use dereth_primitives::Vec3;
 
 /// Where ground stops being walkable: the cosine of 45.5 degrees, taken once at startup and kept
 /// as a 32-bit float.
@@ -25,6 +27,15 @@ pub const PLACEMENT_RING_FRACTION: f32 = 0.9;
 /// it: only exactly, and an up vector is not tested.
 // D2-04171, D2-04172, D2-04179, D2-04180, D2-04181
 pub const PARALLEL_BAND: f32 = 0.0;
+
+/// How this world works out a polygon's plane: in single precision at every step.
+pub const PLANE_ARITHMETIC: PlaneArithmetic = PlaneArithmetic::Single;
+
+/// A polygon of this world, its plane worked out in [`PLANE_ARITHMETIC`].
+#[must_use]
+pub fn polygon(vertices: Vec<Vec3>) -> Polygon {
+    Polygon::with_plane(vertices, PLANE_ARITHMETIC)
+}
 
 /// This world's transition settings.
 // D2-05778, D2-05789, D2-05800, D2-05802, D2-05803, D2-05824, D2-05797, D2-05804
