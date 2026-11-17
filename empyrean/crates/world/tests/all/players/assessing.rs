@@ -7,7 +7,8 @@ use std::sync::Arc;
 use empyrean_common::dotnet::DotNetDict;
 use empyrean_common::era::{EraExt, EraId};
 use empyrean_entity::enums::{
-    CombatBodyPart, FactionBits, PropertyBool, PropertyInt, Skill, SkillAdvancementClass,
+    CombatBodyPart, FactionBits, IdentifyResponseFlags, PropertyBool, PropertyInt, Skill,
+    SkillAdvancementClass,
 };
 use empyrean_entity::models::properties_skill::PropertiesSkill;
 use empyrean_entity::models::PropertiesBodyPart;
@@ -17,6 +18,7 @@ use empyrean_world::network::game_event::game_event_type::GameEventType;
 use empyrean_world::network::game_messages::game_message::{start_capture, take_sent};
 use empyrean_world::network::game_messages::game_message_opcode::GameMessageOpcode;
 use empyrean_world::network::structure::appraise_info::{appraise_info_new, AppraiseInfo};
+use empyrean_world::network::structure::armor_level;
 use empyrean_world::world_objects::player;
 
 use crate::monsters::monster_ai::{H, MONSTER, PLAYER};
@@ -187,13 +189,10 @@ fn a_monster_assessed_successfully_shows_its_bodys_armor_levels() {
     let parts = h.o(MONSTER).biota.properties_body_part.clone();
     let player = h.w.objects.get_mut(PLAYER).unwrap();
     player.biota.properties_body_part = parts;
-    let levels = appraise_info_new(&mut h.w, PLAYER, MONSTER, true)
-        .armor_levels
-        .expect("the player's armor levels");
     assert_eq!(
-        (levels.head, levels.chest),
-        (0, 0),
-        "a player's come from its armor"
+        appraise_info_new(&mut h.w, PLAYER, MONSTER, true).armor_levels,
+        None,
+        "a player's come from its armor alone, and it wears none"
     );
 
     // A weak body's negative armor is sent as it is, and is no zero.
@@ -227,4 +226,77 @@ fn a_monster_assessed_successfully_shows_its_bodys_armor_levels() {
     assert!(appraise_info_new(&mut h.w, MONSTER, PLAYER, true)
         .armor_levels
         .is_none());
+}
+
+/// Whether a successful assessment of `target` by `examiner` carries armor levels, flagged as such.
+fn shows_armor_levels(h: &mut H, target: ObjectGuid, examiner: ObjectGuid) -> bool {
+    let info = appraise_info_new(&mut h.w, target, examiner, true);
+    let flagged = info.flags.0 & IdentifyResponseFlags::ArmorLevels.0 != 0;
+    assert_eq!(
+        flagged,
+        info.armor_levels.is_some(),
+        "the flag follows the levels"
+    );
+    flagged
+}
+
+/// Divergence: V557
+/// A successful assessment leaves out the armor levels when all nine places are zero: a creature
+/// with no body armor and nothing worn, attackable or not, and a player wearing nothing show none.
+/// A creature armored in a single place still shows all nine, and so does one whose body armor is
+/// below zero, which is not zero.
+#[test]
+fn a_successful_assessment_leaves_out_armor_levels_that_are_all_zero() {
+    let mut h = ranked_monster();
+    let levels = appraise_info_new(&mut h.w, MONSTER, PLAYER, true)
+        .armor_levels
+        .expect("the armored monster's armor levels");
+    assert_eq!(
+        armor_level::record(&levels),
+        [200, 150, 0, 0, 0, 0, 0, 0, 0]
+    );
+
+    let mut h = H::new();
+    h.player(10.0, 10.0);
+    h.monster(12.0, 10.0);
+    assert!(h.o(MONSTER).attackable());
+    assert!(!shows_armor_levels(&mut h, MONSTER, PLAYER), "attackable");
+    h.w.objects
+        .get_mut(MONSTER)
+        .unwrap()
+        .set_property(PropertyBool::Attackable, false);
+    assert!(!shows_armor_levels(&mut h, MONSTER, PLAYER), "unattackable");
+
+    let mut parts = DotNetDict::new();
+    parts.insert(
+        CombatBodyPart::Head,
+        PropertiesBodyPart {
+            base_armor: 30,
+            ..PropertiesBodyPart::default()
+        },
+    );
+    h.w.objects
+        .get_mut(MONSTER)
+        .unwrap()
+        .biota
+        .properties_body_part = Some(Arc::new(parts.clone()));
+    assert!(shows_armor_levels(&mut h, MONSTER, PLAYER), "armored head");
+
+    for part in parts.values_mut() {
+        part.base_armor = -250;
+    }
+    h.w.objects
+        .get_mut(MONSTER)
+        .unwrap()
+        .biota
+        .properties_body_part = Some(Arc::new(parts));
+    assert!(
+        shows_armor_levels(&mut h, MONSTER, PLAYER),
+        "below zero is not zero"
+    );
+
+    assert!(
+        !shows_armor_levels(&mut h, PLAYER, MONSTER),
+        "a player wearing nothing"
+    );
 }

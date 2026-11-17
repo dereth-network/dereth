@@ -995,15 +995,18 @@ impl AppraiseInfo {
         // (`EraFeatures::assessed_armor_and_ratings`) sends neither (ClassicACE's `BuildCreature`).
         // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Network/Structure/AppraiseInfo.cs
         if w.era.features.assessed_armor_and_ratings {
-            // DIVERGE: V557, every creature assessed successfully shows its armor levels, and
-            // a creature's (not a player's) add its body's armor; ACE shows them only for a player
-            // or a creature that cannot be attacked, from what it wears.
+            // DIVERGE: V557, every creature assessed successfully shows its armor levels unless
+            // all nine places are zero, and a creature's (not a player's) add its body's armor;
+            // ACE shows them only for a player or a creature that cannot be attacked, from what it
+            // wears, zeros included.
             if self.success {
                 let mut levels = armor_level_new(w, creature);
                 if !obj(w, creature).is_player() {
                     add_body_armor(obj(w, creature), &mut levels);
                 }
-                self.armor_levels = Some(levels);
+                if levels != ArmorLevel::default() {
+                    self.armor_levels = Some(levels);
+                }
             }
 
             self.add_ratings(w, creature);

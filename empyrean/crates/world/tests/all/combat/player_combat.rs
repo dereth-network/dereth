@@ -528,8 +528,8 @@ fn an_era_without_ratings_reads_every_rating_as_none() {
 }
 
 /// Divergence: V394
-/// Assessing an unattackable creature shows its armour levels at the end of retail and none (nor
-/// ratings) in an era before assessment showed them.
+/// Assessing an armored, unattackable creature shows its armour levels at the end of retail and
+/// none (nor ratings) in an era before assessment showed them.
 #[test]
 fn an_era_before_assessed_armor_levels_shows_none() {
     use empyrean_world::network::structure::appraise_info::appraise_info_new;
@@ -542,10 +542,18 @@ fn an_era_before_assessed_armor_levels_shows_none() {
     {
         let mut w = world();
         let g = combatant_in(&mut w, &case.input);
-        w.objects
-            .get_mut(g)
-            .expect("built")
-            .set_property(empyrean_entity::enums::PropertyBool::Attackable, false);
+        let o = w.objects.get_mut(g).expect("built");
+        o.set_property(empyrean_entity::enums::PropertyBool::Attackable, false);
+        // An armored head, so it has armor levels to show.
+        let mut parts = DotNetDict::new();
+        parts.insert(
+            empyrean_entity::enums::CombatBodyPart::Head,
+            empyrean_entity::models::PropertiesBodyPart {
+                base_armor: 50,
+                ..Default::default()
+            },
+        );
+        o.biota.properties_body_part = Some(Arc::new(parts));
         let examiner = ObjectGuid::new(0x5000_0FFF);
         if appraise_info_new(&mut w, g, examiner, true)
             .armor_levels
