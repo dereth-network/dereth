@@ -1471,6 +1471,53 @@ pub(crate) fn creature_blow_landed<S: Store>(
     }
 }
 
+/// A creature's attack lands on a player still standing: the attack's own target effects go on
+/// the player, cast by the creature at its rating in the skill (2017: the records' spellcraft is
+/// that rating, 1,975 of creatures' records). Which skill puts on what is the install's (the
+/// creatures' basic attacks put on none); a harming missile's effect is its drain, told on its own
+/// ([`crate::missiles`]).
+pub(crate) fn creature_skill_landed<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    creature: u64,
+    skill: crate::missiles::AttackSkill,
+    target: ConnId,
+    clock: Clock,
+) {
+    if skill.drains {
+        return;
+    }
+    let standing = s
+        .players
+        .get(&target)
+        .is_some_and(|p| p.trip.is_none() && !is_dead(p));
+    let Some(states) = s
+        .skill_table
+        .skills
+        .get(&skill.skill)
+        .and_then(|d| d.usage.as_ref())
+        .map(|u| u.target_effects.clone())
+        .filter(|e| standing && !e.is_empty())
+    else {
+        return;
+    };
+    let rating = s
+        .things
+        .get(creature)
+        .and_then(|t| t.creature.as_ref())
+        .and_then(|c| c.stats.skills.iter().find(|(k, _)| *k == skill.skill))
+        .map_or(1, |(_, r)| (*r).max(1));
+    #[allow(clippy::cast_precision_loss)]
+    let cast = crate::effects::Cast {
+        caster: creature,
+        spellcraft: rating as f32,
+        ..crate::effects::Cast::default()
+    };
+    for state in states {
+        crate::effects::apply_on(s, net, On::Player(target), state, cast, clock);
+    }
+}
+
 /// A basic attack that names target effects puts them on what it landed on, at its user's rating
 /// in it, as a special's do.
 fn attack_effects<S: Store>(
@@ -2123,6 +2170,7 @@ pub fn creature_strike_with<S: Store>(
                     creature: id,
                     target,
                     harm,
+                    skill,
                 },
             );
         }

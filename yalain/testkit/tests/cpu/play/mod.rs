@@ -28,6 +28,7 @@ mod crafting;
 mod creature_areas;
 mod creature_effects;
 mod creature_foes;
+mod creature_skill_effects;
 mod creature_tactics;
 mod creature_weapons;
 mod creatures;

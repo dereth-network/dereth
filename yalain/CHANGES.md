@@ -18,6 +18,7 @@ what they see, not how it was done.
 - A summoning that fails no longer starts the skill's recovery.
 - Vitae now lowers your greatest health and vigor.
 - Hills, buildings and closed doors now block sight for creatures, pets and players' skills.
+- Creatures' skills now poison, weaken and slow the players they hit.
 
 ## 0.6.0 (2026-11-17)
 - World: the quest of the three stars at the five kingdom shrines, and the kingdoms' armor it unlocks.

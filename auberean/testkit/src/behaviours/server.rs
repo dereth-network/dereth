@@ -3821,6 +3821,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.skills-put-their-effects-on-players",
+        says: "A creature's strike or missile that lands on a player puts its skill's target effects \
+               on the player, cast by the creature at its rating in the skill; a harming missile's \
+               effect is its drain alone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-SKILL-EFFECTS"),
+        station: "yalain-testkit::cpu::play::creature_skill_effects::a_creatures_strike_puts_its_skills_effect_on_the_player_at_its_rating",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.slowed-run-slower",
         says: "A slowed creature runs at its own speed times the slow its effects put on it.",
         since: RETAIL,

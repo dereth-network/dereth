@@ -655,6 +655,7 @@ pub enum Timer {
         creature: u64,
         target: ConnId,
         harm: effects::Harm,
+        skill: missiles::AttackSkill,
     },
     /// A strike between a creature and a pet reaches its target.
     ThingStrikeLands {
@@ -1106,7 +1107,11 @@ impl<S: Store> Server<S> {
                     creature,
                     target,
                     harm,
-                } => combat::creature_strike_lands(self, net, creature, target, harm, clock),
+                    skill,
+                } => {
+                    combat::creature_strike_lands(self, net, creature, target, harm, clock);
+                    combat::creature_skill_landed(self, net, creature, skill, target, clock);
+                }
                 Timer::ThingStrikeLands {
                     by,
                     target,

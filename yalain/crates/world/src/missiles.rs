@@ -33,6 +33,10 @@
 //! throws nothing strikes where the creature stands. A harming missile's hit also drains the
 //! target (an instant vital effect: its effect, then a story of the drain).
 //!
+//! **What an attack puts on.** A strike or a missile that lands puts its skill's target effects on
+//! each player it reaches, cast by the creature at its rating in the skill (a debuff, a harm over
+//! time, a stun); a harming missile's is its drain, put on once.
+//!
 //! **Basic attacks** are drawn at each attack among those that fit the distance: evenly, or, for a
 //! creature of the generic monsters' tables (one with a sub class: minion, protector, conqueror,
 //! paragon), the plain attack four times as often as the most others and `Strong` twice (2017: such
@@ -668,6 +672,7 @@ pub fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, f: Flight, cloc
             crate::effects::answer_attack(s, net, l.world, f.creature, clock);
             crate::effects::harm_back(s, net, f.creature, l.character, l.harm.back, clock);
             combat::creature_blow_landed(s, net, f.creature, l.world, clock);
+            combat::creature_skill_landed(s, net, f.creature, f.skill, l.world, clock);
         }
     }
     for (pet, outcome, harm) in pets {
