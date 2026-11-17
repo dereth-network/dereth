@@ -69,6 +69,69 @@ fn a_treasure_items_own_value_is_drawn_from_its_worlds_values_for_its_droppers_l
     }
 }
 
+/// A treasure weapon, shield, piece of armor or jewel is worth its world's unit for its least level
+/// (the last unit whose least level it reaches; its dropper's base where it drew none), times one
+/// more than the enchantments it drew, on itself or on its wearer; an item of another kind, one that
+/// keeps its template's value, or one in a world with no units keeps what it was given (2017: 2,187
+/// of 2,482 examined items inside their tier's unit times one more than their enchantments; these
+/// units are made up).
+/// Behaviour: server.loot.treasure-value-units-times-enchantments
+#[test]
+fn a_treasure_items_worth_is_its_least_levels_unit_times_one_more_than_its_enchantments() {
+    use yalain_world::death::worth_by_units;
+    let (mut h, _) = world();
+    h.server.loot.units = [(1, (3, 3)), (10, (20, 20))].into();
+    h.server.treasure.equipment.insert(0x200);
+    let mut rare = Props::default();
+    rare.set(yalain_world::treasure::RARE, Prop::Bool(true));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(RARE_ITEM, 0x200, rare));
+    let item = |h: &mut Harness, template: u32, least: Option<i32>, on: usize, worn: usize| {
+        let id = yalain_world::inventory::make_item(&mut h.server, template, 1, 7).expect("made");
+        let t = h.server.things.get_mut(id).expect("there");
+        t.own.min_level = least;
+        t.own.made = Some(yalain_world::made::Made::default());
+        t.enchantments = vec![(0x7000_0001, 1.0); on];
+        t.bonuses = vec![(0x7000_0002, 1.0); worn];
+        id
+    };
+    let worth = |h: &Harness, id: u64| {
+        let t = h.server.things.get(id).expect("there");
+        (t.value, t.own.made.map(|m| m.value))
+    };
+    for (least, on, worn, base, value) in [
+        (Some(4), 0, 0, 2, 3),
+        (Some(9), 1, 0, 2, 6),
+        (Some(12), 1, 1, 2, 60),
+        (None, 0, 0, 15, 20),
+        (Some(0), 0, 0, 0, 3),
+    ] {
+        let id = item(&mut h, TEST_ITEM, least, on, worn);
+        worth_by_units(&mut h.server, id, base);
+        assert_eq!(
+            worth(&h, id),
+            (value, Some(value)),
+            "least {least:?}, {on} + {worn} enchantments, base {base}"
+        );
+    }
+    let rare = item(&mut h, RARE_ITEM, Some(12), 0, 0);
+    worth_by_units(&mut h.server, rare, 12);
+    assert_eq!(worth(&h, rare).0, 7, "a rare keeps what it was given");
+    h.server.treasure.equipment.clear();
+    let other = item(&mut h, TEST_ITEM, Some(12), 0, 0);
+    worth_by_units(&mut h.server, other, 12);
+    assert_eq!(worth(&h, other).0, 7, "no weapon, armor or jewel");
+    h.server.treasure.jewelry.insert(0x200);
+    let jewel = item(&mut h, TEST_ITEM, None, 1, 0);
+    worth_by_units(&mut h.server, jewel, 12);
+    assert_eq!(worth(&h, jewel).0, 40, "a jewel, by its dropper's base");
+    h.server.loot.units.clear();
+    let unvalued = item(&mut h, TEST_ITEM, Some(12), 0, 0);
+    worth_by_units(&mut h.server, unvalued, 12);
+    assert_eq!(worth(&h, unvalued).0, 7, "a world with no units");
+}
+
 /// A rare and a trump of the tarot left as treasure carry no own value, so selling one pays its
 /// template's, in a world that gives values and in one that gives none alike; other treasure draws
 /// its own (2017: none of the 44 trumps and 7 rares recorded dropped carried one, against 5,135 of

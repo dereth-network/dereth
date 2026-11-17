@@ -279,6 +279,17 @@ pub struct CorpseFind {
     pub prov: Prov,
 }
 
+/// `[[treasure_unit]]`: the unit a treasure weapon, shield, piece of armor or jewel is worth from a
+/// least level on, drawn evenly from `low` to `high`; the item is worth it times one more than its
+/// enchantments.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TreasureUnit {
+    pub least: u32,
+    pub low: u32,
+    pub high: u32,
+    pub prov: Prov,
+}
+
 /// `[[treasure_rules]]`: what every treasure item draws by, whatever its sort: its own least level
 /// above its dropper's base, its Arcane Lore, a potion's tier and spellcraft, and its look. A world
 /// has one.
@@ -736,6 +747,7 @@ pub enum Row {
     EffectRule(EffectRule),
     TreasureValue(TreasureValue),
     CorpseFind(CorpseFind),
+    TreasureUnit(TreasureUnit),
     TreasureRules(TreasureRules),
     TreasureSort(TreasureSort),
     TreasureWord(TreasureWord),
@@ -1555,6 +1567,7 @@ impl Row {
             Self::EffectRule(_) => "effect_rule",
             Self::TreasureValue(_) => "treasure_value",
             Self::CorpseFind(_) => "corpse_find",
+            Self::TreasureUnit(_) => "treasure_unit",
             Self::TreasureRules(_) => "treasure_rules",
             Self::TreasureSort(_) => "treasure_sort",
             Self::TreasureWord(_) => "treasure_word",
@@ -1633,6 +1646,7 @@ impl Row {
             Self::EffectRule(r) => Some(&r.prov),
             Self::TreasureValue(r) => Some(&r.prov),
             Self::CorpseFind(r) => Some(&r.prov),
+            Self::TreasureUnit(r) => Some(&r.prov),
             Self::TreasureRules(r) => Some(&r.prov),
             Self::TreasureSort(r) => Some(&r.prov),
             Self::TreasureWord(r) => Some(&r.prov),
@@ -1677,7 +1691,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 72] = [
+pub const KINDS: [&str; 73] = [
     "object",
     "camp",
     "loot",
@@ -1712,6 +1726,7 @@ pub const KINDS: [&str; 72] = [
     "effect_rule",
     "treasure_value",
     "corpse_find",
+    "treasure_unit",
     "treasure_rules",
     "treasure_sort",
     "treasure_word",
@@ -1753,7 +1768,7 @@ pub const KINDS: [&str; 72] = [
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 72] = [
+pub const FIELDS: [(&str, &[&str]); 73] = [
     (
         "object",
         &[
@@ -2130,6 +2145,7 @@ pub const FIELDS: [(&str, &[&str]); 72] = [
         ],
     ),
     ("treasure_value", &["level", "values", "prov"]),
+    ("treasure_unit", &["least", "low", "high", "prov"]),
     (
         "corpse_find",
         &[
@@ -4798,6 +4814,24 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                     placed: String::new(),
                     confidence: String::new(),
                 },
+                prov: f.req_prov()?,
+            })
+        }
+        "treasure_unit" => {
+            let least = f.req_u32("least")?;
+            let low = f.req_u32("low")?;
+            let high = f.req_u32("high")?;
+            if least == 0 || low == 0 || high < low {
+                f.bad(
+                    "least, low, high",
+                    "a unit is from a least level of 1 up, its low at least 1 and its high at least its low",
+                );
+                return None;
+            }
+            Row::TreasureUnit(TreasureUnit {
+                least,
+                low,
+                high,
                 prov: f.req_prov()?,
             })
         }

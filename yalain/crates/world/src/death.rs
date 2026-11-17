@@ -725,6 +725,36 @@ fn treasure_value<S: Store>(s: &mut Server<S>, level: i32, template: u32) -> Opt
     })
 }
 
+/// A treasure weapon, shield, piece of armor or jewel, once it has drawn its own, is worth its
+/// world's unit for its least level (its dropper's base where it drew none), drawn evenly, times
+/// one more than the enchantments it drew (2017: 2,187 of 2,482 examined items inside their tier's
+/// unit times one more than their enchantments). Nothing changes in a world with no units, for an
+/// item of another kind, or for one that keeps its template's value.
+pub fn worth_by_units<S: Store>(s: &mut Server<S>, item: u64, base: i32) {
+    let Some(t) = s.things.get(item) else {
+        return;
+    };
+    let package = t.description.package;
+    if !(s.treasure.equipment.contains(&package) || s.treasure.jewelry.contains(&package))
+        || keeps_template_value(s, t.template)
+    {
+        return;
+    }
+    let least = t.own.min_level.unwrap_or(base);
+    let enchantments = u32::try_from(t.enchantments.len() + t.bonuses.len()).unwrap_or(0);
+    let Some((low, high)) = s.loot.unit_at(least) else {
+        return;
+    };
+    let unit = low + u32::try_from(s.rng.below((high - low + 1) as usize)).unwrap_or(0);
+    let value = unit.saturating_mul(enchantments + 1);
+    if let Some(t) = s.things.get_mut(item) {
+        t.value = value;
+        if let Some(m) = t.own.made.as_mut() {
+            m.value = value;
+        }
+    }
+}
+
 /// A creature's item from outside its profile's draw (a fixed drop, an extra or a death
 /// treasure): none of its own, except that a treasure potion is treasure however it comes, with its
 /// own value ([`treasure_value`]) and so, once made, its own effect.
@@ -1028,6 +1058,7 @@ pub fn corpse_appears<S: Store>(
             // A treasure item (one drawn from the profile, or a treasure potion) carries its own.
             if value.is_some() {
                 crate::treasure::endow(s, item, level, quality);
+                worth_by_units(s, item, crate::treasure::base_of(level, quality));
             }
             contents.push(item);
         }

@@ -1928,6 +1928,7 @@ pub fn test_loot() -> yalain_content::LootTable {
         pools: yalain_content::pools::Pools::default(),
         values: std::collections::BTreeMap::new(),
         finds: Vec::new(),
+        units: std::collections::BTreeMap::new(),
     }
 }
 

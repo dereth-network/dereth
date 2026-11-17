@@ -45,6 +45,7 @@ world.lock                         ids given to authored rows, kept across build
 <pack>/server/events.toml          [[event]], [[tally]]
 <pack>/server/values.toml          [[treasure_value]]
 <pack>/server/finds.toml           [[corpse_find]]
+<pack>/server/units.toml           [[treasure_unit]]
 <pack>/server/routes.toml          [[route]]
 <pack>/server/areas.toml           [[area]]
 <pack>/server/allegiance.toml      [[allegiance_hall]]
@@ -154,6 +155,7 @@ Every row sets one **item**, named by its key:
 | `treasure_family SORT ORDER` | the sort and the family's `order` |
 | `treasure_value LEVEL` | the creatures' level |
 | `corpse_find KEY` | the row's `key` |
+| `treasure_unit LEAST` | the least level it applies from |
 | `mine 0xSKILL` | the mining craft skill |
 | `map_region REGION` | the region's key |
 | `worn 0xTEMPLATE 0xRACES 0xSEXES` | the template and the races and sexes it fits |
@@ -616,12 +618,26 @@ prov = { from = "authored", note = "the chest held it for a player at the quest'
 #### `[[treasure_value]]`
 
 What treasure a creature of a level leaves is worth. A level with no row draws from the nearest
-level that has one.
+level that has one. Where the world has `[[treasure_unit]]` rows, weapons, shields, armor and
+jewels are worth their units instead.
 
 | field | | meaning |
 |---|---|---|
 | `level` | required | the creature's level |
 | `values` | required | whole numbers, at least one: each treasure item carries one, drawn evenly |
+| `prov` | required | where it came from |
+
+#### `[[treasure_unit]]`
+
+What a treasure weapon, shield, armor or jewel a creature leaves is worth, by its own least level:
+a unit drawn evenly from `low` to `high`, times one more than the enchantments it drew. An item
+with no least level of its own takes the level its dropper's treasure is drawn at; one below the
+first row takes the first. A rare and a trump of the tarot keep their template's value.
+
+| field | | meaning |
+|---|---|---|
+| `least` | required | from 1: the least level it applies from, up to the next row's |
+| `low`, `high` | required | whole numbers, `low` at least 1 and at most `high` |
 | `prov` | required | where it came from |
 
 #### `[[corpse_find]]`

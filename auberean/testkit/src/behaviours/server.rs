@@ -8661,6 +8661,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.treasure-value-by-units",
+        says: "A treasure piece of equipment a creature leaves in a world with units is worth its least \
+               level's unit, not a value of its dropper's level.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-VALUE-UNITS"),
+        station: "yalain-testkit::cpu::play::fights::equipment_a_creature_leaves_is_worth_its_least_levels_unit_in_a_world_with_units",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.treasure-value-gems-read-from-the-install",
         says: "The server knows gems by their package, as the install has them, and each gem's \
                template carries the value it sells for.",
@@ -8695,6 +8704,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-TRUMP-KINDS"),
         station: "yalain::bin.yalain::data::tests::the_trumps_and_rares_are_read_from_the_install",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.treasure-value-units-times-enchantments",
+        says: "A treasure weapon, shield, piece of armor or jewel is worth its world's unit for its least \
+               level, drawn evenly, times one more than the enchantments it drew; other items, those that \
+               keep their template's value, and worlds with no units keep the value they were given.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-VALUE-ENCHANTED"),
+        station: "yalain-testkit::cpu::play::treasure_values::a_treasure_items_worth_is_its_least_levels_unit_times_one_more_than_its_enchantments",
         tier: Tier::Cpu,
     },
     behaviour! {

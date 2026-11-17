@@ -72,6 +72,7 @@ pub fn item(l: &Located) -> Option<Item> {
         Row::CorpseFind(r) => Item::CorpseFind {
             key: r.find.key.clone(),
         },
+        Row::TreasureUnit(r) => Item::TreasureUnit { least: r.least },
         Row::TreasureRules(_) => Item::TreasureRules,
         Row::TreasureWord(r) => Item::TreasureWord {
             sort: r.sort.name().to_string(),
@@ -224,6 +225,7 @@ fn value(row: &Row) -> String {
         Row::EffectRule(x) => x.prov = crate::rows::Prov::default(),
         Row::TreasureValue(x) => x.prov = crate::rows::Prov::default(),
         Row::CorpseFind(x) => x.prov = crate::rows::Prov::default(),
+        Row::TreasureUnit(x) => x.prov = crate::rows::Prov::default(),
         Row::TreasureRules(x) => x.prov = crate::rows::Prov::default(),
         Row::TreasureWord(x) => x.prov = crate::rows::Prov::default(),
         Row::TreasureLook(x) => x.prov = crate::rows::Prov::default(),

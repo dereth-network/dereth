@@ -6,12 +6,13 @@
 //! Beside the profiles, the death treasures: a fixed item that every creature or chest of a
 //! template, or every creature a camp keeps, leaves at a chance of its own (a chest's, for its
 //! opener alone while a quest is where it needs it); the values a treasure item a creature
-//! leaves draws its own value from, by the creature's level; and the finds any creature's corpse
-//! may hold beside its profile's draw.
+//! leaves draws its own value from, by the creature's level; the finds any creature's corpse
+//! may hold beside its profile's draw; and the units a treasure weapon, shield, piece of armor or
+//! jewel is worth by its least level, times one more than its enchantments.
 //!
 //! The text form is tab-separated, one profile per line; the death treasures follow under a header
-//! of their own, one a line, then the pools, the values and the finds, each under a line of its
-//! own.
+//! of their own, one a line, then the pools, the values, the finds and the units, each under a
+//! line of its own.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -135,6 +136,9 @@ pub struct LootTable {
     pub values: BTreeMap<i32, Vec<u32>>,
     /// The finds any creature's corpse may hold, in the rows' order.
     pub finds: Vec<CorpseFind>,
+    /// The unit a treasure weapon, shield, piece of armor or jewel is worth, from each least level
+    /// on: drawn evenly from the least to the most.
+    pub units: BTreeMap<i32, (u32, u32)>,
 }
 
 /// The line that starts the pools' part of a table's text.
@@ -145,6 +149,9 @@ const VALUES_PART: &str = "[values]";
 
 /// The line that starts the finds' part of a table's text, after the values'.
 const FINDS_PART: &str = "[finds]";
+
+/// The line that starts the units' part of a table's text, after the finds'.
+const UNITS_PART: &str = "[units]";
 
 /// The finds' columns, in order.
 pub const FIND_COLUMNS: [&str; 9] = [
@@ -301,7 +308,44 @@ impl LootTable {
                 );
             }
         }
+        if !self.units.is_empty() {
+            out.push_str(UNITS_PART);
+            out.push_str("\nleast\tlow\thigh\n");
+            for (least, (low, high)) in &self.units {
+                let _ = writeln!(out, "{least}\t{low}\t{high}");
+            }
+        }
         out
+    }
+
+    /// The unit an item of a least level is worth: the last unit whose least level it reaches,
+    /// else the first; none in a table with no units.
+    #[must_use]
+    pub fn unit_at(&self, least: i32) -> Option<(u32, u32)> {
+        self.units
+            .range(..=least)
+            .next_back()
+            .or_else(|| self.units.iter().next())
+            .map(|(_, u)| *u)
+    }
+
+    /// The units' part of a table's text.
+    fn units_of(text: &str) -> Result<BTreeMap<i32, (u32, u32)>, String> {
+        let mut out = BTreeMap::new();
+        for (n, line) in text.lines().enumerate().skip(1) {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let at = |e: String| format!("{UNITS_PART} line {}: {e}", n + 1);
+            let c: Vec<&str> = line.split('\t').collect();
+            let [least, low, high] = c[..] else {
+                return Err(at(format!("a line is LEAST<tab>LOW<tab>HIGH, not {line}")));
+            };
+            let int = |s: &str| s.parse::<u32>().map_err(|e| at(format!("{s}: {e}")));
+            let least: i32 = least.parse().map_err(|e| at(format!("{least}: {e}")))?;
+            out.insert(least, (int(low)?, int(high)?));
+        }
+        Ok(out)
     }
 
     /// The values a treasure item a creature of a level leaves draws its own value from: its
@@ -438,6 +482,10 @@ impl LootTable {
     /// # Errors
     /// A line without its columns, or a value that does not read.
     pub fn from_text(text: &str) -> Result<Self, String> {
+        let (text, units) = match text.split_once(&format!("\n{UNITS_PART}\n")) {
+            Some((t, u)) => (t, Self::units_of(u)?),
+            None => (text, BTreeMap::new()),
+        };
         let (text, finds) = match text.split_once(&format!("\n{FINDS_PART}\n")) {
             Some((t, f)) => (t, Self::finds_of(f)?),
             None => (text, Vec::new()),
@@ -513,6 +561,7 @@ impl LootTable {
             pools,
             values,
             finds,
+            units,
         })
     }
 }

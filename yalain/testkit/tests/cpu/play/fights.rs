@@ -447,6 +447,33 @@ fn jewelry_a_creature_leaves_is_worth_what_treasure_of_its_level_is() {
     }
 }
 
+/// A treasure piece of equipment a creature leaves in a world with units is worth its least level's
+/// unit, not a value of its dropper's level: the level 2 beetle's piece, of least level 2 to 5 and
+/// no enchantments, the first tier's (2017: an item's own value went by its least level's tier and
+/// its enchantments; these units are made up).
+/// Behaviour: server.loot.treasure-value-by-units
+#[test]
+fn equipment_a_creature_leaves_is_worth_its_least_levels_unit_in_a_world_with_units() {
+    let (mut h, b, _, _) = fight_with(|h| {
+        h.server.loot.values = [(2, vec![500])].into();
+        h.server.loot.units = [(1, (30, 31)), (6, (90, 90))].into();
+    });
+    h.server.treasure.equipment.insert(0x200);
+    assert!(h.run_until(200, |h| h.world_messages(b, 0).iter().any(
+        |m| matches!(m, ServerMessage::CreateObject(o) if o.weenie.entity_did == CORPSE)
+    )));
+    let values: Vec<_> = h
+        .server
+        .things
+        .by_id
+        .values()
+        .filter(|t| t.template == TEST_ITEM)
+        .map(|t| t.value)
+        .collect();
+    assert!(!values.is_empty(), "the corpse holds the piece");
+    assert!(values.iter().all(|v| [30, 31].contains(v)), "{values:?}");
+}
+
 /// A magic potion a creature leaves as its profile's extra, beside the profile's draw, is treasure as
 /// a drawn one is: it has an effect of its own, is named for it and is worth what treasure of its
 /// dropper's level is; another extra has nothing of its own (2017: 194 of 194 magic potions dropped

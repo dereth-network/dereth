@@ -6071,6 +6071,62 @@ fn corpse_finds_compile_with_their_gates_and_bands_and_bad_ones_are_problems() {
     );
 }
 
+#[test]
+fn treasure_units_compile_by_least_level_and_bad_ones_are_problems() {
+    let with = |rows: &str| {
+        let mut files = fixture();
+        let path = files
+            .keys()
+            .find(|k| k.ends_with("loot.toml"))
+            .expect("loot rows")
+            .clone();
+        let text = files.get(&path).expect("read").clone();
+        files.insert(path, format!("{text}\n{rows}"));
+        files
+    };
+    let good = "[[treasure_unit]]\nleast = 1\nlow = 1\nhigh = 2\nprov = { from = \"authored\" }\n\n[[treasure_unit]]\nleast = 11\nlow = 4\nhigh = 6\nprov = { from = \"authored\" }\n";
+    let files = with(good);
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(t.loot.units.get(&11), Some(&(4, 6)), "as given");
+    assert_eq!(t.loot.unit_at(10), Some((1, 2)), "below the second");
+    assert_eq!(t.loot.unit_at(11), Some((4, 6)), "from it");
+    assert_eq!(t.loot.unit_at(90), Some((4, 6)), "the last, above all");
+    assert_eq!(t.loot.unit_at(0), Some((1, 2)), "the first, below all");
+    assert_eq!(
+        yalain_content::LootTable::from_text(&t.loot.to_text()).unwrap(),
+        t.loot,
+        "it reads back as written"
+    );
+    for (rows, says) in [
+        (good.replace("high = 6", "high = 3"), "a unit is from a least level of 1 up"),
+        (good.replace("low = 1\n", "low = 0\n"), "a unit is from a least level of 1 up"),
+        (good.replace("least = 1\n", "least = 0\n"), "a unit is from a least level of 1 up"),
+        (
+            format!("{good}\n[[treasure_unit]]\nleast = 11\nlow = 5\nhigh = 5\nprov = {{ from = \"authored\" }}\n"),
+            "treasure_unit 11",
+        ),
+    ] {
+        let files = with(&rows);
+        let problems: Vec<String> = check(&files)
+            .iter()
+            .map(ToString::to_string)
+            .chain(
+                read(&files)
+                    .ok()
+                    .and_then(|r| merge(&r).err())
+                    .into_iter()
+                    .flatten()
+                    .map(|p| p.to_string()),
+            )
+            .collect();
+        assert!(
+            problems.iter().any(|p| p.contains(says)),
+            "{says}: {problems:?}"
+        );
+    }
+}
+
 /// The treasure numbers written as `[[treasure_rules]]` and `[[treasure_sort]]` rows, each weighted
 /// list in its order.
 fn treasure_rows(t: &yalain_content::treasure_tables::TreasureTables) -> String {

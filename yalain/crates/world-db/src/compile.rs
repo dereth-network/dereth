@@ -1106,6 +1106,11 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     ..r.find.clone()
                 });
             }
+            Row::TreasureUnit(r) => {
+                t.loot
+                    .units
+                    .insert(i32::try_from(r.least).unwrap_or(i32::MAX), (r.low, r.high));
+            }
             Row::TreasureValue(r) => {
                 t.loot
                     .values

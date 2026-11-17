@@ -234,6 +234,8 @@ pub enum Item {
     TreasureValue { level: u32 },
     /// A find any creature's corpse may hold, by key.
     CorpseFind { key: String },
+    /// The unit treasure is worth from a least level on, by the level.
+    TreasureUnit { least: u32 },
     /// The rules every treasure item draws by: the world has one.
     TreasureRules,
     /// The numbers one sort of treasure item draws by, by the sort's name.
@@ -401,6 +403,9 @@ impl Item {
                 level: number(level)?,
             },
             ["corpse_find", key] => Self::CorpseFind { key: symbol(key)? },
+            ["treasure_unit", least] => Self::TreasureUnit {
+                least: number(least)?,
+            },
             ["treasure_rules"] => Self::TreasureRules,
             ["treasure_sort", sort] => Self::TreasureSort {
                 sort: (*sort).to_string(),
@@ -547,6 +552,7 @@ impl fmt::Display for Item {
             Self::EffectRuleNamed { name } => write!(f, "effect_rule {name}"),
             Self::TreasureValue { level } => write!(f, "treasure_value {level}"),
             Self::CorpseFind { key } => write!(f, "corpse_find {key}"),
+            Self::TreasureUnit { least } => write!(f, "treasure_unit {least}"),
             Self::TreasureRules => write!(f, "treasure_rules"),
             Self::TreasureSort { sort } => write!(f, "treasure_sort {sort}"),
             Self::TreasureWord { sort, word } => write!(f, "treasure_word {sort} {word:#010x}"),
