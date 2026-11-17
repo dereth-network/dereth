@@ -11,6 +11,9 @@
 //!
 //! **Trained skills.** Asked, the server lists each skill the player trained (not those its race
 //! gives it), one line each with the skill's experience and what it cost.
+//!
+//! **Renaming oneself** takes a rename the player was granted; this server grants none, so the
+//! player is told it has no permission to rename itself, and nothing changes.
 
 use auberean_script::args::Arg;
 use auberean_script::library::Elem;
@@ -31,6 +34,8 @@ pub mod function {
     pub const UNINSCRIBE: u32 = 0x8212_0008;
     pub const LIST_SKILLS: u32 = 0x8212_0052;
     pub const LIST_SKILLS_DONE: u32 = 0x8212_005E;
+    /// The player's character renamed (the new name).
+    pub const RENAME: u32 = 0x8212_0045;
 }
 
 /// The script packages an item derives from to take an inscription.
@@ -63,6 +68,8 @@ pub mod text {
     pub const CANNOT_UNINSCRIBE: (u32, u32) = (0x8DC4_E2A8, 0x2500_000B);
     pub const NOT_INSCRIBED: (u32, u32) = (0xEAA3_66B7, 0x2500_000B);
     pub const NOT_YOURS_TO_UNINSCRIBE: (u32, u32) = (0xB503_AD3C, 0x2500_000B);
+    /// "You do not have permission to rename yourself."
+    pub const NO_RENAME: (u32, u32) = (0x9D27_3335, 0x2500_000B);
     /// The kind of text they are shown as.
     pub const SHOWN_AS: u32 = 8;
     /// One line of the trained skills: the skill, its experience, its credits, its hero credits.
@@ -71,6 +78,11 @@ pub mod text {
     pub const XP: u32 = 0xB140_0000;
     pub const CREDITS: u32 = 0xB263_AC49;
     pub const HERO_CREDITS: u32 = 0xB72C_506B;
+}
+
+/// A player asks to rename its character, with no rename granted it: told so.
+pub fn rename(net: &mut ServerNet, world: ConnId) {
+    crate::social::show(net, world, text::SHOWN_AS, progress::text(text::NO_RENAME));
 }
 
 /// A string value of a call.

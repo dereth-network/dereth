@@ -119,6 +119,7 @@ pub fn call<S: Store>(
             crate::personal::uninscribe(s, net, world, &values);
         }
         crate::personal::function::LIST_SKILLS => crate::personal::list_skills(s, net, world),
+        crate::personal::function::RENAME => crate::personal::rename(net, world),
         crate::quests::CANCEL_QUEST => crate::quests::cancel(s, net, world, &values, clock),
         function::USE => {
             crate::follow::stop(s, net, world);

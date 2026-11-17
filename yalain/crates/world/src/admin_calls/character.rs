@@ -108,8 +108,53 @@ pub(super) fn call<S: Store>(cx: &mut Cx<'_, S>, f: u32, a: &Args<'_>) -> Option
         other::VITAE_SET | other::VITAE_RAISE | other::VITAE_LOWER => vitae(cx, a, f),
         other::CHALLENGE_SET | other::CHALLENGE_SET_OF | other::CHALLENGE_OF => challenge(cx, a, f),
         other::DEATH_XP_SET | other::DEATH_XP_SET_OF | other::DEATH_XP_OF => death_xp(cx, a, f),
+        other::ALLEGIANCE => allegiance_of(cx, cx.world),
+        other::ALLEGIANCE_STATS => match cx.player(a.long(0).unwrap_or(0)) {
+            Ok(w) => allegiance_of(cx, w),
+            Err(e) => vec![e],
+        },
         _ => return None,
     })
+}
+
+/// A player's allegiance as lines: none, or its name, monarch, size (how many in the world), how
+/// many officers and the hall it is bound to; then the player's rank, patron and vassals.
+fn allegiance_of<S: Store>(cx: &mut Cx<'_, S>, w: ConnId) -> Vec<String> {
+    let name = cx.name_of(w);
+    if !crate::allegiance::ensure(cx.s) {
+        return vec!["The allegiances are not to be had now.".to_owned()];
+    }
+    let me = cx.s.players.get(&w).map_or(0, |p| p.character);
+    let a = &cx.s.allegiances;
+    let Some(monarch) = a.monarch(me) else {
+        return vec![format!("{name} is in no allegiance.")];
+    };
+    let tree = a.tree(monarch);
+    let size = tree.len();
+    let officers = a.officers(monarch, false).len();
+    let hall = a.hall_of(me).map(|h| h.name.clone());
+    let named = a.names.get(&monarch).filter(|n| !n.is_empty()).cloned();
+    let rank = a.rank(me);
+    let patron = a.nodes.get(&me).map_or(0, |n| n.patron);
+    let vassals = a.vassals(me).len();
+    let here = tree
+        .iter()
+        .filter(|m| crate::social::world_of(cx.s, **m).is_some())
+        .count();
+    let monarch_name = crate::allegiance::facts(cx.s, monarch).plain;
+    let patron_name = (patron != 0).then(|| crate::allegiance::facts(cx.s, patron).plain);
+    vec![
+        format!(
+            "{name}'s allegiance: {}, monarch {monarch_name}, {size} members ({here} in the world), \
+             {officers} officers, {}.",
+            named.unwrap_or_else(|| format!("{monarch_name}'s Allegiance")),
+            hall.map_or_else(|| "bound to no hall".to_owned(), |h| format!("bound to {h}")),
+        ),
+        format!(
+            "{name}: rank {rank}, patron {}, {vassals} vassals.",
+            patron_name.unwrap_or_else(|| "none".to_owned()),
+        ),
+    ]
 }
 
 /// One table of a character's qualities as lines.

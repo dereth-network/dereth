@@ -23,6 +23,10 @@
 //! **Messages**: to the patron (in the world, or the sender is told it is away), to the vassals in
 //! the world, or to every follower below the sender in the world. The sender sees what it said;
 //! a gagged player is refused as when it talks, and one ignoring the sender never hears it.
+//!
+//! **Renaming the allegiance** is the monarch's alone: anyone else in it is told so, and one in none
+//! is told it is in none. This server keeps no fee or wait for it, so the monarch's attempt is told
+//! it failed, in the client's own words.
 
 use auberean_script::native_object::{TextInfo, Variable};
 use yalain_net::{ConnId, ServerNet};
@@ -54,6 +58,8 @@ pub mod function {
     pub const TO_PATRON: u32 = 0x8203_0025;
     pub const TO_VASSALS: u32 = 0x8203_0028;
     pub const TO_FOLLOWERS: u32 = 0x8203_0018;
+    /// The allegiance renamed (the new name).
+    pub const RENAME: u32 = 0x8203_0063;
 }
 
 /// Is this one of the calls this answers?
@@ -66,6 +72,7 @@ pub const fn handles(f: u32) -> bool {
     matches!(
         f,
         SET_MOTD
+            | function::RENAME
             | CLEAR_MOTD
             | SHOW_MOTD
             | APPOINT
@@ -103,6 +110,7 @@ pub mod text {
     pub const MONARCH_ONLY: (u32, u32) = (0x6977_DECD, TABLE);
     pub const MONARCH_OR_OFFICER: (u32, u32) = (0x396A_6C1E, TABLE);
     pub const NOT_A_MEMBER: (u32, u32) = (0x61B3_6279, TABLE);
+    pub const RENAME_FAILED: (u32, u32) = (0xE45A_2BB3, TABLE);
     pub const MOTD_SET: (u32, u32) = (0x1076_92C8, TABLE);
     pub const MOTD_CLEARED: (u32, u32) = (0x1BD5_1A82, TABLE);
     pub const MOTD: (u32, u32) = (0x6E30_FCDD, TABLE);
@@ -166,6 +174,7 @@ pub fn call<S: Store>(
     let reads_members = !matches!(
         f,
         function::SHOW_MOTD
+            | function::RENAME
             | function::RESTRICT
             | function::TO_PATRON
             | function::TO_VASSALS
@@ -192,6 +201,7 @@ pub fn call<S: Store>(
         }
         function::RESTRICT => restrict(s, net, world, me, v),
         function::SEARCH => search(s, net, world, me, v),
+        function::RENAME => rename(s, net, world, me),
         _ => message(s, net, world, me, f, v),
     }
 }
@@ -248,6 +258,16 @@ fn push_profiles<S: Store>(s: &mut Server<S>, net: &mut ServerNet, monarch: u64)
             let m = allegiance::profile(s, id);
             progress::private(net, w, &m);
         }
+    }
+}
+
+/// A member asks to rename its allegiance: the monarch alone may, and here the monarch is told the
+/// attempt failed.
+fn rename<S: Store>(s: &Server<S>, net: &mut ServerNet, world: ConnId, me: u64) {
+    match s.allegiances.monarch(me) {
+        None => refuse(net, world, text::NOT_IN_ALLEGIANCE),
+        Some(m) if m != me => refuse(net, world, text::MONARCH_ONLY),
+        Some(_) => refuse(net, world, text::RENAME_FAILED),
     }
 }
 

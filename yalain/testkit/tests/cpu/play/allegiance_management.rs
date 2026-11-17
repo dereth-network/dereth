@@ -612,3 +612,24 @@ fn a_search_among_a_long_allegiance_comes_out_of_an_allowance() {
     h.bots[v].send(true, queue::WEENIE, &call);
     assert!(h.run_until(50_000, |h| found(h, from) >= 1), "back in time");
 }
+
+/// Renaming the allegiance: one in none is told it is in none, a vassal that only the monarch may,
+/// and the monarch that the attempt failed; its name stays as it was.
+/// Behaviour: server.allegiance.rename-refused
+#[test]
+fn renaming_the_allegiance_is_the_monarchs_and_fails_leaving_its_name() {
+    let (mut h, (m, mid), (v, _)) = sworn_pair();
+    let (stranger, _) = h.player_in_world("three", "Strangera");
+    let rename = |h: &mut Harness, b: usize| {
+        let from = h.bots[b].inbox.len();
+        h.ask(b, manage::RENAME, &[string_arg("Order of the Lamp")], 10);
+        h.texts(b, from)
+    };
+    assert_eq!(
+        rename(&mut h, stranger),
+        [(REFUSED, text::NOT_IN_ALLEGIANCE.0)]
+    );
+    assert_eq!(rename(&mut h, v), [(REFUSED, text::MONARCH_ONLY.0)]);
+    assert_eq!(rename(&mut h, m), [(REFUSED, text::RENAME_FAILED.0)]);
+    assert!(!h.server.allegiances.names.contains_key(&mid), "unnamed");
+}

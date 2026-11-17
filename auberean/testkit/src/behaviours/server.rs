@@ -173,6 +173,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.admin.allegiance-queries",
+        says: "An admin's allegiance query and its statistics of a player answer the player's \
+               allegiance (its name, monarch, size and how many are in the world, officers and hall) \
+               and the player's rank, patron and vassals, or that it is in none; anyone else sending \
+               either is refused.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-ALLEGIANCE-QUERIES"),
+        station: "yalain-testkit::cpu::operator::admin_calls::an_admin_asks_after_a_players_allegiance_and_a_player_may_not",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.admin.attackable-hides-from-creatures",
         says: "A creature does not notice an admin set stealthy or super, and notices one set normal.",
         since: TOOLING,
@@ -778,6 +789,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-ALLEG-RECORDED"),
         station: "yalain-testkit::corpus::social::recorded_profiles_flag_their_officers_and_exports_file_names_by_their_hash",
         tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.allegiance.rename-refused",
+        says: "Renaming the allegiance is refused in the client's own words: one in none is told \
+               so, a member that only the monarch may, and the monarch that the attempt failed; the \
+               name stays as it was.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ALLEGIANCE-RENAME"),
+        station: "yalain-testkit::cpu::play::allegiance_management::renaming_the_allegiance_is_the_monarchs_and_fails_leaving_its_name",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.allegiance.the-monarch-is-an-officer",
@@ -11524,6 +11545,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-HERO-PERKS-RATINGS"),
         station: "yalain-testkit::cpu::play::hero_perks::a_heros_perks_add_to_its_accuracy_and_evasion_where_they_apply",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.personal.rename-refused",
+        says: "A player asking to rename its character, with no rename granted it, is told it has \
+               no permission to rename itself, and keeps its name.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHARACTER-RENAME"),
+        station: "yalain-testkit::cpu::play::own_requests::a_player_asking_to_rename_itself_is_told_it_may_not_and_keeps_its_name",
         tier: Tier::Cpu,
     },
     behaviour! {

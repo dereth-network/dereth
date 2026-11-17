@@ -882,3 +882,16 @@ fn a_shortcut_past_what_a_character_keeps_is_not_kept() {
     set(&mut h, b, text(MOST_PART_BYTES));
     assert_eq!(h.server.players[&world].options.shortcuts[5], small);
 }
+
+/// A player asking to rename its character is told it has no permission to rename itself, and
+/// keeps its name.
+/// Behaviour: server.personal.rename-refused
+#[test]
+fn a_player_asking_to_rename_itself_is_told_it_may_not_and_keeps_its_name() {
+    let mut h = world_of_items();
+    let (a, _, world) = player(&mut h, "one");
+    let from = h.bots[a].inbox.len();
+    h.ask(a, function::RENAME, &[string("Someone Else")], 3);
+    assert_eq!(h.texts(a, from), [(text::SHOWN_AS, text::NO_RENAME.0)]);
+    assert_eq!(h.server.players[&world].name, "One");
+}

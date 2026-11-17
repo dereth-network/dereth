@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- /charactername and /allegiancename now get an answer instead of silence.
 - A market store asked for twice now says the storekeeper is too busy.
 - Gear now enforces its top level and counts your race's own skills.
 - Opportunistic pets now go for the weakest foes, Courageous ones the strongest.

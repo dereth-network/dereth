@@ -79,13 +79,16 @@ pub mod other {
     pub const CHALLENGE_SET_OF: u32 = 0x8207_0025;
     /// Money made from nothing.
     pub const MONEY: u32 = 0x8217_001A;
+    /// An allegiance: the admin's own, and the statistics of a player's (its id; 0 the selection).
+    pub const ALLEGIANCE: u32 = 0x8203_000B;
+    pub const ALLEGIANCE_STATS: u32 = 0x8203_0010;
     /// The admin's own player store.
     pub const STORE_EXPIRE: u32 = 0x9B5E_001B;
     pub const STORE_OPEN: u32 = 0x9B5E_0020;
     pub const STORE_CLOSE: u32 = 0x9B5E_003D;
 
     /// Every one of them.
-    pub const ALL: [u32; 24] = [
+    pub const ALL: [u32; 26] = [
         AI_DUMP,
         AI_CLIQUE,
         AI_TRIGGER,
@@ -107,6 +110,8 @@ pub mod other {
         VITAE_SET,
         CHALLENGE_SET_OF,
         MONEY,
+        ALLEGIANCE,
+        ALLEGIANCE_STATS,
         STORE_EXPIRE,
         STORE_OPEN,
         STORE_CLOSE,

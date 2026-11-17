@@ -2970,3 +2970,54 @@ fn an_effect_an_admin_shows_follows_the_objects_own_stamps() {
         assert_eq!(of(&h).1, visual.wrapping_add(1));
     }
 }
+
+/// An admin's allegiance query and its statistics of a player (the client's `/allegiance query` and
+/// `/allegiance stats`): the player's allegiance by its name, its monarch, its size and how many are
+/// in the world, its officers and hall, then the player's rank, patron and vassals; one in none is
+/// said to be. A player who is no admin sending either is refused and answered nothing.
+/// Behaviour: server.admin.allegiance-queries
+#[test]
+fn an_admin_asks_after_a_players_allegiance_and_a_player_may_not() {
+    let mut h = Harness::new();
+    let (vb, vid) = h.player_in_world("one", "Vassalia");
+    let (pb, pid) = h.player_in_world("two", "Patronus");
+    h.ask(vb, allegiance::function::SWEAR, &[Arg::LongInt(pid)], 10);
+    h.ask(
+        pb,
+        allegiance::function::ACCEPT_VASSAL,
+        &[Arg::LongInt(vid)],
+        10,
+    );
+    let (me, _) = admin_in_world(&mut h, "three", "Cara");
+    let from = h.bots[me].inbox.len();
+    send(&mut h, me, other::ALLEGIANCE_STATS, &[Arg::LongInt(vid)]);
+    assert_eq!(
+        answers(&h, me, from),
+        [
+            "Vassalia's allegiance: Patronus's Allegiance, monarch Patronus, 2 members (2 in the \
+             world), 0 officers, bound to no hall."
+                .to_owned(),
+            format!(
+                "Vassalia: rank {}, patron Patronus, 0 vassals.",
+                h.server.allegiances.rank(vid)
+            ),
+        ]
+    );
+    let from = h.bots[me].inbox.len();
+    send(&mut h, me, other::ALLEGIANCE, &[]);
+    assert_eq!(answers(&h, me, from), ["Cara is in no allegiance."]);
+    let from = h.bots[vb].inbox.len();
+    send(&mut h, vb, other::ALLEGIANCE_STATS, &[Arg::LongInt(pid)]);
+    assert!(
+        answers(&h, vb, from).is_empty(),
+        "a player is answered nothing"
+    );
+    assert_eq!(
+        h.server
+            .admin_calls
+            .refused
+            .get(&other::ALLEGIANCE_STATS)
+            .copied(),
+        Some(1)
+    );
+}
