@@ -14,7 +14,8 @@
 //!
 //! **How much** a creature's hit does: its natural damage times a uniform roll across its natural
 //! variance, times what the player's armor lets through (the measured share for the band of the
-//! player's level: all of it at levels 1 and 2, before players wore armor); a critical adds half.
+//! player's level: all of it at levels 1 and 2, before players wore armor); a critical is its
+//! skill's size more.
 //! A player's hit: its skill's damage (authored until the skills' attack hooks are applied: a base
 //! by level with the same kind of roll, less a point for each of the creature's armor levels, as
 //! 2017's hits lost about one); a critical doubles it.
@@ -234,16 +235,14 @@ pub fn roll_missile(rng: &mut Rng, ratings: Ratings, target_moved: bool, critica
     }
 }
 
-/// The critical multipliers: a player's critical doubles its damage, a creature's adds half (the
-/// median critical over the median ordinary hit of the same skill on the same target, 1,678 and 248
-/// criticals).
+/// A player's critical doubles its damage (the median critical over the median ordinary hit of the
+/// same skill on the same target, 1,678 criticals).
 pub const PLAYER_CRITICAL: f32 = 2.0;
 /// A player's special's critical over its plain hit where no class of its skill sets how much more
 /// a critical does; a skill's class most often sets 1.2 (2017: 173 criticals of specials, the
 /// median 1.01 of this and 0.63 of doubling; 128 of them against the plain hits of the same skill,
 /// armor and session, 1.23 of those).
 pub const SPECIAL_CRITICAL: f32 = 1.25;
-pub const CREATURE_CRITICAL: f32 = 1.5;
 
 /// What a player's armor lets through of a creature's natural damage, by the player's level: the
 /// measured median of damage over natural damage for melee (levels 1-2 all of it, 39 hits; 3-5
@@ -278,8 +277,7 @@ pub fn armor_lets_through_missiles(player_level: i32) -> f32 {
 /// its rating, the factor of a skill known without its definition (1 otherwise), the most of the
 /// hit armor leaves it when armor takes nearly all of it (its template's armor threshold, else
 /// [`ARMOR_FLOOR`]'s top), and how much more a critical of its skill does before armor (the
-/// modifier the skill's class sets, else [`CRITICAL_BEFORE_ARMOR`]; a hit on the lowest levels,
-/// which reads no armor, keeps [`CREATURE_CRITICAL`]).
+/// modifier the skill's class sets, else [`CRITICAL_BEFORE_ARMOR`]), on every target alike.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Natural {
     pub damage: f32,
@@ -358,8 +356,10 @@ pub fn creature_hit_on_armor(rng: &mut Rng, n: Natural, armor: f32, critical: bo
 
 /// A creature's hit on a player of the lowest levels, or on a pet whose armor is not known: its
 /// natural damage times a uniform roll across its variance, with what its skill adds, times what
-/// armor lets through of an attack of its kind by the level hit (and the factor); a critical adds
-/// half. At least 1.
+/// armor lets through of an attack of its kind by the level hit (and the factor); a critical its
+/// skill's size more ([`Natural::critical`]), as on a player past them (2017: no creature critical
+/// on a player of level 1 or 2 in 90 attacks, 39 landed; the size measured before armor elsewhere
+/// is the class's, and armor here takes nothing). At least 1.
 pub fn creature_hit(
     rng: &mut Rng,
     kind: Kind,
@@ -375,7 +375,7 @@ pub fn creature_hit(
     };
     let mut d = (n.damage * roll + n.added) * through * n.factor;
     if critical {
-        d *= CREATURE_CRITICAL;
+        d *= n.critical;
     }
     let d = dereth_primitives::num::to_i32(d.round());
     d.max(1)

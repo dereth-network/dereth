@@ -169,7 +169,33 @@ fn a_creatures_skill_adds_its_damage_before_the_players_armor() {
         3,
         "8 x 0.42 at level 4"
     );
-    assert_eq!(rules::creature_hit(&mut rng, Kind::Melee, n, 1, true), 12);
+    assert_eq!(rules::creature_hit(&mut rng, Kind::Melee, n, 1, true), 10);
+}
+
+/// A creature's critical on a player of level 1 or 2, whose armor takes nothing, is its skill's
+/// class's size more, as on any player: a digger's 8 with `Strong` stays 8 at a class's 1, comes to
+/// 10 at 1.2 and 12 at a boss's 1.5.
+/// Behaviour: server.combat.creature-critical-size-by-skill
+#[test]
+fn a_creatures_critical_on_the_lowest_levels_is_its_skills_class_size() {
+    let mut rng = yalain_world::rng::Rng::new(3);
+    for (size, want) in [(1.0, 8), (rules::CRITICAL_BEFORE_ARMOR, 10), (1.5, 12)] {
+        let n = rules::Natural {
+            damage: 5.0,
+            variance: 0.0,
+            added: 3.0,
+            factor: 1.0,
+            threshold: rules::ARMOR_FLOOR.1,
+            critical: size,
+        };
+        for level in [1, 2] {
+            assert_eq!(
+                rules::creature_hit_on_player(&mut rng, Kind::Melee, n, level, 0.0, true),
+                want,
+                "{size} at level {level}"
+            );
+        }
+    }
 }
 
 /// What a weapon adds to the chance of a critical goes on top of the measured one, in the share of

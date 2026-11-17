@@ -1497,8 +1497,8 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.combat.creature-critical-size-by-skill",
         says: "A creature's critical does as much more, before the player's armor, as its skill's \
-               class sets: 1.2 for most, 1 (no more than a plain hit) for many monsters' attacks, \
-               1.25 to 1.5 for the bosses'.",
+               class sets, on a player of any level: 1.2 for most, 1 (no more than a plain hit) for \
+               many monsters' attacks, 1.25 to 1.5 for the bosses'.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-CRITICAL-SIZE"),
         station: "yalain-testkit::cpu::play::creature_weapons::a_creatures_critical_does_what_its_skills_class_sets_more_before_armor",
