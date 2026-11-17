@@ -2167,3 +2167,70 @@ fn a_stop_cuts_a_walking_strike_before_its_story() {
     );
     assert!(vigor_of(&h, me) >= vigor, "nothing paid");
 }
+
+/// Rooms of the training hall's second copy, for sight by what each room sees: the first and the
+/// next see each other; the last sees neither, nor they it.
+const ROOM: u32 = 0x0299_0109;
+const NEXT_ROOM: u32 = 0x0299_0100;
+const APART: u32 = 0x0299_014D;
+
+/// A skill that reaches only what is in sight is refused at a creature out of its user's sight, as
+/// the client says of a target too far; at one in sight it goes. (Deadeye, its hooks made to reach
+/// only what is in sight; its user and the beetle indoors, the beetle's room seen from the user's
+/// or not.)
+/// Behaviour: server.skills.reach-only-what-is-in-sight
+#[test]
+fn a_skill_that_reaches_only_what_is_in_sight_is_refused_at_a_creature_out_of_sight() {
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    h.arm(b, me, BOW);
+    h.server.ground = Some(Box::new(yalain_testkit::TestGround::seeing(&[
+        (ROOM, &[NEXT_ROOM]),
+        (NEXT_ROOM, &[ROOM]),
+        (APART, &[]),
+    ])));
+    if let Some(u) = h
+        .server
+        .skill_table
+        .skills
+        .get_mut(&DEADEYE)
+        .and_then(|d| d.usage.as_mut())
+    {
+        for k in &mut u.hooks {
+            k.flags |= yalain_world::skill_use::hook_flag::LINE_OF_SIGHT;
+        }
+    }
+    let at = |cell: u32, y: f32| yalain_store::StoredPosition {
+        cell,
+        origin: [59.06, y, -44.6],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    for p in h.server.players.values_mut() {
+        p.position = at(ROOM, 233.0);
+    }
+    let put = |h: &mut Harness, cell: u32| {
+        if let Some(t) = h.server.things.get_mut(beetle) {
+            t.at = Some(at(cell, 243.0));
+        }
+    };
+    let refused = |h: &Harness, from: usize| {
+        calls_of(h, b, from)
+            .iter()
+            .any(|(f, v)| *f == function::REFUSED && v.contains(&Value::Int(refusal::NOT_IN_SIGHT)))
+    };
+    let told = |h: &Harness, from: usize| {
+        h.world_messages(b, from).iter().any(|m| {
+            matches!(m, ServerMessage::DoStory(e) if e.sender.id == me && e.action.skill == DEADEYE)
+        })
+    };
+    put(&mut h, APART);
+    let from = use_skill(&mut h, b, 1, DEADEYE, beetle);
+    h.run(40);
+    assert!(refused(&h, from), "refused out of sight");
+    assert!(!told(&h, from), "not used");
+    put(&mut h, NEXT_ROOM);
+    let from = use_skill(&mut h, b, 2, DEADEYE, beetle);
+    h.run(40);
+    assert!(!refused(&h, from), "not refused in sight");
+    assert!(told(&h, from), "used");
+}

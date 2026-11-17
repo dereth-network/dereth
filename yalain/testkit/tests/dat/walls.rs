@@ -1,7 +1,9 @@
 //! Creatures' steps against the September 2013 world's walls: the human training hall (copy
 //! 0x0298), its rooms and doorways. And a player's body on the server following what its client
 //! reports through the same walls: the open ground outdoors at landblock 0x6FA9, the building north
-//! of it, and the hall's rock.
+//! of it, and the hall's rock. And sight through them: what stands between two places (walls,
+//! floors, rock, the ground, buildings, closed doors), and the creatures that attack, give up and
+//! take on again by it.
 
 use auberean_assets::Context;
 use auberean_dat::locate::{install_dats, DatName};
@@ -13,7 +15,9 @@ use dereth_primitives::num::math;
 use dereth_primitives::{CellId, Vec3};
 use yalain_store::StoredPosition;
 use yalain_testkit::{Harness, TEST_CREATURE};
-use yalain_world::walls::{setup_walker, RecordBlocks, Standing, Walker, Walls, FOLLOWS_FARTHEST};
+use yalain_world::walls::{
+    setup_walker, RecordBlocks, Standing, Walker, Walls, FOLLOWS_FARTHEST, SIGHT_RISE,
+};
 
 /// The install's world records, opened anew.
 fn records() -> WorldRecords {
@@ -1305,47 +1309,6 @@ fn the_place_a_practice_gem_may_be_used_has_no_rooms() {
     }
 }
 
-/// The ground stands between two places outdoors when the line between them, raised a meter, runs
-/// under it: between two places deep in a hillside it does, between two high in the air it does not,
-/// and indoors it is not read.
-/// Behaviour: server.pets.missile-line-over-the-ground
-#[test]
-fn the_ground_stands_between_two_places_only_where_their_line_runs_under_it() {
-    let mut w = walls();
-    let at = |x: f32, z: f32| StoredPosition {
-        cell: 0x4899_0023,
-        origin: [x, 55.9, z],
-        rotation: [1.0, 0.0, 0.0, 0.0],
-    };
-    let ground = |w: &mut Walls, x: f32| {
-        w.ground_between(&at(x, 1_000.0), &at(x + 0.5, 1_000.0), 0.0);
-        w.land()
-            .ground(
-                dereth_primitives::CellId(0x4899_0023).landblock(),
-                dereth_primitives::Vec3::new(x, 55.9, 1_000.0),
-            )
-            .expect("the ground")
-            .0
-    };
-    let (ga, gb) = (ground(&mut w, 40.0), ground(&mut w, 100.0));
-    let low = ga.min(gb);
-    assert_eq!(
-        w.ground_between(&at(40.0, low - 400.0), &at(100.0, low - 400.0), 1.0),
-        Some(true),
-        "deep under the ground"
-    );
-    assert_eq!(
-        w.ground_between(&at(40.0, ga + 400.0), &at(100.0, gb + 400.0), 1.0),
-        Some(false),
-        "high over it"
-    );
-    let inside = StoredPosition {
-        cell: 0x0298_0105,
-        ..at(40.0, 0.0)
-    };
-    assert_eq!(w.ground_between(&inside, &at(100.0, gb), 1.0), None);
-}
-
 /// A camp's creature made at a spot whose point lies outside the cell the spot names is put in the
 /// cell that holds the point, one the named cell sees, as anything put somewhere is: in block
 /// `00A7`, a spot naming room `0106` at `(-64.5, -33.5, -22.9)`, a point room `010C` holds, makes its
@@ -1874,7 +1837,7 @@ fn attacks_seen(h: &mut Harness, b: usize, from: usize, id: u64, me: u64, told: 
         .walls
         .as_mut()
         .expect("the walls")
-        .clear_between(&at, &player);
+        .sees(&at, &player);
     while told.len() < n {
         told.push(clear);
     }
@@ -1892,8 +1855,8 @@ fn drudge_outcasts_in_the_arwic_mines_attack_only_a_player_they_see() {
     {
         let w = h.server.walls.as_mut().expect("the walls");
         let home = outcast_home();
-        assert!(w.clear_between(&home, &in_sight()), "in plain sight");
-        assert!(!w.clear_between(&home, &beyond_the_rock()), "rock between");
+        assert!(w.sees(&home, &in_sight()), "in plain sight");
+        assert!(!w.sees(&home, &beyond_the_rock()), "rock between");
         assert!(w.joined(&home, &beyond_the_rock()), "the tunnels join them");
     }
     let clock = h.clock();
@@ -1936,7 +1899,7 @@ fn drudge_outcasts_in_the_arwic_mines_attack_only_a_player_they_see() {
             .walls
             .as_mut()
             .expect("the walls")
-            .clear_between(&at, &beyond_the_rock())
+            .sees(&at, &beyond_the_rock())
         {
             blocked_steps += 1;
         }
@@ -2052,5 +2015,395 @@ fn a_creature_that_does_not_see_its_player_looks_once_a_world_step() {
             .and_then(|t| t.creature.as_ref())
             .is_some_and(|c| c.target == Some(me)),
         "still after the player"
+    );
+}
+
+// Sight: what stands between two places, and the creatures that attack, give up and take on again
+// by it.
+
+/// A place of a block outdoors, on the ground there.
+fn ground_at(w: &mut Walls, block: u32, x: f32, y: f32) -> StoredPosition {
+    let (cell, x, y) = yalain_world::spawn::outdoor(block, x, y);
+    w.read_place(cell);
+    let z = w
+        .land()
+        .ground(CellId(cell).landblock(), Vec3::new(x, y, 0.0))
+        .expect("the ground")
+        .0;
+    StoredPosition {
+        cell,
+        origin: [x, y, z],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    }
+}
+
+/// A place in an interior cell or outdoors, as given.
+fn place(cell: u32, x: f32, y: f32, z: f32) -> StoredPosition {
+    StoredPosition {
+        cell,
+        origin: [x, y, z],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    }
+}
+
+/// Whether the ground alone stops the line between two places outdoors in one block, at either
+/// height a line of sight runs at.
+fn ground_stops(w: &Walls, a: &StoredPosition, b: &StoredPosition) -> bool {
+    let block = CellId(a.cell).landblock();
+    SIGHT_RISE.iter().all(|rise| {
+        let from = Vec3::new(a.origin[0], a.origin[1], a.origin[2] + rise);
+        let to = Vec3::new(b.origin[0], b.origin[1], b.origin[2] + rise);
+        w.land().trace(block, from, to, false).is_some()
+    })
+}
+
+/// Walls, floors and rock stand between rooms: in the Arwic mines an Outcast's place sees a place
+/// down its tunnel and not one round the corner with the rock between, from either end; a room of
+/// the training hall sees nothing of the same room in the hall's other copy beside it.
+/// Behaviour: server.sight.walls-and-rock
+#[test]
+fn walls_and_rock_stand_between_two_places_indoors() {
+    let mut w = walls();
+    let home = outcast_home();
+    assert!(w.sees(&home, &in_sight()), "down its tunnel");
+    assert!(!w.sees(&home, &beyond_the_rock()), "round the corner");
+    assert!(!w.sees(&beyond_the_rock(), &home), "from the other end");
+    let room = hall(0x010C, 16.0, 428.0, -43.1);
+    let copy = StoredPosition {
+        cell: 0x0299_010C,
+        ..room
+    };
+    assert!(!w.sees(&room, &copy), "the other copy, through the rock");
+}
+
+/// Outdoors the ground stands between two places on either side of a hill: in block 0x6FA9 a rise
+/// several meters over both ends stops the line between them, the ground alone; over flat ground
+/// the line gets through.
+/// Behaviour: server.sight.ground
+#[test]
+fn the_ground_stands_between_two_places_on_either_side_of_a_hill() {
+    let mut w = walls();
+    let south = ground_at(&mut w, 0x6FA9, 140.0, 118.0);
+    let north = ground_at(&mut w, 0x6FA9, 140.0, 152.0);
+    let top = ground_at(&mut w, 0x6FA9, 140.0, 135.0);
+    assert!(
+        top.origin[2] > south.origin[2].max(north.origin[2]) + 3.0,
+        "a hill between: {:?} {:?} {:?}",
+        south.origin,
+        top.origin,
+        north.origin
+    );
+    assert!(
+        ground_stops(&w, &south, &north),
+        "the ground alone stops it"
+    );
+    assert!(!w.sees(&south, &north), "over the hill");
+    let a = ground_at(&mut w, 0x6FA9, 70.0, 60.0);
+    let b = ground_at(&mut w, 0x6FA9, 70.0, 80.0);
+    assert!(w.sees(&a, &b), "over flat ground");
+}
+
+/// Outdoors a building stands between two places: north of block 0x6FA9's arrival place the line
+/// gets through over the open ground, and stops at the first building beyond, where the ground
+/// alone would let it through.
+/// Behaviour: server.sight.buildings
+#[test]
+fn a_building_stands_between_two_places_outdoors() {
+    let mut w = walls();
+    let start = on_ground(&mut w, 45.24, 90.51);
+    let open = on_ground(&mut w, 45.24, 110.0);
+    let beyond = on_ground(&mut w, 45.24, 130.0);
+    assert!(w.sees(&start, &open), "over the open ground");
+    assert!(
+        !ground_stops(&w, &start, &beyond),
+        "the ground alone lets it through"
+    );
+    assert!(!w.sees(&start, &beyond), "the building stands between");
+    assert!(!w.sees(&beyond, &start), "from the other end");
+}
+
+/// From outdoors a place sees into a building's entry room through its doorway, as 2017's
+/// creatures shot into and out of entry rooms, and no further: in block 0x8B91 a place west of the
+/// building sees one in its entry room through the doorway (a place a creature shot a player at from
+/// there), and not one in the room below it; in block 0x9C96 a place in the entry room sees out
+/// through its doorway to a place a creature inside shot a player at.
+/// Behaviour: server.sight.into-buildings
+#[test]
+fn outdoors_a_place_sees_into_a_buildings_entry_room_through_its_doorway_and_no_further() {
+    let mut w = walls();
+    let outside = place(0x8B91_0022, 92.65, 36.06, 66.02);
+    let entry = place(0x8B91_0100, 104.82, 40.73, 65.75);
+    w.read_around(entry.cell);
+    let below = w
+        .land()
+        .cell(CellId(0x8B91_0101))
+        .map(|g| {
+            place(
+                0x8B91_0101,
+                g.frame.origin.x,
+                g.frame.origin.y,
+                g.frame.origin.z,
+            )
+        })
+        .expect("the room below");
+    assert!(inside(&w, &entry), "in the entry room");
+    assert!(inside(&w, &below), "in the room below");
+    assert!(w.sees(&outside, &entry), "through the doorway");
+    assert!(w.sees(&entry, &outside), "and out");
+    assert!(!w.sees(&outside, &below), "not the room below");
+    assert!(!w.sees(&below, &outside), "nor out of it");
+    // A line that gets through from one end only is not sight: from west of the building it gets
+    // through at a meter and a half, from inside the entry room at neither height.
+    let by_the_wall = place(0x8B91_0100, 109.6, 41.79, 63.35);
+    let west = place(0x8B91_0023, 96.95, 40.01, 66.0);
+    assert!(!w.sees(&west, &by_the_wall), "one way only");
+    let shooter = place(0x9C96_0100, 137.57, 128.36, 179.75);
+    let target = place(0x9C96_0037, 127.35, 128.53, 177.87);
+    assert!(w.sees(&shooter, &target), "out through the doorway");
+}
+
+/// A closed door stands between two places, an open one doesn't: a door across the line between
+/// two places on open ground stops it while it is shut and lets it through once open.
+/// Behaviour: server.sight.closed-doors
+#[test]
+fn a_closed_door_stands_between_two_places_and_an_open_one_does_not() {
+    let mut w = walls();
+    let a = ground_at(&mut w, 0x6FA9, 70.0, 60.0);
+    let b = ground_at(&mut w, 0x6FA9, 70.0, 80.0);
+    let door = ground_at(&mut w, 0x6FA9, 70.0, 70.0);
+    assert!(w.sees(&a, &b), "open ground");
+    w.set_doors(vec![(7, door)]);
+    assert!(!w.sees(&a, &b), "the door shut");
+    assert!(!w.sees(&b, &a), "from the other side");
+    w.set_door_open(7, true);
+    assert!(w.sees(&a, &b), "the door open");
+}
+
+/// The missile stories a creature loosed at the player since `from`, and the arrivals the player
+/// told of its missiles, with their outcomes.
+fn shots_and_arrivals(h: &Harness, b: usize, from: usize, id: u64, me: u64) -> (usize, Vec<i32>) {
+    let mut shots = 0;
+    let mut arrivals = Vec::new();
+    for m in h.world_messages(b, from) {
+        let auberean_protocol::ServerMessage::DoStory(e) = m else {
+            continue;
+        };
+        if e.sender.id == id
+            && e.action
+                .hooks
+                .iter()
+                .any(|k| k.target == me && k.bits & 0xF == 3)
+        {
+            shots += 1;
+        }
+        if e.sender.id == me && e.action.attacker == id {
+            arrivals.extend(e.action.hooks.iter().map(|k| k.numbers[0]));
+        }
+    }
+    (shots, arrivals)
+}
+
+/// A creature's missile misses a player who steps out of its sight while it flies: an Outcast
+/// shooting a player in plain sight, the player round the tunnel's corner before each missile
+/// arrives, is told every one missed, its health untouched (a target that moved alone is missed
+/// only about half the time).
+/// Behaviour: server.creatures.missile-meets-what-stands-between
+#[test]
+fn a_creatures_missile_misses_a_player_who_steps_behind_the_rock_as_it_flies() {
+    let (mut h, b, me, outcast) = outcast_and_player(in_sight());
+    let health = |h: &Harness| {
+        h.server
+            .players
+            .values()
+            .find(|p| p.character == me)
+            .and_then(|p| {
+                yalain_world::quals::int(&p.qualities, yalain_world::player::quality::HEALTH)
+            })
+    };
+    let before = health(&h);
+    let clock = h.clock();
+    yalain_world::ai::go_after(&mut h.server, &mut h.net, outcast, me, clock);
+    let mut outcomes = Vec::new();
+    for _ in 0..8 {
+        // From its home, shooting, the player in plain sight.
+        let now = h.now.0;
+        if let Some(t) = h.server.things.get_mut(outcast) {
+            t.at = Some(outcast_home());
+            if let Some(c) = t.creature.as_mut() {
+                c.ranged = true;
+                c.closing = None;
+                c.next_attack = c.next_attack.min(now + 0.5);
+            }
+        }
+        stand(&mut h, me, in_sight());
+        let from = h.bots[b].inbox.len();
+        let shot = h.run_until(200, |h| shots_and_arrivals(h, b, from, outcast, me).0 > 0);
+        assert!(shot, "it shoots the player in sight");
+        let loosed = h.bots[b].inbox.len();
+        stand(&mut h, me, beyond_the_rock());
+        let arrived = h.run_until(100, |h| {
+            !shots_and_arrivals(h, b, loosed, outcast, me).1.is_empty()
+        });
+        assert!(arrived, "the missile arrives");
+        outcomes.push(shots_and_arrivals(&h, b, loosed, outcast, me).1[0]);
+    }
+    let miss = yalain_world::rules::Outcome::Miss.code().cast_signed();
+    assert!(
+        outcomes.iter().all(|o| *o == miss),
+        "every one missed: {outcomes:x?}"
+    );
+    assert_eq!(health(&h), before, "unhurt");
+}
+
+/// A creature that gave up a player it neither saw nor found a way to doesn't take that player on
+/// again while it still doesn't see it, and does once it does: a beetle that attacks first notices
+/// a player in the training hall's other copy, beside its own and within its perception, goes after
+/// it, gives up, and goes home; for the next half minute it leaves the player be; with the player
+/// come into its room, it takes it on again.
+/// Behaviour: server.creatures.given-up-unseen-not-taken-on-again
+#[test]
+fn a_creature_that_gave_up_a_player_it_neither_sees_nor_reaches_takes_it_on_again_only_once_it_sees_it(
+) {
+    let start = hall(0x010C, 16.0, 428.0, -43.1);
+    let (mut h, b, beetle) = beetle_at(start);
+    h.bots[b].send(
+        true,
+        auberean_protocol::queue::WEENIE,
+        &auberean_protocol::ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    h.run(5);
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(beetle)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.stats.movement.perception = 400.0;
+        c.stats.attacks_first = true;
+    }
+    for p in h.server.players.values_mut() {
+        p.position = StoredPosition {
+            cell: 0x0299_010C,
+            ..start
+        };
+    }
+    let target = |h: &Harness| {
+        h.server
+            .things
+            .get(beetle)
+            .and_then(|t| t.creature.as_ref())
+            .and_then(|c| c.target)
+    };
+    assert!(
+        h.run_until(100, |h| target(h).is_some()),
+        "it notices the player"
+    );
+    assert!(h.run_until(400, |h| target(h).is_none()), "and gives up");
+    let mut again = 0;
+    for _ in 0..600 {
+        h.step();
+        again += usize::from(target(&h).is_some());
+    }
+    assert_eq!(again, 0, "it leaves the player be while it does not see it");
+    let home = place_of(&h, beetle);
+    let near = StoredPosition {
+        origin: [home.origin[0] + 2.0, home.origin[1], home.origin[2]],
+        ..home
+    };
+    for p in h.server.players.values_mut() {
+        p.position = near;
+    }
+    assert!(
+        h.run_until(60, |h| target(h).is_some()),
+        "in its sight, it takes the player on again"
+    );
+}
+
+/// A creature that only turns gives up a player it does not see: it has no way to anything, so out
+/// of its sight it is as good as gone, five seconds on.
+/// Behaviour: server.creatures.attack-only-what-it-sees
+#[test]
+fn a_creature_that_only_turns_gives_up_a_player_it_does_not_see() {
+    let (mut h, _, me, outcast) = outcast_and_player(beyond_the_rock());
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(outcast)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.stats.movement.kind = yalain_content::MovementType::TurnOnly;
+    }
+    let clock = h.clock();
+    yalain_world::ai::go_after(&mut h.server, &mut h.net, outcast, me, clock);
+    let gave_up = h.run_until(200, |h| {
+        h.server
+            .things
+            .get(outcast)
+            .and_then(|t| t.creature.as_ref())
+            .is_some_and(|c| c.target.is_none())
+    });
+    assert!(gave_up, "it gives up the player it does not see");
+}
+
+/// A creature fighting another creature it neither sees nor finds a way to gives up five seconds on,
+/// as it gives up such a player: a beetle set on a creature in the training hall's other copy,
+/// beside its own, runs at the rock, finds no way, and goes home.
+/// Behaviour: server.creatures.fights-things-only-in-sight
+#[test]
+fn a_creature_fighting_another_it_neither_sees_nor_reaches_gives_up() {
+    let start = hall(0x010C, 16.0, 428.0, -43.1);
+    let (mut h, _, beetle) = beetle_at(start);
+    h.add_creatures(1);
+    h.run(10);
+    let other = h
+        .server
+        .things
+        .by_id
+        .values()
+        .find(|t| {
+            t.id != beetle && t.creature.is_some() && t.template == yalain_testkit::TEST_CREATURE
+        })
+        .map(|t| t.id)
+        .expect("a second creature");
+    let apart = StoredPosition {
+        cell: 0x0299_010C,
+        ..start
+    };
+    if let Some(t) = h.server.things.get_mut(other) {
+        t.at = Some(apart);
+        if let Some(c) = t.creature.as_mut() {
+            c.home = apart;
+            c.stats.fights = false;
+        }
+    }
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(beetle)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.stats.movement.perception = 400.0;
+    }
+    let clock = h.clock();
+    yalain_world::ai::take_on(&mut h.server, &mut h.net, beetle, other, clock);
+    assert_eq!(
+        h.server
+            .things
+            .get(beetle)
+            .and_then(|t| t.creature.as_ref())
+            .and_then(|c| c.target),
+        Some(other),
+        "set on the other"
+    );
+    let gave_up = h.run_until(400, |h| {
+        h.server
+            .things
+            .get(beetle)
+            .and_then(|t| t.creature.as_ref())
+            .is_some_and(|c| c.target.is_none())
+    });
+    assert!(
+        gave_up,
+        "it gives up the creature it neither sees nor reaches"
     );
 }

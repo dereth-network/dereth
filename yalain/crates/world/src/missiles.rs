@@ -22,7 +22,8 @@
 //! naming the target); no missile object is made. The missile arrives after the creature's windup
 //! and its flight at 35 m/s, and the target tells the outcome: a story from the target with the
 //! hit, the evade or the miss, its health first when it is hurt. A target that has moved since the
-//! shot is often missed.
+//! shot is often missed, and one that has gone out of sight of where the missile was loosed from
+//! (behind a wall, a rock or a closed door) always is: the missile meets what stands between them.
 //!
 //! **Specials.** At each attack, a special within its range and not barred is used instead of a
 //! basic attack by its chance: about one attack in ten for each special at hand (2017: 0.104,
@@ -415,7 +416,7 @@ pub fn rhythm(rows: &yalain_content::creature_rows::CreatureRows, template: u32)
 }
 
 /// A missile in flight: who loosed it at whom (character id), with which skill, whether a special,
-/// and where the target stood when it was loosed.
+/// where the target stood when it was loosed, and where it was loosed from.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Flight {
     pub creature: u64,
@@ -423,6 +424,7 @@ pub struct Flight {
     pub skill: AttackSkill,
     pub special: bool,
     pub from: StoredPosition,
+    pub loosed_at: Option<StoredPosition>,
 }
 
 /// A creature engages a player at a distance: does it shoot this fight?
@@ -564,10 +566,8 @@ pub fn launch<S: Store>(
         },
     });
     to_all_seeing(s, net, id, &launch);
-    let d = s
-        .things
-        .get(id)
-        .and_then(|t| t.at)
+    let loosed_at = s.things.get(id).and_then(|t| t.at);
+    let d = loosed_at
         .and_then(|at| presence::distance(&at, &from))
         .unwrap_or(0.0);
     let flight = rh.windup / ts + d / MISSILE_SPEED;
@@ -580,6 +580,7 @@ pub fn launch<S: Store>(
             skill,
             special: special.is_some(),
             from,
+            loosed_at,
         }),
     );
 }
@@ -703,6 +704,13 @@ fn lands_on_player<S: Store>(
         return None;
     }
     let (character, my_level) = (p.character, crate::examine::level_of(&p.qualities));
+    let now_at = p.position;
+    // A target that has gone out of sight of where the missile was loosed from since is not reached:
+    // the missile meets what stands between them, and misses.
+    let reached = !moved
+        || f.loosed_at.is_none_or(|from| {
+            crate::ai::sees(s.ground.as_deref(), s.walls.as_mut(), &from, &now_at)
+        });
     let critical = f.skill.critical + combat::creature_critical_bonus(s, f.creature);
     let ratings = crate::ratings::of(
         s,
@@ -710,7 +718,11 @@ fn lands_on_player<S: Store>(
         crate::ratings::Rater::Thing(f.creature),
         crate::ratings::Rater::Player(world),
     );
-    let outcome = rules::roll_missile(&mut s.rng, ratings, moved, critical);
+    let outcome = if reached {
+        rules::roll_missile(&mut s.rng, ratings, moved, critical)
+    } else {
+        Outcome::Miss
+    };
     let more = effects_add(s, f.creature);
     let damage = if outcome.landed() {
         let armor = combat::armor_on(s, world);

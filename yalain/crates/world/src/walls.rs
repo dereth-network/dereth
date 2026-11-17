@@ -47,6 +47,7 @@ use std::sync::Arc;
 
 use auberean_physics::body::heading_rotation;
 use auberean_physics::collision::manager::BodyKey;
+use auberean_physics::ethereal::{ObjectEthereality, SightLine};
 use auberean_physics::interior::add_block_cells;
 use auberean_physics::land::Land;
 use auberean_physics::mesh::Trees;
@@ -441,6 +442,13 @@ impl Following {
 /// A node of a block's graph of cells: an interior cell's low word, or the outdoors.
 const OUTSIDE: u16 = 0;
 
+/// How far above where each of two places stands a line of sight between them runs, in meters:
+/// they see each other along a line at either height.
+pub const SIGHT_RISE: [f32; 2] = [1.0, 1.5];
+
+/// A line of sight's result when something stopped it.
+const STOPPED: u32 = 1;
+
 /// A block's cells and their doorways: for each cell (and the outdoors), the cells beside it.
 #[derive(Debug, Default)]
 struct Graph {
@@ -690,61 +698,45 @@ impl Walls {
         g
     }
 
-    /// Whether the ground stands between two places outdoors: a point every meter along the
-    /// straight line between them, each raised by `rise`, lies under the ground there. None when
-    /// either is indoors or the ground is not known along it.
-    pub fn ground_between(
-        &mut self,
-        a: &StoredPosition,
-        b: &StoredPosition,
-        rise: f32,
-    ) -> Option<bool> {
-        if indoors(a.cell) || indoors(b.cell) {
-            return None;
+    /// Whether two places see each other: a straight line between them a meter above each, or a
+    /// meter and a half, gets through from either end, and no closed door stands across it. Each
+    /// line is traced as the client traces its own lines of sight ([`World::los_check`]): inside,
+    /// room by room, stopped by each room's walls, floors and ceilings and going on through its
+    /// doorways, into the next room or out over the land; outside, stopped by the ground and by the
+    /// buildings, rocks and other solid things the land places, and going into a room only through
+    /// a doorway out of it. What the world places stops it unless a new mover would pass through
+    /// it. A line from a place the walls cannot read is not stopped.
+    pub fn sees(&mut self, a: &StoredPosition, b: &StoredPosition) -> bool {
+        self.sight_lines += 1;
+        let gap: f32 = (0..3).map(|k| (a.origin[k] - b.origin[k]).powi(2)).sum();
+        if a.cell == b.cell && gap < 1e-4 {
+            return true;
         }
         self.need(a.cell);
         self.need(b.cell);
-        let (ax, ay) = block_of(a.cell);
-        let (bx, by) = block_of(b.cell);
-        #[allow(clippy::cast_precision_loss)]
-        let d = Vec3::new(
-            (f32::from(bx) - f32::from(ax)) * 160.0 + b.origin[0] - a.origin[0],
-            (f32::from(by) - f32::from(ay)) * 160.0 + b.origin[1] - a.origin[1],
-            b.origin[2] - a.origin[2],
-        );
-        let length = (d.x * d.x + d.y * d.y).sqrt();
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let points = length.floor() as u32;
-        let block = CellId(a.cell).landblock();
-        for i in 1..points {
-            #[allow(clippy::cast_precision_loss)]
-            let t = i as f32 / length;
-            let p = Vec3::new(
-                a.origin[0] + d.x * t,
-                a.origin[1] + d.y * t,
-                a.origin[2] + rise + d.z * t,
-            );
-            let (ground, _) = self.land.ground(block, p)?;
-            if ground > p.z {
-                return Some(true);
-            }
+        if self.door_between(a, b) || self.door_between(b, a) {
+            return false;
         }
-        Some(false)
+        SIGHT_RISE
+            .iter()
+            .any(|rise| self.line(a, b, *rise) && self.line(b, a, *rise))
     }
 
-    /// Whether nothing of the walls stands between two places, as one sees the other to attack it:
-    /// a straight line between them a meter above each, or a meter and a half, meets no wall,
-    /// floor or ceiling of the first's interior cell or the cells it sees (what stands in the
-    /// world does not stop it). A place outdoors has no walls of its own to stop the line.
-    pub fn clear_between(&mut self, a: &StoredPosition, b: &StoredPosition) -> bool {
-        self.sight_lines += 1;
-        self.need(a.cell);
-        self.need(b.cell);
-        [1.0f32, 1.5].iter().any(|h| {
-            let from = Vec3::new(a.origin[0], a.origin[1], a.origin[2] + h);
-            let to = Vec3::new(b.origin[0], b.origin[1], b.origin[2] + h);
-            auberean_physics::interior::trace(&self.land, CellId(a.cell), from, to, false).is_none()
-        })
+    /// Whether the line of sight from `from` to `to`, `rise` above each, gets through.
+    fn line(&self, from: &StoredPosition, to: &StoredPosition, rise: f32) -> bool {
+        let at = |p: &StoredPosition| {
+            Position::new(
+                CellId(p.cell),
+                Frame::new(
+                    Vec3::new(p.origin[0], p.origin[1], p.origin[2] + rise),
+                    Quat::IDENTITY,
+                ),
+            )
+        };
+        let mut los = SightLine::default();
+        los.set_los_params(&ObjectEthereality::default(), self.world.mover_ethereal());
+        los.set_from_begin_and_end_position(&at(from), &at(to));
+        !self.world.los_check(&self.land, &mut los) || los.trace_result != STOPPED
     }
 
     /// Whether doorways join the cells of two places (the outdoors counting as one cell): none

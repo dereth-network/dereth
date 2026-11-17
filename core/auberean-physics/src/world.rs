@@ -269,6 +269,12 @@ impl World {
         t
     }
 
+    /// The physics type a new object that moves passes through ([`World::insert_body`]).
+    #[must_use]
+    pub fn mover_ethereal(&self) -> PhysicsTypes {
+        self.bit(MOVER_ETHEREAL)
+    }
+
     /// Entry `key`'s collisions, once it has collision settings.
     #[must_use]
     pub fn collisions(&self, key: BodyKey) -> Option<&Collisions> {

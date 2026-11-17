@@ -13,8 +13,8 @@
 //! a bow or a stave the player stands: each swing stops it and turns it to the target;
 //! a bow shoots beyond a meter between the bodies and strikes within one, a stave strikes within ten
 //! meters and throws beyond nine; a thrown attack's story names the weapon, and its target tells how
-//! it came out as it arrives (after the throw's windup and its flight); a strike lands at its hit
-//! point. A skill that throws twice names each hand's weapon, each throw drawn apart with its own
+//! it came out as it arrives (after the throw's windup and its flight), a miss when it has gone out
+//! of its thrower's sight by then ([`crate::ai::sees`]); a strike lands at its hit point. A skill that throws twice names each hand's weapon, each throw drawn apart with its own
 //! damage and its own arrival. Out of range a bow's or a stave's run is told it is too far, and moving it cannot shoot,
 //! each a second apart; its combat mode comes with its first swing. A run that walks and is out of
 //! reach has its one order to walk and is told nothing, swinging as soon as it arrives. A creature
@@ -1260,6 +1260,11 @@ pub fn lands<S: Store>(s: &mut Server<S>, net: &mut ServerNet, mut l: Landing, c
     let Some(alive) = alive else {
         return;
     };
+    // A thrown attack whose target has gone out of its thrower's sight meets what stands between.
+    if l.thrown && alive && crate::skill_use::thrown_out_of_sight(s, l.world, l.target) {
+        l.outcome = Outcome::Miss;
+        l.damage = 0;
+    }
     if l.thrown && alive && l.outcome.landed() {
         let on = other.map_or(On::Creature(l.target), On::Player);
         let harm = crate::effects::answer_harm(s, on, l.damage, other.is_some());

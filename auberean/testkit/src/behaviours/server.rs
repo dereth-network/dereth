@@ -3150,9 +3150,11 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.creatures.attack-only-what-it-sees",
-        says: "A creature attacks only a player in its own cell or one its cell sees; out of its \
-               sight it neither shoots nor strikes but closes in, and gives up as it gives up any \
-               player left beyond its perception.",
+        says: "A creature attacks only a player it sees, walls, floors, the ground, buildings and \
+               closed doors between them stopping its sight; out of its sight it neither shoots nor \
+               strikes but closes in, and gives up as it gives up any player left beyond its \
+               perception, or five seconds on with no way to the player (at once for one that only \
+               turns, which has none).",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-SIGHT"),
         station: "yalain-testkit::cpu::play::missiles::a_shooter_attacks_only_a_player_in_a_room_it_sees_and_gives_up_when_left_behind",
@@ -3396,6 +3398,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.fights-things-only-in-sight",
+        says: "A creature fighting a pet or another creature strikes it only when it sees it; out of its \
+               sight it closes in, and with no way to it gives up five seconds on, as with a player.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FIGHTS-THINGS-SIGHT"),
+        station: "yalain-testkit::dat::walls::a_creature_fighting_another_it_neither_sees_nor_reaches_gives_up",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.creatures.flies-as-its-body-says",
         says: "A body flies if its motion description gives it a height in the air: two meters at \
                rest, one in a fight for the wasps.",
@@ -3462,6 +3473,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-GIVE-UP"),
         station: "yalain-testkit::cpu::play::creatures::a_creature_gives_up_a_second_after_the_player_leaves_its_perception",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.given-up-unseen-not-taken-on-again",
+        says: "Creatures notice players through walls; one that gave up a player it neither saw nor found a \
+               way to takes that player on again, by noticing or with its kin, only once it sees the \
+               player or the player has left its perception and come back. Our choice.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NOTICE-THROUGH-WALLS"),
+        station: "yalain-testkit::dat::walls::a_creature_that_gave_up_a_player_it_neither_sees_nor_reaches_takes_it_on_again_only_once_it_sees_it",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.creatures.harm-points-from-the-classes",
@@ -3574,6 +3595,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-MARKS"),
         station: "yalain-testkit::cpu::play::marks::a_player_coming_within_a_markers_perception_is_marked_and_named_by_its_line_for_its_race",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.missile-meets-what-stands-between",
+        says: "A creature's missile at a player who has gone out of sight of where it was loosed from, \
+               behind a wall, a rock or a closed door, misses.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MISSILE-IN-FLIGHT-SIGHT"),
+        station: "yalain-testkit::dat::walls::a_creatures_missile_misses_a_player_who_steps_behind_the_rock_as_it_flies",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.creatures.missiles-arrive-after-flight",
@@ -11592,16 +11622,6 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "server.pets.missile-line-over-the-ground",
-        says: "A pet's missile is read as not landing when the ground stands between the pet and its \
-               target: the line between them, a meter up, runs under the ground; indoors it is not \
-               read.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC2-EVID-SRV-PET-MISSILE-LINE"),
-        station: "yalain-testkit::dat::walls::the_ground_stands_between_two_places_only_where_their_line_runs_under_it",
-        tier: Tier::Dat,
-    },
-    behaviour! {
         id: "server.pets.mode-echoed",
         says: "A pet's mode is echoed back to its owner, pet and mode, and kept.",
         since: RETAIL,
@@ -11643,6 +11663,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PETS-STAYS-BEHIND"),
         station: "yalain-testkit::cpu::play::pet_kinds::a_pet_that_stays_stays_behind_when_its_owner_arrives_elsewhere",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.only-what-it-sees",
+        says: "A pet takes on only a creature it sees and attacks only while it sees it; out of its sight it \
+               closes in, a pet that stays waits, and with no way to it either lets it go five \
+               seconds on; its missile at a creature gone out of its sight misses.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-SIGHT"),
+        station: "yalain-testkit::cpu::play::pet_kinds::an_aggressive_pet_takes_on_only_a_creature_it_sees",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -16446,6 +16476,49 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.sight.buildings",
+        says: "Outdoors a building stands between two places: the line between them stops at its walls \
+               where the ground alone would let it through.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SIGHT-BUILDINGS"),
+        station: "yalain-testkit::dat::walls::a_building_stands_between_two_places_outdoors",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.sight.closed-doors",
+        says: "A closed door across the line between two places stands between them; an open one does not.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SIGHT-DOORS"),
+        station: "yalain-testkit::dat::walls::a_closed_door_stands_between_two_places_and_an_open_one_does_not",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.sight.ground",
+        says: "Outdoors the ground stands between two places on either side of a hill.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SIGHT-GROUND"),
+        station: "yalain-testkit::dat::walls::the_ground_stands_between_two_places_on_either_side_of_a_hill",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.sight.into-buildings",
+        says: "From outdoors a place sees into a building's room only through a doorway out of it, and from \
+               inside out only through one: a building's entry room, not the rooms beyond it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SIGHT-INTO-BUILDINGS"),
+        station: "yalain-testkit::dat::walls::outdoors_a_place_sees_into_a_buildings_entry_room_through_its_doorway_and_no_further",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.sight.walls-and-rock",
+        says: "Walls, floors and rock stand between two places indoors: two places see each other along a \
+               line a meter or a meter and a half above each that gets through from either end.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SIGHT-WALLS"),
+        station: "yalain-testkit::dat::walls::walls_and_rock_stand_between_two_places_indoors",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.skills.a-held-reset-untrains-every-bought-skill",
         says: "A player holding a reset of its skills that asks to sell them all back has every \
                skill it bought untrained, their credits back, and every point of experience in \
@@ -16840,6 +16913,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SKILL-WITH-EFFECTS"),
         station: "yalain-testkit::cpu::play::skills::a_skills_rating_counts_its_own_and_its_parents_effects_up_to_its_cap",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.reach-only-what-is-in-sight",
+        says: "A skill whose hooks reach only what is in sight is refused at a target out of its user's \
+               sight, as the client says of a target too far; such an area hook reaches only the \
+               creatures in sight of its center.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SKILL-SIGHT"),
+        station: "yalain-testkit::cpu::play::specials::a_skill_that_reaches_only_what_is_in_sight_is_refused_at_a_creature_out_of_sight",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -18234,6 +18317,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SWING-WHEN-DUE"),
         station: "yalain-testkit::cpu::play::two_blows::a_swing_comes_when_it_is_due_not_at_the_worlds_next_step",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.weapons.thrown-meets-what-stands-between",
+        says: "A player's thrown attack, a bow's arrow or a special's missile, at a target gone out of the \
+               player's sight as it arrives, misses.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-THROWN-SIGHT"),
+        station: "yalain-testkit::cpu::play::weapons::a_bows_arrow_misses_a_target_gone_out_of_sight_as_it_flies",
         tier: Tier::Cpu,
     },
     behaviour! {

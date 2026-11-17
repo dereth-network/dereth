@@ -1894,3 +1894,172 @@ fn a_pet_closes_in_to_bite_only_after_a_throw_that_did_not_land() {
         .get(&pet)
         .is_some_and(|p| !p.missed && p.closing.is_none()));
 }
+
+/// Rooms of the training hall's second copy, for sight by what each room sees: the first and the
+/// next see each other; the last sees neither, nor they it.
+const ROOM: u32 = 0x0299_0109;
+const NEXT_ROOM: u32 = 0x0299_0100;
+const APART: u32 = 0x0299_014D;
+
+/// What each of the rooms sees, as the world's ground answers.
+fn rooms(h: &mut Harness) {
+    h.server.ground = Some(Box::new(yalain_testkit::TestGround::seeing(&[
+        (ROOM, &[NEXT_ROOM]),
+        (NEXT_ROOM, &[ROOM]),
+        (APART, &[]),
+    ])));
+}
+
+/// Put a thing, or a player by its character, at a place in a room.
+fn in_room(h: &mut Harness, id: u64, cell: u32, y: f32) {
+    let at = yalain_store::StoredPosition {
+        cell,
+        origin: [59.06, y, -44.6],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    if let Some(p) = h.server.players.values_mut().find(|p| p.character == id) {
+        p.position = at;
+        return;
+    }
+    if let Some(t) = h.server.things.get_mut(id) {
+        t.at = Some(at);
+        if let Some(c) = t.creature.as_mut() {
+            c.home = at;
+        }
+    }
+}
+
+/// A Lasher, aggressive, beside its owner in a room of the hall.
+fn aggressive_lasher_in_a_room(h: &mut Harness, beetles: u32) -> (usize, u64, u64) {
+    rooms(h);
+    with_kind(h, &LASHER, beetles);
+    let (b, me) = summoner(h);
+    h.run(20);
+    let pet = {
+        let from = summon(h, b);
+        pet_added(h, b, from)
+    }
+    .expect("a pet");
+    in_room(h, me, ROOM, 232.0);
+    in_room(h, pet, ROOM, 233.0);
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::MODE, &[Arg::Int(0x20), Arg::LongInt(pet)]),
+    );
+    (b, me, pet)
+}
+
+/// An aggressive pet takes on only a creature it sees: of two creatures within its reach, it leaves
+/// the nearer, in a room its own does not see, and takes on the one in the room it sees.
+/// Behaviour: server.pets.only-what-it-sees
+#[test]
+fn an_aggressive_pet_takes_on_only_a_creature_it_sees() {
+    let mut h = Harness::new();
+    let (_, me, pet) = aggressive_lasher_in_a_room(&mut h, 2);
+    let bs = beetles(&h);
+    put_near(&mut h, bs[0], me, 0.0, 0.0);
+    put_near(&mut h, bs[1], me, 0.0, 0.0);
+    in_room(&mut h, bs[0], APART, 238.0);
+    in_room(&mut h, bs[1], NEXT_ROOM, 248.0);
+    assert!(
+        h.run_until(60, |h| target_of(h, pet).is_some()),
+        "it takes one on"
+    );
+    assert_eq!(target_of(&h, pet), Some(bs[1]), "the one it sees");
+}
+
+/// A pet's missile misses a creature gone out of its sight while it flies: thrown at a creature in
+/// the room it sees, the creature put in a room it does not see before it lands, it lands as a miss.
+/// Behaviour: server.pets.only-what-it-sees
+#[test]
+fn a_pets_missile_misses_a_creature_gone_out_of_its_sight_as_it_flies() {
+    let mut h = Harness::new();
+    let (b, me, pet) = aggressive_lasher_in_a_room(&mut h, 1);
+    let beetle = beetles(&h)[0];
+    put_near(&mut h, beetle, me, 0.0, 0.0);
+    in_room(&mut h, beetle, NEXT_ROOM, 245.0);
+    let from = h.bots[b].inbox.len();
+    let thrown = |h: &Harness| {
+        h.world_messages(b, from).iter().any(|m| {
+            matches!(m, ServerMessage::DoStory(e) if e.sender.id == pet && e.action.skill == MISSILE)
+        })
+    };
+    assert!(h.run_until(200, thrown), "it throws");
+    in_room(&mut h, beetle, APART, 245.0);
+    let landing = |h: &Harness| {
+        h.world_messages(b, from).iter().find_map(|m| match m {
+            ServerMessage::DoStory(e) if e.sender.id == beetle && e.action.attacker == pet => {
+                Some(e.action.hooks[0].numbers[0])
+            }
+            _ => None,
+        })
+    };
+    assert!(h.run_until(100, |h| landing(h).is_some()), "it lands");
+    assert_eq!(
+        landing(&h),
+        Some(yalain_world::rules::Outcome::Miss.code().cast_signed()),
+        "a miss"
+    );
+}
+
+/// A creature fighting a pet strikes it only when it sees it: set on a pet beside it but in a room
+/// its own does not see, it strikes nothing; with the pet in the room it sees, it strikes.
+/// Behaviour: server.creatures.fights-things-only-in-sight
+#[test]
+fn a_creature_strikes_a_pet_only_when_it_sees_it() {
+    let mut h = Harness::new();
+    rooms(&mut h);
+    with_kind(&mut h, &LASHER, 1);
+    let (b, me) = summoner(&mut h);
+    h.run(20);
+    let pet = {
+        let from = summon(&mut h, b);
+        pet_added(&h, b, from)
+    }
+    .expect("a pet");
+    let beetle = beetles(&h)[0];
+    put_near(&mut h, beetle, me, 0.0, 0.0);
+    // The owner beyond what the beetle notices, so it stays on the pet.
+    in_room(&mut h, me, ROOM, 230.0);
+    in_room(&mut h, pet, ROOM, 233.0);
+    in_room(&mut h, beetle, APART, 234.5);
+    // The pet stays out of it, and the beetle stays where it is.
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(pet)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.stats.scale = 0.0;
+    }
+    let now = h.now.0;
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(beetle)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.stats.scale = 0.0;
+        c.stats.fights = true;
+        c.stats.movement.perception = 2.0;
+        c.mode = yalain_world::things::Mode::Chasing;
+        c.target = Some(pet);
+        c.next_attack = now;
+    }
+    let struck = |h: &Harness, from: usize| {
+        h.world_messages(b, from).iter().any(|m| {
+            matches!(m, ServerMessage::DoStory(e) if e.sender.id == beetle
+                && e.action.hooks.iter().any(|k| k.target == pet))
+        })
+    };
+    let from = h.bots[b].inbox.len();
+    h.run(80);
+    assert!(!struck(&h, from), "out of its sight, no strike");
+    in_room(&mut h, beetle, NEXT_ROOM, 234.5);
+    let from = h.bots[b].inbox.len();
+    assert!(
+        h.run_until(80, |h| struck(h, from)),
+        "in its sight, it strikes"
+    );
+}

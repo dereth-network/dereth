@@ -323,3 +323,56 @@ fn a_stave_strikes_near_and_throws_far() {
         }
     }
 }
+
+/// A bow's arrow misses a target gone out of its player's sight while it flies: shooting a beetle in
+/// the room its own room sees, the beetle put in a room it does not see, every arrow arriving from
+/// then on is told a miss.
+/// Behaviour: server.weapons.thrown-meets-what-stands-between
+#[test]
+fn a_bows_arrow_misses_a_target_gone_out_of_sight_as_it_flies() {
+    const ROOM: u32 = 0x0299_0109;
+    const NEXT_ROOM: u32 = 0x0299_0100;
+    const APART: u32 = 0x0299_014D;
+    let (mut h, b, me, beetle) = beetle_at(6.0);
+    h.server.ground = Some(Box::new(yalain_testkit::TestGround::seeing(&[
+        (ROOM, &[NEXT_ROOM]),
+        (NEXT_ROOM, &[ROOM]),
+        (APART, &[]),
+    ])));
+    let at = |cell: u32, y: f32| yalain_store::StoredPosition {
+        cell,
+        origin: [59.06, y, -44.6],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    for p in h.server.players.values_mut() {
+        p.position = at(ROOM, 233.0);
+    }
+    let put = |h: &mut Harness, cell: u32| {
+        if let Some(t) = h.server.things.get_mut(beetle) {
+            t.at = Some(at(cell, 239.0));
+            t.max_health = 100_000;
+            t.health = 100_000;
+        }
+    };
+    put(&mut h, NEXT_ROOM);
+    h.arm(b, me, BOW);
+    let from = attack(&mut h, b, beetle);
+    assert!(
+        h.run_until(200, |h| !stories(h, b, from, me).is_empty()),
+        "it shoots"
+    );
+    put(&mut h, APART);
+    let moved = h.bots[b].inbox.len();
+    h.run(120);
+    let arrivals = stories(&h, b, moved, beetle);
+    assert!(!arrivals.is_empty(), "arrows arrive");
+    let miss = yalain_world::rules::Outcome::Miss.code().cast_signed();
+    assert!(
+        arrivals.iter().all(|a| a.hooks[0].numbers[0] == miss),
+        "every one a miss: {:?}",
+        arrivals
+            .iter()
+            .map(|a| a.hooks[0].numbers[0])
+            .collect::<Vec<_>>()
+    );
+}

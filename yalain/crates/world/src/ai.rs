@@ -5,9 +5,11 @@
 //! - **Noticing.** Once a second, at a moment of its own, a creature at rest that attacks first
 //!   takes the nearest player within its perception radius (2017's engaged at a median 0.92 of
 //!   the radius, half within a second of the player coming in; players in portal space, or not yet
-//!   in the world, are not noticed). Creatures of the friend tables that never attack first
-//!   (rabbits, the peaceful) notice only a player that strikes them; a creature friendly to players
-//!   (a practice target) never fights.
+//!   in the world, are not noticed). Walls don't stop it (2017: indoors, 19% of the creatures that
+//!   took on the player within 20 m by themselves had walls between them, against 1% of those the
+//!   player had struck first). Creatures of the friend tables that never attack first (rabbits, the
+//!   peaceful) notice only a player that strikes them; a creature friendly to players (a practice
+//!   target) never fights.
 //! - **Joining.** When a creature goes after a player, resting creatures of its own friend table
 //!   nearby may come too, about a second later: the drudges, buruns and mimbus two times in five
 //!   within 10 m, the guroks one in five, loners, the undead and groups one in ten, half that from
@@ -17,12 +19,15 @@
 //!   scale (2017's measured speed), facing it, its place sent to the clients that see it every
 //!   world step (no movement order: 2017 sent creatures none); within reach it strikes as often as
 //!   its attacks allow.
-//! - **Sight.** It attacks only a player it sees: one whose client was told of it, with nothing of
-//!   the walls between them indoors ([`sees_to_attack`]). Out of its sight it neither shoots nor
-//!   strikes but closes in, a shooter as a creature that strikes does, until it sees the player
-//!   again, looking once a world step (2017: no attack told by or from an attacker the client was
-//!   never told of, 0 of 11,671; 121 of 136 indoor shots had a clear line to their target; with a
-//!   wall between them, creatures closed on the player in 1,496 of 2,168 spans).
+//! - **Sight.** It attacks only a player it sees: one whose client was told of it, with nothing
+//!   between them ([`sees`]: walls, floors, the ground, buildings, rocks and closed doors stop the
+//!   line). Out of its sight it neither shoots nor strikes but closes in, a shooter as a creature
+//!   that strikes does, until it sees the player again, looking once a world step (2017: no attack
+//!   told by or from an attacker the client was never told of, 0 of 11,671; of the shots fired with
+//!   shooter and target both standing still, 97.7% indoors and 99.4% outdoors had a clear line;
+//!   shooters fired a third as often with the line blocked, the rest of those shots from places
+//!   told late; with a wall between them, creatures closed on the player in 1,496 of 2,168
+//!   spans).
 //! - **Concealing effects.** A record on a player can change what creatures of a class make of it:
 //!   one that spares it doesn't take it on, come to its kin's fight with it, or turn to it, unless
 //!   it has hurt the creature; one that hates it is taken on even by a creature that never attacks
@@ -50,9 +55,12 @@
 //! - **Giving up.** When the player has been beyond its perception radius for a second (2017's gave
 //!   up a median 1.17 s after the player left the radius, at a distance beyond it about the same
 //!   for every radius), or out of its sight with no way through the walls to it for five seconds
-//!   (inferred: 2017's few indoor fights hold no such case), or is gone, it takes its peaceful mode
-//!   and runs home; it is not made whole
-//!   (it regenerates). There is no leash at the homesick radius and no giving up by time. A target
+//!   (inferred: 2017's few indoor fights hold no such case; one that only turns has no way to
+//!   anything), or is gone, it takes its peaceful mode and runs home; it is not made whole
+//!   (it regenerates). A player it gave up neither seeing nor reaching it takes on again, by noticing
+//!   or with its kin, only once it sees the player, or once the player has left its perception and
+//!   come back: else it would notice the player through the rock again at once, run at it and give
+//!   up, over and over. There is no leash at the homesick radius and no giving up by time. A target
 //!   that dies is replaced by the nearest player within the radius that has hurt the creature, if
 //!   any (2017: 62 of 387 took another).
 //! - **Turning on another.** At each of its attacks (once for each) it may draw its target again:
@@ -435,8 +443,14 @@ fn notice<S: Store>(
     (id, class): (Option<u64>, Option<u32>),
     attacks_first: bool,
 ) -> Option<u64> {
+    let given_up = id
+        .and_then(|id| s.things.get(id))
+        .and_then(|t| t.creature.as_ref())
+        .map(|c| c.passed_over.as_slice())
+        .unwrap_or_default();
     notices_among(s, at, radius, |p| {
         fightable(p)
+            && !given_up.contains(&p.character)
             && p.admin.attackable == Attackable::Normal
             && match regard_of(s, id, class, p) {
                 Some(Regard::Spares) => false,
@@ -464,6 +478,49 @@ pub fn notices_among<S: Store>(
         .map(|(d, p)| (d, p.character))
         .min_by(|a, b| a.0.total_cmp(&b.0))
         .map(|(_, id)| id)
+}
+
+/// A creature forgets having given up the players it now sees, and those that have left its
+/// perception since.
+fn forget_given_up<S: Store>(s: &mut Server<S>, id: u64, at: &StoredPosition, perception: f32) {
+    let given_up = s
+        .things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .map(|c| c.passed_over.clone())
+        .unwrap_or_default();
+    for player in given_up {
+        let place = s
+            .players
+            .values()
+            .find(|p| p.character == player)
+            .map(|p| p.position);
+        let forget = place.is_none_or(|place| {
+            presence::distance(at, &place).is_none_or(|d| d > perception)
+                || sees(s.ground.as_deref(), s.walls.as_mut(), at, &place)
+        });
+        if forget {
+            if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
+                c.passed_over.retain(|p| *p != player);
+            }
+        }
+    }
+}
+
+/// Does a creature take on a player it has been called to: one it has not given up unseen and
+/// unreached, or has forgotten giving up?
+fn takes_on_again<S: Store>(
+    s: &mut Server<S>,
+    id: u64,
+    at: &StoredPosition,
+    perception: f32,
+    player: u64,
+) -> bool {
+    forget_given_up(s, id, at, perception);
+    s.things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .is_none_or(|c| !c.passed_over.contains(&player))
 }
 
 /// [`notice`] for tests of who is passed over.
@@ -604,7 +661,7 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                             && q.trip.is_none()
                             && regard_of(s, Some(id), class, q) != Some(Regard::Spares)
                     });
-                    if here {
+                    if here && takes_on_again(s, id, &at, perception, p) {
                         engage(s, net, id, p, clock);
                         return;
                     }
@@ -619,6 +676,7 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                     engage(s, net, id, device, clock);
                     return;
                 }
+                forget_given_up(s, id, &at, perception);
                 let player = notice(
                     s,
                     &at,
@@ -701,8 +759,8 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                     c.next_attack = now + crate::spawn::STEP_SECONDS;
                 }
                 // Out of its sight with no way to it is as good as gone, once a few more searches
-                // have found none.
-                let unreached = !seen && c.way.no_way;
+                // have found none; one that only turns never has a way.
+                let unreached = !seen && (c.way.no_way || turns_only);
                 if beyond || unreached {
                     let since = *c.lost_since.get_or_insert(now);
                     now - since
@@ -717,6 +775,16 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                 }
             };
             if far_from_home || lost {
+                if lost && !beyond && !far_from_home {
+                    if let (Some(c), Some(p)) = (
+                        s.things.get_mut(id).and_then(|t| t.creature.as_mut()),
+                        target,
+                    ) {
+                        if !c.passed_over.contains(&p) {
+                            c.passed_over.push(p);
+                        }
+                    }
+                }
                 go_home(s, net, id);
                 return;
             }
@@ -839,7 +907,7 @@ fn cannot_reach<S: Store>(s: &mut Server<S>, id: u64, target: Option<u64>) {
 }
 
 /// Whether a creature sees a player to attack it: the player's client holds the creature, and the
-/// creature sees where the player is ([`sees_to_attack`]). 2017's servers never told a client of an
+/// creature sees where the player is ([`sees`]). 2017's servers never told a client of an
 /// attack by, or on it from, an object it had never been told of (0 of 11,671 attack stories).
 /// What it saw is kept for a world step: it looks once a step, however often the world passes in
 /// between.
@@ -857,44 +925,56 @@ fn sees_player<S: Store>(
         return false;
     }
     let (character, place) = (p.character, p.position);
+    sight_of(s, id, at, character, &place, now)
+}
+
+/// Whether a creature sees what it fights (a player by its character, or a thing), standing at
+/// `place`: what it saw is kept for a world step, for the same target.
+fn sight_of<S: Store>(
+    s: &mut Server<S>,
+    id: u64,
+    at: &StoredPosition,
+    target: u64,
+    place: &StoredPosition,
+    now: f64,
+) -> bool {
     let kept = s
         .things
         .get(id)
         .and_then(|t| t.creature.as_ref())
         .and_then(|c| c.sight)
-        .filter(|(who, _, when)| *who == character && now - when < crate::spawn::STEP_SECONDS);
+        .filter(|(who, _, when)| *who == target && now - when < crate::spawn::STEP_SECONDS);
     if let Some((_, saw, _)) = kept {
         return saw;
     }
-    let saw = sees_to_attack(s.ground.as_deref(), s.walls.as_mut(), at, &place);
+    let saw = sees(s.ground.as_deref(), s.walls.as_mut(), at, place);
     if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
-        c.sight = Some((character, saw, now));
+        c.sight = Some((target, saw, now));
     }
     saw
 }
 
-/// Whether something at `from` sees a place `to` well enough to attack it. Outdoors nothing stands
-/// between them. Indoors (either place) both must be in one landblock, and where the walls are
-/// known a straight line between them must meet none ([`crate::walls::Walls::clear_between`]);
-/// where they are not, the one's cell must be the other's, or either must see the other's, when
-/// the host knows what each cell sees. 2017's creatures shot from an interior cell with a clear line
-/// to their target 121 times in 136; the other 15, all of one session's three creatures in one
-/// dungeon, went through what the walls show as rock, and no shot came from a cell that did not see
-/// its target's. A creature not seeing its target attacks nothing.
-pub fn sees_to_attack(
+/// Whether something at `from` sees a place `to`: the one test of sight every attack, notice and
+/// missile asks. Where the walls are known, a line between them must get through from either end
+/// ([`crate::walls::Walls::sees`]): walls, floors, the ground, buildings, rocks and closed doors
+/// stop it, and it goes into and out of rooms only through their doorways. Where they are not,
+/// outdoors nothing stands between them; indoors (either place) both must be in one landblock, and
+/// the one's cell must be the other's, or either must see the other's, when the host knows what
+/// each cell sees.
+pub fn sees(
     ground: Option<&dyn crate::Ground>,
     walls: Option<&mut crate::walls::Walls>,
     from: &StoredPosition,
     to: &StoredPosition,
 ) -> bool {
+    if let Some(w) = walls {
+        return w.sees(from, to);
+    }
     if !presence::indoors(from.cell) && !presence::indoors(to.cell) {
         return true;
     }
     if from.cell >> 16 != to.cell >> 16 {
         return false;
-    }
-    if let Some(w) = walls {
-        return w.clear_between(from, to);
     }
     if from.cell == to.cell {
         return true;
@@ -972,8 +1052,9 @@ fn foe_near<S: Store>(
 }
 
 /// A creature fights a pet or another creature: it gives up as with a player when the target is
-/// gone, dead or beyond its perception, or it is too far from home; else it runs into reach and
-/// strikes it.
+/// gone, dead or beyond its perception, or it is too far from home, or out of its sight with no way
+/// to it for five seconds; else it runs into reach and strikes it, only when it sees it (out of its
+/// sight it closes in).
 #[allow(clippy::too_many_arguments)]
 fn fights<S: Store>(
     s: &mut Server<S>,
@@ -998,17 +1079,27 @@ fn fights<S: Store>(
         go_home(s, net, id);
         return;
     }
-    if d > reach {
-        step_toward(
-            s,
-            net,
-            id,
-            &place,
-            run,
-            reach - MELEE_REACH * 0.2,
-            RUNNING,
-            clock,
-        );
+    let now = clock.local.0;
+    let seen = sight_of(s, id, at, pet, &place, now);
+    let lost = {
+        let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) else {
+            return;
+        };
+        if !seen && c.way.no_way {
+            now - *c.lost_since.get_or_insert(now) >= NO_WAY_GIVE_UP_AFTER
+        } else {
+            c.lost_since = None;
+            false
+        }
+    };
+    if lost {
+        go_home(s, net, id);
+        return;
+    }
+    if d > reach || !seen {
+        // Out of its sight it goes for where the target stands, to come round to it.
+        let near = if seen { reach - MELEE_REACH * 0.2 } else { 0.0 };
+        step_toward(s, net, id, &place, run, near, RUNNING, clock);
     } else {
         face(s, net, id, &place, clock);
         crate::combat::thing_strikes_thing(s, net, id, pet, None, clock);

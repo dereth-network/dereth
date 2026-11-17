@@ -806,13 +806,15 @@ impl Land {
     }
 
     /// The solids of every block whose spheres the line from `from` to `to` (in `block`'s frame)
-    /// reaches.
+    /// reaches. A block's solids reach no further than the blocks around it, so only the blocks
+    /// beside those the line crosses are looked at, however many the land holds.
     pub(crate) fn solids_near(&self, block: LandblockId, from: Vec3, to: Vec3) -> Vec<SolidNear> {
         let r = crate::rules::rules();
         let mut out = Vec::new();
         let Ok(blocks) = self.blocks.read() else {
             return out;
         };
+        let beyond = |a: f32, b: f32| a.min(b) > 2.0 * BLOCK_LENGTH || a.max(b) < -BLOCK_LENGTH;
         for b in blocks.values() {
             let off = r.block_offset(
                 land_cell_id(b.x, b.y, 0, 0),
@@ -820,6 +822,9 @@ impl Land {
             );
             // The line in this block's frame.
             let (f, t) = (from.add(off), to.add(off));
+            if beyond(f.x, t.x) || beyond(f.y, t.y) {
+                continue;
+            }
             for (index, s) in b.solids.iter().enumerate() {
                 if segment_distance(s.bounds.center, f, t) <= s.bounds.radius {
                     out.push(SolidNear {

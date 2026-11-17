@@ -260,6 +260,7 @@ fn a_creatures_area_missile_reaches_every_player_and_pet_within_its_radius_where
                 },
                 special: true,
                 from: aimed,
+                loosed_at: None,
             },
             clock,
         );

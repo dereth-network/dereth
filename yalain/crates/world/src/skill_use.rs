@@ -9,7 +9,11 @@
 //! short of the cost; focus short of the cost ([`focus_cost`]); an effect the skill needs its user
 //! to carry missing; the target gone or dead,
 //! too far or too close ([`crate::reach`]: the distance between the bodies, beyond the skill's
-//! greatest range, within its least); moving, for a skill not used on the move.
+//! greatest range, within its least); moving, for a skill not used on the move; out of its user's
+//! sight, for a skill whose hooks reach only what is in sight ([`crate::ai::sees`]), told as the
+//! client tells a target too far (the hook's flag, set on nearly every player skill's hook that
+//! reaches its target at a distance, never on a strike's or a missile's; the client itself never
+//! refuses a use for sight).
 //!
 //! **A helpful skill** (a heal, a buff) is aimed at the player the request names, else at its
 //! user. It plays as a special does, its story the skill's behavior on its user or on another;
@@ -20,8 +24,9 @@
 //! **A hostile skill** used on a creature rolls how each of its hooks comes out on each target it
 //! reaches: a hook with an area reaches every live creature whose body is within its radius of its
 //! center's (the target, or the user for a skill used on its user; 2017: 1,653 of 1,776 creatures
-//! within the radius named, 62 of 1,730 beyond it), each with its own outcome and damage, named in
-//! the story one after another; any other hook reaches the target alone (a missile's area too:
+//! within the radius named, 62 of 1,730 beyond it; only those in sight of the center, for a hook
+//! that reaches only what is in sight), each with its own outcome and damage, named in the story
+//! one after another; any other hook reaches the target alone (a missile's area too:
 //! 1,290 of 1,292 missiles of area skills hit their target alone). Where a hook lands, the skill's
 //! target effects are put on that creature ([`crate::effects::apply_on`]): a debuff, a change over
 //! time, a combination's link, or a combination that finds one (a creature's opening is one such:
@@ -49,8 +54,9 @@
 //! special: the skill's behavior at
 //! the player's attack time scale, the use's number, the skill, and one hook per hook of the skill
 //! (a missile's naming the weapon that throws it, a strike's with its result at once). A missile
-//! arrives after the throw's windup and its flight, and the target tells how it came out; a strike
-//! lands at its animation's hit point. The special's damage is a basic attack's with the hook's
+//! arrives after the throw's windup and its flight, and the target tells how it came out (a miss
+//! when the target has gone out of its user's sight by then); a strike lands at its animation's hit
+//! point. The special's damage is a basic attack's with the hook's
 //! own added. When the special's animation is over, the skill's information (when it was last
 //! used, from which its recovery counts), the player not attacking, stopped and at peace. Inside
 //! an attack run, a special takes the run's next swing, and the run goes on after it.
@@ -119,6 +125,9 @@ pub mod refusal {
     pub const NO_VIGOR: u32 = 30_016;
     pub const TOO_CLOSE: u32 = 30_018;
     pub const TOO_FAR: u32 = 30_019;
+    /// The target is out of sight of a skill that reaches only what is in sight (the client says it
+    /// is too far).
+    pub const NOT_IN_SIGHT: u32 = 22_034;
     pub const WRONG_IMPLEMENT: u32 = 30_026;
     pub const MOVING: u32 = 30_027;
     pub const NOT_RESET: u32 = 30_030;
@@ -150,6 +159,9 @@ pub mod ui_flag {
 pub mod hook_flag {
     pub const AREA: u32 = 0x1;
     pub const PROJECTILE: u32 = 0x4;
+    /// It reaches only what is in sight: its target, of its user; what its area reaches, of its
+    /// area's center.
+    pub const LINE_OF_SIGHT: u32 = 0x10;
     pub const NON_DAMAGING: u32 = 0x40;
     /// The hand that strikes: which weapon's damage the blow does.
     pub const LEFT_HAND: u32 = 0x1000;
@@ -1028,6 +1040,53 @@ pub(crate) fn may_swing<S: Store>(s: &Server<S>, world: ConnId, u: &Usage) -> bo
     })
 }
 
+/// Does a skill reach only what is in sight: one of its hooks says so.
+#[must_use]
+pub fn needs_sight(u: &Usage) -> bool {
+    u.hooks
+        .iter()
+        .any(|h| h.flags & hook_flag::LINE_OF_SIGHT != 0)
+}
+
+/// Of `targets`, those a hook reaches: all of them, or for a hook that reaches only what is in
+/// sight, those in sight of `from`.
+pub(crate) fn in_sight<S: Store>(
+    s: &mut Server<S>,
+    h: &Hook,
+    from: Option<StoredPosition>,
+    targets: Vec<u64>,
+) -> Vec<u64> {
+    let Some(from) = from.filter(|_| h.flags & hook_flag::LINE_OF_SIGHT != 0) else {
+        return targets;
+    };
+    targets
+        .into_iter()
+        .filter(|t| {
+            let at = s
+                .players
+                .values()
+                .find(|p| p.character == *t)
+                .map(|p| p.position)
+                .or_else(|| s.things.get(*t).and_then(|x| x.at));
+            at.is_none_or(|at| crate::ai::sees(s.ground.as_deref(), s.walls.as_mut(), &from, &at))
+        })
+        .collect()
+}
+
+/// Is the target of a player's throw out of the player's sight as it arrives?
+pub(crate) fn thrown_out_of_sight<S: Store>(s: &mut Server<S>, world: ConnId, target: u64) -> bool {
+    let Some(mine) = s.players.get(&world).map(|p| p.position) else {
+        return false;
+    };
+    let at = s
+        .players
+        .values()
+        .find(|p| p.character == target)
+        .map(|p| p.position)
+        .or_else(|| s.things.get(target).and_then(|t| t.at));
+    at.is_some_and(|at| !crate::ai::sees(s.ground.as_deref(), s.walls.as_mut(), &mine, &at))
+}
+
 /// A missile hook of a skill, if it throws one.
 pub(crate) fn missile_hook(u: &Usage) -> Option<&Hook> {
     u.hooks
@@ -1207,6 +1266,8 @@ fn check<S: Store>(
     if aims_at_item(&u) {
         item_aim(s, p.character, &u, r.target)?;
     }
+    // Where another the use is aimed at stands, for a skill that reaches only what is in sight.
+    let mut in_sight_of_me = None;
     match aim_of(s, world, r, &u) {
         Aim::Me | Aim::Item(_) => {}
         Aim::Corpse(corpse) => {
@@ -1262,6 +1323,7 @@ fn check<S: Store>(
             if !walks && !helpful(&u) && u.min_range > 0.0 && d.is_some_and(|d| d < u.min_range) {
                 return Err(refusal::TOO_CLOSE);
             }
+            in_sight_of_me = at;
         }
         Aim::Thing(target) => {
             if target == 0 {
@@ -1288,11 +1350,21 @@ fn check<S: Store>(
                     return Err(refusal::TOO_CLOSE);
                 }
             }
+            in_sight_of_me = Some(at);
         }
     }
     if u.ui_flags & ui_flag::USE_WHILE_MOVING == 0 && moving(p) {
         return Err(refusal::MOVING);
     }
+    if let Some(at) = in_sight_of_me.filter(|_| !walks && needs_sight(&u)) {
+        let mine = p.position;
+        if !crate::ai::sees(s.ground.as_deref(), s.walls.as_mut(), &mine, &at) {
+            return Err(refusal::NOT_IN_SIGHT);
+        }
+    }
+    let Some(p) = s.players.get(&world) else {
+        return Err(refusal::INTERRUPTED);
+    };
     let summons = u.user_effects.iter().chain(&u.target_effects).copied();
     if crate::pets::too_many(s, p.character, r.skill, &summons.collect::<Vec<u32>>()) {
         return Err(crate::pets::TOO_MANY_PETS);
@@ -2382,9 +2454,10 @@ fn landings_of<S: Store>(
             if primary_creature && matches!(aim, Aim::Player(..)) {
                 around.insert(0, target);
             }
-            around
+            in_sight(s, h, center.map(|(at, _)| at), around)
         } else if primary_creature {
-            vec![target]
+            let mine = s.players.get(&world).map(|p| p.position);
+            in_sight(s, h, mine, vec![target])
         } else {
             Vec::new()
         };
@@ -2748,7 +2821,12 @@ fn arrives<S: Store>(
     if !alive(s) {
         return;
     }
-    let (o, dmg) = outcome.unwrap_or((Outcome::Evade, 0));
+    // A target gone out of its user's sight is not reached: the missile meets what stands between.
+    let (o, dmg) = if thrown_out_of_sight(s, world, r.target) {
+        (Outcome::Miss, 0)
+    } else {
+        outcome.unwrap_or((Outcome::Evade, 0))
+    };
     let harm = if o.landed() {
         let on = player.map_or(
             crate::effects::On::Creature(r.target),

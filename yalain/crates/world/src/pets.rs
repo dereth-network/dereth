@@ -55,11 +55,14 @@
 //! fighting plans its way to three meters from where its owner then stands (so it trails a running
 //! owner), and one more than 100 m away is put beside its owner; a supporting pet takes on what its
 //! owner attacks, a protective one what goes after its owner, a self-defending one what strikes
-//! it. A pet that goes into a fight while still on its way to its owner is told its kind's own
-//! speed as it does. In a fight it closes to its attacks' reach and attacks about once a second,
-//! with one of its attacks that reach its target, all alike or as its kind weighs them; after a
-//! missile that did not land (its target gone, or the ground between them) it draws among all its
-//! attacks, and closes in to use one drawn that does not reach. A
+//! it, each only a creature it sees ([`crate::ai::sees`]). A pet that goes into a fight while still
+//! on its way to its owner is told its kind's own speed as it does. In a fight it closes to its
+//! attacks' reach and attacks about once a second, with one of its attacks that reach its target,
+//! all alike or as its kind weighs them, only while it sees its target: out of its sight it closes
+//! in (a pet that stays waits), and with no way to it lets it go five seconds on. Its missile at a
+//! creature gone out of its sight as it flies meets what stands between them and misses; after a
+//! missile that did not land (its target gone, or out of its sight) it draws among all its attacks,
+//! and closes in to use one drawn that does not reach. A
 //! creature a pet strikes fights the pet: at once when it fought nothing, and turning from another
 //! three times in five. What its skill puts on a target goes on what its strike reaches, cast by the
 //! pet at its level, on a creature its owner may harm and on nothing else; of a change over time its
@@ -726,6 +729,7 @@ fn summon_kind<S: Store>(
         damage_by: Vec::new(),
         taken_by: Vec::new(),
         unreached: Vec::new(),
+        passed_over: Vec::new(),
         ranged: false,
         closing: None,
         barred: Vec::new(),
@@ -1964,11 +1968,34 @@ pub const JOINS_WITHIN: f32 = 40.0;
 /// perception; 2017: the nearest creature within it in 59 of 79 unprovoked fights).
 pub const AGGRESSIVE_REACH: f32 = 40.0;
 
-/// What a pet takes on by itself, by its mode: supporting, what its owner last hurt, unless it is
-/// more than 40 m from its owner; protective, a creature going after its owner; aggressive, the
-/// nearest creature within its reach (40 m; a pet that stays, its missile's).
-fn unbidden<S: Store>(s: &Server<S>, pet: &Pet, at: &StoredPosition) -> Option<u64> {
-    let p = s.players.values().find(|p| p.character == pet.owner)?;
+/// What a pet takes on by itself, by its mode, of the creatures it sees: supporting, what its owner
+/// last hurt, unless it is more than 40 m from its owner; protective, a creature going after its
+/// owner; aggressive, the nearest creature within its reach (40 m; a pet that stays, its
+/// missile's).
+fn unbidden<S: Store>(s: &mut Server<S>, pet: &Pet, at: &StoredPosition) -> Option<u64> {
+    for mode in [flag::SUPPORT_MASTER, flag::DEFEND_MASTER, flag::AGGRESSIVE] {
+        if pet.flags & mode == 0 {
+            continue;
+        }
+        let mut seen = None;
+        for t in unbidden_by(s, pet, at, mode) {
+            if sees_thing(s, at, t) {
+                seen = Some(t);
+                break;
+            }
+        }
+        if seen.is_some() || mode == flag::AGGRESSIVE {
+            return seen;
+        }
+    }
+    None
+}
+
+/// What a pet would take on in one of its modes, nearest first, whether or not it sees it.
+fn unbidden_by<S: Store>(s: &Server<S>, pet: &Pet, at: &StoredPosition, mode: u32) -> Vec<u64> {
+    let Some(p) = s.players.values().find(|p| p.character == pet.owner) else {
+        return Vec::new();
+    };
     let alive_creature = |t: u64| {
         s.things
             .get(t)
@@ -1982,48 +2009,57 @@ fn unbidden<S: Store>(s: &Server<S>, pet: &Pet, at: &StoredPosition) -> Option<u
                 .and_then(|a| crate::presence::distance(&a, at))
                 .is_some_and(|d| d <= ASSIST_RANGE)
     };
-    if pet.flags & flag::SUPPORT_MASTER != 0 {
-        let near_owner =
-            crate::presence::distance(&p.position, at).is_some_and(|d| d <= JOINS_WITHIN);
-        if let Some(t) = pet.assist.filter(|t| near_owner && fit(*t)) {
-            return Some(t);
+    let nearest = |mut v: Vec<(f32, u64)>| {
+        v.sort_by(|a, b| a.0.total_cmp(&b.0));
+        v.into_iter().map(|(_, id)| id).collect::<Vec<u64>>()
+    };
+    match mode {
+        flag::SUPPORT_MASTER => {
+            let near_owner =
+                crate::presence::distance(&p.position, at).is_some_and(|d| d <= JOINS_WITHIN);
+            pet.assist
+                .filter(|t| near_owner && fit(*t))
+                .into_iter()
+                .collect()
+        }
+        flag::DEFEND_MASTER => nearest(
+            s.things
+                .by_id
+                .values()
+                .filter(|t| fit(t.id))
+                .filter(|t| {
+                    t.creature
+                        .as_ref()
+                        .is_some_and(|c| c.mode == Mode::Chasing && c.target == Some(pet.owner))
+                })
+                .filter_map(|t| crate::presence::distance(&t.at?, at).map(|d| (d, t.id)))
+                .collect(),
+        ),
+        _ => {
+            let reach = if s.pets.kind_of(pet.effect).is_some_and(|k| k.stays) {
+                reach_of(s, pet.id)
+            } else {
+                AGGRESSIVE_REACH
+            };
+            nearest(
+                s.things
+                    .by_id
+                    .values()
+                    .filter(|t| t.id != pet.id && alive_creature(t.id))
+                    .filter_map(|t| crate::presence::distance(&t.at?, at).map(|d| (d, t.id)))
+                    .filter(|(d, _)| *d <= reach)
+                    .collect(),
+            )
         }
     }
-    if pet.flags & flag::DEFEND_MASTER != 0 {
-        let defending = s
-            .things
-            .by_id
-            .values()
-            .filter(|t| fit(t.id))
-            .filter(|t| {
-                t.creature
-                    .as_ref()
-                    .is_some_and(|c| c.mode == Mode::Chasing && c.target == Some(pet.owner))
-            })
-            .filter_map(|t| crate::presence::distance(&t.at?, at).map(|d| (d, t.id)))
-            .min_by(|a, b| a.0.total_cmp(&b.0))
-            .map(|(_, id)| id);
-        if defending.is_some() {
-            return defending;
-        }
-    }
-    if pet.flags & flag::AGGRESSIVE != 0 {
-        let reach = if s.pets.kind_of(pet.effect).is_some_and(|k| k.stays) {
-            reach_of(s, pet.id)
-        } else {
-            AGGRESSIVE_REACH
-        };
-        return s
-            .things
-            .by_id
-            .values()
-            .filter(|t| t.id != pet.id && alive_creature(t.id))
-            .filter_map(|t| crate::presence::distance(&t.at?, at).map(|d| (d, t.id)))
-            .filter(|(d, _)| *d <= reach)
-            .min_by(|a, b| a.0.total_cmp(&b.0))
-            .map(|(_, id)| id);
-    }
-    None
+}
+
+/// Does what stands at `at` see thing `t`?
+fn sees_thing<S: Store>(s: &mut Server<S>, at: &StoredPosition, t: u64) -> bool {
+    let Some(there) = s.things.get(t).and_then(|x| x.at) else {
+        return false;
+    };
+    crate::ai::sees(s.ground.as_deref(), s.walls.as_mut(), at, &there)
 }
 
 /// How far a pet's attacks reach: the farthest of them and of what it fires at.
@@ -2106,6 +2142,41 @@ fn fight<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, target: u64,
         return;
     };
     let d = crate::presence::distance(&at, &there).unwrap_or(f32::MAX);
+    // Out of its sight it attacks nothing: it closes in, and gives up after five seconds with no
+    // way to its target (a pet that stays never has one).
+    if !sees_thing(s, &at, target) {
+        let now = clock.local.0;
+        let lost = s
+            .things
+            .get_mut(id)
+            .and_then(|t| t.creature.as_mut())
+            .is_some_and(|c| {
+                if kind.stays || c.way.no_way {
+                    now - *c.lost_since.get_or_insert(now) >= crate::ai::NO_WAY_GIVE_UP_AFTER
+                } else {
+                    c.lost_since = None;
+                    false
+                }
+            });
+        if lost {
+            if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
+                c.target = None;
+                c.lost_since = None;
+            }
+            if let Some(p) = s.pets.by_id.get_mut(&id) {
+                p.assist = p.assist.filter(|a| *a != target);
+            }
+            return;
+        }
+        if !kind.stays {
+            let speed = run_speed(s, id);
+            crate::ai::step_toward(s, net, id, &there, speed, 0.0, crate::ai::RUNNING, clock);
+        }
+        return;
+    }
+    if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
+        c.lost_since = None;
+    }
     if let Some(f) = fires(s, id) {
         let due = s
             .things
@@ -2437,9 +2508,6 @@ fn also_reached<S: Store>(s: &Server<S>, pet: u64, target: u64, skill: u32) -> V
 /// A pet's missile flies at this many meters a second, loosed at its throw's hook (2017: the Lasher's
 /// impact a windup over the time scale + distance / 59 m/s after its throw, 2,110 throws).
 pub const MISSILE_SPEED: f32 = 59.0;
-/// How far above where the pet and its target stand the line a missile's landing is read along runs,
-/// in meters.
-pub const MISSILE_RISE: f32 = 1.0;
 
 /// A pet throws its missile: the throw's story now (the pet's, naming its target), the landing
 /// told by what it lands on after the flight. Returns the flight, in seconds.
@@ -2522,17 +2590,16 @@ pub fn lands<S: Store>(
         }
         return;
     };
-    // Whether it landed, as the pet's next attack reads it: the ground stood between them or not.
+    // Whether it landed, as the pet's next attack reads it: its target was in its sight or not. One
+    // out of its sight it does not reach: the missile meets what stands between them, and misses.
     let from = s.things.get(pet).and_then(|t| t.at);
-    let blocked = match (from, s.walls.as_mut()) {
-        (Some(from), Some(w)) => w.ground_between(&from, &there, MISSILE_RISE) == Some(true),
-        _ => false,
-    };
+    let blocked = from
+        .is_some_and(|from| !crate::ai::sees(s.ground.as_deref(), s.walls.as_mut(), &from, &there));
     if let Some(p) = s.pets.by_id.get_mut(&pet) {
         p.missed = blocked;
     }
     let mut hit = vec![target];
-    if kind.area > 0.0 {
+    if kind.area > 0.0 && !blocked {
         hit.extend(
             s.things
                 .by_id
@@ -2549,7 +2616,11 @@ pub fn lands<S: Store>(
     let mut hooks = Vec::new();
     let mut landed = Vec::new();
     for t in hit {
-        let (outcome, damage) = roll(s, pet, t, &kind, harms(s, skill.skill));
+        let (outcome, damage) = if blocked {
+            (Outcome::Miss, 0)
+        } else {
+            roll(s, pet, t, &kind, harms(s, skill.skill))
+        };
         let harm = answered(s, t, outcome, damage);
         hooks.push(
             crate::combat::Swing {

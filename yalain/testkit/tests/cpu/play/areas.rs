@@ -296,3 +296,59 @@ fn an_area_skill_used_on_its_user_reaches_the_creatures_around_the_user() {
     }
     assert!(!holds(&h, beetles[2], EYE_OF_THE_STORM_EFFECT));
 }
+
+/// An area hook that reaches only what is in sight leaves a creature within its radius out of sight
+/// of its center: Vacuum, its hooks made to reach only what is in sight, on a beetle in one room
+/// names that beetle and the one beside it in the room it sees, and not the one as near in a room
+/// it does not see.
+/// Behaviour: server.skills.reach-only-what-is-in-sight
+#[test]
+fn an_area_hook_that_reaches_only_what_is_in_sight_leaves_a_creature_out_of_sight_of_its_center() {
+    const ROOM: u32 = 0x0299_0109;
+    const NEXT_ROOM: u32 = 0x0299_0100;
+    const APART: u32 = 0x0299_014D;
+    let (mut h, b, me, beetles) = beside_beetles(3);
+    let (target, near, apart) = (beetles[0], beetles[1], beetles[2]);
+    h.server.ground = Some(Box::new(yalain_testkit::TestGround::seeing(&[
+        (ROOM, &[NEXT_ROOM]),
+        (NEXT_ROOM, &[ROOM]),
+        (APART, &[]),
+    ])));
+    if let Some(u) = h
+        .server
+        .skill_table
+        .skills
+        .get_mut(&VACUUM)
+        .and_then(|d| d.usage.as_mut())
+    {
+        for k in &mut u.hooks {
+            k.flags |= yalain_world::skill_use::hook_flag::LINE_OF_SIGHT;
+        }
+    }
+    let at = |cell: u32, x: f32, y: f32| StoredPosition {
+        cell,
+        origin: [x, y, -44.6],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    for p in h.server.players.values_mut() {
+        p.position = at(ROOM, 59.06, 233.0);
+    }
+    for (id, place) in [
+        (target, at(ROOM, 59.06, 239.0)),
+        (near, at(NEXT_ROOM, 61.06, 242.0)),
+        (apart, at(APART, 57.06, 242.0)),
+    ] {
+        if let Some(t) = h.server.things.get_mut(id) {
+            t.at = Some(place);
+        }
+    }
+    h.arm(b, me, STAVE);
+    let from = use_skill(&mut h, b, 1, VACUUM, target);
+    h.run(120);
+    let hooks = story_hooks(&h, b, from, me, VACUUM);
+    let named: Vec<u64> = hooks[2..].iter().map(|k| k.target).collect();
+    let mut want = vec![target, near];
+    want.sort_unstable();
+    assert_eq!(named, want, "the two in sight of its center");
+    assert!(!holds(&h, apart, VACUUM_EFFECT));
+}

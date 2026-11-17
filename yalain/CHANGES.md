@@ -10,6 +10,7 @@ what they see, not how it was done.
 - Creatures' area attacks now hit everyone nearby, pets included.
 - Allegiance Recall works: monarchs can bind their allegiance to a hall.
 - Fixed old copies of the server staying in memory after each update on Windows.
+- Hills, buildings and closed doors now block sight for creatures, pets and players' skills.
 
 ## 0.6.0 (2026-11-17)
 - World: the quest of the three stars at the five kingdom shrines, and the kingdoms' armor it unlocks.
