@@ -534,11 +534,13 @@ fn the_recorded_chests_draw_treasure_within_what_2017_showed() {
         ("GP_Chest_SigilHuman_Trinkets_HighHoard", 20),
         ("GP_Chest_SigilHuman_Trinkets_LowHoard", 20),
         ("GP_Chest_SigilLugian_StandardHoard", 86),
+        // The Chaos Hoard, between the Tumerok and human caches recorded.
+        ("GP_Chest_SigilTumerok_Expensive_LowHoard", 75),
     ] {
         let (_, (low, high)) = got[name];
         assert!(low > 0 && high <= most, "{name}: {low} to {high}");
     }
-    assert_eq!(got.len(), 12);
+    assert_eq!(got.len(), 13);
 }
 
 /// Who a store's sales are for comes from the install: the honey shop and the fur trader hide
@@ -19162,17 +19164,20 @@ fn a_boss_with_three_possible_spots_stands_at_one_of_them_at_a_time() {
 
 /// The sigil caches the world places whose profile no recorded opening showed, each with the cell
 /// it stands in and the key that opens it: the Order Caches of the Lasher Caves, the Mist Caverns
-/// and the Wasp Hive, and the Singularity Troves of the mage academy and the reliquary.
-const UNOPENED_CACHES: [(u32, u32, u32); 5] = [
+/// and the Wasp Hive, the Singularity Troves of the mage academy and the reliquary, and the Chaos
+/// Hoard of the Water Temple.
+const UNOPENED_CACHES: [(u32, u32, u32); 6] = [
     (0x4700_0F51, 0x858D_012A, 0x4700_111C),
     (0x4700_0F59, 0x7097_0119, 0x4700_111C),
     (0x4700_0F5A, 0x9AB5_012A, 0x4700_111C),
     (0x4700_0F61, 0x07FA_0169, 0x4700_111E),
     (0x4700_0F61, 0x0AFC_0137, 0x4700_111E),
+    (0x4700_0F6A, 0xB880_01DB, 0x4700_1124),
 ];
 
 /// A way on foot from where the walker stands, inside a cave of a block on the land, out to the
-/// land of that block: its places in order, the first left out; none when the cave has no way out.
+/// land (of any block: a cave's rooms can reach under the next): its places in order, the first
+/// left out; none when the cave has no way out.
 fn way_out_to_the_land(w: &mut Walled) -> Option<Vec<yalain_store::StoredPosition>> {
     use dereth_primitives::num::math;
     let start = w.at();
@@ -19201,12 +19206,13 @@ fn way_out_to_the_land(w: &mut Walled) -> Option<Vec<yalain_store::StoredPositio
             let Some(to) = step_on(walls, &at, *d) else {
                 continue;
             };
-            if to.cell >> 16 != start.cell >> 16 || !seen.insert(key(&to)) {
+            let land = to.cell & 0xFFFF < 0x100;
+            if (!land && to.cell >> 16 != start.cell >> 16) || !seen.insert(key(&to)) {
                 continue;
             }
             places.push(to);
             from.push(next);
-            if to.cell & 0xFFFF < 0x100 {
+            if land {
                 let way = way_from_first(&from, places.len() - 1);
                 return Some(way.into_iter().map(|i| places[i]).collect());
             }
@@ -19216,12 +19222,88 @@ fn way_out_to_the_land(w: &mut Walled) -> Option<Vec<yalain_store::StoredPositio
     None
 }
 
+/// The world's doors of a block, by their places in the world's list.
+fn doors_of(w: &Walled, block: u32) -> Vec<usize> {
+    let objects = &w.h.server.content.objects;
+    (0..objects.len())
+        .filter(|&i| {
+            objects[i].cell >> 16 == block
+                && w.h
+                    .server
+                    .doors
+                    .packages
+                    .contains_key(&objects[i].description.package)
+        })
+        .collect()
+}
+
+/// The walker, from beside each shut door of a block in turn, uses it, and is put back where it
+/// stood: each opens (for its ten seconds, which no search spends).
+fn open_doors_of(w: &mut Walled, t: &Tables, block: u32) {
+    let back = w.at();
+    for i in doors_of(w, block) {
+        // From one side of it or the other, clear of its body.
+        let at = place_of(t, i);
+        for [dx, dy] in [[1.5, 0.0], [-1.5, 0.0], [0.0, 1.5], [0.0, -1.5]] {
+            if w.open(t, i) {
+                break;
+            }
+            w.put(spot(
+                at.cell,
+                [at.origin[0] + dx, at.origin[1] + dy, at.origin[2]],
+            ));
+            open_door(w, t, i);
+        }
+    }
+    w.put(back);
+}
+
+/// The walker uses a door beside it: whether it opens.
+fn open_door(w: &mut Walled, t: &Tables, i: usize) -> bool {
+    let id = yalain_world::presence::content_id(&t.content.objects, i);
+    w.h.bots[w.b].send(
+        true,
+        queue::WEENIE,
+        &server_call(0x8216_0016, &[use_of(id, w.me)]),
+    );
+    w.h.run(12);
+    w.open(t, i)
+}
+
+/// The walker runs along a way, using each shut door of the block within two meters before its
+/// next step: how many of its places its body reached, from the first.
+fn run_along_opening_doors(
+    w: &mut Walled,
+    t: &Tables,
+    block: u32,
+    way: &[yalain_store::StoredPosition],
+) -> usize {
+    use yalain_world::usable::maps::ground_distance;
+    let doors = doors_of(w, block);
+    for (k, next) in way.iter().enumerate() {
+        let here = w.at();
+        for &i in &doors {
+            let at = place_of(t, i);
+            if at.cell >> 16 == here.cell >> 16
+                && ground_distance(&here, &at) <= 2.0
+                && !w.open(t, i)
+            {
+                assert!(open_door(w, t, i), "the door {i} opens to a use");
+            }
+        }
+        if w.run_along(std::slice::from_ref(next)) != 1 {
+            return k;
+        }
+    }
+    way.len()
+}
+
 /// **The sigil caches no recording opened are walked to and open with their key to treasure**: each
-/// of the five Order Caches and Singularity Troves whose profile no 2017 opening showed has a row,
-/// of treasure at a level; a body reaches it on foot from its dungeon's way in (the land at a
-/// cave's mouth, run out to and back in from, or the landing of the portal on the land into its
-/// dungeon); and its key used on it there opens it for its user, holding only what its row names,
-/// the key used up.
+/// of the six Order Caches, Singularity Troves and Chaos Hoards whose profile no 2017 opening showed
+/// has a row, of treasure at a level; a body reaches it on foot from its dungeon's way in (the land
+/// at a cave's mouth, run out to and back in from, or the landing of the portal on the land into
+/// its dungeon), each door on the way opened by a use as it is reached; and its key used on it there opens it for its user, holding only what its row
+/// names (its extras among them), the key used up.
 /// Behaviour: server.places.unopened-sigil-caches-walk-through
 #[test]
 fn the_sigil_caches_no_recording_opened_are_walked_to_and_open_with_their_key_to_treasure() {
@@ -19261,16 +19343,38 @@ fn the_sigil_caches_no_recording_opened_are_walked_to_and_open_with_their_key_to
             );
             w
         } else {
-            // A cave of a block on the land: out from beside the cache to the land, and back in.
+            // A cave of a block on the land: out from beside the cache to the land, and back in
+            // (from the land of the cache's own block on foot, below; from another block's by the
+            // same way).
             let mut w = walled(t, &[block]);
             let beside = beside_way_in(&mut w, at);
             w.put(beside);
+            open_doors_of(&mut w, t, block);
             let out = way_out_to_the_land(&mut w)
                 .unwrap_or_else(|| panic!("{cell:08X}: a way out to the land"));
-            assert_eq!(w.run_along(&out), out.len(), "{cell:08X}: out to the land");
+            assert_eq!(
+                run_along_opening_doors(&mut w, t, block, &out),
+                out.len(),
+                "{cell:08X}: out to the land"
+            );
             assert!(w.at().cell & 0xFFFF < 0x100, "{cell:08X}: on the land");
+            if w.at().cell >> 16 != block {
+                let back: Vec<_> = out
+                    .iter()
+                    .rev()
+                    .skip(1)
+                    .copied()
+                    .chain(std::iter::once(beside))
+                    .collect();
+                assert_eq!(
+                    run_along_opening_doors(&mut w, t, block, &back),
+                    back.len(),
+                    "{cell:08X}: back in"
+                );
+            }
             w
         };
+        open_doors_of(&mut w, t, block);
         let (places, from) = reached_on_foot(&mut w, 1.0);
         let near = places
             .iter()
@@ -19284,7 +19388,11 @@ fn the_sigil_caches_no_recording_opened_are_walked_to_and_open_with_their_key_to
             .into_iter()
             .map(|k| places[k])
             .collect();
-        assert_eq!(w.run_along(&way), way.len(), "{cell:08X}: in to it");
+        assert_eq!(
+            run_along_opening_doors(&mut w, t, block, &way),
+            way.len(),
+            "{cell:08X}: in to it"
+        );
 
         // Its key, used on it from there.
         let h = &mut w.h;
@@ -19292,8 +19400,9 @@ fn the_sigil_caches_no_recording_opened_are_walked_to_and_open_with_their_key_to
         h.server.catalog.insert(kind);
         h.server.catalog.profiles.insert(profile, name.clone());
         h.server.loot = t.loot.clone();
-        for (item, _) in &row.items {
-            h.server.catalog.insert(as_installed(&portal, *item));
+        let kept = row.items.iter().map(|(x, _)| *x);
+        for item in kept.chain(row.extras.iter().map(|(x, _)| *x)) {
+            h.server.catalog.insert(as_installed(&portal, item));
         }
         h.server.catalog.insert(as_installed(&portal, key));
         yalain_world::inventory::give(&mut h.server, &mut h.net, w.world, key, 1);
@@ -19329,7 +19438,8 @@ fn the_sigil_caches_no_recording_opened_are_walked_to_and_open_with_their_key_to
         assert!(
             inside
                 .iter()
-                .all(|x| row.items.iter().any(|(item, _)| item == x)),
+                .all(|x| row.items.iter().any(|(item, _)| item == x)
+                    || row.extras.iter().any(|(item, _)| item == x)),
             "{cell:08X}: only what its row names: {inside:08X?}"
         );
         assert!(

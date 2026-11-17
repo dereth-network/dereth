@@ -13613,7 +13613,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.places.unopened-sigil-caches-walk-through",
-        says: "Each Order Cache and Singularity Trove the world places whose profile no recorded \
+        says: "Each Order Cache, Singularity Trove and Chaos Hoard the world places whose profile no recorded \
                opening showed has a row of treasure at a level, is reached on foot from its \
                dungeon's way in, and opens to its key, holding only what its row names.",
         since: RETAIL,
