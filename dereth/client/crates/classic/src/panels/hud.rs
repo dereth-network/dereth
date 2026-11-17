@@ -51,7 +51,9 @@ impl SelectionQueries {
             return vec![];
         }
         self.selected = selected;
-        let health = selected.filter(|_| facts.is_some_and(|f| f.attackable || f.is_player));
+        // A creature it would attack, another player and somebody's pet are asked about their life.
+        let health = selected
+            .filter(|_| facts.is_some_and(|f| f.attackable || f.is_player || f.has_pet_owner));
         let any_mana = self.any_mana;
         let mana = selected.filter(|_| {
             facts.is_some_and(|f| {
@@ -3499,6 +3501,29 @@ mod tests {
             ]
         );
         assert!(q.update(None, None, (None, None)).is_empty());
+    }
+
+    /// Selecting somebody's pet, which the player may not attack, asks the server about its life,
+    /// as a creature it would attack and another player are asked; and only that.
+    /// Behaviour: selection.query.what-the-client-asks-about-a-selected-thing-has-four-outcomes
+    #[test]
+    fn selecting_a_pet_asks_about_its_health() {
+        use dereth_client_contract::view::SelectionQueryFacts;
+        let pet = SelectionQueryFacts {
+            is_player: false,
+            has_pet_owner: true,
+            attackable: false,
+            owned_by_player: false,
+        };
+        let mut q = SelectionQueries::default();
+        assert_eq!(
+            q.update(Some(ObjectId(9)), Some(pet), (None, None)),
+            vec![UiRequest::QueryHealth(ObjectId(9))]
+        );
+        assert_eq!(
+            q.update(None, None, (Some(0.5), None)),
+            vec![UiRequest::QueryHealth(ObjectId(0))]
+        );
     }
 
     /// Behaviour: world.rules.a-world-profile-sets-its-clients-rules-over-the-end-of-retails
