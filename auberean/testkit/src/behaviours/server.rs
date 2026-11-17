@@ -12184,6 +12184,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.allegiance-hall-binding",
+        says: "A monarch who uses an allegiance hall's binding stone, the stone's own quest under way (the \
+               permission reading the hall's sign gives), pays the hall's cost and binds its whole allegiance to \
+               the hall: told so, the permission done, and from then on Allegiance Recall takes any member to the \
+               hall's place, the allegiance's record and its export keeping the hall. Short of the cost it is told \
+               it has not enough money and nothing is paid or bound; without the permission the stone refuses it \
+               as a hidden quest's object does.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ALLEGIANCE-HALL-BIND"),
+        station: "yalain-testkit::cpu::play::allegiance_halls::a_monarch_binds_its_allegiance_at_a_halls_stone_and_a_vassal_recalls_there",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.allegiance-recall-unbound",
         says: "Allegiance Recall with no hall its allegiance is bound to plays it all and says the \
                allegiance is not bound; the player stays where it is.",

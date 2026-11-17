@@ -15,9 +15,12 @@
 //! - [`levers`]: a lever a world's rows name opens their doors for everyone, for a while.
 //! - [`portals`]: a portal a player summons to its lifestone or its last portal's place, or an
 //!   item's use makes where its template leads, which anyone it is for may use while it stands.
+//! - [`halls`]: a monarch who uses an allegiance hall's binding stone binds its allegiance's
+//!   Allegiance Recall to the hall.
 
 pub mod chests;
 pub mod doors;
+pub mod halls;
 pub mod interactions;
 pub mod levers;
 pub mod maps;

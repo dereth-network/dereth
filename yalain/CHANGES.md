@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Allegiance Recall works: monarchs can bind their allegiance to a hall.
 - Fixed old copies of the server staying in memory after each update on Windows.
 
 ## 0.6.0 (2026-11-17)

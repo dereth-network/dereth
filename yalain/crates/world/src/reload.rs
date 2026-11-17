@@ -164,6 +164,7 @@ pub mod table {
     pub const SHIFTING: &str = "shifting objects";
     pub const ROUNDS: &str = "rounds";
     pub const WANTING: &str = "wanting objects";
+    pub const HALLS: &str = "allegiance halls";
     pub const HAZARDS: &str = "hazards";
     pub const DEFENSES: &str = "defended devices";
     pub const ESCORTS: &str = "escorts";
@@ -316,6 +317,12 @@ impl<S: Store> Server<S> {
         if changed {
             crate::wanting::forget_all(self);
             self.content.wanting = std::mem::take(&mut t.content.wanting);
+        }
+        // The allegiance halls: an allegiance already bound keeps the place it was bound to.
+        let changed = t.content.halls != self.content.halls;
+        r.note(table::HALLS, changed, true);
+        if changed {
+            self.content.halls = std::mem::take(&mut t.content.halls);
         }
         // The hazards: the reaches players stood within are measured afresh at their next reports.
         let changed = t.content.hazards != self.content.hazards;

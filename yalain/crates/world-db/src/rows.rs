@@ -745,6 +745,7 @@ pub enum Row {
     Guarded(GuardedRow),
     Shifting(ShiftingRow),
     Wanting(WantingRow),
+    AllegianceHall(AllegianceHallRow),
     Round(RoundRow),
     Hazard(HazardRow),
     MapRecipes(MapRecipes),
@@ -1431,6 +1432,18 @@ pub struct WantingRow {
     pub prov: Prov,
 }
 
+/// `[[allegiance_hall]]`: an allegiance hall's binding stone (`key@XXYY`, or `pack:key@XXYY`), the
+/// place Allegiance Recall takes a member of an allegiance bound there (`key`, or `pack:key`), and the
+/// money its monarch pays to bind it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AllegianceHallRow {
+    pub key: String,
+    pub stone: String,
+    pub place: String,
+    pub cost: u32,
+    pub prov: Prov,
+}
+
 /// `[[tool]]`: what a gathering tool yields when it was not made (a made one's yield is its own).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tool {
@@ -1550,6 +1563,7 @@ impl Row {
             Self::Guarded(_) => "guarded",
             Self::Shifting(_) => "shifting",
             Self::Wanting(_) => "wanting",
+            Self::AllegianceHall(_) => "allegiance_hall",
             Self::Round(_) => "round",
             Self::Hazard(_) => "hazard",
             Self::MapRecipes(_) => "map_recipes",
@@ -1626,6 +1640,7 @@ impl Row {
             Self::Guarded(r) => Some(&r.prov),
             Self::Shifting(r) => Some(&r.prov),
             Self::Wanting(r) => Some(&r.prov),
+            Self::AllegianceHall(r) => Some(&r.prov),
             Self::Round(r) => Some(&r.prov),
             Self::Hazard(r) => Some(&r.prov),
             Self::MapRecipes(r) => Some(&r.prov),
@@ -1649,7 +1664,7 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 70] = [
+pub const KINDS: [&str; 71] = [
     "object",
     "camp",
     "loot",
@@ -1703,6 +1718,7 @@ pub const KINDS: [&str; 70] = [
     "guarded",
     "shifting",
     "wanting",
+    "allegiance_hall",
     "round",
     "hazard",
     "map_recipes",
@@ -1723,7 +1739,7 @@ pub const KINDS: [&str; 70] = [
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 70] = [
+pub const FIELDS: [(&str, &[&str]); 71] = [
     (
         "object",
         &[
@@ -2219,6 +2235,10 @@ pub const FIELDS: [(&str, &[&str]); 70] = [
         &["key", "objects", "gone_for", "moves_after", "prov"],
     ),
     ("wanting", &["key", "objects", "items", "refused", "prov"]),
+    (
+        "allegiance_hall",
+        &["key", "stone", "place", "cost", "prov"],
+    ),
     ("round", &["key", "stops", "gap", "prov"]),
     (
         "hazard",
@@ -3666,6 +3686,24 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 key,
                 stops,
                 gap,
+                prov: f.req_prov()?,
+            })
+        }
+        "allegiance_hall" => {
+            let key = f.req_symbol("key")?;
+            let stone = match f.get("stone") {
+                Some(_) => f.symbol("stone")?,
+                None => return f.missing("stone"),
+            };
+            let place = match f.get("place") {
+                Some(_) => f.symbol("place")?,
+                None => return f.missing("place"),
+            };
+            Row::AllegianceHall(AllegianceHallRow {
+                key,
+                stone,
+                place,
+                cost: f.u32("cost").unwrap_or(0),
                 prov: f.req_prov()?,
             })
         }

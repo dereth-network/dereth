@@ -272,6 +272,8 @@ pub enum Item {
     Shifting { key: String },
     /// Placed objects that each want one item of a set, drawn at random, by the row's key.
     Wanting { key: String },
+    /// An allegiance hall's binding stone, by the row's key.
+    AllegianceHall { key: String },
     /// One creature at a time going round places in order, by the row's key.
     Round { key: String },
     /// Placed objects or spots that harm whoever uses one or comes near, by the row's key.
@@ -440,6 +442,7 @@ impl Item {
             ["guarded", key] => Self::Guarded { key: symbol(key)? },
             ["shifting", key] => Self::Shifting { key: symbol(key)? },
             ["wanting", key] => Self::Wanting { key: symbol(key)? },
+            ["allegiance_hall", key] => Self::AllegianceHall { key: symbol(key)? },
             ["round", key] => Self::Round { key: symbol(key)? },
             ["hazard", key] => Self::Hazard { key: symbol(key)? },
             ["map_recipes", region] => Self::MapRecipes {
@@ -560,6 +563,7 @@ impl fmt::Display for Item {
             Self::Guarded { key } => write!(f, "guarded {key}"),
             Self::Shifting { key } => write!(f, "shifting {key}"),
             Self::Wanting { key } => write!(f, "wanting {key}"),
+            Self::AllegianceHall { key } => write!(f, "allegiance_hall {key}"),
             Self::Round { key } => write!(f, "round {key}"),
             Self::Hazard { key } => write!(f, "hazard {key}"),
             Self::MapRecipes { region } => write!(f, "map_recipes {region}"),

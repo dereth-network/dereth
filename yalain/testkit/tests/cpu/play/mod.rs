@@ -3,6 +3,7 @@
 
 mod aligned_creatures;
 mod allegiance;
+mod allegiance_halls;
 mod allegiance_management;
 mod areas;
 mod armor;

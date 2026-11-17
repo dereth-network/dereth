@@ -729,7 +729,8 @@ pub fn is_recall<S: Store>(s: &Server<S>, skill: u32) -> bool {
 }
 
 /// The places a recall may take a player now: the place it keeps of the link's kind; the named
-/// places the world has; none for an allegiance's hall (no allegiance is bound to one).
+/// places the world has; the hall its allegiance's monarch bound the allegiance to, none when it is
+/// bound to none.
 #[must_use]
 pub fn recall_places<S: Store>(s: &Server<S>, world: ConnId, r: &Recall) -> Vec<StoredPosition> {
     let Some(p) = s.players.get(&world) else {
@@ -751,7 +752,12 @@ pub fn recall_places<S: Store>(s: &Server<S>, world: ConnId, r: &Recall) -> Vec<
                 rotation: pl.rotation,
             })
             .collect(),
-        Recall::Allegiance => Vec::new(),
+        Recall::Allegiance => s
+            .allegiances
+            .hall_of(p.character)
+            .map(|h| h.place)
+            .into_iter()
+            .collect(),
     }
 }
 

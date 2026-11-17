@@ -8455,6 +8455,92 @@ fn a_wanting_row_names_its_objects_by_placement_and_weighted_set_and_compiles_to
 }
 
 #[test]
+fn an_allegiance_hall_row_names_its_stone_and_place_and_compiles_to_the_hall_table() {
+    let mut files = with_lever(fixture());
+    edit(
+        &mut files,
+        "town/server/places.toml",
+        "heading = 320.5\n",
+        "heading = 320.5\ndestination = \"dng_test_allegiancerecall1\"\n",
+    );
+    files.insert(
+        "town/server/allegiance.toml".into(),
+        "[[allegiance_hall]]\n\
+         key = \"town-hall\"\n\
+         stone = \"lever@77B7\"\n\
+         place = \"inn\"\n\
+         cost = 20000\n\
+         prov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert!(check(&files).is_empty(), "{:?}", check(&files));
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let rows = &t.content.halls.rows;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].key, "town-hall");
+    assert_eq!(rows[0].stone, placed_at(&t, 0x4077_B700_0000_0003));
+    assert_eq!(rows[0].place.cell, 0x77B8_0003);
+    assert_eq!(rows[0].place.origin, [1.18, 53.42, 183.82]);
+    assert_eq!(rows[0].name, "dng_test_allegiancerecall1");
+    assert_eq!(rows[0].cost, 20_000);
+
+    for (from, to, says) in [
+        (
+            "\"lever@77B7\"",
+            "\"nowhere@77B7\"",
+            "stone: no object nowhere@77B7",
+        ),
+        ("stone = \"lever@77B7\"\n", "", "stone: missing"),
+        ("place = \"inn\"\n", "", "place: missing"),
+        (
+            "place = \"inn\"",
+            "place = \"stable\"",
+            "place: no place stable",
+        ),
+        ("cost = 20000", "cost = -1", "cost: "),
+    ] {
+        let mut bad = files.clone();
+        edit(&mut bad, "town/server/allegiance.toml", from, to);
+        assert!(
+            check(&bad).iter().any(|p| p.to_string().contains(says)),
+            "{to}: {:?}",
+            check(&bad)
+        );
+    }
+    // A stone two halls name is a problem of the compile.
+    let mut twice = files.clone();
+    twice
+        .get_mut("town/server/allegiance.toml")
+        .unwrap()
+        .push_str(
+            "\n\
+         [[allegiance_hall]]\n\
+         key = \"again\"\n\
+         stone = \"lever@77B7\"\n\
+         place = \"inn\"\n\
+         prov = { from = \"authored\" }\n",
+        );
+    let problems =
+        compile(&merge(&read(&twice).unwrap()).unwrap(), &Fake::new()).expect_err("refused");
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.to_string().contains("is another hall's")),
+        "{problems:?}"
+    );
+    // A place with no destination name gives the hall none.
+    let mut unnamed = files.clone();
+    edit(
+        &mut unnamed,
+        "town/server/places.toml",
+        "destination = \"dng_test_allegiancerecall1\"\n",
+        "",
+    );
+    let t = compile(&merge(&read(&unnamed).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(t.content.halls.rows[0].name, "");
+}
+
+#[test]
 fn a_defense_row_names_its_device_attackers_and_what_it_leaves_and_bad_ones_are_problems() {
     use yalain_content::defenses::Defense;
     let mut files = fixture();

@@ -53,6 +53,7 @@
 //!                                [[safe_passage]], [[creature_effect]], [[defense]], [[round]]
 //! <pack>/server/routes.toml       [[route]]
 //! <pack>/server/areas.toml        [[area]]
+//! <pack>/server/allegiance.toml   [[allegiance_hall]]
 //! ```
 //!
 //! Every row carries `prov`, where it came from: `capture` (measured from recorded sessions, with an

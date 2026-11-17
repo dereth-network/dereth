@@ -663,6 +663,14 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                     check_placed("objects", name, l, &objects, &mut |m| problems.push(at(m)));
                 }
             }
+            Row::AllegianceHall(r) => {
+                check_placed("stone", &r.stone, l, &objects, &mut |m| {
+                    problems.push(at(m))
+                });
+                if let Some(why) = place_ref(&r.place, &l.pack) {
+                    problems.push(at(format!("place: {why}")));
+                }
+            }
             Row::SafePassage(r) => {
                 if let Some(why) = r.camp.as_deref().and_then(|c| named_camp(c, &camp_makes)) {
                     problems.push(at(format!("camp: {why}")));

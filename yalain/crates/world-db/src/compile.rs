@@ -2090,6 +2090,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             | Row::Guarded(_)
             | Row::Shifting(_)
             | Row::Wanting(_)
+            | Row::AllegianceHall(_)
             | Row::Hazard(_)
             | Row::SafePassage(_)
             | Row::CreatureEffect(_) => {}
@@ -2525,6 +2526,33 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         items: r.items.clone(),
                         refused: r.refused.map(|s| (s.string, s.table)),
                     });
+            }
+            Row::AllegianceHall(r) => {
+                let Some(stone) = placed_object(&mut cx, &objects_at, l, "stone", &r.stone) else {
+                    continue;
+                };
+                if t.content.halls.of_stone(stone).is_some() {
+                    cx.problem(l, format!("stone: {} is another hall's", r.stone));
+                    continue;
+                }
+                let Some(place) = cx.place_for(&places, l, "place", &r.place) else {
+                    continue;
+                };
+                let (pack, key) = match r.place.split_once(':') {
+                    Some((p, k)) => (p.to_string(), k.to_string()),
+                    None => (l.pack.clone(), r.place.clone()),
+                };
+                let name = match places.get(&(pack, key)).map(|pl| &pl.row) {
+                    Some(Row::Place(p)) => p.destination.clone().unwrap_or_default(),
+                    _ => String::new(),
+                };
+                t.content.halls.rows.push(yalain_content::halls::Hall {
+                    key: r.key.clone(),
+                    stone,
+                    place,
+                    name,
+                    cost: r.cost,
+                });
             }
             Row::Hazard(r) => {
                 use yalain_content::hazards::{Harm, Hazard};

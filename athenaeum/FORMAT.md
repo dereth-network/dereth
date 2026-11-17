@@ -46,6 +46,7 @@ world.lock                         ids given to authored rows, kept across build
 <pack>/server/values.toml          [[treasure_value]]
 <pack>/server/routes.toml          [[route]]
 <pack>/server/areas.toml           [[area]]
+<pack>/server/allegiance.toml      [[allegiance_hall]]
 <pack>/server/kingdoms.toml        [[points_bonus]]
 <pack>/server/popups.toml          [[popup]]
 <pack>/server/treasure.toml        [[treasure_rules]], [[treasure_sort]]
@@ -125,7 +126,7 @@ Every row sets one **item**, named by its key:
 | item | key |
 |---|---|
 | `object KEY@XXYY`, `camp KEY@XXYY`, `clearing KEY@XXYY` | the row's `key`, unique within its landblock in its pack |
-| `place KEY`, `talk KEY`, `give KEY`, `route KEY`, `event KEY`, `tally KEY`, `death_treasure KEY`, `object_states KEY`, `sequence KEY`, `lever KEY`, `offering KEY`, `guarded KEY`, `shifting KEY`, `hazard KEY`, `wanting KEY`, `round KEY` | the row's `key` |
+| `place KEY`, `talk KEY`, `give KEY`, `route KEY`, `event KEY`, `tally KEY`, `death_treasure KEY`, `object_states KEY`, `sequence KEY`, `lever KEY`, `offering KEY`, `guarded KEY`, `shifting KEY`, `hazard KEY`, `wanting KEY`, `round KEY`, `allegiance_hall KEY` | the row's `key` |
 | `loot 0xVALUE` | the death-loot profile's value |
 | `keeper 0xTEMPLATE` | the storekeeper template |
 | `store KEY` | the shop's `key`, unique in the world |
@@ -306,6 +307,26 @@ The kind of player conflict a landblock allows. A landblock no row names is a pe
 |---|---|---|
 | `landblock` | required | `0xXXYY`, outdoors or a dungeon's |
 | `conflict` | required | `peace` (no player may fight another), `controlled` (players of different kingdoms may fight, neutral players stay out of it), `kingdom-vs-kingdom` or `free-for-all` |
+| `prov` | required | where it came from |
+
+#### `[[allegiance_hall]]`
+
+An allegiance hall's binding stone. Anyone but a monarch is refused at once, wherever it stands; a
+monarch is walked to the stone. One the stone's own requirements keep out (the quest its template
+needs) is refused as at any object; one with less money than `cost` is told so, and nothing is paid
+or bound. Otherwise the monarch pays `cost`, its whole allegiance is bound to the hall in place of
+any hall before, and the use goes on as the stone's own: the quest effects its template names for a
+use, then its quest steps. From then on
+Allegiance Recall takes every member to `place`, and the allegiance's export names the hall by the
+place's `destination`. How often a monarch may bind again is the wait of the quest the stone needs
+(its `retry`).
+
+| field | | meaning |
+|---|---|---|
+| `key` | required | lowercase letters, digits and hyphens |
+| `stone` | required | the placed binding stone, `key@XXYY` or `pack:key@XXYY`, in no other `[[allegiance_hall]]` row |
+| `place` | required | where Allegiance Recall takes a member: a `[[place]]`, `key` or `pack:key` |
+| `cost` | | the money the monarch pays to bind; 0 when left out |
 | `prov` | required | where it came from |
 
 ### People, quests and the story

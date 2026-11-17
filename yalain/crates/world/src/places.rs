@@ -1032,6 +1032,11 @@ pub fn use_object<S: Store>(
         send(net, world, BlobKind::PRIVATE, &no);
         return;
     }
+    // A hall's binding stone: a monarch is walked to it, then binds its allegiance there.
+    if crate::usable::halls::stone(s, u.item).is_some() {
+        crate::usable::halls::used(s, net, world, u, clock);
+        return;
+    }
     // A portal its quest keeps the player out of is refused at once, wherever the player stands
     // (2017: 2 of 2, at 13.5 and 56.9 m; the generic portals kept by their placed instance's
     // quest, 21 of 21 requests answered in 0.09-0.46 s, at 2.9-76.0 m), whether or not where it
@@ -1771,6 +1776,10 @@ fn carried_out<S: Store>(
     o: yalain_content::ContentObject,
     clock: Clock,
 ) {
+    if crate::usable::halls::stone(s, u.item).is_some() {
+        crate::usable::halls::at_stone(s, net, world, u, &o, clock);
+        return;
+    }
     if crate::usable::levers::is_lever(s, u.item) {
         crate::usable::levers::at_lever(s, net, world, &u, clock);
         return;

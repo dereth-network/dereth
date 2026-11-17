@@ -23,8 +23,9 @@
 //! title it was given there.
 //!
 //! **What the allegiance keeps besides its members**: its message of the day (in every profile and
-//! the tree's export), its appointed officers, its kingdom restriction, and each member's title.
-//! An allegiance whose monarch swears to another leaves these behind.
+//! the tree's export), its appointed officers, its kingdom restriction, the hall it is bound to for
+//! Allegiance Recall (its name in the tree's export), and each member's title. An allegiance whose
+//! monarch swears to another leaves these behind.
 //!
 //! **A kingdom restriction** refuses an oath from one of another kingdom than the monarch's (a
 //! neutral one is let in when the restriction allows neutrals): the would-be vassal is told which
@@ -63,7 +64,7 @@ use auberean_script::args::Arg;
 use auberean_script::library::Elem;
 use auberean_script::native_object::{Item, NativeObject, TextInfo};
 use yalain_net::{ConnId, ServerNet};
-use yalain_store::Store;
+use yalain_store::{Store, StoredPosition};
 
 use crate::calls::Value;
 use crate::graph::{Builder, Slot};
@@ -314,7 +315,7 @@ pub struct Allegiances {
 }
 
 /// What an allegiance keeps besides its members.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Charter {
     /// The message of the day, as the client sent it (its meta marks escaped).
     pub motd: Option<Vec<u16>>,
@@ -322,12 +323,25 @@ pub struct Charter {
     pub officers: BTreeSet<u64>,
     /// Who may swear into it, when restricted.
     pub restriction: Option<Restriction>,
+    /// The hall its monarch bound it to, where Allegiance Recall takes its members.
+    pub hall: Option<BoundHall>,
 }
 
 impl Charter {
     fn is_empty(&self) -> bool {
-        self.motd.is_none() && self.officers.is_empty() && self.restriction.is_none()
+        self.motd.is_none()
+            && self.officers.is_empty()
+            && self.restriction.is_none()
+            && self.hall.is_none()
     }
+}
+
+/// The hall an allegiance is bound to: the name the tree's export gives it (empty when it has none)
+/// and where Allegiance Recall takes a member.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BoundHall {
+    pub name: String,
+    pub place: StoredPosition,
 }
 
 /// An allegiance's kingdom restriction: new members must be of the monarch's kingdom (or neutral,
@@ -502,6 +516,13 @@ impl Allegiances {
         }
     }
 
+    /// Where Allegiance Recall takes a member of an allegiance: its monarch's bound hall, if bound.
+    #[must_use]
+    pub fn hall_of(&self, member: u64) -> Option<&BoundHall> {
+        let monarch = self.monarch(member)?;
+        self.charters.get(&monarch)?.hall.as_ref()
+    }
+
     /// The message of the day of a monarch's allegiance.
     #[must_use]
     pub fn motd(&self, monarch: u64) -> Option<&[u16]> {
@@ -553,7 +574,7 @@ impl Allegiances {
     /// The record in the server's encoding.
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut out = vec![2u8];
+        let mut out = vec![3u8];
         let n = u32::try_from(self.nodes.len()).unwrap_or(0);
         out.extend(n.to_le_bytes());
         for (id, x) in &self.nodes {
@@ -598,6 +619,19 @@ impl Allegiances {
                 Some(Restriction { neutrals: false }) => 1,
                 Some(Restriction { neutrals: true }) => 2,
             });
+            match &c.hall {
+                Some(h) => {
+                    out.push(1);
+                    let b = h.name.as_bytes();
+                    out.extend(u32::try_from(b.len()).unwrap_or(0).to_le_bytes());
+                    out.extend(b);
+                    out.extend(h.place.cell.to_le_bytes());
+                    for f in h.place.origin.iter().chain(&h.place.rotation) {
+                        out.extend(f.to_bits().to_le_bytes());
+                    }
+                }
+                None => out.push(0),
+            }
         }
         let n = u32::try_from(self.titles.len()).unwrap_or(0);
         out.extend(n.to_le_bytes());
@@ -633,10 +667,13 @@ impl Allegiances {
                 let n = self.u32()? as usize;
                 String::from_utf8(self.take(n)?.to_vec()).ok()
             }
+            fn f32(&mut self) -> Option<f32> {
+                Some(f32::from_bits(self.u32()?))
+            }
         }
-        // Version 1 kept the members and the names alone.
+        // Version 1 kept the members and the names alone; version 2 no bound hall.
         let (&version, rest) = b.split_first()?;
-        if version != 1 && version != 2 {
+        if !(1..=3).contains(&version) {
             return None;
         }
         let mut r = In(rest);
@@ -685,6 +722,20 @@ impl Allegiances {
                     2 => Some(Restriction { neutrals: true }),
                     _ => return None,
                 };
+                if version >= 3 && r.byte()? == 1 {
+                    let name = r.text()?;
+                    let cell = r.u32()?;
+                    let origin = [r.f32()?, r.f32()?, r.f32()?];
+                    let rotation = [r.f32()?, r.f32()?, r.f32()?, r.f32()?];
+                    c.hall = Some(BoundHall {
+                        name,
+                        place: StoredPosition {
+                            cell,
+                            origin,
+                            rotation,
+                        },
+                    });
+                }
                 a.charters.insert(id, c);
             }
             for _ in 0..r.u32()? {
@@ -1160,7 +1211,12 @@ fn hierarchy<S: Store>(s: &mut Server<S>, monarch: u64) -> Builder {
             all.names.get(&monarch).map_or("", String::as_str),
         )),
     );
-    let recall = b.native(STRING, NativeObject::Text(Vec::new()));
+    let hall = all
+        .charters
+        .get(&monarch)
+        .and_then(|c| c.hall.as_ref())
+        .map_or("", |h| h.name.as_str());
+    let recall = b.native(STRING, NativeObject::Text(hall.encode_utf16().collect()));
     let monarch_name = facts.first().map_or("", |(_, f)| f.plain.as_str());
     let room_name = format!("Allegiance of {monarch_name} from world {WORLD_NUMBER}");
     let room_name = b.native(

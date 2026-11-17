@@ -197,6 +197,7 @@ fn the_allegiance_record_keeps_its_charter_and_titles_and_reads_an_older_record(
             motd: Some("Meet at the hall".encode_utf16().collect()),
             officers: [8].into(),
             restriction: Some(Restriction { neutrals: true }),
+            hall: None,
         },
     );
     a.titles.insert(8, "Keeper".into());

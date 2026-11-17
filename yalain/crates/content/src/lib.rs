@@ -35,6 +35,7 @@ pub mod events;
 pub mod fought;
 pub mod gathering;
 pub mod guards;
+pub mod halls;
 pub mod hazards;
 pub mod heroes;
 pub mod item_rows;
@@ -824,6 +825,9 @@ pub struct ContentPack {
     /// The placed objects that each want one item of a set, drawn at random. Not part of the text
     /// form: the world database's wanting rows fill it.
     pub wanting: wanting::WantTable,
+    /// The allegiance halls' binding stones. Not part of the text form: the world database's hall
+    /// rows fill it.
+    pub halls: halls::HallTable,
     /// The creatures that go round places one at a time. Not part of the text form: the world
     /// database's round rows fill it.
     pub rounds: rounds::RoundTable,
@@ -1214,6 +1218,7 @@ impl ContentPack {
             guards: guards::GuardTable::default(),
             shifting: shifting::ShiftTable::default(),
             wanting: wanting::WantTable::default(),
+            halls: halls::HallTable::default(),
             rounds: rounds::RoundTable::default(),
             defenses: defenses::DefenseTable::default(),
             hazards: hazards::HazardTable::default(),
