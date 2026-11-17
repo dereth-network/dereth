@@ -470,6 +470,48 @@ fn an_aggressive_pet_takes_on_the_nearest_creature_unbidden() {
     assert_eq!(target_of(&h, pet), Some(bs[1]), "the nearest");
 }
 
+/// An opportunistic pet takes on the weakest creature within its reach unbidden, a courageous one
+/// the strongest, however near the others are: of a creature of level 10 and one of level 30, the
+/// opportunistic pet goes for the 10 when it is the farther, the courageous for the 30 when it is.
+/// Behaviour: server.pets.opportunistic-and-courageous
+#[test]
+fn an_opportunistic_pet_takes_on_the_weakest_creature_and_a_courageous_one_the_strongest() {
+    for (mode, levels, wanted) in [(0x1000, [10, 30], 0), (0x2000, [30, 10], 0)] {
+        let mut h = Harness::new();
+        with_kind(&mut h, &LASHER, 2);
+        let (b, me) = summoner(&mut h);
+        h.run(20);
+        let pet = {
+            let from = summon(&mut h, b);
+            pet_added(&h, b, from)
+        }
+        .expect("a pet");
+        let bs = beetles(&h);
+        for (id, level) in bs.iter().zip(levels) {
+            if let Some(c) = h
+                .server
+                .things
+                .get_mut(*id)
+                .and_then(|t| t.creature.as_mut())
+            {
+                c.stats.level = level;
+            }
+        }
+        put_near(&mut h, bs[0], me, 25.0, 0.0);
+        put_near(&mut h, bs[1], me, 0.0, 15.0);
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(function::MODE, &[Arg::Int(mode), Arg::LongInt(pet)]),
+        );
+        assert!(
+            h.run_until(30, |h| target_of(h, pet).is_some()),
+            "{mode:x}: it goes"
+        );
+        assert_eq!(target_of(&h, pet), Some(bs[wanted]), "{mode:x}");
+    }
+}
+
 /// A Volcanic Rift stays where it is made and takes on what comes within its missile's reach; its
 /// fire lands on every creature near where it falls; at its lifetime's end it is taken off its
 /// owner's list and out of the world at once, with no corpse.

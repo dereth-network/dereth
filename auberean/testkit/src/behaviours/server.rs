@@ -12024,6 +12024,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.opportunistic-and-courageous",
+        says: "An opportunistic pet takes on, unbidden, the lowest in level of the creatures within \
+               its reach, a courageous one the highest, the nearest of those.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PET-MODES-BY-LEVEL"),
+        station: "yalain-testkit::cpu::play::pet_kinds::an_opportunistic_pet_takes_on_the_weakest_creature_and_a_courageous_one_the_strongest",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.orbs",
         says: "An Axe Orb's swing hits four times; a Taunt Orb's strike does no harm and may turn \
                the creature on it.",

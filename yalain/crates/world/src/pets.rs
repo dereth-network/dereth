@@ -185,6 +185,10 @@ pub mod flag {
     pub const SELF_DEFENDING: u32 = 0x10;
     /// It takes on, unbidden, the nearest creature within its reach.
     pub const AGGRESSIVE: u32 = 0x20;
+    /// Taking on creatures unbidden, it picks the weakest within its reach (Opportunistic).
+    pub const OPPORTUNISTIC: u32 = 0x1000;
+    /// Taking on creatures unbidden, it picks the strongest within its reach (Courageous).
+    pub const COURAGEOUS: u32 = 0x2000;
     /// It is put beside its owner when too far.
     pub const TELEPORT_TO_MASTER: u32 = 0x40;
     /// The flags a mode sets.
@@ -1980,7 +1984,10 @@ pub const AGGRESSIVE_REACH: f32 = 40.0;
 /// What a pet takes on by itself, by its mode, of the creatures it sees: supporting, what its owner
 /// last hurt, unless it is more than 40 m from its owner; protective, a creature going after its
 /// owner; aggressive, the nearest creature within its reach (40 m; a pet that stays, its
-/// missile's).
+/// missile's), an opportunistic pet the lowest in level of them and a courageous one the highest,
+/// the nearest of those (Turbine, March 2005: opportunistic pets prefer weaker foes, courageous ones
+/// stronger; 2017 holds one clear choice among several creatures by an opportunistic pet, which
+/// took the lower in level, also the nearer, and none by a courageous one).
 fn unbidden<S: Store>(s: &mut Server<S>, pet: &Pet, at: &StoredPosition) -> Option<u64> {
     for mode in [flag::SUPPORT_MASTER, flag::DEFEND_MASTER, flag::AGGRESSIVE] {
         if pet.flags & mode == 0 {
@@ -2050,15 +2057,28 @@ fn unbidden_by<S: Store>(s: &Server<S>, pet: &Pet, at: &StoredPosition, mode: u3
             } else {
                 AGGRESSIVE_REACH
             };
-            nearest(
-                s.things
-                    .by_id
-                    .values()
-                    .filter(|t| t.id != pet.id && alive_creature(t.id))
-                    .filter_map(|t| crate::presence::distance(&t.at?, at).map(|d| (d, t.id)))
-                    .filter(|(d, _)| *d <= reach)
-                    .collect(),
-            )
+            // Opportunistic prefers the weakest, Courageous the strongest; then the nearest.
+            let by_level = |level: i32| {
+                if pet.flags & flag::OPPORTUNISTIC != 0 {
+                    level
+                } else if pet.flags & flag::COURAGEOUS != 0 {
+                    -level
+                } else {
+                    0
+                }
+            };
+            let mut v: Vec<(i32, f32, u64)> = s
+                .things
+                .by_id
+                .values()
+                .filter(|t| t.id != pet.id && alive_creature(t.id))
+                .filter_map(|t| {
+                    crate::presence::distance(&t.at?, at).map(|d| (by_level(t.level()), d, t.id))
+                })
+                .filter(|(_, d, _)| *d <= reach)
+                .collect();
+            v.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
+            v.into_iter().map(|(_, _, id)| id).collect()
         }
     }
 }
