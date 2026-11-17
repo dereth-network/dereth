@@ -13353,6 +13353,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.map-lifestones-walk-through",
+        says: "The 84 lifestones a players' map of 2002 to 2004 shows where no 2017 recording came near \
+               stand each more than 500 m from every lifestone recorded, on the land above the water and on \
+               the ground; a body on open ground 12 m off runs up to each, where a recall to it lands, and \
+               its use binds the player there.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-VAULT-LIFESTONES"),
+        station: "yalain-testkit::corpus::world_db::the_maps_lifestones_no_recording_reached_stand_on_open_land_reached_and_bound_on_foot",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.places.monarch-only",
         says: "A placed object for monarchs alone is refused at once wherever the player stands, with no walk, to anyone but the head of an allegiance.",
         since: RETAIL,

@@ -18215,6 +18215,142 @@ fn the_worlds_weakest_practice_dummy_goes_by_the_same_line() {
     }
 }
 
+/// **The lifestones a players' map shows where no 2017 recording went stand on open land and bind**:
+/// each of the 84 of them is a lifestone, more than 500 m from every lifestone recorded, on
+/// the land above the water and on the ground there; a body put on open ground 12 m off runs up to
+/// it, where a recall to it lands, and its use binds the player there.
+/// Behaviour: server.places.map-lifestones-walk-through
+#[test]
+fn the_maps_lifestones_no_recording_reached_stand_on_open_land_reached_and_bound_on_foot() {
+    use yalain_world::places::{kind, BESIDE_LIFESTONE, LIFESTONE};
+    use yalain_world::usable::maps::ground_distance;
+    let c = compiled();
+    let t = &c.tables;
+    let portal = yalain_testkit::authored::Portal::open();
+    let objects = &t.content.objects;
+    let stones: Vec<usize> = c
+        .merged
+        .rows
+        .iter()
+        .filter(|l| l.pack == "vault-lifestones")
+        .filter_map(|l| match &l.row {
+            rows::Row::Object(o) => Some((o.template, o.cell.expect("a cell"))),
+            _ => None,
+        })
+        .map(|(template, cell)| {
+            objects
+                .iter()
+                .position(|o| o.template == template && o.cell == cell)
+                .expect("placed")
+        })
+        .collect();
+    assert_eq!(
+        stones.len(),
+        84,
+        "the map's lifestones no recording reached"
+    );
+    let lifestones: Vec<usize> = (0..objects.len())
+        .filter(|&i| portal.derives(objects[i].template, &[LIFESTONE]))
+        .collect();
+    let at = |i: usize| spot(objects[i].cell, objects[i].origin);
+    for &i in &stones {
+        assert!(lifestones.contains(&i), "{}: a lifestone", objects[i].label);
+        let near = lifestones
+            .iter()
+            .filter(|j| !stones.contains(j))
+            .map(|&j| ground_distance(&at(i), &at(j)))
+            .fold(f32::INFINITY, f32::min);
+        assert!(
+            near > 500.0,
+            "{:08X}: another lifestone {near} m off",
+            objects[i].cell
+        );
+    }
+    let blocks: Vec<u32> = stones.iter().map(|&i| objects[i].cell >> 16).collect();
+    let mut w = walled(t, &blocks);
+    for template in [0x4700_113A, 0x4700_113D, 0x4700_1143] {
+        let package = portal.template(template).description.package;
+        w.h.server.lifestone_packages.insert(package);
+    }
+    for &i in &stones {
+        let stone = at(i);
+        assert!(
+            stone.cell & 0xFFFF < 0x100,
+            "{:08X}: on the land",
+            stone.cell
+        );
+        let walls = w.h.server.walls.as_mut().expect("the walls");
+        assert!(
+            !under_water(walls, &stone),
+            "{:08X}: above the water",
+            stone.cell
+        );
+        walls.read_place(stone.cell);
+        let ground = walls
+            .land()
+            .ground(
+                dereth_primitives::CellId(stone.cell).landblock(),
+                dereth_primitives::Vec3::new(stone.origin[0], stone.origin[1], 0.0),
+            )
+            .expect("the ground")
+            .0;
+        assert!(
+            (stone.origin[2] - ground).abs() < 0.5,
+            "{:08X}: on the ground, {} against {ground}",
+            stone.cell,
+            stone.origin[2]
+        );
+        // From open ground 12 m off (6 m where the land gives out), the first of eight ways round it
+        // that is above the water.
+        let reached = [12.0f32, 6.0]
+            .into_iter()
+            .flat_map(|r| (0..8u8).map(move |k| (r, k)))
+            .any(|(r, k)| {
+                use dereth_primitives::num::math;
+                let a = f32::from(k) * std::f32::consts::TAU / 8.0;
+                let (x, y) = (
+                    stone.origin[0] + r * math::sinf(a),
+                    stone.origin[1] + r * math::cosf(a),
+                );
+                let (cell, x, y) = yalain_world::spawn::outdoor(stone.cell >> 16, x, y);
+                let walls = w.h.server.walls.as_mut().expect("the walls");
+                walls.read_place(cell);
+                let Some((z, _)) = walls.land().ground(
+                    dereth_primitives::CellId(cell).landblock(),
+                    dereth_primitives::Vec3::new(x, y, 0.0),
+                ) else {
+                    return false;
+                };
+                let off = spot(cell, [x, y, z]);
+                if under_water(walls, &off) {
+                    return false;
+                }
+                w.put(off);
+                w.way_across(&stone, BESIDE_LIFESTONE)
+                    .is_some_and(|way| w.run_along(&way) == way.len())
+            });
+        assert!(reached, "{:08X}: reached on foot", stone.cell);
+        w.use_placed(t, i);
+        let bound = w.h.server.players[&w.world]
+            .places
+            .iter()
+            .find(|(k, _)| *k == kind::LIFESTONE)
+            .map(|(_, p)| *p)
+            .expect("bound");
+        assert!(
+            ground_distance(&bound, &stone) <= BESIDE_LIFESTONE + 0.5,
+            "{:08X}: bound where it stands",
+            stone.cell
+        );
+        w.h.server
+            .players
+            .get_mut(&w.world)
+            .expect("in")
+            .places
+            .retain(|(k, _)| *k != kind::LIFESTONE);
+    }
+}
+
 /// Where a player arriving by a way in (a lifestone or a portal) stands: 6 m beside it, clear of its
 /// body.
 fn beside_way_in(
