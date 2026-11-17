@@ -730,7 +730,8 @@ fn lands_on_player<S: Store>(
     };
     let more = effects_add(s, f.creature);
     let damage = if outcome.landed() {
-        let armor = combat::armor_on(s, world);
+        let from = s.things.get(f.creature).and_then(|t| t.at);
+        let armor = combat::armor_against(s, world, from.as_ref());
         rules::creature_hit_on_player(
             &mut s.rng,
             f.skill.kind,

@@ -466,6 +466,153 @@ fn a_players_armor_counts_each_piece_and_each_effect_once() {
     assert!((combat::armor_on(&h.server, world) - 35.5).abs() < f32::EPSILON);
 }
 
+/// A player in the world wearing the coat (30) and holding a shield (15), at level 20 with health to
+/// spare, beside the test camp's creature, which never moves by itself: the harness, the client,
+/// the player, its connection and the creature.
+fn shield_bearer() -> (Harness, usize, u64, yalain_net::ConnId, u64) {
+    const SHIELD: u32 = 0x4700_7A06;
+    const SHIELDS: u32 = 0x7A06;
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    h.add_creatures(1);
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &auberean_protocol::ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    h.run(5);
+    let world = *h.server.players.keys().next().expect("in the world");
+    piece(&mut h, COAT, 2, 30);
+    h.arm(b, me, COAT);
+    let mut p = Props::default();
+    p.set("Item_ArmorLevel", Prop::Int(15));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(SHIELD, SHIELDS, p));
+    h.server.treasure.shields.insert(SHIELDS);
+    let shield = yalain_world::inventory::make_item(&mut h.server, SHIELD, 1, 0).expect("made");
+    let p = h.server.players.get_mut(&world).expect("it");
+    p.play.items.push(yalain_world::state::Held {
+        id: shield,
+        template: SHIELD,
+        slot: 0,
+        location: yalain_world::equip::OFF_HAND,
+        quantity: 1,
+    });
+    yalain_world::quals::set_int(&mut p.qualities, yalain_world::examine::LEVEL, 20);
+    yalain_world::quals::set_int(&mut p.qualities, 263, 1_000_000);
+    yalain_world::quals::set_int(&mut p.qualities, 258, 1_000_000);
+    let foe = h
+        .world_messages(b, 0)
+        .iter()
+        .find_map(|m| match m {
+            ServerMessage::CreateObject(o) if o.weenie.entity_did == TEST_CREATURE => Some(o.id),
+            _ => None,
+        })
+        .expect("the creature");
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(foe)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.stats.fights = false;
+        c.stats.natural_damage = 100.0;
+        c.stats.natural_variance = 0.0;
+    }
+    (h, b, me, world, foe)
+}
+
+/// The player faces `heading` (degrees clockwise from north); the place `meters` away at
+/// `bearing` degrees clockwise from where it faces.
+fn facing(
+    h: &mut Harness,
+    world: yalain_net::ConnId,
+    heading: f32,
+    bearing: f32,
+    meters: f32,
+) -> yalain_store::StoredPosition {
+    let p = h.server.players.get_mut(&world).expect("it");
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let byte = (heading * 255.0 / 360.0).round() as u8;
+    p.position.rotation = yalain_world::world::rotation_of_heading(byte);
+    let a = (heading + bearing).to_radians();
+    let mut at = p.position;
+    at.origin[0] += meters * dereth_primitives::num::math::sinf(a);
+    at.origin[1] += meters * dereth_primitives::num::math::cosf(a);
+    at
+}
+
+/// A shield counts only against an attack from the front half of where its bearer faces: at
+/// bearings up to 90 degrees either side its rating is in the armor, past that it is not; turned
+/// around, the same place is behind. Its armor as shown counts the shield from every side.
+/// Behaviour: server.combat.shield-guards-the-front
+#[test]
+fn a_shield_counts_only_against_an_attack_from_the_front_half() {
+    let (mut h, _, _, world, _) = shield_bearer();
+    for (heading, bearing, armor) in [
+        (0.0, 0.0, 45.0),
+        (0.0, 60.0, 45.0),
+        (0.0, -85.0, 45.0),
+        (0.0, 95.0, 30.0),
+        (0.0, 180.0, 30.0),
+        (90.0, 0.0, 45.0),
+        (90.0, -120.0, 30.0),
+        (270.0, 150.0, 30.0),
+    ] {
+        let from = facing(&mut h, world, heading, bearing, 2.0);
+        let got = combat::armor_against(&h.server, world, Some(&from));
+        assert!(
+            (got - armor).abs() < f32::EPSILON,
+            "facing {heading}, at {bearing}: {got}"
+        );
+        assert!((combat::armor_on(&h.server, world) - 45.0).abs() < f32::EPSILON);
+    }
+}
+
+/// A creature's plain hits from behind its target take the coat off and not the shield; from in
+/// front, both (the least hit of each side, of a strike that does 100 and what its skill adds,
+/// apart by the shield's 15).
+/// Behaviour: server.combat.shield-guards-the-front
+#[test]
+fn a_creatures_hit_from_behind_takes_no_shield_off() {
+    let least = |bearing: f32| -> i32 {
+        let (mut h, b, me, world, foe) = shield_bearer();
+        let at = facing(&mut h, world, 0.0, bearing, 1.5);
+        if let Some(t) = h.server.things.get_mut(foe) {
+            t.at = Some(at);
+        }
+        let from = h.bots[b].inbox.len();
+        for _ in 0..80 {
+            if let Some(c) = h
+                .server
+                .things
+                .get_mut(foe)
+                .and_then(|t| t.creature.as_mut())
+            {
+                c.next_attack = 0.0;
+            }
+            let clock = h.clock();
+            combat::creature_strikes(&mut h.server, &mut h.net, foe, world, clock);
+            h.run(2);
+        }
+        h.run(40);
+        h.world_messages(b, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::DoStory(e) if e.action.attacker == foe => Some(e),
+                _ => None,
+            })
+            .flat_map(|e| e.action.hooks.iter())
+            .filter(|k| k.target == me && k.numbers[3] < 0)
+            .map(|k| -k.numbers[3])
+            .min()
+            .expect("hits")
+    };
+    assert_eq!(least(180.0) - least(0.0), 15);
+}
+
 /// The level table caps a player's armor: its worn armor with what effects give held at the
 /// level's armor cap, its shield apart at the level's shield cap, the two then added; under the
 /// caps, or at a level with no cap, it is all counted.

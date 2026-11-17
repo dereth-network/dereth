@@ -1986,6 +1986,42 @@ pub fn armor_taken<S: Store>(s: &Server<S>, id: u64) -> i32 {
 /// armor with an effect held at the cap at levels 7 to 12, and the hits on it fit the held value).
 #[must_use]
 pub fn armor_on<S: Store>(s: &Server<S>, world: ConnId) -> f32 {
+    armor_with(s, world, true)
+}
+
+/// The armor a player has against an attack from a place: its armor ([`armor_on`]), its shield's
+/// rating counted only when the attacker stands in the front half of where the player faces
+/// (2017: hits from behind on players holding a shield did the shield's worth more, 16.4 of the
+/// 18.9 the rule gives over 303 hits, 20.4 of 18.7 with both still; from in front, none).
+#[must_use]
+pub fn armor_against<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    from: Option<&yalain_store::StoredPosition>,
+) -> f32 {
+    let in_front = match (s.players.get(&world), from) {
+        (Some(p), Some(from)) => in_front_of(&p.position, from),
+        _ => true,
+    };
+    armor_with(s, world, in_front)
+}
+
+/// Does a place stand in the front half of where a body at another faces?
+#[must_use]
+pub fn in_front_of(
+    at: &yalain_store::StoredPosition,
+    other: &yalain_store::StoredPosition,
+) -> bool {
+    let (dx, dy, _) = crate::ai::offset(at, other);
+    // The heading turns clockwise from north (+y), x east.
+    let heading = -2.0 * dereth_primitives::num::math::atan2f(at.rotation[3], at.rotation[0]);
+    dx * dereth_primitives::num::math::sinf(heading)
+        + dy * dereth_primitives::num::math::cosf(heading)
+        >= 0.0
+}
+
+/// A player's armor, its shield's rating counted or not.
+fn armor_with<S: Store>(s: &Server<S>, world: ConnId, shield_counts: bool) -> f32 {
     let Some(p) = s.players.get(&world) else {
         return 0.0;
     };
@@ -1999,7 +2035,8 @@ pub fn armor_on<S: Store>(s: &Server<S>, world: ConnId) -> f32 {
     {
         let v = crate::requests::item_view(s, t);
         match v.shield {
-            Some(rating) => shield += rating,
+            Some(rating) if shield_counts => shield += rating,
+            Some(_) => {}
             None => worn += v.armor.map(|a| a.0).or(v.rating_given).unwrap_or(0),
         }
     }
@@ -2233,7 +2270,8 @@ fn creature_blow_on_player<S: Store>(
     };
     let more = crate::missiles::effects_add(s, id);
     let damage = if outcome.landed() {
-        let armor = armor_on(s, target);
+        let from = s.things.get(id).and_then(|t| t.at);
+        let armor = armor_against(s, target, from.as_ref());
         rules::creature_hit_on_player(
             &mut s.rng,
             skill.kind,

@@ -1562,6 +1562,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.combat.shield-guards-the-front",
+        says: "A shield's rating counts in its bearer's armor only against an attack from the front half \
+               of where the bearer faces, melee, missile or magic; its armor as shown counts it always.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SHIELD-FRONT"),
+        station: "yalain-testkit::cpu::play::armor::a_creatures_hit_from_behind_takes_no_shield_off",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.combat.strike-lands",
         says: "A player's swing at a creature is told by its story first; the creature loses the \
                health as the strike lands, at what the player plays over the story's time scale, \

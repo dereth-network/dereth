@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Shields now only guard against attacks from the front.
 - Armor and shields now count no more than your level's caps.
 - Skills can no longer be used in mid-air.
 - Skills can't be used on yourself, fellows, your own pet, corpses or while swimming, as retail refused.
