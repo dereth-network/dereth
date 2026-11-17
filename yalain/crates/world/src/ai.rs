@@ -396,20 +396,21 @@ pub const ARRIVED: f32 = 0.5;
 pub const IDLE_BEHAVIORS: [u32; 2] = [0x4100_001B, 0x4100_001C];
 pub const FIRST_IDLE_SHARE: f32 = 0.44;
 
-/// The behavior a creature plays over a player it has killed, and the chance it does when its look
-/// has it (Turbine, July 2003: "about half of the time", never over a pet; 2017: within three seconds
-/// of the death, a median 0.6 s, after 29 of the 221 deaths of a recorded player to a creature, 29
-/// of the 46 to kinds that played it at all).
+/// The behavior a creature plays over a player it has killed, and the chance it does when its
+/// behavior table names it (Turbine, July 2003: "about half of the time", never over a pet; 2017:
+/// within three seconds of the death, a median 0.6 s, after 29 of the 221 deaths of a recorded
+/// player to a creature, 29 of the 46 to kinds that played it at all). The table decides, not the
+/// look's clips: 2017 sent it for three kinds whose looks have no clip for it, 12 of its 100 sends.
 pub const VICTORY: u32 = 0x4100_006F;
 pub const VICTORY_CHANCE: f32 = 0.5;
 
-/// A creature has killed a player: about half the time, when its look has one, it plays its
-/// victory for all who see it. A pet, or a creature whose look has none, plays nothing.
+/// A creature has killed a player: about half the time, when its behavior table names one, it
+/// plays its victory for all who see it. A pet, or a creature whose table has none, plays nothing.
 pub fn victory<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
     if !s.things.get(id).is_some_and(crate::things::Thing::alive) || s.pets.is_pet(id) {
         return;
     }
-    if !crate::timings::thing_can_play(s, id, VICTORY) || !s.rng.chance(VICTORY_CHANCE) {
+    if !crate::timings::thing_names(s, id, VICTORY) || !s.rng.chance(VICTORY_CHANCE) {
         return;
     }
     s.next_context = s.next_context.wrapping_add(1);

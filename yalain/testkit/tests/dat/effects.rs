@@ -3859,6 +3859,9 @@ fn the_installs_impulses_read_as_pushes_with_their_ways_and_speeds() {
 
 /// A Burun Scout's look, which plays a victory in its fighting stances.
 const BURUN: u32 = 0x4700_22BC;
+/// A Filthminder Grutt's look: its behavior table names the victory, its clips have none (2017: a
+/// Grutt was sent its victory after both its kills of a recorded player).
+const GRUTT: u32 = 0x4700_25CE;
 
 /// The victories the creature played that a client was sent since `from`.
 fn victories(h: &yalain_testkit::Harness, b: usize, from: usize, creature: u64) -> usize {
@@ -3871,9 +3874,9 @@ fn victories(h: &yalain_testkit::Harness, b: usize, from: usize, creature: u64) 
         .count()
 }
 
-/// A creature that kills a player plays its victory over it about half the time when its look
-/// has one (a Burun's: 70 to 130 of 200 deaths), and never when its look has none (the test
-/// beetle's own).
+/// A creature that kills a player plays its victory over it about half the time when its behavior
+/// table names one, whether its look has a clip for it (a Burun's) or not (a Grutt's): 70 to 130
+/// of 200 deaths each. Never when it has no table (the test beetle's own look).
 /// Behaviour: server.creatures.victory-over-a-dead-player
 #[test]
 fn a_creature_plays_its_victory_over_a_player_it_killed_about_half_the_time() {
@@ -3908,15 +3911,24 @@ fn a_creature_plays_its_victory_over_a_player_it_killed_about_half_the_time() {
         victories(h, b, from, beetle)
     };
     assert_eq!(deaths(&mut h, 20), 0, "its own look has none");
-    let look = p.described(BURUN).expect("a Burun").description.look;
-    let t = h.server.things.get_mut(beetle).expect("the beetle");
-    t.description.look = look;
-    t.drawn_as = None;
-    assert!(yalain_world::timings::thing_can_play(
-        &h.server,
-        beetle,
-        yalain_world::ai::VICTORY
-    ));
-    let played = deaths(&mut h, 200);
-    assert!((70..=130).contains(&played), "{played} of 200");
+    for (template, clip) in [(BURUN, true), (GRUTT, false)] {
+        let look = p.described(template).expect("a creature").description.look;
+        let t = h.server.things.get_mut(beetle).expect("the beetle");
+        t.description.look = look;
+        t.drawn_as = None;
+        assert!(yalain_world::timings::thing_names(
+            &h.server,
+            beetle,
+            yalain_world::ai::VICTORY
+        ));
+        let has_clip =
+            yalain_world::timings::of_thing(&h.server, beetle, yalain_world::ai::VICTORY)
+                != yalain_world::timings::unknown();
+        assert_eq!(has_clip, clip, "{template:08X}'s clips");
+        let played = deaths(&mut h, 200);
+        assert!(
+            (70..=130).contains(&played),
+            "{template:08X}: {played} of 200"
+        );
+    }
 }

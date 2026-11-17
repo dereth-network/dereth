@@ -14,8 +14,10 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use auberean_animation::timeline::{self, TimelineRecords};
+use auberean_animation::queries::TableQueries;
+use auberean_animation::timeline::{self, PlayRecords, TimelineRecords};
 pub use auberean_animation::timeline::{Plays, Timeline};
+use auberean_assets::animation::BehaviorKey;
 use auberean_assets::Context;
 use auberean_dat::DatFile;
 use auberean_primitives::DataId;
@@ -140,6 +142,20 @@ impl Timings {
         t
     }
 
+    /// Does a body's behavior table name a behavior in a combat mode, on the ground? Whether its
+    /// look has a clip for it is not asked.
+    #[must_use]
+    pub fn names(&self, plays: &Plays, mode: u32, behavior: u32) -> bool {
+        self.records.behavior_table(plays.table).is_some_and(|t| {
+            t.combo(&BehaviorKey {
+                element: EARTH,
+                mode,
+                behavior,
+            })
+            .is_valid()
+        })
+    }
+
     /// What a body plays for a behavior in a mode, on the ground, with one slider set (a death's
     /// pose).
     #[must_use]
@@ -225,15 +241,15 @@ pub fn of_thing<S: Store>(s: &Server<S>, id: u64, behavior: u32) -> Timeline {
         .unwrap_or_else(unknown)
 }
 
-/// Does a creature's or a pet's look play a behavior in the stance it fights in? Not when the
-/// install does not say.
+/// Does a creature's or a pet's behavior table name a behavior in the stance it fights in, whether
+/// or not its look has a clip for it? Not when the install does not say.
 #[must_use]
-pub fn thing_can_play<S: Store>(s: &Server<S>, id: u64, behavior: u32) -> bool {
+pub fn thing_names<S: Store>(s: &Server<S>, id: u64, behavior: u32) -> bool {
     let mode = crate::arms::stance(s, id);
     s.timings
         .as_ref()
-        .and_then(|t| t.timeline(&thing_plays(s, t, id)?, mode, behavior))
-        .is_some()
+        .and_then(|t| Some(t.names(&thing_plays(s, t, id)?, mode, behavior)))
+        .unwrap_or(false)
 }
 
 /// How long a thing takes to go from one mode to another, at time scale 1; `None` when the install
