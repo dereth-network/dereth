@@ -517,6 +517,8 @@ fn a_creature_dies_of_what_goes_back_and_the_holder_has_the_kill() {
                 skill_credits: 0,
                 hero_credits: 0,
                 hero_credit_cap: 0,
+                armor_cap: 0,
+                shield_cap: 0,
             })
             .to_vec(),
     };

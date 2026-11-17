@@ -596,6 +596,8 @@ fn a_level_from_45_brings_its_hero_skill_credits() {
                 skill_credits: 1,
                 hero_credits: if l >= 45 { 100 } else { 0 },
                 hero_credit_cap: 0,
+                armor_cap: 0,
+                shield_cap: 0,
             })
             .collect(),
     };

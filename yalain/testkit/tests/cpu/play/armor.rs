@@ -466,6 +466,76 @@ fn a_players_armor_counts_each_piece_and_each_effect_once() {
     assert!((combat::armor_on(&h.server, world) - 35.5).abs() < f32::EPSILON);
 }
 
+/// The level table caps a player's armor: its worn armor with what effects give held at the
+/// level's armor cap, its shield apart at the level's shield cap, the two then added; under the
+/// caps, or at a level with no cap, it is all counted.
+/// Behaviour: server.combat.armor-capped-by-level
+#[test]
+fn a_players_armor_and_shield_are_each_held_at_its_levels_cap() {
+    const SHIELD: u32 = 0x4700_7A06;
+    const SHIELDS: u32 = 0x7A06;
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let world = *h.server.players.keys().next().expect("in the world");
+    let caps = |h: &mut Harness, armor_cap: i32, shield_cap: i32| {
+        h.server.levels = yalain_world::levels::LevelTable {
+            levels: vec![yalain_world::levels::Level {
+                armor_cap,
+                shield_cap,
+                ..yalain_world::levels::Level::default()
+            }],
+        };
+    };
+    piece(&mut h, COAT, 2, 30);
+    h.server
+        .effect_table
+        .effects
+        .insert(WARD, armor_effect(WARD, 21, 6.0, false));
+    let mut p = Props::default();
+    p.set("Item_ArmorLevel", Prop::Int(15));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(SHIELD, SHIELDS, p));
+    h.server.treasure.shields.insert(SHIELDS);
+    let shield = yalain_world::inventory::make_item(&mut h.server, SHIELD, 1, 0).expect("made");
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("it")
+        .play
+        .items
+        .push(yalain_world::state::Held {
+            id: shield,
+            template: SHIELD,
+            slot: 0,
+            location: yalain_world::equip::OFF_HAND,
+            quantity: 1,
+        });
+    h.arm(b, me, COAT);
+    on(&mut h, WARD);
+    let armor = |h: &Harness| combat::armor_on(&h.server, world);
+    caps(&mut h, 25, 10);
+    assert!(
+        (armor(&h) - 35.0).abs() < f32::EPSILON,
+        "25 and 10: {}",
+        armor(&h)
+    );
+    caps(&mut h, 40, 20);
+    assert!(
+        (armor(&h) - 51.0).abs() < f32::EPSILON,
+        "36 and 15: {}",
+        armor(&h)
+    );
+    caps(&mut h, 0, 0);
+    assert!(
+        (armor(&h) - 51.0).abs() < f32::EPSILON,
+        "no caps: {}",
+        armor(&h)
+    );
+}
+
 /// The strike of a creature in reach reads what the player wears.
 /// Behaviour: server.combat.armor-takes-a-point
 #[test]

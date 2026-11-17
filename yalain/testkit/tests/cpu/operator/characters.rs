@@ -66,6 +66,8 @@ fn levels() -> LevelTable {
         skill_credits,
         hero_credits: 0,
         hero_credit_cap: 0,
+        armor_cap: 0,
+        shield_cap: 0,
     };
     LevelTable {
         levels: vec![level(0, 100, 0), level(10, 130, 1), level(1000, 160, 1)],

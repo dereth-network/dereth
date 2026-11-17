@@ -1380,6 +1380,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.combat.armor-capped-by-level",
+        says: "A player's worn armor with what effects give counts no more than its level's armor cap, \
+               and its shield, apart, no more than the level's shield cap; the level table holds both.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ARMOR-CAPS"),
+        station: "yalain-testkit::cpu::play::armor::a_players_armor_and_shield_are_each_held_at_its_levels_cap",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.combat.armor-from-each-source-once",
         says: "A player's armor is the rating each piece it wears or holds shows, what skills \
                put on a piece in that, and what effects on the player give, the top of a class, \

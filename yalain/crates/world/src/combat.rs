@@ -1980,33 +1980,44 @@ pub fn armor_taken<S: Store>(s: &Server<S>, id: u64) -> i32 {
 /// Encase's 50 alone 51, an Obelisk Ward's 6 alone 5.4, Lumbering Might's 41 alone 45, one effect
 /// of each class). No piece's rating shows what the effects on its wearer give, so nothing counts
 /// twice. Below nothing under effects that take it away.
+///
+/// The level table caps it: the worn armor with the effects at the level's armor cap, the shield
+/// apart at its shield cap (2017: a character's own profile showed each against its cap, the worn
+/// armor with an effect held at the cap at levels 7 to 12, and the hits on it fit the held value).
 #[must_use]
 pub fn armor_on<S: Store>(s: &Server<S>, world: ConnId) -> f32 {
     let Some(p) = s.players.get(&world) else {
         return 0.0;
     };
-    let worn: i32 = p
+    let (mut worn, mut shield) = (0, 0);
+    for t in p
         .play
         .items
         .iter()
         .filter(|h| h.location != 0)
         .filter_map(|h| s.things.get(h.id))
-        .map(|t| {
-            let v = crate::requests::item_view(s, t);
-            v.shield
-                .or(v.armor.map(|a| a.0))
-                .or(v.rating_given)
-                .unwrap_or(0)
-        })
-        .sum();
+    {
+        let v = crate::requests::item_view(s, t);
+        match v.shield {
+            Some(rating) => shield += rating,
+            None => worn += v.armor.map(|a| a.0).or(v.rating_given).unwrap_or(0),
+        }
+    }
     let (add, mult) = crate::effects::modifier(
         &s.effect_table,
         &p.play.effects,
         crate::effects::ARMOR_RATING,
     );
+    let level = s.levels.level(crate::examine::level_of(&p.qualities));
+    let capped = |value: f32, cap: Option<i32>| match cap.filter(|c| *c > 0) {
+        #[allow(clippy::cast_precision_loss)]
+        Some(cap) => value.min(cap as f32),
+        None => value,
+    };
     #[allow(clippy::cast_precision_loss)]
-    let worn = worn as f32;
-    (worn + add) * mult
+    let (worn, shield) = (worn as f32, shield as f32);
+    capped((worn + add) * mult, level.map(|l| l.armor_cap))
+        + capped(shield * mult, level.map(|l| l.shield_cap))
 }
 
 /// A creature within reach of its target strikes, when its next attack is due: a heal or a buff on

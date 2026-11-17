@@ -2698,3 +2698,21 @@ fn a_creatures_area_specials_read_their_radius_from_the_hook_marked_as_an_area()
         assert!((a.radius - radius).abs() < 1e-3, "{skill}: {}", a.radius);
     }
 }
+
+/// The level table holds each level's armor and shield caps: armor 704 and shield 228 at level
+/// 50, armor 12 more each level after; shields 27, 39, 61, 86 and 120 at levels 20, 25, 30, 35 and
+/// 40.
+/// Behaviour: server.combat.armor-capped-by-level
+#[test]
+fn the_level_table_holds_each_levels_armor_and_shield_caps() {
+    let levels = yalain_testkit::authored::Portal::open().levels();
+    let cap = |level: i32| {
+        let l = levels.level(level).expect("the level");
+        (l.armor_cap, l.shield_cap)
+    };
+    assert_eq!(cap(50), (704, 228));
+    assert_eq!(cap(51).0, 716);
+    assert_eq!(cap(150).0, 1904);
+    let shields: Vec<i32> = [20, 25, 30, 35, 40].iter().map(|l| cap(*l).1).collect();
+    assert_eq!(shields, [27, 39, 61, 86, 120]);
+}
