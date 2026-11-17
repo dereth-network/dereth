@@ -529,6 +529,77 @@ fn a_recipe_made_pays_the_experience_of_its_spinner_and_tells_the_pool_then_the_
     );
 }
 
+/// What a making tells of its pay: the pool's changes, and the craft skill's records.
+type Pay = (Vec<(u32, u64)>, Vec<(u32, u64, u64, u32)>);
+
+/// The knife's recipe paying by its spinner, its difficulty `difficulty`, made by a player whose
+/// Tools rating is `level` and who has earned `today` in it today: what the making tells of its pay.
+fn knife_made(difficulty: u32, level: u32, today: u64) -> Pay {
+    let (mut h, b, _me, world) = in_world();
+    if let Some(r) = h.server.crafting.recipes.get_mut(&KNIFE_RECIPE) {
+        r.xp_map = Some(yalain_world::craft::LevelMap {
+            first: 1,
+            values: vec![5, 6, 8, 9, 11],
+        });
+        r.difficulty = difficulty;
+        r.colored = true;
+    }
+    for t in h.server.crafting.templates() {
+        if h.server.catalog.get(t).is_none() {
+            let props = yalain_content::Props::default();
+            h.server
+                .catalog
+                .insert(yalain_testkit::test_template(t, 0x200, props));
+        }
+    }
+    if let Some(c) = h
+        .server
+        .players
+        .get_mut(&world)
+        .and_then(|p| p.play.craft_skills.iter_mut().find(|c| c.skill == TOOLS))
+    {
+        c.level = level;
+        c.today = today;
+    }
+    let from = execute_at(&mut h, b, KNIFE_RECIPE, &[], 3);
+    h.run(4);
+    wait(&mut h, 9.0);
+    let msgs = h.world_messages(b, from);
+    let got = calls_of(&h, b, from);
+    assert!(
+        got.iter()
+            .any(|(f, v)| *f == function::EXECUTED && v.get(1) == Some(&Value::Int(0))),
+        "made"
+    );
+    (pool_updates(&msgs), skill_records(&got))
+}
+
+/// A recipe its maker sees green, made at a craft level 30 or more above its difficulty, pays no
+/// craft experience: neither the pool nor the craft skill is told anything. One level less, it
+/// pays.
+/// Behaviour: server.craft.green-recipe-pays-nothing
+#[test]
+fn a_green_recipe_pays_no_craft_experience() {
+    assert_eq!(knife_made(10, 40, 0), (Vec::new(), Vec::new()), "green");
+    assert_eq!(
+        knife_made(10, 39, 0),
+        (vec![(1001, 1), (1000, 8)], vec![(TOOLS, 8, 7, 39)]),
+        "blue"
+    );
+}
+
+/// A recipe made pays less once the day's experience in its craft skill passes the day's mark at
+/// its level: three quarters, then half past twice it, then a quarter past three times it.
+/// Behaviour: server.craft.recipe-pays-less-through-the-day
+#[test]
+fn a_recipe_made_pays_less_as_the_days_experience_passes_its_mark() {
+    let paid = |today: u64| knife_made(0, 1, today).0;
+    assert_eq!(paid(1728), [(1001, 1), (1000, 8)], "at the mark");
+    assert_eq!(paid(1729), [(1001, 1), (1000, 6)], "past it");
+    assert_eq!(paid(3457), [(1001, 1), (1000, 4)], "past twice it");
+    assert_eq!(paid(5185), [(1001, 1), (1000, 2)], "past three times it");
+}
+
 /// Raising a craft skill by asking spends from the pool what the skill still lacks for its next
 /// level: the pool told, the record (a level up, nothing held), "Your rating in %1 is now %2.";
 /// a raise the pool cannot pay for is left unanswered and changes nothing.

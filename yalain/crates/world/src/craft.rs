@@ -58,7 +58,10 @@
 //! them a set of cards that melds).
 //!
 //! **Craft experience.** A recipe made pays experience in its craft skill: the recipe's table by
-//! the spinner chosen (else its own fixed amount), times the outcome's share. A part goes to the
+//! the spinner chosen (else its own fixed amount), times the outcome's share, less once the day's
+//! experience in the skill passes the day's mark, as a gathering use's does. A recipe its maker
+//! sees green (made at a craft level [`GREEN_FROM`] or more above its difficulty) pays nothing
+//! (2017: 0 of 10 such makings paid, all 320 below it did, up to 29 above). A part goes to the
 //! player's own pool of craft experience: a fifth for a recipe skill, a hundredth for a gathering
 //! skill (never less than one point), and the rest to the craft skill, which rises a level
 //! whenever what it holds reaches its table's next step, the step taken from what it holds. At its
@@ -489,6 +492,9 @@ pub struct RecipeDef {
     pub difficulty_map: Option<LevelMap>,
     /// How far above the craft skill its difficulty may be for it to be tried at all (none: any).
     pub cutoff: Option<i32>,
+    /// Whether the client shows its name in the color of its maker's margin over its difficulty
+    /// (a recipe it never colors is never green).
+    pub colored: bool,
     /// The spinner's least and greatest values, when the recipe has one.
     pub spinner: Option<(u32, u32)>,
     /// The effect a maker must hold (a workshop's), when it needs one.
@@ -1009,6 +1015,11 @@ impl RecipeDef {
                         .and_then(|r| nav.states_of_ref(r))
                 })
                 .flatten(),
+            colored: nav
+                .field(root, "m_nameColoringTable")
+                .ok()
+                .and_then(|r| nav.states_of_ref(r))
+                .is_some(),
             custom,
             package,
         })
@@ -1163,6 +1174,42 @@ pub fn usage_xp(def: &CraftSkillDef, c: &CraftSkillState) -> u64 {
     let base = f64::from(table.at(c.level)) * day_share(c.today, def.daily.at(c.level));
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let xp = base.floor() as u64;
+    xp
+}
+
+/// How far a maker's craft level must be above a recipe's difficulty for the client to show the
+/// recipe green: its success certain, and nothing to learn from it.
+pub const GREEN_FROM: i32 = 30;
+
+/// Is a recipe green for a maker at `level` (as a making reads it) with the spinner at `spinner`?
+#[must_use]
+pub fn is_green(def: &RecipeDef, spinner: u32, level: u32) -> bool {
+    def.colored && i64::from(level) - i64::from(def.difficulty_at(spinner)) >= i64::from(GREEN_FROM)
+}
+
+/// The experience a recipe made pays its craft skill: its amount at the spinner times the
+/// outcome's share, less as the day's experience grows past the day's mark at the skill's level;
+/// nothing when the recipe is green for its maker (`level`, as a making reads it).
+#[must_use]
+pub fn recipe_xp(
+    def: &RecipeDef,
+    spinner: u32,
+    xp_mod: f32,
+    level: u32,
+    (skill, c): (&CraftSkillDef, &CraftSkillState),
+) -> u64 {
+    if is_green(def, spinner, level) {
+        return 0;
+    }
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
+    let xp = (def.base_xp(spinner) as f64
+        * f64::from(xp_mod)
+        * day_share(c.today, skill.daily.at(c.level)))
+    .floor() as u64;
     xp
 }
 
@@ -2290,12 +2337,18 @@ fn result<S: Store>(
         return;
     }
     let failed = value <= 1.0 && def.checked();
-    #[allow(
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        clippy::cast_precision_loss
-    )]
-    let mut xp = (def.base_xp(m.spinner) as f64 * f64::from(outcome.xp_mod)).floor() as u64;
+    let record = s
+        .players
+        .get(&world)
+        .and_then(|p| p.play.craft_skills.iter().find(|c| c.skill == def.skill))
+        .copied();
+    let mut xp = match (
+        s.crafting.skills.iter().find(|d| d.did == def.skill),
+        record,
+    ) {
+        (Some(skill), Some(c)) => recipe_xp(&def, m.spinner, outcome.xp_mod, level, (skill, &c)),
+        _ => 0,
+    };
     let mut used: Vec<(u64, u32)> = Vec::new();
     let mut effects: Vec<(u32, f32)> = Vec::new();
     let mut made: Vec<(u32, u64)> = Vec::new();

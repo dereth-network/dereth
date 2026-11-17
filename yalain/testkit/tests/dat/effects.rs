@@ -74,13 +74,17 @@ fn the_mark_lasts_four_hours_and_ends_at_logout_and_at_a_teleport() {
 
 /// The Arwic mines' sword recipe reads as the data defines it: twenty iron in its one slot, two
 /// cycles of its animation, one outcome making the sword, moving the quest on, using up the iron
-/// and showing its text; the starting knife's recipe takes nothing and waits three hours; and the
-/// craft skills read with their caps.
+/// and showing its text; the starting knife's recipe takes nothing, waits three hours and shows no
+/// color, where the Dueling Sword's shows its maker's margin; and the craft skills read with their
+/// caps.
 /// Behaviour: server.craft.recipes-read-from-their-definitions
 #[test]
 fn the_recipes_read_as_the_data_defines_them() {
     let p = Portal::open();
-    let c = p.crafting(&[0x6F00_06A0, 0x6F00_06A7], &[0x6F00_02A6, 0x6F00_1071]);
+    let c = p.crafting(
+        &[0x6F00_06A0, 0x6F00_06A7],
+        &[0x6F00_02A6, 0x6F00_1071, 0x6F00_0F71],
+    );
     assert_eq!(
         c.skills.iter().map(|k| (k.did, k.cap)).collect::<Vec<_>>(),
         [(0x6F00_06A0, 1), (0x6F00_06A7, 500)]
@@ -132,6 +136,8 @@ fn the_recipes_read_as_the_data_defines_them() {
     let knife = &c.recipes[&0x6F00_1071];
     assert!(knife.ingredients.is_empty());
     assert_eq!(knife.recovery, 10_800.0);
+    assert!(!knife.colored);
+    assert!(c.recipes[&0x6F00_0F71].colored, "the Dueling Sword's");
 }
 
 /// A human's basic attacks read as the data defines them: the bow's thrown ones from 1 to 80 m

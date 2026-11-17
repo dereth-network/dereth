@@ -2178,6 +2178,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.green-recipe-pays-nothing",
+        says: "A recipe its maker sees green, made at a craft level 30 or more above its difficulty (as a \
+               making reads the level: with what effects add), pays no craft experience: neither the pool \
+               nor the craft skill is told anything. A recipe the client never colors is never green.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-GREEN"),
+        station: "yalain-testkit::cpu::play::crafting::a_green_recipe_pays_no_craft_experience",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.hoard-time-runs-out",
         says: "A hoard's vein is mined only while the hoard's hidden quest runs; when its five \
                minutes run out the Shaper's Hoard effect is gone, the vein refuses as mysterious, \
@@ -2553,6 +2563,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.recipe-pays-less-through-the-day",
+        says: "A recipe made pays less once the day's experience in its craft skill passes the day's mark \
+               at its level: three quarters, then half past twice it, then a quarter past three times it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-RECIPE-DAY"),
+        station: "yalain-testkit::cpu::play::crafting::a_recipe_made_pays_less_as_the_days_experience_passes_its_mark",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.recipe-too-far-above-the-skill-refused",
         says: "A recipe whose difficulty is further above the craft skill, with what effects add, than \
                its cutoff is refused with the answer alone. Our choice: the client greys its button \
@@ -2567,7 +2586,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "Recipes and craft skills read from their saved states with the library's names: a \
                recipe's craft skill, animation and cycles, its ingredient slots, its checks and \
                their outcomes' actions (items made, ingredients used up, effects, texts), its \
-               wait; a craft skill's cap.",
+               wait; whether the client colors it; a craft skill's cap.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-RECIPE-DEFS"),
         station: "yalain-testkit::dat::effects::the_recipes_read_as_the_data_defines_them",
