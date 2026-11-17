@@ -212,7 +212,8 @@ pub struct Player {
     pub dropped: bool,
     /// A skill it is untraining, until it has earned the skill's experience again.
     pub untraining: Option<crate::skills::Untraining>,
-    /// The conflict status of where it is, as its client was last told it.
+    /// The conflict status of where it is, as its client was last told it (the server status, on a
+    /// world with one).
     pub conflict: u32,
     /// When it last asked to change its account's password (the transport's seconds).
     pub passwd_at: Option<f64>,
@@ -669,7 +670,7 @@ pub fn enter<S: Store>(
         &ServerMessage::PlayerQualities(player::description(qualities)),
     );
     if new_character {
-        crate::kingdoms::told_first(net, world, conflict);
+        crate::kingdoms::told_first(net, world, s.cfg.ruleset, conflict);
     }
     p.visual = p.visual.wrapping_add(1);
     let fx = ServerMessage::DoFx(auberean_protocol::physics::ObjectEvent {
@@ -763,7 +764,7 @@ pub fn enter<S: Store>(
         &p.play.skills,
     );
     let start = SessionStart {
-        server_faction: 0,
+        server_faction: s.cfg.ruleset.server_status(),
         local_faction: conflict,
         tables: crate::skills::RepositoryTables::of(&s.skill_table, &held),
         skills: held,

@@ -69,8 +69,8 @@
 //!                         0 to 100 (default 1)
 //!   --movement-rate X     multiply how fast players move, above 0 to 10 (default 1)
 //!   --ruleset R           where players may fight: standard (the default; the world's areas
-//!                         decide, peace everywhere else), kingdom-vs-kingdom (kingdoms fight
-//!                         anywhere the areas name no more) or free-for-all (anyone, anywhere)
+//!                         decide, peace everywhere else), kingdom-vs-kingdom (players of
+//!                         different kingdoms, anywhere) or free-for-all (anyone, anywhere)
 //!   --add-character A:N:R:S  make character N on account A of race R and sex S (4096 or 8192),
 //!                         with a middling physique, then carry on; a missing account is made on
 //!                         an open world only

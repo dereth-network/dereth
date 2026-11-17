@@ -14,10 +14,12 @@
 //! controlled (players of different kingdoms, neutral players kept out), kingdom against kingdom,
 //! or free for all; the world database's areas say which, every other landblock being a peace
 //! area (2017: the status a client held matched one kind per landblock over 2,827 of 2,830
-//! landblocks visited). The operator's ruleset ([`Ruleset`]) may raise the whole world: a kingdom
-//! against kingdom world holds every landblock its areas name less of as kingdom against kingdom,
-//! a free for all world every landblock as free for all. The client is told the status of where it
-//! is:
+//! landblocks visited). The operator's ruleset ([`Ruleset`]) may hold the whole world at one
+//! status: a kingdom against kingdom or a free for all world gives the client that status as its
+//! server status in the session start, which the client puts before the status of where its player
+//! is (it shows the server status, and prints no entering text while one is set), and every
+//! landblock counts as it here too, whatever its area. On a standard world the client is told the
+//! status of where it is:
 //!
 //! - as a character enters, in the session start (425 of 425), and a new character is told it
 //!   once more right after its description (2 of 2);
@@ -398,14 +400,14 @@ pub fn set_ethereality(qualities: &mut Vec<u8>, v: i32) {
     *qualities = quals::write(&q);
 }
 
-/// A world's ruleset: the least conflict any of its landblocks holds, whatever its areas say.
-/// An area that names more conflict than the ruleset keeps its own.
+/// A world's ruleset: a status every landblock holds, whatever its areas say, given to the client
+/// as its server status; or none, for a world whose areas decide.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Ruleset {
     /// The areas decide, and every landblock they name none for is a peace area.
     #[default]
     Standard,
-    /// Every landblock is kingdom against kingdom, unless its area names free for all.
+    /// Every landblock is kingdom against kingdom.
     KingdomVsKingdom,
     /// Every landblock is free for all.
     FreeForAll,
@@ -431,25 +433,25 @@ impl Ruleset {
         Self::ALL.into_iter().find(|r| r.word() == w)
     }
 
-    /// The least conflict a landblock of a world of this ruleset holds.
+    /// The server status the session start gives the client: 0 for none (the areas decide), else
+    /// the status every landblock holds.
     #[must_use]
-    pub const fn least(self) -> Conflict {
+    pub const fn server_status(self) -> u32 {
         match self {
-            Self::Standard => Conflict::Peace,
-            Self::KingdomVsKingdom => Conflict::KingdomVsKingdom,
-            Self::FreeForAll => Conflict::FreeForAll,
+            Self::Standard => 0,
+            Self::KingdomVsKingdom => Conflict::KingdomVsKingdom.status(),
+            Self::FreeForAll => Conflict::FreeForAll.status(),
         }
     }
 
     /// The conflict status a landblock whose area names `area` (peace for a landblock no area
-    /// names) holds in a world of this ruleset: the more of the two.
+    /// names) holds in a world of this ruleset: the server status when there is one, as the client
+    /// reckons its own, else the area's.
     #[must_use]
     pub const fn status(self, area: Conflict) -> u32 {
-        let (a, least) = (area.status(), self.least().status());
-        if a > least {
-            a
-        } else {
-            least
+        match self.server_status() {
+            0 => area.status(),
+            server => server,
         }
     }
 }
@@ -529,13 +531,16 @@ pub fn entering(qualities: &mut Vec<u8>, status: u32, new_character: bool) {
 }
 
 /// A new character, just described: it is told the status of where it is (its description held
-/// none).
-pub fn told_first(net: &mut ServerNet, world: ConnId, status: u32) {
-    progress::private(net, world, &status_call(status));
+/// none). Not on a world with a server status, where the status is never told.
+pub fn told_first(net: &mut ServerNet, world: ConnId, ruleset: Ruleset, status: u32) {
+    if ruleset.server_status() == 0 {
+        progress::private(net, world, &status_call(status));
+    }
 }
 
 /// The player may have come into a landblock of another status: walked in, or its arrival through
-/// (the client has drawn the world). It is told the new status, and its ethereality follows.
+/// (the client has drawn the world). It is told the new status, and its ethereality follows. On a
+/// world with a server status every landblock holds the same, so nothing is ever told.
 pub fn check<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     let Some(p) = s.players.get(&world) else {
         return;

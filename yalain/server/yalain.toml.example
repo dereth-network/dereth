@@ -31,8 +31,8 @@ message_of_the_day = ""
 
 # default: "standard" (--ruleset; Yalain only)
 # Where players may fight: "standard" (the world's conflict areas, peace everywhere else),
-# "kingdom-vs-kingdom" (players of different kingdoms anywhere; a free-for-all area stays free for
-# all) or "free-for-all" (anyone, anywhere).
+# "kingdom-vs-kingdom" (players of different kingdoms, anywhere) or "free-for-all" (anyone,
+# anywhere).
 ruleset = "standard"
 
 # default: "" (--world-db; Yalain only)

@@ -665,13 +665,13 @@ ruleset = "standard"   # or "kingdom-vs-kingdom", or "free-for-all"
 ```
 
 - `standard`, the default: the world's conflict areas decide, and everywhere else is at peace.
-- `kingdom-vs-kingdom`: players of different kingdoms may fight anywhere. A free-for-all area stays
-  free for all.
+- `kingdom-vs-kingdom`: players of different kingdoms may fight anywhere, the conflict areas too.
 - `free-for-all`: anyone may fight anyone, anywhere.
 
-Players are told the status of where they stand, as in the conflict areas. Any other word stops
-the server at its start. The status endpoint's `ruleset` names it (section 3.8). Say the same in
-the world's listing on the Dereth Network (section 8.1): `Standard`, `KvK` or `FFA`.
+On those two worlds the status bar always shows the world's ruleset, and entering a conflict area
+says nothing. Any other word stops the server at its start. The status endpoint's `ruleset` names
+it (section 3.8). Say the same in the world's listing on the Dereth Network (section 8.1):
+`Standard`, `KvK` or `FFA`.
 
 ---
 

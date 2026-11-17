@@ -277,8 +277,8 @@ pub struct ServerConfig {
     pub storms: storms::Settings,
     /// The operator's experience, loot and respawn rates (1 each unless given).
     pub rates: rates::Rates,
-    /// The world's ruleset: the least player conflict every landblock holds ([`kingdoms::Ruleset`];
-    /// standard unless given, where the world's areas decide).
+    /// The world's ruleset: a player conflict every landblock holds, the client's server status
+    /// ([`kingdoms::Ruleset`]; standard unless given, where the world's areas decide).
     pub ruleset: kingdoms::Ruleset,
 }
 

@@ -8269,25 +8269,26 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.kingdoms.world-ruleset",
-        says: "The world's ruleset is the least conflict every landblock holds, an area naming more \
-               keeping its own: a standard world's areas decide, peace where they name none; a \
-               kingdom against kingdom world holds every landblock its areas name less of as \
-               kingdom against kingdom; a free for all world holds every landblock as free for \
-               all. A character entering is told the status of where it enters, and its \
-               ethereality follows.",
+        says: "The world's ruleset is the session start's server status: none (0) on a standard \
+               world, whose areas decide, peace where they name none; kingdom against kingdom (3) \
+               or free for all (4) on such a world, every landblock holding it whatever its area. \
+               A new character on a standard world is told the status of where it enters, one on \
+               a world with a server status nothing; its ethereality follows.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-KINGDOM-WORLD-RULESET"),
-        station: "yalain-testkit::cpu::play::kingdoms::a_worlds_ruleset_is_the_least_conflict_every_landblock_holds",
+        station: "yalain-testkit::cpu::play::kingdoms::a_worlds_ruleset_is_the_server_status_every_landblock_holds",
         tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.kingdoms.world-ruleset-on-the-way",
-        says: "On a kingdom against kingdom world, walking from a landblock no area names into a \
-               controlled area tells nothing, both being kingdom against kingdom, and walking into \
-               a free for all area tells its status.",
+        says: "On a kingdom against kingdom world, walking into a controlled area and on into a \
+               free for all area tells no status and changes no ethereality; both count as kingdom \
+               against kingdom, so players of one kingdom may not harm each other there, and a \
+               player whom kingdoms may fight anywhere counts as kingdom against kingdom, not as \
+               anywhere so.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-KINGDOM-WORLD-RULESET-WALK"),
-        station: "yalain-testkit::cpu::play::kingdoms::on_a_kingdom_against_kingdom_world_only_a_free_for_all_area_tells_another_status",
+        station: "yalain-testkit::cpu::play::kingdoms::on_a_kingdom_against_kingdom_world_no_area_tells_a_status_or_holds_its_own",
         tier: Tier::Cpu,
     },
     behaviour! {

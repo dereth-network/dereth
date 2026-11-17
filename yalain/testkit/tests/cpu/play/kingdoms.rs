@@ -1194,31 +1194,78 @@ fn a_step_grants_and_revokes_the_permission_to_be_fought_anywhere_and_every_watc
     );
 }
 
-/// A world's ruleset is the least conflict every landblock holds, an area that names more keeping
-/// its own: a standard world's areas decide (peace where they name none); a kingdom against kingdom
-/// world holds a landblock no area names, or a controlled one, as kingdom against kingdom, and a
-/// free for all area as free for all; a free for all world holds every landblock as free for all.
-/// A new character is told the status of where it enters, and its ethereality (a player in no
-/// kingdom's) follows it.
+/// The session start's statuses a client was sent since `from`: (local, server).
+fn session_statuses(h: &Harness, b: usize, from: usize) -> Vec<(u32, u32)> {
+    calls_of(h, b, from, SESSION_START)
+        .iter()
+        .filter_map(|v| match v.as_slice() {
+            [.., Value::Int(local), Value::Int(server)] => Some((*local, *server)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A world's ruleset is the session start's server status: none on a standard world, whose areas
+/// decide (peace where they name none); kingdom against kingdom or free for all on such a world,
+/// where every landblock holds that status whatever its area names, an area of more conflict too.
+/// A new character on a standard world is told the status of where it enters, one on a world with
+/// a server status nothing (the client would print an entering text); the ethereality of a player
+/// in no kingdom follows the status it holds.
 /// Behaviour: server.kingdoms.world-ruleset
 #[test]
-fn a_worlds_ruleset_is_the_least_conflict_every_landblock_holds() {
+fn a_worlds_ruleset_is_the_server_status_every_landblock_holds() {
     use kingdoms::Ruleset;
     use Conflict::{Controlled, FreeForAll, KingdomVsKingdom};
-    // Each world's ruleset, the start's area (none where no area names it), and the status told
-    // there with the ethereality of a player in no kingdom.
+    // Each world's ruleset, the start's area (none where no area names it), the session start's
+    // (local, server) statuses, the statuses told, and the ethereality of a player in no kingdom.
     let cases = [
-        (Ruleset::Standard, None, 1, 0x3E20_0010),
-        (Ruleset::Standard, Some(Controlled), 2, 0x3E20_0010),
-        (Ruleset::Standard, Some(FreeForAll), 4, 0x0220_0010),
-        (Ruleset::KingdomVsKingdom, None, 3, 0x0620_0010),
-        (Ruleset::KingdomVsKingdom, Some(Controlled), 3, 0x0620_0010),
-        (Ruleset::KingdomVsKingdom, Some(FreeForAll), 4, 0x0220_0010),
-        (Ruleset::FreeForAll, None, 4, 0x0220_0010),
-        (Ruleset::FreeForAll, Some(Controlled), 4, 0x0220_0010),
-        (Ruleset::FreeForAll, Some(KingdomVsKingdom), 4, 0x0220_0010),
+        (Ruleset::Standard, None, (1, 0), Some(1), 0x3E20_0010),
+        (
+            Ruleset::Standard,
+            Some(Controlled),
+            (2, 0),
+            Some(2),
+            0x3E20_0010,
+        ),
+        (
+            Ruleset::Standard,
+            Some(FreeForAll),
+            (4, 0),
+            Some(4),
+            0x0220_0010,
+        ),
+        (Ruleset::KingdomVsKingdom, None, (3, 3), None, 0x0620_0010),
+        (
+            Ruleset::KingdomVsKingdom,
+            Some(Controlled),
+            (3, 3),
+            None,
+            0x0620_0010,
+        ),
+        (
+            Ruleset::KingdomVsKingdom,
+            Some(FreeForAll),
+            (3, 3),
+            None,
+            0x0620_0010,
+        ),
+        (Ruleset::FreeForAll, None, (4, 4), None, 0x0220_0010),
+        (
+            Ruleset::FreeForAll,
+            Some(Controlled),
+            (4, 4),
+            None,
+            0x0220_0010,
+        ),
+        (
+            Ruleset::FreeForAll,
+            Some(KingdomVsKingdom),
+            (4, 4),
+            None,
+            0x0220_0010,
+        ),
     ];
-    for (ruleset, area, status, ethereal) in cases {
+    for (ruleset, area, session, told, ethereal) in cases {
         let mut h = Harness::new();
         h.server.cfg.ruleset = ruleset;
         if let Some(a) = area {
@@ -1226,7 +1273,8 @@ fn a_worlds_ruleset_is_the_least_conflict_every_landblock_holds() {
         }
         let (b, id) = h.player_in_world("one", "Elara");
         let case = format!("{ruleset:?} with {area:?}");
-        assert_eq!(statuses(&h, b, 0), [status], "{case}");
+        assert_eq!(session_statuses(&h, b, 0), [session], "{case}");
+        assert_eq!(statuses(&h, b, 0), Vec::from_iter(told), "{case}");
         let p = h
             .server
             .players
@@ -1237,13 +1285,14 @@ fn a_worlds_ruleset_is_the_least_conflict_every_landblock_holds() {
     }
 }
 
-/// On a kingdom against kingdom world a controlled area is kingdom against kingdom too: a player
-/// walking into one from a landblock no area names is told nothing, and its ethereality stays;
-/// walking on into a free for all area tells it, and its ethereality follows; walking back out
-/// into a landblock no area names tells kingdom against kingdom again.
+/// On a kingdom against kingdom world no area holds its own status: a player walking into a
+/// controlled area, then on into a free for all one, is told no status and its ethereality stays.
+/// Two players of one kingdom there may not harm each other, as kingdom against kingdom allows; and
+/// a player whom kingdoms may fight anywhere counts as kingdom against kingdom, not as anywhere so,
+/// where no area names any conflict.
 /// Behaviour: server.kingdoms.world-ruleset-on-the-way
 #[test]
-fn on_a_kingdom_against_kingdom_world_only_a_free_for_all_area_tells_another_status() {
+fn on_a_kingdom_against_kingdom_world_no_area_tells_a_status_or_holds_its_own() {
     let mut h = Harness::new();
     h.server.cfg.ruleset = kingdoms::Ruleset::KingdomVsKingdom;
     h.server
@@ -1255,40 +1304,59 @@ fn on_a_kingdom_against_kingdom_world_only_a_free_for_all_area_tells_another_sta
         .conflict
         .insert(NEXT_LANDBLOCK + 1, Conflict::FreeForAll);
     let (a, ida) = h.player_in_world("one", "Elara");
-    h.bots[a].send(
-        true,
-        queue::WEENIE,
-        &ClientMessage::SceneRenderingComplete(Empty),
-    );
+    let (b, idb) = h.player_in_world("two", "Oriel");
+    for bot in [a, b] {
+        h.bots[bot].send(
+            true,
+            queue::WEENIE,
+            &ClientMessage::SceneRenderingComplete(Empty),
+        );
+    }
     h.run(10);
-    let walk = |h: &mut Harness, landblock: u16| {
+    set_kingdom(&mut h, ida, kingdom::DOMINION);
+    set_kingdom(&mut h, idb, kingdom::DOMINION);
+    let walk = |h: &mut Harness, bot: usize, landblock: u16| {
         let cell = u32::from(landblock) << 16 | 0x0001;
-        h.bots[a].send(
+        h.bots[bot].send(
             true,
             queue::WEENIE,
             &report(cell, Vec3::new(10.0, 10.0, 0.0), 0x40, IDLE_MOTION, 0),
         );
         h.run(10);
     };
+    let fighter = |h: &Harness, id: u64| {
+        kingdoms::fighter(
+            h.server
+                .players
+                .values()
+                .find(|p| p.character == id)
+                .expect("in the world"),
+        )
+    };
     let from = h.bots[a].inbox.len();
-    walk(&mut h, NEXT_LANDBLOCK);
-    assert!(
-        statuses(&h, a, from).is_empty(),
-        "a controlled area: nothing"
-    );
-    assert!(visuals(&h, a, from, ida).is_empty());
-    let from = h.bots[a].inbox.len();
-    walk(&mut h, NEXT_LANDBLOCK + 1);
-    assert_eq!(statuses(&h, a, from), [4], "a free for all area");
+    walk(&mut h, a, NEXT_LANDBLOCK);
+    walk(&mut h, a, NEXT_LANDBLOCK + 1);
+    walk(&mut h, b, NEXT_LANDBLOCK);
+    walk(&mut h, b, NEXT_LANDBLOCK + 1);
+    assert!(statuses(&h, a, from).is_empty(), "no area tells a status");
+    assert!(visuals(&h, a, from, ida).is_empty(), "nor an ethereality");
+    let (fa, fb) = (fighter(&h, ida), fighter(&h, idb));
+    assert_eq!((fa.status, fb.status), (3, 3), "a free for all area");
     assert_eq!(
-        visuals(&h, a, from, ida),
-        [(quality::ETHEREALITY, 0x0220_0010)]
+        kingdoms::may_harm(&fb, &fa),
+        Err(kingdoms::refusal::SAME_KINGDOM)
     );
+    for p in h.server.players.values_mut() {
+        if p.character == ida {
+            kingdoms::set_permissions(&mut p.qualities, kingdoms::permission::ANYWHERE, 0);
+        }
+    }
     let from = h.bots[a].inbox.len();
-    walk(&mut h, 0x029C);
-    assert_eq!(statuses(&h, a, from), [3], "kingdom against kingdom again");
+    walk(&mut h, a, 0x029C);
+    assert!(statuses(&h, a, from).is_empty());
     assert_eq!(
-        visuals(&h, a, from, ida),
-        [(quality::ETHEREALITY, 0x0620_0010)]
+        fighter(&h, ida).status,
+        3,
+        "kingdom against kingdom, not anywhere so"
     );
 }
