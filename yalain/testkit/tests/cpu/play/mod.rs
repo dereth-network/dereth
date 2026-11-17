@@ -114,6 +114,7 @@ mod step_waits;
 mod storms;
 mod story;
 mod summoned_portals;
+mod swimming;
 mod talk;
 mod tallies;
 mod trade;

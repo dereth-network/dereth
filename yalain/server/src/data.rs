@@ -1251,10 +1251,15 @@ pub fn icon_layers(p: &Portal, look: u32) -> Vec<[u32; 3]> {
 }
 
 /// The ground outdoors, from the land of the blocks the camps stand in and their neighbors and those
-/// the walls read since; and what each interior cell of the world sees and joins.
+/// the walls read since; what each interior cell of the world sees and joins; and the water of
+/// every block, from the region.
 pub struct LandGround {
     known: yalain_world::reported::Known,
     blocks: usize,
+    water: Option<(
+        auberean_world::water::WaterSet,
+        auberean_world::land::LandConstants,
+    )>,
 }
 
 impl std::fmt::Debug for LandGround {
@@ -1279,6 +1284,14 @@ impl yalain_world::Ground for LandGround {
 
     fn joins(&self, cell: u32) -> Option<&[u32]> {
         self.known.joins(cell)
+    }
+
+    /// Whatever the block's lowest ground: a body under the surface is in its water.
+    fn water(&self, cell: u32) -> Option<f32> {
+        let (set, land) = self.water.as_ref()?;
+        let [x, y, ..] = cell.to_be_bytes();
+        set.block(land, i32::from(x), i32::from(y), f32::NEG_INFINITY)
+            .map(|w| w.height)
     }
 }
 
@@ -1340,6 +1353,7 @@ pub fn land_ground(
         world.set_property_list(list);
     }
     let walkers = walkers(&records, catalog);
+    let water = region.water.clone().map(|w| (w, region.land.clone()));
     let blocks = TimedBlocks {
         inner: yalain_world::walls::RecordBlocks::new(records, region),
         spent: std::time::Duration::ZERO,
@@ -1354,6 +1368,7 @@ pub fn land_ground(
         LandGround {
             known: yalain_world::reported::Known { land, rooms },
             blocks: n,
+            water,
         },
         walls,
     ))
@@ -1727,6 +1742,37 @@ mod tests {
             .filter(|e| of(e.id))
             .filter_map(|e| tally.get(&u64::from(e.offset)).copied())
             .collect()
+    }
+
+    /// The ground answers the water's surface over any block from the region, a block no camp
+    /// stands near among them: the sea at `4F5E` stands at 70.95 m.
+    /// Behaviour: server.vitals.swimming-costs-vigor-then-health
+    #[test]
+    fn the_ground_answers_the_water_surface_over_a_block_no_camp_stands_near() {
+        use yalain_world::Ground as _;
+        let dir = auberean_dat::testing::require_target_install();
+        let p = Portal::open(&dir, None).expect("opens");
+        let camp = yalain_content::Camp {
+            id: String::new(),
+            cell: 0x75B9_0001,
+            origin: [0.0; 3],
+            radius: 0.0,
+            population: 0,
+            regen: 0.0,
+            templates: Vec::new(),
+            spots: Vec::new(),
+            placed: String::new(),
+            confidence: String::new(),
+            moves: yalain_content::movement::CampMoves::default(),
+            name: None,
+        };
+        let spawns = SpawnTable {
+            camps: vec![camp],
+            masters: Vec::new(),
+        };
+        let (ground, _) = land_ground(&p, &spawns, &Catalog::default()).expect("the ground");
+        let sea = ground.water(0x4F5E_0025).expect("the sea");
+        assert!((sea - 70.95).abs() < 0.01, "{sea}");
     }
 
     /// Reading the ground of two camps side by side reads each landblock and each mesh once, and

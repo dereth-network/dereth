@@ -435,6 +435,8 @@ pub mod perk_kind {
     pub const DIURNAL: u32 = 2;
     /// Experience a kill pays, times this.
     pub const FAST_LEARNER: u32 = 20;
+    /// The share of what swimming costs that is not lost.
+    pub const SWIMMING: u32 = 17;
     /// What a vital's greatest gains: vigor, health, focus.
     pub const INTELLIGENCE: u32 = 39;
     pub const VITALITY: u32 = 40;

@@ -1935,6 +1935,8 @@ pub fn test_loot() -> yalain_content::LootTable {
 #[derive(Debug, Default)]
 pub struct TestGround {
     pub land: Option<f32>,
+    /// The water's surface over every outdoor block (none: no water anywhere).
+    pub water: Option<f32>,
     pub sees: std::collections::BTreeMap<u32, Vec<u32>>,
     pub joins: std::collections::BTreeMap<u32, Vec<u32>>,
 }
@@ -1961,6 +1963,10 @@ impl TestGround {
 impl yalain_world::Ground for TestGround {
     fn height(&self, _cell: u32, _origin: [f32; 3]) -> Option<f32> {
         self.land
+    }
+
+    fn water(&self, _cell: u32) -> Option<f32> {
+        self.water
     }
 
     fn sees(&self, cell: u32) -> Option<&[u32]> {

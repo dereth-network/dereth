@@ -170,6 +170,7 @@ pub mod state;
 pub mod step_timer;
 pub mod store;
 pub mod storms;
+pub mod swimming;
 pub mod talk;
 pub mod tallies;
 pub mod things;
@@ -591,6 +592,12 @@ pub struct Server<S: Store> {
 /// interior cells: those seen from each, and those its doorways join.
 pub trait Ground: std::fmt::Debug {
     fn height(&self, cell: u32, origin: [f32; 3]) -> Option<f32>;
+
+    /// The height of the water's surface over an outdoor cell's block, when the block holds water
+    /// and the host knows it.
+    fn water(&self, _cell: u32) -> Option<f32> {
+        None
+    }
 
     /// The interior cells (whole ids) visible from an interior cell, when the host knows them.
     fn sees(&self, _cell: u32) -> Option<&[u32]> {

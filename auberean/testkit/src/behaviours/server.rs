@@ -18032,6 +18032,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.vitals.swimming-costs-vigor-then-health",
+        says: "A player whose feet are 1.25 m or more under its block's water surface swims: it \
+               regains nothing and loses vigor, all of it in 30 seconds, then health, all of it in \
+               two minutes, less what Swimming Mastery takes off; with no health left it drowns.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SWIMMING-DRAIN"),
+        station: "yalain-testkit::cpu::play::swimming::a_swimmer_loses_all_its_vigor_in_thirty_seconds_then_its_health_in_two_minutes",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.walks.never-under-the-sea",
         says: "The corpus walks take no step and seek no goal under the sea's surface where the land \
                has water, though the walls carry a body onto the sea floor: a place set under the sea \

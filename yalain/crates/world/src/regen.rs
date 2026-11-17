@@ -13,6 +13,9 @@
 //! (health then fills in a minute, vigor in half of one), the combat rates nothing unless an effect
 //! gives them (a buff, a worn item's), so a player without one regains nothing in combat.
 //!
+//! **Swimming.** A player who swims regains nothing; its steps take vigor, then health, instead
+//! ([`crate::swimming`]).
+//!
 //! **Creatures** not hurt for eight seconds regain their greatest health in a minute (a share of it a
 //! second), in whole points as the share earned adds up (measured through 2017's selection pushes;
 //! nothing is sent for them).
@@ -115,8 +118,10 @@ fn vitals<S: Store>(s: &Server<S>, p: &crate::world::Player, night: bool) -> [Vi
 }
 
 /// Regenerate what is due.
-pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, now: f64) {
+pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: crate::Clock) {
+    let now = clock.local.0;
     let worlds: Vec<_> = s.players.keys().copied().collect();
+    let mut drowned = Vec::new();
     for world in worlds {
         let Some(p) = s.players.get(&world) else {
             continue;
@@ -136,6 +141,7 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, now: f64) {
         };
         let night = s.is_night(net.game_time(yalain_net::LocalTime(now)));
         let stepping = (due && p.next_regen != 0.0).then(|| vitals(s, p, night));
+        let swims = due.then(|| crate::swimming::swims(s, p)).flatten();
         let Some(p) = s.players.get_mut(&world) else {
             continue;
         };
@@ -162,6 +168,13 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, now: f64) {
         p.last_regen = now;
         p.next_regen = now + wait;
         p.regen_active = false;
+        if let Some(cut) = swims {
+            let greatest = (stepping[0].1, stepping[1].1);
+            if crate::swimming::step(p, net, world, greatest, dt, cut) {
+                drowned.push(world);
+            }
+            continue;
+        }
         for (cur, max, peace, combat, fills_in) in stepping {
             let Some(m) = max else {
                 continue;
@@ -182,6 +195,9 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, now: f64) {
             }
             progress::send_int(net, world, cur, next);
         }
+    }
+    for world in drowned {
+        crate::death::player_dies(s, net, world, None, clock);
     }
     // Only a creature awake can be short of health: one asleep is whole and done regaining
     // ([`crate::rest`]), and anything that hurts it wakes it.
