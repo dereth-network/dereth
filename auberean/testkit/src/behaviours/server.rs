@@ -19452,6 +19452,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.world.boss-at-one-of-its-spots",
+        says: "Each of the seven bosses the guides give three possible spots is kept by one camp of \
+               one whose spots are its three, where it and a player's body move; it stands at one of \
+               them at a time, and after its death the next stands at one of them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-GUIDE-CAMPS"),
+        station: "yalain-testkit::corpus::world_db::a_boss_with_three_possible_spots_stands_at_one_of_them_at_a_time",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.world.burun-shaman-lair-walk-through",
         says: "The burun shaman's lair near Tou-Tou walks through: its portal on the land leads to its landing, its way out beside it; every spot of its camps of Harvester Grubs and Browerk and Myrmidon buruns stands north of the locked doors to the shaman's room, each kind moving there, and is reached on foot; the farthest is run to and back, every report followed; and the way out leads back to the land near the portal.",
         since: TOOLING,

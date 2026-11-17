@@ -19024,6 +19024,136 @@ fn every_outpost_with_a_supply_chest_is_walked_from_its_way_in_to_its_beacon_and
     );
 }
 
+/// The bosses the guides of the time give three possible spots, each with the cells of its three.
+const BOSS_SPOTS: [(u32, [u32; 3]); 7] = [
+    (0x4700_2ADA, [0x3B8D_000F, 0x3D9B_0003, 0x4694_0033]),
+    (0x4700_2AD9, [0x65B4_001B, 0x70BF_0021, 0x9282_0037]),
+    (0x4700_2520, [0x4092_0026, 0x4C97_0004, 0x3D8E_002D]),
+    (0x4700_2444, [0xBD9E_0025, 0xD799_002D, 0xF295_0036]),
+    (0x4700_2D80, [0x499D_0014, 0x4096_001D, 0x42A2_003C]),
+    (0x4700_2CA5, [0x3AA2_000C, 0x418A_001A, 0x43A0_0014]),
+    (0x4700_2D94, [0x46A0_0011, 0x4499_0012, 0x429A_002E]),
+];
+
+/// **A boss with three possible spots stands at one of them at a time**: each of the seven bosses
+/// the guides give three spots is kept by one camp of one, which makes only it and whose spots are
+/// its three, where it and a player's body both move; no other camp makes it. Served, each camp
+/// keeps its boss standing at one of its spots, and after each of three deaths the next stands at
+/// one of them, never two of one boss at once; across the deaths a boss stands at more than one.
+/// Behaviour: server.world.boss-at-one-of-its-spots
+#[test]
+fn a_boss_with_three_possible_spots_stands_at_one_of_them_at_a_time() {
+    let t = &compiled().tables;
+    let portal = yalain_testkit::authored::Portal::open();
+    let mut walls = spot_walls();
+    let mut camps = Vec::new();
+    for (boss, cells) in BOSS_SPOTS {
+        let keeping: Vec<&yalain_content::Camp> = t
+            .spawns
+            .camps
+            .iter()
+            .filter(|c| c.templates.iter().any(|(x, _)| *x == boss))
+            .collect();
+        assert_eq!(keeping.len(), 1, "{boss:08X}: one camp keeps it");
+        let camp = keeping[0];
+        assert_eq!(
+            (camp.population, camp.templates.len()),
+            (1, 1),
+            "{boss:08X}: one at a time, and only it"
+        );
+        let mut got: Vec<u32> = camp.spots.iter().map(|(cell, _)| *cell).collect();
+        got.sort_unstable();
+        let mut want = cells.to_vec();
+        want.sort_unstable();
+        assert_eq!(got, want, "{boss:08X}: its three spots");
+        for &(cell, origin) in &camp.spots {
+            let here = spot(cell, origin);
+            let moved = moves_from(&mut walls, &portal, boss, &here);
+            assert!(moved >= 0.5, "{boss:08X} moves from {cell:08X}: {moved}");
+            assert!(
+                ways_off(&mut walls, &here) >= 1,
+                "{boss:08X}: a player's body steps off {cell:08X}"
+            );
+        }
+        camps.push(camp.clone());
+    }
+
+    let (mut h, _, me) = served(t);
+    for (boss, _) in BOSS_SPOTS {
+        h.server.catalog.insert(portal.template(boss));
+    }
+    h.server.camps = vec![yalain_world::spawn::CampState::default(); camps.len()];
+    h.server.spawns.camps.clone_from(&camps);
+    let standing = |h: &Harness, boss: u32| -> Vec<(u64, yalain_store::StoredPosition)> {
+        h.server
+            .things
+            .by_id
+            .values()
+            .filter(|x| x.template == boss && x.creature.is_some() && x.corpse.is_none())
+            .filter_map(|x| x.at.map(|at| (x.id, at)))
+            .collect()
+    };
+    let spot_of = |boss: u32, camp: &yalain_content::Camp, at: &yalain_store::StoredPosition| {
+        camp.spots
+            .iter()
+            .position(|(cell, p)| {
+                *cell == at.cell
+                    && dereth_primitives::num::math::hypotf(
+                        at.origin[0] - p[0],
+                        at.origin[1] - p[1],
+                    ) <= 0.5
+            })
+            .unwrap_or_else(|| panic!("{boss:08X} at one of its spots: {at:?}"))
+    };
+    assert!(
+        h.run_until(40, |h| BOSS_SPOTS
+            .iter()
+            .all(|(b, _)| standing(h, *b).len() == 1)),
+        "each camp makes its boss"
+    );
+    let mut stood = vec![std::collections::BTreeSet::new(); camps.len()];
+    for round in 0..4 {
+        for (i, (boss, _)) in BOSS_SPOTS.iter().enumerate() {
+            let now = standing(&h, *boss);
+            assert_eq!(now.len(), 1, "{boss:08X}, round {round}: one stands");
+            stood[i].insert(spot_of(*boss, &camps[i], &now[0].1));
+        }
+        if round == 3 {
+            break;
+        }
+        let mut dead = Vec::new();
+        for (boss, _) in BOSS_SPOTS {
+            let (id, _) = standing(&h, boss)[0];
+            let clock = h.clock();
+            yalain_world::death::creature_dies(&mut h.server, &mut h.net, id, me, clock);
+            dead.push(id);
+        }
+        // Until every camp has made its next, past its period at the server's respawn rate: never
+        // two of one boss at once.
+        let mut all_back = false;
+        for _ in 0..8000 {
+            h.step();
+            let now: Vec<Vec<u64>> = BOSS_SPOTS
+                .iter()
+                .map(|(b, _)| standing(&h, *b).into_iter().map(|(id, _)| id).collect())
+                .collect();
+            assert!(
+                now.iter().all(|n| n.len() <= 1),
+                "never two at once: {now:?}"
+            );
+            if now.iter().all(|n| n.len() == 1 && !dead.contains(&n[0])) {
+                all_back = true;
+                break;
+            }
+        }
+        assert!(all_back, "round {round}: each boss stands again");
+    }
+    assert!(
+        stood.iter().any(|s| s.len() > 1),
+        "the spot is drawn anew: {stood:?}"
+    );
+}
+
 /// **The mosswart's rescue walks through**: two fungal huts and the fenced hut stand where 2017
 /// saw them; a fungal hut used gives the rescue and the rescued mosswart follows its rescuer, the
 /// quest to protect it given with it for the rescuer's fellows too; the fenced hut used ends the
