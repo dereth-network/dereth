@@ -13,6 +13,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+- Launch: looted armor comes in more varied colors, and dinnerware drops in materials.
+- Launch: corpses and chests list weapons and armor first, valuables last.
 
 ## 0.3.15 (2026-11-17)
 - Examining a player now always shows their Enlightenment.

@@ -8,7 +8,7 @@ use super::{
     rng::{self, Favor, LootRng},
 };
 use crate::{world_objects::world_object::WorldObject, World};
-use empyrean_content::loot::{self, Band, Category, Entry, SourceLootPolicy, Tier};
+use empyrean_content::loot::{self, Band, Category, Entry, Port, SourceLootPolicy, Tier};
 use empyrean_entity::enums::{
     DamageType, EquipMask, ItemType, PropertyDataId as D, PropertyFloat as F, PropertyInt as I,
     PropertyString as S, UiEffects,
@@ -43,7 +43,9 @@ pub(super) fn mutate(
             armor(o, band, q, r);
         }
     }
-    material(o, p, t, c, e, r);
+    if ty != ItemType::Gem {
+        material(w, o, p, t, c, e, r);
+    }
     if let Some(book) = &mut o.biota.properties_spell_book {
         book.clear();
     }
@@ -69,12 +71,7 @@ pub(super) fn mutate(
         base_value * 1.37 * dereth_primitives::num::math::pow(ratio, 2.2)
             + 200.0 * f64::from(levels)
     } else {
-        let mat = int(o, I::MaterialType, 0) as u32;
-        let factor = p
-            .material_values
-            .iter()
-            .find(|(name, _)| loot::material_id(name) == Some(mat))
-            .map_or(1.0, |(_, v)| *v);
+        let factor = material_value(p, int(o, I::MaterialType, 0) as u32);
         base_value
             * rng::real(
                 r,
@@ -305,7 +302,18 @@ fn armor(o: &mut WorldObject, b: &Band, q: f64, r: &mut impl LootRng) {
             .cs_cast(),
     );
 }
-fn material(
+/// What the policy multiplies an item's value by for a material: 1 for one it doesn't name.
+pub(super) fn material_value(p: &SourceLootPolicy, material: u32) -> f64 {
+    p.material_values
+        .iter()
+        .find(|(name, _)| loot::material_id(name) == Some(material))
+        .map_or(1.0, |(_, v)| *v)
+}
+
+/// Gives an item with `TsysMutationData` a material from its entry's buckets (else its
+/// category's), at the tier, and the look that material takes on its color code.
+pub(super) fn material(
+    w: &World,
     o: &mut WorldObject,
     p: &SourceLootPolicy,
     t: &Tier,
@@ -314,7 +322,7 @@ fn material(
     r: &mut impl LootRng,
 ) {
     let mutation = int(o, I::TsysMutationData, 0);
-    if mutation == 0 || ItemType(int(o, I::ItemType, 0) as u32) == ItemType::Gem {
+    if mutation == 0 {
         return;
     }
     let buckets = if e.possible_materials.is_empty() {
@@ -331,8 +339,15 @@ fn material(
         return;
     }
     let material = materials[rng::index(r, materials.len())];
+    if material == 0 {
+        return;
+    }
     o.set_property(I::MaterialType, material as i32);
     let code = ((mutation as u32) >> 16) & 255;
+    if p.port() == Port::V2 {
+        look(w, o, p, material, code, r);
+        return;
+    }
     let entries = p
         .material_colors
         .iter()
@@ -360,5 +375,71 @@ fn material(
     if palette > 0 {
         o.set_property(I::PaletteTemplate, palette as i32);
         o.set_property(F::Shade, rng::real(r, 0.0, 1.0, None, 0.0, 0.0));
+    }
+}
+
+/// A weighted pick among the material's looks for the color code that the item's clothing table
+/// can show (a template it lacks never wins), then a shade inside the look's band and a free shade
+/// for the second region, the lining or trim. With no row, no clothing table or nothing it can
+/// show, the item keeps its own colors.
+fn look(
+    w: &World,
+    o: &mut WorldObject,
+    p: &SourceLootPolicy,
+    material: u32,
+    code: u32,
+    r: &mut impl LootRng,
+) {
+    let Some(row) = p
+        .material_looks
+        .iter()
+        .find(|m| m.color_code == code && m.material == material)
+    else {
+        return;
+    };
+    let base: u32 = o.get_property(D::ClothingBase).unwrap_or(0);
+    if base == 0 {
+        return;
+    }
+    let Some(table) = w
+        .dats
+        .portal_dat()
+        .read_from_dat::<empyrean_dat::file_types::ClothingTable>(base)
+    else {
+        return;
+    };
+    let candidates: Vec<_> = row
+        .looks
+        .iter()
+        .flat_map(|l| {
+            let templates: Vec<u32> = if l.template == 0 {
+                table.palette_templates.keys().copied().collect()
+            } else if table.palette_templates.contains_key(&l.template) {
+                vec![l.template]
+            } else {
+                Vec::new()
+            };
+            templates.into_iter().map(move |t| (t, l))
+        })
+        .collect();
+    // Validated weights and row lengths keep every sum well inside an `i32`.
+    let weight = |l: &loot::Look| i32::try_from(l.weight).expect("validated look weight");
+    let total: i32 = candidates.iter().map(|(_, l)| weight(l)).sum();
+    if total == 0 {
+        return;
+    }
+    let mut dice = r.integer(1, total);
+    for (template, l) in candidates {
+        dice -= weight(l);
+        if dice <= 0 {
+            let template = i32::try_from(template).expect("palette template number");
+            o.set_property(I::PaletteTemplate, template);
+            o.set_property(
+                F::Shade,
+                rng::real(r, l.shade_min, l.shade_max, None, 0.0, 0.0),
+            );
+            o.set_property(F::Shade2, rng::real(r, 0.0, 1.0, None, 0.0, 0.0));
+            return;
+        }
     }
 }

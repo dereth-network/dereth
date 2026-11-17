@@ -10,9 +10,23 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-pub const SOURCE_REVISION: &str = "5fe910e7a3e549d955117920a1bd30b4ee646938";
-pub const ALGORITHM: &str = "ac1999-six-groups-v1";
+pub const SOURCE_REVISION: &str = "ee3a6833292947fb32b2afb917257fcafea7d030";
+pub const ALGORITHM: &str = "ac1999-six-groups-v2";
+/// The first port, from the source at this revision. Worlds converted before the current port
+/// carry it, and still play by its rules: palettes from its chance table, and no material on
+/// mundane items.
+pub const SOURCE_REVISION_V1: &str = "5fe910e7a3e549d955117920a1bd30b4ee646938";
+pub const ALGORITHM_V1: &str = "ac1999-six-groups-v1";
 pub const MAX_POLICY_BYTES: usize = 4 * 1024 * 1024;
+
+/// The ports a policy can name, each the source's rules at one revision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Port {
+    /// [`ALGORITHM_V1`].
+    V1,
+    /// [`ALGORITHM`].
+    V2,
+}
 
 /// A chance is tested separately for every slot, after drawing the count.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
@@ -91,10 +105,36 @@ pub struct SourceLootPolicy {
     pub mutations: BTreeMap<String, Vec<Band>>,
     pub spells: BTreeMap<String, Vec<SpellFamily>>,
     pub material_values: BTreeMap<String, f64>,
+    /// The first port's palette chances, by material and then color code; empty under the
+    /// current port.
     pub material_colors: Vec<MaterialColors>,
+    /// What a material looks like on an item of a color code; empty under the first port.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub material_looks: Vec<MaterialLooks>,
 }
 
 pub type MaterialColors = KeyValue<Option<Vec<KeyValue<Option<Vec<PaletteChance>>>>>>;
+
+/// The looks a material may take on an item of a color code (byte 2 of its `TsysMutationData`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MaterialLooks {
+    pub color_code: u32,
+    pub material: u32,
+    pub looks: Vec<Look>,
+}
+/// A weighted palette template and the band its shade is drawn from. Template 0 stands for
+/// every template the item's clothing table has, each at this weight.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Look {
+    pub template: u32,
+    pub weight: u32,
+    pub shade_min: f64,
+    pub shade_max: f64,
+}
+/// The most a look may weigh, so a row's total stays a single draw.
+pub const MAX_LOOK_WEIGHT: u32 = 10_000;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -379,6 +419,15 @@ pub fn skill_id(s: &str) -> Option<i32> {
 }
 
 impl SourceLootPolicy {
+    /// The port whose rules the policy plays by; [`Self::validate`] refuses any other.
+    #[must_use]
+    pub fn port(&self) -> Port {
+        if self.algorithm == ALGORITHM_V1 {
+            Port::V1
+        } else {
+            Port::V2
+        }
+    }
     pub fn from_json(bytes: &[u8]) -> Result<Self, String> {
         ensure(
             bytes.len() <= MAX_POLICY_BYTES,
@@ -392,9 +441,18 @@ impl SourceLootPolicy {
         ensure(
             self.id == 1
                 && self.schema == 1
-                && self.algorithm == ALGORITHM
-                && self.algorithm_revision == SOURCE_REVISION,
+                && matches!(
+                    (self.algorithm.as_str(), self.algorithm_revision.as_str()),
+                    (ALGORITHM_V1, SOURCE_REVISION_V1) | (ALGORITHM, SOURCE_REVISION)
+                ),
             "unreviewed source loot policy",
+        )?;
+        ensure(
+            match self.port() {
+                Port::V1 => self.material_looks.is_empty(),
+                Port::V2 => self.material_colors.is_empty(),
+            },
+            "material colors of another port",
         )?;
         ensure(
             self.revision.len() == 40
@@ -592,6 +650,25 @@ impl SourceLootPolicy {
                         }
                     }
                 }
+            }
+        }
+        ensure(self.material_looks.len() <= 4096, "material look count")?;
+        let mut rows = BTreeSet::new();
+        for m in &self.material_looks {
+            ensure(
+                m.color_code <= 255
+                    && (1..=77).contains(&m.material)
+                    && rows.insert((m.color_code, m.material))
+                    && !m.looks.is_empty()
+                    && m.looks.len() <= 256,
+                "invalid material looks",
+            )?;
+            for l in &m.looks {
+                ensure(
+                    l.template <= 10000 && (1..=MAX_LOOK_WEIGHT).contains(&l.weight),
+                    "invalid look",
+                )?;
+                range(l.shade_min, l.shade_max, 1.0)?;
             }
         }
         Ok(())

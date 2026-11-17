@@ -4,7 +4,10 @@
 
 use crate::support::overlay_fixture::*;
 use empyrean_content::{
-    loot::{DeathLootProfile, GroupedTreasureDeath, SlotGroup, SourceLootPolicy},
+    loot::{
+        self, DeathLootProfile, GroupedTreasureDeath, KeyValue, Look, MaterialLooks, Port,
+        SlotGroup, SourceLootPolicy,
+    },
     WorldContent,
 };
 
@@ -181,4 +184,88 @@ fn identical_typed_inputs_produce_identical_content() {
         Pack::from_bytes(packed()).unwrap().header().content_hash,
         Pack::from_bytes(changed).unwrap().header().content_hash
     );
+}
+
+fn first_port() -> SourceLootPolicy {
+    let mut p = policy();
+    p.algorithm = loot::ALGORITHM_V1.into();
+    p.algorithm_revision = loot::SOURCE_REVISION_V1.into();
+    p
+}
+fn iron_looks() -> MaterialLooks {
+    MaterialLooks {
+        color_code: 10,
+        material: loot::material_id("iron").unwrap(),
+        looks: vec![Look {
+            template: 39,
+            weight: 55,
+            shade_min: 0.0,
+            shade_max: 0.35,
+        }],
+    }
+}
+
+/// Divergence: V466
+#[test]
+fn a_first_port_policy_still_loads_and_each_port_keeps_its_own_colors() {
+    let p = first_port();
+    p.validate().unwrap();
+    assert_eq!(p.port(), Port::V1);
+    assert_eq!(policy().port(), Port::V2);
+    // A first-port policy is written as it always was.
+    assert!(!serde_json::to_string(&p)
+        .unwrap()
+        .contains("material_looks"));
+    let mut v1 = first_port();
+    v1.material_looks = vec![iron_looks()];
+    assert!(v1.validate().is_err());
+    let mut v2 = policy();
+    v2.material_colors = vec![KeyValue {
+        key: 61,
+        value: None,
+    }];
+    assert!(v2.validate().is_err());
+    let mut mixed = policy();
+    mixed.algorithm_revision = loot::SOURCE_REVISION_V1.into();
+    assert!(mixed.validate().is_err());
+}
+
+/// Divergence: V466
+#[test]
+fn material_looks_survive_a_pack_and_refuse_bad_weights_bands_and_repeats() {
+    let mut p = policy();
+    p.material_looks = vec![iron_looks()];
+    p.validate().unwrap();
+    let bytes = WorldContent {
+        grouped_treasure: vec![row()],
+        loot_policies: vec![p.clone()],
+        ..Default::default()
+    }
+    .to_pack([0; 16])
+    .unwrap()
+    .0;
+    let db = PackContent::new(Pack::from_bytes(bytes).unwrap());
+    assert_eq!(
+        db.get_source_loot_policy().unwrap().material_looks,
+        p.material_looks
+    );
+    let bad: [fn(&mut MaterialLooks); 7] = [
+        |m| m.looks[0].weight = 0,
+        |m| m.looks[0].weight = loot::MAX_LOOK_WEIGHT + 1,
+        |m| m.looks[0].shade_min = 0.5,
+        |m| m.looks[0].shade_max = 1.5,
+        |m| m.looks.clear(),
+        |m| m.color_code = 256,
+        |m| m.material = 0,
+    ];
+    for change in bad {
+        let mut m = iron_looks();
+        change(&mut m);
+        let mut p = policy();
+        p.material_looks = vec![m];
+        assert!(p.validate().is_err(), "{:?}", p.material_looks);
+    }
+    let mut p = policy();
+    p.material_looks = vec![iron_looks(), iron_looks()];
+    assert!(p.validate().is_err(), "two rows for one material and code");
 }

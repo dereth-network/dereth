@@ -1,7 +1,7 @@
 {
   "id": 1,
   "schema": 1,
-  "algorithm": "ac1999-six-groups-v1",
+  "algorithm": "ac1999-six-groups-v2",
   "revision": "5fe910e7a3e549d955117920a1bd30b4ee646938",
   "files_sha256": {
     "profile.json": "0000000000000000000000000000000000000000000000000000000000000000",
@@ -1406,5 +1406,5 @@
     "iron": 2.0
   },
   "material_colors": [],
-  "algorithm_revision": "5fe910e7a3e549d955117920a1bd30b4ee646938"
+  "algorithm_revision": "ee3a6833292947fb32b2afb917257fcafea7d030"
 }

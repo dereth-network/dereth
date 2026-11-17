@@ -8,7 +8,8 @@ mod spells;
 use crate::factories::world_object_factory;
 use crate::world_objects::world_object::WorldObject;
 use crate::World;
-use empyrean_content::loot::{Category, Entry, GroupedTreasureDeath, SourceLootPolicy, Tier};
+use empyrean_common::dotnet::CsCast;
+use empyrean_content::loot::{Category, Entry, GroupedTreasureDeath, Port, SourceLootPolicy, Tier};
 use empyrean_entity::enums::{ItemType, PropertyInt};
 use rng::{Favor, LootRng};
 
@@ -18,7 +19,13 @@ const KINDS: [&[&str]; 6] = [
     &["jewelry", "gems"],
     &["casters", "scrolls", "manaStones"],
     &["healingKits", "potions", "food"],
-    &["coins", "lockpicks", "parchment", "components"],
+    &[
+        "coins",
+        "lockpicks",
+        "parchment",
+        "dinnerware",
+        "components",
+    ],
 ];
 
 /// Verify the local halves of the source policy's template and spell dependencies at startup.
@@ -163,11 +170,9 @@ pub fn generate_kind(
     r: &mut impl LootRng,
 ) -> Option<WorldObject> {
     if misc(kind) {
-        let entries = p.pools["misc"]
-            .iter()
-            .filter(|c| c.category == kind)
-            .flat_map(|c| &c.entries)
-            .collect();
+        // Category names are unique within a pool.
+        let category = p.pools["misc"].iter().find(|c| c.category == kind)?;
+        let entries = category.entries.iter().collect();
         let entries = narrow(entries, &t.mundane_base_tier_weights, t.tier_id, r);
         if entries.is_empty() {
             return None;
@@ -182,6 +187,17 @@ pub fn generate_kind(
                 1,
             ));
             item.set_stack_size(Some(amount));
+        }
+        // A mundane item may take a material too, which prices it: a gold chalice is worth more
+        // than a plain one.
+        if p.port() == Port::V2 {
+            mutation::material(w, &mut item, p, t, category, entry, r);
+            let material = int(&item, PropertyInt::MaterialType, 0) as u32;
+            if material != 0 {
+                let value = f64::from(int(&item, PropertyInt::Value, 0))
+                    * mutation::material_value(p, material);
+                item.set_property(PropertyInt::Value, value.round().cs_cast());
+            }
         }
         return Some(item);
     }

@@ -137,6 +137,17 @@ pub fn create_death_loot(w: &mut World, profile: &DeathLootProfile) -> Vec<World
     }
 }
 
+/// Death loot for a corpse or a chest, which takes each new item at its front.
+// DIVERGE: V552, an ac1999 world's loot goes in last first, so the container lists it in the
+// order it was made: weapons and armor first, valuables last.
+pub fn create_container_loot(w: &mut World, profile: &DeathLootProfile) -> Vec<WorldObject> {
+    let mut items = create_death_loot(w, profile);
+    if matches!(profile, DeathLootProfile::Ac1999(..)) {
+        items.reverse();
+    }
+    items
+}
+
 /// Rolls a corpse's loot: the item, magic item and mundane item groups in turn (each a chance,
 /// then a count), plus the mundane add-on (coalesced mana or aetheria).
 // ACE: LootGenerationFactory.CreateRandomLootObjects

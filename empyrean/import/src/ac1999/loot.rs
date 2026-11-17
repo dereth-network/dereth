@@ -1,6 +1,8 @@
 //! Compile the reviewed source loot inputs into an explicit Empyrean extension.
 
-use empyrean_content::loot::{self, Category, GroupedTreasureDeath, SlotGroup, SourceLootPolicy};
+use empyrean_content::loot::{
+    self, Category, GroupedTreasureDeath, Look, MaterialLooks, SlotGroup, SourceLootPolicy,
+};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -50,10 +52,11 @@ pub fn policy(root: &Path, revision: &str) -> Result<SourceLootPolicy, String> {
         );
     }
     let material_values = read(root, "material-values.json", &mut hashes)?;
-    let material_colors = read(root, "material-colors.json", &mut hashes)?;
+    let material_looks = looks(&read(root, "material-colors.json", &mut hashes)?)?;
     let bytes=serde_json::to_vec(&json!({"id":1,"schema":1,"algorithm":loot::ALGORITHM,
         "algorithm_revision":loot::SOURCE_REVISION,"revision":revision,"files_sha256":hashes,"profile":profile,"tiers":tiers,"pools":pools,
-        "mutations":mutations,"spells":spells,"material_values":material_values,"material_colors":material_colors})).map_err(|e|e.to_string())?;
+        "mutations":mutations,"spells":spells,"material_values":material_values,"material_colors":[],
+        "material_looks":material_looks})).map_err(|e|e.to_string())?;
     let mut policy = SourceLootPolicy::from_json(&bytes)?;
     // Source file/category joins are exact. Reject unused families instead of dropping fields.
     for (family, bands) in &policy.mutations {
@@ -87,6 +90,103 @@ pub fn policy(root: &Path, revision: &str) -> Result<SourceLootPolicy, String> {
     }
     policy.validate()?;
     Ok(policy)
+}
+
+/// `material-colors.json`: color code, then material, then its weighted looks, or `"any"` for
+/// every template the item's clothing table has. Keys starting with `_` are notes. The source's
+/// server skips a row it can't read and keeps the item's own colors; here an unreadable row
+/// refuses the conversion, as any other unreviewed input does.
+fn looks(table: &Value) -> Result<Vec<MaterialLooks>, String> {
+    const FILE: &str = "material-colors.json";
+    let codes = table.as_object().ok_or_else(|| {
+        format!("{FILE}: not an object of color codes (the table before ac1999 ee3a6833 is not read by this port)")
+    })?;
+    let mut rows = BTreeMap::new();
+    for (code, materials) in codes.iter().filter(|(k, _)| !k.starts_with('_')) {
+        let color_code = code
+            .parse::<u32>()
+            .ok()
+            .filter(|c| *c <= 255)
+            .ok_or_else(|| format!("{FILE}: color code {code}"))?;
+        let materials = materials
+            .as_object()
+            .ok_or_else(|| format!("{FILE}: color code {code} is not an object"))?;
+        for (name, value) in materials.iter().filter(|(k, _)| !k.starts_with('_')) {
+            let at = format!("{FILE}: {code} {name}");
+            let material = loot::material_id(name)
+                .filter(|m| *m != 0)
+                .ok_or_else(|| format!("{at}: unknown material"))?;
+            let list = match value {
+                Value::String(any) if any == "any" => vec![Look {
+                    template: 0,
+                    weight: 1,
+                    shade_min: 0.0,
+                    shade_max: 1.0,
+                }],
+                Value::Array(list) if !list.is_empty() => list
+                    .iter()
+                    .map(|v| look(v, &at))
+                    .collect::<Result<_, _>>()?,
+                _ => return Err(format!("{at}: neither \"any\" nor a list of looks")),
+            };
+            if rows.insert((color_code, material), list).is_some() {
+                return Err(format!("{at}: a second row for this material"));
+            }
+        }
+    }
+    Ok(rows
+        .into_iter()
+        .map(|((color_code, material), looks)| MaterialLooks {
+            color_code,
+            material,
+            looks,
+        })
+        .collect())
+}
+
+fn look(value: &Value, at: &str) -> Result<Look, String> {
+    let fields = value
+        .as_object()
+        .ok_or_else(|| format!("{at}: a look is not an object"))?;
+    if let Some(unknown) = fields
+        .keys()
+        .find(|k| !k.starts_with('_') && !matches!(k.as_str(), "template" | "weight" | "shade"))
+    {
+        return Err(format!("{at}: unknown field {unknown}"));
+    }
+    let name = fields.get("template").and_then(Value::as_str).unwrap_or("");
+    let template =
+        palette_template(name).ok_or_else(|| format!("{at}: unknown template {name:?}"))?;
+    let weight = fields
+        .get("weight")
+        .and_then(Value::as_u64)
+        .and_then(|w| u32::try_from(w).ok())
+        .filter(|w| (1..=loot::MAX_LOOK_WEIGHT).contains(w))
+        .ok_or_else(|| format!("{at}: weight"))?;
+    let (shade_min, shade_max) = match fields.get("shade") {
+        None => (0.0, 1.0),
+        Some(Value::Array(band)) if band.len() == 2 => match (band[0].as_f64(), band[1].as_f64()) {
+            (Some(lo), Some(hi)) if 0.0 <= lo && lo <= hi && hi <= 1.0 => (lo, hi),
+            _ => return Err(format!("{at}: shade band")),
+        },
+        Some(_) => return Err(format!("{at}: shade band")),
+    };
+    Ok(Look {
+        template,
+        weight,
+        shade_min,
+        shade_max,
+    })
+}
+
+/// A palette template by its enum name, letter case aside, as the source's server matches it.
+fn palette_template(name: &str) -> Option<u32> {
+    use empyrean_entity::enums::PaletteTemplate;
+    PaletteTemplate::NAMES
+        .iter()
+        .zip(PaletteTemplate::ALL)
+        .find(|(n, v)| v.0 != 0 && n.eq_ignore_ascii_case(name))
+        .and_then(|(_, v)| u32::try_from(v.0).ok())
 }
 
 fn number(row: &Value, name: &str) -> Result<u32, String> {

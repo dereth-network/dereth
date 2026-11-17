@@ -120,7 +120,17 @@ fn write_loot_fixture(root: &Path) {
         std::fs::write(path, serde_json::to_vec(value).unwrap()).unwrap();
     };
     write("profile.json", &p["profile"]);
-    write("material-colors.json", &p["material_colors"]);
+    write(
+        "material-colors.json",
+        &serde_json::json!({
+            "_about": "color code, then material, then weighted looks",
+            "0": {"_items": "cloth", "linen": "any"},
+            "10": {"iron": [
+                {"template": "Black", "weight": 55},
+                {"template": "silver", "weight": 30, "shade": [0.0, 0.35], "_why": "dark grey"}
+            ]}
+        }),
+    );
     write("material-values.json", &p["material_values"]);
     for (id, tier) in p["tiers"].as_object().unwrap() {
         write(&format!("Tiers/tier-{id}.json"), tier);
@@ -615,4 +625,103 @@ fn a_source_bundle_rebuilds_the_same_world_and_a_changed_file_is_refused() {
         String::from_utf8_lossy(&refused.stderr)
     );
     std::fs::remove_dir_all(&root).ok();
+}
+
+/// Commit a new `material-colors.json` to the fixture's source and convert it.
+fn convert_with_colors(name: &str, colors: &Value) -> (PathBuf, Output) {
+    let (root, repo, _) = fixture(name);
+    std::fs::write(
+        repo.join("Server/Bin/Data/Treasure/material-colors.json"),
+        serde_json::to_vec(colors).unwrap(),
+    )
+    .unwrap();
+    git(&repo, &["add", "Server"]);
+    git(
+        &repo,
+        &["-c", "core.hooksPath=", "commit", "-m", "test: colors"],
+    );
+    let sha = git(&repo, &["rev-parse", "HEAD"]);
+    let out = root.join("out");
+    let result = run(&repo, &sha, &out, true);
+    (out, result)
+}
+
+/// Divergence: V466
+#[test]
+fn material_colors_compile_by_template_name_with_any_for_every_template() {
+    let (root, repo, sha) = fixture("material-looks");
+    let out = root.join("out");
+    success(run(&repo, &sha, &out, true));
+    let db = PackContent::open(&out.join("world.pack")).unwrap();
+    let policy = db.get_source_loot_policy().unwrap();
+    assert_eq!(policy.algorithm, empyrean_content::loot::ALGORITHM);
+    assert!(policy.material_colors.is_empty());
+    let looks: Vec<_> = policy
+        .material_looks
+        .iter()
+        .map(|m| {
+            let looks: Vec<_> = m
+                .looks
+                .iter()
+                .map(|l| (l.template, l.weight, l.shade_min, l.shade_max))
+                .collect();
+            (m.color_code, m.material, looks)
+        })
+        .collect();
+    let material = |name| empyrean_content::loot::material_id(name).unwrap();
+    assert_eq!(
+        looks,
+        [
+            (0, material("linen"), vec![(0, 1, 0.0, 1.0)]),
+            (
+                10,
+                material("iron"),
+                vec![(39, 55, 0.0, 1.0), (20, 30, 0.0, 0.35)]
+            ),
+        ],
+        "Black is 39 and Silver 20, whatever their letter case"
+    );
+}
+
+/// Divergence: V466
+#[test]
+fn an_unreadable_material_color_row_or_the_old_table_refuses_conversion() {
+    for (name, colors, why) in [
+        (
+            "colors-old",
+            serde_json::json!([]),
+            "not an object of color codes",
+        ),
+        (
+            "colors-template",
+            serde_json::json!({"10": {"iron": [{"template": "Sparkly", "weight": 1}]}}),
+            "unknown template",
+        ),
+        (
+            "colors-weight",
+            serde_json::json!({"10": {"iron": [{"template": "Black", "weight": 0}]}}),
+            "weight",
+        ),
+        (
+            "colors-shade",
+            serde_json::json!({"10": {"iron": [{"template": "Black", "weight": 1, "shade": [0.6, 0.2]}]}}),
+            "shade band",
+        ),
+        (
+            "colors-material",
+            serde_json::json!({"10": {"mithril": "any"}}),
+            "unknown material",
+        ),
+        (
+            "colors-field",
+            serde_json::json!({"10": {"iron": [{"template": "Black", "weight": 1, "gloss": 1}]}}),
+            "unknown field gloss",
+        ),
+    ] {
+        let (out, result) = convert_with_colors(name, &colors);
+        assert!(!result.status.success(), "{name}");
+        assert!(!out.exists(), "{name}");
+        let error = String::from_utf8_lossy(&result.stderr);
+        assert!(error.contains(why), "{name}: {error}");
+    }
 }

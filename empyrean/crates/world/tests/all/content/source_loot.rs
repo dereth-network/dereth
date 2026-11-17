@@ -4,13 +4,17 @@
 
 use crate::support::treasure_world::H;
 use crate::support::treasure_world::*;
+use dereth_assets::ClothingTable;
 use empyrean_common::era::{EraExt, EraId};
-use empyrean_content::loot::{GroupedTreasureDeath, SlotGroup, SourceLootPolicy};
+use empyrean_content::loot::{
+    GroupedTreasureDeath, Look, MaterialLooks, SlotGroup, SourceLootPolicy,
+};
 use empyrean_entity::enums::ItemType;
 use empyrean_world::source_loot::{
     self,
     rng::{self, Favor, LootRng},
 };
+use std::collections::BTreeMap;
 use std::collections::VecDeque;
 
 fn policy() -> SourceLootPolicy {
@@ -59,7 +63,7 @@ fn harness(p: &SourceLootPolicy) -> H {
         .era(EraId::Launch)
         .source_loot_policy(p.clone())
         .grouped_treasure(row());
-    for id in 8001..=8017 {
+    for id in 8001..=8018 {
         let (ty, kind) = match id {
             8001 => (ItemType::MeleeWeapon, WeenieType::MeleeWeapon),
             8002 => (ItemType::MissileWeapon, WeenieType::MissileLauncher),
@@ -101,6 +105,11 @@ fn harness(p: &SourceLootPolicy) -> H {
             .with_float(PropertyFloat::DamageVariance, 0.4)
             .with_float(PropertyFloat::DamageMod, 1.5)
             .with_float(PropertyFloat::ArmorModVsAcid, 1.2);
+        let template = if matches!(id, 8001 | 8018) {
+            template.with_did(PropertyDataId::ClothingBase, CLOTHING)
+        } else {
+            template
+        };
         content = content.weenie(template);
     }
     content = content.weenie(generator(
@@ -472,4 +481,235 @@ fn source_item_rank_gate_is_enforced_without_changing_eor() {
     h.o_mut(PLAYER).set_property(PropertyInt::AllegianceRank, 1);
     h.w.era = EraId::Eor.rules();
     assert!(check(&mut h.w, guid, PLAYER).success);
+}
+
+const CLOTHING: u32 = 0x1000_0001;
+fn iron() -> u32 {
+    empyrean_content::loot::material_id("iron").unwrap()
+}
+/// The harness's dats, with a clothing table at `CLOTHING` holding these palette templates.
+fn with_clothing_table(h: &mut H, templates: &[u32]) {
+    let table = ClothingTable {
+        id: DataId(CLOTHING),
+        clothing_base_buckets: 0,
+        clothing_bases: BTreeMap::new(),
+        palette_template_buckets: 0,
+        palette_templates: templates
+            .iter()
+            .map(|t| {
+                (
+                    *t,
+                    dereth_assets::motion::PaletteTemplate {
+                        icon: DataId(0),
+                        subpalette_effects: Vec::new(),
+                    },
+                )
+            })
+            .collect(),
+    };
+    h.w.dats = empyrean_testkit::dats::with_stat_tables(FakeDats::new())
+        .with_spell_table(spell_table())
+        .with_portal(CLOTHING, table)
+        .build()
+        .expect("fake dats");
+}
+/// Swords made of metal, and the looks iron takes on color code 1, the synthetic items' code.
+fn with_iron_looks(looks: Vec<Look>) -> SourceLootPolicy {
+    let mut p = policy();
+    p.pools.get_mut("melee-weapons").unwrap()[0].possible_materials = vec!["metal".into()];
+    p.material_looks = vec![MaterialLooks {
+        color_code: 1,
+        material: iron(),
+        looks,
+    }];
+    p.validate().unwrap();
+    p
+}
+fn look(template: u32, weight: u32, shade: (f64, f64)) -> Look {
+    Look {
+        template,
+        weight,
+        shade_min: shade.0,
+        shade_max: shade.1,
+    }
+}
+fn sword(h: &mut H, p: &SourceLootPolicy, r: &mut impl LootRng) -> WorldObject {
+    source_loot::generate_kind(&mut h.w, p, &p.tiers[&1], "melee-weapons", 0.0, r).unwrap()
+}
+
+/// Divergence: V466
+#[test]
+fn a_material_takes_only_a_look_its_clothing_table_has_with_a_shade_inside_the_band() {
+    let p = with_iron_looks(vec![look(5, 10_000, (0.0, 1.0)), look(9, 1, (0.25, 0.25))]);
+    let mut h = harness(&p);
+    with_clothing_table(&mut h, &[2, 9]);
+    let item = sword(&mut h, &p, &mut Low);
+    assert_eq!(
+        item.get_property(PropertyInt::MaterialType),
+        Some(iron() as i32)
+    );
+    assert_eq!(item.get_property(PropertyInt::PaletteTemplate), Some(9));
+    assert_eq!(item.get_property(PropertyFloat::Shade), Some(0.25));
+    assert_eq!(
+        item.get_property(PropertyFloat::Shade2),
+        Some(0.0),
+        "the lining's shade is drawn on its own"
+    );
+}
+
+/// Divergence: V466
+#[test]
+fn any_stands_for_each_template_the_clothing_table_has() {
+    let p = with_iron_looks(vec![look(0, 1, (0.0, 1.0))]);
+    let mut h = harness(&p);
+    with_clothing_table(&mut h, &[2, 9, 14]);
+    let low = sword(&mut h, &p, &mut Low);
+    assert_eq!(low.get_property(PropertyInt::PaletteTemplate), Some(2));
+    let high = sword(&mut h, &p, &mut High);
+    assert_eq!(high.get_property(PropertyInt::PaletteTemplate), Some(14));
+}
+
+/// Divergence: V466
+#[test]
+fn an_item_keeps_its_own_colors_without_a_row_a_clothing_table_or_a_template_it_has() {
+    // A look only for another color code.
+    let mut p = with_iron_looks(vec![look(9, 1, (0.0, 1.0))]);
+    p.material_looks[0].color_code = 2;
+    let mut h = harness(&p);
+    with_clothing_table(&mut h, &[9]);
+    let item = sword(&mut h, &p, &mut Low);
+    assert_eq!(
+        item.get_property(PropertyInt::MaterialType),
+        Some(iron() as i32)
+    );
+    assert_eq!(item.get_property(PropertyInt::PaletteTemplate), None);
+    assert_eq!(item.get_property(PropertyFloat::Shade), None);
+    // The row's only template is missing from the table.
+    let p = with_iron_looks(vec![look(9, 1, (0.0, 1.0))]);
+    let mut h = harness(&p);
+    with_clothing_table(&mut h, &[2]);
+    let item = sword(&mut h, &p, &mut Low);
+    assert_eq!(item.get_property(PropertyInt::PaletteTemplate), None);
+    // No clothing table in the files at all.
+    let mut h = harness(&p);
+    let item = sword(&mut h, &p, &mut Low);
+    assert_eq!(item.get_property(PropertyInt::PaletteTemplate), None);
+}
+
+/// A misc `dinnerware` kind made of metal, which the valuables slot rolls beside components alone.
+fn with_dinnerware() -> SourceLootPolicy {
+    let mut p = policy();
+    let misc = p.pools.get_mut("misc").unwrap();
+    misc.retain(|c| !matches!(c.category.as_str(), "coins" | "lockpicks" | "parchment"));
+    let mut dinnerware = misc[0].clone();
+    dinnerware.category = "dinnerware".into();
+    dinnerware.entries.truncate(1);
+    dinnerware.entries[0].wcid = 8018;
+    dinnerware.entries[0].base_tier = 1;
+    dinnerware.entries[0].possible_materials = vec!["metal".into()];
+    misc.push(dinnerware);
+    p.validate().unwrap();
+    p
+}
+fn valuable(h: &mut H, p: &SourceLootPolicy) -> WorldObject {
+    let mut row = row();
+    row.groups = [SlotGroup::default(); 6];
+    row.groups[5] = SlotGroup {
+        chance: 100,
+        min: 1,
+        max: 1,
+    };
+    let mut made = source_loot::generate_with(&mut h.w, &row, p, &mut Low);
+    assert_eq!(made.len(), 1);
+    made.remove(0)
+}
+
+/// Divergence: V466
+#[test]
+fn dinnerware_drops_as_a_valuable_in_a_material_that_prices_it() {
+    let p = with_dinnerware();
+    let mut h = harness(&p);
+    let item = valuable(&mut h, &p);
+    assert_eq!(item.biota.weenie_class_id, 8018);
+    assert_eq!(
+        item.get_property(PropertyInt::MaterialType),
+        Some(iron() as i32)
+    );
+    assert_eq!(
+        item.get_property(PropertyInt::Value),
+        Some(200),
+        "iron doubles the synthetic value"
+    );
+}
+
+/// Divergence: V466
+#[test]
+fn a_world_on_the_first_port_gives_mundane_items_no_material() {
+    let mut p = with_dinnerware();
+    p.algorithm = empyrean_content::loot::ALGORITHM_V1.into();
+    p.algorithm_revision = empyrean_content::loot::SOURCE_REVISION_V1.into();
+    p.validate().unwrap();
+    let mut h = harness(&p);
+    let item = valuable(&mut h, &p);
+    assert_eq!(item.biota.weenie_class_id, 8018);
+    assert_eq!(item.get_property(PropertyInt::MaterialType), None);
+    assert_eq!(item.get_property(PropertyInt::Value), Some(100));
+}
+
+/// The slot group each synthetic item comes from: weapon, armor, item, magic item, consumable,
+/// valuable.
+fn group_of(wcid: u32) -> usize {
+    match wcid {
+        8001 | 8002 | 8017 => 0,
+        8003 | 8004 => 1,
+        8005 | 8006 => 2,
+        8007 | 8008 | 8010 => 3,
+        8011..=8013 => 4,
+        _ => 5,
+    }
+}
+
+/// Divergence: V552
+#[test]
+fn an_ac1999_corpse_lists_its_loot_in_the_order_it_was_made() {
+    let p = policy();
+    let mut h = harness(&p);
+    h.load_landblock();
+    h.creature(Class::Creature, MONSTER, "Creature");
+    h.o_mut(MONSTER)
+        .set_property(PropertyDataId::DeathTreasureType, 99);
+    assert!(lm::add_object(&mut h.w, MONSTER, false));
+    creature_death::create_corpse(&mut h.w, MONSTER, None, false);
+    let corpse = (0x80000000..0x80000100)
+        .map(ObjectGuid::new)
+        .find(|g| h.w.objects.get(*g).is_some_and(WorldObject::is_corpse))
+        .unwrap();
+    let mut items: Vec<_> = creature_death::container_inventory(&h.w, corpse)
+        .into_iter()
+        .map(|g| {
+            let o = h.o(g);
+            (o.placement_position(), group_of(o.biota.weenie_class_id))
+        })
+        .collect();
+    items.sort_by_key(|(placement, _)| *placement);
+    let groups: Vec<_> = items.into_iter().map(|(_, group)| group).collect();
+    assert_eq!(groups, [0, 1, 2, 3, 4, 5], "weapons first, valuables last");
+}
+
+/// Divergence: V552
+#[test]
+fn a_container_is_given_ac1999_loot_last_first() {
+    let p = policy();
+    let mut h = harness(&p);
+    let profile = lgf::death_loot_profile(&h.w, 99, None).unwrap();
+    let made: Vec<_> = lgf::create_death_loot(&mut h.w, &profile)
+        .iter()
+        .map(|o| group_of(o.biota.weenie_class_id))
+        .collect();
+    assert_eq!(made, [0, 1, 2, 3, 4, 5]);
+    let into_container: Vec<_> = lgf::create_container_loot(&mut h.w, &profile)
+        .iter()
+        .map(|o| group_of(o.biota.weenie_class_id))
+        .collect();
+    assert_eq!(into_container, [5, 4, 3, 2, 1, 0]);
 }

@@ -1341,7 +1341,7 @@ fn loot_generation_factory_create_random_loot_objects(
     w: &mut World,
     profile: &empyrean_content::loot::DeathLootProfile,
 ) -> Vec<ObjectGuid> {
-    let items = crate::factories::loot_generation_factory::create_death_loot(w, profile);
+    let items = crate::factories::loot_generation_factory::create_container_loot(w, profile);
     items
         .into_iter()
         .map(|wo| insert_new_object(w, wo))

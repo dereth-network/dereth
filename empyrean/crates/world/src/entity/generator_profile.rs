@@ -700,7 +700,7 @@ pub fn treasure_generator(
         // TODO: get randomly generated death treasure from LootGenerationFactory
         //log.DebugFormat("{0}.TreasureGenerator(): found death treasure {1}", _generator.Name, Biota.WeenieClassId);
         let items =
-            crate::factories::loot_generation_factory::create_death_loot(w, &death_treasure);
+            crate::factories::loot_generation_factory::create_container_loot(w, &death_treasure);
         return Some(insert_all(w, items));
     }
 
