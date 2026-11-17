@@ -121,8 +121,8 @@ mod imp {
     impl SceneRenderer {
         /// Construct the renderer and its graphics device.
         ///
-        /// `window` is `None` for the headless path, which renders to an offscreen texture; that
-        /// is what makes a headless run possible without a display.
+        /// `window` is `None` to render to an offscreen texture, which makes a run possible
+        /// without a display; such a device prefers the software rasterizer.
         ///
         /// The backend is the default (Vulkan; in a test build, the one the test-only
         /// `DERETH_TEST_RENDERER` names). [`Self::new_on`] is the form the client uses once it
@@ -137,7 +137,7 @@ mod imp {
         ) -> Result<Self, RenderError> {
             Self::from_device(Gpu::new(
                 window,
-                &Self::device_config(window, width, height),
+                &Self::device_config(width, height, window.is_none()),
             )?)
         }
 
@@ -155,12 +155,13 @@ mod imp {
             Self::from_device(Gpu::new_on(
                 backend,
                 window,
-                &Self::device_config(window, width, height),
+                &Self::device_config(width, height, window.is_none()),
             )?)
         }
 
         /// [`Self::new_on`], with the device asked for what the remaster draws with when
-        /// `remaster` says so, in a build that has it.
+        /// `remaster` says so, in a build that has it, and on the software rasterizer only when
+        /// `software` says so, with a window or without one.
         ///
         /// # Errors
         /// As [`Self::new_on`].
@@ -170,9 +171,10 @@ mod imp {
             width: u32,
             height: u32,
             remaster: bool,
+            software: bool,
         ) -> Result<Self, RenderError> {
             #[cfg_attr(not(feature = "remaster"), allow(unused_mut))]
-            let mut config = Self::device_config(window, width, height);
+            let mut config = Self::device_config(width, height, software);
             #[cfg(feature = "remaster")]
             {
                 config.remaster = remaster;
@@ -265,15 +267,13 @@ mod imp {
             })
         }
 
-        /// The render device configuration as this client fills it. The same for either backend.
-        fn device_config(window: Option<WindowHandles>, width: u32, height: u32) -> DeviceConfig {
+        /// The render device configuration as this client fills it, preferring the software
+        /// rasterizer when `software` says so. The same for either backend.
+        fn device_config(width: u32, height: u32, software: bool) -> DeviceConfig {
             DeviceConfig {
                 width,
                 height,
-                // The capture backend prefers a software rasteriser "so its output does not depend
-                // on the machine's GPU", which is precisely what "byte-identical across three runs"
-                // needs.
-                force_software: window.is_none(),
+                force_software: software,
                 ..DeviceConfig::default()
             }
         }

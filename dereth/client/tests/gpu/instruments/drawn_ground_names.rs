@@ -48,7 +48,7 @@ pub(crate) fn open(
     pack: Option<&std::path::Path>,
 ) -> (Renderer, Shot) {
     let backend = crate::common::remaster_backend();
-    let mut r = Renderer::new_on_for(backend, None, W, H, true)
+    let mut r = Renderer::new_on_for(backend, None, W, H, true, false)
         .unwrap_or_else(|e| panic!("{backend:?}: no device opened: {e}"));
     assert_eq!(
         r.gpu.adapter_kind(),

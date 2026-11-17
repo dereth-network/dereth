@@ -147,7 +147,8 @@ mod imp {
         }
 
         /// [`Self::new_on`], asking the device for what the remaster draws with as `remaster`
-        /// says: [`SceneRenderer::new_on_for`].
+        /// says, and for the software rasterizer as `software` says:
+        /// [`SceneRenderer::new_on_for`].
         ///
         /// # Errors
         /// As [`Self::new_on`].
@@ -157,9 +158,10 @@ mod imp {
             width: u32,
             height: u32,
             remaster: bool,
+            software: bool,
         ) -> Result<Self, RenderError> {
             Ok(Self::around(SceneRenderer::new_on_for(
-                backend, window, width, height, remaster,
+                backend, window, width, height, remaster, software,
             )?))
         }
 

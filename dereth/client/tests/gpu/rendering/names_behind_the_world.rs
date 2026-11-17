@@ -534,7 +534,7 @@ mod in_the_world {
             .into_iter()
             .filter(|b| Backend::compiled().contains(b))
         {
-            let mut r = Renderer::new_on_for(backend, None, WW, WH, true)
+            let mut r = Renderer::new_on_for(backend, None, WW, WH, true, false)
                 .unwrap_or_else(|e| panic!("{backend:?}: no device opened: {e}"));
             let mut scene = station(&store, &mut r);
             for boxes in [

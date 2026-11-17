@@ -170,7 +170,10 @@ or macOS build from Windows, add the rustup target and run
 Three renderers are built in: Vulkan (the default), Direct3D 12 (Windows only) and `wgpu` (Metal,
 Vulkan or Direct3D 12 underneath, chosen by `WGPU_BACKEND`; the web client uses it too). Pick one
 with `--renderer vulkan|d3d12|wgpu` or `Renderer=` in the preferences file. One that isn't built
-in or can't create a device falls back to the default and says so.
+in or can't create a device falls back to the default and says so. Each draws on the graphics card,
+with a window or without one (`--headless`). `--software` draws on the software rasterizer instead
+(WARP on Direct3D 12; on Vulkan a CPU device such as lavapipe, where one is installed), which is
+also what a machine with no graphics card gets.
 
 ```
 cargo run -p dereth-client -- --renderer d3d12

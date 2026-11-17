@@ -381,6 +381,7 @@ impl<H: Host> App<H> {
                 client_w,
                 client_h,
                 startup_remaster(backend),
+                startup_software(cfg),
             )
         };
 
@@ -965,6 +966,14 @@ fn startup_remaster(backend: dereth_render::device::Backend) -> bool {
     cfg!(feature = "remaster") && backend == dereth_render::device::Backend::Vulkan
 }
 
+/// Whether the start-up device prefers the software rasterizer: only when `--software` asks for
+/// it. A run without a window draws on the graphics card a run with one would; either falls back
+/// to the software rasterizer on a machine with no graphics card.
+#[cfg_attr(not(gpu), allow(dead_code))]
+fn startup_software(cfg: &Config) -> bool {
+    cfg.software
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1004,6 +1013,20 @@ mod tests {
         assert_eq!(startup_remaster(vulkan), cfg!(feature = "remaster"));
         assert!(!startup_remaster(Backend::Wgpu));
         assert!(!startup_remaster(Backend::D3d12));
+    }
+
+    /// A run without a window starts on the graphics card as a run with one does, on whichever
+    /// renderer is named; the software rasterizer is asked for only with `--software`.
+    #[test]
+    fn a_run_without_a_window_draws_on_the_graphics_card_unless_software_is_asked_for() {
+        for renderer in [&[][..], &["--renderer", "d3d12"], &["--renderer", "vulkan"]] {
+            let start =
+                |args: &[&str]| startup_software(&started_with(&[args, renderer].concat(), &[]));
+            assert!(!start(&[]), "{renderer:?}");
+            assert!(!start(&["--headless"]), "{renderer:?}");
+            assert!(start(&["--headless", "--software"]), "{renderer:?}");
+            assert!(start(&["--software"]), "{renderer:?}");
+        }
     }
 
     /// The host's physical resize reaches both the real backbuffer and the UI coordinate space, so

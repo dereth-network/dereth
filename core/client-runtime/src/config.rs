@@ -265,9 +265,13 @@ pub struct Config {
     pub render: crate::render_prefs::RenderPreferences,
 
     // ---- rebuild-only ----
-    /// `--headless`: no window, an offscreen render target, and the WARP adapter so the output does
-    /// not depend on the machine's GPU.
+    /// `--headless`: no window and an offscreen render target, drawn on the graphics card a run
+    /// with a window would use.
     pub headless: bool,
+    /// `--software`: draw on the software rasterizer (WARP on Direct3D 12, a CPU device on Vulkan)
+    /// rather than the graphics card, so that what is drawn does not depend on the machine's GPU.
+    /// Without it the software rasterizer is used only where there is no graphics card.
+    pub software: bool,
     /// `--frames <n>`: stop after n frames. `None` runs until the loop ends on its own.
     pub frames: Option<u64>,
     /// `--capture <path>`: write the last frame as a PNG; with `--enter-world` and `--linger`, the
@@ -671,6 +675,7 @@ impl Default for Config {
             mouse_look: crate::actions::camera::MouseLookPreferences::default(),
             render: crate::render_prefs::RenderPreferences::default(),
             headless: false,
+            software: false,
             frames: None,
             capture: None,
             capture_at: Vec::new(),
@@ -807,6 +812,11 @@ const SWITCHES: &[Switch] = &[
 const REBUILD_SWITCHES: &[Switch] = &[
     Switch {
         long: "headless",
+        short: None,
+        arity: Arity::None,
+    },
+    Switch {
+        long: "software",
         short: None,
         arity: Arity::None,
     },
@@ -1782,6 +1792,7 @@ impl Config {
         let v = value.unwrap_or("");
         match long {
             "headless" => self.headless = true,
+            "software" => self.software = true,
             // `--prefs <file>`, the doubled spelling of the retail `-prefs`, so a rebuild-only
             // command line can name its settings file in the same style as its other switches.
             "prefs" => return self.evaluate("prefs", value),
