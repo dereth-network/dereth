@@ -107,6 +107,7 @@ mod rules;
 mod safe_passage;
 mod sequences;
 mod shifting_objects;
+mod skill_aims;
 mod skill_focus;
 mod skill_grants;
 mod skill_resets;

@@ -134,6 +134,15 @@ pub mod refusal {
     pub const MISSING_EFFECT: u32 = 30_024;
     pub const BARRED_BY_EFFECT: u32 = 30_025;
     pub const DEAD: u32 = 30_041;
+    /// Not of a kind the skill may be aimed at: within the user's fellowship, the user itself,
+    /// monsters, monster corpses, the user's own pet.
+    pub const WITHIN_FELLOWSHIP: u32 = 22_003;
+    pub const ON_YOURSELF: u32 = 22_007;
+    pub const ON_MONSTERS: u32 = 22_012;
+    pub const ON_MONSTER_CORPSES: u32 = 22_021;
+    pub const ON_YOUR_PET: u32 = 22_026;
+    /// Not while swimming.
+    pub const SWIMMING: u32 = 30_013;
 }
 
 /// The player's qualities of the wait every skill shares: how long it lasts, and when it last
@@ -831,10 +840,18 @@ pub fn effect_recall<S: Store>(
     true
 }
 
-/// The kinds of target a skill aimed at items takes.
+/// The kinds of target a skill may be aimed at (its definition's valid targets).
 pub mod target_bit {
+    /// Its user.
+    pub const SELF: u32 = 0x1;
     /// An item its user holds, in the pack or in hand.
     pub const OWN_ITEM: u32 = 0x2;
+    /// A monster's corpse.
+    pub const MONSTER_CORPSE: u32 = 0x40;
+    /// A monster.
+    pub const MONSTER: u32 = 0x80;
+    /// Only a player outside its user's fellowship.
+    pub const NOT_FELLOW: u32 = 0x800;
     /// Only a pet of the class the skill names.
     pub const PET_ONLY: u32 = 0x40_0000;
     /// Only an object of the kinds the skill names.
@@ -911,6 +928,37 @@ fn item_aim<S: Store>(s: &Server<S>, me: u64, u: &Usage, target: u64) -> Result<
         return Err(refusal::NOT_ITEM_IN_PACK);
     }
     Ok(target)
+}
+
+/// Why a skill may not be aimed at the thing a request names, or at its user, by the kinds of
+/// target its definition takes, as the client's texts tell it: the user itself and a monster's
+/// corpse when the skill takes neither, the user's own pet, a monster when the skill takes none
+/// (2017: 50 of 50 refusals on the user aimed at it, 65 of 65 on monster corpses at a corpse, 5 of 5
+/// on monsters at a monster with skills taking players or pets alone).
+fn kind_refused<S: Store>(s: &Server<S>, me: u64, u: &Usage, target: u64) -> Option<u32> {
+    let takes = |bit: u32| u.valid_targets & bit != 0;
+    if target == me {
+        return (!takes(target_bit::SELF)).then_some(refusal::ON_YOURSELF);
+    }
+    if let Some(pet) = s.pets.by_id.get(&target) {
+        return (pet.owner == me).then_some(refusal::ON_YOUR_PET);
+    }
+    let t = s.things.get(target)?;
+    let monster_corpse = t.corpse.as_ref().is_some_and(|c| c.creature != 0);
+    match t.kind {
+        crate::things::Kind::Corpse if monster_corpse && !takes(target_bit::MONSTER_CORPSE) => {
+            Some(refusal::ON_MONSTER_CORPSES)
+        }
+        crate::things::Kind::Creature if !takes(target_bit::MONSTER) => Some(refusal::ON_MONSTERS),
+        _ => None,
+    }
+}
+
+/// Is another player in a player's fellowship?
+fn fellows<S: Store>(s: &Server<S>, me: u64, other: u64) -> bool {
+    s.fellowships
+        .of(me)
+        .is_some_and(|f| s.fellowships.list[f].has(other))
 }
 
 /// Is this use's skill used on its user alone?
@@ -1225,6 +1273,11 @@ fn check<S: Store>(
     if p.trip.is_some() {
         return Err(refusal::INTERRUPTED);
     }
+    // 2017: 1 of 1 use asked 1.25 m or more under the water's surface refused so, none carried
+    // out there; 8 more as swimmers came ashore.
+    if crate::swimming::swims(s, p).is_some() {
+        return Err(refusal::SWIMMING);
+    }
     if !holds(s, p, r.skill) {
         return Err(crate::skills::refusal::UNTRAINED);
     }
@@ -1293,7 +1346,15 @@ fn check<S: Store>(
                 .filter(|q| q.owner == p.character)
                 .filter(|q| u.valid_pet_class == 0 || q.class & u.valid_pet_class != 0);
             if held.is_none() {
-                return Err(refusal::TARGET_GONE);
+                let monster = !s.pets.by_id.contains_key(&pet)
+                    && s.things
+                        .get(pet)
+                        .is_some_and(|t| t.kind == crate::things::Kind::Creature);
+                return Err(if monster && u.valid_targets & target_bit::MONSTER == 0 {
+                    refusal::ON_MONSTERS
+                } else {
+                    refusal::TARGET_GONE
+                });
             }
             let Some(at) = s.things.get(pet).filter(|t| t.alive()).and_then(|t| t.at) else {
                 return Err(refusal::TARGET_GONE);
@@ -1305,8 +1366,13 @@ fn check<S: Store>(
             }
         }
         Aim::Player(c, other) => {
-            // A hostile skill at another player: only as who may harm whom allows.
+            // A hostile skill at another player: never at a fellow when the skill takes only
+            // others (2017: 77 refusals within the fellowship, 74 at a player), then only as who
+            // may harm whom allows.
             if !helpful(&u) {
+                if u.valid_targets & target_bit::NOT_FELLOW != 0 && fellows(s, p.character, other) {
+                    return Err(refusal::WITHIN_FELLOWSHIP);
+                }
                 combat::may_attack_player(s, world, c)?;
             }
             let at = s
@@ -1328,6 +1394,9 @@ fn check<S: Store>(
         Aim::Thing(target) => {
             if target == 0 {
                 return Err(refusal::TARGET_GONE);
+            }
+            if let Some(why) = kind_refused(s, p.character, &u, target) {
+                return Err(why);
             }
             let Some(t) = s.things.get(target) else {
                 return Err(refusal::TARGET_GONE);

@@ -17069,6 +17069,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.skills.not-while-swimming",
+        says: "A player whose feet are 1.25 m or more under its block's water surface is refused any \
+               skill's use, as the client says of one swimming; wading less deep it uses them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SKILL-SWIMMING"),
+        station: "yalain-testkit::cpu::play::skill_aims::no_skill_is_used_while_swimming",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.skills.perk-given-up-lowers-a-vital",
         says: "A perk given up lowers a vital that stood above what is left of its greatest, and \
                the player is told.",
@@ -17156,6 +17165,25 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-RECALL-SKILLS"),
         station: "yalain-testkit::dat::skills::the_recall_skills_read_as_the_lifestones",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.skills.refused-at-a-kind-it-does-not-take",
+        says: "A skill aimed at a kind of target its definition does not take is refused with the \
+               client's text for that kind: its user, a monster, a monster's corpse; a hostile skill \
+               at its user's own pet is refused too.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SKILL-AIM-KINDS"),
+        station: "yalain-testkit::cpu::play::skill_aims::a_skill_is_refused_at_a_target_of_a_kind_it_does_not_take",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.refused-within-the-fellowship",
+        says: "A hostile skill that takes only players outside its user's fellowship is refused at a \
+               fellow, before who may harm whom is asked.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SKILL-AIM-FELLOWS"),
+        station: "yalain-testkit::cpu::play::skill_aims::a_hostile_skill_is_refused_at_a_fellow",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.skills.repository-tables",
