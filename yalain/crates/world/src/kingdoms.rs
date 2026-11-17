@@ -14,7 +14,10 @@
 //! controlled (players of different kingdoms, neutral players kept out), kingdom against kingdom,
 //! or free for all; the world database's areas say which, every other landblock being a peace
 //! area (2017: the status a client held matched one kind per landblock over 2,827 of 2,830
-//! landblocks visited). The client is told the status of where it is:
+//! landblocks visited). The operator's ruleset ([`Ruleset`]) may raise the whole world: a kingdom
+//! against kingdom world holds every landblock its areas name less of as kingdom against kingdom,
+//! a free for all world every landblock as free for all. The client is told the status of where it
+//! is:
 //!
 //! - as a character enters, in the session start (425 of 425), and a new character is told it
 //!   once more right after its description (2 of 2);
@@ -395,12 +398,68 @@ pub fn set_ethereality(qualities: &mut Vec<u8>, v: i32) {
     *qualities = quals::write(&q);
 }
 
-/// The conflict status of a cell's landblock.
+/// A world's ruleset: the least conflict any of its landblocks holds, whatever its areas say.
+/// An area that names more conflict than the ruleset keeps its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Ruleset {
+    /// The areas decide, and every landblock they name none for is a peace area.
+    #[default]
+    Standard,
+    /// Every landblock is kingdom against kingdom, unless its area names free for all.
+    KingdomVsKingdom,
+    /// Every landblock is free for all.
+    FreeForAll,
+}
+
+impl Ruleset {
+    /// Every ruleset, in the order an operator is offered them.
+    pub const ALL: [Self; 3] = [Self::Standard, Self::KingdomVsKingdom, Self::FreeForAll];
+
+    /// Its word, as the operator writes it.
+    #[must_use]
+    pub const fn word(self) -> &'static str {
+        match self {
+            Self::Standard => "standard",
+            Self::KingdomVsKingdom => "kingdom-vs-kingdom",
+            Self::FreeForAll => "free-for-all",
+        }
+    }
+
+    /// The ruleset a word names.
+    #[must_use]
+    pub fn from_word(w: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|r| r.word() == w)
+    }
+
+    /// The least conflict a landblock of a world of this ruleset holds.
+    #[must_use]
+    pub const fn least(self) -> Conflict {
+        match self {
+            Self::Standard => Conflict::Peace,
+            Self::KingdomVsKingdom => Conflict::KingdomVsKingdom,
+            Self::FreeForAll => Conflict::FreeForAll,
+        }
+    }
+
+    /// The conflict status a landblock whose area names `area` (peace for a landblock no area
+    /// names) holds in a world of this ruleset: the more of the two.
+    #[must_use]
+    pub const fn status(self, area: Conflict) -> u32 {
+        let (a, least) = (area.status(), self.least().status());
+        if a > least {
+            a
+        } else {
+            least
+        }
+    }
+}
+
+/// The conflict status of a cell's landblock, in a world of `ruleset`.
 #[must_use]
-pub fn status_at(areas: &BTreeMap<u16, Conflict>, cell: u32) -> u32 {
+pub fn status_at(areas: &BTreeMap<u16, Conflict>, ruleset: Ruleset, cell: u32) -> u32 {
     #[allow(clippy::cast_possible_truncation)]
     let landblock = (cell >> 16) as u16;
-    areas.get(&landblock).copied().unwrap_or_default().status()
+    ruleset.status(areas.get(&landblock).copied().unwrap_or_default())
 }
 
 /// The call that tells the player the conflict status of where it is.
@@ -481,7 +540,7 @@ pub fn check<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     let Some(p) = s.players.get(&world) else {
         return;
     };
-    let now = status_at(&s.content.conflict, p.position.cell);
+    let now = status_at(&s.content.conflict, s.cfg.ruleset, p.position.cell);
     if now == p.conflict {
         return;
     }

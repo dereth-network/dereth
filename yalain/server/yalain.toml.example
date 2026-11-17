@@ -29,6 +29,12 @@ dat_files_directory = ""
 # a new line.
 message_of_the_day = ""
 
+# default: "standard" (--ruleset; Yalain only)
+# Where players may fight: "standard" (the world's conflict areas, peace everywhere else),
+# "kingdom-vs-kingdom" (players of different kingdoms anywhere; a free-for-all area stays free for
+# all) or "free-for-all" (anyone, anywhere).
+ruleset = "standard"
+
 # default: "" (--world-db; Yalain only)
 # The world database to serve: a folder (a checkout of the database, or an Athenaeum world).
 # Empty, or "pinned", means the release this build pins, from the cache `yalain world fetch`

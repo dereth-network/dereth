@@ -11,7 +11,8 @@
 //! and era, the release it is, the release it lies over and the world whose overlay the install is
 //! read through, each null when there is none); what clients asked for that the server doesn't
 //! do yet (`not_handled`: the requests met, and each kind's count); the operator's game rates
-//! that aren't 1 (`rates`, by name; empty when the game plays at its own); and whether it patches
+//! that aren't 1 (`rates`, by name; empty when the game plays at its own); the world's ruleset
+//! (`ruleset`: `standard`, `kingdom-vs-kingdom` or `free-for-all`); and whether it patches
 //! retail clients' data files (`dats.patching`, as Empyrean's document says it), when a retail
 //! player must play from a copy of the client's files kept for the world. It has no
 //! authentication: it is meant for loopback or a private network.
@@ -61,6 +62,8 @@ pub struct Snapshot {
     pub not_handled: (u64, Arc<BTreeMap<String, u64>>),
     /// The operator's game rates that aren't 1, by name.
     pub rates: Vec<(&'static str, f64)>,
+    /// The world's ruleset.
+    pub ruleset: yalain_world::kingdoms::Ruleset,
     /// The world patches retail clients' data files as they log in, so a retail player plays it
     /// from a copy of the client's files kept for it.
     pub patches_retail: bool,
@@ -95,6 +98,7 @@ impl Snapshot {
                 .iter()
                 .map(|(name, rate)| ((*name).to_owned(), serde_json::json!(rate)))
                 .collect::<serde_json::Map<_, _>>(),
+            "ruleset": self.ruleset.word(),
             "dats": { "patching": self.patches_retail },
         })
         .to_string()
@@ -462,6 +466,35 @@ mod tests {
             serde_json::json!({ "experience": 2.0, "respawn": 0.5, "movement": 3.0 })
         );
         assert_eq!(rates(Snapshot::default()), serde_json::json!({}));
+    }
+
+    /// `/status` names the world's ruleset by its word: `standard` for a world that sets none.
+    /// Behaviour: server.operator.ruleset-on-the-status-endpoint
+    #[test]
+    fn the_status_endpoint_names_the_worlds_ruleset() {
+        use yalain_world::kingdoms::Ruleset;
+        let ruleset = |snapshot: Snapshot| {
+            let e = Endpoint::start(SocketAddr::from(([127, 0, 0, 1], 0)), snapshot, Vec::new())
+                .expect("listens");
+            let text = get(e.addr(), "/status");
+            e.stop();
+            let body = text.split("\r\n\r\n").nth(1).expect("a body").to_owned();
+            let v: serde_json::Value = serde_json::from_str(&body).expect("JSON");
+            v["ruleset"].clone()
+        };
+        assert_eq!(ruleset(Snapshot::default()), "standard");
+        for (r, word) in [
+            (Ruleset::KingdomVsKingdom, "kingdom-vs-kingdom"),
+            (Ruleset::FreeForAll, "free-for-all"),
+        ] {
+            assert_eq!(
+                ruleset(Snapshot {
+                    ruleset: r,
+                    ..Snapshot::default()
+                }),
+                word
+            );
+        }
     }
 
     /// `/status` names the world database served (its key and era, its release, the release it

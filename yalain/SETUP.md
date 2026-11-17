@@ -223,6 +223,7 @@ to others.
 | `--motd <text>` | a message shown to each player as its character enters the world; `\n` starts a new line (default: none) |
 | `--portal-storm-threshold <n>`, `--portal-storm-fewest-sent <n>` | the players a landblock holds for a portal storm to brew (default 40; 0 for none), and the fewest a storm sends away (default 5; section 3.11) |
 | `--experience-rate <x>`, `--loot-rate <x>`, `--respawn-rate <x>`, `--movement-rate <x>` | multiply the experience players earn, the treasure creatures and chests draw, how fast camps replace their creatures, and how fast players move (default 1 each; section 3.11) |
+| `--ruleset <r>` | where players may fight: `standard`, `kingdom-vs-kingdom` or `free-for-all` (default `standard`; section 3.11) |
 | `--status <ip>:<port>` | serve the status endpoint at this address (default: off; section 3.8) |
 | `--websocket` and the `--websocket-…` options | also take WebSocket connections, for clients in a browser (default: off; section 4.1) |
 | `--config <file>` | read the options from this configuration file (section 3.6) |
@@ -388,6 +389,7 @@ shard_db_path = "yalain.sqlite"
 | `[server] world_name` | `--world-name` | |
 | `[server] dat_files_directory` | `--dats` | empty: the file's folder |
 | `[server] message_of_the_day` | `--motd` | Yalain only |
+| `[server] ruleset` | `--ruleset` | Yalain only; `standard` (the default), `kingdom-vs-kingdom` or `free-for-all` |
 | `[server] world_database_path` | `--world-db` | Yalain only; empty or `pinned`: the pinned release |
 | `[server] world_base_path` | `--world-base` | Yalain only |
 | `[server] shutdown_interval` | `--shutdown-interval` | seconds |
@@ -479,7 +481,7 @@ With `--status <ip>:<port>` (for example `--status 127.0.0.1:9100`), the server 
   `overlay` is read, each `null` when there is none), `not_handled` (what clients asked for that
   the server doesn't do yet: the `requests` met, and each kind's count in `kinds`) and `rates` (the
   game rates that aren't 1, by name, such as `{"experience": 2.0}`; empty when none is set,
-  section 3.11).
+  section 3.11) and `ruleset` (`standard`, `kingdom-vs-kingdom` or `free-for-all`, section 3.11).
 
 **If saves fail** (the disk is full, the file is read-only or another program has it locked), nothing is
 lost while the server runs: it holds what it could not write and tries again every five seconds. The log
@@ -654,6 +656,22 @@ movement = 1.0     # how fast players move
 Each is 0 to 100 (`respawn` above 0, `movement` above 0 and at most 10); anything else stops the
 server at its start. The status
 endpoint's `rates` names any that aren't 1 (section 3.8).
+
+**Ruleset.** Where players may fight, across the whole world:
+
+```toml
+[server]
+ruleset = "standard"   # or "kingdom-vs-kingdom", or "free-for-all"
+```
+
+- `standard`, the default: the world's conflict areas decide, and everywhere else is at peace.
+- `kingdom-vs-kingdom`: players of different kingdoms may fight anywhere. A free-for-all area stays
+  free for all.
+- `free-for-all`: anyone may fight anyone, anywhere.
+
+Players are told the status of where they stand, as in the conflict areas. Any other word stops
+the server at its start. The status endpoint's `ruleset` names it (section 3.8). Say the same in
+the world's listing on the Dereth Network (section 8.1): `Standard`, `KvK` or `FFA`.
 
 ---
 
@@ -1120,7 +1138,8 @@ The hub's own rules, for operators, are in [the hub's specification](../docs/net
 
 **Register it** with the hub once, as an Asheron's Call 2 world: on the hub's site
 (https://dereth.network), or by the hub's operator (`dereth-network-hub register world.json`). The
-registration names the world's slug and name, its game, `"game": "auberean"`, and its endpoint: the
+registration names the world's slug and name, its game, `"game": "auberean"`, its ruleset
+(`Standard`, `KvK` or `FFA`, as its `[server] ruleset` says, section 3.11), and its endpoint: the
 address players reach and the **login port**. Section 2.4 of
 [the hub's specification](../docs/network/05-hub.md#24-registering-and-claiming) lists every field.
 

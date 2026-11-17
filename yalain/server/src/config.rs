@@ -69,6 +69,7 @@ const KEYS: &[(&str, &str, Takes)] = &[
     ("server", "update_source", Takes::Value("--update-source")),
     ("server", "dat_files_directory", Takes::Install),
     ("server", "message_of_the_day", Takes::Value("--motd")),
+    ("server", "ruleset", Takes::Value("--ruleset")),
     ("server", "world_database_path", Takes::WorldDatabase),
     ("server", "world_base_path", Takes::Path("--world-base")),
     (
@@ -1170,6 +1171,32 @@ mod tests {
         ] {
             let e = read(&format!("[rates]\n{refused}\n")).expect_err(refused);
             assert!(e.contains("-rate"), "{e}");
+        }
+    }
+
+    /// `[server] ruleset` sets the world's ruleset by its word, standard when not given; a word
+    /// that names no ruleset stops the server at its start.
+    /// Behaviour: server.operator.ruleset-setting
+    #[test]
+    fn the_ruleset_key_sets_the_worlds_ruleset() {
+        use yalain_world::kingdoms::Ruleset;
+        let folder = Path::new("/srv");
+        let read = |text: &str| {
+            let (args, warnings) = arguments(text, folder).expect("reads");
+            assert!(warnings.is_empty(), "{warnings:?}");
+            crate::parse_from(args).map(|o| o.ruleset)
+        };
+        assert_eq!(read(""), Ok(Ruleset::Standard));
+        for (word, r) in [
+            ("standard", Ruleset::Standard),
+            ("kingdom-vs-kingdom", Ruleset::KingdomVsKingdom),
+            ("free-for-all", Ruleset::FreeForAll),
+        ] {
+            assert_eq!(read(&format!("[server]\nruleset = \"{word}\"\n")), Ok(r));
+        }
+        for refused in ["pvp", "FFA", "kvk"] {
+            let e = read(&format!("[server]\nruleset = \"{refused}\"\n")).expect_err(refused);
+            assert!(e.starts_with("--ruleset:"), "{e}");
         }
     }
 

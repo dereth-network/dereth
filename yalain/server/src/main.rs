@@ -68,6 +68,9 @@
 //!   --respawn-rate X      how many times faster camps replace their creatures and items, above
 //!                         0 to 100 (default 1)
 //!   --movement-rate X     multiply how fast players move, above 0 to 10 (default 1)
+//!   --ruleset R           where players may fight: standard (the default; the world's areas
+//!                         decide, peace everywhere else), kingdom-vs-kingdom (kingdoms fight
+//!                         anywhere the areas name no more) or free-for-all (anyone, anywhere)
 //!   --add-character A:N:R:S  make character N on account A of race R and sex S (4096 or 8192),
 //!                         with a middling physique, then carry on; a missing account is made on
 //!                         an open world only
@@ -272,6 +275,8 @@ struct Options {
     storms: yalain_world::storms::Settings,
     /// The game rates (`--experience-rate`, `--loot-rate`, `--respawn-rate`, `--movement-rate`).
     rates: yalain_world::rates::Rates,
+    /// The world's ruleset (`--ruleset`).
+    ruleset: yalain_world::kingdoms::Ruleset,
     /// Where the status endpoint listens (`--status`; none: off).
     status: Option<std::net::SocketAddr>,
     /// Answer the status ping on the login port (not `--no-status-ping`), within these limits
@@ -420,6 +425,7 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
         motd: String::new(),
         storms: yalain_world::storms::Settings::default(),
         rates: yalain_world::rates::Rates::default(),
+        ruleset: yalain_world::kingdoms::Ruleset::Standard,
         status: None,
         status_ping: true,
         status_ping_limits: yalain_net::status_ping::Limits::default(),
@@ -577,6 +583,17 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
                     "respawn" => o.rates.respawn = rate,
                     _ => o.rates.movement = rate,
                 }
+            }
+            "--ruleset" => {
+                let v = value()?;
+                o.ruleset = yalain_world::kingdoms::Ruleset::from_word(&v).ok_or_else(|| {
+                    format!(
+                        "--ruleset: {v:?} is not one of {}",
+                        yalain_world::kingdoms::Ruleset::ALL
+                            .map(|r| r.word())
+                            .join(", ")
+                    )
+                })?;
             }
             "--status" => {
                 o.status = Some(value()?.parse().map_err(|e| format!("--status: {e}"))?);
@@ -986,6 +1003,7 @@ fn run<S: Store>(
         motd: o.motd.clone(),
         storms: o.storms,
         rates: o.rates,
+        ruleset: o.ruleset,
         ..ServerConfig::default()
     };
     let advertise = if o.referral {
@@ -1765,6 +1783,7 @@ fn snapshot<S: Store>(
         saves_failing: server.saves.failing(),
         world_step: server.step_timer.figures().clone(),
         rates: server.cfg.rates.changed(),
+        ruleset: server.cfg.ruleset,
         patches_retail: yalain_world::world_patch::patches_retail(server),
     }
 }
@@ -2480,7 +2499,7 @@ fn main() -> std::process::ExitCode {
         }
         Err(e) => {
             eprintln!("yalain: {e}");
-            eprintln!("usage: yalain --dats <install folder> [--bind IP] [--login-port P] [--world-port P] [--advertise IP] [--data FILE | --memory] [--world-name NAME] [--listed-accounts] [--banned-names FILE] [--add-account NAME:TICKET] [--secret-cost N] [--save-interval S] [--shutdown-interval S] [--watchdog S] [--max-sessions N] [--max-sessions-per-address N] [--unlimited-sessions-from IP] [--download-rate N] [--motd TEXT] [--portal-storm-threshold N] [--portal-storm-fewest-sent N] [--experience-rate X] [--loot-rate X] [--respawn-rate X] [--movement-rate X] [--status IP:PORT] [--no-status-ping] [--status-ping-hellos N] [--status-ping-asks N] [--status-ping-replies N] [--config FILE] [--add-character ACCOUNT:NAME:RACE:SEX] [--place ACCOUNT:NAME:CELL:X:Y:Z:HEADING] [--money ACCOUNT:NAME:AMOUNT] [--make-character FILE] [--world-db DIR|pinned] [--world-base DIR] [--dat-overlay DIR] [--no-dat-overlay-patching] [--dat-overlay-records-per-minute N] [--enable-dat-patching] [--no-referral] [--no-echo] [--game-time S] [--hold-clock] [--hub URL --hub-slug SLUG --hub-key-file FILE [--federation] [--global-room ROOM]] [--no-friends] [--seconds S] [--verbose] [--stop-at-console-end] [--admin-channel] [--update off|patch|minor] [--update-check-hours H] [--update-warning-seconds S] [--update-source URL]");
+            eprintln!("usage: yalain --dats <install folder> [--bind IP] [--login-port P] [--world-port P] [--advertise IP] [--data FILE | --memory] [--world-name NAME] [--listed-accounts] [--banned-names FILE] [--add-account NAME:TICKET] [--secret-cost N] [--save-interval S] [--shutdown-interval S] [--watchdog S] [--max-sessions N] [--max-sessions-per-address N] [--unlimited-sessions-from IP] [--download-rate N] [--motd TEXT] [--portal-storm-threshold N] [--portal-storm-fewest-sent N] [--experience-rate X] [--loot-rate X] [--respawn-rate X] [--movement-rate X] [--ruleset R] [--status IP:PORT] [--no-status-ping] [--status-ping-hellos N] [--status-ping-asks N] [--status-ping-replies N] [--config FILE] [--add-character ACCOUNT:NAME:RACE:SEX] [--place ACCOUNT:NAME:CELL:X:Y:Z:HEADING] [--money ACCOUNT:NAME:AMOUNT] [--make-character FILE] [--world-db DIR|pinned] [--world-base DIR] [--dat-overlay DIR] [--no-dat-overlay-patching] [--dat-overlay-records-per-minute N] [--enable-dat-patching] [--no-referral] [--no-echo] [--game-time S] [--hold-clock] [--hub URL --hub-slug SLUG --hub-key-file FILE [--federation] [--global-room ROOM]] [--no-friends] [--seconds S] [--verbose] [--stop-at-console-end] [--admin-channel] [--update off|patch|minor] [--update-check-hours H] [--update-warning-seconds S] [--update-source URL]");
             eprintln!("       yalain world check|release|fetch|compile ...");
             eprintln!(
                 "       yalain update --check|--apply [--config FILE] [--policy off|patch|minor]"

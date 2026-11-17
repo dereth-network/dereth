@@ -162,7 +162,7 @@ fn faction_show<S: Store>(cx: &Cx<'_, S>) -> Vec<String> {
     let Some(p) = cx.s.players.get(&cx.world) else {
         return Vec::new();
     };
-    let status = kingdoms::status_at(&cx.s.content.conflict, p.position.cell);
+    let status = kingdoms::status_at(&cx.s.content.conflict, cx.s.cfg.ruleset, p.position.cell);
     vec![format!(
         "The conflict status of landblock {:04X} is {status:#x}.",
         p.position.cell >> 16

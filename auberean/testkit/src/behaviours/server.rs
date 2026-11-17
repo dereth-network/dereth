@@ -8110,6 +8110,29 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.kingdoms.world-ruleset",
+        says: "The world's ruleset is the least conflict every landblock holds, an area naming more \
+               keeping its own: a standard world's areas decide, peace where they name none; a \
+               kingdom against kingdom world holds every landblock its areas name less of as \
+               kingdom against kingdom; a free for all world holds every landblock as free for \
+               all. A character entering is told the status of where it enters, and its \
+               ethereality follows.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-KINGDOM-WORLD-RULESET"),
+        station: "yalain-testkit::cpu::play::kingdoms::a_worlds_ruleset_is_the_least_conflict_every_landblock_holds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.kingdoms.world-ruleset-on-the-way",
+        says: "On a kingdom against kingdom world, walking from a landblock no area names into a \
+               controlled area tells nothing, both being kingdom against kingdom, and walking into \
+               a free for all area tells its status.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-KINGDOM-WORLD-RULESET-WALK"),
+        station: "yalain-testkit::cpu::play::kingdoms::on_a_kingdom_against_kingdom_world_only_a_free_for_all_area_tells_another_status",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.login.a-new-session-enters-after-a-log-off",
         says: "A new client of an account whose character has logged off and left enters that \
                character at once.",
@@ -11036,6 +11059,24 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-OPERATOR-RESPAWN-RATE"),
         station: "yalain-testkit::cpu::operator::rates::the_respawn_rate_divides_a_camps_period",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.ruleset-on-the-status-endpoint",
+        says: "The status endpoint names the world's ruleset by its word: standard, \
+               kingdom-vs-kingdom or free-for-all.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STATUS-RULESET"),
+        station: "yalain::bin.yalain::status::tests::the_status_endpoint_names_the_worlds_ruleset",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.ruleset-setting",
+        says: "The operator's [server] ruleset is the world's ruleset, standard when not given; a \
+               word that names no ruleset stops the server at its start.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-OPERATOR-RULESET-SETTING"),
+        station: "yalain::bin.yalain::config::tests::the_ruleset_key_sets_the_worlds_ruleset",
         tier: Tier::Cpu,
     },
     behaviour! {

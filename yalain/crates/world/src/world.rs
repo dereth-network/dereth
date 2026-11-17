@@ -449,7 +449,7 @@ pub fn enter<S: Store>(
     let first_entry = st.instances == 0;
     st.instances = st.instances.wrapping_add(1).max(1);
     let new_character = st.play.is_empty() || first_entry;
-    let conflict = crate::kingdoms::status_at(&s.content.conflict, position.cell);
+    let conflict = crate::kingdoms::status_at(&s.content.conflict, s.cfg.ruleset, position.cell);
     crate::kingdoms::entering(&mut st.qualities, conflict, new_character);
     s.saves.hold(character, st.clone());
     let mut options = Options::from_packed(&st.options).map_err(|e| {

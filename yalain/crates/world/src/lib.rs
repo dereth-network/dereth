@@ -274,6 +274,9 @@ pub struct ServerConfig {
     pub storms: storms::Settings,
     /// The operator's experience, loot and respawn rates (1 each unless given).
     pub rates: rates::Rates,
+    /// The world's ruleset: the least player conflict every landblock holds ([`kingdoms::Ruleset`];
+    /// standard unless given, where the world's areas decide).
+    pub ruleset: kingdoms::Ruleset,
 }
 
 impl Default for ServerConfig {
@@ -300,6 +303,7 @@ impl Default for ServerConfig {
             motd: String::new(),
             storms: storms::Settings::default(),
             rates: rates::Rates::default(),
+            ruleset: kingdoms::Ruleset::Standard,
         }
     }
 }

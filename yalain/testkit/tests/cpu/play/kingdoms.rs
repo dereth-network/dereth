@@ -1192,3 +1192,102 @@ fn a_step_grants_and_revokes_the_permission_to_be_fought_anywhere_and_every_watc
         "every kingdom passed through again"
     );
 }
+
+/// A world's ruleset is the least conflict every landblock holds, an area that names more keeping
+/// its own: a standard world's areas decide (peace where they name none); a kingdom against kingdom
+/// world holds a landblock no area names, or a controlled one, as kingdom against kingdom, and a
+/// free for all area as free for all; a free for all world holds every landblock as free for all.
+/// A new character is told the status of where it enters, and its ethereality (a player in no
+/// kingdom's) follows it.
+/// Behaviour: server.kingdoms.world-ruleset
+#[test]
+fn a_worlds_ruleset_is_the_least_conflict_every_landblock_holds() {
+    use kingdoms::Ruleset;
+    use Conflict::{Controlled, FreeForAll, KingdomVsKingdom};
+    // Each world's ruleset, the start's area (none where no area names it), and the status told
+    // there with the ethereality of a player in no kingdom.
+    let cases = [
+        (Ruleset::Standard, None, 1, 0x3E20_0010),
+        (Ruleset::Standard, Some(Controlled), 2, 0x3E20_0010),
+        (Ruleset::Standard, Some(FreeForAll), 4, 0x0220_0010),
+        (Ruleset::KingdomVsKingdom, None, 3, 0x0620_0010),
+        (Ruleset::KingdomVsKingdom, Some(Controlled), 3, 0x0620_0010),
+        (Ruleset::KingdomVsKingdom, Some(FreeForAll), 4, 0x0220_0010),
+        (Ruleset::FreeForAll, None, 4, 0x0220_0010),
+        (Ruleset::FreeForAll, Some(Controlled), 4, 0x0220_0010),
+        (Ruleset::FreeForAll, Some(KingdomVsKingdom), 4, 0x0220_0010),
+    ];
+    for (ruleset, area, status, ethereal) in cases {
+        let mut h = Harness::new();
+        h.server.cfg.ruleset = ruleset;
+        if let Some(a) = area {
+            h.server.content.conflict.insert((START >> 16) as u16, a);
+        }
+        let (b, id) = h.player_in_world("one", "Elara");
+        let case = format!("{ruleset:?} with {area:?}");
+        assert_eq!(statuses(&h, b, 0), [status], "{case}");
+        let p = h
+            .server
+            .players
+            .values()
+            .find(|p| p.character == id)
+            .expect("in the world");
+        assert_eq!(kingdoms::kept_ethereality(&p.qualities), ethereal, "{case}");
+    }
+}
+
+/// On a kingdom against kingdom world a controlled area is kingdom against kingdom too: a player
+/// walking into one from a landblock no area names is told nothing, and its ethereality stays;
+/// walking on into a free for all area tells it, and its ethereality follows; walking back out
+/// into a landblock no area names tells kingdom against kingdom again.
+/// Behaviour: server.kingdoms.world-ruleset-on-the-way
+#[test]
+fn on_a_kingdom_against_kingdom_world_only_a_free_for_all_area_tells_another_status() {
+    let mut h = Harness::new();
+    h.server.cfg.ruleset = kingdoms::Ruleset::KingdomVsKingdom;
+    h.server
+        .content
+        .conflict
+        .insert(NEXT_LANDBLOCK, Conflict::Controlled);
+    h.server
+        .content
+        .conflict
+        .insert(NEXT_LANDBLOCK + 1, Conflict::FreeForAll);
+    let (a, ida) = h.player_in_world("one", "Elara");
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &ClientMessage::SceneRenderingComplete(Empty),
+    );
+    h.run(10);
+    let walk = |h: &mut Harness, landblock: u16| {
+        let cell = u32::from(landblock) << 16 | 0x0001;
+        h.bots[a].send(
+            true,
+            queue::WEENIE,
+            &report(cell, Vec3::new(10.0, 10.0, 0.0), 0x40, IDLE_MOTION, 0),
+        );
+        h.run(10);
+    };
+    let from = h.bots[a].inbox.len();
+    walk(&mut h, NEXT_LANDBLOCK);
+    assert!(
+        statuses(&h, a, from).is_empty(),
+        "a controlled area: nothing"
+    );
+    assert!(visuals(&h, a, from, ida).is_empty());
+    let from = h.bots[a].inbox.len();
+    walk(&mut h, NEXT_LANDBLOCK + 1);
+    assert_eq!(statuses(&h, a, from), [4], "a free for all area");
+    assert_eq!(
+        visuals(&h, a, from, ida),
+        [(quality::ETHEREALITY, 0x0220_0010)]
+    );
+    let from = h.bots[a].inbox.len();
+    walk(&mut h, 0x029C);
+    assert_eq!(statuses(&h, a, from), [3], "kingdom against kingdom again");
+    assert_eq!(
+        visuals(&h, a, from, ida),
+        [(quality::ETHEREALITY, 0x0620_0010)]
+    );
+}

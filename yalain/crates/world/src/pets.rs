@@ -1231,7 +1231,7 @@ pub fn of_owners_kingdom<S: Store>(s: &Server<S>, owner: u64, cell: u32) -> Opti
     let p = s.players.values().find(|p| p.character == owner)?;
     let q = crate::quals::read(&p.qualities);
     let (allow, _) = crate::kingdoms::permissions_of(&q);
-    let area = crate::kingdoms::status_at(&s.content.conflict, cell);
+    let area = crate::kingdoms::status_at(&s.content.conflict, s.cfg.ruleset, cell);
     let status = crate::kingdoms::status_with(area, allow, false);
     let k = crate::kingdoms::counted(crate::kingdoms::of_qualities(&q));
     Some((
