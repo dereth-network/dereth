@@ -1,4 +1,8 @@
-//! Compile the Windows resources: the application icon.
+//! Compile the Windows resources: the application icon and the version information.
+//!
+//! The version information names the executable "Dereth" with the crate's version: Explorer shows
+//! it in the file's properties, and the task bar labels the client's buttons with its file
+//! description rather than the file's name.
 //!
 //! The icon has to be a linked resource rather than a file the client loads, because Explorer,
 //! the taskbar and Alt-Tab all read it straight out of the executable before any of our code runs.
@@ -45,11 +49,21 @@ fn main() {
         let assets: PathBuf = [env!("CARGO_MANIFEST_DIR"), "assets"].iter().collect();
         embed_resource::compile(
             "assets/dereth-client.rc",
-            embed_resource::ParamsIncludeDirs([assets]),
+            embed_resource::ParamsMacrosAndIncludeDirs(&version_macros(), [assets]),
         )
         .manifest_optional()
-        .expect("the icon resource must compile");
+        .expect("the icon and version resources must compile");
     }
+}
+
+/// The crate's version as the resource script reads it: each number, and the whole as text.
+fn version_macros() -> [String; 4] {
+    [
+        format!("VERSION_MAJOR={}", env!("CARGO_PKG_VERSION_MAJOR")),
+        format!("VERSION_MINOR={}", env!("CARGO_PKG_VERSION_MINOR")),
+        format!("VERSION_PATCH={}", env!("CARGO_PKG_VERSION_PATCH")),
+        format!("VERSION_TEXT={}", env!("CARGO_PKG_VERSION")),
+    ]
 }
 
 /// NVIDIA's DLSS library beside the executable of a Windows client built with DLSS, so a client run

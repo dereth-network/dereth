@@ -19,6 +19,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Remaster: now in the Classic and Modern interfaces too, with its options.
 - Windows: fixed the taskbar sometimes showing a blank icon for the client.
 - Horizon: admin commands no longer act on a creature after it's deselected.
+- Windows: the taskbar now names the client Dereth.
 
 ## 0.4.19 (2026-11-17)
 - Remaster: distant forests no longer shimmer with ray-traced shading.
