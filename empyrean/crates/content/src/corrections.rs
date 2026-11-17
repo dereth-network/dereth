@@ -22,6 +22,10 @@
 //! Individual entries stay individually evidenced, and neither bulk entries nor a new rule are
 //! added here without a deliberate, reviewed decision.
 //!
+//! One such decision is a table of data rather than code: each creature's Deception as retail
+//! used it ([`deception`], V559), one entry per weenie class read from a data file. Its entries
+//! work exactly as the others do; [`weenie_corrections`] lists them all.
+//!
 //! The individual entries are scoped to the eras whose content they were evidenced on
 //! ([`ENTRY_ERAS`]: the end of retail). On a pack built for another era ([`crate::pack::Pack::era`])
 //! none applies, and none is reported stale or absent. The two rules correct how ACE's world data
@@ -36,16 +40,18 @@
 
 use empyrean_common::era::EraId;
 use empyrean_entity::enums::{
-    MotionCommand, PlayScript, PropertyBool, PropertyDataId, PropertyInt, WeenieType,
+    MotionCommand, PlayScript, PropertyBool, PropertyDataId, PropertyInt, Skill,
+    SkillAdvancementClass, WeenieType,
 };
 
 use crate::models::world::{
     Spell, Weenie, WeeniePropertiesBool, WeeniePropertiesDID, WeeniePropertiesEmoteAction,
-    WeeniePropertiesInt,
+    WeeniePropertiesInt, WeeniePropertiesSkill,
 };
 use crate::pack::TableId;
 use crate::world_database::WorldDatabaseBase;
 
+pub mod deception;
 pub mod report;
 
 /// A property value in a correction. `None` is "no row".
@@ -56,6 +62,8 @@ pub enum Value {
     DataId(PropertyDataId, Option<u32>),
     /// The script (`PScript`) of one emote action; `None` is an action with no script.
     EmoteScript(EmoteAction, Option<i32>),
+    /// A skill's level as its row stores it, the initial level plus the ranks; `None` is no row.
+    Skill(Skill, Option<u32>),
 }
 
 /// One action of a weenie's emote table: the emote set's row id and the action's order in it.
@@ -158,7 +166,8 @@ const fn taunt_script(weenie_class_id: u32, emote_set: u32) -> WeenieCorrection 
     }
 }
 
-/// Every correction, in class id order.
+/// Every individually written correction, in class id order. [`weenie_corrections`] adds the
+/// data tables' entries.
 pub const WEENIE_CORRECTIONS: &[WeenieCorrection] = &[
     // Items the dump types wrongly: retail created each of these with one ItemType throughout
     // the captures (a census of every CreateObject). The Brewmaster's Bible pieces carry a bit
@@ -372,6 +381,13 @@ fn did_row(w: &Weenie, p: PropertyDataId) -> Option<u32> {
         .map(|r| r.value)
 }
 
+fn skill_row(w: &Weenie, s: Skill) -> Option<u32> {
+    w.weenie_properties_skill
+        .iter()
+        .find(|r| i32::from(r.r#type) == s.0)
+        .map(|r| r.init_level.saturating_add(u32::from(r.level_from_pp)))
+}
+
 fn emote_action(w: &Weenie, a: EmoteAction) -> Option<&WeeniePropertiesEmoteAction> {
     let set = w
         .weenie_properties_emote
@@ -398,6 +414,7 @@ fn holds(w: &Weenie, v: Value) -> bool {
         Value::Bool(p, want) => bool_row(w, p) == want,
         Value::DataId(p, want) => did_row(w, p) == want,
         Value::EmoteScript(a, want) => emote_action(w, a).is_some_and(|r| r.p_script == want),
+        Value::Skill(s, want) => skill_row(w, s) == want,
     }
 }
 
@@ -451,13 +468,53 @@ fn set(w: &mut Weenie, v: Value) {
                 r.p_script = value;
             }
         }
+        Value::Skill(s, value) => {
+            let rows = &mut w.weenie_properties_skill;
+            let found = rows.iter_mut().find(|r| i32::from(r.r#type) == s.0);
+            match (found, value, u16::try_from(s.0)) {
+                // The level is the row's initial level, with no ranks.
+                (Some(r), Some(value), _) => {
+                    r.init_level = value;
+                    r.level_from_pp = 0;
+                }
+                // A new row is untrained: only the level changes.
+                (None, Some(value), Ok(r#type)) => rows.push(WeeniePropertiesSkill {
+                    object_id,
+                    r#type,
+                    sac: SkillAdvancementClass::Untrained.0,
+                    init_level: value,
+                    ..WeeniePropertiesSkill::default()
+                }),
+                (None, Some(_), Err(_)) => {}
+                (_, None, _) => rows.retain(|r| i32::from(r.r#type) != s.0),
+            }
+            rows.sort_by_key(|r| r.r#type);
+        }
     }
 }
 
+/// Every weenie correction: the individually written ones ([`WEENIE_CORRECTIONS`]) and the data
+/// tables' ([`deception`]), in class id order.
+#[must_use]
+pub fn weenie_corrections() -> &'static [WeenieCorrection] {
+    static ALL: std::sync::OnceLock<Vec<WeenieCorrection>> = std::sync::OnceLock::new();
+    ALL.get_or_init(|| {
+        let mut all: Vec<WeenieCorrection> = WEENIE_CORRECTIONS
+            .iter()
+            .chain(deception::corrections())
+            .copied()
+            .collect();
+        all.sort_by_key(|c| c.weenie_class_id);
+        all
+    })
+}
+
 fn of(weenie_class_id: u32) -> impl Iterator<Item = &'static WeenieCorrection> {
-    WEENIE_CORRECTIONS
+    let all = weenie_corrections();
+    let start = all.partition_point(|c| c.weenie_class_id < weenie_class_id);
+    all[start..]
         .iter()
-        .filter(move |c| c.weenie_class_id == weenie_class_id)
+        .take_while(move |c| c.weenie_class_id == weenie_class_id)
 }
 
 /// Applies the corrections for `w` whose stored value it still holds, then the
@@ -749,6 +806,7 @@ pub fn current(w: &Weenie, v: Value) -> Option<Value> {
         Value::Bool(p, _) => Value::Bool(p, bool_row(w, p)),
         Value::DataId(p, _) => Value::DataId(p, did_row(w, p)),
         Value::EmoteScript(a, _) => Value::EmoteScript(a, emote_action(w, a)?.p_script),
+        Value::Skill(s, _) => Value::Skill(s, skill_row(w, s)),
     })
 }
 
@@ -768,6 +826,7 @@ fn canonical_value(v: Value) -> String {
         Value::EmoteScript(a, x) => {
             format!("emote_script {} {} {}", a.emote_set, a.order, opt_text(x))
         }
+        Value::Skill(skill, x) => format!("skill {} {}", skill.0, opt_text(x)),
     }
 }
 
@@ -800,7 +859,7 @@ pub fn emote_motion_shift_mapping() -> Vec<(u32, u32)> {
 #[must_use]
 pub fn canonical_listing() -> String {
     listing_of(
-        WEENIE_CORRECTIONS,
+        weenie_corrections(),
         SPELL_CORRECTIONS,
         PLAY_SCRIPT_SHIFT_CASES,
         &emote_motion_shift_mapping(),
@@ -1648,7 +1707,7 @@ mod tests {
         let lines = listing.lines().count();
         assert_eq!(
             lines,
-            2 + WEENIE_CORRECTIONS.len()
+            2 + weenie_corrections().len()
                 + SPELL_CORRECTIONS.len()
                 + 2
                 + PLAY_SCRIPT_SHIFT_CASES.len()
@@ -1663,7 +1722,7 @@ mod tests {
              m: &[(u32, u32)]| digest_of(&listing_of(w, s, c, m));
         assert_eq!(
             digest_with(
-                WEENIE_CORRECTIONS,
+                weenie_corrections(),
                 SPELL_CORRECTIONS,
                 PLAY_SCRIPT_SHIFT_CASES,
                 &mapping
@@ -1674,7 +1733,7 @@ mod tests {
         // Any change to an entry, its record or its evidence changes the digest.
         let mut changed = Vec::new();
         for i in 0..4 {
-            let mut w = WEENIE_CORRECTIONS.to_vec();
+            let mut w = weenie_corrections().to_vec();
             match i {
                 0 => w[3].corrected = Value::Int(PropertyInt::ItemType, Some(MISC + 1)),
                 1 => w[3].stored = Value::Int(PropertyInt::ItemType, None),
@@ -1689,7 +1748,7 @@ mod tests {
             ));
         }
         changed.push(digest_with(
-            &WEENIE_CORRECTIONS[1..],
+            &weenie_corrections()[1..],
             SPELL_CORRECTIONS,
             PLAY_SCRIPT_SHIFT_CASES,
             &mapping,
@@ -1697,7 +1756,7 @@ mod tests {
         let mut s = SPELL_CORRECTIONS.to_vec();
         s[0].corrected = SpellValue::Wcid(None);
         changed.push(digest_with(
-            WEENIE_CORRECTIONS,
+            weenie_corrections(),
             &s,
             PLAY_SCRIPT_SHIFT_CASES,
             &mapping,
@@ -1706,19 +1765,19 @@ mod tests {
         let mut c = PLAY_SCRIPT_SHIFT_CASES.to_vec();
         c[2].when = ScriptShiftWhen::Always;
         changed.push(digest_with(
-            WEENIE_CORRECTIONS,
+            weenie_corrections(),
             SPELL_CORRECTIONS,
             &c,
             &mapping,
         ));
         changed.push(digest_with(
-            WEENIE_CORRECTIONS,
+            weenie_corrections(),
             SPELL_CORRECTIONS,
             &PLAY_SCRIPT_SHIFT_CASES[..2],
             &mapping,
         ));
         changed.push(digest_with(
-            WEENIE_CORRECTIONS,
+            weenie_corrections(),
             SPELL_CORRECTIONS,
             PLAY_SCRIPT_SHIFT_CASES,
             &mapping[1..],
@@ -1761,13 +1820,17 @@ mod tests {
         assert!(WEENIE_CORRECTIONS
             .windows(2)
             .all(|p| p[0].weenie_class_id <= p[1].weenie_class_id));
-        for c in WEENIE_CORRECTIONS {
+        assert!(weenie_corrections()
+            .windows(2)
+            .all(|p| p[0].weenie_class_id <= p[1].weenie_class_id));
+        for c in weenie_corrections() {
             assert!(c.divergence.starts_with('V') && !c.evidence.is_empty());
             let same_property = match (c.stored, c.corrected) {
                 (Value::Int(a, _), Value::Int(b, _)) => a == b,
                 (Value::Bool(a, _), Value::Bool(b, _)) => a == b,
                 (Value::DataId(a, _), Value::DataId(b, _)) => a == b,
                 (Value::EmoteScript(a, _), Value::EmoteScript(b, _)) => a == b,
+                (Value::Skill(a, _), Value::Skill(b, _)) => a == b,
                 _ => false,
             };
             assert!(same_property && c.stored != c.corrected, "{c:?}");
@@ -1779,5 +1842,105 @@ mod tests {
             EMOTE_MOTION_SHIFT_DIVERGENCE.starts_with('V')
                 && !EMOTE_MOTION_SHIFT_EVIDENCE.is_empty()
         );
+    }
+
+    /// A creature as ACE's world data stores it, with Deception at `level` (`None`: no row).
+    fn deceiving(weenie_class_id: u32, level: Option<u32>) -> Weenie {
+        let mut w = Weenie::new(weenie_class_id, "creature", WeenieType::Creature);
+        if let Some(level) = level {
+            w.weenie_properties_skill.push(WeeniePropertiesSkill {
+                id: 1,
+                object_id: weenie_class_id,
+                r#type: 20,
+                sac: SkillAdvancementClass::Specialized.0,
+                init_level: level,
+                ..WeeniePropertiesSkill::default()
+            });
+        }
+        w
+    }
+
+    fn deception_row(w: &Weenie) -> Option<&WeeniePropertiesSkill> {
+        w.weenie_properties_skill.iter().find(|r| r.r#type == 20)
+    }
+
+    /// Divergence: V559
+    /// A creature reads with the Deception retail gave it: a stored value is replaced, keeping
+    /// the row's training, and a creature with none gains an untrained one.
+    #[test]
+    fn a_creature_reads_with_retails_deception() {
+        // Iron Golem: 80 stored, 140 in retail.
+        let mut golem = deceiving(197, Some(80));
+        assert_eq!(apply(&mut golem), 1);
+        let row = deception_row(&golem).expect("the row");
+        assert_eq!((row.init_level, row.level_from_pp), (140, 0));
+        assert_eq!(
+            row.sac,
+            SkillAdvancementClass::Specialized.0,
+            "its training is kept"
+        );
+
+        // Elite Guardian: no Deception stored, 250 in retail.
+        let mut guardian = deceiving(34615, None);
+        assert_eq!(apply(&mut guardian), 1);
+        let row = deception_row(&guardian).expect("a new row");
+        assert_eq!(
+            (row.init_level, row.sac),
+            (250, SkillAdvancementClass::Untrained.0)
+        );
+
+        // A summoned pet's class: 400 stored, 110 in retail.
+        let mut pet = deceiving(49025, Some(400));
+        assert_eq!(apply(&mut pet), 1);
+        assert_eq!(deception_row(&pet).map(|r| r.init_level), Some(110));
+    }
+
+    /// Divergence: V559
+    /// A Deception entry is left alone, and reported stale, once the row stores something else;
+    /// a creature retail agreed with is not in the table.
+    #[test]
+    fn a_deception_entry_applies_only_over_the_stored_value() {
+        let mut edited = deceiving(197, Some(90));
+        assert_eq!(apply(&mut edited), 0);
+        assert_eq!(deception_row(&edited).map(|r| r.init_level), Some(90));
+        let stale = stale_corrections(&deceiving(197, Some(90)));
+        assert_eq!(stale.len(), 1);
+        assert_eq!(stale[0].divergence, deception::DIVERGENCE);
+        assert_eq!(
+            current(&deceiving(197, Some(90)), stale[0].stored),
+            Some(Value::Skill(Skill::Deception, Some(90)))
+        );
+        // Copper Golem: 80 in both.
+        let mut agreed = deceiving(194, Some(80));
+        assert_eq!(apply(&mut agreed), 0);
+        assert!(weenie_corrections()
+            .iter()
+            .all(|c| c.weenie_class_id != 194));
+    }
+
+    /// Divergence: V559
+    /// The Deception table reads whole: 223 classes (155 stored another value, 53 had none, and
+    /// 15 summoned pets), each once, each differing from what is stored.
+    #[test]
+    fn the_deception_table_reads_every_class_once() {
+        let rows = deception::parse(deception::TABLE).expect("the table reads");
+        assert_eq!(rows.len(), 223);
+        assert_eq!(rows.iter().filter(|r| r.stored.is_none()).count(), 53);
+        assert!(rows
+            .iter()
+            .all(|r| r.stored != Some(r.retail) && r.readings > 0));
+        let mut ids: Vec<u32> = rows.iter().map(|r| r.weenie_class_id).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), rows.len(), "one row per class");
+        assert_eq!(deception::corrections().len(), rows.len());
+        assert_eq!(
+            weenie_corrections().len(),
+            WEENIE_CORRECTIONS.len() + rows.len()
+        );
+        assert!(
+            deception::parse("wcid\tstored\tretail\treadings\tname\n8\t40\tx\t2\tA\n").is_err()
+        );
+        assert!(deception::parse("8\t40\t50\t2\tA\n").is_err(), "no header");
     }
 }

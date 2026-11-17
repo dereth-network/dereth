@@ -1,4 +1,4 @@
-//! Divergence: V335, V337, V338
+//! Divergence: V335, V337, V338, V559
 //! Tests of world pack corrections.
 //! Fixture: isolated world state and the shared area fixtures.
 
@@ -247,12 +247,12 @@ mod recorded_content_real {
         #[test]
         fn every_recorded_correction_applies_and_is_reported() {
             use empyrean_content::corrections::report::{CorrectionsReport, EntryState};
-            use empyrean_content::corrections::{digest, SPELL_CORRECTIONS, WEENIE_CORRECTIONS};
+            use empyrean_content::corrections::{digest, weenie_corrections, SPELL_CORRECTIONS};
 
             let db = pack();
             let r = CorrectionsReport::of(db.base());
             let s = r.summary();
-            let entries = WEENIE_CORRECTIONS.len() + SPELL_CORRECTIONS.len();
+            let entries = weenie_corrections().len() + SPELL_CORRECTIONS.len();
             assert_eq!(
                 (s.entries, s.applies, s.stale, s.absent),
                 (entries, entries, 0, 0),
@@ -274,6 +274,56 @@ mod recorded_content_real {
             let text = r.render();
             assert!(text.contains("\nevery entry applies\n"), "{text}");
             assert!(text.contains("  301 axebattle (Battle Axe): PhysicsScript 87 (BreatheLightning) -> 88 (Create)\n"), "{text}");
+        }
+
+        /// Divergence: V559
+        /// Every creature in the Deception table reads with the value retail gave it, and one
+        /// made in the world rolls against it; the pack keeps what it stores.
+        #[test]
+        fn creatures_read_with_retails_deception() {
+            use empyrean_content::corrections::deception;
+            use empyrean_entity::enums::Skill;
+            use empyrean_world::world_objects::world_object_magic::creature_get_creature_skill_current;
+
+            let db = pack();
+            let rows = deception::parse(deception::TABLE).expect("the table reads");
+            for row in &rows {
+                let read = db
+                    .get_cached_weenie(row.weenie_class_id)
+                    .unwrap_or_else(|| panic!("{row:?} is in the pack"));
+                let level = read
+                    .properties_skill
+                    .as_ref()
+                    .and_then(|s| s.get(&Skill::Deception))
+                    .map(|s| s.init_level + u32::from(s.level_from_pp));
+                assert_eq!(level, Some(row.retail), "{row:?}");
+                let stored = db
+                    .base()
+                    .get_stored_weenie(row.weenie_class_id)
+                    .expect("in the pack");
+                let kept = stored
+                    .weenie_properties_skill
+                    .iter()
+                    .find(|r| i32::from(r.r#type) == Skill::Deception.0)
+                    .map(|r| r.init_level + u32::from(r.level_from_pp));
+                assert_eq!(kept, row.stored, "the pack keeps its value: {row:?}");
+            }
+
+            // Elite Guardian (none stored) and Iron Golem (80 stored), made in the world.
+            let mut h = world();
+            for (wcid, retail) in [(34615, 250), (197, 140)] {
+                let g = ObjectGuid::new(0x8000_0000 | wcid);
+                let o = CtorEnv::with_world(&h.w, |env| {
+                    factory::create_new_world_object_by_wcid(env, wcid, g)
+                })
+                .expect("the weenie");
+                h.w.objects.insert(o).expect("a fresh guid");
+                assert_eq!(
+                    creature_get_creature_skill_current(&mut h.w, g, Skill::Deception),
+                    retail,
+                    "{wcid}"
+                );
+            }
         }
 
         /// V327 on real content (V327): the Brewmaster's Bible pieces, Tusker Spit and the Healing

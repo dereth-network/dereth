@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use empyrean_content::corrections::report::{CorrectionsReport, EntryState};
-use empyrean_content::corrections::{self, SPELL_CORRECTIONS, WEENIE_CORRECTIONS};
+use empyrean_content::corrections::{self, weenie_corrections, SPELL_CORRECTIONS};
 use empyrean_content::import::check::{self, fields, overlap};
 use empyrean_content::import::default_now;
 use empyrean_content::import::patch::{Input, InputKind};
@@ -95,7 +95,7 @@ fn the_corrections_report_lists_applying_stale_and_absent_entries_and_rule_chang
     let r = CorrectionsReport::of(m.db().base());
     assert_eq!(r.digest, corrections::digest());
     let s = r.summary();
-    let entries = WEENIE_CORRECTIONS.len() + SPELL_CORRECTIONS.len();
+    let entries = weenie_corrections().len() + SPELL_CORRECTIONS.len();
     assert_eq!(
         (s.entries, s.applies, s.stale, s.absent),
         (entries, 2, 2, entries - 4)
@@ -223,7 +223,7 @@ fn empyrean_import_corrections_exits_0_on_content_built_for_another_era() {
         .unwrap();
     let text = String::from_utf8(out.stdout).unwrap();
     assert_eq!(out.status.code(), Some(0), "{text}");
-    let entries = WEENIE_CORRECTIONS.len() + SPELL_CORRECTIONS.len();
+    let entries = weenie_corrections().len() + SPELL_CORRECTIONS.len();
     assert!(
         text.contains(&format!(
             "the content is for era infiltration: the {entries} entries are for other eras and none applies\n"

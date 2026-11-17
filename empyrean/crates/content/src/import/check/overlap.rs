@@ -67,7 +67,7 @@ pub fn ours_from_corrections(
     new: &Pack,
 ) -> Result<Ours, PackError> {
     let mut out: Ours = Vec::new();
-    for c in corrections::WEENIE_CORRECTIONS {
+    for c in corrections::weenie_corrections() {
         out.push((
             (TableId::WEENIE, u64::from(c.weenie_class_id)),
             format!("correction {} {}", c.divergence, property_text(c.stored)),

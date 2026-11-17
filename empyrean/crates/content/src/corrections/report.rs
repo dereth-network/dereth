@@ -16,7 +16,6 @@ use super::{
     EmoteMotionField, EmoteMotionShift, PlayScriptShift, SpellCorrection, SpellValue, Value,
     WeenieCorrection, DIGEST_FORMAT, EMOTE_MOTION_SHIFT_DIVERGENCE, EMOTE_MOTION_SHIFT_EVIDENCE,
     PLAY_SCRIPT_SHIFT_DIVERGENCE, PLAY_SCRIPT_SHIFT_EVIDENCE, SPELL_CORRECTIONS,
-    WEENIE_CORRECTIONS,
 };
 use crate::models::world::Spell;
 use crate::pack::TableId;
@@ -96,7 +95,7 @@ impl CorrectionsReport {
     pub fn of(db: &WorldDatabaseBase) -> Self {
         let era = db.pack().era();
         let in_scope = entries_apply_to(era);
-        let weenie_entries = WEENIE_CORRECTIONS
+        let weenie_entries = super::weenie_corrections()
             .iter()
             .map(|c| {
                 let state = match db.get_stored_weenie(c.weenie_class_id) {
@@ -131,7 +130,7 @@ impl CorrectionsReport {
             .collect();
         let play_script_shifts = play_script_shifts(db);
         let emote_motion_shifts = emote_motion_shifts(db);
-        let mut wanted: Vec<u32> = WEENIE_CORRECTIONS
+        let mut wanted: Vec<u32> = super::weenie_corrections()
             .iter()
             .map(|c| c.weenie_class_id)
             .collect();
@@ -395,6 +394,7 @@ pub fn property_text(v: Value) -> String {
         Value::Bool(p, _) => named("PropertyBool", p.name(), p.0),
         Value::DataId(p, _) => named("PropertyDataId", p.name(), p.0),
         Value::EmoteScript(a, _) => format!("emote set {} action {} script", a.emote_set, a.order),
+        Value::Skill(skill, _) => named("Skill", skill.name(), skill.0.try_into().unwrap_or(0)),
     }
 }
 
@@ -407,10 +407,12 @@ pub fn value_text(v: Value) -> String {
         Value::DataId(_, Some(x)) => format!("0x{x:08X}"),
         #[allow(clippy::cast_sign_loss)]
         Value::EmoteScript(_, Some(x)) => script_text(x as u32),
+        Value::Skill(_, Some(x)) => x.to_string(),
         Value::Int(_, None)
         | Value::Bool(_, None)
         | Value::DataId(_, None)
-        | Value::EmoteScript(_, None) => "none".to_owned(),
+        | Value::EmoteScript(_, None)
+        | Value::Skill(_, None) => "none".to_owned(),
     }
 }
 

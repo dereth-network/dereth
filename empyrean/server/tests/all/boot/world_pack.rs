@@ -145,7 +145,7 @@ fn a_pack_on_disk_is_installed_as_the_world_database() {
 #[test]
 fn the_start_up_corrections_line_counts_what_applies() {
     use empyrean_content::corrections::report::CorrectionsReport;
-    use empyrean_content::corrections::{digest, SPELL_CORRECTIONS, WEENIE_CORRECTIONS};
+    use empyrean_content::corrections::{digest, weenie_corrections, SPELL_CORRECTIONS};
     use empyrean_content::models::world::Weenie;
     use empyrean_entity::enums::{PropertyDataId, PropertyInt, WeenieType};
 
@@ -163,7 +163,7 @@ fn the_start_up_corrections_line_counts_what_applies() {
                 .with_did(PropertyDataId::PhysicsScript, 83),
         );
     let line = world_pack::corrections_summary(&CorrectionsReport::of(mem.db().base()));
-    let entries = WEENIE_CORRECTIONS.len() + SPELL_CORRECTIONS.len();
+    let entries = weenie_corrections().len() + SPELL_CORRECTIONS.len();
     assert_eq!(
         line,
         format!(

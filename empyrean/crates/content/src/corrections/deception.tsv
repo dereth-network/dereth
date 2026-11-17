@@ -1,0 +1,231 @@
+# Deception as the end-of-retail server used it, one value per weenie class: the difficulty it
+# sent back with the assessor's Assess Creature skill after a successful assessment. Retail
+# sent one value per class in every reading, whatever the distance. These are the creatures
+# (and summoned pets) whose value differs from what ACE's world database stores.
+#
+# stored: the Deception the database stores (its initial level plus ranks; none: no row).
+# retail: the value retail used. readings: how many times retail sent it. name: the weenie's.
+wcid	stored	retail	readings	name
+8	40	50	2	Creeper Mosswart
+193	none	15	2	Drudge Slinker
+195	80	50	1	Granite Golem
+197	80	140	1	Iron Golem
+199	100	80	6	Magma Golem
+201	100	50	3	Obsidian Golem
+202	80	15	1	Sandstone Golem
+204	50	15	1	Lich
+214	100	60	1	Olthoi Soldier
+217	5	40	3	Gold Phyntos Wasp
+222	50	40	1	Veteran Reedshark
+223	35	10	1	Reedshark Pup
+619	90	40	1	Revenant
+938	none	10	1	Banderling Raider
+940	none	15	3	Drudge Sneaker
+1608	70	45	2	Drudge Lurker
+1609	90	70	3	Drudge Stalker
+1622	5	10	1	Mire Phyntos Wasp
+1628	50	80	4	Tusker Slave
+1629	50	80	1	Tusker Guard
+1630	50	40	2	Lich Lord
+1631	50	20	2	Drudge Servant
+1669	none	10	1	Banderling Chief
+1758	150	30	4	Shadow
+1760	70	50	7	Skeleton Warrior
+1761	100	50	5	Skeleton Captain
+2585	80	20	2	Essa Sclavus
+2586	90	50	2	Sata Sclavus
+4216	100	80	5	Diamond Golem
+4217	90	80	2	Dark Revenant
+4248	40	90	1	Putrid Moarsman
+4253	150	70	2	Panumbris Shadow
+5705	20	5	1	Flicker
+5711	100	40	1	Flamma
+6379	150	90	1	Astyrrian
+6772	90	10	1	Greater Mu-miyah
+7081	5	15	1	Plate Armoredillo
+7082	5	10	1	Island Armoredillo
+7088	150	50	2	Banderling Mauler
+7092	180	90	1	Firestorm
+7096	100	80	1	Gold Golem
+7103	100	50	1	Mosswart Clinger
+7105	5	40	14	White Phyntos Wasp
+7119	90	100	1	Imperial Mu-miyah
+7122	120	50	1	Great Skeleton
+7123	130	80	3	Dark Leech
+7178	120	70	9	Cursed Bones
+7179	120	70	4	Relic Bones
+7184	25	80	1	Silver Tusker
+7333	150	50	1	Banderling Mangler
+7334	120	40	3	Skeleton Bone Knight
+7507	100	80	4	Coral Golem
+7607	180	90	8	Ember
+7819	40	15	1	Zombie
+7821	100	50	1	Skeleton Captain
+7978	50	40	1	Scrawed Grievver
+7980	100	70	1	Venomous Grievver
+7982	150	100	2	Destroyer Grievver
+8672	90	40	1	Risen Soldier
+8673	90	40	1	Risen Knight
+10915	50	20	1	Olthoi Grub
+11479	100	30	1	Olthoi Gardener
+11480	100	20	67	Olthoi Harvester
+11481	100	60	1	Olthoi Legionary
+11493	10	100	1	Feral Carenzi
+11495	10	80	1	Rabid Carenzi
+11528	80	20	1	Elaniwood Golem
+11540	25	100	1	Armored Tusker
+14512	150	90	4	Frost
+14517	150	90	1	Frost
+14520	100	80	1	Pyreal Golem
+14559	100	60	3	Oak Golem
+14800	400	80	1	Crystal Golem
+19256	none	1	1	Young Banderling
+19257	none	15	3	Drudge Skulker
+19262	40	50	1	Young Mosswart
+19436	20	50	2	Old Bones
+20189	150	90	2	Brumal
+20191	150	30	2	Horripal
+21163	100	40	1	Flamma
+21164	150	40	2	Gout
+21168	150	40	2	Charge
+22053	25	110	13	Assailer
+22505	10	110	1	Savage Carenzi
+22506	60	100	1	Iron Spined Chittick
+22518	25	115	3	Devastator
+22520	25	50	1	Tusker Redeemer
+22747	80	90	2	Reaper
+22902	100	155	1	Olthoi Primordial
+23082	10	60	3	Nubilous Golem
+23089	90	110	1	Shadow Phantom
+23480	70	120	4	Drudge Bloodletter
+23481	150	100	1	Olthoi Mutilator
+23486	110	100	1	Faisi Sclavus Lord
+24275	150	50	2	Banderling Antagonist
+24279	120	90	1	Gloom Drudge
+24299	100	70	26	Olthoi Swarm Drone
+24302	100	80	35	Olthoi Swarm Legionary
+24304	50	60	2	Olthoi Swarm Nymph
+24306	100	80	48	Olthoi Swarm Worker
+24320	90	110	2	Great Revenant
+24326	90	110	1	Risen Lord
+24453	150	115	4	Olthoi Swarm Mutilator
+24484	80	100	4	Small Sandstone Golem
+24517	none	80	3	Small Sand Golem
+24959	50	90	2	Olthoi Needler
+24960	100	90	1	Olthoi Piercer
+26516	90	120	1	Ancient Soul
+27799	80	50	1	Blood Fiend
+27920	90	95	1	Tormented Attendant
+28248	5	40	3	Black Phyntos Wasp
+31875	100	400	1	Water Golem
+31948	150	250	1	Doomed Spirit
+32203	none	45	1	Pumpkin Kin
+32483	none	100	1	Abominable Snowman
+32740	50	150	1	Hand of Enchantment
+33033	100	160	1	Masonry Golem
+33920	none	100	1	Pet Armoredillo Pup
+33963	none	100	1	Pet Baby Thrungus
+33979	none	100	1	Pet Penguin
+34397	none	100	2	Pet Snowman
+34614	500	250	2	Gladiator Diemos
+34615	none	250	74	Elite Guardian
+35123	150	250	52	Tortured Spirit
+35135	50	70	9	War Mattekar
+35142	100	90	6	Mukkir Draktehn
+35143	100	90	7	Mukkir Kartak
+35144	100	90	5	Mukkir Laktar
+35145	100	90	2	Umbral Mukkir
+35151	100	500	34	Swarm Demon
+35167	100	20	3	Kirit Zefir
+36222	none	150	1	Enchantment Proctor
+36829	100	80	2	Acidic Diamond Golem
+36833	100	80	1	Pyreal Golem
+36852	150	110	1	Shadow Spectre
+36854	150	110	1	Shadow Wraith
+37100	none	150	1	Shroud Cabal Forager
+39349	90	100	1	Kazyk Ri T'thuunixis
+39483	none	100	1	Pet Polar Ursuin Cub
+40127	40	50	21	Shivering Crystalline Wisp
+40128	40	50	7	Corroding Crystalline Wisp
+40129	40	50	4	Voltaic Crystalline Wisp
+40131	40	50	2	Incalescent Crystalline Wisp
+40132	40	50	21	Aggregate Crystalline Wisp
+40134	40	50	1	Crystalline Wisp
+40267	100	190	1	Ancient Magma Golem
+40283	none	150	1	Remoran Corsair
+40428	40	50	9	Intense Shivering Crystalline Wisp
+40429	40	50	5	Intense Aggregate Crystalline Wisp
+40437	40	50	1	Intense Incalescent Crystalline Wisp
+40775	100	160	3	Ancient Golem
+42439	110	180	1	Sclavus Acolyte of T'thuun
+43163	100	190	1	Frost Golem
+43395	120	140	1	Gurog Minion
+43406	none	100	2	Lord Tyragar
+43411	100	140	1	Haze Golem
+43413	100	140	1	Voltaic Golem
+43415	100	140	1	Molten Golem
+43743	120	100	1	Bloodstone
+43854	250	220	6	Panumbris Shadow
+43855	250	220	4	Panumbris Shadow
+43856	250	220	2	Panumbris Shadow
+43899	150	220	3	Void Lord
+44015	none	155	9	Guardian Armoredillo
+44016	none	155	15	Guardian Armoredillo
+44017	none	155	21	Tamed Armoredillo
+44018	none	155	1	Tamed Armoredillo
+44019	none	155	10	War Armoredillo
+44020	none	155	2	War Armoredillo
+44023	none	110	4	Bak'tshay Guard
+44024	none	110	5	Bak'tshay Guard
+44025	none	150	2	Bak'tshay Servant
+44027	none	150	2	Bak'tshay Slave
+44028	none	150	1	Bak'tshay Servant
+44029	none	150	4	Bak'tshay Soldier
+44031	none	220	9	Dust Golem
+44032	none	220	3	Dust Golem
+44033	none	220	10	Burning Sands Golem
+44035	none	150	1	Mu-miyah Champion
+44036	none	150	2	Mu-miyah Champion
+44037	none	150	4	Mu-miyah Guardian
+44038	none	150	1	Mu-miyah Guardian
+44041	140	150	8	Mu-miyah Sentinel
+44043	none	150	10	Mu-miyah Guardian
+44045	none	150	6	Mu-miyah Vizier
+44047	none	150	3	Reedshark Hunter
+44048	none	150	4	Reedshark Hunter
+44049	none	155	8	Reedshark Seeker
+44050	none	155	8	Reedshark Seeker
+44051	none	160	17	Tamed Reaper
+44052	none	160	2	Tamed Reaper
+44053	none	160	55	War Reaper
+44054	none	160	3	War Reaper
+44476	150	135	6	Grievver Shredder
+44478	25	180	4	Shadow Flyer
+44637	none	999	1	Sha-dekanma
+44805	150	220	16	Void Lord
+44806	250	220	54	Panumbris Shadow
+44807	250	220	37	Panumbris Shadow
+44808	250	220	12	Panumbris Shadow
+44809	150	135	35	Grievver Shredder
+44815	25	180	35	Shadow Flyer
+45083	none	100	2	Pet Gumdrop
+48883	400	110	1	Golem
+48885	475	135	1	Golem
+48968	475	135	8	Elemental
+49015	570	185	1	Zombie
+49025	400	110	64	Zombie
+49029	570	185	2	Zombie
+49086	570	185	1	K'nath
+49092	530	155	2	K'nath
+49100	570	185	1	K'nath
+49111	430	120	1	Moar
+49128	570	185	1	Moar
+49135	570	185	1	Swarm
+49205	570	185	2	Wisp
+49393	570	185	1	Maiden
+49414	570	185	3	Maiden
+51340	400	100	1	Bloodstone Fragment
+51749	none	90	1	Rynthid Minion
+52028	none	200	1	Corrupted Warrior
+52273	25	180	1	Shadow Flyer
+52288	none	140	6	Desert Phyntos Swarm

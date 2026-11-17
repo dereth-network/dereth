@@ -1792,9 +1792,8 @@ pub fn examine(
         success = false;
     }
 
-    if o.is_pet() || o.is_combat_pet() {
-        success = true;
-    }
+    // DIVERGE: V558, a pet or combat pet is assessed by the same roll as any creature; ACE always
+    // lets one be assessed.
 
     if success {
         if let Some(p) = w.objects.get_mut(this) {

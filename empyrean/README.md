@@ -119,13 +119,14 @@ all upstream's.
 
 ### Corrections
 
-The server corrects a few values in ACE's data as it reads them, where retail shows the stored
-value is wrong. The corrections live in the server, not the pack, so the content hash alone doesn't
-say what players see. At startup the server logs both:
+The server corrects values in ACE's data as it reads them, where retail shows the stored value is
+wrong: a few values one by one, and each creature's Deception from a table of the values retail used
+(`crates/content/src/corrections/deception.tsv`). The corrections live in the server, not the pack,
+so the content hash alone doesn't say what players see. At startup the server logs both:
 
 ```
-World database: content hash 1b260e4e…a8a8 (verified), corrections v1:aea10e6ae7317bfe
-World database: corrections v1:aea10e6ae7317bfe: 51 of 51 entries apply (0 stale, 0 absent); the rules change 132 default scripts and 4 emote motions
+World database: content hash 1b260e4e…a8a8 (verified), corrections v1:d117d5a4f209f257
+World database: corrections v1:d117d5a4f209f257: 274 of 274 entries apply (0 stale, 0 absent); the rules change 132 default scripts and 4 emote motions
 ```
 
 `@empversion` and the status endpoint report the same two values. Two servers serve the same world
@@ -230,7 +231,7 @@ address. It has no authentication, so keep it on loopback or a private network.
 {"world_name":"Empyrean","version":"0.0.0","source_url":"https://github.com/dereth-network/dereth",
  "uptime_seconds":73,"world_open":true,
  "shutting_down":false,"connections":1,"authenticated_connections":1,"players_online":1,
- "landblocks_loaded":9,"content_hash":"1b260e4e…a8a8","corrections_digest":"v1:aea10e6ae7317bfe",
+ "landblocks_loaded":9,"content_hash":"1b260e4e…a8a8","corrections_digest":"v1:d117d5a4f209f257",
  "era":"eor","features":{"ratings":true,"consolidated_weapon_skills":true,…,"spell_research":false,
  "chess":true},"dats":{"portal":2072,"cell":982,"local":994,"highres":497,"patching":false},
  "client_versions":["1802"],"websocket_url":null,"portals":null,"places":null,

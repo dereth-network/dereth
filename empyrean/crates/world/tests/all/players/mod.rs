@@ -1,3 +1,4 @@
+pub(crate) mod assessing;
 #[cfg(feature = "real-content")]
 pub(crate) mod bare_body;
 pub(crate) mod character_options_and_queries;

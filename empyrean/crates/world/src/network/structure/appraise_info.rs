@@ -152,6 +152,53 @@ fn add_to<K: std::hash::Hash + Eq + Clone + std::fmt::Debug, V: std::ops::AddAss
     *entry += value;
 }
 
+/// Not ACE: what a failed assessment of a creature or a player never shows: the faction, the
+/// society ranks and the ratings.
+const HIDDEN_ON_FAILURE: &[PropertyInt] = &[
+    PropertyInt::Faction1Bits,
+    PropertyInt::SocietyRankCelhan,
+    PropertyInt::SocietyRankEldweb,
+    PropertyInt::SocietyRankRadblo,
+    PropertyInt::DamageRating,
+    PropertyInt::DamageResistRating,
+    PropertyInt::CritRating,
+    PropertyInt::CritDamageRating,
+    PropertyInt::CritResistRating,
+    PropertyInt::CritDamageResistRating,
+    PropertyInt::HealingBoostRating,
+    PropertyInt::NetherResistRating,
+    PropertyInt::DotResistRating,
+    PropertyInt::LifeResistRating,
+    PropertyInt::GearMaxHealth,
+    PropertyInt::PKDamageRating,
+    PropertyInt::PKDamageResistRating,
+];
+
+/// Not ACE: adds a creature's body armor to its armor levels: each of the nine places takes the
+/// base armor of the body part of the same place (head, chest, abdomen, upper arm, lower arm,
+/// hand, upper leg, lower leg, foot), where the creature has one.
+fn add_body_armor(creature: &WorldObject, levels: &mut ArmorLevel) {
+    use empyrean_entity::enums::CombatBodyPart as Part;
+    let Some(parts) = creature.biota.properties_body_part.as_ref() else {
+        return;
+    };
+    for (part, level) in [
+        (Part::Head, &mut levels.head),
+        (Part::Chest, &mut levels.chest),
+        (Part::Abdomen, &mut levels.abdomen),
+        (Part::UpperArm, &mut levels.upper_arm),
+        (Part::LowerArm, &mut levels.lower_arm),
+        (Part::Hand, &mut levels.hand),
+        (Part::UpperLeg, &mut levels.upper_leg),
+        (Part::LowerLeg, &mut levels.lower_leg),
+        (Part::Foot, &mut levels.foot),
+    ] {
+        if let Some(p) = parts.get(&part) {
+            *level = u32::try_from(i64::from(*level) + i64::from(p.base_armor)).unwrap_or(0);
+        }
+    }
+}
+
 impl AppraiseInfo {
     // ACE: AppraiseInfo.BuildProfile
     #[allow(clippy::too_many_lines)]
@@ -944,9 +991,15 @@ impl AppraiseInfo {
         // (`EraFeatures::assessed_armor_and_ratings`) sends neither (ClassicACE's `BuildCreature`).
         // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Network/Structure/AppraiseInfo.cs
         if w.era.features.assessed_armor_and_ratings {
-            let c = obj(w, creature);
-            if self.success && (c.is_player() || !c.attackable()) {
-                self.armor_levels = Some(armor_level_new(w, creature));
+            // DIVERGE: V557, every creature assessed successfully shows its armor levels, and
+            // a creature's (not a player's) add its body's armor; ACE shows them only for a player
+            // or a creature that cannot be attacked, from what it wears.
+            if self.success {
+                let mut levels = armor_level_new(w, creature);
+                if !obj(w, creature).is_player() {
+                    add_body_armor(obj(w, creature), &mut levels);
+                }
+                self.armor_levels = Some(levels);
             }
 
             self.add_ratings(w, creature);
@@ -974,6 +1027,14 @@ impl AppraiseInfo {
         // see notes in CombatPet.Init()
         if c.is_combat_pet() && self.properties_int.contains_key(&PropertyInt::Faction1Bits) {
             self.properties_int.remove(&PropertyInt::Faction1Bits);
+        }
+
+        // DIVERGE: V557, a failed assessment shows no faction, society rank or rating, not even
+        // one the creature stores.
+        if !self.success {
+            for p in HIDDEN_ON_FAILURE {
+                self.properties_int.remove(p);
+            }
         }
     }
 
