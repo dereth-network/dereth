@@ -152,39 +152,70 @@ pub fn installed() -> bool {
     PREPARED.with(|p| p.borrow().is_some())
 }
 
-/// An adapter and a device on `instance`, for `surface` or for drawing off screen.
+/// An adapter and a device on `instance`: the adapter the first of `requests` it grants.
 async fn device_for(
     instance: &wgpu::Instance,
-    surface: Option<&wgpu::Surface<'_>>,
-    software: bool,
+    requests: &[wgpu::RequestAdapterOptions<'_, '_>],
 ) -> Result<(wgpu::Adapter, wgpu::Device, wgpu::Queue), String> {
-    let adapter = adapter_for(instance, surface, software).await?;
+    let adapter = adapter_for(instance, requests).await?;
     let (device, queue) = device_on(&adapter).await?;
     Ok((adapter, device, queue))
 }
 
-/// The adapter `instance` offers for `surface` (or off screen): a software adapter when
-/// `software` asks for one and the platform has one, the hardware adapter otherwise.
-async fn adapter_for(
-    instance: &wgpu::Instance,
-    surface: Option<&wgpu::Surface<'_>>,
+/// What a device asks `instance` for, in order, until an adapter is granted: the software adapter
+/// and then the graphics card when `software` asks for software, the graphics card alone otherwise.
+/// Each request prefers the more capable of two graphics cards, and one that can present to
+/// `surface` when there is one. Asked for the graphics card, `wgpu` hands over a software adapter
+/// only where it finds no graphics card.
+fn adapter_requests<'a, 'b>(
+    surface: Option<&'a wgpu::Surface<'b>>,
     software: bool,
-) -> Result<wgpu::Adapter, String> {
+) -> Vec<wgpu::RequestAdapterOptions<'a, 'b>> {
     let request = |fallback: bool| wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
         force_fallback_adapter: fallback,
         compatible_surface: surface,
         ..Default::default()
     };
-    // A software adapter when one is asked for and the platform has one; the hardware adapter
-    // otherwise.
-    match instance.request_adapter(&request(software)).await {
-        Ok(a) => Ok(a),
-        Err(_) if software => instance
-            .request_adapter(&request(false))
-            .await
-            .map_err(|e| format!("no GPU adapter: {e}")),
-        Err(e) => Err(format!("no GPU adapter: {e}")),
+    if software {
+        vec![request(true), request(false)]
+    } else {
+        vec![request(false)]
+    }
+}
+
+/// What a device drawing on screen asks for, into a browser's canvas (with WebGPU or WebGL 2) or a
+/// native window: the graphics card alone. A browser gives its software adapter, where it has one,
+/// only where it has no graphics card to give.
+fn on_screen_requests<'a, 'b>(
+    surface: Option<&'a wgpu::Surface<'b>>,
+) -> Vec<wgpu::RequestAdapterOptions<'a, 'b>> {
+    adapter_requests(surface, false)
+}
+
+/// The adapter `instance` grants for the first of `requests` it can.
+async fn adapter_for(
+    instance: &wgpu::Instance,
+    requests: &[wgpu::RequestAdapterOptions<'_, '_>],
+) -> Result<wgpu::Adapter, String> {
+    let mut refused = String::from("nothing was asked for");
+    for request in requests {
+        match instance.request_adapter(request).await {
+            Ok(adapter) => return Ok(adapter),
+            Err(e) => refused = e.to_string(),
+        }
+    }
+    Err(format!("no GPU adapter: {refused}"))
+}
+
+/// The graphics APIs a browser's canvas is drawn with: WebGPU where the browser has it and WebGL 2
+/// where it does not, or WebGL 2 alone where `webgl_only` asks for it.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+fn canvas_backends(webgl_only: bool) -> wgpu::Backends {
+    if webgl_only {
+        wgpu::Backends::GL
+    } else {
+        wgpu::Backends::BROWSER_WEBGPU | wgpu::Backends::GL
     }
 }
 
@@ -270,8 +301,8 @@ fn prepared(
     }
 }
 
-/// A device drawing into `canvas`: WebGPU where the browser has it, WebGL 2 where it does not or
-/// where `webgl_only` asks for it.
+/// A device drawing into `canvas`, on the graphics card ([`on_screen_requests`]): WebGPU where the
+/// browser has it, WebGL 2 where it does not or where `webgl_only` asks for it.
 ///
 /// # Errors
 /// No backend comes up, or the canvas has no configuration on it.
@@ -285,16 +316,13 @@ pub async fn prepare_canvas(
     canvas.set_width(width);
     canvas.set_height(height);
     let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
-    desc.backends = if webgl_only {
-        wgpu::Backends::GL
-    } else {
-        wgpu::Backends::BROWSER_WEBGPU | wgpu::Backends::GL
-    };
+    desc.backends = canvas_backends(webgl_only);
     let instance = wgpu::util::new_instance_with_webgpu_detection(desc).await;
     let surface = instance
         .create_surface(wgpu::SurfaceTarget::OffscreenCanvas(canvas))
         .map_err(|e| format!("no surface: {e}"))?;
-    let (adapter, device, queue) = device_for(&instance, Some(&surface), false).await?;
+    let (adapter, device, queue) =
+        device_for(&instance, &on_screen_requests(Some(&surface))).await?;
     let caps = surface.get_capabilities(&adapter);
     let mut config = surface
         .get_default_config(&adapter, width, height)
@@ -368,7 +396,10 @@ async fn offscreen_adapter(
 ) -> Result<(wgpu::Adapter, Option<ShaderCompiler>), String> {
     let (desc, compiler) = compiler::native_instance();
     let instance = wgpu::Instance::new(desc);
-    Ok((adapter_for(&instance, None, software).await?, compiler))
+    Ok((
+        adapter_for(&instance, &adapter_requests(None, software)).await?,
+        compiler,
+    ))
 }
 
 /// The adapter an off-screen device is made on, as above, found once of each kind in a test build
@@ -395,7 +426,8 @@ async fn offscreen_adapter(
                 desc.backends.remove(wgpu::Backends::DX12);
             }
             let instance = wgpu::Instance::new(desc);
-            pollster::block_on(adapter_for(&instance, None, software)).map(|a| (a, compiler))
+            pollster::block_on(adapter_for(&instance, &adapter_requests(None, software)))
+                .map(|a| (a, compiler))
         })
         .clone()
 }
@@ -421,7 +453,8 @@ async fn prepare_window(
         })
     }
     .map_err(|e| format!("no surface: {e}"))?;
-    let (adapter, device, queue) = device_for(&instance, Some(&surface), false).await?;
+    let (adapter, device, queue) =
+        device_for(&instance, &on_screen_requests(Some(&surface))).await?;
     let caps = surface.get_capabilities(&adapter);
     let mut config = surface
         .get_default_config(&adapter, width, height)
@@ -646,7 +679,8 @@ impl std::fmt::Debug for Gpu {
 
 impl Gpu {
     /// A device for `window`, or off screen at the configured size when there is none. In a
-    /// browser, the device [`install`] handed over.
+    /// browser, the device [`install`] handed over, on the adapter it was made on: what `cfg` asks
+    /// of the adapter is not read then.
     ///
     /// # Errors
     /// [`RenderError::Device`] when no adapter, device or surface comes up;
@@ -2369,6 +2403,45 @@ pub(super) mod tests {
         assert_eq!(present_interval(Immediate), 0);
         assert_eq!(present_interval(Mailbox), 0);
         assert_eq!(present_interval(AutoNoVsync), 0);
+    }
+
+    /// The power preference and whether only a software adapter will do, for each request.
+    fn asked(
+        requests: &[wgpu::RequestAdapterOptions<'_, '_>],
+    ) -> Vec<(wgpu::PowerPreference, bool)> {
+        requests
+            .iter()
+            .map(|r| (r.power_preference, r.force_fallback_adapter))
+            .collect()
+    }
+
+    /// A device drawing into a browser's canvas, or a native window, asks once, for the more
+    /// capable graphics card, and never for the software adapter: with WebGPU and WebGL 2 alike,
+    /// since the canvas makes the same requests whichever it is drawn with.
+    #[test]
+    fn a_canvas_or_window_asks_for_the_graphics_card_alone() {
+        use wgpu::PowerPreference::HighPerformance;
+        assert_eq!(asked(&on_screen_requests(None)), [(HighPerformance, false)]);
+        assert_eq!(
+            canvas_backends(false),
+            wgpu::Backends::BROWSER_WEBGPU | wgpu::Backends::GL
+        );
+        assert_eq!(canvas_backends(true), wgpu::Backends::GL);
+    }
+
+    /// A device off screen asks for the graphics card alone unless software is asked for; then it
+    /// asks for the software adapter first and the graphics card after it.
+    #[test]
+    fn an_offscreen_device_asks_for_software_first_only_when_software_is_asked_for() {
+        use wgpu::PowerPreference::HighPerformance;
+        assert_eq!(
+            asked(&adapter_requests(None, false)),
+            [(HighPerformance, false)]
+        );
+        assert_eq!(
+            asked(&adapter_requests(None, true)),
+            [(HighPerformance, true), (HighPerformance, false)]
+        );
     }
 
     /// The adapter's line names the compiler only on Direct3D 12.
