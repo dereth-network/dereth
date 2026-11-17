@@ -1,6 +1,6 @@
 //! One Vulkan device that wgpu (the retail device, the interface and the window) and the remaster's
 //! layer both draw on, and the remaster's pictures lent to wgpu. On Windows the device may be a
-//! Direct3D 12 one instead ([`open_d3d12`]): wgpu's own, which the layer adopts.
+//! Direct3D 12 one instead: wgpu's own, which the layer adopts.
 //!
 //! The device is made here, with every feature the layer asks for (`dereth_gfx::REQUIRED`) and
 //! every one wgpu does, as the version-wide feature structures: the device's own features, all but
