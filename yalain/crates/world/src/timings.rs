@@ -225,6 +225,17 @@ pub fn of_thing<S: Store>(s: &Server<S>, id: u64, behavior: u32) -> Timeline {
         .unwrap_or_else(unknown)
 }
 
+/// Does a creature's or a pet's look play a behavior in the stance it fights in? Not when the
+/// install does not say.
+#[must_use]
+pub fn thing_can_play<S: Store>(s: &Server<S>, id: u64, behavior: u32) -> bool {
+    let mode = crate::arms::stance(s, id);
+    s.timings
+        .as_ref()
+        .and_then(|t| t.timeline(&thing_plays(s, t, id)?, mode, behavior))
+        .is_some()
+}
+
 /// How long a thing takes to go from one mode to another, at time scale 1; `None` when the install
 /// does not say.
 #[must_use]

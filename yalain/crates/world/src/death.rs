@@ -1504,7 +1504,7 @@ fn killer_name<S: Store>(s: &Server<S>, killer: Option<u64>) -> TextInfo {
 
 /// A player dies: in one tick its death message (the last attacker's name), and for everyone who
 /// sees it, it is dead, wounded, its killer announced, unselectable, in a death pose, playing its
-/// death. Its corpse is made ten seconds later.
+/// death; a creature that killed it may play its victory. Its corpse is made ten seconds later.
 pub fn player_dies<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1632,6 +1632,10 @@ pub fn player_dies<S: Store>(
     }
     // Its pets die with it, in its death tick.
     crate::pets::owner_dies(s, net, id, clock);
+    // A creature that killed it may play its victory over it.
+    if let Some(k) = killer {
+        crate::ai::victory(s, net, k);
+    }
     s.after(clock, PLAYER_CORPSE_AFTER, Timer::PlayerCorpse { world });
 }
 

@@ -396,6 +396,37 @@ pub const ARRIVED: f32 = 0.5;
 pub const IDLE_BEHAVIORS: [u32; 2] = [0x4100_001B, 0x4100_001C];
 pub const FIRST_IDLE_SHARE: f32 = 0.44;
 
+/// The behavior a creature plays over a player it has killed, and the chance it does when its look
+/// has it (Turbine, July 2003: "about half of the time", never over a pet; 2017: within three seconds
+/// of the death, a median 0.6 s, after 29 of the 221 deaths of a recorded player to a creature, 29
+/// of the 46 to kinds that played it at all).
+pub const VICTORY: u32 = 0x4100_006F;
+pub const VICTORY_CHANCE: f32 = 0.5;
+
+/// A creature has killed a player: about half the time, when its look has one, it plays its
+/// victory for all who see it. A pet, or a creature whose look has none, plays nothing.
+pub fn victory<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
+    if !s.things.get(id).is_some_and(crate::things::Thing::alive) || s.pets.is_pet(id) {
+        return;
+    }
+    if !crate::timings::thing_can_play(s, id, VICTORY) || !s.rng.chance(VICTORY_CHANCE) {
+        return;
+    }
+    s.next_context = s.next_context.wrapping_add(1);
+    let m =
+        auberean_protocol::ServerMessage::PlayBehavior(auberean_protocol::physics::ObjectEvent {
+            sender: crate::inventory::visual(s, id),
+            action: auberean_protocol::types::BehaviorParams {
+                bits: auberean_protocol::types::BehaviorParams::BEHAVIOR
+                    | auberean_protocol::types::BehaviorParams::CONTEXT,
+                behavior: VICTORY,
+                context: s.next_context,
+                ..auberean_protocol::types::BehaviorParams::default()
+            },
+        });
+    crate::combat::to_all_seeing(s, net, id, &m);
+}
+
 /// How long a creature at rest goes between its idle behaviors on average, in seconds (2017: 1,213
 /// over 152 hours of creatures at rest within 50 m of a player; the gaps spread from seconds to
 /// many minutes, as chance does).

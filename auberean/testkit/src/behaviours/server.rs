@@ -4017,6 +4017,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.victory-over-a-dead-player",
+        says: "A creature that kills a player plays its victory over it, for all who see the \
+               creature, about half the time when its look plays one; a creature whose look has none \
+               never does.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-VICTORY"),
+        station: "yalain-testkit::dat::effects::a_creature_plays_its_victory_over_a_player_it_killed_about_half_the_time",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.creatures.wander-and-stop-standing",
         says: "At rest a creature walks now and then to a point within its wandering range of \
                home; a walk, or a run home, that ends (on the ground, within half a meter) is \

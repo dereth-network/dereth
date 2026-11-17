@@ -3855,3 +3855,67 @@ fn the_installs_impulses_read_as_pushes_with_their_ways_and_speeds() {
         assert!(!d.lasts(), "{state:08X} keeps no record");
     }
 }
+
+/// A Burun Scout's look, which plays a victory in its fighting stances.
+const BURUN: u32 = 0x4700_22BC;
+
+/// The victories the creature played that a client was sent since `from`.
+fn victories(h: &yalain_testkit::Harness, b: usize, from: usize, creature: u64) -> usize {
+    h.world_messages(b, from)
+        .iter()
+        .filter(|m| {
+            matches!(m, auberean_protocol::ServerMessage::PlayBehavior(e)
+                if e.sender.id == creature && e.action.behavior == yalain_world::ai::VICTORY)
+        })
+        .count()
+}
+
+/// A creature that kills a player plays its victory over it about half the time when its look
+/// has one (a Burun's: 70 to 130 of 200 deaths), and never when its look has none (the test
+/// beetle's own).
+/// Behaviour: server.creatures.victory-over-a-dead-player
+#[test]
+fn a_creature_plays_its_victory_over_a_player_it_killed_about_half_the_time() {
+    let p = Portal::open();
+    let mut h = yalain_testkit::Harness::new();
+    h.server.timings = Some(yalain_world::timings::Timings::new(
+        p.dat.clone(),
+        p.ctx.clone(),
+    ));
+    h.add_creatures(1);
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.run(20);
+    let beetle = h
+        .server
+        .things
+        .by_id
+        .values()
+        .find(|t| t.template == yalain_testkit::TEST_CREATURE)
+        .map(|t| t.id)
+        .expect("the camp's beetle");
+    let world = yalain_world::social::world_of(&h.server, me).expect("in the world");
+    let deaths = |h: &mut yalain_testkit::Harness, n: usize| {
+        let from = h.bots[b].inbox.len();
+        for _ in 0..n {
+            if let Some(p) = h.server.players.get_mut(&world) {
+                p.dying = None;
+            }
+            let clock = h.clock();
+            yalain_world::death::player_dies(&mut h.server, &mut h.net, world, Some(beetle), clock);
+            h.run(1);
+        }
+        victories(h, b, from, beetle)
+    };
+    assert_eq!(deaths(&mut h, 20), 0, "its own look has none");
+    let look = p.described(BURUN).expect("a Burun").description.look;
+    let t = h.server.things.get_mut(beetle).expect("the beetle");
+    t.description.look = look;
+    t.drawn_as = None;
+    assert!(yalain_world::timings::thing_can_play(
+        &h.server,
+        beetle,
+        yalain_world::ai::VICTORY
+    ));
+    let played = deaths(&mut h, 200);
+    assert!((70..=130).contains(&played), "{played} of 200");
+}
