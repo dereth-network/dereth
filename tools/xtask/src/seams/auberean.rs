@@ -133,11 +133,12 @@ pub const DEVICE_NAMES: &[&str] = &[
 ];
 
 /// The first game's client crates the second's client may use: the sound device, the operating
-/// system's error box and its clipboard, and the remaster's backend layer and the passes both
-/// games' remasters share (which name nothing of either game). (The picture codecs,
-/// `dereth-render-cpu`, are a core crate.)
+/// system's error box and its clipboard, the remaster's backend layer and the passes both games'
+/// remasters share (which name nothing of either game), and what a browser's canvas asks of the
+/// graphics device. (The picture codecs, `dereth-render-cpu`, are a core crate.)
 pub const CLIENT_MAY_USE: &[&str] = &[
     "dereth-audio-out",
+    "dereth-canvas-gpu",
     "dereth-console",
     "dereth-clipboard",
     "dereth-gfx",

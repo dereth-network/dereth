@@ -41,6 +41,8 @@ web-sys = { workspace = true, features = ["OffscreenCanvas"] }
 tracing-subscriber.workspace = true
 # WebGPU where the browser has it, and WebGL 2 for one that does not.
 wgpu = { version = "30", features = ["webgl"] }
+# What the canvas asks of the graphics device, shared with the first game's browser client.
+dereth-canvas-gpu.workspace = true
 
 [lints]
 workspace = true

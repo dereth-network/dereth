@@ -92,6 +92,8 @@ members = [
     "dereth/client",
     "dereth/desktop",
     "dereth/client/crates/render",
+    # What both games' browser clients ask of the graphics device for a canvas.
+    "dereth/client/crates/canvas-gpu",
     # The remaster's backend layer, over Vulkan and Direct3D 12. Only `dereth-remaster` and the
     # passes it shares depend on it.
     "dereth/client/crates/gfx",
@@ -252,6 +254,7 @@ dereth-client-runtime = { path = "core/client-runtime" }
 dereth-client-sdk = { path = "core/client-sdk" }
 dereth-client-shell = { path = "dereth/client/crates/shell", default-features = false }
 dereth-audio-out = { path = "dereth/client/crates/audio-out" }
+dereth-canvas-gpu = { path = "dereth/client/crates/canvas-gpu" }
 dereth-clipboard = { path = "dereth/client/crates/clipboard" }
 dereth-console = { path = "dereth/client/crates/console" }
 dereth-corpus = { path = "tools/corpus" }

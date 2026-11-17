@@ -1,0 +1,24 @@
+[package]
+name = "dereth-canvas-gpu"
+description = "What both games' browser clients ask of the graphics device for a canvas: WebGPU or WebGL 2 on the faster graphics card, and the adapter's line for the page."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# Test targets are declared explicitly, so a stray tests/*.rs cannot become one silently.
+autotests = false
+
+[dependencies]
+wgpu = "30"
+
+# The browser's own objects exist only in the WebAssembly build; the host build compiles the
+# platform-neutral half and its tests.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3.104"
+wasm-bindgen = "=0.2.127"
+wasm-bindgen-futures = "0.4.77"
+web-sys = { workspace = true, features = ["OffscreenCanvas"] }
+
+[lints]
+workspace = true

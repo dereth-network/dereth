@@ -7,7 +7,8 @@
 //! `auberean-gpu`, `auberean-present`), the client (`auberean-client-sdk`), `dereth-audio` for the
 //! sound device's seam, `dereth-transport` for the WebSocket frame and `dereth-primitives` for the
 //! file the client's own files are kept in. The WebAssembly build adds `wasm-bindgen`, `js-sys`,
-//! `web-sys`, `wgpu` with WebGL 2, and a `tracing-subscriber` that writes to the browser console.
+//! `web-sys`, `wgpu` with WebGL 2, what the canvas asks of the graphics device
+//! (`dereth-canvas-gpu`), and a `tracing-subscriber` that writes to the browser console.
 //! **Used by** the worker under `dereth/web/www/`, which loads it as a WebAssembly module.
 //!
 //! **Must never** read the player's data files from anywhere but the browser on the player's own

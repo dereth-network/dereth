@@ -748,6 +748,7 @@ dependencies = [
  "auberean-shell",
  "auberean-ui",
  "dereth-audio",
+ "dereth-canvas-gpu",
  "dereth-primitives",
  "dereth-transport",
  "js-sys",
@@ -1508,6 +1509,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "dereth-canvas-gpu"
+version = "0.0.0"
+dependencies = [
+ "js-sys",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "wgpu",
+]
+
+[[package]]
 name = "dereth-chargen"
 version = "0.0.0"
 dependencies = [
@@ -2214,19 +2226,17 @@ version = "0.0.0"
 dependencies = [
  "ash",
  "ash-window",
+ "dereth-canvas-gpu",
  "dereth-client-contract",
  "dereth-primitives",
  "dereth-render-cpu",
  "glam",
  "gpu-allocator",
- "js-sys",
  "naga",
  "pollster",
  "raw-window-handle",
  "thiserror 2.0.20",
  "tracing",
- "wasm-bindgen",
- "wasm-bindgen-futures",
  "web-sys",
  "wgpu",
  "windows",

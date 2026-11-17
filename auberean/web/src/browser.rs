@@ -254,22 +254,17 @@ const fn nominal_server() -> SocketAddr {
     SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9000)
 }
 
-/// What the device came up on, and the device: WebGPU where the browser has it, WebGL 2 where it
-/// does not or where `webgl_only` asks for it.
+/// The device, and the line naming what it came up on: WebGPU where the browser has it, WebGL 2
+/// where it does not or where `webgl_only` asks for it, on the faster graphics card either way
+/// (`dereth_canvas_gpu`).
 async fn device(
     canvas: &web_sys::OffscreenCanvas,
     drawn: (u32, u32),
     webgl_only: bool,
-) -> Result<Presenter, JsError> {
+) -> Result<(Presenter, String), JsError> {
     canvas.set_width(drawn.0);
     canvas.set_height(drawn.1);
-    let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
-    desc.backends = if webgl_only {
-        wgpu::Backends::GL
-    } else {
-        wgpu::Backends::BROWSER_WEBGPU | wgpu::Backends::GL
-    };
-    let instance = wgpu::util::new_instance_with_webgpu_detection(desc).await;
+    let (instance, webgpu) = dereth_canvas_gpu::instance(canvas, webgl_only).await;
     let surface = instance
         .create_surface(wgpu::SurfaceTarget::OffscreenCanvas(canvas.clone()))
         .map_err(|e| JsError::new(&format!("no surface: {e}")))?;
@@ -284,14 +279,17 @@ async fn device(
         }));
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
+            power_preference: dereth_canvas_gpu::POWER,
             force_fallback_adapter: false,
             compatible_surface: Some(&surface),
             ..Default::default()
         })
         .await
         .map_err(|e| JsError::new(&format!("no adapter: {e}")))?;
-    Presenter::on(instance, surface, &adapter, renderer, drawn).map_err(|e| JsError::new(&e))
+    let line = dereth_canvas_gpu::line_for(&adapter, webgpu).await;
+    let present = Presenter::on(instance, surface, &adapter, renderer, drawn)
+        .map_err(|e| JsError::new(&e))?;
+    Ok((present, line))
 }
 
 /// The playable client: the shell and the game's own interface, drawing into the worker's canvas.
@@ -345,7 +343,7 @@ impl WebPlay {
         let at = |i: usize, or: u32| page.get(i).copied().unwrap_or(or);
         let (page, scale) = ((at(0, 800), at(1, 600)), at(2, 100));
         let drawn = size::drawn(page, scale);
-        let present = device(&canvas, drawn, webgl_only).await?;
+        let (present, backend) = device(&canvas, drawn, webgl_only).await?;
         let Opened {
             world,
             data,
@@ -379,7 +377,6 @@ impl WebPlay {
             width: drawn.0,
             height: drawn.1,
         });
-        let backend = present.renderer.adapter.trim().to_owned();
         tracing::info!(%backend, "drawing");
         Ok(Self {
             shell,

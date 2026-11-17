@@ -2,8 +2,8 @@
 //! backends, the pipeline state and draw submission.
 //!
 //! **Depends on** `dereth-primitives`, the contract (`dereth-client-contract`) and its device-free
-//! half (`dereth-render-cpu`, every item of which it re-exports). **Used by** the client
-//! (`dereth-client`).
+//! half (`dereth-render-cpu`, every item of which it re-exports), and with `wgpu` what a browser's
+//! canvas asks of the device (`dereth-canvas-gpu`). **Used by** the client (`dereth-client`).
 //!
 //! **Must never** decide *what* to draw or in what order: `RenderBackend::draw` draws exactly the
 //! batch it is handed, exactly then, and never sorts, culls or reorders, because submission order
