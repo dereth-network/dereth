@@ -648,6 +648,46 @@ fn a_treasure_items_numbers_follow_its_level() {
     }
 }
 
+/// Above level 50 a treasure weapon's damage climbs slower than a made one's, its vigor cost steps
+/// up at 60, and armor's rating stands a little over a made piece's: a weapon at 75 does 380 to 438
+/// (a made one's 558 times its share), costs 22 to 27 vigor at 60 and 16 to 19 at 55, and a robe at
+/// 60 is rated about 1.07 of a made one on average.
+/// Behaviour: server.loot.treasure-numbers-above-50
+#[test]
+fn a_treasure_items_numbers_above_level_50_follow_the_recorded_drops() {
+    use yalain_content::{Prop, Props};
+    use yalain_world::made::{armor_rating_exactly, Piece};
+    use yalain_world::rng::Rng;
+    use yalain_world::treasure::{numbers, Sort, TreasureTables};
+    let mut weapon = Props::default();
+    weapon.set("Weapon_Damage", Prop::Int(10));
+    let mut robe = Props::default();
+    robe.set("Item_ArmorLevel", Prop::Int(10))
+        .set("Item_ValidInventoryLocations", Prop::Word(2))
+        .set("Item_PrecludedInventoryLocations", Prop::Word(8));
+    let mut rng = Rng::new(916);
+    let tables = TreasureTables::retail_2017();
+    let draws = 500;
+    let mut rated = 0.0;
+    for _ in 0..draws {
+        let w = numbers(&mut rng, &tables, &weapon, Sort::Weapon, 75, 9).expect("a weapon");
+        let (most, _) = w.damage.expect("its damage");
+        assert!((380..=438).contains(&most), "at level 75: {most}");
+        let w = numbers(&mut rng, &tables, &weapon, Sort::Weapon, 60, 9).expect("a weapon");
+        assert!((22..=27).contains(&w.vigor.expect("a vigor cost")), "{w:?}");
+        let w = numbers(&mut rng, &tables, &weapon, Sort::Weapon, 55, 9).expect("a weapon");
+        assert!((16..=19).contains(&w.vigor.expect("a vigor cost")), "{w:?}");
+        let r = numbers(&mut rng, &tables, &robe, Sort::Armor, 60, 9).expect("armor");
+        rated += f64::from(r.armor.expect("a rating"))
+            / f64::from(armor_rating_exactly(Piece::Robe, 60));
+    }
+    let mean = rated / f64::from(draws);
+    assert!(
+        (1.04..=1.10).contains(&mean),
+        "a robe at 60, of a made one's: {mean}"
+    );
+}
+
 /// A world's damage scale multiplies a treasure weapon's damage share by its level, in proportion
 /// between its points and held past them: with times 1 at 50 and a half at 100, a weapon at 75 does
 /// three quarters of its share of a made one's 558, and one at 40 its whole share.

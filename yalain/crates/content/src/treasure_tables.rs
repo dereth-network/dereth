@@ -145,6 +145,22 @@ pub const POTION_SPELLCRAFT: (f32, f32) = (0.0, 100.0);
 /// 727 weapons below level 50 with no effects at 0.84 to 0.97, the median 0.90). A shield's too.
 pub const WEAPON_DAMAGE_SHARE: (f32, f32) = (0.84, 0.97);
 
+/// A treasure weapon's damage share above level 50 is times this, at each of these levels and in
+/// proportion between them, the last held: its damage climbs about five a level from 293 at 51,
+/// slower than a made weapon's (2017: 233 weapons with no effects from droppers of 51 to 60, the
+/// median 295 at 51 and 334 at 60, and one of 774 at 149; a players' table of 2004-05 gives 401 to
+/// 434 at 75).
+pub const WEAPON_DAMAGE_SCALE: [(i32, f32); 8] = [
+    (MOST_LEVEL, 1.0),
+    (55, 0.95),
+    (60, 0.90),
+    (65, 0.87),
+    (75, 0.81),
+    (85, 0.77),
+    (100, 0.73),
+    (150, 1.07),
+];
+
 /// How many of the 2017 treasure weapons had each combat delay, from 4; armor's, from 4; shields',
 /// from 5.
 pub const WEAPON_DELAYS: [f32; 16] = [
@@ -158,17 +174,22 @@ pub const SHIELD_DELAYS: [f32; 7] = [14.0, 33.0, 40.0, 42.0, 31.0, 29.0, 12.0];
 
 /// A treasure weapon's vigor cost by level: from each level, at least and at most (2017, of 973
 /// weapons: 1 to level 7, 3 at 8 and 9, 4 or 5 to 20, 6 or 7 to 29, 10 to 12 to 39, 14 to 17 to
-/// 49, 16 to 19 at 50); above that it follows a made weapon's, one more for each five levels.
-pub const WEAPON_VIGOR: [VigorBand; 7] = [
+/// 49, 16 to 19 from 50 to 57, none of 107 above 19 from droppers of 55 to 57; 22 to 27 at 60, 8
+/// of 8); above 60 a players' table of 2004-05 (23 to 33 at 65, 27 to 33 at 70 and 75), one more
+/// for each seven levels above 70 (43 at 149, the one recorded).
+pub const WEAPON_VIGOR: [VigorBand; 10] = [
     VigorBand::new(0, 1, 1),
     VigorBand::new(8, 3, 3),
     VigorBand::new(10, 4, 5),
     VigorBand::new(21, 6, 7),
     VigorBand::new(30, 10, 12),
     VigorBand::new(40, 14, 17),
+    VigorBand::new(50, 16, 19),
+    VigorBand::new(60, 22, 27),
+    VigorBand::new(65, 23, 33),
     VigorBand {
-        every: Some(5),
-        ..VigorBand::new(50, 16, 19)
+        every: Some(7),
+        ..VigorBand::new(70, 27, 33)
     },
 ];
 
@@ -185,8 +206,10 @@ pub const SHIELD_VIGOR: [VigorBand; 5] = [
 
 /// A treasure piece of armor's rating, of a made piece's at its level, at each of these levels and
 /// in proportion between them: it comes nearer with the level (2017: 0.8 at 10 to 1.0 at 49, of
-/// 130 pieces with no effects). A shield's too.
-pub const RATING_SHARE: [(i32, f32); 2] = [(0, 0.75), (MOST_LEVEL, 1.0)];
+/// 130 pieces with no effects), and above level 50 stands a little over it (2017: 1.07 at the
+/// median of 72 pieces and shields with no effects from droppers of 51 to 60; a players' table of
+/// 2004-05 gives a chest piece 1.05 to 1.18 of it from 55 to 75). A shield's too.
+pub const RATING_SHARE: [(i32, f32); 3] = [(0, 0.75), (MOST_LEVEL, 1.0), (51, 1.07)];
 
 /// How far a treasure item's rating share is drawn either side of its level's: a tenth.
 pub const RATING_SPREAD: f32 = 0.1;
@@ -538,6 +561,7 @@ impl TreasureTables {
             weapon: SortTables {
                 counts: counts(&effects::WEAPON_COUNTS),
                 damage_share: Some(WEAPON_DAMAGE_SHARE),
+                damage_scale: WEAPON_DAMAGE_SCALE.to_vec(),
                 vigor: WEAPON_VIGOR.to_vec(),
                 delays: delays(4, &WEAPON_DELAYS),
                 families: families(effects::WEAPON_FAMILIES),

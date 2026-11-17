@@ -7,7 +7,7 @@ use crate::authored::Portal;
 
 /// The digest of the seeded drops below, as they were first recorded: any change to what a drop draws
 /// moves it.
-pub const TREASURE_DIGEST: u64 = 0x9055_fa8c_ab2c_4b6e;
+pub const TREASURE_DIGEST: u64 = 0xb6e8_de9e_0b31_404e;
 
 /// The dropper levels the drops are made at: each band edge of the draws and a few between.
 const TREASURE_LEVELS: [i32; 20] = [

@@ -8887,6 +8887,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.treasure-numbers-above-50",
+        says: "Above level 50 a treasure weapon's damage climbs about five a level, slower than a \
+               made one's, its vigor cost is 16 to 19 to level 59 and 22 to 27 from 60, and a \
+               treasure piece of armor or shield is rated a little over a made one.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-ABOVE-50"),
+        station: "yalain-testkit::cpu::play::fights::a_treasure_items_numbers_above_level_50_follow_the_recorded_drops",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.treasure-numbers-by-level",
         says: "A treasure weapon, shield or piece of armor has its own damage, rating, delay, vigor \
                cost and slots by its level, near what a made one has there, in place of its \
