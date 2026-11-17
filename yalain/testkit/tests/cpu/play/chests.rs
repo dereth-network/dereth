@@ -1136,6 +1136,80 @@ fn a_chests_draw_is_treasure_of_the_level_its_row_names() {
     );
 }
 
+/// A chest's profile whose row names a rare and a level rolls the rare once at each opening, drawn at
+/// that level: at a chance of 1 each of three openings holds the one rare whose window holds level
+/// 45 and never the one whose window stops at 10, beside the gems and the crystal; a row that names
+/// no level holds none.
+/// Behaviour: server.places.a-chests-rare-once-an-opening
+#[test]
+fn a_chests_rare_is_rolled_once_at_each_opening_at_its_rows_level() {
+    use yalain_content::pools::{Draws, Entry, Pool, Target, OPEN_ABOVE};
+    const HIGH_RARE: u32 = 0x4700_2109;
+    const LOW_RARE: u32 = 0x4700_210A;
+    let opened = |chest: Option<yalain_content::ChestTreasure>| {
+        let mut h = hall(SMALL, false, false);
+        for p in &mut h.server.loot.profiles {
+            p.chest = chest;
+        }
+        for t in [HIGH_RARE, LOW_RARE] {
+            h.server
+                .catalog
+                .insert(yalain_testkit::test_template(t, 0x3A1, Props::default()));
+        }
+        let entry = |t: u32, least: i32, most: i32| Entry {
+            to: Target::Template(t),
+            weight: 1.0,
+            least,
+            most,
+        };
+        h.server.loot.pools.pools.insert(
+            "GP_Rares".into(),
+            Pool {
+                name: "GP_Rares".into(),
+                race: 0,
+                own: 0.0,
+                entries: vec![entry(HIGH_RARE, 40, OPEN_ABOVE), entry(LOW_RARE, 0, 10)],
+            },
+        );
+        h.server.loot.pools.profiles.insert(
+            "GP_TestChestHoard".into(),
+            Draws {
+                draws: Vec::new(),
+                rare: Some(("GP_Rares".into(), 1.0)),
+            },
+        );
+        let (a, me) = h.player_in_world("one", "Elara");
+        h.run(10);
+        let mut held = Vec::new();
+        for _ in 0..3 {
+            send_use(&mut h, a, me, CHEST, 0, 1.6);
+            let c = h.server.chests.by_id[&CHEST].contents.clone();
+            held.push(
+                c.iter()
+                    .map(|i| h.server.things.get(*i).expect("made").template)
+                    .collect::<Vec<_>>(),
+            );
+            close(&mut h, a, 1.6);
+        }
+        held
+    };
+    for got in opened(Some(yalain_content::ChestTreasure {
+        level: 45,
+        value: (130, 189),
+    })) {
+        let rares = got.iter().filter(|t| **t == HIGH_RARE).count();
+        assert_eq!(rares, 1, "one rare: {got:08X?}");
+        assert!(!got.contains(&LOW_RARE), "{got:08X?}");
+        assert!(got.contains(&GEM) && got.contains(&CRYSTAL), "{got:08X?}");
+    }
+    for got in opened(None) {
+        assert!(
+            !got.contains(&HIGH_RARE) && !got.contains(&LOW_RARE),
+            "{got:08X?}"
+        );
+    }
+}
+
 /// A chest's profile draws at the operator's loot rate: none of its gems at 0, twice its one or two
 /// at 2; its extra (the crystal) is drawn as it is.
 /// Behaviour: server.operator.loot-rate

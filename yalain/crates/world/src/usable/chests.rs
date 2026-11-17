@@ -17,7 +17,9 @@
 //! level as a corpse's is, each piece worth a draw from the row's band (2017: 205 pieces in 8 kinds of
 //! chest, each kind's values and least levels its own: least levels 8 to 16 worth 3 to 7 in the
 //! middle half, 15 to 20 worth 20 to 30, 41 to 50 worth 50 to 72 or 130 to 189). A profile's extras
-//! aren't.
+//! aren't. A profile whose row names a rare and a level rolls the rare once at each opening, drawn
+//! at that level for the opener's race as a corpse's is, and its size never pushes it out (2017: 2
+//! of 30 sigil cache openings held a rare, one each).
 //!
 //! **Death treasures.** A world's fixed item for a chest's template is rolled once at its chance at
 //! an opening its key paid for: a key used up on the chest pays for its next opening alone. A chest
@@ -559,9 +561,10 @@ pub fn key_at_chest<S: Store>(
 }
 
 /// What a chest holds at an opening: its profile's extras and its draw, at most its size; each with
-/// the worth and level it holds of its own, if its profile's row says; and, at an opening its key
-/// paid for, its death treasures, and at one whose opener holds a treasure's quest where it needs
-/// it, that treasure; neither is ever pushed out by its size.
+/// the worth and level it holds of its own, if its profile's row says; its profile's rare, if it
+/// comes up; and, at an opening its key paid for, its death treasures, and at one whose opener holds
+/// a treasure's quest where it needs it, that treasure; none of those is ever pushed out by its
+/// size.
 fn fill<S: Store>(
     s: &mut Server<S>,
     kind: &Kind,
@@ -586,7 +589,7 @@ fn fill<S: Store>(
         })
         .map(|t| (t.item, t.chance))
         .collect();
-    let mut treasures: Vec<u32> = Vec::new();
+    let mut treasures: Vec<u32> = rare(s, kind.profile, opener).into_iter().collect();
     for (item, chance) in rows {
         if !treasures.contains(&item) && s.rng.chance(chance) {
             treasures.push(item);
@@ -598,6 +601,15 @@ fn fill<S: Store>(
         out.extend(treasures.into_iter().map(|t| (t, None)));
     }
     out
+}
+
+/// A chest's rare at an opening: its profile's row's rare, rolled once and drawn at the row's level
+/// for the opener's race; none for a row that names no rare or no level.
+fn rare<S: Store>(s: &mut Server<S>, profile: Option<u32>, opener: ConnId) -> Option<u32> {
+    let name = profile.and_then(|v| s.catalog.profile_name(v))?.to_string();
+    let level = s.loot.profile(&name)?.chest?.level;
+    let race = s.players.get(&opener).map_or(0, |p| p.race);
+    crate::treasure_pools::rare(s, &name, level, race)
 }
 
 /// What a generator profile puts in what it fills (a chest at an opening, a corpse whose kind names

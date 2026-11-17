@@ -12405,6 +12405,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.a-chests-rare-once-an-opening",
+        says: "A chest whose profile's row names a rare and a level rolls the rare once at each opening, \
+               drawn from its pool at that level for the opener's race, and its size never pushes it \
+               out; a row that names no level gives none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHEST-RARE"),
+        station: "yalain-testkit::cpu::play::chests::a_chests_rare_is_rolled_once_at_each_opening_at_its_rows_level",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.a-chests-use-comes-on-its-opener",
         says: "What a chest's kind names for its use comes on its opener as it begins to open, a quest \
                named by what it does to it moved once; a kind that completes the quest that keeps it \

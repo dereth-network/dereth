@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Chests can now hold a rare when their loot names one.
 - Monsters now play their victory emote over a player they kill, about half the time.
 - Drawing a new surveyor's map now throws away your old maps of that region.
 - /charactername and /allegiancename now get an answer instead of silence.
