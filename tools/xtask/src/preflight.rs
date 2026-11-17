@@ -250,9 +250,12 @@ fn read_repo(root: &Path) -> Result<Repo, String> {
     bumps.insert(Product::Launcher, plan::launcher_bump());
     bumps.insert(Product::Dereth, plan::dereth_bump(web_alone));
     bumps.insert(Product::Lyceum, plan::lyceum_bump());
-    for product in [Product::Auberean, Product::Yalain, Product::Athenaeum] {
+    for product in [Product::Auberean, Product::Athenaeum] {
         bumps.insert(product, plan::auberean_game_bump(product));
     }
+    let patch = plan::next_version(&versions[&Product::Yalain], Bump::Patch)?;
+    let refusal = crate::package::yalain_declaration::for_release(root, &patch).err();
+    bumps.insert(Product::Yalain, plan::yalain_bump(refusal.as_deref()));
     for (product, moves) in &moved {
         if let Some((_, why)) = bumps.get_mut(product) {
             why.push_str("; ");

@@ -568,6 +568,16 @@ pub fn lyceum_bump() -> (Bump, String) {
     )
 }
 
+/// Yalain's release and why: a patch unless its upgrade declaration refuses one (`refusal`, as the
+/// release command would give it: a migration, or a world database that is not a patch of the one
+/// served), when it is a minor release.
+pub fn yalain_bump(refusal: Option<&str>) -> (Bump, String) {
+    match refusal {
+        Some(why) => (Bump::Minor, format!("a patch release is refused: {why}")),
+        None => (Bump::Patch, "the server's changes".to_owned()),
+    }
+}
+
 /// The release of one of Asheron's Call 2's products and why: a patch, for what it is built from.
 pub fn auberean_game_bump(product: Product) -> (Bump, String) {
     let why = match product {

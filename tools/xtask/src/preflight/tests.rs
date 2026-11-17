@@ -1317,6 +1317,10 @@ fn a_change_belongs_to_the_products_built_from_its_package_and_each_takes_its_re
         plan::empyrean_bump(Some("it migrates the shard")).0,
         Bump::Minor
     );
+    let (bump, why) = plan::yalain_bump(Some("its world database goes from v0.37.0 to v0.38.0"));
+    assert_eq!(bump, Bump::Minor);
+    assert!(why.contains("v0.38.0"), "{why}");
+    assert_eq!(plan::yalain_bump(None).0, Bump::Patch);
 
     let mut stamped = BTreeMap::new();
     assert_eq!(
