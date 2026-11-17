@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Remaster: bounced light is faster on Macs and on cards without ray tracing.
 - macOS: the client's windows take clicks again after leaving full screen.
 
 ## 0.4.19 (2026-11-17)

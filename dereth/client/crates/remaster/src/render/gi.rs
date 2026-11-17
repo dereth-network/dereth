@@ -94,11 +94,18 @@ const FAR: f32 = 120.0;
 /// The pass's target's format.
 const GI: Format = Format::Rgba16Float;
 
-/// The pass's targets, at the world's size: the light, and the screen's two before it is blurred.
+/// How many of the world's pixels a side the light found from the screen is worked out at: one
+/// in two, then blurred back up to the world's own pixels by their surfaces.
+const SCREEN_SCALE: u32 = 2;
+
+/// The pass's targets: the light, at the world's size, and the screen's two before it is blurred,
+/// at [`SCREEN_SCALE`]'s share of it.
 #[derive(Debug, Clone, Copy)]
 struct GiTargets {
     width: u32,
     height: u32,
+    /// The screen's two's size.
+    screen: (u32, u32),
     gi: Texture,
     raw: Texture,
     across: Texture,
@@ -247,17 +254,21 @@ impl GiPass {
             }
         }
         let usage = TextureUsage::COLOR_TARGET | TextureUsage::SAMPLED | TextureUsage::TRANSFER_SRC;
-        let mut make = || {
+        let screen = (
+            t.width.div_ceil(SCREEN_SCALE),
+            t.height.div_ceil(SCREEN_SCALE),
+        );
+        let mut make = |(width, height): (u32, u32)| {
             gfx.create_texture(&TextureDesc {
                 label: "remaster bounced light",
-                width: t.width,
-                height: t.height,
+                width,
+                height,
                 mips: 1,
                 format: GI,
                 usage,
             })
         };
-        let (gi, raw, across) = (make()?, make()?, make()?);
+        let (gi, raw, across) = (make((t.width, t.height))?, make(screen)?, make(screen)?);
         let index = [
             gfx.bind_texture(gi)?,
             gfx.bind_texture(raw)?,
@@ -266,6 +277,7 @@ impl GiPass {
         let a = GiTargets {
             width: t.width,
             height: t.height,
+            screen,
             gi,
             raw,
             across,
@@ -564,12 +576,6 @@ impl GiPlan {
         pools: [u32; 9],
     ) -> Result<(), dereth_gfx::Error> {
         let g = self.targets;
-        let full = Rect {
-            x: 0,
-            y: 0,
-            width: g.width,
-            height: g.height,
-        };
         let mut gbuffer = vec![
             Touch::Texture(t.albedo, Use::Sampled),
             Touch::Texture(t.normal, Use::Sampled),
@@ -583,11 +589,17 @@ impl GiPlan {
         }
         r.timestamp("bounced light");
         let fullscreen = |r: &mut Recorder<'_>,
-                          target: Texture,
+                          (target, (width, height)): (Texture, (u32, u32)),
                           p: Pipeline,
                           words: Vec<u8>,
                           touches: &[Touch]|
          -> Result<(), dereth_gfx::Error> {
+            let full = Rect {
+                x: 0,
+                y: 0,
+                width,
+                height,
+            };
             r.raster(
                 &RasterPass {
                     name: "bounced light",
@@ -665,7 +677,7 @@ impl GiPlan {
             touches.push(Touch::Buffer(b.probes, Use::StorageRead));
             fullscreen(
                 r,
-                g.gi,
+                (g.gi, (g.width, g.height)),
                 apply,
                 push_words(&[
                     frame,
@@ -695,23 +707,44 @@ impl GiPlan {
             s.screen_rays.clamp(1, 32),
         ]);
         words.extend(s.screen_reach.max(0.5).to_le_bytes());
-        fullscreen(r, g.raw, screen, words, &gbuffer)?;
+        words.extend(SCREEN_SCALE.to_le_bytes());
+        fullscreen(r, (g.raw, g.screen), screen, words, &gbuffer)?;
+        // Across at the screen's share, from its own; then up, at the world's size, from the
+        // screen's share, which brings it back to every pixel.
         let mut touches = gbuffer.clone();
         touches.push(Touch::Texture(g.raw, Use::Sampled));
         fullscreen(
             r,
-            g.across,
+            (g.across, g.screen),
             blur,
-            push_words(&[frame, g.index[1], t.index[1], t.index[4], t.index[3], 1]),
+            push_words(&[
+                frame,
+                g.index[1],
+                t.index[1],
+                t.index[4],
+                t.index[3],
+                1,
+                SCREEN_SCALE,
+                SCREEN_SCALE,
+            ]),
             &touches,
         )?;
         let mut touches = gbuffer;
         touches.push(Touch::Texture(g.across, Use::Sampled));
         fullscreen(
             r,
-            g.gi,
+            (g.gi, (g.width, g.height)),
             blur,
-            push_words(&[frame, g.index[2], t.index[1], t.index[4], t.index[3], 0]),
+            push_words(&[
+                frame,
+                g.index[2],
+                t.index[1],
+                t.index[4],
+                t.index[3],
+                0,
+                1,
+                SCREEN_SCALE,
+            ]),
             &touches,
         )
     }

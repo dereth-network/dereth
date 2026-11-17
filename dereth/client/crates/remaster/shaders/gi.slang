@@ -489,6 +489,8 @@ struct ScreenPush
     uint sun_visibility;
     uint rays;
     float reach;
+    // How many of the G-buffer's pixels a side each pixel drawn stands for.
+    uint scale;
 };
 
 // The direct light pixel `q` of the G-buffer holds: the sun's on the ground and on what it lights
@@ -525,7 +527,7 @@ float hash2(int2 p, uint k)
 [shader("fragment")]
 float4 fs_screen(float4 position : SV_Position, uniform ScreenPush push) : SV_Target0
 {
-    int2 p = int2(position.xy);
+    int2 p = int2(position.xy) * int(max(push.scale, 1u));
     uint cls = uint(at(push.material, p).x * 255.0 + 0.5);
     if (cls == CLASS_NONE || cls == CLASS_SKY)
     {
@@ -533,7 +535,7 @@ float4 fs_screen(float4 position : SV_Position, uniform ScreenPush push) : SV_Ta
     }
     bool outdoors = cls == CLASS_GROUND || cls == CLASS_SUN;
     float d = at(outdoors ? push.outdoor_depth : push.depth, p).x;
-    float3 x = place_of(push.frame, position.xy, d);
+    float3 x = place_of(push.frame, float2(p) + 0.5, d);
     float3 n = oct_decode(at(push.normal, p).xy);
     float3 t = normalize(abs(n.z) < 0.9 ? cross(n, float3(0.0, 0.0, 1.0)) : cross(n, float3(1.0, 0.0, 0.0)));
     float3 b = cross(n, t);
@@ -602,16 +604,24 @@ struct BlurPush
     uint material;
     // 1 across, 0 up.
     uint across;
+    // How many of the G-buffer's pixels a side each pixel drawn stands for, and each of the
+    // source's.
+    uint scale;
+    uint source_scale;
 };
 
 // The bounced light blurred along one axis, by pixels of the same surface: their normals and
-// depths alike.
+// depths alike. The source may be worked out at fewer pixels than are drawn, and is then brought
+// up to them by the same likeness.
 [shader("fragment")]
 float4 fs_blur(float4 position : SV_Position, uniform BlurPush push) : SV_Target0
 {
-    int2 p = int2(position.xy);
+    int scale = int(max(push.scale, 1u));
+    int source_scale = int(max(push.source_scale, 1u));
+    int2 p = int2(position.xy) * scale;
+    int2 sp = p / source_scale;
     uint cls = uint(at(push.material, p).x * 255.0 + 0.5);
-    float4 own = at(push.source, p);
+    float4 own = at(push.source, sp);
     if (cls == CLASS_NONE || cls == CLASS_SKY)
     {
         return own;
@@ -619,17 +629,19 @@ float4 fs_blur(float4 position : SV_Position, uniform BlurPush push) : SV_Target
     float3 n = oct_decode(at(push.normal, p).xy);
     float d = at(push.depth, p).x;
     int2 axis = push.across != 0 ? int2(1, 0) : int2(0, 1);
-    float2 extent = row(push.frame, FRAME_EXTENT).xy;
+    int2 extent = int2(row(push.frame, FRAME_EXTENT).xy);
+    int2 source_extent = (extent + source_scale - 1) / source_scale;
     float3 sum = float3(0.0, 0.0, 0.0);
     float weights = 0.0;
     for (int k = -6; k <= 6; k++)
     {
-        int2 q = clamp(p + axis * k, int2(0, 0), int2(extent) - 1);
+        int2 s = clamp(sp + axis * k, int2(0, 0), source_extent - 1);
+        int2 q = min(s * source_scale, extent - 1);
         float3 qn = oct_decode(at(push.normal, q).xy);
         float qd = at(push.depth, q).x;
         float w = exp(-float(k * k) / 18.0) * pow(saturate(dot(n, qn)), 8.0)
                   * (abs(qd - d) < 0.002 * (1.0 - d) * 400.0 + 1e-4 ? 1.0 : 0.0);
-        sum += at(push.source, q).rgb * w;
+        sum += at(push.source, s).rgb * w;
         weights += w;
     }
     return float4(weights > 1e-5 ? sum / weights : own.rgb, 1.0);
