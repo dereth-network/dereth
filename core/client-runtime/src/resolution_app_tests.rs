@@ -394,3 +394,141 @@ fn classic_acceptance_and_noninteractive_display_paths_keep_their_save_policy() 
     assert_eq!(pref(), Some(PrefValue::Int((640 << 16) | 480)));
     assert_eq!(a.present.size(), (800, 600));
 }
+
+/// A size chosen for a window that goes by points, and is drawn at twice as many pixels: the
+/// window comes to the points chosen, so the choice is offered to keep, and the pixels are never
+/// taken for the size to ask the window for.
+///
+/// Behaviour: presentation.window.a-mac-window-counts-its-size-in-points
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
+fn a_size_chosen_in_points_is_offered_to_keep_once_the_window_has_it() {
+    struct TwicePoints {
+        drawn: Rc<Cell<(u32, u32)>>,
+        asked: Rc<Cell<Vec<(u32, u32)>>>,
+    }
+    impl crate::platform::window::WindowHost for TwicePoints {
+        fn has_window(&self) -> bool {
+            true
+        }
+        fn screen_metrics(
+            &self,
+            frame: (i32, i32, i32),
+        ) -> dereth_client_contract::window_proc::ScreenMetrics {
+            let _ = frame;
+            crate::platform::window::headless_screen_metrics()
+        }
+        fn client_size(&self) -> (u32, u32) {
+            self.drawn.get()
+        }
+        fn request_inner_size(&self, w: u32, h: u32) -> (u32, u32) {
+            let mut asked = self.asked.take();
+            asked.push((w, h));
+            self.asked.set(asked);
+            self.drawn.set((w * 2, h * 2));
+            self.drawn.get()
+        }
+        fn player_sizes_window(&self) -> bool {
+            true
+        }
+        fn window_size_of(&self, (width, height): (u32, u32)) -> (u32, u32) {
+            (width / 2, height / 2)
+        }
+    }
+    let mut a = app();
+    let asked = Rc::new(Cell::new(Vec::new()));
+    a.window = Box::new(TwicePoints {
+        drawn: Rc::new(Cell::new((1600, 1200))),
+        asked: asked.clone(),
+    });
+    resized(&mut a, 1600, 1200);
+    dispatch(&mut a, begin(ResolutionPolicy::Modern), 1.0);
+    assert_eq!(
+        a.present.size(),
+        (2048, 1536),
+        "the picture follows the pixels"
+    );
+    for now in [1.1, 1.2, 3.5, 3.6] {
+        a.tick_resolution(&mut NullShell, now);
+    }
+    let prompt = a.resolution.prompt().expect("the size is offered to keep");
+    assert_eq!(prompt.kind, ResolutionPromptKind::Accept);
+    dispatch(
+        &mut a,
+        ResolutionAction::Answer {
+            token: prompt.token,
+            yes: true,
+        },
+        4.0,
+    );
+    a.apply_changed_display_presentation(&mut NullShell);
+    assert_eq!(pref(), Some(PrefValue::Int((1024 << 16) | 768)));
+    assert_eq!(
+        asked.take(),
+        vec![(1024, 768)],
+        "the window is asked for the points chosen, and only for them"
+    );
+    assert_eq!(a.present.size(), (2048, 1536));
+}
+
+/// A saved resolution larger than the screen the window opens on, as a client that took pixels
+/// for points could save: a window the player sizes opens no larger than the screen holds.
+///
+/// Behaviour: presentation.window.a-saved-size-is-cut-to-the-monitor-it-opens-on
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
+fn a_saved_resolution_larger_than_the_screen_opens_no_larger_than_it() {
+    struct OnAScreen;
+    impl crate::platform::window::WindowHost for OnAScreen {
+        fn has_window(&self) -> bool {
+            true
+        }
+        fn screen_metrics(
+            &self,
+            _frame: (i32, i32, i32),
+        ) -> dereth_client_contract::window_proc::ScreenMetrics {
+            crate::platform::window::headless_screen_metrics()
+        }
+        fn client_size(&self) -> (u32, u32) {
+            (800, 600)
+        }
+        fn player_sizes_window(&self) -> bool {
+            true
+        }
+        fn largest_client_size(&self) -> Option<(u32, u32)> {
+            Some((3360, 1380))
+        }
+    }
+    store::init();
+    let mut cfg = Config {
+        headless: true,
+        connect: false,
+        sound: false,
+        ui: false,
+        width: 6720,
+        height: 1292,
+        dat_dir: dereth_dat::testing::dat_dir(),
+        ..Config::default()
+    };
+    cfg.display.resolution = (6720 << 16) | 1292;
+    let a = App::<NullShell>::bring_up_with_store(
+        cfg,
+        Some(std::sync::Arc::new(
+            dereth_dat::testing::open_store().expect("retail data"),
+        )),
+        |_| {
+            let mut p = Platform::headless(800, 600);
+            p.window = Box::new(OnAScreen);
+            Ok(p)
+        },
+        |_, _, _, _| Ok(Box::new(crate::present::NullPresentation::new(800, 600))),
+    )
+    .unwrap();
+    assert_eq!(a.unforced_resolution, (3360, 1292));
+}

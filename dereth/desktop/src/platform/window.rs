@@ -714,6 +714,23 @@ impl ClientUnits {
         }
     }
 
+    /// A size counted in these units, as `view` counts it at `scale`: the window is asked for its
+    /// size in points while Horizon draws at the window's own pixels.
+    fn counted_as(self, (width, height): (u32, u32), view: Self, scale: f64) -> (u32, u32) {
+        let physical = match self {
+            Self::Pixels => winit::dpi::PhysicalSize::new(width, height),
+            Self::Points => winit::dpi::LogicalSize::new(width, height).to_physical(scale),
+            Self::Share(percent) => {
+                let whole = |v: u32| {
+                    u32::try_from(u64::from(v) * 100 / u64::from(percent.max(1)))
+                        .unwrap_or(u32::MAX)
+                };
+                winit::dpi::PhysicalSize::new(whole(width), whole(height))
+            }
+        };
+        view.client_size(physical, scale)
+    }
+
     /// The window system's pointer position at `scale`, as the client counts it.
     fn pointer(self, (x, y): (f64, f64), scale: f64) -> (f64, f64) {
         match self {
@@ -1544,15 +1561,21 @@ impl WindowHost for WinitWindow {
             (width, height),
             self.pins_size_limits,
         );
+        // The window answers in what it is asked in; the picture is drawn at what the client
+        // counts it in, which for Horizon is the window's own pixels.
+        let scale = self.shared.window.scale_factor();
+        let units = self.shared.units;
+        let drawn = units.counted_as(applied, units.view(), scale);
         tracing::debug!(
-            "client size {width}x{height} requested, {}x{} answered (limits held here: {}, \
-             scale factor {})",
+            "client size {width}x{height} requested, {}x{} answered, drawn at {}x{} (limits held \
+             here: {}, scale factor {scale})",
             applied.0,
             applied.1,
+            drawn.0,
+            drawn.1,
             self.pins_size_limits,
-            self.shared.window.scale_factor()
         );
-        applied
+        drawn
     }
 
     fn set_outer_position(&self, x: i32, y: i32) {
@@ -2296,6 +2319,21 @@ mod tests {
             ClientUnits::Share(100).size((800, 600)),
             Size::Logical(LogicalSize::new(800.0, 600.0)),
             "the window is asked for in points whatever it is drawn at"
+        );
+        // A window that answers in points is drawn at its own pixels, at the render scale's
+        // share of them.
+        assert_eq!(
+            points.counted_as((3360, 1292), ClientUnits::Share(100), 2.0),
+            (6720, 2584)
+        );
+        assert_eq!(
+            points.counted_as((3360, 1292), ClientUnits::Share(50), 2.0),
+            (3360, 1292)
+        );
+        assert_eq!(points.counted_as((3360, 1292), points, 2.0), (3360, 1292));
+        assert_eq!(
+            ClientUnits::Pixels.counted_as((1024, 768), ClientUnits::Pixels, 1.5),
+            (1024, 768)
         );
         let native = PhysicalSize::new(6720, 2836);
         assert_eq!(

@@ -180,7 +180,7 @@ impl<S: Shell> App<S> {
             && !was_full
             && (self.cfg.width, self.cfg.height) == self.applied_resolution
         {
-            (self.cfg.width, self.cfg.height) = self.window.window_size_of(self.present.size());
+            (self.cfg.width, self.cfg.height) = self.window_size();
         }
         self.applied_full_screen = full;
         self.applied_resolution = (self.cfg.width, self.cfg.height);
@@ -337,7 +337,7 @@ impl<S: Shell> App<S> {
         self.set_display_resolution(packed);
         if !effect.resize {
             // A host failure reconciles the requested shadow without another native resize.
-            self.applied_resolution = self.window.window_size_of(self.present.size());
+            self.applied_resolution = self.window_size();
         }
     }
 
@@ -345,21 +345,27 @@ impl<S: Shell> App<S> {
         use dereth_client_contract::options::interface::Interface;
         self.resolution
             .interface(Interface::chosen() == Interface::Classic);
-        if let Some(size) = self.resolution.tick(now, self.present.size()) {
+        if let Some(size) = self.resolution.tick(now, self.window_size()) {
             self.apply_resolution_effect(size);
         }
         let prompt = self.resolution.prompt();
         shell.resolution_prompt(&mut UiContext::new(self), prompt);
     }
 
+    /// The window's size as a resolution names it: the picture's, in what the window is counted
+    /// in, which on a Mac is points while Horizon draws at pixels.
+    fn window_size(&self) -> (u32, u32) {
+        self.window.window_size_of(self.present.size())
+    }
+
     pub(super) fn resolution_host_result(&mut self, failed: bool, attempted: (u32, u32)) {
         if let Some((token, expected)) = self.resolution.awaited() {
-            if failed && attempted != expected {
+            if failed && self.window.window_size_of(attempted) != expected {
                 return;
             }
             if let Some(size) =
                 self.resolution
-                    .host_result(token, self.present.size(), failed, self.timer.cur_time)
+                    .host_result(token, self.window_size(), failed, self.timer.cur_time)
             {
                 self.apply_resolution_effect(size);
             }
@@ -408,11 +414,10 @@ impl<S: Shell> App<S> {
                                 return false;
                             }
                         }
-                        if let Some(size) = self.resolution.action(
-                            *action,
-                            self.present.size(),
-                            self.timer.cur_time,
-                        ) {
+                        if let Some(size) =
+                            self.resolution
+                                .action(*action, self.window_size(), self.timer.cur_time)
+                        {
                             self.apply_resolution_effect(size);
                         }
                         return false;
@@ -500,7 +505,7 @@ impl<S: Shell> App<S> {
         if (p.width, p.height) == (self.cfg.width, self.cfg.height) {
             // A dragged window is not at this size yet: the event loop's poll asks for it.
             if self.window.player_sizes_window() && !self.applied_full_screen {
-                self.applied_resolution = self.window.window_size_of(self.present.size());
+                self.applied_resolution = self.window_size();
             }
             return false;
         }
@@ -565,7 +570,7 @@ impl<S: Shell> App<S> {
         if !self.device_is_initialized() {
             return;
         }
-        let live = self.window.window_size_of(self.present.size());
+        let live = self.window_size();
         let want = if force {
             // /`Height` against the forced pair.
             if live == (width, height) {
