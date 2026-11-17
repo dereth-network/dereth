@@ -153,9 +153,35 @@ fn world() -> World {
 fn request(w: &World, heritage: u32, sex: u32, template: usize, area: u32) -> CharacterCreateInfo {
     let group = &w.dats.portal_dat().char_gen().heritage_groups[&heritage];
     let model = &group.templates[template];
-    let mut skills = vec![SkillAdvancementClass::Inactive; 55];
+    // The wizard starts a skill the heritage trains for nothing trained, and specialized when
+    // specializing costs nothing too, as creation requires.
+    let table = w.dats.portal_dat().skill_table();
+    let mut skills: Vec<_> = (0..55u32)
+        .map(|id| {
+            let Some(base) = table.skills.get(&id) else {
+                return SkillAdvancementClass::Inactive;
+            };
+            let (trained, specialized) = group
+                .skills
+                .iter()
+                .find(|(s, _, _)| *s == id)
+                .map_or((base.trained_cost, base.specialized_cost), |&(_, t, s)| {
+                    (t, s)
+                });
+            let in_era = w.era.creation_skills.is_none_or(|s| s.contains(&id));
+            match (trained, specialized) {
+                _ if !in_era || trained < 0 || specialized < 0 => SkillAdvancementClass::Inactive,
+                (t, s) if t < 1 && s < 1 => SkillAdvancementClass::Specialized,
+                (t, _) if t < 1 => SkillAdvancementClass::Trained,
+                _ => SkillAdvancementClass::Inactive,
+            }
+        })
+        .collect();
     for skill in &model.normal_skills {
-        skills[usize::try_from(*skill).unwrap()] = SkillAdvancementClass::Trained;
+        let class = &mut skills[usize::try_from(*skill).unwrap()];
+        if *class == SkillAdvancementClass::Inactive {
+            *class = SkillAdvancementClass::Trained;
+        }
     }
     for skill in &model.primary_skills {
         skills[usize::try_from(*skill).unwrap()] = SkillAdvancementClass::Specialized;
