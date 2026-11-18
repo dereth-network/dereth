@@ -1,0 +1,18 @@
+[package]
+name = "dereth-world-places"
+description = "A world's places from its world database: where each portal stands, where it leads and who may use it, its lifestones, vendors and people, and its towns and their drop points, written as the documents a server publishes and a launcher builds."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# Every test is a `#[cfg(test)]` module beside the code it tests; the tests over real world
+# databases are the server's (they run with its content tier).
+autotests = false
+
+[dependencies]
+# The eras a world database can be of.
+dereth-primitives.workspace = true
+
+[lints]
+workspace = true

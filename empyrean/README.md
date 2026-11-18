@@ -259,50 +259,81 @@ address. It has no authentication, so keep it on loopback or a private network.
 ### The portal table
 
 With `server.publish_portals = true` (default `false`), the endpoint also answers `GET /portals`
-with every portal placed in the world, where it leads and its level limits, so a client can route a
-character through portals. ACE publishes nothing like it. With the switch off, `/portals` is `404`.
-The table is read from the loaded world content (no landblock is loaded for it), once, as the server
-starts; until it is ready, `/portals` answers `503`.
+with every portal in the world, where it leads, its level limits and what else it asks, so a
+client can route a character through portals. ACE publishes nothing like it. With the switch off,
+`/portals` is `404`. The table is read from the loaded world content (no landblock is loaded for
+it), once, as the server starts; until it is ready, `/portals` answers `503`. A launcher builds the
+same table, with the same code (`dereth-world-places`), from the public database of a world's era
+(`dereth-places build --era <era>`), so a world that publishes nothing still has one.
 
 It is `text/tab-separated-values; charset=utf-8`, fields separated by a tab, every line ending in a
 line feed:
 
 ```
-dereth-navigation-store	1
+dereth-navigation-store	2
 world	<world name>
-portal	published	<wcid>	<name>	<from>	<to>	0	0	0	<min level or ->	<max level or ->	-
+portal	published	<wcid>	<name>	<from>	<to>	0	0	0	<min level or ->	<max level or ->	-	<requires>
 ```
 
-- One `portal` line for each landblock instance whose weenie is a portal (`WeenieType` Portal) with
-  a destination, ordered by its `from` cell, then its weenie class id (`wcid`, decimal).
+- One `portal` line for each landblock instance whose weenie is a portal (`WeenieType` Portal)
+  with a destination, and one for each portal a spawner makes: a spawner placed in the world, or
+  one such a spawner makes in turn (its generator rows, made in the world rather than in a
+  container, a wielder or a shop). Ordered by `from` cell, then weenie class id (`wcid`, decimal),
+  then the guid of the instance that placed or spawned it, then `from`.
+- A portal leads to its weenie's `Destination`; else to the `portaldestination` marker linked to its
+  instance; else to its `RelativeDestination` added to where it stands.
+- A spawned portal stands at the cell and point its generator row names; else at the spawner, moved
+  by the row's offset turned by the spawner's rotation; a scattered one at the spawner (moved by the
+  offset when the row names no cell).
 - `from` is where the portal stands and `to` its destination, each written `0x<cell> <x> <y> <z>`:
   the cell id as eight upper-case hex digits, then the position in that cell to three decimals. A
   cell stored as a bare landblock (index 0) is written as the outdoor cell its x and y fall in:
   index = floor(x / 24) * 8 + floor(y / 24) + 1, each axis clamped to 0..7.
 - The level limits are the weenie's `MinLevel` and `MaxLevel` (ints 86 and 87), or `-` without one.
+- `requires` is what else the portal asks, `-` for nothing, else terms separated by `;`, sorted:
+  `closed` (`PortalBitmask` 0), `quest <name>` (`QuestRestriction`), `no-pk`, `no-pklite`, `no-npk`,
+  `olthoi-only`, `no-olthoi`, `no-vitae`, `account-age` (the bitmask's bits), `account <n>`
+  (`AccountRequirements`), `advocate` (`AdvocateQuest`), `temporary` (a `Lifespan`); and of the
+  world, from the spawners above it (a generator it was spawned by, or linked under): `event <name>
+  on|off` (`GeneratorEvent`, an event of the `event` table, `on` when its state is On) and `night`
+  or `day` (`GeneratorTimeType`). In a name, `\` and `;` are escaped with a `\`.
 - A name (the weenie's `Name`) has each tab, line feed and carriage return replaced by a space, and
   each backslash written `\\`. The world name is written the same way.
+- Version 1 was the same without `requires` and the spawned portals.
 
 ### The places
 
 With the same switch, the endpoint also answers `GET /places` with the places the world puts down:
-its lifestones, its portals and where they lead, its vendors, and the people who cannot be
-attacked. A client draws them on its map and lists them, under what its player has seen. Only what
-the world content places is listed: never a player, nothing anyone carries and no house owner. It
-is read with the portal table, and is `404` with the switch off and `503` until it is ready.
+its lifestones, its portals and where they lead, its vendors, the people who cannot be attacked,
+and its towns and named landmarks. A client draws them on its map and lists them, under what its
+player has seen. Only what the world content places is listed: never a player, nothing anyone
+carries and no house owner. It is read with the portal table, and is `404` with the switch off and
+`503` until it is ready.
 
 ```
 dereth-places-store	1
 world	<world name>
-place	<kind>	published	<wcid>	<name>	<at>	0	0	-	<to or ->
+place	<kind>	published	<wcid or ->	<name>	<at>	0	0	-	<to or ->
 ```
 
 - One `place` line for each landblock instance whose weenie is a lifestone (`lifestone`), a portal
   (`portal`), a vendor (`vendor`), or a creature (`Creature` or `Cow`) whose item type is a
-  creature's and whose `Attackable` is false (`npc`). A weenie whose `UiHidden` is true is left out.
+  creature's and whose `Attackable` is false (`npc`); one for each portal a spawner makes, as the
+  portal table lists it; and one for each town (`town`) and named landmark (`landmark`), with no
+  `wcid`. A weenie whose `UiHidden` is true is left out.
+- Towns and landmarks are at their drop points. The `points_of_interest` table names landmarks: each
+  is where its portal leads. Portals that lead outdoors name places too, when their name is
+  `Portal to <place>`, `Portal to the <place>`, `<place> Portal` or `Town of <place>`: the drop point
+  is where most of that name's portals lead, a name is kept only when at least half its portals lead
+  within two landblocks of that point, and of two names within two landblocks of each other the one
+  more portals lead to is kept (a landmark of the table over both). A portal named by the place's
+  bare name (`Danby's Outpost`) names it too, below those shapes. A drop point outdoors with at least
+  three vendors placed within a landblock of it is a town; a landmark of the table that is not is a
+  `landmark`, and a name from portals alone that is not is left out, so a bare name stands only
+  where vendors confirm it.
 - They are ordered by cell, then kind in that order, then `wcid`, then instance.
-- `at` is where it stands, and a portal's `to` where it leads (`-` when its weenie names no
-  destination), each written as the portal table writes positions. Names are written the same way.
+- `at` is where it stands, and a portal's `to` where it leads (`-` when it names no destination),
+  each written as the portal table writes positions. Names are written the same way.
 - The two zeros are when the place was first and last seen, which a server does not know, and the
   `-` is a house's owner, which it never names.
 

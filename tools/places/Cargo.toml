@@ -1,0 +1,25 @@
+[package]
+name = "dereth-places"
+description = "Builds a world's portal table and places for an era from the era's public world database, fetching and caching the database first."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autotests = false
+
+[dependencies]
+# The documents, the dump reader and where each era's database is published.
+dereth-world-places.workspace = true
+dereth-primitives.workspace = true
+# Fetching a release over HTTPS (rustls with its ring provider and the web's root certificates).
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+# The releases are zips.
+zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+# A release is checked against its SHA-256 before it is kept.
+sha2.workspace = true
+# The release list's answers.
+serde_json.workspace = true
+
+[lints]
+workspace = true

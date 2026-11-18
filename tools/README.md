@@ -115,3 +115,18 @@ and decodes every session with the workspace's own transport and codecs, and wri
 index: `ingest`, `stats`, `query` and `triage` (decode failures grouped by type and error, as
 markdown). See [`pcap/README.md`](pcap/README.md) for the workflow and for what these captures can
 and cannot tell you.
+
+## `dereth-places` — a world's places from its era's database
+
+Builds the portal table and the places a launcher builds for a world it joins, from the public
+world database of the world's era: where each portal stands, where it leads and what it asks, and
+the world's lifestones, vendors, people, towns and landmarks. `fetch` downloads and checks an
+era's database and keeps it in the per-user cache Empyrean's import tool keeps the same files in;
+`build` reads it (fetching it first when it is not there) and writes `portals.tsv` and
+`places.tsv`. The formats are the ones a server publishes ([empyrean/README.md](../empyrean/README.md#the-portal-table)).
+
+```text
+cargo run --release -p dereth-places -- build --era eor --out places-eor
+cargo run --release -p dereth-places -- build --era launch --sql <a dump or a release zip>
+cargo run --release -p dereth-places -- fetch --era infiltration
+```

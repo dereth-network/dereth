@@ -814,6 +814,7 @@ mod tests {
             failures: 0,
             levels: (None, None),
             retired: None,
+            requires: Vec::new(),
         };
         let j = plan_journey(
             &in_cell(a, 2.0, 5.0),

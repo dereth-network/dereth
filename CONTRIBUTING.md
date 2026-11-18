@@ -92,6 +92,10 @@ The tests of the older eras read four more, also with no default unless noted:
   `cargo run -p empyrean-import -- fetch --world 16py --pack --out world.pack.infiltration` (default:
   `world.pack.infiltration` at the top of the checkout). Without it, `ci tier1` reports the
   real-content rows that read it as NO-ORACLE.
+- `EMPYREAN_TEST_INFILTRATION_SQL` and `EMPYREAN_TEST_LAUNCH_SQL`: the February 2005 world's dump
+  and the Launch world's SQL, which the era places tests build each era's places from (default: the
+  per-user world-database cache, where `cargo run -p dereth-places -- fetch --era infiltration` and
+  `--era launch` keep them).
 
 Asheron's Call 2's tests (`auberean`, `yalain`, `athenaeum` and `core/auberean-*`) read two of
 their own, also with no default; `cargo xtask ci tier1` runs its data tiers with them

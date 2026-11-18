@@ -1,20 +1,25 @@
 //! Divergence: V458
 //! The status endpoint's portal table and places: `/portals` and `/places` are not served unless
 //! `server.publish_portals` is on, and when it is, the portal table lists every placed portal with
-//! a destination, in from-cell then class order, with land cells for bare landblocks, level limits
-//! and escaped names; the places list every placed lifestone, portal, vendor and creature that
-//! cannot be attacked, in the client's place-store format; and the status document names both.
+//! a destination, in from-cell then class order, with land cells for bare landblocks, level limits,
+//! escaped names and what else each asks; the places list every placed lifestone, portal, vendor
+//! and creature that cannot be attacked, in the client's place-store format; the portals spawners
+//! make are listed in both, and the towns the world names in the places; and the status document
+//! names both.
 //! Fixture: a small in-memory world of placed portals, a portal with no destination and a
 //! non-portal, and for the places a lifestone, a vendor, people, a monster, a hidden person and a
-//! creature that is no creature by its item type.
+//! creature that is no creature by its item type; and a world of a quest-gated portal, a spawner
+//! that makes one while its event runs, a named landmark and the vendors of its town.
 
 use std::sync::Arc;
 
 use dereth_navigation::{EdgeSource, PlaceKind, PlaceStore};
-use empyrean_content::models::world::{LandblockInstance, Weenie};
+use empyrean_content::models::world::{
+    Event, LandblockInstance, PointsOfInterest, Weenie, WeeniePropertiesGenerator,
+};
 use empyrean_content::MemContent;
 use empyrean_entity::enums::{PositionType, PropertyBool, PropertyInt, PropertyString, WeenieType};
-use empyrean_server::portal_table::{self, Documents, PortalTable};
+use empyrean_server::portal_table::{self, PortalTable};
 use empyrean_server::status_endpoint::{respond, respond_with_portals, StatusSnapshot};
 
 const NORTH: [f32; 4] = [1.0, 0.0, 0.0, 0.0];
@@ -89,11 +94,11 @@ fn world() -> MemContent {
         ))
 }
 
-const EXPECTED: &str = "dereth-navigation-store\t1\n\
+const EXPECTED: &str = "dereth-navigation-store\t2\n\
 world\tTest World \\\\ One\n\
-portal\tpublished\t999\tPlain Portal\t0x12340039 191.900 0.500 10.000\t0xC6A9000D 30.000 100.000 12.500\t0\t0\t0\t-\t-\t-\n\
-portal\tpublished\t999\tPlain Portal\t0xA9B40021 86.000 8.000 94.000\t0xC6A9000D 30.000 100.000 12.500\t0\t0\t0\t-\t-\t-\n\
-portal\tpublished\t1000\tRanged Portal \\\\ One\t0xA9B40021 84.000 7.500 94.000\t0x01AC0118 60.000 -50.250 0.500\t0\t0\t0\t10\t50\t-\n";
+portal\tpublished\t999\tPlain Portal\t0x12340039 191.900 0.500 10.000\t0xC6A9000D 30.000 100.000 12.500\t0\t0\t0\t-\t-\t-\t-\n\
+portal\tpublished\t999\tPlain Portal\t0xA9B40021 86.000 8.000 94.000\t0xC6A9000D 30.000 100.000 12.500\t0\t0\t0\t-\t-\t-\t-\n\
+portal\tpublished\t1000\tRanged Portal \\\\ One\t0xA9B40021 84.000 7.500 94.000\t0x01AC0118 60.000 -50.250 0.500\t0\t0\t0\t10\t50\t-\t-\n";
 
 fn snapshot() -> Option<StatusSnapshot> {
     None
@@ -180,7 +185,7 @@ fn the_portal_table_is_built_off_the_endpoint_and_answered_as_not_ready_until_it
     let (release, gate) = std::sync::mpsc::channel::<()>();
     let table = PortalTable::building(move || {
         let _ = gate.recv_timeout(std::time::Duration::from_secs(5));
-        Documents::of("Test\tWorld \\ One", &world())
+        portal_table::documents("Test\tWorld \\ One", &world())
     });
     // While it is being built, the endpoint answers without waiting for it: the table is not
     // ready, and the other paths are as ever.
@@ -403,4 +408,129 @@ fn the_places_are_served_and_the_status_document_names_both_documents() {
         "{r}"
     );
     assert!(r.ends_with(&format!("\r\n\r\n{PLACES}")), "{r}");
+}
+
+/// A world of a quest-gated portal to a town, a spawner that makes a portal while its event runs
+/// (the event is off), the town as a named landmark, and the town's vendors.
+fn asking_world() -> MemContent {
+    let town = [84.0, 7.1, 94.0];
+    let mut spawner = Weenie::new(3000, "gen", WeenieType::Generic)
+        .with_string(PropertyString::GeneratorEvent, "Snowreap");
+    spawner
+        .weenie_properties_generator
+        .push(WeeniePropertiesGenerator {
+            id: 1,
+            object_id: 3000,
+            probability: -1.0,
+            weenie_class_id: 2001,
+            delay: None,
+            init_create: 1,
+            max_create: 1,
+            when_create: 2,
+            where_create: 4,
+            stack_size: None,
+            palette_id: None,
+            shade: None,
+            obj_cell_id: Some(0xA9B4_0022),
+            origin_x: Some(80.0),
+            origin_y: Some(30.0),
+            origin_z: Some(5.0),
+            angles_w: Some(1.0),
+            angles_x: Some(0.0),
+            angles_y: Some(0.0),
+            angles_z: Some(0.0),
+        });
+    let mut content = MemContent::new()
+        .weenie(
+            Weenie::new(2000, "portalholtburg", WeenieType::Portal)
+                .with_string(PropertyString::Name, "Portal to Holtburg")
+                .with_string(PropertyString::QuestRestriction, "HoltburgFlag")
+                .with_int(PropertyInt::PortalBitmask, 0x1 | 0x2)
+                .with_position(PositionType::Destination, 0xA9B4_0019, town, NORTH),
+        )
+        .weenie(
+            Weenie::new(2001, "portalfestival", WeenieType::Portal)
+                .with_string(PropertyString::Name, "Festival")
+                .with_position(
+                    PositionType::Destination,
+                    0x01AC_0118,
+                    [60.0, -50.25, 0.5],
+                    NORTH,
+                ),
+        )
+        .weenie(spawner)
+        .weenie(
+            Weenie::new(1100, "shopkeep", WeenieType::Vendor)
+                .with_string(PropertyString::Name, "Shopkeep"),
+        )
+        .event(Event {
+            id: 1,
+            name: "Snowreap".into(),
+            start_time: -1,
+            end_time: -1,
+            state: 3,
+            last_modified: Default::default(),
+        })
+        .point_of_interest(PointsOfInterest {
+            id: 1,
+            name: "Holtburg".into(),
+            weenie_class_id: 2000,
+            last_modified: Default::default(),
+        })
+        .landblock_instance(LandblockInstance::new(
+            0x7123_4001,
+            2000,
+            0x1234_0002,
+            [30.0, 30.0, 0.0],
+        ))
+        .landblock_instance(LandblockInstance::new(
+            0x7A9B_4001,
+            3000,
+            0xA9B4_0021,
+            [84.0, 7.5, 94.0],
+        ));
+    for (i, cell) in [0xA9B4_0021, 0xA9B3_0001, 0xAAB4_0001]
+        .into_iter()
+        .enumerate()
+    {
+        content = content.landblock_instance(LandblockInstance::new(
+            0x7A9B_4100 + u32::try_from(i).unwrap(),
+            1100,
+            cell,
+            [10.0, 10.0, 0.0],
+        ));
+    }
+    content
+}
+
+#[test]
+fn the_portal_table_says_what_each_portal_asks_and_lists_the_portals_spawners_make() {
+    let content = asking_world();
+    let table = portal_table::document("W", &content);
+    assert_eq!(
+        table,
+        "dereth-navigation-store\t2\nworld\tW\n\
+portal\tpublished\t2000\tPortal to Holtburg\t0x12340002 30.000 30.000 0.000\t0xA9B40019 84.000 7.100 94.000\t0\t0\t0\t-\t-\t-\tquest HoltburgFlag;no-pk\n\
+portal\tpublished\t2001\tFestival\t0xA9B40022 80.000 30.000 5.000\t0x01AC0118 60.000 -50.250 0.500\t0\t0\t0\t-\t-\t-\tevent Snowreap off\n"
+    );
+    // The client reads what each asks.
+    let store = dereth_navigation::PortalStore::from_text(&table).expect("the client reads it");
+    let flagless = dereth_navigation::Traveller {
+        quests: Some(std::collections::BTreeSet::new()),
+        ..dereth_navigation::Traveller::at_level(Some(20))
+    };
+    assert!(store.routable_for(&flagless).is_empty());
+    let places = PlaceStore::from_text(&portal_table::places_document("W", &content))
+        .expect("the client reads the places");
+    let named = |kind: PlaceKind| {
+        places
+            .places()
+            .iter()
+            .filter(|p| p.kind == kind)
+            .map(|p| p.name.as_str())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(named(PlaceKind::Portal), ["Portal to Holtburg", "Festival"]);
+    assert_eq!(named(PlaceKind::Town), ["Holtburg"]);
+    assert_eq!(named(PlaceKind::Vendor).len(), 3);
 }

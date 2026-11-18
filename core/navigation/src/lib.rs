@@ -1,8 +1,9 @@
 //! Navigation: a walkable route from one position to another, in a dungeon or outdoors, through
 //! the right corridors and streets and around the objects in them.
 //!
-//! **Depends on** `dereth-primitives` and `dereth-physics` (its shapes, its walkable slope and, for
-//! checking a route, its world). **Used by** the client runtime (`dereth-client-runtime`: its
+//! **Depends on** `dereth-primitives`, `dereth-physics` (its shapes, its walkable slope and, for
+//! checking a route, its world) and `dereth-world-places` (what a portal asks, as a world's portal
+//! table writes it). **Used by** the client runtime (`dereth-client-runtime`: its
 //! journeys, its `--nav-proof` run and the places of a world it learns, [`PlaceStore`]), the plugin
 //! host and the client's world map.
 //!
@@ -73,8 +74,8 @@ pub use path::{global, global_distance};
 pub use path::{End, NavPath, NoPath, Waypoint, WaypointAction};
 pub use places::{KnownPlace, PlaceKind, PlaceStore, PortalUseWatch, PLACES_VERSION};
 pub use portals::{
-    EdgeSource, PortalEdge, PortalSighting, PortalStore, Recall, RecallEdge, StoreError,
-    TeleportOutcome, TeleportWatch, STORE_VERSION,
+    EdgeSource, PkStatus, PortalEdge, PortalSighting, PortalStore, Recall, RecallEdge, Refusal,
+    Requirement, StoreError, TeleportOutcome, TeleportWatch, Traveller, STORE_VERSION,
 };
 pub use region::{BuildReport, Place, Region};
 pub use source::{

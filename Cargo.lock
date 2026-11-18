@@ -1980,6 +1980,7 @@ dependencies = [
  "dereth-physics",
  "dereth-primitives",
  "dereth-world-data",
+ "dereth-world-places",
  "thiserror 2.0.20",
 ]
 
@@ -2069,6 +2070,18 @@ dependencies = [
  "dereth-dat",
  "dereth-primitives",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "dereth-places"
+version = "0.0.0"
+dependencies = [
+ "dereth-primitives",
+ "dereth-world-places",
+ "serde_json",
+ "sha2",
+ "ureq",
+ "zip",
 ]
 
 [[package]]
@@ -2513,6 +2526,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "dereth-world-places"
+version = "0.0.0"
+dependencies = [
+ "dereth-primitives",
+]
+
+[[package]]
 name = "dereth-world-render"
 version = "0.0.0"
 dependencies = [
@@ -2873,6 +2893,7 @@ dependencies = [
  "dereth-server-updater",
  "dereth-server-websocket",
  "dereth-transport",
+ "dereth-world-places",
  "embed-resource",
  "empyrean-command",
  "empyrean-common",

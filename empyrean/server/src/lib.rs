@@ -6,7 +6,8 @@
 //! `empyrean-command`, the shared `dereth-dat` for its search of the dat folder, and the game
 //! servers' `dereth-server-websocket` for the WebSocket endpoint, and the Dereth Network's protocol
 //! (`dereth-network-protocol`) and a world's end of its link (`dereth-network-link`) for its link
-//! to the hub; the updater is the shared `dereth-server-updater`. **Used by** nothing: it is the `empyrean-server`
+//! to the hub; the updater is the shared `dereth-server-updater`; the portal table and places are
+//! built by the shared `dereth-world-places`. **Used by** nothing: it is the `empyrean-server`
 //! binary, and this library half holds what the binary uses that its integration tests also reach.
 //!
 //! **Must never** be configured by anything but its configuration file and command line: no

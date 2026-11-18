@@ -33,6 +33,9 @@ members = [
     "core/audio",
     "core/client-sdk",
     "core/navigation",
+    # A world's places read from its world database: the documents a server publishes and a
+    # launcher builds from the public database of a world's era.
+    "core/world-places",
     # The world builders' shared machinery: the pack format (worlds, packs, symbols, the
     # lockfile and conflicts), each game's vocabulary supplied by its builder.
     "core/pack",
@@ -144,6 +147,8 @@ members = [
     "tools/plugin",
     "tools/web-dev",
     "tools/corpus",
+    # Builds a world's portal table and places for an era from its public world database.
+    "tools/places",
     "tools/art",
     "tools/xtask",
     # lyceum/: Lyceum, the world builder (MIT): its own product beside the client and the server.
@@ -303,6 +308,7 @@ dereth-web = { path = "dereth/web" }
 dereth-web-store = { path = "dereth/web/store" }
 dereth-web-dev = { path = "tools/web-dev" }
 dereth-web-relay = { path = "tools/web-relay" }
+dereth-world-places = { path = "core/world-places" }
 dereth-world-data = { path = "core/world-data" }
 dereth-world-render = { path = "dereth/client/crates/world-render" }
 empyrean-command = { path = "empyrean/crates/command" }

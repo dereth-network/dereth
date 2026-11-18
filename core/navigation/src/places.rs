@@ -50,19 +50,26 @@ pub enum PlaceKind {
     Npc,
     /// A house, known by its crystal, with its owner when it has one.
     House,
+    /// A town, at its drop point: where a portal to it leaves a character.
+    Town,
+    /// A named place that is no town, at its drop point.
+    Landmark,
 }
 
 impl PlaceKind {
     /// Every kind, in the order they are listed.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 7] = [
         Self::Lifestone,
         Self::Portal,
         Self::Vendor,
         Self::Npc,
         Self::House,
+        Self::Town,
+        Self::Landmark,
     ];
 
-    /// The kind as one word: `lifestone`, `portal`, `vendor`, `npc` or `house`.
+    /// The kind as one word: `lifestone`, `portal`, `vendor`, `npc`, `house`, `town` or
+    /// `landmark`.
     #[must_use]
     pub const fn word(self) -> &'static str {
         match self {
@@ -71,6 +78,8 @@ impl PlaceKind {
             Self::Vendor => "vendor",
             Self::Npc => "npc",
             Self::House => "house",
+            Self::Town => "town",
+            Self::Landmark => "landmark",
         }
     }
 
@@ -83,7 +92,7 @@ impl PlaceKind {
     /// The place an object the server created is, from its description's flags and item type;
     /// `None` for anything else (a player, an item, a monster, a door). A house is not told
     /// by its description: it is learned from what the server says of it when its crystal is
-    /// used.
+    /// used. A town and a landmark are never seen: they are only ever published.
     #[must_use]
     pub const fn of(bitfield: u32, item_type: u32) -> Option<Self> {
         if bitfield & (flag::PLAYER | flag::UI_HIDDEN) != 0 {

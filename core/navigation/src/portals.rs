@@ -21,11 +21,14 @@
 use std::fmt::Write as _;
 
 use dereth_primitives::{CellId, Frame, Position, Quat, Vec3};
+use dereth_world_places::requirement;
+pub use dereth_world_places::Requirement;
 
 use crate::path::global_distance;
 
-/// The store's format version, the first line's second field.
-pub const STORE_VERSION: u32 = 1;
+/// The store's format version, the first line's second field. Version 1 had no `requires`
+/// field; it reads still.
+pub const STORE_VERSION: u32 = 2;
 
 /// Where an edge came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -103,6 +106,104 @@ pub struct PortalEdge {
     pub levels: (Option<i32>, Option<i32>),
     /// Why it is not used, when it is retired: the last refusal.
     pub retired: Option<String>,
+    /// What else it asks, of the character who uses it or of the world for it to stand there.
+    pub requires: Vec<Requirement>,
+}
+
+/// A character's standing as a player killer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PkStatus {
+    /// Not a player killer.
+    Npk,
+    /// A player killer.
+    Pk,
+    /// A lite player killer.
+    PkLite,
+}
+
+/// What is known of the character who would use a portal, and of the world it would be used in.
+/// A portal asking what is not known (`None`) is taken to admit the character, as one asking
+/// nothing would.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Traveller {
+    pub level: Option<i32>,
+    /// The quest flags the character holds.
+    pub quests: Option<std::collections::BTreeSet<String>>,
+    pub pk: Option<PkStatus>,
+    /// Whether the character is an Olthoi.
+    pub olthoi: bool,
+    /// Whether the character is weakened by vitae.
+    pub vitae: bool,
+    /// Whether the character, or its account, is two weeks old.
+    pub account_two_weeks: bool,
+    /// The account's subscription, as portals rank it.
+    pub subscription: Option<u32>,
+    pub advocate: bool,
+    /// Events known to run (`true`) or not, by name in any case; the others are as the portal's
+    /// table says.
+    pub events: std::collections::BTreeMap<String, bool>,
+    /// Whether it is night in the world.
+    pub night: Option<bool>,
+}
+
+impl Default for Traveller {
+    fn default() -> Self {
+        Self::at_level(None)
+    }
+}
+
+impl Traveller {
+    /// A character of `level` (when known) of whom nothing else is known: no Olthoi, no vitae,
+    /// an account two weeks old and no Advocate.
+    #[must_use]
+    pub const fn at_level(level: Option<i32>) -> Self {
+        Self {
+            level,
+            quests: None,
+            pk: None,
+            olthoi: false,
+            vitae: false,
+            account_two_weeks: true,
+            subscription: None,
+            advocate: false,
+            events: std::collections::BTreeMap::new(),
+            night: None,
+        }
+    }
+
+    /// Whether the event `name` runs, when a portal's table says it does (`on`) unless switched
+    /// off.
+    #[must_use]
+    pub fn runs(&self, name: &str, on: bool) -> bool {
+        self.events
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(name))
+            .map_or(on, |(_, &v)| v)
+    }
+}
+
+/// Why a portal would not take a character.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Refusal {
+    /// A use was refused, or landed elsewhere, and none has succeeded since: the reason given.
+    Retired(String),
+    /// The character is below its lowest level.
+    BelowLevel(i32),
+    /// The character is above its highest level.
+    AboveLevel(i32),
+    /// It asks what the character, or the world, does not have.
+    Requires(Requirement),
+}
+
+impl std::fmt::Display for Refusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Retired(why) => write!(f, "refused before: {why}"),
+            Self::BelowLevel(min) => write!(f, "level {min} at least"),
+            Self::AboveLevel(max) => write!(f, "level {max} at most"),
+            Self::Requires(r) => write!(f, "requires {r}"),
+        }
+    }
 }
 
 impl PortalEdge {
@@ -122,6 +223,46 @@ impl PortalEdge {
     pub fn admits(&self, level: Option<i32>) -> bool {
         let Some(l) = level else { return true };
         self.levels.0.is_none_or(|min| l >= min) && self.levels.1.is_none_or(|max| l <= max)
+    }
+
+    /// Why it would not take `traveller`, as far as is known; `None` when it would.
+    #[must_use]
+    pub fn refusal(&self, traveller: &Traveller) -> Option<Refusal> {
+        if let Some(why) = &self.retired {
+            return Some(Refusal::Retired(why.clone()));
+        }
+        if let Some(l) = traveller.level {
+            if let Some(min) = self.levels.0.filter(|&min| l < min) {
+                return Some(Refusal::BelowLevel(min));
+            }
+            if let Some(max) = self.levels.1.filter(|&max| l > max) {
+                return Some(Refusal::AboveLevel(max));
+            }
+        }
+        let t = traveller;
+        self.requires
+            .iter()
+            .find(|r| match r {
+                Requirement::Closed | Requirement::Temporary => true,
+                Requirement::Quest(q) => t
+                    .quests
+                    .as_ref()
+                    .is_some_and(|held| !held.iter().any(|h| h.eq_ignore_ascii_case(q))),
+                Requirement::NoPk => t.pk == Some(PkStatus::Pk),
+                Requirement::NoPkLite => t.pk == Some(PkStatus::PkLite),
+                Requirement::NoNpk => t.pk == Some(PkStatus::Npk),
+                Requirement::OlthoiOnly => !t.olthoi,
+                Requirement::NoOlthoi => t.olthoi,
+                Requirement::NoVitae => t.vitae,
+                Requirement::AccountAge => !t.account_two_weeks,
+                Requirement::Account(n) => t.subscription.is_some_and(|s| s < *n),
+                Requirement::Advocate => !t.advocate,
+                Requirement::Event { name, on } => !t.runs(name, *on),
+                Requirement::Night => t.night == Some(false),
+                Requirement::Day => t.night == Some(true),
+                Requirement::Other(_) => false,
+            })
+            .map(|r| Refusal::Requires(r.clone()))
     }
 }
 
@@ -327,6 +468,7 @@ impl PortalStore {
             failures: 0,
             levels: (None, None),
             retired: None,
+            requires: Vec::new(),
         });
     }
 
@@ -356,6 +498,7 @@ impl PortalStore {
                 failures: 1,
                 levels: (None, None),
                 retired: Some(reason.to_owned()),
+                requires: Vec::new(),
             });
         }
     }
@@ -372,10 +515,18 @@ impl PortalStore {
         }
     }
 
-    /// The edges a route may use: per portal the most trusted edge that knows a destination,
-    /// unless that portal is retired by any of its edges, or does not admit `level`.
+    /// The edges a route may use for a character of `level` of whom nothing else is known
+    /// ([`Self::routable_for`] with [`Traveller::at_level`]).
     #[must_use]
     pub fn routable(&self, level: Option<i32>) -> Vec<&PortalEdge> {
+        self.routable_for(&Traveller::at_level(level))
+    }
+
+    /// The edges a route may use for `traveller`: per portal the most trusted edge that knows a
+    /// destination, unless that portal is retired by any of its edges, or that edge would refuse
+    /// the traveller ([`PortalEdge::refusal`]).
+    #[must_use]
+    pub fn routable_for(&self, traveller: &Traveller) -> Vec<&PortalEdge> {
         let mut out: Vec<&PortalEdge> = Vec::new();
         for e in &self.portals {
             let same: Vec<&PortalEdge> = self
@@ -393,7 +544,7 @@ impl PortalStore {
             else {
                 continue;
             };
-            if !std::ptr::eq(*best, e) || !best.admits(level) {
+            if !std::ptr::eq(*best, e) || best.refusal(traveller).is_some() {
                 continue;
             }
             out.push(e);
@@ -434,14 +585,16 @@ impl PortalStore {
     /// The store as text:
     ///
     /// ```text
-    /// dereth-navigation-store<TAB>1
+    /// dereth-navigation-store<TAB>2
     /// world<TAB><identity>
-    /// portal<TAB>source<TAB>wcid<TAB>name<TAB>from<TAB>to<TAB>verified<TAB>uses<TAB>failures<TAB>min<TAB>max<TAB>retired
+    /// portal<TAB>source<TAB>wcid<TAB>name<TAB>from<TAB>to<TAB>verified<TAB>uses<TAB>failures<TAB>min<TAB>max<TAB>retired<TAB>requires
     /// recall<TAB>character<TAB>recall<TAB>to<TAB>verified<TAB>uses
     /// ```
     ///
     /// A position is `0xCELLID x y z`; an absent value is `-`; names and reasons have their tabs,
-    /// line breaks and backslashes escaped.
+    /// line breaks and backslashes escaped. `requires` is what else the portal asks, its terms
+    /// separated by `;` ([`dereth_world_places::requirement`]), `-` for nothing. A version 1
+    /// store's `portal` lines have no `requires`.
     #[must_use]
     pub fn to_text(&self) -> String {
         let mut out = format!(
@@ -451,7 +604,7 @@ impl PortalStore {
         for e in &self.portals {
             let _ = writeln!(
                 out,
-                "portal\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                "portal\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 e.source.word(),
                 opt(e.wcid),
                 escape(&e.name),
@@ -466,6 +619,7 @@ impl PortalStore {
                 e.retired
                     .as_deref()
                     .map_or_else(|| String::from("-"), escape),
+                escape(&requirement::write_field(&e.requires)),
             );
         }
         for r in &self.recalls {
@@ -511,7 +665,7 @@ impl PortalStore {
                 Some("world") => {
                     store.world = unescape(f.get(1).copied().unwrap_or(""));
                 }
-                Some("portal") if f.len() == 12 => {
+                Some("portal") if f.len() == 12 || (version >= 2 && f.len() == 13) => {
                     let e = PortalEdge {
                         source: EdgeSource::parse(f[1]).ok_or_else(|| bad("source"))?,
                         wcid: read_opt(f[2]).map_err(|()| bad("wcid"))?,
@@ -530,6 +684,10 @@ impl PortalStore {
                             read_opt(f[10]).map_err(|()| bad("max level"))?,
                         ),
                         retired: (f[11] != "-").then(|| unescape(f[11])),
+                        requires: f
+                            .get(12)
+                            .map(|r| requirement::read_field(&unescape(r)))
+                            .unwrap_or_default(),
                     };
                     store.portals.push(e);
                 }
@@ -740,6 +898,7 @@ mod tests {
             failures: 0,
             levels: (None, None),
             retired: None,
+            requires: Vec::new(),
         }]);
         assert_eq!(s.routable(None).len(), 1);
         s.learn_refusal(&sighting(10.0), "You are not powerful enough", 300);
@@ -775,6 +934,7 @@ mod tests {
             failures: 0,
             levels: (Some(10), None),
             retired: None,
+            requires: Vec::new(),
         };
         s.merge([hint.clone()]);
         assert!(
@@ -793,6 +953,129 @@ mod tests {
         assert_eq!(best.len(), 1);
         assert_eq!(best[0].source, EdgeSource::Learned);
         assert_eq!(s.portals().len(), 3, "the others are kept beside it");
+    }
+
+    fn published(x: f32, levels: (Option<i32>, Option<i32>), requires: &str) -> PortalEdge {
+        PortalEdge {
+            source: EdgeSource::Published,
+            wcid: Some(1234),
+            name: String::from("Portal to Somewhere"),
+            from: at(0xA9B4_0011, x, 20.0),
+            to: Some(at(0x0106_0104, 0.0, 0.0)),
+            verified: 0,
+            uses: 0,
+            failures: 0,
+            levels,
+            retired: None,
+            requires: requirement::read_field(requires),
+        }
+    }
+
+    #[test]
+    fn a_portal_turns_away_a_character_it_asks_more_of_and_says_why() {
+        let arena = published(10.0, (Some(40), Some(80)), "quest ArenaFlag;no-pk;no-vitae");
+        let pk = Traveller {
+            pk: Some(PkStatus::Pk),
+            ..Traveller::at_level(Some(60))
+        };
+        assert_eq!(
+            arena.refusal(&Traveller::at_level(Some(30))),
+            Some(Refusal::BelowLevel(40))
+        );
+        assert_eq!(
+            arena.refusal(&Traveller::at_level(Some(90))),
+            Some(Refusal::AboveLevel(80))
+        );
+        assert_eq!(
+            arena.refusal(&pk),
+            Some(Refusal::Requires(Requirement::NoPk))
+        );
+        // A character whose flags are not known is taken to hold them; one whose flags are
+        // known is not.
+        assert_eq!(arena.refusal(&Traveller::at_level(Some(60))), None);
+        let flagless = Traveller {
+            quests: Some(std::collections::BTreeSet::new()),
+            ..Traveller::at_level(Some(60))
+        };
+        assert_eq!(
+            arena.refusal(&flagless).map(|r| r.to_string()),
+            Some(String::from("requires quest ArenaFlag"))
+        );
+        let flagged = Traveller {
+            quests: Some(["arenaflag".to_owned()].into()),
+            vitae: true,
+            ..flagless
+        };
+        assert_eq!(
+            arena.refusal(&flagged),
+            Some(Refusal::Requires(Requirement::NoVitae))
+        );
+
+        // What the world must be for a portal to stand there: an event off unless switched on,
+        // the night, and a portal that stands only a while, which no route counts on.
+        let festival = published(10.0, (None, None), "event Snowreap off;night");
+        assert_eq!(
+            festival.refusal(&Traveller::default()),
+            Some(Refusal::Requires(Requirement::Event {
+                name: "Snowreap".into(),
+                on: false
+            }))
+        );
+        let mut snowreap = Traveller::default();
+        snowreap.events.insert("snowreap".into(), true);
+        assert_eq!(festival.refusal(&snowreap), None);
+        snowreap.night = Some(false);
+        assert_eq!(
+            festival.refusal(&snowreap),
+            Some(Refusal::Requires(Requirement::Night))
+        );
+        for never in ["closed", "temporary"] {
+            let p = published(10.0, (None, None), never);
+            assert!(p.refusal(&Traveller::default()).is_some(), "{never}");
+        }
+
+        // Routes leave out what would turn the character away.
+        let mut s = PortalStore::new("loopback");
+        s.merge([arena, published(30.0, (None, None), "closed")]);
+        assert_eq!(
+            s.routable(Some(60)).len(),
+            1,
+            "the closed portal is never routed"
+        );
+        assert!(s.routable_for(&pk).is_empty());
+    }
+
+    #[test]
+    fn a_version_1_store_reads_and_a_portals_requirements_read_back() {
+        let v1 = "dereth-navigation-store\t1\nworld\tW\n\
+portal\tpublished\t1000\tRanged\t0xA9B40021 84.000 7.500 94.000\t0x01AC0118 60.000 -50.250 0.500\t0\t0\t0\t10\t50\t-\n";
+        let s = PortalStore::from_text(v1).expect("a version 1 store reads");
+        assert_eq!(s.portals()[0].levels, (Some(10), Some(50)));
+        assert!(s.portals()[0].requires.is_empty());
+        let v2 = format!("{}\t-\n", v1.trim_end().replacen("\t1\n", "\t2\n", 1));
+        assert_eq!(
+            PortalStore::from_text(&v2).expect("a version 2 store reads"),
+            s
+        );
+        // A line of version 2's width in a version 1 store is no line of that version.
+        let wide = format!("{}\t-\n", v1.trim_end());
+        assert!(PortalStore::from_text(&wide).is_err());
+        let mut s = PortalStore::new("W");
+        s.merge([published(
+            10.0,
+            (None, None),
+            "quest Gharu'n\\; Temple;event Fair on;tide high",
+        )]);
+        let back = PortalStore::from_text(&s.to_text()).expect("reads back");
+        assert_eq!(back, s);
+        assert_eq!(
+            back.portals()[0].requires[0],
+            Requirement::Quest("Gharu'n; Temple".into())
+        );
+        assert_eq!(
+            back.portals()[0].requires[2],
+            Requirement::Other("tide high".into())
+        );
     }
 
     #[test]
@@ -815,7 +1098,7 @@ mod tests {
             300,
         );
         let text = s.to_text();
-        assert!(text.starts_with("dereth-navigation-store\t1\n"), "{text}");
+        assert!(text.starts_with("dereth-navigation-store\t2\n"), "{text}");
         assert_eq!(PortalStore::from_text(&text), Ok(s));
         assert_eq!(
             PortalStore::from_text("dereth-navigation-store\t9\n"),

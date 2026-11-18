@@ -333,6 +333,7 @@ impl ScriptedTravel {
             failures: 0,
             levels: (None, None),
             retired: None,
+            requires: Vec::new(),
         }));
         self.refusing = portals
             .iter()

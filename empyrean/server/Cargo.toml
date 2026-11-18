@@ -24,6 +24,9 @@ empyrean-common.workspace = true
 empyrean-entity.workspace = true
 # `locate_modern_dats`: the one search for the retail dat folder, shared with the client.
 dereth-dat.workspace = true
+# The portal table and places the status endpoint publishes (`src/portal_table.rs`): built from
+# the loaded content by the builder a launcher builds them with from an era's public database.
+dereth-world-places.workspace = true
 log.workspace = true
 # Named for its `log` feature alone: the shared crates the server runs on (dats, physics, world
 # data) emit `tracing` events, and with no `tracing` subscriber installed the feature hands each

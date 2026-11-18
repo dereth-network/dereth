@@ -1244,6 +1244,11 @@ impl WorldDatabaseWithEntityCache {
     pub fn get_landblock_instances_by_wcid(&self, wcid: u32) -> Vec<LandblockInstance> {
         self.base.get_landblock_instances_by_wcid(wcid)
     }
+    /// Not ACE: see [`WorldDatabaseBase::get_all_landblock_instances`].
+    #[must_use]
+    pub fn get_all_landblock_instances(&self) -> Vec<LandblockInstance> {
+        self.base.get_all_landblock_instances()
+    }
     /// Not ACE: see [`WorldDatabaseBase::get_landblock_instances_of_type`].
     #[must_use]
     pub fn get_landblock_instances_of_type(

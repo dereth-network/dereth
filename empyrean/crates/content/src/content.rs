@@ -72,6 +72,12 @@ macro_rules! world_database_api {
             ) -> Vec<(LandblockInstance, Arc<Weenie>)> {
                 Vec::new()
             }
+
+            /// Not ACE: every landblock instance, with its links, in guid order, read in one pass
+            /// without loading any landblock. Empty for content with no pack.
+            fn get_all_landblock_instances(&self) -> Vec<LandblockInstance> {
+                Vec::new()
+            }
         }
 
         impl WorldDatabase for WorldDatabaseWithEntityCache {
@@ -114,6 +120,9 @@ macro_rules! world_database_api {
             ) -> Vec<(LandblockInstance, Arc<Weenie>)> {
                 WorldDatabaseWithEntityCache::get_landblock_instances_of_type(self, weenie_type)
             }
+            fn get_all_landblock_instances(&self) -> Vec<LandblockInstance> {
+                WorldDatabaseWithEntityCache::get_all_landblock_instances(self)
+            }
         }
 
         impl WorldDatabase for MemContent {
@@ -155,6 +164,9 @@ macro_rules! world_database_api {
                 weenie_type: WeenieType,
             ) -> Vec<(LandblockInstance, Arc<Weenie>)> {
                 self.db().get_landblock_instances_of_type(weenie_type)
+            }
+            fn get_all_landblock_instances(&self) -> Vec<LandblockInstance> {
+                self.db().get_all_landblock_instances()
             }
         }
     };

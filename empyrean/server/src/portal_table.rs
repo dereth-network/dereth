@@ -8,65 +8,177 @@
 //! weenies), never from the live world, so no landblock is loaded to build them, and no player,
 //! nothing a player carries and no house owner is ever in them.
 //!
-//! Both documents are tab-separated text with LF line endings (`→` marks a tab). The portal table:
-//!
-//! ```text
-//! dereth-navigation-store→1
-//! world→<world name>
-//! portal→published→<wcid>→<name>→<from>→<to>→0→0→0→<min level or ->→<max level or ->→-
-//! ```
-//!
-//! There is one `portal` line per landblock instance whose weenie is a portal with a destination,
-//! ordered by its `from` cell, then its weenie class id, then its instance guid. A position is
-//! `0x<cell, 8 hex digits> <x> <y> <z>`, the coordinates to three decimals; a cell stored as a bare
-//! landblock (index 0) is written as the land cell its x and y fall in. The level limits are the
-//! weenie's `MinLevel` and `MaxLevel`, `-` when it has none. A name (the weenie's `Name`, else its
-//! class name) has each tab, line feed and carriage return replaced by a space, and each backslash
-//! doubled.
-//!
-//! The places:
-//!
-//! ```text
-//! dereth-places-store→1
-//! world→<world name>
-//! place→<kind>→published→<wcid>→<name>→<at>→0→0→-→<to or ->
-//! ```
-//!
-//! There is one `place` line per landblock instance whose weenie is a lifestone (`lifestone`), a
-//! portal (`portal`, with where it leads when its weenie says), a vendor (`vendor`), or a creature
-//! that cannot be attacked (`npc`), leaving out any whose weenie hides it from the interface. They
-//! are ordered by cell, then kind in that order, then weenie class id, then instance guid. Positions
-//! and names are written as the portal table writes them. The two zeros are when the place was
-//! first and last seen, which a server does not know, and the `-` is a house's owner, which it
-//! never names.
+//! The documents, and how they are read from a world's content, are `dereth-world-places`'s
+//! ([`dereth_world_places::documents`]): a launcher builds the same documents from the public
+//! database of a world's era with the same code, so the two agree on the same content. This
+//! module gives that builder the server's content ([`ServerContent`]) and builds the documents
+//! off the endpoint's thread ([`PortalTable`]).
 
-use std::sync::{Arc, OnceLock};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
 
+use dereth_world_places::{GameEvent, Landmark, Placement, Spawn, Spot, WorldSource};
 use empyrean_content::models::world::{LandblockInstance, Weenie};
 use empyrean_content::WorldDatabase;
-use empyrean_entity::enums::{PositionType, PropertyBool, PropertyInt, PropertyString, WeenieType};
 
-/// The portal table's first line.
-pub const HEADER: &str = "dereth-navigation-store\t1\n";
+pub use dereth_world_places::documents::{HEADER, PLACES_HEADER};
+pub use dereth_world_places::Documents;
 
-/// The places document's first line.
-pub const PLACES_HEADER: &str = "dereth-places-store\t1\n";
-
-/// What a world publishes: its portal table and its places.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Documents {
-    pub portals: String,
-    pub places: String,
+/// The server's loaded content, as the places are read from it. Each weenie is read from the
+/// content once.
+pub struct ServerContent<'a> {
+    content: &'a dyn WorldDatabase,
+    weenies: Mutex<HashMap<u32, Option<Arc<dereth_world_places::Weenie>>>>,
 }
 
-impl Documents {
-    /// Both documents of `content` for the world named `world_name`.
+impl std::fmt::Debug for ServerContent<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ServerContent").finish_non_exhaustive()
+    }
+}
+
+impl<'a> ServerContent<'a> {
+    /// The places' view of `content`.
     #[must_use]
-    pub fn of(world_name: &str, content: &dyn WorldDatabase) -> Self {
+    pub fn new(content: &'a dyn WorldDatabase) -> Self {
         Self {
-            portals: document(world_name, content),
-            places: places_document(world_name, content),
+            content,
+            weenies: Mutex::new(HashMap::new()),
         }
+    }
+}
+
+impl WorldSource for ServerContent<'_> {
+    fn placements(&self) -> Vec<Placement> {
+        self.content
+            .get_all_landblock_instances()
+            .iter()
+            .map(placement)
+            .collect()
+    }
+
+    fn weenie(&self, wcid: u32) -> Option<Arc<dereth_world_places::Weenie>> {
+        let mut weenies = self
+            .weenies
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        weenies
+            .entry(wcid)
+            .or_insert_with(|| self.content.get_weenie(wcid).map(|w| Arc::new(weenie(&w))))
+            .clone()
+    }
+
+    fn events(&self) -> Vec<GameEvent> {
+        self.content
+            .get_all_events()
+            .iter()
+            .map(|e| GameEvent {
+                name: e.name.clone(),
+                state: e.state,
+                start: i64::from(e.start_time),
+                end: i64::from(e.end_time),
+            })
+            .collect()
+    }
+
+    fn landmarks(&self) -> Vec<Landmark> {
+        self.content.cache_all_points_of_interest();
+        self.content
+            .get_points_of_interest_cache()
+            .into_iter()
+            .filter_map(|(_, p)| {
+                p.map(|p| Landmark {
+                    name: p.name.clone(),
+                    wcid: p.weenie_class_id,
+                })
+            })
+            .collect()
+    }
+}
+
+fn placement(i: &LandblockInstance) -> Placement {
+    Placement {
+        guid: i.guid,
+        wcid: i.weenie_class_id,
+        at: Spot {
+            cell: i.obj_cell_id,
+            origin: [i.origin_x, i.origin_y, i.origin_z],
+            rotation: [i.angles_w, i.angles_x, i.angles_y, i.angles_z],
+        },
+        links: i
+            .landblock_instance_link
+            .iter()
+            .map(|l| l.child_guid)
+            .collect(),
+    }
+}
+
+#[allow(clippy::cast_sign_loss)]
+fn weenie(w: &Weenie) -> dereth_world_places::Weenie {
+    dereth_world_places::Weenie {
+        class_id: w.class_id,
+        class_name: w.class_name.clone(),
+        weenie_type: w.r#type as u32,
+        ints: w
+            .weenie_properties_int
+            .iter()
+            .map(|p| (u32::from(p.r#type), p.value))
+            .collect(),
+        bools: w
+            .weenie_properties_bool
+            .iter()
+            .map(|p| (u32::from(p.r#type), p.value))
+            .collect(),
+        floats: w
+            .weenie_properties_float
+            .iter()
+            .map(|p| (u32::from(p.r#type), p.value))
+            .collect(),
+        strings: w
+            .weenie_properties_string
+            .iter()
+            .map(|p| (u32::from(p.r#type), p.value.clone()))
+            .collect(),
+        positions: w
+            .weenie_properties_position
+            .iter()
+            .map(|p| {
+                (
+                    u32::from(p.position_type),
+                    Spot {
+                        cell: p.obj_cell_id,
+                        origin: [p.origin_x, p.origin_y, p.origin_z],
+                        rotation: [p.angles_w, p.angles_x, p.angles_y, p.angles_z],
+                    },
+                )
+            })
+            .collect(),
+        spawns: w
+            .weenie_properties_generator
+            .iter()
+            .map(|g| Spawn {
+                wcid: g.weenie_class_id,
+                probability: g.probability,
+                init_create: g.init_create,
+                max_create: g.max_create,
+                when_create: g.when_create,
+                where_create: g.where_create,
+                at: Spot {
+                    cell: g.obj_cell_id.unwrap_or(0),
+                    origin: [
+                        g.origin_x.unwrap_or(0.0),
+                        g.origin_y.unwrap_or(0.0),
+                        g.origin_z.unwrap_or(0.0),
+                    ],
+                    rotation: [
+                        g.angles_w.unwrap_or(1.0),
+                        g.angles_x.unwrap_or(0.0),
+                        g.angles_y.unwrap_or(0.0),
+                        g.angles_z.unwrap_or(0.0),
+                    ],
+                },
+            })
+            .collect(),
     }
 }
 
@@ -84,7 +196,7 @@ impl PortalTable {
     #[must_use]
     pub fn new(world_name: &str, content: Arc<dyn WorldDatabase>) -> Self {
         let world_name = world_name.to_owned();
-        Self::building(move || Documents::of(&world_name, &*content))
+        Self::building(move || Documents::of(&world_name, &ServerContent::new(&*content)))
     }
 
     /// The documents `build` makes, their building begun on a thread of its own (or, should no
@@ -136,202 +248,20 @@ impl PortalTable {
     }
 }
 
+/// Both documents of `content` for the world named `world_name`.
+#[must_use]
+pub fn documents(world_name: &str, content: &dyn WorldDatabase) -> Documents {
+    Documents::of(world_name, &ServerContent::new(content))
+}
+
 /// The portal table of `content` for the world named `world_name`.
 #[must_use]
 pub fn document(world_name: &str, content: &dyn WorldDatabase) -> String {
-    let mut lines: Vec<((u32, u32, u32), String)> = content
-        .get_landblock_instances_of_type(WeenieType::Portal)
-        .iter()
-        .filter_map(|(instance, weenie)| portal_line(instance, weenie))
-        .collect();
-    lines.sort();
-    let mut out = String::from(HEADER);
-    out.push_str("world\t");
-    out.push_str(&field(world_name));
-    out.push('\n');
-    for (_, line) in lines {
-        out.push_str(&line);
-    }
-    out
+    dereth_world_places::documents::portal_table(world_name, &ServerContent::new(content))
 }
-
-/// One instance's line and its sort key (from cell, class id, guid); `None` without a destination.
-fn portal_line(instance: &LandblockInstance, weenie: &Weenie) -> Option<((u32, u32, u32), String)> {
-    let to = destination(weenie)?;
-    let from_cell = land_cell(instance.obj_cell_id, instance.origin_x, instance.origin_y);
-    let from = position(
-        from_cell,
-        instance.origin_x,
-        instance.origin_y,
-        instance.origin_z,
-    );
-    let int = |p: PropertyInt| {
-        weenie
-            .weenie_properties_int
-            .iter()
-            .find(|r| r.r#type == p.0)
-            .map_or_else(|| "-".to_owned(), |r| r.value.to_string())
-    };
-    let line = format!(
-        "portal\tpublished\t{}\t{}\t{from}\t{to}\t0\t0\t0\t{}\t{}\t-\n",
-        instance.weenie_class_id,
-        field(name(weenie)),
-        int(PropertyInt::MinLevel),
-        int(PropertyInt::MaxLevel),
-    );
-    Some(((from_cell, instance.weenie_class_id, instance.guid), line))
-}
-
-/// What a place is, in the order the places document lists them within a cell.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum PlaceKind {
-    Lifestone,
-    Portal,
-    Vendor,
-    Npc,
-}
-
-impl PlaceKind {
-    const fn word(self) -> &'static str {
-        match self {
-            Self::Lifestone => "lifestone",
-            Self::Portal => "portal",
-            Self::Vendor => "vendor",
-            Self::Npc => "npc",
-        }
-    }
-}
-
-/// The item type's creature bit.
-const CREATURE: i32 = 0x10;
 
 /// The places of `content` for the world named `world_name`.
 #[must_use]
 pub fn places_document(world_name: &str, content: &dyn WorldDatabase) -> String {
-    let kinds = [
-        (WeenieType::LifeStone, PlaceKind::Lifestone),
-        (WeenieType::Portal, PlaceKind::Portal),
-        (WeenieType::Vendor, PlaceKind::Vendor),
-        (WeenieType::Creature, PlaceKind::Npc),
-        (WeenieType::Cow, PlaceKind::Npc),
-    ];
-    let mut lines: Vec<((u32, PlaceKind, u32, u32), String)> = Vec::new();
-    for (weenie_type, kind) in kinds {
-        lines.extend(
-            content
-                .get_landblock_instances_of_type(weenie_type)
-                .iter()
-                .filter_map(|(instance, weenie)| place_line(kind, instance, weenie)),
-        );
-    }
-    lines.sort();
-    let mut out = String::from(PLACES_HEADER);
-    out.push_str("world\t");
-    out.push_str(&field(world_name));
-    out.push('\n');
-    for (_, line) in lines {
-        out.push_str(&line);
-    }
-    out
-}
-
-/// One instance's place line and its sort key (cell, kind, class id, guid); `None` for a weenie
-/// hidden from the interface, and for an `npc` that is no creature or may be attacked.
-fn place_line(
-    kind: PlaceKind,
-    instance: &LandblockInstance,
-    weenie: &Weenie,
-) -> Option<((u32, PlaceKind, u32, u32), String)> {
-    let flag = |p: PropertyBool| {
-        weenie
-            .weenie_properties_bool
-            .iter()
-            .find(|r| r.r#type == p.0)
-            .map(|r| r.value)
-    };
-    if flag(PropertyBool::UiHidden) == Some(true) {
-        return None;
-    }
-    if kind == PlaceKind::Npc {
-        let item_type = weenie
-            .weenie_properties_int
-            .iter()
-            .find(|r| r.r#type == PropertyInt::ItemType.0)
-            .map_or(0, |r| r.value);
-        // A creature may be attacked unless its weenie says it may not.
-        if item_type & CREATURE == 0 || flag(PropertyBool::Attackable) != Some(false) {
-            return None;
-        }
-    }
-    let cell = land_cell(instance.obj_cell_id, instance.origin_x, instance.origin_y);
-    let at = position(
-        cell,
-        instance.origin_x,
-        instance.origin_y,
-        instance.origin_z,
-    );
-    let to = if kind == PlaceKind::Portal {
-        destination(weenie)
-    } else {
-        None
-    };
-    let line = format!(
-        "place\t{}\tpublished\t{}\t{}\t{at}\t0\t0\t-\t{}\n",
-        kind.word(),
-        instance.weenie_class_id,
-        field(name(weenie)),
-        to.as_deref().unwrap_or("-"),
-    );
-    Some(((cell, kind, instance.weenie_class_id, instance.guid), line))
-}
-
-/// Where a portal's weenie leads; `None` when it says nowhere (the destination is set at run time).
-fn destination(weenie: &Weenie) -> Option<String> {
-    let d = weenie
-        .weenie_properties_position
-        .iter()
-        .find(|p| p.position_type == PositionType::Destination.0 && p.obj_cell_id != 0)?;
-    Some(position(
-        land_cell(d.obj_cell_id, d.origin_x, d.origin_y),
-        d.origin_x,
-        d.origin_y,
-        d.origin_z,
-    ))
-}
-
-/// The weenie's `Name`, else its class name.
-fn name(weenie: &Weenie) -> &str {
-    weenie
-        .weenie_properties_string
-        .iter()
-        .find(|p| p.r#type == PropertyString::Name.0)
-        .map_or(weenie.class_name.as_str(), |p| p.value.as_str())
-}
-
-/// `cell`, or for a bare landblock (cell index 0) the outdoor cell that `x`, `y` fall in: cells are
-/// 24 units square, eight to a side, numbered from 1 by column then row.
-fn land_cell(cell: u32, x: f32, y: f32) -> u32 {
-    if cell & 0xFFFF != 0 {
-        return cell;
-    }
-    #[allow(clippy::cast_possible_truncation)]
-    let axis = |v: f32| (f64::from(v) / 24.0).floor().clamp(0.0, 7.0) as u32;
-    (cell & 0xFFFF_0000) | (axis(x) * 8 + axis(y) + 1)
-}
-
-fn position(cell: u32, x: f32, y: f32, z: f32) -> String {
-    format!("0x{cell:08X} {x:.3} {y:.3} {z:.3}")
-}
-
-/// A text field: tab, line feed and carriage return become spaces; a backslash is doubled.
-fn field(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '\t' | '\n' | '\r' => out.push(' '),
-            '\\' => out.push_str("\\\\"),
-            c => out.push(c),
-        }
-    }
-    out
+    dereth_world_places::documents::places(world_name, &ServerContent::new(content))
 }

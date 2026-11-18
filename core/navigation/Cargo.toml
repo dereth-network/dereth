@@ -12,6 +12,8 @@ autotests = false
 [dependencies]
 dereth-primitives.workspace = true
 dereth-physics.workspace = true
+# What a portal asks beyond its levels, as the portal tables a world publishes write it.
+dereth-world-places.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

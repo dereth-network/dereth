@@ -445,6 +445,13 @@ impl WorldDatabaseBase {
             .collect()
     }
 
+    /// Not ACE: every landblock instance, with its links, in guid order. One pass over the
+    /// instance table; no landblock is loaded.
+    #[must_use]
+    pub fn get_all_landblock_instances(&self) -> Vec<LandblockInstance> {
+        self.all_instances()
+    }
+
     /// Not ACE: every landblock instance whose weenie is of `weenie_type`, each with its weenie as
     /// [`Self::get_weenie`] reads it, in instance guid order. One pass over the instance table; no
     /// landblock is loaded.
