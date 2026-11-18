@@ -234,13 +234,14 @@ fn get_building_cells(w: &World, landcell: CellId) -> Vec<CellId> {
 }
 
 /// `LScape.get_landblock(id).get_envcells()` (`Physics/Common/Landblock.cs`): the landblock's env
-/// cells in order, stopping at the first one that is not loaded.
+/// cells in order, stopping at the first one that is not loaded. `landblock_id` is the block's
+/// `0xXXYYFFFF` id; its `Info` is the `0xXXYYFFFE` record (`ID - 1`).
 fn landblock_get_envcells(w: &World, landblock_id: u32) -> Vec<CellId> {
     let mut env_cells = Vec::new();
     let Some(info) = w
         .dats
         .cell_dat()
-        .read_from_dat::<LandblockInfo>(landblock_id | 0xFFFE)
+        .read_from_dat::<LandblockInfo>(landblock_id & 0xFFFF_0000 | 0xFFFE)
     else {
         return env_cells;
     };

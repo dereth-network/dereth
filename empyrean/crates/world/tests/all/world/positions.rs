@@ -129,6 +129,25 @@ mod coordinates_real {
             }
         }
 
+        /// `GetCell`: an outdoor position below the terrain, away from any building, is in the
+        /// landblock's underground cell that holds it (a spawn of the dungeon under 0xD2D4's land).
+        #[test]
+        fn get_cell_finds_the_underground_cell_below_the_terrain() {
+            let mut w = real_world();
+            empyrean_world::managers::landblock_manager::get_landblock(
+                &mut w,
+                empyrean_entity::LandblockId::new(0xD2D4_FFFF),
+                false,
+                false,
+            );
+            let p = Position::from_vectors(
+                0xD2D4_0011,
+                Vector3::new(57.62, 13.0, -41.59),
+                Quaternion::IDENTITY,
+            );
+            assert_eq!(position_extensions::get_cell(&w, &p), 0xD2D4_028B);
+        }
+
         #[test]
         fn adjust_dungeon_matches_ace_on_the_retail_dats() {
             use empyrean_world::world_objects::world_object;

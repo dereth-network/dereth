@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+- Fixed objects placed in caves under the land getting the land's cell.
 - Published portal lists now include spawned portals, what each one requires, and towns.
 - Fixed quest steps being lost when the item giving them deletes itself first.
 - Fixed a use getting stuck when its object vanished on the way.
