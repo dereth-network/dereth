@@ -36,8 +36,8 @@ local TYPE_OF = { town = "town", landmark = "landmark", lifestone = "lifestone",
 -- The types the portal knowledge lists.
 local PORTAL_TYPES = { portal = true, dungeon = true, destination = true }
 
--- The most of each source a search lists.
-L.MAX = 200
+-- The most of the client's places a search lists.
+L.MAX = 50
 
 L.RECALL_NAMES = { lifestone = "Lifestone recall", marketplace = "Marketplace recall",
 	house = "House recall", mansion = "Mansion recall", allegiance = "Allegiance hometown recall" }
@@ -66,28 +66,62 @@ local function wanted(t, kind)
 	return kind == nil or kind == "all" or kind == t
 end
 
--- The places of the client's knowledge whose name holds `want` (any when empty), of type `kind`.
-local function client_places(want, kind, out)
-	local name = want ~= "" and want or nil
+-- The kinds of the client's places other than portals, for a search of every type where the
+-- portal knowledge lists the portals.
+local NOT_PORTALS = { "town", "landmark", "lifestone", "vendor", "npc", "cottage", "villa", "mansion", "house" }
+
+-- The places of the client's knowledge whose names have words beginning with `want`'s (any when
+-- empty), of type `kind`: the nearest `limit` of them, into `out`. Answers how many there are.
+-- One search of the client's index (`nav.search`) finds them, however many the world has.
+local function client_places(want, kind, out, limit)
 	local journeys = host.has("nav.journey")
-	if journeys and (kind == nil or kind == "all" or PORTAL_TYPES[kind]) then
-		for _, e in ipairs(nav.known_portals({ name = name, limit = L.MAX })) do
-			if e.retired == nil and e.from ~= nil then
-				if wanted("portal", kind) then
-					table.insert(out, { name = e.name, type = "portal", place = P.plain(e.from), source = e.source })
-				end
-				if e.to ~= nil then
-					-- Where it sends: a dungeon when that is indoors, pointed at by its entrance and
-					-- gone into through it; another place outdoors, by where it lands.
-					if e.to.ns == nil then
-						if wanted("dungeon", kind) then
-							table.insert(out, { name = destination_name(e.name), type = "dungeon", place = P.plain(e.from),
-								target = { portal = e.name }, inside = e.to, source = e.source })
-						end
-					elseif wanted("destination", kind) then
-						table.insert(out, { name = destination_name(e.name), type = "destination", place = P.plain(e.to),
-							target = { portal = e.name }, source = e.source })
+	local all = kind == nil or kind == "all"
+	-- The portal knowledge lists the portals, and the dungeons and destinations they lead to.
+	local portals = journeys and (all or PORTAL_TYPES[kind] ~= nil)
+	-- The client's places of the kinds asked for; where the portal knowledge is kept, the
+	-- portals among them are listed from it rather than twice.
+	local kinds, places = nil, true
+	if all then
+		kinds = journeys and NOT_PORTALS or nil
+	elseif PLACE_KINDS[kind] ~= nil then
+		kinds = PLACE_KINDS[kind]
+	elseif kind == "portal" and not journeys then
+		kinds = { "portal" }
+	else
+		places = false
+	end
+	local total = 0
+	if portals or places then
+		local r = nav.search(want, { portals = portals, places = places, kind = kinds, limit = limit })
+		total = r.total or 0
+		for _, e in ipairs(r.items or {}) do
+			if e.list == "portal" then
+				if e.retired == nil and e.from ~= nil then
+					if wanted("portal", kind) then
+						table.insert(out, { name = e.name, type = "portal", place = P.plain(e.from), source = e.source })
 					end
+					if e.to ~= nil then
+						-- Where it sends: a dungeon when that is indoors, pointed at by its entrance
+						-- and gone into through it; another place outdoors, by where it lands.
+						if e.to.ns == nil then
+							if wanted("dungeon", kind) then
+								table.insert(out, { name = destination_name(e.name), type = "dungeon", place = P.plain(e.from),
+									target = { portal = e.name }, inside = e.to, source = e.source })
+							end
+						elseif wanted("destination", kind) then
+							table.insert(out, { name = destination_name(e.name), type = "destination", place = P.plain(e.to),
+								target = { portal = e.name }, source = e.source })
+						end
+					end
+				end
+			else
+				local t = TYPE_OF[e.kind]
+				if t ~= nil and e.at ~= nil then
+					local n = e.name
+					if t == "house" and e.owner ~= nil then
+						n = e.owner .. "'s " .. string.lower(e.name)
+					end
+					table.insert(out, { name = n, type = t, place = P.plain(e.at), source = e.source })
 				end
 			end
 		end
@@ -99,32 +133,11 @@ local function client_places(want, kind, out)
 			if want == "" or string.find(string.lower(n), want, 1, true) then
 				table.insert(out, { name = n, type = "recall", place = r.to, target = { recall = r.recall },
 					source = "learned" })
+				total = total + 1
 			end
 		end
 	end
-	local kinds = nil
-	if kind ~= nil and kind ~= "all" then
-		kinds = PLACE_KINDS[kind]
-		if kinds == nil and kind ~= "portal" then
-			return
-		end
-		kinds = kinds or { "portal" }
-		if kind == "portal" and journeys then
-			-- The portal knowledge lists the portals.
-			return
-		end
-	end
-	for _, p in ipairs(nav.known_places({ name = name, kind = kinds, limit = L.MAX })) do
-		local t = TYPE_OF[p.kind]
-		-- Where the client keeps portal knowledge, its portals are listed from it, once.
-		if t ~= nil and p.at ~= nil and not (t == "portal" and journeys) then
-			local n = p.name
-			if t == "house" and p.owner ~= nil then
-				n = p.owner .. "'s " .. string.lower(p.name)
-			end
-			table.insert(out, { name = n, type = t, place = P.plain(p.at), source = p.source })
-		end
-	end
+	return total
 end
 
 -- The places the player saved for this world.
@@ -139,21 +152,24 @@ local function saved_places()
 	return out
 end
 
--- The locations whose name holds `text` (without case; any when empty) and of type `kind` ("all"
--- or nil for any), nearest first, then by name; each with `far`, its distance (nil when the
--- character cannot tell from where it stands).
-function L.find(text, kind)
+-- The locations whose names have words beginning with `text`'s (without case; any when empty)
+-- and of type `kind` ("all" or nil for any): the nearest `limit` (L.MAX when not given) of the
+-- client's, and the saved places, nearest first, then by name; each with `far`, its distance (nil
+-- when the character cannot tell from where it stands). And how many there are in all.
+function L.find(text, kind, limit)
 	local want = string.lower(text or "")
 	local out = {}
+	local total = 0
 	if wanted("saved", kind) then
 		for _, l in ipairs(saved_places()) do
 			if want == "" or string.find(string.lower(l.name), want, 1, true) then
 				table.insert(out, l)
+				total = total + 1
 			end
 		end
 	end
 	if kind ~= "saved" then
-		client_places(want, kind, out)
+		total = total + client_places(want, kind, out, limit or L.MAX)
 	end
 	for _, l in ipairs(out) do
 		l.far = P.reach(l.place)
@@ -167,7 +183,7 @@ function L.find(text, kind)
 		end
 		return a.name < b.name
 	end)
-	return out
+	return out, total
 end
 
 -- The location named `text`: an exact name first, else the nearest whose name holds it. A saved

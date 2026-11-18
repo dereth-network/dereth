@@ -12,6 +12,7 @@ use dereth_testkit::plugins::{read_package, PluginRun, ScriptedObject};
 use dereth_testkit::scripted_travel::ScriptedPortal;
 
 dereth_testkit::scenarios! {
+    scenario_the_navigator_searches_a_whole_eras_places_and_keeps_running => the_navigator_searches_a_whole_eras_places_and_keeps_running ["plugins.samples.the-navigator-finds-places-by-name-and-type-and-points-at-the-nearest"],
     scenario_a_plugins_journey_hands_a_token_back_only_when_it_says_it_may => a_plugins_journey_hands_a_token_back_only_when_it_says_it_may ["plugins.nav.handing-a-token-back-asks-the-player-first"],
     scenario_the_navigator_finds_places_by_name_and_type_and_points_at_the_nearest => the_navigator_finds_places_by_name_and_type_and_points_at_the_nearest ["plugins.samples.the-navigator-finds-places-by-name-and-type-and-points-at-the-nearest"],
     scenario_the_navigator_keeps_the_players_own_places_outdoors_and_in_a_dungeon => the_navigator_keeps_the_players_own_places_outdoors_and_in_a_dungeon ["plugins.samples.the-navigator-keeps-the-players-own-places-outdoors-and-in-a-dungeon"],
@@ -796,4 +797,66 @@ end)
         Some(dereth_client_runtime::travel::HandBacks::Refused)
     );
     note_asserted("plugins.nav.handing-a-token-back-asks-the-player-first");
+}
+
+/// A world as big as the end of retail's package (5,300 portals and 11,300 places): a search
+/// answers with the nearest that match, and the Navigator keeps running.
+fn the_navigator_searches_a_whole_eras_places_and_keeps_running() {
+    let mut run = navigator();
+    run.scripted_world("Tester", Vec::new());
+    let start = outdoors(42.0, 33.0);
+    let spot = |i: u32| {
+        // Spread over the map, about a twentieth of a degree apart.
+        let (ns, ew) = (
+            f64::from(i % 120) * 0.5 - 30.0,
+            f64::from(i / 120) * 0.5 - 30.0,
+        );
+        outdoors(ns, ew)
+    };
+    let portals: Vec<ScriptedPortal> = (0..5300_u32)
+        .map(|i| ScriptedPortal {
+            name: if i % 53 == 0 {
+                format!("Drudge Hideout {i}")
+            } else {
+                format!("Portal to Place {i}")
+            },
+            class: 10_000 + i,
+            at: spot(i),
+            to: spot((i + 1) % 5300),
+            source: dereth_navigation::EdgeSource::Hint,
+            refuses: false,
+        })
+        .collect();
+    run.scripted_portals(&portals, Vec::new());
+    for i in 0..11_300_u32 {
+        let (ns, ew) = (
+            f64::from(i % 150) * 0.4 - 30.0,
+            f64::from(i / 150) * 0.4 + 0.1,
+        );
+        run.learn_place(
+            dereth_navigation::PlaceKind::Npc,
+            dereth_navigation::EdgeSource::Hint,
+            &format!("Person {i}"),
+            (ns, ew),
+        );
+    }
+    let _ = start;
+    run.advance(1.0);
+    let from = run.printed().len();
+    run.type_line("/nav find hideout");
+    run.advance(1.0);
+    let said = printed_since(&run, from);
+    let found: Vec<&String> = said
+        .iter()
+        .filter(|l| l.contains("Drudge Hideout"))
+        .collect();
+    assert!(found.len() >= 8, "the nearest that match: {said:?}");
+    assert!(
+        said.iter().any(|l| l.starts_with("[Nav] ... and ")),
+        "and how many more: {said:?}"
+    );
+    assert_eq!(run.status(ID), "running", "{said:?}");
+    note_asserted(
+        "plugins.samples.the-navigator-finds-places-by-name-and-type-and-points-at-the-nearest",
+    );
 }

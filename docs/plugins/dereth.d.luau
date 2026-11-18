@@ -46,6 +46,8 @@ declare nav: {
 	journey: () -> any,
 	-- Show or hide the host's drawing of this plugin's journey (the arrow, the way on the map and radar); false when it has none.
 	show_journey: (on: boolean) -> boolean,
+	-- The portals and places the client knows whose names have words beginning with each word of `text` (every one when it is empty), nearest first: `{ total, items }`, the nearest `limit` (8 unless given) of the `total` there are, each as `nav.known_portals` or `nav.known_places` gives it with `list` (`portal` or `place`). `opts`: `kind`, a kind or a list of kinds; `portals` and `places` (false leaves that list out); `near` and `within` as `nav.known_portals` takes them. Indexed by the host, so it costs the few it answers, not the world's thousands.
+	search: (text: string, opts: any?) -> any,
 	-- The portals this world's store knows: where each stands and sends, how it is known (learned, published, hint), its uses, failures and level range, and why it was retired. A `filter` keeps those whose name holds `name`, within `within` meters of `near` (the character when left out), nearest first when measured, at most `limit`.
 	known_portals: (filter: any?) -> any,
 	-- The places the client knows of this world: the towns, landmarks and houses the game's data names, and each lifestone, portal, vendor, person and house it was shown or the server publishes, where it stands, how it is known, when it was seen, and a house's owner. A `filter` as `nav.known_portals` takes, and `kind`, a kind or a list of kinds.

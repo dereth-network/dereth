@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Fixed the Navigator stopping when you search for a place.
 - Fixed Tank waiting forever to go back for a corpse from the Training Academy.
 - Fixed the client ignoring the server when it puts your character back.
 - Auto-walk goes round doors that can't be opened, and stops short of portals it isn't taking.

@@ -96,6 +96,7 @@ pub mod pictures;
 pub mod places;
 pub mod policy_doc;
 pub mod reads;
+mod search;
 pub mod services;
 pub mod session;
 pub mod shown;
@@ -1922,6 +1923,13 @@ impl PluginHost {
     pub fn step(&mut self, frame: &mut HookFrame<'_>) {
         self.now = frame.local_time;
         self.frame_spent = web_time::Duration::ZERO;
+        // The places a plugin searches, kept up with the client's stores here, outside every
+        // plugin's share of the frame.
+        self.shared.index.refresh(&crate::search::Stores {
+            portals: frame.travel_store,
+            places: frame.world_places,
+            map: frame.map_places,
+        });
         for s in &mut self.plugins {
             s.prints = 0;
             s.state.frame_spent = web_time::Duration::ZERO;

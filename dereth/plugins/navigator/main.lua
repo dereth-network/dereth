@@ -762,17 +762,21 @@ commands.add("nav", "point the way: /nav <place | coordinates | find <text> [typ
 	elseif verb == "find" then
 		L.refresh()
 		local text, kind = text_and_type(rest)
-		local list = L.find(text, kind)
+		local list, total = L.find(text, kind, 8)
 		if #list == 0 then
 			say("No place matches " .. rest .. ".")
 		end
 		for i, l in ipairs(list) do
 			if i > 8 then
-				say(string.format("... and %d more.", #list - 8))
 				break
 			end
 			say(string.format("%s (%s) %s%s", l.name, l.type, P.show(l.place),
 				l.far and (", " .. P.show_distance(l.far)) or ""))
+		end
+		-- How many more there are, of those found by name (a portal is one, however many rows).
+		local shown = math.min(#list, 8)
+		if total > shown then
+			say(string.format("... and %d more.", total - shown))
 		end
 		win:get("search").value = rest
 		refresh_results()

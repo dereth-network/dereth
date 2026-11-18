@@ -170,7 +170,18 @@ a plugin no more than the few it asks for: `{ name, kind, near, within, limit }`
 name holds `name` (without case), of `kind` (`nav.known_places` only: one kind or a list), within
 `within` meters of `near` (a place; the character when `within` or `limit` is given without it),
 nearest first when measured, at most `limit` of them. `nav.known_places{ kind = "town", limit = 5 }`
-is the five towns nearest the character. `nav.recalls()` lists where the
+is the five towns nearest the character.
+
+`nav.search(text, opts)` is the one call for a search as the player types: the portals and places
+both, whose names have a word beginning with each word of `text` (`"drudge hid"` finds the Drudge
+Hideout; every one when `text` is empty), nearest the character first. It answers `{ total, items }`:
+the nearest `limit` (8 unless `opts` says) of the `total` that match, each as the two lists give
+it with `list`, `portal` or `place`. `opts` takes `kind` (of places), `portals` and `places`
+(`false` leaves that list out), `near` and `within`. The client keeps an index of the lists, so a
+search costs the few it answers, however many the world has, and a search that goes on from the
+last (a key more) looks only at what that one found.
+
+`nav.recalls()` lists where the
 character's recalls have landed: `{ recall, to, uses, verified }`. The store is the client's, kept per
 world (the world's name and the server's address), and holds three kinds of knowledge, most trusted
 first: what the character learned by using a portal, what the server publishes, and hints. A journey

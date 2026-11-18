@@ -583,6 +583,11 @@ api.nav = {
 	-- The portals this world's store knows; `filter` (optional) keeps those whose name holds
 	-- `name`, within `within` meters of `near` (a place; the character when left out), nearest
 	-- first when measured, at most `limit` of them.
+	-- `nav.search(text, opts)`: the portals and places whose names have words beginning with
+	-- `text`'s, nearest first: `{ total, items }` (see the reference).
+	search = function(text, opts)
+		return hostcall("nav.search", text or "", opts)
+	end,
 	known_portals = function(filter)
 		return hostcall("nav.known_portals", filter)
 	end,

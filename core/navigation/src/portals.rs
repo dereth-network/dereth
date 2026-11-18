@@ -385,12 +385,22 @@ pub enum StoreError {
 }
 
 /// One world's portal and recall knowledge.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default)]
 pub struct PortalStore {
     /// The world this knowledge is about: the server's own identity, never mixed with another's.
     pub world: String,
     portals: Vec<PortalEdge>,
     recalls: Vec<RecallEdge>,
+    /// Counts the changes, so a reader can tell when to read again.
+    revision: u64,
+}
+
+/// Two stores are equal when they know the same: how many times each was changed is not part of
+/// what they know.
+impl PartialEq for PortalStore {
+    fn eq(&self, other: &Self) -> bool {
+        self.world == other.world && self.portals == other.portals && self.recalls == other.recalls
+    }
 }
 
 /// A position as one field: `0xCELLID x y z`.
@@ -456,7 +466,14 @@ impl PortalStore {
             world: world.into(),
             portals: Vec::new(),
             recalls: Vec::new(),
+            revision: 0,
         }
+    }
+
+    /// How many times the store has changed: a reader keeps what it made of it while this stays.
+    #[must_use]
+    pub const fn revision(&self) -> u64 {
+        self.revision
     }
 
     /// Every portal edge, every source, retired ones included.
@@ -484,6 +501,7 @@ impl PortalStore {
                 .cloned()
                 .collect(),
             recalls: self.recalls.clone(),
+            revision: 0,
         }
     }
 
@@ -504,6 +522,7 @@ impl PortalStore {
         for e in &mut self.portals {
             if e.shape != Some(shape) && e.same_portal(portal.wcid, &portal.position) {
                 e.shape = Some(shape);
+                self.revision += 1;
             }
         }
     }
@@ -511,6 +530,7 @@ impl PortalStore {
     /// The character used `portal` at `now` and arrived at `arrival`: the learned edge is
     /// confirmed, or corrected to where it really sends, or made.
     pub fn learn_use(&mut self, portal: &PortalSighting, arrival: &Position, now: u64) {
+        self.revision += 1;
         if let Some(e) = self.find_mut(EdgeSource::Learned, portal.wcid, &portal.position) {
             let moved = e.to.is_none_or(|t| global_distance(&t, arrival) > 10.0);
             if moved {
@@ -543,6 +563,7 @@ impl PortalStore {
     /// The character used `portal` at `now` and it refused (`reason`): every edge for that
     /// portal is retired until a use succeeds, so routes stop counting on it.
     pub fn learn_refusal(&mut self, portal: &PortalSighting, reason: &str, now: u64) {
+        self.revision += 1;
         let mut learned = false;
         for e in &mut self.portals {
             if e.same_portal(portal.wcid, &portal.position) {
@@ -576,6 +597,7 @@ impl PortalStore {
     /// Take in published or seeded edges. An edge replaces one of the same source for the same
     /// portal; it never replaces a more trusted one, which stays beside it and wins at routing.
     pub fn merge(&mut self, edges: impl IntoIterator<Item = PortalEdge>) {
+        self.revision += 1;
         for e in edges {
             if let Some(old) = self.find_mut(e.source, e.wcid, &e.from) {
                 *old = e;
@@ -662,6 +684,7 @@ impl PortalStore {
 
     /// `character`'s `recall` sent it to `arrival` at `now`.
     pub fn learn_recall(&mut self, character: &str, recall: Recall, arrival: &Position, now: u64) {
+        self.revision += 1;
         if let Some(r) = self
             .recalls
             .iter_mut()

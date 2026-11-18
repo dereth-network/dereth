@@ -35,7 +35,7 @@ An operation that fails answers an error saying why (a wrong argument says which
 | `magic` | `magic.spell`, `magic.known` |
 | `files` | `files.package`, `files.package_list`, `files.data`, `files.data_list`, `files.save_data` |
 | `act` | `act.request` |
-| `nav` | `nav.owner`, `nav.journey`, `nav.show_journey`, `nav.known_portals`, `nav.known_places`, `nav.recalls`, `nav.sight`, `nav.parse` |
+| `nav` | `nav.owner`, `nav.journey`, `nav.show_journey`, `nav.search`, `nav.known_portals`, `nav.known_places`, `nav.recalls`, `nav.sight`, `nav.parse` |
 | `meta` | `meta.parse` |
 | `profile` | `profile.usd` |
 | `text` | `text.match` |
@@ -53,7 +53,7 @@ An operation that fails answers an error saying why (a wrong argument says which
 | `host` | `host.info`, `host.has` |
 | `time` | `time.clock`, `time.unix` |
 
-88 operations in 31 namespaces.
+89 operations in 31 namespaces.
 
 ## `console`
 
@@ -399,6 +399,13 @@ Show or hide the host's drawing of this plugin's journey (the arrow, the way on 
 
 - WIT: `nav-show-journey: func(on: bool) -> result<bool, string>`
 - Lua: `nav.show_journey(on: boolean) -> boolean`
+
+### `nav.search`
+
+The portals and places the client knows whose names have words beginning with each word of `text` (every one when it is empty), nearest first: `{ total, items }`, the nearest `limit` (8 unless given) of the `total` there are, each as `nav.known_portals` or `nav.known_places` gives it with `list` (`portal` or `place`). `opts`: `kind`, a kind or a list of kinds; `portals` and `places` (false leaves that list out); `near` and `within` as `nav.known_portals` takes them. Indexed by the host, so it costs the few it answers, not the world's thousands.
+
+- WIT: `nav-search: func(text: string, opts: option<value>) -> result<value, string>`
+- Lua: `nav.search(text: string, opts: any?) -> any`
 
 ### `nav.known_portals`
 

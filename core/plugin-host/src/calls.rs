@@ -81,6 +81,8 @@ pub struct Shared {
     pub actions: crate::actions::ActionQueue,
     /// The movement in progress.
     pub nav: crate::nav::Nav,
+    /// The places and portals the frame's stores know, indexed for `nav.search`.
+    pub(crate) index: crate::search::PlaceIndex,
     /// The session before and around the world.
     pub session: crate::session::Session,
     /// Messages for the other clients, sent at the end of the frame.
@@ -1693,6 +1695,60 @@ impl HostCalls for Call<'_, '_> {
                 let me = self.slot.manifest.id.to_string();
                 Ok(Value::Bool(self.shared.nav.show_journey(&me, on)))
             }
+            "nav.search" => {
+                let text = args.first().and_then(Value::as_str).unwrap_or("");
+                let opts = args.get(1).cloned().unwrap_or(Value::Nil);
+                let filter = self.list_filter(std::slice::from_ref(&opts))?;
+                let flag = |k: &str| match opts.get(k) {
+                    Value::Nil => Ok(true),
+                    v => v
+                        .as_bool()
+                        .ok_or_else(|| bad(format!("a search's {k} is true or false"))),
+                };
+                let query = crate::search::Query {
+                    words: crate::search::query_words(text),
+                    kinds: filter.kinds.clone(),
+                    portals: flag("portals")?,
+                    places: flag("places")?,
+                    near: filter
+                        .near
+                        .or_else(|| self.frame.and_then(|f| f.places.player())),
+                    within: filter.within,
+                    limit: filter.limit.unwrap_or(SEARCH_LIMIT),
+                };
+                let frame = self.frame;
+                let stores = crate::search::Stores {
+                    portals: frame.and_then(|f| f.travel_store),
+                    places: frame.and_then(|f| f.world_places),
+                    map: frame.and_then(|f| f.map_places),
+                };
+                let found = self.shared.index.of(&stores).search(&query);
+                let items: Vec<Value> = found
+                    .items
+                    .iter()
+                    .filter_map(|src| {
+                        let (entry, list) = match *src {
+                            crate::search::Src::Portal(i) => (
+                                Entry::Portal(stores.portals?.portals().get(i as usize)?),
+                                "portal",
+                            ),
+                            crate::search::Src::Map(i) => {
+                                let p = stores.map?.get(i as usize)?;
+                                let at = crate::places::from_map(p.ns, p.ew, 0.0)?;
+                                (Entry::MapPlace(p, at), "place")
+                            }
+                            crate::search::Src::Place(i) => (
+                                Entry::Place(stores.places?.places().get(i as usize)?),
+                                "place",
+                            ),
+                        };
+                        Some(entry.value().with("list", list))
+                    })
+                    .collect();
+                Ok(Value::map()
+                    .with("total", i64::try_from(found.total).unwrap_or(i64::MAX))
+                    .with("items", Value::List(items)))
+            }
             "nav.known_portals" => {
                 let filter = self.list_filter(args)?;
                 let list = self
@@ -2291,13 +2347,61 @@ fn trip_value(t: &dereth_client_runtime::travel::TripView) -> Value {
 }
 
 /// One entry of a list of places a plugin reads: what it is and where, for the list's filter, and
-/// the value the plugin gets.
-struct Listed {
+/// where its value comes from. The value is made only for an entry the filter keeps: a world's
+/// lists run to thousands (the portals and places of its era), and a search keeps a few hundred.
+struct Listed<'a> {
     kind: &'static str,
-    name: String,
+    name: &'a str,
     at: Option<Position>,
-    value: Value,
+    of: Entry<'a>,
 }
+
+/// What a listed entry is made from.
+enum Entry<'a> {
+    Portal(&'a dereth_navigation::PortalEdge),
+    MapPlace(&'a dereth_client_contract::panels::map::MapPlace, Position),
+    Place(&'a dereth_navigation::KnownPlace),
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many listed entries' values were made, for a test of how much a list costs.
+    static VALUES_MADE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+impl Entry<'_> {
+    /// The value a plugin gets.
+    fn value(&self) -> Value {
+        #[cfg(test)]
+        VALUES_MADE.with(|n| n.set(n.get() + 1));
+        match self {
+            Self::Portal(e) => portal_value(e),
+            Self::MapPlace(p, at) => Value::map()
+                .with("kind", p.kind.word())
+                .with("name", p.name.as_str())
+                .with("source", "data")
+                .with("at", crate::places::to_value(at)),
+            Self::Place(p) => place_value(p),
+        }
+    }
+}
+
+/// Whether `name` holds `want`, already lower case, without regard to case.
+fn holds(name: &str, want: &str) -> bool {
+    if want.is_empty() {
+        return true;
+    }
+    if name.is_ascii() && want.is_ascii() {
+        let (h, n) = (name.as_bytes(), want.as_bytes());
+        return h.len() >= n.len()
+            && h.windows(n.len())
+                .any(|w| w.iter().zip(n).all(|(a, b)| a.to_ascii_lowercase() == *b));
+    }
+    name.to_lowercase().contains(want)
+}
+
+/// How many places a search answers unless it asks for another number.
+const SEARCH_LIMIT: usize = 8;
 
 /// What a plugin asked a list of places to keep (`nav.known_places{ ... }`,
 /// `nav.known_portals{ ... }`): those whose name holds `name` (without case), of `kind` (one word
@@ -2313,13 +2417,11 @@ struct ListFilter {
 }
 
 impl ListFilter {
-    fn apply(&self, list: Vec<Listed>) -> Value {
-        let mut kept: Vec<(f32, Listed)> = list
+    fn apply(&self, list: Vec<Listed<'_>>) -> Value {
+        let mut kept: Vec<(f32, Listed<'_>)> = list
             .into_iter()
             .filter(|l| {
-                self.name
-                    .as_ref()
-                    .is_none_or(|n| l.name.to_lowercase().contains(n.as_str()))
+                self.name.as_ref().is_none_or(|n| holds(l.name, n))
                     && self
                         .kinds
                         .as_ref()
@@ -2335,109 +2437,112 @@ impl ListFilter {
             })
             .collect();
         if self.near.is_some() {
+            // Only the nearest the limit keeps are put in order.
+            if let Some(n) = self.limit.filter(|&n| n > 0 && n < kept.len()) {
+                kept.select_nth_unstable_by(n - 1, |a, b| a.0.total_cmp(&b.0));
+                kept.truncate(n);
+            }
             kept.sort_by(|a, b| a.0.total_cmp(&b.0));
         }
         if let Some(n) = self.limit {
             kept.truncate(n);
         }
-        Value::List(kept.into_iter().map(|(_, l)| l.value).collect())
+        Value::List(kept.into_iter().map(|(_, l)| l.of.value()).collect())
     }
 }
 
-/// The portals this world's store knows, as plugins read them.
-fn portals_value(store: &dereth_navigation::PortalStore) -> Vec<Listed> {
-    {
-        store
-            .portals()
-            .iter()
-            .map(|e| {
-                let mut v = Value::map()
-                    .with("name", e.name.as_str())
-                    .with("source", e.source.word())
-                    .with("from", crate::places::to_value(&e.from))
-                    .with("uses", e.uses)
-                    .with("failures", e.failures);
-                if let Some(w) = e.wcid {
-                    v = v.with("class", w);
-                }
-                if let Some(t) = &e.to {
-                    v = v.with("to", crate::places::to_value(t));
-                }
-                if let Some(l) = e.levels.0 {
-                    v = v.with("min_level", l);
-                }
-                if let Some(l) = e.levels.1 {
-                    v = v.with("max_level", l);
-                }
-                if let Some(r) = &e.retired {
-                    v = v.with("retired", r.as_str());
-                }
-                if e.verified != 0 {
-                    v = v.with("verified", i64::try_from(e.verified).unwrap_or(i64::MAX));
-                }
-                Listed {
-                    kind: "portal",
-                    name: e.name.clone(),
-                    at: Some(e.from),
-                    value: v,
-                }
-            })
-            .collect()
-    }
+/// The portals this world's store knows, as plugins list them.
+fn portals_value(store: &dereth_navigation::PortalStore) -> Vec<Listed<'_>> {
+    store
+        .portals()
+        .iter()
+        .map(|e| Listed {
+            kind: "portal",
+            name: &e.name,
+            at: Some(e.from),
+            of: Entry::Portal(e),
+        })
+        .collect()
 }
 
-/// The places the game's data names, as plugins read them: each `{ kind, name, source = "data",
+/// A portal of the store as plugins read it.
+fn portal_value(e: &dereth_navigation::PortalEdge) -> Value {
+    let mut v = Value::map()
+        .with("name", e.name.as_str())
+        .with("source", e.source.word())
+        .with("from", crate::places::to_value(&e.from))
+        .with("uses", e.uses)
+        .with("failures", e.failures);
+    if let Some(w) = e.wcid {
+        v = v.with("class", w);
+    }
+    if let Some(t) = &e.to {
+        v = v.with("to", crate::places::to_value(t));
+    }
+    if let Some(l) = e.levels.0 {
+        v = v.with("min_level", l);
+    }
+    if let Some(l) = e.levels.1 {
+        v = v.with("max_level", l);
+    }
+    if let Some(r) = &e.retired {
+        v = v.with("retired", r.as_str());
+    }
+    if e.verified != 0 {
+        v = v.with("verified", i64::try_from(e.verified).unwrap_or(i64::MAX));
+    }
+    v
+}
+
+/// The places the game's data names, as plugins list them: each `{ kind, name, source = "data",
 /// at }`, on the ground where the map marks it.
-fn map_places_value(places: &[dereth_client_contract::panels::map::MapPlace]) -> Vec<Listed> {
+fn map_places_value(places: &[dereth_client_contract::panels::map::MapPlace]) -> Vec<Listed<'_>> {
     places
         .iter()
         .filter_map(|p| {
             let at = crate::places::from_map(p.ns, p.ew, 0.0)?;
             Some(Listed {
                 kind: p.kind.word(),
-                name: p.name.clone(),
+                name: &p.name,
                 at: Some(at),
-                value: Value::map()
-                    .with("kind", p.kind.word())
-                    .with("name", p.name.as_str())
-                    .with("source", "data")
-                    .with("at", crate::places::to_value(&at)),
+                of: Entry::MapPlace(p, at),
             })
         })
         .collect()
 }
 
-/// This world's learned places, as plugins read them.
-fn places_value(store: &dereth_navigation::PlaceStore) -> Vec<Listed> {
-    {
-        store
-            .places()
-            .iter()
-            .map(|p| {
-                let mut v = Value::map()
-                    .with("kind", p.kind.word())
-                    .with("name", p.name.as_str())
-                    .with("source", p.source.word())
-                    .with("at", crate::places::to_value(&p.at))
-                    .with("seen", i64::try_from(p.last_seen).unwrap_or(i64::MAX));
-                if let Some(w) = p.wcid {
-                    v = v.with("class", w);
-                }
-                if let Some(o) = &p.owner {
-                    v = v.with("owner", o.as_str());
-                }
-                if let Some(t) = &p.to {
-                    v = v.with("to", crate::places::to_value(t));
-                }
-                Listed {
-                    kind: p.kind.word(),
-                    name: p.name.clone(),
-                    at: Some(p.at),
-                    value: v,
-                }
-            })
-            .collect()
+/// This world's learned places, as plugins list them.
+fn places_value(store: &dereth_navigation::PlaceStore) -> Vec<Listed<'_>> {
+    store
+        .places()
+        .iter()
+        .map(|p| Listed {
+            kind: p.kind.word(),
+            name: &p.name,
+            at: Some(p.at),
+            of: Entry::Place(p),
+        })
+        .collect()
+}
+
+/// A learned place as plugins read it.
+fn place_value(p: &dereth_navigation::KnownPlace) -> Value {
+    let mut v = Value::map()
+        .with("kind", p.kind.word())
+        .with("name", p.name.as_str())
+        .with("source", p.source.word())
+        .with("at", crate::places::to_value(&p.at))
+        .with("seen", i64::try_from(p.last_seen).unwrap_or(i64::MAX));
+    if let Some(w) = p.wcid {
+        v = v.with("class", w);
     }
+    if let Some(o) = &p.owner {
+        v = v.with("owner", o.as_str());
+    }
+    if let Some(t) = &p.to {
+        v = v.with("to", crate::places::to_value(t));
+    }
+    v
 }
 
 /// The character's learned recalls, as plugins read them.
@@ -2485,5 +2590,104 @@ mod journey_allow_tests {
         .expect("reads");
         assert!(!on_foot.0.portals && !on_foot.0.items && !on_foot.0.spells);
         assert!(!journey_allow(&Value::Nil, false).expect("reads").0.spells);
+    }
+}
+
+#[cfg(test)]
+mod list_tests {
+    //! Behaviour: none (what a list of a world's places costs a plugin that asks for it).
+    use super::*;
+    use dereth_navigation::{
+        EdgeSource, KnownPlace, PlaceKind, PlaceStore, PortalEdge, PortalStore,
+    };
+    use dereth_primitives::{CellId, Frame, Quat, Vec3};
+
+    /// An outdoor place in landblock `(x, y)`.
+    fn at(x: u32, y: u32) -> Position {
+        Position::new(
+            CellId((((x << 8) | y) << 16) | 1),
+            Frame::new(Vec3::new(12.0, 12.0, 0.0), Quat::IDENTITY),
+        )
+    }
+
+    fn made() -> usize {
+        VALUES_MADE.with(std::cell::Cell::get)
+    }
+
+    /// As many portals and places as the end of retail's package holds: a search over them makes
+    /// the values of what it keeps, not of the whole world, so it fits a plugin's budget.
+    #[test]
+    fn a_search_over_a_whole_eras_places_makes_only_what_it_keeps() {
+        let mut portals = PortalStore::new("W");
+        portals.merge((0..4700_u32).map(|i| PortalEdge {
+            source: EdgeSource::Hint,
+            wcid: Some(i),
+            name: if i % 47 == 0 {
+                format!("Drudge Hideout {i}")
+            } else {
+                format!("Portal to Place {i}")
+            },
+            from: at(i % 250, i / 250),
+            to: Some(at((i + 7) % 250, i / 250)),
+            verified: 0,
+            uses: 0,
+            failures: 0,
+            levels: (None, None),
+            retired: None,
+            requires: Vec::new(),
+            shape: None,
+        }));
+        let mut places = PlaceStore::new("W");
+        places.merge((0..6600_u32).map(|i| KnownPlace {
+            kind: if i % 2 == 0 {
+                PlaceKind::Npc
+            } else {
+                PlaceKind::Vendor
+            },
+            source: EdgeSource::Hint,
+            wcid: Some(100_000 + i),
+            name: format!("Person {i}"),
+            at: at(i % 250, i / 250 + 30),
+            first_seen: 0,
+            last_seen: 0,
+            owner: None,
+            to: None,
+        }));
+        assert_eq!(portals.portals().len(), 4700);
+        assert_eq!(places.places().len(), 6600);
+        let filter = |name: Option<&str>| ListFilter {
+            name: name.map(str::to_owned),
+            kinds: None,
+            near: Some(at(0, 0)),
+            within: None,
+            limit: Some(200),
+        };
+        // A name searched for: what holds it, nearest first, up to the limit.
+        let before = made();
+        let found = filter(Some("hideout")).apply(portals_value(&portals));
+        let found = found.as_list().expect("a list");
+        assert_eq!(found.len(), 100, "every portal of that name");
+        assert!(found.iter().all(|v| v
+            .get("name")
+            .as_str()
+            .is_some_and(|n| n.contains("Hideout"))));
+        assert_eq!(made() - before, 100, "values made only for those kept");
+        // Nothing typed: the nearest of everything, up to the limit; the nearest first.
+        let before = made();
+        let mut list = portals_value(&portals);
+        list.extend(places_value(&places));
+        let nearest = filter(None).apply(list);
+        let nearest = nearest.as_list().expect("a list");
+        assert_eq!(nearest.len(), 200);
+        assert_eq!(made() - before, 200, "not the 11,300 there are");
+        assert_eq!(
+            nearest[0].get("from").get("cell").as_i64(),
+            Some(i64::from(at(0, 0).cell.0)),
+            "the nearest first"
+        );
+        // A name's case does not matter, nor where it falls in the name.
+        assert!(holds("Portal to Drudge Hideout", "drudge hideout"));
+        assert!(holds("ÆRLINTHE Portal", "ærlinthe"));
+        assert!(!holds("Portal to Arwic", "hideout"));
     }
 }
