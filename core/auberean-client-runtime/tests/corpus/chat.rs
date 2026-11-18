@@ -1798,3 +1798,56 @@ fn help_shows_a_commands_help_every_commands_line_or_that_it_knows_no_such_comma
     }
     assert!(names.len() >= 130, "{}", names.len());
 }
+
+/// The commands players of other games reach for (`/duel`, `/petition`, `/report`, `/appeal`,
+/// `/where`, `/dir`, `/task`, and the aliases `/d` and `/quest`) send the server nothing: each
+/// shows one line saying how this game does it instead.
+/// Fixture: a recorded session played to its end, in the world.
+///
+/// Behaviour: script.chat.other-games-commands-point-to-this-games-own-way
+#[test]
+fn other_games_commands_send_nothing_and_say_how_this_game_does_it() {
+    let (mut c, _program) = in_the_world();
+    let help = "To get help from an admin, open your Options panel and see the Core tab to \
+                request assistance. Click the button with a checkmark symbol.\n";
+    let quests = "Open your quest panel to see your quest status. Click the button with a key \
+                  symbol.\n";
+    let compass = "The F2 key will show and hide your compass.\n";
+    for (typed, says) in [
+        (
+            "/duel",
+            "Player-versus-player conflict is only allowed in certain areas of the game world. \
+             In such areas you can freely attack some or all other players.\n",
+        ),
+        ("/petition", help),
+        (
+            "/report",
+            "To report an abusive player to an admin, open you Options panel and see the Core \
+             tab to request assistance. Click the button with a checkmark symbol.\n",
+        ),
+        (
+            "/appeal",
+            "To get help from an admin, open your Options panel (Click the button with a \
+             checkmark symbol) and see the Core tab to request assistance.\n",
+        ),
+        (
+            "/where",
+            "Use your Map panel to locate objects of interest. Click on the button with a scroll \
+             symbol. Click on the map to learn more about any symbol you see there.\n",
+        ),
+        ("/dir", compass),
+        ("/d", compass),
+        ("/task", quests),
+        ("/quest", quests),
+    ] {
+        c.shown.clear();
+        let before = c.sent().len();
+        assert_eq!(c.process_text(typed), ShellStatus::Success, "{typed}");
+        assert_eq!(c.sent().len(), before, "{typed} sends nothing");
+        let shown: Vec<String> = std::mem::take(&mut c.shown)
+            .iter()
+            .filter_map(|s| c.write_text(&s.text))
+            .collect();
+        assert_eq!(shown, [says.to_owned()], "{typed}");
+    }
+}

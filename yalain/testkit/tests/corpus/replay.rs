@@ -10,21 +10,25 @@
 //! install's own data files. Chat-service traffic is left out: the server does not run it yet.
 //! Beside the replay, every data record the recorded clients asked for (`DatRequest` `0x10034`)
 //! is asked of the server's own answer, and held to the recorded answer (`DatData` `0x10035`,
-//! `DatRequestFailed` `0x10036`).
+//! `DatRequestFailed` `0x10036`). And each recorded restore of a deleted character, which the
+//! client sealed, is sent again on its own and its answer held to the recorded one.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::Read as _;
 use std::path::Path;
 
-use auberean_protocol::login::{CharacterList, DataRecord, DataRequest};
+use auberean_protocol::login::{
+    CharacterCreated, CharacterList, DataHeld, DataRecord, DataRequest,
+};
 use auberean_protocol::text::NarrowString;
 use auberean_protocol::types::VisualDesc;
 use auberean_protocol::wire::{Field, Writer};
-use auberean_protocol::{ClientBlob, ClientMessage, ServerMessage};
+use auberean_protocol::{queue, ClientBlob, ClientMessage, ServerMessage};
 use rusqlite::{Connection, OpenFlags};
 use yalain_store::{Character, Store};
 use yalain_testkit::Harness;
 use yalain_world::download::{answers, DataFiles};
+use yalain_world::login::SEALED_RESTORE_QUEUE;
 
 /// Steps run after each replayed message: the server answers within a few.
 const QUIET: usize = 12;
@@ -754,4 +758,146 @@ fn no_recorded_2017_client_comes_near_the_limit_on_calls() {
     );
     assert!(sessions > 1000 && messages > 1_000_000);
     assert_eq!(refused, 0);
+}
+
+// The recorded restores of deleted characters, replayed on their own: a login with one is not
+// replayable whole above, its answer looking like a creation's.
+
+/// One recorded sealed restore: the list the client had, what it sent sealed, and what it was
+/// answered.
+struct SealedRestore {
+    list: CharacterList,
+    sealed: Vec<u8>,
+    answer: CharacterCreated,
+}
+
+/// Every sealed restore recorded on a login connection, with the last list before it and the
+/// first character answer after it.
+fn sealed_restores(con: &Connection) -> Vec<SealedRestore> {
+    let mut stmt = con
+        .prepare(
+            "SELECT session_id, idx, raw FROM message \
+             WHERE status = 'ac2' AND dir = 'c2s' AND queue = ?1 ORDER BY session_id, idx",
+        )
+        .expect("the query reads");
+    let sent: Vec<(i64, i64, Vec<u8>)> = stmt
+        .query_map([SEALED_RESTORE_QUEUE], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })
+        .expect("the query runs")
+        .collect::<Result<_, _>>()
+        .expect("the rows read");
+    let near = |session: i64, idx: i64, ty: u32, before: bool| -> Option<ServerMessage> {
+        let sql = if before {
+            "SELECT raw FROM message WHERE session_id = ?1 AND idx < ?2 AND dir = 's2c' \
+             AND mtype = ?3 ORDER BY idx DESC LIMIT 1"
+        } else {
+            "SELECT raw FROM message WHERE session_id = ?1 AND idx > ?2 AND dir = 's2c' \
+             AND mtype = ?3 ORDER BY idx LIMIT 1"
+        };
+        let raw: Vec<u8> = con
+            .query_row(sql, rusqlite::params![session, idx, ty], |r| r.get(0))
+            .ok()?;
+        ServerMessage::decode(&raw).ok()
+    };
+    sent.into_iter()
+        .filter_map(|(session, idx, sealed)| {
+            let Some(ServerMessage::CharacterList(list)) = near(session, idx, 0x10055, true) else {
+                return None;
+            };
+            let Some(ServerMessage::CharacterCreated(answer)) = near(session, idx, 0x10057, false)
+            else {
+                return None;
+            };
+            Some(SealedRestore {
+                list,
+                sealed,
+                answer,
+            })
+        })
+        .collect()
+}
+
+/// A recorded client's sealed restore, sent again byte for byte to a server holding the account's
+/// characters as the list before it showed them (the greyed ones deleted, with the seconds they had
+/// left) under the account's recorded name (the restore's length depends on it), is answered as
+/// the recorded server answered it: the character it brought back, its grey gone.
+/// Behaviour: server.characters.deleted-brought-back-from-a-sealed-restore
+#[test]
+fn every_recorded_sealed_restore_brings_back_the_character_the_recorded_server_did() {
+    let index = auberean_testkit::data::require_capture_index();
+    let con = open(&index);
+    let all = sealed_restores(&con);
+    assert!(!all.is_empty(), "the recordings hold a sealed restore");
+    for (n, r) in all.iter().enumerate() {
+        let mut h = Harness::new();
+        let name = r.list.account.text();
+        let account = h
+            .server
+            .store
+            .create_account(&name, None, h.unix)
+            .expect("the account is made");
+        let hour = i64::from(h.server.cfg.delete_seconds);
+        for c in &r.list.characters {
+            let deleted_at = (c.seconds_greyed_out > 0)
+                .then(|| h.unix - (hour - i64::from(c.seconds_greyed_out)));
+            let ch = Character {
+                id: c.id,
+                account: account.id,
+                name: c.name.text(),
+                race: 1,
+                sex: 0x1000,
+                class: 0,
+                implement: 0,
+                start_area: 0,
+                entity_did: 0,
+                physique: Vec::new(),
+                look: Vec::new(),
+                created_at: h.unix,
+                deleted_at,
+                last_played: h.unix,
+            };
+            h.server.store.insert_character(&ch).expect("kept");
+        }
+        let b = h.add_bot();
+        let now = h.now;
+        h.bots[b].log_in(&name, b"ticket", now);
+        assert!(h.run_until(400, |h| h.bots[b]
+            .messages(false)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::DataQuery(_)))));
+        let held = ClientMessage::DataHeld(DataHeld {
+            language: 0x8000_0001,
+            files: Vec::new(),
+        });
+        h.bots[b].send(false, queue::DATABASE, &held);
+        assert!(h.run_until(400, |h| h.bots[b]
+            .messages(false)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::CharacterList(_)))));
+
+        let before = h.bots[b].inbox.len();
+        h.bots[b].send_bytes(false, SEALED_RESTORE_QUEUE, r.sealed.clone());
+        assert!(
+            h.run_until(400, |h| h.bots[b].inbox.len() > before),
+            "restore {n} answered"
+        );
+        let Some(ServerMessage::CharacterCreated(ours)) = h.bots[b].inbox[before].message() else {
+            panic!("restore {n}: not a restore's answer");
+        };
+        assert_eq!(ours.response, r.answer.response, "restore {n}");
+        assert_eq!(ours.identity.id, r.answer.identity.id, "restore {n}");
+        assert_eq!(ours.identity.name, r.answer.identity.name, "restore {n}");
+        assert_eq!(
+            ours.identity.seconds_greyed_out, r.answer.identity.seconds_greyed_out,
+            "restore {n}"
+        );
+        let kept = h
+            .server
+            .store
+            .character(r.answer.identity.id)
+            .expect("reads")
+            .expect("kept");
+        assert_eq!(kept.deleted_at, None, "restore {n}: in play again");
+    }
 }

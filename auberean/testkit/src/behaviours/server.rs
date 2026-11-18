@@ -1088,6 +1088,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.characters.deleted-brought-back-from-a-sealed-restore",
+        says: "The original client's restore, sealed under a key only the original servers held, \
+               brings back the account's character still greyed out whose restore is that long \
+               (the seal keeps the length), the one deleted last when several are, answered as \
+               the January 2017 server answered it; when none fits, or the last that fit were \
+               deleted in the same second, it is refused and nothing changes.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SEALED-RESTORE"),
+        station: "yalain-testkit::cpu::entry::character_select::a_sealed_restore_brings_back_the_deleted_character_whose_restore_is_as_long",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.characters.deleted-greyed-for-an-hour",
         says: "Deleting a character is answered with its id, then the lists again: it is gone \
                from the list by name and greyed out in the list with looks, counting down an hour, \

@@ -13,6 +13,10 @@
 //! - **Data requests** are answered from the server's data files ([`crate::download`]).
 //! - **Creating** a character answers with its identity and look, or the reason it was not made.
 //! - **Deleting** greys the character out for an hour, then it is gone; the lists are sent again.
+//! - **Restoring** a character still greyed out answers it as a made one, its grey gone. The
+//!   original client seals its restore under a key no server of ours holds; the sealed form is as
+//!   long as the plain one, so it brings back the account's deleted character whose restore is
+//!   that long, the one deleted last when several are.
 //! - **Entering** the world sends a referral to the world service; the client's world connection
 //!   then belongs to that character.
 //! - **Leaving** the world answers that the character has left, and the lists again; a character
@@ -1036,46 +1040,112 @@ fn delete<S: Store>(
     send_lists(s, net, conn, clock);
 }
 
+/// The queue the original client seals a restore on.
+pub const SEALED_RESTORE_QUEUE: u16 = 6;
+
+/// The answer to a restore.
+fn restore_answer(net: &mut ServerNet, conn: ConnId, response: u32, identity: CharacterIdentity) {
+    let m = ServerMessage::CharacterCreated(CharacterCreated {
+        response,
+        identity,
+        result: 0,
+    });
+    send(net, conn, queue::EVENT, BlobKind::LOGIN, &m);
+}
+
 /// Bring back a deleted character of this account: it is answered as a made character is, its
 /// grey gone. The answer says so by itself: no lists follow it.
 fn restore<S: Store>(s: &mut Server<S>, net: &mut ServerNet, conn: ConnId, character: u64) {
     let Some(account) = s.sessions.get(&conn).map(|x| x.account.id) else {
         return;
     };
-    let answer = |net: &mut ServerNet, response: u32, identity: CharacterIdentity| {
-        let m = ServerMessage::CharacterCreated(CharacterCreated {
-            response,
-            identity,
-            result: 0,
-        });
-        send(net, conn, queue::EVENT, BlobKind::LOGIN, &m);
-    };
     let found = s.store.character(character).ok().flatten();
     let Some(c) = found.filter(|c| c.account == account && c.deleted_at.is_some()) else {
         s.unhandled
             .note("restoring a character not on the account or not deleted");
-        return answer(net, CORRUPT, CharacterIdentity::default());
+        return restore_answer(net, conn, CORRUPT, CharacterIdentity::default());
     };
+    bring_back(s, net, conn, &c);
+}
+
+/// How long a character's restore is in the clear: the length of its sealed form too, since the
+/// seal keeps a message's length.
+#[must_use]
+pub fn restore_length(character: u64, name: &str, account: &str) -> usize {
+    ClientMessage::RestoreCharacter(auberean_protocol::login::RestoreCharacter {
+        character,
+        name: WideString::from(name),
+        account: NarrowString::from(account),
+    })
+    .encode()
+    .len()
+}
+
+/// A restore the original client sealed, `len` bytes long. Its key is one no server of ours
+/// holds, but the length follows from the character's name (the account's is the one the list
+/// gave): of the account's characters still listed greyed out whose restore is that long, the one
+/// deleted last is brought back (names of one length, or of two neighboring lengths, can't be told
+/// apart; the recorded restore made with two such characters listed brought back the later). When
+/// none fits, or the last that fit were deleted in the same second, the restore is refused.
+fn sealed_restore<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    conn: ConnId,
+    len: usize,
+    clock: Clock,
+) {
+    let Some(account) = s.sessions.get(&conn).map(|x| x.account.clone()) else {
+        return;
+    };
+    let seconds = s.cfg.delete_seconds;
+    let fits: Vec<Character> = s
+        .store
+        .characters(account.id)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|c| greyed_for(seconds, c.deleted_at, clock.unix).is_some_and(|g| g > 0))
+        .filter(|c| restore_length(c.id, &c.name, &account.name) == len)
+        .collect();
+    let last = fits.iter().filter_map(|c| c.deleted_at).max();
+    let last: Vec<&Character> = fits.iter().filter(|c| c.deleted_at == last).collect();
+    match last.as_slice() {
+        [c] => bring_back(s, net, conn, c),
+        [] => {
+            s.unhandled
+                .note("a sealed restore as long as no deleted character's");
+            restore_answer(net, conn, CORRUPT, CharacterIdentity::default());
+        }
+        _ => {
+            s.unhandled
+                .note("a sealed restore fitting characters deleted together");
+            restore_answer(net, conn, CORRUPT, CharacterIdentity::default());
+        }
+    }
+}
+
+/// A deleted character of the session's account back in play, while a slot is free.
+fn bring_back<S: Store>(s: &mut Server<S>, net: &mut ServerNet, conn: ConnId, c: &Character) {
     let active = s
         .store
-        .characters(account)
+        .characters(c.account)
         .unwrap_or_default()
         .iter()
         .filter(|ch| ch.deleted_at.is_none())
         .count();
     if active >= s.cfg.slots as usize {
-        return answer(
+        return restore_answer(
             net,
+            conn,
             CharacterCreated::NO_FREE_SLOT,
             CharacterIdentity::default(),
         );
     }
-    if s.store.set_deleted(character, None).is_err() {
-        return answer(net, DATABASE_DOWN, CharacterIdentity::default());
+    if s.store.set_deleted(c.id, None).is_err() {
+        return restore_answer(net, conn, DATABASE_DOWN, CharacterIdentity::default());
     }
     tracing::info!(
         ?conn,
-        id = format_args!("{character:#x}"),
+        id = format_args!("{:#x}", c.id),
         "character restored"
     );
     let play = crate::saves::state_of(s, c.id)
@@ -1083,9 +1153,10 @@ fn restore<S: Store>(s: &mut Server<S>, net: &mut ServerNet, conn: ConnId, chara
         .flatten()
         .and_then(|st| crate::state::PlayState::from_bytes(&st.play).ok())
         .unwrap_or_default();
-    let visual = crate::equip::drawn(s, &look_of(&c), &play, c.race, c.sex);
-    answer(
+    let visual = crate::equip::drawn(s, &look_of(c), &play, c.race, c.sex);
+    restore_answer(
         net,
+        conn,
         CharacterCreated::OK,
         CharacterIdentity {
             id: c.id,
@@ -1279,6 +1350,12 @@ pub(crate) fn message<S: Store>(
     }
     let m = match ClientBlob::decode(q, bytes) {
         Ok(ClientBlob::Message(m)) => m,
+        Ok(ClientBlob::Secure {
+            queue: SEALED_RESTORE_QUEUE,
+            bytes,
+        }) => {
+            return sealed_restore(s, net, conn, bytes.len(), clock);
+        }
         Ok(ClientBlob::Secure { queue, .. }) => {
             s.unhandled
                 .note(format!("an encrypted message on queue {queue}"));

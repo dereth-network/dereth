@@ -121,6 +121,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "script.chat.other-games-commands-point-to-this-games-own-way",
+        says: "The commands players of other games reach for (`/duel`, `/petition`, `/report`, \
+               `/appeal`, `/where`, `/dir`, `/task`) send the server nothing: each shows one line \
+               saying how this game does it instead (the map, the compass key, the quest panel, \
+               the Options panel's request for assistance, the places where players may fight).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-POINTER-COMMANDS"),
+        station: "auberean-client-runtime::corpus::chat::other_games_commands_send_nothing_and_say_how_this_game_does_it",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "script.chat.the-chat-log-is-written-with-the-local-time",
         says: "The chat log command, given no folder to write in, shows the player's scripts' line \
                that the file could not be opened; given one, it opens the player's log there, named \

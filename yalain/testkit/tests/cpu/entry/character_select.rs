@@ -12,7 +12,10 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
 use yalain_net::{fixed_stream, NetConfig, ServerNet, Service};
 use yalain_store::{MemoryStore, Store as _};
 use yalain_testkit::{Harness, WORLD_PORT};
-use yalain_world::login::{account_for_command, add_account, PLAYER_ID_BASE, SECRET_COST};
+use yalain_world::login::{
+    account_for_command, add_account, restore_length, CORRUPT, PLAYER_ID_BASE,
+    SEALED_RESTORE_QUEUE, SECRET_COST,
+};
 use yalain_world::names::NameRules;
 use yalain_world::{AccountPolicy, ServerConfig, Stage};
 
@@ -303,6 +306,117 @@ fn a_deleted_character_asked_back_loses_its_grey() {
     assert_eq!(c.identity.visual, made.visual);
     let stored = h.server.store.character(id).unwrap().unwrap();
     assert_eq!(stored.deleted_at, None);
+}
+
+/// A restore of `character` as the original client sends it: sealed (here by a stand-in that, like
+/// the original's, keeps the length and leaves nothing readable) on the queue of its own.
+fn send_sealed_restore(h: &mut Harness, b: usize, character: u64, name: &str) -> CharacterCreated {
+    let plain = ClientMessage::RestoreCharacter(RestoreCharacter {
+        character,
+        name: WideString::from(name),
+        account: NarrowString::from("tester"),
+    })
+    .encode();
+    let sealed: Vec<u8> = plain.iter().map(|x| x ^ 0x5A).collect();
+    let before = h.bots[b].inbox.len();
+    h.bots[b].send_bytes(false, SEALED_RESTORE_QUEUE, sealed);
+    assert!(
+        h.run_until(STEPS, |h| h.bots[b].inbox.len() > before),
+        "a sealed restore is answered"
+    );
+    match h.bots[b].inbox[before].message() {
+        Some(ServerMessage::CharacterCreated(c)) => c,
+        other => panic!("not a restore's answer: {other:?}"),
+    }
+}
+
+fn delete_and_wait(h: &mut Harness, b: usize, character: u64) {
+    let delete = ClientMessage::DeleteCharacter(DeleteCharacter {
+        account: NarrowString::from("tester"),
+        character,
+    });
+    let before = h.bots[b].inbox.len();
+    h.bots[b].send(false, queue::LOGON, &delete);
+    assert!(h.run_until(STEPS, |h| h.bots[b].inbox.len() >= before + 3));
+}
+
+/// A restore sealed as the original client seals it, which this server cannot read, brings back
+/// the account's one deleted character whose restore is as long, answered as a made one with its
+/// grey gone; the other deleted character stays deleted.
+/// Behaviour: server.characters.deleted-brought-back-from-a-sealed-restore
+#[test]
+fn a_sealed_restore_brings_back_the_deleted_character_whose_restore_is_as_long() {
+    let mut h = Harness::new();
+    let b = at_character_list(&mut h, "tester");
+    let short = create(&mut h, b, "Babyfare").identity;
+    let long = create(&mut h, b, "Embertailor").identity;
+    assert_ne!(
+        restore_length(short.id, "Babyfare", "tester"),
+        restore_length(long.id, "Embertailor", "tester")
+    );
+    delete_and_wait(&mut h, b, short.id);
+    delete_and_wait(&mut h, b, long.id);
+
+    let c = send_sealed_restore(&mut h, b, short.id, "Babyfare");
+    assert_eq!(c.response, CharacterCreated::OK);
+    assert_eq!(c.identity.id, short.id);
+    assert_eq!(c.identity.name, short.name);
+    assert_eq!(c.identity.seconds_greyed_out, 0);
+    assert_eq!(c.identity.visual, short.visual);
+    let mut deleted_at = |id| h.server.store.character(id).unwrap().unwrap().deleted_at;
+    assert_eq!(deleted_at(short.id), None);
+    assert!(deleted_at(long.id).is_some(), "the other stays deleted");
+}
+
+/// A sealed restore as long as no deleted character's restore is refused as an unknown
+/// character's restore is; one as long as two deleted characters' brings back the one deleted
+/// last; one as long as two deleted in the same second is refused. A refused restore leaves every
+/// deleted character deleted.
+/// Behaviour: server.characters.deleted-brought-back-from-a-sealed-restore
+#[test]
+fn a_sealed_restore_fitting_several_brings_back_the_last_deleted_and_one_fitting_none_is_refused() {
+    let mut h = Harness::new();
+    let b = at_character_list(&mut h, "tester");
+    let first = create(&mut h, b, "Babyfare").identity;
+    let last = create(&mut h, b, "Firelight").identity;
+    assert_eq!(
+        restore_length(first.id, "Babyfare", "tester"),
+        restore_length(last.id, "Firelight", "tester"),
+        "names of eight and nine letters restore at one length"
+    );
+    delete_and_wait(&mut h, b, first.id);
+    let later = yalain_net::LocalTime(h.now.0 + 5.0);
+    h.run_to(later);
+    delete_and_wait(&mut h, b, last.id);
+    let deleted = |h: &mut Harness, id: u64| {
+        h.server
+            .store
+            .character(id)
+            .unwrap()
+            .unwrap()
+            .deleted_at
+            .is_some()
+    };
+
+    let c = send_sealed_restore(&mut h, b, first.id, "Abandonedlongname");
+    assert_eq!(c.response, CORRUPT, "as long as none");
+    assert!(deleted(&mut h, first.id) && deleted(&mut h, last.id));
+
+    let c = send_sealed_restore(&mut h, b, first.id, "Babyfare");
+    assert_eq!(c.response, CharacterCreated::OK);
+    assert_eq!(c.identity.id, last.id, "the one deleted last");
+    assert!(!deleted(&mut h, last.id));
+    assert!(deleted(&mut h, first.id));
+
+    // Both deleted in the same second: which was last can't be told.
+    delete_and_wait(&mut h, b, last.id);
+    let at = h.unix - 10;
+    for id in [first.id, last.id] {
+        h.server.store.set_deleted(id, Some(at)).unwrap();
+    }
+    let c = send_sealed_restore(&mut h, b, first.id, "Babyfare");
+    assert_eq!(c.response, CORRUPT, "deleted together");
+    assert!(deleted(&mut h, first.id) && deleted(&mut h, last.id));
 }
 
 /// A deleted character is answered with its id and the lists again: gone from the list by name,
