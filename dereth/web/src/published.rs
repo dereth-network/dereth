@@ -319,6 +319,8 @@ place\tportal\tpublished\t1000\tPortal\t0xA9B40011 30.000 10.000 0.000\t0\t0\t-\
             wcid: 700,
             name: "Thomas the Vendor".into(),
             at: Some(at),
+            useability: None,
+            physics_state: 0,
         });
         travel.save_places();
         let saved = SAVED.with(|s| s.borrow().clone());

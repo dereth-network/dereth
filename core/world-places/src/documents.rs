@@ -15,7 +15,9 @@
 //! weenie says, else to the destination marker linked to it, else to its weenie's offset from where
 //! it stands. A spawned portal stands at the point its spawner names, else at the spawner offset by
 //! the spawner's entry (turned with it, unless the entry scatters it about the spawner); a
-//! scattered portal is written at the middle of the ground it is scattered over.
+//! scattered portal is written at the middle of the ground it is scattered over. A portal that can
+//! be neither used nor walked into (a destroyed one: its weenie may not be used, and ignores
+//! collisions) leads nowhere, and is in neither document.
 //!
 //! `<source>` is `published` in a server's own table and `hint` in one built from the public
 //! database of a world's era, which the world may have changed. A position is `0x<cell, 8 hex
@@ -152,18 +154,13 @@ impl Shape {
     /// physics state's ignore-collisions bit. `None` when it names no setup.
     #[must_use]
     pub fn of(w: &Weenie) -> Option<Self> {
-        /// The physics state's bit for an object nothing collides with.
-        const IGNORE_COLLISIONS: i32 = 0x10;
         let setup = w.did(id::did::SETUP).filter(|s| *s != 0)?;
         #[allow(clippy::cast_possible_truncation)]
         let scale = w.float(id::float::DEFAULT_SCALE).map_or(1.0, |s| s as f32);
-        let ignores = w
-            .int(id::int::PHYSICS_STATE)
-            .is_some_and(|s| s & IGNORE_COLLISIONS != 0);
         Some(Self {
             setup,
             scale,
-            touches: !ignores,
+            touches: !ignores_collisions(w),
         })
     }
 
@@ -178,6 +175,25 @@ impl Shape {
             if self.touches { "" } else { " untouched" }
         )
     }
+}
+
+/// Whether the weenie `w`'s physics state says nothing collides with it.
+fn ignores_collisions(w: &Weenie) -> bool {
+    /// The physics state's bit for an object nothing collides with.
+    const IGNORE_COLLISIONS: i32 = 0x10;
+    w.int(id::int::PHYSICS_STATE)
+        .is_some_and(|s| s & IGNORE_COLLISIONS != 0)
+}
+
+/// Whether the portal weenie `w` can be neither used nor walked into: it may not be used, and a
+/// body that touches it is not taken. A destroyed portal is such a one, and leads nowhere, though
+/// its weenie still names where it once led.
+fn destroyed(w: &Weenie) -> bool {
+    /// The item-useable value of an object that may not be used.
+    const USEABLE_NO: i32 = 1;
+    w.weenie_type == id::kind::PORTAL
+        && w.int(id::int::ITEM_USEABLE) == Some(USEABLE_NO)
+        && ignores_collisions(w)
 }
 
 /// What a place is, in the order the places document lists them within a cell.
@@ -304,7 +320,7 @@ impl WorldPlaces {
                 }
                 up = q;
             }
-            if w.weenie_type == id::kind::PORTAL {
+            if w.weenie_type == id::kind::PORTAL && !destroyed(&w) {
                 let to = destination(&w, &p.at).or_else(|| {
                     p.links.iter().find_map(|c| {
                         let child = &placements[*by_guid.get(c)?];
@@ -553,7 +569,7 @@ fn spawned(
             *at
         };
         let spot = landed(&spot);
-        if c.weenie_type == id::kind::PORTAL {
+        if c.weenie_type == id::kind::PORTAL && !destroyed(&c) {
             if let Some(to) = destination(&c, &spot) {
                 out.push(portal(&c, &spot, to, Standing::Spawned(guid), asks));
             }
@@ -627,11 +643,11 @@ fn asks(w: &Weenie) -> Vec<Requirement> {
 }
 
 /// One placed instance's place, less where a portal leads; `None` for a weenie hidden from the
-/// interface, and for an `npc` that is no creature or may be attacked.
+/// interface, a destroyed portal, and an `npc` that is no creature or may be attacked.
 fn place(kind: PlaceKind, placed: &Placement, weenie: &Weenie) -> Option<Place> {
     /// The item type's creature bit.
     const CREATURE: i32 = 0x10;
-    if weenie.flag(id::bool::UI_HIDDEN) == Some(true) {
+    if weenie.flag(id::bool::UI_HIDDEN) == Some(true) || destroyed(weenie) {
         return None;
     }
     if kind == PlaceKind::Npc {

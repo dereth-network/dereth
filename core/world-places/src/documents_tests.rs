@@ -202,6 +202,75 @@ fn a_portal_says_what_its_body_is_and_whether_touching_it_takes_a_body() {
 }
 
 #[test]
+fn a_destroyed_portal_is_in_neither_document_though_its_weenie_names_where_it_led() {
+    /// May not be used; used from a distance.
+    const NO: i32 = 1;
+    const REMOTE: i32 = 0x20;
+    /// Ethereal and ignoring collisions; ethereal and reporting them.
+    const IGNORES: i32 = 0xC14;
+    const REPORTS: i32 = 0xC0C;
+    let zaikhal = Spot::at(0x8090_0013, [64.863, 55.687, 124.005]);
+    let kind = |w: Weenie, useable: i32, state: i32| {
+        w.with_int(id::int::ITEM_USEABLE, useable)
+            .with_int(id::int::PHYSICS_STATE, state)
+    };
+    let world = WorldContent::new()
+        .with_weenie(kind(
+            portal(1032, "Destroyed Portal to Zaikhal", Some(zaikhal)),
+            NO,
+            IGNORES,
+        ))
+        .with_weenie(kind(
+            portal(1033, "Zaikhal Portal", Some(zaikhal)),
+            REMOTE,
+            REPORTS,
+        ))
+        // Not used by hand, but walked into: a floor that sends whoever steps on it.
+        .with_weenie(kind(
+            portal(1034, "Portal Floor Walk", Some(DUNGEON)),
+            NO,
+            REPORTS,
+        ))
+        // Walked through, but used by hand.
+        .with_weenie(kind(
+            portal(1035, "Used by hand", Some(DUNGEON)),
+            REMOTE,
+            IGNORES,
+        ))
+        .with_weenie(spawner(
+            3000,
+            vec![spawn(
+                1032,
+                spawn_where::SPECIFIC,
+                Spot::at(0xA9B4_0022, [80.0, 30.0, 5.0]),
+            )],
+        ));
+    let world = [1032, 1033, 1034, 1035, 3000]
+        .into_iter()
+        .zip([10.0, 20.0, 30.0, 40.0, 50.0])
+        .fold(world, |w, (wcid, x)| {
+            w.with_placement(
+                0x7A9B_4100 + wcid,
+                wcid,
+                Spot::at(0xA9B4_0021, [x, 7.5, 94.0]),
+                &[],
+            )
+        });
+    let places = WorldPlaces::of(&world);
+    let table = places.portal_table("W", Source::Hint);
+    assert!(
+        line(&table, 1032).is_empty(),
+        "placed or spawned, it leads nowhere: {table}"
+    );
+    for wcid in [1033, 1034, 1035] {
+        assert_eq!(line(&table, wcid).len(), 1, "{wcid}: {table}");
+    }
+    let doc = places.places_document("W", Source::Hint);
+    assert!(!doc.contains("Destroyed"), "{doc}");
+    assert_eq!(doc.matches("place\tportal\t").count(), 3, "{doc}");
+}
+
+#[test]
 fn a_portal_says_whom_it_admits_and_when_it_stands() {
     let world = WorldContent::new()
         .with_event("Snowreap", 3)

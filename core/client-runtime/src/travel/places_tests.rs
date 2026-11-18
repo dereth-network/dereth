@@ -68,6 +68,8 @@ fn play(slug: &str, t: &mut Travel) {
                         .physicsdesc
                         .position
                         .map(|q| position(q.objcell_id, q.frame.origin.into())),
+                    useability: w.useability,
+                    physics_state: m.0.physicsdesc.state,
                 };
                 if Some(o.id) != player {
                     t.see_object(&o);
@@ -79,9 +81,7 @@ fn play(slug: &str, t: &mut Travel) {
                     let Some(o) = dword(p, 12).and_then(|id| objects.get(&ObjectId(id))) else {
                         continue;
                     };
-                    if let (Some(PlaceKind::Portal), Some(position)) =
-                        (PlaceKind::of(o.bitfield, o.item_type), o.at)
-                    {
+                    if let (Some(PlaceKind::Portal), Some(position)) = (o.kind(), o.at) {
                         let sighting = PortalSighting {
                             wcid: Some(o.wcid),
                             name: o.name.clone(),
@@ -242,6 +242,8 @@ fn a_place_learned_in_one_world_never_shows_in_another() {
         wcid: 509,
         name: String::from("Life Stone"),
         at: Some(position(0xA9B4_0011, Vec3::new(10.0, 10.0, 0.0))),
+        useability: None,
+        physics_state: 0,
     });
     t.save_places();
     // A new client, as after a restart: each world reads back only its own.
@@ -255,6 +257,39 @@ fn a_place_learned_in_one_world_never_shows_in_another() {
         .all(|p| p.at.cell.0 != 0xA9B4_0011));
     again.note_world("First@10.0.0.2:9000");
     assert_eq!(again.places().places().len(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_destroyed_portal_seen_is_no_place() {
+    let dir = folder("destroyed");
+    let mut t = travel_in(&dir);
+    t.note_world("Server@10.0.0.1:9000");
+    // Portals, as the server describes them: one that may not be used and that nothing collides
+    // with, one used from a distance, and a floor that sends whoever walks onto it.
+    let portal = |id: u32, name: &str, useability: u32, physics_state: u32, x: f32| PlaceSeen {
+        id: ObjectId(id),
+        bitfield: 0x0004_0000,
+        item_type: 0x0001_0000,
+        wcid: 1000 + id,
+        name: name.to_owned(),
+        at: Some(position(0xA9B4_0011, Vec3::new(x, 10.0, 0.0))),
+        useability: Some(useability),
+        physics_state,
+    };
+    let destroyed = portal(1, "Destroyed Portal to Zaikhal", 1, 0xC14, 10.0);
+    assert_eq!(destroyed.kind(), None);
+    t.see_object(&destroyed);
+    t.see_object(&portal(2, "Zaikhal Portal", 0x20, 0xC0C, 20.0));
+    t.see_object(&portal(3, "Portal Floor Walk", 1, 0xC0C, 30.0));
+    let mut names: Vec<_> = t
+        .places()
+        .places()
+        .iter()
+        .map(|p| p.name.as_str())
+        .collect();
+    names.sort_unstable();
+    assert_eq!(names, ["Portal Floor Walk", "Zaikhal Portal"]);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -286,6 +321,8 @@ fn the_places_a_server_publishes_load_under_those_seen_and_are_never_written() {
         wcid,
         name: name.to_owned(),
         at: Some(position(0xA9B4_0011, Vec3::new(x, 10.0, 0.0))),
+        useability: None,
+        physics_state: 0,
     };
     t.see_object(&seen(1, 0x4014, 0x1000_0000, 509, "Life Stone", 10.5));
     t.see_object(&seen(2, 0x0004, 0x10, 1101, "San Ming", 20.5));

@@ -364,6 +364,42 @@ fn every_launch_town_reaches_the_destinations_or_says_why() {
     matrix(EraId::Launch);
 }
 
+/// Behaviour: none (acceptance: an era's place package holds only the portals that work in it)
+#[test]
+fn the_end_of_retails_destroyed_portals_are_left_out_and_work_in_infiltration() {
+    let destroyed = |name: &str| name.starts_with("Destroyed ");
+    let eor = package(EraId::Eor);
+    let portals: Vec<_> = eor
+        .portals
+        .portals()
+        .iter()
+        .filter(|e| destroyed(&e.name))
+        .map(|e| e.name.as_str())
+        .collect();
+    assert!(portals.is_empty(), "portals: {portals:?}");
+    let places: Vec<_> = eor
+        .places
+        .places()
+        .iter()
+        .filter(|k| destroyed(&k.name))
+        .map(|k| (k.kind, k.name.as_str()))
+        .collect();
+    assert!(places.is_empty(), "places: {places:?}");
+    // Zaikhal is still the portals' that work.
+    assert!(eor
+        .portals
+        .portals()
+        .iter()
+        .any(|e| e.name == "Zaikhal Portal"));
+    // In February 2005 the portal to Zaikhal the end of retail destroys still works.
+    let infiltration = package(EraId::Infiltration);
+    assert!(infiltration
+        .portals
+        .portals()
+        .iter()
+        .any(|e| e.wcid == Some(1032) && e.name == "Portal to Zaikhal"));
+}
+
 /// One era's walks: inside each destination dungeon, from where its portal sets the character
 /// down to the place farthest from there by walking; and outdoors, from the nearest town's drop
 /// point to the dungeon's portal, where both are in one planning window.

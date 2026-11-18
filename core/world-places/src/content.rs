@@ -24,6 +24,8 @@ pub mod id {
     /// Integer properties.
     pub mod int {
         pub const ITEM_TYPE: u32 = 1;
+        /// How the object may be used: `1` for not at all.
+        pub const ITEM_USEABLE: u32 = 16;
         pub const ACCOUNT_REQUIREMENTS: u32 = 26;
         pub const MIN_LEVEL: u32 = 86;
         pub const MAX_LEVEL: u32 = 87;

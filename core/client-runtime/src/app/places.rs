@@ -34,6 +34,8 @@ impl<S: Shell> App<S> {
                 wcid: w.pwd.wcid,
                 name: w.pwd.name.clone(),
                 at: at_of(id),
+                useability: w.pwd.useability,
+                physics_state: model.tables.physics.get(id).map_or(0, |p| p.state),
             })
         };
         for (id, presence) in model.tables.physics.iter() {
@@ -61,9 +63,7 @@ impl<S: Shell> App<S> {
                 continue;
             };
             let Some(o) = seen(u.object) else { continue };
-            if dereth_navigation::PlaceKind::of(o.bitfield, o.item_type)
-                != Some(dereth_navigation::PlaceKind::Portal)
-            {
+            if o.kind() != Some(dereth_navigation::PlaceKind::Portal) {
                 continue;
             }
             if let Some(position) = o.at {

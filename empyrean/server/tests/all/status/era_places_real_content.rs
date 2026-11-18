@@ -155,10 +155,18 @@ fn each_eras_database_gives_its_portals_what_they_ask_and_its_towns() {
         })
         .count();
     assert!(
-        eor.portals.len() > 5000 && spawned > 500,
+        eor.portals.len() > 4500 && spawned > 500,
         "{} portals, {spawned} spawned",
         eor.portals.len()
     );
+    // The portals destroyed by the end of retail lead nowhere; Zaikhal's working one is there.
+    assert!(
+        eor.portals
+            .iter()
+            .all(|p| !p.name.starts_with("Destroyed ")),
+        "a destroyed portal"
+    );
+    assert!(eor.portals.iter().any(|p| p.name == "Zaikhal Portal"));
     let held = |r: fn(&Requirement) -> bool| {
         eor.portals
             .iter()

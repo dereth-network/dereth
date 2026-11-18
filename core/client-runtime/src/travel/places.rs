@@ -42,9 +42,26 @@ pub struct PlaceSeen {
     pub name: String,
     /// Where it stands, once it stands somewhere.
     pub at: Option<Position>,
+    /// How it may be used, when its description says; `1` for not at all.
+    pub useability: Option<u32>,
+    /// Its physics state word.
+    pub physics_state: u32,
 }
 
 impl PlaceSeen {
+    /// What place it is ([`PlaceKind::of`]); none for a portal that can be neither used nor walked
+    /// into, as a destroyed one is: it may not be used, and nothing collides with it.
+    #[must_use]
+    pub fn kind(&self) -> Option<PlaceKind> {
+        const USEABLE_NO: u32 = 1;
+        const IGNORE_COLLISIONS: u32 = 0x10;
+        let kind = PlaceKind::of(self.bitfield, self.item_type)?;
+        let destroyed = kind == PlaceKind::Portal
+            && self.useability == Some(USEABLE_NO)
+            && self.physics_state & IGNORE_COLLISIONS != 0;
+        (!destroyed).then_some(kind)
+    }
+
     fn place(&self, kind: PlaceKind, at: Position, owner: Option<String>) -> KnownPlace {
         let now = unix_now();
         KnownPlace {
@@ -210,7 +227,7 @@ impl Travel {
         if self.places.store.world.is_empty() {
             return;
         }
-        let Some(kind) = PlaceKind::of(o.bitfield, o.item_type) else {
+        let Some(kind) = o.kind() else {
             self.places.looked_at.insert(o.id);
             return;
         };
