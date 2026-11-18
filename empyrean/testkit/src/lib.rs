@@ -449,6 +449,18 @@ impl TestServer {
         slot.client.send(NetQueue::Weenie, &data);
     }
 
+    /// [`Self::send_game_action`] for a body already encoded (from offset 12 of a game action, as a
+    /// captured client sent it), under `sub_type`.
+    ///
+    /// # Panics
+    /// When `id` is not a client of this server.
+    pub fn send_game_action_raw(&mut self, id: ClientId, sub_type: proto::Opcode, body: &[u8]) {
+        let slot = &mut self.clients[id.0];
+        let data = proto::actions::pack_action_raw(slot.next_action_stamp, sub_type, body);
+        slot.next_action_stamp = slot.next_action_stamp.wrapping_add(1);
+        slot.client.send(NetQueue::Weenie, &data);
+    }
+
     /// Queues a message (`M`'s opcode and body) on one of the client's queues.
     ///
     /// # Panics
