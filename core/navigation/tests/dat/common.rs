@@ -55,7 +55,16 @@ pub fn player_setup(store: &RetailDatStore) -> Arc<SetupGeometry> {
 /// Load `blocks` with `config`: their cells and buildings, every static of their cells and, with
 /// `outdoors`, their scenery and landblock statics. The first block is the one tests start in.
 pub fn load(blocks: &[u16], outdoors: bool, config: NavConfig) -> Dungeon {
-    let store = store();
+    load_from(store(), blocks, outdoors, config)
+}
+
+/// [`load`] from the data files `store`: another era's, say.
+pub fn load_from(
+    store: Arc<RetailDatStore>,
+    blocks: &[u16],
+    outdoors: bool,
+    config: NavConfig,
+) -> Dungeon {
     let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let land = Arc::new(DatLandSource::new(Arc::clone(&store), &region).expect("height table"));
     let mut world = PhysicsWorld::new(Arc::clone(&land) as Arc<dyn dereth_physics::LandSource>);

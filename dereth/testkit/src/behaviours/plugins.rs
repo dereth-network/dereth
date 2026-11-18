@@ -1016,6 +1016,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.nav.journeys-reach-a-portal-in-a-building-far-away",
+        says: "A journey's planner tells a building's inside from a dungeon for a cell of a                landblock it has not loaded, from the cell file: a portal that stands in a                building far from the character is walked to, and the dungeon it leads to is                reached only through it.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-FAR-BUILDINGS"),
+        station: "dereth-client-runtime::lib::planning::far_realm_tests::a_far_cell_in_a_building_is_outdoors_and_one_in_a_dungeon_is_its_dungeon",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "plugins.nav.landblock-tiles-kept-between-sessions-are-read-back-not-built-again",
         says: "The client's planner keeps each landblock's tile and each dungeon's region it builds \
                in the player's own cache, under the data files' fingerprints and the body's \

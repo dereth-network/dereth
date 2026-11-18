@@ -20,7 +20,7 @@
 use dereth_primitives::{CellId, ObjectId, Position};
 
 use crate::path::global_distance;
-use crate::portals::{PortalEdge, PortalStore, Recall};
+use crate::portals::{PortalEdge, PortalStore, Recall, Refusal, Traveller};
 
 /// Where a body can walk: the outdoors (with the buildings it opens onto) or a dungeon.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -544,6 +544,58 @@ pub fn plan_journey_with(
     })
 }
 
+/// Whether a traveller can go somewhere, and how, or why not.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Reach {
+    /// The journey there.
+    Planned(Journey),
+    /// No journey for this traveller: the portals on the way there that would refuse them, each
+    /// by its name with why. Another traveller could go this way.
+    Refused(Vec<(String, Refusal)>),
+    /// No portal known leads there, for anyone.
+    NoWay,
+}
+
+/// Whether `traveller` can go from `from` to `to` by the portals `store` knows and `teleports`,
+/// and how ([`plan_journey`] over [`PortalStore::routable_for`]); when not, why: the journey any
+/// traveller could take ([`PortalStore::routable_for_anyone`]), and the portals on it that refuse
+/// this one.
+#[must_use]
+pub fn reach_for(
+    from: &Position,
+    to: &Position,
+    store: &PortalStore,
+    teleports: &[Teleport],
+    traveller: &Traveller,
+    realm: &dyn Fn(&Position) -> Option<Realm>,
+    config: &JourneyConfig,
+) -> Reach {
+    let mine = store.routable_for(traveller);
+    if let Some(j) = plan_journey(from, to, &mine, teleports, realm, config) {
+        return Reach::Planned(j);
+    }
+    let anyone = store.routable_for_anyone();
+    let Some(j) = plan_journey(from, to, &anyone, teleports, realm, config) else {
+        return Reach::NoWay;
+    };
+    let mut why: Vec<(String, Refusal)> = Vec::new();
+    for leg in &j.legs {
+        if let Leg::Portal { edge } = leg {
+            if let Some(r) = edge.refusal(traveller) {
+                let named = (edge.name.clone(), r);
+                if !why.contains(&named) {
+                    why.push(named);
+                }
+            }
+        }
+    }
+    if why.is_empty() {
+        Reach::NoWay
+    } else {
+        Reach::Refused(why)
+    }
+}
+
 /// The realm of a cell id, when the cell's kind alone says: a land cell is outdoors. An
 /// interior cell needs the cells' portals to tell a building from a dungeon.
 #[must_use]
@@ -641,6 +693,74 @@ mod tests {
             }
         }
         cost[1].is_finite().then_some(cost[1])
+    }
+
+    #[test]
+    fn a_place_out_of_reach_says_which_portals_refuse_the_traveller() {
+        use dereth_world_places::Requirement;
+        let realm = |p: &Position| {
+            land_realm(p.cell).or_else(|| u16::try_from(p.cell.0 >> 16).ok().map(Realm::Dungeon))
+        };
+        let edge =
+            |name: &str, from: Position, to: Position, levels, requires: Vec<Requirement>| {
+                PortalEdge {
+                    source: EdgeSource::Hint,
+                    wcid: Some(1),
+                    name: name.into(),
+                    from,
+                    to: Some(to),
+                    verified: 0,
+                    uses: 0,
+                    failures: 0,
+                    levels,
+                    retired: None,
+                    requires,
+                }
+            };
+        let town = at(0xA9B4_0011, 50.0, 50.0);
+        let (deep, quest, nowhere) = (
+            at(0x0106_0100, 0.0, 0.0),
+            at(0x0107_0100, 0.0, 0.0),
+            at(0x0108_0100, 0.0, 0.0),
+        );
+        let mut store = PortalStore::new("W");
+        store.merge([
+            edge(
+                "Deep",
+                at(0xA9B4_0011, 60.0, 50.0),
+                deep,
+                (Some(80), None),
+                Vec::new(),
+            ),
+            edge(
+                "Vault",
+                at(0xA9B4_0011, 70.0, 50.0),
+                quest,
+                (None, None),
+                vec![Requirement::Quest("VaultKey".into())],
+            ),
+        ]);
+        let config = JourneyConfig::default();
+        let go =
+            |to: &Position, t: &Traveller| reach_for(&town, to, &store, &[], t, &realm, &config);
+        let mut novice = Traveller::at_level(Some(10));
+        novice.quests = Some(std::collections::BTreeSet::new());
+        assert_eq!(
+            go(&deep, &novice),
+            Reach::Refused(vec![("Deep".into(), Refusal::BelowLevel(80))])
+        );
+        assert_eq!(
+            go(&quest, &novice),
+            Reach::Refused(vec![(
+                "Vault".into(),
+                Refusal::Requires(Requirement::Quest("VaultKey".into()))
+            )])
+        );
+        assert_eq!(go(&nowhere, &novice), Reach::NoWay);
+        let mut hero = Traveller::at_level(Some(120));
+        hero.quests = Some(["VaultKey".to_owned()].into_iter().collect());
+        assert!(matches!(go(&deep, &hero), Reach::Planned(_)));
+        assert!(matches!(go(&quest, &hero), Reach::Planned(_)));
     }
 
     #[test]

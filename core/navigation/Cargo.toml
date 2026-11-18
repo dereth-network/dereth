@@ -27,6 +27,10 @@ dereth-client-runtime.workspace = true
 # Tier switch only: no code is gated on it. It selects the `dat` test binary, whose
 # modules read the retail dats under $DERETH_TEST_DAT_DIR.
 retail-dats = []
+# Tier switch only: selects, with `retail-dats`, the `eras` test binary, which reads each era's
+# public world database (under $DERETH_TEST_WORLD_DATABASES, else the per-user world-database
+# folder) and each era's data files.
+world-databases = []
 
 [lints]
 workspace = true
@@ -35,3 +39,8 @@ workspace = true
 name = "dat"
 path = "tests/dat/main.rs"
 required-features = ["retail-dats"]
+
+[[test]]
+name = "eras"
+path = "tests/eras/main.rs"
+required-features = ["retail-dats", "world-databases"]

@@ -128,9 +128,73 @@ struct Ask {
     reach: Option<f32>,
 }
 
+/// The most interior cells looked at to tell whether a cell of a landblock that is not loaded is
+/// a building's inside: a building's cells reach the land within a few of them.
+const BUILDING_CELLS: usize = 64;
+
+/// The realms of interior cells of landblocks that are not loaded, read from the cell file as a
+/// journey asks for them and kept: a portal far from the body may stand in a building, which a
+/// walk reaches, or in a dungeon, which only a portal does.
+#[derive(Default)]
+struct FarRealms {
+    known: std::collections::HashMap<u32, Realm>,
+    buildings: std::collections::HashMap<u16, bool>,
+    cells: dereth_world_data::env_cells::EnvCellLoader,
+}
+
+impl FarRealms {
+    /// The realm of interior cell `cell`: the outdoors when its cells open onto the land within
+    /// [`BUILDING_CELLS`] of it, in a landblock with buildings; else its landblock's dungeon.
+    fn of(&mut self, store: &RetailDatStore, cell: CellId) -> Realm {
+        if let Some(r) = self.known.get(&cell.0) {
+            return *r;
+        }
+        let block = u16::try_from(cell.0 >> 16).unwrap_or(0);
+        let dungeon = Realm::Dungeon(block);
+        let has_buildings = *self.buildings.entry(block).or_insert_with(|| {
+            crate::world_build::read_lbi(store, i32::from(block >> 8), i32::from(block & 0xFF))
+                .is_some_and(|l| !l.buildings.is_empty())
+        });
+        if !has_buildings {
+            self.known.insert(cell.0, dungeon);
+            return dungeon;
+        }
+        let base = cell.0 & 0xFFFF_0000;
+        let mut seen = std::collections::BTreeSet::from([cell.0]);
+        let mut queue = VecDeque::from([cell.0]);
+        let mut found = dungeon;
+        'flood: while let Some(id) = queue.pop_front() {
+            let Some(d) = self.cells.load_cell(store, CellId(id)) else {
+                continue;
+            };
+            for portal in &d.cell.portals {
+                if portal.other_cell_id == u32::MAX {
+                    found = Realm::Outdoors;
+                    break 'flood;
+                }
+                let next = base | (portal.other_cell_id & 0xFFFF);
+                if seen.len() < BUILDING_CELLS && seen.insert(next) {
+                    queue.push_back(next);
+                }
+            }
+        }
+        // Every cell looked at is in the same realm, when the flood went through them all.
+        if found == Realm::Outdoors || seen.len() < BUILDING_CELLS {
+            for id in seen {
+                self.known.insert(id, found);
+            }
+        } else {
+            self.known.insert(cell.0, found);
+        }
+        found
+    }
+}
+
 /// The planner and its jobs, wherever they run.
 struct Worker {
     land: Arc<DatLandSource>,
+    store: Arc<RetailDatStore>,
+    far: std::cell::RefCell<FarRealms>,
     nav: Planner,
     queue: VecDeque<Job>,
     /// The landblocks whose cells the next job reads, still to decode, one a slice; and the job.
@@ -150,6 +214,8 @@ impl Worker {
         let nav = planner(&land, store, tiles)?;
         Ok(Self {
             land,
+            store: Arc::clone(store),
+            far: std::cell::RefCell::new(FarRealms::default()),
             nav,
             queue: VecDeque::new(),
             loading: VecDeque::new(),
@@ -268,14 +334,12 @@ impl Worker {
     fn journey(&self, ask: &Ask, to: &Position) -> Option<(Journey, f64)> {
         let clock = web_time::Instant::now();
         let nav = &self.nav;
-        // An interior cell of a landblock that is not loaded is taken for a dungeon, as nearly
-        // every portal's far end is: loading every landblock a portal names would cost more than
-        // the plan. The landblocks round the body and the goal are loaded, so a building's inside
-        // there is told from a dungeon.
+        // An interior cell of a landblock that is not loaded is read from the cell file rather
+        // than loaded, which would cost more than the plan: a building's inside (where many
+        // portals stand) is told from a dungeon (where nearly every portal leads).
         let realm = |p: &Position| {
             nav.realm(p).or_else(|| {
-                (p.cell.0 & 0xFFFF >= 0x0100)
-                    .then(|| Realm::Dungeon(u16::try_from(p.cell.0 >> 16).unwrap_or(0)))
+                (p.cell.0 & 0xFFFF >= 0x0100).then(|| self.far.borrow_mut().of(&self.store, p.cell))
             })
         };
         let portals: Vec<&PortalEdge> = ask.portals.iter().collect();
@@ -635,5 +699,31 @@ impl Planning {
         };
         self.asked = self.asked.saturating_sub(got.len());
         got
+    }
+}
+
+#[cfg(test)]
+mod far_realm_tests {
+    use super::*;
+
+    /// Behaviour: plugins.nav.journeys-reach-a-portal-in-a-building-far-away
+    /// A portal far from the body that stands in a building is walked to; the dungeon it leads to
+    /// is reached only through it.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn a_far_cell_in_a_building_is_outdoors_and_one_in_a_dungeon_is_its_dungeon() {
+        let store = dereth_dat::testing::open_store_or_fail();
+        let mut far = FarRealms::default();
+        // The rooms Colier Mine's and the Dry Well's portals stand in.
+        assert_eq!(far.of(&store, CellId(0xAFC6_015C)), Realm::Outdoors);
+        assert_eq!(far.of(&store, CellId(0x9979_0102)), Realm::Outdoors);
+        // Where they lead.
+        assert_eq!(far.of(&store, CellId(0x01AE_032C)), Realm::Dungeon(0x01AE));
+        assert_eq!(far.of(&store, CellId(0x015A_01AE)), Realm::Dungeon(0x015A));
+        // Asked again: the same, from what was kept.
+        assert_eq!(far.of(&store, CellId(0xAFC6_015C)), Realm::Outdoors);
     }
 }

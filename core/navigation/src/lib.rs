@@ -77,8 +77,8 @@ mod world;
 pub use export::{path_json, region_json, svg};
 pub use follow::{FollowConfig, Follower, Steer};
 pub use journey::{
-    land_realm, plan_journey, plan_journey_with, CharacterState, HandBack, Journey, JourneyConfig,
-    Leg, Realm, Teleport,
+    land_realm, plan_journey, plan_journey_with, reach_for, CharacterState, HandBack, Journey,
+    JourneyConfig, Leg, Reach, Realm, Teleport,
 };
 pub use path::{global, global_distance};
 pub use path::{End, NavPath, NoPath, Waypoint, WaypointAction};

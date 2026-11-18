@@ -26,6 +26,8 @@ pub use dereth_world_places::Requirement;
 
 use crate::path::global_distance;
 
+/// How near two edges of one class stand to be one portal, metres.
+const SAME_PORTAL: f32 = 3.0;
 /// The store's format version, the first line's second field. Version 1 had no `requires`
 /// field; it reads still.
 pub const STORE_VERSION: u32 = 2;
@@ -215,7 +217,7 @@ impl PortalEdge {
             (Some(a), Some(b)) => a == b,
             _ => true,
         };
-        class && global_distance(&self.from, at) < 3.0
+        class && global_distance(&self.from, at) < SAME_PORTAL
     }
 
     /// Whether a character of `level` may use it, as far as is known.
@@ -527,11 +529,49 @@ impl PortalStore {
     /// the traveller ([`PortalEdge::refusal`]).
     #[must_use]
     pub fn routable_for(&self, traveller: &Traveller) -> Vec<&PortalEdge> {
+        self.routable_where(|e| e.refusal(traveller).is_none())
+    }
+
+    /// The edges a route may use for anyone at all: per portal the most trusted edge that knows a
+    /// destination, unless that portal is retired by any of its edges. What a traveller is refused
+    /// on such a route is what keeps them from it ([`crate::reach_for`]).
+    #[must_use]
+    pub fn routable_for_anyone(&self) -> Vec<&PortalEdge> {
+        self.routable_where(|_| true)
+    }
+
+    fn routable_where(&self, admits: impl Fn(&PortalEdge) -> bool) -> Vec<&PortalEdge> {
+        // Edges by where they stand, a square of the distance that makes two the same portal at a
+        // time: an edge's same portal is in its square or one beside it.
+        let square = |e: &PortalEdge| {
+            let g = crate::path::global(&e.from);
+            #[allow(clippy::cast_possible_truncation)]
+            (
+                (g.x / SAME_PORTAL).floor() as i64,
+                (g.y / SAME_PORTAL).floor() as i64,
+            )
+        };
+        let mut squares: std::collections::HashMap<(i64, i64), Vec<usize>> =
+            std::collections::HashMap::new();
+        for (i, e) in self.portals.iter().enumerate() {
+            squares.entry(square(e)).or_default().push(i);
+        }
         let mut out: Vec<&PortalEdge> = Vec::new();
         for e in &self.portals {
-            let same: Vec<&PortalEdge> = self
-                .portals
-                .iter()
+            let (sx, sy) = square(e);
+            let mut near: Vec<usize> = Vec::new();
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    if let Some(v) = squares.get(&(sx + dx, sy + dy)) {
+                        near.extend(v);
+                    }
+                }
+            }
+            // In the store's order, as the search over every edge took them.
+            near.sort_unstable();
+            let same: Vec<&PortalEdge> = near
+                .into_iter()
+                .map(|i| &self.portals[i])
                 .filter(|o| o.same_portal(e.wcid, &e.from))
                 .collect();
             if same.iter().any(|o| o.retired.is_some()) {
@@ -544,7 +584,7 @@ impl PortalStore {
             else {
                 continue;
             };
-            if !std::ptr::eq(*best, e) || best.refusal(traveller).is_some() {
+            if !std::ptr::eq(*best, e) || !admits(best) {
                 continue;
             }
             out.push(e);
