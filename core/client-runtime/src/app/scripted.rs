@@ -145,6 +145,14 @@ impl<S: Shell> App<S> {
             |id: dereth_primitives::ObjectId| objects.presence(id).and_then(|p| p.position);
         let holds = |name: &str| nav_held(&objects.world, name);
         let answer = self.interaction.take_travel_answer();
+        // The character's body, which a portal's reach is measured for.
+        let body = self
+            .world
+            .as_ref()
+            .and_then(|w| w.character.as_ref())
+            .and_then(|c| c.world.get(c.handle))
+            .map(|o| dereth_navigation::reach::body_of(&o.geometry, o.scale))
+            .unwrap_or_default();
         let commands = self.travel.use_time(&crate::travel::TravelInput {
             now: self.timer.cur_time,
             wall: self.timer.local_time,
@@ -170,6 +178,7 @@ impl<S: Shell> App<S> {
             hand_backs,
             holds: &holds,
             answer,
+            body,
         });
         self.travel_player_moves = self.player_moves;
         self.travel_status = crate::travel::TravelStatus {

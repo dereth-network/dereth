@@ -94,11 +94,11 @@ fn world() -> MemContent {
         ))
 }
 
-const EXPECTED: &str = "dereth-navigation-store\t2\n\
+const EXPECTED: &str = "dereth-navigation-store\t3\n\
 world\tTest World \\\\ One\n\
-portal\tpublished\t999\tPlain Portal\t0x12340039 191.900 0.500 10.000\t0xC6A9000D 30.000 100.000 12.500\t0\t0\t0\t-\t-\t-\t-\n\
-portal\tpublished\t999\tPlain Portal\t0xA9B40021 86.000 8.000 94.000\t0xC6A9000D 30.000 100.000 12.500\t0\t0\t0\t-\t-\t-\t-\n\
-portal\tpublished\t1000\tRanged Portal \\\\ One\t0xA9B40021 84.000 7.500 94.000\t0x01AC0118 60.000 -50.250 0.500\t0\t0\t0\t10\t50\t-\t-\n";
+portal\tpublished\t999\tPlain Portal\t0x12340039 191.900 0.500 10.000\t0xC6A9000D 30.000 100.000 12.500\t0\t0\t0\t-\t-\t-\t-\t-\n\
+portal\tpublished\t999\tPlain Portal\t0xA9B40021 86.000 8.000 94.000\t0xC6A9000D 30.000 100.000 12.500\t0\t0\t0\t-\t-\t-\t-\t-\n\
+portal\tpublished\t1000\tRanged Portal \\\\ One\t0xA9B40021 84.000 7.500 94.000\t0x01AC0118 60.000 -50.250 0.500\t0\t0\t0\t10\t50\t-\t-\t-\n";
 
 fn snapshot() -> Option<StatusSnapshot> {
     None
@@ -509,9 +509,9 @@ fn the_portal_table_says_what_each_portal_asks_and_lists_the_portals_spawners_ma
     let table = portal_table::document("W", &content);
     assert_eq!(
         table,
-        "dereth-navigation-store\t2\nworld\tW\n\
-portal\tpublished\t2000\tPortal to Holtburg\t0x12340002 30.000 30.000 0.000\t0xA9B40019 84.000 7.100 94.000\t0\t0\t0\t-\t-\t-\tquest HoltburgFlag;no-pk\n\
-portal\tpublished\t2001\tFestival\t0xA9B40022 80.000 30.000 5.000\t0x01AC0118 60.000 -50.250 0.500\t0\t0\t0\t-\t-\t-\tevent Snowreap off\n"
+        "dereth-navigation-store\t3\nworld\tW\n\
+portal\tpublished\t2000\tPortal to Holtburg\t0x12340002 30.000 30.000 0.000\t0xA9B40019 84.000 7.100 94.000\t0\t0\t0\t-\t-\t-\tquest HoltburgFlag;no-pk\t-\n\
+portal\tpublished\t2001\tFestival\t0xA9B40022 80.000 30.000 5.000\t0x01AC0118 60.000 -50.250 0.500\t0\t0\t0\t-\t-\t-\tevent Snowreap off\t-\n"
     );
     // The client reads what each asks.
     let store = dereth_navigation::PortalStore::from_text(&table).expect("the client reads it");

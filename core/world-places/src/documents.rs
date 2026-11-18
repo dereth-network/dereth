@@ -59,7 +59,7 @@ use crate::towns::{self, Town, TownKind};
 pub const STORE_VERSION: u32 = 2;
 
 /// The portal table's first line.
-pub const HEADER: &str = "dereth-navigation-store\t2\n";
+pub const HEADER: &str = "dereth-navigation-store\t3\n";
 
 /// The places document's first line.
 pub const PLACES_HEADER: &str = "dereth-places-store\t1\n";
@@ -134,6 +134,50 @@ pub struct Portal {
     pub standing: Standing,
     /// Whether its weenie hides it from the interface.
     pub hidden: bool,
+    /// Its body: its setup and scale, and whether a body touching it is taken.
+    pub shape: Option<Shape>,
+}
+
+/// A portal's body as the portal table writes it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Shape {
+    pub setup: u32,
+    pub scale: f32,
+    /// Whether a body that touches it is taken: false for a portal that ignores collisions.
+    pub touches: bool,
+}
+
+impl Shape {
+    /// The shape of the portal weenie `w`: its setup, its scale (1 when it names none) and its
+    /// physics state's ignore-collisions bit. `None` when it names no setup.
+    #[must_use]
+    pub fn of(w: &Weenie) -> Option<Self> {
+        /// The physics state's bit for an object nothing collides with.
+        const IGNORE_COLLISIONS: i32 = 0x10;
+        let setup = w.did(id::did::SETUP).filter(|s| *s != 0)?;
+        #[allow(clippy::cast_possible_truncation)]
+        let scale = w.float(id::float::DEFAULT_SCALE).map_or(1.0, |s| s as f32);
+        let ignores = w
+            .int(id::int::PHYSICS_STATE)
+            .is_some_and(|s| s & IGNORE_COLLISIONS != 0);
+        Some(Self {
+            setup,
+            scale,
+            touches: !ignores,
+        })
+    }
+
+    /// The shape's field in the portal table: `0x020001B3 1`, then ` untouched` for one a body
+    /// is never taken by touching.
+    #[must_use]
+    pub fn field(self) -> String {
+        format!(
+            "0x{:08X} {}{}",
+            self.setup,
+            self.scale,
+            if self.touches { "" } else { " untouched" }
+        )
+    }
 }
 
 /// What a place is, in the order the places document lists them within a cell.
@@ -372,7 +416,7 @@ impl WorldPlaces {
         let level = |v: Option<i32>| v.map_or_else(|| "-".to_owned(), |v| v.to_string());
         for e in &self.portals {
             out.push_str(&format!(
-                "portal\t{}\t{}\t{}\t{}\t{}\t0\t0\t0\t{}\t{}\t-\t{}\n",
+                "portal\t{}\t{}\t{}\t{}\t{}\t0\t0\t0\t{}\t{}\t-\t{}\t{}\n",
                 source.word(),
                 e.wcid,
                 field(&e.name),
@@ -381,6 +425,7 @@ impl WorldPlaces {
                 level(e.min_level),
                 level(e.max_level),
                 field(&write_field(&e.requires)),
+                e.shape.map_or_else(|| "-".to_owned(), Shape::field),
             ));
         }
         out
@@ -537,6 +582,7 @@ fn portal(w: &Weenie, from: &Spot, to: Spot, standing: Standing, world: &[Requir
         requires,
         standing,
         hidden: w.flag(id::bool::UI_HIDDEN) == Some(true),
+        shape: Shape::of(w),
     }
 }
 

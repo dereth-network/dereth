@@ -207,7 +207,9 @@ cache the import tool shares: `%LOCALAPPDATA%\Empyrean\world-database` on Window
 `~/.cache/...`) elsewhere. An era already there is not downloaded again. Building takes a second or
 two and the package is then held in memory (about 1.7 MB for the end of retail); requests that
 come while it is built wait for that one build. If the download fails, the era is not tried again
-for ten minutes.
+for ten minutes. The relay uses about 120 MB while it reads an era's database, and about 10 MB
+after. Launch has no pinned release, so its first build also reads the database's release list
+from GitHub, even when the database is in the cache.
 
 `--no-places` turns this off: nothing is downloaded, and the routes answer `404`.
 

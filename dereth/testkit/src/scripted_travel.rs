@@ -334,6 +334,7 @@ impl ScriptedTravel {
             levels: (None, None),
             retired: None,
             requires: Vec::new(),
+            shape: None,
         }));
         self.refusing = portals
             .iter()
@@ -675,6 +676,7 @@ impl ScriptedTravel {
                                     wcid: edge.wcid,
                                     name: edge.name.clone(),
                                     position: edge.from,
+                                    shape: None,
                                 }),
                                 recall: None,
                             });

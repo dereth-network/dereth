@@ -139,6 +139,11 @@ fn weenie(w: &Weenie) -> dereth_world_places::Weenie {
             .iter()
             .map(|p| (u32::from(p.r#type), p.value.clone()))
             .collect(),
+        dids: w
+            .weenie_properties_did
+            .iter()
+            .map(|p| (u32::from(p.r#type), p.value))
+            .collect(),
         positions: w
             .weenie_properties_position
             .iter()

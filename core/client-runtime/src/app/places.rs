@@ -72,6 +72,7 @@ impl<S: Shell> App<S> {
                         wcid: (o.wcid != 0).then_some(o.wcid),
                         name: o.name,
                         position,
+                        shape: None,
                     },
                     now,
                 );

@@ -857,6 +857,7 @@ mod refusal_tests {
             levels: (Some(15), None),
             retired: None,
             requires: Vec::new(),
+            shape: None,
         };
         let mut planning = Planning::in_frame(&land, &store, None).expect("a planner");
         planning.ask(Job::Journey {

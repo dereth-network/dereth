@@ -270,9 +270,9 @@ It is `text/tab-separated-values; charset=utf-8`, fields separated by a tab, eve
 line feed:
 
 ```
-dereth-navigation-store	2
+dereth-navigation-store	3
 world	<world name>
-portal	published	<wcid>	<name>	<from>	<to>	0	0	0	<min level or ->	<max level or ->	-	<requires>
+portal	published	<wcid>	<name>	<from>	<to>	0	0	0	<min level or ->	<max level or ->	-	<requires>	<shape>
 ```
 
 - One `portal` line for each landblock instance whose weenie is a portal (`WeenieType` Portal)
@@ -297,6 +297,11 @@ portal	published	<wcid>	<name>	<from>	<to>	0	0	0	<min level or ->	<max level or 
   world, from the spawners above it (a generator it was spawned by, or linked under): `event <name>
   on|off` (`GeneratorEvent`, an event of the `event` table, `on` when its state is On) and `night`
   or `day` (`GeneratorTimeType`). In a name, `\` and `;` are escaped with a `\`.
+- `shape` is the portal's body: its `Setup` (data id 1) as `0x` and eight upper-case hex digits,
+  a space, and its `DefaultScale` (float 39, `1` without one); then ` untouched` when its
+  `PhysicsState` (int 93) ignores collisions (`0x10`), so a body touching it is never taken. `-`
+  when it names no setup. A client reads how near a walk may come to a portal it is not taking
+  from it. Version 3 added this field; a version 2 table has none.
 - A name (the weenie's `Name`) has each tab, line feed and carriage return replaced by a space, and
   each backslash written `\\`. The world name is written the same way.
 - Version 1 was the same without `requires` and the spawned portals.

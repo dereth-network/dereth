@@ -39,6 +39,7 @@ fn edge(name: &str, from: Position, to: Position) -> PortalEdge {
         levels: (None, None),
         retired: None,
         requires: Vec::new(),
+        shape: None,
     }
 }
 

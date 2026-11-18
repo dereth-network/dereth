@@ -644,6 +644,7 @@ mod tests {
             levels: (None, None),
             retired: None,
             requires: Vec::new(),
+            shape: None,
         }
     }
 
@@ -715,6 +716,7 @@ mod tests {
                     levels,
                     retired: None,
                     requires,
+                    shape: None,
                 }
             };
         let town = at(0xA9B4_0011, 50.0, 50.0);
@@ -810,6 +812,7 @@ mod tests {
                     levels: (None, None),
                     retired: None,
                     requires: Vec::new(),
+                    shape: None,
                 })
                 .collect();
             let portals: Vec<&PortalEdge> = edges.iter().collect();
@@ -960,6 +963,7 @@ mod tests {
                 wcid: hint.wcid,
                 name: hint.name.clone(),
                 position: hint.from,
+                shape: None,
             },
             "refused",
             9,
@@ -1007,6 +1011,7 @@ mod tests {
             levels: (None, None),
             retired: None,
             requires: Vec::new(),
+            shape: None,
         };
         let config = JourneyConfig::default();
         // The exit portal stands in the other part: no journey without the hand-back.

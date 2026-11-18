@@ -188,6 +188,7 @@ fn journey_planning_cost_over_a_world_of_portals() {
             levels: (None, None),
             retired: None,
             requires: Vec::new(),
+            shape: None,
         });
     }
     let mut store = PortalStore::new("synthetic");

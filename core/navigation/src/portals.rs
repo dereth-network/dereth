@@ -29,8 +29,8 @@ use crate::path::global_distance;
 /// How near two edges of one class stand to be one portal, metres.
 const SAME_PORTAL: f32 = 3.0;
 /// The store's format version, the first line's second field. Version 1 had no `requires`
-/// field; it reads still.
-pub const STORE_VERSION: u32 = 2;
+/// field and version 2 no `shape`; both read still.
+pub const STORE_VERSION: u32 = 3;
 
 /// Where an edge came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -74,6 +74,56 @@ impl EdgeSource {
     }
 }
 
+/// What a portal's body is: its setup and its scale. The client's files turn it into how near a
+/// body comes before the portal takes it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PortalShape {
+    /// The setup it is drawn and collides as (a `0x02` data id).
+    pub setup: u32,
+    /// Its scale.
+    pub scale: f32,
+    /// Whether a body that touches it is taken: false for a portal that ignores collisions,
+    /// which only a use takes anyone through.
+    pub touches: bool,
+}
+
+impl PortalShape {
+    /// The shape as the store writes it: `0x020001B3 1`, then ` untouched` for one a body is
+    /// never taken by touching.
+    #[must_use]
+    pub fn write(self) -> String {
+        format!(
+            "0x{:08X} {}{}",
+            self.setup,
+            self.scale,
+            if self.touches { "" } else { " untouched" }
+        )
+    }
+
+    /// A shape as [`Self::write`] wrote it.
+    #[must_use]
+    pub fn read(text: &str) -> Option<Self> {
+        let mut words = text.split(' ');
+        let setup = words.next()?;
+        let setup = setup
+            .strip_prefix("0x")
+            .or_else(|| setup.strip_prefix("0X"))?;
+        let scale: f32 = words.next()?.parse().ok()?;
+        (scale.is_finite() && scale > 0.0).then_some(())?;
+        let touches = match words.next() {
+            None => true,
+            Some("untouched") => false,
+            Some(_) => return None,
+        };
+        words.next().is_none().then_some(())?;
+        Some(Self {
+            setup: u32::from_str_radix(setup, 16).ok()?,
+            scale,
+            touches,
+        })
+    }
+}
+
 /// A portal as the character sees it standing in the world.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PortalSighting {
@@ -83,6 +133,8 @@ pub struct PortalSighting {
     pub name: String,
     /// Where it stands.
     pub position: Position,
+    /// What its body is, when the client saw it.
+    pub shape: Option<PortalShape>,
 }
 
 /// One portal: where it stands, where it sends, and what is known about it.
@@ -110,6 +162,8 @@ pub struct PortalEdge {
     pub retired: Option<String>,
     /// What else it asks, of the character who uses it or of the world for it to stand there.
     pub requires: Vec<Requirement>,
+    /// What its body is, when known: how near a walk that is not taking it may come.
+    pub shape: Option<PortalShape>,
 }
 
 /// A character's standing as a player killer.
@@ -444,6 +498,16 @@ impl PortalStore {
             .find(|e| e.source == source && e.same_portal(wcid, at))
     }
 
+    /// The character sees `portal`: what it sees of its body is known of every edge for it.
+    pub fn note_shape(&mut self, portal: &PortalSighting) {
+        let Some(shape) = portal.shape else { return };
+        for e in &mut self.portals {
+            if e.shape != Some(shape) && e.same_portal(portal.wcid, &portal.position) {
+                e.shape = Some(shape);
+            }
+        }
+    }
+
     /// The character used `portal` at `now` and arrived at `arrival`: the learned edge is
     /// confirmed, or corrected to where it really sends, or made.
     pub fn learn_use(&mut self, portal: &PortalSighting, arrival: &Position, now: u64) {
@@ -457,6 +521,7 @@ impl PortalStore {
             e.verified = now;
             e.retired = None;
             e.name.clone_from(&portal.name);
+            e.shape = portal.shape.or(e.shape);
             return;
         }
         self.portals.push(PortalEdge {
@@ -471,6 +536,7 @@ impl PortalStore {
             levels: (None, None),
             retired: None,
             requires: Vec::new(),
+            shape: portal.shape,
         });
     }
 
@@ -483,6 +549,7 @@ impl PortalStore {
                 e.failures += 1;
                 e.retired = Some(reason.to_owned());
                 e.verified = now;
+                e.shape = portal.shape.or(e.shape);
                 learned |= e.source == EdgeSource::Learned;
             }
         }
@@ -501,6 +568,7 @@ impl PortalStore {
                 levels: (None, None),
                 retired: Some(reason.to_owned()),
                 requires: Vec::new(),
+                shape: portal.shape,
             });
         }
     }
@@ -625,16 +693,17 @@ impl PortalStore {
     /// The store as text:
     ///
     /// ```text
-    /// dereth-navigation-store<TAB>2
+    /// dereth-navigation-store<TAB>3
     /// world<TAB><identity>
-    /// portal<TAB>source<TAB>wcid<TAB>name<TAB>from<TAB>to<TAB>verified<TAB>uses<TAB>failures<TAB>min<TAB>max<TAB>retired<TAB>requires
+    /// portal<TAB>source<TAB>wcid<TAB>name<TAB>from<TAB>to<TAB>verified<TAB>uses<TAB>failures<TAB>min<TAB>max<TAB>retired<TAB>requires<TAB>shape
     /// recall<TAB>character<TAB>recall<TAB>to<TAB>verified<TAB>uses
     /// ```
     ///
     /// A position is `0xCELLID x y z`; an absent value is `-`; names and reasons have their tabs,
     /// line breaks and backslashes escaped. `requires` is what else the portal asks, its terms
-    /// separated by `;` ([`dereth_world_places::requirement`]), `-` for nothing. A version 1
-    /// store's `portal` lines have no `requires`.
+    /// separated by `;` ([`dereth_world_places::requirement`]), `-` for nothing. `shape` is its
+    /// setup and scale ([`PortalShape::write`]), `-` when unknown. A version 1 store's `portal`
+    /// lines have no `requires`, and a version 2 store's no `shape`.
     #[must_use]
     pub fn to_text(&self) -> String {
         let mut out = format!(
@@ -644,7 +713,7 @@ impl PortalStore {
         for e in &self.portals {
             let _ = writeln!(
                 out,
-                "portal\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                "portal\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 e.source.word(),
                 opt(e.wcid),
                 escape(&e.name),
@@ -660,6 +729,8 @@ impl PortalStore {
                     .as_deref()
                     .map_or_else(|| String::from("-"), escape),
                 escape(&requirement::write_field(&e.requires)),
+                e.shape
+                    .map_or_else(|| String::from("-"), PortalShape::write),
             );
         }
         for r in &self.recalls {
@@ -705,7 +776,11 @@ impl PortalStore {
                 Some("world") => {
                     store.world = unescape(f.get(1).copied().unwrap_or(""));
                 }
-                Some("portal") if f.len() == 12 || (version >= 2 && f.len() == 13) => {
+                Some("portal")
+                    if f.len() == 12
+                        || (version >= 2 && f.len() == 13)
+                        || (version >= 3 && f.len() == 14) =>
+                {
                     let e = PortalEdge {
                         source: EdgeSource::parse(f[1]).ok_or_else(|| bad("source"))?,
                         wcid: read_opt(f[2]).map_err(|()| bad("wcid"))?,
@@ -728,6 +803,10 @@ impl PortalStore {
                             .get(12)
                             .map(|r| requirement::read_field(&unescape(r)))
                             .unwrap_or_default(),
+                        shape: match f.get(13).copied() {
+                            None | Some("-") => None,
+                            Some(s) => Some(PortalShape::read(s).ok_or_else(|| bad("shape"))?),
+                        },
                     };
                     store.portals.push(e);
                 }
@@ -806,6 +885,7 @@ mod tests {
             wcid: Some(1234),
             name: String::from("Portal to Somewhere"),
             position: at(0xA9B4_0011, x, 20.0),
+            shape: None,
         }
     }
 
@@ -890,6 +970,7 @@ mod tests {
             wcid: Some(2068),
             name: String::from("Drudge Hideout"),
             position: at_portal,
+            shape: None,
         };
         let trip = [
             (0.0, at_portal, true),
@@ -939,6 +1020,7 @@ mod tests {
             levels: (None, None),
             retired: None,
             requires: Vec::new(),
+            shape: None,
         }]);
         assert_eq!(s.routable(None).len(), 1);
         s.learn_refusal(&sighting(10.0), "You are not powerful enough", 300);
@@ -975,6 +1057,7 @@ mod tests {
             levels: (Some(10), None),
             retired: None,
             requires: Vec::new(),
+            shape: None,
         };
         s.merge([hint.clone()]);
         assert!(
@@ -1008,6 +1091,7 @@ mod tests {
             levels,
             retired: None,
             requires: requirement::read_field(requires),
+            shape: None,
         }
     }
 
@@ -1119,6 +1203,58 @@ portal\tpublished\t1000\tRanged\t0xA9B40021 84.000 7.500 94.000\t0x01AC0118 60.0
     }
 
     #[test]
+    fn a_portals_shape_reads_back_and_a_version_2_store_has_none() {
+        let common = PortalShape {
+            setup: 0x0200_01B3,
+            scale: 1.0,
+            touches: true,
+        };
+        assert_eq!(common.write(), "0x020001B3 1");
+        let apart = PortalShape {
+            setup: 0x0200_0EF6,
+            scale: 0.8,
+            touches: false,
+        };
+        assert_eq!(apart.write(), "0x02000EF6 0.8 untouched");
+        for shape in [common, apart] {
+            assert_eq!(PortalShape::read(&shape.write()), Some(shape));
+        }
+        for bad in [
+            "",
+            "0x020001B3",
+            "020001B3 1",
+            "0x020001B3 0",
+            "0x020001B3 1 odd",
+            "0x020001B3 1 untouched x",
+        ] {
+            assert_eq!(PortalShape::read(bad), None, "{bad}");
+        }
+        // A seen shape is kept by every edge of the portal, and written with it.
+        let mut store = PortalStore::new("W");
+        store.merge([published(10.0, (None, None), "")]);
+        let mut seen = sighting(10.0);
+        seen.shape = Some(common);
+        store.note_shape(&seen);
+        assert_eq!(store.portals()[0].shape, Some(common));
+        let text = store.to_text();
+        assert!(text.contains("\t0x020001B3 1\n"), "{text}");
+        assert_eq!(PortalStore::from_text(&text), Ok(store.clone()));
+        // A version 2 store's lines have no shape; a shape field in one is no line of that
+        // version.
+        let v2 = text
+            .replacen("\t3\n", "\t2\n", 1)
+            .replace("\t0x020001B3 1\n", "\n");
+        let read = PortalStore::from_text(&v2).expect("a version 2 store reads");
+        assert_eq!(read.portals()[0].shape, None);
+        assert!(PortalStore::from_text(&text.replacen("\t3\n", "\t2\n", 1)).is_err());
+        let odd = text.replace("\t0x020001B3 1\n", "\tround\n");
+        assert!(
+            PortalStore::from_text(&odd).is_err(),
+            "a shape that does not read"
+        );
+    }
+
+    #[test]
     fn the_store_reads_back_what_it_writes() {
         let mut s = PortalStore::new("loopback\tworld");
         s.learn_use(&sighting(10.0), &at(0x0106_0104, 8.0, -60.0), 100);
@@ -1127,6 +1263,7 @@ portal\tpublished\t1000\tRanged\t0xA9B40021 84.000 7.500 94.000\t0x01AC0118 60.0
                 wcid: None,
                 name: String::from("Odd\\name"),
                 position: at(0xA9B3_0001, 1.0, 1.0),
+                shape: None,
             },
             "level\trange",
             5,
@@ -1138,7 +1275,7 @@ portal\tpublished\t1000\tRanged\t0xA9B40021 84.000 7.500 94.000\t0x01AC0118 60.0
             300,
         );
         let text = s.to_text();
-        assert!(text.starts_with("dereth-navigation-store\t2\n"), "{text}");
+        assert!(text.starts_with("dereth-navigation-store\t3\n"), "{text}");
         assert_eq!(PortalStore::from_text(&text), Ok(s));
         assert_eq!(
             PortalStore::from_text("dereth-navigation-store\t9\n"),

@@ -979,11 +979,15 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "plugins.nav.a-walk-ends-short-of-a-portal-it-is-not-taking",
-        says: "A walk to a place a portal stands on, which the journey is not taking, ends a few                meters short of the portal, so the character is not carried off by it; the walk to                a portal the journey uses goes onto it.",
+        says: "A walk to a place a portal stands on, which the journey is not taking, ends a \
+               meter beyond the portal's own reach (how near its body a character comes \
+               before it is taken), or six meters short when its body is not known, so the \
+               character is not carried off by it; a portal no one is taken by touching is \
+               walked up to, and the walk to a portal the journey uses goes onto it.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-PORTAL-KEEP-OFF"),
-        station: "dereth-client-runtime::lib::travel::tests::a_walk_ends_short_of_a_portal_it_is_not_taking",
+        station: "dereth-client-runtime::lib::travel::tests::a_walk_ends_short_of_a_portal_it_is_not_taking_by_its_own_reach",
         tier: Tier::Cpu,
     },
     behaviour! {

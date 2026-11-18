@@ -26,11 +26,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use dereth_dat::RetailDatStore;
+use dereth_navigation::reach;
 use dereth_navigation::{
     global, global_distance, CharacterState, DoorState, EdgeSource, FollowConfig, Follower,
     HandBack, Journey, LandNavSource, Leg, NavConfig, NavPath, NavWorld, NoPath, Obstacle,
-    ObstacleKind, PortalSighting, PortalStore, Recall, StaticPlacement, Steer, Teleport,
-    TeleportOutcome, TeleportWatch, WaypointAction,
+    ObstacleKind, PortalShape, PortalSighting, PortalStore, Recall, StaticPlacement, Steer,
+    Teleport, TeleportOutcome, TeleportWatch, WaypointAction,
 };
 use dereth_physics::SetupGeometry;
 use dereth_primitives::num::math::hypotf;
@@ -420,6 +421,9 @@ pub struct TravelInput<'a> {
     pub holds: &'a dyn Fn(&str) -> Option<ObjectId>,
     /// The player's answer to the travel's question, since the last step.
     pub answer: Option<bool>,
+    /// The character's body spheres, when it has a body ([`reach::body_of`]); empty for the
+    /// human body's.
+    pub body: Vec<reach::BodySphere>,
 }
 
 impl std::fmt::Debug for TravelInput<'_> {
@@ -489,9 +493,17 @@ pub fn door_state(open: bool, useability: Option<u32>) -> DoorState {
     }
 }
 
-/// How far from a portal a walk that is not taking it ends, meters: a body that walks into a
-/// portal's shape is carried off by it, and a large portal reaches a few meters out.
+/// How far from a portal a walk that is not taking it ends when what the portal's body is is not
+/// known, meters: a body that walks into a portal's shape is carried off by it, and a large
+/// portal reaches a few meters out.
 const PORTAL_KEEP_OFF: f32 = 6.0;
+
+/// How much further than a portal's reach ([`reach::reach`]) a walk that is not taking it ends.
+const PORTAL_MARGIN: f32 = reach::MARGIN;
+
+/// How far from a route's end a portal it might walk onto is looked for, meters: beyond any
+/// portal's reach.
+const PORTAL_LOOK: f32 = 15.0;
 
 /// How long a used door is waited for to stand open, seconds; and how many uses it gets before
 /// the walk goes round it for now. A door is judged locked only on the server's answer. With no
@@ -984,6 +996,13 @@ pub struct Travel {
     /// world's era, as hints.
     hinted: Vec<dereth_navigation::PortalEdge>,
     hinted_places: Vec<dereth_navigation::KnownPlace>,
+    /// The dat store, as the last frame gave it: what a portal's body is read from.
+    dats: Option<Arc<RetailDatStore>>,
+    /// The character's body spheres, as the last frame gave them.
+    body: Vec<reach::BodySphere>,
+    /// Each portal body's reach for that body, by setup and scale: `None` for one whose setup does
+    /// not read.
+    reaches: HashMap<(u32, u32), Option<f32>>,
     planning: Option<Planning>,
     /// The planning's next job number.
     jobs: u64,
@@ -1050,6 +1069,9 @@ impl Travel {
             published_places: Vec::new(),
             hinted: Vec::new(),
             hinted_places: Vec::new(),
+            dats: None,
+            body: Vec::new(),
+            reaches: HashMap::new(),
             planning: None,
             jobs: 0,
             routes_asked: BTreeMap::new(),
@@ -2069,18 +2091,74 @@ impl Travel {
         });
     }
 
-    /// Where the portal stands that a route ending at `end` would walk onto without taking it:
-    /// one within [`PORTAL_KEEP_OFF`] of `end`, when the journey's walk there is not to use it.
-    fn portal_kept_off(&self, end: &Position) -> Option<Position> {
+    /// Where the portal stands that a route ending at `end` would walk onto without taking it,
+    /// and how far from it the route must end: the nearest portal whose keeping-off distance
+    /// ([`Self::keep_off`]) `end` is within, when the journey's walk there is not to use it.
+    fn portal_kept_off(&mut self, end: &Position) -> Option<(Position, f32)> {
         if self.portal_walked_to(end).is_some() {
             return None;
         }
-        self.portals
+        let near: Vec<(Position, Option<u32>, Option<PortalShape>)> = self
+            .portals
             .portals()
             .iter()
             .filter(|e| e.retired.is_none())
-            .map(|e| e.from)
-            .find(|from| dereth_navigation::global_distance(from, end) < PORTAL_KEEP_OFF)
+            .filter(|e| dereth_navigation::global_distance(&e.from, end) < PORTAL_LOOK)
+            .map(|e| (e.from, e.wcid, e.shape))
+            .collect();
+        let mut found: Option<(f32, Position, f32)> = None;
+        for (from, wcid, shape) in &near {
+            // What one edge of a portal knows of its body, another may not.
+            let shape = shape.or_else(|| {
+                near.iter()
+                    .filter(|(f, w, _)| {
+                        w == wcid && dereth_navigation::global_distance(f, from) < 3.0
+                    })
+                    .find_map(|(_, _, s)| *s)
+            });
+            let Some(keep) = self.keep_off(shape) else {
+                continue;
+            };
+            let d = dereth_navigation::global_distance(from, end);
+            if d < keep && found.is_none_or(|(best, _, _)| d < best) {
+                found = Some((d, *from, keep));
+            }
+        }
+        found.map(|(_, from, keep)| (from, keep))
+    }
+
+    /// How far from a portal of body `shape` a walk that is not taking it ends: its reach for the
+    /// character's body and [`PORTAL_MARGIN`]; [`PORTAL_KEEP_OFF`] when its body is not known or
+    /// does not read; `None` for a portal a body is never taken by touching.
+    fn keep_off(&mut self, shape: Option<PortalShape>) -> Option<f32> {
+        let Some(shape) = shape else {
+            return Some(PORTAL_KEEP_OFF);
+        };
+        if !shape.touches {
+            return None;
+        }
+        let key = (shape.setup, shape.scale.to_bits());
+        let reach = match self.reaches.get(&key) {
+            Some(r) => *r,
+            None => {
+                let body: &[reach::BodySphere] = if self.body.is_empty() {
+                    &reach::HUMAN_BODY
+                } else {
+                    &self.body
+                };
+                let measured = self.dats.as_ref().and_then(|store| {
+                    let geometry = dereth_world_data::env_cells::static_geometry(
+                        store,
+                        DataId(shape.setup),
+                        &mut dereth_world_data::setup::SetupPartStats::default(),
+                    )?;
+                    Some(reach::reach(&geometry, shape.scale, body))
+                });
+                self.reaches.insert(key, measured);
+                measured
+            }
+        };
+        Some(reach.map_or(PORTAL_KEEP_OFF, |r| r + PORTAL_MARGIN))
     }
 
     /// The name of the portal the trip's journey walks to `to` to use, when the walk to `to` is
@@ -2238,15 +2316,16 @@ impl Travel {
     fn follow_route(&mut self, mut path: NavPath, last: bool) {
         // A route that ends on a portal the journey is not taking ends short of it: a body that
         // walks into a portal is carried off.
-        if let Some(portal) = path
-            .waypoints
-            .last()
-            .and_then(|w| self.portal_kept_off(&w.position))
-        {
-            if path.stop_short_of(&portal, PORTAL_KEEP_OFF) {
+        let end = path.waypoints.last().map(|w| w.position);
+        if let Some((portal, keep)) = end.and_then(|end| self.portal_kept_off(&end)) {
+            if path.stop_short_of(&portal, keep) {
                 tracing::info!(
                     target: "travel",
-                    "the route ends short of a portal the journey is not taking"
+                    "the route ends {keep:.2} m short of a portal it is not taking, at {:#010X} \
+                     {:.2} {:.2}",
+                    portal.cell.0,
+                    portal.frame.origin.x,
+                    portal.frame.origin.y
                 );
             }
         }
@@ -2578,6 +2657,16 @@ impl Travel {
         self.character = input.character.clone();
         self.stance = input.stance;
         self.sighted.clone_from(&input.portals);
+        for seen in &input.portals {
+            self.portals.note_shape(&seen.sighting);
+        }
+        if self.dats.is_none() {
+            self.dats = Some(Arc::clone(input.store));
+        }
+        if !input.body.is_empty() && input.body != self.body {
+            self.body.clone_from(&input.body);
+            self.reaches.clear();
+        }
         self.hand_backs.clone_from(&input.hand_backs);
         self.answer = input.answer;
         self.token = match self.trip.as_ref().and_then(|t| t.step.as_ref()) {
@@ -2641,6 +2730,7 @@ impl Travel {
                     wcid: e.wcid,
                     name: e.name.clone(),
                     position: e.from,
+                    shape: None,
                 });
             taken = Some((
                 match (&t.step, t.journey.as_ref().and_then(|j| j.legs.get(t.leg))) {
@@ -2649,6 +2739,7 @@ impl Travel {
                             wcid: edge.wcid,
                             name: edge.name.clone(),
                             position: edge.from,
+                            shape: None,
                         })
                     }
                     _ => known.map_or(Awaited::Elsewhere, Awaited::WalkedInto),
@@ -2979,6 +3070,7 @@ impl Travel {
                 wcid: None,
                 name: String::from("Portal"),
                 position: *portal,
+                shape: None,
             };
             tracing::warn!(
                 target: "travel",
@@ -3411,6 +3503,7 @@ mod tests {
             wcid: edge.wcid,
             name: edge.name.clone(),
             position: edge.from,
+            shape: None,
         };
         first
             .portals
@@ -3686,6 +3779,7 @@ mod tests {
             levels: (None, None),
             retired: None,
             requires: Vec::new(),
+            shape: None,
         };
         let mut travel = Travel::new(StoreFiles::default());
         travel.planning = Some(Planning::held());
@@ -3779,6 +3873,7 @@ mod tests {
                         levels: (None, None),
                         retired: None,
                         requires: Vec::new(),
+                        shape: None,
                     },
                 },
                 Leg::Walk { to: goal },
@@ -3790,6 +3885,7 @@ mod tests {
             wcid: Some(28_000),
             name: String::from("Bellig Top"),
             position: here,
+            shape: None,
         };
         let watch = TeleportWatch {
             before: here,
@@ -3817,10 +3913,12 @@ mod tests {
     }
 
     /// Behaviour: plugins.nav.a-walk-ends-short-of-a-portal-it-is-not-taking
-    /// A route that ends on a portal the journey is not taking is walked only as far as a few
-    /// meters short of it; the walk to a portal the journey uses goes onto it.
+    /// A route that ends on a portal the journey is not taking ends beyond the portal's own
+    /// reach, by a margin; six meters short when what the portal's body is is not known; and not
+    /// short at all of a portal that a body is never taken by touching. The walk to a portal the
+    /// journey uses goes onto it.
     #[test]
-    fn a_walk_ends_short_of_a_portal_it_is_not_taking() {
+    fn a_walk_ends_short_of_a_portal_it_is_not_taking_by_its_own_reach() {
         let at = |x: f32| {
             Position::new(
                 CellId(0x01D4_021B),
@@ -3842,6 +3940,7 @@ mod tests {
             levels: (None, None),
             retired: None,
             requires: Vec::new(),
+            shape: None,
         };
         // A straight route of a place a meter, from 0 to the portal at 40.
         let route = || NavPath {
@@ -3859,9 +3958,21 @@ mod tests {
             goal_offset: 0.0,
             cuts: Vec::new(),
         };
-        let end_of = |journey: Vec<Leg>| {
+        // The common portal's body; its reach for a human, as measured from it.
+        let common = PortalShape {
+            setup: 0x0200_01B3,
+            scale: 1.0,
+            touches: true,
+        };
+        let reach = 1.8355;
+        let end_of = |journey: Vec<Leg>, shape: Option<PortalShape>| {
             let mut travel = Travel::new(StoreFiles::default());
-            travel.portals.merge([top.clone()]);
+            let mut edge = top.clone();
+            edge.shape = shape;
+            travel.portals.merge([edge]);
+            travel
+                .reaches
+                .insert((common.setup, common.scale.to_bits()), Some(reach));
             let mut trip = Trip::new(
                 1,
                 Purpose::Go,
@@ -3880,16 +3991,35 @@ mod tests {
             let w = &t.follower.as_ref().expect("following").path().waypoints;
             w.last().expect("an end").position.frame.origin.x
         };
-        let short = end_of(vec![Leg::Walk { to: at(40.0) }]);
+        let walk = || vec![Leg::Walk { to: at(40.0) }];
+        let keep = reach + PORTAL_MARGIN;
+        let short = 40.0 - end_of(walk(), Some(common));
         assert!(
-            (40.0 - short) >= PORTAL_KEEP_OFF && (40.0 - short) < PORTAL_KEEP_OFF + 1.5,
-            "ends short of the portal it is not taking: at {short}"
+            (keep..keep + 1.5).contains(&short),
+            "ends beyond the portal's reach: {short} m short of it"
+        );
+        let unknown = 40.0 - end_of(walk(), None);
+        assert!(
+            (PORTAL_KEEP_OFF..PORTAL_KEEP_OFF + 1.5).contains(&unknown),
+            "with its body not known, six meters short: {unknown} m"
+        );
+        let untouched = PortalShape {
+            touches: false,
+            ..common
+        };
+        assert_eq!(
+            end_of(walk(), Some(untouched)),
+            40.0,
+            "a portal no body is taken by touching is walked up to"
         );
         assert_eq!(
-            end_of(vec![
-                Leg::Walk { to: at(40.0) },
-                Leg::Portal { edge: top.clone() }
-            ]),
+            end_of(
+                vec![
+                    Leg::Walk { to: at(40.0) },
+                    Leg::Portal { edge: top.clone() }
+                ],
+                Some(common)
+            ),
             40.0,
             "the walk to a portal the journey takes goes onto it"
         );
@@ -4140,6 +4270,7 @@ mod tests {
                     hand_backs: Vec::new(),
                     holds: &holds,
                     answer: None,
+                    body: Vec::new(),
                 };
                 let t = web_time::Instant::now();
                 let _ = travel.use_time(&input);

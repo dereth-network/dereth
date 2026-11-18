@@ -217,6 +217,7 @@ fn portal() -> PortalSighting {
         wcid: Some(29337),
         name: String::from("Exit to Shoushi"),
         position: at(0x7F03_0169, 158.6, -149.5),
+        shape: None,
     }
 }
 

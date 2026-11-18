@@ -80,7 +80,7 @@ fn a_portal_leads_where_its_weenie_says_else_to_its_marker_else_by_its_offset() 
         );
     let table = WorldPlaces::of(&world).portal_table("W", Source::Published);
     assert!(
-        table.starts_with("dereth-navigation-store\t2\nworld\tW\n"),
+        table.starts_with("dereth-navigation-store\t3\nworld\tW\n"),
         "{table}"
     );
     assert_eq!(line(&table, 1000)[0][5], "0x00070143 70.000 -60.000 0.000");
@@ -162,6 +162,43 @@ fn spawners_make_portals_at_their_points_offsets_and_scatters_and_through_spawne
     // Each is a portal place too.
     let doc = places.places_document("W", Source::Published);
     assert_eq!(doc.matches("place\tportal\t").count(), 4, "{doc}");
+}
+
+#[test]
+fn a_portal_says_what_its_body_is_and_whether_touching_it_takes_a_body() {
+    let world = WorldContent::new()
+        .with_weenie(portal(1, "Common", Some(DUNGEON)).with_did(id::did::SETUP, 0x0200_01B3))
+        .with_weenie(
+            portal(2, "Smaller, and used only", Some(DUNGEON))
+                .with_did(id::did::SETUP, 0x0200_0EF6)
+                .with_float(id::float::DEFAULT_SCALE, 0.8)
+                // Ignores collisions (0x10), and is not ethereal.
+                .with_int(id::int::PHYSICS_STATE, 0x410),
+        )
+        .with_weenie(
+            portal(3, "Ethereal", Some(DUNGEON))
+                .with_did(id::did::SETUP, 0x0200_01B3)
+                .with_int(id::int::PHYSICS_STATE, 0xC0C),
+        )
+        .with_weenie(portal(4, "No setup", Some(DUNGEON)));
+    let world = (1..=4).fold(world, |w, wcid| {
+        w.with_placement(
+            0x7A9B_4000 + wcid,
+            wcid,
+            Spot::at(
+                0xA9B4_0021,
+                [[10.0, 20.0, 30.0, 40.0][wcid as usize - 1], 7.5, 94.0],
+            ),
+            &[],
+        )
+    });
+    let table = WorldPlaces::of(&world).portal_table("W", Source::Hint);
+    assert!(table.starts_with("dereth-navigation-store\t3\n"), "{table}");
+    let shape = |wcid| line(&table, wcid)[0][13].clone();
+    assert_eq!(shape(1), "0x020001B3 1");
+    assert_eq!(shape(2), "0x02000EF6 0.8 untouched");
+    assert_eq!(shape(3), "0x020001B3 1");
+    assert_eq!(shape(4), "-");
 }
 
 #[test]

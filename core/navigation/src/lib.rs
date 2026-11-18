@@ -63,6 +63,7 @@ mod path;
 mod places;
 mod poly;
 mod portals;
+pub mod reach;
 mod region;
 mod search;
 mod solids;
@@ -84,8 +85,8 @@ pub use path::{global, global_distance};
 pub use path::{End, NavPath, NoPath, Waypoint, WaypointAction};
 pub use places::{KnownPlace, PlaceKind, PlaceStore, PortalUseWatch, PLACES_VERSION};
 pub use portals::{
-    EdgeSource, PkStatus, PortalEdge, PortalSighting, PortalStore, Recall, RecallEdge, Refusal,
-    Requirement, StoreError, TeleportOutcome, TeleportWatch, Traveller, STORE_VERSION,
+    EdgeSource, PkStatus, PortalEdge, PortalShape, PortalSighting, PortalStore, Recall, RecallEdge,
+    Refusal, Requirement, StoreError, TeleportOutcome, TeleportWatch, Traveller, STORE_VERSION,
 };
 pub use region::{BuildReport, Place, Region};
 pub use source::{

@@ -33,8 +33,9 @@ impl fmt::Display for SqlError {
 impl std::error::Error for SqlError {}
 
 /// The tables read.
-const TABLES: [&str; 11] = [
+const TABLES: [&str; 12] = [
     "weenie",
+    "weenie_properties_d_i_d",
     "weenie_properties_int",
     "weenie_properties_bool",
     "weenie_properties_float",
@@ -267,6 +268,12 @@ impl Reader {
                 if let (Some(id), Some(kind)) = (row.u32("class_Id"), row.u32("type")) {
                     let name = row.get("class_Name").text().unwrap_or_default();
                     self.weenies.insert(id, Weenie::new(id, &name, kind));
+                }
+            }
+            "weenie_properties_d_i_d" => {
+                let kv = (row.u32("type"), row.u32("value"));
+                if let (Some(w), (Some(k), Some(v))) = (self.weenie_mut(row), kv) {
+                    w.dids.push((k, v));
                 }
             }
             "weenie_properties_int" => {
@@ -740,7 +747,9 @@ CREATE TABLE `landblock_instance` (\n  `guid` int(10) unsigned NOT NULL,\n  `lan
 CREATE TABLE `weenie_properties_bool` (`id` int, `object_Id` int, `type` smallint, `value` bit(1));\n\
 CREATE TABLE `weenie_properties_string` (`id` int, `object_Id` int, `type` smallint, `value` text);\n\
 CREATE TABLE `recipe` (`id` int);\n\
+CREATE TABLE `weenie_properties_d_i_d` (`id` int, `object_Id` int, `type` smallint, `value` int);\n\
 INSERT INTO `weenie` VALUES (1000,'portalholtburg',7,'2005-02-09 10:00:00'),(1001,'lifestone',25,'2005-02-09 10:00:00');\n\
+INSERT INTO `weenie_properties_d_i_d` VALUES (1,1000,1,33554867),(2,1000,8,100667499);\n\
 INSERT INTO `weenie_properties_bool` VALUES (1,1000,24,'\\0'),(2,1001,24,'\x01'),(3,1001,19,b'0');\n\
 insert  into `weenie_properties_string`(`id`,`object_Id`,`type`,`value`) values \n(1,1000,1,'Holtburg\\'s; \"Portal\"'),\n(2,1001,1,'Life -- Stone /* not a comment */');\n\
 INSERT INTO `recipe` VALUES (1);\n\
@@ -758,6 +767,8 @@ UPDATE `weenie` SET `type` = 1;\n";
         );
         assert_eq!(portal.name(), "Holtburg's; \"Portal\"");
         assert_eq!(portal.flag(id::bool::UI_HIDDEN), Some(false));
+        assert_eq!(portal.did(id::did::SETUP), Some(0x0200_01B3));
+        assert_eq!(portal.did(8), Some(0x0600_106B));
         let stone = world.weenie(1001).expect("the lifestone");
         assert_eq!(stone.flag(id::bool::UI_HIDDEN), Some(true));
         assert_eq!(stone.flag(id::bool::ATTACKABLE), Some(false));

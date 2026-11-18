@@ -86,6 +86,7 @@ fn play(slug: &str, t: &mut Travel) {
                             wcid: Some(o.wcid),
                             name: o.name.clone(),
                             position,
+                            shape: None,
                         };
                         t.portal_used(sighting, now);
                     }

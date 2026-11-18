@@ -1497,11 +1497,13 @@ fn nav_portals(
 ) -> Vec<crate::travel::PortalSeen> {
     /// `ObjectDescriptionFlag` bit 18: the object is a portal.
     const PORTAL: u32 = 0x0004_0000;
+    /// The physics state's bit for an object nothing collides with.
+    const IGNORE_COLLISIONS: u32 = 0x10;
     let Some(character) = character else {
         return Vec::new();
     };
     let mut out = Vec::new();
-    for (id, _) in world.tables.physics.iter() {
+    for (id, presence) in world.tables.physics.iter() {
         let Some(w) = world.weenie(id) else { continue };
         if w.pwd.bitfield & PORTAL == 0 {
             continue;
@@ -1519,6 +1521,14 @@ fn nav_portals(
                 wcid: (w.pwd.wcid != 0).then_some(w.pwd.wcid),
                 name: w.pwd.name.clone(),
                 position: o.position,
+                // Its body, as the client builds it: the setup it is drawn as, at its scale.
+                shape: (presence.setup_id >> 24 == 0x02).then_some(
+                    dereth_navigation::PortalShape {
+                        setup: presence.setup_id,
+                        scale: o.scale,
+                        touches: presence.state & IGNORE_COLLISIONS == 0,
+                    },
+                ),
             },
         });
     }

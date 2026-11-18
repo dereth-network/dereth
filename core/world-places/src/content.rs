@@ -32,6 +32,8 @@ pub mod id {
         pub const GENERATOR_START_TIME: u32 = 143;
         pub const GENERATOR_END_TIME: u32 = 144;
         pub const LIFESPAN: u32 = 267;
+        /// The object's physics state word.
+        pub const PHYSICS_STATE: u32 = 93;
     }
     /// Boolean properties.
     pub mod bool {
@@ -41,7 +43,12 @@ pub mod id {
     }
     /// Floating-point properties.
     pub mod float {
+        pub const DEFAULT_SCALE: u32 = 39;
         pub const GENERATOR_RADIUS: u32 = 43;
+    }
+    /// Data id properties.
+    pub mod did {
+        pub const SETUP: u32 = 1;
     }
     /// String properties.
     pub mod string {
@@ -137,6 +144,8 @@ pub struct Weenie {
     pub bools: Vec<(u32, bool)>,
     pub floats: Vec<(u32, f64)>,
     pub strings: Vec<(u32, String)>,
+    /// Its data id properties (its setup among them).
+    pub dids: Vec<(u32, u32)>,
     pub positions: Vec<(u32, Spot)>,
     /// What it spawns, when it is a spawner.
     pub spawns: Vec<Spawn>,
@@ -175,6 +184,13 @@ impl Weenie {
         self
     }
 
+    /// The weenie with data id property `id` set to `value`.
+    #[must_use]
+    pub fn with_did(mut self, id: u32, value: u32) -> Self {
+        self.dids.push((id, value));
+        self
+    }
+
     /// This weenie with string property `id` set to `value`.
     #[must_use]
     pub fn with_string(mut self, id: u32, value: &str) -> Self {
@@ -206,6 +222,12 @@ impl Weenie {
     #[must_use]
     pub fn flag(&self, id: u32) -> Option<bool> {
         self.bools.iter().find(|(k, _)| *k == id).map(|&(_, v)| v)
+    }
+
+    /// Data id property `id`.
+    #[must_use]
+    pub fn did(&self, id: u32) -> Option<u32> {
+        self.dids.iter().find(|(k, _)| *k == id).map(|&(_, v)| v)
     }
 
     /// Floating-point property `id`.
