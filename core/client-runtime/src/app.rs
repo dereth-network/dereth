@@ -840,6 +840,14 @@ pub struct App<S: Shell> {
     pub travel: crate::travel::Travel,
     /// What the travel told at its last step, for the frame hook and `--nav-proof`.
     pub travel_status: crate::travel::TravelStatus,
+    /// The places the game's data names (its towns, landmarks and houses), as the world map marks
+    /// them: read from the data off the frame ([`crate::map_places`]) under every interface and
+    /// host, so the frame hook's plugins and the map share one set.
+    pub(crate) map_places:
+        Option<std::sync::Arc<Vec<dereth_client_contract::panels::map::MapPlace>>>,
+    /// The read of [`Self::map_places`] under way, for the data files open now (known by their
+    /// store), until it is done.
+    pub(crate) map_places_build: Option<(usize, Option<crate::map_places::MapPlacesBuild>)>,
     /// The spell table, read for the travel once a world is entered: which spells are recalls.
     nav_spells: Option<std::sync::Arc<dereth_assets::tables::SpellTable>>,
     /// The Training Academy's landblocks, read for the travel once a world is entered.

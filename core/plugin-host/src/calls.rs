@@ -748,6 +748,47 @@ impl Call<'_, '_> {
         Ok(Value::Int(id))
     }
 
+    /// What a list of places is to keep, from its call's first argument: nil (all of it), or a
+    /// table of `name`, `kind`, `near`, `within` and `limit`. Measured from the character when
+    /// `within` or `limit` is given without `near`.
+    fn list_filter(&self, args: &[Value]) -> Result<ListFilter, CallError> {
+        let Some(v) = args.first().filter(|v| !v.is_nil()) else {
+            return Ok(ListFilter::default());
+        };
+        let name = v.get("name").as_str().map(str::to_lowercase);
+        let kinds = match v.get("kind") {
+            k if k.is_nil() => None,
+            k => match (k.as_str(), k.as_list()) {
+                (Some(one), _) => Some(vec![one.to_owned()]),
+                (None, Some(list)) => Some(
+                    list.iter()
+                        .filter_map(|k| k.as_str().map(str::to_owned))
+                        .collect(),
+                ),
+                _ => return Err(bad("kind is a word or a list of words")),
+            },
+        };
+        #[allow(clippy::cast_possible_truncation)]
+        let within = v.get("within").as_f64().map(|w| w as f32);
+        let limit = match v.get("limit").as_i64() {
+            Some(n) => Some(usize::try_from(n).map_err(|_| bad("limit is a count"))?),
+            None => None,
+        };
+        let near = match v.get("near") {
+            n if n.is_nil() => (within.is_some() || limit.is_some())
+                .then(|| self.frame.and_then(|f| f.places.player()))
+                .flatten(),
+            n => Some(crate::places::from_value(n)?),
+        };
+        Ok(ListFilter {
+            name,
+            kinds,
+            near,
+            within,
+            limit,
+        })
+    }
+
     /// Whether a straight line from the character (or `from`) to `target` is clear of what stands
     /// in the world (`nav.sight`): each end a metre above the ground the place or object stands
     /// on. Nil where the host cannot tell.
@@ -1636,14 +1677,25 @@ impl HostCalls for Call<'_, '_> {
                 let me = self.slot.manifest.id.to_string();
                 Ok(Value::Bool(self.shared.nav.show_journey(&me, on)))
             }
-            "nav.known_portals" => Ok(self
-                .frame
-                .and_then(|f| f.travel_store)
-                .map_or_else(|| Value::List(Vec::new()), portals_value)),
-            "nav.known_places" => Ok(self
-                .frame
-                .and_then(|f| f.world_places)
-                .map_or_else(|| Value::List(Vec::new()), places_value)),
+            "nav.known_portals" => {
+                let filter = self.list_filter(args)?;
+                let list = self
+                    .frame
+                    .and_then(|f| f.travel_store)
+                    .map_or_else(Vec::new, portals_value);
+                Ok(filter.apply(list))
+            }
+            "nav.known_places" => {
+                let filter = self.list_filter(args)?;
+                let mut list = self
+                    .frame
+                    .and_then(|f| f.map_places)
+                    .map_or_else(Vec::new, map_places_value);
+                if let Some(store) = self.frame.and_then(|f| f.world_places) {
+                    list.extend(places_value(store));
+                }
+                Ok(filter.apply(list))
+            }
             "nav.recalls" => {
                 let character = self.character_name();
                 Ok(self
@@ -2222,9 +2274,63 @@ fn trip_value(t: &dereth_client_runtime::travel::TripView) -> Value {
     v
 }
 
+/// One entry of a list of places a plugin reads: what it is and where, for the list's filter, and
+/// the value the plugin gets.
+struct Listed {
+    kind: &'static str,
+    name: String,
+    at: Option<Position>,
+    value: Value,
+}
+
+/// What a plugin asked a list of places to keep (`nav.known_places{ ... }`,
+/// `nav.known_portals{ ... }`): those whose name holds `name` (without case), of `kind` (one word
+/// or a list), within `within` meters of `near` (a place; the character when left out), nearest
+/// first when measured from somewhere, at most `limit` of them.
+#[derive(Default)]
+struct ListFilter {
+    name: Option<String>,
+    kinds: Option<Vec<String>>,
+    near: Option<Position>,
+    within: Option<f32>,
+    limit: Option<usize>,
+}
+
+impl ListFilter {
+    fn apply(&self, list: Vec<Listed>) -> Value {
+        let mut kept: Vec<(f32, Listed)> = list
+            .into_iter()
+            .filter(|l| {
+                self.name
+                    .as_ref()
+                    .is_none_or(|n| l.name.to_lowercase().contains(n.as_str()))
+                    && self
+                        .kinds
+                        .as_ref()
+                        .is_none_or(|k| k.iter().any(|k| k == l.kind))
+            })
+            .filter_map(|l| {
+                let d = match (&self.near, &l.at) {
+                    (Some(near), Some(at)) => dereth_navigation::global_distance(near, at),
+                    (Some(_), None) => return self.within.is_none().then_some((f32::MAX, l)),
+                    (None, _) => 0.0,
+                };
+                self.within.is_none_or(|w| d <= w).then_some((d, l))
+            })
+            .collect();
+        if self.near.is_some() {
+            kept.sort_by(|a, b| a.0.total_cmp(&b.0));
+        }
+        if let Some(n) = self.limit {
+            kept.truncate(n);
+        }
+        Value::List(kept.into_iter().map(|(_, l)| l.value).collect())
+    }
+}
+
 /// The portals this world's store knows, as plugins read them.
-fn portals_value(store: &dereth_navigation::PortalStore) -> Value {
-    Value::List(
+fn portals_value(store: &dereth_navigation::PortalStore) -> Vec<Listed> {
+    {
         store
             .portals()
             .iter()
@@ -2253,15 +2359,41 @@ fn portals_value(store: &dereth_navigation::PortalStore) -> Value {
                 if e.verified != 0 {
                     v = v.with("verified", i64::try_from(e.verified).unwrap_or(i64::MAX));
                 }
-                v
+                Listed {
+                    kind: "portal",
+                    name: e.name.clone(),
+                    at: Some(e.from),
+                    value: v,
+                }
             })
-            .collect(),
-    )
+            .collect()
+    }
+}
+
+/// The places the game's data names, as plugins read them: each `{ kind, name, source = "data",
+/// at }`, on the ground where the map marks it.
+fn map_places_value(places: &[dereth_client_contract::panels::map::MapPlace]) -> Vec<Listed> {
+    places
+        .iter()
+        .filter_map(|p| {
+            let at = crate::places::from_map(p.ns, p.ew, 0.0)?;
+            Some(Listed {
+                kind: p.kind.word(),
+                name: p.name.clone(),
+                at: Some(at),
+                value: Value::map()
+                    .with("kind", p.kind.word())
+                    .with("name", p.name.as_str())
+                    .with("source", "data")
+                    .with("at", crate::places::to_value(&at)),
+            })
+        })
+        .collect()
 }
 
 /// This world's learned places, as plugins read them.
-fn places_value(store: &dereth_navigation::PlaceStore) -> Value {
-    Value::List(
+fn places_value(store: &dereth_navigation::PlaceStore) -> Vec<Listed> {
+    {
         store
             .places()
             .iter()
@@ -2281,10 +2413,15 @@ fn places_value(store: &dereth_navigation::PlaceStore) -> Value {
                 if let Some(t) = &p.to {
                     v = v.with("to", crate::places::to_value(t));
                 }
-                v
+                Listed {
+                    kind: p.kind.word(),
+                    name: p.name.clone(),
+                    at: Some(p.at),
+                    value: v,
+                }
             })
-            .collect(),
-    )
+            .collect()
+    }
 }
 
 /// The character's learned recalls, as plugins read them.

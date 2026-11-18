@@ -383,6 +383,11 @@ pub struct Config {
     /// `--nav-store <dir>`: where the travel keeps what it learns about portals and recalls, one
     /// file per world, and finds `hints.tsv`. `None` keeps them beside the preferences file.
     pub nav_store: Option<PathBuf>,
+    /// `--nav-cache <dir>`: where the travel's planner keeps the landblock tiles and dungeons it
+    /// builds between sessions, under the data files' fingerprints. `None` keeps none: a test, the
+    /// web client, or a run that asks for none. The desktop client sets the player's cache folder
+    /// when the command line names none.
+    pub nav_cache: Option<PathBuf>,
     /// `--nav-published <url>`: a server's published portal table or places (`http://`,
     /// `https://`, or a file), fetched at start and taken into the travel's stores as the
     /// server's knowledge.
@@ -626,6 +631,7 @@ impl Default for Config {
             start_cell: None,
             nav_proof: None,
             nav_store: None,
+            nav_cache: None,
             nav_published: None,
             world_status: None,
             world_address: None,
@@ -967,6 +973,12 @@ const REBUILD_SWITCHES: &[Switch] = &[
     // Where that journey's portal knowledge is kept.
     Switch {
         long: "nav-store",
+        short: None,
+        arity: Arity::Required,
+    },
+    // Where the travel's planner keeps the tiles it builds.
+    Switch {
+        long: "nav-cache",
         short: None,
         arity: Arity::Required,
     },
@@ -1995,6 +2007,7 @@ impl Config {
                 self.nav_proof = Some(spec);
             }
             "nav-store" => self.nav_store = Some(PathBuf::from(v)),
+            "nav-cache" => self.nav_cache = Some(PathBuf::from(v)),
             "nav-published" => self.nav_published = Some(v.to_owned()),
             "world-status" => self.world_status = Some(v.to_owned()),
             "world-address" => {

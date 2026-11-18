@@ -386,8 +386,10 @@ fn routes_through_the_forest_go_round_the_trees_that_stop_a_body_walking_straigh
     );
 }
 
+/// A route seven landblocks long is planned as one, over the landblocks along it, and walked to
+/// its end.
 #[test]
-fn a_route_seven_landblocks_long_is_walked_one_window_at_a_time() {
+fn a_route_seven_landblocks_long_is_planned_as_one_and_walked() {
     let mut blocks = Vec::new();
     for x in 0xA8_u16..=0xB1 {
         for y in 0xB3_u16..=0xB5 {
@@ -398,44 +400,39 @@ fn a_route_seven_landblocks_long_is_walked_one_window_at_a_time() {
     let mut d = load(&blocks, true, NavConfig::default());
     let from = ground(&d, 0xA9B4, 96.0, 96.0);
     let to = ground(&d, 0xB0B4, 96.0, 96.0);
-    let corridor = d
-        .nav
-        .corridor((0xA9, 0xB4), (0xB0, 0xB4))
-        .expect("the land joins them");
-    println!("corridor: {} landblocks", corridor.len());
-    let mut here = from;
-    let mut walked = 0.0;
-    let mut hops = 0;
-    loop {
-        hops += 1;
-        assert!(hops <= 8, "too many windows");
-        let (path, last) = d
-            .nav
-            .plan_toward(&here, &to)
-            .expect("a route toward the goal");
-        let end = path.waypoints.last().expect("an end").position;
-        let (route, report, trail) = walk(&mut d, &here, &end, &format!("long-{hops}"));
-        assert!(route.is_ok() && report.walked, "hop {hops}: {report:?}");
-        walked += report.distance;
-        here = *trail.last().expect("the body moved");
-        if last {
-            break;
-        }
-    }
+    let t = std::time::Instant::now();
+    let (path, whole) = d.nav.plan_toward(&from, &to).expect("a route to the goal");
+    println!(
+        "long: planned {:.0} m in {:.0} ms over {} landblock tiles",
+        path.length(),
+        t.elapsed().as_secs_f64() * 1e3,
+        d.nav.tiles_built()
+    );
+    assert!(whole, "planned to the goal, not to a window's edge");
+    let (route, report, trail) = walk(&mut d, &from, &to, "long");
+    assert!(route.is_ok() && report.walked, "{report:?}");
+    let here = *trail.last().expect("the body moved");
     let gap = dereth_navigation::global_distance(&here, &to);
-    println!("long: {hops} windows, {walked:.0} m walked, ends {gap:.2} m from the goal");
-    assert!(hops >= 2, "it took more than one window");
+    println!(
+        "long: {:.0} m walked, ends {gap:.2} m from the goal",
+        report.distance
+    );
     assert!(gap < 1.0, "the body reached the goal");
 }
 
-/// A route planned a second time is planned as the first was. The first, too long for one window,
-/// builds a window along the way and ends at its far edge; that window covers the goal (a room in
-/// a Holtburg shop) only with its edge, so the second is not searched for in it, where the way to
+/// A route planned a second time is planned as the first was. The first, too long for one region,
+/// builds one along the way and ends at its far edge; that region covers the goal (a room in a
+/// Holtburg shop) only with its edge, so the second is not searched for in it, where the way to
 /// the room runs outside it, but planned along the way again. (From where the Holtburg Redoubt's
 /// Surface portal sends a character, to Shopkeeper Renald the Elder's shop.)
 #[test]
 fn a_route_planned_again_from_the_same_place_is_not_cut_short_by_the_first_ones_window() {
-    let mut d = outdoors(0xAAB2, 2);
+    // An outdoor region of at most twelve landblocks: too few for the rectangle round both ends.
+    let config = NavConfig {
+        max_blocks: 12,
+        ..NavConfig::default()
+    };
+    let mut d = outdoors_with(0xAAB2, 2, config);
     let landing = Position::new(
         CellId(0xAAB1_0020),
         Frame::new(

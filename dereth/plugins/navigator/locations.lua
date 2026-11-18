@@ -1,44 +1,46 @@
 -- Locations: the places the Navigator knows, searched by name and type.
 --
--- Four sources, merged each time they are asked for:
---   * the package's `locations.txt`: `name | coordinates | type` a line (`type` left out is a
---     town), approximate public coordinates;
---   * the client's own portal knowledge (`nav.known_portals()`): each portal where it stands, and a
---     dungeon for each portal that leads indoors, entered by that portal;
---   * the character's recalls, where each has landed it (`nav.recalls()`);
---   * what the character has seen (lifestones and portals coming into view) and the places the
---     player saved by name, both kept for this world in `store.world`.
+-- Nothing comes with the plugin: every place is one the client knows of the world, asked for as
+-- the player searches:
+--   * the client's places (`nav.known_places`), the same set its map draws: the towns, landmarks
+--     and houses the game's data names, the lifestones, portals, shops and people the character
+--     has seen, and those the server publishes;
+--   * the client's portal knowledge (`nav.known_portals`): each portal where it stands, a dungeon
+--     for each portal that leads indoors and a destination for each that leads to another place
+--     outdoors, entered or reached by that portal;
+--   * the character's recalls, where each has landed it (`nav.recalls`);
+--   * the places the player saved by name, kept for this world in `store.world`.
+-- The client filters and measures its lists itself, nearest first, so a world of thousands of
+-- places and portals costs a search no more than the few it shows.
 
 local P = require("places")
 
 local L = {}
 
 -- Every type, in the order the window offers them.
-L.TYPES = { "all", "town", "outpost", "dungeon", "portal", "lifestone", "landmark", "recall", "saved" }
+L.TYPES = { "all", "town", "landmark", "dungeon", "destination", "portal", "lifestone", "vendor", "npc",
+	"house", "recall", "saved" }
 
-local KNOWN_TYPES = {}
-for _, t in ipairs(L.TYPES) do
-	KNOWN_TYPES[t] = true
-end
+-- The kinds of the client's places each type lists.
+local PLACE_KINDS = {
+	town = { "town" },
+	landmark = { "landmark" },
+	lifestone = { "lifestone" },
+	vendor = { "vendor" },
+	npc = { "npc" },
+	house = { "cottage", "villa", "mansion", "house" },
+}
+-- The type each kind of the client's places is listed as.
+local TYPE_OF = { town = "town", landmark = "landmark", lifestone = "lifestone", vendor = "vendor", npc = "npc",
+	cottage = "house", villa = "house", mansion = "house", house = "house", portal = "portal" }
+-- The types the portal knowledge lists.
+local PORTAL_TYPES = { portal = true, dungeon = true, destination = true }
 
--- The most seen places kept for a world.
-local MAX_SEEN = 500
+-- The most of each source a search lists.
+L.MAX = 200
 
--- The package's list.
-local bundled = {}
-for line in string.gmatch(files.package("locations.txt") or "", "[^\n]+") do
-	if string.sub(line, 1, 1) ~= "#" then
-		local name, rest = string.match(line, "^%s*(.-)%s*|%s*(.-)%s*$")
-		local coords, kind = string.match(rest or "", "^(.-)%s*|%s*(%a+)%s*$")
-		coords = coords or rest
-		kind = kind and string.lower(kind) or "town"
-		local p = P.parse(coords)
-		if p and KNOWN_TYPES[kind] then
-			table.insert(bundled, { name = name, type = kind, place = p, source = "list" })
-		end
-	end
-end
-L.bundled = bundled
+L.RECALL_NAMES = { lifestone = "Lifestone recall", marketplace = "Marketplace recall",
+	house = "House recall", mansion = "Mansion recall", allegiance = "Allegiance hometown recall" }
 
 -- The world's store, or nil before login.
 local function world()
@@ -48,94 +50,88 @@ local function world()
 	return ok and s or nil
 end
 
--- A portal's name as its dungeon's: "Portal to Drudge Hideout" and "Drudge Hideout Portal" both
--- name "Drudge Hideout".
-local function dungeon_name(portal)
+-- A portal's name as its destination's: "Portal to Drudge Hideout" and "Drudge Hideout Portal"
+-- both name "Drudge Hideout".
+local function destination_name(portal)
 	local n = string.match(portal, "^[Pp]ortal [Tt]o (.+)$") or string.match(portal, "^(.+) [Pp]ortal$")
 	return n or portal
 end
+L.destination_name = destination_name
 
--- The client's portal knowledge, read at most every 30 seconds (a world can publish thousands).
-local portals_read, portals_at = {}, -math.huge
-local function portal_places()
-	if not host.has("nav.journey") then
-		return {}
-	end
-	if os.clock() - portals_at < 30 then
-		return portals_read
-	end
-	portals_at = os.clock()
-	local out = {}
-	for _, e in ipairs(nav.known_portals()) do
-		if e.retired == nil and e.from ~= nil then
-			table.insert(out, { name = e.name, type = "portal", place = e.from, source = e.source })
-			if e.to ~= nil and e.to.ns == nil then
-				-- It leads indoors: a dungeon, pointed at by its entrance and gone into through it.
-				table.insert(out, { name = dungeon_name(e.name), type = "dungeon", place = e.from,
-					target = { portal = e.name }, inside = e.to, source = e.source })
+-- Nothing kept between searches: the client is asked each time.
+function L.refresh() end
+
+-- Whether a place of type `t` is wanted for the type asked for (`kind`, nil or "all" for any).
+local function wanted(t, kind)
+	return kind == nil or kind == "all" or kind == t
+end
+
+-- The places of the client's knowledge whose name holds `want` (any when empty), of type `kind`.
+local function client_places(want, kind, out)
+	local name = want ~= "" and want or nil
+	local journeys = host.has("nav.journey")
+	if journeys and (kind == nil or kind == "all" or PORTAL_TYPES[kind]) then
+		for _, e in ipairs(nav.known_portals({ name = name, limit = L.MAX })) do
+			if e.retired == nil and e.from ~= nil then
+				if wanted("portal", kind) then
+					table.insert(out, { name = e.name, type = "portal", place = P.plain(e.from), source = e.source })
+				end
+				if e.to ~= nil then
+					-- Where it sends: a dungeon when that is indoors, pointed at by its entrance and
+					-- gone into through it; another place outdoors, by where it lands.
+					if e.to.ns == nil then
+						if wanted("dungeon", kind) then
+							table.insert(out, { name = destination_name(e.name), type = "dungeon", place = P.plain(e.from),
+								target = { portal = e.name }, inside = e.to, source = e.source })
+						end
+					elseif wanted("destination", kind) then
+						table.insert(out, { name = destination_name(e.name), type = "destination", place = P.plain(e.to),
+							target = { portal = e.name }, source = e.source })
+					end
+				end
 			end
 		end
 	end
-	portals_read = out
-	return out
-end
-
--- Forget what was read, so the next ask reads the client's knowledge again.
-function L.refresh()
-	portals_at = -math.huge
-end
-
-local RECALL_NAMES = { lifestone = "Lifestone recall", marketplace = "Marketplace recall",
-	house = "House recall", mansion = "Mansion recall", allegiance = "Allegiance hometown recall" }
-
-local function recall_places()
-	if not host.has("nav.journey") then
-		return {}
+	if journeys and wanted("recall", kind) then
+		for _, r in ipairs(nav.recalls()) do
+			local word = tostring(r.recall)
+			local n = L.RECALL_NAMES[word] or ("Recall " .. word)
+			if want == "" or string.find(string.lower(n), want, 1, true) then
+				table.insert(out, { name = n, type = "recall", place = r.to, target = { recall = r.recall },
+					source = "learned" })
+			end
+		end
 	end
+	local kinds = nil
+	if kind ~= nil and kind ~= "all" then
+		kinds = PLACE_KINDS[kind]
+		if kinds == nil and kind ~= "portal" then
+			return
+		end
+		kinds = kinds or { "portal" }
+		if kind == "portal" and journeys then
+			-- The portal knowledge lists the portals.
+			return
+		end
+	end
+	for _, p in ipairs(nav.known_places({ name = name, kind = kinds, limit = L.MAX })) do
+		local t = TYPE_OF[p.kind]
+		-- Where the client keeps portal knowledge, its portals are listed from it, once.
+		if t ~= nil and p.at ~= nil and not (t == "portal" and journeys) then
+			local n = p.name
+			if t == "house" and p.owner ~= nil then
+				n = p.owner .. "'s " .. string.lower(p.name)
+			end
+			table.insert(out, { name = n, type = t, place = P.plain(p.at), source = p.source })
+		end
+	end
+end
+
+-- The places the player saved for this world.
+local function saved_places()
 	local out = {}
-	for _, r in ipairs(nav.recalls()) do
-		local word = tostring(r.recall)
-		table.insert(out, { name = RECALL_NAMES[word] or ("Recall " .. word), type = "recall", place = r.to,
-			target = { recall = r.recall }, source = "learned" })
-	end
-	return out
-end
-
--- The locations the plugin keeps itself: the bundled ones, and this world's seen and saved.
-local function own_places()
-	local out = {}
-	for _, l in ipairs(bundled) do
-		table.insert(out, l)
-	end
 	local w = world()
 	if w ~= nil then
-		for _, l in pairs(w.seen or {}) do
-			table.insert(out, { name = l.name, type = l.type, place = l.place, source = "seen" })
-		end
-		for name, place in pairs(w.saved or {}) do
-			table.insert(out, { name = name, type = "saved", place = place, source = "saved" })
-		end
-	end
-	return out
-end
-
--- Every location, from every source.
-function L.all()
-	local out = {}
-	for _, l in ipairs(bundled) do
-		table.insert(out, l)
-	end
-	for _, l in ipairs(portal_places()) do
-		table.insert(out, l)
-	end
-	for _, l in ipairs(recall_places()) do
-		table.insert(out, l)
-	end
-	local w = world()
-	if w ~= nil then
-		for _, l in pairs(w.seen or {}) do
-			table.insert(out, { name = l.name, type = l.type, place = l.place, source = "seen" })
-		end
 		for name, place in pairs(w.saved or {}) do
 			table.insert(out, { name = name, type = "saved", place = place, source = "saved" })
 		end
@@ -149,12 +145,18 @@ end
 function L.find(text, kind)
 	local want = string.lower(text or "")
 	local out = {}
-	for _, l in ipairs(L.all()) do
-		if (kind == nil or kind == "all" or l.type == kind)
-			and (want == "" or string.find(string.lower(l.name), want, 1, true)) then
-			l.far = P.reach(l.place)
-			table.insert(out, l)
+	if wanted("saved", kind) then
+		for _, l in ipairs(saved_places()) do
+			if want == "" or string.find(string.lower(l.name), want, 1, true) then
+				table.insert(out, l)
+			end
 		end
+	end
+	if kind ~= "saved" then
+		client_places(want, kind, out)
+	end
+	for _, l in ipairs(out) do
+		l.far = P.reach(l.place)
 	end
 	table.sort(out, function(a, b)
 		if (a.far ~= nil) ~= (b.far ~= nil) then
@@ -168,12 +170,11 @@ function L.find(text, kind)
 	return out
 end
 
--- The location named `text`: an exact name first, else the nearest whose name holds it. A name
--- of the plugin's own places is found without reading the client's portal knowledge, which a
--- world can publish by the thousand.
+-- The location named `text`: an exact name first, else the nearest whose name holds it. A saved
+-- place's name is found without reading the client's knowledge.
 function L.named(text, kind)
 	local want = string.lower(text or "")
-	for _, l in ipairs(own_places()) do
+	for _, l in ipairs(saved_places()) do
 		if string.lower(l.name) == want and (kind == nil or kind == "all" or l.type == kind) then
 			return l
 		end
@@ -223,28 +224,6 @@ function L.forget(name)
 		end
 	end
 	return false
-end
-
--- A lifestone or a portal came into view: kept for this world, where it stands.
-function L.seen(kind, name, place)
-	local w = world()
-	if w == nil or place == nil or name == nil then
-		return
-	end
-	local seen = w.seen or {}
-	local key = kind .. "|" .. name .. "|" .. P.show(place)
-	if seen[key] ~= nil then
-		return
-	end
-	local n = 0
-	for _ in pairs(seen) do
-		n = n + 1
-	end
-	if n >= MAX_SEEN then
-		return
-	end
-	seen[key] = { name = name, type = kind, place = P.plain(place) }
-	w.seen = seen
 end
 
 return L

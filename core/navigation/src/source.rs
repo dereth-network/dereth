@@ -223,7 +223,9 @@ pub struct NavConfig {
     pub wade_cost: f32,
     /// How far an outdoor region reaches past the landblocks of a route's two ends, in landblocks.
     pub margin_blocks: i32,
-    /// The widest an outdoor region grows, in landblocks on a side.
+    /// The most landblocks an outdoor region holds: those along the way from one end to the
+    /// other and the margin round them. A route that needs more is planned as far as this many
+    /// reach and on from there.
     pub max_blocks: i32,
 }
 
@@ -248,7 +250,7 @@ impl NavConfig {
             wade: true,
             wade_cost: 1.0,
             margin_blocks: 1,
-            max_blocks: 5,
+            max_blocks: 32,
         }
     }
 }

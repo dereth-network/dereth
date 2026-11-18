@@ -258,9 +258,11 @@ pub fn bottom(region: &dereth_navigation::Region, start: u32) -> u32 {
         .keys()
         .map(|&i| region.node_point(i).z)
         .fold(f32::MAX, f32::min);
+    // The most steps away, the lowest-numbered place of those as far: the same place every run,
+    // whatever order the map holds them in.
     seen.iter()
         .filter(|(&i, _)| region.node_point(i).z < low + 1.0)
-        .max_by_key(|(_, &s)| s)
+        .max_by_key(|(&i, &s)| (s, std::cmp::Reverse(i)))
         .map_or(start, |(&i, _)| i)
 }
 

@@ -13,12 +13,28 @@ use crate::common::*;
 #[ignore = "instrument: prints build and plan cost per dungeon"]
 fn region_build_and_plan_cost_per_dungeon() {
     println!(
-        "| block | cells | places | clear | build ms | bytes | route m | legs | plan ms | walk ms |"
+        "| block | cells | places | clear | build ms | longest slice ms | bytes | route m | legs | plan ms | walk ms |"
     );
-    println!("|---|---|---|---|---|---|---|---|---|---|");
+    println!("|---|---|---|---|---|---|---|---|---|---|---|");
     for block in [0x010D_u16, 0x01EE, 0x0106, 0x00D1, 0x8602, 0x7E03] {
         let mut d = dungeon(block);
         let first = d.first_cell();
+        // Built a slice of the frame-shared planner's at a time, about a millisecond's units.
+        let slice = {
+            let mut s = dungeon(block);
+            let p = dereth_primitives::Position::new(first, dereth_primitives::Frame::default());
+            let mut task = dereth_navigation::Task::route(p, p, None);
+            let mut most = 0.0f64;
+            loop {
+                let mut budget = 1024;
+                let t = Instant::now();
+                let done = s.nav.advance(&mut task, &mut budget);
+                most = most.max(t.elapsed().as_secs_f64() * 1e3);
+                if done.is_some() {
+                    break most;
+                }
+            }
+        };
         let t = Instant::now();
         d.nav.region(first).expect("loaded");
         let build = t.elapsed();
@@ -57,7 +73,7 @@ fn region_build_and_plan_cost_per_dungeon() {
             from.cell.0, from.frame.origin, to.cell.0, to.frame.origin
         );
         println!(
-            "| {block:04X} | {cells} | {places} | {clear} | {:.1} | {bytes} | {:.1} | {} | {:.2} | {:.0} |",
+            "| {block:04X} | {cells} | {places} | {clear} | {:.1} | {slice:.1} | {bytes} | {:.1} | {} | {:.2} | {:.0} |",
             build.as_secs_f64() * 1e3,
             path.length(),
             path.waypoints.len() - 1,
@@ -207,6 +223,126 @@ fn journey_planning_cost_over_a_world_of_portals() {
                 || String::from("no journey"),
                 |j| format!("{} legs", j.legs.len())
             )
+        );
+    }
+}
+
+/// A store of tiles in memory, for the cost of reading them back.
+#[derive(Debug, Default, Clone)]
+struct Kept(std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, Vec<u8>>>>);
+
+impl dereth_navigation::TileStore for Kept {
+    fn load(&self, key: &str) -> Option<Vec<u8>> {
+        self.0.lock().expect("the store").get(key).cloned()
+    }
+    fn save(&self, key: &str, bytes: &[u8]) {
+        self.0
+            .lock()
+            .expect("the store")
+            .insert(key.to_owned(), bytes.to_vec());
+    }
+}
+
+#[test]
+#[ignore = "instrument: prints the cost of long routes over many landblocks"]
+fn long_routes_over_many_landblocks() {
+    println!(
+        "| route | landblocks | route m | legs | built and planned ms | planned again ms | read back and planned ms | longest slice built ms | longest slice read back ms | region bytes |"
+    );
+    println!("|---|---|---|---|---|---|---|---|---|---|");
+    type Scene = (&'static str, u16, (f32, f32), u16, (f32, f32));
+    let scenes: [Scene; 3] = [
+        (
+            "Holtburg east, 7 landblocks",
+            0xA9B4,
+            (96.0, 96.0),
+            0xB0B4,
+            (96.0, 96.0),
+        ),
+        (
+            "Holtburg south-east, 5 by 4",
+            0xA9B4,
+            (96.0, 96.0),
+            0xADB0,
+            (96.0, 96.0),
+        ),
+        (
+            "Holtburg north, 6 landblocks",
+            0xA9B4,
+            (96.0, 96.0),
+            0xA9BA,
+            (96.0, 96.0),
+        ),
+    ];
+    // Every landblock in the rectangle round both ends, and one more round it, loaded.
+    let around = |a: u16, b: u16| -> Vec<u16> {
+        let (ax, ay, bx, by) = (
+            i32::from(a >> 8),
+            i32::from(a & 0xFF),
+            i32::from(b >> 8),
+            i32::from(b & 0xFF),
+        );
+        let mut out = vec![a];
+        for x in ax.min(bx) - 1..=ax.max(bx) + 1 {
+            for y in ay.min(by) - 1..=ay.max(by) + 1 {
+                let id = u16::try_from((x << 8) | y).expect("inside the world");
+                if id != a {
+                    out.push(id);
+                }
+            }
+        }
+        out
+    };
+    let open = |a: u16, b: u16| crate::common::load(&around(a, b), true, Default::default());
+    // The longest single slice of the frame-shared planner's, about a millisecond's units.
+    let longest_slice = |d: &mut crate::common::Dungeon, from, to| {
+        let mut task = dereth_navigation::Task::route(from, to, None);
+        let mut most = 0.0f64;
+        loop {
+            let mut budget = 1024;
+            let t = Instant::now();
+            let done = d.nav.advance(&mut task, &mut budget);
+            most = most.max(t.elapsed().as_secs_f64() * 1e3);
+            if done.is_some() {
+                return most;
+            }
+        }
+    };
+    for (name, a, (ax, ay), b, (bx, by)) in scenes {
+        let kept = Kept::default();
+        let mut d = open(a, b);
+        d.nav.set_tile_store(Box::new(kept.clone()));
+        let from = ground(&d, a, ax, ay);
+        let to = ground(&d, b, bx, by);
+        let t = Instant::now();
+        let first = d.nav.plan_toward(&from, &to);
+        let built = t.elapsed();
+        let (blocks, bytes) = d
+            .nav
+            .region_between(&from, &to)
+            .map_or((0, 0), |r| (r.report().landblocks, r.memory_bytes()));
+        let t = Instant::now();
+        let _ = d.nav.plan_toward(&from, &to);
+        let again = t.elapsed();
+        let mut later = open(a, b);
+        later.nav.set_tile_store(Box::new(kept.clone()));
+        let t = Instant::now();
+        let _ = later.nav.plan_toward(&from, &to);
+        let read = t.elapsed();
+        let mut sliced = open(a, b);
+        let slice_built = longest_slice(&mut sliced, from, to);
+        let mut sliced = open(a, b);
+        sliced.nav.set_tile_store(Box::new(kept.clone()));
+        let slice_read = longest_slice(&mut sliced, from, to);
+        let (length, legs, whole) = first.as_ref().map_or((0.0, 0, false), |(p, w)| {
+            (p.length(), p.waypoints.len() - 1, *w)
+        });
+        println!(
+            "| {name}{} | {blocks} | {length:.0} | {legs} | {:.0} | {:.1} | {:.0} | {slice_built:.1} | {slice_read:.1} | {bytes} |",
+            if whole { "" } else { " (to a region's edge)" },
+            built.as_secs_f64() * 1e3,
+            again.as_secs_f64() * 1e3,
+            read.as_secs_f64() * 1e3,
         );
     }
 }

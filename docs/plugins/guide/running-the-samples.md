@@ -68,7 +68,7 @@ plugin network.dereth.autologin 0.2.0 running
 plugin network.dereth.chatfilter 0.2.0 running
 plugin network.dereth.idnotices 0.2.0 running
 plugin network.dereth.looter 0.2.0 running
-plugin network.dereth.navigator 0.4.0 running
+plugin network.dereth.navigator 0.5.0 running
 plugin network.dereth.trackers 0.3.0 running
 plugin network.dereth.xpmeter 0.1.0 running
 …

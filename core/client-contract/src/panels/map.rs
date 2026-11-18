@@ -33,6 +33,60 @@ pub struct MapClick {
     pub alt: bool,
 }
 
+/// What a place on the world map is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MapPlaceKind {
+    /// A town the game's map marks with a town's icon.
+    Town,
+    /// A smaller place the game's map names, or a region.
+    Landmark,
+    Cottage,
+    Villa,
+    Mansion,
+    /// A lifestone the player has seen.
+    Lifestone,
+    /// A portal the player has seen.
+    Portal,
+    /// Where a portal the player used into a dungeon stands, named for the dungeon.
+    Dungeon,
+    /// A vendor the player has seen.
+    Vendor,
+    /// A person the player has seen who is no vendor and cannot be attacked.
+    Npc,
+}
+
+impl MapPlaceKind {
+    /// The kind as one word: `town`, `landmark`, `cottage`, `villa`, `mansion`, `lifestone`,
+    /// `portal`, `dungeon`, `vendor` or `npc`.
+    #[must_use]
+    pub const fn word(self) -> &'static str {
+        match self {
+            Self::Town => "town",
+            Self::Landmark => "landmark",
+            Self::Cottage => "cottage",
+            Self::Villa => "villa",
+            Self::Mansion => "mansion",
+            Self::Lifestone => "lifestone",
+            Self::Portal => "portal",
+            Self::Dungeon => "dungeon",
+            Self::Vendor => "vendor",
+            Self::Npc => "npc",
+        }
+    }
+}
+
+/// A place the world map marks: what it is, its name and where it stands, in map coordinates
+/// (north and east positive).
+#[derive(Debug, Clone, PartialEq)]
+pub struct MapPlace {
+    pub kind: MapPlaceKind,
+    pub name: String,
+    /// Map coordinates as the world map measures them: meters from the world's corner over 240,
+    /// less 101.95.
+    pub ns: f64,
+    pub ew: f64,
+}
+
 /// A named rectangle in the map image's own pixel space.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MapNote {

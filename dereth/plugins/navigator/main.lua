@@ -1,18 +1,23 @@
 -- Navigator: points the way, in the manner of GoArrow. One "Where to?" box finds places as the
--- player types (towns, dungeons, portals, lifestones, recalls and places of their own, by name and
--- type, or coordinates typed in); Go travels to the one picked (through portals and by recalls
--- where the client knows a journey, else on foot), Point only puts the arrow on it, and Stop
--- stops. An arrow HUD shows the character's own coordinates and the target's distance and way.
+-- player types (dungeons, where portals send, portals, lifestones, shops, people, houses, recalls
+-- and places of the player's own, by name and type, or coordinates typed in); Go travels to the
+-- one picked (through portals and by recalls where the client knows a journey, else on foot round
+-- what stands in the way), Point only puts the arrow on it, and Stop stops. An arrow HUD shows the
+-- character's own coordinates and the target's distance and way while there is a target.
 -- Tabs below hold the player's saved places, the coordinates seen in chat, the spots clicked on the
 -- game's map (a left click there points at it), the ways to the target over portals and recalls,
 -- and a map of the dungeon the character is in.
+--
+-- Every place is one the client learned in this world or the player saved: the plugin brings none
+-- of its own. The target, the map clicks and the coordinates seen in chat are kept for the world,
+-- so they are there again after a reload.
 --
 -- The commands are shortcuts to the same:
 --
 -- /nav                     open the window
 -- /nav <place>             point at a place by name (any type) or at coordinates (12.3N, 45.6E)
 -- /nav find <text> [type]  find places whose name holds the text, nearest first (in the window too)
--- /nav nearest <type>      point at the nearest place of a type (town, dungeon, portal, lifestone...)
+-- /nav nearest <type>      point at the nearest place of a type (dungeon, portal, lifestone...)
 -- /nav here                say where the character is
 -- /nav save <name>         keep where the character stands as a place of the player's own
 -- /nav forget <name>       forget one
@@ -24,7 +29,7 @@
 -- /nav travel <where>      go somewhere by a journey: a place, coordinates, a cell (0x019E0140),
 --                          or "portal <name>" for where a known portal sends (a dungeon, say)
 -- /nav plan <where>        the journey there, without going
--- /nav route <file>        walk a VTank route from the plugin's routes/ folder
+-- /nav route <file>        walk a VTank route from the plugin's data folder
 -- /nav clear               take the markers down
 
 local navlib = require("dereth.nav")
@@ -45,6 +50,9 @@ local saved = {} -- the Saved page's rows, as locations
 local clicks = {} -- the spots clicked on the game's map, newest first
 local plans = {} -- the Ways page's ways
 local journey = nil -- the legs of the journey under way, or nil
+local moving = false -- whether a Go, a travel or a route of this plugin's is under way
+local run = 0 -- which Go, travel or route is the latest: an older one's end changes nothing
+local way = nil -- the walking route to the target, as the dungeon map draws it: `{ for, points }`
 local status = ""
 
 local MAX_RESULTS = 200
@@ -52,6 +60,14 @@ local MAX_CLICKS = 10
 
 local function say(text)
 	chat.print("[Nav] " .. text)
+end
+
+-- The world's store, or nil before login.
+local function world()
+	local ok, s = pcall(function()
+		return store.world
+	end)
+	return ok and s or nil
 end
 
 local hud = nil
@@ -103,8 +119,8 @@ local win = ui.window({
 	id = "main",
 	title = "Navigator",
 	width = 56,
-	ui.input({ id = "search", text = "Where to?", value = "", placeholder = "a name, a type (town, dungeon...) or 12.3N 45.6E" }),
-	ui.list({ id = "results", columns = { "Place", { title = "Type", width = 10 }, { title = "Where", width = 14 },
+	ui.input({ id = "search", text = "Where to?", value = "", placeholder = "a name, a type (dungeon, portal...) or 12.3N 45.6E" }),
+	ui.list({ id = "results", columns = { "Place", { title = "Type", width = 11 }, { title = "Where", width = 14 },
 		{ title = "Far", width = 8 } }, rows = {}, height = 6 }),
 	ui.label({ id = "to", text = "Pick a place, then Go or Point." }),
 	ui.row({
@@ -128,7 +144,62 @@ local function set_status(text)
 	win:get("status").text = text
 end
 
--- The words of a search, and a type named last ("holt town"), or a type alone ("dungeon").
+-- The HUD is up while there is a target or the window is open. It opens only when the player
+-- asks (a command, a click), as every plugin HUD does; it closes when neither holds.
+local function sync_hud()
+	if hud == nil then
+		return
+	end
+	if target ~= nil or shown then
+		hud:show()
+	else
+		hud:close()
+	end
+end
+
+-- Keep the target (a place: an object's id means nothing after a reload), the map clicks and the
+-- coordinates seen in chat for this world.
+local function remember()
+	local w = world()
+	if w == nil then
+		return
+	end
+	local t = nil
+	if target ~= nil and target.object == nil and target.place ~= nil then
+		t = { name = target.name, place = target.place, travel = target.travel }
+	end
+	w.nav = { target = t, clicks = clicks, chat = C.recent }
+end
+
+-- Stop what this plugin set going: a journey, a walk or a route.
+local function halt()
+	run = run + 1
+	if moving then
+		nav.stop()
+		moving = false
+		journey = nil
+	end
+end
+
+-- Start a Go, a travel or a route: its number, which `finished` takes.
+local function start()
+	halt()
+	run = run + 1
+	moving = true
+	return run
+end
+
+-- Whether run `id` is still the latest; when it is, it is over.
+local function finished(id)
+	if id ~= run then
+		return false
+	end
+	moving = false
+	journey = nil
+	return true
+end
+
+-- The words of a search, and a type named last ("hideout dungeon"), or a type alone ("dungeon").
 local function text_and_type(rest)
 	local text, kind = string.match(rest or "", "^(.-)%s+(%a+)$")
 	for _, t in ipairs(L.TYPES) do
@@ -205,42 +276,60 @@ local function show_picked()
 end
 
 local function clear()
+	halt()
 	target = nil
 	picked = nil
 	plans = {}
+	way = nil
 	markers.clear()
 	win:get("ways").rows = {}
 	win:get("legs").rows = {}
 	show_picked()
+	sync_hud()
+	remember()
 end
 
--- Point at a place (`place`) or an object (`object`, an id): an arrow, a marker in the world and
--- one on the map, where the host draws them.
-local function point(name, place, travel, object)
+-- Put the markers on the target: an arrow, a marker in the world and one on the map, where the
+-- host draws them.
+local function mark()
 	markers.clear()
-	plans = {}
-	win:get("ways").rows = {}
-	target = { name = name, place = place, travel = travel or place, object = object }
-	picked = nil
+	local t = target
+	if t == nil then
+		return
+	end
 	if host.has("overlay.arrow") then
-		if object then
-			markers.arrow:set({ object = object, label = name })
+		if t.object then
+			markers.arrow:set({ object = t.object, label = t.name })
 		else
-			markers.arrow:set({ position = place, label = name })
+			markers.arrow:set({ position = t.place, label = t.name })
 		end
 	end
 	if host.has("overlay.world") then
-		if object then
-			markers.world:add({ object = object, label = name })
+		if t.object then
+			markers.world:add({ object = t.object, label = t.name })
 		else
-			markers.world:add({ position = place, label = name })
+			markers.world:add({ position = t.place, label = t.name })
 		end
 	end
-	if host.has("overlay.map") and place and place.ns ~= nil then
-		markers.map:add({ points = { place }, label = name })
+	if host.has("overlay.map") and t.place and t.place.ns ~= nil then
+		markers.map:add({ points = { t.place }, label = t.name })
 	end
+end
+
+-- Point at a place (`place`) or an object (`object`, an id). Whatever this plugin had the
+-- character traveling to before stops: it was going somewhere else.
+local function point(name, place, travel, object)
+	halt()
+	plans = {}
+	way = nil
+	win:get("ways").rows = {}
+	target = { name = name, place = place, travel = travel or place, object = object }
+	picked = nil
+	mark()
 	local where = object and "following it" or P.show(place)
 	show_picked()
+	sync_hud()
+	remember()
 	say("Pointing at " .. name .. " (" .. where .. ").")
 end
 
@@ -269,23 +358,68 @@ local function target_place()
 	return target.place
 end
 
--- The journey's progress, on the window's status line and the Ways page.
-local tell = {
-	line = function(text)
-		say(text)
-		set_status(text)
-	end,
-	planned = function(legs)
-		journey = legs
-		win:get("legs").rows = R.leg_rows(legs)
-	end,
-	leg = function(index, what)
-		set_status(string.format("Leg %d of %d: %s", index, journey and #journey or index, what))
-	end,
-	ended = function()
-		journey = nil
-	end,
-}
+-- Say `text` in the chat and on the status line.
+local function tell_line(text)
+	say(text)
+	set_status(text)
+end
+
+-- The progress of journey `id`, on the window's status line and the Ways page; nothing once a
+-- later Go, travel or route has started, or this one was stopped.
+local function teller(id)
+	return {
+		line = function(text)
+			if id == run then
+				tell_line(text)
+			end
+		end,
+		planned = function(legs)
+			if id == run then
+				journey = legs
+				win:get("legs").rows = R.leg_rows(legs)
+			end
+		end,
+		leg = function(index, what)
+			if id == run then
+				set_status(string.format("Leg %d of %d: %s", index, journey and #journey or index, what))
+			end
+		end,
+		ended = function()
+			finished(id)
+		end,
+	}
+end
+
+-- Walk to `to` with no journey to follow: along the client's walking route there when it plans
+-- one (round walls and through doors), corner by corner, else straight at it.
+local function walk_to(to, name)
+	set_status("Walking to " .. name .. "...")
+	local id = start()
+	task.spawn(function()
+		local corners = nil
+		if host.has("nav.path") then
+			local ok, r = pawait(nav.path(to))
+			if ok and r ~= nil and r.points ~= nil then
+				corners = r.points
+			end
+		end
+		local ok, why = true, nil
+		if corners ~= nil then
+			for i = 2, #corners - 1 do
+				ok, why = pawait(nav.move_to(corners[i], 1))
+				if not ok then
+					break
+				end
+			end
+		end
+		if ok then
+			ok, why = pawait(nav.move_to(to, 3))
+		end
+		if finished(id) then
+			tell_line(ok and ("Arrived at " .. name .. ".") or ("Stopped: " .. tostring(why) .. "."))
+		end
+	end)
+end
 
 -- Go to the target: by a journey (with `opts`, a way of the route finder), otherwise walking.
 local function go(opts)
@@ -297,8 +431,9 @@ local function go(opts)
 	local t = target
 	local to = t.object or t.travel
 	if host.has("nav.journey") then
+		local id = start()
 		set_status("Going to " .. t.name .. "...")
-		R.go(to, t.name, opts, tell)
+		R.go(to, t.name, opts, teller(id))
 		return
 	end
 	if not host.has("nav.moveto") then
@@ -306,11 +441,7 @@ local function go(opts)
 		set_status("This client cannot walk for you.")
 		return
 	end
-	set_status("Walking to " .. t.name .. "...")
-	task.spawn(function()
-		local ok, why = pawait(nav.move_to(to, 3))
-		tell.line(ok and ("Arrived at " .. t.name .. ".") or ("Stopped: " .. tostring(why) .. "."))
-	end)
+	walk_to(to, t.name)
 end
 
 -- Point at the picked place (if one is picked), and go there when `going`.
@@ -376,8 +507,32 @@ local function journey_target(rest)
 	return nil
 end
 
+-- What was kept for this world, read once the world's store is there: the map clicks, the
+-- coordinates seen in chat and the target, its markers put back.
+local restored = false
+local function restore()
+	local w = world()
+	if w == nil then
+		return
+	end
+	restored = true
+	local n = w.nav
+	if n == nil then
+		return
+	end
+	clicks = n.clicks or {}
+	C.recent = n.chat or {}
+	if n.target ~= nil and n.target.place ~= nil and target == nil then
+		target = { name = n.target.name, place = n.target.place, travel = n.target.travel or n.target.place }
+		mark()
+	end
+end
+
 -- The arrow HUD: the character's own place, and the target's distance and direction.
 task.every(250, function()
+	if not restored then
+		restore()
+	end
 	if hud == nil then
 		return
 	end
@@ -398,8 +553,31 @@ task.every(250, function()
 	end
 end)
 
+-- The way to the target as the dungeon map draws it: asked of the client once for each target,
+-- and again every few seconds as the character moves along it.
+local WAY_EVERY = 3
+local way_asked = -math.huge
+local function refresh_way()
+	if target == nil or not host.has("nav.path") or os.clock() - way_asked < WAY_EVERY then
+		return
+	end
+	local at = target_place()
+	if at == nil or at.ns ~= nil then
+		way = nil
+		return
+	end
+	way_asked = os.clock()
+	local t = target
+	task.spawn(function()
+		local ok, r = pawait(nav.path(t.object or at))
+		if target == t then
+			way = ok and r ~= nil and { points = r.points } or nil
+		end
+	end)
+end
+
 -- The dungeon map, while its page is up: a few cells read a step, drawn again as the character
--- moves or turns.
+-- moves or turns, or the way or the creatures change.
 local drawn_at = nil
 if MAP_PAGE then
 	task.every(100, function()
@@ -411,13 +589,25 @@ if MAP_PAGE then
 		if me == nil then
 			return
 		end
-		local key = string.format("%s %.1f %.1f %.1f %d %s", tostring(me.cell), me.x or 0, me.y or 0, me.z or 0,
-			math.floor((me.heading or 0) / 5), tostring(done))
+		refresh_way()
+		local creatures = {}
+		local ckey = {}
+		if M.inside(me) ~= nil then
+			for _, o in ipairs(game.world:find({ monster = true, within = 60 })) do
+				if o.position ~= nil then
+					table.insert(creatures, o.position)
+					table.insert(ckey, string.format("%.0f,%.0f", o.position.x or 0, o.position.y or 0))
+				end
+			end
+		end
+		local key = string.format("%s %.1f %.1f %.1f %d %s %s %s %s", tostring(me.cell), me.x or 0, me.y or 0,
+			me.z or 0, math.floor((me.heading or 0) / 5), tostring(done), tostring(way),
+			tostring(target), table.concat(ckey, ";"))
 		if key == drawn_at then
 			return
 		end
 		drawn_at = key
-		local cmds = M.draw()
+		local cmds = M.draw({ target = target_place(), route = way and way.points, creatures = creatures })
 		win:get("map").draw = cmds or {}
 		local read, all = M.progress()
 		win:get("map_note").text = cmds == nil and "Outdoors: no dungeon to map."
@@ -435,12 +625,14 @@ local function open()
 	show_picked()
 	win:show()
 	shown = true
+	sync_hud()
 end
 
 -- Coordinates anyone writes in chat land in the From chat page's list.
 on("chat.line", function(e)
 	if C.heard(e) then
 		refresh_chat()
+		remember()
 	end
 end)
 
@@ -462,6 +654,7 @@ end
 on("ui.closed", function(e)
 	if e.window == "main" then
 		shown = false
+		sync_hud()
 	end
 end)
 
@@ -469,20 +662,6 @@ on("ui.opened", function(e)
 	if e.window == "main" then
 		shown = true
 		open()
-		-- The HUD opens with the window: a window opens only when the player asks.
-		if hud then
-			hud:show()
-		end
-	end
-end)
-
--- Lifestones and portals coming into view are kept as places of this world.
-on("world.object_created", function(e)
-	if e.class == "Lifestone" or e.class == "Portal" then
-		local o = game.world:get(e.id)
-		if o ~= nil and o.position ~= nil then
-			L.seen(string.lower(e.class), e.name, o.position)
-		end
 	end
 end)
 
@@ -529,6 +708,7 @@ on("ui.clicked", function(e)
 	elseif e.id == "point" then
 		point_picked(false)
 	elseif e.id == "stop" then
+		halt()
 		nav.stop()
 		set_status("Stopped.")
 	elseif e.id == "clear" then
@@ -565,6 +745,7 @@ commands.add("nav", "point the way: /nav <place | coordinates | find <text> [typ
 	elseif verb == "go" then
 		go()
 	elseif verb == "stop" then
+		halt()
 		nav.stop()
 		set_status("Stopped.")
 	elseif verb == "clear" then
@@ -656,16 +837,18 @@ commands.add("nav", "point the way: /nav <place | coordinates | find <text> [typ
 				set_status(line)
 			end)
 		else
+			local id = start()
 			set_status("Going to " .. name .. "...")
-			R.go(to, name, nil, tell)
+			R.go(to, name, nil, teller(id))
 		end
 	elseif verb == "route" and words[2] then
-		local text = files.package("routes/" .. words[2])
+		local text = files.data(words[2]) or files.data("routes/" .. words[2])
 		if text == nil then
-			say("No route " .. words[2] .. ".")
+			say("No route " .. words[2] .. " in the Navigator's data folder.")
 			return
 		end
 		local route = navlib.load(text)
+		local id = start()
 		set_status("Walking the route " .. words[2] .. ".")
 		task.spawn(function()
 			local ok, why = pcall(route.walk, route, {
@@ -674,7 +857,9 @@ commands.add("nav", "point the way: /nav <place | coordinates | find <text> [typ
 					set_status(string.format("Walking the route %s: point %d of %d.", words[2], i, #route.points))
 				end,
 			})
-			tell.line(ok and "Route done." or ("Route stopped: " .. tostring(why)))
+			if finished(id) then
+				tell_line(ok and "Route done." or ("Route stopped: " .. tostring(why)))
+			end
 		end)
 	else
 		local p = P.parse(args)

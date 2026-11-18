@@ -1,11 +1,11 @@
 //! Planning a slice at a time: a route, or the region round a place, worked on in units of work
-//! (a floor sample taken, a place's clearance decided or merged into a patch, a place settled by
-//! the search or looked out from at a patch's edge), so that the work can be spread over frames or
+//! (a floor sample taken, a place's clearance decided, a tile of polygons built, a place settled by
+//! the search or a way out of a polygon looked at), so that the work can be spread over frames or
 //! run whole on a thread of its own.
 //!
 //! The units are counted, not timed: the caller decides how many to spend, by its own clock.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use dereth_primitives::{CellId, ObjectId, Position, Quat, Vec3};
 
@@ -50,9 +50,11 @@ pub struct Task {
 enum Phase {
     /// Finding the region, or what to build.
     Locate,
-    /// Building a region.
-    Build(Box<Finishing>),
-    /// Searching a region's patches, the region known by its serial number.
+    /// Building a dungeon's region from the cell named, to be kept under that cell.
+    BuildDungeon(CellId, Box<Finishing>),
+    /// Building a landblock's tile, for the outdoor window being put together.
+    BuildTile((i32, i32), Box<Finishing>),
+    /// Searching a region's polygons, the region known by its serial number.
     Search {
         region: u64,
         search: Box<MeshSearch>,
@@ -150,56 +152,65 @@ enum Located {
     Have(usize),
     /// To build: a dungeon's, from this cell.
     Interior(CellId),
-    /// To build: an outdoor window `(x0, y0, x1, y1)` of landblocks.
-    Outdoor((i32, i32, i32, i32)),
+    /// To build: an outdoor region over these landblocks.
+    Outdoor(BTreeSet<(i32, i32)>),
 }
 
 impl<S: NavSource> NavWorld<S> {
     /// Where the region a route from `from` to `to` is planned in is, or what to build.
     ///
-    /// A region already built is used when it covers both ends; an outdoor one only when its
-    /// window also holds the margin of landblocks round each end that a window built for these
-    /// two ends would hold. One built for another route can cover an end with its own edge, where
-    /// the way to it may run outside the window: planned in it, such a route ends unreachable.
+    /// A region already built is used when it covers both ends; an outdoor one only when it
+    /// also holds the landblocks an outdoor region built for these two ends would hold. One built
+    /// for another route can cover an end with its own edge, where the way to it may run outside
+    /// it: planned in it, such a route ends unreachable.
+    ///
+    /// Outdoors, the landblocks are the rectangle round both ends and a margin round it where
+    /// that is few enough, else those along the way from one end's to the other's and the margin
+    /// round them, at most [`crate::NavConfig::max_blocks`] of them.
     fn locate(&self, from: &Position, to: &Position) -> Result<Located, NoPath> {
-        let m = self.config.margin_blocks;
-        let (ax, ay) = block_xy(from.cell.0 >> 16);
-        let (bx, by) = block_xy(to.cell.0 >> 16);
-        let wanted = (
-            (ax.min(bx) - m).max(0),
-            (ay.min(by) - m).max(0),
-            (ax.max(bx) + m).min(0xFE),
-            (ay.max(by) + m).min(0xFE),
-        );
-        let holds = |w: (i32, i32, i32, i32)| {
-            w.0 <= wanted.0 && w.1 <= wanted.1 && w.2 >= wanted.2 && w.3 >= wanted.3
-        };
-        if let Some(i) = self
-            .regions
-            .iter()
-            .position(|r| r.covers(from) && r.covers(to) && r.window().is_none_or(holds))
-        {
-            return Ok(Located::Have(i));
-        }
+        let a = block_xy(from.cell.0 >> 16);
+        let b = block_xy(to.cell.0 >> 16);
         let interior = from.cell.0 & 0xFFFF >= 0x0100;
-        if interior
+        let dungeon = interior
             && !self
                 .opens_outdoors(from.cell)
-                .ok_or(NoPath::NoCell(from.cell))?
-        {
+                .ok_or(NoPath::NoCell(from.cell))?;
+        let wanted = (!dungeon).then(|| self.wanted_blocks(a, b));
+        if let Some(i) = self.regions.iter().position(|r| {
+            r.covers(from)
+                && r.covers(to)
+                && match (r.blocks.as_ref(), wanted.as_ref()) {
+                    (Some(have), Some(want)) => want.is_subset(have),
+                    (Some(_), None) => false,
+                    (None, _) => r.window().is_none(),
+                }
+        }) {
+            return Ok(Located::Have(i));
+        }
+        let Some(wanted) = wanted else {
             if let Some(i) = self.regions.iter().position(|r| r.covers(from)) {
                 return Ok(Located::Have(i));
             }
             return Ok(Located::Interior(from.cell));
-        }
-        // Outdoors: a window over both ends' landblocks and a margin round them.
-        let window = wanted;
-        if window.2 - window.0 + 1 > self.config.max_blocks
-            || window.3 - window.1 + 1 > self.config.max_blocks
-        {
+        };
+        // Outdoors: the landblocks along the way and a margin round them.
+        if wanted.len() > usize::try_from(self.config.max_blocks).unwrap_or(0) {
             return Err(NoPath::TooFar);
         }
-        Ok(Located::Outdoor(window))
+        Ok(Located::Outdoor(wanted))
+    }
+
+    /// The landblocks an outdoor region for a route from landblock `a` to `b` holds: the
+    /// rectangle round both and the margin round it, where that is no more than
+    /// [`crate::NavConfig::max_blocks`]; else those along the way (the landblocks a body crosses
+    /// on the cheapest way over land) and the margin round them.
+    fn wanted_blocks(&self, a: (i32, i32), b: (i32, i32)) -> BTreeSet<(i32, i32)> {
+        let rect = widen(&rectangle_blocks(a, b), self.config.margin_blocks);
+        if rect.len() <= usize::try_from(self.config.max_blocks).unwrap_or(0) {
+            return rect;
+        }
+        self.corridor(a, b)
+            .map_or(rect, |chain| widen(&chain, self.config.margin_blocks))
     }
 
     /// Keep a built region, numbered; a new outdoor window replaces the last.
@@ -218,26 +229,45 @@ impl<S: NavSource> NavWorld<S> {
     pub(crate) fn region_index(&mut self, from: &Position, to: &Position) -> Result<usize, NoPath> {
         let region = match self.locate(from, to)? {
             Located::Have(i) => return Ok(i),
-            Located::Interior(cell) => Region::build_interior(&self.source, cell, &self.config),
-            Located::Outdoor(window) => Region::build_outdoor(&self.source, window, &self.config),
+            Located::Interior(cell) => match self.kept_dungeon(cell) {
+                Some(region) => Some(region),
+                None => {
+                    let built = Region::build_interior(&self.source, cell, &self.config);
+                    if let Some(r) = built.as_ref() {
+                        self.keep_dungeon(cell, r);
+                    }
+                    built
+                }
+            },
+            Located::Outdoor(window) => {
+                while let Some(block) = self.tile_missing(&window) {
+                    let built =
+                        Region::start_tile(&self.source, block, &self.config).and_then(|mut f| {
+                            let mut all = u64::MAX;
+                            f.step(&mut all)
+                        });
+                    self.keep_tile(block, built);
+                }
+                Some(self.assemble_window(&window))
+            }
         };
         let region = region.ok_or(NoPath::NoCell(from.cell))?;
         Ok(self.insert(region))
     }
 
-    /// The middle of the farthest landblock along the corridor from `from` toward `to` that a
-    /// window round both it and `from` still holds, on the ground.
+    /// The middle of the farthest landblock along the corridor from `from` toward `to` that an
+    /// outdoor region from `from` to it still holds (at most [`crate::NavConfig::max_blocks`]
+    /// landblocks, the margin included), on the ground.
     fn window_edge(&self, from: &Position, to: &Position) -> Result<Position, NoPath> {
         let a = block_xy(from.cell.0 >> 16);
         let b = block_xy(to.cell.0 >> 16);
         let chain = self.corridor(a, b).ok_or(NoPath::Unreachable)?;
-        let reach = self.config.max_blocks - 1 - 2 * self.config.margin_blocks;
-        let next = chain
-            .iter()
-            .rev()
-            .find(|c| (c.0 - a.0).abs() <= reach && (c.1 - a.1).abs() <= reach)
-            .copied()
+        let most = usize::try_from(self.config.max_blocks).unwrap_or(0);
+        let reach = (1..=chain.len())
+            .take_while(|&k| widen(&chain[..k], self.config.margin_blocks).len() <= most)
+            .last()
             .ok_or(NoPath::TooFar)?;
+        let next = chain[reach - 1];
         if next == a {
             return Err(NoPath::TooFar);
         }
@@ -312,8 +342,11 @@ impl<S: NavSource> NavWorld<S> {
         gates: &mut Gates,
     ) -> Option<Phase> {
         let region = &self.regions[i];
-        let solids = region.dungeon_solids(&self.source, &self.config)?;
-        let drops = region.ledge_drops(&solids, &self.config);
+        if region.window.is_some() {
+            return None;
+        }
+        // The drops are the mesh's links off its ledges, found when it was built.
+        let drops = region.drops_by_place();
         if drops.is_empty() {
             return None;
         }
@@ -355,9 +388,9 @@ impl<S: NavSource> NavWorld<S> {
     }
 
     /// Work on `task`, spending about `budget` units (a floor sample taken, a place's clearance
-    /// decided or merged into a patch, a place settled by the search or looked out from at a
-    /// patch's edge, each one; ordering a region's places and straightening a route are done
-    /// whole); what it came to once it is done.
+    /// decided, a column of a tile of polygons built, a place settled by the search or a way out
+    /// of a polygon looked at, each one; ordering a region's places and straightening a route are
+    /// done whole); what it came to once it is done.
     pub fn advance(&mut self, task: &mut Task, budget: &mut u64) -> Option<Done> {
         loop {
             match &mut task.phase {
@@ -385,19 +418,36 @@ impl<S: NavSource> NavWorld<S> {
                         }
                     }
                     Ok(Located::Interior(cell)) => {
+                        if let Some(region) = self.kept_dungeon(cell) {
+                            self.insert(region);
+                            continue;
+                        }
                         match Region::start_interior(&self.source, cell, &self.config) {
-                            Some(f) => task.phase = Phase::Build(Box::new(f)),
+                            Some(f) => task.phase = Phase::BuildDungeon(cell, Box::new(f)),
                             None => return Some(Self::failed(task, NoPath::NoCell(cell))),
                         }
                     }
-                    Ok(Located::Outdoor(window)) => {
-                        match Region::start_outdoor(&self.source, window, &self.config) {
-                            Some(f) => task.phase = Phase::Build(Box::new(f)),
-                            None => {
-                                return Some(Self::failed(task, NoPath::NoCell(task.from.cell)))
+                    Ok(Located::Outdoor(window)) => match self.next_tile(&window, true) {
+                        crate::world::NextTile::ReadBack => {
+                            *budget = budget.saturating_sub(crate::world::READ_BACK_UNITS);
+                            if *budget == 0 {
+                                return None;
                             }
                         }
-                    }
+                        crate::world::NextTile::Build(block) => {
+                            match Region::start_tile(&self.source, block, &self.config) {
+                                Some(f) => task.phase = Phase::BuildTile(block, Box::new(f)),
+                                None => self.keep_tile(block, None),
+                            }
+                        }
+                        crate::world::NextTile::Ready => {
+                            let region = self.assemble_window(&window);
+                            if region.ground.as_ref().is_none_or(|g| g.land_count() == 0) {
+                                return Some(Self::failed(task, NoPath::NoCell(task.from.cell)));
+                            }
+                            self.insert(region);
+                        }
+                    },
                     Err(NoPath::TooFar) if task.corridor && task.whole => {
                         // Too far for one window: as far as a window round the start holds,
                         // along the landblocks between.
@@ -413,9 +463,17 @@ impl<S: NavSource> NavWorld<S> {
                     }
                     Err(e) => return Some(Self::failed(task, e)),
                 },
-                Phase::Build(finishing) => {
+                Phase::BuildDungeon(cell, finishing) => {
                     let region = finishing.step(budget)?;
+                    let cell = *cell;
+                    self.keep_dungeon(cell, &region);
                     self.insert(region);
+                    task.phase = Phase::Locate;
+                }
+                Phase::BuildTile(block, finishing) => {
+                    let region = finishing.step(budget)?;
+                    let block = *block;
+                    self.keep_tile(block, Some(region));
                     task.phase = Phase::Locate;
                 }
                 Phase::Search {
@@ -515,4 +573,31 @@ impl<S: NavSource> NavWorld<S> {
             Done::Place(p) => p.and(Err(NoPath::Unreachable)),
         }
     }
+}
+
+/// The landblocks `chain` holds and those within `margin` of one of them, inside the world.
+fn widen(chain: &[(i32, i32)], margin: i32) -> BTreeSet<(i32, i32)> {
+    let mut out = BTreeSet::new();
+    for &(x, y) in chain {
+        for dx in -margin..=margin {
+            for dy in -margin..=margin {
+                let (bx, by) = (x + dx, y + dy);
+                if (0..=0xFE).contains(&bx) && (0..=0xFE).contains(&by) {
+                    out.insert((bx, by));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The landblocks of the rectangle round `a` and `b`.
+fn rectangle_blocks(a: (i32, i32), b: (i32, i32)) -> Vec<(i32, i32)> {
+    let mut out = Vec::new();
+    for x in a.0.min(b.0)..=a.0.max(b.0) {
+        for y in a.1.min(b.1)..=a.1.max(b.1) {
+            out.push((x, y));
+        }
+    }
+    out
 }

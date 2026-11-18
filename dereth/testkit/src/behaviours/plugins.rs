@@ -740,6 +740,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.nav.a-dungeons-drops-are-links-of-its-mesh-marked-and-never-walked",
+        says: "The client's planner finds a dungeon's drops off its ledges when it builds the dungeon's \
+               mesh and holds them as links of it, kept with it between sessions: marked, never \
+               walked, so that a way only a drop leads on names the drop rather than taking it.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-DROP-LINKS"),
+        station: "dereth-navigation::dat::mesh::a_dungeons_drops_are_links_of_its_mesh_kept_with_it_and_never_walked",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "plugins.nav.a-follow-holds-within-range-until-stopped",
         says: "A follow closes on its object to within range and holds there until it is stopped, which \
                lets the run lock go and fails the follow as stopped.",
@@ -920,6 +931,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "plugins.nav.a-route-walks-round-a-wall-to-a-waypoint-out-of-sight",
+        says: "A route of waypoints walks straight to a waypoint in a straight line of sight and along the \
+               client's walking route to one behind a wall, round the wall rather than into it.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-ROUTE-LEGS-PLANNED"),
+        station: "dereth-testkit::cpu::plugins::navigator::scenario_a_route_walks_round_a_wall_to_a_waypoint_out_of_sight",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.nav.a-vtank-route-is-walked-point-by-point",
         says: "A route read from a VTank navigation file is walked point by point with the plugin's \
                movement, its pauses slept, and a route that runs once ends at its last point.",
@@ -995,6 +1016,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.nav.landblock-tiles-kept-between-sessions-are-read-back-not-built-again",
+        says: "The client's planner keeps each landblock's tile and each dungeon's region it builds \
+               in the player's own cache, under the data files' fingerprints and the body's \
+               settings, and in a later session reads them back rather than building them again, \
+               planning the same routes.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-TILES-KEPT"),
+        station: "dereth-navigation::dat::mesh::landblock_tiles_kept_between_sessions_are_read_back_and_plan_the_same_route",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "plugins.nav.movement-without-a-gesture-needs-its-domain-and-the-worlds-leave",
         says: "A movement with no gesture behind it needs the world's leave: a world that allows \
                navigation only after the player's click refuses it.",
@@ -1003,6 +1036,17 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-AUTO"),
         station: "dereth-testkit::cpu::plugins::scenario_movement_without_a_gesture_needs_its_domain_and_the_worlds_leave",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.nav.outdoor-windows-are-put-together-from-landblock-tiles-built-once",
+        says: "The client's planner puts an outdoor window together from tiles, one a landblock, each \
+               built once and stitched to the others across the landblocks' edges: a walk that goes \
+               on into the next window builds only the landblocks new to it.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-TILES"),
+        station: "dereth-navigation::dat::mesh::a_window_moved_one_landblock_on_builds_only_the_landblocks_new_to_it",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "plugins.nav.planning-never-holds-a-frame",
@@ -1018,18 +1062,20 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
-        id: "plugins.nav.routes-are-searched-a-patch-of-places-at-a-time",
-        says: "The client's planner merges a region's standing places into patches, rectangles \
-               of places on one floor that a body walks straight across, and searches a route a \
-               patch at a time, place by place only round a door, a creature or an object in \
-               the way and round the route's ends. A ledge higher than a step divides patches. \
-               In a dungeon of many levels, its stairs and ramps, the patches are a fiftieth as \
-               many as the places, and the longest walk across it, over a kilometre, is found \
-               and walked by the body.",
+        id: "plugins.nav.routes-are-searched-a-polygon-of-the-navigation-mesh-at-a-time",
+        says: "The client's planner makes a region's standing places into a navigation mesh: \
+               convex polygons, each over places of one floor that a body walks straight \
+               across, linked where a body steps from one into the next. It searches a route a \
+               polygon at a time, place by place only round a door, a creature or an object in \
+               the way, round the route's ends, and beside a slanting wall a polygon's straight \
+               edge leaves out. A ledge higher than a step divides polygons. In a dungeon of many \
+               levels, its stairs and ramps, the polygons are a hundredth as many as the places, \
+               and the longest walk across it, over a kilometre, is found and walked by the \
+               body.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-PATCHES"),
-        station: "dereth-navigation::dat::patches::a_dungeons_places_merge_into_patches_a_fiftieth_as_many_and_its_longest_walk_is_walked",
+        station: "dereth-navigation::dat::mesh::a_dungeons_places_make_polygons_a_hundredth_as_many_and_its_longest_walk_is_walked",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -1496,6 +1542,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.samples.the-navigator-brings-no-places-of-its-own",
+        says: "The Navigator sample comes with no places or routes of its own: it finds only what the client \
+               knows of the world (the towns and houses the game's data names, what it learned and \
+               what the server publishes) and the places the player saved.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAVIGATOR-NO-SHIPPED-PLACES"),
+        station: "dereth-testkit::cpu::plugins::navigator::scenario_the_navigator_brings_no_places_of_its_own",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.samples.the-navigator-finds-a-place-as-it-is-typed-and-goes-there",
         says: "The Navigator sample's Where to? box lists places as they are typed (by name, by \
                type, coordinates); a place picked shows where it is, Point puts the arrow on it and \
@@ -1532,6 +1589,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.samples.the-navigator-keeps-its-target-map-clicks-and-chat-coordinates-across-a-reload",
+        says: "The Navigator sample keeps its target, the spots clicked on the map and the coordinates seen in \
+               chat for the world, so a reload puts them back.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAVIGATOR-KEPT-STATE"),
+        station: "dereth-testkit::cpu::plugins::navigator::scenario_the_navigator_keeps_its_target_map_clicks_and_chat_coordinates_across_a_reload",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.samples.the-navigator-keeps-the-players-own-places-outdoors-and-in-a-dungeon",
         says: "The Navigator sample keeps the places the player saves by name for the world, \
                outdoors by their coordinates and in a dungeon by their cell, points at one from \
@@ -1557,7 +1624,8 @@ pub static ROWS: &[Behaviour] = &[
         id: "plugins.samples.the-navigator-maps-the-dungeon-floor-around-the-character",
         says: "The Navigator sample, in a dungeon with the game's data, reads the dungeon's rooms \
                a few at a time and draws on its Map page the outline of the floors at the \
-               character's level around it, with the character's dot, within a canvas's limit.",
+               character's level around it, and dim the levels just above and below, with the \
+               character's dot, within a canvas's limit.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-NAVIGATOR-MAP"),
@@ -1587,6 +1655,26 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.samples.the-navigator-stops-going-to-a-target-it-was-pointed-away-from-or-cleared",
+        says: "Going to a target, the Navigator sample stops the character when the player points it \
+               somewhere else or clears it.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAVIGATOR-STOP-ON-RETARGET"),
+        station: "dereth-testkit::cpu::plugins::navigator::scenario_the_navigator_stops_going_to_a_target_it_was_pointed_away_from_or_cleared",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.samples.the-navigator-walks-round-a-wall-where-the-client-makes-no-journeys",
+        says: "On a client that plans walking routes but makes no journeys, the Navigator sample's Go \
+               follows the client's route round what stands in the way, corner by corner.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAVIGATOR-GO-BY-PATH"),
+        station: "dereth-testkit::cpu::plugins::navigator::scenario_the_navigator_walks_round_a_wall_where_the_client_makes_no_journeys",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.samples.the-navigators-arrow-follows-the-selected-object-and-its-hud-shows-where-the-character-is",
         says: "The Navigator sample's HUD shows the character's own coordinates, and its arrow, \
                put on the selected object, follows the object as it moves, the HUD's distance with \
@@ -1595,6 +1683,16 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-NAVIGATOR-FOLLOW"),
         station: "dereth-testkit::cpu::plugins::navigator::scenario_the_navigators_arrow_follows_the_selected_object_and_its_hud_shows_where_the_character_is",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.samples.the-navigators-hud-is-up-while-it-has-a-target",
+        says: "The Navigator sample's HUD comes up when the player points it at something, with its window \
+               open or not, and goes when the target is cleared with the window closed.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAVIGATOR-HUD-WITH-TARGET"),
+        station: "dereth-testkit::cpu::plugins::navigator::scenario_the_navigators_hud_is_up_while_it_has_a_target",
         tier: Tier::Cpu,
     },
     behaviour! {

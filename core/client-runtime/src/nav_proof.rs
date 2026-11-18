@@ -178,7 +178,7 @@ impl NavProof {
         crate::travel::preload(land, start, start);
         crate::travel::preload(land, end, end);
         // Where to stand is the run's own question, answered by a planner of its own.
-        let mut own = crate::travel::planner(land, store)?;
+        let mut own = crate::travel::planner(land, store, None)?;
         let nav = &mut own;
         let stand = |nav: &mut crate::travel::Planner, cell: CellId| -> Result<Position, String> {
             let m = crate::travel::middle(land, cell)

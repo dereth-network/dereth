@@ -135,6 +135,12 @@ pub fn start<P: Product>(argv: &[String]) -> Result<(Config, logging::Guard), St
         ));
     }
     dereth_dat::protect_install(&cfg.dat_dir);
+    let mut cfg = cfg;
+    if cfg.nav_cache.is_none() {
+        // The player's own cache: the planner's tiles and dungeons, built from their files.
+        cfg.nav_cache =
+            dereth_client_runtime::platform::files::cache_dir().map(|d| d.join("navigation"));
+    }
     if let Some(classic) = &cfg.classic_dat_dir {
         dereth_dat::protect_install(classic);
     }

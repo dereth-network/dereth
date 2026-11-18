@@ -847,6 +847,11 @@ pub struct PluginRun {
     scripted: Option<Scripted>,
     replies: VecDeque<(f64, SessionEvent)>,
     places: ScriptedPlaces,
+    /// The places of the world the client has learned, as plugins read them
+    /// ([`PluginRun::learn_place`]).
+    world_places: dereth_navigation::PlaceStore,
+    /// The places the game's data names, as the client reads them ([`PluginRun::data_places`]).
+    map_places: Vec<dereth_client_contract::panels::map::MapPlace>,
     session: SessionFacts,
     pregame: Option<ScriptedPregame>,
     /// Pre-game answers due: when, and what (a character to enter as, a refusal, or the list back).
@@ -1147,6 +1152,8 @@ impl PluginRun {
             scripted: None,
             replies: VecDeque::new(),
             places: ScriptedPlaces::default(),
+            world_places: dereth_navigation::PlaceStore::new(WORLD_NAME),
+            map_places: Vec::new(),
             session: SessionFacts::default(),
             pregame: None,
             pregame_due: VecDeque::new(),
@@ -1276,7 +1283,56 @@ impl PluginRun {
         self.casts_land = land;
     }
 
-    /// Move a scripted object to map coordinates `(ns, ew)`, as the server's position update would.
+    /// A place of the world the client has learned, as it learns them: a lifestone, a portal, a
+    /// shop or a person the character saw (`EdgeSource::Learned`) or the server publishes, of
+    /// `kind`, named `name`, standing at map coordinates `(ns, ew)`.
+    pub fn learn_place(
+        &mut self,
+        kind: dereth_navigation::PlaceKind,
+        source: dereth_navigation::EdgeSource,
+        name: &str,
+        (ns, ew): (f64, f64),
+    ) {
+        let Some(at) = dereth_plugin_host::places::from_coords(ns, ew, 0.0) else {
+            return;
+        };
+        self.world_places.see(dereth_navigation::KnownPlace {
+            kind,
+            source,
+            wcid: None,
+            name: name.to_owned(),
+            at,
+            first_seen: 0,
+            last_seen: 0,
+            owner: None,
+            to: None,
+        });
+    }
+
+    /// The places the game's data names (towns, landmarks, houses), as the client reads them from
+    /// the data for its map: `(kind, name, (ns, ew))` each, `(ns, ew)` as the world map measures
+    /// them (half a cell, 0.05, less than the radar shows).
+    pub fn data_places(
+        &mut self,
+        places: &[(
+            dereth_client_contract::panels::map::MapPlaceKind,
+            &str,
+            (f64, f64),
+        )],
+    ) {
+        self.map_places = places
+            .iter()
+            .map(
+                |&(kind, name, (ns, ew))| dereth_client_contract::panels::map::MapPlace {
+                    kind,
+                    name: name.to_owned(),
+                    ns,
+                    ew,
+                },
+            )
+            .collect();
+    }
+
     /// The scripted world's portals and recalls, for journeys.
     pub fn scripted_portals(
         &mut self,
@@ -1321,6 +1377,12 @@ impl PluginRun {
         ) {
             self.places.ledges.push((a, b, height));
         }
+    }
+
+    /// Object `id` stands at `at`, which may be indoors (a cell and offset).
+    pub fn place_object_at(&mut self, id: u32, at: dereth_primitives::Position) {
+        self.places.objects.insert(id, at);
+        self.frame();
     }
 
     pub fn move_object(&mut self, id: u32, ns: f64, ew: f64) {
@@ -2065,7 +2127,13 @@ impl PluginRun {
             let mut frame = frame
                 .with_places(places)
                 .with_control(self.player_moves, self.server_takes_control)
-                .with_travel(&self.travel.status, Some(&self.travel.store));
+                .with_travel(&self.travel.status, Some(&self.travel.store))
+                .with_world_places(
+                    (!self.world_places.places().is_empty()).then_some(&self.world_places),
+                )
+                .with_map_places(
+                    (!self.map_places.is_empty()).then_some(self.map_places.as_slice()),
+                );
             self.host.step(&mut frame);
             frame.into_output()
         };

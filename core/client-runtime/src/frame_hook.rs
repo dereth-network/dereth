@@ -139,6 +139,9 @@ pub struct HookFrame<'a> {
     pub travel_store: Option<&'a dereth_navigation::PortalStore>,
     /// This world's places as the client has learned them, once a world is entered.
     pub world_places: Option<&'a dereth_navigation::PlaceStore>,
+    /// The places the game's data names (its towns, landmarks and houses), the world map's own,
+    /// once read.
+    pub map_places: Option<&'a [dereth_client_contract::panels::map::MapPlace]>,
     hidden: Vec<usize>,
     printed: Vec<ChatMessage>,
     requests: Vec<UiRequest>,
@@ -475,6 +478,7 @@ impl<'a> HookFrame<'a> {
             travel: &NO_TRAVEL,
             travel_store: None,
             world_places: None,
+            map_places: None,
             hidden: Vec::new(),
             printed: Vec::new(),
             requests: Vec::new(),
@@ -504,6 +508,16 @@ impl<'a> HookFrame<'a> {
         places: Option<&'a dereth_navigation::PlaceStore>,
     ) -> Self {
         self.world_places = places;
+        self
+    }
+
+    /// The same frame, with the places the game's data names.
+    #[must_use]
+    pub const fn with_map_places(
+        mut self,
+        places: Option<&'a [dereth_client_contract::panels::map::MapPlace]>,
+    ) -> Self {
+        self.map_places = places;
         self
     }
 

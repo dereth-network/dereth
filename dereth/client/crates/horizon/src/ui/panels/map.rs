@@ -273,13 +273,15 @@ impl MapView {
         self.places = Some(built.places);
     }
 
-    /// The places to draw: the data's, and over them those the player learned of `world` (its
+    /// The places to draw: the data's (`shared`, the client's own set, which its plugins read too;
+    /// else those read with the picture), and over them those the player learned of `world` (its
     /// places and their revision), made again only when either changes.
     pub fn places_with(
         &mut self,
+        shared: Option<&Arc<Vec<Place>>>,
         world: Option<&(Arc<dereth_navigation::PlaceStore>, u64)>,
     ) -> Option<Arc<Vec<Place>>> {
-        let data = self.places.clone()?;
+        let data = shared.cloned().or_else(|| self.places.clone())?;
         let Some((store, revision)) = world else {
             return Some(data);
         };
@@ -648,7 +650,10 @@ impl Windows {
         state: &GameState,
         area: Rect,
     ) {
-        let Some(places) = self.map_view.places_with(state.world_places.as_ref()) else {
+        let Some(places) = self
+            .map_view
+            .places_with(state.map_places.as_ref(), state.world_places.as_ref())
+        else {
             return;
         };
         let view = &self.map_view;

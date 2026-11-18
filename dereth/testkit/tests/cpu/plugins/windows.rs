@@ -720,7 +720,8 @@ fn the_looter_waits_while_the_tank_runs() {
 
 const NAV: &str = "network.dereth.navigator";
 
-/// Typing in "Where to?" lists the places as typed (by name, by type, coordinates); a result
+/// Typing in "Where to?" lists the places as typed (by name, by type, coordinates: a town the
+/// game's data names, here); a result
 /// picked shows where it is; Point puts the arrow on it and Go travels there, the status line
 /// telling the journey; saved places and spots clicked on the map have tabs of their own.
 fn the_navigator_finds_a_place_as_it_is_typed_and_goes_there() {
@@ -728,6 +729,12 @@ fn the_navigator_finds_a_place_as_it_is_typed_and_goes_there() {
     let mut run = PluginRun::new();
     run.load(read_package(&samples().join("navigator")));
     run.scripted_world("Tester", Vec::new());
+    // Where the radar shows 42.2N 33.8E, as the world map measures it.
+    run.data_places(&[(
+        dereth_client_contract::panels::map::MapPlaceKind::Town,
+        "Holtburg",
+        (42.15, 33.75),
+    )]);
     run.advance(0.5);
     run.type_line("/nav");
     run.set(NAV, "main.search", Value::from("holt"));

@@ -142,8 +142,12 @@ struct Worker {
 }
 
 impl Worker {
-    fn new(land: Arc<DatLandSource>, store: &Arc<RetailDatStore>) -> Result<Self, String> {
-        let nav = planner(&land, store)?;
+    fn new(
+        land: Arc<DatLandSource>,
+        store: &Arc<RetailDatStore>,
+        tiles: Option<&std::path::Path>,
+    ) -> Result<Self, String> {
+        let nav = planner(&land, store, tiles)?;
         Ok(Self {
             land,
             nav,
@@ -462,20 +466,29 @@ impl Planning {
     ///
     /// # Errors
     /// The region's data does not read.
-    pub fn new(land: &Arc<DatLandSource>, store: &Arc<RetailDatStore>) -> Result<Self, String> {
+    /// `tiles` is where the planner keeps what it builds between sessions; `None` keeps nothing.
+    pub fn new(
+        land: &Arc<DatLandSource>,
+        store: &Arc<RetailDatStore>,
+        tiles: Option<std::path::PathBuf>,
+    ) -> Result<Self, String> {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            Self::threaded(land, store)
+            Self::threaded(land, store, tiles)
         }
         #[cfg(target_arch = "wasm32")]
         {
-            Self::in_frame(land, store)
+            Self::in_frame(land, store, tiles)
         }
     }
 
     /// The planning on a thread of its own.
     #[cfg(not(target_arch = "wasm32"))]
-    fn threaded(land: &Arc<DatLandSource>, store: &Arc<RetailDatStore>) -> Result<Self, String> {
+    fn threaded(
+        land: &Arc<DatLandSource>,
+        store: &Arc<RetailDatStore>,
+        tiles: Option<std::path::PathBuf>,
+    ) -> Result<Self, String> {
         let (jobs, inbox) = std::sync::mpsc::channel::<Job>();
         let (outbox, answers) = std::sync::mpsc::channel::<Answer>();
         let (ready, built) = std::sync::mpsc::channel::<Result<(), String>>();
@@ -483,7 +496,7 @@ impl Planning {
         std::thread::Builder::new()
             .name(String::from("travel planning"))
             .spawn(move || {
-                let mut worker = match Worker::new(land, &store) {
+                let mut worker = match Worker::new(land, &store, tiles.as_deref()) {
                     Ok(w) => {
                         let _ = ready.send(Ok(()));
                         w
@@ -523,9 +536,14 @@ impl Planning {
     pub fn in_frame(
         land: &Arc<DatLandSource>,
         store: &Arc<RetailDatStore>,
+        tiles: Option<std::path::PathBuf>,
     ) -> Result<Self, String> {
         Ok(Self {
-            backend: Backend::Frame(Box::new(Worker::new(Arc::clone(land), store)?)),
+            backend: Backend::Frame(Box::new(Worker::new(
+                Arc::clone(land),
+                store,
+                tiles.as_deref(),
+            )?)),
             asked: 0,
             one_step: false,
         })

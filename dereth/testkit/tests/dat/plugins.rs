@@ -88,7 +88,24 @@ fn store_again() -> Store {
 /// The edges of a dungeon's floors at the height of `room`'s place (within 3 m) that no other
 /// floor of that level shares, with an end within 160 pixels (3 a meter) of the place: the outline
 /// a map of the level around a character standing there shows, at most 900 of them.
+/// The edges the Navigator's map draws around a character standing in `room`: the outline of the
+/// floors of the cells on its level (it stands within a cell's height, or the cell's floor is within
+/// 2 m of its feet), and the outline of the cells within 8 m above or below that are not, each the
+/// edges no other floor of its own set shares, that reach the 320-pixel view at 3 pixels a meter.
 fn outline_in_view(store: &Store, landblock: u32, room: &dereth_plugin_api::Value) -> usize {
+    let level = outline_of(store, landblock, room, true);
+    let near = outline_of(store, landblock, room, false);
+    (level + near).min(900)
+}
+
+/// The edges of one of the two sets of [`outline_in_view`]: its level's with `level`, else the
+/// levels near it.
+fn outline_of(
+    store: &Store,
+    landblock: u32,
+    room: &dereth_plugin_api::Value,
+    level: bool,
+) -> usize {
     use std::collections::BTreeMap;
     type Edge = ((i64, i64), (i64, i64));
     let num = |v: &dereth_plugin_api::Value| v.as_f64().unwrap_or_default();
@@ -108,10 +125,19 @@ fn outline_in_view(store: &Store, landblock: u32, room: &dereth_plugin_api::Valu
             .and_then(|i| u32::try_from(i).ok())
             .unwrap_or_default();
         let cell = dereth_plugin_host::gamedata::cell(store, id);
-        let Some(floor_z) = cell.get("bounds").get("min").get("z").as_f64() else {
+        let (Some(floor_z), Some(top_z)) = (
+            cell.get("bounds").get("min").get("z").as_f64(),
+            cell.get("bounds").get("max").get("z").as_f64(),
+        ) else {
             continue;
         };
-        if (floor_z - z0).abs() > 3.0 {
+        let on_level = (z0 >= floor_z - 0.5 && z0 <= top_z) || (floor_z - z0).abs() <= 2.0;
+        let keep = if level {
+            on_level
+        } else {
+            !on_level && (floor_z - z0).abs() <= 8.0
+        };
+        if !keep {
             continue;
         }
         for poly in cell.get("floor").as_list().unwrap_or_default() {
@@ -138,7 +164,6 @@ fn outline_in_view(store: &Store, landblock: u32, room: &dereth_plugin_api::Valu
         .values()
         .filter(|(n, [ax, ay, bx, by])| *n == 1 && (seen(*ax, *ay) || seen(*bx, *by)))
         .count()
-        .min(900)
 }
 
 fn retail_store() -> Arc<RetailDatStore> {
@@ -153,7 +178,8 @@ fn retail_store() -> Arc<RetailDatStore> {
 
 /// The Navigator sample's map: carried into a dungeon (`0x01A4`, its first room) by a portal, the
 /// window's Map page reads the dungeon's rooms a few at a time and draws the outline of the floors
-/// at the character's level around it, with the character's dot, on a canvas within its limit.
+/// at the character's level around it, and dim the levels just above and below, with the
+/// character's dot, on a canvas within its limit.
 fn the_navigator_maps_the_dungeon_floor_around_the_character() {
     use dereth_plugin_api::Value;
     const ID: &str = "network.dereth.navigator";
@@ -210,16 +236,44 @@ fn the_navigator_maps_the_dungeon_floor_around_the_character() {
         .find(|l| l.trim_start().starts_with("canvas #map"))
         .expect("the map's canvas");
     let lines = canvas.matches("\"line\"").count();
-    // One of the lines is the character's heading; the rest are the outline.
+    // One of the lines is the character's heading; the rest are the outlines.
     let expected = outline_in_view(&store_again(), 0x01A4, &room);
     assert!(
         expected > 10 && lines == expected + 1,
-        "the floor's outline at the character's level around it: {lines} lines drawn, {expected} \
-         edges of the level's floors that no other floor shares reach the view:\n{canvas}"
+        "the floors' outlines at and near the character's level around it: {lines} lines drawn, \
+         {expected} edges of the floors that no other floor of their level shares reach the \
+         view:\n{canvas}"
     );
     assert!(
         canvas.contains("\"circle\""),
         "the character's dot:\n{canvas}"
+    );
+    // A monster a few meters off in the room, and the Navigator pointed at it: its dot, the
+    // target's ring and the way there are drawn too, and the floors are still all there.
+    let mut mite = inside;
+    mite.frame.origin.x += 4.0;
+    run.spawn(vec![dereth_testkit::plugins::ScriptedObject {
+        id: 0x8000_0F01,
+        name: "Mite".into(),
+        obj_type: dereth_rules::weenie::item_type::CREATURE,
+        bitfield: dereth_rules::weenie::bitfield::ATTACKABLE,
+        ..Default::default()
+    }]);
+    run.place_object_at(0x8000_0F01, mite);
+    run.type_line("/nav obj Mite");
+    run.advance(5.0);
+    let dump_after = run.ui_dump();
+    let pointed = dump_after
+        .lines()
+        .find(|l| l.trim_start().starts_with("canvas #map"))
+        .expect("the map's canvas");
+    assert!(
+        pointed.matches("\"circle\"").count() >= 3,
+        "the character, the monster and the target, each a circle:\n{pointed}"
+    );
+    assert!(
+        pointed.matches("\"line\"").count() >= expected + 2,
+        "the outlines, the heading and the way to the monster:\n{pointed}"
     );
     let note = dump
         .lines()

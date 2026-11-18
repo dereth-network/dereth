@@ -46,10 +46,10 @@ declare nav: {
 	journey: () -> any,
 	-- Show or hide the host's drawing of this plugin's journey (the arrow, the way on the map and radar); false when it has none.
 	show_journey: (on: boolean) -> boolean,
-	-- The portals this world's store knows: where each stands and sends, how it is known (learned, published, hint), its uses, failures and level range, and why it was retired.
-	known_portals: () -> any,
-	-- The places of this world the client has learned: each lifestone, portal, vendor, person and house it was shown, where it stands, how it is known, when it was seen, and a house's owner.
-	known_places: () -> any,
+	-- The portals this world's store knows: where each stands and sends, how it is known (learned, published, hint), its uses, failures and level range, and why it was retired. A `filter` keeps those whose name holds `name`, within `within` meters of `near` (the character when left out), nearest first when measured, at most `limit`.
+	known_portals: (filter: any?) -> any,
+	-- The places the client knows of this world: the towns, landmarks and houses the game's data names, and each lifestone, portal, vendor, person and house it was shown or the server publishes, where it stands, how it is known, when it was seen, and a house's owner. A `filter` as `nav.known_portals` takes, and `kind`, a kind or a list of kinds.
+	known_places: (filter: any?) -> any,
 	-- Where the character's recalls have sent it: each recall (`spell <id>`, `lifestone`, `marketplace`) and its landing.
 	recalls: () -> any,
 }

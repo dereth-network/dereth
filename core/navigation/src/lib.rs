@@ -16,17 +16,24 @@
 //! 1. **Region.** A dungeon's cells reachable from the start through their portals are one
 //!    region; outdoors, a window of landblocks round both ends (with every interior its buildings
 //!    open onto) is one. A region is built the first time a route needs it and kept until
-//!    [`NavWorld::forget_landblock`]. Floors are sampled into standing places a quarter metre
+//!    [`NavWorld::forget_landblock`]. An outdoor window is put together from tiles, one a
+//!    landblock, each built once on its own (with the solids of the landblocks round it) and
+//!    stitched to the others across the landblocks' edges: a walk that goes on into the next
+//!    window builds only the landblocks new to it, and the tiles can be kept between sessions
+//!    ([`TileStore`]) and read back rather than built again. Floors are sampled into standing places a quarter meter
 //!    apart, the terrain adding one per column; a place is clear when the body standing there,
 //!    raised by the height it steps over, keeps its radius plus a margin from every wall,
 //!    ceiling, building, tree and static object (a building's shell only from outdoors, as it
 //!    stops only a body standing outside it), and terrain too steep to stand on or under water
-//!    is left out. The clear places are merged into patches: rectangles of places on one floor,
-//!    each a step from the next, that a body walks straight across. See [`Region`].
-//! 2. **Search.** A* over the patches, from the place on a patch's edge where the way enters it
-//!    to the place it leaves from, stepping out to a neighbouring column only where the floor
-//!    rises or falls no more than a step, and never cutting a corner. The patches round a door, a
-//!    creature or an object in the way, and round the route's ends, are searched place by place.
+//!    is left out. The clear places are made into a navigation mesh: convex polygons over places
+//!    of one floor, each a step from the next, that a body walks straight across, built a tile of
+//!    columns at a time and linked where a body steps from one into the next ([`Region`]).
+//! 2. **Search.** A* over the polygons, each entered where the edge it is crossed by is nearest the
+//!    way on and left from another, walked straight between. The polygons round a door, a
+//!    creature or an object in the way, and round the route's ends, are searched place by place,
+//!    as are the places beside a slanting wall a polygon's straight edge leaves out, stepping out
+//!    to a neighboring column only where the floor rises or falls no more than a step, and never
+//!    cutting a corner.
 //! 3. **Pull.** The chain of places is straightened into legs a body can walk in a straight line,
 //!    and each corner is tried for how far a body may cut across it.
 //! 4. **Check.** [`NavWorld::plan_checked`] walks every leg with the body's own movement
@@ -54,12 +61,15 @@ mod journey;
 mod mesh;
 mod path;
 mod places;
+mod poly;
 mod portals;
 mod region;
 mod search;
 mod solids;
 mod source;
+mod store;
 mod task;
+mod tile;
 mod vmath;
 mod walk;
 mod world;
@@ -82,5 +92,6 @@ pub use source::{
     Agent, LandNavSource, LandStatics, NavConfig, NavSource, NoLandStatics, StaticPlacement,
 };
 pub use task::{Done, Task, Want};
+pub use tile::TileStore;
 pub use walk::{stand, CheckReport, PhysicsWalker, SegmentCheck, WalkOutcome, WalkerConfig};
 pub use world::{DoorState, NavWorld, Obstacle, ObstacleKind};

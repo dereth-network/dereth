@@ -604,6 +604,9 @@ pub struct GameState {
     pub coords: Option<(f32, f32)>,
     /// The places of this world the player has learned, and their revision, once in a world.
     pub world_places: Option<(std::sync::Arc<dereth_navigation::PlaceStore>, u64)>,
+    /// The places the game's data names (its towns, landmarks and houses), the client's one set
+    /// that its plugins read too, once read.
+    pub map_places: Option<std::sync::Arc<Vec<dereth_scene::world_map::places::Place>>>,
     /// The region the player is in.
     pub zone: String,
     pub shortcuts: Vec<Shortcut>,

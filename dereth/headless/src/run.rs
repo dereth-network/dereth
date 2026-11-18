@@ -314,6 +314,11 @@ impl<'a> Run<'a> {
         )
         .map_err(|e| RunError::Startup(e.to_string()))?;
         app.interaction.client_build_id = BUILD_ID;
+        if !opts.plugins.is_empty() {
+            // The places the data names, for the plugins' first asking: read before the script
+            // runs, so what a script finds never depends on how fast the read went.
+            app.read_map_places_now();
+        }
         if world && opts.connect.is_some() {
             // Built on world entry, at the character's own place, as for a recorded login.
             app.defer_static_scene(SceneConfig {

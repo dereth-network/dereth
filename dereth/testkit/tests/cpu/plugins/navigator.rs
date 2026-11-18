@@ -1,5 +1,5 @@
-//! The Navigator sample, in the manner of GoArrow: places searched by name and type from its own
-//! list, the client's portal knowledge, what the character saw and the player's own places; the
+//! The Navigator sample, in the manner of GoArrow: places searched by name and type from what the
+//! client learned of the world (its places, its portal knowledge) and the player's own places; the
 //! character's coordinates and an arrow that follows an object; coordinates seen in chat; and the
 //! route finder's ways to a place with and without portals and recalls. Each runs the sample from
 //! `dereth/plugins/navigator` in a scripted world.
@@ -18,6 +18,12 @@ dereth_testkit::scenarios! {
     scenario_the_navigator_finds_each_way_to_a_place_and_goes_the_one_picked => the_navigator_finds_each_way_to_a_place_and_goes_the_one_picked ["plugins.samples.the-navigator-finds-each-way-to-a-place-and-goes-the-one-picked"],
     scenario_the_navigators_arrow_follows_the_selected_object_and_its_hud_shows_where_the_character_is => the_navigators_arrow_follows_the_selected_object_and_its_hud_shows_where_the_character_is ["plugins.samples.the-navigators-arrow-follows-the-selected-object-and-its-hud-shows-where-the-character-is"],
     scenario_the_navigator_points_where_the_player_clicks_on_the_map => the_navigator_points_where_the_player_clicks_on_the_map ["plugins.samples.the-navigator-points-where-the-player-clicks-on-the-map"],
+    scenario_the_navigator_brings_no_places_of_its_own => the_navigator_brings_no_places_of_its_own ["plugins.samples.the-navigator-brings-no-places-of-its-own"],
+    scenario_the_navigator_stops_going_to_a_target_it_was_pointed_away_from_or_cleared => the_navigator_stops_going_to_a_target_it_was_pointed_away_from_or_cleared ["plugins.samples.the-navigator-stops-going-to-a-target-it-was-pointed-away-from-or-cleared"],
+    scenario_the_navigators_hud_is_up_while_it_has_a_target => the_navigators_hud_is_up_while_it_has_a_target ["plugins.samples.the-navigators-hud-is-up-while-it-has-a-target"],
+    scenario_the_navigator_keeps_its_target_map_clicks_and_chat_coordinates_across_a_reload => the_navigator_keeps_its_target_map_clicks_and_chat_coordinates_across_a_reload ["plugins.samples.the-navigator-keeps-its-target-map-clicks-and-chat-coordinates-across-a-reload"],
+    scenario_the_navigator_walks_round_a_wall_where_the_client_makes_no_journeys => the_navigator_walks_round_a_wall_where_the_client_makes_no_journeys ["plugins.samples.the-navigator-walks-round-a-wall-where-the-client-makes-no-journeys"],
+    scenario_a_route_walks_round_a_wall_to_a_waypoint_out_of_sight => a_route_walks_round_a_wall_to_a_waypoint_out_of_sight ["plugins.nav.a-route-walks-round-a-wall-to-a-waypoint-out-of-sight"],
 }
 
 const ID: &str = "network.dereth.navigator";
@@ -74,20 +80,27 @@ fn printed_since(run: &PluginRun, from: usize) -> Vec<String> {
 }
 
 /// `/nav find` lists the places whose name holds the words, of the type named last, nearest first:
-/// the package's towns, the portals the client knows and the dungeon a portal leads into, and a
-/// lifestone the character saw; `/nav nearest <type>` points at the nearest of a type, and a
-/// dungeon is gone into through its portal; the window's search box and type choice list them too.
+/// the portals the client knows, the dungeon a portal leads into and the place outdoors another
+/// sends to, and the lifestones and shops the client learned of the world; `/nav nearest <type>`
+/// points at the nearest of a type, and a dungeon is gone into through its portal; the window's
+/// search box and type choice list them too.
 fn the_navigator_finds_places_by_name_and_type_and_points_at_the_nearest() {
+    use dereth_navigation::{EdgeSource, PlaceKind};
     let mut run = navigator();
     run.scripted_world("Tester", Vec::new());
     run.scripted_portals(&portals(), Vec::new());
-    run.spawn(vec![ScriptedObject {
-        id: 0x7000_0101,
-        name: "Life Stone".into(),
-        obj_type: dereth_rules::weenie::item_type::LIFESTONE,
-        place: Some((42.21, 33.81)),
-        ..ScriptedObject::default()
-    }]);
+    run.learn_place(
+        PlaceKind::Lifestone,
+        EdgeSource::Learned,
+        "Life Stone",
+        (42.21, 33.81),
+    );
+    run.learn_place(
+        PlaceKind::Vendor,
+        EdgeSource::Published,
+        "Grocer",
+        (42.19, 33.79),
+    );
     run.advance(0.5);
 
     let from = run.printed().len();
@@ -103,26 +116,25 @@ fn the_navigator_finds_places_by_name_and_type_and_points_at_the_nearest() {
         "the portal and the dungeon it leads into: {lines:?}"
     );
     let from = run.printed().len();
-    run.type_line("/nav find ar town");
+    run.type_line("/nav find ar destination");
+    let lines = printed_since(&run, from);
+    assert_eq!(
+        lines,
+        ["[Nav] Arwic (destination) 33.6N 56.8E, 5.9 km"],
+        "where the portal to Arwic sends, the type named keeping the others out"
+    );
+    let from = run.printed().len();
+    run.type_line("/nav find vendor");
     let lines = printed_since(&run, from);
     assert!(
-        lines
-            .first()
-            .is_some_and(|l| l == "[Nav] Arwic (town) 33.6N 56.8E, 5.9 km"),
-        "the nearest town holding \"ar\" first: {lines:?}"
-    );
-    assert!(
-        lines.len() > 2
-            && lines.iter().all(|l| l.contains("(town)"))
-            && lines.iter().any(|l| l.starts_with("[Nav] Yaraq (town)"))
-            && lines.iter().any(|l| l.starts_with("[Nav] Al-Arqas (town)")),
-        "towns only, the type named keeping the others out: {lines:?}"
+        lines.len() == 1 && lines[0].starts_with("[Nav] Grocer (vendor) 42.2N 33.8E, 3 m"),
+        "the shop the server published: {lines:?}"
     );
 
     run.type_line("/nav nearest lifestone");
     assert!(
         run.overlays().contains("label=\"Life Stone\""),
-        "the arrow points at the lifestone the character saw:\n{}",
+        "the arrow points at the lifestone the client learned:\n{}",
         run.overlays()
     );
     run.type_line("/nav nearest dungeon");
@@ -150,13 +162,13 @@ fn the_navigator_finds_places_by_name_and_type_and_points_at_the_nearest() {
 
     // The window's search: the words and the type, nearest first.
     run.type_line("/nav");
-    run.set(ID, "main.search", Value::from("holt"));
+    run.set(ID, "main.search", Value::from("grocer"));
     let dump = run.ui_dump();
-    assert!(dump.contains("Holtburg"), "{dump}");
+    assert!(dump.contains("Grocer"), "{dump}");
     run.set(ID, "main.search", Value::from("portal"));
     let dump = run.ui_dump();
     assert!(
-        !dump.contains("Holtburg")
+        !dump.contains("Grocer")
             && dump.contains("Portal to Arwic")
             && dump.contains("Drudge Hideout"),
         "{dump}"
@@ -453,4 +465,289 @@ fn the_navigator_points_where_the_player_clicks_on_the_map() {
         "a right click leaves the target as it was:\n{overlays}"
     );
     note_asserted("plugins.samples.the-navigator-points-where-the-player-clicks-on-the-map");
+}
+
+/// The character's start moved `east` and `north` meters, as map coordinates `(ns, ew)`.
+fn off(east: f64, north: f64) -> (f64, f64) {
+    (42.2 + north / 240.0, 33.8 + east / 240.0)
+}
+
+/// Whether the Navigator's HUD is up.
+fn hud_up(run: &mut PluginRun) -> bool {
+    run.host().window(ID, "hud").is_some_and(|w| w.open)
+}
+
+/// The package holds the Navigator's code and its manifest and nothing else: no list of places
+/// and no routes. Before the client knows anything of the world, nothing is found; the towns and
+/// houses the game's data names are found once the client has read them, and a place the player
+/// saves is found too.
+fn the_navigator_brings_no_places_of_its_own() {
+    use dereth_client_contract::panels::map::MapPlaceKind;
+    let dir = dereth_testkit::conformance::workspace_root().join("dereth/plugins/navigator");
+    let mut files: Vec<String> = Vec::new();
+    let mut dirs = vec![dir.clone()];
+    while let Some(d) = dirs.pop() {
+        for e in std::fs::read_dir(&d)
+            .expect("the package's folder")
+            .flatten()
+        {
+            let path = e.path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else {
+                files.push(
+                    path.strip_prefix(&dir)
+                        .expect("inside the package")
+                        .to_string_lossy()
+                        .replace('\\', "/"),
+                );
+            }
+        }
+    }
+    files.sort();
+    assert!(
+        files
+            .iter()
+            .all(|f| f == "plugin.toml" || (f.ends_with(".lua") && !f.contains('/'))),
+        "only code and the manifest: {files:?}"
+    );
+
+    let mut run = navigator();
+    run.scripted_world("Tester", Vec::new());
+    run.advance(0.5);
+    for words in ["a", "e", "holt"] {
+        let from = run.printed().len();
+        run.type_line(&format!("/nav find {words}"));
+        assert_eq!(
+            printed_since(&run, from),
+            [format!("[Nav] No place matches {words}.")],
+            "nothing known of the world yet"
+        );
+    }
+    // As the world map measures them: the radar's numbers less half a cell, 0.05.
+    run.data_places(&[
+        (MapPlaceKind::Town, "Holtburg", (42.05, 33.55)),
+        (MapPlaceKind::Landmark, "Bandit Castle", (39.95, 29.95)),
+        (MapPlaceKind::Cottage, "Cottage", (42.2, 33.75)),
+    ]);
+    run.advance(0.5);
+    let from = run.printed().len();
+    run.type_line("/nav find holt town");
+    let lines = printed_since(&run, from);
+    assert!(
+        lines.len() == 1 && lines[0].starts_with("[Nav] Holtburg (town) 42.1N 33.6E"),
+        "the town the data names: {lines:?}"
+    );
+    let from = run.printed().len();
+    run.type_line("/nav find house");
+    let lines = printed_since(&run, from);
+    assert!(
+        lines.len() == 1 && lines[0].starts_with("[Nav] Cottage (house) 42.2N 33.8E, 12 m"),
+        "a house by its building: {lines:?}"
+    );
+    run.type_line("/nav save Home");
+    let from = run.printed().len();
+    run.type_line("/nav find home");
+    let lines = printed_since(&run, from);
+    assert!(
+        lines.len() == 1 && lines[0].starts_with("[Nav] Home (saved) 42.2N 33.8E"),
+        "{lines:?}"
+    );
+    note_asserted("plugins.samples.the-navigator-brings-no-places-of-its-own");
+}
+
+/// Going to a target, the character stops when the player points the Navigator somewhere else
+/// or clears it: the journey was to the old target.
+fn the_navigator_stops_going_to_a_target_it_was_pointed_away_from_or_cleared() {
+    let start = |run: &mut PluginRun| {
+        run.place_player(42.2, 33.8);
+        run.type_line("/nav 42.2N 34.0E");
+        run.type_line("/nav go");
+        run.advance(1.0);
+        let (_, ew, _) = run.player_place().expect("outdoors");
+        assert!(ew > 33.801, "under way east: {ew}");
+    };
+    let mut run = navigator();
+    run.scripted_world("Tester", Vec::new());
+    run.advance(0.5);
+
+    start(&mut run);
+    run.type_line("/nav clear");
+    run.advance(0.5);
+    let (_, stopped_at, _) = run.player_place().expect("outdoors");
+    run.advance(5.0);
+    let (_, ew, _) = run.player_place().expect("outdoors");
+    assert!(
+        (ew - stopped_at).abs() < 0.002,
+        "cleared, the character stops where it was: {stopped_at} then {ew}"
+    );
+
+    start(&mut run);
+    run.type_line("/nav 42.3N 33.8E");
+    run.advance(0.5);
+    let (_, stopped_at, _) = run.player_place().expect("outdoors");
+    run.advance(5.0);
+    let (_, ew, _) = run.player_place().expect("outdoors");
+    assert!(
+        (ew - stopped_at).abs() < 0.002,
+        "pointed elsewhere, the character stops going east: {stopped_at} then {ew}"
+    );
+    assert!(
+        run.overlays().contains("label=\"42.3N 33.8E\""),
+        "the arrow on the new target:\n{}",
+        run.overlays()
+    );
+    // A journey started over one under way: the first's end, arriving late, leaves the second
+    // going, and clearing stops it.
+    start(&mut run);
+    run.type_line("/nav travel 42.3N 33.8E");
+    run.advance(1.0);
+    run.type_line("/nav clear");
+    run.advance(0.5);
+    let stopped_at = run.player_place().expect("outdoors");
+    run.advance(5.0);
+    let (ns, ew, _) = run.player_place().expect("outdoors");
+    assert!(
+        (ns - stopped_at.0).abs() < 0.002 && (ew - stopped_at.1).abs() < 0.002,
+        "the second journey cleared, the character stops: {stopped_at:?} then {ns} {ew}"
+    );
+    assert!(ns < 42.29, "and never arrives: {ns}");
+    note_asserted(
+        "plugins.samples.the-navigator-stops-going-to-a-target-it-was-pointed-away-from-or-cleared",
+    );
+}
+
+/// The HUD comes up when the player points the Navigator at something, the window open or not,
+/// and goes when the target is cleared with the window closed; with the window open it stays.
+fn the_navigators_hud_is_up_while_it_has_a_target() {
+    let mut run = navigator();
+    run.scripted_world("Tester", Vec::new());
+    run.advance(0.5);
+    assert!(!hud_up(&mut run), "no target, no HUD");
+    run.type_line("/nav 42.3N 33.8E");
+    run.advance(0.5);
+    assert!(hud_up(&mut run), "a target from the command line");
+    assert!(
+        run.ui_dump().contains("42.3N 33.8E: 24 m N"),
+        "{}",
+        run.ui_dump()
+    );
+    run.type_line("/nav clear");
+    assert!(!hud_up(&mut run), "cleared with the window closed");
+    run.type_line("/nav");
+    assert!(hud_up(&mut run), "with the window");
+    run.click(ID, "main.clear");
+    assert!(
+        hud_up(&mut run),
+        "cleared with the window open, it stays up"
+    );
+    note_asserted("plugins.samples.the-navigators-hud-is-up-while-it-has-a-target");
+}
+
+/// The target, the spots clicked on the map and the coordinates seen in chat are kept for the
+/// world: after the plugin reloads, the arrow is on the target again and the lists hold them.
+fn the_navigator_keeps_its_target_map_clicks_and_chat_coordinates_across_a_reload() {
+    use dereth_client_contract::panels::map::{MapButton, MapClick};
+    let mut run = navigator();
+    run.scripted_world("Tester", Vec::new());
+    run.advance(0.5);
+    run.server_says(&[on_channel(0x800, "Alice", "camp at 41.9N, 34.1E")]);
+    run.map_click(&MapClick {
+        ns: 42.0,
+        ew: 33.5,
+        button: MapButton::Left,
+        ctrl: false,
+        shift: false,
+        alt: false,
+    });
+    run.type_line("/nav 42.3N 33.8E");
+    run.advance(0.5);
+    run.type_line(&format!("/plugin reload {ID}"));
+    run.advance(1.0);
+    let overlays = run.overlays();
+    assert!(
+        overlays.contains("arrow network.dereth.navigator")
+            && overlays.contains("label=\"42.3N 33.8E\""),
+        "the arrow on the target again:\n{overlays}"
+    );
+    run.type_line("/nav");
+    let dump = run.ui_dump();
+    assert!(
+        dump.contains("41.9N 34.1E") && dump.contains("Alice") && dump.contains("42.0N 33.5E"),
+        "the chat's coordinates and the map click kept:\n{dump}"
+    );
+    note_asserted(
+        "plugins.samples.the-navigator-keeps-its-target-map-clicks-and-chat-coordinates-across-a-reload",
+    );
+}
+
+/// On a client that walks for plugins and plans walking routes but makes no journeys, Go follows
+/// the client's route round a wall to a place behind it, corner by corner, rather than walking
+/// into the wall.
+fn the_navigator_walks_round_a_wall_where_the_client_makes_no_journeys() {
+    let mut run = PluginRun::with_config(|c| {
+        c.capabilities
+            .retain(|&k| k != dereth_plugin_api::HostCapability::NavJourney);
+    });
+    run.load(read_package(
+        &dereth_testkit::conformance::workspace_root().join("dereth/plugins/navigator"),
+    ));
+    run.scripted_world("Tester", Vec::new());
+    run.advance(0.5);
+    run.wall(off(-4.0, 6.0), off(4.0, 6.0));
+    let (ns, ew) = off(0.0, 12.0);
+    run.type_line(&format!("/nav {ns:.4}N {ew:.4}E"));
+    run.type_line("/nav go");
+    run.advance(15.0);
+    let (at_ns, at_ew, _) = run.player_place().expect("outdoors");
+    let meters = dereth_primitives::num::math::hypot((at_ns - ns) * 240.0, (at_ew - ew) * 240.0);
+    assert!(
+        meters <= 3.5,
+        "round the wall to the place behind it: {meters:.1} m short ({:?})",
+        run.printed()
+    );
+    assert!(
+        run.printed()
+            .iter()
+            .any(|l| l.starts_with("[Nav] Arrived at")),
+        "{:?}",
+        run.printed()
+    );
+    note_asserted(
+        "plugins.samples.the-navigator-walks-round-a-wall-where-the-client-makes-no-journeys",
+    );
+}
+
+/// A route's waypoint behind a wall is reached along the client's walking route round the wall's
+/// end, not by walking straight into the wall; a waypoint in a straight line of sight is walked
+/// to straight. The route is the player's own VTank route in the Navigator's data folder.
+fn a_route_walks_round_a_wall_to_a_waypoint_out_of_sight() {
+    use dereth_plugin_host::PluginFiles;
+    let files = super::SharedFiles::default();
+    let mut run = PluginRun::new().with_files(Box::new(files.clone()));
+    run.load(read_package(
+        &dereth_testkit::conformance::workspace_root().join("dereth/plugins/navigator"),
+    ));
+    run.scripted_world("Tester", Vec::new());
+    run.wall(off(-4.0, 6.0), off(4.0, 6.0));
+    let (n1, e1) = off(6.0, 0.0);
+    let (n2, e2) = off(0.0, 12.0);
+    // A once route of two points: one east in plain sight, one north behind the wall.
+    let route = format!("uTank2 NAV 1.2\n4\n2\n0\n{e1}\n{n1}\n0\n0\n0\n{e2}\n{n2}\n0\n0\n");
+    files
+        .clone()
+        .write(ID, "behind.nav", route.as_bytes())
+        .expect("the route saved");
+    run.advance(0.5);
+    run.type_line("/nav route behind.nav");
+    run.advance(20.0);
+    let (ns, ew, _) = run.player_place().expect("outdoors");
+    let meters = dereth_primitives::num::math::hypot((ns - n2) * 240.0, (ew - e2) * 240.0);
+    assert!(
+        meters <= 3.5 && run.printed().iter().any(|l| l == "[Nav] Route done."),
+        "the waypoint behind the wall reached: {meters:.1} m from it ({:?}; {:?})",
+        run.printed(),
+        run.moves()
+    );
+    note_asserted("plugins.nav.a-route-walks-round-a-wall-to-a-waypoint-out-of-sight");
 }

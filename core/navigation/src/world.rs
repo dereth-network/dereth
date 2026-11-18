@@ -1,6 +1,6 @@
 //! The planner: regions built on first use and kept, the objects that come and go, and the plan.
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::sync::Arc;
 
 use dereth_physics::globals::FLOOR_Z;
@@ -16,6 +16,37 @@ use crate::source::{NavConfig, NavSource};
 use crate::task::{Task, Want};
 use crate::vmath::{dist, sub};
 use crate::walk::{CheckReport, SegmentCheck};
+
+use crate::region::block_id;
+use crate::tile::TileStore;
+
+/// A landblock tile's name in the store.
+fn tile_key(landblock: u16) -> String {
+    format!("tile-{landblock:04x}")
+}
+
+/// The name in the store of the regions of the dungeon `cell` is in: its landblock's.
+fn dungeon_key(cell: CellId) -> String {
+    format!("dungeon-{:04x}", cell.0 >> 16)
+}
+
+/// The parts of a dungeon kept under one name: each region's bytes.
+fn dungeon_parts(bytes: &[u8]) -> Option<Vec<&[u8]>> {
+    let take = |b: &[u8], at: usize| -> Option<u32> {
+        let w = b.get(at..at + 4)?;
+        Some(u32::from_le_bytes([w[0], w[1], w[2], w[3]]))
+    };
+    let n = take(bytes, 0)? as usize;
+    let mut at = 4;
+    let mut out = Vec::with_capacity(n.min(64));
+    for _ in 0..n {
+        let len = take(bytes, at)? as usize;
+        at += 4;
+        out.push(bytes.get(at..at.checked_add(len)?)?);
+        at += len;
+    }
+    (at == bytes.len()).then_some(out)
+}
 
 /// A portal to the outdoors.
 const OUTDOORS: u32 = 0xFFFF_FFFF;
@@ -87,7 +118,33 @@ pub struct NavWorld<S> {
     obstacles: BTreeMap<u32, Obstacle>,
     /// The serial number the last region built was given.
     pub(crate) serial: u64,
+    /// The landblocks built as tiles of their own, by block coordinates, that outdoor windows
+    /// are put together from: `None` for one with no terrain. Past [`MAX_TILES`] the one used
+    /// longest ago goes first.
+    pub(crate) tiles: HashMap<(i32, i32), Option<Arc<Region>>>,
+    /// The tiles held, the one used longest ago first.
+    tile_order: VecDeque<(i32, i32)>,
+    /// Where tiles are kept between sessions, when the caller keeps them.
+    tile_store: Option<Box<dyn TileStore>>,
+    /// How many tiles have been built rather than read back.
+    tiles_built: usize,
 }
+
+/// What a window of landblocks wants next.
+pub(crate) enum NextTile {
+    /// This landblock's tile built.
+    Build((i32, i32)),
+    /// Nothing: every tile is held.
+    Ready,
+    /// A tile was read back from the store; there may be more to do.
+    ReadBack,
+}
+
+/// The units a tile read back from the store is counted as: about its time, in microseconds.
+pub(crate) const READ_BACK_UNITS: u64 = 8192;
+
+/// The most landblock tiles kept at once: more than the most an outdoor region holds.
+pub const MAX_TILES: usize = 40;
 
 impl<S: NavSource> NavWorld<S> {
     /// A planner over `source`, with nothing built yet.
@@ -98,7 +155,166 @@ impl<S: NavSource> NavWorld<S> {
             regions: Vec::new(),
             obstacles: BTreeMap::new(),
             serial: 0,
+            tiles: HashMap::new(),
+            tile_order: VecDeque::new(),
+            tile_store: None,
+            tiles_built: 0,
         }
+    }
+
+    /// The same planner keeping the landblock tiles it builds in `store` between sessions, and
+    /// reading them back from there rather than building them again.
+    #[must_use]
+    pub fn with_tile_store(mut self, store: Box<dyn TileStore>) -> Self {
+        self.tile_store = Some(store);
+        self
+    }
+
+    /// Keep the landblock tiles built from now on in `store` between sessions, and read them back
+    /// from there rather than building them again.
+    pub fn set_tile_store(&mut self, store: Box<dyn TileStore>) {
+        self.tile_store = Some(store);
+    }
+
+    /// How many landblock tiles this planner has built, rather than found kept or read back.
+    #[must_use]
+    pub const fn tiles_built(&self) -> usize {
+        self.tiles_built
+    }
+
+    /// The first landblock of `window` with no tile yet, after reading back from the store any
+    /// it keeps.
+    pub(crate) fn tile_missing(&mut self, blocks: &BTreeSet<(i32, i32)>) -> Option<(i32, i32)> {
+        loop {
+            match self.next_tile(blocks, false) {
+                NextTile::Build(b) => return Some(b),
+                NextTile::Ready => return None,
+                NextTile::ReadBack => {}
+            }
+        }
+    }
+
+    /// What `blocks` want next: a tile to build, or none, every one held; with `one_read`, a
+    /// stop after each tile read back from the store, for the caller to count it.
+    pub(crate) fn next_tile(&mut self, blocks: &BTreeSet<(i32, i32)>, one_read: bool) -> NextTile {
+        for &(bx, by) in blocks {
+            if self.tiles.contains_key(&(bx, by)) {
+                // Wanted again: the last to go.
+                self.touch_tile((bx, by));
+                continue;
+            }
+            let kept = block_id(bx, by).and_then(|id| {
+                let store = self.tile_store.as_ref()?;
+                let key = tile_key(id.0);
+                let bytes = store.load(&key)?;
+                let source = &self.source;
+                let read = Region::from_tile_bytes(&bytes, &self.config, &|(lx, ly)| {
+                    source.landblock(block_id(lx, ly)?)
+                });
+                if read.is_none() {
+                    // Kept by another version, cut short or garbled: built again.
+                    store.forget(&key);
+                }
+                read
+            });
+            match kept {
+                Some(region) => {
+                    self.remember_tile((bx, by), Some(Arc::new(region)));
+                    if one_read {
+                        return NextTile::ReadBack;
+                    }
+                }
+                None => return NextTile::Build((bx, by)),
+            }
+        }
+        NextTile::Ready
+    }
+
+    /// The dungeon region kept in the store that holds `cell`: the store keeps each dungeon's
+    /// regions by its landblock, every part of it built so far.
+    pub(crate) fn kept_dungeon(&self, cell: CellId) -> Option<Region> {
+        let store = self.tile_store.as_ref()?;
+        let key = dungeon_key(cell);
+        let bytes = store.load(&key)?;
+        let Some(parts) = dungeon_parts(&bytes) else {
+            store.forget(&key);
+            return None;
+        };
+        let mut bad = false;
+        let found = parts.into_iter().find_map(|p| {
+            let r = Region::from_tile_bytes(p, &self.config, &|_| None);
+            bad |= r.is_none();
+            r.filter(|r| r.contains(cell))
+        });
+        if bad && found.is_none() {
+            store.forget(&key);
+        }
+        found
+    }
+
+    /// Keep dungeon region `region`, built from `cell`, with the parts of its dungeon kept before.
+    pub(crate) fn keep_dungeon(&self, cell: CellId, region: &Region) {
+        let Some(store) = self.tile_store.as_ref() else {
+            return;
+        };
+        let key = dungeon_key(cell);
+        let mut parts: Vec<Vec<u8>> = store
+            .load(&key)
+            .as_deref()
+            .and_then(dungeon_parts)
+            .map(|p| p.into_iter().map(<[u8]>::to_vec).collect())
+            .unwrap_or_default();
+        parts.push(region.tile_bytes(&self.config));
+        let mut out = Vec::new();
+        out.extend_from_slice(&u32::try_from(parts.len()).unwrap_or(0).to_le_bytes());
+        for p in &parts {
+            out.extend_from_slice(&u32::try_from(p.len()).unwrap_or(0).to_le_bytes());
+            out.extend_from_slice(p);
+        }
+        store.save(&key, &out);
+    }
+
+    /// Keep tile `block` (`None` for a landblock with no terrain), and in the store when it was
+    /// built here.
+    pub(crate) fn keep_tile(&mut self, block: (i32, i32), region: Option<Region>) {
+        self.tiles_built += 1;
+        if let (Some(r), Some(store), Some(id)) = (
+            region.as_ref(),
+            self.tile_store.as_ref(),
+            block_id(block.0, block.1),
+        ) {
+            store.save(&tile_key(id.0), &r.tile_bytes(&self.config));
+        }
+        self.remember_tile(block, region.map(Arc::new));
+    }
+
+    fn touch_tile(&mut self, block: (i32, i32)) {
+        if self.tile_order.back() != Some(&block) {
+            self.tile_order.retain(|&b| b != block);
+            self.tile_order.push_back(block);
+        }
+    }
+
+    fn remember_tile(&mut self, block: (i32, i32), region: Option<Arc<Region>>) {
+        self.tiles.insert(block, region);
+        self.touch_tile(block);
+        while self.tile_order.len() > MAX_TILES {
+            if let Some(old) = self.tile_order.pop_front() {
+                self.tiles.remove(&old);
+            }
+        }
+    }
+
+    /// The outdoor region over landblocks `blocks`, put together from their tiles, every one of
+    /// which is built.
+    pub(crate) fn assemble_window(&self, blocks: &BTreeSet<(i32, i32)>) -> Region {
+        let mut have: Vec<((i32, i32), &Region)> = Vec::new();
+        for b in blocks {
+            if let Some(Some(t)) = self.tiles.get(b) {
+                have.push((*b, t.as_ref()));
+            }
+        }
+        Region::assemble(blocks, &have, &self.config)
     }
 
     /// The configuration.
@@ -301,7 +517,12 @@ impl<S: NavSource> NavWorld<S> {
     /// Forget every region in a landblock: its cells were released or changed.
     pub fn forget_landblock(&mut self, landblock: u16) {
         let (x, y) = block_xy(u32::from(landblock));
+        self.tiles.remove(&(x, y));
+        self.tile_order.retain(|&b| b != (x, y));
         self.regions.retain(|r| {
+            if let Some(b) = r.blocks.as_ref() {
+                return !b.contains(&(x, y));
+            }
             let inside = r.window().map_or(r.origin == (x, y), |(x0, y0, x1, y1)| {
                 (x0..=x1).contains(&x) && (y0..=y1).contains(&y)
             });
@@ -865,7 +1086,7 @@ mod tests {
     }
 
     #[test]
-    fn a_ledge_higher_than_a_step_parts_the_patches_and_the_route_climbs_the_ramp_beside_it() {
+    fn a_ledge_higher_than_a_step_parts_the_polygons_and_the_route_climbs_the_ramp_beside_it() {
         let low = at(2.0, 5.0);
         let high = Position::new(CELL, Frame::new(Vec3::new(18.0, 3.0, 1.0), Quat::IDENTITY));
         let mut nav = ledge(false);
@@ -883,28 +1104,89 @@ mod tests {
         );
         let region = nav.region(CELL).expect("built");
         let steps = nav_steps();
-        let mut places = 0;
+        let (mut places, mut held) = (0, 0);
         for i in region.places().filter(|&i| region.is_clear(i)) {
             places += 1;
-            let p = region.patch_of(i).expect("every clear place is in a patch");
+            let Some(p) = region.patch_of(i) else {
+                continue;
+            };
+            held += 1;
             let (ix, iy, z) = region.column_and_z(i);
             assert_eq!(region.patch_place(p, ix, iy), Some(i));
-            // Its neighbours in the patch are a step from it, up or down.
+            assert!(
+                region.polys[p as usize].holds(ix, iy),
+                "a polygon holds its places"
+            );
+            // Its neighbors in the polygon are a step from it, up or down.
             for (dx, dy) in [(1, 0), (0, 1)] {
                 if let Some(j) = region.patch_place(p, ix + dx, iy + dy) {
                     let dz = region.column_and_z(j).2 - z;
-                    assert!(dz.abs() <= steps, "{dz} between neighbours of a patch");
+                    assert!(dz.abs() <= steps, "{dz} between neighbors of a polygon");
                 }
             }
         }
         assert!(
-            region.patches.len() * 50 <= places,
-            "{} patches for {places} places",
-            region.patches.len()
+            held * 10 >= places * 9,
+            "{held} of {places} places in polygons"
+        );
+        assert!(
+            region.polys.len() * 200 <= places,
+            "{} polygons for {places} places",
+            region.polys.len()
         );
     }
 
-    /// The step a patch's neighbouring places may differ by.
+    #[test]
+    fn a_tile_wanted_again_is_kept_past_the_tiles_used_since() {
+        let mut nav = ledge(true);
+        for i in 0..i32::try_from(MAX_TILES).expect("small") {
+            nav.remember_tile((i, 0), None);
+        }
+        // The first is wanted again by a window...
+        assert_eq!(nav.tile_missing(&BTreeSet::from([(0, 0)])), None);
+        // ...so a new tile pushes out the second instead.
+        nav.remember_tile((100, 0), None);
+        assert!(nav.tiles.contains_key(&(0, 0)), "the tile used again stays");
+        assert!(
+            !nav.tiles.contains_key(&(1, 0)),
+            "the one used longest ago goes"
+        );
+        assert_eq!(nav.tiles.len(), MAX_TILES);
+    }
+
+    #[test]
+    fn a_kept_region_whose_numbers_name_nothing_it_holds_reads_back_as_none() {
+        let mut nav = ledge(true);
+        let low = at(2.0, 5.0);
+        let high = Position::new(CELL, Frame::new(Vec3::new(18.0, 3.0, 1.0), Quat::IDENTITY));
+        nav.plan(&low, &high).expect("a route up the ramp");
+        let config = nav.config().clone();
+        let region = nav.regions.first_mut().expect("built");
+        let whole = region.tile_bytes(&config);
+        assert!(
+            Region::from_tile_bytes(&whole, &config, &|_| None).is_some(),
+            "a kept region reads back"
+        );
+        // One byte changed: the checksum says so.
+        let mut cut = whole.clone();
+        let mid = cut.len() / 2;
+        cut[mid] ^= 0x5A;
+        assert!(Region::from_tile_bytes(&cut, &config, &|_| None).is_none());
+        // Whole and checked, but a place's polygon past the last.
+        let held = region
+            .nodes
+            .iter()
+            .position(|n| n.patch != crate::region::NO_PATCH)
+            .expect("a place held");
+        region.nodes[held].patch += 100_000;
+        let wrong = region.tile_bytes(&config);
+        assert!(
+            Region::from_tile_bytes(&wrong, &config, &|_| None).is_none(),
+            "a polygon number past the last reads back as none"
+        );
+    }
+
+    /// The step a polygon's neighboring places may differ by.
     fn nav_steps() -> f32 {
         let c = NavConfig::default();
         c.max_rise.min(c.max_drop)

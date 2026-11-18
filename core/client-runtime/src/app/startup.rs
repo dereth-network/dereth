@@ -316,6 +316,8 @@ impl<S: Shell> App<S> {
             nav_proof: None,
             travel,
             travel_status: crate::travel::TravelStatus::default(),
+            map_places: None,
+            map_places_build: None,
             nav_spells: None,
             nav_academies: None,
             travel_fizzles: 0,

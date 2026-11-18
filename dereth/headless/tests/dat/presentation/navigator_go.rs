@@ -9,8 +9,8 @@ use dereth_headless::{parse, run};
 
 /// Behaviour: plugins.nav.a-journey-sets-out-in-a-session-the-player-entered
 /// `/nav Holtburg` then `/nav go` in a replayed login: the client plans a walk from the
-/// character's place, carries it out, and the Navigator says it arrived; the character ends a few
-/// metres south, where the Navigator's list puts Holtburg.
+/// character's place, carries it out, and the Navigator says it arrived; the character ends some
+/// way north, where the game's data puts Holtburg (the middle of the town's buildings).
 ///
 /// Falsified by a client that carries journeys out only in a scripted run: the journey is never
 /// begun, and the Navigator says nothing after pointing.
@@ -48,8 +48,8 @@ fn the_navigators_go_walks_the_character_to_its_target_in_a_players_own_session(
     assert_eq!(
         said,
         [
-            "Pointing at Holtburg (42.2N 33.8E).",
-            "Going by Holtburg: walk (about 4 s).",
+            "Pointing at Holtburg (42.4N 33.8E).",
+            "Going by Holtburg: walk (about 12 s).",
             "Arrived at Holtburg.",
         ],
         "{text}"
@@ -61,7 +61,7 @@ fn the_navigators_go_walks_the_character_to_its_target_in_a_players_own_session(
     assert_eq!(places.len(), 2, "{text}");
     assert!(
         places[0].starts_with("position cell=0xA9B4002A origin=126.644,37.098,")
-            && places[1].starts_with("position cell=0xA9B40021 "),
-        "from the recorded place to Holtburg's, a cell south: {places:?}"
+            && places[1].starts_with("position cell=0xA9B4002C "),
+        "from the recorded place to Holtburg's, two cells north: {places:?}"
     );
 }

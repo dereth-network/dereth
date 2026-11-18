@@ -117,6 +117,7 @@ impl<S: Shell> App<S> {
             .with_world_places(
                 (!self.travel.places().world.is_empty()).then(|| self.travel.places()),
             )
+            .with_map_places(self.map_places.as_deref().map(Vec::as_slice))
             .with_control(
                 // The player's own movement since the hook last ran, carried out or still to be
                 // offered, under any interface.

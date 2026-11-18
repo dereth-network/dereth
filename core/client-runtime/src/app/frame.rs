@@ -35,6 +35,7 @@ impl<S: Shell> App<S> {
         // `@perfcapture`, while it records: the frame just finished.
         self.perf_capture_use_time(interval);
         self.events.drain_frame();
+        self.keep_map_places();
         // `--capture-at` and `--set-at`: a picture of the frame just drawn, then the settings for
         // the one about to be.
         self.scripted_use_time();
@@ -532,5 +533,42 @@ impl<S: Shell> App<S> {
             return false;
         }
         true
+    }
+}
+
+impl<S: Shell> App<S> {
+    /// The places the game's data names read now, whole, waited for: for a host whose script
+    /// asks for them before a read off the frame could finish (a headless run with plugins).
+    pub fn read_map_places_now(&mut self) {
+        let key = std::sync::Arc::as_ptr(&self.store) as usize;
+        self.map_places =
+            crate::map_places::MapPlacesBuild::start(std::sync::Arc::clone(&self.store)).wait();
+        self.map_places_build = Some((key, None));
+    }
+
+    /// The places the game's data names, read off the frame for the data files open now and kept
+    /// once read: started for each new store, polled each frame until done.
+    pub(crate) fn keep_map_places(&mut self) {
+        let key = std::sync::Arc::as_ptr(&self.store) as usize;
+        match &mut self.map_places_build {
+            Some((k, build)) if *k == key => {
+                if let Some(places) = build
+                    .as_mut()
+                    .and_then(crate::map_places::MapPlacesBuild::poll)
+                {
+                    *build = None;
+                    self.map_places = Some(places);
+                }
+            }
+            _ => {
+                self.map_places = None;
+                self.map_places_build = Some((
+                    key,
+                    Some(crate::map_places::MapPlacesBuild::start(
+                        std::sync::Arc::clone(&self.store),
+                    )),
+                ));
+            }
+        }
     }
 }

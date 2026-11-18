@@ -573,13 +573,17 @@ api.nav = {
 	show_journey = function(on)
 		return hostcall("nav.show_journey", on and true or false)
 	end,
-	-- The portals this world's store knows.
-	known_portals = function()
-		return hostcall("nav.known_portals")
+	-- The portals this world's store knows; `filter` (optional) keeps those whose name holds
+	-- `name`, within `within` meters of `near` (a place; the character when left out), nearest
+	-- first when measured, at most `limit` of them.
+	known_portals = function(filter)
+		return hostcall("nav.known_portals", filter)
 	end,
-	-- The places of this world the client has learned.
-	known_places = function()
-		return hostcall("nav.known_places")
+	-- The places the client knows of this world: those the game's data names (towns, landmarks
+	-- and houses, `source = "data"`), and those it learned by sight or the server publishes.
+	-- `filter` (optional) as `known_portals`'s, and `kind`, a kind or a list of kinds.
+	known_places = function(filter)
+		return hostcall("nav.known_places", filter)
 	end,
 	-- Where the character's recalls have sent it.
 	recalls = function()
@@ -1140,13 +1144,52 @@ builtin["dereth.nav"] = function()
 	local route_methods = {}
 	local route_meta = { __index = route_methods }
 
+	-- How far from its landblock's corner a place inside a dungeon lies at most, meters.
+	local DUNGEON_REACH = 1000
+
+	-- A waypoint's map coordinates, read inside the dungeon the character is in: the same
+	-- landblock's cell and offset, as a dungeon's waypoints are written in map coordinates. Any
+	-- other place, and any place outdoors, is answered as it is.
+	local function in_dungeon(where)
+		local me = api.game.player.position
+		if type(where) ~= "table" or where.ns == nil or where.ew == nil or me == nil or me.ns ~= nil
+			or me.cell == nil or me.cell % 0x10000 < 0x100 then
+			return where
+		end
+		local bx = math.floor(me.cell / 0x1000000)
+		local by = math.floor(me.cell / 0x10000) % 0x100
+		local x = (where.ew + 101.9) * 240 - bx * 192
+		local y = (where.ns + 101.9) * 240 - by * 192
+		if math.abs(x) > DUNGEON_REACH or math.abs(y) > DUNGEON_REACH then
+			return where
+		end
+		return { cell = me.cell, x = x, y = y, z = where.z or 0 }
+	end
+
+	-- One leg of a route, to `where`: straight at it when nothing stands in the straight line
+	-- there (or `straight` asks for that, or the client cannot plan), otherwise along the client's
+	-- walking route round the walls and through the doors between; what is left of the way when
+	-- that ends short is walked straight.
+	local function leg(where, range, straight)
+		if not straight and api.host.has("nav.journey") and api.host.has("nav.path") then
+			local there = in_dungeon(where)
+			if api.nav.sight(there) == false then
+				api.pawait(api.nav.path_to(there, { portals = false, recalls = false, show = false }))
+			end
+		end
+		api.await(api.nav.move_to(where, range))
+	end
+
 	-- Walk the route inside `task.spawn`: each point in turn, pauses slept, chat lines sent, jumps
 	-- jumped. A circular route starts over, a linear one turns back, a once route ends.
 	-- `opts.range` is how close counts as arrived (3 m); `opts.on_point(i, point)` hears each
-	-- point reached. Answers when a once route ends, or raises the movement's failure.
+	-- point reached; `opts.straight` walks each leg straight at its point, as VTank does, rather
+	-- than round what stands in the way. Answers when a once route ends, or raises the
+	-- movement's failure.
 	function route_methods:walk(opts)
 		opts = opts or {}
 		local range = opts.range or 3
+		local straight = opts.straight
 		-- A follow route follows its player: by id while the client knows it, else the nearest
 		-- of its name, held within range; lost, it is looked for again a second later.
 		if self.kind == "follow" then
@@ -1173,15 +1216,15 @@ builtin["dereth.nav"] = function()
 			if p.kind == "pause" then
 				api.task.sleep(p.ms or 0)
 			elseif p.kind == "chat" then
-				api.await(api.nav.move_to(p.position, range))
+				leg(p.position, range, straight)
 				api.chat.command(p.text)
 			elseif p.kind == "recall" then
 				api.await(api.magic.cast(p.spell))
 			elseif p.kind == "jump" then
-				api.await(api.nav.move_to(p.position, range))
+				leg(p.position, range, straight)
 				api.await(api.nav.jump({ heading = p.heading, walk = p.shift, ms = p.ms }))
 			else
-				api.await(api.nav.move_to(p.position, range))
+				leg(p.position, range, straight)
 			end
 			if opts.on_point then
 				opts.on_point(i, p)

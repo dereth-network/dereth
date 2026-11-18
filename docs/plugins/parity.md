@@ -75,7 +75,7 @@ The Tank asks a [Buffbot](guide/samples/buffbot.md) for buffs too, which VTank l
 |---|---|---|
 | The arrow on a place or an object, with its distance and direction | done | [Navigator](guide/samples/navigator.md) |
 | The character's coordinates (its cell in a dungeon) | done | [Navigator](guide/samples/navigator.md) |
-| Places searched by name and type: towns, dungeons, portals, lifestones | partial | [Navigator](guide/samples/navigator.md): its own list of towns with approximate coordinates, the portals and lifestones the client knows and has seen, not GoArrow's database |
+| Places searched by name and type: towns, dungeons, portals, lifestones | done | [Navigator](guide/samples/navigator.md): the towns, landmarks and houses the game's data names, the portals, lifestones, shops and people the client has seen or the server publishes, and the places portals send to, in place of GoArrow's database |
 | The route finder: portals, the character's recalls and walking | done | [Navigator](guide/samples/navigator.md), Ways |
 | Saved places | done | [Navigator](guide/samples/navigator.md), Saved |
 | Coordinates seen in chat | done | [Navigator](guide/samples/navigator.md), From chat |
@@ -105,7 +105,7 @@ scripting is described, with what is answered and what is refused, in [ubscript.
 | AutoTinker | missing | |
 | Chat logger | done | [Chat Filter](guide/samples/chat-filter.md) |
 | Counter | partial | [Inventory](guide/samples/inventory.md): counts in every character's log, not counts of a kind said on a command |
-| Dungeon maps | partial | [Navigator](guide/samples/navigator.md), Dungeon: the floors at the character's level and the character, not the monsters and items on them |
+| Dungeon maps | partial | [Navigator](guide/samples/navigator.md), Dungeon: the floors at the character's level and those near it, the character, the target, the way there and the monsters in sight, not the items on the floors |
 | Equipment manager | done | [Inventory](guide/samples/inventory.md), Gear |
 | Jumper | done | [Tank](guide/samples/tank.md) (`/tank jump`) |
 | Nametags | partial | the plugin interface's nametags layer ([overlays.md](overlays.md)); no sample turns it on |

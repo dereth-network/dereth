@@ -437,6 +437,9 @@ impl std::fmt::Debug for TravelInput<'_> {
 pub struct StoreFiles {
     pub dir: Option<PathBuf>,
     pub prefix: String,
+    /// Where the planner keeps the tiles and dungeons it builds ([`CacheTiles`]); `None` keeps
+    /// none.
+    pub tiles: Option<PathBuf>,
 }
 
 impl StoreFiles {
@@ -448,10 +451,12 @@ impl StoreFiles {
             Some(dir) => Self {
                 dir: Some(dir.clone()),
                 prefix: String::new(),
+                tiles: cfg.nav_cache.clone(),
             },
             None => Self {
                 dir: cfg.preferences_file.parent().map(Path::to_path_buf),
                 prefix: String::from("navigation-"),
+                tiles: cfg.nav_cache.clone(),
             },
         }
     }
@@ -794,7 +799,11 @@ pub fn middle(land: &DatLandSource, cell: CellId) -> Option<Position> {
 ///
 /// # Errors
 /// The region's data does not read.
-pub fn planner(land: &Arc<DatLandSource>, store: &Arc<RetailDatStore>) -> Result<Planner, String> {
+pub fn planner(
+    land: &Arc<DatLandSource>,
+    store: &Arc<RetailDatStore>,
+    tiles: Option<&Path>,
+) -> Result<Planner, String> {
     let memo: Mutex<HashMap<u32, Option<Arc<SetupGeometry>>>> = Mutex::new(HashMap::new());
     let setup_store = Arc::clone(store);
     let setups: Setups = Box::new(move |id| {
@@ -830,14 +839,91 @@ pub fn planner(land: &Arc<DatLandSource>, store: &Arc<RetailDatStore>) -> Result
             })
             .clone()
     });
-    Ok(NavWorld::new(
+    let nav = NavWorld::new(
         LandNavSource {
             land: Arc::clone(land),
             setups,
             land_statics: placements,
         },
         NavConfig::default(),
-    ))
+    );
+    Ok(match tiles {
+        Some(dir) => nav.with_tile_store(Box::new(CacheTiles::for_store(dir, store))),
+        None => nav,
+    })
+}
+
+/// Where the planner keeps the landblock tiles and dungeons it builds between sessions: a folder
+/// of the cache it is given (the desktop client's is `navigation` in the player's cache folder,
+/// on Windows `%LOCALAPPDATA%\Dereth\navigation`), one for each set of the data the planner reads:
+/// the cell file's and the portal file's fingerprints and, where a world's data patch is laid
+/// over them, what that patch holds. A tile is built from the player's own files, never shipped.
+#[derive(Debug)]
+pub struct CacheTiles {
+    dir: PathBuf,
+}
+
+/// The most files kept in one data set's folder: past it the folder is emptied and filled again.
+const CACHE_FILES: usize = 1024;
+
+impl CacheTiles {
+    /// The cache in `root` for `store`'s data as the planner reads it.
+    #[must_use]
+    pub fn for_store(root: &Path, store: &RetailDatStore) -> Self {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut eat = |b: &[u8]| {
+            for &x in b {
+                h ^= u64::from(x);
+                h = h.wrapping_mul(0x0100_0000_01b3);
+            }
+        };
+        for file in [store.cell(), store.portal()] {
+            eat(&dereth_dat::overlay::fingerprint(file));
+            // A world's patch over the file: every record it holds and every one it takes out.
+            if let Some(layer) = file.layer() {
+                eat(b"layer");
+                for (id, e) in layer.records() {
+                    for v in [id.0, e.offset, e.size, e.date, e.iteration] {
+                        eat(&v.to_le_bytes());
+                    }
+                }
+                for t in layer.tombstones() {
+                    for v in [t.id, t.mask, t.iteration] {
+                        eat(&v.to_le_bytes());
+                    }
+                }
+            }
+        }
+        Self {
+            dir: root.join(format!("{h:016x}")),
+        }
+    }
+}
+
+impl dereth_navigation::TileStore for CacheTiles {
+    fn load(&self, key: &str) -> Option<Vec<u8>> {
+        crate::platform::files::read(&self.dir.join(key)).ok()
+    }
+
+    fn save(&self, key: &str, bytes: &[u8]) {
+        use crate::platform::files;
+        if files::list(&self.dir).is_ok_and(|f| f.len() >= CACHE_FILES) {
+            for f in files::list(&self.dir).unwrap_or_default() {
+                let _ = files::remove_file(&f);
+            }
+        }
+        // A file cut short or garbled fails its checksum when read back, and is let go of and
+        // built again.
+        let written =
+            files::make_dirs(&self.dir).and_then(|()| files::write(&self.dir.join(key), bytes));
+        if let Err(e) = written {
+            tracing::debug!("a navigation tile was not kept: {e}");
+        }
+    }
+
+    fn forget(&self, key: &str) {
+        let _ = crate::platform::files::remove_file(&self.dir.join(key));
+    }
 }
 
 /// The travel: one journey at a time, and this world's portal and recall knowledge.
@@ -1066,7 +1152,7 @@ impl Travel {
     /// data does not read.
     fn planning(&mut self, land: &Arc<DatLandSource>, store: &Arc<RetailDatStore>) -> bool {
         if self.planning.is_none() {
-            match Planning::new(land, store) {
+            match Planning::new(land, store, self.files.tiles.clone()) {
                 Ok(p) => {
                     self.planning = Some(p);
                     // The objects already known (the doors, the creatures near): the first plan
@@ -3071,6 +3157,7 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("a folder");
         let files = || StoreFiles {
             dir: Some(dir.clone()),
+            tiles: None,
             prefix: String::from("navigation-"),
         };
         let table = "dereth-navigation-store\t1\nworld\tW\n\
@@ -3592,6 +3679,69 @@ mod tests {
         }
     }
 
+    /// Behaviour: plugins.nav.landblock-tiles-kept-between-sessions-are-read-back-not-built-again
+    /// The planner's kept tiles are kept apart for each set of the data it reads: a world whose
+    /// data patch lays its own records over the cell file keeps its own, and so does the same
+    /// world once its patch has changed.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn kept_tiles_are_kept_apart_for_a_worlds_data_patch_and_for_each_change_to_it() {
+        use dereth_dat::overlay::{OverlayDir, OverlayWriter};
+        let scratch = dereth_dat::testing::ScratchDir::new("nav-cache-overlay").expect("scratch");
+        let root = scratch.path().join("navigation");
+        let store = dereth_dat::testing::open_store_or_fail();
+        let plain = CacheTiles::for_store(&root, &store).dir;
+        let overlay = OverlayDir::new(&scratch.path().join("overlay")).expect("an overlay folder");
+        let base = store.cell().base();
+        let patch = |version: u16| {
+            let mut w = OverlayWriter::open_or_create(
+                &overlay.container(dereth_dat::ModernDat::Cell),
+                &base,
+                "cell.dat",
+                "a world",
+                1,
+            )
+            .expect("the overlay");
+            let outcome = w
+                .save(
+                    &base,
+                    DataId(0xA9B4_FFFE),
+                    &[1, 2, 3, u8::try_from(version).unwrap_or(0)],
+                    version,
+                    1_000_000 + u32::from(version),
+                    u32::from(version),
+                )
+                .expect("the world's record");
+            assert!(
+                !matches!(outcome, dereth_dat::SaveOutcome::RefusedOlderIteration),
+                "{outcome:?}"
+            );
+            w.flush(u32::from(version)).expect("flushed");
+        };
+        patch(1);
+        let patched = store
+            .clone()
+            .with_overlay(&overlay, Some("a world"))
+            .expect("the overlay opens over the cell file");
+        let first = CacheTiles::for_store(&root, &patched).dir;
+        assert_ne!(first, plain, "a world's patch keeps its own tiles");
+        patch(2);
+        let changed = store
+            .clone()
+            .with_overlay(&overlay, Some("a world"))
+            .expect("the overlay opens over the cell file");
+        let second = CacheTiles::for_store(&root, &changed).dir;
+        assert_ne!(second, first, "a changed patch keeps its own again");
+        assert_eq!(
+            CacheTiles::for_store(&root, &store).dir,
+            plain,
+            "the plain files keep theirs"
+        );
+    }
+
     /// Behaviour: plugins.nav.planning-never-holds-a-frame
     #[test]
     #[cfg_attr(
@@ -3620,7 +3770,7 @@ mod tests {
         let land = Arc::new(DatLandSource::new(Arc::clone(&store), &region).expect("the land"));
         let mut travel = Travel::new(StoreFiles::default());
         travel.planning = Some(
-            Planning::in_frame(&land, &store)
+            Planning::in_frame(&land, &store, None)
                 .expect("a planner")
                 .one_step_a_frame(),
         );
@@ -3640,7 +3790,7 @@ mod tests {
             let land = Arc::new(DatLandSource::new(Arc::clone(&store), &region).expect("the land"));
             let mut travel = Travel::new(StoreFiles::default());
             if in_frame {
-                travel.planning = Some(Planning::in_frame(&land, &store).expect("a planner"));
+                travel.planning = Some(Planning::in_frame(&land, &store, None).expect("a planner"));
             }
             for (i, scene) in frames::scenes(&land).iter().enumerate() {
                 let c = frames::answer(&mut travel, &land, &store, scene, i as u64 + 1, !in_frame);

@@ -157,7 +157,14 @@ point on the map and a blip on the radar with its icon. `nav.show_journey(false)
 ### What the store knows
 
 `nav.known_portals()` lists this world's portals as the store knows them: `{ name, class, from, to,
-source, uses, failures, min_level, max_level, verified, retired }`. `nav.recalls()` lists where the
+source, uses, failures, min_level, max_level, verified, retired }`.
+
+Both lists take a filter, which the client applies itself, so a world of thousands of places costs
+a plugin no more than the few it asks for: `{ name, kind, near, within, limit }` keeps those whose
+name holds `name` (without case), of `kind` (`nav.known_places` only: one kind or a list), within
+`within` meters of `near` (a place; the character when `within` or `limit` is given without it),
+nearest first when measured, at most `limit` of them. `nav.known_places{ kind = "town", limit = 5 }`
+is the five towns nearest the character. `nav.recalls()` lists where the
 character's recalls have landed: `{ recall, to, uses, verified }`. The store is the client's, kept per
 world (the world's name and the server's address), and holds three kinds of knowledge, most trusted
 first: what the character learned by using a portal, what the server publishes, and hints. A journey
@@ -170,10 +177,12 @@ of the use. A recall, or the server moving the character, teaches nothing.
 
 ### The places it has learned
 
-`nav.known_places()` lists the places of this world the client has learned as the player plays:
-`{ kind, name, class, source, at, seen, owner }`.
-- `kind` is `lifestone`, `portal`, `vendor`, `npc` (a person who is neither a vendor nor
-  attackable) or `house`.
+`nav.known_places()` lists the places the client knows of this world: `{ kind, name, class, source,
+at, seen, owner }`. It is the same set the client's own map draws.
+- `kind` is `town`, `landmark`, `cottage`, `villa` or `mansion` for a place the game's data names
+  (`source` `data`: read from the player's own files, the towns and landmarks the game's map
+  names and every house by its building), and `lifestone`, `portal`, `vendor`, `npc` (a person who
+  is neither a vendor nor attackable) or `house` for one the client learned.
 - `at` is where the place stands, as `game.player.position` gives places.
 - `seen` is when it was last seen, in seconds since 1970.
 - `owner` is a house's owner; a house without one is for sale.

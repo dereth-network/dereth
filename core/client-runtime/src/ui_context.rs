@@ -190,6 +190,12 @@ impl<'a, S: Shell> UiContext<'a, S> {
         (!t.places().world.is_empty()).then(|| (t.places_shared(), t.places_revision()))
     }
 
+    /// The places the game's data names (its towns, landmarks and houses), once read.
+    #[must_use]
+    pub fn map_places(&self) -> Option<Arc<Vec<dereth_client_contract::panels::map::MapPlace>>> {
+        self.app.map_places.clone()
+    }
+
     /// Where `id` stands against the player: whether it is outdoors (on the landscape rather than
     /// in a building or a dungeon) and how far it is, in metres. `None` while either has no place
     /// in the world.

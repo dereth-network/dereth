@@ -22,23 +22,26 @@ pub(crate) enum Gate {
     Blocked,
 }
 
-/// What stands on a region's places for one search: each place's gate, and the patches holding a
+/// What stands on a region's places for one search: each place's gate, and the polygons over a
 /// gated place or a place taken out, which a straight line crosses place by place.
 #[derive(Debug, Default)]
 pub(crate) struct Gates {
     map: HashMap<u32, Gate>,
-    patches: HashSet<u32>,
+    polys: HashSet<u32>,
 }
 
 impl Gates {
     /// The gates `map` names, over `region`.
     pub(crate) fn new(region: &Region, map: HashMap<u32, Gate>) -> Self {
-        let patches = map
+        let polys = map
             .keys()
-            .filter_map(|&p| region.patch_of(p))
+            .flat_map(|&p| {
+                let (ix, iy, _) = region.column_and_z(p);
+                region.polys_over(ix, iy)
+            })
             .chain(region.dirty.iter().copied())
             .collect();
-        Self { map, patches }
+        Self { map, polys }
     }
 
     /// The gate on place `p`.
@@ -46,14 +49,14 @@ impl Gates {
         self.map.get(&p).copied().unwrap_or(Gate::Free)
     }
 
-    /// Whether every place of patch `p` is free and clear: a straight line crosses it whole.
+    /// Whether every place polygon `p` covers is free and clear: a straight line crosses it whole.
     pub(crate) fn whole(&self, p: u32) -> bool {
-        !self.patches.contains(&p)
+        !self.polys.contains(&p)
     }
 
-    /// The patches that are not whole.
+    /// The polygons that are not whole.
     pub(crate) fn broken(&self) -> impl Iterator<Item = u32> + '_ {
-        self.patches.iter().copied()
+        self.polys.iter().copied()
     }
 }
 
@@ -363,8 +366,8 @@ impl Region {
     }
 
     /// [`Self::line_walkable`] between two points of region space standing on floors; through
-    /// water only when `wet`. Where the line enters a whole patch, it is walkable as far as it
-    /// stays in the patch, and the samples there are passed over.
+    /// water only when `wet`. Where the line enters a whole polygon, it is walkable as far as it
+    /// stays in the polygon, and the samples there are passed over.
     pub(crate) fn line_walkable_between(
         &self,
         pa: Vec3,
@@ -405,45 +408,40 @@ impl Region {
         (z - pb.z).abs() <= steps.max_rise.max(steps.max_drop)
     }
 
-    /// Of the `n + 1` samples of the line from `pa` to `pb`, the last from sample `k` on whose
-    /// column is still inside patch `p`, with the patch's place there.
+    /// Of the `n + 1` samples of the line from `pa` to `pb`, the last from sample `k` on that is
+    /// still inside polygon `p`, with the polygon's place in its column.
     fn last_sample_in(&self, p: u32, pa: Vec3, pb: Vec3, n: i32, k: i32) -> Option<(i32, u32)> {
-        let patch = self.patches.get(p as usize)?;
+        let poly = self.polys.get(p as usize)?;
         let s = self.spacing;
-        // The patch's columns cover x from (x0 - 1/2) s up to (x0 + w - 1/2) s, and y alike.
-        let leave = |a: f32, d: f32, lo: i32, len: u8| -> f32 {
-            #[allow(clippy::cast_precision_loss)]
-            let (lo, hi) = (
-                (lo as f32 - 0.5) * s,
-                (lo as f32 + f32::from(len) - 0.5) * s,
-            );
-            if d > 0.0 {
-                (hi - a) / d
-            } else if d < 0.0 {
-                (lo - a) / d
-            } else {
-                f32::INFINITY
-            }
+        // In grid corners: corner (cx, cy) lies half a spacing south-west of column (cx, cy).
+        let at = |t: f32| {
+            (
+                f64::from((pa.x + (pb.x - pa.x) * t) / s) + 0.5,
+                f64::from((pa.y + (pb.y - pa.y) * t) / s) + 0.5,
+            )
         };
-        let t = leave(pa.x, pb.x - pa.x, i32::from(patch.x0), patch.w).min(leave(
-            pa.y,
-            pb.y - pa.y,
-            i32::from(patch.y0),
-            patch.h,
-        ));
         #[allow(clippy::cast_precision_loss)]
-        let mut last = if t.is_finite() {
-            floor_to_i32(t * n as f32 - 1e-3).min(n)
-        } else {
-            n
-        };
+        let from = at(k as f32 / n as f32);
+        let to = at(1.0);
+        let share = poly.leave(from, to)?;
+        // The share runs from sample k; sample m is at k + share * (n - k).
+        #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+        let mut last = dereth_primitives::num::to_i32_f64(
+            (f64::from(k) + share * f64::from(n - k) - 1e-6).floor(),
+        );
+        last = last.min(n);
         while last > k {
             #[allow(clippy::cast_precision_loss)]
-            let u = last as f32 / n as f32;
-            let ix = floor_to_i32((pa.x + (pb.x - pa.x) * u) / s + 0.5);
-            let iy = floor_to_i32((pa.y + (pb.y - pa.y) * u) / s + 0.5);
-            if patch.holds(ix, iy) {
-                return self.patch_place(p, ix, iy).map(|q| (last, q));
+            let (x, y) = at(last as f32 / n as f32);
+            if poly.contains(x, y) {
+                #[allow(clippy::cast_possible_truncation)]
+                let (ix, iy) = (
+                    dereth_primitives::num::to_i32_f64(x.floor()),
+                    dereth_primitives::num::to_i32_f64(y.floor()),
+                );
+                if let Some(q) = self.place_of_poly_near(p, (ix, iy)) {
+                    return Some((last, q));
+                }
             }
             last -= 1;
         }

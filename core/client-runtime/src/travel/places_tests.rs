@@ -19,6 +19,7 @@ fn folder(name: &str) -> PathBuf {
 fn travel_in(dir: &std::path::Path) -> Travel {
     Travel::new(StoreFiles {
         dir: Some(dir.to_path_buf()),
+        tiles: None,
         prefix: String::from("navigation-"),
     })
 }

@@ -22,13 +22,10 @@
 //!    (a room sunk below the ground the building stands on is inside the shell's footprint and
 //!    under its floor). Terrain too steep to stand on is never clear; terrain under
 //!    wading-deep water is clear but costs more to cross, unless the route may not wade.
-//! 5. **Patches.** The clear places are merged into rectangles of columns, a place to a column,
-//!    each place a step up or down from its neighbours and alone on its floor in its column: from
-//!    each place not yet in one, as far east as places join, then north a row at a time while the
-//!    whole row joins. A patch of stored places is at most eight metres a side; the terrain's are
-//!    merged a tile of columns at a time, as each tile's clearance is decided, and stay inside it.
-//!    A body walks straight between any two places of a patch, so a route is searched a patch at a
-//!    time.
+//! 5. **Polygons.** The clear places are made into the navigation mesh: convex polygons, each
+//!    over places of one floor a body walks straight across, linked where a body steps from one
+//!    into the next ([`crate::poly`]). They are built a tile of columns at a time, each tile
+//!    linked to the tiles round it already built, and a route is searched a polygon at a time.
 //!
 //! All of it is in **region space**: the landblock space of the region's first landblock, so a
 //! window of several landblocks is one continuous plane.
@@ -119,7 +116,7 @@ pub(crate) fn storage_order(&(x, y): &(i32, i32)) -> (i32, i32, i32, i32) {
 impl Columns {
     /// Lay out `counts`, keyed by column and sorted in [`storage_order`], the order the places
     /// were stored in.
-    fn new(counts: &[((i32, i32), u32)]) -> Self {
+    pub(crate) fn new(counts: &[((i32, i32), u32)]) -> Self {
         let Some(&((fx, fy), _)) = counts.first() else {
             return Self {
                 tx0: 0,
@@ -220,58 +217,12 @@ pub(crate) struct Node {
     /// Index into [`Region::cell_ids`].
     pub cell: u16,
     pub flags: u8,
-    /// The patch the place belongs to, or [`NO_PATCH`] for a place that is not clear.
+    /// The polygon the place belongs to, or [`NO_PATCH`] for a place searched by itself.
     pub patch: u32,
 }
 
-/// No patch: a place that is not clear.
-pub(crate) const NO_PATCH: u32 = u32::MAX;
-
-/// The longest side of a patch of stored places, in columns: eight metres.
-const PATCH_SIDE: i32 = 32;
-
-/// A patch: a rectangle of grid columns holding one clear place each, all on one floor, so that a
-/// body walks straight between any two of them. Each pair of neighbouring places steps up or down
-/// no more than a step, and neither column holds another clear place a step or two above or
-/// below, so a step into the patch's column lands on the patch's own place. The places of a
-/// region are merged into patches when it is built; a route is searched over the patches, and
-/// within one it walks straight.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Patch {
-    pub x0: i16,
-    pub y0: i16,
-    pub w: u8,
-    pub h: u8,
-    /// The terrain's places, rather than stored ones.
-    pub ground: bool,
-    /// Terrain the body wades at.
-    pub wading: bool,
-}
-
-impl Patch {
-    /// Whether column `(ix, iy)` is inside the patch.
-    pub(crate) fn holds(&self, ix: i32, iy: i32) -> bool {
-        let (x0, y0) = (i32::from(self.x0), i32::from(self.y0));
-        ix >= x0 && iy >= y0 && ix < x0 + i32::from(self.w) && iy < y0 + i32::from(self.h)
-    }
-
-    /// The columns on its edge, each once, as `(ix, iy)`.
-    pub(crate) fn rim(&self) -> impl Iterator<Item = (i32, i32)> {
-        let (x0, y0) = (i32::from(self.x0), i32::from(self.y0));
-        let (x1, y1) = (x0 + i32::from(self.w) - 1, y0 + i32::from(self.h) - 1);
-        (y0..=y1).flat_map(move |iy| {
-            let whole = iy == y0 || iy == y1;
-            let xs: Box<dyn Iterator<Item = i32>> = if whole {
-                Box::new(x0..=x1)
-            } else if x1 > x0 {
-                Box::new([x0, x1].into_iter())
-            } else {
-                Box::new(std::iter::once(x0))
-            };
-            xs.map(move |ix| (ix, iy))
-        })
-    }
-}
+/// No polygon: a place searched by itself.
+pub(crate) const NO_PATCH: u32 = crate::poly::NO_POLY;
 
 impl Node {
     const fn is_clear(&self) -> bool {
@@ -350,8 +301,8 @@ pub struct BuildReport {
     pub water_ground: usize,
     /// Clear terrain places the body wades at.
     pub wading_ground: usize,
-    /// Patches the clear places were merged into, terrain included.
-    pub patches: usize,
+    /// Polygons the clear places were made into, terrain included.
+    pub polygons: usize,
 }
 
 /// The terrain of an outdoor region: a clear bit per place, the rest read off the landblocks.
@@ -361,12 +312,27 @@ pub(crate) struct Ground {
     pub y0: i32,
     pub w: i32,
     pub h: i32,
-    clear: Vec<u64>,
-    static_blocked: Vec<u64>,
+    pub(crate) clear: Vec<u64>,
+    pub(crate) static_blocked: Vec<u64>,
     /// Places the body stands in water at: clear, but wading.
-    water: Vec<u64>,
-    repaired: HashSet<u32>,
-    lands: HashMap<(i32, i32), Arc<LandblockCollision>>,
+    pub(crate) water: Vec<u64>,
+    pub(crate) repaired: HashSet<u32>,
+    pub(crate) lands: HashMap<(i32, i32), Arc<LandblockCollision>>,
+    /// The clear places' heights, kept from deciding their clearance while the region's polygons
+    /// are built, and let go once they are.
+    heights: Vec<f32>,
+    /// Where the terrain is kept a landblock at a time (an outdoor region put together from the
+    /// landblocks along a route) rather than over the whole rectangle `x0, y0, w, h`.
+    layout: Option<Layout>,
+}
+
+/// The terrain of the landblocks a region holds, each landblock's places together: the landblocks
+/// in grid columns' blocks (`per` columns a side), each numbered.
+#[derive(Debug, Clone)]
+pub(crate) struct Layout {
+    per: i32,
+    slots: HashMap<(i32, i32), u32>,
+    order: Vec<(i32, i32)>,
 }
 
 /// What the terrain is at one place.
@@ -391,7 +357,136 @@ fn set_bit(v: &mut [u64], i: u32) {
 }
 
 impl Ground {
+    /// No terrain over `w` by `h` columns from `(x0, y0)`: nothing clear, no landblocks.
+    pub(crate) fn empty(x0: i32, y0: i32, w: i32, h: i32) -> Self {
+        let words = usize::try_from(w * h).unwrap_or(0).div_ceil(64);
+        Self {
+            x0,
+            y0,
+            w,
+            h,
+            clear: vec![0; words],
+            static_blocked: vec![0; words],
+            water: vec![0; words],
+            repaired: HashSet::new(),
+            lands: HashMap::new(),
+            heights: Vec::new(),
+            layout: None,
+        }
+    }
+
+    /// No terrain over the landblocks `blocks` (in blocks of `per` grid columns, from region
+    /// space's origin), each kept apart.
+    pub(crate) fn sparse(per: i32, blocks: &[(i32, i32)]) -> Self {
+        let area = usize::try_from(per * per).unwrap_or(0);
+        let words = (blocks.len() * area).div_ceil(64);
+        let mut slots = HashMap::new();
+        for (i, b) in blocks.iter().enumerate() {
+            slots.insert(*b, u32::try_from(i).unwrap_or(u32::MAX));
+        }
+        let (mut x0, mut y0, mut x1, mut y1) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
+        for &(bx, by) in blocks {
+            x0 = x0.min(bx * per);
+            y0 = y0.min(by * per);
+            x1 = x1.max((bx + 1) * per);
+            y1 = y1.max((by + 1) * per);
+        }
+        Self {
+            x0,
+            y0,
+            w: (x1 - x0).max(0),
+            h: (y1 - y0).max(0),
+            clear: vec![0; words],
+            static_blocked: vec![0; words],
+            water: vec![0; words],
+            repaired: HashSet::new(),
+            lands: HashMap::new(),
+            heights: Vec::new(),
+            layout: Some(Layout {
+                per,
+                slots,
+                order: blocks.to_vec(),
+            }),
+        }
+    }
+
+    /// Another region's terrain copied in, moved `(dx, dy)` columns, its landblocks with it.
+    pub(crate) fn copy_from(&mut self, o: &Self, dx: i32, dy: i32) {
+        if self.copy_block_whole(o, dx, dy) {
+            for (k, l) in &o.lands {
+                self.lands.insert(*k, Arc::clone(l));
+            }
+            return;
+        }
+        for i in 0..o.len() {
+            let (ix, iy) = o.column_of(i);
+            let Some(j) = self.index(ix + dx, iy + dy) else {
+                continue;
+            };
+            for (from, to) in [
+                (&o.clear, &mut self.clear),
+                (&o.static_blocked, &mut self.static_blocked),
+                (&o.water, &mut self.water),
+            ] {
+                if get_bit(from, i) {
+                    set_bit(to, j);
+                }
+            }
+        }
+        for (k, l) in &o.lands {
+            self.lands.insert(*k, Arc::clone(l));
+        }
+    }
+
+    /// Copy `o`, one landblock's terrain laid out as one of this region's landblocks is, word for
+    /// word into that landblock's place: false, copying nothing, where the two are laid out
+    /// otherwise.
+    fn copy_block_whole(&mut self, o: &Self, dx: i32, dy: i32) -> bool {
+        let Some(l) = self.layout.as_ref() else {
+            return false;
+        };
+        let per = l.per;
+        let (ox, oy) = (o.x0 + dx, o.y0 + dy);
+        if o.layout.is_some() || o.w != per || o.h != per || ox % per != 0 || oy % per != 0 {
+            return false;
+        }
+        let Some(&slot) = l.slots.get(&(ox / per, oy / per)) else {
+            return false;
+        };
+        let area = usize::try_from(per * per).unwrap_or(0);
+        if area % 64 != 0 {
+            return false;
+        }
+        let (words, at) = (area / 64, usize::try_from(slot).unwrap_or(0) * area / 64);
+        for (from, to) in [
+            (&o.clear, &mut self.clear),
+            (&o.static_blocked, &mut self.static_blocked),
+            (&o.water, &mut self.water),
+        ] {
+            let (Some(src), Some(dst)) = (from.get(..words), to.get_mut(at..at + words)) else {
+                return false;
+            };
+            for (d, s) in dst.iter_mut().zip(src) {
+                *d |= *s;
+            }
+        }
+        true
+    }
+
+    /// How many landblocks of terrain it holds.
+    pub(crate) fn land_count(&self) -> usize {
+        self.lands.len()
+    }
+
     pub(crate) fn index(&self, ix: i32, iy: i32) -> Option<u32> {
+        if let Some(l) = self.layout.as_ref() {
+            let (bx, by) = (ix.div_euclid(l.per), iy.div_euclid(l.per));
+            let slot = *l.slots.get(&(bx, by))?;
+            let local = (iy - by * l.per) * l.per + (ix - bx * l.per);
+            return u32::try_from(local)
+                .ok()?
+                .checked_add(slot.checked_mul(u32::try_from(l.per * l.per).ok()?)?);
+        }
         let (dx, dy) = (ix - self.x0, iy - self.y0);
         if dx < 0 || dy < 0 || dx >= self.w || dy >= self.h {
             return None;
@@ -400,11 +495,21 @@ impl Ground {
     }
 
     pub(crate) fn column_of(&self, index: u32) -> (i32, i32) {
+        if let Some(l) = self.layout.as_ref() {
+            let area = u32::try_from(l.per * l.per).unwrap_or(1);
+            let (slot, local) = (index / area, i32::try_from(index % area).unwrap_or(0));
+            let (bx, by) = l.order.get(slot as usize).copied().unwrap_or((0, 0));
+            return (bx * l.per + local % l.per, by * l.per + local / l.per);
+        }
         let i = i32::try_from(index).unwrap_or(0);
         (self.x0 + i % self.w, self.y0 + i / self.w)
     }
 
-    fn len(&self) -> u32 {
+    pub(crate) fn len(&self) -> u32 {
+        if let Some(l) = self.layout.as_ref() {
+            return u32::try_from(l.order.len() * usize::try_from(l.per * l.per).unwrap_or(0))
+                .unwrap_or(0);
+        }
         u32::try_from(self.w * self.h).unwrap_or(0)
     }
 
@@ -418,8 +523,12 @@ impl Ground {
 pub struct Region {
     /// The landblock whose space is region space, as block coordinates.
     pub(crate) origin: (i32, i32),
-    /// The window of landblocks an outdoor region covers, `(x0, y0, x1, y1)` inclusive.
+    /// The window of landblocks an outdoor region covers, `(x0, y0, x1, y1)` inclusive: the
+    /// bounds of [`Self::blocks`] where it has them.
     pub(crate) window: Option<(i32, i32, i32, i32)>,
+    /// The landblocks an outdoor region put together along a route holds, by block coordinates;
+    /// `None` for one that holds its whole window.
+    pub(crate) blocks: Option<BTreeSet<(i32, i32)>>,
     pub(crate) cells: BTreeSet<u32>,
     pub(crate) cell_ids: Vec<CellId>,
     pub(crate) spacing: f32,
@@ -432,14 +541,41 @@ pub struct Region {
     pub(crate) report: BuildReport,
     /// The number its planner gave it when it was built.
     pub(crate) serial: u64,
-    /// The patches the clear places are merged into: the terrain's first, tile by tile, then the
-    /// stored places'.
-    pub(crate) patches: Vec<Patch>,
-    /// Per tile of the terrain, the first of its patches; one more at the end.
-    pub(crate) ground_tiles: Vec<u32>,
-    /// Patches one of whose places was taken out after a walk through it failed: searched place by
-    /// place until the places are put back.
+    /// The navigation mesh: the polygons the clear places are made into.
+    pub(crate) polys: Vec<crate::poly::NavPoly>,
+    /// The polygons over each square of [`POLY_INDEX`] columns: those whose bounds reach it.
+    pub(crate) poly_index: HashMap<(i32, i32), Vec<u32>>,
+    /// The tiles of columns whose polygons are built, and the numbers of each one's polygons.
+    pub(crate) poly_tiles: HashMap<(i32, i32), std::ops::Range<u32>>,
+    /// The places no polygon holds, found as the tiles are built, whose steps to the polygons
+    /// beside them are found once every tile is.
+    pub(crate) loose_todo: Vec<u32>,
+    /// Per polygon, the steps out of it to a place searched by itself (one beside a slanting
+    /// wall the polygon's edge leaves out, or one sharing its column with another floor): from
+    /// the polygon's place to that place.
+    pub(crate) exits: HashMap<u32, Vec<(u32, u32)>>,
+    /// Polygons over a place taken out after a walk through it failed: searched place by place
+    /// until the places are put back.
     pub(crate) dirty: HashSet<u32>,
+    /// The mesh's links off its ledges, a dungeon's: from a place at a ledge's edge to the place
+    /// a body jumping off lands on, more than a step below. Marked, never walked: a route only
+    /// names the first a way would need, so a jump can be put there on purpose.
+    pub(crate) drop_links: Vec<DropLink>,
+}
+
+/// One drop off a ledge: where the body stands and where it lands, places of the region.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DropLink {
+    pub from: u32,
+    pub to: u32,
+}
+
+/// The side of a square of the polygons' index, in columns.
+pub(crate) const POLY_INDEX: i32 = 16;
+
+/// The square of the polygons' index holding column `(ix, iy)`.
+pub(crate) const fn poly_square(ix: i32, iy: i32) -> (i32, i32) {
+    (ix.div_euclid(POLY_INDEX), iy.div_euclid(POLY_INDEX))
 }
 
 /// A landblock id's block coordinates.
@@ -452,7 +588,7 @@ pub(crate) fn block_xy(block: u32) -> (i32, i32) {
 }
 
 /// Block coordinates as a landblock id, when inside the world.
-fn block_id(bx: i32, by: i32) -> Option<LandblockId> {
+pub(crate) fn block_id(bx: i32, by: i32) -> Option<LandblockId> {
     let x = u16::try_from(bx).ok().filter(|&x| x <= 0xFE)?;
     let y = u16::try_from(by).ok().filter(|&y| y <= 0xFE)?;
     Some(LandblockId((x << 8) | y))
@@ -470,6 +606,9 @@ struct Builder<'s, S: ?Sized> {
     cells: BTreeSet<u32>,
     report: BuildReport,
     placement: u32,
+    /// Objects and buildings add their solids and not their floors: those of the landblocks
+    /// round a tile, which stop a body near its edge but are not its to stand on.
+    solids_only: bool,
 }
 
 impl<'s, S: NavSource + ?Sized> Builder<'s, S> {
@@ -486,6 +625,7 @@ impl<'s, S: NavSource + ?Sized> Builder<'s, S> {
             cells: BTreeSet::new(),
             report: BuildReport::default(),
             placement: 0,
+            solids_only: false,
         }
     }
 
@@ -587,8 +727,10 @@ impl<'s, S: NavSource + ?Sized> Builder<'s, S> {
         let slot = self.slot(cell);
         let mut part_floors = Vec::new();
         let shapes = object_shapes(&setup, &placed, scale, FLOOR_Z, |p| part_floors.push(p));
-        for p in part_floors {
-            self.floors.push((p, slot));
+        if !self.solids_only {
+            for p in part_floors {
+                self.floors.push((p, slot));
+            }
         }
         let owner = Owner::Static(self.placement);
         for s in shapes {
@@ -610,8 +752,10 @@ impl<'s, S: NavSource + ?Sized> Builder<'s, S> {
         let shapes = bsp_shapes(bsp, &frame, part.gfxobj_scale, FLOOR_Z, |p| {
             shell_floors.push(p);
         });
-        for p in shell_floors {
-            self.floors.push((p, slot));
+        if !self.solids_only {
+            for p in shell_floors {
+                self.floors.push((p, slot));
+            }
         }
         for s in shapes {
             self.solids.push(s, Owner::Shell);
@@ -643,9 +787,11 @@ impl<'s, S: NavSource + ?Sized> Builder<'s, S> {
             nodes: Vec::new(),
             columns: None,
             ground: None,
-            patches: Vec::new(),
-            ground_tiles: Vec::new(),
+            built: None,
+            poly_todo: Vec::new(),
             next: 0,
+            row: 0,
+            drops: None,
         }
     }
 }
@@ -659,11 +805,10 @@ enum Stage {
     Index,
     /// Deciding which stored places are clear, place by place.
     Places,
-    /// Deciding which terrain places are clear, a tile at a time, and merging each tile's clear
-    /// places into patches.
+    /// Deciding which terrain places are clear, a tile at a time.
     Terrain,
-    /// Merging the stored places into patches, place by place.
-    Merge,
+    /// Building the polygons, a tile of columns at a time.
+    Polys,
 }
 
 /// A region being finished a slice at a time: its floors sampled into places, the places
@@ -685,10 +830,16 @@ pub(crate) struct Finishing {
     nodes: Vec<Node>,
     columns: Option<Columns>,
     ground: Option<Ground>,
-    patches: Vec<Patch>,
-    ground_tiles: Vec<u32>,
-    /// The next floor, place, terrain tile or place to merge to work on.
+    /// The region, once its places are decided, while its polygons are built, and the tiles of
+    /// columns they are built in.
+    built: Option<Box<Region>>,
+    poly_todo: Vec<(i32, i32)>,
+    /// A dungeon's drops found so far, and the place the search for them is up to.
+    drops: Option<(u32, HashMap<u32, Vec<u32>>)>,
+    /// The next floor, place, terrain tile or tile of polygons to work on.
     next: usize,
+    /// The next row of that terrain tile.
+    row: i32,
 }
 
 /// The places a narrow gap between two floors leaves out. Where two floors a step apart in height
@@ -755,13 +906,13 @@ impl Finishing {
                 Stage::Places => self.clear_places(budget),
                 Stage::Terrain => {
                     if self.clear_terrain(budget) {
-                        self.stage = Stage::Merge;
+                        self.stage = Stage::Polys;
                         self.next = 0;
                     }
                 }
-                Stage::Merge => {
-                    if self.merge_places(budget) {
-                        return Some(self.region());
+                Stage::Polys => {
+                    if self.build_polys(budget) {
+                        return self.built.take().map(|r| *r);
                     }
                 }
             }
@@ -865,6 +1016,8 @@ impl Finishing {
                 water: vec![0; words],
                 repaired: HashSet::new(),
                 lands,
+                heights: vec![f32::NAN; usize::try_from(w * h).unwrap_or(0)],
+                layout: None,
             }
         });
         self.stage = Stage::Places;
@@ -934,8 +1087,8 @@ impl Finishing {
         }
     }
 
-    /// Clearance of the terrain, a tile of columns at a time, each tile's clear places merged
-    /// into patches once it is decided; true once every terrain place is.
+    /// Clearance of the terrain, a tile of columns at a time; true once every terrain place is
+    /// decided.
     fn clear_terrain(&mut self, budget: &mut u64) -> bool {
         let Some(mut g) = self.ground.take() else {
             return true;
@@ -946,12 +1099,10 @@ impl Finishing {
         let s = config.spacing;
         let heights = agent.test_heights(config.step_allowance);
         let headroom = agent.top_center + agent.radius + config.margin;
-        let (join, apart) = joins(config);
         let mut points = Vec::with_capacity(heights.len());
         let origin = self.origin;
         let (tw, th) = ((g.w + TILE - 1) / TILE, (g.h + TILE - 1) / TILE);
         let tiles = usize::try_from(tw * th).unwrap_or(0);
-        let mut floor = TileFloor::default();
         let done = loop {
             let t = self.next;
             if t >= tiles {
@@ -960,14 +1111,20 @@ impl Finishing {
             if *budget == 0 {
                 break false;
             }
-            *budget = budget.saturating_sub(u64::from(TILE.unsigned_abs().pow(2)));
-            self.next += 1;
-            self.ground_tiles
-                .push(u32::try_from(self.patches.len()).unwrap_or(u32::MAX));
+            // A few rows at a time, about ten units a column: a column's clearance is tested
+            // against the solids round it at each of the body's heights.
+            const ROWS: i32 = 4;
+            let rows = self.row..(self.row + ROWS).min(TILE);
+            *budget = budget.saturating_sub(u64::from((ROWS * TILE).unsigned_abs()) * 10);
+            if rows.end == TILE {
+                self.next += 1;
+                self.row = 0;
+            } else {
+                self.row = rows.end;
+            }
             let t = i32::try_from(t).unwrap_or(0);
             let (bx, by) = (g.x0 + (t % tw) * TILE, g.y0 + (t / tw) * TILE);
-            floor.clear();
-            for ly in 0..TILE {
+            for ly in rows {
                 for lx in 0..TILE {
                     let (ix, iy) = (bx + lx, by + ly);
                     let Some(index) = g.index(ix, iy) else {
@@ -1020,146 +1177,89 @@ impl Finishing {
                         continue;
                     }
                     set_bit(&mut g.clear, index);
+                    if let Some(z) = g.heights.get_mut(index as usize) {
+                        *z = t.z;
+                    }
                     let wading = t.depth > WADING_DEPTH;
                     if wading {
                         set_bit(&mut g.water, index);
                         self.report.wading_ground += 1;
                     }
                     self.report.clear_ground += 1;
-                    // Alone in its column: no clear stored place a step or two above or below.
-                    let alone = !self.columns.as_ref().is_some_and(|columns| {
-                        columns.get(ix, iy).any(|j| {
-                            let n = &self.nodes[j as usize];
-                            n.is_clear() && (n.z - t.z).abs() <= apart
-                        })
-                    });
-                    floor.set(lx, ly, t.z, wading, alone);
                 }
             }
-            for (lx, ly, w, h) in floor.merge(join) {
-                let l = usize::try_from(ly * TILE + lx).unwrap_or(0);
-                self.patches.push(Patch {
-                    x0: i16::try_from(bx + lx).unwrap_or(i16::MAX),
-                    y0: i16::try_from(by + ly).unwrap_or(i16::MAX),
-                    w: u8::try_from(w).unwrap_or(1),
-                    h: u8::try_from(h).unwrap_or(1),
-                    ground: true,
-                    wading: floor.wet[l],
-                });
-            }
         };
-        if done {
-            self.ground_tiles
-                .push(u32::try_from(self.patches.len()).unwrap_or(u32::MAX));
-        }
         self.ground = Some(g);
         done
     }
 
-    /// Whether no other clear place shares stored place `i`'s column within `apart` of its
-    /// height: a step into the column from a place a step from it lands on it.
-    fn alone(&self, i: usize, apart: f32) -> bool {
-        let n = self.nodes[i];
-        let (ix, iy) = (i32::from(n.ix), i32::from(n.iy));
-        let crowded = self.columns.as_ref().is_some_and(|columns| {
-            columns.get(ix, iy).any(|j| {
-                let m = &self.nodes[j as usize];
-                j as usize != i && m.is_clear() && (m.z - n.z).abs() <= apart
-            })
-        });
-        if crowded {
-            return false;
+    /// Build the polygons a tile of columns at a time, each tile linked to the tiles round it
+    /// already built, then the steps out of each polygon to the places searched by themselves.
+    /// True once every tile is built.
+    fn build_polys(&mut self, budget: &mut u64) -> bool {
+        if self.built.is_none() {
+            let region = self.region();
+            self.poly_todo = region.poly_tiles_wanted();
+            self.built = Some(Box::new(region));
+            self.next = 0;
         }
-        let Some(g) = self.ground.as_ref() else {
+        let Some(region) = self.built.as_mut() else {
             return true;
         };
-        if !g.index(ix, iy).is_some_and(|k| g.is_clear(k)) {
-            return true;
-        }
-        terrain_at(&g.lands, self.origin, self.config.spacing, ix, iy)
-            .is_none_or(|t| (t.z - n.z).abs() > apart)
-    }
-
-    /// The clear stored place of column `(ix, iy)` not yet in a patch, alone in its column, and
-    /// within `join` of height `z`.
-    fn joinable(&self, ix: i32, iy: i32, z: f32, join: f32, apart: f32) -> Option<u32> {
-        let columns = self.columns.as_ref()?;
-        columns.get(ix, iy).find(|&j| {
-            let m = &self.nodes[j as usize];
-            m.is_clear()
-                && m.patch == NO_PATCH
-                && (m.z - z).abs() <= join
-                && self.alone(j as usize, apart)
-        })
-    }
-
-    /// Merge the stored places into patches, a place at a time: from each clear place not yet in
-    /// one, as far east as places join, then row by row north while a whole row joins the one
-    /// below. True once every place is in one.
-    fn merge_places(&mut self, budget: &mut u64) -> bool {
         let (join, apart) = joins(&self.config);
-        loop {
-            let i = self.next;
-            let Some(&n) = self.nodes.get(i) else {
-                return true;
-            };
+        let joins = crate::poly::Joins { join, apart };
+        while let Some(&tile) = self.poly_todo.get(self.next) {
             if *budget == 0 {
                 return false;
             }
-            *budget -= 1;
             self.next += 1;
-            if !n.is_clear() || n.patch != NO_PATCH {
-                continue;
-            }
-            let (x0, y0) = (i32::from(n.ix), i32::from(n.iy));
-            let first = u32::try_from(i).unwrap_or(u32::MAX);
-            let mut rows: Vec<Vec<u32>> = vec![vec![first]];
-            if self.alone(i, apart) {
-                let mut x = x0 + 1;
-                while x - x0 < PATCH_SIDE {
-                    let last = rows[0][rows[0].len() - 1];
-                    let Some(j) = self.joinable(x, y0, self.nodes[last as usize].z, join, apart)
-                    else {
-                        break;
-                    };
-                    rows[0].push(j);
-                    x += 1;
-                }
-                let mut y = y0 + 1;
-                'rows: while y - y0 < PATCH_SIDE {
-                    let below = &rows[rows.len() - 1];
-                    let mut row: Vec<u32> = Vec::with_capacity(below.len());
-                    for (k, &b) in below.iter().enumerate() {
-                        let x = x0 + i32::try_from(k).unwrap_or(0);
-                        let Some(j) = self.joinable(x, y, self.nodes[b as usize].z, join, apart)
-                        else {
-                            break 'rows;
-                        };
-                        if let Some(&west) = row.last() {
-                            let dz = self.nodes[west as usize].z - self.nodes[j as usize].z;
-                            if dz.abs() > join {
-                                break 'rows;
-                            }
-                        }
-                        row.push(j);
-                    }
-                    rows.push(row);
-                    y += 1;
-                }
-            }
-            let id = u32::try_from(self.patches.len()).unwrap_or(NO_PATCH);
-            for &j in rows.iter().flatten() {
-                self.nodes[j as usize].patch = id;
-            }
-            self.patches.push(Patch {
-                x0: n.ix,
-                y0: n.iy,
-                w: u8::try_from(rows[0].len()).unwrap_or(1),
-                h: u8::try_from(rows.len()).unwrap_or(1),
-                ground: false,
-                wading: false,
-            });
+            let places = region.add_tile_polys(tile, joins);
+            // About a microsecond a unit: a tile's columns, or two units a place where it
+            // holds more (a dungeon's floors over each other).
+            let columns = u64::from(crate::poly::POLY_TILE.unsigned_abs().pow(2));
+            *budget = budget.saturating_sub(
+                columns.max(u64::try_from(places).unwrap_or(u64::MAX).saturating_mul(2)),
+            );
         }
+        if region.window.is_none() {
+            // A dungeon's drops, found while its solids are here: a slice of its places at a
+            // time, about thirty a unit.
+            const DROPS_PER_UNIT: u32 = 32;
+            if self.drops.is_none() {
+                region.add_exits();
+                self.drops = Some((0, HashMap::new()));
+            }
+            let n = u32::try_from(region.nodes.len()).unwrap_or(u32::MAX);
+            let Some((at, found)) = self.drops.as_mut() else {
+                return true;
+            };
+            while *at < n {
+                if *budget == 0 {
+                    return false;
+                }
+                let take = u32::try_from(*budget)
+                    .unwrap_or(u32::MAX)
+                    .saturating_mul(DROPS_PER_UNIT)
+                    .min(n - *at);
+                region.ledge_drops(&self.solids, &self.config, *at..*at + take, found);
+                *at += take;
+                *budget = budget.saturating_sub(u64::from(take.div_ceil(DROPS_PER_UNIT)));
+            }
+            let drops = self.drops.take().map(|(_, d)| d).unwrap_or_default();
+            let mut links: Vec<DropLink> = drops
+                .into_iter()
+                .flat_map(|(from, to)| to.into_iter().map(move |to| DropLink { from, to }))
+                .collect();
+            links.sort_unstable_by_key(|l| (l.from, l.to));
+            region.drop_links = links;
+        } else {
+            region.add_exits();
+        }
+        if let Some(g) = region.ground.as_mut() {
+            g.heights = Vec::new();
+        }
+        region.report.polygons = region.polys.len();
+        true
     }
 
     /// The finished region.
@@ -1174,10 +1274,10 @@ impl Finishing {
             .filter(|n| n.flags & BLOCKED_BY_STATIC != 0)
             .count();
         report.landblocks = ground.as_ref().map_or(0, |g| g.lands.len());
-        report.patches = self.patches.len();
         Region {
             origin: self.origin,
             window: self.window,
+            blocks: None,
             cells: std::mem::take(&mut self.cells),
             cell_ids: std::mem::take(&mut self.cell_ids),
             spacing: self.config.spacing,
@@ -1191,107 +1291,24 @@ impl Finishing {
             },
             report,
             serial: 0,
-            patches: std::mem::take(&mut self.patches),
-            ground_tiles: std::mem::take(&mut self.ground_tiles),
+            polys: Vec::new(),
+            poly_index: HashMap::new(),
+            poly_tiles: HashMap::new(),
+            loose_todo: Vec::new(),
+            exits: HashMap::new(),
             dirty: HashSet::new(),
+            drop_links: Vec::new(),
         }
     }
 }
 
-/// How far apart two neighbouring places of a patch may be in height (a step, either way), and
-/// how far another clear place in a column has to be from a patch's own (a step or two).
-fn joins(config: &NavConfig) -> (f32, f32) {
+/// How far apart two neighboring places of a polygon may be in height (a step, either way), and
+/// how far another clear place in a column has to be from a polygon's own (a step or two).
+pub(crate) fn joins(config: &NavConfig) -> (f32, f32) {
     (
         config.max_rise.min(config.max_drop),
         2.0 * config.max_rise.max(config.max_drop),
     )
-}
-
-/// The places a tile holds side by side.
-const TILE_PLACES: usize = (TILE * TILE) as usize;
-
-/// One tile of terrain columns, as its clearance was decided: the floor's height, whether the
-/// body stands there, wades there, and is alone in its column.
-#[derive(Debug)]
-struct TileFloor {
-    z: [f32; TILE_PLACES],
-    ok: [bool; TILE_PLACES],
-    wet: [bool; TILE_PLACES],
-    alone: [bool; TILE_PLACES],
-}
-
-impl Default for TileFloor {
-    fn default() -> Self {
-        Self {
-            z: [0.0; TILE_PLACES],
-            ok: [false; TILE_PLACES],
-            wet: [false; TILE_PLACES],
-            alone: [false; TILE_PLACES],
-        }
-    }
-}
-
-impl TileFloor {
-    fn clear(&mut self) {
-        self.ok = [false; TILE_PLACES];
-    }
-
-    fn set(&mut self, lx: i32, ly: i32, z: f32, wet: bool, alone: bool) {
-        let i = usize::try_from(ly * TILE + lx).unwrap_or(0);
-        self.z[i] = z;
-        self.ok[i] = true;
-        self.wet[i] = wet;
-        self.alone[i] = alone;
-    }
-
-    /// The tile's clear places as patches `(lx, ly, w, h)`: from each place not yet in one, as
-    /// far east as places join, then row by row north while a whole row joins the one below. A
-    /// place not alone in its column is a patch of its own.
-    fn merge(&self, join: f32) -> Vec<(i32, i32, i32, i32)> {
-        let at = |x: i32, y: i32| usize::try_from(y * TILE + x).unwrap_or(0);
-        let joined = |a: usize, b: usize| (self.z[a] - self.z[b]).abs() <= join;
-        let mut taken = [false; TILE_PLACES];
-        let mut out = Vec::new();
-        for ly in 0..TILE {
-            for lx in 0..TILE {
-                let i = at(lx, ly);
-                if !self.ok[i] || taken[i] {
-                    continue;
-                }
-                let (mut w, mut h) = (1, 1);
-                if self.alone[i] {
-                    let fits = |j: usize, taken: &[bool]| {
-                        self.ok[j] && !taken[j] && self.alone[j] && self.wet[j] == self.wet[i]
-                    };
-                    while lx + w < TILE
-                        && fits(at(lx + w, ly), &taken)
-                        && joined(at(lx + w - 1, ly), at(lx + w, ly))
-                    {
-                        w += 1;
-                    }
-                    'rows: while ly + h < TILE {
-                        for x in lx..lx + w {
-                            let j = at(x, ly + h);
-                            if !fits(j, &taken)
-                                || !joined(at(x, ly + h - 1), j)
-                                || (x > lx && !joined(at(x - 1, ly + h), j))
-                            {
-                                break 'rows;
-                            }
-                        }
-                        h += 1;
-                    }
-                }
-                for y in ly..ly + h {
-                    for x in lx..lx + w {
-                        taken[at(x, y)] = true;
-                    }
-                }
-                out.push((lx, ly, w, h));
-            }
-        }
-        out
-    }
 }
 
 /// The terrain at a grid column of region space.
@@ -1368,57 +1385,52 @@ impl Region {
         Some(b.finishing(None, HashMap::new()))
     }
 
-    /// Build the outdoor region over the window of landblocks `(x0, y0, x1, y1)`: their terrain,
-    /// buildings, outdoor objects, and every interior their buildings open onto.
-    pub(crate) fn build_outdoor<S: NavSource + ?Sized>(
+    /// Start building landblock `(bx, by)` as a tile of its own: its terrain, buildings, objects
+    /// and the interiors its buildings open onto, as a window of it alone would hold them, and
+    /// the buildings and objects of the eight landblocks round it as solids only, so that its
+    /// places along its edges are decided as a wider window would decide them. `None` for a
+    /// landblock with no terrain.
+    pub(crate) fn start_tile<S: NavSource + ?Sized>(
         source: &S,
-        window: (i32, i32, i32, i32),
-        config: &NavConfig,
-    ) -> Option<Self> {
-        let mut all = u64::MAX;
-        Self::start_outdoor(source, window, config)?.step(&mut all)
-    }
-
-    /// Start building the outdoor region over the window of landblocks `(x0, y0, x1, y1)`: its
-    /// pieces gathered, the rest to do a slice at a time.
-    pub(crate) fn start_outdoor<S: NavSource + ?Sized>(
-        source: &S,
-        window: (i32, i32, i32, i32),
+        (bx, by): (i32, i32),
         config: &NavConfig,
     ) -> Option<Finishing> {
-        let (x0, y0, x1, y1) = window;
-        let mut b = Builder::new(source, config, (x0, y0));
+        let window = (bx, by, bx, by);
+        let mut b = Builder::new(source, config, (bx, by));
+        let id = block_id(bx, by)?;
+        let land = source.landblock(id)?;
         let mut lands = HashMap::new();
+        lands.insert((bx, by), land);
         let mut doors = Vec::new();
-        for bx in x0..=x1 {
-            for by in y0..=y1 {
-                let Some(id) = block_id(bx, by) else { continue };
-                let Some(land) = source.landblock(id) else {
-                    continue;
-                };
-                lands.insert((bx, by), land);
-                for index in 1..=0x40_u32 {
-                    let cell = CellId((u32::from(id.0) << 16) | index);
-                    if let Some(shell) = source.building(cell) {
-                        b.add_building(&shell, cell);
-                    }
+        for (nx, ny) in (-1..=1).flat_map(|dx| (-1..=1).map(move |dy| (bx + dx, by + dy))) {
+            let Some(nid) = block_id(nx, ny) else {
+                continue;
+            };
+            let own = (nx, ny) == (bx, by);
+            if !own && source.landblock(nid).is_none() {
+                continue;
+            }
+            b.solids_only = !own;
+            for index in 1..=0x40_u32 {
+                let cell = CellId((u32::from(nid.0) << 16) | index);
+                if let Some(shell) = source.building(cell) {
+                    b.add_building(&shell, cell);
+                }
+                if own {
                     doors.extend(source.building_cells(cell));
                 }
-                for p in source.land_statics(id) {
-                    let mut cell = CellId((u32::from(id.0) << 16) | 1);
-                    let mut o = p.frame.origin;
-                    if !dereth_physics::landdefs::adjust_to_outside(&mut cell, &mut o) {
-                        continue;
-                    }
-                    // The placement keeps its own block's space whatever cell it fell in.
-                    let home = CellId((u32::from(id.0) << 16) | (cell.0 & 0xFFFF));
-                    b.add_object(p.id, &p.frame, p.scale, home);
+            }
+            for p in source.land_statics(nid) {
+                let mut cell = CellId((u32::from(nid.0) << 16) | 1);
+                let mut o = p.frame.origin;
+                if !dereth_physics::landdefs::adjust_to_outside(&mut cell, &mut o) {
+                    continue;
                 }
+                let home = CellId((u32::from(nid.0) << 16) | (cell.0 & 0xFFFF));
+                b.add_object(p.id, &p.frame, p.scale, home);
             }
         }
-        if lands.is_empty() {
-            return None;
-        }
+        b.solids_only = false;
         let geometry = b.flood(&doors);
         for g in &geometry {
             b.add_cell(g);
@@ -1439,6 +1451,9 @@ impl Region {
             return self.cells.contains(&p.cell.0);
         }
         let (bx, by) = block_xy(p.cell.0 >> 16);
+        if let Some(b) = self.blocks.as_ref() {
+            return b.contains(&(bx, by));
+        }
         self.window
             .is_some_and(|(x0, y0, x1, y1)| (x0..=x1).contains(&bx) && (y0..=y1).contains(&by))
     }
@@ -1540,6 +1555,13 @@ impl Region {
         if id & GROUND != 0 {
             let g = self.ground.as_ref().expect("a terrain place has terrain");
             let (ix, iy) = g.column_of(id & !GROUND);
+            if let Some(&z) = g
+                .heights
+                .get((id & !GROUND) as usize)
+                .filter(|z| !z.is_nan())
+            {
+                return (ix, iy, z);
+            }
             let z = terrain_at(&g.lands, self.origin, self.spacing, ix, iy).map_or(0.0, |t| t.z);
             return (ix, iy, z);
         }
@@ -1565,29 +1587,253 @@ impl Region {
         self.columns.get(ix, iy).chain(ground)
     }
 
-    /// The patch a clear place belongs to; `None` for a place that is not clear.
+    /// The polygon a clear place belongs to; `None` for a place searched by itself.
     pub(crate) fn patch_of(&self, id: u32) -> Option<u32> {
         if id & GROUND == 0 {
             let p = self.nodes.get(id as usize)?.patch;
             return (p != NO_PATCH).then_some(p);
         }
         let g = self.ground.as_ref()?;
+        if !g.is_clear(id & !GROUND) {
+            return None;
+        }
         let (ix, iy) = g.column_of(id & !GROUND);
-        let tw = (g.w + TILE - 1) / TILE;
-        let t = usize::try_from(((iy - g.y0) / TILE) * tw + (ix - g.x0) / TILE).ok()?;
-        let (&a, &b) = (self.ground_tiles.get(t)?, self.ground_tiles.get(t + 1)?);
-        (a..b).find(|&p| self.patches[p as usize].holds(ix, iy))
+        self.poly_index
+            .get(&poly_square(ix, iy))?
+            .iter()
+            .copied()
+            .find(|&p| {
+                let poly = &self.polys[p as usize];
+                poly.ground && poly.holds(ix, iy)
+            })
     }
 
-    /// Patch `p`'s place in column `(ix, iy)`, a column inside it.
+    /// Polygon `p`'s place in column `(ix, iy)`.
     pub(crate) fn patch_place(&self, p: u32, ix: i32, iy: i32) -> Option<u32> {
-        let patch = self.patches.get(p as usize)?;
-        if patch.ground {
-            return self.ground.as_ref()?.index(ix, iy).map(|i| i | GROUND);
+        let poly = self.polys.get(p as usize)?;
+        if poly.ground {
+            let g = self.ground.as_ref()?;
+            let i = g.index(ix, iy)? | GROUND;
+            return (self.patch_of(i) == Some(p)).then_some(i);
         }
         self.columns
             .get(ix, iy)
             .find(|&j| self.nodes[j as usize].patch == p)
+    }
+
+    /// The polygons whose area reaches column `(ix, iy)`'s square, of its floors.
+    pub(crate) fn polys_over(&self, ix: i32, iy: i32) -> Vec<u32> {
+        let Some(list) = self.poly_index.get(&poly_square(ix, iy)) else {
+            return Vec::new();
+        };
+        let (x, y) = (f64::from(ix), f64::from(iy));
+        list.iter()
+            .copied()
+            .filter(|&p| {
+                let poly = &self.polys[p as usize];
+                let (x0, y0, x1, y1) = poly.bounds();
+                if ix < x0 || iy < y0 || ix > x1 || iy > y1 {
+                    return false;
+                }
+                // A corner of the square or its center inside, or a corner of the polygon inside
+                // the square.
+                [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0), (0.5, 0.5)]
+                    .iter()
+                    .any(|&(dx, dy)| poly.contains(x + dx, y + dy))
+                    || poly
+                        .corners
+                        .iter()
+                        .any(|&(cx, cy)| cx >= ix && cx <= ix + 1 && cy >= iy && cy <= iy + 1)
+            })
+            .collect()
+    }
+
+    /// The tiles of columns this region's polygons are built in: every tile holding a place.
+    pub(crate) fn poly_tiles_wanted(&self) -> Vec<(i32, i32)> {
+        let t = crate::poly::POLY_TILE;
+        let mut tiles: BTreeSet<(i32, i32)> = BTreeSet::new();
+        for n in &self.nodes {
+            tiles.insert((i32::from(n.iy).div_euclid(t), i32::from(n.ix).div_euclid(t)));
+        }
+        if let Some(g) = self.ground.as_ref() {
+            for ty in g.y0.div_euclid(t)..=(g.y0 + g.h - 1).div_euclid(t) {
+                for tx in g.x0.div_euclid(t)..=(g.x0 + g.w - 1).div_euclid(t) {
+                    tiles.insert((ty, tx));
+                }
+            }
+        }
+        tiles.into_iter().map(|(ty, tx)| (tx, ty)).collect()
+    }
+
+    /// Build tile `tile`'s polygons, index them, give the stored places their polygon, link them
+    /// to each other and to the tiles round them already built, and find the steps out of them to
+    /// places searched by themselves.
+    pub(crate) fn add_tile_polys(&mut self, tile: (i32, i32), joins: crate::poly::Joins) -> usize {
+        let first = u32::try_from(self.polys.len()).unwrap_or(u32::MAX);
+        let mut built = self.build_tile_polys(tile, first, joins);
+        let places = built.stored.len() + built.loose.len();
+        self.loose_todo.append(&mut built.loose);
+        if built.polys.is_empty() {
+            self.poly_tiles.insert(tile, first..first);
+            return places;
+        }
+        for (id, p) in &built.stored {
+            if let Some(n) = self.nodes.get_mut(*id as usize) {
+                n.patch = *p;
+            }
+        }
+        for (k, poly) in built.polys.into_iter().enumerate() {
+            let id = first + u32::try_from(k).unwrap_or(0);
+            let (x0, y0, x1, y1) = poly.bounds();
+            let (s0, s1) = (poly_square(x0, y0), poly_square(x1, y1));
+            for sy in s0.1..=s1.1 {
+                for sx in s0.0..=s1.0 {
+                    self.poly_index.entry((sx, sy)).or_default().push(id);
+                }
+            }
+            self.polys.push(poly);
+        }
+        let last = u32::try_from(self.polys.len()).unwrap_or(u32::MAX);
+        self.poly_tiles.insert(tile, first..last);
+        // Links: among this tile's polygons, and from them to those of the tiles round it.
+        let mut near: Vec<u32> = (first..last).collect();
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                if (dx, dy) == (0, 0) {
+                    continue;
+                }
+                let t = (tile.0 + dx, tile.1 + dy);
+                if let Some(range) = self.poly_tiles.get(&t) {
+                    near.extend(range.clone());
+                }
+            }
+        }
+        let pairs = crate::poly::candidate_pairs(&self.polys, &near, first);
+        let steps = |p: u32, q: u32, m: (f64, f64)| -> bool {
+            let (Some(a), Some(b)) = (self.poly_place_inside(p, m), self.poly_place_inside(q, m))
+            else {
+                return false;
+            };
+            (self.column_and_z(a).2 - self.column_and_z(b).2).abs() <= joins.join
+        };
+        let found = crate::poly::links_between(&self.polys, &pairs, &steps);
+        for (p, l) in found {
+            let poly = &mut self.polys[p as usize];
+            if !poly.links.contains(&l) {
+                let mut links = poly.links.to_vec();
+                links.push(l);
+                poly.links = links.into_boxed_slice();
+            }
+        }
+        places
+    }
+
+    /// The place of polygon `p` in column `c`, or, where its edge leaves the column's center out,
+    /// the clear place there nearest the height of the polygon's own place nearest it.
+    pub(crate) fn place_of_poly_near(&self, p: u32, (ix, iy): (i32, i32)) -> Option<u32> {
+        if let Some(i) = self.patch_place(p, ix, iy) {
+            return Some(i);
+        }
+        // The height there: the polygon's own nearest place's, a sloping polygon's mean being
+        // no guide to it.
+        let z = self
+            .poly_place_near_point(p, (f64::from(ix) + 0.5, f64::from(iy) + 0.5))
+            .map_or(self.polys.get(p as usize)?.z, |i| self.column_and_z(i).2);
+        let ground = self.polys[p as usize].ground;
+        self.column(ix, iy)
+            .filter(|&j| self.is_clear(j) && (j & GROUND != 0) == ground)
+            .min_by(|&a, &b| {
+                (self.column_and_z(a).2 - z)
+                    .abs()
+                    .total_cmp(&(self.column_and_z(b).2 - z).abs())
+            })
+    }
+
+    /// The place of polygon `p`'s floor a step inside it from the point `(x, y)` on its edge
+    /// (grid corners), toward its middle: the polygon's own place in that column, else the clear
+    /// place there nearest its height, else its own place nearest the point.
+    pub(crate) fn poly_place_inside(&self, p: u32, (x, y): (f64, f64)) -> Option<u32> {
+        let poly = self.polys.get(p as usize)?;
+        #[allow(clippy::cast_precision_loss)]
+        let n = poly.corners.len() as f64;
+        let (mx, my) = poly.corners.iter().fold((0.0, 0.0), |(a, b), &(cx, cy)| {
+            (a + f64::from(cx), b + f64::from(cy))
+        });
+        let (mx, my) = (mx / n, my / n);
+        let (dx, dy) = (mx - x, my - y);
+        let len = dereth_primitives::num::math::hypot(dx, dy);
+        let k = if len > 0.0 {
+            (0.05 / len).min(1.0)
+        } else {
+            0.0
+        };
+        #[allow(clippy::cast_possible_truncation)]
+        let c = (
+            dereth_primitives::num::to_i32_f64((x + dx * k).floor()),
+            dereth_primitives::num::to_i32_f64((y + dy * k).floor()),
+        );
+        self.place_of_poly_near(p, c)
+            .or_else(|| self.poly_place_near_point(p, (x, y)))
+    }
+
+    /// Polygon `p`'s place nearest the point `(x, y)` (grid corners), looked for in the columns
+    /// within two of it.
+    pub(crate) fn poly_place_near_point(&self, p: u32, (x, y): (f64, f64)) -> Option<u32> {
+        #[allow(clippy::cast_possible_truncation)]
+        let (cx, cy) = (
+            dereth_primitives::num::to_i32_f64(x.floor()),
+            dereth_primitives::num::to_i32_f64(y.floor()),
+        );
+        let mut best: Option<(f64, u32)> = None;
+        for iy in cy - 2..=cy + 2 {
+            for ix in cx - 2..=cx + 2 {
+                if let Some(i) = self.patch_place(p, ix, iy) {
+                    let d = dereth_primitives::num::math::hypot(
+                        f64::from(ix) + 0.5 - x,
+                        f64::from(iy) + 0.5 - y,
+                    );
+                    if best.is_none_or(|(b, _)| d < b) {
+                        best = Some((d, i));
+                    }
+                }
+            }
+        }
+        best.map(|(_, i)| i)
+    }
+
+    /// The steps from the polygons to the places no polygon holds beside them, once every tile is
+    /// built.
+    pub(crate) fn add_exits(&mut self) {
+        let steps = self.steps;
+        let todo = std::mem::take(&mut self.loose_todo);
+        let mut found: Vec<(u32, (u32, u32))> = Vec::new();
+        for b in todo {
+            if !self.is_clear(b) {
+                continue;
+            }
+            let (ix, iy, zb) = self.column_and_z(b);
+            for (dx, dy) in crate::search::STEPS {
+                let Some(a) = self.step_into(ix + dx, iy + dy, zb, steps) else {
+                    continue;
+                };
+                let Some(p) = self.patch_of(a) else { continue };
+                if dx != 0 && dy != 0 {
+                    // No cutting a corner.
+                    let s1 = self.step_into(ix + dx, iy, zb, steps);
+                    let s2 = self.step_into(ix, iy + dy, zb, steps);
+                    if s1.is_none() || s2.is_none() {
+                        continue;
+                    }
+                }
+                found.push((p, (a, b)));
+            }
+        }
+        for (p, e) in found {
+            let v = self.exits.entry(p).or_default();
+            if !v.contains(&e) {
+                v.push(e);
+            }
+        }
     }
 
     /// The offset from a cell's landblock space to region space.
@@ -1700,8 +1946,22 @@ impl Region {
     #[must_use]
     pub fn memory_bytes(&self) -> usize {
         self.nodes.capacity() * std::mem::size_of::<Node>()
-            + self.patches.capacity() * std::mem::size_of::<Patch>()
-            + self.ground_tiles.capacity() * 4
+            + self
+                .polys
+                .iter()
+                .map(crate::poly::NavPoly::bytes)
+                .sum::<usize>()
+            + self
+                .poly_index
+                .values()
+                .map(|v| v.capacity() * 4 + 32)
+                .sum::<usize>()
+            + self
+                .exits
+                .values()
+                .map(|v| v.capacity() * 8 + 32)
+                .sum::<usize>()
+            + self.drop_links.capacity() * std::mem::size_of::<DropLink>()
             + self.columns.bytes()
             + self.cell_ids.capacity() * 4
             + self.ground.as_ref().map_or(0, |g| {
@@ -1816,7 +2076,8 @@ impl Region {
             }
         }
         for &i in &hits {
-            if let Some(p) = self.patch_of(i) {
+            let (ix, iy, _) = self.column_and_z(i);
+            for p in self.polys_over(ix, iy) {
                 self.dirty.insert(p);
             }
             if i & GROUND != 0 {
@@ -1830,25 +2091,6 @@ impl Region {
         hits.len()
     }
 
-    /// The walls, floors' edges and objects of a dungeon region, gathered again from `source`:
-    /// what the region's places were decided against, which it does not keep. `None` outdoors.
-    pub(crate) fn dungeon_solids<S: NavSource + ?Sized>(
-        &self,
-        source: &S,
-        config: &NavConfig,
-    ) -> Option<SolidIndex> {
-        if self.window.is_some() {
-            return None;
-        }
-        let mut b = Builder::new(source, config, self.origin);
-        for &id in &self.cells {
-            if let Some(g) = source.env_cell(CellId(id)) {
-                b.add_cell(&g);
-            }
-        }
-        Some(b.solids)
-    }
-
     /// The drops off the region's ledges: from each clear stored place at a ledge's edge, the
     /// clear place a body jumping off it lands on, more than a step below, a metre out. A
     /// ledge is a place a body could step off: a metre of air beyond it at its height (no floor
@@ -1859,7 +2101,9 @@ impl Region {
         &self,
         solids: &SolidIndex,
         config: &NavConfig,
-    ) -> HashMap<u32, Vec<u32>> {
+        places: std::ops::Range<u32>,
+        out: &mut HashMap<u32, Vec<u32>>,
+    ) {
         /// Columns of air beyond a ledge: a metre.
         const AIR: i32 = 4;
         /// The column the body lands in, out from the ledge: clear of the edge.
@@ -1868,9 +2112,8 @@ impl Region {
         let clear = agent.radius + config.margin;
         let heights = agent.test_heights(config.step_allowance);
         let s = self.spacing;
-        let mut out: HashMap<u32, Vec<u32>> = HashMap::new();
         let mut points = Vec::with_capacity(heights.len());
-        for i in 0..u32::try_from(self.nodes.len()).unwrap_or(0) {
+        for i in places {
             if !self.is_clear(i) {
                 continue;
             }
@@ -1906,7 +2149,6 @@ impl Region {
                 }
             }
         }
-        out
     }
 
     /// Put back every place [`Self::repair_around`] took out. Answers how many.
@@ -1930,5 +2172,151 @@ impl Region {
     #[must_use]
     pub fn origin_block(&self) -> LandblockId {
         block_id(self.origin.0, self.origin.1).unwrap_or(LandblockId(0))
+    }
+}
+
+impl Region {
+    /// How many drops off its ledges the region's mesh holds as links.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn drop_link_count(&self) -> usize {
+        self.drop_links.len()
+    }
+
+    /// The drops off the region's ledges, by the place a body stands at: its mesh's links.
+    pub(crate) fn drops_by_place(&self) -> HashMap<u32, Vec<u32>> {
+        let mut out: HashMap<u32, Vec<u32>> = HashMap::new();
+        for l in &self.drop_links {
+            out.entry(l.from).or_default().push(l.to);
+        }
+        out
+    }
+
+    /// How many parts the navigation mesh parts the region's clear places into, and how many the
+    /// places themselves fall into, each part a set joined by steps: the polygons by their links
+    /// and the steps out of them, the places searched by themselves by their steps.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn mesh_and_place_parts(&self) -> (usize, usize) {
+        fn find(p: &mut [usize], i: usize) -> usize {
+            let mut r = i;
+            while p[r] != r {
+                r = p[r];
+            }
+            let mut i = i;
+            while p[i] != r {
+                let next = p[i];
+                p[i] = r;
+                i = next;
+            }
+            r
+        }
+        fn join(a: usize, b: usize, parent: &mut [usize]) {
+            let (a, b) = (find(parent, a), find(parent, b));
+            parent[a] = b;
+        }
+        let mut parent: Vec<usize> = (0..self.polys.len()).collect();
+        let mut loose: HashMap<u32, usize> = HashMap::new();
+        let node = |id: u32, parent: &mut Vec<usize>, loose: &mut HashMap<u32, usize>| -> usize {
+            if let Some(p) = self.patch_of(id) {
+                return p as usize;
+            }
+            *loose.entry(id).or_insert_with(|| {
+                parent.push(parent.len());
+                parent.len() - 1
+            })
+        };
+        for (i, p) in self.polys.iter().enumerate() {
+            for l in &*p.links {
+                join(i, l.to as usize, &mut parent);
+            }
+        }
+        for (p, list) in &self.exits {
+            for &(_, b) in list {
+                let nb = node(b, &mut parent, &mut loose);
+                join(*p as usize, nb, &mut parent);
+            }
+        }
+        let clear: Vec<u32> = self.places().filter(|&i| self.is_clear(i)).collect();
+        for &i in &clear {
+            if self.patch_of(i).is_some() {
+                continue;
+            }
+            let (ix, iy, z) = self.column_and_z(i);
+            for (dx, dy) in crate::search::STEPS.iter().take(4) {
+                if let Some(j) = self.step_into(ix + dx, iy + dy, z, self.steps) {
+                    let a = node(i, &mut parent, &mut loose);
+                    let b = node(j, &mut parent, &mut loose);
+                    join(a, b, &mut parent);
+                }
+            }
+        }
+        let mut roots: HashSet<usize> = HashSet::new();
+        for &i in &clear {
+            let a = node(i, &mut parent, &mut loose);
+            roots.insert(find(&mut parent, a));
+        }
+        // The places' own parts: each place joined with every place it steps to. A step is taken
+        // either way: where a column holds two floors within a step of a place, the place steps
+        // to the nearer, but the farther steps back to it, so a part flooded one way only would
+        // depend on where it was started.
+        let mut by_place: HashMap<u32, usize> = HashMap::with_capacity(clear.len());
+        let mut up: Vec<usize> = Vec::with_capacity(clear.len());
+        for &i in &clear {
+            by_place.insert(i, up.len());
+            up.push(up.len());
+        }
+        for &i in &clear {
+            for j in self.neighbours(i) {
+                if let (Some(&a), Some(&b)) = (by_place.get(&i), by_place.get(&j)) {
+                    join(a, b, &mut up);
+                }
+            }
+        }
+        let places: HashSet<usize> = (0..up.len()).map(|k| find(&mut up, k)).collect();
+        (roots.len(), places.len())
+    }
+}
+
+#[cfg(test)]
+mod ground_tests {
+    use super::*;
+
+    #[test]
+    fn a_landblocks_terrain_copied_whole_is_what_copying_it_column_by_column_gives() {
+        let per = 768;
+        let mut tile = Ground::empty(0, 0, per, per);
+        let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
+        for v in [&mut tile.clear, &mut tile.static_blocked, &mut tile.water] {
+            for w in v.iter_mut() {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                *w = x;
+            }
+        }
+        let blocks = [(0, 0), (1, 0), (0, 1), (1, 1)];
+        let (dx, dy) = (per, per);
+        let mut whole = Ground::sparse(per, &blocks);
+        assert!(whole.copy_block_whole(&tile, dx, dy), "laid out alike");
+        let mut by_column = Ground::sparse(per, &blocks);
+        for i in 0..tile.len() {
+            let (ix, iy) = tile.column_of(i);
+            let j = by_column.index(ix + dx, iy + dy).expect("inside");
+            for (from, to) in [
+                (&tile.clear, &mut by_column.clear),
+                (&tile.static_blocked, &mut by_column.static_blocked),
+                (&tile.water, &mut by_column.water),
+            ] {
+                if get_bit(from, i) {
+                    set_bit(to, j);
+                }
+            }
+        }
+        assert!(whole.clear == by_column.clear);
+        assert!(whole.static_blocked == by_column.static_blocked);
+        assert!(whole.water == by_column.water);
+        // Not on a landblock's corner: copied column by column instead.
+        assert!(!Ground::sparse(per, &blocks).copy_block_whole(&tile, 5, 0));
     }
 }

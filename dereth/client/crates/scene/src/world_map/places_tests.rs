@@ -1,6 +1,7 @@
 //! Behaviour: none (this client's own world map, not a behaviour of the retail client)
 
 use super::*;
+use dereth_primitives::EraId;
 
 /// A building of `model` at `(ns, ew)`.
 fn at(model: u32, ns: f64, ew: f64) -> Building {

@@ -66,6 +66,18 @@ pub fn coords(p: &Position) -> Option<(f64, f64)> {
     })
 }
 
+/// Map units from the world's corner to the origin the world map measures from: the radar's
+/// origin, less half a cell, so a point's map coordinates round to the radar's rather than cut
+/// down to them.
+pub const MAP_ORIGIN: f64 = 101.95;
+
+/// The outdoor position the world map names `(ns, ew)`, at height `z`: the exact inverse of the
+/// map's own measure, where [`from_coords`] reads the radar's.
+#[must_use]
+pub fn from_map(ns: f64, ew: f64, z: f64) -> Option<Position> {
+    from_coords(ns + MAP_ORIGIN - ORIGIN, ew + MAP_ORIGIN - ORIGIN, z)
+}
+
 /// The outdoor position at map coordinates `(ns, ew)`, at height `z`.
 #[must_use]
 pub fn from_coords(ns: f64, ew: f64, z: f64) -> Option<Position> {
@@ -171,7 +183,7 @@ pub fn from_value(v: &Value) -> Result<Position, CallError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{bearing, coords, distance, from_coords, turn};
+    use super::{bearing, coords, distance, from_coords, from_map, global, turn};
 
     #[test]
     fn map_coordinates_name_the_cell_the_radar_shows_them_for_and_read_back() {
@@ -181,6 +193,27 @@ mod tests {
         let (ns, ew) = coords(&p).expect("outdoors");
         assert!((ns - 42.2).abs() < 1e-3 && (ew - 33.8).abs() < 1e-3);
         assert!(from_coords(200.0, 0.0, 0.0).is_none());
+    }
+
+    /// Behaviour: none (tooling: the host reads the world map's place coordinates back to the spot
+    /// they were measured at)
+    #[test]
+    fn a_place_the_world_map_measures_reads_back_to_the_spot_it_was_measured_at() {
+        // A building 100 m east and 60 m north in Holtburg's landblock, as the map measures it.
+        let (gx, gy) = (
+            f64::from(0xA9u32) * 192.0 + 100.0,
+            f64::from(0xB4u32) * 192.0 + 60.0,
+        );
+        let (ns, ew) = (gy / 240.0 - 101.95, gx / 240.0 - 101.95);
+        let p = from_map(ns, ew, 0.0).expect("on the map");
+        let (x, y, _) = global(&p);
+        assert!(
+            (x - gx).abs() < 0.01 && (y - gy).abs() < 0.01,
+            "{x} {y} against {gx} {gy}"
+        );
+        // Read the radar's way it is half a cell off on each axis.
+        let off = global(&from_coords(ns, ew, 0.0).expect("on the map"));
+        assert!(((off.0 - gx).abs() - 12.0).abs() < 0.01);
     }
 
     #[test]
