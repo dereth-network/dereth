@@ -501,9 +501,10 @@ enum Backend {
     /// In the frame's own thread, a slice of each frame.
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     Frame(Box<Worker>),
-    /// Nothing is planned and nothing answers: for a test that answers the travel by hand.
+    /// Nothing is planned and nothing answers: for a test that answers the travel by hand. The
+    /// last job asked is kept for the test to read.
     #[cfg(test)]
-    Held,
+    Held(Option<Job>),
 }
 
 /// The travel's planning, off the frame.
@@ -617,9 +618,18 @@ impl Planning {
     #[cfg(test)]
     pub(crate) fn held() -> Self {
         Self {
-            backend: Backend::Held,
+            backend: Backend::Held(None),
             asked: 0,
             one_step: false,
+        }
+    }
+
+    /// The last job a held planning was asked.
+    #[cfg(test)]
+    pub(crate) fn last_asked(&self) -> Option<&Job> {
+        match &self.backend {
+            Backend::Held(last) => last.as_ref(),
+            _ => None,
         }
     }
 
@@ -641,7 +651,7 @@ impl Planning {
             }
             Backend::Frame(w) => w.queue.push_back(job),
             #[cfg(test)]
-            Backend::Held => {}
+            Backend::Held(last) => *last = Some(job),
         }
         if answered {
             self.asked += 1;
@@ -673,7 +683,7 @@ impl Planning {
                     got.extend(more);
                 }
                 #[cfg(test)]
-                Backend::Held => break,
+                Backend::Held(_) => break,
             }
         }
         self.asked = self.asked.saturating_sub(got.len());
@@ -695,7 +705,7 @@ impl Planning {
                 w.work(Some(web_time::Instant::now() + share))
             }
             #[cfg(test)]
-            Backend::Held => Vec::new(),
+            Backend::Held(_) => Vec::new(),
         };
         self.asked = self.asked.saturating_sub(got.len());
         got

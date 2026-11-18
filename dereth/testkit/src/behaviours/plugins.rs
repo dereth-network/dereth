@@ -883,6 +883,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.nav.a-portal-no-walk-reaches-is-planned-round",
+        says: "A journey takes the land for one place, so it may plan a walk to a portal that the                land does not join to where the character is (a portal on a plateau only other                portals lead to). When the walk finds no route there, the journey is planned again                without that portal; with no other way, it ends saying which portal no walk                reaches.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-UNWALKABLE-PORTAL"),
+        station: "dereth-client-runtime::lib::travel::tests::a_portal_no_walk_reaches_is_planned_round_and_named_when_nothing_else_leads_on",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.nav.a-refused-portal-is-learned-and-the-journey-planned-again",
         says: "A portal that refuses the character is learned as refused, and the journey is planned again by another way, told with the reason.",
         since: THIS_CLIENT,

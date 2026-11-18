@@ -84,3 +84,18 @@ fn academy_routes_that_went_wrong_are_driven_to_their_end_at_60_20_10_and_5_fram
         &at(0x8602_01AF, 9.0, -84.0, 0.0),
     );
 }
+
+/// Behaviour: plugins.nav.a-route-is-followed-at-any-frame-rate
+#[test]
+fn the_dry_wells_tunnels_are_driven_from_its_portal_to_its_far_end() {
+    let mut d = dungeon(0x015A);
+    let (from, to) = {
+        let region = d.nav.region(CellId(0x015A_01AE)).expect("the Dry Well");
+        let arrival = region
+            .nearest_place(&at(0x015A_01AE, 10.0, -90.0, 0.0), 3.0)
+            .expect("where its portal sets one down");
+        let far = farthest_from(region, arrival);
+        (region.position(arrival), region.position(far))
+    };
+    driven_at_every_frame_rate(&mut d, "dry well", &from, &to);
+}

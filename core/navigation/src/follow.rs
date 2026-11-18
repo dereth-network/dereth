@@ -330,6 +330,19 @@ impl Follower {
         let across = point_segment_dist_sq(flat(here, a), a, flat(b, a)).sqrt();
         let (dx, dy) = (b.x - a.x, b.y - a.y);
         let l2 = dx * dx + dy * dy;
+        // The floor's height there: the leg's own places' where the search went through them (a
+        // leg that runs level and then down a ramp is not a straight line in height), else the
+        // straight line's.
+        let places = self.path.legs.get(self.next - 1).filter(|l| !l.is_empty());
+        if let Some(places) = places {
+            let floor = places
+                .iter()
+                .map(global)
+                .chain(std::iter::once(a))
+                .min_by(|p, q| dist_xy(here, *p).total_cmp(&dist_xy(here, *q)))
+                .map_or(a.z, |p| p.z);
+            return (across, here.z - floor);
+        }
         let t = if l2 > 0.0 {
             (((here.x - a.x) * dx + (here.y - a.y) * dy) / l2).clamp(0.0, 1.0)
         } else {
@@ -698,6 +711,36 @@ mod tests {
             Steer::Go { .. }
         ));
         assert_eq!(f.stuck_events, 1);
+    }
+
+    #[test]
+    fn a_body_on_the_level_part_of_a_leg_that_ends_down_a_ramp_is_on_the_route() {
+        let place = |x: f32, z: f32| {
+            Position::new(
+                CellId(0x0101_0100),
+                Frame::new(Vec3::new(x, 0.0, z), Quat::IDENTITY),
+            )
+        };
+        // Level for twelve metres, then six metres down a ramp eight metres long.
+        let mut path = route_through(&[(0.0, 0.0), (20.0, 0.0)]);
+        path.waypoints[1].position = place(20.0, -6.0);
+        path.legs[0] = (1..=20)
+            .map(|i| {
+                #[allow(clippy::cast_precision_loss)]
+                let x = i as f32;
+                place(x, if x <= 12.0 { 0.0 } else { -(x - 12.0) * 0.75 })
+            })
+            .collect();
+        let mut f = Follower::new(path, FollowConfig::default());
+        // At the ramp's head, still on the level: four and a half metres above the straight line
+        // between the leg's ends, and on the floor the search went across.
+        for (i, x) in [0.0_f32, 4.0, 8.0, 11.5].into_iter().enumerate() {
+            #[allow(clippy::cast_precision_loss)]
+            let now = i as f64 * 0.5;
+            let s = f.update(&place(x, 0.0), 90.0, now);
+            assert!(matches!(s, Steer::Go { .. }), "at {x} m: {s:?}");
+        }
+        assert_eq!(f.stuck_events, 0);
     }
 
     #[test]

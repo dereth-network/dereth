@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Fixed auto-walk sticking on ramps and heading for portals it can't walk to.
 - Fixed journeys that would not go to a portal standing in a far-off building.
 - Fixed a portal's light showing through dungeon walls; remaster indoor lamps are softer.
 - Navigator: finds the places on your map and walks around walls, faster on long routes.
