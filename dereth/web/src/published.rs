@@ -1,6 +1,8 @@
 //! What the world's server publishes (its portal table and its places), read for the client
 //! through the page's fetch: the world's status, then each document it names on its own address,
-//! as the desktop client reads them. The reading is the runtime's
+//! as the desktop client reads them. A world that names no status is played through
+//! `dereth-web-relay`, and the client reads the place package of its era from the relay instead
+//! ([`Published::package`]): the era's portals and places, as hints. The reading is the runtime's
 //! ([`PublishedReading`]); this is its turn each frame, and the form an answer crosses from the
 //! worker in.
 //!
@@ -12,6 +14,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 
 use dereth_client_runtime::travel::{Fetched, PublishedReading};
+use dereth_primitives::EraId;
 
 /// The next request's number, in this worker.
 static NEXT_REQUEST: AtomicU32 = AtomicU32::new(1);
@@ -22,6 +25,9 @@ pub struct Published {
     reading: PublishedReading,
     /// The request asked and not yet answered, by its number.
     waiting: Option<u32>,
+    /// The documents are the era's place package, taken in as hints, not what the world
+    /// publishes.
+    hints: bool,
 }
 
 impl Published {
@@ -32,7 +38,25 @@ impl Published {
         Some(Self {
             reading: PublishedReading::new(status_url)?,
             waiting: None,
+            hints: false,
         })
+    }
+
+    /// The reading of the place package of `era` from the relay the client plays through, at
+    /// `server` (its `ws://` or `wss://` address); `None` for an address that is neither.
+    #[must_use]
+    pub fn package(server: &str, era: EraId) -> Option<Self> {
+        Some(Self {
+            reading: PublishedReading::documents(package_documents(server, era)?),
+            waiting: None,
+            hints: true,
+        })
+    }
+
+    /// Whether the documents are the era's place package, to be taken in as hints.
+    #[must_use]
+    pub fn hints(&self) -> bool {
+        self.hints
     }
 
     /// This frame's turn, at `now` (the client's time, in seconds): the answers the worker has
@@ -79,6 +103,30 @@ impl Published {
     pub fn done(&self) -> bool {
         self.reading.done()
     }
+}
+
+/// The addresses of the place package of `era` at the relay the client reaches at `server`: its
+/// portals and its places, on the relay's own address, under the path it is reached at.
+#[must_use]
+pub fn package_documents(server: &str, era: EraId) -> Option<[String; 2]> {
+    let server = server.trim();
+    let lower = server.to_ascii_lowercase();
+    let (scheme, rest) = if lower.starts_with("wss://") {
+        ("https://", &server[6..])
+    } else if lower.starts_with("ws://") {
+        ("http://", &server[5..])
+    } else {
+        return None;
+    };
+    let base = rest
+        .split(['?', '#'])
+        .next()
+        .unwrap_or("")
+        .trim_end_matches('/');
+    if base.is_empty() || base.starts_with('/') {
+        return None;
+    }
+    Some(["portals", "places"].map(|d| format!("{scheme}{base}/places/{}/{d}", era.name())))
 }
 
 /// An answer as the worker hands it back: the request's number and what its fetch brought.
@@ -137,6 +185,61 @@ place\tportal\tpublished\t1000\tPortal\t0xA9B40011 30.000 10.000 0.000\t0\t0\t-\
         assert_eq!(answer_of("nonsense"), None);
         assert_eq!(answer_of("x 200\n"), None);
         assert_eq!(answer_of("1 what\n"), None);
+    }
+
+    /// A world played through a relay names no status: the client reads the place package of
+    /// its era from the relay's own address, and takes it in as hints.
+    #[test]
+    fn a_world_played_through_a_relay_reads_its_eras_place_package_from_it_as_hints() {
+        assert_eq!(
+            package_documents("wss://relay.example.org/", EraId::Infiltration),
+            Some([
+                "https://relay.example.org/places/infiltration/portals".to_owned(),
+                "https://relay.example.org/places/infiltration/places".to_owned(),
+            ])
+        );
+        assert_eq!(
+            package_documents("WSS://example.org/relay/?x=1", EraId::Launch).unwrap()[1],
+            "https://example.org/relay/places/launch/places",
+            "under the path a proxy reaches it at"
+        );
+        assert_eq!(
+            package_documents("https://example.org/status", EraId::Eor),
+            None
+        );
+        assert_eq!(package_documents("wss:///x", EraId::Eor), None);
+
+        let mut relay = BTreeMap::from([
+            ("http://127.0.0.1:9180/places/eor/portals", PORTALS),
+            ("http://127.0.0.1:9180/places/eor/places", PLACES),
+        ]);
+        let mut package = Published::package("ws://127.0.0.1:9180", EraId::Eor).unwrap();
+        assert!(package.hints());
+        let inbox = Mutex::new(Vec::new());
+        let mut pending: VecDeque<String> = VecDeque::new();
+        let mut now = 0.0;
+        while !package.done() {
+            if let Some((id, url)) =
+                package.step(now, || pending.pop_front().unwrap_or_default(), &inbox)
+            {
+                let body = relay
+                    .remove(url.as_str())
+                    .expect("a document of the package");
+                pending.push_back(format!("{id} 200\n{body}"));
+            }
+            now += 1.0;
+            assert!(now < 100.0, "the reading ends");
+        }
+        assert!(relay.is_empty(), "both documents read");
+        let docs = std::mem::take(&mut *inbox.lock().unwrap());
+        let mut travel = Travel::new(StoreFiles::default());
+        for d in &docs {
+            travel.take_hints(d).unwrap();
+        }
+        travel.note_world("Relayed world");
+        let places = travel.places().places();
+        assert_eq!(places.len(), 2);
+        assert!(places.iter().all(|p| p.source == EdgeSource::Hint));
     }
 
     /// What a world publishes is fetched through the worker and taken in under the world's

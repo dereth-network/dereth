@@ -2,8 +2,9 @@
 //!
 //! ```text
 //! dereth-web-relay --server <host:port> [--listen 127.0.0.1:9180] [--allow-origin <origin>]
+//!     [--no-places]
 //!
-//! dereth-web-relay --server <host:port> --public [--listen <addr:port>]
+//! dereth-web-relay --server <host:port> --public [--listen <addr:port>] [--no-places]
 //!     [--allow-origin <origin>]... [--tls-cert <pem> --tls-key <pem>]
 //!     [--trusted-proxy <addr or cidr>]... [--client-address-header x-forwarded-for|cf-connecting-ip]
 //!     [--proxy-hops <n>] [--max-per-ip <n>] [--max-sessions <n>]
@@ -30,7 +31,9 @@ pub const KEY_VARIABLE: &str = "DERETH_NETWORK_KEY";
 
 /// The usage line.
 pub const USAGE: &str = "usage: dereth-web-relay --server <host:port> [--listen 127.0.0.1:9180] [--allow-origin <origin>]
+           [--no-places]
        dereth-web-relay --server <host:port> --public [--listen <addr:port>] [--allow-origin <origin>]...
+           [--no-places]
            [--tls-cert <pem> --tls-key <pem>] [--trusted-proxy <addr or cidr>]...
            [--client-address-header x-forwarded-for|cf-connecting-ip] [--proxy-hops <n>]
            [--max-per-ip <n>] [--max-sessions <n>]
@@ -41,6 +44,9 @@ pub struct Config {
     pub listen: SocketAddr,
     pub server: SocketAddr,
     pub mode: Mode,
+    /// Whether it serves the place packages ([`crate::places`]); `--no-places` turns them off,
+    /// and then it fetches nothing.
+    pub places: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -130,11 +136,16 @@ pub fn parse_args(args: &[String], env: &dyn Fn(&str) -> Option<String>) -> Resu
     let mut hub = None;
     let mut key_file = None;
     let mut seen_public_only = None;
+    let mut places = true;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         let flag = a.as_str();
         if flag == "--public" {
             public = true;
+            continue;
+        }
+        if flag == "--no-places" {
+            places = false;
             continue;
         }
         if matches!(flag, "--key" | "--hub-key" | "--registry-key") {
@@ -208,6 +219,7 @@ pub fn parse_args(args: &[String], env: &dyn Fn(&str) -> Option<String>) -> Resu
             mode: Mode::Local {
                 allow_origin: origins.pop(),
             },
+            places,
         });
     }
 
@@ -251,6 +263,7 @@ pub fn parse_args(args: &[String], env: &dyn Fn(&str) -> Option<String>) -> Resu
     Ok(Config {
         listen,
         server,
+        places,
         mode: Mode::Public(Box::new(Public {
             origins,
             tls,
@@ -324,6 +337,23 @@ mod tests {
             Mode::Public(p) => p,
             Mode::Local { .. } => panic!("a player's relay"),
         }
+    }
+
+    /// Either relay serves the place packages unless started with `--no-places`.
+    #[test]
+    fn places_are_served_unless_turned_off() {
+        assert!(
+            parse("--server 127.0.0.1:9000")
+                .expect("a player's relay")
+                .places
+        );
+        assert!(
+            !parse("--server 127.0.0.1:9000 --no-places")
+                .expect("one")
+                .places
+        );
+        let public = parse("--server 127.0.0.1:9000 --public --no-places").expect("one");
+        assert!(!public.places);
     }
 
     /// A player's relay listens on loopback only; any other address needs `--public`, and even

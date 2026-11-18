@@ -46,6 +46,7 @@ players the address, or let the hub list it.
 | `--world <slug> --public-url <wss url>` | announces the relay to the hub (below). |
 | `--hub <url>` | the hub to announce to; `https://hub.dereth.network` by default. |
 | `--key-file <path>` | the file holding the world's registry key; else `DERETH_NETWORK_KEY`. |
+| `--no-places` | serves no place packages (below), and fetches nothing. |
 
 Each line of its log starts with the UTC time. Run it as a service (systemd, or a Windows service
 wrapper) so it starts with the machine.
@@ -188,6 +189,27 @@ A web client served over `https://` from another site can reach `ws://127.0.0.1:
 - **Safari** treats `ws://127.0.0.1` from an `https://` page as mixed content and blocks it, with
   no permission to give; a relay on the player's own machine cannot serve Safari from an
   `https://` page. A relay beside the server can.
+
+## Places for the Navigator
+
+The web client's Navigator plans journeys over the portals and places of the world's era. A world
+whose server publishes its own (Empyrean's) gives the client those, and the relay plays no part;
+an Empyrean world with publishing off gives the web client none, which is its operator's choice.
+ACE and GDLE publish none, so the relay serves the era's instead, at `/places/<era>/portals` and
+`/places/<era>/places` on its own address (`eor`, `infiltration` or `launch`), to the pages it
+admits. The client takes them as hints, under what the character learns in play.
+
+They are built where the relay runs, from the era's public world database, the one Empyrean's
+import tool uses. The first request for an era downloads that database once (about 20 MB zipped:
+155 MB of SQL for the end of retail, 107 MB for Infiltration, 21 MB for Launch) into the per-user
+cache the import tool shares: `%LOCALAPPDATA%\Empyrean\world-database` on Windows,
+`~/Library/Caches/Empyrean/world-database` on macOS, `$XDG_CACHE_HOME/empyrean/world-database` (or
+`~/.cache/...`) elsewhere. An era already there is not downloaded again. Building takes a second or
+two and the package is then held in memory (about 1.7 MB for the end of retail); requests that
+come while it is built wait for that one build. If the download fails, the era is not tried again
+for ten minutes.
+
+`--no-places` turns this off: nothing is downloaded, and the routes answer `404`.
 
 ## What it will and will not do
 

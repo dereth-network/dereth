@@ -36,6 +36,16 @@ impl<S: Shell> App<S> {
                 tracing::warn!("a published document: {e}");
             }
         }
+        let hinted = self
+            .hinted
+            .lock()
+            .map(|mut p| std::mem::take(&mut *p))
+            .unwrap_or_default();
+        for text in hinted {
+            if let Err(e) = self.travel.take_hints(&text) {
+                tracing::warn!("a document of the era's places: {e}");
+            }
+        }
         // Nothing asks for a journey or a plan: the travel keeps its world's knowledge loaded
         // (plugins read it), and the frame gathers nothing for it and builds no planner.
         if self.nav_proof.is_none() && self.cfg.nav_prep.is_empty() && !self.travel.wanted() {

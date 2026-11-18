@@ -3,8 +3,9 @@
 //!
 //! **Depends on** `dereth-transport` for the frame (`dereth_transport::web_frame`) and the login
 //! request, `dereth-network-protocol` for the rule a world's WebSocket address keeps,
-//! `tungstenite` for the WebSocket, `rustls` for its own TLS and `ureq` to announce itself to the
-//! hub. **Used by** no crate: the web client's worker opens one WebSocket to it per session,
+//! `tungstenite` for the WebSocket, `rustls` for its own TLS, `ureq` to announce itself to the
+//! hub and fetch the world databases, and `dereth-places`, `dereth-world-places` and
+//! `dereth-primitives` for the place packages it serves. **Used by** no crate: the web client's worker opens one WebSocket to it per session,
 //! exactly as it opens one to a server that accepts WebSocket connections itself, so the client
 //! has one path.
 //!
@@ -26,6 +27,9 @@
 //!
 //! Each WebSocket gets its own UDP socket, so the server sees one client per browser session, as
 //! it would see one per game client ([`session`]). [`relay`] admits connections and runs them.
+//!
+//! It also serves the web client the place package of its world's era ([`places`]), built where
+//! it runs from the era's public world database, unless started with `--no-places`.
 
 pub mod announce;
 pub mod client;
@@ -33,6 +37,7 @@ pub mod config;
 pub mod limits;
 pub mod log;
 pub mod origin;
+pub mod places;
 pub mod relay;
 pub mod session;
 

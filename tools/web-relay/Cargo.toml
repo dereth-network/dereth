@@ -21,6 +21,11 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 # Announcing the relay's address to the hub over HTTPS (rustls with its ring provider and the web's
 # root certificates).
 ureq = { version = "3", default-features = false, features = ["rustls"] }
+# The place package of an era, built from its public world database where the relay runs, for
+# the web client that plays through it.
+dereth-places.workspace = true
+dereth-world-places.workspace = true
+dereth-primitives.workspace = true
 
 [dev-dependencies]
 # A certificate made for the test of the relay's own TLS.

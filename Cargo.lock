@@ -2497,7 +2497,10 @@ name = "dereth-web-relay"
 version = "0.0.0"
 dependencies = [
  "dereth-network-protocol",
+ "dereth-places",
+ "dereth-primitives",
  "dereth-transport",
+ "dereth-world-places",
  "rcgen",
  "rustls",
  "tungstenite",

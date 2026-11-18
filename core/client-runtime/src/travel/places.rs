@@ -103,6 +103,7 @@ impl Travel {
             }
         }
         self.merge_package_places();
+        self.merge_hinted_places();
         self.merge_published_places();
         tracing::info!(
             target: "travel",
@@ -157,6 +158,14 @@ impl Travel {
             },
             Err(e) => tracing::warn!(target: "travel", "{}: {e}", path.display()),
         }
+    }
+
+    /// The places a place package gave as text ([`super::Travel::take_hints`]), as hints.
+    pub(super) fn merge_hinted_places(&mut self) {
+        if self.places.store.world.is_empty() || self.hinted_places.is_empty() {
+            return;
+        }
+        std::sync::Arc::make_mut(&mut self.places.store).merge(self.hinted_places.iter().cloned());
     }
 
     fn merge_published_places(&mut self) {

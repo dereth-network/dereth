@@ -22,6 +22,7 @@ use crate::config::{Config, Mode, Public};
 use crate::limits::{Clock, Limits, Rate, SendRate};
 use crate::log::Log;
 use crate::origin::WEB_CLIENT;
+use crate::places::{Build, Package, Places};
 use crate::relay::Relay;
 
 /// Only guards against a hang: every wait below ends on an event.
@@ -108,6 +109,7 @@ fn public(server: SocketAddr, change: impl FnOnce(&mut Public)) -> Config {
         listen: "127.0.0.1:0".parse().expect("an address"),
         server,
         mode: Mode::Public(Box::new(p)),
+        places: true,
     }
 }
 
@@ -119,16 +121,25 @@ fn local(server: SocketAddr, allow_origin: Option<&str>) -> Config {
         mode: Mode::Local {
             allow_origin: allow_origin.map(str::to_owned),
         },
+        places: true,
     }
 }
 
-/// Starts `config`'s relay on `clock`: its address and its log.
+/// Starts `config`'s relay on `clock`: its address and its log. It serves no places.
 fn start(config: Config, clock: &TestClock) -> (SocketAddr, Lines) {
+    start_with(config, clock, None)
+}
+
+/// Starts `config`'s relay on `clock` with its places built by `places`.
+fn start_with(config: Config, clock: &TestClock, places: Option<Places>) -> (SocketAddr, Lines) {
     let (tx, rx) = std::sync::mpsc::channel();
     let log = Log::to(move |l| {
         let _ = tx.send(l.to_owned());
     });
-    let relay = Relay::bind(config, clock.clock(), log).expect("the relay binds");
+    // No test fetches a world database: a relay that serves places builds them with `places`.
+    let relay = Relay::bind(config, clock.clock(), log)
+        .expect("the relay binds")
+        .with_places(places);
     (relay.spawn().expect("it serves"), Lines(rx, Vec::new()))
 }
 
@@ -483,4 +494,169 @@ fn it_serves_wss_with_its_own_certificate() {
     ws.send(Message::Binary(web_frame::encode(9000, b"over tls").into()))
         .expect("sent");
     assert_eq!(receive(&game).0, b"over tls");
+}
+
+/// Places built by a stand-in for the era's database, counting its builds.
+fn counted_places(clock: &TestClock) -> (Places, Arc<AtomicU64>) {
+    let builds = Arc::new(AtomicU64::new(0));
+    let counted = Arc::clone(&builds);
+    let build: Build = Arc::new(move |era| {
+        counted.fetch_add(1, Ordering::SeqCst);
+        Ok(Package {
+            portals: format!("dereth-navigation-store\t1\n# {}\n", era.name()),
+            places: "dereth-places-store\t1\nworld\tDereth\n".to_owned(),
+        })
+    });
+    (Places::new(build, clock.clock()), builds)
+}
+
+/// What a plain HTTP request was answered with: the status, the headers (names in lower case)
+/// and the body.
+struct Answer {
+    status: u16,
+    headers: Vec<(String, String)>,
+    body: String,
+}
+
+impl Answer {
+    fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, v)| v.as_str())
+    }
+}
+
+/// A plain HTTP request to the relay, from a page of `origin`.
+fn http(relay: SocketAddr, method: &str, path: &str, origin: Option<&str>) -> Answer {
+    let mut tcp = TcpStream::connect(relay).expect("connected");
+    tcp.set_read_timeout(Some(HANG)).expect("a hang guard");
+    let origin = origin.map_or_else(String::new, |o| format!("Origin: {o}\r\n"));
+    write!(
+        tcp,
+        "{method} {path} HTTP/1.1\r\nHost: {relay}\r\n{origin}\r\n"
+    )
+    .expect("asked");
+    let mut answer = String::new();
+    tcp.read_to_string(&mut answer).expect("an answer");
+    let (head, body) = answer.split_once("\r\n\r\n").expect("a head");
+    let mut lines = head.split("\r\n");
+    let status = lines
+        .next()
+        .and_then(|l| l.split(' ').nth(1))
+        .and_then(|c| c.parse().ok())
+        .expect("a status");
+    let headers = lines
+        .filter_map(|l| l.split_once(':'))
+        .map(|(n, v)| (n.trim().to_ascii_lowercase(), v.trim().to_owned()))
+        .collect();
+    Answer {
+        status,
+        headers,
+        body: body.to_owned(),
+    }
+}
+
+/// A page the relay admits reads its era's place package, built once for both documents.
+#[test]
+fn an_admitted_page_reads_its_eras_place_package_built_once() {
+    let (_game, server) = game();
+    let clock = TestClock::new();
+    let (places, builds) = counted_places(&clock);
+    let (relay, _) = start_with(public(server, |_| {}), &clock, Some(places));
+    let portals = http(
+        relay,
+        "GET",
+        "/places/infiltration/portals",
+        Some(WEB_CLIENT),
+    );
+    assert_eq!(portals.status, 200);
+    assert_eq!(portals.body, "dereth-navigation-store\t1\n# infiltration\n");
+    assert_eq!(
+        portals.header("access-control-allow-origin"),
+        Some(WEB_CLIENT)
+    );
+    let known = http(
+        relay,
+        "GET",
+        "/places/infiltration/places",
+        Some(WEB_CLIENT),
+    );
+    assert_eq!(known.status, 200);
+    assert!(known.body.starts_with("dereth-places-store"));
+    assert_eq!(
+        builds.load(Ordering::SeqCst),
+        1,
+        "one build for the era's two documents"
+    );
+    // The question a browser asks first of a relay on a private address.
+    let asked = http(relay, "OPTIONS", "/places/eor/portals", Some(WEB_CLIENT));
+    assert_eq!(asked.status, 204);
+    assert_eq!(
+        asked.header("access-control-allow-private-network"),
+        Some("true")
+    );
+    assert_eq!(
+        builds.load(Ordering::SeqCst),
+        1,
+        "a question builds nothing"
+    );
+}
+
+/// A page the relay does not admit, an era there is none of, and a document there is none of are
+/// refused, and nothing is built for them.
+#[test]
+fn a_places_request_it_refuses_builds_nothing() {
+    let (_game, server) = game();
+    let clock = TestClock::new();
+    let (places, builds) = counted_places(&clock);
+    let (relay, _) = start_with(public(server, |_| {}), &clock, Some(places));
+    let elsewhere = http(
+        relay,
+        "GET",
+        "/places/eor/portals",
+        Some("https://elsewhere.example.org"),
+    );
+    assert_eq!(elsewhere.status, 403);
+    assert_eq!(elsewhere.header("access-control-allow-origin"), None);
+    assert_eq!(
+        http(relay, "GET", "/places/eor/portals", None).status,
+        403,
+        "beside a server, a request from no page"
+    );
+    let status = |method: &str, path: &str| http(relay, method, path, Some(WEB_CLIENT)).status;
+    assert_eq!(status("GET", "/places/tod/portals"), 404);
+    assert_eq!(status("GET", "/places/eor/weenies"), 404);
+    assert_eq!(status("POST", "/places/eor/portals"), 405);
+    assert_eq!(builds.load(Ordering::SeqCst), 0);
+}
+
+/// Started with `--no-places`, the relay has no places to fetch or serve.
+#[test]
+fn a_relay_with_no_places_answers_not_found() {
+    let (_game, server) = game();
+    let mut config = local(server, None);
+    config.places = false;
+    // Its own places, as `--no-places` leaves them: none, so nothing can be fetched.
+    let relay = Relay::bind(config, TestClock::new().clock(), Log::to(|_| {})).expect("it binds");
+    assert!(!relay.describe().contains("places"));
+    let relay = relay.spawn().expect("it serves");
+    assert_eq!(http(relay, "GET", "/places/eor/portals", None).status, 404);
+}
+
+/// A WebSocket upgrade is the handshake's whatever its path: one to a places path is a session,
+/// and builds nothing.
+#[test]
+fn a_websocket_upgrade_on_a_places_path_is_still_a_session() {
+    let (game, server) = game();
+    let clock = TestClock::new();
+    let (places, builds) = counted_places(&clock);
+    let (relay, _) = start_with(local(server, None), &clock, Some(places));
+    let request = format!("ws://{relay}/places/eor/portals")
+        .into_client_request()
+        .expect("a request");
+    let (mut ws, _) = tungstenite::connect(request).expect("admitted");
+    send(&mut ws, web_frame::encode(9000, b"hello"));
+    assert_eq!(receive(&game).0, b"hello");
+    assert_eq!(builds.load(Ordering::SeqCst), 0);
 }

@@ -980,6 +980,10 @@ pub struct Travel {
     /// portal table, and its places.
     published: Vec<dereth_navigation::PortalEdge>,
     published_places: Vec<dereth_navigation::KnownPlace>,
+    /// A place package taken in as text ([`Self::take_hints`]): the portals and places of the
+    /// world's era, as hints.
+    hinted: Vec<dereth_navigation::PortalEdge>,
+    hinted_places: Vec<dereth_navigation::KnownPlace>,
     planning: Option<Planning>,
     /// The planning's next job number.
     jobs: u64,
@@ -1044,6 +1048,8 @@ impl Travel {
             places: places::Learning::default(),
             published: Vec::new(),
             published_places: Vec::new(),
+            hinted: Vec::new(),
+            hinted_places: Vec::new(),
             planning: None,
             jobs: 0,
             routes_asked: BTreeMap::new(),
@@ -1291,6 +1297,7 @@ impl Travel {
                 Err(e) => tracing::warn!(target: "travel", "{}: {e}", path.display()),
             }
         }
+        self.portals.merge(self.hinted.iter().cloned());
         self.portals.merge(self.published.iter().cloned());
         let learned = self
             .portals
@@ -1318,6 +1325,54 @@ impl Travel {
         } else {
             self.set_published(text)
         }
+    }
+
+    /// Take in a document of a place package, told by its first line: its portal table or its
+    /// places, as `dereth-places` builds them for the world's era (the web client reads them from
+    /// the relay it plays through). Every edge and place is a hint, whatever the document says
+    /// it knows: under what the character learns and what the server publishes, merged now and
+    /// into each world's stores as they load, and never saved. How many it held.
+    ///
+    /// # Errors
+    /// The text is neither.
+    pub fn take_hints(&mut self, text: &str) -> Result<usize, String> {
+        if text.starts_with("dereth-places-store") {
+            let table =
+                dereth_navigation::PlaceStore::from_text(text).map_err(|e| e.to_string())?;
+            self.hinted_places = table
+                .places()
+                .iter()
+                .cloned()
+                .map(|mut p| {
+                    p.source = EdgeSource::Hint;
+                    p
+                })
+                .collect();
+            self.merge_hinted_places();
+            tracing::info!(
+                target: "travel",
+                "the era's places: {} as hints",
+                self.hinted_places.len()
+            );
+            return Ok(self.hinted_places.len());
+        }
+        let table = PortalStore::from_text(text).map_err(|e| e.to_string())?;
+        self.hinted = table
+            .portals()
+            .iter()
+            .cloned()
+            .map(|mut e| {
+                e.source = EdgeSource::Hint;
+                e
+            })
+            .collect();
+        self.portals.merge(self.hinted.iter().cloned());
+        tracing::info!(
+            target: "travel",
+            "the era's portals: {} as hints",
+            self.hinted.len()
+        );
+        Ok(self.hinted.len())
     }
 
     /// Take in the portal table the server publishes (the store's text form, its edges of
@@ -3308,6 +3363,30 @@ mod tests {
             .portals()
             .is_empty());
         assert!(t.set_published("not a store").is_err());
+    }
+
+    #[test]
+    fn a_place_package_taken_as_text_is_hints_in_every_world_store_and_never_saved() {
+        let mut t = Travel::new(StoreFiles::default());
+        // What the documents say they know does not matter: a package is hints.
+        let portals = "dereth-navigation-store\t1\nworld\tDereth\n\
+            portal\tpublished\t2068\tDrudge Hideout\t0xA9B30002 5.4 29.5 94.0\t0x019E0114 10.0 -40.0 0.0\t0\t0\t0\t-\t-\t-\n";
+        let places = "dereth-places-store\t1\nworld\tDereth\n\
+            place\tlifestone\tpublished\t509\tLife Stone\t0xA9B40011 10.000 10.000 0.000\t0\t0\t-\t-\n";
+        assert_eq!(t.take_hints(portals), Ok(1));
+        assert_eq!(t.take_hints(places), Ok(1));
+        t.note_world("A world");
+        let store = t.store();
+        assert_eq!(store.portals().len(), 1);
+        assert_eq!(store.portals()[0].source, EdgeSource::Hint);
+        assert!(
+            store.without(EdgeSource::Hint).portals().is_empty(),
+            "nothing of it is saved"
+        );
+        let known = t.places().places();
+        assert_eq!(known.len(), 1);
+        assert_eq!(known[0].source, EdgeSource::Hint);
+        assert!(t.take_hints("not a store").is_err());
     }
 
     #[test]

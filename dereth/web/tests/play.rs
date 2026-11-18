@@ -55,6 +55,7 @@ fn the_retail_interface_draws_on_the_web_device() {
         100,
         &[],
         None,
+        "",
     )
     .expect("bring-up");
     for _ in 0..10 {
@@ -118,6 +119,7 @@ fn sizes_in_full_screen(interface: &str) -> Option<[(u32, u32); 2]> {
         100,
         &[],
         None,
+        "",
     )
     .expect("bring-up");
     // Full screen is applied as the first screen comes up, a frame or two in.
@@ -193,6 +195,7 @@ fn a_live_login_reaches_the_character_screen() {
         100,
         &[],
         None,
+        "",
     )
     .expect("bring-up");
     let udp = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind");
@@ -287,6 +290,7 @@ fn a_live_session_enters_walks_and_talks_through_the_interface() {
         100,
         &[],
         None,
+        "",
     )
     .expect("bring-up");
     let udp = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind");
@@ -417,6 +421,7 @@ fn a_live_exit_from_the_character_screen_ends_the_client() {
         100,
         &[],
         None,
+        "",
     )
     .expect("bring-up");
     let udp = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind");

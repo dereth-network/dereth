@@ -485,7 +485,7 @@ impl WebPlay {
     /// client on its command line (`args`: its era and systems, the set its world is drawn from,
     /// its logon version and rules), with the world's overlay kept in the folder `overlay` the
     /// worker holds (empty for none). The data files must be open. The server is whatever the
-    /// worker's WebSocket reaches; the client addresses it at its nominal ports
+    /// worker's WebSocket reaches, at `server`; the client addresses it at its nominal ports
     /// ([`crate::NOMINAL_SERVER`]).
     ///
     /// # Errors
@@ -503,6 +503,7 @@ impl WebPlay {
         webgl_only: bool,
         args: Vec<String>,
         overlay: String,
+        server: String,
     ) -> Result<WebPlay, JsError> {
         let store = store()?;
         let prepared = dereth_render::wgpu::prepare_canvas(canvas, width, height, webgl_only)
@@ -528,6 +529,7 @@ impl WebPlay {
             render_scale,
             &args,
             overlay_path(&overlay),
+            &server,
         )
         .map_err(|e| JsError::new(&e))?;
         let plugins = crate::plugins::packages(&plugins_load());

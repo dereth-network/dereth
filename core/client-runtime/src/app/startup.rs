@@ -322,6 +322,7 @@ impl<S: Shell> App<S> {
             nav_academies: None,
             travel_fizzles: 0,
             published: std::sync::Arc::default(),
+            hinted: std::sync::Arc::default(),
             player_moves: 0,
             hook_player_moves: 0,
             travel_player_moves: 0,

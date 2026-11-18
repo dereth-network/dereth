@@ -174,7 +174,7 @@ async function start(msg) {
   // `?gpu=webgl` draws with WebGL 2 even where the browser has WebGPU.
   return dereth.WebPlay.create(
     msg.canvas, msg.width, msg.height, msg.pageArray, msg.account,
-    msg.password, sequence, params.get('gpu') === 'webgl', args, overlay,
+    msg.password, sequence, params.get('gpu') === 'webgl', args, overlay, msg.server ?? '',
   );
 }
 

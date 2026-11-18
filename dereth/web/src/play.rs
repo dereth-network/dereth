@@ -105,8 +105,8 @@ impl Play {
     /// prepared, and start logging in to `host` as `account`.
     /// `world_args` are what the launcher tells the desktop client about the world on its command
     /// line (its era and systems, the set its world is drawn from, its logon version and rules;
-    /// [`world_config`]), and `overlay` the folder in the browser's storage the world's overlay is
-    /// kept in, when one is kept.
+    /// [`world_config`]), `overlay` the folder in the browser's storage the world's overlay is
+    /// kept in, when one is kept, and `server` the WebSocket address the worker plays over.
     ///
     /// # Errors
     /// A startup step the client treats as fatal, no prepared device, words about the world the
@@ -124,6 +124,7 @@ impl Play {
         render_scale: u32,
         world_args: &[String],
         overlay: Option<PathBuf>,
+        server: &str,
     ) -> Result<Self, String> {
         let preferences_file = crate::settings::preferences_file();
         let mut cfg = Config {
@@ -153,10 +154,12 @@ impl Play {
         ));
         cfg.apply_args(world_args).map_err(|e| e.to_string())?;
         let logon_version = cfg.logon_version.clone();
-        let published = cfg
-            .world_status
-            .as_deref()
-            .and_then(crate::published::Published::new);
+        // What the world publishes, read from its status; a world with none is played through a
+        // relay, which serves the place package of the world's era.
+        let published = match cfg.world_status.as_deref() {
+            Some(status) => crate::published::Published::new(status),
+            None => crate::published::Published::package(server, cfg.era.unwrap_or_default()),
+        };
         // The world is built where the server puts the player, so it waits for world entry, as
         // the desktop client's does when it connects. The profile's scene policy, with the
         // browser's one difference: the WebSocket is not the runtime's socket connection, so the
@@ -265,7 +268,12 @@ impl Play {
     pub fn published_step(&mut self, next: impl FnMut() -> String) -> Option<(u32, String)> {
         let reading = self.published.as_mut()?;
         let now = self.app.clock().local_time;
-        let asked = reading.step(now, next, &self.app.published);
+        let inbox = if reading.hints() {
+            &self.app.hinted
+        } else {
+            &self.app.published
+        };
+        let asked = reading.step(now, next, inbox);
         if reading.done() {
             self.published = None;
         }

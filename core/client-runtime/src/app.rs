@@ -859,6 +859,9 @@ pub struct App<S: Shell> {
     /// the world's status names, `--world-status`): its portal table and its places, each taken
     /// into the travel at the next frame.
     pub published: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    /// The documents of the era's place package, as a host fetched them (the web client's, from
+    /// the relay it plays through): taken into the travel at the next frame as hints.
+    pub hinted: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
     /// How many times the movement stage has carried out the player's own movement of the
     /// character (a key, a stick or a mouse button, under any interface), and how many of those
     /// the frame hook and the travel had heard of when each last ran.
