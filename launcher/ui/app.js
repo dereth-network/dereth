@@ -199,6 +199,14 @@ function eraOptions(chosen) {
   return `<option value="" ${chosen ? "" : "selected"}>Not sure</option>`
     + (ui.snap?.eras ?? []).map((e) => `<option value="${esc(e.name)}" ${chosen === e.name ? "selected" : ""}>${esc(e.label)}</option>`).join("");
 }
+// The era setting of a world the player added: the era the world says it plays, which no setting
+// changes, or else the one the player set, "Not sure" when they set none.
+function eraSetting(world) {
+  const said = world.era_source === "world";
+  const chosen = said ? world.era || "eor" : world.era_source === "player" ? world.era : null;
+  const locked = said ? ` disabled${tipOf(`${world.name} says it plays ${eraLabel(chosen)}.`)}` : "";
+  return `<select id="world-era" class="field" data-slug="${esc(world.slug)}" style="max-width:260px"${locked}>${eraOptions(chosen)}</select>`;
+}
 // The server software and, when the world says it, its version: "ACE | v1.77.4778".
 function emulatorLabel(w) {
   const name = { empyrean: "Empyrean", ace: "ACE", classic_ace: "ClassicACE", gdle: "GDLE", yalain: "Yalain", icefire: "Icefire", unknown: "Unknown" }[w.emulator] ?? w.emulator;
@@ -2009,7 +2017,7 @@ function worldPage() {
   const f = w.form;
 
   const isAc2 = world.game === "auberean";
-  const playersFact = world.players != null ? `${world.players} players` : "players unknown";
+  const playersFact = world.players != null ? `${world.players} ${world.players === 1 ? "player" : "players"}` : "players unknown";
   const facts = [stateLabel(world), playersFact, rulesText(world), eraFact(world), isAc2 ? null : emulatorLabel(world)].filter(Boolean);
   const links = [["Website", world.links.website], ["Discord", world.links.discord], ["Rules", world.links.rules]].filter(([, u]) => u);
   const custom = ui.snap.state.custom_worlds.some((c) => c.slug === world.slug);
@@ -2109,7 +2117,7 @@ function worldPage() {
             <p class="note warn" id="world-note" ${note ? "" : "hidden"}>${esc(note)}</p>
             ${isAc2 ? ac2Client : `${offered("client_choice") ? `<label class="lab">CLIENT</label>${clientRow ?? `<div class="pair">${clientBtn("dereth")}${playsLaunchPair(world) ? "" : clientBtn("retail")}${clientNote}</div>`}` : ""}
             ${dataRow}`}
-            ${custom && !isAc2 ? `<label class="lab" for="world-era">ERA</label><select id="world-era" class="field" data-slug="${esc(world.slug)}" style="max-width:260px">${eraOptions(ui.snap.state.custom_worlds.find((c) => c.slug === world.slug)?.era)}</select>` : ""}
+            ${custom && !isAc2 ? `<label class="lab" for="world-era">ERA</label>${eraSetting(world)}` : ""}
             ${host.worldRows?.(w.view) ?? ""}
           </div>
         </div>

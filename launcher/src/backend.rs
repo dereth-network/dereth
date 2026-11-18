@@ -4915,7 +4915,10 @@ mod tests {
             "the era the player gave it"
         );
         assert!(b.set_custom_world_era(&slug, Some("launch")).is_ok());
-        assert_eq!(b.world(&slug).and_then(|w| w.era).as_deref(), Some("launch"));
+        assert_eq!(
+            b.world(&slug).and_then(|w| w.era).as_deref(),
+            Some("launch")
+        );
         assert!(b.set_custom_world_era(&slug, Some("2003")).is_err());
         b.set_custom_world_era(&slug, None).expect("not said again");
         let v = b.world_view(&slug).unwrap();
@@ -5085,6 +5088,72 @@ mod tests {
         assert_eq!(w.players, Some(4));
         assert_eq!(w.era_source, Some(Told::World));
         assert_eq!(w.features_source, Some(Told::World));
+    }
+
+    /// A world the player added plays the era they set for it only while it says none of its own:
+    /// the era it says wins, whatever is set, and the one set plays again once it says none. The
+    /// era that wins is the one the client is told and whose place package it is given.
+    #[test]
+    fn a_world_added_by_hand_plays_its_own_era_over_the_one_set_for_it() {
+        use dereth_launch::status::LiveStatus;
+        use dereth_launch::world::EraState;
+        // What the client is told the era is, and the era of the place package it is given.
+        let given = |w: &World| {
+            (
+                dereth_launch::launch::describe(w).era,
+                dereth_launch::places::era_of(w).map(|e| e.name()),
+            )
+        };
+        let (mut b, _dir) = backend("own-era");
+        // An Empyrean world on this computer, as a hosted world is added.
+        let slug = b
+            .add_custom_world(&NewServer {
+                host: "127.0.0.1".into(),
+                port: "9000".into(),
+                emulator: Emulator::Empyrean,
+                era: Some("infiltration".into()),
+                ..NewServer::default()
+            })
+            .unwrap();
+        let w = b.world(&slug).unwrap();
+        assert_eq!(
+            (w.era.as_deref(), w.era_source),
+            (Some("infiltration"), Some(Told::Player))
+        );
+        assert_eq!(
+            given(&w),
+            (Some("infiltration".into()), Some("infiltration"))
+        );
+        // Its status says the end of retail.
+        b.live.insert(
+            slug.clone(),
+            LiveStatus {
+                state: WorldState::Online,
+                era: Some("eor".into()),
+                software: Some("Empyrean".into()),
+                ..LiveStatus::default()
+            },
+        );
+        let w = b.world(&slug).unwrap();
+        assert_eq!(
+            (w.era.as_deref(), w.era_source, w.era_state),
+            (Some("eor"), Some(Told::World), EraState::Known)
+        );
+        assert_eq!(given(&w), (Some("eor".into()), Some("eor")));
+        b.set_custom_world_era(&slug, Some("launch")).unwrap();
+        assert_eq!(
+            given(&b.world(&slug).unwrap()),
+            (Some("eor".into()), Some("eor")),
+            "a setting changes nothing the world says"
+        );
+        // Saying none, it plays the one set for it.
+        b.live.get_mut(&slug).unwrap().era = None;
+        let w = b.world(&slug).unwrap();
+        assert_eq!(
+            (w.era.as_deref(), w.era_source),
+            (Some("launch"), Some(Told::Player))
+        );
+        assert_eq!(given(&w), (Some("launch".into()), Some("launch")));
     }
 
     /// A world's era and systems are its own word, and a world that says none plays the end of

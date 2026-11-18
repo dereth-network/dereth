@@ -1770,6 +1770,31 @@ mod tests {
         );
     }
 
+    /// The era setting on the page of a world the player added shows the era the world says it
+    /// plays, and cannot change it; only for a world that says none does it show the era the
+    /// player set, or "Not sure" for none.
+    #[test]
+    fn a_world_added_by_hand_shows_the_era_it_says_in_its_era_setting() {
+        let setting = page_function("eraSetting");
+        for line in [
+            r#"const said = world.era_source === "world";"#,
+            r#"const chosen = said ? world.era || "eor" : world.era_source === "player" ? world.era : null;"#,
+            "const locked = said ? ` disabled",
+            "${locked}>${eraOptions(chosen)}</select>",
+        ] {
+            assert!(setting.contains(line), "{line}");
+        }
+        let page = page_function("worldPage");
+        assert!(
+            page.contains(r#"<label class="lab" for="world-era">ERA</label>${eraSetting(world)}"#),
+            "the world page draws it for the world as shown"
+        );
+        assert!(
+            !page.contains("custom_worlds.find((c) => c.slug === world.slug)?.era"),
+            "what the player set is not the world's era"
+        );
+    }
+
     fn page_function(name: &str) -> &'static str {
         let page = include_str!("../ui/app.js");
         let at = page

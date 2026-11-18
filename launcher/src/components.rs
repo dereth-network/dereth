@@ -2565,7 +2565,10 @@ mod tests {
             }
 
             let client = downloaded(&root, Product::Dereth).expect("the copy is the client");
-            let tool = root.join("components/dereth/0.4.9").join(tool_at).join(&art);
+            let tool = root
+                .join("components/dereth/0.4.9")
+                .join(tool_at)
+                .join(&art);
             assert_eq!(tool, client.with_file_name(&art), "beside the client");
             assert_eq!(std::fs::read(&tool).unwrap(), b"art");
         }
@@ -2592,7 +2595,11 @@ mod tests {
         }
 
         assert_eq!(std::fs::read(client.with_file_name(&art)).unwrap(), b"art");
-        assert_eq!(std::fs::read(&client).unwrap(), b"the copy's own", "nothing else is copied over");
+        assert_eq!(
+            std::fs::read(&client).unwrap(),
+            b"the copy's own",
+            "nothing else is copied over"
+        );
     }
 
     /// A release file holds the relay and its license where a copied client has them, whichever way

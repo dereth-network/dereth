@@ -408,12 +408,16 @@
   const needsPrivate = (w) => !!w.dats.patches_over_wire || !!w.dats.custom;
   const setsFor = (w) => state.dat_sets.filter((s) => s.kind !== "classic").filter((s) => (s.origin.kind === "world" ? s.origin.slug === w.slug : s.origin.kind === "custom" ? !!w.dats.custom : !needsPrivate(w)));
 
+  // What a world the player added says of itself when asked, by its address: the Empyrean world on
+  // this computer says its era, which wins over any the player set.
+  const answers = { "127.0.0.1:9000": { emulator: "empyrean", state: "online", players: 2, era: "eor", era_source: "world", era_state: "known" } };
   // Every world, each marked a favorite when the player starred it, as the launcher marks them.
   const allWorlds = () => [...worlds, ...state.custom_worlds.map((c) => ({
     ...world(c.slug, c.name, c.emulator ?? "unknown", "unknown", null, c.ruleset ?? null, { game: c.game ?? "dereth" }),
     endpoint: { address: c.host, port: c.port, transport: null },
     description: `Added by you: ${c.host}:${c.port}`, development_status: null, game: c.game ?? "dereth",
     ...(c.era ? { era: c.era, era_source: "player", era_state: "known" } : {}),
+    ...(answers[`${c.host}:${c.port}`] ?? {}),
   }))].map((w) => ({ ...w, favorite: (state.favorite_worlds ?? []).includes(w.slug) }));
 
   // Empyrean and Lyceum as GitHub lists them, and what is here. `?dev=1` is a development build with

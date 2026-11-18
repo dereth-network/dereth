@@ -10,7 +10,7 @@ section, dated, and opens a new empty one in the same commit as the version.
 
 ## Unreleased
 - The Navigator knows the portals and towns of the era your world plays.
-- Worlds you add yourself can be set to Launch, Infiltration or the end of retail.
+- Worlds you add yourself can be set to Launch, Infiltration or the end of retail, unless they say their own.
 - The Asheron's Call 2 side no longer says it is in its infancy.
 - Library: the Asheron's Call 2 art pack's ground no longer carries the heavy detail grain.
 - Asheron's Call 2 worlds show and filter by their rules: Standard, KvK or FFA.
