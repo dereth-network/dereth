@@ -17,6 +17,11 @@
 //! broken by the change fails here -- but not tested: their tests are `ci tier0`'s. A change to a
 //! workspace-level file (`Cargo.toml`, `Cargo.lock`, `clippy.toml`, `.cargo/config.toml`) lints
 //! every crate for the same reason.
+//!
+//! A few tests check one crate's files against another's: [`WATCHERS`] names them, and a change
+//! to a crate or file one watches runs that one's tests too, though its own crate is only a
+//! reverse dependent (or no crate at all holds the file); a crate named with `-p` runs them the
+//! same. Athenaeum's format reference is checked so against the rows the server reads.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -36,6 +41,64 @@ const WORKSPACE_FILES: &[&str] = &[
     "rustfmt.toml",
     ".cargo/config.toml",
 ];
+
+/// Tests in one crate that check what another crate, or a file outside every crate, holds.
+struct Watcher {
+    /// The crate whose tests these are.
+    package: &'static str,
+    /// The test target, a folder of `tests/` with a `main.rs`.
+    test: &'static str,
+    /// The target's module holding the tests, run by its path as a filter.
+    module: &'static str,
+    /// The crates whose change runs them.
+    crates: &'static [&'static str],
+    /// The files, relative to the workspace, whose change runs them.
+    files: &'static [&'static str],
+}
+
+/// Every watcher. Athenaeum's format reference describes the world database's rows, kinds and
+/// fields, and its tests check it names every one the server reads.
+const WATCHERS: &[Watcher] = &[Watcher {
+    package: "athenaeum-foundry",
+    test: "cpu",
+    module: "format",
+    crates: &["yalain-world-db"],
+    files: &["athenaeum/FORMAT.md"],
+}];
+
+impl Watcher {
+    /// `cargo test`'s arguments after the profile: the target and its module.
+    fn test_args(&self) -> Vec<String> {
+        [
+            "-p",
+            self.package,
+            "--test",
+            self.test,
+            "--",
+            &format!("{}::", self.module),
+        ]
+        .map(str::to_owned)
+        .to_vec()
+    }
+}
+
+/// The watchers a change runs: one watching a tested crate or a changed file (relative to the
+/// workspace, normalised), whose own crate `game` covers and is not tested whole already.
+fn watching<'w>(
+    watchers: &'w [Watcher],
+    tested: &BTreeSet<String>,
+    files: &[String],
+    game: Game,
+) -> Vec<&'w Watcher> {
+    watchers
+        .iter()
+        .filter(|w| !tested.contains(w.package) && game.covers(w.package))
+        .filter(|w| {
+            w.crates.iter().any(|c| tested.contains(*c))
+                || w.files.iter().any(|f| files.contains(&norm(f)))
+        })
+        .collect()
+}
 
 fn git(dir: &Path, args: &[&str]) -> Option<String> {
     let out = Command::new("git")
@@ -312,6 +375,7 @@ pub fn check(args: &[String]) -> i32 {
     let all: BTreeSet<String> = meta.dirs.iter().map(|(n, _)| n.clone()).collect();
 
     let named = packages(args);
+    let mut relative: Vec<String> = Vec::new();
     let (tested, linted) = if named.is_empty() {
         let Some(base) = base_ref(&ws, value_of(args, "--base")) else {
             eprintln!(
@@ -333,7 +397,13 @@ pub fn check(args: &[String]) -> i32 {
             "check: {} file(s) changed since {base} (merge base {short})",
             files.len()
         );
-        let sel = select(&files, &norm(&ws.to_string_lossy()), &meta.dirs);
+        let ws_dir = norm(&ws.to_string_lossy());
+        relative = files
+            .iter()
+            .filter_map(|f| f.strip_prefix(&format!("{ws_dir}/")))
+            .map(str::to_owned)
+            .collect();
+        let sel = select(&files, &ws_dir, &meta.dirs);
         let mut linted = sel.changed.clone();
         if sel.workspace_file {
             println!("  a workspace-level file changed: clippy covers every crate");
@@ -379,6 +449,14 @@ pub fn check(args: &[String]) -> i32 {
         );
     }
 
+    let watchers = watching(WATCHERS, &tested, &relative, game);
+    for w in &watchers {
+        println!(
+            "  also tested, for what it checks: {}'s {}::",
+            w.package, w.module
+        );
+    }
+
     let mut reports = Vec::new();
     if !linted.is_empty() {
         let argv = clippy_args(&linted, &meta.retail_dats, &meta.retail_corpus);
@@ -396,6 +474,17 @@ pub fn check(args: &[String]) -> i32 {
             "cargo test",
             run(&ws, "cargo", &argv),
             format!("{} crate(s), no data", tested.len()),
+        ));
+    }
+    for w in &watchers {
+        let rest = w.test_args();
+        let mut argv = vec!["test"];
+        argv.extend_from_slice(profile.cargo_args());
+        argv.extend(rest.iter().map(String::as_str));
+        reports.push(step(
+            format!("cargo test {} {}::", w.package, w.module),
+            run(&ws, "cargo", &argv),
+            "what it checks changed",
         ));
     }
     reports.extend(crate::cheap_lints());
@@ -550,6 +639,86 @@ mod tests {
         let corpus = set(&["dereth-client"]);
         assert!(clippy_args(&linted, &with, &corpus).contains(&"retail-dats,retail-corpus"));
         assert!(clippy_args(&linted, &set(&[]), &corpus).contains(&"retail-corpus"));
+    }
+
+    /// **A change to the world database's crate or to Athenaeum's format reference tests the
+    /// format reference**, and a change elsewhere does not; nor does one whose crate is tested
+    /// whole already, or one `--game` leaves the watcher out of.
+    #[test]
+    fn a_change_to_the_rows_athenaeum_describes_runs_its_format_tests() {
+        let set = |names: &[&str]| -> BTreeSet<String> {
+            names.iter().map(|s| (*s).to_owned()).collect()
+        };
+        let packages = |ws: Vec<&Watcher>| ws.iter().map(|w| w.package).collect::<Vec<_>>();
+        let rows = set(&["yalain-world-db"]);
+        assert_eq!(
+            packages(watching(WATCHERS, &rows, &[], Game::All)),
+            ["athenaeum-foundry"]
+        );
+        let reference = files(&["athenaeum/FORMAT.md"]);
+        assert_eq!(
+            packages(watching(WATCHERS, &set(&[]), &reference, Game::Auberean)),
+            ["athenaeum-foundry"],
+            "the reference is in no crate"
+        );
+        let format = watching(WATCHERS, &rows, &[], Game::All)[0];
+        assert_eq!(
+            format.test_args(),
+            ["-p", "athenaeum-foundry", "--test", "cpu", "--", "format::"]
+        );
+
+        // Negative controls.
+        let elsewhere = set(&["yalain-world", "dereth-dat"]);
+        let notes = files(&["athenaeum/README.md", "yalain/CHANGES.md"]);
+        assert!(watching(WATCHERS, &elsewhere, &notes, Game::All).is_empty());
+        let whole = set(&["yalain-world-db", "athenaeum-foundry"]);
+        assert!(
+            watching(WATCHERS, &whole, &[], Game::All).is_empty(),
+            "its crate's tests run whole"
+        );
+        assert!(watching(WATCHERS, &rows, &reference, Game::Dereth).is_empty());
+    }
+
+    /// **Every watcher names crates, a test module and files that exist**, so a rename can't
+    /// leave it running no tests.
+    #[test]
+    fn every_watcher_names_tests_and_files_that_exist() {
+        let root = workspace_root();
+        let workspace = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
+        // A workspace crate's directory, from its line in the workspace's dependencies.
+        let dir_of = |name: &str| -> Option<String> {
+            let line = workspace
+                .lines()
+                .find(|l| l.starts_with(&format!("{name} = ")))?;
+            Some(
+                line.split("path = \"")
+                    .nth(1)?
+                    .split('"')
+                    .next()?
+                    .to_owned(),
+            )
+        };
+        for w in WATCHERS {
+            let dir =
+                dir_of(w.package).unwrap_or_else(|| panic!("{} is a workspace crate", w.package));
+            let target = root.join(dir).join("tests").join(w.test);
+            let main = std::fs::read_to_string(target.join("main.rs"))
+                .unwrap_or_else(|e| panic!("{}'s {}: {e}", w.package, w.test));
+            assert!(
+                main.contains(&format!("mod {};", w.module)),
+                "{}'s {} declares mod {}",
+                w.package,
+                w.test,
+                w.module
+            );
+            assert!(target.join(format!("{}.rs", w.module)).is_file());
+            for f in w.files {
+                assert!(root.join(f).is_file(), "{f}");
+            }
+            for c in w.crates {
+                assert!(dir_of(c).is_some(), "{c} is a workspace crate");
+            }
+        }
     }
 
     /// `-p` is read wherever it appears, in either spelling.
