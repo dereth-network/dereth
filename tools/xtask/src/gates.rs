@@ -22,23 +22,64 @@ pub mod auberean;
 use crate::sweep::{self, Out, ShardOpts};
 use crate::util::{
     print_table, retail_data_available, retail_dir_searched, retail_shortfall, run, run_captured,
-    workspace_root, NotRun, Outcome, Profile, Report,
+    workspace_root, world_database_shortfall, NotRun, Outcome, Profile, Report,
 };
 
 /// One extra harness: a description, the command (a program and its arguments, run from the
-/// workspace root), and **whether that harness reads the retail dats**.
+/// workspace root), and **what that harness reads** ([`Needs`]).
 ///
-/// The flag lives here, on the harness, and not on the [`Gate`]. *"Reads the retail
+/// What it needs lives here, on the harness, and not on the [`Gate`]. *"Reads the retail
 /// dats"* is a property of a script, and a gate can hold several scripts that differ. A per-gate
-/// bool cannot express each harness's requirements. With one flag for the whole gate, adding
+/// flag cannot express each harness's requirements. With one for the whole gate, adding
 /// a dat-free harness to the dat gate would stop it running on a dat-less host in silence, and
 /// adding a dat-reading harness to any other gate would run it and fail confusingly. Neither is
 /// expressible: the condition is a question asked of each harness rather than a list maintained
 /// by hand.
 ///
-/// The catalogue currently holds no harness at all (the dat-reading oracles are the `dat` tiers
-/// of `dereth-dat` and `dereth-assets`); the mechanism stays for the next one.
-pub type Harness = (&'static str, &'static [&'static str], bool);
+/// The catalogue holds one harness: the Navigator's acceptance per era, which reads each era's
+/// public world database as well as its data files (the other dat-reading oracles are the `dat`
+/// tiers of `dereth-dat` and `dereth-assets`).
+pub type Harness = (&'static str, &'static [&'static str], Needs);
+
+/// What a harness reads, beyond the repository.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Needs {
+    /// Nothing outside the repository.
+    Nothing,
+    /// The retail dats ([`retail_data_available`]). No harness in the catalogue needs the dats
+    /// alone today; the kind stays for the next one, as the mechanism did.
+    #[cfg_attr(not(test), allow(dead_code))]
+    RetailDats,
+    /// The retail dats, each era's data files and each era's public world database
+    /// ([`world_database_shortfall`]).
+    WorldDatabases,
+}
+
+/// What this host holds of what harnesses read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Present {
+    pub dats: bool,
+    pub world_databases: bool,
+}
+
+impl Present {
+    /// What this host holds.
+    pub fn here() -> Self {
+        Self {
+            dats: retail_data_available().is_some(),
+            world_databases: world_database_shortfall().is_empty(),
+        }
+    }
+
+    /// Whether a harness that needs `needs` can run here.
+    pub fn has(self, needs: Needs) -> bool {
+        match needs {
+            Needs::Nothing => true,
+            Needs::RetailDats => self.dats,
+            Needs::WorldDatabases => self.dats && self.world_databases,
+        }
+    }
+}
 
 pub struct Gate {
     /// What `cargo xtask gate <name>` selects: the area the gate checks, in one word.
@@ -62,7 +103,9 @@ impl Gate {
     /// Derived, never declared, so a gate that declares `needs_retail` while holding no retail
     /// harness is unrepresentable rather than something a test has to pin against.
     pub fn needs_retail(&self) -> bool {
-        self.harnesses.iter().any(|(_, _, retail)| *retail)
+        self.harnesses
+            .iter()
+            .any(|(_, _, needs)| *needs != Needs::Nothing)
     }
 }
 
@@ -98,7 +141,23 @@ pub const GATES: &[Gate] = &[
         title: "Physics + collision",
         // Navigation's routes are checked by walking them through the physics world.
         crates: &["dereth-physics", "dereth-navigation"],
-        harnesses: &[],
+        harnesses: &[(
+            "the Navigator's acceptance per era (dereth-navigation eras: each era's world \
+             database and data files)",
+            &[
+                "cargo",
+                "test",
+                "--profile",
+                "test-release",
+                "-p",
+                "dereth-navigation",
+                "--features",
+                "retail-dats,world-databases",
+                "--test",
+                "eras",
+            ],
+            Needs::WorldDatabases,
+        )],
     },
     Gate {
         name: "animation",
@@ -568,10 +627,10 @@ fn tests_run(output: &str) -> usize {
 /// Nothing here is re-derived
 /// in the test module either -- a test that re-states the predicate it is checking agrees with
 /// itself for ever.
-fn harness_split(gate: &Gate, dats_present: bool) -> (Vec<&Harness>, Vec<&Harness>) {
+fn harness_split(gate: &Gate, present: Present) -> (Vec<&Harness>, Vec<&Harness>) {
     gate.harnesses
         .iter()
-        .partition(|(_, _, retail)| dats_present || !*retail)
+        .partition(|(_, _, needs)| present.has(*needs))
 }
 
 /// Run one gate, its tests built in `profile`. `threads` decides only how the binaries in
@@ -604,7 +663,7 @@ pub fn run_gate(gate: &Gate, threads: Threads, profile: Profile, gpu: GpuTier) -
     // The oracle half, per harness. Run everything this host CAN run first: a
     // harness that ran and failed outranks one that could not run, and reporting NO-ORACLE while a
     // runnable sibling was sitting there red would hide a real failure behind an absence.
-    let (runnable, unrunnable) = harness_split(gate, retail_data_available().is_some());
+    let (runnable, unrunnable) = harness_split(gate, Present::here());
 
     for (desc, argv, _) in &runnable {
         let (ok, out) = run_captured(&ws, argv[0], &argv[1..]);
@@ -626,19 +685,32 @@ pub fn run_gate(gate: &Gate, threads: Threads, profile: Profile, gpu: GpuTier) -
     // the harnesses that did not run -- only those, not every harness of the gate.
     if !unrunnable.is_empty() {
         let dir = retail_dir_searched();
-        let missing = retail_shortfall(&dir).join(", ");
+        let mut missing: Vec<String> = Vec::new();
+        let dats = retail_shortfall(&dir);
+        if !dats.is_empty() {
+            missing.push(format!(
+                "under {}: {}. Set DERETH_TEST_DAT_DIR to the directory holding them",
+                dir.display(),
+                dats.join(", ")
+            ));
+        }
+        if unrunnable
+            .iter()
+            .any(|(_, _, n)| *n == Needs::WorldDatabases)
+        {
+            missing.extend(world_database_shortfall());
+        }
         let unrun: Vec<&str> = unrunnable.iter().map(|(desc, _, _)| *desc).collect();
         return Report::new(
             gate.label(),
             Outcome::NotRun(NotRun::OracleAbsent),
             format!(
                 "{total} unit test(s) and {} harness(es) passed, then {} ORACLE HARNESS(ES) DID \
-                 NOT RUN: {}. Missing under {}: {missing}. Set DERETH_TEST_DAT_DIR to the \
-                 directory holding them.",
+                 NOT RUN: {}. Missing: {}.",
                 runnable.len(),
                 unrun.len(),
                 unrun.join(" | "),
-                dir.display(),
+                missing.join("; "),
             ),
         );
     }
@@ -715,9 +787,9 @@ mod tests {
                 (
                     "the retail one (reads client_cell_1.dat)",
                     &["a-harness"],
-                    true,
+                    Needs::RetailDats,
                 ),
-                ("the dat-free one", &["b-harness"], false),
+                ("the dat-free one", &["b-harness"], Needs::Nothing),
             ],
         }
     }
@@ -726,24 +798,25 @@ mod tests {
     #[test]
     fn the_gate_catalogue_is_what_this_unit_measured() {
         assert_eq!(GATES.len(), 18, "eighteen areas");
-        let harnesses: usize = GATES.iter().map(|g| g.harnesses.len()).sum();
-        assert_eq!(harnesses, 0, "every oracle is a crate's own test tier");
-        let retail_harnesses: Vec<&str> = GATES
+        let harnesses: Vec<(&str, Needs)> = GATES
             .iter()
-            .flat_map(|g| g.harnesses.iter())
-            .filter(|(_, _, r)| *r)
-            .map(|(desc, _, _)| *desc)
+            .flat_map(|g| g.harnesses.iter().map(move |h| (g.name, h.2)))
             .collect();
-        assert!(
-            retail_harnesses.is_empty(),
-            "no HARNESS reads the retail dats since the last cell reader was retired"
+        assert_eq!(
+            harnesses,
+            [("physics", Needs::WorldDatabases)],
+            "every other oracle is a crate's own test tier"
         );
         let retail: Vec<&str> = GATES
             .iter()
             .filter(|g| g.needs_retail())
             .map(|g| g.name)
             .collect();
-        assert!(retail.is_empty(), "so no gate derives needs_retail");
+        assert_eq!(
+            retail,
+            ["physics"],
+            "the gate holding the era acceptance, and no other, derives needs_retail"
+        );
         let names: Vec<&str> = GATES.iter().map(|g| g.name).collect();
         let mut sorted = names.clone();
         sorted.sort_unstable();
@@ -760,7 +833,15 @@ mod tests {
     /// A retail harness with no dats is an oracle that went unconsulted.
     #[test]
     fn a_retail_harness_with_no_dats_is_an_oracle_that_went_unconsulted() {
-        assert!(!harness_split(&mixed_gate(), false).1.is_empty());
+        assert!(!harness_split(
+            &mixed_gate(),
+            Present {
+                dats: false,
+                world_databases: false
+            }
+        )
+        .1
+        .is_empty());
         assert!(
             Outcome::NotRun(NotRun::OracleAbsent).is_failure(),
             "and that outcome must redden the run"
@@ -772,14 +853,38 @@ mod tests {
     fn a_gate_that_needs_no_dats_is_not_reddened_by_their_absence() {
         let g = find("transport").expect("gate");
         assert!(
-            harness_split(&mixed_gate(), true).1.is_empty(),
+            harness_split(
+                &mixed_gate(),
+                Present {
+                    dats: true,
+                    world_databases: false
+                }
+            )
+            .1
+            .is_empty(),
             "dats present: the oracle is consulted"
         );
         assert!(
-            harness_split(g, false).1.is_empty(),
+            harness_split(
+                g,
+                Present {
+                    dats: false,
+                    world_databases: false
+                }
+            )
+            .1
+            .is_empty(),
             "the transport gate never needed the dats"
         );
-        assert!(harness_split(g, true).1.is_empty());
+        assert!(harness_split(
+            g,
+            Present {
+                dats: true,
+                world_databases: false
+            }
+        )
+        .1
+        .is_empty());
         assert!(!Outcome::NotRun(NotRun::Unhostable).is_failure());
         assert!(!Outcome::NotRun(NotRun::NotBuilt).is_failure());
     }
@@ -789,7 +894,13 @@ mod tests {
     fn a_mixed_gate_runs_the_harness_it_can_and_reports_only_the_one_it_cannot() {
         let mixed = mixed_gate();
 
-        let (runnable, unrunnable) = harness_split(&mixed, false);
+        let (runnable, unrunnable) = harness_split(
+            &mixed,
+            Present {
+                dats: false,
+                world_databases: false,
+            },
+        );
         assert_eq!(
             runnable.len(),
             1,
@@ -803,17 +914,39 @@ mod tests {
         );
         assert_eq!(unrunnable[0].0, "the retail one (reads client_cell_1.dat)");
         assert!(
-            !harness_split(&mixed, false).1.is_empty(),
+            !harness_split(
+                &mixed,
+                Present {
+                    dats: false,
+                    world_databases: false
+                }
+            )
+            .1
+            .is_empty(),
             "one unconsulted oracle still reddens"
         );
 
         // **Negative control**: with the dats present nothing is held back, and every harness is
         // in the runnable half. A split that put a retail harness aside regardless of the dats
         // would pass the calibration above and fail here.
-        let (runnable, unrunnable) = harness_split(&mixed, true);
+        let (runnable, unrunnable) = harness_split(
+            &mixed,
+            Present {
+                dats: true,
+                world_databases: false,
+            },
+        );
         assert_eq!(runnable.len(), 2);
         assert!(unrunnable.is_empty());
-        assert!(harness_split(&mixed, true).1.is_empty());
+        assert!(harness_split(
+            &mixed,
+            Present {
+                dats: true,
+                world_databases: false
+            }
+        )
+        .1
+        .is_empty());
     }
 
     /// The present catalogue behaves exactly as it did before the flag moved.
@@ -821,24 +954,58 @@ mod tests {
     fn the_present_catalogue_behaves_exactly_as_it_did_before_the_flag_moved() {
         for dats in [false, true] {
             for g in GATES {
-                let (runnable, unrunnable) = harness_split(g, dats);
+                let present = Present {
+                    dats,
+                    world_databases: dats,
+                };
+                let (runnable, unrunnable) = harness_split(g, present);
                 assert_eq!(
                     runnable.len() + unrunnable.len(),
                     g.harnesses.len(),
                     "gate {} lost a harness in the split",
                     g.name
                 );
-                // No gate holds a retail harness today, so none can hold anything back.
-                let expected_unrun = 0;
+                // The era acceptance, the one harness, is held back without its inputs; nothing
+                // else ever is.
+                let expected_unrun = usize::from(g.name == "physics" && !dats);
                 assert_eq!(
                     unrunnable.len(),
                     expected_unrun,
                     "gate {} with dats={dats} changed behaviour",
                     g.name
                 );
-                assert_eq!(!harness_split(g, dats).1.is_empty(), expected_unrun > 0);
             }
         }
+    }
+
+    /// A harness that reads the world databases runs only where the dats and the databases both
+    /// are; one that needs only the dats is not held back by the databases.
+    #[test]
+    fn the_era_acceptance_runs_only_where_its_world_databases_and_dats_are() {
+        let era = Needs::WorldDatabases;
+        for (dats, world_databases, runs) in [
+            (false, false, false),
+            (true, false, false),
+            (false, true, false),
+            (true, true, true),
+        ] {
+            let present = Present {
+                dats,
+                world_databases,
+            };
+            assert_eq!(present.has(era), runs, "{present:?}");
+            assert_eq!(present.has(Needs::RetailDats), dats);
+            assert!(present.has(Needs::Nothing));
+        }
+        let g = find("physics").expect("gate");
+        let (_, held) = harness_split(
+            g,
+            Present {
+                dats: true,
+                world_databases: false,
+            },
+        );
+        assert_eq!(held.len(), 1, "the dats alone are not enough");
     }
 
     /// Needs retail is derived from the harnesses.
@@ -860,7 +1027,7 @@ mod tests {
         for g in GATES {
             assert_eq!(
                 g.needs_retail(),
-                g.harnesses.iter().any(|(_, _, r)| *r),
+                g.harnesses.iter().any(|(_, _, n)| *n != Needs::Nothing),
                 "gate {} derives its flag from something other than its harnesses",
                 g.name
             );

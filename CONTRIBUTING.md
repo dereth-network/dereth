@@ -10,7 +10,7 @@ games:
 | While working, before each commit | `cargo xtask check` | nothing | 1-2 minutes |
 | Before pushing or opening a PR | `cargo xtask ci tier0` | nothing | about 3 minutes |
 | When a test might lean on data you have | `cargo xtask ci no-data` | nothing | a few minutes |
-| With the retail data | `cargo xtask ci tier1` | the dats, `world.pack` and ACE's world dump; Asheron's Call 2's data files and capture index (below) | about 20 minutes |
+| With the retail data | `cargo xtask ci tier1` | the dats, `world.pack`, ACE's world dump and each era's world database; Asheron's Call 2's data files and capture index (below) | about 20 minutes |
 | On hardware | `cargo xtask ci tier2` | a graphics device and the dats | -- |
 
 **One game.** Each of these covers Asheron's Call (Dereth, Empyrean, Lyceum, the shared crates and
@@ -96,6 +96,13 @@ The tests of the older eras read four more, also with no default unless noted:
   and the Launch world's SQL, which the era places tests build each era's places from (default: the
   per-user world-database cache, where `cargo run -p dereth-places -- fetch --era infiltration` and
   `--era launch` keep them).
+- `DERETH_TEST_WORLD_DATABASES`: the folder holding the three eras' world databases, which the
+  Navigator's acceptance per era (`dereth-navigation`'s `eras` target, a harness of the `physics`
+  gate) builds each era's places from, with `DERETH_TEST_PRETOD_DAT_DIR` and the `1999-10-09`
+  capture for the older eras' data files. Default: the per-user world-database cache Empyrean's
+  import shares. Fetch them once (about 290 MB):
+  `cargo run -p dereth-places -- fetch --era eor`, then `--era infiltration` and `--era launch`.
+  Without any of them, `ci tier1` reports the `physics` gate NO-ORACLE, naming each one missing.
 
 Asheron's Call 2's tests (`auberean`, `yalain`, `athenaeum` and `core/auberean-*`) read two of
 their own, also with no default; `cargo xtask ci tier1` runs its data tiers with them

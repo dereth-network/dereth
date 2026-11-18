@@ -391,6 +391,91 @@ pub fn retail_shortfall(dir: &Path) -> Vec<&'static str> {
         .collect()
 }
 
+/// Where the era acceptance reads the world databases: `$DERETH_TEST_WORLD_DATABASES`, else the
+/// per-user folder Empyrean's import tool and `dereth-places` keep them in.
+pub fn world_databases_dir() -> Option<PathBuf> {
+    if let Some(d) = std::env::var_os("DERETH_TEST_WORLD_DATABASES") {
+        return Some(PathBuf::from(d));
+    }
+    let var = |name: &str| {
+        std::env::var_os(name)
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+    };
+    if cfg!(windows) {
+        var("LOCALAPPDATA").map(|d| d.join("Empyrean").join("world-database"))
+    } else if cfg!(target_os = "macos") {
+        var("HOME").map(|h| h.join("Library/Caches/Empyrean/world-database"))
+    } else {
+        var("XDG_CACHE_HOME")
+            .or_else(|| var("HOME").map(|h| h.join(".cache")))
+            .map(|d| d.join("empyrean").join("world-database"))
+    }
+}
+
+/// What the era acceptance reads that this host lacks, each with what provides it: each era's world
+/// database (`dereth-places fetch --era <era>` fills the folder), February 2005's data files
+/// (`DERETH_TEST_PRETOD_DAT_DIR`) and the October 1999 capture (`DERETH_TEST_DAT_CAPTURES_DIR`).
+/// Empty when it has them all.
+pub fn world_database_shortfall() -> Vec<String> {
+    let mut out = Vec::new();
+    match world_databases_dir() {
+        None => out.push(String::from(
+            "no world-database folder (set DERETH_TEST_WORLD_DATABASES, or LOCALAPPDATA/HOME)",
+        )),
+        Some(dir) => {
+            for db in dereth_world_places::eras::ALL {
+                let era = db.era.name();
+                let there = if db.pinned() {
+                    dir.join(db.sql_name(db.tag)).is_file()
+                } else {
+                    std::fs::read_dir(&dir).is_ok_and(|entries| {
+                        entries.flatten().any(|e| {
+                            e.file_name().to_str().is_some_and(|n| {
+                                n.starts_with(db.asset_prefix) && n.ends_with(".sql")
+                            })
+                        })
+                    })
+                };
+                if !there {
+                    let name = if db.pinned() {
+                        db.sql_name(db.tag)
+                    } else {
+                        format!("{}<newest>.sql", db.asset_prefix)
+                    };
+                    out.push(format!(
+                        "{} in {} (`dereth-places fetch --era {era}` fills it)",
+                        name,
+                        dir.display()
+                    ));
+                }
+            }
+        }
+    }
+    let pair = |dir: &Path| dir.join("portal.dat").is_file() && dir.join("cell.dat").is_file();
+    match std::env::var_os("DERETH_TEST_PRETOD_DAT_DIR").map(PathBuf::from) {
+        Some(d) if pair(&d) => {}
+        Some(d) => out.push(format!(
+            "February 2005's portal.dat and cell.dat in {} (DERETH_TEST_PRETOD_DAT_DIR)",
+            d.display()
+        )),
+        None => out.push(String::from(
+            "February 2005's data files (set DERETH_TEST_PRETOD_DAT_DIR)",
+        )),
+    }
+    match std::env::var_os("DERETH_TEST_DAT_CAPTURES_DIR").map(PathBuf::from) {
+        Some(d) if pair(&d.join("1999-10-09")) => {}
+        Some(d) => out.push(format!(
+            "October 1999's portal.dat and cell.dat in {} (DERETH_TEST_DAT_CAPTURES_DIR)",
+            d.join("1999-10-09").display()
+        )),
+        None => out.push(String::from(
+            "October 1999's data files (set DERETH_TEST_DAT_CAPTURES_DIR)",
+        )),
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

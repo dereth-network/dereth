@@ -26,6 +26,8 @@ regex = "1"
 toml.workspace = true
 # Where the gates look for the retail dats: the same lookup the tests they run use.
 dereth-dat = { workspace = true, features = ["test-support"] }
+# Where each era's world database is published, for the era acceptance's inputs.
+dereth-world-places.workspace = true
 
 # `package`: the release archives (a .zip for Windows, a .tar.gz elsewhere, with the same
 # zlib-rs deflate the importer already builds) and their checksums.

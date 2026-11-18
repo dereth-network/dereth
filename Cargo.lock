@@ -7285,6 +7285,7 @@ dependencies = [
  "dereth-dat",
  "dereth-launch",
  "dereth-plugin-package",
+ "dereth-world-places",
  "flate2",
  "minisign",
  "minisign-verify",

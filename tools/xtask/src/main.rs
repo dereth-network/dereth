@@ -1,11 +1,12 @@
 //! The workspace task runner: the gate tiers, the clippy policy, the seams and the checks clippy
 //! cannot express.
 //!
-//! **Depends on** four of the workspace's crates: `dereth-dat`, for the tests' lookup of the retail
-//! dats (`dereth_dat::testing`); `dereth-plugin-package`, to pack and list Dereth's own plugin
-//! source (`package plugins`); and `dereth-assets` and `dereth-art-catalog`, to read packed art packs
-//! and list Dereth's own art pack source (`package art`). Otherwise it runs `cargo` and reads the
-//! workspace's files.
+//! **Depends on** five of the workspace's crates: `dereth-dat`, for the tests' lookup of the retail
+//! dats (`dereth_dat::testing`); `dereth-world-places`, for where each era's world database is
+//! kept, which the era acceptance reads; `dereth-plugin-package`, to pack and list Dereth's own
+//! plugin source (`package plugins`); and `dereth-assets` and `dereth-art-catalog`, to read packed
+//! art packs and list Dereth's own art pack source (`package art`). Otherwise it runs `cargo` and
+//! reads the workspace's files.
 //! **Used by**
 //! nothing: it is the `cargo xtask` binary (the alias is in `.cargo/config.toml`).
 //!
@@ -767,6 +768,15 @@ fn tier1_first_game(args: &[String], profile: Profile, game: Game) -> Vec<Report
              era report NO-ORACLE. Build it with `cargo run -p empyrean-import -- fetch --world 16py \
              --pack --out world.pack.infiltration`, or set EMPYREAN_TEST_INFILTRATION_PACK to it."
         ),
+    }
+    let world_databases = crate::util::world_database_shortfall();
+    if world_databases.is_empty() {
+        println!("the eras' world databases and data files found");
+    } else {
+        println!(
+            "the eras' world databases or data files NOT found; the physics gate's era acceptance              reports NO-ORACLE. Missing: {}.",
+            world_databases.join("; ")
+        );
     }
     match server::world_sql() {
         Some(p) => println!("ACE's world dump found at {}", p.display()),
