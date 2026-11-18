@@ -1130,7 +1130,16 @@ pub fn update_player_position(
                     }
                 }
 
-                if verify_contact && crate::world_objects::player::is_jumping(w, this) {
+                // DIVERGE (V550): with the server's own movement, a body slides and falls by
+                // itself (on a hillside too steep to walk as much as in the air), so whether it is
+                // off the ground and moving no longer tells a climb from a hack: the report itself
+                // must have nothing under it ([`report_is_floating`]).
+                let off_ground = if server_moves(w, this) {
+                    report_is_floating(w, h, &new_position)
+                } else {
+                    crate::world_objects::player::is_jumping(w, this)
+                };
+                if verify_contact && off_ground {
                     let last_ground_pos = crate::world_objects::player::fields(w, this)
                         .last_ground_pos
                         .expect("checked above");
@@ -1351,6 +1360,27 @@ pub const POSITION_HEARTBEAT_SECONDS: f64 = 1.0;
 /// Not ACE's (retail captures, V550): how often the player itself gets that position, with the
 /// `player_own_position_heartbeat` option on: retail's 0.5 s.
 pub const OWN_POSITION_HEARTBEAT_SECONDS: f64 = 0.5;
+
+/// Not ACE's (V550): how far below a report [`report_is_floating`] looks for something to stand
+/// on, in meters: more than a jump rises.
+pub const FLOATING_PROBE: f32 = 2.0;
+
+/// Not ACE's (V550): whether a report has nothing under it: the player's body swept straight down
+/// from it [`FLOATING_PROBE`] meters meets no ground, slope, building or object. ACE's height check
+/// asks this of the body (`IsJumping`); a body the server moves can be off the ground and moving on
+/// a slope too steep to walk, where an honest climb's reports carry no contact.
+fn report_is_floating(w: &mut World, h: PhysHandle, report: &Position) -> bool {
+    let from = phys_ext::to_physics_position(report);
+    let mut to = from;
+    to.frame.origin.z -= FLOATING_PROBE;
+    w.physics.transition(h, &from, &to, false).is_some_and(|t| {
+        let c = &t.collision_info;
+        !c.contact_plane_valid
+            && !c.collided_with_environment
+            && c.collide_object.is_empty()
+            && (t.sphere_path.curr_pos.frame.origin.z - to.frame.origin.z).abs() < 0.01
+    })
+}
 
 /// Not ACE's (retail captures, V550): how long after a report the sweep could not reach the player
 /// is sent back: retail moved players back a median 0.54 s after their last report (most 0.5 to 0.6

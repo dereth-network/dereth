@@ -177,6 +177,41 @@ fn world_on(
     dats: Arc<empyrean_dat::DatManager>,
     setup: u32,
 ) -> World {
+    world_with_land(
+        |w| {
+            if let Some(blocks) = blocks {
+                land::use_flat_land_with_test_setup(w, blocks, 10);
+            }
+        },
+        at,
+        dats,
+        setup,
+    )
+}
+
+/// [`world`] on [`HOME`] as a hillside too steep to walk, rising 32 m in each 24 m eastward from
+/// height 0 at its west edge, with the player at `at`.
+fn world_on_steep_hill(at: Position) -> World {
+    world_with_land(
+        |w| {
+            let mut land = dereth_physics::source::StaticLandSource::linear();
+            land.add_ramp_block(dereth_primitives::LandblockId(HOME), 0, 16);
+            phys_ext::use_land_source(w, Arc::new(land));
+            phys_ext::register_setup(w, land::TEST_SETUP, land::test_setup_geometry());
+        },
+        at,
+        dats(),
+        land::TEST_SETUP,
+    )
+}
+
+/// [`world_on`] with the land `use_land` puts in place.
+fn world_with_land(
+    use_land: impl FnOnce(&mut World),
+    at: Position,
+    dats: Arc<empyrean_dat::DatManager>,
+    setup: u32,
+) -> World {
     let now = ClockSnapshot {
         portal_year_ticks: 1000.0,
         unix_time: 1_000_000.0,
@@ -184,9 +219,7 @@ fn world_on(
         monotonic: Duration::ZERO,
     };
     let mut w = World::new(now, dats);
-    if let Some(blocks) = blocks {
-        land::use_flat_land_with_test_setup(&mut w, blocks, 10);
-    }
+    use_land(&mut w);
     w.sessions.insert(
         S,
         SessionData {
@@ -552,6 +585,71 @@ fn a_z_hack_is_snapped_back_to_the_last_ground_position() {
     player::fields_mut(&mut w, g()).last_jump_time = w.now.utc;
     assert!(!player_tick::update_player_position(&mut w, g(), up, false));
     assert_eq!(obj(&w).location().unwrap().position_z, 35.0);
+}
+
+/// With the server's own movement (V550) an honest climb up a hillside too steep to walk is not
+/// taken for the z-position hack: its reports carry no contact, so the last ground position falls
+/// more than 10 m behind, and the server's body slides off walkable ground with velocity, as ACE's
+/// check asks of a hacker. The report rests on the hillside, so the move is taken.
+#[test]
+fn with_server_movement_a_climb_up_a_steep_hillside_is_not_snapped_back() {
+    // the hillside at x = 60 is 80 m up, at x = 75 100 m
+    let mut w = world_on_steep_hill(outdoor(HOME, 60.0, 100.0, 80.0));
+    player::fields_mut(&mut w, g()).last_ground_pos = Some(outdoor(HOME, 60.0, 100.0, 80.0));
+    let h = body(&w);
+    let o = w.physics.get_mut(h).unwrap();
+    o.set_on_walkable(false);
+    o.velocity_vector = Vec3::new(2.0, 0.0, -1.0);
+    let before = w
+        .objects
+        .get_mut(g())
+        .unwrap()
+        .sequences
+        .get_current_sequence(SequenceType::ObjectForcePosition);
+
+    start_capture();
+    let up = outdoor(HOME, 75.0, 100.0, 100.0);
+    player_tick::update_player_position(&mut w, g(), up, false);
+    assert_eq!(
+        w.objects
+            .get_mut(g())
+            .unwrap()
+            .sequences
+            .get_current_sequence(SequenceType::ObjectForcePosition),
+        before,
+        "no snap-back"
+    );
+    assert!(obj(&w).location().unwrap().position_z > 90.0);
+}
+
+/// With the server's own movement (V550) the z-position hack is still caught: a report 15 m up in
+/// the air over flat ground, with no jump, is snapped back to the last ground position.
+#[test]
+fn with_server_movement_a_report_floating_high_above_the_ground_is_snapped_back() {
+    let mut w = world();
+    let ground = outdoor(HOME, 100.0, 100.0, 20.0);
+    player::fields_mut(&mut w, g()).last_ground_pos = Some(ground);
+    let before = w
+        .objects
+        .get_mut(g())
+        .unwrap()
+        .sequences
+        .get_current_sequence(SequenceType::ObjectForcePosition);
+
+    start_capture();
+    let up = outdoor(HOME, 100.0, 101.0, 35.0);
+    assert!(!player_tick::update_player_position(&mut w, g(), up, false));
+    let l = obj(&w).location().unwrap();
+    assert_eq!((l.position_y, l.position_z), (100.0, 20.0));
+    assert_ne!(
+        w.objects
+            .get_mut(g())
+            .unwrap()
+            .sequences
+            .get_current_sequence(SequenceType::ObjectForcePosition),
+        before
+    );
+    assert!(sent_opcodes().contains(&UPDATE_POSITION));
 }
 
 /// `SyncLocationWithPhysics` copies the body's position; its landblock test shifts the wrong way
