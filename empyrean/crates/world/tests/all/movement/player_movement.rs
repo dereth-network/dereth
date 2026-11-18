@@ -147,6 +147,17 @@ fn dats() -> Arc<empyrean_dat::DatManager> {
         .expect("fake dats")
 }
 
+/// Turns off the server's own movement of players (the `player_server_movement` option, V550),
+/// for the checks it would otherwise reach first.
+fn without_server_movement(w: &mut World) {
+    assert!(empyrean_world::managers::property_manager::modify_bool(
+        w,
+        "player_server_movement",
+        false
+    ));
+    empyrean_world::world_objects::player_tick::refresh_movement_options(w);
+}
+
 /// A world on flat land with one player at `HOME` (100, 100, 20) joined to its landblock and to a
 /// `WorldConnected` session, out of the login pink bubble.
 pub(crate) fn world() -> World {
@@ -424,6 +435,7 @@ fn validate_movement_follows_ace() {
 #[test]
 fn update_player_position_follows_aces_cadence() {
     let mut w = world();
+    without_server_movement(&mut w);
     start_capture();
     let first = outdoor(HOME, 101.0, 100.0, 20.0);
     assert!(
@@ -474,9 +486,12 @@ fn update_player_position_follows_aces_cadence() {
 }
 
 /// The speed check: over 50 m and more than one landblock is refused (here 199 m, two blocks).
+/// With the server's own movement on (V550), such a report sends the player back before this
+/// check is reached, so it is off here.
 #[test]
 fn a_move_over_50_m_across_two_landblocks_is_refused() {
     let mut w = world();
+    without_server_movement(&mut w);
     w.objects
         .get_mut(g())
         .unwrap()
@@ -495,10 +510,12 @@ fn a_move_over_50_m_across_two_landblocks_is_refused() {
 /// The z-position hack: in the same landblock, over 10 m above the last ground position, with no
 /// jump in the last second and Jump skill under 1000, a player off the ground with velocity is
 /// snapped back to the last ground position, with a force-position sequence and an
-/// UpdatePosition, and the move is refused.
+/// UpdatePosition, and the move is refused. It is ACE's check, so the server's own movement (V550) is
+/// off here.
 #[test]
 fn a_z_hack_is_snapped_back_to_the_last_ground_position() {
     let mut w = world();
+    without_server_movement(&mut w);
     let ground = outdoor(HOME, 100.0, 100.0, 20.0);
     player::fields_mut(&mut w, g()).last_ground_pos = Some(ground);
     let h = body(&w);
@@ -1437,6 +1454,10 @@ mod capture {
 
         // our world on the retail dats (real land and interiors), a human body there
         let mut w = world_on(None, first_pos, real_dats(), HUMAN_SETUP);
+        // a recorded client goes on from where it was whatever it is told, and this body is not
+        // the recorded character's (its speed differs), so the server's own movement of players,
+        // which would send it back, is off: the replies compared are ACE's
+        without_server_movement(&mut w);
         // as `PlayerEnterWorld` leaves it: in portal space since now
         let now_unix = w.now.unix_time;
         let o = w.objects.get_mut(g()).unwrap();

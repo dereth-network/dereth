@@ -112,6 +112,8 @@ pub struct PlayerManagerState {
     pub players_pending_logoff: VecDeque<ObjectGuid>,
     // ACE: PlayerManager.playersPendingFinalLogoff
     pub players_pending_final_logoff: VecDeque<PendingFinalLogoff>,
+    /// Not ACE's (V550): the players' movement options as the world last read them.
+    pub movement_options: crate::world_objects::player_tick::MovementOptions,
 }
 
 impl Default for PlayerManagerState {
@@ -124,6 +126,7 @@ impl Default for PlayerManagerState {
             last_database_save: DotNetDateTime::MIN_VALUE,
             players_pending_logoff: VecDeque::new(),
             players_pending_final_logoff: VecDeque::new(),
+            movement_options: crate::world_objects::player_tick::MovementOptions::default(),
         }
     }
 }

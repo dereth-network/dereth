@@ -480,6 +480,54 @@ fn a_speed_hack_position_is_rejected() {
         (l.landblock(), l.position_x, l.position_y),
         (u32::from(HOME), 100.0, 100.0)
     );
+}
+
+/// Divergence: V550
+/// With the motion correction on, a speed hack's report, which the body cannot reach, sends the
+/// player back where it was half a second later: an UpdatePosition there with a new
+/// force-position stamp.
+#[test]
+fn with_motion_correction_on_a_speed_hack_sends_the_player_back() {
+    let mut ts = seeded();
+    assert!(empyrean_world::managers::property_manager::modify_bool(
+        &ts.world,
+        "server_motion_correction",
+        true
+    ));
+    empyrean_world::world_objects::player_tick::refresh_movement_options(&mut ts.world);
+    let start = outdoor(HOME, 100.0, 100.0, 20.0);
+    let (a, _) = enter(&mut ts, "alpha", ALPHA, start);
+
+    let mark = ts.received_raw(a).len();
+    let before = ts.received::<MovementPositionEvent>(a).len();
+    ts.send_game_action(
+        a,
+        &autonomous_position(&outdoor(0xACB4, 100.0, 100.0, 20.0), true),
+    );
+    ts.advance(0.6);
+    assert_eq!(
+        movement_since(&ts, a, mark),
+        [UPDATE_POSITION],
+        "the refused move brings the player back"
+    );
+    let back = ts.received::<MovementPositionEvent>(a)[before];
+    assert_eq!(
+        (
+            back.position.origin.objcell_id,
+            back.position.origin.origin.x,
+            back.position.origin.origin.y
+        ),
+        (start.cell(), 100.0, 100.0)
+    );
+    assert_eq!(
+        back.position.force_position_timestamp, 1,
+        "a new force stamp"
+    );
+    let l = location(&ts, ALPHA);
+    assert_eq!(
+        (l.landblock(), l.position_x, l.position_y),
+        (u32::from(HOME), 100.0, 100.0)
+    );
     assert_eq!(
         ts.world
             .objects

@@ -95,6 +95,11 @@ pub fn creature_rotate(
             .and_then(|o| o.get_position_mut(PositionType::Location))
             .expect("ACE: Location is null (NullReferenceException)")
             .rotate(target_dir);
+
+        // DIVERGE: V550, a player the server moves turns its body with it.
+        if w.objects.get(this).is_some_and(WorldObject::is_player) {
+            crate::world_objects::player_tick::on_server_turn(w, this);
+        }
     });
     action_chain.enqueue_chain(w);
 

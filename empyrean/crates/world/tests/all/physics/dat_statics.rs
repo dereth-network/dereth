@@ -406,6 +406,14 @@ mod real_content {
         use empyrean_world::world_objects::world_object::WorldObject;
 
         let (mut w, _) = worlds(&block_and_neighbours(0xA9B4));
+        // ACE's move keeps the frame and the cell as asked; the server's own movement (V550)
+        // places the body as the client places a position, in the cell its point lies in
+        assert!(empyrean_world::managers::property_manager::modify_bool(
+            &w,
+            "player_server_movement",
+            false
+        ));
+        player_tick::refresh_movement_options(&mut w);
         let piece = phys_ext::landblock_dat_statics(&w, 0xA9B4)[172];
         let p = piece.placement.frame.origin;
         let cell = piece.placement.cell.0;

@@ -87,6 +87,22 @@ pub struct PlayerTickFields {
     /// Not ACE's (retail captures, V548): the cell of the last position sent to the observers
     /// outside the player's outdoor create window; `None` until the first.
     pub far_observer_cell: Option<u32>,
+    /// Not ACE's (retail captures, V550): the last position sent to the other players, from a
+    /// report or from the server's own movement.
+    pub last_broadcast_position: Option<Position>,
+    /// Not ACE's (V550): the last position sent to the player itself, and when.
+    pub last_own_position: Option<Position>,
+    pub last_own_position_time: empyrean_common::dotnet::datetime::DotNetDateTime,
+    /// Not ACE's (retail captures, V550): when the player, whose last report the sweep could not
+    /// reach, is to be sent back ([`SWEEP_SECONDS`] after that report).
+    pub force_due: Option<empyrean_common::dotnet::datetime::DotNetDateTime>,
+    /// Not ACE's (V550): the report being taken was reached by the sweep, so the player is sent no
+    /// position of its own for it.
+    pub taking_swept_report: bool,
+    /// Not ACE's (V550): the force-position stamp the requested position's report carried.
+    pub requested_force_stamp: Option<u16>,
+    /// Not ACE's (V550): when the server last moved the player back to its own position.
+    pub forced_time: Option<empyrean_common::dotnet::datetime::DotNetDateTime>,
 }
 
 fn fields(w: &World, this: ObjectGuid) -> &PlayerTickFields {
@@ -660,6 +676,85 @@ pub fn fast_tick(w: &World, this: ObjectGuid) -> bool {
     is_pk_type(w, this)
 }
 
+/// Not ACE's (V550): the server options of players' movement, read once a tick
+/// ([`refresh_movement_options`]) rather than once for each player each time one is asked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MovementOptions {
+    /// `player_server_movement`: see [`server_movement_enabled`].
+    pub server_movement: bool,
+    /// `player_own_position_heartbeat`: see [`own_position_heartbeat_enabled`].
+    pub own_position_heartbeat: bool,
+    /// `server_motion_correction`: see [`motion_correction_enabled`].
+    pub motion_correction: bool,
+}
+
+impl Default for MovementOptions {
+    /// The options' defaults.
+    fn default() -> Self {
+        Self {
+            server_movement: true,
+            own_position_heartbeat: false,
+            motion_correction: false,
+        }
+    }
+}
+
+/// Not ACE's (V550): reads the movement options into the world's [`MovementOptions`]. The world
+/// does so at the top of each tick; a caller that changes one of them outside a tick and acts on
+/// it at once calls this itself.
+pub fn refresh_movement_options(w: &mut World) {
+    use crate::managers::property_manager::get_bool;
+    let defaults = MovementOptions::default();
+    w.player_manager.movement_options = MovementOptions {
+        server_movement: get_bool(w, "player_server_movement", defaults.server_movement, true).item,
+        own_position_heartbeat: get_bool(
+            w,
+            "player_own_position_heartbeat",
+            defaults.own_position_heartbeat,
+            true,
+        )
+        .item,
+        motion_correction: get_bool(
+            w,
+            "server_motion_correction",
+            defaults.motion_correction,
+            true,
+        )
+        .item,
+    };
+}
+
+/// Not ACE's (retail captures, V550): whether the `player_server_movement` option is on (the
+/// default): the server moves every player between its reports, its location following, and sends
+/// the players around its own position of a moving player.
+#[must_use]
+pub fn server_movement_enabled(w: &World) -> bool {
+    w.player_manager.movement_options.server_movement
+}
+
+/// Not ACE's (retail, V550): whether the server sweeps its body to each of the player's reports and
+/// sends the player back where the sweep is blocked ([`sweep_to`]): the `server_motion_correction`
+/// option (off by default), with [`server_movement_enabled`].
+#[must_use]
+pub fn motion_correction_enabled(w: &World) -> bool {
+    let options = w.player_manager.movement_options;
+    options.server_movement && options.motion_correction
+}
+
+/// Not ACE's (retail captures, V550): whether the server moves the player itself between its
+/// reports, as it moves a `FastTick` player: every player with [`server_movement_enabled`], else
+/// (as ACE) player killers only.
+#[must_use]
+pub fn server_moves(w: &World, this: ObjectGuid) -> bool {
+    fast_tick(w, this) || server_movement_enabled(w)
+}
+
+/// Not ACE's (V550): whether the `player_own_position_heartbeat` option is on (off by default).
+#[must_use]
+pub fn own_position_heartbeat_enabled(w: &World) -> bool {
+    w.player_manager.movement_options.own_position_heartbeat
+}
+
 /// `Player.IsPKType` (`Player_Combat.cs`): a PK or a PK Lite.
 fn is_pk_type(w: &World, this: ObjectGuid) -> bool {
     let status = w
@@ -674,8 +769,12 @@ fn is_pk_type(w: &World, this: ObjectGuid) -> bool {
 /// For advanced spellcasting / players glitching around during powersliding: the client's
 /// self-player uses DoMotion/StopMotion, the server and other players on the client use
 /// apply_raw_movement. Only a full-physics (`FastTick`) player simulates the MoveToState.
+///
+/// Not ACE's (retail captures, V550): every player the server moves ([`server_moves`]) simulates
+/// it; the cast's turn release stays a `FastTick` player's.
 pub fn on_move_to_state(w: &mut World, this: ObjectGuid, move_to_state: &MoveToState) {
-    if !fast_tick(w, this) {
+    // DIVERGE: V550
+    if !server_moves(w, this) {
         return;
     }
 
@@ -687,7 +786,11 @@ pub fn on_move_to_state(w: &mut World, this: ObjectGuid, move_to_state: &MoveToS
         crate::entity::record_cast::on_move_to_state(w, this, move_to_state);
     }
 
-    let h = physics_obj(w, this);
+    // DIVERGE: V550, a player with no body (one still entering the world, or gone from it) has
+    // nothing to move; ACE's player killer would throw here.
+    let Some(h) = phys_ext::physics_obj(w, this) else {
+        return;
+    };
     phys_ext::restart_clock_if_idle(w, h);
 
     if !crate::managers::property_manager::get_bool(w, "client_movement_formula", false, true).item
@@ -698,7 +801,8 @@ pub fn on_move_to_state(w: &mut World, this: ObjectGuid, move_to_state: &MoveToS
         on_move_to_state_client_method(w, this, move_to_state);
     }
 
-    if shims::player_magic_state_is_casting(w, this)
+    if fast_tick(w, this)
+        && shims::player_magic_state_is_casting(w, this)
         && magic_state_pending_turn_release(w, this)
         && move_to_state.raw_motion_state.turn_command == MotionCommand(0)
     {
@@ -789,8 +893,17 @@ pub fn player_update_object_physics(
 
     if let Some(h) = phys_ext::physics_obj(w, this) {
         let v = phys_ext::velocity(w, h);
+        // DIVERGE: V550, every player the server moves, not only a `FastTick` one; and a body whose
+        // motion moves it forward steps whatever it last cached: a run blocked by a wall leaves its
+        // cached velocity at nothing, and without this the body would not step again until new
+        // keys, the client sliding on along the wall (as the client steps every moving body each
+        // frame).
         #[allow(clippy::float_cmp)] // C#'s Vector3 !=
-        if fast_tick(w, this) && phys_ext::is_moving_or_animating(w, h) || v != Vector3::ZERO {
+        if server_moves(w, this)
+            && (phys_ext::is_moving_or_animating(w, h)
+                || crate::physics::motion::moves_forward(w, h))
+            || v != Vector3::ZERO
+        {
             update_player_physics(w, this);
 
             let has_callback =
@@ -802,6 +915,13 @@ pub fn player_update_object_physics(
     }
 
     fields_mut(w, this).in_update = false;
+
+    // DIVERGE: V550, a player the sweep could not bring to its report is sent back when due, and the
+    // players around get the server's own position of a moving player, the location following it.
+    if server_movement_enabled(w) {
+        landblock_update |= force_when_due(w, this);
+        landblock_update |= position_heartbeat(w, this);
+    }
 
     landblock_update
 }
@@ -900,6 +1020,49 @@ pub fn update_player_position(
         return false;
     }
 
+    // DIVERGE: V550, with the motion correction option on, the server's body is swept to the
+    // player's report ([`sweep_to`]): a report it reaches is taken, one it does not holds the body
+    // where the sweep stopped and sends the player there [`SWEEP_SECONDS`] later
+    // ([`force_when_due`]).
+    if let Some(h) = phys_ext::physics_obj(w, this) {
+        if server_movement_enabled(w) && !teleporting(w, this) {
+            if report_predates_force(w, this) {
+                return false;
+            }
+            // a body at rest starts from now, so its idle time is not stepped (or refused as too
+            // long); a moving one is stepped up to now
+            phys_ext::restart_clock_if_idle(w, h);
+            let now = phys_ext::physics_timer_current_time(w);
+            if w.physics
+                .get(h)
+                .is_some_and(|o| now - o.update_time > MIN_QUANTUM)
+            {
+                phys_ext::update_object(w, h);
+            }
+            if motion_correction_enabled(w) && !moving_to_target(w, this) {
+                fields_mut(w, this).taking_swept_report = false;
+                // the client is still to be sent back: its reports predate that
+                if fields(w, this).force_due.is_some() {
+                    return false;
+                }
+                match sweep_to(w, h, &new_position) {
+                    None => fields_mut(w, this).taking_swept_report = true,
+                    Some(stop) => {
+                        let now = w.now.utc;
+                        fields_mut(w, this).force_due =
+                            Some(now + TimeSpan::from_seconds(SWEEP_SECONDS));
+                        if phys_ext::position(w, h).is_some_and(|b| {
+                            b.cell != stop.cell || b.frame.origin != stop.frame.origin
+                        }) {
+                            phys_ext::set_position(w, h, &stop);
+                        }
+                        return false;
+                    }
+                }
+            }
+        }
+    }
+
     let mut success = true;
 
     if let Some(h) = phys_ext::physics_obj(w, this) {
@@ -953,7 +1116,8 @@ pub fn update_player_position(
                     Some(cur_cell),
                     location.landblock_id().raw(),
                 );
-                success = if fast_tick(w, this) {
+                // DIVERGE: V550, the full movement system for every player the server moves.
+                success = if server_moves(w, this) {
                     update_object_server_new(w, this, h, true)
                 } else {
                     update_object_server(w, this, h, true)
@@ -1023,7 +1187,16 @@ pub fn update_player_position(
     let o = w.objects.get(this).expect("ACE: this is null");
     let broadcast = o.wo.world_object.requested_location_broadcast;
     let since_update = w.now.utc - o.wo.world_object_networking.last_update_position;
-    if broadcast || since_update >= move_to_state_update_position_threshold() {
+    if fields(w, this).taking_swept_report {
+        // DIVERGE: V550, a report the sweep took sends the player nothing; the players around get
+        // it as any report
+        fields_mut(w, this).taking_swept_report = false;
+        if broadcast || since_update >= move_to_state_update_position_threshold() {
+            let msg = game_message_update_position::game_message_update_position(w, this, false);
+            let at = location(w, this);
+            send_player_position(w, this, &at, &msg, false);
+        }
+    } else if broadcast || since_update >= move_to_state_update_position_threshold() {
         // DIVERGE: V548, observers outside the create window outdoors get the position only on a
         // new cell.
         send_player_update_position(w, this);
@@ -1032,6 +1205,8 @@ pub fn update_player_position(
         let session = shims::player_session(w, this)
             .expect("ACE: Player.Session is null (NullReferenceException)");
         game_message::enqueue_send(w, session, msg);
+        let at = location(w, this);
+        record_own_position(w, this, at);
     }
 
     if !fields(w, this).in_update {
@@ -1055,17 +1230,33 @@ pub fn send_player_update_position(w: &mut World, this: ObjectGuid) {
 
     let msg = game_message_update_position::game_message_update_position(w, this, false);
     let at = location(w, this);
+    send_player_position(w, this, &at, &msg, true);
+}
+
+/// Not ACE's (retail captures, V548, V550): `msg`, a position of the player at `at`, to the players
+/// in its broadcast reach through the far observers' gate (see [`send_player_update_position`]),
+/// and to the player too when `to_self`. Records it as the last position the others got.
+fn send_player_position(
+    w: &mut World,
+    this: ObjectGuid,
+    at: &Position,
+    msg: &game_message::GameMessage,
+    to_self: bool,
+) {
     let outdoors = at.cell() & 0xFFFF < 0x100;
     let to_far = !outdoors || fields(w, this).far_observer_cell != Some(at.cell());
     if to_far {
         fields_mut(w, this).far_observer_cell = Some(at.cell());
     }
 
-    if let Some(session) = shims::player_session(w, this) {
-        game_message::enqueue_send(w, session, msg.clone());
+    if to_self {
+        if let Some(session) = shims::player_session(w, this) {
+            game_message::enqueue_send(w, session, msg.clone());
+        }
+        record_own_position(w, this, *at);
     }
     let visibility = w.objects.get(this).is_some_and(|o| o.visibility());
-    let mover = phys_ext::to_physics_position(&at);
+    let mover = phys_ext::to_physics_position(at);
     for player in world_object_networking::reach_players(w, this) {
         if visibility && !shims::player_adminvision(w, player) {
             continue;
@@ -1082,6 +1273,357 @@ pub fn send_player_update_position(w: &mut World, this: ObjectGuid) {
     if let Some(o) = w.objects.get_mut(this) {
         o.wo.world_object_networking.last_update_position = now;
     }
+    fields_mut(w, this).last_broadcast_position = Some(*at);
+}
+
+/// Not ACE's (V550): the player's location becomes `body`, where the server has moved it, so that
+/// the landblock its updates go out from, and its create window, are where the body is when the
+/// client has stopped reporting. Answers whether the landblock changed.
+fn location_follows_body(w: &mut World, this: ObjectGuid, body: &PPosition) -> bool {
+    let before = location(w, this).cell() >> 16;
+    crate::world_objects::world_object::sync_location(w, this);
+    before != body.cell.0 >> 16
+}
+
+/// Not ACE's (V550): with server movement on, a teleport ends the body's motion and any move back
+/// still to be sent, so the body waits at the destination for the client's own motion.
+pub fn on_teleport(w: &mut World, this: ObjectGuid) {
+    if !server_movement_enabled(w) {
+        return;
+    }
+    if let Some(h) = phys_ext::physics_obj(w, this) {
+        phys_ext::stop_completely(w, h, false);
+    }
+    fields_mut(w, this).force_due = None;
+}
+
+/// Not ACE's (V550): after a turn the server made to face a target (sent to the client and the
+/// players around as a motion), a player the server moves but not as a `FastTick` one turns its
+/// body to the location's heading too, as its location takes the body's heading while the body
+/// moves. The positions they last got take the heading, so the turn sends no heartbeat of its own.
+pub fn on_server_turn(w: &mut World, this: ObjectGuid) {
+    if fast_tick(w, this) || !server_movement_enabled(w) {
+        return;
+    }
+    let r = location(w, this).rotation();
+    if let Some(o) = phys_ext::physics_obj(w, this).and_then(|h| w.physics.get_mut(h)) {
+        let mut frame = o.position.frame;
+        frame.rotation = Quat::new(r.w, r.x, r.y, r.z);
+        o.set_frame(frame);
+    }
+    let f = fields_mut(w, this);
+    for p in [&mut f.last_broadcast_position, &mut f.last_own_position]
+        .into_iter()
+        .flatten()
+    {
+        p.set_rotation(r);
+    }
+}
+
+/// Not ACE's (V550): whether every coordinate and rotation component of a reported position is a
+/// finite number. A movement report with one that is not is ignored as a whole.
+#[must_use]
+pub fn position_is_finite(p: &Position) -> bool {
+    [
+        p.position_x,
+        p.position_y,
+        p.position_z,
+        p.rotation_w,
+        p.rotation_x,
+        p.rotation_y,
+        p.rotation_z,
+    ]
+    .iter()
+    .all(|v| v.is_finite())
+}
+
+/// Not ACE's (V550): records `at` as the last position the player itself was sent.
+fn record_own_position(w: &mut World, this: ObjectGuid, at: Position) {
+    let now = w.now.utc;
+    let f = fields_mut(w, this);
+    f.last_own_position = Some(at);
+    f.last_own_position_time = now;
+}
+
+/// Not ACE's (retail captures, V550): how often the players around get a moving player's position
+/// from the server's own movement when no report has sent them one: retail's 1 s.
+pub const POSITION_HEARTBEAT_SECONDS: f64 = 1.0;
+/// Not ACE's (retail captures, V550): how often the player itself gets that position, with the
+/// `player_own_position_heartbeat` option on: retail's 0.5 s.
+pub const OWN_POSITION_HEARTBEAT_SECONDS: f64 = 0.5;
+
+/// Not ACE's (retail captures, V550): how long after a report the sweep could not reach the player
+/// is sent back: retail moved players back a median 0.54 s after their last report (most 0.5 to 0.6
+/// s), where its routine positions to the player followed reports within 0.2 s.
+pub const SWEEP_SECONDS: f64 = 0.5;
+/// Not ACE's (V550): how close across, and up or down, a sweep must end to the report for the
+/// report to be reached, in meters.
+pub const SWEEP_REACHED: f32 = 0.05;
+pub const SWEEP_REACHED_UP: f32 = 0.5;
+/// Not ACE's (V550): the longest piece of a sweep across, in meters, and the most pieces (the
+/// sweep reaches a report at most a landblock away).
+pub const SWEEP_PIECE: f32 = 0.5;
+pub const SWEEP_PIECES: usize = 800;
+/// Not ACE's (V550): the steepest ground a sweep's piece is lifted onto (the up of its normal): the
+/// shared physics' walkable floor.
+pub const SWEEP_WALKABLE: f32 = dereth_physics::globals::FLOOR_Z;
+/// Not ACE's (V550): how long after moving a player back the server ignores its reports that
+/// still carry the old force-position stamp (sent before its client took the new position).
+pub const FORCED_REPORT_GRACE_SECONDS: f64 = 1.0;
+
+/// Not ACE's (retail captures, V550): a moving player's position as the server has moved it since
+/// its last report: to the players around, through the far observers' gate, once
+/// [`POSITION_HEARTBEAT_SECONDS`] have passed since the last position they got, the player's
+/// location becoming it ([`location_follows_body`]); and to the player itself every
+/// [`OWN_POSITION_HEARTBEAT_SECONDS`] with the `player_own_position_heartbeat` option on. Nothing
+/// goes out while the server's position is the one last sent. Answers whether the player changed
+/// landblock.
+fn position_heartbeat(w: &mut World, this: ObjectGuid) -> bool {
+    if teleporting(w, this)
+        || w.objects
+            .get(this)
+            .is_none_or(|o| o.current_landblock.is_none())
+    {
+        return false;
+    }
+    let Some(body) = phys_ext::physics_obj(w, this).and_then(|h| phys_ext::position(w, h)) else {
+        return false;
+    };
+    if body.cell.0 == 0 {
+        return false;
+    }
+    let at = physics_position_to_location(&body);
+    let now = w.now.utc;
+    let Some(since_others) = w
+        .objects
+        .get(this)
+        .map(|o| now - o.wo.world_object_networking.last_update_position)
+    else {
+        return false;
+    };
+    // until a position is sent, the players around, and the player, know the one it entered the
+    // world at, which is where the body is when it is first seen here
+    let f = fields_mut(w, this);
+    let last_others = *f.last_broadcast_position.get_or_insert(at);
+    let last_own = *f.last_own_position.get_or_insert(at);
+    let to_others = since_others >= TimeSpan::from_seconds(POSITION_HEARTBEAT_SECONDS)
+        && moved(&last_others, &at);
+    let to_self = own_position_heartbeat_enabled(w)
+        && now - fields(w, this).last_own_position_time
+            >= TimeSpan::from_seconds(OWN_POSITION_HEARTBEAT_SECONDS)
+        && moved(&last_own, &at);
+    if !to_others && !to_self {
+        return false;
+    }
+
+    let msg = game_message_update_position::game_message_update_position_at(w, this, &at);
+    if to_others {
+        let landblock_update = location_follows_body(w, this, &body);
+        send_player_position(w, this, &at, &msg, to_self);
+        return landblock_update;
+    }
+    if let Some(session) = shims::player_session(w, this) {
+        game_message::enqueue_send(w, session, msg);
+        record_own_position(w, this, at);
+    }
+    false
+}
+
+/// Whether `b` is somewhere else than `a`: another cell, more than 5 cm away, or facing another
+/// way.
+fn moved(a: &Position, b: &Position) -> bool {
+    let (qa, qb) = (a.rotation(), b.rotation());
+    let turned = (qa.w - qb.w).powi(2)
+        + (qa.x - qb.x).powi(2)
+        + (qa.y - qb.y).powi(2)
+        + (qa.z - qb.z).powi(2);
+    a.cell() != b.cell() || a.squared_distance_to(b) > 0.05 * 0.05 || turned > 1e-6
+}
+
+/// Not ACE's (retail captures, V550): records the force-position stamp the report of the requested
+/// position carried.
+pub fn set_requested_force_stamp(w: &mut World, this: ObjectGuid, stamp: u16) {
+    fields_mut(w, this).requested_force_stamp = Some(stamp);
+}
+
+/// Not ACE's (V550): whether the requested position comes from a report sent before the player's
+/// client took the position the server last moved it to: within [`FORCED_REPORT_GRACE_SECONDS`]
+/// of that, with an older force-position stamp.
+fn report_predates_force(w: &mut World, this: ObjectGuid) -> bool {
+    let Some(forced) = fields(w, this).forced_time else {
+        return false;
+    };
+    if w.now.utc - forced >= TimeSpan::from_seconds(FORCED_REPORT_GRACE_SECONDS) {
+        return false;
+    }
+    let current = w.objects.get_mut(this).map(|o| {
+        game_message::ushort_sequence(
+            &o.sequences
+                .get_current_sequence(SequenceType::ObjectForcePosition),
+        )
+    });
+    fields(w, this).requested_force_stamp != current
+}
+
+/// Whether the player is walking a move-to chain toward a target, in which the server's body may
+/// not follow the client's own movement.
+fn moving_to_target(w: &World, this: ObjectGuid) -> bool {
+    player_move::is_player_moving_to(w, this)
+        || crate::world_objects::player_move2::fields(w, this).is_player_moving_to2
+}
+
+/// `to` less `from`, in global meters (landblocks are 192 m).
+fn offset_between(from: &Position, to: &Position) -> Vector3 {
+    let block = |a: u8, b: u8| f32::from(i16::from(a) - i16::from(b)) * 192.0;
+    let (lf, lt) = (from.landblock_id(), to.landblock_id());
+    Vector3::new(
+        block(lt.landblock_x(), lf.landblock_x()) + to.position_x - from.position_x,
+        block(lt.landblock_y(), lf.landblock_y()) + to.position_y - from.position_y,
+        to.position_z - from.position_z,
+    )
+}
+
+/// Not ACE's (retail captures, V550): sweeps the server's body (just stepped) to the player's
+/// report through the world's collision (a body in the air takes it unswept), as the body steps:
+/// in pieces of at most [`SWEEP_PIECE`] across, each lifted onto the ground the last one stood on
+/// (its contact plane, where walkable), the transition finding the ground on the way. A sweep aimed straight across at
+/// a report's height runs into a sloped or raised surface it would step along. Answers nothing when
+/// the sweep reaches the report, else where it stopped (where the body is when it cannot be made:
+/// more than a landblock away), facing as the body faces. Retail's server moved players back on
+/// collisions this way, by any distance, its client going there at once.
+fn sweep_to(w: &mut World, h: PhysHandle, report: &Position) -> Option<PPosition> {
+    let body = phys_ext::position(w, h).filter(|b| b.cell.0 != 0)?;
+    let close = |at: &Position| {
+        let off = offset_between(report, at);
+        off.x * off.x + off.y * off.y <= SWEEP_REACHED * SWEEP_REACHED
+            && off.z.abs() <= SWEEP_REACHED_UP
+    };
+    // a report where the body already is (a turn in place) needs no sweep
+    if close(&physics_position_to_location(&body)) {
+        return None;
+    }
+    // a body in the air (jumping, falling) takes the report: the sweep follows the ground, and the
+    // client's arc and the server's part by more than its reach up or down
+    if w.physics
+        .get(h)
+        .is_some_and(|o| !o.transient_state.in_contact())
+    {
+        return None;
+    }
+    let mut stop = body;
+    stop.frame.rotation = body.frame.rotation;
+    if phys_ext::get_block_dist(body.cell.0, report.cell()) > 1 {
+        return Some(stop);
+    }
+    let ground = w.physics.get(h).and_then(|o| {
+        (o.transient_state.in_contact() && o.contact_plane.normal.z >= SWEEP_WALKABLE)
+            .then_some(o.contact_plane.normal)
+    });
+    // the sweep starts without the wall the body last slid along: that is from the body's own steps
+    // (against what the client may never have met), not the client's path
+    let kept = w
+        .physics
+        .get(h)
+        .map(|o| (o.transient_state, o.sliding_normal));
+    if let Some(o) = w.physics.get_mut(h) {
+        o.transient_state.set_sliding(false);
+    }
+    let stop = sweep_pieces(w, h, report, body, ground, &close);
+    if let (Some(o), Some((ts, sn))) = (w.physics.get_mut(h), kept) {
+        o.transient_state = ts;
+        o.sliding_normal = sn;
+    }
+    stop
+}
+
+/// [`sweep_to`]'s pieces from `body`, the first lifted onto `ground`: nothing when they reach the
+/// report, else where they stopped, facing as the body faces.
+fn sweep_pieces(
+    w: &mut World,
+    h: PhysHandle,
+    report: &Position,
+    body: PPosition,
+    mut ground: Option<Vec3>,
+    close: &dyn Fn(&Position) -> bool,
+) -> Option<PPosition> {
+    let mut at = body;
+    for _ in 0..SWEEP_PIECES {
+        let left = offset_between(&physics_position_to_location(&at), report);
+        let across = (left.x * left.x + left.y * left.y).sqrt();
+        let part = if across > SWEEP_PIECE {
+            SWEEP_PIECE / across
+        } else {
+            1.0
+        };
+        let (dx, dy) = (left.x * part, left.y * part);
+        let mut to = at;
+        to.frame.origin.x += dx;
+        to.frame.origin.y += dy;
+        to.frame.origin.z += ground.map_or(0.0, |n| -(n.x * dx + n.y * dy) / n.z);
+        // across a landblock's edge the transition finds the cell
+        let Some(t) = w.physics.transition(h, &at, &to, false) else {
+            break;
+        };
+        let end = t.sphere_path.curr_pos;
+        let moved = offset_between(
+            &physics_position_to_location(&at),
+            &physics_position_to_location(&end),
+        );
+        ground = (t.collision_info.contact_plane_valid
+            && t.collision_info.contact_plane.normal.z >= SWEEP_WALKABLE)
+            .then_some(t.collision_info.contact_plane.normal);
+        at = end;
+        if close(&physics_position_to_location(&at)) {
+            return None;
+        }
+        if moved.x * moved.x + moved.y * moved.y < 0.01 * 0.01 || part >= 1.0 {
+            break;
+        }
+    }
+    let mut stop = at;
+    stop.frame.rotation = body.frame.rotation;
+    Some(stop)
+}
+
+/// Not ACE's (retail captures, V550): once due, sends the player whose report the sweep could not
+/// reach back to where the server has it now ([`force_position`]). Answers whether the player
+/// changed landblock.
+fn force_when_due(w: &mut World, this: ObjectGuid) -> bool {
+    let now = w.now.utc;
+    if fields(w, this).force_due.is_none_or(|due| now < due) || teleporting(w, this) {
+        return false;
+    }
+    fields_mut(w, this).force_due = None;
+    let Some(body) = phys_ext::physics_obj(w, this)
+        .and_then(|h| phys_ext::position(w, h))
+        .filter(|b| b.cell.0 != 0)
+    else {
+        return false;
+    };
+    force_position(w, this, &body)
+}
+
+/// Not ACE's (retail captures, V550): moves the player back to `server`, where the server has moved
+/// it: its location, a new force-position stamp (its client goes there), and the position to it
+/// and the players around. Answers whether the player changed landblock.
+fn force_position(w: &mut World, this: ObjectGuid, server: &PPosition) -> bool {
+    let at = physics_position_to_location(server);
+    log::debug!(
+        "{this:?} reported a position its body could not reach: back to {}",
+        at.to_loc_string()
+    );
+    let landblock_update = location(w, this).cell() >> 16 != at.cell() >> 16;
+    let now = w.now.utc;
+    let o = w.objects.get_mut(this).expect("ACE: this is null");
+    o.set_location(Some(at));
+    o.sequences
+        .get_next_sequence(SequenceType::ObjectForcePosition);
+    fields_mut(w, this).forced_time = Some(now);
+    send_player_update_position(w, this);
+    if !fields(w, this).in_update {
+        crate::managers::landblock_manager::relocate_object_for_physics(w, this, true);
+    }
+    landblock_update
 }
 
 /// Not ACE's (retail captures, V548): whether a player at `mover` is in `observer`'s create window,
@@ -1469,8 +2011,14 @@ pub fn update_object_server_new(
     if force_pos && success {
         // attempt transition to request pos, to trigger any collision detection
         let position = phys_ext::position(w, h).expect("a body");
-        if let Some(transit) = w.physics.transition(h, &position, &request_pos, false) {
-            track_collisions(w, h, &transit);
+        // DIVERGE: V550, with server movement on, not for a teleport or a move past the next
+        // landblock: the sweep from the old spot crossed everything between, which took seconds for
+        // a teleport (only player killers took this path in ACE).
+        let near = phys_ext::get_block_dist(position.cell.0, request_pos.cell.0) <= 1;
+        if !server_movement_enabled(w) || !is_teleport && near {
+            if let Some(transit) = w.physics.transition(h, &position, &request_pos, false) {
+                track_collisions(w, h, &transit);
+            }
         }
 
         set_current_pos(w, this, h, &request_pos);
@@ -1576,7 +2124,35 @@ fn track_collisions(w: &mut World, h: PhysHandle, transit: &Transition) {
 /// cell as its contact plane cell, and the server half of the cell change runs.
 fn set_current_pos(w: &mut World, this: ObjectGuid, h: PhysHandle, new_pos: &PPosition) {
     let body_cell = w.physics.get(h).and_then(|o| o.cell);
+    let moved_on = server_movement_enabled(w);
+    // DIVERGE: V550, with server movement on, a body put somewhere else is placed as the client
+    // places a position (`SetPositionSimple`): the placement finds its cell, the ground under it and
+    // its contact, which a body it then steps or sweeps from needs. ACE kept the frame alone, so
+    // the body carried the contact plane of where it had been.
+    let moved = w.physics.get(h).is_some_and(|o| {
+        !dereth_physics::V3::eq_eps(o.position.frame.origin, new_pos.frame.origin)
+    });
+    if moved_on && moved {
+        if let Some(o) = w.physics.get_mut(h) {
+            o.transient_state.set_sliding(false);
+        }
+        if phys_ext::set_position(w, h, new_pos) {
+            w.physics.calc_cross_cells(h, true);
+            let cached = fields(w, this).request_cached_velocity;
+            if let Some(o) = w.physics.get_mut(h) {
+                o.cached_velocity = cached;
+            }
+            return;
+        }
+    }
     if let Some(o) = w.physics.get_mut(h) {
+        // DIVERGE: V550, with server movement on, a body put somewhere else leaves behind the
+        // wall it was sliding along, as a placement does. ACE kept it: a body that had run straight
+        // into something kept pressing against it from wherever its reports put it, and stood
+        // there until new keys.
+        if moved_on && !dereth_physics::V3::eq_eps(o.position.frame.origin, new_pos.frame.origin) {
+            o.transient_state.set_sliding(false);
+        }
         o.position.cell = new_pos.cell;
         o.set_frame(new_pos.frame);
     }
@@ -1595,6 +2171,14 @@ fn set_current_pos(w: &mut World, this: ObjectGuid, h: PhysHandle, new_pos: &PPo
             w.physics.enter_cell(h, new_cell);
             phys_ext::sync_cell(w, h);
         }
+    }
+
+    // DIVERGE: V550, with server movement on, the body is registered in the cells it overlaps
+    // where it is put (those loaded). ACE left that to the body's next step, so a player put in
+    // another cell before it stepped there was missed by every collision test in it (a line of
+    // sight to its own arrow among them).
+    if server_movement_enabled(w) {
+        w.physics.calc_cross_cells(h, true);
     }
 
     let cached = fields(w, this).request_cached_velocity;

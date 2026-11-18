@@ -805,6 +805,8 @@ impl World {
     /// [`update_world`]). The stages are listed in the module docs.
     pub fn tick(&mut self, now: ClockSnapshot, driver: &mut dyn NetDriver) -> UpdateWorldTick {
         self.now = now;
+        // Not ACE's (V550): the players' movement options, once a tick.
+        crate::world_objects::player_tick::refresh_movement_options(self);
 
         refresh_status_ping(self);
         run_stage(self, "NetworkManager.ProcessPacket", (), |w| {

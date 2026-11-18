@@ -928,6 +928,14 @@ fn run(rec: &Recording, out: &mut ReplayOutcome, got: &mut Vec<Msg>, ours_c2s: &
     };
     let mut ts = TestServer::with_setup(dats(), setup);
     ts.world.world_manager.world_status = WorldStatusState::Open;
+    // A recorded client goes on from where it was whatever it is told, so once the server and the
+    // recording disagree on where the player is (a teleport made at another moment) it would be
+    // sent back on every report: the server's own movement of players is off for replays.
+    empyrean_world::managers::property_manager::modify_bool(
+        &ts.world,
+        "player_server_movement",
+        false,
+    );
     let seeded: HashSet<u32> = seeded_guids.iter().copied().collect();
     guid_manager::initialize(&mut ts.world, &mut SeededGuids(seeded_guids));
     out.reconstructed = reconstructed.len();

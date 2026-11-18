@@ -47,14 +47,28 @@ pub struct PositionPack {
 /// `new PositionPack(WorldObject wo, bool adminMove = false)`. Note that this constructor
 /// increments the object's position sequence (and its teleport sequence for an admin move).
 pub fn position_pack_new(w: &mut World, wo: ObjectGuid, admin_move: bool) -> PositionPack {
+    let location = w
+        .objects
+        .get(wo)
+        .expect("ACE: wo is null")
+        .location()
+        .expect("ACE: wo.Location is null (NullReferenceException)");
+    position_pack_at(w, wo, &location, admin_move)
+}
+
+/// Not ACE's (V550): [`position_pack_new`] for `location` in place of the object's `Location`
+/// (where the server has moved a player since its last report).
+pub fn position_pack_at(
+    w: &mut World,
+    wo: ObjectGuid,
+    location: &empyrean_entity::Position,
+    admin_move: bool,
+) -> PositionPack {
     let phys = w.objects.get(wo).and_then(|o| o.phys);
     let velocity = phys.map_or(Vector3::ZERO, |h| phys_ext::velocity(w, h)); // average or instantaneous?
     let grounded = phys.is_some_and(|h| phys_ext::on_walkable(w, h));
 
     let o = w.objects.get_mut(wo).expect("ACE: wo is null");
-    let location = o
-        .location()
-        .expect("ACE: wo.Location is null (NullReferenceException)");
 
     let mut p = PositionPack {
         world_object: wo,

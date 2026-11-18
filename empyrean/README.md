@@ -220,6 +220,15 @@ are dropped before any password check; past the second, an unknown account is re
 with auto-creation off. 0 turns a limit off. Loopback addresses are not limited, so a proxy in
 front of the server needs limits of its own.
 
+`player_server_movement` (default **on**, V550): the server moves every player between their
+position reports, as retail's did, and sends the players around a moving player's position each
+second. `server_motion_correction` (default **off**) moves the player's body to each report
+through the world's collision, as retail's did, and sends a player whose report it cannot reach
+(through a wall, say) back to where it stopped; with it off, every report is taken.
+`player_own_position_heartbeat` (default **off**) also sends a moving player the server's position
+of themselves every half second, as retail did. Turning `player_server_movement` off gives ACE's
+behavior: only player killers move on the server, and nobody is moved back.
+
 ## Status endpoint
 
 ACE has none. It's for monitoring, and off unless `--status` or `server.status_address` names an

@@ -360,17 +360,34 @@ pub(crate) mod real {
         }
 
         /// What a client does after the server's MoveTo (or on its own): steps toward `target`,
-        /// 0.5 m per 0.1 s, with AutonomousPositions, until it is within `within` metres of it
-        /// (horizontally). The cell id is kept: every step stays in the Academy's entrance hall.
+        /// 0.5 m per 0.1 s from where it is itself, with AutonomousPositions, until it is within
+        /// `within` metres of it (horizontally), then waits for the server to take the last. The
+        /// cell id is kept: every step stays in the Academy's entrance hall.
         pub(crate) fn walk_toward(&mut self, target: &Position, within: f32) {
+            let mut at = self.location();
             for _ in 0..400 {
-                let mut at = self.location();
                 let (dx, dy) = (
                     target.position_x - at.position_x,
                     target.position_y - at.position_y,
                 );
                 let d = dx.hypot(dy);
                 if d <= within + 0.01 {
+                    let last = at;
+                    let _ = self.ts.run_until(1.0, |ts| {
+                        ts.world
+                            .objects
+                            .get(self.g)
+                            .and_then(
+                                empyrean_world::world_objects::world_object::WorldObject::location,
+                            )
+                            .is_some_and(|l| {
+                                let (dx, dy) = (
+                                    l.position_x - last.position_x,
+                                    l.position_y - last.position_y,
+                                );
+                                dx * dx + dy * dy < 0.05 * 0.05
+                            })
+                    });
                     return;
                 }
                 let step = (d - within).min(0.5);
@@ -910,7 +927,8 @@ pub(crate) mod real {
                 "the fight ends within two minutes"
             );
             let at = l.location_of(drudge);
-            l.walk_toward(&at, 1.0);
+            // outside the drudge: a client's own placement keeps it out of the creature
+            l.walk_toward(&at, 1.6);
             // the client attacks again after each AttackDone (no auto-repeat)
             let done = l.since::<CombatHandleAttackDoneEvent>(mark).len();
             if attacks == 0 || done > dones {
@@ -1076,11 +1094,13 @@ pub(crate) mod real {
         });
         assert_eq!(corpse.len(), 1, "the character's corpse");
         let corpse_at = l.location_of(corpse[0]);
+        // the corpse lies where the body fell: the death animation, played on the server's body,
+        // carries it a little back
         assert!(
             (corpse_at.position_x - death_spot.position_x)
                 .hypot(corpse_at.position_y - death_spot.position_y)
-                < 1.0,
-            "where it died"
+                < 2.0,
+            "where it died: {death_spot:?}, the corpse at {corpse_at:?}"
         );
 
         // the client leaves portal space; 3 s after arrival the vitals are 75% of max

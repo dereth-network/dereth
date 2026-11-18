@@ -971,6 +971,10 @@ pub fn teleport(w: &mut World, this: ObjectGuid, new_position_in: &Position, fro
 
     player_handle_pre_teleport_visibility(w, this, &new_position);
 
+    // DIVERGE: V550, the body's motion ends with the teleport, so it waits at the destination for
+    // the client's own.
+    player_tick::on_teleport(w, this);
+
     player_tick::update_player_position(w, this, Position::from_position(&new_position), true);
 }
 

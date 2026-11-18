@@ -294,6 +294,16 @@ impl H {
                 Default::default,
             )
             .init_level = 100;
+        // and its live attribute: a player's run rate reads it when a motion plays on its body
+        let strength =
+            empyrean_world::world_objects::entity::creature_attribute::CreatureAttribute::new(
+                o,
+                empyrean_entity::enums::PropertyAttribute::Strength,
+            );
+        o.attributes_mut().insert(
+            empyrean_entity::enums::PropertyAttribute::Strength,
+            strength,
+        );
         // a player's pack sizes (the player weenie's): `TryAddToInventory` checks them
         o.set_property(PropertyInt::ItemsCapacity, 102);
         o.set_property(PropertyInt::ContainersCapacity, 7);

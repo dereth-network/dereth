@@ -750,6 +750,23 @@ pub fn is_moving_or_animating(w: &World, h: PhysHandle) -> bool {
     .unwrap_or(moving)
 }
 
+/// Not ACE's (V550): whether the body's interpreted motion moves it forward or back (walking or
+/// running, at a speed). `IsMovingOrAnimating` counts a straight run only by the velocity the last
+/// step cached, which a blocked step leaves at nothing.
+#[must_use]
+pub fn moves_forward(w: &World, h: PhysHandle) -> bool {
+    with_driver(w, h, |d| {
+        let s = &d.movement.interp.interpreted_state;
+        matches!(
+            s.forward_command,
+            MotionCommand::WALK_FORWARD
+                | MotionCommand::WALK_BACKWARDS
+                | MotionCommand::RUN_FORWARD
+        ) && s.forward_speed != 0.0
+    })
+    .unwrap_or(false)
+}
+
 // ACE: PhysicsObj.IsMovingTo
 #[must_use]
 pub fn is_moving_to(w: &World, h: PhysHandle) -> bool {

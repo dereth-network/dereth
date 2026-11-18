@@ -171,6 +171,19 @@ impl H {
             let cv = CreatureVital::new(&mut o, v);
             o.vitals_mut().insert(v, cv);
         }
+        // a live Strength: a player's run rate reads it when a motion plays on its body
+        o.biota
+            .properties_attribute
+            .get_or_insert_with(Default::default);
+        let strength =
+            empyrean_world::world_objects::entity::creature_attribute::CreatureAttribute::new(
+                &mut o,
+                empyrean_entity::enums::PropertyAttribute::Strength,
+            );
+        o.attributes_mut().insert(
+            empyrean_entity::enums::PropertyAttribute::Strength,
+            strength,
+        );
         o.set_property(PropertyString::Name, name.to_owned());
         o.set_property(PropertyDataId::Setup, land::TEST_SETUP);
         o.set_location(Some(at(20.0, 20.0)));

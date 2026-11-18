@@ -1993,7 +1993,8 @@ pub fn enqueue_broadcast_motion(
         Some(a) => a,
         None => {
             if obj(w, this).is_player() {
-                shims::player_fast_tick(w, this)
+                // DIVERGE: V550, every player the server moves, not only a `FastTick` one.
+                crate::world_objects::player_tick::server_moves(w, this)
             } else {
                 false
             }
@@ -2700,12 +2701,6 @@ pub mod shims {
             .get(player)
             .and_then(|o| o.player.as_ref())
             .is_some_and(|p| p.player.adminvision)
-    }
-
-    /// `Player.FastTick`.
-    #[must_use]
-    pub fn player_fast_tick(w: &World, player: ObjectGuid) -> bool {
-        crate::world_objects::player_tick::fast_tick(w, player)
     }
 
     /// `player.MagicState.IsCasting`.

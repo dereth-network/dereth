@@ -37,6 +37,12 @@ pub fn handle(w: &mut World, message: &mut Payload<'_>, session: SessionId) -> H
 
     let player = session_player(w, session);
 
+    // DIVERGE: V550, a report whose coordinates or rotation are not all finite numbers is ignored.
+    if !crate::world_objects::player_tick::position_is_finite(&position) {
+        log::warn!("{player:?} reported a position that is not a number: {position:?}");
+        return Ok(());
+    }
+
     let last_contact = m.0.contact != 0; // TRUE if player is currently on ground
     let fields = crate::world_objects::player::fields_mut(w, player);
     fields.last_contact = last_contact;
@@ -51,6 +57,12 @@ pub fn handle(w: &mut World, message: &mut Payload<'_>, session: SessionId) -> H
         .is_some_and(|o| o.wo.world_object.teleporting);
     if !teleporting {
         player_networking::set_requested_location(w, player, position, true);
+        // DIVERGE: V550, the report's force-position stamp, checked against the server's.
+        crate::world_objects::player_tick::set_requested_force_stamp(
+            w,
+            player,
+            m.0.timestamps.force_position,
+        );
     }
 
     Ok(())

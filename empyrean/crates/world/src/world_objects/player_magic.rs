@@ -1244,7 +1244,8 @@ fn made_windups(gestures: Vec<MotionCommand>) -> Vec<MotionCommand> {
 /// Queues on `chain` the windup `gestures` make: the Magic stance with no forward command, each
 /// gesture an action at `speed` ([`windup_motion`]), sent while the cast lasts, then the gestures'
 /// animation time. The fast-tick cast (`fast`) also makes the motion the caster's current one and
-/// plays it on the server's body, as its windup always did.
+/// plays it on the server's body, as its windup always did; so does any cast of a player the
+/// server moves (V550).
 // DIVERGE: V551
 // Not ACE's (retail captures): ACE sends each windup gesture as the forward command (a cast's
 // `EnqueueMotionMagic`) or after a forward Ready (the fast tick's `EnqueueMotionAction`); retail
@@ -1282,7 +1283,11 @@ fn enqueue_windup(
         }
         if fast {
             shims::set_current_motion_state(w, this, Some(motion.clone()));
-            world_object_networking::enqueue_broadcast_motion(w, this, &motion, None, Some(false));
+        }
+        world_object_networking::enqueue_broadcast_motion(w, this, &motion, None, Some(false));
+        // DIVERGE: V550, the windup plays on the body of every player the server moves, not only
+        // a `FastTick` one's.
+        if fast || crate::world_objects::player_tick::server_moves(w, this) {
             world_object_networking::apply_physics_motion(
                 w,
                 this,
@@ -1295,8 +1300,6 @@ fn enqueue_windup(
                     &Motion::new(MotionStance::Magic, g, speed),
                 );
             }
-        } else {
-            world_object_networking::enqueue_broadcast_motion(w, this, &motion, None, None);
         }
     });
     chain.add_delay_seconds(w, f64::from(anim_length));

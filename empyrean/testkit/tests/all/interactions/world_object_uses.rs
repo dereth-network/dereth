@@ -403,6 +403,18 @@ mod uses {
             "no motion table"
         );
         let h = empyrean_world::physics::phys_ext::physics_obj(&ts.world, g).expect("a body");
+        // the first use turned it to the altar; its client turns it away again, so the next use
+        // has to turn it back
+        let mut away = obj(&ts, g).location().expect("placed");
+        (away.rotation_w, away.rotation_z) = (
+            std::f32::consts::FRAC_1_SQRT_2,
+            std::f32::consts::FRAC_1_SQRT_2,
+        );
+        ts.send_game_action(
+            alpha,
+            &crate::movement::player_movement::autonomous_position(&away, true),
+        );
+        ts.advance(0.2);
 
         let a = during(&mut ts, alpha, 1.0, |ts| {
             ts.send_game_action(

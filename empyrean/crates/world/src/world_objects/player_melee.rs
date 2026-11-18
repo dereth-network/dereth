@@ -916,7 +916,8 @@ pub fn do_swing_motion(
 
     world_object_networking::enqueue_broadcast_motion(w, this, &motion, None, None);
 
-    if player_tick::fast_tick(w, this) {
+    // DIVERGE: V550, every player the server moves, not only a `FastTick` one.
+    if player_tick::server_moves(w, this) {
         let h = phys_ext::physics_obj(w, this)
             .expect("ACE: PhysicsObj is null (NullReferenceException)");
         phys_ext::stick_to_object(w, h, target.full());

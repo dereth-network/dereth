@@ -35,6 +35,21 @@ pub fn handle(w: &mut World, message: &mut Payload<'_>, session: SessionId) -> H
     let mut reader = BinaryReader::new(&rest);
     let numbering = w.dats.portal_dat().command_numbering();
     let move_to_state = MoveToState::read(player, &mut reader, numbering).map_err(read_error)?;
+
+    // DIVERGE: V550, a MoveToState whose position or speeds are not all finite numbers is ignored.
+    let raw = &move_to_state.raw_motion_state;
+    let finite = move_to_state
+        .position
+        .as_ref()
+        .is_none_or(player_tick::position_is_finite)
+        && [raw.forward_speed, raw.sidestep_speed, raw.turn_speed]
+            .iter()
+            .all(|v| v.is_finite());
+    if !finite {
+        log::warn!("{player:?} sent a MoveToState that is not a number: {move_to_state:?}");
+        return Ok(());
+    }
+
     player_move::fields_mut(w, player).current_move_to_state = move_to_state.clone();
 
     // DIVERGE: V540, the player's own movement ends a melee approach as one that can't get there.
@@ -58,6 +73,8 @@ pub fn handle(w: &mut World, message: &mut Payload<'_>, session: SessionId) -> H
     if !teleporting {
         let position = move_to_state.position.expect("read with the state");
         player_networking::set_requested_location(w, player, position, false);
+        // DIVERGE: V550, the report's force-position stamp, checked against the server's.
+        player_tick::set_requested_force_stamp(w, player, move_to_state.force_position_sequence);
     }
 
     //if (!moveToState.StandingLongJump)

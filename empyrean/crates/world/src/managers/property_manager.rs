@@ -1042,6 +1042,12 @@ pub mod default_property_manager {
         // Not ACE's (retail, V336): ranged monsters close to a random fraction
         // of their attack range before attacking.
         ("monster_ranged_closing", true, "Ranged and casting monsters whose target is beyond their attack range run to a random fraction (2/3 to 16/15) of that range with a non-sticky chase, then turn and attack, as retail's did (39,987 captured closing moves; see V336). If FALSE, ACE's behaviour: missile monsters stand and turn (switching to melee beyond range), casters beyond range chase stickily, and spell range is capped at 75."),
+        // Not ACE's (retail captures, V550): the server moves every player between its reports.
+        ("player_server_movement", true, "Every player moves on the server between its position reports, as retail's did, and the players around get the server's position of a moving player each second. If FALSE, ACE's behaviour: only player killers move on the server, and nobody is moved back."),
+        // Not ACE's (retail captures, V550): retail's half-second position for the player itself.
+        ("player_own_position_heartbeat", false, "With player_server_movement on, a moving player is also sent the server's position of itself every half second, as retail's server sent it. The client only uses it to limit how far it moves before the next one."),
+        // Not ACE's (retail, V550): a report the server's body cannot reach sends the player back.
+        ("server_motion_correction", false, "With player_server_movement on, the server moves a player's body to each position report through the world's collision, as retail's did, and sends a player whose report it cannot reach back to where it stopped. If FALSE, every report is taken."),
     ];
 
     /// Not ACE's: the long options this server adds to ACE's, each a deliberate divergence, loaded

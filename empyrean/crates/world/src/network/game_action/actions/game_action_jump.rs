@@ -15,12 +15,11 @@ use crate::World;
 // Not ACE's (retail, V300): the jump pack is read as the client lays it out,
 // 56 bytes: the extent, the velocity, the player's 32-byte position (cell id, origin, rotation
 // w-first), then the instance, server-control, teleport and force-position sequences, and nothing
-// after it. The position is read and not used; only the extent and the velocity are, so nothing
-// observable changes.
+// after it. The position is read and not used (beyond V550's check that it is a number); only the
+// extent and the velocity are, so nothing observable changes.
 pub fn handle(w: &mut World, message: &mut Payload<'_>, session: SessionId) -> HandlerResult {
     // JumpPack(BinaryReader)
     let pack = message.decode::<proto::movement::MovementJump>()?.0;
-    let _position = pack.position;
     let jump_pack = JumpPack {
         extent: pack.extent,
         velocity: Vector3::new(pack.velocity.x, pack.velocity.y, pack.velocity.z),
@@ -31,6 +30,30 @@ pub fn handle(w: &mut World, message: &mut Payload<'_>, session: SessionId) -> H
     };
 
     let player = session_player(w, session);
+
+    // DIVERGE: V550, a jump whose extent, velocity or position is not all finite numbers is
+    // ignored.
+    let p = &pack.position;
+    let finite = [
+        pack.extent,
+        pack.velocity.x,
+        pack.velocity.y,
+        pack.velocity.z,
+        p.frame.origin.x,
+        p.frame.origin.y,
+        p.frame.origin.z,
+        p.frame.orientation.w,
+        p.frame.orientation.x,
+        p.frame.orientation.y,
+        p.frame.orientation.z,
+    ]
+    .iter()
+    .all(|v| v.is_finite());
+    if !finite {
+        log::warn!("{player:?} sent a jump that is not a number");
+        return Ok(());
+    }
+
     player_move::handle_action_jump(w, player, &jump_pack);
 
     if player_move::is_player_moving_to(w, player) {

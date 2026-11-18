@@ -32,3 +32,27 @@ pub fn game_message_update_position(
     crate::network::structure::position_pack::write(&mut msg.data, &position_pack);
     msg
 }
+
+/// Not ACE's (V550): an UpdatePosition of `world_object` at `location` in place of its
+/// `Location` (where the server has moved a player since its last report).
+#[must_use]
+pub fn game_message_update_position_at(
+    w: &mut World,
+    world_object: ObjectGuid,
+    location: &empyrean_entity::Position,
+) -> GameMessage {
+    let mut msg = GameMessage::with_capacity(
+        GameMessageOpcode::UpdatePosition,
+        GameMessageGroup::SmartboxQueue,
+        68,
+    );
+    let position_pack = crate::network::structure::position_pack::position_pack_at(
+        w,
+        world_object,
+        location,
+        false,
+    );
+    msg.data.write_guid(world_object);
+    crate::network::structure::position_pack::write(&mut msg.data, &position_pack);
+    msg
+}
