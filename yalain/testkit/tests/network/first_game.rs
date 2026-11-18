@@ -7,9 +7,14 @@
 use std::path::Path;
 use std::time::Instant;
 
+use dereth_client_sdk::assets::tables::{CharGen, SkillTable};
+use dereth_client_sdk::assets::Decode;
 use dereth_client_sdk::contract::pregame::{CharGenAction, CharGenResultData};
 use dereth_client_sdk::contract::UiRequest;
+use dereth_client_sdk::dat::RetailDatStore;
 use dereth_client_sdk::net::client_session::SessionState;
+use dereth_client_sdk::primitives::{AssetSource as _, DataId};
+use dereth_client_sdk::rules::chargen::{default_skill_class, SkillAdvancementClass};
 use dereth_client_sdk::runtime::app::{App, Platform, HEADLESS_STEP};
 use dereth_client_sdk::runtime::config::Config;
 use dereth_client_sdk::runtime::present::Presentation;
@@ -141,9 +146,11 @@ impl Player {
             }
             (None, None) => {
                 let notices = self.app().host_state.chargen_response_notices;
+                let mut character = soldier(name);
+                with_free_skills(&mut character, &self.app().store);
                 self.app()
                     .run_chargen_actions(vec![CharGenAction::SendCharGenResult(Box::new(
-                        soldier(name),
+                        character,
                     ))]);
                 self.asked = Some(notices);
             }
@@ -200,6 +207,33 @@ impl Drop for Player {
         self.quit();
     }
 }
+
+/// Each skill the character's heritage gives free raised to the class the client's character
+/// creation starts it at, from the client's own tables: a world refuses a character that leaves
+/// one of them below.
+fn with_free_skills(c: &mut CharGenResultData, store: &RetailDatStore) {
+    let read = |id: u32| {
+        store
+            .read(DataId(id))
+            .unwrap_or_else(|e| panic!("the client's table {id:#010x}: {e}"))
+    };
+    let cg = CharGen::decode_payload_in(store.era(), DataId(CHAR_GEN), &read(CHAR_GEN))
+        .expect("the client's character creation table");
+    let skills = SkillTable::decode_payload_in(store.era(), DataId(SKILLS), &read(SKILLS))
+        .expect("the client's skill table");
+    for (id, class) in c.skill_advancement_classes.iter_mut().enumerate() {
+        let id = u32::try_from(id).expect("a skill id");
+        let free = default_skill_class(&cg, &skills, c.heritage_group, id);
+        if free as i32 >= SkillAdvancementClass::Trained as i32 && *class < free as i32 {
+            *class = free as i32;
+        }
+    }
+}
+
+/// The character creation table's id.
+const CHAR_GEN: u32 = 0x0E00_0002;
+/// The skill table's id.
+const SKILLS: u32 = 0x0E00_0004;
 
 /// A character to create: an Aluvian soldier, as the headless client makes one.
 fn soldier(name: &str) -> CharGenResultData {
