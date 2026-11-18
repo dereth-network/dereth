@@ -892,6 +892,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.nav.a-refused-journey-says-why",
+        says: "With no journey for the character, the planner plans once more over the portals                it refuses and names what those on the way ask: the journey ends as                `refused: needs level 15 for Crater Lair`, not only that there is no way.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-REFUSAL-REASON"),
+        station: "dereth-client-runtime::lib::planning::refusal_tests::a_journey_a_portal_refuses_answers_with_what_it_asks",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "plugins.nav.a-refused-portal-is-learned-and-the-journey-planned-again",
         says: "A portal that refuses the character is learned as refused, and the journey is planned again by another way, told with the reason.",
         since: THIS_CLIENT,

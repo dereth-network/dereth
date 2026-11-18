@@ -1559,22 +1559,32 @@ impl Travel {
             .as_ref()
             .map(|t| t.unwalkable.clone())
             .unwrap_or_default();
-        let (portals, hand_backs) = if allow.portals {
-            (
-                self.portals
-                    .routable(self.character.level)
-                    .into_iter()
-                    .filter(|e| {
-                        !unwalkable.iter().any(|u| {
-                            dereth_navigation::global_distance(u, &e.from) < UNWALKABLE_NEAR
-                        })
-                    })
-                    .cloned()
-                    .collect(),
-                self.hand_backs(),
-            )
+        let walkable = |e: &&dereth_navigation::PortalEdge| {
+            !unwalkable
+                .iter()
+                .any(|u| dereth_navigation::global_distance(u, &e.from) < UNWALKABLE_NEAR)
+        };
+        let (portals, refused, hand_backs) = if allow.portals {
+            let traveller = dereth_navigation::Traveller::at_level(self.character.level);
+            let mine: Vec<dereth_navigation::PortalEdge> = self
+                .portals
+                .routable_for(&traveller)
+                .into_iter()
+                .filter(walkable)
+                .cloned()
+                .collect();
+            // The portals anyone may take that this character may not, each with why: with no
+            // journey, they say what stands in the way.
+            let refused: Vec<(dereth_navigation::PortalEdge, dereth_navigation::Refusal)> = self
+                .portals
+                .routable_for_anyone()
+                .into_iter()
+                .filter(walkable)
+                .filter_map(|e| e.refusal(&traveller).map(|r| (e.clone(), r)))
+                .collect();
+            (mine, refused, self.hand_backs())
         } else {
-            (Vec::new(), Vec::new())
+            (Vec::new(), Vec::new(), Vec::new())
         };
         self.planning.as_ref()?;
         let id = self.job();
@@ -1583,6 +1593,7 @@ impl Travel {
             from: *from,
             to,
             portals,
+            refused,
             teleports,
             hand_backs,
             reach: object.then_some(OBJECT_REACH),
@@ -2326,12 +2337,13 @@ impl Travel {
                     to,
                     journey,
                     first,
+                    why,
                 } => {
                     let first = first.and_then(Result::ok).map(|(p, _)| p);
                     if let Some(request) = self.plans_asked.remove(&id) {
                         let plan = match (to, journey) {
                             (None, _) => Err(String::from("no_target")),
-                            (_, None) => Err(String::from("no_path")),
+                            (_, None) => Err(why.unwrap_or_else(|| String::from("no_path"))),
                             (Some(_), Some((j, _))) => Ok(TravelPlan {
                                 legs: Self::legs_of(&j, first.as_ref()),
                                 seconds: j.seconds,
@@ -2347,6 +2359,14 @@ impl Travel {
                         continue;
                     };
                     if let Some(p) = here {
+                        // No way for this character, and the portals that would lead there say
+                        // why: that is the journey's end.
+                        if journey.is_none() && to.is_some() {
+                            if let Some(why) = why {
+                                self.end(out, Some(p), Some(&why));
+                                continue;
+                            }
+                        }
                         self.planned(p, to, journey, first.as_ref(), reason, out);
                     }
                 }

@@ -16,7 +16,7 @@ use std::sync::Arc;
 use dereth_dat::RetailDatStore;
 use dereth_navigation::{
     plan_journey_with, Done, HandBack, Journey, JourneyConfig, NavPath, NoPath, Obstacle,
-    PortalEdge, Realm, Task, Teleport,
+    PortalEdge, Realm, Refusal, Task, Teleport,
 };
 use dereth_primitives::{CellId, ObjectId, Position};
 use dereth_world_data::land_source::DatLandSource;
@@ -54,6 +54,9 @@ pub enum Job {
         from: Position,
         to: Goal,
         portals: Vec<PortalEdge>,
+        /// The portals the character is refused, each with why: with no journey, the one over
+        /// them too says what stands in the way.
+        refused: Vec<(PortalEdge, Refusal)>,
         teleports: Vec<Teleport>,
         hand_backs: Vec<HandBack>,
         reach: Option<f32>,
@@ -84,6 +87,9 @@ pub enum Answer {
         to: Option<Position>,
         journey: Option<(Journey, f64)>,
         first: Option<Result<(NavPath, bool), NoPath>>,
+        /// With no journey: what the portals that would lead there ask of the character, when
+        /// some would ([`refused_why`]).
+        why: Option<String>,
     },
     /// A [`Job::Unblock`]: how many places were put back.
     Unblocked(usize),
@@ -123,6 +129,7 @@ enum Running {
 struct Ask {
     from: Position,
     portals: Vec<PortalEdge>,
+    refused: Vec<(PortalEdge, Refusal)>,
     teleports: Vec<Teleport>,
     hand_backs: Vec<HandBack>,
     reach: Option<f32>,
@@ -188,6 +195,23 @@ impl FarRealms {
         }
         found
     }
+}
+
+/// Why a journey is refused, as the travel's reasons go: `refused:` and, for each portal on the
+/// way that would not take the character, what it asks (`refused: needs level 20 for Crater
+/// Lair`); `None` for none.
+#[must_use]
+pub fn refused_why(why: &[(String, Refusal)]) -> Option<String> {
+    let each: Vec<String> = why
+        .iter()
+        .map(|(name, r)| match r {
+            Refusal::BelowLevel(min) => format!("needs level {min} for {name}"),
+            Refusal::AboveLevel(max) => format!("needs level {max} or below for {name}"),
+            Refusal::Requires(q) => format!("needs {q} for {name}"),
+            Refusal::Retired(w) => format!("{name} refused before ({w})"),
+        })
+        .collect();
+    (!each.is_empty()).then(|| format!("refused: {}", each.join("; ")))
 }
 
 /// The planner and its jobs, wherever they run.
@@ -302,6 +326,7 @@ impl Worker {
                 from,
                 to,
                 portals,
+                refused,
                 teleports,
                 hand_backs,
                 reach,
@@ -312,6 +337,7 @@ impl Worker {
                         to: None,
                         journey: None,
                         first: None,
+                        why: None,
                     });
                     return;
                 };
@@ -321,6 +347,7 @@ impl Worker {
                     ask: Ask {
                         from,
                         portals,
+                        refused,
                         teleports,
                         hand_backs,
                         reach,
@@ -328,6 +355,42 @@ impl Worker {
                 });
             }
         }
+    }
+
+    /// With no journey from `ask.from` to `to`: what the portals the character is refused, on
+    /// the journey planned with them too, ask of it ([`refused_why`]); `None` when that journey
+    /// needs none of them, or there is none even so.
+    fn refusals(&self, ask: &Ask, to: &Position) -> Option<String> {
+        if ask.refused.is_empty() {
+            return None;
+        }
+        let mut all = Ask {
+            from: ask.from,
+            portals: ask.portals.clone(),
+            refused: Vec::new(),
+            teleports: ask.teleports.clone(),
+            hand_backs: ask.hand_backs.clone(),
+            reach: ask.reach,
+        };
+        all.portals
+            .extend(ask.refused.iter().map(|(e, _)| e.clone()));
+        let (j, _) = self.journey(&all, to)?;
+        let mut why: Vec<(String, Refusal)> = Vec::new();
+        for leg in &j.legs {
+            if let dereth_navigation::Leg::Portal { edge } = leg {
+                if let Some((e, r)) = ask
+                    .refused
+                    .iter()
+                    .find(|(e, _)| e.name == edge.name && e.from == edge.from)
+                {
+                    let named = (e.name.clone(), r.clone());
+                    if !why.contains(&named) {
+                        why.push(named);
+                    }
+                }
+            }
+        }
+        refused_why(&why)
     }
 
     /// The journey from `from` to `to`, and how long it took to plan.
@@ -415,6 +478,7 @@ impl Worker {
                                         to: Some(to),
                                         journey: Some(journey),
                                         first: None,
+                                        why: None,
                                     });
                                     None
                                 }
@@ -426,6 +490,7 @@ impl Worker {
                                 to: Some(to),
                                 journey: None,
                                 first: None,
+                                why: self.refusals(&ask, &to),
                             });
                             None
                         }
@@ -449,6 +514,7 @@ impl Worker {
                         to: Some(to),
                         journey: Some(journey),
                         first: Some(first),
+                        why: None,
                     });
                     None
                 }
@@ -735,5 +801,83 @@ mod far_realm_tests {
         assert_eq!(far.of(&store, CellId(0x015A_01AE)), Realm::Dungeon(0x015A));
         // Asked again: the same, from what was kept.
         assert_eq!(far.of(&store, CellId(0xAFC6_015C)), Realm::Outdoors);
+    }
+}
+
+#[cfg(test)]
+mod refusal_tests {
+    use super::*;
+    use dereth_primitives::{Frame, Quat, Vec3};
+
+    /// Behaviour: plugins.nav.a-refused-journey-says-why
+    #[test]
+    fn a_refusal_reads_as_what_the_portal_asks() {
+        assert_eq!(
+            refused_why(&[("Crater Lair".into(), Refusal::BelowLevel(15))]).as_deref(),
+            Some("refused: needs level 15 for Crater Lair")
+        );
+        assert_eq!(
+            refused_why(&[
+                ("Low".into(), Refusal::AboveLevel(20)),
+                (
+                    "Vault".into(),
+                    Refusal::Requires(dereth_navigation::Requirement::Quest("Key".into()))
+                ),
+            ])
+            .as_deref(),
+            Some("refused: needs level 20 or below for Low; needs quest Key for Vault")
+        );
+        assert_eq!(refused_why(&[]), None);
+    }
+
+    /// Behaviour: plugins.nav.a-refused-journey-says-why
+    /// No journey for a level 1 character to Crater Lair, whose portal asks level 15: the answer
+    /// says so.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn a_journey_a_portal_refuses_answers_with_what_it_asks() {
+        let store = Arc::new(dereth_dat::testing::open_store_or_fail());
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region");
+        let land = Arc::new(DatLandSource::new(Arc::clone(&store), &region).expect("the land"));
+        let at = |cell: u32, x: f32, y: f32, z: f32| {
+            Position::new(CellId(cell), Frame::new(Vec3::new(x, y, z), Quat::IDENTITY))
+        };
+        let lair = PortalEdge {
+            source: dereth_navigation::EdgeSource::Hint,
+            wcid: Some(3651),
+            name: "Crater Lair".into(),
+            from: at(0x8FD7_0015, 56.5, 115.5, 115.1),
+            to: Some(at(0x018C_0191, 40.0, -20.0, 0.005)),
+            verified: 0,
+            uses: 0,
+            failures: 0,
+            levels: (Some(15), None),
+            retired: None,
+            requires: Vec::new(),
+        };
+        let mut planning = Planning::in_frame(&land, &store, None).expect("a planner");
+        planning.ask(Job::Journey {
+            id: 1,
+            from: at(0xA9B4_0019, 84.0, 7.1, 94.0),
+            to: Goal::Place(at(0x018C_0191, 40.0, -20.0, 0.005)),
+            portals: Vec::new(),
+            refused: vec![(lair, Refusal::BelowLevel(15))],
+            teleports: Vec::new(),
+            hand_backs: Vec::new(),
+            reach: None,
+        });
+        let answers = planning.answers_waited();
+        match answers.as_slice() {
+            [Answer::Journey {
+                journey: None, why, ..
+            }] => assert_eq!(
+                why.as_deref(),
+                Some("refused: needs level 15 for Crater Lair")
+            ),
+            other => panic!("{other:?}"),
+        }
     }
 }
