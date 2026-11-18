@@ -93,6 +93,10 @@ struct Pipelines {
     cull: Pipeline,
     /// The openings' depth stamps.
     stamp: Pipeline,
+    /// Seen from outdoors, the openings clearing what the outdoors drew behind them.
+    stamp_behind: Pipeline,
+    /// The frame's depth taking the rooms' seen from outdoors, where they drew.
+    stamp_rooms: Pipeline,
 }
 
 /// The meshes the far trees' pictures are made of that a frame holds, at most.
@@ -368,6 +372,30 @@ impl Pipelines {
             depth,
             cull: Cull::None,
         })?;
+        let stamp_behind = d.create_graphics_pipeline(&GraphicsDesc {
+            label: "remaster openings from outdoors",
+            vertex: shader(Entry::StampVsMain),
+            fragment: Some(shader(Entry::StampFsBehind)),
+            color: &[],
+            depth: Some(DepthState {
+                format: DEPTH,
+                compare: Some(Compare::GreaterEqual),
+                write: true,
+            }),
+            cull: Cull::None,
+        })?;
+        let stamp_rooms = d.create_graphics_pipeline(&GraphicsDesc {
+            label: "remaster rooms' depth from outdoors",
+            vertex: dereth_gfx_passes::shaders::fullscreen(),
+            fragment: Some(shader(Entry::StampFsRooms)),
+            color: &[],
+            depth: Some(DepthState {
+                format: DEPTH,
+                compare: Some(Compare::Always),
+                write: true,
+            }),
+            cull: Cull::None,
+        })?;
         Ok(Self {
             gbuffer,
             ground,
@@ -381,6 +409,8 @@ impl Pipelines {
             composite,
             cull,
             stamp,
+            stamp_behind,
+            stamp_rooms,
         })
     }
 
@@ -1716,10 +1746,18 @@ fn make_ground_samplers(gfx: &mut Device, bias: f32) -> Result<[u32; 2], dereth_
 /// as retail draws it: the outdoors first, then the depth cleared and the openings stamped into
 /// it at their own depth, then the interior. Each list then has the outdoors' part and the
 /// interior's (the `_inside` lists); otherwise everything is in the first.
+///
+/// Where the viewer stands outdoors and the walk drew rooms, seen through their openings, the
+/// rooms' opaque surfaces are drawn after the outdoors too ([`Self::opaque_inside`]): retail
+/// clears the depth inside each opening it looks through before it draws the rooms beyond, so
+/// the ground a building stands on never covers its rooms. Their blended surfaces and edges are
+/// drawn with the outdoors', against the depth the rooms leave.
 #[derive(Debug, Default)]
 pub(crate) struct Drawn {
     /// Whether the viewer stands inside with the outdoors drawn.
     pub inside: bool,
+    /// Whether the viewer stands outdoors and looks into rooms through their openings.
+    pub looking_in: bool,
     /// The G-buffer's items, and for each of the outdoors' its block part's place in the walk:
     /// block by block as the frame drew them, each taking a place for each of its parts (`NONE`
     /// for any other item).
@@ -1733,7 +1771,8 @@ pub(crate) struct Drawn {
     /// draws.
     pub edges: Vec<(f32, u32)>,
     pub edges_inside: Vec<(f32, u32)>,
-    /// The openings' triangles' corners, in the frame's space, when the viewer stands inside.
+    /// The openings' triangles' corners, in the frame's space, when the viewer stands inside or
+    /// looks in.
     pub stamps: Vec<[f32; 4]>,
     /// The particles' draw items, written this frame from the first of the scene's particle
     /// items: each one's row, bucket and command.
@@ -1788,6 +1827,7 @@ impl Renderer {
         let sizes = self.drawn_sizes;
         let mut out = Drawn {
             inside: frame.landscape && !frame.light.outdoor,
+            looking_in: frame.landscape && frame.light.outdoor && !frame.drawn_cells.is_empty(),
             // Set 0 is every room's: every dynamic light.
             sets: vec![light::room_light_set(
                 &frame.light.lights,
@@ -1811,14 +1851,16 @@ impl Renderer {
             )
         };
         // `interior`: the items are the interior's, drawn after the stamps when the viewer
-        // stands inside. `fading`: a material is fading them, so whatever they are they blend.
-        // `walk`: their block part's place in the walk, `NONE` for any other item.
+        // stands inside, and the opaque ones when the viewer looks in from outdoors. `fading`: a
+        // material is fading them, so whatever they are they blend. `walk`: their block part's
+        // place in the walk, `NONE` for any other item.
         let push_items = |out: &mut Drawn,
                           r: &std::ops::Range<u32>,
                           centre: Vec3,
                           (interior, fading): (bool, bool),
                           walk: u32| {
             let late = interior && out.inside;
+            let late_opaque = interior && (out.inside || out.looking_in);
             for i in r.clone() {
                 let far = centre.distance_squared(eye);
                 let bucket = self.scene.buckets.get(i as usize).copied();
@@ -1841,15 +1883,16 @@ impl Renderer {
                             .item_draws
                             .get(i as usize)
                             .is_some_and(|d| d.edge);
-                        if late {
+                        if late_opaque {
                             out.opaque_inside.push(i);
-                            if edge {
-                                out.edges_inside.push((far, i));
-                            }
                         } else {
                             out.opaque.push(i);
                             out.opaque_walk.push(walk);
-                            if edge {
+                        }
+                        if edge {
+                            if late {
+                                out.edges_inside.push((far, i));
+                            } else {
                                 out.edges.push((far, i));
                             }
                         }
@@ -1935,7 +1978,7 @@ impl Renderer {
                 let c = r.walls.transform.w_axis.xyz() + o;
                 push_items(&mut out, &r.walls.levels[0], c, (true, false), NONE);
                 // Its openings to the outdoors, stamped as a fan of triangles each.
-                if out.inside {
+                if out.inside || out.looking_in {
                     for poly in &r.openings {
                         for k in 1..poly.len().saturating_sub(1) {
                             for v in [poly[0], poly[k], poly[k + 1]] {

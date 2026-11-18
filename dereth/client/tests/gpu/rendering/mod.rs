@@ -54,6 +54,7 @@ mod remaster_off;
 mod remaster_on;
 mod remaster_packs;
 mod remaster_post;
+mod remaster_rooms_from_outdoors;
 mod remaster_rt;
 mod remaster_scene;
 mod remaster_shadows;

@@ -9,6 +9,10 @@ pub enum Entry {
     CloudShadowFsMain,
     /// `vs_main` in `stamp.slang`, the vertex stage.
     StampVsMain,
+    /// `fs_behind` in `stamp.slang`, the fragment stage.
+    StampFsBehind,
+    /// `fs_rooms` in `stamp.slang`, the fragment stage.
+    StampFsRooms,
     /// `fs_main` in `copy.slang`, the fragment stage.
     CopyFsMain,
     /// `vs_main` in `gbuffer.slang`, the vertex stage.
@@ -177,7 +181,7 @@ pub enum Entry {
 
 impl Entry {
     /// Every entry point, in `shaders.toml`'s order.
-    pub const ALL: [Self; 85] = [Self::AirFsAir, Self::CloudShadowFsMain, Self::StampVsMain, Self::CopyFsMain, Self::GbufferVsMain, Self::GbufferFsMain, Self::GbufferFsForward, Self::GbufferFsEdge, Self::GbufferFsForwardAny, Self::GbufferFsEdgeAny, Self::TerrainVsMain, Self::TerrainFsMain, Self::ResolveFsVertex, Self::ResolveFsPixel, Self::CompositeFsMain, Self::CullCsMain, Self::InstancesCsChoose, Self::InstancesCsWalkCpu, Self::InstancesCsScan, Self::InstancesCsWalkScan, Self::InstancesCsWalkGroups, Self::InstancesCsWrite, Self::SortCsLocal, Self::SortCsGlobal, Self::SortCsMerge, Self::SortCsEmit, Self::SkinCsMain, Self::GbufferFsCaster, Self::LampsFsLamps, Self::MotionVsMain, Self::MotionFsMain, Self::FogVolumeCsMain, Self::DrawnVsGround, Self::DrawnFsGround, Self::DrawnVsCaster, Self::DrawnCsProbe, Self::DrawnCsGrass, Self::GrassVsBlade, Self::GrassFsBlade, Self::GrassVsBladeMotion, Self::GrassFsBladeMotion, Self::DrawnCsScatter, Self::GrassVsScatter, Self::GrassFsScatter, Self::WaterFsMain, Self::WaterFsTraced, Self::WaterCsWake, Self::LiftCsBases, Self::ImpostorVsBake, Self::ImpostorFsBake, Self::ImpostorVsDraw, Self::ImpostorFsDraw, Self::ImpostorFsGather, Self::ImpostorFsChain, Self::ForestCsCull, Self::ForestVsFar, Self::ForestFsFar, Self::RainFsSplash, Self::RainVsFall, Self::RainFsFall, Self::RtCsInstances, Self::RtCheckCsCheck, Self::GiCsUpdate, Self::GiFsProbes, Self::GiFsScreen, Self::GiFsBlur, Self::GiTraceCsTrace, Self::RtShadowFsMain, Self::RtAoFsRays, Self::RtAoFsFilter, Self::UpscaleInputsCsMain, Self::Fsr3PassesCsClearReconstructed, Self::Fsr3PassesCsPrepareInputs, Self::Fsr3PassesCsFarthestHalf, Self::Fsr3PassesCsShadingLevelZero, Self::Fsr3PassesCsShadingLevel, Self::Fsr3PassesCsShadingChange, Self::Fsr3PassesCsReactivity, Self::Fsr3PassesCsLumaInstability, Self::Fsr3PassesCsAccumulate, Self::Fsr3PassesCsRcas, Self::Fsr3PassesFsShow, Self::Fsr3PassesCsReactiveInput, Self::Fsr3PassesCsExposure, Self::Fsr3PassesFsInputsAsPictures];
+    pub const ALL: [Self; 87] = [Self::AirFsAir, Self::CloudShadowFsMain, Self::StampVsMain, Self::StampFsBehind, Self::StampFsRooms, Self::CopyFsMain, Self::GbufferVsMain, Self::GbufferFsMain, Self::GbufferFsForward, Self::GbufferFsEdge, Self::GbufferFsForwardAny, Self::GbufferFsEdgeAny, Self::TerrainVsMain, Self::TerrainFsMain, Self::ResolveFsVertex, Self::ResolveFsPixel, Self::CompositeFsMain, Self::CullCsMain, Self::InstancesCsChoose, Self::InstancesCsWalkCpu, Self::InstancesCsScan, Self::InstancesCsWalkScan, Self::InstancesCsWalkGroups, Self::InstancesCsWrite, Self::SortCsLocal, Self::SortCsGlobal, Self::SortCsMerge, Self::SortCsEmit, Self::SkinCsMain, Self::GbufferFsCaster, Self::LampsFsLamps, Self::MotionVsMain, Self::MotionFsMain, Self::FogVolumeCsMain, Self::DrawnVsGround, Self::DrawnFsGround, Self::DrawnVsCaster, Self::DrawnCsProbe, Self::DrawnCsGrass, Self::GrassVsBlade, Self::GrassFsBlade, Self::GrassVsBladeMotion, Self::GrassFsBladeMotion, Self::DrawnCsScatter, Self::GrassVsScatter, Self::GrassFsScatter, Self::WaterFsMain, Self::WaterFsTraced, Self::WaterCsWake, Self::LiftCsBases, Self::ImpostorVsBake, Self::ImpostorFsBake, Self::ImpostorVsDraw, Self::ImpostorFsDraw, Self::ImpostorFsGather, Self::ImpostorFsChain, Self::ForestCsCull, Self::ForestVsFar, Self::ForestFsFar, Self::RainFsSplash, Self::RainVsFall, Self::RainFsFall, Self::RtCsInstances, Self::RtCheckCsCheck, Self::GiCsUpdate, Self::GiFsProbes, Self::GiFsScreen, Self::GiFsBlur, Self::GiTraceCsTrace, Self::RtShadowFsMain, Self::RtAoFsRays, Self::RtAoFsFilter, Self::UpscaleInputsCsMain, Self::Fsr3PassesCsClearReconstructed, Self::Fsr3PassesCsPrepareInputs, Self::Fsr3PassesCsFarthestHalf, Self::Fsr3PassesCsShadingLevelZero, Self::Fsr3PassesCsShadingLevel, Self::Fsr3PassesCsShadingChange, Self::Fsr3PassesCsReactivity, Self::Fsr3PassesCsLumaInstability, Self::Fsr3PassesCsAccumulate, Self::Fsr3PassesCsRcas, Self::Fsr3PassesFsShow, Self::Fsr3PassesCsReactiveInput, Self::Fsr3PassesCsExposure, Self::Fsr3PassesFsInputsAsPictures];
 
     /// The source file that defines it.
     #[must_use]
@@ -186,6 +190,8 @@ impl Entry {
             Self::AirFsAir => "air.slang",
             Self::CloudShadowFsMain => "cloud_shadow.slang",
             Self::StampVsMain => "stamp.slang",
+            Self::StampFsBehind => "stamp.slang",
+            Self::StampFsRooms => "stamp.slang",
             Self::CopyFsMain => "copy.slang",
             Self::GbufferVsMain => "gbuffer.slang",
             Self::GbufferFsMain => "gbuffer.slang",
@@ -278,6 +284,8 @@ impl Entry {
             Self::AirFsAir => "fs_air",
             Self::CloudShadowFsMain => "fs_main",
             Self::StampVsMain => "vs_main",
+            Self::StampFsBehind => "fs_behind",
+            Self::StampFsRooms => "fs_rooms",
             Self::CopyFsMain => "fs_main",
             Self::GbufferVsMain => "vs_main",
             Self::GbufferFsMain => "fs_main",
@@ -370,6 +378,8 @@ impl Entry {
             Self::AirFsAir => Stage::Fragment,
             Self::CloudShadowFsMain => Stage::Fragment,
             Self::StampVsMain => Stage::Vertex,
+            Self::StampFsBehind => Stage::Fragment,
+            Self::StampFsRooms => Stage::Fragment,
             Self::CopyFsMain => Stage::Fragment,
             Self::GbufferVsMain => Stage::Vertex,
             Self::GbufferFsMain => Stage::Fragment,
@@ -462,6 +472,8 @@ impl Entry {
             Self::AirFsAir => include_bytes!("spirv/air.fs_air.spv"),
             Self::CloudShadowFsMain => include_bytes!("spirv/cloud_shadow.fs_main.spv"),
             Self::StampVsMain => include_bytes!("spirv/stamp.vs_main.spv"),
+            Self::StampFsBehind => include_bytes!("spirv/stamp.fs_behind.spv"),
+            Self::StampFsRooms => include_bytes!("spirv/stamp.fs_rooms.spv"),
             Self::CopyFsMain => include_bytes!("spirv/copy.fs_main.spv"),
             Self::GbufferVsMain => include_bytes!("spirv/gbuffer.vs_main.spv"),
             Self::GbufferFsMain => include_bytes!("spirv/gbuffer.fs_main.spv"),
@@ -554,6 +566,8 @@ impl Entry {
             Self::AirFsAir => include_bytes!("dxil/air.fs_air.dxil"),
             Self::CloudShadowFsMain => include_bytes!("dxil/cloud_shadow.fs_main.dxil"),
             Self::StampVsMain => include_bytes!("dxil/stamp.vs_main.dxil"),
+            Self::StampFsBehind => include_bytes!("dxil/stamp.fs_behind.dxil"),
+            Self::StampFsRooms => include_bytes!("dxil/stamp.fs_rooms.dxil"),
             Self::CopyFsMain => include_bytes!("dxil/copy.fs_main.dxil"),
             Self::GbufferVsMain => include_bytes!("dxil/gbuffer.vs_main.dxil"),
             Self::GbufferFsMain => include_bytes!("dxil/gbuffer.fs_main.dxil"),

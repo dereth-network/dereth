@@ -21,6 +21,18 @@ source = "stamp.slang"
 entry = "vs_main"
 stage = "vertex"
 
+# Seen from outdoors, the openings clear what the outdoors drew behind them, and the frame's depth
+# then takes the rooms'.
+[[entry]]
+source = "stamp.slang"
+entry = "fs_behind"
+stage = "fragment"
+
+[[entry]]
+source = "stamp.slang"
+entry = "fs_rooms"
+stage = "fragment"
+
 # One bound texture copied to the target, pixel for pixel.
 [[entry]]
 source = "copy.slang"

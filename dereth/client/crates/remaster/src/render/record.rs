@@ -41,11 +41,14 @@ pub struct Plan {
     ground_samplers: [u32; 2],
     visible: u32,
     visible_count: u32,
-    /// The first of the interior's visible items, when the viewer stands inside.
+    /// The first of the interior's visible items, when the viewer stands inside or looks in.
     split: u32,
     /// Whether the viewer stands inside with the outdoors drawn: the outdoors first, then the
     /// depth cleared, the openings stamped, the interior.
     inside: bool,
+    /// Whether the viewer stands outdoors and looks into rooms through their openings: the
+    /// outdoors first, then what it drew behind the openings cleared, the rooms.
+    looking_in: bool,
     stamps: u32,
     stamp_corners: u32,
     commands: Buffer,
@@ -334,7 +337,7 @@ impl Renderer {
         // The processor's blocks' parts at their places in the walk, for the device to place its
         // own among them.
         let (cpu_walk, tails) = walk_counts(&drawn, &self.scene);
-        if drawn.inside {
+        if drawn.inside || drawn.looking_in {
             let corners: Vec<u8> = drawn
                 .stamps
                 .iter()
@@ -859,6 +862,7 @@ impl Renderer {
             visible_count: u32::try_from(visible.len()).unwrap_or(u32::MAX),
             split: u32::try_from(drawn.opaque.len()).unwrap_or(u32::MAX),
             inside: drawn.inside,
+            looking_in: drawn.looking_in,
             stamps: self.stamps.index,
             stamp_corners: u32::try_from(drawn.stamps.len()).unwrap_or(0),
             commands: self.commands,
@@ -943,10 +947,116 @@ impl Plan {
         self.draw_buckets_seen(d, first, self.frame, self.batched.as_ref())
     }
 
+    /// Looking into rooms from outdoors, after the outdoors' G-buffer: inside each opening, what
+    /// the outdoors drew behind it cleared in a copy of the depth and what stands in front of it
+    /// kept; the rooms' opaque surfaces drawn into the copy; and the frame's depth then the
+    /// rooms' wherever they drew, the outdoors' own wherever they did not.
+    ///
+    /// Retail clears the depth inside each opening it looks through before it draws the rooms
+    /// beyond, so the ground a building stands on, inside its walls, never covers its rooms: a
+    /// cellar or a cave's stairs under the entrance's floor are seen through the doorway.
+    ///
+    /// # Errors
+    /// What the layer refuses.
+    fn record_looking_in(
+        &self,
+        r: &mut Recorder<'_>,
+        t: &Targets,
+        full: Rect,
+        cover: Option<Texture>,
+    ) -> Result<(), dereth_gfx::Error> {
+        r.copy_texture(t.depth, t.outdoor_depth)?;
+        r.timestamp("openings from outdoors");
+        r.raster(
+            &RasterPass {
+                name: "openings from outdoors",
+                color: &[],
+                depth: Some(DepthAttachment {
+                    texture: t.outdoor_depth,
+                    clear: None,
+                    write: true,
+                }),
+                touches: &[Touch::Texture(t.depth, Use::Sampled)],
+                area: Some(full),
+            },
+            |d| {
+                if self.stamp_corners > 0 {
+                    d.set_pipeline(self.pipelines.stamp_behind)?;
+                    d.push(0, &push_words(&[self.frame, self.stamps, t.index[4]]))?;
+                    d.draw(self.stamp_corners, 1, 0, 0);
+                }
+                Ok(())
+            },
+        )?;
+        r.timestamp("g-buffer looked into");
+        let keep = [t.albedo, t.normal, t.light, t.material].map(|texture| ColorAttachment {
+            texture,
+            load: Load::Keep,
+        });
+        let mut touches = vec![
+            Touch::Buffer(self.commands, Use::Indirect),
+            Touch::Buffer(self.counts, Use::Indirect),
+            Touch::Buffer(self.indices, Use::Index),
+        ];
+        if let Some(b) = &self.batched {
+            touches.push(Touch::Buffer(b.commands, Use::Indirect));
+        }
+        if let Some(c) = cover {
+            touches.push(Touch::Texture(c, Use::Sampled));
+        }
+        r.raster(
+            &RasterPass {
+                name: "g-buffer looked into",
+                color: &keep,
+                depth: Some(DepthAttachment {
+                    texture: t.outdoor_depth,
+                    clear: None,
+                    write: true,
+                }),
+                touches: &touches,
+                area: Some(full),
+            },
+            |d| self.draw_buckets(d, GROUP_BUCKETS),
+        )?;
+        r.raster(
+            &RasterPass {
+                name: "depth looked into",
+                color: &[],
+                depth: Some(DepthAttachment {
+                    texture: t.depth,
+                    clear: None,
+                    write: true,
+                }),
+                touches: &[Touch::Texture(t.outdoor_depth, Use::Sampled)],
+                area: Some(full),
+            },
+            |d| {
+                d.set_pipeline(self.pipelines.stamp_rooms)?;
+                d.push(0, &push_words(&[self.frame, self.stamps, t.index[6]]))?;
+                d.draw(3, 1, 0, 0);
+                Ok(())
+            },
+        )
+    }
+
     /// The mirrored view's instanced draws, or the view's where it has none of its own: where
     /// the buckets are drawn instanced, no command an item is written.
     fn mirror_batch(&self) -> Option<&Batched> {
         self.batched_mirror.as_ref().or(self.batched.as_ref())
+    }
+
+    /// The mirrored view's meshes: the outdoors' buckets, and the rooms' looked into from
+    /// outdoors, which the mirror draws with the rest.
+    fn draw_mirrored_buckets(
+        &self,
+        d: &mut dereth_gfx::Draw<'_>,
+        frame: u32,
+    ) -> Result<(), dereth_gfx::Error> {
+        self.draw_buckets_seen(d, 0, frame, self.mirror_batch())?;
+        if self.looking_in {
+            self.draw_buckets_seen(d, GROUP_BUCKETS, frame, self.mirror_batch())?;
+        }
+        Ok(())
     }
 
     /// [`Self::draw_buckets`] with the frame's constants from the buffer `frame`, as `batched`
@@ -1041,7 +1151,7 @@ impl Plan {
                 if let Some(g) = &self.drawn_ground {
                     let [wrap, clamp] = self.ground_samplers;
                     g.draw_ground(d, p.frame, wrap, clamp, self.weather_table())?;
-                    return self.draw_buckets_seen(d, 0, p.frame, self.mirror_batch());
+                    return self.draw_mirrored_buckets(d, p.frame);
                 }
                 d.set_pipeline(self.pipelines.ground)?;
                 for (side, first, count) in &self.ground_groups {
@@ -1062,7 +1172,7 @@ impl Plan {
                     )?;
                     d.draw(side * side * 6, *count, 0, 0);
                 }
-                self.draw_buckets_seen(d, 0, p.frame, self.mirror_batch())
+                self.draw_mirrored_buckets(d, p.frame)
             },
         )?;
         let mut sky_touches = vec![
@@ -1537,6 +1647,9 @@ impl Plan {
                 self.draw_buckets(d, 0)
             },
         )?;
+        if self.looking_in {
+            self.record_looking_in(r, &t, full, cover)?;
+        }
         if let Some(i) = &self.impostors {
             super::impostor::ImpostorPass::record(i, r, &t)?;
         }
