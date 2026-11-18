@@ -32,6 +32,7 @@ mod join;
 mod local;
 mod lyceum_world;
 mod pad;
+mod places;
 // Only Linux registers a desktop entry; elsewhere the module is its tests and a no-op.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod registration;
@@ -435,6 +436,31 @@ async fn launch(
     choice: Choice,
 ) -> Cmd<LaunchOutcome> {
     let world = lock(&b).world(&choice.world_slug);
+    // The place package of the world's era, built the first time a world of it is joined; a
+    // world joined without one still starts.
+    if let Some((w, era)) = world
+        .as_ref()
+        .and_then(|w| dereth_launch::places::era_of(w).map(|e| (w.slug.clone(), e)))
+    {
+        let root = dereth_launch::places::root(&lock(&b).folders().data);
+        let prepared = tauri::async_runtime::spawn_blocking(move || {
+            let databases = dereth_places::cache_dir().unwrap_or_else(|| root.join("databases"));
+            dereth_launch::places::prepare(
+                &root,
+                &databases,
+                era,
+                &places::Http::new(),
+                std::time::SystemTime::now(),
+                &mut |line| eprintln!("dereth-launcher: places: {line}"),
+            )
+        })
+        .await;
+        match prepared {
+            Ok(Ok(package)) => lock(&b).set_place_package(&w, package),
+            Ok(Err(e)) => eprintln!("dereth-launcher: no places for {}: {e}", era.name()),
+            Err(e) => eprintln!("dereth-launcher: no places for {}: {e}", era.name()),
+        }
+    }
     if world.as_ref().is_some_and(|w| w.relayed) {
         let (c, b) = (c.inner().clone(), b.inner().clone());
         return tauri::async_runtime::spawn_blocking(move || relayed::launch(&b, &c, choice))
@@ -600,6 +626,8 @@ fn open_local_world(b: State<'_, Shared>, l: State<'_, local::Shared>, key: Stri
             None => dereth_launch::world::Emulator::Unknown,
         },
         game: dereth_launch::world::Game::Dereth,
+        // A world on this computer says its own era when asked.
+        era: None,
     })?;
     Backend::probe(&b, vec![slug.clone()]);
     Ok(slug)
@@ -615,6 +643,12 @@ fn probe_world(b: State<'_, Shared>, slug: String) {
 #[tauri::command]
 fn worlds_shown(b: State<'_, Shared>, shown: bool) {
     lock(&b).set_worlds_shown(shown);
+}
+
+/// Say which era a world the player added plays, or `None` for not said.
+#[tauri::command]
+fn set_custom_world_era(b: State<'_, Shared>, slug: String, era: Option<String>) -> Cmd<()> {
+    lock(&b).set_custom_world_era(&slug, era.as_deref())
 }
 
 #[tauri::command]
@@ -1120,6 +1154,7 @@ fn main() {
             add_custom_world,
             probe_world,
             remove_custom_world,
+            set_custom_world_era,
             set_interface,
             set_discord_presence,
             set_update_components,

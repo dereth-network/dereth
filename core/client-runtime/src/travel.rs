@@ -440,7 +440,14 @@ pub struct StoreFiles {
     /// Where the planner keeps the tiles and dungeons it builds ([`CacheTiles`]); `None` keeps
     /// none.
     pub tiles: Option<PathBuf>,
+    /// A place package taken in as hints ([`HINT_PORTALS`], [`HINT_PLACES`]); `None` for none.
+    pub hints: Option<PathBuf>,
 }
+
+/// The portal table of a place package ([`StoreFiles::hints`]).
+pub const HINT_PORTALS: &str = "portals.tsv";
+/// The places of a place package.
+pub const HINT_PLACES: &str = "places.tsv";
 
 impl StoreFiles {
     /// Where a client run on `cfg` keeps the travel's files: in `--nav-store`'s folder, or beside
@@ -452,11 +459,13 @@ impl StoreFiles {
                 dir: Some(dir.clone()),
                 prefix: String::new(),
                 tiles: cfg.nav_cache.clone(),
+                hints: cfg.nav_hints.clone(),
             },
             None => Self {
                 dir: cfg.preferences_file.parent().map(Path::to_path_buf),
                 prefix: String::from("navigation-"),
                 tiles: cfg.nav_cache.clone(),
+                hints: cfg.nav_hints.clone(),
             },
         }
     }
@@ -1232,6 +1241,19 @@ impl Travel {
                     Ok(h) => self.portals.merge(h.portals().iter().cloned()),
                     Err(e) => tracing::warn!(target: "travel", "hints: {e}"),
                 }
+            }
+        }
+        // The place package of the world's era: hints, whatever its file says it knows.
+        if let Some(path) = self.files.hints.as_ref().map(|d| d.join(HINT_PORTALS)) {
+            match crate::platform::files::read_to_string(&path) {
+                Ok(text) => match PortalStore::from_text(&text) {
+                    Ok(h) => self.portals.merge(h.portals().iter().cloned().map(|mut e| {
+                        e.source = EdgeSource::Hint;
+                        e
+                    })),
+                    Err(e) => tracing::warn!(target: "travel", "{}: {e}", path.display()),
+                },
+                Err(e) => tracing::warn!(target: "travel", "{}: {e}", path.display()),
             }
         }
         self.portals.merge(self.published.iter().cloned());
@@ -3158,6 +3180,7 @@ mod tests {
         let files = || StoreFiles {
             dir: Some(dir.clone()),
             tiles: None,
+            hints: None,
             prefix: String::from("navigation-"),
         };
         let table = "dereth-navigation-store\t1\nworld\tW\n\

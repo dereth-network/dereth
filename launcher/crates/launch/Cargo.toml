@@ -59,8 +59,14 @@ toml.workspace = true
 # Asheron's Call 2's friends stream, with no I/O: the probe that asks a world whether it serves it
 # (the stream's own greeting and its answer), and the friends ticket, written as the stream writes it.
 auberean-friends.workspace = true
+# The place package of a world's era: its database fetched (through the front end's own requests)
+# and its portal table and places built, as `dereth-places` builds them.
+dereth-places.workspace = true
+dereth-world-places.workspace = true
 
 [dev-dependencies]
+# A world database's release zip, made for the place package's tests.
+zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 # Where the tests find the retail dats, when a run has them: one test reads their iterations.
 dereth-dat = { workspace = true, features = ["test-support"] }
 # The command line the launcher builds is read back by the Dereth client's own parser into the

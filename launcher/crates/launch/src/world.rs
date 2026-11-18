@@ -250,6 +250,8 @@ pub enum Told {
     /// that run a client of their own, which speaks for the world; or, for a world of Asheron's
     /// Call 2, its game, which has only the end of retail.
     World,
+    /// The player, for a world they added by hand; what the world says of itself wins.
+    Player,
 }
 
 /// How sure a world's shown era is.

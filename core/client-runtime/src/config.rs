@@ -388,6 +388,10 @@ pub struct Config {
     /// web client, or a run that asks for none. The desktop client sets the player's cache folder
     /// when the command line names none.
     pub nav_cache: Option<PathBuf>,
+    /// `--nav-hints <dir>`: a place package (`portals.tsv` and `places.tsv`, as `dereth-places`
+    /// builds them for the world's era) taken in as hints, under what the travel learns and what the
+    /// server publishes, and never written. The launcher names the package of the world's era.
+    pub nav_hints: Option<PathBuf>,
     /// `--nav-published <url>`: a server's published portal table or places (`http://`,
     /// `https://`, or a file), fetched at start and taken into the travel's stores as the
     /// server's knowledge.
@@ -632,6 +636,7 @@ impl Default for Config {
             nav_proof: None,
             nav_store: None,
             nav_cache: None,
+            nav_hints: None,
             nav_published: None,
             world_status: None,
             world_address: None,
@@ -979,6 +984,12 @@ const REBUILD_SWITCHES: &[Switch] = &[
     // Where the travel's planner keeps the tiles it builds.
     Switch {
         long: "nav-cache",
+        short: None,
+        arity: Arity::Required,
+    },
+    // The place package of the world's era, taken in as hints.
+    Switch {
+        long: "nav-hints",
         short: None,
         arity: Arity::Required,
     },
@@ -2008,6 +2019,7 @@ impl Config {
             }
             "nav-store" => self.nav_store = Some(PathBuf::from(v)),
             "nav-cache" => self.nav_cache = Some(PathBuf::from(v)),
+            "nav-hints" => self.nav_hints = Some(PathBuf::from(v)),
             "nav-published" => self.nav_published = Some(v.to_owned()),
             "world-status" => self.world_status = Some(v.to_owned()),
             "world-address" => {

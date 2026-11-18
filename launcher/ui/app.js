@@ -186,11 +186,18 @@ function eraFact(w) {
   if (w.era_state === "unknown") return "era unknown";
   return eraText(w);
 }
-// Beside the era, one word: "verified" when the world said it, "assumed" when it is the end of
-// retail for a world that does not say; nothing while it is checking or unknown.
+// Beside the era, a word or two: "verified" when the world said it, "set by you" when the player
+// set it for a world they added, "assumed" when it is the end of retail for a world that does not
+// say; nothing while it is checking or unknown.
 function eraNote(w) {
   if (w.era_state === "checking" || w.era_state === "unknown") return "";
-  return `<span class="era-note">(${w.era_source === "world" ? "verified" : "assumed"})</span>`;
+  const said = w.era_source === "world" ? "verified" : w.era_source === "player" ? "set by you" : "assumed";
+  return `<span class="era-note">(${said})</span>`;
+}
+// The eras a world the player adds may play, the first "Not sure", which is the end of retail.
+function eraOptions(chosen) {
+  return `<option value="" ${chosen ? "" : "selected"}>Not sure</option>`
+    + (ui.snap?.eras ?? []).map((e) => `<option value="${esc(e.name)}" ${chosen === e.name ? "selected" : ""}>${esc(e.label)}</option>`).join("");
 }
 // The server software and, when the world says it, its version: "ACE | v1.77.4778".
 function emulatorLabel(w) {
@@ -1840,6 +1847,7 @@ function worlds() {
           <label class="lab" for="srv-port">PORT</label><input id="srv-port" class="field" autocomplete="off" inputmode="numeric" style="max-width:140px" value="${esc(a.port)}">`}
           <label class="lab" for="srv-emulator">EMULATOR</label><select id="srv-emulator" class="field" style="max-width:220px">${emulatorOpts}</select>
           <label class="lab" for="srv-ruleset">RULES</label><select id="srv-ruleset" class="field" style="max-width:220px">${rulesOpts}</select>
+          ${(a.game ?? REALMS[ui.realm].game) === "dereth" ? `<label class="lab" for="srv-era">ERA</label><select id="srv-era" class="field" style="max-width:260px">${eraOptions(a.era)}</select>` : ""}
           ${a.error ? `<p class="note bad">${esc(a.error)}</p>` : ""}
         </div>
         <div class="btns end" style="margin-top:12px"><button class="btn" data-act="server-cancel">Cancel</button><button class="btn" data-act="server-add">Add</button></div>
@@ -2101,6 +2109,7 @@ function worldPage() {
             <p class="note warn" id="world-note" ${note ? "" : "hidden"}>${esc(note)}</p>
             ${isAc2 ? ac2Client : `${offered("client_choice") ? `<label class="lab">CLIENT</label>${clientRow ?? `<div class="pair">${clientBtn("dereth")}${playsLaunchPair(world) ? "" : clientBtn("retail")}${clientNote}</div>`}` : ""}
             ${dataRow}`}
+            ${custom && !isAc2 ? `<label class="lab" for="world-era">ERA</label><select id="world-era" class="field" data-slug="${esc(world.slug)}" style="max-width:260px">${eraOptions(ui.snap.state.custom_worlds.find((c) => c.slug === world.slug)?.era)}</select>` : ""}
             ${host.worldRows?.(w.view) ?? ""}
           </div>
         </div>
@@ -3266,7 +3275,7 @@ async function saveKey() {
 async function addServer() {
   const a = ui.addServer;
   try {
-    const slug = await api("add_custom_world", { server: { name: a.name, host: a.host, port: a.port, emulator: a.emulator || "unknown", ruleset: a.ruleset || null, game: a.game ?? REALMS[ui.realm].game } });
+    const slug = await api("add_custom_world", { server: { name: a.name, host: a.host, port: a.port, emulator: a.emulator || "unknown", ruleset: a.ruleset || null, game: a.game ?? REALMS[ui.realm].game, era: a.era || null } });
     ui.addServer = null;
     await pull();
     await openWorld(slug);
@@ -3343,7 +3352,8 @@ document.addEventListener("change", async (ev) => {
     render();
     return;
   }
-  if (ui.addServer && (t.id === "srv-ruleset" || t.id === "srv-emulator")) { ui.addServer[t.id.slice(4)] = t.value; return; }
+  if (ui.addServer && (t.id === "srv-ruleset" || t.id === "srv-emulator" || t.id === "srv-era")) { ui.addServer[t.id.slice(4)] = t.value; return; }
+  if (t.id === "world-era") { await act("set_custom_world_era", { slug: t.dataset.slug, era: t.value || null }); return; }
   if (t.id === "discord-presence") { await act("set_discord_presence", { on: t.checked }); return; }
   if (t.id === "update-components") { await act("set_update_components", { on: t.checked }); return; }
   if (t.dataset.artOn) { await act("set_art_pack_on", { id: t.dataset.artOn, on: t.checked }); return; }

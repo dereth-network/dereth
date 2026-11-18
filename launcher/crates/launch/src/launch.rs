@@ -9,7 +9,7 @@
 //!
 //! | client | form |
 //! |---|---|
-//! | Dereth | `dereth-client.exe -a <account> -v <password> -h <host> -p <port> --dat-dir <dir> [--classic-dat-dir <dir>] [--overlay-address <host>:<port>] [--world-status <url>] [--world-base <set>] [--era <era>] [--era-features <version>:<bits>] [--logon-version <string>] [--world-profile <name>]` |
+//! | Dereth | `dereth-client.exe -a <account> -v <password> -h <host> -p <port> --dat-dir <dir> [--classic-dat-dir <dir>] [--overlay-address <host>:<port>] [--world-status <url>] [--nav-hints <dir>] [--world-base <set>] [--era <era>] [--era-features <version>:<bits>] [--logon-version <string>] [--world-profile <name>]` |
 //! | retail, ACE or Empyrean | `acclient.exe -a <account> -v <password> -h <host>:<port>` |
 //! | retail, GDLE | `acclient.exe -h <host> -p <port> -a <account>:<password>` |
 //!
@@ -100,6 +100,9 @@ pub struct LaunchRequest<'a> {
     /// The interface every world starts in until the player changes it there in game
     /// ([`crate::interface::default_of`]); `None` while the player has chosen none.
     pub interface: Option<crate::interface::Interface>,
+    /// The place package of the world's era ([`crate::places`]), when one is built: the Dereth
+    /// client's travel takes it in as hints.
+    pub nav_hints: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -247,6 +250,9 @@ pub fn plan(req: &LaunchRequest<'_>) -> Result<LaunchPlan, PlanError> {
             if let Some(status) = world_status(req.world) {
                 args.extend([plain("--world-status"), plain(status)]);
             }
+            if let Some(hints) = &req.nav_hints {
+                args.extend([plain("--nav-hints"), plain(hints.display().to_string())]);
+            }
             args.extend(describe(req.world).args().into_iter().map(Arg::Plain));
             // The world's plugin policy, for the client's plugin host to honour and show.
             let policy = req
@@ -389,7 +395,33 @@ mod tests {
             plugins: Vec::new(),
             art_packs: Vec::new(),
             interface: None,
+            nav_hints: None,
         }
+    }
+
+    /// Behaviour: none (tooling: the Dereth client is handed the place package of the world's era
+    /// when the launcher has one, and a retail client never is)
+    #[test]
+    fn the_eras_place_package_reaches_the_dereth_client_and_never_retail() {
+        let w = world(Emulator::Empyrean);
+        let hints = |i: &Installation, package: Option<&str>| {
+            let mut r = req(&w, i);
+            r.nav_hints = package.map(PathBuf::from);
+            let argv = plan(&r).unwrap().argv("x");
+            argv.iter()
+                .position(|a| a == "--nav-hints")
+                .map(|at| argv[at + 1].clone())
+        };
+        let dereth = inst(ClientKind::Dereth);
+        assert_eq!(hints(&dereth, None), None);
+        assert_eq!(
+            hints(&dereth, Some("/data/places/eor-v0.9.296")).as_deref(),
+            Some("/data/places/eor-v0.9.296")
+        );
+        assert_eq!(
+            hints(&inst(ClientKind::Retail), Some("/data/places/eor-v0.9.296")),
+            None
+        );
     }
 
     /// The client knows the later files and the older pair: a world naming the 1999 pair as its

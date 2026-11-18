@@ -309,6 +309,7 @@ dereth-web-store = { path = "dereth/web/store" }
 dereth-web-dev = { path = "tools/web-dev" }
 dereth-web-relay = { path = "tools/web-relay" }
 dereth-world-places = { path = "core/world-places" }
+dereth-places = { path = "tools/places", default-features = false }
 dereth-world-data = { path = "core/world-data" }
 dereth-world-render = { path = "dereth/client/crates/world-render" }
 empyrean-command = { path = "empyrean/crates/command" }

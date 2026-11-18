@@ -102,6 +102,7 @@ impl Travel {
                 Err(e) => tracing::warn!(target: "travel", "{}: {e}", path.display()),
             }
         }
+        self.merge_package_places();
         self.merge_published_places();
         tracing::info!(
             target: "travel",
@@ -131,6 +132,31 @@ impl Travel {
             self.published_places.len()
         );
         Ok(self.published_places.len())
+    }
+
+    /// The places of the world's era's package ([`super::StoreFiles::hints`]), as hints: under
+    /// what the character saw and what the server publishes.
+    fn merge_package_places(&mut self) {
+        let Some(path) = self
+            .files
+            .hints
+            .as_ref()
+            .map(|d| d.join(super::HINT_PLACES))
+        else {
+            return;
+        };
+        match crate::platform::files::read_to_string(&path) {
+            Ok(text) => match PlaceStore::from_text(&text) {
+                Ok(p) => std::sync::Arc::make_mut(&mut self.places.store).merge(
+                    p.places().iter().cloned().map(|mut k| {
+                        k.source = EdgeSource::Hint;
+                        k
+                    }),
+                ),
+                Err(e) => tracing::warn!(target: "travel", "{}: {e}", path.display()),
+            },
+            Err(e) => tracing::warn!(target: "travel", "{}: {e}", path.display()),
+        }
     }
 
     fn merge_published_places(&mut self) {

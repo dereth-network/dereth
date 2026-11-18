@@ -8,12 +8,28 @@ license.workspace = true
 publish = false
 autotests = false
 
+# The library is the fetching, the cache and the build, which the launcher uses too; the program
+# adds its HTTP client.
+[lib]
+name = "dereth_places"
+path = "src/lib.rs"
+
+[[bin]]
+name = "dereth-places"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[features]
+default = ["cli"]
+# The program: its HTTP client.
+cli = ["dep:ureq"]
+
 [dependencies]
 # The documents, the dump reader and where each era's database is published.
 dereth-world-places.workspace = true
 dereth-primitives.workspace = true
 # Fetching a release over HTTPS (rustls with its ring provider and the web's root certificates).
-ureq = { version = "3", default-features = false, features = ["rustls"] }
+ureq = { version = "3", default-features = false, features = ["rustls"], optional = true }
 # The releases are zips.
 zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 # A release is checked against its SHA-256 before it is kept.

@@ -13,7 +13,9 @@
 //! plugin template (`dereth-plugin-template`), for which folders of a plugin repository hold its
 //! plugins, and Asheron's Call 2's friends stream (`auberean-friends`), for the greeting that asks
 //! a world whether it serves its friends service and for the friends ticket, and the community
-//! archive's fetching crate (`dereth-datfetch`), for the data sets the Library downloads. **Used by** the launcher's window, the Tauri app in `launcher` (a
+//! archive's fetching crate (`dereth-datfetch`), for the data sets the Library downloads, and the
+//! place package builder (`dereth-places`, over `dereth-world-places`), for the portals and places
+//! of a world's era. **Used by** the launcher's window, the Tauri app in `launcher` (a
 //! workspace of its own), and the web client's front page (`dereth-web-front`).
 //!
 //! **Must never** reach for a window, a web view, a GPU or the network, or name a platform API:
@@ -99,6 +101,7 @@ pub mod listing;
 pub mod local;
 pub mod outside;
 pub mod pad;
+pub mod places;
 pub mod plugins;
 pub mod probe;
 pub mod registry;

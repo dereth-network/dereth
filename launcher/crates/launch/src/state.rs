@@ -219,6 +219,10 @@ pub struct CustomWorld {
     /// named Auberean.
     #[serde(default, skip_serializing_if = "is_dereth_game")]
     pub game: Game,
+    /// The era the player said it plays (`eor`, `infiltration` or `launch`), if they said: what
+    /// the world says of itself when asked wins.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub era: Option<String>,
 }
 
 fn is_dereth_game(game: &Game) -> bool {
@@ -239,6 +243,10 @@ impl CustomWorld {
             transport: None,
         });
         w.description = Some(format!("Added by you: {}:{}", self.host, self.port));
+        if self.game == Game::Dereth {
+            w.era.clone_from(&self.era);
+            w.era_source = self.era.as_ref().map(|_| crate::world::Told::Player);
+        }
         if let Some(url) = &self.url {
             if crate::direct::is_websocket_url(url) {
                 w.websocket_url = Some(url.trim().to_owned());
@@ -1123,6 +1131,29 @@ impl LauncherState {
         }
     }
 
+    /// Say which era the world the player added as `slug` plays, or that they do not know (`None`).
+    /// False when there is no such world of Asheron's Call, or the era is none the client plays.
+    pub fn set_custom_world_era(&mut self, slug: &str, era: Option<&str>) -> bool {
+        let era = match era.map(str::trim).filter(|e| !e.is_empty()) {
+            Some(e) => match dereth_primitives::EraId::parse(e) {
+                Some(id) => Some(id.name().to_owned()),
+                None => return false,
+            },
+            None => None,
+        };
+        match self
+            .custom_worlds
+            .iter_mut()
+            .find(|w| w.slug == slug && w.game == Game::Dereth)
+        {
+            Some(w) => {
+                w.era = era;
+                true
+            }
+            None => false,
+        }
+    }
+
     pub fn add_custom_world(
         &mut self,
         name: &str,
@@ -1183,6 +1214,7 @@ impl LauncherState {
             emulator,
             url: None,
             game,
+            era: None,
         });
         Ok(slug)
     }
@@ -1502,6 +1534,7 @@ mod tests {
             emulator: Emulator::Yalain,
             url: None,
             game: Game::Auberean,
+            era: None,
         });
         s.upsert_account(account(slug, "trialist"));
         s.favourites.push(Favourite {
@@ -2041,6 +2074,47 @@ mod tests {
         assert_eq!(back.auberean, s.auberean);
         let older: LauncherState = serde_json::from_str(r#"{"schema":1}"#).unwrap();
         assert_eq!(older.auberean, AubereanSettings::default());
+    }
+
+    /// A world the player added says the era they set for it, until it says one itself; only an
+    /// era the client plays is taken, and a world of Asheron's Call 2 takes none.
+    #[test]
+    fn a_world_added_by_hand_plays_the_era_the_player_set() {
+        let mut s = LauncherState::default();
+        let slug = s
+            .add_custom_world("Frostfell", "play.example.org", "9000", None, Emulator::Ace)
+            .expect("added");
+        let world = |s: &LauncherState| {
+            s.custom_worlds
+                .iter()
+                .find(|w| w.slug == slug)
+                .expect("there")
+                .to_world()
+        };
+        assert_eq!(world(&s).era, None, "nothing said: the end of retail");
+        assert!(s.set_custom_world_era(&slug, Some("Infiltration")));
+        let w = world(&s);
+        assert_eq!(
+            (w.era.as_deref(), w.era_source),
+            (Some("infiltration"), Some(crate::world::Told::Player))
+        );
+        let back: LauncherState =
+            serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(world(&back).era.as_deref(), Some("infiltration"), "kept");
+        assert!(!s.set_custom_world_era(&slug, Some("2003")), "no such era");
+        assert!(s.set_custom_world_era(&slug, None));
+        assert_eq!(world(&s).era, None);
+        let ac2 = s
+            .add_custom_world_for(
+                Game::Auberean,
+                "Trial",
+                "127.0.0.1",
+                "9200",
+                None,
+                Emulator::Yalain,
+            )
+            .expect("added");
+        assert!(!s.set_custom_world_era(&ac2, Some("eor")));
     }
 
     /// The rule this file exists to keep.

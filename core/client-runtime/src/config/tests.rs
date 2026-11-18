@@ -1153,11 +1153,14 @@ fn travel_switches_take_their_values_even_lines_that_begin_with_a_slash() {
         "play.example.org:9050",
         "--nav-cache",
         "tiles",
+        "--nav-hints",
+        "places-eor",
     ])
     .expect("parses");
     assert_eq!(c.nav_prep, ["/journey Drudge Hideout", "@heal"]);
     assert_eq!(c.nav_store, Some(PathBuf::from("store")));
     assert_eq!(c.nav_cache, Some(PathBuf::from("tiles")));
+    assert_eq!(c.nav_hints, Some(PathBuf::from("places-eor")));
     assert_eq!(
         c.nav_published.as_deref(),
         Some("http://127.0.0.1:19341/portals")

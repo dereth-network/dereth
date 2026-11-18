@@ -939,11 +939,13 @@ dependencies = [
  "dereth-dat",
  "dereth-datfetch",
  "dereth-input",
+ "dereth-places",
  "dereth-plugin-api",
  "dereth-plugin-package",
  "dereth-plugin-template",
  "dereth-primitives",
  "dereth-transport",
+ "dereth-world-places",
  "ed25519-dalek",
  "serde",
  "serde_json",
@@ -959,6 +961,7 @@ dependencies = [
  "ctrlc",
  "dereth-datfetch",
  "dereth-launch",
+ "dereth-places",
  "dereth-plugin-package",
  "dereth-plugin-template",
  "flate2",
@@ -983,6 +986,17 @@ dependencies = [
  "ureq",
  "windows-sys 0.61.2",
  "zip 4.6.1",
+]
+
+[[package]]
+name = "dereth-places"
+version = "0.0.0"
+dependencies = [
+ "dereth-primitives",
+ "dereth-world-places",
+ "serde_json",
+ "sha2",
+ "zip 8.6.0",
 ]
 
 [[package]]
@@ -1025,6 +1039,13 @@ version = "0.0.0"
 dependencies = [
  "dereth-primitives",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "dereth-world-places"
+version = "0.0.0"
+dependencies = [
+ "dereth-primitives",
 ]
 
 [[package]]

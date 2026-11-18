@@ -50,6 +50,15 @@ below only make it slower and costlier).
   hub of an earlier version reading the registry reads every world as it wrote it, and the
   registry's schema does not change. The worlds of every game share one namespace of slugs: a
   slug a world of one game holds is taken (`409`) for a world of any game.
+- **A world's era** is the era of Asheron's Call its world plays: `eor` (the end of retail),
+  `infiltration` (February 2005) or `launch` (1999), spelled exactly so. A registration may name it
+  (`"era"`); a world that names none is listed with `"era": null`, and a launcher takes it to play
+  the end of retail unless the world itself says otherwise (its status document). A replaced
+  registration that names none leaves the world's era as it was. An Asheron's Call 2 world plays
+  the end of retail alone: it may name `eor`, and any other era is refused (`400`), as is a word
+  that names no era. The hub keeps the era in the world's registry record, as it keeps the game,
+  and every world in the public answers carries its `era`. A launcher uses it to choose the data
+  files and the systems the world has, and the places it builds for the world's travel.
 - **Lengths.** Every text field is bounded, and refused past its bound, never cut: a name 2–80
   characters, a description at most 2,000, a region 2–60, a maturity at most 60, an emulator family
   1–60 and its version 1–60, a website or Discord link at most 500 bytes; a heartbeat's message at
@@ -509,11 +518,11 @@ The registration body is the same as the command line's `register` file:
   "isDemo": false,
   "endpoint": {"mode": "manual", "address": "play.coldeve.example.org", "port": 9000},
   "emulator": {"family": "ACE", "version": "1.77"},
-  "game": "dereth"
+  "game": "dereth", "era": "eor"
 }
 ```
 
-`game` may be left out (section 1). An Asheron's Call 2 world names `"game": "auberean"` and its
+`game` and `era` may be left out (section 1). An Asheron's Call 2 world names `"game": "auberean"` and its
 own ruleset, such as `"ruleset": "KvK"`.
 
 - **The operator's Discord account** must be at least 30 days old (the hub's setting
@@ -821,7 +830,7 @@ Every operator action is a registry event of the world it acts on, with the oper
 registered, claimed, claim withdrawn, verification issued, verification attempted (its method and
 outcome), verified, endpoint changed, federation set (and by whom: an operator, the approval, the
 hub's operator), the game set by a registration (`game-set`) or named by a heartbeat
-(`game-reported`), key issued, rotated or revoked, reported, report resolved, locked and unlocked,
+(`game-reported`), the era set by a registration (`era-set`), key issued, rotated or revoked, reported, report resolved, locked and unlocked,
 a room of the world's mirrored into Discord or no longer (`discord-mirror`, section 5.7), by its
 operator, by the admin who took it away, or by the hub as the room that carries the Global room
 changed, and where the world carries the Global room (`global-room`, section 5.10), by its operator

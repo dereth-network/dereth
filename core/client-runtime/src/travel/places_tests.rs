@@ -20,6 +20,7 @@ fn travel_in(dir: &std::path::Path) -> Travel {
     Travel::new(StoreFiles {
         dir: Some(dir.to_path_buf()),
         tiles: None,
+        hints: None,
         prefix: String::from("navigation-"),
     })
 }
@@ -327,5 +328,67 @@ fn the_places_a_server_publishes_load_under_those_seen_and_are_never_written() {
     assert_eq!(portal.source, EdgeSource::Published);
     assert_eq!(portal.to.map(|p| p.cell.0), Some(0x01AC_0118));
     assert!(again.take_published("not a store").is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The place package of a world's era: its portals and places are taken in as hints, under what
+/// the character learned there, and never written into the world's own files.
+#[test]
+fn an_eras_place_package_is_taken_in_under_what_play_taught_and_never_written() {
+    let dir = folder("package");
+    let package = dir.join("places-eor");
+    std::fs::create_dir_all(&package).expect("the package's folder");
+    // As `dereth-places` writes it, its knowledge said to be the server's: taken in as hints all
+    // the same.
+    std::fs::write(
+        package.join("portals.tsv"),
+        "dereth-navigation-store\t2\nworld\tDereth\n\
+         portal\tpublished\t2068\tDrudge Hideout\t0xA9B30002 5.4 29.5 94.0\t0x019E0114 10.0 -40.0 0.0\t0\t0\t0\t-\t-\t-\t\n",
+    )
+    .expect("written");
+    std::fs::write(
+        package.join("places.tsv"),
+        "dereth-places-store\t1\nworld\tDereth\n\
+         place\ttown\thint\t-\tHoltburg\t0xA9B40019 84.0 7.1 94.0\t0\t0\t-\t-\n\
+         place\tlifestone\thint\t509\tPackage's name\t0xA9B40021 30.0 30.0 94.0\t0\t0\t-\t-\n",
+    )
+    .expect("written");
+    // What the character saw of the same lifestone, kept for the world before.
+    let world = "Coldeve@127.0.0.1:9000";
+    std::fs::write(
+        dir.join(format!("navigation-places-{}.tsv", file_name(world))),
+        "dereth-places-store\t1\nworld\tColdeve\n\
+         place\tlifestone\tlearned\t509\tLife Stone\t0xA9B40021 30.0 30.0 94.0\t10\t20\t-\t-\n",
+    )
+    .expect("written");
+    let mut t = Travel::new(StoreFiles {
+        dir: Some(dir.clone()),
+        tiles: None,
+        hints: Some(package),
+        prefix: String::from("navigation-"),
+    });
+    t.note_world(world);
+    let portals = t.store().portals();
+    assert_eq!(portals.len(), 1, "{portals:?}");
+    assert_eq!(portals[0].source, EdgeSource::Hint);
+    let town = named(&t, PlaceKind::Town, "Holtburg");
+    assert_eq!(town.len(), 1, "the package's town");
+    assert_eq!(town[0].source, EdgeSource::Hint);
+    let stone = named(&t, PlaceKind::Lifestone, "Life Stone");
+    assert_eq!(stone.len(), 1, "the lifestone as the character saw it");
+    assert_eq!(stone[0].source, EdgeSource::Learned);
+    assert!(named(&t, PlaceKind::Lifestone, "Package's name").is_empty());
+    // Written back: what was learned, and nothing of the package's.
+    t.places.changed = true;
+    t.save_places();
+    t.save_store();
+    let kept =
+        std::fs::read_to_string(dir.join(format!("navigation-places-{}.tsv", file_name(world))))
+            .expect("the world's places");
+    assert!(!kept.contains("Holtburg"), "{kept}");
+    let portals_kept =
+        std::fs::read_to_string(dir.join(format!("navigation-{}.tsv", file_name(world))))
+            .unwrap_or_default();
+    assert!(!portals_kept.contains("Drudge Hideout"), "{portals_kept}");
     let _ = std::fs::remove_dir_all(&dir);
 }

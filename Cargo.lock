@@ -1957,17 +1957,20 @@ dependencies = [
  "dereth-datfetch",
  "dereth-input",
  "dereth-network-protocol",
+ "dereth-places",
  "dereth-plugin-api",
  "dereth-plugin-package",
  "dereth-plugin-template",
  "dereth-primitives",
  "dereth-rules",
  "dereth-transport",
+ "dereth-world-places",
  "ed25519-dalek",
  "serde",
  "serde_json",
  "sha2",
  "toml",
+ "zip",
 ]
 
 [[package]]

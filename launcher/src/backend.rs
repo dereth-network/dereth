@@ -588,6 +588,10 @@ pub struct NewServer {
     /// The game it runs; Dereth's when not said.
     #[serde(default)]
     pub game: dereth_launch::world::Game,
+    /// The era an Asheron's Call world plays (`eor`, `infiltration` or `launch`); the end of
+    /// retail when not said, until the world says otherwise.
+    #[serde(default)]
+    pub era: Option<String>,
 }
 
 /// What pressing PLAY came to.
@@ -771,6 +775,9 @@ pub struct Backend {
     /// The plugin author's tool this launcher ships with, which it keeps a copy of in the folders
     /// Make Your Own wrote in; `None` when there is none to copy.
     tool: Option<PathBuf>,
+    /// The place package of each world's era made ready before it was started, by its slug
+    /// ([`dereth_launch::places`]).
+    place_packages: HashMap<String, PathBuf>,
 }
 
 impl std::fmt::Debug for Backend {
@@ -896,6 +903,7 @@ impl Backend {
             download: None,
             download_cancel: Arc::new(AtomicBool::new(false)),
             job_cancel: Arc::new(AtomicBool::new(false)),
+            place_packages: HashMap::new(),
             folders,
             state,
             dereth,
@@ -1541,6 +1549,28 @@ impl Backend {
 
     /// Start the client on a choice. Nothing is checked against the world first: what a world
     /// accepts is not known well enough yet to stop anyone.
+    /// Say which era the world the player added as `slug` plays, or `None` for not said.
+    ///
+    /// # Errors
+    /// No such world of Asheron's Call, or no era the client plays.
+    pub fn set_custom_world_era(&mut self, slug: &str, era: Option<&str>) -> Result<(), String> {
+        if !self.state.set_custom_world_era(slug, era) {
+            return Err("Choose launch, infiltration or end of retail.".into());
+        }
+        self.save();
+        Ok(())
+    }
+
+    /// The launcher's folders.
+    pub fn folders(&self) -> &Folders {
+        &self.folders
+    }
+
+    /// The place package of `slug`'s era, made ready for its next start.
+    pub fn set_place_package(&mut self, slug: &str, package: PathBuf) {
+        self.place_packages.insert(slug.to_owned(), package);
+    }
+
     pub fn launch(&mut self, choice: Choice) -> LaunchOutcome {
         self.launch_at(choice, None)
     }
@@ -1696,6 +1726,7 @@ impl Backend {
             plugins: self.offered_plugins(),
             art_packs: self.art.stack(),
             interface: interface::default_of(&self.state),
+            nav_hints: self.place_packages.get(&world.slug).cloned(),
         };
         let plan = match plan(&req) {
             Ok(p) => p,
@@ -2295,6 +2326,9 @@ impl Backend {
             )
             .map_err(|e| e.to_string())?;
         self.state.set_custom_world_game(&slug, s.game);
+        if s.game == dereth_launch::world::Game::Dereth {
+            self.state.set_custom_world_era(&slug, s.era.as_deref());
+        }
         self.save();
         Ok(slug)
     }
@@ -2320,6 +2354,8 @@ impl Backend {
                 Game::Auberean => Emulator::Yalain,
             },
             game: definition.game,
+            // A hosted world says its own era when asked.
+            era: None,
         })?;
         // The world's game data goes in its realm's Library.
         let find = self.read_folder(&settings.dats, definition.game);
@@ -4865,6 +4901,7 @@ mod tests {
                 ruleset: Some("PvP".into()),
                 emulator: Emulator::ClassicAce,
                 game: dereth_launch::world::Game::Dereth,
+                era: Some("infiltration".into()),
             })
             .unwrap();
         assert!(b
@@ -4872,6 +4909,15 @@ mod tests {
             .worlds
             .iter()
             .any(|w| w.slug == slug && w.name == "Home"));
+        assert_eq!(
+            b.world(&slug).and_then(|w| w.era).as_deref(),
+            Some("infiltration"),
+            "the era the player gave it"
+        );
+        assert!(b.set_custom_world_era(&slug, Some("launch")).is_ok());
+        assert_eq!(b.world(&slug).and_then(|w| w.era).as_deref(), Some("launch"));
+        assert!(b.set_custom_world_era(&slug, Some("2003")).is_err());
+        b.set_custom_world_era(&slug, None).expect("not said again");
         let v = b.world_view(&slug).unwrap();
         assert_eq!(v.world.ruleset.as_deref(), Some("PvP"));
         assert_eq!(v.world.emulator, Emulator::ClassicAce);

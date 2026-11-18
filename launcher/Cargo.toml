@@ -27,6 +27,8 @@ serde_json = "1"
 
 [dependencies]
 dereth-launch = { path = "crates/launch" }
+# The place package of a world's era: the fetching and the build, given the launcher's requests.
+dereth-places = { path = "../tools/places", default-features = false }
 # The Library's downloads: the steps of getting a data set from the community's archive.
 dereth-datfetch = { path = "../core/datfetch" }
 # A new plugin repository, made from the Plugins page: the template the author's tool writes, from

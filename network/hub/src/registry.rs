@@ -13,6 +13,10 @@
 //! named by neither runs `dereth`. The game is kept in the world's registry record, not in its
 //! registration's column, so that a hub of an earlier version reading the registry reads every
 //! world as it wrote it.
+//!
+//! A world of Asheron's Call may say which era it plays ([`ERAS`]): its registration names it, and
+//! it is kept in the registry record beside the game. A world that names none is listed with none,
+//! and a launcher takes it to play the end of retail unless the world itself says otherwise.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -236,6 +240,46 @@ pub struct Registration {
     /// registration's own column (the registry record keeps it), so that it reads in every hub.
     #[serde(default, skip_serializing)]
     pub game: Option<Game>,
+    /// The era the world plays, one of [`ERAS`]. A new world that names none is listed with none;
+    /// a replaced registration that names none leaves the world's era as it was. Kept in the
+    /// registry record, as the game is.
+    #[serde(default, skip_serializing)]
+    pub era: Option<String>,
+}
+
+/// The eras a world of Asheron's Call may say it plays, spelled exactly so: the end of retail,
+/// Infiltration (February 2005) and Launch (1999). A world of Asheron's Call 2 plays the end of
+/// retail alone.
+pub const ERAS: [&str; 3] = ["eor", "infiltration", "launch"];
+
+/// Why a world of `game` may not say it plays `era`, if it may not.
+fn era_refused(game: Game, era: &str) -> Option<&'static str> {
+    if !ERAS.contains(&era) {
+        Some("era: eor, infiltration or launch")
+    } else if game == Game::Auberean && era != "eor" {
+        Some("era: an Asheron's Call 2 world plays the end of retail (eor)")
+    } else {
+        None
+    }
+}
+
+/// The era a world's registry record names, when it names one.
+pub(crate) fn era_of(registry: &Value) -> Option<String> {
+    registry["era"].as_str().map(str::to_owned)
+}
+
+/// Writes `era` into a world's registry record, or takes it out for none.
+fn set_era(registry: &mut Value, era: Option<&str>) {
+    if let Some(record) = registry.as_object_mut() {
+        match era {
+            Some(e) => {
+                record.insert("era".to_owned(), json!(e));
+            }
+            None => {
+                record.remove("era");
+            }
+        }
+    }
 }
 
 fn unspecified() -> String {
@@ -316,6 +360,7 @@ impl Registration {
                         version: None,
                     },
                     game: None,
+                    era: None,
                 },
                 Err(_) => return Err(RegistryError::bad(first.to_string())),
             },
@@ -445,6 +490,9 @@ impl Registration {
     /// A 400 for a ruleset the game's worlds may not name ([`Self::check_ruleset`]).
     fn for_game(&self, game: Game) -> Result<Self> {
         self.check_ruleset(game)?;
+        if let Some(why) = self.era.as_deref().and_then(|e| era_refused(game, e)) {
+            return Err(RegistryError::bad(why));
+        }
         Ok(Self {
             ruleset: ruleset_of(game, &self.ruleset).to_owned(),
             ..self.clone()
@@ -1387,6 +1435,7 @@ impl Registry {
             "keyIssuedAt": now,
         });
         set_game(&mut registry, r.game.unwrap_or_default());
+        set_era(&mut registry, r.era.as_deref());
         self.db.execute(
             "INSERT INTO servers(id, slug, metadata, key_hash, created_at, registry) VALUES (?, ?, ?, ?, ?, ?)",
             params![
@@ -1429,10 +1478,17 @@ impl Registry {
             ));
         }
         let game = r.game.unwrap_or(row.game);
-        let kept = r.for_game(game)?;
+        let was_era = era_of(&row.registry);
+        let mut named = r.clone();
+        named.era = r.era.clone().or_else(|| was_era.clone());
+        let kept = named.for_game(game)?;
         let r = &kept;
         let mut registry = row.registry.clone();
         set_game(&mut registry, game);
+        set_era(&mut registry, r.era.as_deref());
+        if r.era != was_era {
+            self.event_by(&row.id, "era-set", actor, &json!({ "era": r.era }))?;
+        }
         if game != row.game {
             self.event_by(&row.id, "game-set", actor, &json!({ "game": game }))?;
             self.forget_other_games_listings(&r.slug)?;
@@ -1910,6 +1966,7 @@ impl Registry {
             "provenance": row.registry["provenance"],
             "federation": row.federation.word(),
             "game": row.game,
+            "era": row.registry["era"],
             "ip": ip, "port": port, "software": software, "transport": "udp",
             "createdAt": row.created_at,
             "status": self.status(row, at),
@@ -3423,6 +3480,60 @@ mod tests {
             Err(400),
             "a game this hub does not know"
         );
+    }
+
+    /// Spec: hub: a world's registration may name the era it plays; it is shown with the world and
+    /// kept in its registry record, never in its registration's column. A world that names none is
+    /// shown with none, a replaced registration that names none keeps the era, and the change is
+    /// audited. An era the hub does not know is refused, and so is any but the end of retail for an
+    /// Asheron's Call 2 world.
+    #[test]
+    fn a_registration_names_the_era_its_world_plays() {
+        let (_, c) = clock();
+        let r = Registry::open(":memory:", "dereth.network", c).expect("open");
+        let with_era = |slug: &str, era: &str| {
+            let mut v = serde_json::to_value(reg(slug)).expect("a registration");
+            v["era"] = json!(era);
+            Registration::from_json(&v).expect("read")
+        };
+        r.register(&reg("coldeve")).expect("registered");
+        r.register(&with_era("frostfell", "infiltration"))
+            .expect("registered");
+        let era = |slug: &str| r.server(slug).expect("read").expect("present")["era"].clone();
+        assert_eq!(era("coldeve"), Value::Null, "named none: listed with none");
+        assert_eq!(era("frostfell"), json!("infiltration"));
+        let (metadata, record) = columns(&r, "frostfell");
+        assert!(metadata.get("era").is_none(), "{metadata}");
+        assert_eq!(record["era"], json!("infiltration"));
+        // Replaced without one: kept. Replaced with another: changed, and audited.
+        r.update(&reg("frostfell")).expect("replaced");
+        assert_eq!(era("frostfell"), json!("infiltration"));
+        r.update(&with_era("frostfell", "launch"))
+            .expect("replaced");
+        assert_eq!(era("frostfell"), json!("launch"));
+        let set: Vec<Value> = r
+            .audit("frostfell")
+            .expect("the log")
+            .as_array()
+            .expect("events")
+            .iter()
+            .filter(|e| e["kind"] == "era-set")
+            .cloned()
+            .collect();
+        assert_eq!(set.len(), 1, "{set:?}");
+        // Refused: an era nobody plays, and an earlier era for an Asheron's Call 2 world.
+        assert_eq!(
+            r.register(&with_era("tusker", "2003"))
+                .map_err(|e| e.status)
+                .err(),
+            Some(400)
+        );
+        let mut shard = serde_json::to_value(reg("shardfall")).expect("a registration");
+        shard["game"] = json!("auberean");
+        shard["ruleset"] = json!("Standard");
+        shard["era"] = json!("infiltration");
+        let shard = Registration::from_json(&shard).expect("read");
+        assert_eq!(r.register(&shard).map_err(|e| e.status).err(), Some(400));
     }
 
     /// Spec: hub: a world's announced WebSocket endpoint is in its audit log each time it changes

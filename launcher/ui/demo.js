@@ -413,6 +413,7 @@
     ...world(c.slug, c.name, c.emulator ?? "unknown", "unknown", null, c.ruleset ?? null, { game: c.game ?? "dereth" }),
     endpoint: { address: c.host, port: c.port, transport: null },
     description: `Added by you: ${c.host}:${c.port}`, development_status: null, game: c.game ?? "dereth",
+    ...(c.era ? { era: c.era, era_source: "player", era_state: "known" } : {}),
   }))].map((w) => ({ ...w, favorite: (state.favorite_worlds ?? []).includes(w.slug) }));
 
   // Empyrean and Lyceum as GitHub lists them, and what is here. `?dev=1` is a development build with
@@ -890,13 +891,18 @@
     set_remember: ({ slug, username, remember }) => { const a = state.accounts.find((x) => x.world_slug === slug && x.username === username); if (a) a.remember = remember; if (!remember) vault.delete(`${slug}/${username}`); },
     forget_all_passwords: () => { vault.clear(); state.accounts.forEach((a) => (a.remember = false)); },
     forget_all_accounts: () => { vault.clear(); state.accounts = []; state.favourites = []; state.recent = []; },
-    add_custom_world: ({ server: { name, host, port, ruleset, emulator, game } }) => {
+    add_custom_world: ({ server: { name, host, port, ruleset, emulator, game, era } }) => {
       if (!host.trim()) throw "Enter the world's host name or address.";
       const p = Number(port);
       if (!(p >= 1 && p <= 65535)) throw "The port must be a number from 1 to 65535.";
       const slug = `custom-${state.custom_worlds.length + 1}`;
-      state.custom_worlds.push({ slug, name: name.trim() || host.trim(), host: host.trim(), port: p, ruleset: ruleset ?? null, emulator: emulator ?? "unknown", game: game ?? "dereth" });
+      state.custom_worlds.push({ slug, name: name.trim() || host.trim(), host: host.trim(), port: p, ruleset: ruleset ?? null, emulator: emulator ?? "unknown", game: game ?? "dereth", era: (game ?? "dereth") === "dereth" ? era ?? null : null });
       return slug;
+    },
+    set_custom_world_era: ({ slug, era }) => {
+      const c = state.custom_worlds.find((x) => x.slug === slug && (x.game ?? "dereth") === "dereth");
+      if (!c) throw "Choose launch, infiltration or end of retail.";
+      c.era = era ?? null;
     },
     probe_world: () => {},
     worlds_shown: () => {},
