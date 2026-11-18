@@ -617,6 +617,9 @@ local function travel(where, why)
 		on_learned = function(e)
 			E.note("learned: %s %s", e.kind, tostring(e.name or e.recall))
 		end,
+		-- Leaving the Training Academy is for good: only with LeaveAcademy; otherwise such a
+		-- journey fails at once, saying the player must agree.
+		hand_backs = S.get("LeaveAcademy") == true,
 	}
 	local ok, r = pawait(nav.path_to(in_dungeon(where), opts))
 	local downs = 0
@@ -3476,6 +3479,13 @@ local function recover_step()
 			end)
 			ok, why = travel(c.at, "back to the corpse")
 			task.cancel(watch)
+			if not ok and type(why) == "string" and string.find(why, "needs the player", 1, true) then
+				-- The way back leaves the Training Academy, and the player has not agreed: no
+				-- try will do better.
+				E.note("corpse: the way back %s (LeaveAcademy lets it); given up", why)
+				E.set_corpse(nil)
+				return
+			end
 			if not ok and why == "no journeys" then
 				ok, why = walk(c.at, 3, monster_close)
 			end

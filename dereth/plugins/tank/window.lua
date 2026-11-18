@@ -106,6 +106,7 @@ W.PAGES = {
 		{ "JourneyToRouteMetres", "Travel to a route past (m)", "number", { 50, 100000, 50 } },
 		{ "StuckTries", "Unstick tries", "number", { 0, 10, 1 } },
 		{ "NavJourneys", "Journeys (portals, recalls)", "toggle" },
+		{ "LeaveAcademy", "Journeys may leave the Academy", "toggle" },
 	} },
 	{ "Loot", {
 		{ "EnableLooting", "Looting", "toggle" },

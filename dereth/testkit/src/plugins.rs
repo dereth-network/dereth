@@ -1265,6 +1265,12 @@ impl PluginRun {
         self
     }
 
+    /// What the last journey a plugin asked for was allowed, as the travel was given it.
+    #[must_use]
+    pub fn last_journey_allow(&self) -> Option<dereth_client_runtime::travel::TravelAllow> {
+        self.travel.last_allow()
+    }
+
     /// The messages the client sent for the plugins, as the requests themselves, in order.
     #[must_use]
     pub fn requests(&self) -> &[Request] {

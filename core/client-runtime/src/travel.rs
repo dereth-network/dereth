@@ -68,6 +68,8 @@ pub struct TravelAllow {
     pub items: bool,
     /// The recalls every character has by command.
     pub commands: bool,
+    /// Handing a token back (leaving the Training Academy for good): who says yes to it.
+    pub hand_backs: HandBacks,
 }
 
 impl Default for TravelAllow {
@@ -77,8 +79,20 @@ impl Default for TravelAllow {
             spells: true,
             items: true,
             commands: true,
+            hand_backs: HandBacks::Ask,
         }
     }
+}
+
+/// Who agrees to a journey's handing a token back, which cannot be undone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HandBacks {
+    /// The player is asked, in the client's own yes-or-no box: their own journeys.
+    Ask,
+    /// Agreed already, by whoever asked for the journey: it is carried out unasked.
+    Agreed,
+    /// Nobody can agree (a plugin's journey that has not): the journey ends at once, saying why.
+    Refused,
 }
 
 /// Where a journey goes.
@@ -372,6 +386,8 @@ pub struct HandBackSeen {
     /// The name of the token they give and take back.
     pub token: String,
     pub question: String,
+    /// Why a journey that hands it back ends when nobody can agree to it.
+    pub refused: String,
 }
 
 /// The character's stance and caster, for casting.
@@ -1838,17 +1854,42 @@ impl Travel {
             Leg::HandBack { hand_back } => Some(hand_back.clone()),
             _ => None,
         });
-        let mut ask = None;
+        let (mut ask, mut refused) = (None, None);
         if let Some(t) = self.trip.as_mut() {
             t.stats.journeys += 1;
             t.journey = Some(journey);
             t.view = view;
             t.leg = 0;
-            // Handing a token back is for good: the player says yes first, once a trip.
+            // Handing a token back is for good: the player says yes first, once a trip; or
+            // whoever asked for the journey agreed already; or nobody can, and it goes no further.
             if let Some(h) = hand_back.filter(|_| !t.confirmed) {
-                t.step = Some(Step::Ask);
-                ask = Some(h);
+                match t.allow.hand_backs {
+                    HandBacks::Ask => {
+                        t.step = Some(Step::Ask);
+                        ask = Some(h);
+                    }
+                    HandBacks::Agreed => t.confirmed = true,
+                    HandBacks::Refused => refused = Some(h),
+                }
             }
+        }
+        if let Some(h) = refused {
+            let why = self
+                .hand_backs
+                .iter()
+                .find(|s| Some(s.object) == h.object || s.name == h.name)
+                .map_or_else(
+                    || {
+                        format!(
+                            "needs the player to agree to hand the {} back to {}",
+                            h.token, h.name
+                        )
+                    },
+                    |s| s.refused.clone(),
+                );
+            tracing::info!(target: "travel", "the journey hands a token back unagreed: {why}");
+            self.end(out, Some(here), Some(&why));
+            return;
         }
         if let Some(h) = ask {
             self.release_keys(out);
@@ -2479,8 +2520,13 @@ impl Travel {
         self.events.push(TravelEvent::Route { id: request, route });
     }
 
-    /// The planning's answers this frame, taken up with the body at `here`.
+    /// The planning's answers this frame, taken up with the body at `here`. With no body there
+    /// is nothing to take them up with: they wait for a frame that has one, so a trip waiting
+    /// on its plan never loses it.
     fn answers(&mut self, here: Option<&Position>, out: &mut Vec<TravelCommand>) {
+        if here.is_none() {
+            return;
+        }
         let Some(planning) = self.planning.as_mut() else {
             return;
         };
@@ -3436,6 +3482,153 @@ mod tests {
         );
     }
 
+    /// Behaviour: plugins.nav.handing-a-token-back-asks-the-player-first
+    /// A journey out of the Training Academy hands Jonathan's token back. The player's own asks
+    /// them; one whose asker agreed already goes on unasked; one nobody can agree to (a plugin's
+    /// that did not) ends at once, saying the player must agree, rather than waiting on a
+    /// question no one will answer.
+    #[test]
+    fn a_journey_that_hands_a_token_back_asks_goes_on_agreed_or_ends_at_once_unagreed() {
+        let place = |cell: u32, x: f32, y: f32| {
+            Position::new(
+                CellId(cell),
+                Frame::new(Vec3::new(x, y, 0.0), Quat::IDENTITY),
+            )
+        };
+        let here = place(0x8602_01AD, 12.3, -28.5);
+        let corpse = place(0x019E_0102, 0.5, -20.2);
+        let jonathan = dereth_navigation::HandBack {
+            name: String::from("Jonathan"),
+            object: Some(ObjectId(0x8000_0116)),
+            at: place(0x8602_01B0, 22.1, -19.1),
+            token: String::from("Academy Exit Token"),
+            to: place(0xA9B4_0019, 84.0, 7.1),
+        };
+        let journey = || Journey {
+            legs: vec![
+                Leg::Walk { to: jonathan.at },
+                Leg::HandBack {
+                    hand_back: jonathan.clone(),
+                },
+                Leg::Walk { to: corpse },
+            ],
+            seconds: 130.0,
+        };
+        let seen = HandBackSeen {
+            object: ObjectId(0x8000_0116),
+            name: String::from("Jonathan"),
+            at: jonathan.at,
+            token: String::from("Academy Exit Token"),
+            question: String::from("Leave the Training Academy?"),
+            refused: String::from("needs the player to agree to leave the Training Academy"),
+        };
+        let plan = |hand_backs: HandBacks, in_sight: bool| {
+            let mut travel = Travel::new(StoreFiles::default());
+            travel.planning = Some(Planning::held());
+            if in_sight {
+                travel.hand_backs = vec![seen.clone()];
+            }
+            let allow = TravelAllow {
+                hand_backs,
+                ..TravelAllow::default()
+            };
+            let mut trip = Trip::new(1, Purpose::Go, TravelTarget::Place(corpse), allow, 0.0, 0.0);
+            trip.goal = Some(corpse);
+            travel.trip = Some(trip);
+            let mut out = Vec::new();
+            travel.planned(
+                &here,
+                Some(corpse),
+                Some((journey(), 25.0)),
+                None,
+                None,
+                &mut out,
+            );
+            (travel, out)
+        };
+        let failed = |travel: &Travel| {
+            travel.events.iter().find_map(|e| match e {
+                TravelEvent::Failed { reason, .. } => Some(reason.clone()),
+                _ => None,
+            })
+        };
+        // Nobody can agree: it ends at once, and says why.
+        let (travel, out) = plan(HandBacks::Refused, true);
+        assert!(travel.trip.is_none(), "it ends at once");
+        assert_eq!(
+            failed(&travel).as_deref(),
+            Some("needs the player to agree to leave the Training Academy")
+        );
+        assert!(
+            !out.iter().any(|c| matches!(c, TravelCommand::Ask(_))),
+            "nobody is asked"
+        );
+        let (travel, _) = plan(HandBacks::Refused, false);
+        assert_eq!(
+            failed(&travel).as_deref(),
+            Some("needs the player to agree to hand the Academy Exit Token back to Jonathan"),
+            "the person not in sight"
+        );
+        // Agreed already: it goes on, asking no one.
+        let (travel, out) = plan(HandBacks::Agreed, true);
+        let t = travel.trip.as_ref().expect("going on");
+        assert!(t.confirmed && !matches!(t.step, Some(Step::Ask)));
+        assert!(!out.iter().any(|c| matches!(c, TravelCommand::Ask(_))));
+        // The player's own: they are asked.
+        let (travel, out) = plan(HandBacks::Ask, true);
+        let t = travel.trip.as_ref().expect("waiting on the answer");
+        assert!(matches!(t.step, Some(Step::Ask)));
+        assert!(out.iter().any(
+            |c| matches!(c, TravelCommand::Ask(q) if q.starts_with("Leave the Training Academy"))
+        ));
+    }
+
+    #[test]
+    fn a_plan_that_comes_while_there_is_no_body_is_taken_up_once_there_is() {
+        let at = Position::new(
+            CellId(0x019E_0114),
+            Frame::new(Vec3::new(10.0, -40.0, 0.0), Quat::IDENTITY),
+        );
+        let mut travel = Travel::new(StoreFiles::default());
+        let mut planning = Planning::held();
+        planning.give(Answer::Journey {
+            id: 5,
+            to: Some(at),
+            journey: None,
+            first: None,
+            why: Some(crate::planning::PLANNING_FAILED.to_owned()),
+        });
+        travel.planning = Some(planning);
+        let mut trip = Trip::new(
+            1,
+            Purpose::Go,
+            TravelTarget::Place(at),
+            TravelAllow::default(),
+            0.0,
+            0.0,
+        );
+        trip.step = Some(Step::Planning {
+            job: 5,
+            reason: None,
+        });
+        travel.trip = Some(trip);
+        let mut out = Vec::new();
+        // A frame with no body (between death and coming back alive, or in portal space).
+        travel.answers(None, &mut out);
+        assert!(travel.trip.is_some(), "with no body, the plan waits");
+        // The next with one: the answer is taken up, and a failed plan ends the journey.
+        travel.answers(Some(&at), &mut out);
+        assert!(travel.trip.is_none(), "the journey ends");
+        assert!(
+            travel.events.iter().any(|e| matches!(
+                e,
+                TravelEvent::Failed { reason, .. } if reason == crate::planning::PLANNING_FAILED
+            )),
+            "{:?}",
+            travel.events
+        );
+    }
+
     #[test]
     fn a_published_table_is_the_servers_knowledge_in_every_world_store_and_never_saved() {
         let mut t = Travel::new(StoreFiles::default());
@@ -4155,6 +4348,7 @@ mod tests {
             at: place(0x8602_01B0, 22.1, -19.1),
             token: String::from("Academy Exit Token"),
             question: String::from("Leave?"),
+            refused: String::from("needs the player to agree to leave the Training Academy"),
         };
         t.hand_backs = vec![jonathan.clone()];
         let offered = t.hand_backs();

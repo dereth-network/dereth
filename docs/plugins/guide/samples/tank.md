@@ -398,7 +398,9 @@ With `StopMacroOnDeath` off, the macro carries on after a death. With `RecoverCo
 default) it goes back for the **corpse**: where the character fell is kept with it (so a client that
 logs in again still goes back), and once it is alive again, buffed again where a buffbot trip is
 due, it travels there by a journey, finds the corpse of its own name, opens it and takes back
-everything in it, then carries on. A death the game says left nothing ("You have retained all your
+everything in it, then carries on. A character that has not left the Training Academy comes back
+alive in it, and the way back leaves it for good: the journey goes only with `LeaveAcademy` on
+(off by default); otherwise the corpse is given up at once, the log saying why. A death the game says left nothing ("You have retained all your
 items") is not gone back for; a corpse not found where the character fell, or not reached after
 three tries, or after half an hour, is given up. Then, far from its route, it travels back to it:
 to the hunting place (`/tank hunt`) when there is one, else to the route's nearest waypoint.
@@ -793,7 +795,8 @@ its own.
 - **VTank's, under names of the plugin's own** (VTank's documentation does not give theirs):
   `BreakableTurn` and `FastCastBuffs`.
 - **The plugin's own:** `PeerFellow` (its own fellow on the machine), `AttackPower`, `TiredAttackPower`, `GiveUpSeconds`, `StuckTries`,
-  `NavJourneys`, `JourneyToRouteMetres`, `HealSpells`, `UseHealingKits`, `RestWhenIdle`,
+  `NavJourneys`, `LeaveAcademy` (a journey may leave the Training Academy, for good),
+  `JourneyToRouteMetres`, `HealSpells`, `UseHealingKits`, `RestWhenIdle`,
   `MinFreeSlots`, `OnFullPack` (stop, recall, vendor or keep), `VendorSell`, `VendorBuy`,
   `BuyList` (`Prismatic Taper=50, Bread=5`; a name may hold a comma, as
   `Trade Note (250,000)=4`), `Vendor`, `StopAfterDeaths`, `RecallSpell`,

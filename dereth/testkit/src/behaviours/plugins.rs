@@ -1045,7 +1045,9 @@ pub static ROWS: &[Behaviour] = &[
                the player first, in the client's own yes-or-no box that every interface \
                shows, saying the Academy cannot be entered again; a yes carries it out, a \
                no, a box taken down unanswered, or no interface to show it ends the journey \
-               as declined. At the person the token is taken (the person used again a while \
+               as declined. A plugin's journey asks no one: it hands the token back only when \
+               the plugin said it may, and otherwise ends at once, saying the player must \
+               agree to leave the Academy. At the person the token is taken (the person used again a while \
                later when it does not come, a few times at most), given back once they have \
                done talking (again while it stays in the pack), and the journey waits to be \
                sent on once it has left the pack.",

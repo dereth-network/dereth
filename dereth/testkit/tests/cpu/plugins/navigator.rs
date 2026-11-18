@@ -12,6 +12,7 @@ use dereth_testkit::plugins::{read_package, PluginRun, ScriptedObject};
 use dereth_testkit::scripted_travel::ScriptedPortal;
 
 dereth_testkit::scenarios! {
+    scenario_a_plugins_journey_hands_a_token_back_only_when_it_says_it_may => a_plugins_journey_hands_a_token_back_only_when_it_says_it_may ["plugins.nav.handing-a-token-back-asks-the-player-first"],
     scenario_the_navigator_finds_places_by_name_and_type_and_points_at_the_nearest => the_navigator_finds_places_by_name_and_type_and_points_at_the_nearest ["plugins.samples.the-navigator-finds-places-by-name-and-type-and-points-at-the-nearest"],
     scenario_the_navigator_keeps_the_players_own_places_outdoors_and_in_a_dungeon => the_navigator_keeps_the_players_own_places_outdoors_and_in_a_dungeon ["plugins.samples.the-navigator-keeps-the-players-own-places-outdoors-and-in-a-dungeon"],
     scenario_the_navigator_lists_coordinates_seen_in_chat_and_points_at_the_one_picked => the_navigator_lists_coordinates_seen_in_chat_and_points_at_the_one_picked ["plugins.samples.the-navigator-lists-coordinates-seen-in-chat-and-points-at-the-one-picked"],
@@ -750,4 +751,49 @@ fn a_route_walks_round_a_wall_to_a_waypoint_out_of_sight() {
         run.moves()
     );
     note_asserted("plugins.nav.a-route-walks-round-a-wall-to-a-waypoint-out-of-sight");
+}
+
+/// A plugin's journey that says it may hand a token back (`hand_backs = true`) reaches the travel
+/// agreed; one that does not, refused, so a journey out of the Training Academy ends at once
+/// rather than waiting on a question.
+fn a_plugins_journey_hands_a_token_back_only_when_it_says_it_may() {
+    let main = r#"
+commands.add("agreed", "a journey that may hand a token back", function()
+	nav.path_to({ cell = 0x019E0114 }, { hand_backs = true })
+end)
+commands.add("unagreed", "a journey that may not", function()
+	nav.path_to({ cell = 0x019E0114 })
+end)
+"#;
+    let mut run = PluginRun::new();
+    run.load(dereth_plugin_host::Package {
+        origin: "journeys".into(),
+        files: [
+            (
+                "plugin.toml".to_owned(),
+                b"id = \"test.journeys\"\nname = \"Journeys\"\nversion = \"1.0.0\"\napi = \"0.7\"\n\n[permissions]\n\"act.interactive\" = \"Goes where it is told.\"\n\n[capabilities]\noptional = [\"nav.journey\"]\n"
+                    .to_vec(),
+            ),
+            ("main.lua".to_owned(), main.as_bytes().to_vec()),
+        ]
+        .into(),
+    });
+    run.scripted_world("Tester", Vec::new());
+    run.advance(0.5);
+    let hand_backs = |run: &PluginRun| run.last_journey_allow().map(|a| a.hand_backs);
+    run.type_line("/agreed");
+    run.advance(0.5);
+    assert_eq!(
+        hand_backs(&run),
+        Some(dereth_client_runtime::travel::HandBacks::Agreed),
+        "{:?}",
+        run.console("test.journeys")
+    );
+    run.type_line("/unagreed");
+    run.advance(0.5);
+    assert_eq!(
+        hand_backs(&run),
+        Some(dereth_client_runtime::travel::HandBacks::Refused)
+    );
+    note_asserted("plugins.nav.handing-a-token-back-asks-the-player-first");
 }

@@ -1400,6 +1400,8 @@ fn nav_stance(world: &dereth_client_model::world::World) -> crate::travel::Stanc
 /// hands it back.
 const ACADEMY_EXIT_PERSON: &str = "Jonathan";
 const ACADEMY_EXIT_TOKEN: &str = "Academy Exit Token";
+/// Why a journey out of the Academy that nobody can agree to ends.
+const ACADEMY_EXIT_REFUSED: &str = "needs the player to agree to leave the Training Academy";
 const ACADEMY_EXIT_QUESTION: &str = "Leave the Training Academy? Jonathan sends you on to your \
      town once you hand his Academy Exit Token back to him, and you can never come back to the \
      Academy.";
@@ -1468,6 +1470,7 @@ fn nav_hand_backs(
             at: o.position,
             token: String::from(ACADEMY_EXIT_TOKEN),
             question: String::from(ACADEMY_EXIT_QUESTION),
+            refused: String::from(ACADEMY_EXIT_REFUSED),
         });
     }
     out

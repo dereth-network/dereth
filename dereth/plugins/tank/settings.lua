@@ -257,6 +257,7 @@ S.defaults = {
 	GiveUpSeconds = 60, -- a monster not killed in this long is left alone a while
 	StuckTries = 3, -- recoveries tried at one waypoint before it is skipped
 	NavJourneys = true, -- journeys (portals and recalls too) to a far route, a hunting place, round a stuck waypoint
+	LeaveAcademy = false, -- a journey may hand Jonathan's token back, leaving the Training Academy for good (it cannot be undone)
 	-- A route's legs as VTank walks them: each straight at its waypoint, round a wall only once
 	-- stuck. Off, a leg whose waypoint is out of sight follows the client's route there from the
 	-- start, round corners and through doors, and a monster behind a wall is walked to the same way.

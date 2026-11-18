@@ -516,12 +516,19 @@ api.nav = {
 	-- promise. `target` is an object, a place, `{ cell = 0x… }`, `{ portal = "name" }` (where a
 	-- known portal sends) or `{ recall = "lifestone" | "marketplace" | spell }` (where a recall
 	-- landed). `opts`: `portals`, `recalls` (false leaves them out), `show` (false: the host does
-	-- not draw it), and `on_planned`, `on_leg`, `on_learned`, called with this journey's events.
+	-- not draw it), `hand_backs` (true: it may hand a token back, leaving the Training Academy for
+	-- good; otherwise such a journey fails at once), and `on_planned`, `on_leg`, `on_learned`,
+	-- called with this journey's events.
 	path_to = function(target, opts)
 		opts = opts or {}
 		local p = request("nav.path_to", {
 			target = journey_target(target),
-			opts = { portals = opts.portals, recalls = opts.recalls, show = opts.show },
+			opts = {
+				portals = opts.portals,
+				recalls = opts.recalls,
+				show = opts.show,
+				hand_backs = opts.hand_backs,
+			},
 		})
 		local heard = {}
 		for name, fn in pairs({
@@ -551,7 +558,7 @@ api.nav = {
 		opts = opts or {}
 		return request("nav.plan", {
 			target = journey_target(target),
-			opts = { portals = opts.portals, recalls = opts.recalls },
+			opts = { portals = opts.portals, recalls = opts.recalls, hand_backs = opts.hand_backs },
 		})
 	end,
 	-- `nav.path(target)`: the walking route there as the client plans it, round walls and

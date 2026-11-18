@@ -267,6 +267,8 @@ pub struct ScriptedTravel {
     refusing: BTreeSet<u32>,
     recalls: Vec<ScriptedRecall>,
     requests: VecDeque<TravelRequest>,
+    /// What the last journey asked for was allowed.
+    last_allow: Option<TravelAllow>,
     trip: Option<Trip>,
     /// What it told this frame, and the journey in progress, for the next frame's hook.
     pub status: TravelStatus,
@@ -281,6 +283,7 @@ impl Default for ScriptedTravel {
             refusing: BTreeSet::new(),
             recalls: Vec::new(),
             requests: VecDeque::new(),
+            last_allow: None,
             trip: None,
             status: TravelStatus::default(),
             moves: Vec::new(),
@@ -342,6 +345,12 @@ impl ScriptedTravel {
             .map(|p| p.class)
             .collect();
         self.recalls = recalls;
+    }
+
+    /// What the last journey asked for was allowed, as the travel was given it.
+    #[must_use]
+    pub fn last_allow(&self) -> Option<TravelAllow> {
+        self.last_allow
     }
 
     /// Ask something of the travel, taken up at the next step.
@@ -537,6 +546,7 @@ impl ScriptedTravel {
                     events.push(TravelEvent::Answer { id, plan });
                 }
                 TravelRequest::Go { id, target, allow } => {
+                    self.last_allow = Some(allow);
                     if self.trip.is_some() {
                         self.end(&mut events, now, here.as_ref(), Some("replaced"));
                     }

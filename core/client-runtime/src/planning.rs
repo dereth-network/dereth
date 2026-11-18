@@ -95,6 +95,100 @@ pub enum Answer {
     Unblocked(usize),
 }
 
+/// What a planning failure answers a journey or a route with, and the trip that waited says.
+pub const PLANNING_FAILED: &str = "planning_failed";
+
+/// A job that is answered, as much of it as answering it failed needs: its id, and where from and
+/// to, for the log.
+// The browser's build plans in the frame, with no thread to keep promises for.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+#[derive(Debug, Clone)]
+struct Pending {
+    id: u64,
+    journey: bool,
+    from: Position,
+    to: Goal,
+}
+
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+impl Pending {
+    /// The job's, when it is one that is answered (a journey or a route).
+    fn of(job: &Job) -> Option<Self> {
+        match job {
+            Job::Journey { id, from, to, .. } => Some(Self {
+                id: *id,
+                journey: true,
+                from: *from,
+                to: *to,
+            }),
+            Job::Route { id, from, to, .. } => Some(Self {
+                id: *id,
+                journey: false,
+                from: *from,
+                to: *to,
+            }),
+            _ => None,
+        }
+    }
+
+    /// The job's answer when planning it failed: no journey, saying so; no route.
+    fn failed(&self) -> Answer {
+        if self.journey {
+            let to = match &self.to {
+                Goal::Place(p) => *p,
+                Goal::Cell(_) => self.from,
+            };
+            Answer::Journey {
+                id: self.id,
+                to: Some(to),
+                journey: None,
+                first: None,
+                why: Some(PLANNING_FAILED.to_owned()),
+            }
+        } else {
+            Answer::Route {
+                id: self.id,
+                to: None,
+                route: Err(NoPath::NoCell(self.from.cell)),
+                ms: 0.0,
+            }
+        }
+    }
+}
+
+/// Runs `work` for the jobs `pending` wait on. A panic in it is caught, logged at error with its
+/// message and each job's from and to, and every one of them answered as failed, so no trip waits
+/// on an answer that will never come. Whether it panicked: the worker it ran is not to be trusted
+/// after. Where a panic does not unwind (the browser's build aborts), there is nothing to catch.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+fn guarded(pending: &[Pending], work: impl FnOnce() -> Vec<Answer>) -> (Vec<Answer>, bool) {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)) {
+        Ok(answers) => (answers, false),
+        Err(payload) => {
+            let why = payload
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_owned())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| String::from("(no message)"));
+            for p in pending {
+                tracing::error!(
+                    target: "travel",
+                    "planning panicked ({why}): the {} from {:#010X} {:?} to {:?} is answered as \
+                     failed",
+                    if p.journey { "journey" } else { "route" },
+                    p.from.cell.0,
+                    p.from.frame.origin,
+                    p.to
+                );
+            }
+            if pending.is_empty() {
+                tracing::error!(target: "travel", "planning panicked ({why})");
+            }
+            (pending.iter().map(Pending::failed).collect(), true)
+        }
+    }
+}
+
 /// How many units of work (a place sampled, decided or settled) a slice is spent in: about a
 /// millisecond's.
 const SLICE: u64 = 1024;
@@ -581,6 +675,9 @@ pub struct Planning {
     /// Where it shares the frame's thread: whether each frame takes one step of its work (a
     /// landblock's cells read, or one slice of a search) rather than its share of the frame's time.
     one_step: bool,
+    /// Jobs answered as failed here, the planning thread having stopped: given with the next
+    /// answers.
+    failed: Vec<Answer>,
 }
 
 impl std::fmt::Debug for Planning {
@@ -627,7 +724,7 @@ impl Planning {
         std::thread::Builder::new()
             .name(String::from("travel planning"))
             .spawn(move || {
-                let mut worker = match Worker::new(land, &store, tiles.as_deref()) {
+                let mut worker = match Worker::new(Arc::clone(&land), &store, tiles.as_deref()) {
                     Ok(w) => {
                         let _ = ready.send(Ok(()));
                         w
@@ -637,12 +734,37 @@ impl Planning {
                         return;
                     }
                 };
+                // The objects last set: a worker made anew after a panic is given them again.
+                let mut obstacles: Option<Vec<Obstacle>> = None;
                 // Each job as it comes; what has queued meanwhile is taken in order before the
                 // next, so the objects set are the latest when a plan starts.
                 while let Ok(job) = inbox.recv() {
-                    worker.queue.push_back(job);
-                    worker.queue.extend(inbox.try_iter());
-                    for a in worker.work(None) {
+                    let batch: Vec<Job> = std::iter::once(job).chain(inbox.try_iter()).collect();
+                    let pending: Vec<Pending> = batch.iter().filter_map(Pending::of).collect();
+                    for j in &batch {
+                        if let Job::Obstacles(o) = j {
+                            obstacles = Some(o.clone());
+                        }
+                    }
+                    worker.queue.extend(batch);
+                    let (answers, panicked) = guarded(&pending, || worker.work(None));
+                    if panicked {
+                        // What the worker held may be half done: it is made anew.
+                        match Worker::new(Arc::clone(&land), &store, tiles.as_deref()) {
+                            Ok(w) => worker = w,
+                            Err(e) => {
+                                tracing::error!(target: "travel", "no planner after a panic: {e}");
+                                for a in answers {
+                                    let _ = outbox.send(a);
+                                }
+                                return;
+                            }
+                        }
+                        if let Some(o) = &obstacles {
+                            worker.queue.push_back(Job::Obstacles(o.clone()));
+                        }
+                    }
+                    for a in answers {
                         if outbox.send(a).is_err() {
                             return;
                         }
@@ -657,6 +779,7 @@ impl Planning {
             backend: Backend::Thread { jobs, answers },
             asked: 0,
             one_step: false,
+            failed: Vec::new(),
         })
     }
 
@@ -677,7 +800,16 @@ impl Planning {
             )?)),
             asked: 0,
             one_step: false,
+            failed: Vec::new(),
         })
+    }
+
+    /// An answer for the next answers to give, as though the planning had made it: for a test
+    /// that answers the travel by hand.
+    #[cfg(test)]
+    pub(crate) fn give(&mut self, answer: Answer) {
+        self.failed.push(answer);
+        self.asked += 1;
     }
 
     /// A planning that plans nothing: a test answers the travel by hand.
@@ -687,6 +819,7 @@ impl Planning {
             backend: Backend::Held(None),
             asked: 0,
             one_step: false,
+            failed: Vec::new(),
         }
     }
 
@@ -713,7 +846,18 @@ impl Planning {
         match &mut self.backend {
             #[cfg(not(target_arch = "wasm32"))]
             Backend::Thread { jobs, .. } => {
-                let _ = jobs.send(job);
+                // A planning thread that is gone answers nothing: the job is answered as failed
+                // here, so no trip waits on it.
+                if let Err(std::sync::mpsc::SendError(job)) = jobs.send(job) {
+                    if let Some(p) = Pending::of(&job) {
+                        tracing::error!(
+                            target: "travel",
+                            "the planning thread has stopped: job {} answered as failed",
+                            p.id
+                        );
+                        self.failed.push(p.failed());
+                    }
+                }
             }
             Backend::Frame(w) => w.queue.push_back(job),
             #[cfg(test)]
@@ -759,7 +903,8 @@ impl Planning {
     /// The answers ready this frame. In the frame's own thread, this is where the frame's slice
     /// of planning is done.
     pub fn answers(&mut self) -> Vec<Answer> {
-        let got: Vec<Answer> = match &mut self.backend {
+        let mut got: Vec<Answer> = std::mem::take(&mut self.failed);
+        got.extend(match &mut self.backend {
             #[cfg(not(target_arch = "wasm32"))]
             Backend::Thread { answers, .. } => answers.try_iter().collect(),
             Backend::Frame(w) => {
@@ -772,9 +917,77 @@ impl Planning {
             }
             #[cfg(test)]
             Backend::Held(_) => Vec::new(),
-        };
+        });
         self.asked = self.asked.saturating_sub(got.len());
         got
+    }
+}
+
+#[cfg(test)]
+mod guard_tests {
+    //! Behaviour: none (the planning's own keeping of its promises).
+    use super::*;
+    use dereth_primitives::{Frame, Quat, Vec3};
+
+    fn at(cell: u32, x: f32) -> Position {
+        Position::new(
+            CellId(cell),
+            Frame::new(Vec3::new(x, 0.0, 0.0), Quat::IDENTITY),
+        )
+    }
+
+    #[test]
+    fn a_planning_job_that_panics_is_answered_as_failed_and_the_rest_are_answered() {
+        let jobs = [
+            Job::Journey {
+                id: 7,
+                from: at(0xA9B4_0019, 84.0),
+                to: Goal::Place(at(0x019E_0114, 10.0)),
+                portals: Vec::new(),
+                refused: Vec::new(),
+                teleports: Vec::new(),
+                hand_backs: Vec::new(),
+                reach: None,
+            },
+            Job::Route {
+                id: 8,
+                from: at(0x019E_0114, 10.0),
+                to: Goal::Place(at(0x019E_0114, 20.0)),
+                reach: None,
+                snap: None,
+            },
+            Job::Unblock,
+        ];
+        let pending: Vec<Pending> = jobs.iter().filter_map(Pending::of).collect();
+        assert_eq!(
+            pending.len(),
+            2,
+            "the journey and the route are answered; unblocking is not"
+        );
+        // Work that panics part-way: nothing it made is kept, and each job is answered failed.
+        let (answers, panicked) = guarded(&pending, || panic!("an index out of range"));
+        assert!(panicked);
+        match answers.as_slice() {
+            [Answer::Journey {
+                id: 7,
+                to: Some(to),
+                journey: None,
+                why: Some(why),
+                ..
+            }, Answer::Route {
+                id: 8,
+                route: Err(_),
+                ..
+            }] => {
+                assert_eq!(why, PLANNING_FAILED);
+                assert_eq!(to.cell, CellId(0x019E_0114), "to where it was asked");
+            }
+            other => panic!("{other:?}"),
+        }
+        // Work that does not panic answers as it would.
+        let (answers, panicked) = guarded(&pending, || vec![Answer::Unblocked(3)]);
+        assert!(!panicked);
+        assert_eq!(answers, [Answer::Unblocked(3)]);
     }
 }
 

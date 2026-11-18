@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use dereth_client_contract::chat::interface::ChatMessage;
 use dereth_client_contract::view::Vital;
 use dereth_client_runtime::frame_hook::{HookFrame, NavKey};
-use dereth_client_runtime::travel::{TravelAllow, TravelTarget};
+use dereth_client_runtime::travel::{HandBacks, TravelAllow, TravelTarget};
 use dereth_plugin_api::event;
 use dereth_plugin_api::{
     ApiVersion, AutoDomain, CallError, HostCalls, HostCapability, Permission, UiNode, Value,
@@ -156,6 +156,37 @@ pub struct Call<'a, 'f> {
 /// The most bytes one data file a plugin saves may hold, and the most files its data folder may.
 pub const DATA_FILE_MAX: usize = 4 << 20;
 pub const DATA_FILES_MAX: usize = 1000;
+
+/// What a journey's `opts` allow it, and whether the host draws it. Each kind of leg is an action
+/// of its own domain: a portal used, a recall item used and a recall by command are travel
+/// (`nav`); a recall cast is a spell on oneself (`buff`, `may_buff`). Handing a token back cannot
+/// be undone: only a plugin that says it may (`hand_backs`, off unless given) has one carried out;
+/// otherwise such a journey ends at once, saying the player must agree.
+fn journey_allow(opts: &Value, may_buff: bool) -> Result<(TravelAllow, bool), CallError> {
+    let flag = |k: &str, default: bool| match opts.get(k) {
+        Value::Nil => Ok(default),
+        v => v
+            .as_bool()
+            .ok_or_else(|| bad(format!("a journey's {k} is true or false"))),
+    };
+    let (portals, recalls, show) = (
+        flag("portals", true)?,
+        flag("recalls", true)?,
+        flag("show", true)?,
+    );
+    let allow = TravelAllow {
+        portals,
+        spells: recalls && may_buff,
+        items: recalls,
+        commands: recalls,
+        hand_backs: if flag("hand_backs", false)? {
+            HandBacks::Agreed
+        } else {
+            HandBacks::Refused
+        },
+    };
+    Ok((allow, show))
+}
 
 fn bad(msg: impl Into<String>) -> CallError {
     CallError::BadArgs(msg.into())
@@ -822,22 +853,7 @@ impl Call<'_, '_> {
     fn journey(&mut self, name: &str, args: &Value) -> Result<Value, CallError> {
         self.capability(name, HostCapability::NavJourney)?;
         let target = self.travel_target(args.get("target"))?;
-        let opts = args.get("opts");
-        let flag = |k: &str| match opts.get(k) {
-            Value::Nil => Ok(true),
-            v => v
-                .as_bool()
-                .ok_or_else(|| bad(format!("a journey's {k} is true or false"))),
-        };
-        let (portals, recalls, show) = (flag("portals")?, flag("recalls")?, flag("show")?);
-        // Each kind of leg is an action of its own domain: a portal used, a recall item used and
-        // a recall by command are travel (`nav`); a recall cast is a spell on oneself (`buff`).
-        let allow = TravelAllow {
-            portals,
-            spells: recalls && self.may(AutoDomain::Buff),
-            items: recalls,
-            commands: recalls,
-        };
+        let (allow, show) = journey_allow(args.get("opts"), self.may(AutoDomain::Buff))?;
         let me = self.slot.manifest.id.to_string();
         if name == "nav.plan" {
             let id = self.shared.actions.allocate();
@@ -2440,4 +2456,34 @@ fn recalls_value(store: &dereth_navigation::PortalStore, character: &str) -> Val
             })
             .collect(),
     )
+}
+
+#[cfg(test)]
+mod journey_allow_tests {
+    //! Behaviour: none (the host's reading of a journey's options).
+    use super::*;
+
+    #[test]
+    fn a_plugins_journey_hands_a_token_back_only_when_its_options_say_it_may() {
+        let none = journey_allow(&Value::Nil, true).expect("no options");
+        assert_eq!(
+            none.0.hand_backs,
+            HandBacks::Refused,
+            "not unless it says so"
+        );
+        assert!(none.1 && none.0.portals && none.0.spells && none.0.items && none.0.commands);
+        let agreed = journey_allow(&Value::map().with("hand_backs", true), true).expect("reads");
+        assert_eq!(agreed.0.hand_backs, HandBacks::Agreed);
+        let off = journey_allow(&Value::map().with("hand_backs", false), true).expect("reads");
+        assert_eq!(off.0.hand_backs, HandBacks::Refused);
+        assert!(journey_allow(&Value::map().with("hand_backs", "yes"), true).is_err());
+        // The rest as before: a recall cast only where buffs may be cast.
+        let on_foot = journey_allow(
+            &Value::map().with("portals", false).with("recalls", false),
+            true,
+        )
+        .expect("reads");
+        assert!(!on_foot.0.portals && !on_foot.0.items && !on_foot.0.spells);
+        assert!(!journey_allow(&Value::Nil, false).expect("reads").0.spells);
+    }
 }

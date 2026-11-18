@@ -110,7 +110,10 @@ arrives where the Academy's own exit portal sends (the server's published table,
 where); a portal out of the same rooms is taken first. Before such a journey moves at all the
 player is asked, in the client's own yes-or-no box that every interface shows, whether to leave
 the Academy, which cannot be entered again; a no, a box taken down unanswered, or a client with no
-interface to show it ends the journey `declined`.
+interface to show it ends the journey `declined`. A plugin's journey asks no one: it hands a token
+back only when its `opts` say `hand_backs = true` (the plugin has the player's word for it, a
+setting of its own, say); otherwise it ends at once, failing `needs the player to agree to leave
+the Training Academy`, rather than waiting on a question nobody is there to answer.
 
 `target` is an object, a place, `{ cell = 0x… }` (the cell's middle), `{ portal = "name" }` (where
 that known portal sends) or `{ recall = "lifestone" | "marketplace" | spell }` (where that recall
@@ -124,13 +127,16 @@ nearest it that a walk does reach, within 3 metres of it, the distance most peop
 | `portals` | `true` | `false` leaves portals out |
 | `recalls` | `true` | `false` leaves the character's recalls out |
 | `show` | `true` | `false`: the host does not draw it |
+| `hand_backs` | `false` | `true` lets it hand a token back (leaving the Training Academy for good) without asking |
 | `on_planned`, `on_leg`, `on_learned` | | called with this journey's `nav.journey_planned`, `nav.journey_leg` and `nav.journey_learned` events |
 
 The promise completes on arrival with `{ distance, portals, recalls, replans, walked, seconds }` and
 fails `no_path` (nothing known reaches the target), `no_target`, `no_route` (a walk found no way),
 `door_shut` (a door on the way would not open, locked or blocked, and no walk goes round it: the
 last `door` leg names it), `stuck`, `too_many_replans`, `interrupted` (the player moved the character), `stopped` (`nav.stop()`),
-`replaced`, `declined` (the player said no to leaving the Academy), or at a hand-back `no_token`
+`replaced`, `declined` (the player said no to leaving the Academy), `needs the player to agree to
+leave the Training Academy` (it would hand a token back, and `hand_backs` was not given), or at a
+hand-back `no_token`
 (the person gave no token), `not_taken` (they would not take it back) or `not_sent_on`. A journey
 is a movement: one runs at a time across all plugins, and starting any movement replaces it.
 
