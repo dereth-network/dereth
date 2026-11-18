@@ -1,7 +1,8 @@
 //! ACE: Source/ACE.Server/WorldObjects/Player_Melee.cs::HandleActionTargetedMeleeAttack
 //! Sword attack kills a drudge; repeat attacks follow power bar/queue; bow arrow reaches target;
 //! no arrow at a target gone during windup; arrow passes non-targets; cross-cell shot; spawn
-//! origin radius; missile mode without weapon reverts; charge attack; sticky range; cleave skip.
+//! origin radius; missile mode without weapon reverts; charge attack; sticky range; cleave skip;
+//! a report during a charge is not swept (V550).
 //! Fixture: a virtual-time TestServer, isolated stores and synthetic dats.
 
 use std::collections::BTreeMap;
@@ -682,6 +683,64 @@ fn stamina(ts: &TestServer, g: ObjectGuid) -> u32 {
 }
 
 // ------------------------------------------------------------------ melee
+
+/// With the motion correction on (V550), a charge attack on a drudge out of reach runs the server's
+/// body to it (a move-to of the body's own, with no move-to chain), and a report the client sends
+/// meanwhile is not swept: one on a spot the server's drudge overlaps is taken, not corrected.
+#[test]
+fn a_report_during_the_run_to_an_attacked_creature_is_not_swept_against_it() {
+    use crate::movement::player_movement::autonomous_position;
+    use crate::movement::position_cadence::positions_of;
+    let mut ts = server();
+    assert!(empyrean_world::managers::property_manager::modify_bool(
+        &ts.world,
+        "server_motion_correction",
+        true
+    ));
+    empyrean_world::world_objects::player_tick::refresh_movement_options(&mut ts.world);
+    let (id, _session) = enter(
+        &mut ts,
+        CharacterOptions1::UseChargeAttack,
+        &[(SWORD, EquipMask::MeleeWeapon)],
+    );
+    drudge(&mut ts, 10.0, 60);
+    ts.advance(0.2);
+    let _ = take_local();
+    ts.send_game_action(
+        id,
+        &CombatChangeCombatMode {
+            combat_mode: u32::try_from(CombatMode::Melee.0).unwrap(),
+        },
+    );
+    ts.advance(1.0);
+
+    ts.send_game_action(
+        id,
+        &CombatTargetedMeleeAttack {
+            target: ObjectId(MONSTER.full()),
+            attack_height: 2,
+            power_level: 1.0,
+        },
+    );
+    ts.advance(0.1);
+    let h = phys_ext::physics_obj(&ts.world, PLAYER).expect("a body");
+    assert!(
+        empyrean_world::physics::motion::is_moving_to(&ts.world, h),
+        "the body runs to the drudge"
+    );
+
+    // the client reports a spot the server's drudge overlaps (where its own drudge left room)
+    let own = ts.received_raw(id).len();
+    let at = Position::from_components(LB | 0x0001, 100.0, 109.6, 20.0, 0.0, 0.0, 0.0, 1.0, false);
+    ts.send_game_action(id, &autonomous_position(&at, true));
+    ts.advance(0.7);
+    assert!(
+        positions_of(&ts, id, own, PLAYER.full())
+            .iter()
+            .all(|p| p.force == 0),
+        "not sent back"
+    );
+}
 
 /// Melee mode, then a targeted attack on a drudge in reach: the swing (a sticky SlashMed at the
 /// Quickness/weapon speed), the stamina cost, the strike at the attack frame, the attacker

@@ -1495,11 +1495,14 @@ fn report_predates_force(w: &mut World, this: ObjectGuid) -> bool {
     fields(w, this).requested_force_stamp != current
 }
 
-/// Whether the player is walking a move-to chain toward a target, in which the server's body may
-/// not follow the client's own movement.
+/// Whether the player is walking a move-to chain toward a target, or its body is running a move-to
+/// of its own (the MoveToObject a melee attack out of reach starts), in which the server's body
+/// may not follow the client's own movement.
 fn moving_to_target(w: &World, this: ObjectGuid) -> bool {
     player_move::is_player_moving_to(w, this)
         || crate::world_objects::player_move2::fields(w, this).is_player_moving_to2
+        || phys_ext::physics_obj(w, this)
+            .is_some_and(|h| crate::physics::motion::is_moving_to(w, h))
 }
 
 /// `to` less `from`, in global meters (landblocks are 192 m).
