@@ -384,6 +384,38 @@ impl<S: Shell> App<S> {
                         pos.cell.0, pos.frame.origin.x, pos.frame.origin.y, pos.frame.origin.z,
                     );
                 }
+                PlayerMotionDispatch::Blip {
+                    position: pos,
+                    timestamps,
+                } => {
+                    let numbering = self.objects.command_numbering();
+                    let Some(character) = world.world_mut().character.as_mut() else {
+                        continue;
+                    };
+                    let previous_cell = character.position().cell;
+                    let far = complete_player_blip_at(pos, character, |character| {
+                        if let Some(link) = self.link.as_mut() {
+                            self.position.send_position_event(
+                                self.timer.cur_time,
+                                &body_motion_in(character, timestamps, numbering),
+                                &mut link.net.session,
+                            );
+                        }
+                    });
+                    if character.position().cell != previous_cell {
+                        self.objects.publish_physics_cells(&character.world);
+                    }
+                    if far {
+                        world.world_mut().follow_character_now();
+                    }
+                    tracing::debug!(
+                        "the server put the player back at cell {:#010X} ({:.2}, {:.2}, {:.2})",
+                        pos.cell.0,
+                        pos.frame.origin.x,
+                        pos.frame.origin.y,
+                        pos.frame.origin.z,
+                    );
+                }
             }
             // The view holds the presentation and the world state; hand both back first.
             drop(world);

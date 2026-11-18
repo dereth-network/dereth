@@ -117,6 +117,9 @@ pub struct ObjectStats {
     /// **0 across the whole corpus**, and that zero is the measurement rather than an absence: the
     /// echo is 0 in all 1,827 recorded bodies precisely because nothing ever advanced it.
     pub force_position_stamps: u64,
+    /// Of [`Self::force_position_stamps`], those that put the player's body back (the blip):
+    /// every one whose teleport stamp is not older than the one held.
+    pub player_blips: u64,
     /// `0xF748`s about the **player**, whatever they then do — the denominator of
     /// [`Self::player_teleports`], counted at the same place so the two cannot drift apart.
     pub player_positions: u64,
@@ -655,6 +658,12 @@ pub struct ObjectStream {
 pub enum PlayerMotionDispatch {
     Movement(MovementBuffer),
     Teleport {
+        position: Position,
+        timestamps: dereth_protocol::movement::MoveTimestamps,
+    },
+    /// The server putting the player back (a newer force-position stamp, no newer teleport):
+    /// the body is set there keeping its heading, and answers with a position event.
+    Blip {
         position: Position,
         timestamps: dereth_protocol::movement::MoveTimestamps,
     },
@@ -1358,6 +1367,28 @@ impl ObjectStream {
         self.player_motion_dispatches.retain(|event| {
             if let PlayerMotionDispatch::Teleport { position, .. } = event {
                 last = Some(*position);
+                false
+            } else {
+                true
+            }
+        });
+        last
+    }
+
+    /// Take the blip a `0xF748` asked for (the server putting the player back), with the stamps
+    /// its answering position event echoes, if one is waiting. The latest one wins; other calls
+    /// stay queued.
+    pub fn take_player_blip(
+        &mut self,
+    ) -> Option<(Position, dereth_protocol::movement::MoveTimestamps)> {
+        let mut last = None;
+        self.player_motion_dispatches.retain(|event| {
+            if let PlayerMotionDispatch::Blip {
+                position,
+                timestamps,
+            } = event
+            {
+                last = Some((*position, *timestamps));
                 false
             } else {
                 true
@@ -2321,9 +2352,8 @@ impl ObjectStream {
 
     /// Apply a received position, reduced to what a viewer needs.
     ///
-    /// The full handler also runs the player's force-position "blip" and answers it with a
-    /// position event of its own; that is the *player's* arm and belongs with the local player
-    /// body, which this build keeps outside this table. The ordinary path reproduces the `POSITION_TS` gate and
+    /// The player's force-position "blip" is queued for the local player body, which this build
+    /// keeps outside this table, as [`PlayerMotionDispatch::Blip`]. The ordinary path reproduces the `POSITION_TS` gate and
     /// older-`TELEPORT_TS` rollback before changing position, parent, placement or completion.
     ///
     /// Two messages come here: a `0xF748` (and the position half of a `0xF619`), and an
@@ -2353,26 +2383,44 @@ impl ObjectStream {
         // Received-position handling opens, for the player only, with a `newer_event` test of
         // the held force-position stamp (slot 6) against the message's, **outside** and
         // **before** the `POSITION_TS` gate below, so the stamp advances even on the arm that
-        // returns early. Its body-side half — the force-position "blip": set the heading
-        // from the object's heading getter,
-        // `update_times[0] = ts`, and answer with the command interpreter's own
-        // position event — is the *player body's* arm, which this build's `ObjectStream`
-        // does not own; what is reproduced here is the sequence, because that is what goes back
-        // out on every `0xF61C` and `0xF753`.
+        // returns early. Its body-side half is the force-position "blip", below.
         //
         // **The blip is unobserved in the corpus, and a test pins its count as a literal.**
         // `force_position_ts` is **never advanced once across all 8,617 server blobs** in the
         // corpus — the branch below has fired **0** times in seven captures — which is why
         // every one of the 1,827 recorded outbound position bodies and both recorded `0xF61B`
         // jump bodies carry `force_position = 0`. That zero is currently right *because
-        // nothing in the recording advances the sequence*, not because a producer decided it,
-        // and the difference matters: the blip is the arm that would make it non-zero, and it
-        // has no producer here. Replacing the pin with an oracle needs a capture of a GM
-        // teleport or an anti-cheat correction of the recording character.
+        // nothing in the recording advances the sequence*, not because a producer decided it.
+        // Replacing the pin with an oracle needs a capture of a GM teleport or an anti-cheat
+        // correction of the recording character.
         if is_player && is_newer(e.force_position_ts, m.force_position_ts) {
             e.force_position_ts = m.force_position_ts;
             if counted {
                 self.stats.force_position_stamps += 1;
+            }
+            // **The blip: the server putting the player back.** Unless the message's teleport
+            // stamp is older than the one held, the player's body is put at the position with
+            // its own heading kept, `POSITION_TS` takes the message's stamp unconditionally, the
+            // command interpreter answers with a position event at once, and the handler
+            // returns: nothing below runs, so the wire position, contact and placement are left
+            // as they were. The body is the app's, so the call is queued for it in message order
+            // with the stamps the answer echoes, which carry the new force-position stamp.
+            if !is_newer(m.teleport_ts, e.teleport_ts) {
+                e.position_ts = m.position_ts;
+                self.player_motion_dispatches
+                    .push(PlayerMotionDispatch::Blip {
+                        position: m.destination,
+                        timestamps: dereth_protocol::movement::MoveTimestamps {
+                            instance: e.instance,
+                            server_control: e.server_control_ts,
+                            teleport: e.teleport_ts,
+                            force_position: e.force_position_ts,
+                        },
+                    });
+                if counted {
+                    self.stats.player_blips += 1;
+                }
+                return;
             }
         }
         // apply and store only when strictly newer.

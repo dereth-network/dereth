@@ -49,7 +49,8 @@ mod world;
 
 use motion::command_interpreter_control_transfer_with_finish;
 pub use motion::{
-    body_motion_in, complete_player_teleport_at, player_timestamps, raw_motion_state_to_wire_in,
+    body_motion_in, complete_player_blip_at, complete_player_teleport_at, player_timestamps,
+    raw_motion_state_to_wire_in,
 };
 #[cfg(any(test, feature = "test-support"))]
 mod testing;
@@ -59,7 +60,7 @@ pub use session::{
 #[cfg(any(test, feature = "test-support"))]
 pub use testing::{
     apply_player_teleport, body_jump, body_motion, command_interpreter_control_transfer,
-    complete_player_teleport, jump_edge_sample, raw_motion_state_to_wire,
+    complete_player_blip, complete_player_teleport, jump_edge_sample, raw_motion_state_to_wire,
 };
 
 use dereth_client_contract::window_proc::style;

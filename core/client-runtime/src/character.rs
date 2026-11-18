@@ -1319,7 +1319,8 @@ pub struct CharacterStats {
     /// re-measurable when the corpus grows.
     pub motion_table_changes: u64,
     /// Teleports whose placement committed,
-    /// and teleports whose placement did not.
+    /// and teleports whose placement did not. The server putting the player back (the blip)
+    /// places the body the same way and is counted here too.
     ///
     /// A teleport writes `position` either way, so the two are indistinguishable from the
     /// outside — which is exactly what the client does with the `SetPositionError`
@@ -1766,6 +1767,14 @@ impl Character {
     /// its origin: the server sends the landblock's cell 1 and the
     /// origin decides which of the 64 it really is.
     pub fn teleport(&mut self, pos: Position) {
+        self.set_position_simple(pos);
+        self.reset_viewer();
+    }
+
+    /// The positioning half of [`Self::teleport`], without the viewer reset: what the server
+    /// putting the player back (the force-position blip) does when the distance is within the
+    /// body's autonomy blip distance.
+    pub fn set_position_simple(&mut self, pos: Position) {
         let mut cell = pos.cell;
         let mut origin = pos.frame.origin;
         // **Only for an outdoor position.** The outside-cell conversion also accepts an
@@ -1833,16 +1842,21 @@ impl Character {
             self.world.calc_cross_cells(self.handle, false);
         }
         self.refresh_env();
+        // The body is drawn where it was put, facing the way it was put, its way between ticks
+        // begun again from there: drawn on from the ticks before, it would be shown turning
+        // across from the way it faced where it was.
+        self.between.begin_again();
+    }
+
+    /// The viewer half of [`Self::teleport`].
+    pub fn reset_viewer(&mut self) {
         // The viewer reset arm: a teleport must not leave the smoother
         // chasing the body across the world, and the sweep must not try to slide a sphere from
         // the old room to the new one.
         if let Some(p) = crate::camera::pivot_state(&self.world, self.handle) {
             self.camera.attach(&p);
         }
-        // The body is drawn where it was put, facing the way it was put, its way between ticks
-        // begun again from there: drawn on from the ticks before, it would be shown turning
-        // across from the way it faced where it was. The orbit camera is set behind it afresh.
-        self.between.begin_again();
+        // The orbit camera is set behind the body afresh.
         self.camera.place_orbit_anew();
     }
 

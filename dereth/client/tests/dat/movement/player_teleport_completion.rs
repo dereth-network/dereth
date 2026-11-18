@@ -2,7 +2,9 @@
 //! duplicate does not cancel again), the run lock is turned off with its notice while a held key
 //! survives, and each accepted teleport sends one `Movement_MoveToState 0xF61C` tail from its
 //! destination with its own stamps. Same-batch creates, targets and movements keep their wire
-//! order around the teleport. Fixture: early-inventory-and-casting's
+//! order around the teleport. A correction (a newer force-position stamp, no newer teleport)
+//! puts the body back keeping its heading and is answered at once with an `0xF753`; one not newer
+//! does nothing. Fixture: early-inventory-and-casting's
 //! accepted teleport edge, unchanged, on real terrain and bodies from the retail dats; the
 //! motion before the teleport (autorun, approach, held key) is constructed.
 
@@ -17,6 +19,7 @@ use dereth_primitives::{LocalTime, ObjectId, Position, Vec3};
 use dereth_protocol::{Message, Opcode};
 use {
     dereth_client_runtime::app::apply_player_teleport, dereth_client_runtime::app::body_motion,
+    dereth_client_runtime::app::complete_player_blip,
     dereth_client_runtime::app::complete_player_teleport,
     dereth_client_runtime::app::player_timestamps,
 };
@@ -1369,4 +1372,175 @@ fn accepted_journal_keeps_each_teleports_position_and_echo_stamps_until_exactly_
     );
     assert!(objects.take_player_teleport().is_some());
     assert!(objects.take_player_motion_dispatches().is_empty());
+}
+
+/// The server putting the player back: the recorded teleport's own `0xF748`, made into a
+/// correction to `to` facing `facing` by keeping the teleport stamp the client holds and
+/// advancing the force-position stamp by `force_step`.
+fn correction(
+    edge: &CorpusBlob,
+    objects: &ObjectStream,
+    to: Position,
+    facing: dereth_primitives::Quat,
+    force_step: u16,
+) -> SessionEvent {
+    use dereth_protocol::movement::{position_flags as f, MovementPositionEvent};
+    let held = objects.presence(objects.player().unwrap()).unwrap();
+    let mut wire =
+        MovementPositionEvent::read(&mut dereth_protocol::Reader::new(&edge.payload[4..]))
+            .expect("recorded player position");
+    wire.position.origin.objcell_id = to.cell.0;
+    wire.position.origin.origin.x = to.frame.origin.x;
+    wire.position.origin.origin.y = to.frame.origin.y;
+    wire.position.origin.origin.z = to.frame.origin.z;
+    wire.position.flags &= !(f::ORIENTATION_HAS_NO_W
+        | f::ORIENTATION_HAS_NO_X
+        | f::ORIENTATION_HAS_NO_Y
+        | f::ORIENTATION_HAS_NO_Z);
+    wire.position.orientation = dereth_protocol::types::Quat {
+        w: facing.w,
+        x: facing.x,
+        y: facing.y,
+        z: facing.z,
+    };
+    wire.position.teleport_timestamp = held.teleport_ts;
+    wire.position.force_position_timestamp = held.force_position_ts.wrapping_add(force_step);
+    let mut w = dereth_protocol::Writer::new();
+    wire.write(&mut w).expect("encodes");
+    SessionEvent::WorldObject {
+        opcode: Opcode::MOVEMENT_POSITION_EVENT,
+        body: w.as_slice().to_vec(),
+    }
+}
+
+/// The body walked a few meters on from `origin` with the run lock on.
+fn walked_on(c: &mut Character) -> (MovementCommands, CharacterInput) {
+    let mut mc = MovementCommands::default();
+    let mut input = CharacterInput::default();
+    command(
+        &mut mc,
+        &mut input,
+        MotionCommand(dereth_client_runtime::actions::movement::command::AUTO_RUN),
+        true,
+    );
+    let from = c.position();
+    for i in 61..=90 {
+        tick(c, &mut mc, &mut input, f64::from(i) / 30.0);
+    }
+    assert!(
+        xy_distance(from, c.position()) > 0.5,
+        "premise: the body walked on from where the server will put it back"
+    );
+    (mc, input)
+}
+
+/// Behaviour: movement.correction.the-server-putting-the-player-back-moves-the-body-and-answers-at-once
+#[test]
+fn a_forced_position_puts_the_player_back_keeping_its_heading_and_answers_at_once() {
+    let (mut objects, origin, edge) = before_teleport();
+    let player = objects.player().unwrap();
+    let mut c = body_at(origin, player);
+    let _held = walked_on(&mut c);
+    let walked = c.position();
+    let heading = dereth_primitives::frame::get_heading(&walked.frame);
+    let mut turned = walked.frame;
+    dereth_primitives::frame::set_heading(&mut turned, heading + 90.0);
+    let force_before = objects.presence(player).unwrap().force_position_ts;
+
+    let ev = correction(&edge, &objects, origin, turned.rotation, 1);
+    objects.apply_event(&ev, LocalTime(3.1));
+    assert_eq!(objects.stats.player_blips, 1);
+    let SessionEvent::WorldObject { body, .. } = &ev else {
+        unreachable!()
+    };
+    let wire = dereth_protocol::movement::MovementPositionEvent::read(
+        &mut dereth_protocol::Reader::new(body),
+    )
+    .unwrap();
+    assert_eq!(
+        objects.presence(player).unwrap().position_ts,
+        wire.position.position_timestamp,
+        "the position stamp is the correction's"
+    );
+
+    let mut reporter = PositionReporter::new(0.0);
+    let mut session = Session::new(MockTransport::new());
+    complete_player_blip(&mut objects, &mut c, |c, stamps| {
+        reporter
+            .send_position_event(3.1, &body_motion(c, stamps), &mut session)
+            .expect("emitted");
+    })
+    .expect("the correction puts the body back");
+    let now = c.position();
+    assert_eq!(now.cell, origin.cell);
+    assert!(
+        xy_distance(now, origin) < 0.01,
+        "the body is where the server put it, not where it walked: {now:?} against {origin:?}"
+    );
+    let kept = dereth_primitives::frame::get_heading(&now.frame);
+    assert!(
+        (kept - heading).abs() < 0.01,
+        "the body keeps its own heading ({heading}), not the correction's: {kept}"
+    );
+
+    assert_eq!(
+        session.transport.sent.len(),
+        1,
+        "the correction is answered at once"
+    );
+    let action =
+        dereth_protocol::actions::unpack_action(&session.transport.sent[0].payload).unwrap();
+    assert_eq!(action.sub_type, Opcode::MOVEMENT_AUTONOMOUS_POSITION);
+    let answer =
+        dereth_protocol::movement::MovementAutonomousPosition::read(&mut action.body.clone())
+            .unwrap();
+    assert_eq!(answer.0.position.objcell_id, origin.cell.0);
+    assert!((answer.0.position.frame.origin.x - now.frame.origin.x).abs() < 1e-4);
+    assert!((answer.0.position.frame.origin.y - now.frame.origin.y).abs() < 1e-4);
+    assert_eq!(
+        answer.0.timestamps.force_position,
+        force_before.wrapping_add(1),
+        "the answer echoes the correction's stamp"
+    );
+}
+
+/// Behaviour: movement.correction.the-server-putting-the-player-back-moves-the-body-and-answers-at-once
+#[test]
+fn a_force_stamp_that_is_not_newer_leaves_the_player_where_it_is() {
+    let (mut objects, origin, edge) = before_teleport();
+    let player = objects.player().unwrap();
+    let mut c = body_at(origin, player);
+    let _held = walked_on(&mut c);
+    let walked = c.position();
+
+    // Taken once, the same correction again is not newer, and nor is an older one.
+    objects.apply_event(
+        &correction(&edge, &objects, origin, walked.frame.rotation, 1),
+        LocalTime(3.1),
+    );
+    assert!(objects.take_player_blip().is_some());
+    for (step, t) in [(0, 3.2), (0xFFFF, 3.3)] {
+        objects.apply_event(
+            &correction(&edge, &objects, origin, walked.frame.rotation, step),
+            LocalTime(t),
+        );
+        assert!(
+            complete_player_blip(&mut objects, &mut c, |_, _| panic!("no answer")).is_none(),
+            "a force stamp {step:#06X} on from the one held puts nothing back"
+        );
+    }
+    assert_eq!(objects.stats.player_blips, 1);
+    assert_eq!(c.position(), walked, "the body was not moved");
+}
+
+/// Behaviour: movement.correction.the-server-putting-the-player-back-moves-the-body-and-answers-at-once
+#[test]
+fn a_teleport_is_a_teleport_and_not_a_correction() {
+    let (mut objects, origin, _) = pending_teleport();
+    let mut c = body_at(origin, objects.player().unwrap());
+    assert!(objects.take_player_blip().is_none());
+    assert_eq!(objects.stats.player_blips, 0);
+    let destination = apply_player_teleport(&mut objects, &mut c).expect("accepted teleport");
+    assert_eq!(destination.cell.0, 0xDA55_001D);
+    assert_eq!(c.position(), destination);
 }

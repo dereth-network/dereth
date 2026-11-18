@@ -105,6 +105,18 @@ pub fn complete_player_teleport(
     Some(pos)
 }
 
+/// The accepted blip: the server putting the player back, then the answering position event,
+/// which `send_position` sends with the stamps it is handed.
+pub fn complete_player_blip(
+    objects: &mut crate::objects::ObjectStream,
+    character: &mut crate::character::Character,
+    send_position: impl FnOnce(&crate::character::Character, dereth_protocol::movement::MoveTimestamps),
+) -> Option<dereth_primitives::Position> {
+    let (pos, timestamps) = objects.take_player_blip()?;
+    super::complete_player_blip_at(pos, character, |c| send_position(c, timestamps));
+    Some(pos)
+}
+
 /// Everything the two senders read off the physics object, as one value.
 ///
 /// Free rather than a method so a test can build a real [`crate::character::Character`] over the

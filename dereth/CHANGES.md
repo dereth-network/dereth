@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Fixed the client ignoring the server when it puts your character back.
 - Fixed auto-walk sticking on ramps and heading for portals it can't walk to.
 - A journey the Navigator can't take now says why, such as the level a portal needs.
 - Fixed journeys that would not go to a portal standing in a far-off building.

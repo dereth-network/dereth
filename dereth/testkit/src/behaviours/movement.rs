@@ -50,6 +50,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "movement.correction.the-server-putting-the-player-back-moves-the-body-and-answers-at-once",
+        says: "When the server puts the player back somewhere, the player's own body is moved there at \
+               once, still facing the way it faced, and the client tells the server where it now is \
+               straight away. A correction the client has already taken, or an older one, moves \
+               nothing, and a teleport is still a teleport.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-963-PLAYER-BLIP"),
+        station: "dereth-client::dat::movement::player_teleport_completion::a_forced_position_puts_the_player_back_keeping_its_heading_and_answers_at_once",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "movement.door.an-accepted-door-turn-unsticks-the-previous-target",
         says: "When the shard's movement for using a door arrives while the player is still stuck \
                to an earlier combat target, the client first cancels and unsticks from that old \

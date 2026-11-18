@@ -97,6 +97,39 @@ pub fn complete_player_teleport_at(
     send_movement(character);
 }
 
+/// One accepted force-position blip: the server putting the player back.
+///
+/// The position takes the body's own heading, the body is put there with the same placement a
+/// teleport uses, and the viewer is reset only when the distance from where the body stood is
+/// beyond its autonomy blip distance (100 m outdoors, 25 m indoors) at the new place. Nothing a
+/// teleport also does runs here: no teleport hook, no change of control. Then `send_position`
+/// answers at once. Returns whether the viewer was reset.
+pub fn complete_player_blip_at(
+    mut pos: dereth_primitives::Position,
+    character: &mut crate::character::Character,
+    send_position: impl FnOnce(&crate::character::Character),
+) -> bool {
+    let from = character.position();
+    let heading = dereth_primitives::frame::get_heading(&from.frame);
+    dereth_primitives::frame::set_heading(&mut pos.frame, heading);
+    let distance = dereth_physics::math::distance(&from, &pos);
+    // As for a teleport: this build's land source is prefetched per block.
+    #[allow(clippy::cast_possible_truncation)]
+    // LINT-OK: a cell id's top 16 bits are its landblock. Not a float conversion.
+    let block = dereth_primitives::LandblockId((pos.cell.0 >> 16) as u16);
+    character.land().load_block_cells(block);
+    character.set_position_simple(pos);
+    let far = character
+        .world
+        .get(character.handle)
+        .is_some_and(|body| distance > body.autonomy_blip_distance(true));
+    if far {
+        character.reset_viewer();
+    }
+    send_position(character);
+    far
+}
+
 /// `body_motion` with the motion commands in `numbering`, the world files' command numbering
 /// ([`raw_motion_state_to_wire_in`]).
 #[must_use]
