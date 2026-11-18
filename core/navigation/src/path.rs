@@ -94,6 +94,51 @@ impl NavPath {
         self.cuts.get(i).copied().unwrap_or(0.0)
     }
 
+    /// End the route short of `at`: at the last of its places, along the legs the search went
+    /// through, before the first that is within `distance` of `at`. A body walks it no nearer
+    /// (a portal the walk is not taking, say). False, and the route as it was, when no place of it
+    /// comes that near, or its start already does.
+    pub fn stop_short_of(&mut self, at: &Position, distance: f32) -> bool {
+        let near = |p: &Position| global_distance(p, at) < distance;
+        let Some(start) = self.waypoints.first() else {
+            return false;
+        };
+        if near(&start.position) {
+            return false;
+        }
+        let end = self.waypoints.last().map(|w| w.position);
+        for i in 0..self.waypoints.len().saturating_sub(1) {
+            // The leg's places, or its end alone where the search kept none.
+            let places: Vec<Position> = match self.legs.get(i) {
+                Some(l) if !l.is_empty() => l.clone(),
+                _ => vec![self.waypoints[i + 1].position],
+            };
+            let Some(k) = places.iter().position(near) else {
+                continue;
+            };
+            let kept: Vec<Position> = places[..k].to_vec();
+            self.waypoints.truncate(i + 1);
+            self.legs.truncate(i);
+            if let Some(&last) = kept.last() {
+                self.waypoints.push(Waypoint {
+                    position: last,
+                    action: None,
+                });
+                self.legs.push(kept);
+            }
+            self.cuts.truncate(self.waypoints.len());
+            if let Some(c) = self.cuts.last_mut() {
+                *c = 0.0;
+            }
+            let stop = self.waypoints.last().map(|w| w.position);
+            if let (Some(stop), Some(end)) = (stop, end) {
+                self.goal_offset += global_distance(&stop, &end);
+            }
+            return true;
+        }
+        false
+    }
+
     /// Replace leg `i`'s straight line by the places the search went through.
     pub(crate) fn densify_leg(&mut self, i: usize) {
         let Some(places) = self.legs.get(i).cloned() else {
@@ -180,4 +225,64 @@ pub enum NoPath {
 fn place(p: &Position) -> String {
     let o = p.frame.origin;
     format!("{:08X} ({:.1}, {:.1}, {:.1})", p.cell.0, o.x, o.y, o.z)
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (checks a route's arithmetic).
+    use super::*;
+    use dereth_primitives::{Frame, Quat, Vec3};
+
+    fn at(x: f32) -> Position {
+        Position::new(
+            CellId(0x0101_0100),
+            Frame::new(Vec3::new(x, 0.0, 0.0), Quat::IDENTITY),
+        )
+    }
+
+    /// From 0 to 30 by a corner at 20, a place a meter along each leg.
+    fn route() -> NavPath {
+        let w = |x: f32| Waypoint {
+            position: at(x),
+            action: None,
+        };
+        NavPath {
+            waypoints: vec![w(0.0), w(20.0), w(30.0)],
+            legs: vec![
+                (1..=20).map(|i| at(i as f32)).collect(),
+                (21..=30).map(|i| at(i as f32)).collect(),
+            ],
+            goal_offset: 0.0,
+            cuts: vec![0.0, 2.0, 0.0],
+        }
+    }
+
+    #[test]
+    fn a_route_ends_at_its_last_place_before_one_too_near_the_point() {
+        let mut r = route();
+        assert!(r.stop_short_of(&at(30.0), 6.0));
+        let end = r.waypoints.last().expect("an end").position.frame.origin.x;
+        assert!((end - 24.0).abs() < 1e-3, "{end}");
+        assert_eq!(r.waypoints.len(), r.legs.len() + 1);
+        assert_eq!(r.cuts.len(), r.waypoints.len());
+        assert!((r.goal_offset - 6.0).abs() < 1e-3);
+        // Short of a point on the first leg: the second leg goes.
+        let mut r = route();
+        assert!(r.stop_short_of(&at(18.0), 6.0));
+        assert_eq!(r.waypoints.len(), 2);
+        let end = r.waypoints[1].position.frame.origin.x;
+        assert!((end - 12.0).abs() < 1e-3, "{end}");
+    }
+
+    #[test]
+    fn a_route_that_never_comes_near_or_starts_near_is_left_as_it_was() {
+        let mut r = route();
+        assert!(!r.stop_short_of(&at(60.0), 6.0));
+        assert_eq!(r, route());
+        assert!(
+            !r.stop_short_of(&at(2.0), 6.0),
+            "its start is already that near"
+        );
+        assert_eq!(r, route());
+    }
 }

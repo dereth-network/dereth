@@ -14,6 +14,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 - Fixed the client ignoring the server when it puts your character back.
+- Auto-walk goes round doors that can't be opened, and stops short of portals it isn't taking.
 - Fixed auto-walk sticking on ramps and heading for portals it can't walk to.
 - A journey the Navigator can't take now says why, such as the level a portal needs.
 - Fixed journeys that would not go to a portal standing in a far-off building.

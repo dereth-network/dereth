@@ -471,6 +471,28 @@ impl StoreFiles {
     }
 }
 
+/// The `useability` bit that says an object cannot be used (`USEABLE_NO`): the client sends no
+/// use for it, so nothing answers one.
+const USEABLE_NO: u32 = 0x0000_0001;
+
+/// How a door stands for the walk: open, or closed and opened by a use, or one no use opens. A
+/// door that says it cannot be used (a prison door a lever elsewhere opens) is planned round at
+/// once: the client never sends a use for it, so no answer would ever say it is locked.
+#[must_use]
+pub fn door_state(open: bool, useability: Option<u32>) -> DoorState {
+    if open {
+        DoorState::Open
+    } else if useability.is_some_and(|u| u & USEABLE_NO != 0) {
+        DoorState::Locked
+    } else {
+        DoorState::Closed
+    }
+}
+
+/// How far from a portal a walk that is not taking it ends, meters: a body that walks into a
+/// portal's shape is carried off by it, and a large portal reaches a few meters out.
+const PORTAL_KEEP_OFF: f32 = 6.0;
+
 /// How long a used door is waited for to stand open, seconds; and how many uses it gets before
 /// the walk goes round it for now. A door is judged locked only on the server's answer. With no
 /// way round, a door with no such answer gets this many uses once more, and that is the most a
@@ -1992,6 +2014,20 @@ impl Travel {
         });
     }
 
+    /// Where the portal stands that a route ending at `end` would walk onto without taking it:
+    /// one within [`PORTAL_KEEP_OFF`] of `end`, when the journey's walk there is not to use it.
+    fn portal_kept_off(&self, end: &Position) -> Option<Position> {
+        if self.portal_walked_to(end).is_some() {
+            return None;
+        }
+        self.portals
+            .portals()
+            .iter()
+            .filter(|e| e.retired.is_none())
+            .map(|e| e.from)
+            .find(|from| dereth_navigation::global_distance(from, end) < PORTAL_KEEP_OFF)
+    }
+
     /// The name of the portal the trip's journey walks to `to` to use, when the walk to `to` is
     /// one that ends at a portal.
     fn portal_walked_to(&self, to: &Position) -> Option<String> {
@@ -2144,7 +2180,21 @@ impl Travel {
     }
 
     /// Follow `path`, the walk's route: to its target when `last`, else to a window's edge.
-    fn follow_route(&mut self, path: NavPath, last: bool) {
+    fn follow_route(&mut self, mut path: NavPath, last: bool) {
+        // A route that ends on a portal the journey is not taking ends short of it: a body that
+        // walks into a portal is carried off.
+        if let Some(portal) = path
+            .waypoints
+            .last()
+            .and_then(|w| self.portal_kept_off(&w.position))
+        {
+            if path.stop_short_of(&portal, PORTAL_KEEP_OFF) {
+                tracing::info!(
+                    target: "travel",
+                    "the route ends short of a portal the journey is not taking"
+                );
+            }
+        }
         let Some(t) = self.trip.as_mut() else { return };
         t.unblocked = false;
         if let Some(Step::Walk { last: l, .. }) = t.step.as_mut() {
@@ -3672,6 +3722,98 @@ mod tests {
         travel.wait_frame(&plateau, true, &Awaited::Portal(sighting), &watch, &mut out);
         let t = travel.trip.as_ref().expect("the journey goes on");
         assert!(t.unwalkable.is_empty(), "{:?}", t.unwalkable);
+    }
+
+    /// Behaviour: plugins.nav.a-door-no-use-opens-is-planned-round-at-once
+    #[test]
+    fn a_door_that_says_it_cannot_be_used_is_planned_round_at_once() {
+        assert_eq!(door_state(true, Some(USEABLE_NO)), DoorState::Open);
+        assert_eq!(door_state(false, None), DoorState::Closed);
+        assert_eq!(door_state(false, Some(0x0000_0002)), DoorState::Closed);
+        assert_eq!(
+            door_state(false, Some(USEABLE_NO)),
+            DoorState::Locked,
+            "a prison door a lever opens"
+        );
+    }
+
+    /// Behaviour: plugins.nav.a-walk-ends-short-of-a-portal-it-is-not-taking
+    /// A route that ends on a portal the journey is not taking is walked only as far as a few
+    /// meters short of it; the walk to a portal the journey uses goes onto it.
+    #[test]
+    fn a_walk_ends_short_of_a_portal_it_is_not_taking() {
+        let at = |x: f32| {
+            Position::new(
+                CellId(0x01D4_021B),
+                Frame::new(Vec3::new(x, -20.0, 114.0), Quat::IDENTITY),
+            )
+        };
+        let top = dereth_navigation::PortalEdge {
+            source: EdgeSource::Published,
+            wcid: Some(28_000),
+            name: String::from("Bellig Top"),
+            from: at(40.0),
+            to: Some(Position::new(
+                CellId(0x9395_0023),
+                Frame::new(Vec3::new(98.4, 67.7, 224.0), Quat::IDENTITY),
+            )),
+            verified: 0,
+            uses: 0,
+            failures: 0,
+            levels: (None, None),
+            retired: None,
+            requires: Vec::new(),
+        };
+        // A straight route of a place a meter, from 0 to the portal at 40.
+        let route = || NavPath {
+            waypoints: vec![
+                dereth_navigation::Waypoint {
+                    position: at(0.0),
+                    action: None,
+                },
+                dereth_navigation::Waypoint {
+                    position: at(40.0),
+                    action: None,
+                },
+            ],
+            legs: vec![(1..=40).map(|i| at(i as f32)).collect()],
+            goal_offset: 0.0,
+            cuts: Vec::new(),
+        };
+        let end_of = |journey: Vec<Leg>| {
+            let mut travel = Travel::new(StoreFiles::default());
+            travel.portals.merge([top.clone()]);
+            let mut trip = Trip::new(
+                1,
+                Purpose::Go,
+                TravelTarget::Place(at(40.0)),
+                TravelAllow::default(),
+                0.0,
+                0.0,
+            );
+            trip.journey = Some(Journey {
+                legs: journey,
+                seconds: 30.0,
+            });
+            travel.trip = Some(trip);
+            travel.follow_route(route(), true);
+            let t = travel.trip.as_ref().expect("a trip");
+            let w = &t.follower.as_ref().expect("following").path().waypoints;
+            w.last().expect("an end").position.frame.origin.x
+        };
+        let short = end_of(vec![Leg::Walk { to: at(40.0) }]);
+        assert!(
+            (40.0 - short) >= PORTAL_KEEP_OFF && (40.0 - short) < PORTAL_KEEP_OFF + 1.5,
+            "ends short of the portal it is not taking: at {short}"
+        );
+        assert_eq!(
+            end_of(vec![
+                Leg::Walk { to: at(40.0) },
+                Leg::Portal { edge: top.clone() }
+            ]),
+            40.0,
+            "the walk to a portal the journey takes goes onto it"
+        );
     }
 
     /// Behaviour: plugins.nav.a-door-that-will-not-open-ends-the-journey-and-says-so

@@ -1529,7 +1529,7 @@ fn nav_obstacles(
     world: &dereth_client_model::world::World,
     character: &crate::character::Character,
 ) -> Vec<crate::travel::WorldObstacle> {
-    use dereth_navigation::{DoorState, Obstacle, ObstacleKind};
+    use dereth_navigation::{Obstacle, ObstacleKind};
     /// `ObjectDescriptionFlag` bit 12: the object is a door.
     const DOOR: u32 = 0x0000_1000;
     let mut out = Vec::new();
@@ -1554,11 +1554,7 @@ fn nav_obstacles(
         let kind = if creature {
             ObstacleKind::Creature
         } else if door {
-            ObstacleKind::Door(if open {
-                DoorState::Open
-            } else {
-                DoorState::Closed
-            })
+            ObstacleKind::Door(crate::travel::door_state(open, w.pwd.useability))
         } else {
             ObstacleKind::Solid
         };
