@@ -143,6 +143,7 @@ pub fn init_iterations_of(
             })
     });
 
+    let mut compressor = Compressor::new();
     let mut file_count = 0;
     for file_name in dat_database.all_files() {
         let file_iter = dat_database.file_iteration(file_name).unwrap_or_default();
@@ -185,7 +186,7 @@ pub fn init_iterations_of(
                 });
             continue;
         }
-        let compressed_dat_file = compress(&dat_file);
+        let compressed_dat_file = compressor.compress(&dat_file);
         let compressed_file_size = len_i32(&compressed_dat_file);
         let use_compressed_file = compressed_file_size.wrapping_add(4) < uncompressed_file_size;
         let file_size_to_send = if use_compressed_file {
@@ -243,21 +244,60 @@ fn len_i32(bytes: &[u8]) -> i32 {
 /// If deflate reports an error, which it cannot for a buffer of `compressBound` bytes.
 #[must_use]
 pub fn compress(data: &[u8]) -> Vec<u8> {
-    // `CopyTo` writes nothing for an empty input, and a `ZLibStream` that was never written to
-    // closes without emitting anything, not even the zlib header.
-    if data.is_empty() {
-        return Vec::new();
+    Compressor::new().compress(data)
+}
+
+/// Not ACE: [`compress`] for one input after another. Its working memory (about 370 KB, and
+/// zeroed) is allocated once and reset for each input, which compresses exactly as a fresh one
+/// does, so compressing every file of a dat costs one allocation and not one per file.
+pub struct Compressor {
+    deflate: zlib_rs::Deflate,
+}
+
+impl std::fmt::Debug for Compressor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Compressor").finish_non_exhaustive()
     }
-    let mut output = vec![0u8; zlib_rs::compress_bound(data.len())];
-    let (compressed, rc) = zlib_rs::compress_slice(
-        &mut output,
-        data,
-        zlib_rs::DeflateConfig::best_compression(),
-    );
-    assert!(rc == zlib_rs::ReturnCode::Ok, "zlib deflate failed: {rc:?}");
-    let n = compressed.len();
-    output.truncate(n);
-    output
+}
+
+impl Default for Compressor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Compressor {
+    /// ACE's settings: zlib level 9, a zlib header, a 15-bit window.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            deflate: zlib_rs::Deflate::new(9, true, 15),
+        }
+    }
+
+    /// `data` compressed, as [`compress`] compresses it.
+    ///
+    /// # Panics
+    /// If deflate reports an error, which it cannot for a buffer of `compressBound` bytes.
+    pub fn compress(&mut self, data: &[u8]) -> Vec<u8> {
+        // `CopyTo` writes nothing for an empty input, and a `ZLibStream` that was never written to
+        // closes without emitting anything, not even the zlib header.
+        if data.is_empty() {
+            return Vec::new();
+        }
+        self.deflate.reset();
+        let mut output = vec![0u8; zlib_rs::compress_bound(data.len())];
+        let status = self
+            .deflate
+            .compress(data, &mut output, zlib_rs::DeflateFlush::Finish);
+        assert!(
+            matches!(status, Ok(zlib_rs::Status::StreamEnd)),
+            "zlib deflate failed: {status:?}"
+        );
+        let n = usize::try_from(self.deflate.total_out()).expect("no more than the buffer");
+        output.truncate(n);
+        output
+    }
 }
 
 // ACE: DDDManager.PrependUncompressedFileSize

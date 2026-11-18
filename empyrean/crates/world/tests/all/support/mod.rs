@@ -1,6 +1,8 @@
 pub(crate) mod clock_and_object_lifetime;
 pub(crate) mod content_interactions;
 pub(crate) mod creature_world;
+#[cfg(feature = "real-content")]
+pub(crate) mod ddd_start;
 pub(crate) mod hex;
 pub(crate) mod log_capture;
 pub(crate) mod navigation_world;

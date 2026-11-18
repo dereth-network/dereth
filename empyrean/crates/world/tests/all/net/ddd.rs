@@ -92,6 +92,37 @@ fn compress_matches_ace() {
     }
 }
 
+/// One compressor reused input after input, as the start-up walk of every file reuses it, gives
+/// each input ACE's bytes: the vectors' inputs in order and then backwards, so that each follows
+/// both a larger and a smaller one.
+#[test]
+fn one_compressor_compresses_input_after_input_to_aces_bytes() {
+    let file = vectors::load_named("ddd", "ddd_compress");
+    let cases: Vec<(Vec<u8>, u64, u64)> = file
+        .cases
+        .iter()
+        .map(|c| {
+            let kind = u64_of(&c.input["kind"]).expect("kind");
+            let len = usize::try_from(u64_of(&c.input["len"]).expect("len")).expect("len");
+            (
+                input(kind, len),
+                u64_of(&c.output["len"]).expect("len"),
+                u64_of(&c.output["fnv1a64"]).expect("fnv"),
+            )
+        })
+        .collect();
+    let mut compressor = ddd_manager::Compressor::new();
+    for (n, (data, len, fnv)) in cases.iter().chain(cases.iter().rev()).enumerate() {
+        let out = compressor.compress(data);
+        assert_eq!(
+            (out.len() as u64, fnv1a64(&out)),
+            (*len, *fnv),
+            "input {n} ({} bytes)",
+            data.len()
+        );
+    }
+}
+
 /// One dat's missing iterations: the dat, then each iteration with its files.
 type DatIterations = (DatDatabaseType, Vec<(u32, Vec<u32>)>);
 

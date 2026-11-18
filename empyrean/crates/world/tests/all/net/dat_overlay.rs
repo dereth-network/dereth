@@ -170,7 +170,8 @@ fn exchange(dats: &Arc<DatManager>, answer: &DddInterrogationResponse) -> (TestS
     exchange_with(dats, answer, at_start)
 }
 
-/// [`exchange`], its patch state built at start or not as `at_start` says.
+/// [`exchange`], its patch state built at start or not as `at_start` says. Built at start, the
+/// files no overlay lies over are walked once for every test.
 fn exchange_with(
     dats: &Arc<DatManager>,
     answer: &DddInterrogationResponse,
@@ -179,7 +180,7 @@ fn exchange_with(
     let mut ts = TestServer::with_setup(Arc::clone(dats), |w| {
         if at_start {
             let d = Arc::clone(&w.dats);
-            empyrean_world::managers::ddd_manager::initialize(&mut w.ddd_manager, &d);
+            crate::support::ddd_start::initialize(&mut w.ddd_manager, &d);
         }
     });
     ts.auth()
@@ -302,6 +303,61 @@ fn a_client_that_keeps_overlays_is_sent_the_manifest_the_records_and_the_deletio
         .collect();
     for want in [ADDED, made.replaced, made.cell_replaced] {
         assert!(data.contains(&want.raw()), "{want:?} was sent: {data:08X?}");
+    }
+}
+
+/// The servers here start with the patch state the server's own start builds, though the files no
+/// overlay lies over are walked once for every test: over the retail dats with an overlay over the
+/// portal and cell files, every database's iterations, file sizes and compressed records are the
+/// server's own. Asked twice, so that the second answer is from the walks kept.
+#[test]
+fn a_test_servers_start_state_with_the_walks_kept_for_every_test_is_the_servers_own() {
+    use empyrean_common::config_manager::ConfigManager;
+    use empyrean_common::master_configuration::MasterConfiguration;
+    use empyrean_dat::DatDatabaseType;
+    use empyrean_world::managers::ddd_manager::{self, DddManagerState};
+    // The walks read the default configuration, on this thread alone.
+    let _config = ConfigManager::override_for_thread(MasterConfiguration::default());
+    let scratch = dereth_dat::testing::ScratchDir::new("server-overlay-start").expect("scratch");
+    let dir = OverlayDir::new(&scratch.path().join("overlay")).expect("an overlay folder");
+    let base_dir = dereth_dat::testing::dat_dir();
+    let base = RetailDatStore::open_dir(&base_dir).expect("the retail dats");
+    make_overlay(&base, &dir, "client_portal.dat", "client_cell_1.dat");
+    let dats = overlaid(
+        &base_dir,
+        dir.path(),
+        dereth_primitives::ContainerEra::Modern,
+    );
+    let mut own = DddManagerState::new();
+    ddd_manager::initialize(&mut own, &dats);
+    assert!(
+        own.dat_file_sizes[&DatDatabaseType::Language]
+            .values()
+            .any(|s| s.compressed_file_size > 0),
+        "the language file, with no overlay, is compressed"
+    );
+    for _ in 0..2 {
+        let mut kept = DddManagerState::new();
+        crate::support::ddd_start::initialize(&mut kept, &dats);
+        for db in [
+            DatDatabaseType::Portal,
+            DatDatabaseType::Cell,
+            DatDatabaseType::Language,
+            DatDatabaseType::HighRes,
+        ] {
+            assert!(
+                own.iterations.get(&db) == kept.iterations.get(&db),
+                "{db:?}: iterations"
+            );
+            assert!(
+                own.dat_file_sizes.get(&db) == kept.dat_file_sizes.get(&db),
+                "{db:?}: sizes"
+            );
+            assert!(
+                own.compressed_dat_files_cache.get(&db) == kept.compressed_dat_files_cache.get(&db),
+                "{db:?}: compressed records"
+            );
+        }
     }
 }
 

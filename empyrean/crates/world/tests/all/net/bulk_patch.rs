@@ -7,10 +7,11 @@
 //! before, and the overlay a client takes holds the same records whichever way they came.
 //! Fixture: the retail dats (`DERETH_TEST_DAT_DIR`) and an overlay written in a scratch folder.
 
-use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::io::{ErrorKind, Read, Write};
+use std::net::{SocketAddr, TcpStream};
 use std::path::Path;
 use std::sync::{Arc, Once};
+use std::time::Duration;
 
 use dereth_dat::overlay::{OverlayDir, OverlayWriter};
 use dereth_dat::{ModernDat, RetailDatStore};
@@ -28,6 +29,8 @@ use empyrean_testkit::{ClientId, TestServer};
 const WORLD: &str = "a streamed world";
 const RECORDS: u32 = 300;
 const FIRST: u32 = 0x0600_E000;
+/// The most one wait on a stream may take: a guard against a hang, never the expected time.
+const GUARD: Duration = Duration::from_secs(60);
 
 /// The stream's listener, once for the whole test binary.
 fn listen() -> u32 {
@@ -132,7 +135,8 @@ fn exchange(dats: &Arc<DatManager>, reply: &DddInterrogationResponse) -> (TestSe
     exchange_with(dats, reply, MasterConfiguration::default())
 }
 
-/// [`exchange`] on a server configured as `config`.
+/// [`exchange`] on a server configured as `config`. Its patch state is built at start, as the
+/// server builds it, with the files no overlay lies over walked once for every test.
 fn exchange_with(
     dats: &Arc<DatManager>,
     reply: &DddInterrogationResponse,
@@ -140,7 +144,7 @@ fn exchange_with(
 ) -> (TestServer, ClientId) {
     let mut ts = TestServer::with_config(Arc::clone(dats), config, |w| {
         let d = Arc::clone(&w.dats);
-        empyrean_world::managers::ddd_manager::initialize(&mut w.ddd_manager, &d);
+        crate::support::ddd_start::initialize(&mut w.ddd_manager, &d);
     });
     ts.auth()
         .create_account(
@@ -167,21 +171,36 @@ fn stream(port: u32, offer: &DddBulkOffer) -> Option<Vec<DddData>> {
 
 /// The stream `token` opens.
 fn stream_with(port: u32, token: &[u8; 16]) -> Option<Vec<DddData>> {
-    let mut s = TcpStream::connect(("127.0.0.1", u16::try_from(port).expect("a port"))).ok()?;
+    let at = SocketAddr::from(([127, 0, 0, 1], u16::try_from(port).expect("a port")));
+    let mut s = TcpStream::connect_timeout(&at, GUARD).ok()?;
+    s.set_read_timeout(Some(GUARD)).expect("a read deadline");
+    s.set_write_timeout(Some(GUARD)).expect("a write deadline");
     s.write_all(&BULK_MAGIC).ok()?;
     s.write_all(&BULK_VERSION.to_le_bytes()).ok()?;
     s.write_all(token).ok()?;
     let mut out = Vec::new();
     loop {
         let mut len = [0u8; 4];
-        s.read_exact(&mut len).ok()?;
+        fill(&mut s, &mut len)?;
         let len = u32::from_le_bytes(len) as usize;
         if len == 0 {
             return Some(out);
         }
         let mut body = vec![0u8; len];
-        s.read_exact(&mut body).ok()?;
+        fill(&mut s, &mut body)?;
         out.push(dereth_protocol::read_body::<DddData>(&body).expect("a record"));
+    }
+}
+
+/// `buf` read whole from `s`, or `None` when the server closed it first. A server that neither
+/// sends nor closes within [`GUARD`] fails the test.
+fn fill(s: &mut TcpStream, buf: &mut [u8]) -> Option<()> {
+    match s.read_exact(buf) {
+        Ok(()) => Some(()),
+        Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
+            panic!("the server neither sent nor closed the stream within {GUARD:?}")
+        }
+        Err(_) => None,
     }
 }
 
@@ -382,11 +401,7 @@ fn the_overlay_a_client_takes_holds_the_same_bytes_whichever_way_its_records_cam
         dereth_client_runtime::bulk_patch::BulkDownload::start(at, offer.token).expect("a reader");
     let mut streamed = Vec::new();
     while download.ended().is_none() {
-        // A guard against a hang, never the expected time.
-        assert!(
-            download.wait(std::time::Duration::from_secs(60)),
-            "the stream ends"
-        );
+        assert!(download.wait(GUARD), "the stream ends");
         streamed.extend(download.drain(usize::MAX).into_iter().map(|d| *d));
     }
     assert_eq!(download.ended(), Some(&Ok(())));
