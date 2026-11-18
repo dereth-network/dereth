@@ -2131,13 +2131,19 @@ mod tests {
     }
 
     /// Divergence: V559
-    /// The body armor table reads whole: 1,037 classes, each once; each corrected body is the
-    /// readout less what is worn, at exactly the places the stored body has parts, and differs from
-    /// it.
+    /// The body armor table reads whole: 1,048 classes, each once (11 of them never shown armor,
+    /// so zero); each corrected body is the readout less what is worn, at exactly the places the
+    /// stored body has parts, and differs from it.
     #[test]
     fn the_body_armor_table_reads_every_class_once() {
         let rows = body_armor::parse(body_armor::TABLE).expect("the table reads");
-        assert_eq!(rows.len(), 1037);
+        assert_eq!(rows.len(), 1048);
+        assert_eq!(
+            rows.iter()
+                .filter(|r| r.readout == [0; PLACES] && r.worn == [0; PLACES])
+                .count(),
+            11
+        );
         let mut ids: Vec<u32> = rows.iter().map(|r| r.weenie_class_id).collect();
         ids.dedup();
         assert_eq!(ids.len(), rows.len(), "one row per class, in order");

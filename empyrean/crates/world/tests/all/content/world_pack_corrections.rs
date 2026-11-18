@@ -397,6 +397,33 @@ mod recorded_content_real {
             }
         }
 
+        /// Divergence: V559
+        /// A creature retail never showed armor levels for had none at all: assessed on an
+        /// end-of-retail world, a Crystal Golem (stored at -250 everywhere), a Thieving Thrungus
+        /// (50) and a Young Olthoi (50 at the head) show none.
+        #[test]
+        fn a_crystal_golem_assessed_shows_no_armor_levels() {
+            use empyrean_world::network::structure::appraise_info::appraise_info_new;
+
+            let mut h = world();
+            assert_eq!(pack().base().pack().era(), empyrean_common::era::EraId::Eor);
+            for wcid in [14800, 29333, 29332] {
+                let g = ObjectGuid::new(0x8000_0000 | wcid);
+                let o = CtorEnv::with_world(&h.w, |env| {
+                    factory::create_new_world_object_by_wcid(env, wcid, g)
+                })
+                .expect("the weenie");
+                h.w.objects.insert(o).expect("a fresh guid");
+                let shown = appraise_info_new(&mut h.w, g, ObjectGuid::new(0x5000_0001), true);
+                assert!(shown.creature_profile.is_some(), "{wcid} is assessed");
+                assert!(
+                    shown.armor_levels.is_none(),
+                    "{wcid}: {:?}",
+                    shown.armor_levels
+                );
+            }
+        }
+
         /// V327 on real content (V327): the Brewmaster's Bible pieces, Tusker Spit and the Healing
         /// Machine Base are created with the ItemType retail gave them
         /// in the retail captures, and the pieces
