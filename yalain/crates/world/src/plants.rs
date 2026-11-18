@@ -394,7 +394,7 @@ fn plant<S: Store>(
     let template = s.catalog.get(species.plant)?.clone();
     let owner = s.players.get(&world).map(|p| p.character)?;
     let id = s.things.new_id();
-    let name = template.description.name.unwrap_or_default();
+    let name = crate::pets::template_name(&template).unwrap_or_default();
     progress::private(
         net,
         world,

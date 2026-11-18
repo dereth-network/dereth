@@ -387,6 +387,13 @@ pub fn name_update(pet: u64, name: TextInfo) -> ServerMessage {
     .expect("a name packs")
 }
 
+/// The name a pet's template gives it, as a text reference (string id, table): the one its
+/// description is given, else the template's own (the pet list names the kind by it).
+#[must_use]
+pub fn template_name(t: &yalain_content::Template) -> Option<(u32, u32)> {
+    t.description.name.or(t.facts.name)
+}
+
 /// A pet's name as shown: "Name (kind)", the chosen name as it is written, the kind's name.
 #[must_use]
 pub fn shown_name(chosen: &str, kind: (u32, u32)) -> TextInfo {
@@ -663,7 +670,7 @@ fn summon_kind<S: Store>(
     let name = s
         .catalog
         .get(kind.template)
-        .and_then(|t| t.description.name)
+        .and_then(template_name)
         .unwrap_or_default();
     let level = dereth_primitives::num::to_i32(rating.round()).max(1);
     let made = s.catalog.get(kind.template).cloned().and_then(|template| {
@@ -1545,7 +1552,7 @@ fn rename<S: Store>(
     let kind = s
         .catalog
         .get(template)
-        .and_then(|t| t.description.name)
+        .and_then(template_name)
         .unwrap_or_default();
     let shown = shown_name(&name, kind);
     progress::private(net, world, &name_update(pet, shown.clone()));

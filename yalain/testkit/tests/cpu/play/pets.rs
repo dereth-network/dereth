@@ -101,7 +101,8 @@ pub(super) fn with_natures_aid(h: &mut Harness) {
         .set("Physics_VelScale", Prop::Float(2.0));
     let mut lasher = test_template(LASHER, 0x1169, props);
     lasher.description.numbers = LASHER_NUMBERS;
-    lasher.description.name = Some(LASHER_NAME);
+    // The name is the template's own, as the install's templates hold it: none on the description.
+    lasher.facts.name = Some(LASHER_NAME);
     lasher.description.scale = Some(0.7);
     h.server.catalog.insert(lasher);
 }
@@ -316,8 +317,26 @@ fn literal_names(v: &[Value]) -> Vec<String> {
         .collect()
 }
 
-/// A pet renamed is named in the written form as "Name (kind)": its owner told, everyone who sees
-/// it shown the name; the same name again tells only its owner.
+/// The kind's name a call's "Name (kind)" carries: the nested reference of the kind's variable.
+fn kind_names(v: &[Value]) -> Vec<(u32, u32)> {
+    v.iter()
+        .filter_map(|x| match x.root() {
+            Some(Node::TextInfo(t)) => Some(t),
+            _ => None,
+        })
+        .flat_map(|t| t.variables.iter())
+        .filter(|var| var.id == pets::text::KIND_VAR)
+        .filter_map(|var| match &var.value {
+            auberean_script::native_object::VariableValue::Nested(n) => {
+                Some((n.string_id, n.table))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// A pet renamed is named in the written form as "Name (kind)", the kind named by its template:
+/// its owner told, everyone who sees it shown the name; the same name again tells only its owner.
 /// Behaviour: server.pets.renamed
 #[test]
 fn a_pet_renamed_is_named_in_the_written_form_and_the_same_name_shows_nothing_new() {
@@ -344,6 +363,11 @@ fn a_pet_renamed_is_named_in_the_written_form_and_the_same_name_shows_nothing_ne
         .find(|(f, _)| *f == function::UPDATE_NAME)
         .expect("named");
     assert_eq!(literal_names(&update.1), vec!["Karl Marx Ii".to_string()]);
+    assert_eq!(
+        kind_names(&update.1),
+        vec![LASHER_NAME],
+        "the kind by its template's name"
+    );
     let shown = |h: &Harness, from: usize| {
         h.world_messages(b, from).iter().any(|m| {
             matches!(m, ServerMessage::UpdateStringInfoVisual(q)
