@@ -589,6 +589,34 @@ fn a_use_set_runs_its_actions_in_order_with_their_delays() {
     assert_eq!(h.busy(), (false, 0));
 }
 
+/// `DeleteSelf`: the object leaves the world, and the set's next action with no delay still runs
+/// (in ACE on the detached object, here just before the delete): its quest stamp reaches the player.
+/// A later, delayed action never runs, as in ACE.
+#[test]
+fn a_set_that_deletes_its_object_still_stamps_the_quest_after_it() {
+    use empyrean_world::managers::quest_manager::{self as qm, QuestOwner};
+    let mut h = H::new();
+    h.emotes(
+        NPC,
+        vec![set(
+            EmoteCategory::Use,
+            1.0,
+            None,
+            vec![
+                act(EmoteType::DeleteSelf, 0.0, ""),
+                act(EmoteType::StampQuest, 0.0, "GuardGone"),
+                act(EmoteType::TextDirect, 1.0, "too late"),
+            ],
+        )],
+    );
+    start_capture();
+    em::on_use(&mut h.w, NPC, P1);
+    assert!(!h.w.objects.contains(NPC));
+    assert!(qm::has_quest(&h.w, &QuestOwner::Creature(P1), "GuardGone"));
+    h.run(2.0);
+    assert!(!sent().contains(&"chat:too late".to_owned()));
+}
+
 /// `Goto` runs the `GotoSet` of the same quest name nested (`ExecuteEmoteSet(gotoSet, target,
 /// true)`), then the calling set continues.
 #[test]

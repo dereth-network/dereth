@@ -2587,7 +2587,38 @@ fn do_enqueue(
     // A target that has left the world reads as null from here on.
     let target_object = target_object.filter(|&t| w.objects.contains(t));
 
+    // DIVERGE (V560): ACE deletes the object and goes on with the set on the detached C#
+    // object: its next action runs when it has no delay, and a delayed one never does (it waits on
+    // the gone object's queue). Empyrean keeps no detached object, so the next actions run first,
+    // while it is still in the world, then it is deleted; a delayed one is dropped as in ACE.
+    if EmoteType(emote.r#type.cs_cast()) == EmoteType::DeleteSelf {
+        if emote_set
+            .properties_emote_action
+            .get(emote_idx + 1)
+            .is_some_and(|next| next.delay <= 0.0)
+        {
+            enqueue(
+                w,
+                this,
+                Some(Arc::clone(emote_set)),
+                target_object,
+                emote_idx + 1,
+                0.0,
+            );
+        }
+        if w.objects.contains(this) {
+            execute_emote(w, this, emote_set, emote, target_object);
+        }
+        return;
+    }
+
     let next_delay = execute_emote(w, this, emote_set, emote, target_object);
+
+    // DIVERGE (V560): an object gone after its own emote ends its set here (ACE's would go on
+    // with the detached object).
+    if !w.objects.contains(this) {
+        return;
+    }
 
     if em(w, this).debug {
         log::debug!(" - {next_delay}");

@@ -14,6 +14,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 - Published portal lists now include spawned portals, what each one requires, and towns.
+- Fixed quest steps being lost when the item giving them deletes itself first.
 - Fixed a use getting stuck when its object vanished on the way.
 - Fixed old copies of the server staying in memory after each update on Windows.
 - Launch: looted armor comes in more varied colors, and dinnerware drops in materials.
