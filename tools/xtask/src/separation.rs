@@ -65,6 +65,7 @@ pub const SHARED: &[&str] = &[
     "dereth-server-websocket",
     "dereth-transport",
     "dereth-world-data",
+    "dereth-world-places",
 ];
 
 /// `(server crate, client-only crate)` pairs allowed as dev-dependencies only. Empty: the one pair
