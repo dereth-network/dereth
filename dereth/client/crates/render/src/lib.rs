@@ -46,6 +46,11 @@ pub mod d3d12;
 
 pub mod window_proc;
 
+/// The one thread a test process does its device work on ([`device_thread::run`]): its own
+/// tests', and those of the crates that test with a device.
+#[cfg(all(any(test, feature = "test-support"), not(target_arch = "wasm32")))]
+pub mod device_thread;
+
 /// Keeps this crate's own tests from opening a `wgpu` device while a Vulkan-backend device is
 /// open on another thread. Devices of one backend may overlap freely; a `wgpu` instance created
 /// while the Vulkan backend's devices are being made and destroyed on other threads has hung the

@@ -2459,204 +2459,218 @@ pub(super) mod tests {
     /// preference asks for.
     #[test]
     fn an_offscreen_device_records_no_present_interval() {
-        let Some(mut gpu) = device(64, 64) else {
-            return;
-        };
-        gpu.set_presentation_sync(true, true);
-        gpu.begin_frame().expect("begin");
-        gpu.end_frame().expect("end");
-        assert_eq!(gpu.present_sync_interval(), 1);
-        assert_eq!(gpu.last_present_sync_interval(), None);
+        crate::device_thread::run(move || {
+            let Some(mut gpu) = device(64, 64) else {
+                return;
+            };
+            gpu.set_presentation_sync(true, true);
+            gpu.begin_frame().expect("begin");
+            gpu.end_frame().expect("end");
+            assert_eq!(gpu.present_sync_interval(), 1);
+            assert_eq!(gpu.last_present_sync_interval(), None);
+        });
     }
 
     #[test]
     fn a_test_build_prefers_the_gpu_even_where_the_caller_asked_for_software() {
-        if crate::device::test_adapter_override() == Some(AdapterKind::Software) {
-            eprintln!("skipped: DERETH_TEST_GPU asks for the software rasteriser");
-            return;
-        }
-        // One device at a time: a test device holds the backend lock while it lives.
-        let Some((plain_kind, plain_name)) =
-            device(64, 64).map(|g| (g.adapter_kind, g.adapter_name.clone()))
-        else {
-            return;
-        };
-        let cfg = DeviceConfig {
-            width: 64,
-            height: 64,
-            force_software: true,
-            ..DeviceConfig::default()
-        };
-        let asked = Gpu::new(None, &cfg).expect("the same machine opens a second device");
-        assert_eq!(
-            asked.adapter_kind, plain_kind,
-            "{} against {plain_name}",
-            asked.adapter_name
-        );
+        crate::device_thread::run(move || {
+            if crate::device::test_adapter_override() == Some(AdapterKind::Software) {
+                eprintln!("skipped: DERETH_TEST_GPU asks for the software rasteriser");
+                return;
+            }
+            // One device at a time: a test device holds the backend lock while it lives.
+            let Some((plain_kind, plain_name)) =
+                device(64, 64).map(|g| (g.adapter_kind, g.adapter_name.clone()))
+            else {
+                return;
+            };
+            let cfg = DeviceConfig {
+                width: 64,
+                height: 64,
+                force_software: true,
+                ..DeviceConfig::default()
+            };
+            let asked = Gpu::new(None, &cfg).expect("the same machine opens a second device");
+            assert_eq!(
+                asked.adapter_kind, plain_kind,
+                "{} against {plain_name}",
+                asked.adapter_name
+            );
+        });
     }
 
     /// Every pipeline in the catalogue, in every vertex layout, and every stage chain builds from
     /// the desktop client's shader source on this device.
     #[test]
     fn every_catalogue_pipeline_and_stage_chain_builds() {
-        let Some(mut gpu) = device(64, 64) else {
-            return;
-        };
-        let built = gpu.build_whole_catalogue().expect("the catalogue");
-        assert_eq!(
-            built,
-            crate::pso::CATALOGUE.len() * VertexFormat::all().len()
-        );
-        for stage_ops in [
-            StageOps::BASE,
-            StageOps::SINGLE_PASS_DETAIL,
-            StageOps::UI_OPAQUE,
-            StageOps::UI_ALPHA,
-            StageOps::TEXT,
-        ] {
-            for vertex_format in VertexFormat::all() {
-                gpu.pipeline_state(&PipelineKey {
-                    vertex_format,
-                    stage_ops,
-                    ..screen_key(ZFunc::LessEqual)
-                })
-                .expect("a pipeline");
+        crate::device_thread::run(move || {
+            let Some(mut gpu) = device(64, 64) else {
+                return;
+            };
+            let built = gpu.build_whole_catalogue().expect("the catalogue");
+            assert_eq!(
+                built,
+                crate::pso::CATALOGUE.len() * VertexFormat::all().len()
+            );
+            for stage_ops in [
+                StageOps::BASE,
+                StageOps::SINGLE_PASS_DETAIL,
+                StageOps::UI_OPAQUE,
+                StageOps::UI_ALPHA,
+                StageOps::TEXT,
+            ] {
+                for vertex_format in VertexFormat::all() {
+                    gpu.pipeline_state(&PipelineKey {
+                        vertex_format,
+                        stage_ops,
+                        ..screen_key(ZFunc::LessEqual)
+                    })
+                    .expect("a pipeline");
+                }
             }
-        }
-        gpu.wait_idle().expect("the device finishes");
+            gpu.wait_idle().expect("the device finishes");
+        });
     }
 
     /// A textured screen-space quad draws the texture modulated by its vertex colour where it
     /// covers, and the frame's black clear everywhere else.
     #[test]
     fn a_screen_quad_draws_its_texture_times_its_colour() {
-        let Some(mut gpu) = device(64, 64) else {
-            return;
-        };
-        let texture = gpu
-            .upload_texture(&TextureData {
-                width: 2,
-                height: 2,
-                format: TextureFormat::Bgra8,
-                // Blue, green, red, alpha: every texel white.
-                levels: vec![vec![0xFF; 16]],
-            })
-            .expect("a texture");
-        gpu.begin_frame().expect("a frame");
-        gpu.bind_texture(texture, 1);
-        let red = 0xFFFF_0000;
-        gpu.draw_dynamic(
-            &screen_key(ZFunc::LessEqual),
-            &DrawConstants::default(),
-            &PerFrameConstants::default(),
-            &PerDrawConstants {
-                uv_offset: [0.0, 0.0, 64.0, 64.0],
-                ..PerDrawConstants::identity()
-            },
-            &quad(16.0, 16.0, 32.0, 32.0, 0.5, red),
-        )
-        .expect("a draw");
-        gpu.end_frame().expect("the frame");
-        let image = gpu.capture().expect("a capture");
-        assert_eq!(pixel(&image, 32, 32)[..3], [0, 0, 0xFF], "inside is red");
-        assert_eq!(pixel(&image, 4, 4)[..3], [0, 0, 0], "outside is the clear");
+        crate::device_thread::run(move || {
+            let Some(mut gpu) = device(64, 64) else {
+                return;
+            };
+            let texture = gpu
+                .upload_texture(&TextureData {
+                    width: 2,
+                    height: 2,
+                    format: TextureFormat::Bgra8,
+                    // Blue, green, red, alpha: every texel white.
+                    levels: vec![vec![0xFF; 16]],
+                })
+                .expect("a texture");
+            gpu.begin_frame().expect("a frame");
+            gpu.bind_texture(texture, 1);
+            let red = 0xFFFF_0000;
+            gpu.draw_dynamic(
+                &screen_key(ZFunc::LessEqual),
+                &DrawConstants::default(),
+                &PerFrameConstants::default(),
+                &PerDrawConstants {
+                    uv_offset: [0.0, 0.0, 64.0, 64.0],
+                    ..PerDrawConstants::identity()
+                },
+                &quad(16.0, 16.0, 32.0, 32.0, 0.5, red),
+            )
+            .expect("a draw");
+            gpu.end_frame().expect("the frame");
+            let image = gpu.capture().expect("a capture");
+            assert_eq!(pixel(&image, 32, 32)[..3], [0, 0, 0xFF], "inside is red");
+            assert_eq!(pixel(&image, 4, 4)[..3], [0, 0, 0], "outside is the clear");
+        });
     }
 
     /// A depth clear over a rectangle lets a farther quad draw there, and only there, over a
     /// nearer one; outside it the nearer quad still wins the depth test.
     #[test]
     fn a_depth_clear_reopens_only_its_rectangle() {
-        let Some(mut gpu) = device(64, 64) else {
-            return;
-        };
-        let texture = gpu
-            .upload_texture(&TextureData {
-                width: 1,
-                height: 1,
-                format: TextureFormat::Bgra8,
-                levels: vec![vec![0xFF; 4]],
-            })
-            .expect("a texture");
-        let per_draw = PerDrawConstants {
-            uv_offset: [0.0, 0.0, 64.0, 64.0],
-            ..PerDrawConstants::identity()
-        };
-        let draw = |gpu: &mut Gpu, z: f32, colour: u32| {
-            gpu.draw_dynamic(
-                &screen_key(ZFunc::Less),
-                &DrawConstants::default(),
-                &PerFrameConstants::default(),
-                &per_draw,
-                &quad(0.0, 0.0, 64.0, 64.0, z, colour),
-            )
-            .expect("a draw");
-        };
-        gpu.begin_frame().expect("a frame");
-        gpu.bind_texture(texture, 1);
-        draw(&mut gpu, 0.2, 0xFFFF_0000);
-        gpu.clear_depth(Viewport {
-            x: 0,
-            y: 0,
-            width: 32,
-            height: 64,
+        crate::device_thread::run(move || {
+            let Some(mut gpu) = device(64, 64) else {
+                return;
+            };
+            let texture = gpu
+                .upload_texture(&TextureData {
+                    width: 1,
+                    height: 1,
+                    format: TextureFormat::Bgra8,
+                    levels: vec![vec![0xFF; 4]],
+                })
+                .expect("a texture");
+            let per_draw = PerDrawConstants {
+                uv_offset: [0.0, 0.0, 64.0, 64.0],
+                ..PerDrawConstants::identity()
+            };
+            let draw = |gpu: &mut Gpu, z: f32, colour: u32| {
+                gpu.draw_dynamic(
+                    &screen_key(ZFunc::Less),
+                    &DrawConstants::default(),
+                    &PerFrameConstants::default(),
+                    &per_draw,
+                    &quad(0.0, 0.0, 64.0, 64.0, z, colour),
+                )
+                .expect("a draw");
+            };
+            gpu.begin_frame().expect("a frame");
+            gpu.bind_texture(texture, 1);
+            draw(&mut gpu, 0.2, 0xFFFF_0000);
+            gpu.clear_depth(Viewport {
+                x: 0,
+                y: 0,
+                width: 32,
+                height: 64,
+            });
+            draw(&mut gpu, 0.8, 0xFF00_FF00);
+            gpu.end_frame().expect("the frame");
+            let image = gpu.capture().expect("a capture");
+            assert_eq!(
+                pixel(&image, 16, 32)[..3],
+                [0, 0xFF, 0],
+                "cleared half is green"
+            );
+            assert_eq!(
+                pixel(&image, 48, 32)[..3],
+                [0, 0, 0xFF],
+                "the rest stays red"
+            );
         });
-        draw(&mut gpu, 0.8, 0xFF00_FF00);
-        gpu.end_frame().expect("the frame");
-        let image = gpu.capture().expect("a capture");
-        assert_eq!(
-            pixel(&image, 16, 32)[..3],
-            [0, 0xFF, 0],
-            "cleared half is green"
-        );
-        assert_eq!(
-            pixel(&image, 48, 32)[..3],
-            [0, 0, 0xFF],
-            "the rest stays red"
-        );
     }
 
     /// A keyed upload of a key already resident is a second link on the same slot, and the
     /// texture is freed only when the last link goes.
     #[test]
     fn a_keyed_texture_is_shared_and_freed_at_its_last_link() {
-        let Some(mut gpu) = device(8, 8) else {
-            return;
-        };
-        let key = TextureKey::world(0x0400_0001_0500_0001);
-        let t = TextureData {
-            width: 4,
-            height: 4,
-            format: TextureFormat::Bgra8,
-            levels: vec![vec![0x80; 64]],
-        };
-        let a = gpu.upload_texture_keyed(key, &t).expect("first");
-        let b = gpu.upload_texture_keyed(key, &t).expect("second");
-        assert_eq!(a, b);
-        assert_eq!(gpu.release_texture(a), Released::StillLinked(1));
-        assert!(gpu.has_texture_key(key));
-        assert_eq!(gpu.release_texture(b), Released::Freed);
-        assert!(!gpu.has_texture_key(key));
+        crate::device_thread::run(move || {
+            let Some(mut gpu) = device(8, 8) else {
+                return;
+            };
+            let key = TextureKey::world(0x0400_0001_0500_0001);
+            let t = TextureData {
+                width: 4,
+                height: 4,
+                format: TextureFormat::Bgra8,
+                levels: vec![vec![0x80; 64]],
+            };
+            let a = gpu.upload_texture_keyed(key, &t).expect("first");
+            let b = gpu.upload_texture_keyed(key, &t).expect("second");
+            assert_eq!(a, b);
+            assert_eq!(gpu.release_texture(a), Released::StillLinked(1));
+            assert!(gpu.has_texture_key(key));
+            assert_eq!(gpu.release_texture(b), Released::Freed);
+            assert!(!gpu.has_texture_key(key));
+        });
     }
 
     /// A world image texture gets its whole mip chain, generated on the CPU.
     #[test]
     fn an_image_texture_gets_its_whole_mip_chain() {
-        let Some(mut gpu) = device(8, 8) else {
-            return;
-        };
-        let key = TextureKey::world(0x0400_0002_0500_0002);
-        let slot = gpu
-            .upload_imgtex_keyed(
-                key,
-                &TextureData {
-                    width: 16,
-                    height: 8,
-                    format: TextureFormat::Bgra8,
-                    levels: vec![vec![0x40; 16 * 8 * 4]],
-                },
-            )
-            .expect("an image texture");
-        assert_eq!(gpu.texture_mip_levels(slot), Some(5));
+        crate::device_thread::run(move || {
+            let Some(mut gpu) = device(8, 8) else {
+                return;
+            };
+            let key = TextureKey::world(0x0400_0002_0500_0002);
+            let slot = gpu
+                .upload_imgtex_keyed(
+                    key,
+                    &TextureData {
+                        width: 16,
+                        height: 8,
+                        format: TextureFormat::Bgra8,
+                        levels: vec![vec![0x40; 16 * 8 * 4]],
+                    },
+                )
+                .expect("an image texture");
+            assert_eq!(gpu.texture_mip_levels(slot), Some(5));
+        });
     }
 
     /// Every vertex layout's shader has its markers filled.

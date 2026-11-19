@@ -33,61 +33,64 @@ fn a_bias_applied_in_the_pixel_shader_samples_exactly_what_the_sampler_bias_samp
 /// Behaviour: rendering.samplers.bias-changes-apply-at-begin-scene-and-banks-survive-mid-frame-changes
 #[test]
 fn a_splat_takes_the_sharp_bias_in_the_sampler_or_in_the_pixel_shader_alike() {
-    let splat_captures = |shader_lod_bias: bool| -> Option<Vec<Vec<u8>>> {
-        let mut gpu = device_or_skip(&DeviceConfig {
-            width: 16,
-            height: 16,
-            force_shader_lod_bias: shader_lod_bias,
-            ..Default::default()
-        })?;
-        let base = gpu.upload_texture(&shared::mip_chain_64()).unwrap();
-        let splat = crate::device::TerrainSplat {
-            base: Some(base),
-            base_tiling: 1,
-            overlays: Vec::new(),
+    crate::device_thread::run(move || {
+        let splat_captures = |shader_lod_bias: bool| -> Option<Vec<Vec<u8>>> {
+            let mut gpu = device_or_skip(&DeviceConfig {
+                width: 16,
+                height: 16,
+                force_shader_lod_bias: shader_lod_bias,
+                ..Default::default()
+            })?;
+            let base = gpu.upload_texture(&shared::mip_chain_64()).unwrap();
+            let splat = crate::device::TerrainSplat {
+                base: Some(base),
+                base_tiling: 1,
+                overlays: Vec::new(),
+            };
+            // U spans 0..1 and V 0..0.75 across 16 pixels: 64 texels to 16 pixels, level 2 exactly,
+            // which Sharp's bias pulls to a blend of levels 0 and 1.
+            let mut q = quad_142(-1.0, -1.0, 1.0, 1.0, 0.5, 0xFFFF_FFFF);
+            for v in q.as_chunks_mut::<24>().0 {
+                let x = f32::from_le_bytes(v[0..4].try_into().unwrap());
+                let y = f32::from_le_bytes(v[4..8].try_into().unwrap());
+                v[16..20].copy_from_slice(&((x + 1.0) * 0.5).to_le_bytes());
+                v[20..24].copy_from_slice(&((1.0 - y) * 0.375).to_le_bytes());
+            }
+            let mut captures = Vec::new();
+            for preference in [1, 2] {
+                gpu.set_texture_filtering(preference);
+                gpu.begin_frame().unwrap();
+                gpu.draw_terrain_splat(
+                    &opaque_key(),
+                    &splat,
+                    &identity_frame(),
+                    &PerDrawConstants::identity(),
+                    &q,
+                )
+                .unwrap();
+                gpu.end_frame().unwrap();
+                captures.push(gpu.capture().unwrap().bgra);
+            }
+            gpu.release_texture(base);
+            Some(captures)
         };
-        // U spans 0..1 and V 0..0.75 across 16 pixels: 64 texels to 16 pixels, level 2 exactly,
-        // which Sharp's bias pulls to a blend of levels 0 and 1.
-        let mut q = quad_142(-1.0, -1.0, 1.0, 1.0, 0.5, 0xFFFF_FFFF);
-        for v in q.as_chunks_mut::<24>().0 {
-            let x = f32::from_le_bytes(v[0..4].try_into().unwrap());
-            let y = f32::from_le_bytes(v[4..8].try_into().unwrap());
-            v[16..20].copy_from_slice(&((x + 1.0) * 0.5).to_le_bytes());
-            v[20..24].copy_from_slice(&((1.0 - y) * 0.375).to_le_bytes());
-        }
-        let mut captures = Vec::new();
-        for preference in [1, 2] {
-            gpu.set_texture_filtering(preference);
-            gpu.begin_frame().unwrap();
-            gpu.draw_terrain_splat(
-                &opaque_key(),
-                &splat,
-                &identity_frame(),
-                &PerDrawConstants::identity(),
-                &q,
-            )
-            .unwrap();
-            gpu.end_frame().unwrap();
-            captures.push(gpu.capture().unwrap().bgra);
-        }
-        gpu.release_texture(base);
-        Some(captures)
-    };
-    let (Some(in_sampler), Some(in_shader)) = (splat_captures(false), splat_captures(true)) else {
-        return;
-    };
-    assert_ne!(
-        in_sampler[0], in_sampler[1],
-        "Sharp changes the splat's mip footprint"
-    );
-    assert_ne!(
-        in_shader[0], in_shader[1],
-        "Sharp changes the splat's mip footprint"
-    );
-    assert_eq!(
-        in_sampler, in_shader,
-        "the splat samples the same texels either way"
-    );
+        let (Some(in_sampler), Some(in_shader)) = (splat_captures(false), splat_captures(true))
+        else {
+            return;
+        };
+        assert_ne!(
+            in_sampler[0], in_sampler[1],
+            "Sharp changes the splat's mip footprint"
+        );
+        assert_ne!(
+            in_shader[0], in_shader[1],
+            "Sharp changes the splat's mip footprint"
+        );
+        assert_eq!(
+            in_sampler, in_shader,
+            "the splat samples the same texels either way"
+        );
+    });
 }
 
 /// A device for `cfg`, or `None` (with a printed line) where Vulkan is unavailable: these tests
@@ -121,14 +124,16 @@ fn sampler_bank_captures(shader_lod_bias: bool) -> Option<Vec<Vec<u8>>> {
 /// Behaviour: rendering.samplers.bias-changes-apply-at-begin-scene-and-banks-survive-mid-frame-changes
 #[test]
 fn sampler_bias_changes_at_begin_scene_and_guarded_preview_restores_global_baseline() {
-    let Some(mut gpu) = device_or_skip(&DeviceConfig {
-        width: 1,
-        height: 1,
-        ..Default::default()
-    }) else {
-        return;
-    };
-    shared::sampler_bias_changes_at_begin_scene(&mut gpu);
+    crate::device_thread::run(move || {
+        let Some(mut gpu) = device_or_skip(&DeviceConfig {
+            width: 1,
+            height: 1,
+            ..Default::default()
+        }) else {
+            return;
+        };
+        shared::sampler_bias_changes_at_begin_scene(&mut gpu);
+    });
 }
 
 // Shared source is instantiated with this backend's types and assertion helpers.

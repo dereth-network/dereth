@@ -667,138 +667,144 @@ mod tests {
     /// and every generated sublevel of a solid composite is that colour.
     #[test]
     fn a_composite_off_the_copy_alignment_is_solid_at_every_level() {
-        let Some(mut gpu) = device(16, 16) else {
-            return;
-        };
-        if !gpu.terrain_merge_supported() {
-            eprintln!("skipped: no compute on this adapter");
-            return;
-        }
-        let colour = [10, 120, 230, 255];
-        let base = gpu
-            .upload_merge_source(8, 8, &solid(8, 8, colour))
-            .expect("a source");
-        let job = TerrainMergeJob {
-            size: 24,
-            base: Some(base),
-            base_tiling: 1,
-            overlays: Vec::new(),
-        };
-        let slot = gpu
-            .merge_terrain_texture(TextureKey::world(0x7F00_0001), &job)
-            .expect("a composite");
-        let levels = gpu.texture_mip_levels(slot).expect("resident");
-        assert!(levels > 1, "the composite gets sublevels");
-        for level in 0..levels {
-            let image = gpu.capture_texture_level(slot, level).expect("read back");
-            assert!(
-                image.bgra.chunks(4).all(|p| p == colour),
-                "level {level} is the base colour"
-            );
-        }
+        crate::device_thread::run(move || {
+            let Some(mut gpu) = device(16, 16) else {
+                return;
+            };
+            if !gpu.terrain_merge_supported() {
+                eprintln!("skipped: no compute on this adapter");
+                return;
+            }
+            let colour = [10, 120, 230, 255];
+            let base = gpu
+                .upload_merge_source(8, 8, &solid(8, 8, colour))
+                .expect("a source");
+            let job = TerrainMergeJob {
+                size: 24,
+                base: Some(base),
+                base_tiling: 1,
+                overlays: Vec::new(),
+            };
+            let slot = gpu
+                .merge_terrain_texture(TextureKey::world(0x7F00_0001), &job)
+                .expect("a composite");
+            let levels = gpu.texture_mip_levels(slot).expect("resident");
+            assert!(levels > 1, "the composite gets sublevels");
+            for level in 0..levels {
+                let image = gpu.capture_texture_level(slot, level).expect("read back");
+                assert!(
+                    image.bgra.chunks(4).all(|p| p == colour),
+                    "level {level} is the base colour"
+                );
+            }
+        });
     }
 
     /// An overlay whose alpha map is clear takes the tile everywhere; one whose alpha map is
     /// opaque keeps the base.
     #[test]
     fn an_overlay_takes_the_tile_where_its_alpha_is_clear() {
-        let Some(mut gpu) = device(16, 16) else {
-            return;
-        };
-        if !gpu.terrain_merge_supported() {
-            eprintln!("skipped: no compute on this adapter");
-            return;
-        }
-        let (under, over) = ([0, 0, 255, 255], [255, 0, 0, 255]);
-        let base = gpu
-            .upload_merge_source(4, 4, &solid(4, 4, under))
-            .expect("base");
-        let tile = gpu
-            .upload_merge_source(4, 4, &solid(4, 4, over))
-            .expect("tile");
-        let clear = gpu
-            .upload_merge_source(4, 4, &solid(4, 4, [0; 4]))
-            .expect("alpha");
-        let opaque = gpu
-            .upload_merge_source(4, 4, &solid(4, 4, [0, 0, 0, 255]))
-            .expect("alpha");
-        for (alpha, (want, key)) in [clear, opaque].into_iter().zip([(over, 2), (under, 3)]) {
-            let job = TerrainMergeJob {
-                size: 8,
-                base: Some(base),
-                base_tiling: 1,
-                overlays: vec![TerrainMergeOverlay {
-                    alpha,
-                    rotation: 0,
-                    tex: Some(tile),
-                    tiling: 1,
-                }],
+        crate::device_thread::run(move || {
+            let Some(mut gpu) = device(16, 16) else {
+                return;
             };
-            let slot = gpu
-                .merge_terrain_texture(TextureKey::world(0x7F00_0000 + key), &job)
-                .expect("a composite");
-            let image = gpu.capture_texture_level(slot, 0).expect("read back");
-            assert!(image.bgra.chunks(4).all(|p| p == want));
-        }
+            if !gpu.terrain_merge_supported() {
+                eprintln!("skipped: no compute on this adapter");
+                return;
+            }
+            let (under, over) = ([0, 0, 255, 255], [255, 0, 0, 255]);
+            let base = gpu
+                .upload_merge_source(4, 4, &solid(4, 4, under))
+                .expect("base");
+            let tile = gpu
+                .upload_merge_source(4, 4, &solid(4, 4, over))
+                .expect("tile");
+            let clear = gpu
+                .upload_merge_source(4, 4, &solid(4, 4, [0; 4]))
+                .expect("alpha");
+            let opaque = gpu
+                .upload_merge_source(4, 4, &solid(4, 4, [0, 0, 0, 255]))
+                .expect("alpha");
+            for (alpha, (want, key)) in [clear, opaque].into_iter().zip([(over, 2), (under, 3)]) {
+                let job = TerrainMergeJob {
+                    size: 8,
+                    base: Some(base),
+                    base_tiling: 1,
+                    overlays: vec![TerrainMergeOverlay {
+                        alpha,
+                        rotation: 0,
+                        tex: Some(tile),
+                        tiling: 1,
+                    }],
+                };
+                let slot = gpu
+                    .merge_terrain_texture(TextureKey::world(0x7F00_0000 + key), &job)
+                    .expect("a composite");
+                let image = gpu.capture_texture_level(slot, 0).expect("read back");
+                assert!(image.bgra.chunks(4).all(|p| p == want));
+            }
+        });
     }
 
     /// A splat with a base alone draws the base, and the pipeline and binding are made once.
     #[test]
     fn a_splat_of_a_base_alone_draws_the_base() {
-        let Some(mut gpu) = device(16, 16) else {
-            return;
-        };
-        if !gpu.terrain_splat_supported() {
-            eprintln!("skipped: the adapter binds fewer than five groups");
-            return;
-        }
-        let base = gpu
-            .upload_texture(&TextureData {
-                width: 2,
-                height: 2,
-                format: TextureFormat::Bgra8,
-                levels: vec![solid(2, 2, [0, 200, 0, 255])],
-            })
-            .expect("a texture");
-        let alpha = gpu
-            .upload_texture(&TextureData {
-                width: 2,
-                height: 2,
-                format: TextureFormat::Bgra8,
-                levels: vec![solid(2, 2, [0, 0, 0, 255])],
-            })
-            .expect("a texture");
-        let splat = TerrainSplat {
-            base: Some(base),
-            base_tiling: 1,
-            overlays: vec![TerrainSplatOverlay {
-                alpha,
-                rotation: 1,
-                tex: None,
-                tiling: 1,
-            }],
-        };
-        let key = screen_key(ZFunc::Always);
-        let frame = PerFrameConstants::default();
-        let draw = PerDrawConstants::default();
-        for _ in 0..2 {
-            gpu.begin_frame().expect("frame");
-            gpu.draw_terrain_splat(
-                &key,
-                &splat,
-                &frame,
-                &draw,
-                &quad(0.0, 0.0, 16.0, 16.0, 0.5, 0xFFFF_FFFF),
-            )
-            .expect("a splat draw");
-            gpu.end_frame().expect("present");
-        }
-        let image = gpu.capture().expect("capture");
-        assert_eq!(&pixel(&image, 8, 8)[..3], &[0, 200, 0]);
-        let state = gpu.terrain_splat.as_ref().expect("made");
-        assert_eq!((state.pipelines.len(), state.groups.len()), (1, 1));
-        gpu.reset_terrain_splat();
-        assert!(gpu.terrain_splat.as_ref().expect("kept").groups.is_empty());
+        crate::device_thread::run(move || {
+            let Some(mut gpu) = device(16, 16) else {
+                return;
+            };
+            if !gpu.terrain_splat_supported() {
+                eprintln!("skipped: the adapter binds fewer than five groups");
+                return;
+            }
+            let base = gpu
+                .upload_texture(&TextureData {
+                    width: 2,
+                    height: 2,
+                    format: TextureFormat::Bgra8,
+                    levels: vec![solid(2, 2, [0, 200, 0, 255])],
+                })
+                .expect("a texture");
+            let alpha = gpu
+                .upload_texture(&TextureData {
+                    width: 2,
+                    height: 2,
+                    format: TextureFormat::Bgra8,
+                    levels: vec![solid(2, 2, [0, 0, 0, 255])],
+                })
+                .expect("a texture");
+            let splat = TerrainSplat {
+                base: Some(base),
+                base_tiling: 1,
+                overlays: vec![TerrainSplatOverlay {
+                    alpha,
+                    rotation: 1,
+                    tex: None,
+                    tiling: 1,
+                }],
+            };
+            let key = screen_key(ZFunc::Always);
+            let frame = PerFrameConstants::default();
+            let draw = PerDrawConstants::default();
+            for _ in 0..2 {
+                gpu.begin_frame().expect("frame");
+                gpu.draw_terrain_splat(
+                    &key,
+                    &splat,
+                    &frame,
+                    &draw,
+                    &quad(0.0, 0.0, 16.0, 16.0, 0.5, 0xFFFF_FFFF),
+                )
+                .expect("a splat draw");
+                gpu.end_frame().expect("present");
+            }
+            let image = gpu.capture().expect("capture");
+            assert_eq!(&pixel(&image, 8, 8)[..3], &[0, 200, 0]);
+            let state = gpu.terrain_splat.as_ref().expect("made");
+            assert_eq!((state.pipelines.len(), state.groups.len()), (1, 1));
+            gpu.reset_terrain_splat();
+            assert!(gpu.terrain_splat.as_ref().expect("kept").groups.is_empty());
+        });
     }
 
     /// Every splat substitution lands.

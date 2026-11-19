@@ -2941,97 +2941,103 @@ mod tests {
     /// assertion does rather than a thing a person has to remember to check.
     #[test]
     fn the_portal_stamp_resets_the_depth_inside_its_polygon_and_nowhere_else() {
-        const N: u32 = 64;
-        let Some(mut gpu) = warp(N, N) else { return };
-        let tex = gpu.upload_texture(&white()).expect("upload");
-        let per_frame = identity_frame();
-        let draw = PerDrawConstants::identity();
-        let red = 0xFFFF_0000u32;
-        let green = 0xFF00_FF00u32;
-        // The stamped rectangle, in clip space and then in pixels. Clip +y is the top row.
-        let (sx0, sy0, sx1, sy1) = (-0.5f32, -0.5f32, 0.5f32, 0.5f32);
+        crate::device_thread::run(move || {
+            const N: u32 = 64;
+            let Some(mut gpu) = warp(N, N) else { return };
+            let tex = gpu.upload_texture(&white()).expect("upload");
+            let per_frame = identity_frame();
+            let draw = PerDrawConstants::identity();
+            let red = 0xFFFF_0000u32;
+            let green = 0xFF00_FF00u32;
+            // The stamped rectangle, in clip space and then in pixels. Clip +y is the top row.
+            let (sx0, sy0, sx1, sy1) = (-0.5f32, -0.5f32, 0.5f32, 0.5f32);
 
-        let render = |gpu: &mut Gpu, stamp: bool| -> Vec<u8> {
-            gpu.begin_frame().expect("begin");
-            gpu.bind_texture(tex, 0);
-            gpu.draw_dynamic(
-                &opaque_key(),
-                &crate::DrawConstants::default(),
-                &per_frame,
-                &draw,
-                &quad_142(-1.0, -1.0, 1.0, 1.0, 0.2, red),
-            )
-            .expect("the near surface");
-            if stamp {
-                let poly: Vec<[f32; 4]> = [(sx0, sy0), (sx1, sy0), (sx1, sy1), (sx0, sy1)]
-                    .into_iter()
-                    .map(|(x, y)| [x, y, 0.5, 1.0])
-                    .collect();
-                gpu.draw_portal_poly(&per_frame, &poly, crate::pso::portal_stamp_mask::BUILDING)
+            let render = |gpu: &mut Gpu, stamp: bool| -> Vec<u8> {
+                gpu.begin_frame().expect("begin");
+                gpu.bind_texture(tex, 0);
+                gpu.draw_dynamic(
+                    &opaque_key(),
+                    &crate::DrawConstants::default(),
+                    &per_frame,
+                    &draw,
+                    &quad_142(-1.0, -1.0, 1.0, 1.0, 0.2, red),
+                )
+                .expect("the near surface");
+                if stamp {
+                    let poly: Vec<[f32; 4]> = [(sx0, sy0), (sx1, sy0), (sx1, sy1), (sx0, sy1)]
+                        .into_iter()
+                        .map(|(x, y)| [x, y, 0.5, 1.0])
+                        .collect();
+                    gpu.draw_portal_poly(
+                        &per_frame,
+                        &poly,
+                        crate::pso::portal_stamp_mask::BUILDING,
+                    )
                     .expect("the stamp");
-            }
-            gpu.bind_texture(tex, 0);
-            gpu.draw_dynamic(
-                &opaque_key(),
-                &crate::DrawConstants::default(),
-                &per_frame,
-                &draw,
-                &quad_142(-1.0, -1.0, 1.0, 1.0, 0.9, green),
-            )
-            .expect("the far surface");
-            gpu.end_frame().expect("end");
-            gpu.capture().expect("capture").to_rgba()
-        };
+                }
+                gpu.bind_texture(tex, 0);
+                gpu.draw_dynamic(
+                    &opaque_key(),
+                    &crate::DrawConstants::default(),
+                    &per_frame,
+                    &draw,
+                    &quad_142(-1.0, -1.0, 1.0, 1.0, 0.9, green),
+                )
+                .expect("the far surface");
+                gpu.end_frame().expect("end");
+                gpu.capture().expect("capture").to_rgba()
+            };
 
-        let control = render(&mut gpu, false);
-        assert_eq!(gpu.portal_stamps, 0);
-        let stamped = render(&mut gpu, true);
-        assert_eq!(gpu.portal_stamps, 1, "one portal-polygon draw was issued");
+            let control = render(&mut gpu, false);
+            assert_eq!(gpu.portal_stamps, 0);
+            let stamped = render(&mut gpu, true);
+            assert_eq!(gpu.portal_stamps, 1, "one portal-polygon draw was issued");
 
-        for (i, px) in control.as_chunks::<4>().0.iter().enumerate() {
-            assert_eq!(
-                (px[0], px[1], px[2]),
-                (255, 0, 0),
-                "pixel {i} of the control is {px:?}, not the near surface"
-            );
-        }
-
-        // The subject: green inside the stamped rectangle, red outside it.
-        #[allow(clippy::cast_precision_loss)] // a 64-pixel extent
-        let fn_ = N as f32;
-        let (mut inside_green, mut outside_red) = (0u32, 0u32);
-        for (i, px) in stamped.as_chunks::<4>().0.iter().enumerate() {
-            #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
-            // LINT-OK: a pixel index into a 64x64 buffer, back to clip space.
-            let (cx, cy) = (
-                ((i as u32 % N) as f32 + 0.5) / fn_ * 2.0 - 1.0,
-                1.0 - ((i as u32 / N) as f32 + 0.5) / fn_ * 2.0,
-            );
-            let inside = cx > sx0 && cx < sx1 && cy > sy0 && cy < sy1;
-            if inside {
+            for (i, px) in control.as_chunks::<4>().0.iter().enumerate() {
                 assert_eq!(
+                    (px[0], px[1], px[2]),
+                    (255, 0, 0),
+                    "pixel {i} of the control is {px:?}, not the near surface"
+                );
+            }
+
+            // The subject: green inside the stamped rectangle, red outside it.
+            #[allow(clippy::cast_precision_loss)] // a 64-pixel extent
+            let fn_ = N as f32;
+            let (mut inside_green, mut outside_red) = (0u32, 0u32);
+            for (i, px) in stamped.as_chunks::<4>().0.iter().enumerate() {
+                #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
+                // LINT-OK: a pixel index into a 64x64 buffer, back to clip space.
+                let (cx, cy) = (
+                    ((i as u32 % N) as f32 + 0.5) / fn_ * 2.0 - 1.0,
+                    1.0 - ((i as u32 / N) as f32 + 0.5) / fn_ * 2.0,
+                );
+                let inside = cx > sx0 && cx < sx1 && cy > sy0 && cy < sy1;
+                if inside {
+                    assert_eq!(
                     (px[0], px[1], px[2]),
                     (0, 255, 0),
                     "pixel {i} is inside the stamp and is {px:?}: the far surface did not get through"
                 );
-                inside_green += 1;
-            } else {
-                assert_eq!(
+                    inside_green += 1;
+                } else {
+                    assert_eq!(
                     (px[0], px[1], px[2]),
                     (255, 0, 0),
                     "pixel {i} is outside the stamp and is {px:?}: the stamp cleared depth it does not own"
                 );
-                outside_red += 1;
+                    outside_red += 1;
+                }
             }
-        }
-        assert_eq!(
-            inside_green,
-            N * N / 4,
-            "the stamp covers a quarter of the frame"
-        );
-        assert_eq!(inside_green + outside_red, N * N);
-        gpu.release_texture(tex);
-        gpu.wait_idle().expect("idle");
+            assert_eq!(
+                inside_green,
+                N * N / 4,
+                "the stamp covers a quarter of the frame"
+            );
+            assert_eq!(inside_green + outside_red, N * N);
+            gpu.release_texture(tex);
+            gpu.wait_idle().expect("idle");
+        });
     }
 
     /// Oracle: the same function's vertex loop — bit 1 of the mask forces the vertex alpha to 0,
@@ -3043,40 +3049,46 @@ mod tests {
     /// paint a coloured quad over a quarter of the screen and this would fail on every pixel of it.
     #[test]
     fn the_portal_stamp_writes_no_colour() {
-        const N: u32 = 64;
-        let Some(mut gpu) = warp(N, N) else { return };
-        let tex = gpu.upload_texture(&white()).expect("upload");
-        let per_frame = identity_frame();
-        let draw = PerDrawConstants::identity();
+        crate::device_thread::run(move || {
+            const N: u32 = 64;
+            let Some(mut gpu) = warp(N, N) else { return };
+            let tex = gpu.upload_texture(&white()).expect("upload");
+            let per_frame = identity_frame();
+            let draw = PerDrawConstants::identity();
 
-        let render = |gpu: &mut Gpu, stamp: bool| -> Vec<u8> {
-            gpu.begin_frame().expect("begin");
-            gpu.bind_texture(tex, 0);
-            gpu.draw_dynamic(
-                &opaque_key(),
-                &crate::DrawConstants::default(),
-                &per_frame,
-                &draw,
-                &quad_142(-1.0, -1.0, 1.0, 1.0, 0.2, 0xFF33_66AA),
-            )
-            .expect("a surface");
-            if stamp {
-                let poly: Vec<[f32; 4]> = [(-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5)]
-                    .into_iter()
-                    .map(|(x, y): (f32, f32)| [x, y, 0.5, 1.0])
-                    .collect();
-                gpu.draw_portal_poly(&per_frame, &poly, crate::pso::portal_stamp_mask::BUILDING)
+            let render = |gpu: &mut Gpu, stamp: bool| -> Vec<u8> {
+                gpu.begin_frame().expect("begin");
+                gpu.bind_texture(tex, 0);
+                gpu.draw_dynamic(
+                    &opaque_key(),
+                    &crate::DrawConstants::default(),
+                    &per_frame,
+                    &draw,
+                    &quad_142(-1.0, -1.0, 1.0, 1.0, 0.2, 0xFF33_66AA),
+                )
+                .expect("a surface");
+                if stamp {
+                    let poly: Vec<[f32; 4]> = [(-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5)]
+                        .into_iter()
+                        .map(|(x, y): (f32, f32)| [x, y, 0.5, 1.0])
+                        .collect();
+                    gpu.draw_portal_poly(
+                        &per_frame,
+                        &poly,
+                        crate::pso::portal_stamp_mask::BUILDING,
+                    )
                     .expect("the stamp");
-            }
-            gpu.end_frame().expect("end");
-            gpu.capture().expect("capture").to_rgba()
-        };
+                }
+                gpu.end_frame().expect("end");
+                gpu.capture().expect("capture").to_rgba()
+            };
 
-        let plain = render(&mut gpu, false);
-        let stamped = render(&mut gpu, true);
-        assert_eq!(plain, stamped, "the stamp put colour in the frame buffer");
-        gpu.release_texture(tex);
-        gpu.wait_idle().expect("idle");
+            let plain = render(&mut gpu, false);
+            let stamped = render(&mut gpu, true);
+            assert_eq!(plain, stamped, "the stamp put colour in the frame buffer");
+            gpu.release_texture(tex);
+            gpu.wait_idle().expect("idle");
+        });
     }
 
     /// Oracle: the portal-polygon draw draws nothing when the clipper left
@@ -3084,23 +3096,25 @@ mod tests {
     /// rasterised; it is not drawn at all, and the counter must say so.
     #[test]
     fn a_portal_polygon_below_three_vertices_is_not_stamped() {
-        let Some(mut gpu) = warp(64, 64) else { return };
-        gpu.begin_frame().expect("begin");
-        for n in 0..3usize {
-            let poly: Vec<[f32; 4]> = (0..n).map(|i| [i as f32 * 0.1, 0.0, 0.5, 1.0]).collect();
-            gpu.draw_portal_poly(
-                &identity_frame(),
-                &poly,
-                crate::pso::portal_stamp_mask::BUILDING,
-            )
-            .expect("no draw, no error");
-        }
-        assert_eq!(
-            gpu.portal_stamps, 0,
-            "a sub-triangle polygon must not reach the device"
-        );
-        gpu.end_frame().expect("end");
-        gpu.wait_idle().expect("idle");
+        crate::device_thread::run(move || {
+            let Some(mut gpu) = warp(64, 64) else { return };
+            gpu.begin_frame().expect("begin");
+            for n in 0..3usize {
+                let poly: Vec<[f32; 4]> = (0..n).map(|i| [i as f32 * 0.1, 0.0, 0.5, 1.0]).collect();
+                gpu.draw_portal_poly(
+                    &identity_frame(),
+                    &poly,
+                    crate::pso::portal_stamp_mask::BUILDING,
+                )
+                .expect("no draw, no error");
+            }
+            assert_eq!(
+                gpu.portal_stamps, 0,
+                "a sub-triangle polygon must not reach the device"
+            );
+            gpu.end_frame().expect("end");
+            gpu.wait_idle().expect("idle");
+        });
     }
 
     /// A 4x4 BGRA texture with one level. Small on purpose: these tests are about descriptor
@@ -3119,28 +3133,30 @@ mod tests {
     // wiring (fence value, retirement point, resource lifetime) is proved and not just the algebra.
     #[test]
     fn a_texture_released_and_re_uploaded_gets_its_descriptor_pair_back() {
-        let Some(mut gpu) = warp(64, 64) else { return };
-        let t = tiny_texture();
-        let first = gpu.upload_texture(&t).expect("upload");
-        assert_eq!(gpu.descriptor_usage().frontier, 1);
-        assert_eq!(gpu.live_textures(), 1);
-        assert_eq!(gpu.release_texture(first), Released::Freed);
-        assert_eq!(gpu.live_textures(), 0);
-        // Released, but not yet reusable: it is parked behind the fence the next signal carries.
-        assert_eq!(gpu.descriptor_usage().pending, 1);
-        assert_eq!(gpu.descriptor_usage().free, 0);
-        // The next upload's own `wait_idle` advances that fence, so the slot comes back.
-        // Uploads do not wait for the device, so a released slot comes back once the device has
-        // passed the release; in the running client every frame does that. This wait stands in.
-        gpu.wait_idle().expect("idle");
-        let second = gpu.upload_texture(&t).expect("upload");
-        assert_eq!(second, first, "the same descriptor pair");
-        let usage = gpu.descriptor_usage();
-        assert_eq!(usage.frontier, 1, "the heap did not grow");
-        assert_eq!(usage.live, 1);
-        assert_eq!(gpu.descriptor_stats().reuses, 1);
-        gpu.release_texture(second);
-        gpu.wait_idle().expect("idle");
+        crate::device_thread::run(move || {
+            let Some(mut gpu) = warp(64, 64) else { return };
+            let t = tiny_texture();
+            let first = gpu.upload_texture(&t).expect("upload");
+            assert_eq!(gpu.descriptor_usage().frontier, 1);
+            assert_eq!(gpu.live_textures(), 1);
+            assert_eq!(gpu.release_texture(first), Released::Freed);
+            assert_eq!(gpu.live_textures(), 0);
+            // Released, but not yet reusable: it is parked behind the fence the next signal carries.
+            assert_eq!(gpu.descriptor_usage().pending, 1);
+            assert_eq!(gpu.descriptor_usage().free, 0);
+            // The next upload's own `wait_idle` advances that fence, so the slot comes back.
+            // Uploads do not wait for the device, so a released slot comes back once the device has
+            // passed the release; in the running client every frame does that. This wait stands in.
+            gpu.wait_idle().expect("idle");
+            let second = gpu.upload_texture(&t).expect("upload");
+            assert_eq!(second, first, "the same descriptor pair");
+            let usage = gpu.descriptor_usage();
+            assert_eq!(usage.frontier, 1, "the heap did not grow");
+            assert_eq!(usage.live, 1);
+            assert_eq!(gpu.descriptor_stats().reuses, 1);
+            gpu.release_texture(second);
+            gpu.wait_idle().expect("idle");
+        });
     }
 
     // Oracle: the stated requirement -- "N releases followed by N uploads leaves the high-water mark
@@ -3149,40 +3165,42 @@ mod tests {
     // what this adds is that the device wiring reuses at all.
     #[test]
     fn n_device_releases_then_n_uploads_leave_the_heap_high_water_at_n() {
-        const N: usize = 32;
-        let Some(mut gpu) = warp(64, 64) else { return };
-        let t = tiny_texture();
-        let first: Vec<TextureSlot> = (0..N)
-            .map(|_| gpu.upload_texture(&t).expect("upload"))
-            .collect();
-        assert_eq!(gpu.descriptor_usage().frontier, N as u32);
-        for s in &first {
-            assert_eq!(gpu.release_texture(*s), Released::Freed);
-        }
-        assert_eq!(gpu.live_textures(), 0);
-        // Uploads do not wait for the device, so a released slot comes back once the device has
-        // passed the release; in the running client every frame does that. This wait stands in.
-        gpu.wait_idle().expect("idle");
-        let second: Vec<TextureSlot> = (0..N)
-            .map(|_| gpu.upload_texture(&t).expect("upload"))
-            .collect();
-        let usage = gpu.descriptor_usage();
-        assert_eq!(
-            usage.frontier, N as u32,
-            "2N would be the unbounded behaviour this replaces"
-        );
-        assert_eq!(usage.high_water, N as u32);
-        assert_eq!(usage.live, N as u32);
-        assert_eq!(gpu.descriptor_stats().reuses, N as u64);
-        let mut a: Vec<u32> = first.iter().map(|s| s.0).collect();
-        let mut b: Vec<u32> = second.iter().map(|s| s.0).collect();
-        a.sort_unstable();
-        b.sort_unstable();
-        assert_eq!(a, b, "the same set of slots, not a fresh run of them");
-        for s in second {
-            gpu.release_texture(s);
-        }
-        gpu.wait_idle().expect("idle");
+        crate::device_thread::run(move || {
+            const N: usize = 32;
+            let Some(mut gpu) = warp(64, 64) else { return };
+            let t = tiny_texture();
+            let first: Vec<TextureSlot> = (0..N)
+                .map(|_| gpu.upload_texture(&t).expect("upload"))
+                .collect();
+            assert_eq!(gpu.descriptor_usage().frontier, N as u32);
+            for s in &first {
+                assert_eq!(gpu.release_texture(*s), Released::Freed);
+            }
+            assert_eq!(gpu.live_textures(), 0);
+            // Uploads do not wait for the device, so a released slot comes back once the device has
+            // passed the release; in the running client every frame does that. This wait stands in.
+            gpu.wait_idle().expect("idle");
+            let second: Vec<TextureSlot> = (0..N)
+                .map(|_| gpu.upload_texture(&t).expect("upload"))
+                .collect();
+            let usage = gpu.descriptor_usage();
+            assert_eq!(
+                usage.frontier, N as u32,
+                "2N would be the unbounded behaviour this replaces"
+            );
+            assert_eq!(usage.high_water, N as u32);
+            assert_eq!(usage.live, N as u32);
+            assert_eq!(gpu.descriptor_stats().reuses, N as u64);
+            let mut a: Vec<u32> = first.iter().map(|s| s.0).collect();
+            let mut b: Vec<u32> = second.iter().map(|s| s.0).collect();
+            a.sort_unstable();
+            b.sort_unstable();
+            assert_eq!(a, b, "the same set of slots, not a fresh run of them");
+            for s in second {
+                gpu.release_texture(s);
+            }
+            gpu.wait_idle().expect("idle");
+        });
     }
 
     // Oracle: the stated requirement -- "a slot released this frame is not handed out again until
@@ -3196,51 +3214,53 @@ mod tests {
     // the first cut had exactly that bug.
     #[test]
     fn a_slot_released_inside_a_frame_survives_an_intervening_wait_idle() {
-        let Some(mut gpu) = warp(64, 64) else { return };
-        let t = tiny_texture();
-        let slot = gpu.upload_texture(&t).expect("upload");
-        gpu.begin_frame().expect("begin");
-        // The open command list binds the descriptor; the GPU may read it as soon as the frame is
-        // submitted, which has not happened yet.
-        gpu.bind_texture(slot, 0);
-        assert_eq!(gpu.release_texture(slot), Released::Freed);
-        let usage = gpu.descriptor_usage();
-        assert_eq!(
-            usage.deferred, 1,
-            "held until the frame that may read it is submitted"
-        );
-        assert_eq!(usage.live, 1, "and still occupying budget until then");
-        assert_eq!(usage.pending, 0);
-        assert_eq!(usage.free, 0);
-        // A mid-frame upload: its own `wait_idle` signals and completes a fence value while the open
-        // list still sits unsubmitted. The released slot must survive it.
-        let other = gpu.upload_texture(&t).expect("a mid-frame upload is legal");
-        assert_ne!(
-            other, slot,
-            "the released slot must not be reissued to this upload"
-        );
-        assert_eq!(
-            gpu.descriptor_usage().free,
-            0,
-            "reissuing here is the use-after-free"
-        );
-        assert_eq!(gpu.descriptor_usage().deferred, 1, "still held");
-        gpu.end_frame().expect("end");
-        // Now submitted, and only now on the clock.
-        let usage = gpu.descriptor_usage();
-        assert_eq!(usage.deferred, 0);
-        assert_eq!(usage.pending + usage.free, 1);
-        gpu.wait_idle().expect("idle");
-        gpu.begin_frame().expect("begin");
-        let usage = gpu.descriptor_usage();
-        assert_eq!(usage.pending, 0, "the fence has passed");
-        assert_eq!(usage.free, 1);
-        assert_eq!(gpu.descriptor_stats().retired, 1);
-        assert!(gpu.frame_open(), "inside the frame this test just began");
-        gpu.end_frame().expect("end");
-        assert!(!gpu.frame_open());
-        gpu.release_texture(other);
-        gpu.wait_idle().expect("idle");
+        crate::device_thread::run(move || {
+            let Some(mut gpu) = warp(64, 64) else { return };
+            let t = tiny_texture();
+            let slot = gpu.upload_texture(&t).expect("upload");
+            gpu.begin_frame().expect("begin");
+            // The open command list binds the descriptor; the GPU may read it as soon as the frame is
+            // submitted, which has not happened yet.
+            gpu.bind_texture(slot, 0);
+            assert_eq!(gpu.release_texture(slot), Released::Freed);
+            let usage = gpu.descriptor_usage();
+            assert_eq!(
+                usage.deferred, 1,
+                "held until the frame that may read it is submitted"
+            );
+            assert_eq!(usage.live, 1, "and still occupying budget until then");
+            assert_eq!(usage.pending, 0);
+            assert_eq!(usage.free, 0);
+            // A mid-frame upload: its own `wait_idle` signals and completes a fence value while the open
+            // list still sits unsubmitted. The released slot must survive it.
+            let other = gpu.upload_texture(&t).expect("a mid-frame upload is legal");
+            assert_ne!(
+                other, slot,
+                "the released slot must not be reissued to this upload"
+            );
+            assert_eq!(
+                gpu.descriptor_usage().free,
+                0,
+                "reissuing here is the use-after-free"
+            );
+            assert_eq!(gpu.descriptor_usage().deferred, 1, "still held");
+            gpu.end_frame().expect("end");
+            // Now submitted, and only now on the clock.
+            let usage = gpu.descriptor_usage();
+            assert_eq!(usage.deferred, 0);
+            assert_eq!(usage.pending + usage.free, 1);
+            gpu.wait_idle().expect("idle");
+            gpu.begin_frame().expect("begin");
+            let usage = gpu.descriptor_usage();
+            assert_eq!(usage.pending, 0, "the fence has passed");
+            assert_eq!(usage.free, 1);
+            assert_eq!(gpu.descriptor_stats().retired, 1);
+            assert!(gpu.frame_open(), "inside the frame this test just began");
+            gpu.end_frame().expect("end");
+            assert!(!gpu.frame_open());
+            gpu.release_texture(other);
+            gpu.wait_idle().expect("idle");
+        });
     }
 
     // Oracle: the D3D12 runtime itself, which refuses `ID3D12CommandAllocator::Reset` while a list
@@ -3250,34 +3270,36 @@ mod tests {
     // is the number that says so; a non-zero one outside a frame is the visible symptom.
     #[test]
     fn a_frame_cannot_be_abandoned_so_a_held_release_is_never_stranded_silently() {
-        let Some(mut gpu) = warp(64, 64) else { return };
-        let t = tiny_texture();
-        let slot = gpu.upload_texture(&t).expect("upload");
-        gpu.begin_frame().expect("begin");
-        assert_eq!(gpu.release_texture(slot), Released::Freed);
-        assert_eq!(gpu.descriptor_usage().deferred, 1);
-        // A second begin_frame with no end_frame is not a thing that quietly happens.
-        let e = gpu
-            .begin_frame()
-            .expect_err("the runtime refuses to reset a live allocator");
-        assert!(format!("{e}").contains("Reset(allocator)"), "{e}");
-        assert!(
-            gpu.frame_open(),
-            "the frame is still the one that was begun"
-        );
-        assert_eq!(
-            gpu.descriptor_usage().deferred,
-            1,
-            "and the release is still held, not lost"
-        );
-        // Ending that frame still puts it on the clock.
-        gpu.end_frame().expect("end");
-        assert_eq!(gpu.descriptor_usage().deferred, 0);
-        gpu.wait_idle().expect("idle");
-        gpu.begin_frame().expect("begin");
-        assert_eq!(gpu.descriptor_usage().free, 1, "and it came back");
-        gpu.end_frame().expect("end");
-        gpu.wait_idle().expect("idle");
+        crate::device_thread::run(move || {
+            let Some(mut gpu) = warp(64, 64) else { return };
+            let t = tiny_texture();
+            let slot = gpu.upload_texture(&t).expect("upload");
+            gpu.begin_frame().expect("begin");
+            assert_eq!(gpu.release_texture(slot), Released::Freed);
+            assert_eq!(gpu.descriptor_usage().deferred, 1);
+            // A second begin_frame with no end_frame is not a thing that quietly happens.
+            let e = gpu
+                .begin_frame()
+                .expect_err("the runtime refuses to reset a live allocator");
+            assert!(format!("{e}").contains("Reset(allocator)"), "{e}");
+            assert!(
+                gpu.frame_open(),
+                "the frame is still the one that was begun"
+            );
+            assert_eq!(
+                gpu.descriptor_usage().deferred,
+                1,
+                "and the release is still held, not lost"
+            );
+            // Ending that frame still puts it on the clock.
+            gpu.end_frame().expect("end");
+            assert_eq!(gpu.descriptor_usage().deferred, 0);
+            gpu.wait_idle().expect("idle");
+            gpu.begin_frame().expect("begin");
+            assert_eq!(gpu.descriptor_usage().free, 1, "and it came back");
+            gpu.end_frame().expect("end");
+            gpu.wait_idle().expect("idle");
+        });
     }
 
     // Oracle: the stated requirement -- "heap exhaustion still fails cleanly and countably rather
@@ -3286,45 +3308,47 @@ mod tests {
     // the narrowing being anything but an earlier refusal.
     #[test]
     fn a_full_descriptor_heap_fails_cleanly_and_counts_the_refusal() {
-        let Some(mut gpu) = warp(64, 64) else { return };
-        gpu.narrow_descriptor_budget(4);
-        let t = tiny_texture();
-        let held: Vec<TextureSlot> = (0..4)
-            .map(|_| gpu.upload_texture(&t).expect("upload"))
-            .collect();
-        for i in 0..3 {
-            let e = gpu.upload_texture(&t).expect_err("the budget is full");
-            assert!(matches!(e, RenderError::Device(_)), "{e}");
-            assert!(format!("{e}").contains("descriptor heap exhausted"), "{e}");
+        crate::device_thread::run(move || {
+            let Some(mut gpu) = warp(64, 64) else { return };
+            gpu.narrow_descriptor_budget(4);
+            let t = tiny_texture();
+            let held: Vec<TextureSlot> = (0..4)
+                .map(|_| gpu.upload_texture(&t).expect("upload"))
+                .collect();
+            for i in 0..3 {
+                let e = gpu.upload_texture(&t).expect_err("the budget is full");
+                assert!(matches!(e, RenderError::Device(_)), "{e}");
+                assert!(format!("{e}").contains("descriptor heap exhausted"), "{e}");
+                assert_eq!(
+                    gpu.descriptor_stats().exhaustions,
+                    i + 1,
+                    "every refusal is counted"
+                );
+            }
+            // Nothing was corrupted by the failures: the four live textures are untouched and the
+            // device still works.
+            assert_eq!(gpu.live_textures(), 4);
+            assert_eq!(gpu.descriptor_usage().live, 4);
+            gpu.begin_frame().expect("the device still renders");
+            for s in &held {
+                gpu.bind_texture(*s, 0);
+            }
+            gpu.end_frame().expect("end");
+            // And releasing one makes room again, so the failure was a budget, not a wedge.
+            assert_eq!(gpu.release_texture(held[0]), Released::Freed);
+            let again = gpu.upload_texture(&t).expect("a released slot makes room");
+            assert_eq!(again, held[0]);
             assert_eq!(
                 gpu.descriptor_stats().exhaustions,
-                i + 1,
-                "every refusal is counted"
+                3,
+                "and no further refusals"
             );
-        }
-        // Nothing was corrupted by the failures: the four live textures are untouched and the
-        // device still works.
-        assert_eq!(gpu.live_textures(), 4);
-        assert_eq!(gpu.descriptor_usage().live, 4);
-        gpu.begin_frame().expect("the device still renders");
-        for s in &held {
-            gpu.bind_texture(*s, 0);
-        }
-        gpu.end_frame().expect("end");
-        // And releasing one makes room again, so the failure was a budget, not a wedge.
-        assert_eq!(gpu.release_texture(held[0]), Released::Freed);
-        let again = gpu.upload_texture(&t).expect("a released slot makes room");
-        assert_eq!(again, held[0]);
-        assert_eq!(
-            gpu.descriptor_stats().exhaustions,
-            3,
-            "and no further refusals"
-        );
-        for s in &held[1..] {
-            gpu.release_texture(*s);
-        }
-        gpu.release_texture(again);
-        gpu.wait_idle().expect("idle");
+            for s in &held[1..] {
+                gpu.release_texture(*s);
+            }
+            gpu.release_texture(again);
+            gpu.wait_idle().expect("idle");
+        });
     }
 
     // The combined-texture cache returns and retains an existing nonzero-key entry:
@@ -3333,35 +3357,37 @@ mod tests {
     // no descriptor pair at all.
     #[test]
     fn a_keyed_upload_of_a_cached_texture_costs_no_descriptors() {
-        let Some(mut gpu) = warp(64, 64) else { return };
-        let t = tiny_texture();
-        let key = TextureKey::world(crate::descriptor::combined_texture_key(
-            0x0400_0001,
-            0x0600_0002,
-        ));
-        let a = gpu.upload_texture_keyed(key, &t).expect("upload");
-        let b = gpu.upload_texture_keyed(key, &t).expect("cache hit");
-        assert_eq!(a, b);
-        assert_eq!(gpu.descriptor_usage().frontier, 1, "one texture, one pair");
-        assert_eq!(gpu.texture_table_stats().hits, 1);
-        assert_eq!(gpu.live_textures(), 1);
-        // Two links, so the first release does not free it.
-        assert_eq!(gpu.release_texture(a), Released::StillLinked(1));
-        assert_eq!(gpu.descriptor_usage().live, 1);
-        assert_eq!(gpu.release_texture(b), Released::Freed);
-        assert_eq!(gpu.descriptor_usage().live, 0);
-        // An uncached upload of the same bits is a second texture, as the client's key-0 path is.
-        let c = gpu.upload_texture(&t).expect("upload");
-        let d = gpu.upload_texture(&t).expect("upload");
-        assert_ne!(c, d, "custom_texture_table entries are never shared");
-        assert_eq!(
-            gpu.texture_table_stats().hits,
-            1,
-            "and neither was a cache hit"
-        );
-        gpu.release_texture(c);
-        gpu.release_texture(d);
-        gpu.wait_idle().expect("idle");
+        crate::device_thread::run(move || {
+            let Some(mut gpu) = warp(64, 64) else { return };
+            let t = tiny_texture();
+            let key = TextureKey::world(crate::descriptor::combined_texture_key(
+                0x0400_0001,
+                0x0600_0002,
+            ));
+            let a = gpu.upload_texture_keyed(key, &t).expect("upload");
+            let b = gpu.upload_texture_keyed(key, &t).expect("cache hit");
+            assert_eq!(a, b);
+            assert_eq!(gpu.descriptor_usage().frontier, 1, "one texture, one pair");
+            assert_eq!(gpu.texture_table_stats().hits, 1);
+            assert_eq!(gpu.live_textures(), 1);
+            // Two links, so the first release does not free it.
+            assert_eq!(gpu.release_texture(a), Released::StillLinked(1));
+            assert_eq!(gpu.descriptor_usage().live, 1);
+            assert_eq!(gpu.release_texture(b), Released::Freed);
+            assert_eq!(gpu.descriptor_usage().live, 0);
+            // An uncached upload of the same bits is a second texture, as the client's key-0 path is.
+            let c = gpu.upload_texture(&t).expect("upload");
+            let d = gpu.upload_texture(&t).expect("upload");
+            assert_ne!(c, d, "custom_texture_table entries are never shared");
+            assert_eq!(
+                gpu.texture_table_stats().hits,
+                1,
+                "and neither was a cache hit"
+            );
+            gpu.release_texture(c);
+            gpu.release_texture(d);
+            gpu.wait_idle().expect("idle");
+        });
     }
 
     // Oracle: "If you make something tolerant of failure, give it a counter and assert on that
@@ -3369,66 +3395,70 @@ mod tests {
     // -- that would hand the same descriptors to two owners -- and must not panic in a teardown.
     #[test]
     fn a_double_release_at_the_device_is_counted_and_frees_the_pair_once() {
-        let Some(mut gpu) = warp(64, 64) else { return };
-        let t = tiny_texture();
-        let slot = gpu.upload_texture(&t).expect("upload");
-        assert_eq!(gpu.release_texture(slot), Released::Freed);
-        assert_eq!(gpu.release_texture(slot), Released::Unknown);
-        assert_eq!(gpu.release_texture(TextureSlot(9998)), Released::Unknown);
-        assert_eq!(gpu.texture_table_stats().unknown_releases, 2);
-        assert_eq!(gpu.texture_table_stats().frees, 1);
-        gpu.wait_idle().expect("idle");
-        gpu.begin_frame().expect("begin");
-        gpu.end_frame().expect("end");
-        assert_eq!(
-            gpu.descriptor_stats().retired,
-            1,
-            "one slot came back, not two"
-        );
-        assert_eq!(
-            gpu.descriptor_stats().invalid_releases,
-            0,
-            "and the allocator saw one release"
-        );
-        gpu.wait_idle().expect("idle");
+        crate::device_thread::run(move || {
+            let Some(mut gpu) = warp(64, 64) else { return };
+            let t = tiny_texture();
+            let slot = gpu.upload_texture(&t).expect("upload");
+            assert_eq!(gpu.release_texture(slot), Released::Freed);
+            assert_eq!(gpu.release_texture(slot), Released::Unknown);
+            assert_eq!(gpu.release_texture(TextureSlot(9998)), Released::Unknown);
+            assert_eq!(gpu.texture_table_stats().unknown_releases, 2);
+            assert_eq!(gpu.texture_table_stats().frees, 1);
+            gpu.wait_idle().expect("idle");
+            gpu.begin_frame().expect("begin");
+            gpu.end_frame().expect("end");
+            assert_eq!(
+                gpu.descriptor_stats().retired,
+                1,
+                "one slot came back, not two"
+            );
+            assert_eq!(
+                gpu.descriptor_stats().invalid_releases,
+                0,
+                "and the allocator saw one release"
+            );
+            gpu.wait_idle().expect("idle");
+        });
     }
 
     /// A long session of screens stays bounded by what is resident.
     #[test]
     fn a_long_session_of_screens_stays_bounded_by_what_is_resident() {
-        let Some(mut gpu) = warp(64, 64) else { return };
-        let t = tiny_texture();
-        // Twelve screens of 16 images each: 192 uploads, one screen resident at a time.
-        let mut resident: Vec<TextureSlot> = Vec::new();
-        for _ in 0..12 {
+        crate::device_thread::run(move || {
+            let Some(mut gpu) = warp(64, 64) else { return };
+            let t = tiny_texture();
+            // Twelve screens of 16 images each: 192 uploads, one screen resident at a time.
+            let mut resident: Vec<TextureSlot> = Vec::new();
+            for _ in 0..12 {
+                for s in resident.drain(..) {
+                    assert_eq!(gpu.release_texture(s), Released::Freed);
+                }
+                // Uploads do not wait for the device, so a released slot comes back once the device has
+                // passed the release; in the running client every frame does that. This wait stands in.
+                gpu.wait_idle().expect("idle");
+                for _ in 0..16 {
+                    resident.push(
+                        gpu.upload_texture(&t)
+                            .expect("a screen must not exhaust the heap"),
+                    );
+                }
+            }
+            let usage = gpu.descriptor_usage();
+            assert_eq!(usage.live, 16);
+            assert_eq!(usage.high_water, 16);
+            assert_eq!(
+                usage.frontier, 16,
+                "192 uploads across 12 screens used {} slots; the monotonic version used 192",
+                usage.frontier
+            );
+            assert_eq!(gpu.descriptor_stats().allocations, 192);
+            assert_eq!(gpu.descriptor_stats().reuses, 176);
+            assert_eq!(gpu.descriptor_stats().exhaustions, 0);
             for s in resident.drain(..) {
-                assert_eq!(gpu.release_texture(s), Released::Freed);
+                gpu.release_texture(s);
             }
-            // Uploads do not wait for the device, so a released slot comes back once the device has
-            // passed the release; in the running client every frame does that. This wait stands in.
             gpu.wait_idle().expect("idle");
-            for _ in 0..16 {
-                resident.push(
-                    gpu.upload_texture(&t)
-                        .expect("a screen must not exhaust the heap"),
-                );
-            }
-        }
-        let usage = gpu.descriptor_usage();
-        assert_eq!(usage.live, 16);
-        assert_eq!(usage.high_water, 16);
-        assert_eq!(
-            usage.frontier, 16,
-            "192 uploads across 12 screens used {} slots; the monotonic version used 192",
-            usage.frontier
-        );
-        assert_eq!(gpu.descriptor_stats().allocations, 192);
-        assert_eq!(gpu.descriptor_stats().reuses, 176);
-        assert_eq!(gpu.descriptor_stats().exhaustions, 0);
-        for s in resident.drain(..) {
-            gpu.release_texture(s);
-        }
-        gpu.wait_idle().expect("idle");
+        });
     }
 
     /// A test build stops at a real GPU's refusal, and goes on from a machine's basic adapter.
@@ -3442,42 +3472,10 @@ mod tests {
     /// Every catalogue row constructs a pipeline state D3D12 accepts.
     #[test]
     fn every_catalogue_row_constructs_a_pipeline_state_d3d12_accepts() {
-        let cfg = DeviceConfig {
-            width: 64,
-            height: 64,
-            debug: true,
-            ..DeviceConfig::default()
-        };
-        let Ok(mut gpu) = Gpu::new(None, &cfg) else {
-            eprintln!("skipping: no D3D12 WARP device available");
-            return;
-        };
-        let built = gpu
-            .build_whole_catalogue()
-            .expect("the runtime must accept every row");
-        // 15 rows x 5 FVF families.
-        assert_eq!(built, 15 * 5);
-    }
-
-    /// A capture waits for the slot it resets rather than resetting under the GPU.
-    #[test]
-    fn a_capture_waits_for_the_slot_it_resets_rather_than_resetting_under_the_gpu() {
-        // Enough full-frame fills per frame that WARP is still rasterising frame 0 when the CPU
-        // has submitted frame 2 and moved on: 400 fills of 800x600 on the host this was measured
-        // on. The CPU's cost is the recording (the debug layer validates every draw), the GPU's is
-        // the pixels, so on a host whose WARP outruns that the window is closed and the instrument
-        // blind: the calibration below then retries on a larger target, the same draws with four
-        // times the pixels, and fails only when even the largest cannot hold the window open.
-        const HEAVY: usize = 400;
-        const TARGETS: [(u32, u32); 3] = [(800, 600), (1600, 1200), (3200, 2400)];
-        // The window this instrument watches stays open only while the GPU is slower than the
-        // recording, so it asks for WARP explicitly; a hardware GPU closes it at once.
-        REQUIRE_SOFTWARE.with(|r| r.set(true));
-        let mut calibration = String::new();
-        for (width, height) in TARGETS {
+        crate::device_thread::run(move || {
             let cfg = DeviceConfig {
-                width,
-                height,
+                width: 64,
+                height: 64,
                 debug: true,
                 ..DeviceConfig::default()
             };
@@ -3485,76 +3483,114 @@ mod tests {
                 eprintln!("skipping: no D3D12 WARP device available");
                 return;
             };
-            // The instrument. `ID3D12InfoQueue` exists only when the SDK layers are installed and
-            // the debug layer came up; without it this test cannot look, and says so rather than
-            // passing.
-            if gpu.device.cast::<ID3D12InfoQueue>().is_err() {
-                eprintln!(
+            let built = gpu
+                .build_whole_catalogue()
+                .expect("the runtime must accept every row");
+            // 15 rows x 5 FVF families.
+            assert_eq!(built, 15 * 5);
+        });
+    }
+
+    /// A capture waits for the slot it resets rather than resetting under the GPU.
+    #[test]
+    fn a_capture_waits_for_the_slot_it_resets_rather_than_resetting_under_the_gpu() {
+        crate::device_thread::run(move || {
+            // Enough full-frame fills per frame that WARP is still rasterising frame 0 when the CPU
+            // has submitted frame 2 and moved on: 400 fills of 800x600 on the host this was measured
+            // on. The CPU's cost is the recording (the debug layer validates every draw), the GPU's is
+            // the pixels, so on a host whose WARP outruns that the window is closed and the instrument
+            // blind: the calibration below then retries on a larger target, the same draws with four
+            // times the pixels, and fails only when even the largest cannot hold the window open.
+            const HEAVY: usize = 400;
+            const TARGETS: [(u32, u32); 3] = [(800, 600), (1600, 1200), (3200, 2400)];
+            // The window this instrument watches stays open only while the GPU is slower than the
+            // recording, so it asks for WARP explicitly; a hardware GPU closes it at once.
+            REQUIRE_SOFTWARE.with(|r| r.set(true));
+            let mut calibration = String::new();
+            for (width, height) in TARGETS {
+                let cfg = DeviceConfig {
+                    width,
+                    height,
+                    debug: true,
+                    ..DeviceConfig::default()
+                };
+                let Ok(mut gpu) = Gpu::new(None, &cfg) else {
+                    eprintln!("skipping: no D3D12 WARP device available");
+                    return;
+                };
+                // The instrument. `ID3D12InfoQueue` exists only when the SDK layers are installed and
+                // the debug layer came up; without it this test cannot look, and says so rather than
+                // passing.
+                if gpu.device.cast::<ID3D12InfoQueue>().is_err() {
+                    eprintln!(
                     "skipping: the D3D12 debug layer is not installed, so COMMAND_ALLOCATOR_SYNC \
                      cannot be observed"
                 );
-                return;
-            }
-            let tex = gpu.upload_texture(&white()).expect("upload");
-            let per_frame = identity_frame();
-            let draw = PerDrawConstants::identity();
-            let _ = gpu.debug_messages();
-            for _ in 0..FRAME_COUNT {
-                gpu.begin_frame().expect("begin");
-                gpu.bind_texture(tex, 0);
-                for _ in 0..HEAVY {
-                    gpu.draw_dynamic(
-                        &opaque_key(),
-                        &crate::DrawConstants::default(),
-                        &per_frame,
-                        &draw,
-                        &quad_142(-1.0, -1.0, 1.0, 1.0, 0.5, 0xFF20_40FF),
-                    )
-                    .expect("draw");
+                    return;
                 }
-                gpu.end_frame().expect("end");
-            }
-            // Calibration: the slot `capture` is about to reset is frame 0's, and frame 0 must
-            // still be in flight for the assertion below to have been able to fail.
-            let slot = gpu.frame_index;
-            let want = gpu.frames[slot].fence_value;
-            // SAFETY: GetCompletedValue is a pure query on the fence.
-            let completed = unsafe { gpu.fence.GetCompletedValue() };
-            assert!(want != 0, "the ring never advanced");
-            if completed >= want {
-                calibration = format!(
-                    "the instrument could not look: WARP had already retired frame 0 (fence \
+                let tex = gpu.upload_texture(&white()).expect("upload");
+                let per_frame = identity_frame();
+                let draw = PerDrawConstants::identity();
+                let _ = gpu.debug_messages();
+                for _ in 0..FRAME_COUNT {
+                    gpu.begin_frame().expect("begin");
+                    gpu.bind_texture(tex, 0);
+                    for _ in 0..HEAVY {
+                        gpu.draw_dynamic(
+                            &opaque_key(),
+                            &crate::DrawConstants::default(),
+                            &per_frame,
+                            &draw,
+                            &quad_142(-1.0, -1.0, 1.0, 1.0, 0.5, 0xFF20_40FF),
+                        )
+                        .expect("draw");
+                    }
+                    gpu.end_frame().expect("end");
+                }
+                // Calibration: the slot `capture` is about to reset is frame 0's, and frame 0 must
+                // still be in flight for the assertion below to have been able to fail.
+                let slot = gpu.frame_index;
+                let want = gpu.frames[slot].fence_value;
+                // SAFETY: GetCompletedValue is a pure query on the fence.
+                let completed = unsafe { gpu.fence.GetCompletedValue() };
+                assert!(want != 0, "the ring never advanced");
+                if completed >= want {
+                    calibration = format!(
+                        "the instrument could not look: WARP had already retired frame 0 (fence \
                      {completed} >= {want}) before the capture at {width}x{height}"
+                    );
+                    gpu.wait_idle().expect("idle");
+                    continue;
+                }
+                let image = gpu.capture().expect("capture");
+                assert_eq!(image.bgra.len(), width as usize * height as usize * 4);
+                let messages = gpu.debug_messages();
+                assert!(
+                    !messages.contains("COMMAND_ALLOCATOR_SYNC"),
+                    "capture reset a command allocator the GPU was still executing from:{messages}"
                 );
                 gpu.wait_idle().expect("idle");
-                continue;
+                return;
             }
-            let image = gpu.capture().expect("capture");
-            assert_eq!(image.bgra.len(), width as usize * height as usize * 4);
-            let messages = gpu.debug_messages();
-            assert!(
-                !messages.contains("COMMAND_ALLOCATOR_SYNC"),
-                "capture reset a command allocator the GPU was still executing from:{messages}"
-            );
-            gpu.wait_idle().expect("idle");
-            return;
-        }
-        panic!("{calibration}; raise HEAVY");
+            panic!("{calibration}; raise HEAVY");
+        });
     }
 
     /// A thousand frames cycle the ring without stalling.
     #[test]
     fn a_thousand_frames_cycle_the_ring_without_stalling() {
-        let Some(mut gpu) = warp(64, 64) else { return };
-        for _ in 0..1000 {
-            gpu.begin_frame().expect("begin");
-            gpu.end_frame().expect("end");
-        }
-        assert_eq!(
-            gpu.frame_stamp, 1000,
-            "the frame stamp is bumped once per frame"
-        );
-        gpu.wait_idle().expect("idle");
+        crate::device_thread::run(move || {
+            let Some(mut gpu) = warp(64, 64) else { return };
+            for _ in 0..1000 {
+                gpu.begin_frame().expect("begin");
+                gpu.end_frame().expect("end");
+            }
+            assert_eq!(
+                gpu.frame_stamp, 1000,
+                "the frame stamp is bumped once per frame"
+            );
+            gpu.wait_idle().expect("idle");
+        });
     }
 
     /// The depth at any pixel of a wide frame reads back as the frame left it, in the order
@@ -3563,94 +3599,98 @@ mod tests {
     /// reads back four bytes a probe, never the depth plane.
     #[test]
     fn depth_probes_read_the_depth_at_any_pixel_of_a_wide_frame_four_bytes_a_probe() {
-        let (w, h) = (5120, 16);
-        let Some(mut gpu) = warp(w, h) else { return };
-        let tex = gpu.upload_texture(&white()).expect("upload");
-        let pixels = [
-            (2560, 8),
-            (0, 0),
-            (2569, 3),
-            (2559, 7),
-            (w + 40, 2),
-            (1, h - 1),
-            (w - 1, h - 1),
-        ];
-        let mut answer = None;
-        for frame in 0..8u64 {
-            gpu.begin_frame().expect("begin");
-            if let Some(a) = gpu.take_depth_probes() {
-                answer = Some(a);
+        crate::device_thread::run(move || {
+            let (w, h) = (5120, 16);
+            let Some(mut gpu) = warp(w, h) else { return };
+            let tex = gpu.upload_texture(&white()).expect("upload");
+            let pixels = [
+                (2560, 8),
+                (0, 0),
+                (2569, 3),
+                (2559, 7),
+                (w + 40, 2),
+                (1, h - 1),
+                (w - 1, h - 1),
+            ];
+            let mut answer = None;
+            for frame in 0..8u64 {
+                gpu.begin_frame().expect("begin");
+                if let Some(a) = gpu.take_depth_probes() {
+                    answer = Some(a);
+                    gpu.end_frame().expect("end");
+                    break;
+                }
+                gpu.bind_texture(tex, 0);
+                gpu.draw_dynamic(
+                    &opaque_key(),
+                    &crate::DrawConstants::default(),
+                    &identity_frame(),
+                    &PerDrawConstants::identity(),
+                    &quad_142(0.0, -1.0, 1.0, 1.0, 0.25, 0xFFFF_FFFF),
+                )
+                .expect("the near right half");
+                if frame == 0 {
+                    gpu.request_depth_probes(1, pixels.to_vec());
+                }
                 gpu.end_frame().expect("end");
-                break;
+                gpu.wait_idle().expect("idle");
             }
-            gpu.bind_texture(tex, 0);
-            gpu.draw_dynamic(
-                &opaque_key(),
-                &crate::DrawConstants::default(),
-                &identity_frame(),
-                &PerDrawConstants::identity(),
-                &quad_142(0.0, -1.0, 1.0, 1.0, 0.25, 0xFFFF_FFFF),
-            )
-            .expect("the near right half");
-            if frame == 0 {
-                gpu.request_depth_probes(1, pixels.to_vec());
+            let answer = answer.expect("the depth probes come back within eight frames");
+            assert_eq!(answer.tag, 1, "the tag comes back with its depths");
+            assert_eq!(answer.depths.len(), pixels.len(), "one depth a pixel");
+            let near = [true, false, true, false, true, false, true];
+            for ((&(x, y), &d), near) in pixels.iter().zip(&answer.depths).zip(near) {
+                let want = if near { 0.25 } else { 1.0 };
+                assert!(
+                    (d - want).abs() < 1e-6,
+                    "({x}, {y}): depth {d}, want {want}"
+                );
             }
-            gpu.end_frame().expect("end");
+            let readbacks: Vec<u64> = gpu
+                .frames
+                .iter()
+                .filter_map(|f| f.probe_readback.as_ref())
+                // SAFETY: a pure query on a live resource.
+                .map(|b| unsafe { b.GetDesc() }.Width)
+                .collect();
+            assert!(!readbacks.is_empty(), "a frame read the probes back");
+            for width in readbacks {
+                assert_eq!(
+                    width,
+                    probes::PROBE_BYTES,
+                    "a frame's read-back holds four bytes a probe, not the {} of the depth plane",
+                    u64::from(w) * u64::from(h) * 4
+                );
+            }
+            gpu.release_texture(tex);
             gpu.wait_idle().expect("idle");
-        }
-        let answer = answer.expect("the depth probes come back within eight frames");
-        assert_eq!(answer.tag, 1, "the tag comes back with its depths");
-        assert_eq!(answer.depths.len(), pixels.len(), "one depth a pixel");
-        let near = [true, false, true, false, true, false, true];
-        for ((&(x, y), &d), near) in pixels.iter().zip(&answer.depths).zip(near) {
-            let want = if near { 0.25 } else { 1.0 };
-            assert!(
-                (d - want).abs() < 1e-6,
-                "({x}, {y}): depth {d}, want {want}"
-            );
-        }
-        let readbacks: Vec<u64> = gpu
-            .frames
-            .iter()
-            .filter_map(|f| f.probe_readback.as_ref())
-            // SAFETY: a pure query on a live resource.
-            .map(|b| unsafe { b.GetDesc() }.Width)
-            .collect();
-        assert!(!readbacks.is_empty(), "a frame read the probes back");
-        for width in readbacks {
-            assert_eq!(
-                width,
-                probes::PROBE_BYTES,
-                "a frame's read-back holds four bytes a probe, not the {} of the depth plane",
-                u64::from(w) * u64::from(h) * 4
-            );
-        }
-        gpu.release_texture(tex);
-        gpu.wait_idle().expect("idle");
+        });
     }
 
     /// The headless capture is deterministic across runs.
     #[test]
     fn the_headless_capture_is_deterministic_across_runs() {
-        let mut captures = Vec::new();
-        for _ in 0..3 {
-            let Some(mut gpu) = warp(800, 600) else {
-                return;
-            };
-            gpu.begin_frame().expect("begin");
-            gpu.end_frame().expect("end");
-            captures.push(gpu.capture().expect("capture").to_rgba());
-        }
-        assert_eq!(captures[0].len(), 800 * 600 * 4);
-        assert_eq!(captures[0], captures[1]);
-        assert_eq!(captures[1], captures[2]);
-        // The clear really did happen: the frame is black and opaque.
-        assert!(captures[0]
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .all(|p| p[0] == 0 && p[1] == 0 && p[2] == 0));
-        assert!(captures[0].as_chunks::<4>().0.iter().all(|p| p[3] == 0xFF));
+        crate::device_thread::run(move || {
+            let mut captures = Vec::new();
+            for _ in 0..3 {
+                let Some(mut gpu) = warp(800, 600) else {
+                    return;
+                };
+                gpu.begin_frame().expect("begin");
+                gpu.end_frame().expect("end");
+                captures.push(gpu.capture().expect("capture").to_rgba());
+            }
+            assert_eq!(captures[0].len(), 800 * 600 * 4);
+            assert_eq!(captures[0], captures[1]);
+            assert_eq!(captures[1], captures[2]);
+            // The clear really did happen: the frame is black and opaque.
+            assert!(captures[0]
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|p| p[0] == 0 && p[1] == 0 && p[2] == 0));
+            assert!(captures[0].as_chunks::<4>().0.iter().all(|p| p[3] == 0xFF));
+        });
     }
 
     // Oracle: `D3DBLEND` names map one-to-one onto `D3D12_BLEND` names, but their numeric values
@@ -3731,11 +3771,13 @@ mod tests {
     // Oracle: the gamma/brightness value is clamped to [-0.2, 1.0].
     #[test]
     fn the_gamma_value_is_clamped_the_way_setgamma_clamps_it() {
-        let Some(mut gpu) = warp(16, 16) else { return };
-        gpu.set_gamma(5.0);
-        assert_eq!(gpu.gamma(), 1.0);
-        gpu.set_gamma(-5.0);
-        assert!((gpu.gamma() - (-0.2)).abs() < 1e-6);
+        crate::device_thread::run(move || {
+            let Some(mut gpu) = warp(16, 16) else { return };
+            gpu.set_gamma(5.0);
+            assert_eq!(gpu.gamma(), 1.0);
+            gpu.set_gamma(-5.0);
+            assert!((gpu.gamma() - (-0.2)).abs() < 1e-6);
+        });
     }
 
     // Oracle: the retail presentation setup's BackBufferCount = 1 with D3DSWAPEFFECT_DISCARD, and

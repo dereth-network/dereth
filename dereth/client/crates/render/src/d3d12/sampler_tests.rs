@@ -5,31 +5,35 @@ use super::*;
 /// Behaviour: rendering.samplers.bias-changes-apply-at-begin-scene-and-banks-survive-mid-frame-changes
 #[test]
 fn sampler_banks_sample_the_selected_mip_and_survive_mid_frame_changes() {
-    let mut gpu = Gpu::new(
-        None,
-        &DeviceConfig {
-            width: 16,
-            height: 16,
-            ..Default::default()
-        },
-    )
-    .unwrap();
-    let _ = shared::sampler_bank_captures(&mut gpu);
+    crate::device_thread::run(move || {
+        let mut gpu = Gpu::new(
+            None,
+            &DeviceConfig {
+                width: 16,
+                height: 16,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let _ = shared::sampler_bank_captures(&mut gpu);
+    });
 }
 
 /// Behaviour: rendering.samplers.bias-changes-apply-at-begin-scene-and-banks-survive-mid-frame-changes
 #[test]
 fn sampler_bias_changes_at_begin_scene_and_guarded_preview_restores_global_baseline() {
-    let mut gpu = Gpu::new(
-        None,
-        &DeviceConfig {
-            width: 1,
-            height: 1,
-            ..Default::default()
-        },
-    )
-    .unwrap();
-    shared::sampler_bias_changes_at_begin_scene(&mut gpu);
+    crate::device_thread::run(move || {
+        let mut gpu = Gpu::new(
+            None,
+            &DeviceConfig {
+                width: 1,
+                height: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        shared::sampler_bias_changes_at_begin_scene(&mut gpu);
+    });
 }
 
 // Shared source is instantiated with this backend's types and assertion helpers.
