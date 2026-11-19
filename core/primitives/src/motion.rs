@@ -103,4 +103,12 @@ pub trait MotionSource: std::fmt::Debug {
     fn is_moving_to(&self) -> bool {
         false
     }
+
+    /// True when the object is stuck to another object: its sticky target is set. While it is,
+    /// interpolation never gives up on a correction it is not closing, because the stick, not
+    /// the correction, is what moves the body. `false` is the answer for an object with no
+    /// movement manager.
+    fn is_sticky(&self) -> bool {
+        false
+    }
 }

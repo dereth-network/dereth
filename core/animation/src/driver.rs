@@ -1219,6 +1219,11 @@ impl MotionSource for MotionDriver {
     fn is_moving_to(&self) -> bool {
         self.movement.is_moving_to()
     }
+
+    /// Whether the movement manager's sticky target is set.
+    fn is_sticky(&self) -> bool {
+        self.movement.sticky.is_sticky()
+    }
 }
 
 /// One animation-only sub-step of the world update.

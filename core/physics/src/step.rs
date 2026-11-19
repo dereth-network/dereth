@@ -1080,17 +1080,18 @@ impl PhysicsWorld {
                 .motion
                 .as_ref()
                 .and_then(|s| s.motion_max_speed(use_adjusted));
+            // The failure detector is suppressed while the body is stuck to an object. The sticky
+            // sub-manager lives on the animation seam here, so the question crosses back through
+            // the motion source. Without it a stuck body that is also being corrected gives up on
+            // the node, snaps onto it, and the stick pulls it back the next sub-step: a melee
+            // attacker seen by another client jumps back and forth by a stick step at a time.
+            let sticky = o.motion.as_ref().is_some_and(|s| s.is_sticky());
             m.adjust_offset(
                 &o.position,
                 o.transient_state.in_contact(),
                 quantum,
                 &mut offset,
-                // The omitted suppression query reads the *sticky* sub-manager of the same
-                // position manager. That one lives on the animation
-                // seam here and no query crosses back, so the failure detector is never
-                // suppressed; a body that is both stuck to something and being corrected is the
-                // only case that differs, and it gives up on the node a window sooner.
-                false,
+                sticky,
             );
         }
         if let Some(m) = o.motion.as_mut() {

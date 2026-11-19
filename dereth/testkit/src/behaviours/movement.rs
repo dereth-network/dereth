@@ -387,6 +387,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "movement.stick.a-stuck-body-is-not-snapped-onto-a-correction-it-cannot-close",
+        says: "While a body is stuck to another object, a correction from the shard that the stick \
+               keeps it from closing never makes the client give up on it and snap the body there; \
+               a body that is not stuck gives up on a correction it makes no progress on and snaps \
+               onto it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-978-STUCK-CORRECTION"),
+        station: "dereth-physics::cpu::motion::stuck_correction::a_stuck_body_is_not_snapped_onto_a_correction_it_cannot_close",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "movement.sticky.animation-done-unsticks-before-manual-motion",
         says: "When the animation of an action performed while stuck to a target finishes, the \
                client unsticks the body from that target and drops its interest in it before the \

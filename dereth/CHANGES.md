@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Fixed other players jumping back and forth while they fight.
 - Fixed the Navigator stopping when you search for a place.
 - Fixed the Navigator planning journeys through destroyed portals.
 - Remaster: the ground no longer hides a building's downstairs rooms from outside.

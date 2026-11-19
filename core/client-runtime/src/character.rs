@@ -1129,6 +1129,10 @@ impl MotionSource for SharedMotion {
     fn is_moving_to(&self) -> bool {
         self.driver.borrow().is_moving_to()
     }
+    /// Whether the body is stuck to an object, which keeps interpolation from giving up.
+    fn is_sticky(&self) -> bool {
+        self.driver.borrow().is_sticky()
+    }
 }
 
 use dereth_world_data::setup::setup_geometry;
