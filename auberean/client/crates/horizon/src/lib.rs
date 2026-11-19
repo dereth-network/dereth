@@ -193,6 +193,63 @@ pub fn credits(records: &(dyn auberean_ui::Assets + Send + Sync)) -> Vec<String>
     lines
 }
 
+/// Horizon's windows that were open in the world as it was left for another interface. Its
+/// menus (the system menu, the settings, the HUD layout's editor, the chat entry) close as it is
+/// left and stay closed; the windows the game opens itself (a book, a recipe being made, a trade,
+/// a shop, loot) show again as the game has them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Reopen {
+    skills: bool,
+    examine: bool,
+    map: bool,
+    journal: bool,
+    social: bool,
+    inventory: bool,
+    crafting: bool,
+}
+
+impl Reopen {
+    /// The windows open in `ui` now.
+    fn of(ui: &HorizonUi) -> Self {
+        Self {
+            skills: ui.skills.is_open(),
+            examine: ui.examine.is_open(),
+            map: ui.map.is_open(),
+            journal: ui.journal.is_open(),
+            social: ui.social.is_open(),
+            inventory: ui.goods.inventory.is_open(),
+            crafting: ui.crafting.is_open(),
+        }
+    }
+
+    /// Those windows opened again, each where it was (the map following the player as it did,
+    /// the social window on its tab); what the game is to be asked for them in `actions`.
+    fn open(self, ui: &mut HorizonUi, actions: &mut Vec<Action>) {
+        if self.skills && !ui.skills.is_open() {
+            ui.skills.toggle();
+        }
+        if self.examine && !ui.examine.is_open() {
+            ui.examine.open(actions);
+        }
+        if self.map && !ui.map.is_open() {
+            let follow = ui.map.follow;
+            ui.map.toggle(follow);
+        }
+        if self.journal && !ui.journal.is_open() {
+            ui.journal.toggle();
+        }
+        if self.social && !ui.social.is_open() {
+            ui.social.open();
+        }
+        if self.inventory && !ui.goods.inventory.is_open() {
+            ui.goods.inventory.toggle();
+        }
+        if self.crafting && !ui.crafting.is_open() {
+            ui.crafting.toggle();
+        }
+    }
+}
+
 /// The Horizon interface.
 pub struct Horizon {
     ui: HorizonUi,
@@ -210,6 +267,9 @@ pub struct Horizon {
     making_start: bool,
     /// The player was in the world last frame.
     was_in_world: bool,
+    /// The windows open in the world as Horizon was left, opened again once it is shown in the
+    /// world again.
+    reopen: Option<Reopen>,
     /// The player asked to log out and the server has not yet let the character go
     /// ([`ui::leaving`]).
     logging_out: bool,
@@ -331,6 +391,7 @@ impl Horizon {
             started: false,
             making_start: false,
             was_in_world: false,
+            reopen: None,
             logging_out: false,
             credits: None,
             pre_figure: figure::Figure::default(),
@@ -1320,6 +1381,8 @@ impl Interface for Horizon {
             arrivals: game.arrivals,
         });
         if game.phase != Phase::World {
+            // Out of the world, the windows left open in it stay closed.
+            self.reopen = None;
             let mut let_go = Vec::new();
             self.pad.let_go(&mut let_go);
             requests.extend(let_go.into_iter().map(Request::Act));
@@ -1331,6 +1394,11 @@ impl Interface for Horizon {
             self.ui.pregame.reset();
             self.credits = None;
             self.input = InputFrame::default();
+        }
+        if let Some(open) = self.reopen.take() {
+            let mut asked = Vec::new();
+            open.open(&mut self.ui, &mut asked);
+            requests.extend(asked.into_iter().map(Request::Act));
         }
         // The map's picture, drawn from the world's land off the frame while the map is open.
         self.ui.map.keep_picture(game.world);
@@ -1483,7 +1551,8 @@ impl Interface for Horizon {
         }
     }
 
-    fn leave(&mut self, _game: &Game<'_>, requests: &mut Vec<Request>) {
+    fn leave(&mut self, game: &Game<'_>, requests: &mut Vec<Request>) {
+        self.reopen = (game.phase == Phase::World).then(|| Reopen::of(&self.ui));
         let mut asked = Vec::new();
         self.pad.let_go(&mut asked);
         self.ui.close_all(&mut asked);

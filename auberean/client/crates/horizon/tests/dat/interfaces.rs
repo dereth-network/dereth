@@ -1,5 +1,6 @@
-//! Horizon beside the game's own interface: chosen and left in one session, the game's own screens
-//! before the world, the chat entry's command line, and the social window asking the game.
+//! Horizon beside the game's own interface: chosen and left in one session, each keeping its
+//! windows and showing the shortcut bar's set the other showed, the game's own screens before the
+//! world, the chat entry's command line, and the social window asking the game.
 
 use auberean_client_sdk::protocol::ClientMessage;
 use auberean_horizon::ui::hud;
@@ -212,6 +213,324 @@ fn a_switch_of_interface_carries_the_chat_lines_written_before() {
     ] {
         assert_eq!(count(&now, line), 1, "{line}, once: {now:?}");
     }
+}
+
+/// The game's own windows and panels a switch might open or close, by their fields' names.
+const RETAIL_WINDOWS: [&str; 9] = [
+    "SkillField",
+    "OptionField",
+    "InventoryField",
+    "QuestField",
+    "NavigationField",
+    "ExaminationField",
+    "SocialField",
+    "ToolbarField",
+    "RadarField",
+];
+
+/// Which of the game's own windows show, by name.
+fn retail_shown(
+    retail: &std::rc::Rc<std::cell::RefCell<auberean_interface::Retail>>,
+) -> Vec<(&'static str, bool)> {
+    let r = retail.borrow();
+    RETAIL_WINDOWS
+        .iter()
+        .map(|name| {
+            let shown = r
+                .ui()
+                .find(auberean_ui::Token::of(name))
+                .is_some_and(|h| r.ui().shown(h));
+            (*name, shown)
+        })
+        .collect()
+}
+
+/// Which of Horizon's windows are open, and where each was drawn.
+fn horizon_open(s: &Session) -> Vec<(&'static str, Option<auberean_horizon::draw::Rect>)> {
+    let h = s.horizon();
+    let h = h.borrow();
+    let ui = h.ui();
+    vec![
+        (
+            "skills",
+            ui.skills.is_open().then(|| ui.skills.rect()).flatten(),
+        ),
+        ("map", ui.map.is_open().then(|| ui.map.rect()).flatten()),
+        (
+            "inventory",
+            ui.goods
+                .inventory
+                .is_open()
+                .then(|| ui.goods.inventory.rect())
+                .flatten(),
+        ),
+        (
+            "journal",
+            ui.journal.is_open().then(|| ui.journal.rect()).flatten(),
+        ),
+        (
+            "examine",
+            ui.examine.is_open().then(|| ui.examine.rect()).flatten(),
+        ),
+    ]
+}
+
+/// The set of ten the player's scripts say the bar shows.
+fn scripts_set(s: &Session) -> u32 {
+    let c = s.shell.client.as_ref().expect("the session");
+    c.view().toolbar.as_ref().map_or(0, |t| t.set)
+}
+
+/// The set Horizon's hotbar shows.
+fn horizon_set(s: &Session) -> Option<u32> {
+    s.horizon().borrow().state().bar.as_ref().map(|b| b.set)
+}
+
+/// What the options window's client page sends to choose `choice`, and ten frames.
+fn switch_to(s: &mut Session, choice: Choice) {
+    let p = &mut s.shell.preferences;
+    p.handle(&PageRequest::Attach(vec![section::UI]));
+    let mut row = p
+        .listing()
+        .and_then(|l| l.sections.iter().find(|(at, _)| *at == section::UI))
+        .and_then(|(_, prefs)| {
+            prefs.iter().find_map(|c| match c {
+                Change::Choice(c) => Some(c.clone()),
+                _ => None,
+            })
+        })
+        .expect("the interface row");
+    assert!(row.set_value(choice.value()));
+    p.handle(&PageRequest::Change(Change::Choice(row)));
+    p.handle(&PageRequest::Apply(section::UI));
+    p.handle(&PageRequest::Detach(vec![section::UI]));
+    for _ in 0..10 {
+        s.step();
+    }
+    assert_eq!(s.shell.interface(), choice);
+}
+
+/// Ctrl held over `key`: the keys' set key.
+fn ctrl(s: &mut Session, key: Key) {
+    let hold = |s: &mut Session, down| {
+        s.shell.event(&Event::Key {
+            key: Key::ControlLeft,
+            down,
+            repeat: false,
+        });
+        s.step();
+    };
+    hold(s, true);
+    press(s, key);
+    hold(s, false);
+}
+
+/// Horizon's next-set key (=) pressed until its hotbar shows `set`; whether it does.
+fn horizon_shows(s: &mut Session, set: u32) -> bool {
+    for _ in 0..10 {
+        if horizon_set(s) == Some(set) {
+            return true;
+        }
+        press(s, Key::Equal);
+        s.until(1.0, |s| horizon_set(s) == Some(scripts_set(s)));
+    }
+    horizon_set(s) == Some(set)
+}
+
+/// The middle of a game's own element, by its name.
+fn middle(
+    retail: &std::rc::Rc<std::cell::RefCell<auberean_interface::Retail>>,
+    name: &str,
+) -> (f32, f32) {
+    let r = retail.borrow();
+    let h = r
+        .ui()
+        .find(auberean_ui::Token::of(name))
+        .unwrap_or_else(|| panic!("{name} on the screen"));
+    let rect = r.ui().screen_rect(h).expect("placed");
+    #[allow(clippy::cast_precision_loss)]
+    let m = (
+        (rect.x0 + rect.x1) as f32 / 2.0,
+        (rect.y0 + rect.y1) as f32 / 2.0,
+    );
+    m
+}
+
+/// In the world under the game's own interface: the examination and skills windows opened (X and
+/// the skills button) and their places kept (a click on the skills window's top), set 4 shown
+/// (Ctrl+4).
+fn retail_with_windows_and_set_four() -> Session {
+    let mut s = Session::new(None);
+    s.enter_the_world();
+    for _ in 0..10 {
+        s.step();
+    }
+    press(&mut s, Key::X);
+    let skills = middle(&s.retail, "SkillButton");
+    s.click(skills);
+    let top = middle(&s.retail, "SkillPanelTop");
+    s.click(top);
+    let kept = |s: &Session| {
+        let c = s.shell.client.as_ref().expect("the session");
+        c.view()
+            .options
+            .as_ref()
+            .and_then(|o| o.ui_locations.as_ref())
+            .is_some_and(|l| !l.is_empty())
+    };
+    assert!(s.until(1.0, kept), "the places kept");
+    ctrl(&mut s, Key::Digit4);
+    let shown = s.until(2.0, |s| s.retail.borrow().shortcut_set() == Some(4));
+    assert!(
+        shown,
+        "Ctrl+4 shows set 4: {:?}",
+        s.retail.borrow().shortcut_set()
+    );
+    assert!(s.until(1.0, |s| scripts_set(s) == 4), "the scripts told");
+    s
+}
+
+/// The game's own interface with windows open and set 4 shown, left for Horizon and chosen again:
+/// Horizon shows set 4; back, the same windows show and no others, and the bar shows the set
+/// Horizon last showed (6). The windows closed then and the window resized while Horizon is shown
+/// (the display set up again, the panels put back where they are kept), the game's own interface
+/// shows them closed, as they were left, not as the places kept with them open have them.
+///
+/// Behaviour: desktop.horizon.switching-back-keeps-the-game-s-own-windows-and-the-set-shown
+#[test]
+fn switching_back_keeps_the_game_s_own_windows_and_shows_the_set_horizon_showed() {
+    let mut s = retail_with_windows_and_set_four();
+    let before = retail_shown(&s.retail);
+    assert!(
+        before.contains(&("SkillField", true)) && before.contains(&("ExaminationField", true)),
+        "{before:?}"
+    );
+    switch_to(&mut s, Choice::Horizon);
+    assert_eq!(horizon_set(&s), Some(4), "Horizon shows the set shown");
+    switch_to(&mut s, Choice::Retail);
+    assert_eq!(retail_shown(&s.retail), before, "the same windows");
+    assert_eq!(s.retail.borrow().shortcut_set(), Some(4));
+    // Closed now, those windows stay closed through a switch and a resize away.
+    press(&mut s, Key::X);
+    let skills = middle(&s.retail, "SkillButton");
+    s.click(skills);
+    let closed = retail_shown(&s.retail);
+    assert!(
+        closed.contains(&("SkillField", false)) && closed.contains(&("ExaminationField", false)),
+        "{closed:?}"
+    );
+    switch_to(&mut s, Choice::Horizon);
+    assert!(horizon_shows(&mut s, 6), "Horizon shows set 6");
+    s.shell.size = (1600, 900);
+    s.step();
+    switch_to(&mut s, Choice::Retail);
+    for _ in 0..10 {
+        s.step();
+    }
+    assert_eq!(retail_shown(&s.retail), closed, "the windows as left");
+    assert_eq!(
+        s.retail.borrow().shortcut_set(),
+        Some(6),
+        "the set Horizon showed"
+    );
+}
+
+/// Horizon with windows open and set 3 shown, left for the game's own interface and chosen again:
+/// the game's own bar shows set 3 meanwhile, and back in Horizon its windows are open again where
+/// they were, and its bar still shows set 3.
+///
+/// Behaviour: desktop.horizon.switching-back-keeps-horizon-s-windows-and-the-set-shown
+#[test]
+fn switching_back_keeps_horizon_s_windows_where_they_were_and_the_set_shown() {
+    let mut s = Session::new(Some("[UI]\r\nInterface=Horizon\r\n"));
+    s.enter_the_world();
+    {
+        let h = s.horizon();
+        let mut h = h.borrow_mut();
+        let ui = h.ui_mut();
+        ui.skills.toggle();
+        ui.map.toggle(false);
+        ui.goods.inventory.toggle();
+    }
+    assert!(horizon_shows(&mut s, 3), "Horizon shows set 3");
+    for _ in 0..5 {
+        s.step();
+    }
+    let before = horizon_open(&s);
+    let open: Vec<&str> = before
+        .iter()
+        .filter(|(_, r)| r.is_some())
+        .map(|(n, _)| *n)
+        .collect();
+    assert_eq!(open, ["skills", "map", "inventory"], "{before:?}");
+    switch_to(&mut s, Choice::Retail);
+    assert!(
+        s.until(2.0, |s| s.retail.borrow().shortcut_set() == Some(3)),
+        "the game's own bar shows set 3: {:?}",
+        s.retail.borrow().shortcut_set()
+    );
+    switch_to(&mut s, Choice::Horizon);
+    assert_eq!(
+        horizon_open(&s),
+        before,
+        "the same windows, where they were"
+    );
+    assert_eq!(horizon_set(&s), Some(3));
+}
+
+/// The game's own interface chosen for the first time in the world shows what logging in with it
+/// shows: the panels its login shows and the windows the player's options keep open (here the
+/// skills window), as the options keep them, and the bar on the set the player's scripts hold (2,
+/// chosen in Horizon).
+///
+/// Behaviour: desktop.horizon.a-first-switch-to-the-game-s-own-interface-shows-its-login-s-panels
+#[test]
+fn a_first_switch_to_the_game_s_own_interface_shows_what_its_login_shows() {
+    // What a login under the game's own interface shows, and the places it keeps with the skills
+    // window open.
+    let (login, kept) = {
+        let mut s = Session::new(None);
+        s.enter_the_world();
+        for _ in 0..10 {
+            s.step();
+        }
+        let login = retail_shown(&s.retail);
+        let skills = middle(&s.retail, "SkillButton");
+        s.click(skills);
+        let r = s.retail.borrow();
+        let frame = r.play().expect("the play screen").frame();
+        let kept = auberean_interface::places::locations(&r.ui().frame_kept_places(frame));
+        drop(r);
+        (login, kept)
+    };
+    assert!(login.contains(&("SkillField", false)), "{login:?}");
+    let mut s = Session::new(Some("[UI]\r\nInterface=Horizon\r\n"));
+    s.enter_the_world();
+    s.shell
+        .client
+        .as_mut()
+        .expect("the session")
+        .act(auberean_client_sdk::Action::KeepUiLocations { places: kept });
+    assert!(horizon_shows(&mut s, 2), "Horizon shows set 2");
+    assert!(s.until(1.0, |s| scripts_set(s) == 2), "the scripts told");
+    switch_to(&mut s, Choice::Retail);
+    assert!(
+        s.until(2.0, |s| s.retail.borrow().screen() == "play"),
+        "the play screen"
+    );
+    for _ in 0..10 {
+        s.step();
+    }
+    let want: Vec<_> = login
+        .iter()
+        .map(|&(n, shown)| (n, shown || n == "SkillField"))
+        .collect();
+    assert_eq!(retail_shown(&s.retail), want, "the login's panels, as kept");
+    assert_eq!(
+        s.retail.borrow().shortcut_set(),
+        Some(2),
+        "the scripts' set"
+    );
 }
 
 /// A line typed in Horizon's chat entry goes to the player's command line, as the game's own chat

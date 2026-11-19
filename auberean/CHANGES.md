@@ -7,6 +7,7 @@ not how it was done.
 
 ## Unreleased
 - Horizon: fellowship and allegiance are now one Social button.
+- Switching interfaces now keeps your open windows and hotbar.
 
 ## 0.1.10 (2026-11-20)
 - New players now start with the keys the game installed, like X to examine.

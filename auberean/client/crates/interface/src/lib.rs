@@ -157,6 +157,9 @@ struct Shared {
     /// The connection as the client last measured it.
     link: Option<statusbar::Link>,
     notices: Vec<gameplay::Notice>,
+    /// What the player's scripts said while another interface was shown that the play screen is
+    /// to hear as it next ticks in the world, before this frame's notices.
+    missed: Vec<gameplay::Notice>,
     /// The world as the panels see it; every notice about any object; the objects gone.
     world: Option<auberean_ui_game::world::World>,
     everyone: Vec<gameplay::Notice>,
@@ -263,7 +266,12 @@ impl FlowScreen<Shared> for PlayScreen {
             clock: data.clock,
             game_time: data.game_time,
         };
-        let notices = std::mem::take(&mut data.notices);
+        let mut notices = if self.logged_in {
+            std::mem::take(&mut data.missed)
+        } else {
+            Vec::new()
+        };
+        notices.append(&mut data.notices);
         self.play.tick(ui, &view, &notices, &mut data.out);
     }
 
@@ -840,6 +848,13 @@ impl Retail {
             .map(|p| &mut p.play)
     }
 
+    /// Whether the play screen is up with the player in the world, its panels made.
+    fn logged_in(&self) -> bool {
+        let s = self.flow.flow.current();
+        s.and_then(|s| s.as_any()?.downcast_ref::<PlayScreen>())
+            .is_some_and(|p| p.logged_in)
+    }
+
     fn toolbar(&self) -> Option<&Toolbar> {
         self.play()?.child::<Toolbar>()
     }
@@ -863,6 +878,13 @@ impl Retail {
     #[must_use]
     pub fn vitals_shown(&self) -> Option<[u32; 4]> {
         self.play()?.child::<StatusBar>()?.vitals_shown()
+    }
+
+    /// The set of ten the shortcut bar shows (from 1), while playing.
+    #[must_use]
+    pub fn shortcut_set(&self) -> Option<u32> {
+        let bar = self.toolbar()?.child::<Shortcuts>()?;
+        Some(bar.offset() / 10 + 1)
     }
 
     /// The war button lit (attacking, as the player's scripts last said), while playing.
@@ -2234,6 +2256,10 @@ impl Interface for Retail {
             auto.update(game, requests);
         }
         self.chat_service(game, requests);
+        // Out of the world, what was missed in it is no longer heard.
+        if !matches!(game.phase, Phase::Entering | Phase::World) {
+            self.flow.flow.data.missed.clear();
+        }
         match game.phase {
             Phase::Disconnected => {
                 if self.was_connected {
@@ -2358,8 +2384,38 @@ impl Interface for Retail {
         self.typing()
     }
 
-    fn leave(&mut self, _game: &Game<'_>, _requests: &mut Vec<Request>) {
+    /// Shown again while the session goes on (the player in the world or entering it), another
+    /// interface having been shown: the play screen catches up with what the player's scripts
+    /// hold. With its panels up, the shortcut bar reads the shortcuts again (the set in view, which
+    /// the other interface may have changed, among them); coming up into a world it did not see
+    /// entered, it hears what each entry brings, the player's options come again (the panels put
+    /// where the options keep them, the bar's set, its numbering, its slots and its height).
+    fn enter(&mut self, game: &Game<'_>) {
+        if !matches!(game.phase, Phase::Entering | Phase::World) {
+            return;
+        }
+        let native = if self.logged_in() {
+            shortcuts::notice::RELOAD_SHORTCUTS
+        } else {
+            gameplay::notice::RELOAD_OPTIONS
+        };
+        self.flow.flow.data.missed = vec![gameplay::Notice {
+            native,
+            ..gameplay::Notice::default()
+        }];
+    }
+
+    /// What is held let go; with the play screen up, its panels' places kept as they are (as a
+    /// panel moved keeps them), so that a later putting back (the display set up again while
+    /// another interface is shown, the player's options coming again) brings back the windows
+    /// the player had open, where they were.
+    fn leave(&mut self, _game: &Game<'_>, requests: &mut Vec<Request>) {
         self.let_go();
+        if self.logged_in() {
+            if let Some(f) = self.play().map(GamePlay::frame) {
+                requests.push(places::Places::save(&self.ui, f));
+            }
+        }
     }
 
     fn set_random(&mut self, random: &auberean_world::chargen::Random) {

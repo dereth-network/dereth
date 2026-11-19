@@ -1036,6 +1036,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.horizon.a-first-switch-to-the-game-s-own-interface-shows-its-login-s-panels",
+        says: "The game's own interface chosen for the first time with the player in the world \
+               shows what logging in with it shows: the panels its login shows, the windows the \
+               player's options keep open, and the shortcut bar on the set the player's scripts \
+               hold, the one Horizon showed.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-SWITCH-FIRST-RETAIL"),
+        station: "auberean-horizon::dat::interfaces::a_first_switch_to_the_game_s_own_interface_shows_what_its_login_shows",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.horizon.a-line-typed-goes-to-the-command-line-and-its-answer-is-logged",
         says: "A line typed in Horizon's chat entry goes to the player's command line as the \
                game's own chat sends it: the command line's answer shows in Horizon's log (a line \
@@ -1173,6 +1185,28 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD2-interface-choice",
         evidence: Evidence::Private("AC2-EVID-HORIZON-LOGOUT-TIMELINE"),
         station: "auberean-horizon::dat::leaving::logging_out_shows_the_wait_then_portal_space_long_enough_to_see_then_character_select",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.switching-back-keeps-horizon-s-windows-and-the-set-shown",
+        says: "Horizon left for the game's own interface and chosen again opens the windows that \
+               were open in it again, where they were, and its hotbar shows the set it showed; the \
+               game's own shortcut bar shows that set meanwhile.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-SWITCH-HORIZON-WINDOWS"),
+        station: "auberean-horizon::dat::interfaces::switching_back_keeps_horizon_s_windows_where_they_were_and_the_set_shown",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.horizon.switching-back-keeps-the-game-s-own-windows-and-the-set-shown",
+        says: "The game's own interface left for Horizon and chosen again shows the windows that \
+               were open in it and no others, also when the window was resized meanwhile, and its \
+               shortcut bar shows the set Horizon last showed; Horizon shows the set it showed.",
+        since: THIS_CLIENT,
+        divergence: "CD2-interface-choice",
+        evidence: Evidence::Private("AC2-EVID-HORIZON-SWITCH-RETAIL-WINDOWS"),
+        station: "auberean-horizon::dat::interfaces::switching_back_keeps_the_game_s_own_windows_and_shows_the_set_horizon_showed",
         tier: Tier::Dat,
     },
     behaviour! {
