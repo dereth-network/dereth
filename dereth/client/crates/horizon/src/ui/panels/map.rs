@@ -8,9 +8,13 @@
 //! the world and the tiles go and keeps the picture of the whole.
 //!
 //! The picture names nothing: the places are drawn over it, read from the same data
-//! ([`dereth_scene::world_map::places`]). Players see the towns, each a [`town_icon`] with its
-//! name, the smaller places the game's map names, and the houses as the map is zoomed in far
-//! enough to tell them apart.
+//! ([`dereth_scene::world_map::places`]) and the places the player has learned of the world. The
+//! whole world shows its towns alone, each a [`town_icon`] with its name. Closing in marks the
+//! landmarks and dungeons, then the lifestones and portals, the houses and the vendors, and the
+//! people last, each kind named a step after it is marked ([`marked_from`], [`named_from`]). The
+//! steps go by how large the world is drawn on the screen, so a step is the same in any window,
+//! and the closest view always reaches the people's names. A name that would overlap another is
+//! left out, the towns' first.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -88,15 +92,67 @@ pub fn map_place(x: f32, y: f32) -> Option<(f64, f64)> {
     (on(ns) && on(ew)).then_some((ns, ew))
 }
 
-/// The zoom from which the map marks a place of `kind`.
+/// The detail of the closest view: screen pixels to a unit of the game's coordinates, the most a
+/// picture pixel is magnified times the picture's pixels to a unit, in any window.
+#[allow(clippy::cast_possible_truncation)] // LINT-OK: 90.
+pub const MOST_DETAIL: f32 = MOST_MAGNIFIED * PER_UNIT as f32;
+
+/// The detail from which the map marks a place of `kind`, in screen pixels to a unit of the game's
+/// coordinates ([`MapView::detail`]); towns at any, and when the whole world is shown, them alone
+/// ([`MapView::marks`]). On a screen of 1080 lines at 100% the steps fall at the zooms 2, 3, 4, 6
+/// and 10.
 #[must_use]
 pub const fn marked_from(kind: PlaceKind) -> f32 {
     match kind {
-        PlaceKind::Town | PlaceKind::Landmark | PlaceKind::Dungeon => 1.0,
-        PlaceKind::Lifestone | PlaceKind::Portal => 3.0,
-        PlaceKind::Mansion => 4.0,
-        PlaceKind::Villa | PlaceKind::Cottage | PlaceKind::Vendor => 6.0,
-        PlaceKind::Npc => 10.0,
+        PlaceKind::Town => 0.0,
+        PlaceKind::Landmark | PlaceKind::Dungeon => 4.0,
+        PlaceKind::Lifestone | PlaceKind::Portal => 7.0,
+        PlaceKind::Mansion => 9.0,
+        PlaceKind::Villa | PlaceKind::Cottage | PlaceKind::Vendor => 14.0,
+        PlaceKind::Npc => 24.0,
+    }
+}
+
+/// The detail from which the map names a place of `kind` beside its mark, a step after it is
+/// marked; `None` for the houses, which are named only under the pointer. On a screen of 1080
+/// lines at 100% the steps fall at the zooms 3, 5, 8 and 14.
+#[must_use]
+pub const fn named_from(kind: PlaceKind) -> Option<f32> {
+    match kind {
+        PlaceKind::Town => Some(0.0),
+        PlaceKind::Landmark | PlaceKind::Dungeon => Some(7.0),
+        PlaceKind::Lifestone | PlaceKind::Portal => Some(12.0),
+        PlaceKind::Vendor => Some(19.0),
+        PlaceKind::Npc => Some(34.0),
+        PlaceKind::Mansion | PlaceKind::Villa | PlaceKind::Cottage => None,
+    }
+}
+
+/// The names that fit, by rank (the lowest first, and in their order within a rank): each kept
+/// clear of everything in `taken`, which takes it in turn; one that would overlap is left out.
+fn fit_names<T>(taken: &mut Vec<Rect>, mut names: Vec<(u8, Rect, T)>) -> Vec<(Rect, T)> {
+    names.sort_by_key(|(rank, _, _)| *rank);
+    let mut kept = Vec::new();
+    for (_, r, it) in names {
+        if !taken.iter().any(|t| t.intersect(&r).is_some()) {
+            taken.push(r);
+            kept.push((r, it));
+        }
+    }
+    kept
+}
+
+/// Which names have the room first when two would overlap: the lower, the sooner.
+const fn name_rank(kind: PlaceKind) -> u8 {
+    match kind {
+        PlaceKind::Town => 0,
+        PlaceKind::Landmark => 1,
+        PlaceKind::Dungeon => 2,
+        PlaceKind::Lifestone => 3,
+        PlaceKind::Portal => 4,
+        PlaceKind::Vendor => 5,
+        PlaceKind::Npc => 6,
+        PlaceKind::Mansion | PlaceKind::Villa | PlaceKind::Cottage => 7,
     }
 }
 
@@ -154,6 +210,8 @@ pub struct MapView {
     pub centre: (f32, f32),
     /// Where the out, in and fit buttons were drawn this frame.
     pub buttons: Option<[Rect; 3]>,
+    /// The places named over the picture this frame, and where each name was drawn.
+    pub named: Vec<(PlaceKind, String, Rect)>,
     /// Where the pointer last was in a pan under way.
     drag: Option<(f32, f32)>,
     /// The tiles drawn, and when a view last needed each.
@@ -177,6 +235,7 @@ impl Default for MapView {
             zoom: 1.0,
             centre: (MAP_SIZE / 2.0, MAP_SIZE / 2.0),
             buttons: None,
+            named: Vec::new(),
             drag: None,
             tiles: HashMap::new(),
             places: None,
@@ -215,6 +274,28 @@ impl MapView {
         let shown = self.shown();
         let k = shown.w / area.w;
         (shown.x + (at.0 - area.x) * k, shown.y + (at.1 - area.y) * k)
+    }
+
+    /// How large the view over `area` draws the world: screen pixels to a unit of the game's
+    /// coordinates. The whole picture fitted to the map's 514 layout units is about 2.5 a unit at
+    /// a scale of 1; the closest view is [`MOST_DETAIL`] in any window.
+    #[must_use]
+    pub fn detail(&self, area: Rect) -> f32 {
+        #[allow(clippy::cast_possible_truncation)] // LINT-OK: 30.
+        let per_unit = PER_UNIT as f32;
+        self.zoom * area.w / MAP_SIZE * per_unit
+    }
+
+    /// Whether the view over `area` marks a place of `kind`: the whole world its towns alone.
+    #[must_use]
+    pub fn marks(&self, area: Rect, kind: PlaceKind) -> bool {
+        kind == PlaceKind::Town || (self.zoom > 1.0 && self.detail(area) >= marked_from(kind))
+    }
+
+    /// Whether the view over `area` names a place of `kind` beside its mark.
+    #[must_use]
+    pub fn names(&self, area: Rect, kind: PlaceKind) -> bool {
+        self.marks(area, kind) && named_from(kind).is_some_and(|d| self.detail(area) >= d)
     }
 
     /// The view held on the picture, at a zoom `area` can show.
@@ -640,9 +721,10 @@ impl Windows {
         view.let_tiles_go(p, ctx.time - TILE_KEPT);
     }
 
-    /// The places over the picture: the towns' icons and names, then the landmarks' and the
-    /// houses' marks as the zoom shows them, with the landmarks' names where they fit; and the name
-    /// and place of the one under the pointer. None until the data has been read.
+    /// The places over the picture: the towns' icons and names, then the other places' marks as
+    /// the zoom shows them ([`marked_from`]), with their names a step later ([`named_from`]) where
+    /// they fit; and the name and place of the one under the pointer. None until the data has
+    /// been read.
     fn map_places(
         &mut self,
         p: &mut Painter<'_>,
@@ -650,6 +732,7 @@ impl Windows {
         state: &GameState,
         area: Rect,
     ) {
+        self.map_view.named.clear();
         let Some(places) = self
             .map_view
             .places_with(state.map_places.as_ref(), state.world_places.as_ref())
@@ -657,6 +740,7 @@ impl Windows {
             return;
         };
         let view = &self.map_view;
+        let mut named: Vec<(PlaceKind, String, Rect)> = Vec::new();
         let k = p.scale;
         let town =
             TextStyle::new(Family::Heading, 13.0, ctx.colours.text()).edge(ctx.colours.edge());
@@ -686,6 +770,7 @@ impl Windows {
             if !taken.iter().any(|t| t.intersect(&name).is_some()) {
                 p.text(&town, name.x, name.y, &place.name);
                 taken.push(name);
+                named.push((place.kind, place.name.clone(), name));
             }
         }
         {
@@ -693,7 +778,10 @@ impl Windows {
             let pointed = pointed_at.is_none() && ctx.input.hover(&area);
             let mark_side = MARK_SIDE * k;
             let mut nearest: Option<(f32, &Place)> = None;
-            let shown = |kind: PlaceKind| kind != PlaceKind::Town && view.zoom >= marked_from(kind);
+            let shown = |kind: PlaceKind| kind != PlaceKind::Town && view.marks(area, kind);
+            // The names to place once every mark is down, by their rank: one that would overlap a
+            // name before it is left out at this zoom.
+            let mut names: Vec<(u8, (f32, f32), &Place)> = Vec::new();
             for place in places.iter().filter(|pl| shown(pl.kind)) {
                 let at = view.on_screen(area, map_pixel(place.ns, place.ew));
                 if !area.contains(at.0, at.1) {
@@ -721,22 +809,34 @@ impl Windows {
                         nearest = Some((d, place));
                     }
                 }
-                if matches!(place.kind, PlaceKind::Landmark | PlaceKind::Dungeon) {
-                    let (w, h) = (p.measure(&small, &place.name), p.line_height(&small));
-                    let r = Rect::new(at.0 + mark_side, at.1 - h / 2.0, w, h);
-                    if !taken.iter().any(|t| t.intersect(&r).is_some()) {
-                        p.text(&small, r.x, r.y, &place.name);
-                        taken.push(r);
-                    }
+                if view.names(area, place.kind) {
+                    names.push((name_rank(place.kind), at, place));
                 }
+            }
+            let boxes: Vec<(u8, Rect, &Place)> = names
+                .into_iter()
+                .map(|(rank, at, place)| {
+                    let (w, h) = (p.measure(&small, &place.name), p.line_height(&small));
+                    (
+                        rank,
+                        Rect::new(at.0 + mark_side, at.1 - h / 2.0, w, h),
+                        place,
+                    )
+                })
+                .collect();
+            for (r, place) in fit_names(&mut taken, boxes) {
+                p.text(&small, r.x, r.y, &place.name);
+                named.push((place.kind, place.name.clone(), r));
             }
             pointed_at = pointed_at.or(nearest.map(|(_, place)| place));
         }
         p.list.pop_clip();
-        if let Some(place) = pointed_at {
+        let pointed_at = pointed_at.map(|place| (place.name.clone(), place.ns, place.ew));
+        self.map_view.named = named;
+        if let Some((name, ns, ew)) = pointed_at {
             #[allow(clippy::cast_possible_truncation)] // LINT-OK: a coordinate within the world.
-            let at = coords_text(place.ns as f32, place.ew as f32);
-            self.tip = Some((place.name.clone(), vec![at]));
+            let at = coords_text(ns as f32, ew as f32);
+            self.tip = Some((name, vec![at]));
         }
     }
 
@@ -792,6 +892,136 @@ impl Windows {
 mod tests {
     //! Behaviour: none (experimental Horizon interface)
     use super::*;
+
+    const KINDS: [PlaceKind; 10] = [
+        PlaceKind::Town,
+        PlaceKind::Landmark,
+        PlaceKind::Dungeon,
+        PlaceKind::Lifestone,
+        PlaceKind::Portal,
+        PlaceKind::Mansion,
+        PlaceKind::Villa,
+        PlaceKind::Cottage,
+        PlaceKind::Vendor,
+        PlaceKind::Npc,
+    ];
+
+    /// The kinds a view at `zoom` over a picture `side` pixels across marks, and those it names.
+    fn shown_at(side: f32, zoom: f32) -> (Vec<PlaceKind>, Vec<PlaceKind>) {
+        let area = Rect::new(0.0, 0.0, side, side);
+        let view = MapView {
+            zoom,
+            ..MapView::default()
+        };
+        let pick = |f: &dyn Fn(PlaceKind) -> bool| KINDS.into_iter().filter(|k| f(*k)).collect();
+        (
+            pick(&|k| view.marks(area, k)),
+            pick(&|k| view.names(area, k)),
+        )
+    }
+
+    /// The map's picture at 1920x1080 and 100%, and one four times as wide.
+    const SMALL: f32 = 514.0;
+    const LARGE: f32 = 2056.0;
+
+    /// The whole map marks and names its towns alone; closing in marks the landmarks and dungeons,
+    /// then the portals and lifestones, the houses and vendors, and the people last; and each kind
+    /// is named only from a step after the one that marks it.
+    #[test]
+    fn the_whole_map_shows_towns_alone_and_each_kind_is_named_after_it_is_marked() {
+        use PlaceKind::{
+            Cottage, Dungeon, Landmark, Lifestone, Mansion, Npc, Portal, Town, Vendor, Villa,
+        };
+        let at = |zoom| shown_at(SMALL, zoom);
+        assert_eq!(at(1.0), (vec![Town], vec![Town]));
+        assert_eq!(at(2.0), (vec![Town, Landmark, Dungeon], vec![Town]));
+        let (marked, named) = at(3.0);
+        assert_eq!(marked, [Town, Landmark, Dungeon, Lifestone, Portal]);
+        for k in [Vendor, Mansion, Villa, Cottage, Npc] {
+            assert!(!marked.contains(&k), "{k:?} marked at 3");
+        }
+        assert_eq!(named, [Town, Landmark, Dungeon]);
+        assert!(at(4.0).0.contains(&Mansion) && !at(4.0).0.contains(&Vendor));
+        assert!(at(6.0).0.contains(&Vendor) && at(6.0).0.contains(&Villa));
+        assert!(
+            !at(9.0).0.contains(&Npc),
+            "people only at the closest zooms"
+        );
+        assert_eq!(at(10.0).0.len(), KINDS.len());
+        assert!(!at(10.0).1.contains(&Npc) && at(14.0).1.contains(&Npc));
+        for k in KINDS {
+            if let Some(d) = named_from(k) {
+                assert!(d >= marked_from(k), "{k:?} named before it is marked");
+                if k != Town {
+                    assert!(d > marked_from(k), "{k:?} named as soon as it is marked");
+                }
+            }
+        }
+    }
+
+    /// A step shows the same in any window: a picture four times as wide shows at a quarter of
+    /// the zoom what the smaller shows; the whole world is still its towns alone, and the closest
+    /// view names the people in both.
+    #[test]
+    fn a_zoom_step_shows_the_same_in_a_window_four_times_as_wide() {
+        for zoom in [6.0, 8.0, 10.0, 14.0, 20.0] {
+            assert_eq!(
+                shown_at(LARGE, zoom / 4.0),
+                shown_at(SMALL, zoom),
+                "zoom {zoom} against {}",
+                zoom / 4.0
+            );
+        }
+        assert_eq!(
+            shown_at(LARGE, 1.0),
+            (vec![PlaceKind::Town], vec![PlaceKind::Town])
+        );
+        for side in [SMALL, LARGE] {
+            let most = most_zoom(Rect::new(0.0, 0.0, side, side));
+            assert!(
+                shown_at(side, most).1.contains(&PlaceKind::Npc),
+                "{side} pixels across: the people are not named at the closest, {most}"
+            );
+            assert!(
+                (MapView {
+                    zoom: most,
+                    ..MapView::default()
+                }
+                .detail(Rect::new(0.0, 0.0, side, side))
+                    - MOST_DETAIL)
+                    .abs()
+                    < 0.01
+            );
+        }
+        assert!(
+            most_zoom(Rect::new(0.0, 0.0, LARGE, LARGE)) < 10.0,
+            "the larger picture's closest is under the zoom that marked the people before"
+        );
+    }
+
+    /// Names never overlap: one that would is left out, the towns' first and then by rank,
+    /// whatever order the places come in.
+    #[test]
+    fn a_name_that_would_overlap_another_is_left_out_by_rank() {
+        let r = |x: f32, y: f32| Rect::new(x, y, 40.0, 10.0);
+        let mut taken = vec![r(0.0, 0.0)];
+        let names = vec![
+            (name_rank(PlaceKind::Npc), r(30.0, 100.0), "Guard"),
+            (name_rank(PlaceKind::Portal), r(20.0, 5.0), "under the town"),
+            (name_rank(PlaceKind::Landmark), r(10.0, 102.0), "Landmark"),
+            (name_rank(PlaceKind::Vendor), r(200.0, 0.0), "clear"),
+        ];
+        let kept: Vec<&str> = fit_names(&mut taken, names)
+            .into_iter()
+            .map(|(_, n)| n)
+            .collect();
+        assert_eq!(kept, ["Landmark", "clear"]);
+        for (i, a) in taken.iter().enumerate() {
+            for b in &taken[i + 1..] {
+                assert!(a.intersect(b).is_none(), "{a:?} {b:?}");
+            }
+        }
+    }
 
     /// A place and its pixel are each other's, and Holtburg's is where the picture draws it.
     #[test]

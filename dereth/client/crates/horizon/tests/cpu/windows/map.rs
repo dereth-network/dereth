@@ -263,6 +263,242 @@ fn a_player_sees_the_towns_and_then_the_houses_as_the_map_zooms_in() {
     assert_eq!(marks(&h, PlaceKind::Villa), 1);
 }
 
+/// The whole map is towns alone; closing in marks the landmarks and dungeons, then the portals
+/// and lifestones, then the people.
+#[test]
+fn the_whole_map_shows_only_towns_and_more_kinds_of_place_as_it_zooms_in() {
+    let (state, art) = (player(), Arc::new(Art::empty()));
+    let (mut h, _) = opened(&art, &state);
+    let marks = |h: &Harness, kind: PlaceKind| {
+        h.list
+            .quads
+            .iter()
+            .filter(|q| q.tex.is_none() && q.colour & 0x00FF_FFFF == colour(kind) & 0x00FF_FFFF)
+            .count()
+    };
+    let mut built = drawn();
+    let place = |kind, name: &str, ns, ew| Place {
+        kind,
+        name: name.to_owned(),
+        ns,
+        ew,
+    };
+    built.places = Arc::new(vec![
+        place(PlaceKind::Town, "Holtburg", 42.2, 33.8),
+        place(PlaceKind::Dungeon, "Drudge Hideout", 42.5, 33.5),
+        place(PlaceKind::Portal, "Portal to Somewhere", 42.0, 34.1),
+        place(PlaceKind::Lifestone, "Life Stone", 42.1, 33.9),
+        place(PlaceKind::Npc, "Guard", 42.25, 33.7),
+    ]);
+    h.ui.windows.map_view.show(built);
+    let at = |h: &mut Harness, zoom: f32| {
+        h.ui.windows.map_view.zoom = zoom;
+        h.ui.windows.map_view.centre = map_pixel(42.2, 33.8);
+        h.frame(&state);
+        [
+            PlaceKind::Dungeon,
+            PlaceKind::Portal,
+            PlaceKind::Lifestone,
+            PlaceKind::Npc,
+        ]
+        .map(|k| marks(h, k))
+    };
+    assert_eq!(at(&mut h, 1.0), [0, 0, 0, 0], "towns alone");
+    assert_eq!(at(&mut h, 2.0), [1, 0, 0, 0], "and the dungeons");
+    assert_eq!(
+        at(&mut h, 3.0),
+        [1, 1, 1, 0],
+        "and the portals and lifestones"
+    );
+    assert_eq!(at(&mut h, 10.0), [1, 1, 1, 1], "and the people");
+}
+
+/// The map window open on a screen of `screen` pixels at the interface scale `scale` (`None`, the
+/// one the screen offers), with the fonts the client carries so its names have their widths,
+/// showing `places` about `(ns, ew)` at `zoom`.
+fn showing(
+    (screen, scale): ((f32, f32), Option<f32>),
+    places: Vec<Place>,
+    zoom: f32,
+    about: (f64, f64),
+) -> (Harness, Rect) {
+    let state = player();
+    let pieces = dereth_horizon::pieces::Pieces::built_in().expect("the pieces built in");
+    let mut h = Harness {
+        ui: HorizonUi::new(
+            Arc::new(Art::new(Arc::new(pieces))),
+            HorizonOptions {
+                scale,
+                ..HorizonOptions::default()
+            },
+        ),
+        list: DrawList::default(),
+        input: InputFrame::default(),
+        screen,
+    };
+    h.frame(&state);
+    h.ui.windows.open(WindowId::Map, 0.0);
+    h.frame(&state);
+    let mut built = drawn();
+    built.places = Arc::new(places);
+    h.ui.windows.map_view.show(built);
+    h.ui.windows.map_view.zoom = zoom;
+    h.ui.windows.map_view.centre = map_pixel(about.0, about.1);
+    h.frame(&state);
+    let area = h.ui.windows.map_picture.expect("the map's picture");
+    (h, area)
+}
+
+fn named(h: &Harness) -> Vec<&str> {
+    h.ui.windows
+        .map_view
+        .named
+        .iter()
+        .map(|(_, name, _)| name.as_str())
+        .collect()
+}
+
+/// No two names drawn over the picture overlap.
+fn assert_apart(h: &Harness) {
+    let names = &h.ui.windows.map_view.named;
+    for (i, (_, a, ra)) in names.iter().enumerate() {
+        for (_, b, rb) in &names[i + 1..] {
+            assert!(
+                ra.intersect(rb).is_none(),
+                "{a:?} {ra:?} overlaps {b:?} {rb:?}"
+            );
+        }
+    }
+}
+
+/// A screen of 1080 lines at 100%, and the largest picture the map draws: 7680x4320 at 300%.
+const FULL_HD: ((f32, f32), Option<f32>) = ((1920.0, 1080.0), None);
+const LARGEST: ((f32, f32), Option<f32>) = ((7680.0, 4320.0), Some(3.0));
+
+fn spot(kind: PlaceKind, name: &str, ns: f64, ew: f64) -> Place {
+    Place {
+        kind,
+        name: name.to_owned(),
+        ns,
+        ew,
+    }
+}
+
+/// A town and, five units south and on, one place of each kind three units apart, the person
+/// beside the vendor: far enough apart that no two names meet at any step.
+fn a_column() -> Vec<Place> {
+    vec![
+        spot(PlaceKind::Town, "Holtburg", 48.0, 33.8),
+        spot(PlaceKind::Dungeon, "Drudge Hideout", 43.0, 33.8),
+        spot(PlaceKind::Portal, "Portal to Somewhere", 40.0, 33.8),
+        spot(PlaceKind::Lifestone, "Life Stone", 37.0, 33.8),
+        spot(PlaceKind::Vendor, "Shopkeeper", 34.0, 33.8),
+        spot(PlaceKind::Npc, "Guard", 34.0, 36.8),
+    ]
+}
+
+/// The whole map names its towns alone; closing in names the dungeons a step after they are
+/// marked, then the portals and lifestones, the vendors, and the people last.
+#[test]
+fn each_kind_of_place_is_named_a_step_after_it_is_marked() {
+    let at = |zoom| {
+        let (h, _) = showing(FULL_HD, a_column(), zoom, (40.0, 34.5));
+        assert_apart(&h);
+        named(&h).into_iter().map(str::to_owned).collect::<Vec<_>>()
+    };
+    assert_eq!(at(1.0), ["Holtburg"]);
+    assert_eq!(at(2.0), ["Holtburg"], "the dungeon marked, not named");
+    assert_eq!(at(3.0), ["Holtburg", "Drudge Hideout"]);
+    assert_eq!(
+        at(5.0),
+        [
+            "Holtburg",
+            "Drudge Hideout",
+            "Life Stone",
+            "Portal to Somewhere"
+        ],
+        "the towns first, then by rank"
+    );
+    assert_eq!(at(6.0).len(), 4, "the vendor marked, not named");
+    assert_eq!(at(8.0).len(), 5);
+    assert!(
+        !at(10.0).contains(&"Guard".to_owned()),
+        "the person marked, not named"
+    );
+    assert!(at(14.0).contains(&"Guard".to_owned()));
+}
+
+/// The whole world is its towns alone in a window of any size, and the closest view names the
+/// people in the largest map as in one at 1080 lines, though it cannot zoom as far.
+#[test]
+fn the_closest_view_names_the_people_in_a_small_window_and_a_large_one() {
+    for screen in [FULL_HD, LARGEST] {
+        let (whole, area) = showing(screen, a_column(), 1.0, (40.0, 34.5));
+        assert_eq!(named(&whole), ["Holtburg"], "{screen:?}: {area:?}");
+        let (closest, area) = showing(screen, a_column(), 1000.0, (34.0, 36.8));
+        let zoom = closest.ui.windows.map_view.zoom;
+        assert!(
+            named(&closest).contains(&"Guard"),
+            "{screen:?}, at {zoom}: {:?}",
+            named(&closest)
+        );
+        if screen == LARGEST {
+            assert!(area.w > 1500.0, "{area:?}");
+            assert!(
+                zoom < 14.0,
+                "its closest is under the zoom 1080 lines names people at: {zoom}"
+            );
+        }
+    }
+}
+
+/// Two towns side by side: both are drawn, and the name that would overlap the other's is left
+/// out. A dungeon just under a town: the town keeps its name and the dungeon's is left out.
+#[test]
+fn names_drawn_over_the_picture_never_overlap_and_towns_keep_theirs() {
+    let (h, _) = showing(
+        FULL_HD,
+        vec![
+            spot(PlaceKind::Town, "Holtburg", 42.2, 33.8),
+            spot(PlaceKind::Town, "Holtburg Outskirts", 42.1, 33.9),
+        ],
+        1.0,
+        (42.2, 33.8),
+    );
+    assert_apart(&h);
+    assert_eq!(named(&h), ["Holtburg"]);
+
+    let (h, _) = showing(
+        FULL_HD,
+        vec![
+            spot(PlaceKind::Dungeon, "Drudge Hideout", 41.0, 33.6),
+            spot(PlaceKind::Town, "Holtburg", 42.2, 33.8),
+        ],
+        3.0,
+        (42.2, 33.8),
+    );
+    assert_apart(&h);
+    assert_eq!(
+        named(&h),
+        ["Holtburg"],
+        "the town's name over the dungeon's"
+    );
+    let (h, _) = showing(
+        FULL_HD,
+        vec![
+            spot(PlaceKind::Dungeon, "Drudge Hideout", 36.0, 33.6),
+            spot(PlaceKind::Town, "Holtburg", 42.2, 33.8),
+        ],
+        3.0,
+        (40.0, 33.8),
+    );
+    assert_eq!(
+        named(&h),
+        ["Holtburg", "Drudge Hideout"],
+        "apart, both named"
+    );
+}
+
 /// A store of one world's learned places about Holtburg: a lifestone outdoors, a vendor in a
 /// shop of the town, and a person in a dungeon.
 fn learned(world: &str) -> (Arc<dereth_navigation::PlaceStore>, u64) {
