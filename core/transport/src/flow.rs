@@ -128,12 +128,17 @@ pub struct FlowQueue {
     pub net_id: u16,
     /// Our own receiver record's `iteration`.
     pub iteration: u16,
-    /// The current local interval's id, a `u16` written into every outgoing `interval`.
+    /// The current local interval's id, a `u16` written into every outgoing `interval`. A client's
+    /// queue starts it at **1** ([`Self::client`]); the shared queue at 0.
     pub cur_local_interval: u16,
     /// `interval_time` — the next boundary.
     interval_time: LocalTime,
-    /// Whether `interval_time` has been primed.
+    /// Whether `interval_time` has been primed: at a client queue's creation, or else at the first
+    /// [`Self::advance_interval`].
     interval_started: bool,
+    /// A client's queue ([`Self::client`]): its interval events fire as the client tests them
+    /// ([`fires`]), not once per crossed multiple.
+    client: bool,
     /// Packets built and not yet sent.
     waiting: VecDeque<OutPacket>,
     /// The blob queue, a min-heap keyed by blob priority. **Lower priority values are sent
@@ -177,6 +182,7 @@ impl FlowQueue {
             cur_local_interval: 0,
             interval_time: LocalTime::default(),
             interval_started: false,
+            client: false,
             waiting: VecDeque::new(),
             blob_queue: Vec::new(),
             ack_list: Vec::new(),
@@ -185,6 +191,20 @@ impl FlowQueue {
             bytes_sent_this_interval: 0,
             time_sensitive: TimeSensitive::default(),
             pending_sections: Vec::new(),
+        }
+    }
+
+    /// A client's queue, created at `now`: its interval starts at **1**, its interval clock at its
+    /// creation (so the first advance after it already counts one interval), and its interval
+    /// events fire as the client tests them ([`fires`]).
+    #[must_use]
+    pub fn client(net_id: u16, iteration: u16, now: LocalTime) -> Self {
+        Self {
+            cur_local_interval: 1,
+            interval_time: now,
+            interval_started: true,
+            client: true,
+            ..Self::new(net_id, iteration)
         }
     }
 
@@ -666,12 +686,18 @@ impl FlowQueue {
             .wrapping_add(u16::try_from(n).unwrap_or(u16::MAX));
         self.bytes_sent_this_interval = 0;
 
-        let after = before + n;
+        let fired = |period| {
+            if self.client {
+                fires(before, n, period)
+            } else {
+                crossed_multiple(before, before + n, period)
+            }
+        };
         let mut events = Vec::new();
-        if crossed_multiple(before, after, TIMESYNC_ECHO_INTERVALS) {
+        if fired(TIMESYNC_ECHO_INTERVALS) {
             events.push(IntervalEvent::TimeSyncAndEcho);
         }
-        if crossed_multiple(before, after, ICMD_INTERVALS) {
+        if fired(ICMD_INTERVALS) {
             events.push(IntervalEvent::IcmdKeepAlive);
         }
         events
@@ -701,11 +727,18 @@ fn is_lone_exclusive(p: &OutPacket) -> bool {
         })
 }
 
-/// Did the interval counter cross a multiple of `period` in going from `before` to `after`?
-///
-/// Retail's interval advance writes this as `(id + n) % period == 1 || n > period - 1 || it wrapped
-/// past a boundary`; the observable result is "fires once per `period` intervals", which is what
-/// this computes.
+/// Whether advancing the interval counter by `n` from `before` fires a `period`'s event, as the
+/// client's interval advance tests it: the new id is one past a multiple of `period`, or the step
+/// is a whole `period` or more, or the new id wrapped past a multiple without landing on it. From
+/// 1, one interval at a time, it fires every `period` intervals; a step of two or more from a
+/// multiple of `period` passes one past it without firing.
+fn fires(before: u32, n: u32, period: u32) -> bool {
+    let at = (before + n) % period;
+    at == 1 || n > period - 1 || (at != 0 && at < before % period)
+}
+
+/// Whether the interval counter crossed a multiple of `period` in going from `before` to `after`:
+/// the shared queue's events, once per `period` intervals from 0.
 fn crossed_multiple(before: u32, after: u32, period: u32) -> bool {
     before / period != after / period
 }
@@ -882,6 +915,83 @@ mod tests {
         assert_eq!(fq.cur_local_interval, 600, "0.5 s intervals over 300 s");
         assert_eq!(timesyncs, 100, "600 / 6 = one every 3 seconds");
         assert_eq!(icmds, 2, "600 / 220 = one every 110 seconds");
+    }
+
+    /// A client queue created at 10 s stamps interval 1, counts one interval at its first advance,
+    /// and one every 0.5 s from its creation after that: 5 at 12 s and 9 at 14 s, as the client's
+    /// headers read in a recorded login (1, then 2 a few milliseconds later, 5 and 9 at the next
+    /// two acknowledgements, 2 s apart).
+    #[test]
+    fn a_client_queue_starts_at_interval_one_and_counts_from_its_creation() {
+        let mut fq = FlowQueue::client(0x0B, 1, LocalTime(10.0));
+        assert_eq!(fq.cur_local_interval, 1);
+        fq.advance_interval(LocalTime(10.006));
+        assert_eq!(fq.cur_local_interval, 2, "the first advance counts one");
+        fq.advance_interval(LocalTime(12.0));
+        assert_eq!(fq.cur_local_interval, 5);
+        fq.advance_interval(LocalTime(14.0));
+        assert_eq!(fq.cur_local_interval, 9);
+    }
+
+    /// A client queue's time sync goes one interval past each multiple of six (7, 13, ...), not on
+    /// it.
+    #[test]
+    fn a_client_queues_time_sync_goes_one_past_each_multiple_of_six() {
+        let mut fq = FlowQueue::client(0x0B, 1, LocalTime(0.0));
+        fq.advance_interval(LocalTime(0.01));
+        fq.advance_interval(LocalTime(2.0));
+        assert_eq!(fq.cur_local_interval, 5);
+        assert_eq!(fq.advance_interval(LocalTime(2.01)), Vec::new(), "5 -> 6");
+        assert_eq!(fq.cur_local_interval, 6);
+        assert_eq!(
+            fq.advance_interval(LocalTime(2.51)),
+            vec![IntervalEvent::TimeSyncAndEcho],
+            "6 -> 7"
+        );
+    }
+
+    /// A client queue's interval events fire as the client tests them: landing one past a multiple
+    /// of the period, a step of a whole period, or wrapping past a multiple without landing on it; a
+    /// step of two or more from a multiple passes one past it without firing. One interval at a
+    /// time from 1, every 6 and every 220 as the shared queue's from 0.
+    #[test]
+    fn the_interval_events_fire_as_the_client_tests_them() {
+        let mut fq = FlowQueue::client(0x0B, 1, LocalTime(0.0));
+        let (mut timesyncs, mut icmds) = (0, 0);
+        let mut t = 0.0f64;
+        while t < 300.0 {
+            t += 0.1;
+            for e in fq.advance_interval(LocalTime(t)) {
+                match e {
+                    IntervalEvent::TimeSyncAndEcho => timesyncs += 1,
+                    IntervalEvent::IcmdKeepAlive => icmds += 1,
+                }
+            }
+        }
+        assert_eq!((timesyncs, icmds), (100, 2), "every 3 s and every 110 s");
+        let mut fq = FlowQueue::client(0x0B, 1, LocalTime(0.0));
+        let (mut timesyncs, mut icmds) = (0, 0);
+        let mut t = 0.0f64;
+        while t < 300.0 {
+            t += 0.1;
+            for e in fq.advance_interval(LocalTime(t)) {
+                match e {
+                    IntervalEvent::TimeSyncAndEcho => timesyncs += 1,
+                    IntervalEvent::IcmdKeepAlive => icmds += 1,
+                }
+            }
+        }
+        assert_eq!((timesyncs, icmds), (100, 2), "every 3 s and every 110 s");
+        assert!(fires(6, 1, 6), "6 -> 7 lands one past");
+        assert!(!fires(5, 1, 6), "5 -> 6 lands on the multiple");
+        assert!(!fires(6, 2, 6), "6 -> 8 passes 7 without firing");
+        assert!(fires(5, 3, 6), "5 -> 8 wraps past 6");
+        assert!(fires(2, 6, 6), "a whole period");
+        assert!(!fires(1, 4, 6), "1 -> 5 stays within");
+        assert!(
+            fires(219, 2, ICMD_INTERVALS),
+            "219 -> 221 lands one past 220"
+        );
     }
 
     /// A stalled client that resumes crosses many intervals in one tick, and the events still fire

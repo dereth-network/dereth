@@ -347,7 +347,7 @@ impl Net {
             rec_id,
             Connection {
                 receiver,
-                flow: FlowQueue::new(net_id, iteration),
+                flow: FlowQueue::client(net_id, iteration, now),
                 indicator: Indicator::new(),
                 state: ConnectionState::ConnectionRequestAcked,
                 addr,

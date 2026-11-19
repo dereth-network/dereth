@@ -80,7 +80,8 @@ fn expected_net_error() -> Vec<u8> {
         // clear.
         seq_id: 1,
         rec_id: REC_ID,
-        interval: 0,
+        // the client's flow queue starts its interval at 1, and no interval has passed yet
+        interval: 1,
         iteration: ITERATION,
         ..Default::default()
     });
