@@ -959,6 +959,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "plugins.nav.a-route-to-an-upstairs-room-ends-on-its-floor",
+        says: "A walk asked to go to a room, not a place in it, ends on that room's own floor: \
+               the bowyer's upstairs room in Holtburg, not the shop under it where the \
+               building stands.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-UPSTAIRS-CELL"),
+        station: "dereth-client-runtime::lib::travel::tests::a_route_to_an_upstairs_room_goes_up_to_its_floor",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "plugins.nav.a-route-to-someone-walled-off-ends-as-near-them-as-a-body-walks",
         says: "The walking route to someone whose own place no walk reaches ends at the place \
                nearest them that a walk does reach, within reach of them, and is walked there: \

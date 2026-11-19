@@ -15,6 +15,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ## Unreleased
 - Fixed the Navigator's turns swinging back and forth at low frame rates.
 - Horizon map: the whole world shows only towns, with more places as you zoom in.
+- Fixed the Navigator stopping downstairs, and waiting at portals that turn you away.
 - Fixed other players jumping back and forth while they fight.
 - Fixed the Navigator stopping when you search for a place.
 - Fixed the Navigator planning journeys through destroyed portals.

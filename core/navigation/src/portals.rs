@@ -12,8 +12,11 @@
 //! | [`EdgeSource::Hint`]: a seeded table for a known content version | lowest | anything else |
 //!
 //! A use that lands somewhere else updates the edge to where it landed; a use that is refused
-//! retires it, with the reason, until a later use succeeds. Recalls are kept per character, and
-//! only ever learned: where a recall sends a character is the server's business.
+//! retires it, with the reason, until a later use succeeds. A refusal the server gave a reason for
+//! (a quest the portal asks, a level, a player killer's standing) is the character's own, and kept
+//! for that character alone, for an hour ([`REFUSAL_KEPT`]) or until it uses the portal: a quest
+//! finished since may have opened it. Recalls are kept per character, and only
+//! ever learned: where a recall sends a character is the server's business.
 //!
 //! The store is text, one record a line, so it diffs and survives being edited by hand; see
 //! [`PortalStore::to_text`].
@@ -28,9 +31,18 @@ use crate::path::global_distance;
 
 /// How near two edges of one class stand to be one portal, metres.
 const SAME_PORTAL: f32 = 3.0;
+
+/// How long a portal's refusal of one character keeps it from that character's routes, seconds.
+pub const REFUSAL_KEPT: u64 = 60 * 60;
+
+/// Whether a portal of class `a` at `pa` and one of class `b` at `pb` are one portal: the same
+/// class when both are known, within [`SAME_PORTAL`].
+fn same_place(a: Option<u32>, pa: &Position, b: Option<u32>, pb: &Position) -> bool {
+    a.zip(b).is_none_or(|(a, b)| a == b) && global_distance(pa, pb) < SAME_PORTAL
+}
 /// The store's format version, the first line's second field. Version 1 had no `requires`
-/// field and version 2 no `shape`; both read still.
-pub const STORE_VERSION: u32 = 3;
+/// field, version 2 no `shape` and version 3 no `refusal` records; all read still.
+pub const STORE_VERSION: u32 = 4;
 
 /// Where an edge came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -391,15 +403,35 @@ pub struct PortalStore {
     pub world: String,
     portals: Vec<PortalEdge>,
     recalls: Vec<RecallEdge>,
+    /// The portals that refused one character, with the server's reason.
+    refused: Vec<CharacterRefusal>,
     /// Counts the changes, so a reader can tell when to read again.
     revision: u64,
+}
+
+/// A portal that refused one character, saying why: kept for that character until it uses it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CharacterRefusal {
+    /// The character's name.
+    pub character: String,
+    /// The portal's weenie class, when known.
+    pub wcid: Option<u32>,
+    /// Where it stands.
+    pub at: Position,
+    /// What the server said.
+    pub reason: String,
+    /// When, in seconds since 1970.
+    pub when: u64,
 }
 
 /// Two stores are equal when they know the same: how many times each was changed is not part of
 /// what they know.
 impl PartialEq for PortalStore {
     fn eq(&self, other: &Self) -> bool {
-        self.world == other.world && self.portals == other.portals && self.recalls == other.recalls
+        self.world == other.world
+            && self.portals == other.portals
+            && self.recalls == other.recalls
+            && self.refused == other.refused
     }
 }
 
@@ -466,6 +498,7 @@ impl PortalStore {
             world: world.into(),
             portals: Vec::new(),
             recalls: Vec::new(),
+            refused: Vec::new(),
             revision: 0,
         }
     }
@@ -501,6 +534,7 @@ impl PortalStore {
                 .cloned()
                 .collect(),
             recalls: self.recalls.clone(),
+            refused: self.refused.clone(),
             revision: 0,
         }
     }
@@ -558,6 +592,56 @@ impl PortalStore {
             requires: Vec::new(),
             shape: portal.shape,
         });
+    }
+
+    /// `character` used `portal` at `now` and the server refused it, saying why (`reason`): the
+    /// portal is kept from that character's routes, with the reason, until it uses it. Other
+    /// characters may still be routed through it.
+    pub fn learn_refusal_for(
+        &mut self,
+        character: &str,
+        portal: &PortalSighting,
+        reason: &str,
+        now: u64,
+    ) {
+        self.revision += 1;
+        self.refused.retain(|r| {
+            !(r.character.eq_ignore_ascii_case(character)
+                && same_place(r.wcid, &r.at, portal.wcid, &portal.position))
+        });
+        self.refused.push(CharacterRefusal {
+            character: character.to_owned(),
+            wcid: portal.wcid,
+            at: portal.position,
+            reason: reason.to_owned(),
+            when: now,
+        });
+    }
+
+    /// `character` used `portal`: what it refused that character before is forgotten.
+    pub fn forget_refusal_for(&mut self, character: &str, portal: &PortalSighting) {
+        let before = self.refused.len();
+        self.refused.retain(|r| {
+            !(r.character.eq_ignore_ascii_case(character)
+                && same_place(r.wcid, &r.at, portal.wcid, &portal.position))
+        });
+        if self.refused.len() != before {
+            self.revision += 1;
+        }
+    }
+
+    /// What the portal of `edge` said when it refused `character` within [`REFUSAL_KEPT`] of
+    /// `now`, if it did.
+    #[must_use]
+    pub fn refused_for(&self, character: &str, edge: &PortalEdge, now: u64) -> Option<&str> {
+        self.refused
+            .iter()
+            .find(|r| {
+                r.character.eq_ignore_ascii_case(character)
+                    && edge.same_portal(r.wcid, &r.at)
+                    && now.saturating_sub(r.when) < REFUSAL_KEPT
+            })
+            .map(|r| r.reason.as_str())
     }
 
     /// The character used `portal` at `now` and it refused (`reason`): every edge for that
@@ -716,10 +800,11 @@ impl PortalStore {
     /// The store as text:
     ///
     /// ```text
-    /// dereth-navigation-store<TAB>3
+    /// dereth-navigation-store<TAB>4
     /// world<TAB><identity>
     /// portal<TAB>source<TAB>wcid<TAB>name<TAB>from<TAB>to<TAB>verified<TAB>uses<TAB>failures<TAB>min<TAB>max<TAB>retired<TAB>requires<TAB>shape
     /// recall<TAB>character<TAB>recall<TAB>to<TAB>verified<TAB>uses
+    /// refusal<TAB>character<TAB>wcid<TAB>at<TAB>when<TAB>reason
     /// ```
     ///
     /// A position is `0xCELLID x y z`; an absent value is `-`; names and reasons have their tabs,
@@ -765,6 +850,17 @@ impl PortalStore {
                 write_position(&r.to),
                 r.verified,
                 r.uses
+            );
+        }
+        for r in &self.refused {
+            let _ = writeln!(
+                out,
+                "refusal\t{}\t{}\t{}\t{}\t{}",
+                escape(&r.character),
+                opt(r.wcid),
+                write_position(&r.at),
+                r.when,
+                escape(&r.reason)
             );
         }
         out
@@ -842,6 +938,15 @@ impl PortalStore {
                         uses: f[5].parse().map_err(|_| bad("uses"))?,
                     });
                 }
+                Some("refusal") if version >= 4 && f.len() == 6 => {
+                    store.refused.push(CharacterRefusal {
+                        character: unescape(f[1]),
+                        wcid: read_opt(f[2]).map_err(|()| bad("wcid"))?,
+                        at: read_position(f[3]).ok_or_else(|| bad("at"))?,
+                        when: f[4].parse().map_err(|_| bad("when"))?,
+                        reason: unescape(f[5]),
+                    });
+                }
                 _ => return Err(bad("unknown record")),
             }
         }
@@ -869,6 +974,9 @@ pub struct TeleportWatch {
     pub since: f64,
     /// How long to wait before taking it for refused.
     pub wait: f64,
+    /// Where it sends, when the body is known to be set down there already: a landing there
+    /// counts however near it is to where the body was.
+    pub to: Option<Position>,
 }
 
 impl TeleportWatch {
@@ -881,7 +989,10 @@ impl TeleportWatch {
     #[must_use]
     pub fn update(&self, at: &Position, idle: bool, now: f64) -> TeleportOutcome {
         let waited = now - self.since;
-        if idle && global_distance(at, &self.before) > Self::MOVED {
+        let there = self.to.is_some_and(|to| {
+            global_distance(at, &to) < 1.0 && global_distance(at, &self.before) > 1.0
+        });
+        if idle && (there || global_distance(at, &self.before) > Self::MOVED) {
             TeleportOutcome::Landed(*at)
         } else if (idle && waited > self.wait) || waited > 4.0 * self.wait {
             TeleportOutcome::Refused
@@ -958,6 +1069,7 @@ mod tests {
             before: frames[0].1,
             since: 0.0,
             wait: 15.0,
+            to: None,
         };
         for (t, at, idle) in frames {
             match watch.update(at, *idle, *t) {
@@ -1265,15 +1377,52 @@ portal\tpublished\t1000\tRanged\t0xA9B40021 84.000 7.500 94.000\t0x01AC0118 60.0
         // A version 2 store's lines have no shape; a shape field in one is no line of that
         // version.
         let v2 = text
-            .replacen("\t3\n", "\t2\n", 1)
+            .replacen("\t4\n", "\t2\n", 1)
             .replace("\t0x020001B3 1\n", "\n");
         let read = PortalStore::from_text(&v2).expect("a version 2 store reads");
         assert_eq!(read.portals()[0].shape, None);
-        assert!(PortalStore::from_text(&text.replacen("\t3\n", "\t2\n", 1)).is_err());
+        assert!(PortalStore::from_text(&text.replacen("\t4\n", "\t2\n", 1)).is_err());
         let odd = text.replace("\t0x020001B3 1\n", "\tround\n");
         assert!(
             PortalStore::from_text(&odd).is_err(),
             "a shape that does not read"
+        );
+    }
+
+    #[test]
+    fn a_portal_that_refused_one_character_saying_why_is_kept_from_that_character_alone() {
+        let mut s = PortalStore::new("W");
+        let edge = published(10.0, (None, None), "");
+        s.merge([edge.clone()]);
+        let why = "You must complete a quest to interact with that portal.";
+        s.learn_refusal_for("+Climber", &sighting(10.5), why, 50);
+        assert_eq!(s.refused_for("+climber", &s.portals()[0], 60), Some(why));
+        assert_eq!(s.refused_for("+Other", &s.portals()[0], 60), None);
+        assert_eq!(
+            s.refused_for("+Climber", &s.portals()[0], 50 + REFUSAL_KEPT),
+            None,
+            "tried again after an hour"
+        );
+        assert_eq!(
+            s.routable_for(&Traveller::default()).len(),
+            1,
+            "still routed for anyone the store has no word for"
+        );
+        // Read back, then forgotten once the character has used it.
+        let text = s.to_text();
+        assert!(text.contains("\nrefusal\t+Climber\t1234\t"), "{text}");
+        let mut read = PortalStore::from_text(&text).expect("reads");
+        assert_eq!(read, s);
+        read.forget_refusal_for("+CLIMBER", &sighting(10.0));
+        assert_eq!(read.refused_for("+Climber", &read.portals()[0], 60), None);
+        // A refusal line is no line of a version 3 store.
+        assert!(PortalStore::from_text(&text.replacen("\t4\n", "\t3\n", 1)).is_err());
+        let v3 = PortalStore::new("W")
+            .to_text()
+            .replacen("\t4\n", "\t3\n", 1);
+        assert!(
+            PortalStore::from_text(&v3).is_ok(),
+            "a version 3 store reads"
         );
     }
 
@@ -1298,7 +1447,7 @@ portal\tpublished\t1000\tRanged\t0xA9B40021 84.000 7.500 94.000\t0x01AC0118 60.0
             300,
         );
         let text = s.to_text();
-        assert!(text.starts_with("dereth-navigation-store\t3\n"), "{text}");
+        assert!(text.starts_with("dereth-navigation-store\t4\n"), "{text}");
         assert_eq!(PortalStore::from_text(&text), Ok(s));
         assert_eq!(
             PortalStore::from_text("dereth-navigation-store\t9\n"),

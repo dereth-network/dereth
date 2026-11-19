@@ -855,6 +855,8 @@ pub struct App<S: Shell> {
     nav_academies: Option<Vec<u16>>,
     /// Spells that fizzled since the travel's last step.
     travel_fizzles: usize,
+    /// The last portal refusal the server sent since the travel last ran ([`crate::travel::PORTAL_REFUSALS`]).
+    travel_portal_refused: Option<u32>,
     /// The documents the server publishes, as a host fetched them (`--nav-published`, or those
     /// the world's status names, `--world-status`): its portal table and its places, each taken
     /// into the travel at the next frame.

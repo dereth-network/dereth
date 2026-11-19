@@ -1452,6 +1452,21 @@ impl<S: Shell> App<S> {
                     )
                 })
                 .count();
+            // A portal that would not take the character, for the travel to do without it.
+            if let Some(code) = crate::frame_hook::outcomes_of(events)
+                .iter()
+                .rev()
+                .find_map(|o| match o {
+                    crate::frame_hook::Outcome::WeenieError { code }
+                        if crate::travel::portal_refusal(*code).is_some() =>
+                    {
+                        Some(*code)
+                    }
+                    _ => None,
+                })
+            {
+                self.travel_portal_refused = Some(code);
+            }
             if let Some(hook) = &self.frame_hook {
                 self.hook_outcomes
                     .extend(crate::frame_hook::outcomes_of(events));

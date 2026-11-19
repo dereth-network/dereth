@@ -174,6 +174,7 @@ impl<S: Shell> App<S> {
                 || self.actions.player_movement()
                 || self.orbit_pending.iter().any(crate::actions::is_movement),
             fizzled: std::mem::take(&mut self.travel_fizzles) > 0,
+            portal_refused: self.travel_portal_refused.take(),
             object: &object,
             hand_backs,
             holds: &holds,

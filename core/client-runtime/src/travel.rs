@@ -432,6 +432,8 @@ pub struct TravelInput<'a> {
     pub player_input: bool,
     /// Whether a spell the character cast fizzled since the last step.
     pub fizzled: bool,
+    /// A portal's refusal the server sent since the last step ([`PORTAL_REFUSALS`]).
+    pub portal_refused: Option<u32>,
     /// Where an object is.
     pub object: &'a dyn Fn(ObjectId) -> Option<Position>,
     /// The people in sight who send the character on for a token handed back.
@@ -716,6 +718,9 @@ struct Trip {
     /// open after [`DOOR_TRIES`] uses (something in the way, or slow), which are tried again once
     /// when no other way remains.
     locked: BTreeSet<u32>,
+    /// The last door on the way that would not open, named, and why: what a journey that finds
+    /// no way round it says.
+    shut: Option<String>,
     /// Doors whose use the server answered as locked (`OpenFailDueToLock`).
     lock_answers: BTreeSet<u32>,
     /// Doors that have had their second go: if they stay shut, the journey has no way through them.
@@ -763,6 +768,9 @@ const READY_WAIT: f64 = 12.0;
 const STANCE_SETTLE: f64 = 1.5;
 /// A portal is used from this close.
 const PORTAL_REACH: f32 = 3.0;
+/// How near a portal's destination a body set down is to have been sent by it, metres; and the
+/// least a step must carry the body to be looked at as one.
+const LANDS_WITHIN: f32 = 5.0;
 /// An object whose own place a body cannot walk to (a shopkeeper behind a counter, someone in a
 /// booth with a window to the street) is walked to within this of it: inside the distance an
 /// object is used from.
@@ -771,6 +779,45 @@ pub const OBJECT_REACH: f32 = 3.0;
 pub const PORTAL_RECALL: u32 = 2645;
 /// The server's word that a cast fizzled (`Communication_WeenieError` code).
 pub const FIZZLED: u32 = 0x0402;
+
+/// The server's words that a portal will not take the character (`Communication_WeenieError`
+/// codes), each with whether the refusal lasts. One that lasts (a quest the portal asks, a level,
+/// a player killer's standing, an expansion) is kept for the character; a passing one (teleported
+/// or in a player killer battle too recently, weakened by vitae) is not.
+pub const PORTAL_REFUSALS: [(u32, bool); 18] = [
+    (0x0446, true),  // QuestSolvedTooLongAgo
+    (0x045C, true),  // PKsMayNotUsePortal
+    (0x045D, true),  // NonPKsMayNotUsePortal
+    (0x0466, true),  // YouMustHaveDarkMajestyToUsePortal
+    (0x0474, true),  // YouMustCompleteQuestToUsePortal
+    (0x04A7, false), // YouHaveBeenTeleportedTooRecently
+    (0x04A8, true),  // YouMustBeAnAdvocateToUsePortal
+    (0x04AA, true),  // PlayersMayNotUsePortal
+    (0x04AB, true),  // YouAreNotPowerfulEnoughToUsePortal
+    (0x04AC, true),  // YouAreTooPowerfulToUsePortal
+    (0x04C4, true),  // YouMustBeHouseGuestToUsePortal
+    (0x04CC, false), // YouHaveBeenInPKBattleTooRecently
+    (0x04F3, true),  // PKLiteMayNotUsePortal
+    (0x0554, true),  // MustPurchaseThroneOfDestinyToUsePortal
+    (0x058F, true),  // OnlyOlthoiMayUsePortal
+    (0x0590, true),  // OlthoiMayNotUsePortal
+    (0x0591, false), // YouMayNotUsePortalWithVitae
+    (0x0592, true),  // YouMustBeTwoWeeksOldToUsePortal
+];
+
+/// What the server said in refusing a portal with `code`, as the chat shows it, and whether the
+/// refusal lasts; `None` for a code that is no portal's refusal.
+#[must_use]
+pub fn portal_refusal(code: u32) -> Option<(String, bool)> {
+    let &(_, lasting) = PORTAL_REFUSALS.iter().find(|(c, _)| *c == code)?;
+    // The quest solved too long ago has no line of the client's own: the server says it in chat.
+    let text = dereth_client_contract::chat::failure::arm_for(code)
+        .and_then(|(_, arm)| arm.render(""))
+        .unwrap_or_else(|| {
+            String::from("You completed the quest this portal requires too long ago!")
+        });
+    Some((text.trim_end().to_owned(), lasting))
+}
 /// How near the person of a hand-back the character stands before it uses them or gives back
 /// the token, metres: the server walks it the last of the way.
 const HAND_BACK_REACH: f32 = 4.0;
@@ -848,15 +895,14 @@ pub fn blocks_round(a: CellId, b: CellId) -> Vec<LandblockId> {
     out
 }
 
-/// A cell's middle: an interior cell's frame origin, or a land cell's centre on the ground.
+/// A cell's middle: the middle of an interior cell's largest floor, or of a land cell on the
+/// ground. A cell with no floor of its own (a stairwell, a doorway) is its frame's origin.
 #[must_use]
 pub fn middle(land: &DatLandSource, cell: CellId) -> Option<Position> {
     if cell.0 & 0xFFFF >= 0x0100 {
         let g = dereth_physics::LandSource::env_cell(land, cell)?;
-        return Some(Position::new(
-            cell,
-            Frame::new(g.frame.origin, Quat::IDENTITY),
-        ));
+        let at = largest_floor(&g).unwrap_or(g.frame.origin);
+        return Some(Position::new(cell, Frame::new(at, Quat::IDENTITY)));
     }
     let (cx, cy) = dereth_physics::landdefs::cell_index_to_xy(u16::try_from(cell.0 & 0xFFFF).ok()?);
     let o = dereth_physics::landdefs::land_cell_origin(
@@ -868,6 +914,51 @@ pub fn middle(land: &DatLandSource, cell: CellId) -> Option<Position> {
         cell,
         Frame::new(Vec3::new(o.x, o.y, z), Quat::IDENTITY),
     ))
+}
+
+/// The middle of the largest polygon of `g` a body stands on, in its landblock's space: an upper
+/// room's floor, not the building's base its frame stands on.
+fn largest_floor(g: &dereth_physics::source::EnvCellGeometry) -> Option<Vec3> {
+    let mut best: Option<(f32, Vec3)> = None;
+    for poly in g.physics_polygons.iter() {
+        let v: Vec<Vec3> = poly
+            .vertices
+            .iter()
+            .map(|p| dereth_primitives::frame::localtoglobal(&g.frame, *p))
+            .collect();
+        let Some(&a) = v.first() else { continue };
+        // The polygon's area and middle, a fan of triangles from its first corner.
+        let (mut area, mut sum, mut up) = (0.0_f32, Vec3::new(0.0, 0.0, 0.0), 0.0_f32);
+        let mut n = Vec3::new(0.0, 0.0, 0.0);
+        for w in v[1..].windows(2) {
+            let (e1, e2) = (
+                Vec3::new(w[0].x - a.x, w[0].y - a.y, w[0].z - a.z),
+                Vec3::new(w[1].x - a.x, w[1].y - a.y, w[1].z - a.z),
+            );
+            let c = Vec3::new(
+                e1.y * e2.z - e1.z * e2.y,
+                e1.z * e2.x - e1.x * e2.z,
+                e1.x * e2.y - e1.y * e2.x,
+            );
+            n = Vec3::new(n.x + c.x, n.y + c.y, n.z + c.z);
+            let t = (c.x * c.x + c.y * c.y + c.z * c.z).sqrt() / 2.0;
+            area += t;
+            up += c.z;
+            sum = Vec3::new(
+                sum.x + t * (a.x + w[0].x + w[1].x) / 3.0,
+                sum.y + t * (a.y + w[0].y + w[1].y) / 3.0,
+                sum.z + t * (a.z + w[0].z + w[1].z) / 3.0,
+            );
+        }
+        let len = (n.x * n.x + n.y * n.y + n.z * n.z).sqrt();
+        if area <= 0.0 || len <= 0.0 || up / len < dereth_physics::globals::FLOOR_Z {
+            continue;
+        }
+        if best.is_none_or(|(b, _)| area > b) {
+            best = Some((area, Vec3::new(sum.x / area, sum.y / area, sum.z / area)));
+        }
+    }
+    best.map(|(_, at)| at)
 }
 
 /// A planner over `land`, its setups and outdoor placements read from `store` as needed.
@@ -1684,11 +1775,14 @@ impl Travel {
         };
         let (portals, refused, hand_backs) = if allow.portals {
             let traveller = dereth_navigation::Traveller::at_level(self.character.level);
+            let name = self.character.name.as_str();
+            let now = unix_now();
             let mine: Vec<dereth_navigation::PortalEdge> = self
                 .portals
                 .routable_for(&traveller)
                 .into_iter()
                 .filter(walkable)
+                .filter(|e| self.portals.refused_for(name, e, now).is_none())
                 .cloned()
                 .collect();
             // The portals anyone may take that this character may not, each with why: with no
@@ -1698,7 +1792,15 @@ impl Travel {
                 .routable_for_anyone()
                 .into_iter()
                 .filter(walkable)
-                .filter_map(|e| e.refusal(&traveller).map(|r| (e.clone(), r)))
+                .filter_map(|e| {
+                    e.refusal(&traveller)
+                        .or_else(|| {
+                            self.portals
+                                .refused_for(name, e, now)
+                                .map(|why| dereth_navigation::Refusal::Retired(why.to_owned()))
+                        })
+                        .map(|r| (e.clone(), r))
+                })
                 .collect();
             (mine, refused, self.hand_backs())
         } else {
@@ -2344,7 +2446,10 @@ impl Travel {
                 // the way.
                 let why = match e {
                     NoPath::OnlyByDrop { .. } => format!("only_by_drop: {e}"),
-                    _ if !t.locked.is_empty() => String::from(DOOR_SHUT),
+                    _ if !t.locked.is_empty() => t
+                        .shut
+                        .as_ref()
+                        .map_or_else(|| String::from(DOOR_SHUT), |w| format!("{DOOR_SHUT}: {w}")),
                     _ if on_foot => format!(
                         "no_route: no walk was found there, and no portal known leads there \
                          ({known})"
@@ -2484,6 +2589,7 @@ impl Travel {
                 before: *before,
                 since: self.wall,
                 wait,
+                to: None,
             },
         }
     }
@@ -2787,21 +2893,72 @@ impl Travel {
         let Some(p) = input.at else {
             return out;
         };
-        let Some(t) = self.trip.as_mut() else {
+        if self.notice(&p, input.portal_refused, &mut out) {
             return out;
+        }
+        let Some(t) = self.trip.as_ref() else {
+            return out;
+        };
+        let (begun, purpose, target) =
+            (t.journey.is_none() && t.step.is_none(), t.purpose, t.target);
+        if begun {
+            // Just begun: find the goal and plan, or start learning recalls.
+            match purpose {
+                Purpose::LearnRecalls => self.next_recall(&p, &mut out),
+                Purpose::Go => match Self::goal_of(target, input) {
+                    Some(goal) => {
+                        let (allow, object) = self
+                            .trip
+                            .as_ref()
+                            .map_or((TravelAllow::default(), false), |t| {
+                                (t.allow, matches!(t.target, TravelTarget::Object(_)))
+                            });
+                        self.ask_trip(&p, goal, allow, &BTreeSet::new(), object, None, &mut out);
+                    }
+                    None => self.end(&mut out, Some(&p), Some("no_target")),
+                },
+            }
+            return out;
+        }
+        if input.fizzled {
+            self.fizzled(&p, &mut out);
+        }
+        self.trip_frame(&p, input.idle, &mut out);
+        out
+    }
+
+    /// What the body did since the last step, before the journey's frame: a portal's refusal the
+    /// server sent (`refused`), the ground walked, and a teleport, by a jump of a teleport's
+    /// length or a set-down where a portal the body stood beside sends. Answers whether the step
+    /// ends here: a refusal dealt with, or no journey.
+    fn notice(&mut self, p: &Position, refused: Option<u32>, out: &mut Vec<TravelCommand>) -> bool {
+        if let Some(code) = refused {
+            if self.portal_refused(p, code, out) {
+                return true;
+            }
+        }
+        // Set down where a portal the body stood beside sends: a teleport, however short.
+        let set_down = self
+            .trip
+            .as_ref()
+            .and_then(|t| t.last)
+            .filter(|l| global_distance(l, p) > LANDS_WITHIN)
+            .and_then(|l| self.portal_set_down(&l, p));
+        let Some(t) = self.trip.as_mut() else {
+            return true;
         };
         let mut jumped = None;
         if let Some(l) = t.last {
-            let (a, b) = (global(&p), global(&l));
+            let (a, b) = (global(p), global(&l));
             let d = hypotf(a.x - b.x, a.y - b.y);
             // A teleport is no walk.
-            if d < 30.0 {
+            if d < 30.0 && set_down.is_none() {
                 t.stats.walked += d;
             } else {
                 jumped = Some(l);
             }
         }
-        t.last = Some(p);
+        t.last = Some(*p);
         // Taken away while walking: walking into the portal being approached uses it; anything
         // else is waited out and the journey planned again from where the character lands.
         let mut taken = None;
@@ -2837,43 +2994,25 @@ impl Travel {
                             shape: None,
                         })
                     }
-                    _ => known.map_or(Awaited::Elsewhere, Awaited::WalkedInto),
+                    _ => set_down
+                        .clone()
+                        .or(known)
+                        .map_or(Awaited::Elsewhere, Awaited::WalkedInto),
                 },
                 before,
             ));
             t.follower = None;
         }
-        let (begun, purpose, target) =
-            (t.journey.is_none() && t.step.is_none(), t.purpose, t.target);
         if let Some((what, before)) = taken {
-            self.release_keys(&mut out);
-            let wait = self.wait(what, &before);
+            self.release_keys(out);
+            // Set down where the portal sends: landed already, however short the way.
+            let mut wait = self.wait(what, &before);
+            if let (Some(_), Step::Wait { watch, .. }) = (&set_down, &mut wait) {
+                watch.to = Some(*p);
+            }
             self.set_step(wait);
         }
-        if begun {
-            // Just begun: find the goal and plan, or start learning recalls.
-            match purpose {
-                Purpose::LearnRecalls => self.next_recall(&p, &mut out),
-                Purpose::Go => match Self::goal_of(target, input) {
-                    Some(goal) => {
-                        let (allow, object) = self
-                            .trip
-                            .as_ref()
-                            .map_or((TravelAllow::default(), false), |t| {
-                                (t.allow, matches!(t.target, TravelTarget::Object(_)))
-                            });
-                        self.ask_trip(&p, goal, allow, &BTreeSet::new(), object, None, &mut out);
-                    }
-                    None => self.end(&mut out, Some(&p), Some("no_target")),
-                },
-            }
-            return out;
-        }
-        if input.fizzled {
-            self.fizzled(&p, &mut out);
-        }
-        self.trip_frame(&p, input.idle, &mut out);
-        out
+        false
     }
 
     /// One frame of carrying the journey out.
@@ -2979,6 +3118,7 @@ impl Travel {
                             p.frame.origin
                         );
                         self.portals.learn_use(s, &p, t);
+                        self.portals.forget_refusal_for(&name, s);
                         // Portal Recall sends a character to where the last portal it used sent it.
                         self.portals
                             .learn_recall(&name, Recall::Spell(PORTAL_RECALL), &p, t);
@@ -3026,6 +3166,7 @@ impl Travel {
                             p.frame.origin
                         );
                         self.portals.learn_use(s, &p, t);
+                        self.portals.forget_refusal_for(&name, s);
                         self.portals
                             .learn_recall(&name, Recall::Spell(PORTAL_RECALL), &p, t);
                         self.save_store();
@@ -3151,6 +3292,114 @@ impl Travel {
             wielded: true,
             toggled: false,
         });
+    }
+
+    /// The portal the body stood beside at `before` that sends where it is now (`at`): one the
+    /// store knows, or the journey's next. A walk-in portal can set the body down a short way
+    /// off, where no jump of a teleport's length is seen.
+    fn portal_set_down(&self, before: &Position, at: &Position) -> Option<PortalSighting> {
+        let journey = self
+            .trip
+            .as_ref()
+            .and_then(|t| t.journey.as_ref().map(|j| (j, t.leg)))
+            .into_iter()
+            .flat_map(|(j, leg)| j.legs.iter().skip(leg).take(2))
+            .filter_map(|l| match l {
+                Leg::Portal { edge } => Some(edge),
+                _ => None,
+            });
+        journey
+            .chain(self.portals.portals())
+            .find(|e| {
+                global_distance(&e.from, before) < PORTAL_REACH + 3.0
+                    && e.to
+                        .is_some_and(|to| global_distance(&to, at) < LANDS_WITHIN)
+            })
+            .map(|e| PortalSighting {
+                wcid: e.wcid,
+                name: e.name.clone(),
+                position: e.from,
+                shape: None,
+            })
+    }
+
+    /// The server refused a portal with `code` while the body used it or walked into it: the
+    /// journey does without it, saying why, and a refusal that lasts is kept for the character so
+    /// later journeys do too. A passing one ends the journey. Answers whether it was such a
+    /// refusal, for a portal the journey was taking.
+    fn portal_refused(&mut self, p: &Position, code: u32, out: &mut Vec<TravelCommand>) -> bool {
+        let Some((reason, lasting)) = portal_refusal(code) else {
+            return false;
+        };
+        let Some(t) = self.trip.as_ref() else {
+            return false;
+        };
+        let by = |e: &dereth_navigation::PortalEdge| {
+            (global_distance(&e.from, p) < PORTAL_REACH + 3.0).then(|| PortalSighting {
+                wcid: e.wcid,
+                name: e.name.clone(),
+                position: e.from,
+                shape: None,
+            })
+        };
+        let portal = match &t.step {
+            Some(Step::Wait {
+                what: Awaited::Portal(s) | Awaited::WalkedInto(s),
+                ..
+            }) => Some(s.clone()),
+            Some(Step::Walk { .. } | Step::Approach { .. }) => t
+                .journey
+                .as_ref()
+                .into_iter()
+                .flat_map(|j| j.legs.iter().skip(t.leg).take(2))
+                .find_map(|l| match l {
+                    Leg::Portal { edge } => by(edge),
+                    _ => None,
+                }),
+            _ => None,
+        };
+        let Some(portal) = portal else {
+            return false;
+        };
+        let id = t.id;
+        tracing::warn!(
+            target: "travel",
+            "portal {:?} refused the character: {reason}",
+            portal.name
+        );
+        if lasting {
+            let name = self.character.name.clone();
+            self.portals
+                .learn_refusal_for(&name, &portal, &reason, unix_now());
+            self.save_store();
+        }
+        self.events.push(TravelEvent::Learned {
+            id,
+            what: Learned::Refusal {
+                name: portal.name.clone(),
+                reason: reason.clone(),
+            },
+        });
+        self.release_keys(out);
+        let Some(t) = self.trip.as_mut() else {
+            return true;
+        };
+        t.stats.refusals += 1;
+        t.stats.replans += 1;
+        t.step = None;
+        t.follower = None;
+        if !lasting {
+            self.end(out, Some(p), Some(&reason));
+        } else if t.stats.replans > MAX_REPLANS {
+            self.end(out, Some(p), Some("too_many_replans"));
+        } else {
+            self.carry_on(
+                p,
+                out,
+                Some(format!("portal {} refused: {reason}", portal.name)),
+            );
+        }
+        true
     }
 
     /// Use the portal standing at `portal`, or learn that none stands there.
@@ -3332,6 +3581,16 @@ impl Travel {
                     }
                     AtDoor::Wait => {}
                     AtDoor::Locked | AtDoor::Blocked => {
+                        let name = self
+                            .obstacles
+                            .iter()
+                            .find(|o| o.obstacle.id == door)
+                            .map_or_else(|| format!("door {:08X}", door.0), |o| o.name.clone());
+                        t.shut = Some(if answered {
+                            format!("{name} is locked, the server says")
+                        } else {
+                            format!("{name} did not open after {DOOR_TRIES} uses")
+                        });
                         if answered {
                             tracing::warn!(
                                 target: "travel",
@@ -3429,6 +3688,7 @@ impl Trip {
             follower: None,
             door: None,
             locked: BTreeSet::new(),
+            shut: None,
             lock_answers: BTreeSet::new(),
             tried_again: BTreeSet::new(),
             disabled: BTreeSet::new(),
@@ -3945,7 +4205,12 @@ mod tests {
     fn a_door_that_never_opens_and_never_answers_ends_the_journey_after_a_bounded_number_of_uses() {
         let mut walk = at_a_door::Walk::new();
         let why = walk.until_it_ends(at_a_door::only_through_it);
-        assert_eq!(why.as_deref(), Some(DOOR_SHUT));
+        assert_eq!(
+            why,
+            Some(format!(
+                "door_shut: Door did not open after {DOOR_TRIES} uses"
+            ))
+        );
         assert_eq!(walk.uses, 2 * DOOR_TRIES, "its uses, then its second go");
         assert!(walk.wall < 60.0, "over in {} s", walk.wall);
     }
@@ -3958,7 +4223,11 @@ mod tests {
         assert_eq!(walk.uses, 1);
         walk.travel.door_answered_locked(at_a_door::DOOR);
         let why = walk.until_it_ends(at_a_door::only_through_it);
-        assert_eq!(why.as_deref(), Some(DOOR_SHUT));
+        assert_eq!(
+            why.as_deref(),
+            Some("door_shut: Door is locked, the server says"),
+            "names the door and says why it is shut"
+        );
         assert_eq!(walk.uses, 1, "a locked door is not tried again");
     }
 
@@ -4014,6 +4283,248 @@ mod tests {
             !out.iter()
                 .any(|c| matches!(c, TravelCommand::Turn(Some(_)))),
             "{out:?}"
+        );
+    }
+
+    /// The Training Academy's Central Courtyard: a walk-in portal in the hall at `0x86020273`
+    /// that sets the body down 24 metres off, at `0x8602021E`.
+    mod courtyard {
+        use super::*;
+
+        pub(super) fn at(cell: u32, x: f32, y: f32) -> Position {
+            Position::new(
+                CellId(cell),
+                Frame::new(Vec3::new(x, y, 0.005), Quat::IDENTITY),
+            )
+        }
+
+        pub(super) fn portal() -> dereth_navigation::PortalEdge {
+            dereth_navigation::PortalEdge {
+                source: EdgeSource::Published,
+                wcid: Some(31061),
+                name: String::from("Central Courtyard"),
+                from: at(0x8602_0273, 70.0, -40.0),
+                to: Some(at(0x8602_021E, 50.0, -54.0)),
+                verified: 0,
+                uses: 0,
+                failures: 0,
+                levels: (None, None),
+                retired: None,
+                requires: Vec::new(),
+                shape: None,
+            }
+        }
+
+        pub(super) fn sighting() -> PortalSighting {
+            let e = portal();
+            PortalSighting {
+                wcid: e.wcid,
+                name: e.name,
+                position: e.from,
+                shape: None,
+            }
+        }
+
+        /// A journey for `character` from the hall across the portal to the shop, on its first
+        /// leg, the walk to the portal; the store knowing the portal, as the server publishes it.
+        pub(super) fn journey(character: &str) -> Travel {
+            let mut travel = Travel::new(StoreFiles::default());
+            travel.planning = Some(Planning::held());
+            travel.character = CharacterState {
+                name: character.to_owned(),
+                level: Some(40),
+                ..CharacterState::default()
+            };
+            travel.portals.merge([portal()]);
+            let shop = at(0x8602_032A, 70.7, -59.1);
+            let mut trip = Trip::new(
+                1,
+                Purpose::Go,
+                TravelTarget::Place(shop),
+                TravelAllow::default(),
+                0.0,
+                0.0,
+            );
+            trip.goal = Some(shop);
+            trip.journey = Some(Journey {
+                legs: vec![
+                    Leg::Walk { to: portal().from },
+                    Leg::Portal { edge: portal() },
+                    Leg::Walk { to: shop },
+                ],
+                seconds: 17.0,
+            });
+            trip.step = Some(Step::Walk {
+                target: portal().from,
+                last: true,
+            });
+            trip.last = Some(at(0x8602_0273, 69.3, -39.5));
+            travel.trip = Some(trip);
+            travel
+        }
+
+        pub(super) fn failed(travel: &Travel) -> Option<String> {
+            travel.events.iter().find_map(|e| match e {
+                TravelEvent::Failed { reason, .. } => Some(reason.clone()),
+                _ => None,
+            })
+        }
+    }
+
+    /// Behaviour: none (the travel's own handling of the server's word)
+    /// The server refuses the Courtyard, saying a quest is wanted: the journey does without it at
+    /// once and says why, and the character's later journeys leave it out, saying why, while
+    /// another character's still count on it.
+    #[test]
+    fn a_portal_the_server_refuses_saying_why_is_done_without_and_kept_from_that_character() {
+        let mut travel = courtyard::journey("+Climber");
+        let hall = courtyard::at(0x8602_0273, 70.0, -40.0);
+        let mut out = Vec::new();
+        // In the portal on the walk to it: the server's word arrives.
+        assert!(travel.notice(&hall, Some(0x0474), &mut out));
+        let why = "You must complete a quest to interact with that portal.";
+        assert!(
+            travel.events.iter().any(|e| matches!(
+                e,
+                TravelEvent::Learned { what: Learned::Refusal { name, reason }, .. }
+                    if name == "Central Courtyard" && reason == why
+            )),
+            "{:?}",
+            travel.events
+        );
+        assert_eq!(
+            travel
+                .portals
+                .refused_for("+Climber", &courtyard::portal(), unix_now()),
+            Some(why)
+        );
+        let t = travel
+            .trip
+            .as_ref()
+            .expect("the journey goes on without it");
+        assert_eq!(t.stats.refusals, 1);
+        assert!(
+            matches!(&t.step, Some(Step::Planning { reason: Some(r), .. }) if r.ends_with(why)),
+            "planned again, saying why: {:?}",
+            t.step
+        );
+        // Planned again: the portal is no way for this character, and the planning is told why.
+        match travel.planning.as_ref().and_then(Planning::last_asked) {
+            Some(Job::Journey {
+                portals, refused, ..
+            }) => {
+                assert!(portals.iter().all(|e| e.name != "Central Courtyard"));
+                assert_eq!(
+                    refused
+                        .iter()
+                        .map(|(e, r)| (e.name.as_str(), r.to_string()))
+                        .collect::<Vec<_>>(),
+                    [("Central Courtyard", format!("refused before: {why}"))]
+                );
+            }
+            j => panic!("no journey asked for: {j:?}"),
+        }
+        // Another character is not refused it.
+        let mut other = courtyard::journey("+Other");
+        other.portals = travel.portals.clone();
+        let mut out = Vec::new();
+        other.plan_trip(&hall, &mut out, None);
+        match other.planning.as_ref().and_then(Planning::last_asked) {
+            Some(Job::Journey {
+                portals, refused, ..
+            }) => {
+                assert!(portals.iter().any(|e| e.name == "Central Courtyard"));
+                assert!(refused.is_empty());
+            }
+            j => panic!("no journey asked for: {j:?}"),
+        }
+        // Once it has used the portal, it is the character's again.
+        travel
+            .portals
+            .forget_refusal_for("+Climber", &courtyard::sighting());
+        assert_eq!(
+            travel
+                .portals
+                .refused_for("+Climber", &courtyard::portal(), unix_now()),
+            None
+        );
+    }
+
+    /// Behaviour: none (the travel's own handling of the server's word)
+    /// A refusal that passes (teleported too recently) ends the journey at once, saying so, and
+    /// keeps nothing against the portal; a word that is no portal's refusal is let be.
+    #[test]
+    fn a_passing_refusal_ends_the_journey_saying_so_and_is_not_kept() {
+        let mut travel = courtyard::journey("+Climber");
+        let hall = courtyard::at(0x8602_0273, 70.0, -40.0);
+        let mut out = Vec::new();
+        assert!(!travel.notice(&hall, Some(crate::travel::FIZZLED), &mut out));
+        assert!(travel.trip.is_some());
+        assert!(travel.notice(&hall, Some(0x04A7), &mut out));
+        assert_eq!(
+            courtyard::failed(&travel).as_deref(),
+            Some("You have been teleported too recently!")
+        );
+        assert!(travel.trip.is_none());
+        assert_eq!(
+            travel
+                .portals
+                .refused_for("+Climber", &courtyard::portal(), unix_now()),
+            None
+        );
+    }
+
+    /// Behaviour: none (the travel's own handling of a walk-in portal)
+    /// Walking to the Courtyard, the body walks into it and is set down 24 metres off, where it
+    /// sends: that is the portal taken, learned, and the journey goes on from there; not a body
+    /// stuck on its walk.
+    #[test]
+    fn set_down_where_a_walk_in_portal_sends_on_the_walk_to_it_is_the_portal_taken() {
+        let mut travel = courtyard::journey("+Climber");
+        travel.portals.learn_refusal_for(
+            "+Climber",
+            &courtyard::sighting(),
+            "You must complete a quest to interact with that portal.",
+            unix_now(),
+        );
+        let landed = courtyard::at(0x8602_021E, 50.0, -54.0);
+        let mut out = Vec::new();
+        assert!(!travel.notice(&landed, None, &mut out));
+        let t = travel.trip.as_ref().expect("the journey");
+        assert!(
+            matches!(
+                &t.step,
+                Some(Step::Wait { what: Awaited::WalkedInto(s), .. }) if s.name == "Central Courtyard"
+            ),
+            "{:?}",
+            t.step
+        );
+        assert_eq!(t.stats.walked, 0.0, "no walk of 24 metres");
+        // Out of portal space: landed, learned, and planned on from there.
+        travel.wall = 1.0;
+        travel.trip_frame(&landed, true, &mut out);
+        let t = travel.trip.as_ref().expect("the journey goes on");
+        assert_eq!(t.stats.portal_uses, 1);
+        assert_eq!(t.stats.stuck, 0);
+        assert!(
+            matches!(&t.step, Some(Step::Planning { reason: Some(r), .. }) if r == "walked into portal Central Courtyard"),
+            "planned on from where it landed: {:?}",
+            t.step
+        );
+        assert_eq!(
+            travel
+                .portals
+                .refused_for("+Climber", &courtyard::portal(), unix_now()),
+            None,
+            "a use undoes the refusal"
+        );
+        assert!(
+            travel.events.iter().any(|e| matches!(
+                e,
+                TravelEvent::Learned { what: Learned::Portal { name, .. }, .. } if name == "Central Courtyard"
+            )),
+            "{:?}",
+            travel.events
         );
     }
 
@@ -4181,6 +4692,7 @@ mod tests {
             before: here,
             since: 0.0,
             wait: PORTAL_WAIT,
+            to: None,
         };
         travel.wall = 1.0;
         let mut out = Vec::new();
@@ -4608,6 +5120,7 @@ mod tests {
                     world: Some(String::from("frames")),
                     player_input: false,
                     fizzled: false,
+                    portal_refused: None,
                     object: &object,
                     hand_backs: Vec::new(),
                     holds: &holds,
@@ -4696,6 +5209,57 @@ mod tests {
             plain,
             "the plain files keep theirs"
         );
+    }
+
+    /// Behaviour: plugins.nav.a-route-to-an-upstairs-room-ends-on-its-floor
+    /// A walk asked to go to a room upstairs (the bowyer's in Holtburg, its floor 3 m above the
+    /// shop's) goes up to that room's floor, not to the ground floor under it, where the
+    /// building's frame stands.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn a_route_to_an_upstairs_room_goes_up_to_its_floor() {
+        use crate::planning::{Answer, Goal, Job, Planning};
+        let store = Arc::new(dereth_dat::testing::open_store_or_fail());
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region");
+        let land = Arc::new(DatLandSource::new(Arc::clone(&store), &region).expect("the land"));
+        let upstairs = CellId(0xA9B4_0123);
+        land.load_block_cells(block_of(upstairs));
+        let middle = middle(&land, upstairs).expect("the room's middle");
+        assert!(
+            (middle.frame.origin.z - 69.0).abs() < 0.1,
+            "on the room's floor: {:?}",
+            middle.frame.origin
+        );
+        let shop = Position::new(
+            CellId(0xA9B4_0121),
+            Frame::new(Vec3::new(101.5, 135.6, 66.005), Quat::IDENTITY),
+        );
+        let mut planning = Planning::in_frame(&land, &store, None).expect("a planner");
+        planning.ask(Job::Route {
+            id: 1,
+            from: shop,
+            to: Goal::Cell(upstairs),
+            reach: None,
+            snap: None,
+        });
+        match planning.answers_waited().as_slice() {
+            [Answer::Route {
+                route: Ok((path, _)),
+                ..
+            }] => {
+                let end = path.waypoints.last().expect("an end").position;
+                assert_eq!(end.cell, upstairs, "{path:?}");
+                assert!(
+                    end.frame.origin.z > 68.5,
+                    "upstairs: {:?}",
+                    end.frame.origin
+                );
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     /// Behaviour: plugins.nav.planning-never-holds-a-frame

@@ -321,6 +321,7 @@ impl<S: Shell> App<S> {
             nav_spells: None,
             nav_academies: None,
             travel_fizzles: 0,
+            travel_portal_refused: None,
             published: std::sync::Arc::default(),
             hinted: std::sync::Arc::default(),
             player_moves: 0,

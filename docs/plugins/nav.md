@@ -132,8 +132,10 @@ nearest it that a walk does reach, within 3 metres of it, the distance most peop
 
 The promise completes on arrival with `{ distance, portals, recalls, replans, walked, seconds }` and
 fails `no_path` (nothing known reaches the target), `no_target`, `no_route` (a walk found no way),
-`door_shut` (a door on the way would not open, locked or blocked, and no walk goes round it: the
-last `door` leg names it), `stuck`, `too_many_replans`, `interrupted` (the player moved the character), `stopped` (`nav.stop()`),
+`door_shut: <door> is locked, the server says` or `door_shut: <door> did not open after 4 uses` (a
+door on the way would not open and no walk goes round it; the last `door` leg names it too),
+`refused: …` (a portal on the only way refuses the character, saying why: a level it needs, a quest
+it asks, or what the server said when it refused it before), `stuck`, `too_many_replans`, `interrupted` (the player moved the character), `stopped` (`nav.stop()`),
 `replaced`, `declined` (the player said no to leaving the Academy), `needs the player to agree to
 leave the Training Academy` (it would hand a token back, and `hand_backs` was not given), or at a
 hand-back `no_token`
