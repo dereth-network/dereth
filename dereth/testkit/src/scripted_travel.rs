@@ -21,8 +21,8 @@
 use std::collections::{BTreeSet, VecDeque};
 
 use dereth_client_runtime::travel::{
-    Learned, TravelAllow, TravelEvent, TravelLeg, TravelPlan, TravelRequest, TravelRoute,
-    TravelStatus, TravelTarget, TripStats, TripView,
+    DoorWhy, Learned, ShutDoor, TravelAllow, TravelEvent, TravelLeg, TravelPlan, TravelRequest,
+    TravelRoute, TravelStatus, TravelTarget, TripStats, TripView,
 };
 use dereth_navigation::{
     land_realm, plan_journey, EdgeSource, Journey, JourneyConfig, Leg, PortalEdge, PortalSighting,
@@ -274,6 +274,8 @@ pub struct ScriptedTravel {
     pub status: TravelStatus,
     /// What it did, as lines.
     pub moves: Vec<String>,
+    /// The door that stopped the journey ending now: what its failure carries.
+    shut_door: Option<ShutDoor>,
 }
 
 impl Default for ScriptedTravel {
@@ -287,6 +289,7 @@ impl Default for ScriptedTravel {
             trip: None,
             status: TravelStatus::default(),
             moves: Vec::new(),
+            shut_door: None,
         }
     }
 }
@@ -459,6 +462,7 @@ impl ScriptedTravel {
                     id: t.id,
                     reason: reason.to_owned(),
                     stats: t.stats,
+                    door: self.shut_door.take(),
                 });
                 self.moves.push(format!("travel failed {reason}"));
             }
@@ -561,6 +565,7 @@ impl ScriptedTravel {
                             id,
                             reason: String::from("no_target"),
                             stats: TripStats::default(),
+                            door: None,
                         });
                         continue;
                     };
@@ -592,6 +597,7 @@ impl ScriptedTravel {
                     id,
                     reason: String::from("no_recalls"),
                     stats: TripStats::default(),
+                    door: None,
                 }),
             }
         }
@@ -659,6 +665,22 @@ impl ScriptedTravel {
             Phase::Walk { to } => {
                 // Round the case's walls, as the client's own route goes: on to its next corner.
                 let route = walking_route(&p, &to, places);
+                // A locked door on the way stops the journey, as the client's own does once the
+                // server answers its use as locked.
+                if let Some(door) = route.as_ref().and_then(|r| {
+                    r.doors
+                        .iter()
+                        .map(|(d, _)| *d)
+                        .find(|d| places.locked_doors.contains(&d.0))
+                }) {
+                    self.shut_door = Some(ShutDoor {
+                        object: door,
+                        why: DoorWhy::Locked,
+                    });
+                    let why = format!("door_shut: door {:08X} is locked, the server says", door.0);
+                    self.end(events, now, Some(&p), Some(&why));
+                    return;
+                }
                 if route.is_none() {
                     if let Some(why) = drop_on_the_way(&p, &to, places) {
                         self.end(events, now, Some(&p), Some(&why));

@@ -219,6 +219,7 @@ local function new_promise(id, action, transform)
 end
 
 -- `p:next(on_done, on_failed)`: call one of them when the action ends (at once if it has).
+-- `on_failed` is called with the reason, and for a journey a door stopped, that door (`p.door`).
 function promise_methods:next(on_done, on_failed)
 	if self.state == "completed" then
 		if on_done then
@@ -226,7 +227,7 @@ function promise_methods:next(on_done, on_failed)
 		end
 	elseif self.state == "failed" then
 		if on_failed then
-			on_failed(self.reason)
+			on_failed(self.reason, self.door)
 		end
 	else
 		table.insert(self.callbacks, { on_done, on_failed })
@@ -578,7 +579,7 @@ local function dispatch(name, data)
 					p.value = p.transform(p.value)
 				end
 			else
-				p.state, p.reason = "failed", data.reason
+				p.state, p.reason, p.door = "failed", data.reason, data.door
 			end
 			for _, cb in ipairs(p.callbacks) do
 				local f = cb[1]
@@ -587,7 +588,7 @@ local function dispatch(name, data)
 					f, arg = cb[2], p.reason
 				end
 				if f ~= nil then
-					call(f, arg)
+					call(f, arg, p.door)
 				end
 			end
 			for _, co in ipairs(p.waiters) do

@@ -2022,7 +2022,14 @@ impl PluginHost {
             let base = Value::map().with("id", s.id).with("action", s.action);
             let e = match s.result {
                 Ok(v) => Event::new("action.completed", base.with("value", v)),
-                Err(r) => Event::new("action.failed", base.with("reason", r)),
+                Err(r) => {
+                    let mut v = base.with("reason", r);
+                    // A journey a door stopped: which door, and what the client knows of it.
+                    if let Some(door) = self.shared.nav.take_shut_door(&s.plugin, s.id) {
+                        v = v.with("door", door);
+                    }
+                    Event::new("action.failed", v)
+                }
             };
             events.push((Target::One(i), e));
         }

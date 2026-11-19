@@ -1,0 +1,10 @@
+id = "conformance.journey-door"
+name = "Conformance: a journey a door stops"
+version = "0.1.0"
+api = "0.7"
+
+[permissions]
+"act.interactive" = "Travels where you ask, and opens the door on the way."
+
+[capabilities]
+required = ["nav.journey"]

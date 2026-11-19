@@ -806,6 +806,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.nav.a-journey-a-door-stops-says-which-door-and-goes-through-once-it-is-opened",
+        says: "A journey a shut door stops fails saying which door (its object, its name) and                why (locked, no answer, no lever reached, the lever did not open it), with the                lock's resistance once the door is appraised; the door leg says the same. A                plugin that opens the door itself (a key, a lockpick) goes again, and the journey                goes through it.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-DOOR-EVENTS"),
+        station: "dereth-testkit::cpu::plugins::scenario_a_journey_a_door_stops_says_which_door_and_goes_through_once_it_is_opened",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "plugins.nav.a-journey-between-two-parts-of-a-dungeon-takes-the-portal-inside-it",
         says: "A journey between two parts of a dungeon that no walk joins goes by the portal \
                linking them, however near the two places are, and with no portal known out of \

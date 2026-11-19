@@ -286,6 +286,39 @@ pub struct TripStats {
     pub doors: u32,
 }
 
+/// A door a journey could not get through, and why it stayed shut.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ShutDoor {
+    pub object: ObjectId,
+    pub why: DoorWhy,
+}
+
+/// Why a door stayed shut.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DoorWhy {
+    /// The server answered its use as locked.
+    Locked,
+    /// Used and used again, it did not open, and no answer said why.
+    NoAnswer,
+    /// No walk reaches any of the levers that work it.
+    NoLever,
+    /// Its lever was worked, and it did not open.
+    LeverFailed,
+}
+
+impl DoorWhy {
+    /// The reason as one word, as plugins read it.
+    #[must_use]
+    pub const fn word(self) -> &'static str {
+        match self {
+            Self::Locked => "locked",
+            Self::NoAnswer => "no_answer",
+            Self::NoLever => "no_lever",
+            Self::LeverFailed => "lever_failed",
+        }
+    }
+}
+
 /// What happened to a journey.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TravelEvent {
@@ -320,11 +353,12 @@ pub enum TravelEvent {
         distance: f32,
         stats: TripStats,
     },
-    /// The journey ended without arriving.
+    /// The journey ended without arriving; `door` when a door on the way would not open.
     Failed {
         id: u64,
         reason: String,
         stats: TripStats,
+        door: Option<ShutDoor>,
     },
 }
 
@@ -776,6 +810,8 @@ struct Trip {
     /// The last door on the way that would not open, named, and why: what a journey that finds
     /// no way round it says.
     shut: Option<String>,
+    /// That door, and why it stayed shut.
+    shut_door: Option<ShutDoor>,
     /// Doors whose use the server answered as locked (`OpenFailDueToLock`).
     lock_answers: BTreeSet<u32>,
     /// Doors that have had their second go: if they stay shut, the journey has no way through them.
@@ -1807,6 +1843,7 @@ impl Travel {
                     id: t.id,
                     reason: reason.to_owned(),
                     stats: t.stats,
+                    door: t.shut_door.filter(|_| reason.starts_with(DOOR_SHUT)),
                 });
             }
         }
@@ -2393,7 +2430,7 @@ impl Travel {
         let Some(t) = self.trip.as_mut() else { return };
         let goes = t.lever_goes.entry(door.0).or_insert(0);
         if *goes >= DOOR_TRIES {
-            self.door_stays_shut(here, door, "did not open from its lever", out);
+            self.door_stays_shut(here, door, DoorWhy::LeverFailed, out);
             return;
         }
         *goes += 1;
@@ -2455,7 +2492,7 @@ impl Travel {
         match used {
             Some((since, _)) if self.wall - since <= DOOR_WAIT => {}
             Some((_, n)) if n >= DOOR_TRIES => {
-                self.door_stays_shut(here, door, "did not open from its lever", out);
+                self.door_stays_shut(here, door, DoorWhy::LeverFailed, out);
             }
             _ => {
                 let n = used.map_or(0, |(_, n)| n) + 1;
@@ -2495,7 +2532,7 @@ impl Travel {
             return;
         };
         if which + 1 >= levers.len() {
-            self.door_stays_shut(here, door, "has no lever a walk reaches", out);
+            self.door_stays_shut(here, door, DoorWhy::NoLever, out);
             return;
         }
         let next = levers[which + 1];
@@ -2515,26 +2552,31 @@ impl Travel {
         self.walk_toward(here, &next, out);
     }
 
-    /// A door that stays shut, `why` said of it: planned round from now on, the walk on with
-    /// what it was doing.
+    /// A door that stays shut, for `why`: planned round from now on, the walk on with what it
+    /// was doing.
     fn door_stays_shut(
         &mut self,
         here: &Position,
         door: ObjectId,
-        why: &str,
+        why: DoorWhy,
         out: &mut Vec<TravelCommand>,
     ) {
+        let said = match why {
+            DoorWhy::NoLever => "has no lever a walk reaches",
+            _ => "did not open from its lever",
+        };
         let name = self
             .obstacles
             .iter()
             .find(|o| o.obstacle.id == door)
             .map_or_else(|| format!("door {:08X}", door.0), |o| o.name.clone());
-        tracing::warn!(target: "travel", "door {:08X} {why}; planning round it", door.0);
+        tracing::warn!(target: "travel", "door {:08X} {said}; planning round it", door.0);
         let Some(t) = self.trip.as_mut() else { return };
         if let Some(Step::Lever { resume, .. }) = t.step.take() {
             t.step = Some(*resume);
         }
-        t.shut = Some(format!("{name} {why}"));
+        t.shut = Some(format!("{name} {said}"));
+        t.shut_door = Some(ShutDoor { object: door, why });
         t.door = None;
         t.locked.insert(door.0);
         t.route_dirty = None;
@@ -4043,6 +4085,14 @@ impl Travel {
                             .iter()
                             .find(|o| o.obstacle.id == door)
                             .map_or_else(|| format!("door {:08X}", door.0), |o| o.name.clone());
+                        t.shut_door = Some(ShutDoor {
+                            object: door,
+                            why: if answered {
+                                DoorWhy::Locked
+                            } else {
+                                DoorWhy::NoAnswer
+                            },
+                        });
                         t.shut = Some(if answered {
                             format!("{name} is locked, the server says")
                         } else {
@@ -4146,6 +4196,7 @@ impl Trip {
             door: None,
             locked: BTreeSet::new(),
             shut: None,
+            shut_door: None,
             lock_answers: BTreeSet::new(),
             tried_again: BTreeSet::new(),
             lever_goes: BTreeMap::new(),
@@ -4950,6 +5001,64 @@ mod tests {
             Some("door_shut: Door has no lever a walk reaches")
         );
         assert!(walk.uses.is_empty(), "nothing was used");
+    }
+
+    /// Behaviour: plugins.nav.a-journey-a-door-stops-says-which-door-and-goes-through-once-it-is-opened
+    /// A journey a door stops says which door and why: one the server answered as locked, and one
+    /// whose levers no walk reaches.
+    #[test]
+    fn a_journey_a_door_stops_says_which_door_and_why() {
+        let shut_door = |travel: &mut Travel| {
+            travel.take_events().into_iter().find_map(|e| match e {
+                TravelEvent::Failed { door, .. } => door,
+                _ => None,
+            })
+        };
+        let mut walk = at_a_door::Walk::new();
+        walk.frame(at_a_door::only_through_it);
+        walk.travel.door_answered_locked(at_a_door::DOOR);
+        let mut door = None;
+        for _ in 0..200 {
+            walk.frame(at_a_door::only_through_it);
+            if walk.travel.trip.is_none() {
+                door = shut_door(&mut walk.travel);
+                break;
+            }
+        }
+        assert_eq!(
+            door,
+            Some(ShutDoor {
+                object: at_a_door::DOOR,
+                why: DoorWhy::Locked
+            })
+        );
+        let mut walk = at_a_lever_door::Walk::new();
+        let mut door = None;
+        for _ in 0..200 {
+            walk.frame(|w, to| {
+                let round = w
+                    .travel
+                    .trip
+                    .as_ref()
+                    .is_some_and(|t| t.locked.contains(&at_a_lever_door::DOOR.0));
+                if to < 0.0 || round {
+                    Err(NoPath::Unreachable)
+                } else {
+                    at_a_lever_door::anywhere(w, to)
+                }
+            });
+            if walk.travel.trip.is_none() {
+                door = shut_door(&mut walk.travel);
+                break;
+            }
+        }
+        assert_eq!(
+            door,
+            Some(ShutDoor {
+                object: at_a_lever_door::DOOR,
+                why: DoorWhy::NoLever
+            })
+        );
     }
 
     /// Colier Mine's hole: a ledge on the entrance's floor, 12 metres over the floor below.

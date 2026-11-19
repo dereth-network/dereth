@@ -133,7 +133,8 @@ nearest it that a walk does reach, within 3 metres of it, the distance most peop
 The promise completes on arrival with `{ distance, portals, recalls, replans, walked, seconds }` and
 fails `no_path` (nothing known reaches the target), `no_target`, `no_route` (a walk found no way),
 `door_shut: <door> is locked, the server says` or `door_shut: <door> did not open after 4 uses` (a
-door on the way would not open and no walk goes round it; the last `door` leg names it too),
+door on the way would not open and no walk goes round it; the last `door` leg names it too, and the
+failure carries the door: see [A shut door](#a-shut-door)),
 `refused: …` (a portal on the only way refuses the character, saying why: a level it needs, a quest
 it asks, or what the server said when it refused it before), `only_by_drop: …` (only a drop the body
 would not survive leads on), `drop_blocked: …` (the body could not leave the ledge of a drop),
@@ -150,12 +151,71 @@ A journey's progress arrives as events, to the plugin whose journey it is:
 - `nav.journey_planned` `{ id, legs, seconds, reason }`, at the start and each time it is planned
   again (`reason` says why);
 - `nav.journey_leg` `{ id, index, kind, to, … }` as each leg begins; `kind` is `walk` (with its
-  `path` once its route is planned), `door` (`object`), `portal` (`name`, `class`, `from`,
+  `path` once its route is planned), `door` (`object`, `name`, and `resist`, its lock's resistance to
+  picking once the door has been appraised), `portal` (`name`, `class`, `from`,
   `source`: `learned`, `published` or `hint`), `recall` (`name`, `recall`, `item`), `hand_back`
   (`name`, the person; `token`; `from`, where they stand) or `drop` (`from`, the ledge; `height`,
   metres: a hop off a ledge, taken one way and only where nothing else reaches the target);
 - `nav.journey_learned` `{ id, kind, … }`: `portal` (`name`, `to`), `refusal` (`name`, `reason`) or
   `recall` (`recall`, `to`).
+
+### A shut door
+
+The Navigator finds a way and never spends a key or a lockpick, or starts a fight, to open a door:
+a journey a shut door stops fails, and its promise says which door and why. `p.door` (also the
+second argument of the promise's failure callback, and the `door` of its `action.failed`) is
+`{ object, name, why, resist }`: `why` is `locked` (the server answered a use of it as locked),
+`no_answer` (used and used again, it did not open), `no_lever` (no walk reaches a lever that works
+it) or `lever_failed` (its lever was worked, and it did not open); `resist` is its lock's resistance
+to picking once the door has been appraised (`act.appraise`), else nil. A plugin opens it its own
+way (`act.use_on` a key or a lockpick on it, `act.use` it, watching `world:get(id).open`) and asks
+for the journey again: with the door open it goes through.
+
+A meta's rule at a locked door: use a key the character carries, else pick the lock when the
+skill beats its resistance, else stop.
+
+```lua
+local function through(target)
+	local p = nav.path_to(target)
+	local ok = pawait(p)
+	if ok or p.door == nil or p.door.why ~= "locked" then
+		return ok
+	end
+	local door = p.door.object
+	local a = await(act.appraise(door))
+	local resist = a.ints[173]
+	local key, pick
+	for _, it in ipairs(game.inventory.items()) do
+		if it.class == "Key" then
+			key = key or it
+		elseif it.class == "Lockpick" then
+			pick = pick or it
+		end
+	end
+	local skill
+	for _, sk in ipairs(game.player.skills or {}) do
+		if sk.name == "Lockpick" and sk.training ~= "untrained" then
+			skill = sk.current
+		end
+	end
+	if key ~= nil then
+		pawait(act.use_on(key.id, door))
+	elseif pick ~= nil and skill ~= nil and resist ~= nil and skill > resist then
+		pawait(act.use_on(pick.id, door))
+	else
+		print("stopped at " .. p.door.name .. ": no key, and no pick that beats its lock")
+		return false
+	end
+	pawait(act.use(door))
+	for _ = 1, 25 do
+		if game.world:get(door).open then
+			break
+		end
+		task.sleep(200)
+	end
+	return (pawait(nav.path_to(target)))
+end
+```
 
 `nav.plan(target, opts)` answers the same journey without moving: a promise of `{ legs, seconds }`.
 `nav.journey()` reads the plugin's journey under way: `{ legs, leg, target, route, goal }`, `leg` the

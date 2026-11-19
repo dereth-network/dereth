@@ -108,6 +108,7 @@ dereth_testkit::scenarios! {
     scenario_a_vtank_route_is_walked_point_by_point => a_vtank_route_is_walked_point_by_point ["plugins.nav.a-vtank-route-is-walked-point-by-point"],
     scenario_a_journey_reaches_a_dungeon_through_the_portal_that_leads_there => a_journey_reaches_a_dungeon_through_the_portal_that_leads_there ["plugins.nav.a-journey-reaches-a-dungeon-through-the-portal-that-leads-there"],
     scenario_a_refused_portal_is_learned_and_the_journey_planned_again => a_refused_portal_is_learned_and_the_journey_planned_again ["plugins.nav.a-refused-portal-is-learned-and-the-journey-planned-again"],
+    scenario_a_journey_a_door_stops_says_which_door_and_goes_through_once_it_is_opened => a_journey_a_door_stops_says_which_door_and_goes_through_once_it_is_opened ["plugins.nav.a-journey-a-door-stops-says-which-door-and-goes-through-once-it-is-opened"],
     scenario_a_plan_answers_the_journey_without_moving => a_plan_answers_the_journey_without_moving ["plugins.nav.a-plan-answers-the-journey-without-moving"],
     scenario_a_walking_route_goes_round_walls_and_through_doors_and_a_line_of_sight_stops_at_them => a_walking_route_goes_round_walls_and_through_doors_and_a_line_of_sight_stops_at_them ["plugins.nav.a-walking-route-goes-round-walls-and-through-doors-and-a-line-of-sight-stops-at-them"],
     scenario_a_journey_needs_its_domain_and_ends_when_stopped_or_interrupted => a_journey_needs_its_domain_and_ends_when_stopped_or_interrupted ["plugins.nav.a-journey-needs-its-domain-and-ends-when-stopped-or-interrupted"],
@@ -878,6 +879,13 @@ fn a_journey_reaches_a_dungeon_through_the_portal_that_leads_there() {
 fn a_refused_portal_is_learned_and_the_journey_planned_again() {
     assert_case("nav", "journey-refused");
     note_asserted("plugins.nav.a-refused-portal-is-learned-and-the-journey-planned-again");
+}
+
+fn a_journey_a_door_stops_says_which_door_and_goes_through_once_it_is_opened() {
+    assert_case("nav", "journey-door");
+    note_asserted(
+        "plugins.nav.a-journey-a-door-stops-says-which-door-and-goes-through-once-it-is-opened",
+    );
 }
 
 fn a_plan_answers_the_journey_without_moving() {

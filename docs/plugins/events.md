@@ -90,9 +90,9 @@ are not changes.
 | `map.clicked` | `position` (`{ ns, ew }`: the place under the pointer, to a thousandth), `button` (`left`, `right` or `middle`), `modifiers` (`{ ctrl, shift, alt }`, each true while held): the player pressed the game's world map ([below](#clicks-on-the-map)) |
 | `action.completed` | `id`, `action` (its name, `items.move`), `value` (an appraisal's table; nil for most) |
 | `service.call` | `id`, `from` (the calling plugin), `service`, `args`, `gesture`: a call to a service this plugin offers ([services.md](services.md)); the Lua interface answers it with the offered function |
-| `action.failed` | `id`, `action`, `reason` (see [actions](actions.md#how-an-action-ends)) |
+| `action.failed` | `id`, `action`, `reason` (see [actions](actions.md#how-an-action-ends)), and for a journey a shut door stopped `door` (`object`, `name`, `why`, `resist`: see [a shut door](nav.md#a-shut-door)) |
 | `nav.journey_planned` | `id` (the journey's promise), `legs`, `seconds`, `reason` (why it was planned again, or nil): a journey of this plugin's was planned ([nav](nav.md#journeys)) |
-| `nav.journey_leg` | `id`, `index` (from 1), `kind` (`walk`, `door`, `portal`, `recall` or `hand_back`), `to`, and by kind `path`, `object`, `name`, `class`, `from`, `source`, `recall`, `item`, `token`: a leg of the journey began |
+| `nav.journey_leg` | `id`, `index` (from 1), `kind` (`walk`, `door`, `portal`, `recall` or `hand_back`), `to`, and by kind `path`, `object`, `name`, `class`, `from`, `source`, `recall`, `item`, `token`, and a door's `resist` (its lock's, once appraised): a leg of the journey began |
 | `nav.journey_learned` | `id`, `kind` (`portal`, `refusal` or `recall`), `name`, `to`, `reason`, `recall`: what a use on the journey taught |
 | `peers.message` | `from` (the sending client's character), `channel`, `data`: a message from this plugin in another client on the machine |
 | `plugin.loaded` | none: the plugin's entry file has run |

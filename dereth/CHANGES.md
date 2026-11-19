@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Plugins: a journey a shut door stops now says which door and why.
 
 ## 0.4.20 (2026-11-20)
 - Navigator: opens doors that only a lever works, by using the lever.

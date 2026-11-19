@@ -183,6 +183,32 @@ pub struct Nav {
     held: Vec<NavKey>,
     /// Controls to let go of at the next step: the movement holding them ended between frames.
     unheld: Vec<NavKey>,
+    /// The door each failed journey could not get through, by plugin and promise: what its
+    /// `action.failed` carries.
+    shut_doors: std::collections::BTreeMap<(String, i64), Value>,
+}
+
+/// The appraised property a door's lock is picked against (its resistance, as an appraisal
+/// tells it).
+const RESIST_LOCKPICK: u32 = 173;
+
+/// What the client knows of `door`: its id, its name, and its lock's resistance to picking once
+/// it has been appraised.
+fn door_value(world: &dereth_client_model::World, door: ObjectId) -> Value {
+    let name = world.weenie(door).map(|w| w.pwd.name.clone());
+    let resist = world.appraisal.get(door).and_then(|p| {
+        p.tables
+            .ints
+            .as_ref()?
+            .entries
+            .iter()
+            .find(|(k, _)| *k == RESIST_LOCKPICK)
+            .map(|(_, v)| i64::from(*v))
+    });
+    Value::map()
+        .with("object", door.0)
+        .with("name", name)
+        .with("resist", resist)
 }
 
 fn settled(r: &Running, result: Result<Value, String>) -> Settled {
@@ -382,9 +408,16 @@ impl Nav {
                 }
                 TravelEvent::Leg { id, index, leg } => {
                     if let Some(j) = self.journey.as_ref().filter(|j| j.travel == *id) {
-                        let v = leg_value(leg)
+                        let mut v = leg_value(leg)
                             .with("id", j.id)
                             .with("index", i64::try_from(*index).unwrap_or(0) + 1);
+                        // A door: what the client knows of it, for a plugin that opens it itself.
+                        if let TravelLeg::Door { object, .. } = leg {
+                            let d = door_value(frame.world, *object);
+                            v = v
+                                .with("name", d.get("name").clone())
+                                .with("resist", d.get("resist").clone());
+                        }
                         events.push((j.plugin.clone(), "nav.journey_leg", v));
                     }
                 }
@@ -414,8 +447,16 @@ impl Nav {
                         });
                     }
                 }
-                TravelEvent::Failed { id, reason, .. } => {
+                TravelEvent::Failed {
+                    id, reason, door, ..
+                } => {
                     if let Some(j) = self.journey.take_if(|j| j.travel == *id) {
+                        if let Some(d) = door {
+                            self.shut_doors.insert(
+                                (j.plugin.clone(), j.id),
+                                door_value(frame.world, d.object).with("why", d.why.word()),
+                            );
+                        }
                         settled_out.push(Settled {
                             plugin: j.plugin,
                             id: j.id,
@@ -427,6 +468,12 @@ impl Nav {
             }
         }
         (settled_out, events)
+    }
+
+    /// The door `plugin`'s failed journey `id` could not get through, once: what its
+    /// `action.failed` says of it.
+    pub fn take_shut_door(&mut self, plugin: &str, id: i64) -> Option<Value> {
+        self.shut_doors.remove(&(plugin.to_owned(), id))
     }
 
     /// `plugin` stops movement (`nav.stop()`): its running movement fails `stopped`, and the run

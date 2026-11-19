@@ -139,6 +139,8 @@ pub struct ScriptedPlaces {
     /// The doors that stand closed, by id: where each stands. A closed door stops the character
     /// running into it.
     pub closed_doors: std::collections::BTreeMap<u32, Position>,
+    /// Those of them that are locked, by id: a journey that would go through one stops at it.
+    pub locked_doors: std::collections::BTreeSet<u32>,
     /// The walls, each a straight stretch between two places on the ground. A wall stops the
     /// character running into it and blocks a line of sight across it.
     pub walls: Vec<(Position, Position)>,
@@ -1879,6 +1881,11 @@ impl PluginRun {
             .filter(|o| o.door.is_some())
             .filter_map(|o| Some((o.id, *self.places.objects.get(&o.id)?)))
             .collect();
+        self.places.locked_doors = objects
+            .iter()
+            .filter(|o| o.door.is_some_and(|d| d.locked))
+            .map(|o| o.id)
+            .collect();
         self.scripted = Some(Scripted { player, objects });
         self.session.phase = SessionPhase::InWorld;
         self.entered_at = self.now;
@@ -1895,6 +1902,9 @@ impl PluginRun {
                     self.places.objects.insert(o.id, p);
                     if o.door.is_some() {
                         self.places.closed_doors.insert(o.id, p);
+                    }
+                    if o.door.is_some_and(|d| d.locked) {
+                        self.places.locked_doors.insert(o.id);
                     }
                 }
             }
@@ -2459,6 +2469,7 @@ impl PluginRun {
                 }
             }
             Deal::Unlock(door) => {
+                self.places.locked_doors.remove(&door.0);
                 if let Some(s) = self.scripted.as_mut() {
                     if let Some(d) = s
                         .objects

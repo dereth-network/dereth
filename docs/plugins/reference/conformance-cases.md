@@ -9,7 +9,7 @@ Every case of the conformance suite, by profile: what it proves (its `expect.tom
 | [Core](#core) | 25 |
 | [UI](#ui) | 16 |
 | [Overlay](#overlay) | 6 |
-| [Nav](#nav) | 17 |
+| [Nav](#nav) | 18 |
 | [Pregame](#pregame) | 3 |
 | [Peers](#peers) | 1 |
 | [Automation](#automation) | 18 |
@@ -85,6 +85,7 @@ Every case of the conformance suite, by profile: what it proves (its `expect.tom
 | [`follow`](../conformance/nav/follow/) | A follow closes on its object to within range and holds there until stopped; stopping it lets the run lock go and fails its promise as stopped. | a scripted world |
 | [`journey`](../conformance/nav/journey/) | A journey to a dungeon walks to the portal that leads there, uses it and walks on to the goal; its legs and what the use taught reach the plugin as events, its promise settles on arrival, and the world's store keeps the portal's destination as learned. | a scripted world |
 | [`journey-automated`](../conformance/nav/journey-automated/) | A journey with no gesture behind it needs the world's leave: a world that allows navigation only with a gesture refuses it. | a scripted world |
+| [`journey-door`](../conformance/nav/journey-door/) | A journey a locked door stops fails saying which door and why, with what the client knows of its lock once appraised; a plugin that picks the lock and opens the door goes again, and the journey goes through it. | a scripted world |
 | [`journey-plan`](../conformance/nav/journey-plan/) | A plan answers the journey's legs and expected seconds without moving the character; with portals left out, a dungeon has no journey. | a scripted world |
 | [`journey-refused`](../conformance/nav/journey-refused/) | A portal that refuses the character is learned as refused, and the journey is planned again by another way, which is told with the reason. | a scripted world |
 | [`journey-stop`](../conformance/nav/journey-stop/) | nav.stop ends the plugin's journey, which fails as stopped; the player's own movement ends one as interrupted. | a scripted world |

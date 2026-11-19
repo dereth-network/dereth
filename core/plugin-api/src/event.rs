@@ -110,7 +110,11 @@ pub const EVENTS: &[(&str, &str)] = &[
         "id, from (the calling plugin), service, args, gesture (whether the call followed the \
          player's gesture)",
     ),
-    ("action.failed", "id, action, reason"),
+    (
+        "action.failed",
+        "id, action, reason, door (a journey a shut door stopped: { object, name, why (locked, \
+         no_answer, no_lever, lever_failed), resist (its lock's, once appraised) })",
+    ),
     (
         "nav.journey_planned",
         "id (the journey's promise), legs, seconds, reason (why it was planned again, or nil)",
@@ -118,7 +122,8 @@ pub const EVENTS: &[(&str, &str)] = &[
     (
         "nav.journey_leg",
         "id, index (from 1), kind (walk, door, portal, recall or hand_back), to, and by kind path, \
-         object, name, class, from, source, recall, item, token",
+         object, name, class, from, source, recall, item, token; a door's resist (its lock's, \
+         once appraised)",
     ),
     (
         "nav.journey_learned",
