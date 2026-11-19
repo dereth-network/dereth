@@ -215,10 +215,41 @@ local function text_and_type(rest)
 	return rest or "", nil
 end
 
+-- How many places the client knows, and from where, as the status line says it before a search:
+-- what the Where to? box has to go on.
+local WHERE = { learned = "seen", published = "the server", hint = "the era's package", data = "the game's data" }
+local function knowledge_line()
+	if nav.knowledge == nil then
+		return ""
+	end
+	local k = nav.knowledge()
+	local function said(counts, what)
+		local total, parts = 0, {}
+		for _, source in ipairs({ "learned", "published", "hint", "data" }) do
+			local n = counts[source]
+			if n ~= nil and n > 0 then
+				total = total + n
+				table.insert(parts, string.format("%d from %s", n, WHERE[source]))
+			end
+		end
+		if total == 0 then
+			return "no " .. what
+		end
+		return string.format("%d %s (%s)", total, what, table.concat(parts, ", "))
+	end
+	return "Knows " .. said(k.portals or {}, "portals") .. " and " .. said(k.places or {}, "places") .. "."
+end
+local knowing = ""
+
 -- The search's results: coordinates typed in first, then the places whose name holds the words,
 -- of the type named, nearest first.
 local function refresh_results()
 	local typed = win:get("search").value or ""
+	-- Before a search, what there is to search; never over a journey's progress.
+	if typed == "" and (status == "" or status == knowing) then
+		knowing = knowledge_line()
+		set_status(knowing)
+	end
 	found = {}
 	local p = P.parse(typed)
 	if p ~= nil then
@@ -737,7 +768,7 @@ on("ui.clicked", function(e)
 	end
 end)
 
-commands.add("nav", "point the way: /nav <place | coordinates | find <text> [type] | nearest <type> | here | save <name> | forget <name> | sel | obj <name> | last | routes | go | stop | travel <where> | plan <where> | route <file> | clear>", function(args, words)
+commands.add("nav", "point the way: /nav <place | coordinates | find <text> [type] | nearest <type> | here | known | save <name> | forget <name> | sel | obj <name> | last | routes | go | stop | travel <where> | plan <where> | route <file> | clear>", function(args, words)
 	local verb = words[1] and string.lower(words[1])
 	local rest = string.match(args, "^%s*%S+%s+(.-)%s*$") or ""
 	if verb == nil then
@@ -751,6 +782,8 @@ commands.add("nav", "point the way: /nav <place | coordinates | find <text> [typ
 	elseif verb == "clear" then
 		clear()
 		set_status("")
+	elseif verb == "known" then
+		say(knowledge_line())
 	elseif verb == "here" then
 		local here = P.here()
 		if here == nil then

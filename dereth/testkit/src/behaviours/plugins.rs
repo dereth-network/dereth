@@ -828,6 +828,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "plugins.nav.a-journey-reaches-land-walled-off-from-here-through-the-portal-that-leads-in",
+        says: "The land is split into the regions a walk joins (read from the player's own \
+               landblocks: walkable slopes, and no deep sea), so land walled off from the land \
+               round it (a crater, a plateau, an island) is reached through the portal that \
+               leads in, as Mt Esper's crater is through the Crater Pathway; where no portal \
+               known leads in, the journey says the land there is walled off.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-LAND-REGIONS"),
+        station: "dereth-client-runtime::lib::planning::land_region_tests::a_journey_into_mt_espers_crater_goes_through_the_crater_pathway",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "plugins.nav.a-journey-sets-out-in-a-session-the-player-entered",
         says: "A journey a plugin asks for in a session the player entered (not only a scripted \
                run) sets out from where the character stands once it is in the world, is carried \
@@ -1703,6 +1716,18 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD-plugins",
         evidence: Evidence::Private("AC-EVID-PLUGINS-NAVIGATOR-MAP-CLICK"),
         station: "dereth-testkit::cpu::plugins::navigator::scenario_the_navigator_points_where_the_player_clicks_on_the_map",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "plugins.samples.the-navigator-says-what-it-knows-before-a-search",
+        says: "Before a search, the Navigator's status line says how many portals and places the \
+               client knows of the world and where each was learned (the era's package, the \
+               server, the character's own play, the game's data), and /nav known says it in \
+               chat: what the Where to? box has to go on.",
+        since: THIS_CLIENT,
+        divergence: "CD-plugins",
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-KNOWLEDGE"),
+        station: "dereth-testkit::cpu::plugins::navigator::scenario_the_navigator_says_what_it_knows_before_a_search",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -2135,6 +2135,40 @@ impl Travel {
         });
     }
 
+    /// What the client knows of this world's portals, by where it learned them: `none known`, or
+    /// `12 learned, 4,269 from the era's package`, as a failed journey says it.
+    fn portals_known(&self) -> String {
+        let (mut learned, mut published, mut hints) = (0usize, 0usize, 0usize);
+        for e in self
+            .portals
+            .portals()
+            .iter()
+            .filter(|e| e.retired.is_none())
+        {
+            match e.source {
+                EdgeSource::Learned => learned += 1,
+                EdgeSource::Published => published += 1,
+                EdgeSource::Hint => hints += 1,
+            }
+        }
+        let parts: Vec<String> = [
+            (learned, "learned"),
+            (published, "published by the server"),
+            (hints, "from the era's package"),
+        ]
+        .into_iter()
+        .filter(|(n, _)| *n > 0)
+        .map(|(n, what)| format!("{n} {what}"))
+        .collect();
+        if parts.is_empty() {
+            String::from(
+                "no portals known: the server publishes none, and no era package is loaded",
+            )
+        } else {
+            format!("portals known: {}", parts.join(", "))
+        }
+    }
+
     /// Where the portal stands that a route ending at `end` would walk onto without taking it,
     /// and how far from it the route must end: the nearest portal whose keeping-off distance
     /// ([`Self::keep_off`]) `end` is within, when the journey's walk there is not to use it.
@@ -2294,6 +2328,14 @@ impl Travel {
                         }
                     }
                 }
+                // A journey that is all walking, its walk finding no way: no portal known led
+                // there, and what the client knows says why.
+                let on_foot = self
+                    .trip
+                    .as_ref()
+                    .and_then(|t| t.journey.as_ref())
+                    .is_some_and(|j| j.legs.iter().all(|l| matches!(l, Leg::Walk { .. })));
+                let known = self.portals_known();
                 let Some(t) = self.trip.as_mut() else { return };
                 t.follower = None;
                 t.stats.replans += 1;
@@ -2303,6 +2345,10 @@ impl Travel {
                 let why = match e {
                     NoPath::OnlyByDrop { .. } => format!("only_by_drop: {e}"),
                     _ if !t.locked.is_empty() => String::from(DOOR_SHUT),
+                    _ if on_foot => format!(
+                        "no_route: no walk was found there, and no portal known leads there \
+                         ({known})"
+                    ),
                     _ => String::from("no_route"),
                 };
                 if t.stats.replans > MAX_REPLANS {
@@ -4266,6 +4312,57 @@ mod tests {
             ),
             40.0,
             "the walk to a portal the journey takes goes onto it"
+        );
+    }
+
+    /// Behaviour: plugins.nav.a-journey-reaches-land-walled-off-from-here-through-the-portal-that-leads-in
+    /// A journey that is all walking, whose walk finds no way, says no portal known leads there,
+    /// and what the client knows of the world's portals: none, or how many from where.
+    #[test]
+    fn a_journey_on_foot_that_finds_no_walk_says_what_portals_are_known() {
+        let ends = |known: Option<dereth_navigation::PortalEdge>| {
+            let mut walk = at_a_door::Walk::new();
+            if let Some(e) = known {
+                walk.travel.portals.merge([e]);
+            }
+            let t = walk.travel.trip.as_mut().expect("a journey");
+            t.journey = Some(Journey {
+                legs: vec![Leg::Walk {
+                    to: at_a_door::at(9.0),
+                }],
+                seconds: 5.0,
+            });
+            t.follower = None;
+            t.walking = Some((1, at_a_door::at(9.0)));
+            walk.until_it_ends(|_| Err(NoPath::Unreachable))
+        };
+        assert_eq!(
+            ends(None).as_deref(),
+            Some(concat!(
+                "no_route: no walk was found there, and no portal known leads there ",
+                "(no portals known: the server publishes none, and no era package is loaded)"
+            ))
+        );
+        let learned = dereth_navigation::PortalEdge {
+            source: EdgeSource::Learned,
+            wcid: Some(1),
+            name: String::from("Somewhere"),
+            from: at_a_door::at(1.0),
+            to: None,
+            verified: 0,
+            uses: 1,
+            failures: 0,
+            levels: (None, None),
+            retired: None,
+            requires: Vec::new(),
+            shape: None,
+        };
+        assert_eq!(
+            ends(Some(learned)).as_deref(),
+            Some(concat!(
+                "no_route: no walk was found there, and no portal known leads there ",
+                "(portals known: 1 learned)"
+            ))
         );
     }
 

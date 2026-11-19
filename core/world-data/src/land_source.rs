@@ -545,7 +545,9 @@ impl DatLandSource {
     /// on-disk half for a `LandBlock` record. `DatError::NotFound` is exactly "the disk controller
     /// does not have it"; every other error means the record *is* there and is bad, which the
     /// server cannot fix by sending it again, so only `NotFound` is reported.
-    fn build(&self, id: LandblockId) -> Option<Arc<LandblockCollision>> {
+    ///
+    /// Not kept: a reader of every landblock (the land's regions) reads each once and lets it go.
+    pub fn build_uncached(&self, id: LandblockId) -> Option<Arc<LandblockCollision>> {
         let did = crate::landblock::landblock_did(id.0);
         let bytes = match self.store().read_typed(DbType::LandBlock, did) {
             Ok(bytes) => bytes,
@@ -579,7 +581,7 @@ impl LandSource for DatLandSource {
                 return hit.clone();
             }
         }
-        let built = self.build(id);
+        let built = self.build_uncached(id);
         if let Ok(mut c) = self.blocks.lock() {
             c.insert(id.0, built.clone());
         }

@@ -33,6 +33,10 @@ pub enum Realm {
     /// One part of a dungeon: the cells its portals join, named by the lowest of them. A dungeon
     /// can be several parts no walk joins, linked only by portals inside it.
     Part(CellId),
+    /// One region of the land ([`crate::lands`]): a stretch of the outdoors, with the buildings on
+    /// it, that a walk reaches; another region (a crater walled off from the land round it) only
+    /// a portal does.
+    Land(u32),
 }
 
 /// One way a character can teleport from anywhere.

@@ -13,6 +13,7 @@ use dereth_testkit::scripted_travel::ScriptedPortal;
 
 dereth_testkit::scenarios! {
     scenario_the_navigator_searches_a_whole_eras_places_and_keeps_running => the_navigator_searches_a_whole_eras_places_and_keeps_running ["plugins.samples.the-navigator-finds-places-by-name-and-type-and-points-at-the-nearest"],
+    scenario_the_navigator_says_what_it_knows_before_a_search => the_navigator_says_what_it_knows_before_a_search ["plugins.samples.the-navigator-says-what-it-knows-before-a-search"],
     scenario_a_plugins_journey_hands_a_token_back_only_when_it_says_it_may => a_plugins_journey_hands_a_token_back_only_when_it_says_it_may ["plugins.nav.handing-a-token-back-asks-the-player-first"],
     scenario_the_navigator_finds_places_by_name_and_type_and_points_at_the_nearest => the_navigator_finds_places_by_name_and_type_and_points_at_the_nearest ["plugins.samples.the-navigator-finds-places-by-name-and-type-and-points-at-the-nearest"],
     scenario_the_navigator_keeps_the_players_own_places_outdoors_and_in_a_dungeon => the_navigator_keeps_the_players_own_places_outdoors_and_in_a_dungeon ["plugins.samples.the-navigator-keeps-the-players-own-places-outdoors-and-in-a-dungeon"],
@@ -859,4 +860,42 @@ fn the_navigator_searches_a_whole_eras_places_and_keeps_running() {
     note_asserted(
         "plugins.samples.the-navigator-finds-places-by-name-and-type-and-points-at-the-nearest",
     );
+}
+
+/// Before a search, the Navigator says how many portals and places the client knows and where
+/// each was learned (the era's package, the server, the character's own play, the game's data);
+/// `/nav known` says it in chat.
+fn the_navigator_says_what_it_knows_before_a_search() {
+    let mut run = navigator();
+    run.scripted_world("Tester", Vec::new());
+    let from = run.printed().len();
+    run.type_line("/nav known");
+    assert_eq!(
+        printed_since(&run, from),
+        ["[Nav] Knows no portals and no places."],
+        "a world the client knows nothing of"
+    );
+    run.scripted_portals(&portals(), Vec::new());
+    run.learn_place(
+        dereth_navigation::PlaceKind::Npc,
+        dereth_navigation::EdgeSource::Published,
+        "Guard",
+        (42.1, 33.6),
+    );
+    run.data_places(&[(
+        dereth_client_contract::panels::map::MapPlaceKind::Town,
+        "Holtburg",
+        (42.1, 33.6),
+    )]);
+    run.advance(0.5);
+    let from = run.printed().len();
+    run.type_line("/nav known");
+    let said = printed_since(&run, from);
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].ends_with("and 2 places (1 from the server, 1 from the game's data)."),
+        "{said:?}"
+    );
+    assert!(said[0].starts_with("[Nav] Knows 2 portals ("), "{said:?}");
+    note_asserted("plugins.samples.the-navigator-says-what-it-knows-before-a-search");
 }

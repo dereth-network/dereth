@@ -35,7 +35,7 @@ An operation that fails answers an error saying why (a wrong argument says which
 | `magic` | `magic.spell`, `magic.known` |
 | `files` | `files.package`, `files.package_list`, `files.data`, `files.data_list`, `files.save_data` |
 | `act` | `act.request` |
-| `nav` | `nav.owner`, `nav.journey`, `nav.show_journey`, `nav.search`, `nav.known_portals`, `nav.known_places`, `nav.recalls`, `nav.sight`, `nav.parse` |
+| `nav` | `nav.owner`, `nav.journey`, `nav.show_journey`, `nav.search`, `nav.knowledge`, `nav.known_portals`, `nav.known_places`, `nav.recalls`, `nav.sight`, `nav.parse` |
 | `meta` | `meta.parse` |
 | `profile` | `profile.usd` |
 | `text` | `text.match` |
@@ -53,7 +53,7 @@ An operation that fails answers an error saying why (a wrong argument says which
 | `host` | `host.info`, `host.has` |
 | `time` | `time.clock`, `time.unix` |
 
-89 operations in 31 namespaces.
+90 operations in 31 namespaces.
 
 ## `console`
 
@@ -406,6 +406,13 @@ The portals and places the client knows whose names have words beginning with ea
 
 - WIT: `nav-search: func(text: string, opts: option<value>) -> result<value, string>`
 - Lua: `nav.search(text: string, opts: any?) -> any`
+
+### `nav.knowledge`
+
+How many portals and places the client knows of this world, by where each was learned: `{ portals = { learned, published, hint }, places = { data, learned, published, hint } }`, a source left out when none is known from it. `hint` is the era's package; `data`, the places the game's data names.
+
+- WIT: `nav-knowledge: func() -> result<value, string>`
+- Lua: `nav.knowledge() -> any`
 
 ### `nav.known_portals`
 

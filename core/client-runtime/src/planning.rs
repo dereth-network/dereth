@@ -321,7 +321,14 @@ struct Worker {
     running: Option<Running>,
     /// The objects in the world last set.
     obstacles: Vec<ObjectId>,
+    /// The land's regions, once made; and the making of them, while it goes on. A journey waits
+    /// for them.
+    lands: Option<dereth_navigation::lands::LandRegions>,
+    making: Option<dereth_navigation::lands::RegionBuilder>,
 }
+
+/// How many landblocks of the land's regions a slice of a frame reads.
+const LAND_SLICE: u32 = 1024;
 
 impl Worker {
     fn new(
@@ -340,7 +347,34 @@ impl Worker {
             loaded_for: None,
             running: None,
             obstacles: Vec::new(),
+            lands: None,
+            making: None,
         })
+    }
+
+    /// Make the land's regions, or a slice of them when `slice`: whether they are made.
+    fn make_lands(&mut self, slice: bool) -> bool {
+        if self.lands.is_some() {
+            return true;
+        }
+        let builder = self.making.get_or_insert_with(Default::default);
+        let land = &self.land;
+        let count = if slice { LAND_SLICE } else { u32::MAX };
+        if builder.step(&|id| land.build_uncached(id), count) {
+            if let Some(b) = self.making.take() {
+                let clock = web_time::Instant::now();
+                let lands = b.finish();
+                tracing::info!(
+                    target: "travel",
+                    "the land's regions: {} landblocks, joined in {:.0} ms",
+                    lands.blocks(),
+                    clock.elapsed().as_secs_f64() * 1000.0
+                );
+                self.lands = Some(lands);
+            }
+            return true;
+        }
+        false
     }
 
     /// Where a goal is, once its landblock's cells are decoded.
@@ -487,18 +521,38 @@ impl Worker {
         refused_why(&why)
     }
 
+    /// Where `p` is, for a journey: the region of the land it is in (the outdoors and the
+    /// buildings on it), or its dungeon or the part of one. An interior cell of a landblock that is
+    /// not loaded is read from the cell file rather than loaded, which would cost more than the
+    /// plan: a building's inside (where many portals stand) is told from a dungeon (where nearly
+    /// every portal leads).
+    fn realm_of(&self, p: &Position) -> Option<Realm> {
+        let r = self.nav.realm(p).or_else(|| {
+            (p.cell.0 & 0xFFFF >= 0x0100).then(|| self.far.borrow_mut().of(&self.store, p.cell))
+        });
+        match (r, self.lands.as_ref()) {
+            (Some(Realm::Outdoors), Some(l)) => {
+                Some(l.region_at(p).map_or(Realm::Outdoors, Realm::Land))
+            }
+            (r, _) => r,
+        }
+    }
+
+    /// Why there is no journey from `ask`'s start to `to` when the two are on the land in regions
+    /// no walk joins: a crater, a plateau, an island, and no portal known that leads in.
+    fn walled_off(&self, ask: &Ask, to: &Position) -> Option<String> {
+        match (self.realm_of(&ask.from), self.realm_of(to)) {
+            (Some(Realm::Land(a)), Some(Realm::Land(b))) if a != b => Some(String::from(
+                "no_way: the land there is walled off from here, and no portal known leads in",
+            )),
+            _ => None,
+        }
+    }
+
     /// The journey from `from` to `to`, and how long it took to plan.
     fn journey(&self, ask: &Ask, to: &Position) -> Option<(Journey, f64)> {
         let clock = web_time::Instant::now();
-        let nav = &self.nav;
-        // An interior cell of a landblock that is not loaded is read from the cell file rather
-        // than loaded, which would cost more than the plan: a building's inside (where many
-        // portals stand) is told from a dungeon (where nearly every portal leads).
-        let realm = |p: &Position| {
-            nav.realm(p).or_else(|| {
-                (p.cell.0 & 0xFFFF >= 0x0100).then(|| self.far.borrow_mut().of(&self.store, p.cell))
-            })
-        };
+        let realm = |p: &Position| self.realm_of(p);
         let portals: Vec<&PortalEdge> = ask.portals.iter().collect();
         let j = plan_journey_with(
             &ask.from,
@@ -584,7 +638,9 @@ impl Worker {
                                 to: Some(to),
                                 journey: None,
                                 first: None,
-                                why: self.refusals(&ask, &to),
+                                why: self
+                                    .refusals(&ask, &to)
+                                    .or_else(|| self.walled_off(&ask, &to)),
                             });
                             None
                         }
@@ -632,6 +688,15 @@ impl Worker {
                 self.start(job, &mut out);
                 continue;
             } else if self.running.is_none() {
+                // A journey plans between the land's regions: they are made first.
+                if matches!(self.queue.front(), Some(Job::Journey { .. }))
+                    && !self.make_lands(deadline.is_some())
+                {
+                    if deadline.is_some_and(|d| web_time::Instant::now() >= d) {
+                        break;
+                    }
+                    continue;
+                }
                 let Some(job) = self.queue.pop_front() else {
                     break;
                 };
@@ -1091,6 +1156,123 @@ mod refusal_tests {
                 why.as_deref(),
                 Some("refused: needs level 15 for Crater Lair")
             ),
+            other => panic!("{other:?}"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod land_region_tests {
+    use super::*;
+    use dereth_primitives::{Frame, Quat, Vec3};
+
+    fn at(cell: u32, x: f32, y: f32, z: f32) -> Position {
+        Position::new(CellId(cell), Frame::new(Vec3::new(x, y, z), Quat::IDENTITY))
+    }
+
+    fn edge(name: &str, wcid: u32, from: Position, to: Position) -> PortalEdge {
+        PortalEdge {
+            source: dereth_navigation::EdgeSource::Hint,
+            wcid: Some(wcid),
+            name: name.into(),
+            from,
+            to: Some(to),
+            verified: 0,
+            uses: 0,
+            failures: 0,
+            levels: (None, None),
+            retired: None,
+            requires: Vec::new(),
+            shape: None,
+        }
+    }
+
+    /// The end of retail's ways in and out of Mt Esper's crater: the Crater Pathway from the land
+    /// outside and from the crater, both into one dungeon, and its two ways up.
+    fn crater_pathway() -> Vec<PortalEdge> {
+        vec![
+            edge(
+                "Crater Pathway",
+                1,
+                at(0x93CB_0102, 12.0, 41.443, 101.205),
+                at(0x01A7_0108, 17.571, -509.205, 0.0),
+            ),
+            edge(
+                "Crater Pathway",
+                2,
+                at(0x90D0_0104, 113.0, 84.0, 277.205),
+                at(0x01A7_01AA, 32.4, -8.01, 138.0),
+            ),
+            edge(
+                "Surface",
+                3,
+                at(0x01A7_0103, -0.125, -522.632, 0.0),
+                at(0x93CB_0105, 12.0, 24.0, 101.3),
+            ),
+            edge(
+                "Surface",
+                4,
+                at(0x01A7_01A7, 17.061, -0.147, 138.0),
+                at(0x90D0_0107, 95.521, 84.0, 277.3),
+            ),
+        ]
+    }
+
+    /// Behaviour: plugins.nav.a-journey-reaches-land-walled-off-from-here-through-the-portal-that-leads-in
+    /// The land inside Mt Esper's crater is walled off from the land round it, which no walk
+    /// leaves: a journey there from Holtburg goes through the Crater Pathway; with no portal known
+    /// that leads in, there is none, and it says the land there is walled off.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn a_journey_into_mt_espers_crater_goes_through_the_crater_pathway() {
+        let store = Arc::new(dereth_dat::testing::open_store_or_fail());
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region");
+        let land = Arc::new(DatLandSource::new(Arc::clone(&store), &region).expect("the land"));
+        let holtburg = at(0xA9B4_0019, 84.0, 7.1, 94.0);
+        let crater = at(0x90D0_000C, 36.791, 89.165, 282.939);
+        let ask = |portals: Vec<PortalEdge>| {
+            let mut planning = Planning::in_frame(&land, &store, None).expect("a planner");
+            planning.ask(Job::Journey {
+                id: 1,
+                from: holtburg,
+                to: Goal::Place(crater),
+                portals,
+                refused: Vec::new(),
+                teleports: Vec::new(),
+                hand_backs: Vec::new(),
+                reach: None,
+            });
+            planning.answers_waited()
+        };
+        match ask(crater_pathway()).as_slice() {
+            [Answer::Journey {
+                journey: Some((j, _)),
+                ..
+            }] => {
+                let used: Vec<&str> = j
+                    .legs
+                    .iter()
+                    .filter_map(|l| match l {
+                        dereth_navigation::Leg::Portal { edge } => Some(edge.name.as_str()),
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(used, ["Crater Pathway", "Surface"], "{j:?}");
+            }
+            other => panic!("{other:?}"),
+        }
+        match ask(Vec::new()).as_slice() {
+            [Answer::Journey {
+                journey: None, why, ..
+            }] => {
+                assert_eq!(
+                why.as_deref(),
+                Some("no_way: the land there is walled off from here, and no portal known leads in")
+            )
+            }
             other => panic!("{other:?}"),
         }
     }

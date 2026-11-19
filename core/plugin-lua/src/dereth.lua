@@ -340,6 +340,10 @@ api.nav = {
 	search = function(text, opts)
 		return hostcall("nav.search", text or "", opts)
 	end,
+	-- `nav.knowledge()`: how many portals and places the client knows, by where it learned them.
+	knowledge = function()
+		return hostcall("nav.knowledge")
+	end,
 	known_portals = function(filter)
 		return hostcall("nav.known_portals", filter)
 	end,

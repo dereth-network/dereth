@@ -1749,6 +1749,37 @@ impl HostCalls for Call<'_, '_> {
                     .with("total", i64::try_from(found.total).unwrap_or(i64::MAX))
                     .with("items", Value::List(items)))
             }
+            "nav.knowledge" => {
+                // How many portals and places the client knows of this world, by where each was
+                // learned: what a search has to go on.
+                let frame = self.frame;
+                let mut portals: BTreeMap<&str, i64> = BTreeMap::new();
+                for e in frame
+                    .and_then(|f| f.travel_store)
+                    .map_or(&[][..], |s| s.portals())
+                    .iter()
+                    .filter(|e| e.retired.is_none())
+                {
+                    *portals.entry(e.source.word()).or_default() += 1;
+                }
+                let mut places: BTreeMap<&str, i64> = BTreeMap::new();
+                if let Some(m) = frame.and_then(|f| f.map_places) {
+                    *places.entry("data").or_default() +=
+                        i64::try_from(m.len()).unwrap_or(i64::MAX);
+                }
+                for p in frame
+                    .and_then(|f| f.world_places)
+                    .map_or(&[][..], |s| s.places())
+                {
+                    *places.entry(p.source.word()).or_default() += 1;
+                }
+                let map = |m: BTreeMap<&str, i64>| {
+                    m.into_iter().fold(Value::map(), |v, (k, n)| v.with(k, n))
+                };
+                Ok(Value::map()
+                    .with("portals", map(portals))
+                    .with("places", map(places)))
+            }
             "nav.known_portals" => {
                 let filter = self.list_filter(args)?;
                 let list = self

@@ -58,6 +58,7 @@
 mod export;
 mod follow;
 mod journey;
+pub mod lands;
 mod mesh;
 mod path;
 mod places;
